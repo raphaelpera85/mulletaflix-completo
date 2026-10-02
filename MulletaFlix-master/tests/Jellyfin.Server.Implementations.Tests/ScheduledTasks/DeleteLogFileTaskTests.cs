@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics.Metrics;
 using System.IO;
+using System.Linq;
 using System.Threading;
 using Emby.Server.Implementations.ScheduledTasks.Tasks;
 using MediaBrowser.Common.Configuration;
@@ -129,6 +131,60 @@ public class DeleteLogFileTaskTests
 
         fileSystem.Verify(x => x.DeleteFile(withinWindow.FullName), Times.Never);
         fileSystem.Verify(x => x.DeleteFile(beyondWindow.FullName), Times.Once);
+    }
+
+    [Fact]
+    public void ExecuteAsync_ReportsAggregateMetricsAndContinuesAfterLockedFile()
+    {
+        var lockedLog = new FileSystemMetadata { FullName = "private/logs/locked.log", Name = "locked.log" };
+        var recentLog = new FileSystemMetadata { FullName = "private/logs/recent.log", Name = "recent.log" };
+        var files = new[] { lockedLog, recentLog };
+        var modifiedTimes = new Dictionary<string, DateTime>
+        {
+            [lockedLog.FullName] = DateTime.UtcNow.AddDays(-30),
+            [recentLog.FullName] = DateTime.UtcNow
+        };
+        var measurements = new List<(string Name, object Value, KeyValuePair<string, object?>[] Tags)>();
+        using var listener = new MeterListener();
+        listener.InstrumentPublished = (instrument, meterListener) =>
+        {
+            if (instrument.Meter.Name == LogCleanupMetrics.MeterName)
+            {
+                meterListener.EnableMeasurementEvents(instrument);
+            }
+        };
+        listener.SetMeasurementEventCallback<long>((instrument, value, tags, _) =>
+            measurements.Add((instrument.Name, value, tags.ToArray())));
+        listener.SetMeasurementEventCallback<double>((instrument, value, tags, _) =>
+            measurements.Add((instrument.Name, value, tags.ToArray())));
+        listener.Start();
+
+        var fileSystem = CreateFileSystem(files, modifiedTimes);
+        fileSystem.Setup(system => system.DeleteFile(lockedLog.FullName))
+            .Throws(new IOException("private path must not be exported"));
+        var task = new DeleteLogFileTask(
+            CreateConfiguration(7).Object,
+            fileSystem.Object,
+            Mock.Of<ILocalizationManager>());
+
+        task.ExecuteAsync(new Progress<double>(_ => { }), CancellationToken.None);
+
+        var run = Assert.Single(measurements, item => item.Name == "mulletaflix.log_cleanup.runs");
+        Assert.Contains(run.Tags, tag => tag.Key == "result" && Equals(tag.Value, "partial_failure"));
+        Assert.Single(measurements, item => item.Name == "mulletaflix.log_cleanup.duration");
+        Assert.Single(measurements, item => item.Name == "mulletaflix.log_cleanup.files.scanned" && Equals(item.Value, 2L));
+        Assert.Single(measurements, item => item.Name == "mulletaflix.log_cleanup.files.expired" && Equals(item.Value, 1L));
+        Assert.Single(measurements, item => item.Name == "mulletaflix.log_cleanup.files.delete_attempts" && Equals(item.Value, 1L));
+        Assert.Single(measurements, item => item.Name == "mulletaflix.log_cleanup.files.delete_failures" && Equals(item.Value, 1L));
+        Assert.Equal(new object[] { 1L, -1L }, measurements
+            .Where(item => item.Name == "mulletaflix.log_cleanup.active_runs")
+            .Select(item => item.Value)
+            .ToArray());
+        Assert.DoesNotContain(measurements, item => item.Tags.Any(tag =>
+            tag.Key.Contains("path", StringComparison.OrdinalIgnoreCase)
+            || tag.Key.Contains("file", StringComparison.OrdinalIgnoreCase)
+            || tag.Key.Contains("user", StringComparison.OrdinalIgnoreCase)));
+        fileSystem.Verify(system => system.DeleteFile(recentLog.FullName), Times.Never);
     }
 
     private static Mock<IConfigurationManager> CreateConfiguration(int retentionDays)

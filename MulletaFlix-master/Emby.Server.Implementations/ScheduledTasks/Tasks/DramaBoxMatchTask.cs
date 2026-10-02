@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Threading;
 using System.Threading.Tasks;
 using MediaBrowser.Controller.Dto;
@@ -92,124 +93,176 @@ namespace Emby.Server.Implementations.ScheduledTasks.Tasks
         /// <inheritdoc />
         public async Task ExecuteAsync(IProgress<double> progress, CancellationToken cancellationToken)
         {
-            cancellationToken.ThrowIfCancellationRequested();
-            progress.Report(0);
+            var startedAt = Stopwatch.GetTimestamp();
+            var result = "success";
+            long catalogBooks = 0;
+            long scanned = 0;
+            long candidates = 0;
+            long matched = 0;
+            long failures = 0;
+            var matchStartedAt = 0L;
+            DramaBoxMatchMetrics.RecordActive(1);
 
-            var indexProgress = new Progress<double>(value => progress.Report(value * 0.5));
-            var index = await _dramaBoxClient.RebuildIndexAsync(indexProgress, cancellationToken).ConfigureAwait(false);
-
-            _logger.LogInformation("DramaBox index holds {Count} books; starting library match", index.Books.Count);
-
-            var query = new InternalItemsQuery
-            {
-                IncludeItemTypes = new[] { BaseItemKind.Series },
-                Recursive = true,
-                IsVirtualItem = false,
-                Limit = PageSize,
-                DtoOptions = new DtoOptions
-                {
-                    EnableImages = false,
-                    Fields = new[] { ItemFields.ProviderIds }
-                }
-            };
-
-            var startIndex = 0;
-            var scanned = 0;
-            var matched = 0;
-            var total = _libraryManager.GetCount(query);
-
-            while (true)
+            try
             {
                 cancellationToken.ThrowIfCancellationRequested();
+                progress.Report(0);
 
-                query.StartIndex = startIndex;
-                var page = _libraryManager.GetItemList(query);
-                if (page.Count == 0)
+                var indexStartedAt = Stopwatch.GetTimestamp();
+                DramaBoxIndexDocument index;
+                try
                 {
-                    break;
+                    var indexProgress = new Progress<double>(value => progress.Report(value * 0.5));
+                    index = await _dramaBoxClient.RebuildIndexAsync(indexProgress, cancellationToken).ConfigureAwait(false);
+                }
+                finally
+                {
+                    DramaBoxMatchMetrics.RecordIndexDuration(Stopwatch.GetElapsedTime(indexStartedAt).TotalSeconds);
                 }
 
-                foreach (var item in page)
+                catalogBooks = index.Books.Count;
+                DramaBoxMatchMetrics.RecordCatalogBooks(catalogBooks);
+                _logger.LogInformation("DramaBox index holds {Count} books; starting library match", catalogBooks);
+
+                matchStartedAt = Stopwatch.GetTimestamp();
+                var query = new InternalItemsQuery
+                {
+                    IncludeItemTypes = new[] { BaseItemKind.Series },
+                    Recursive = true,
+                    IsVirtualItem = false,
+                    Limit = PageSize,
+                    DtoOptions = new DtoOptions
+                    {
+                        EnableImages = false,
+                        Fields = new[] { ItemFields.ProviderIds }
+                    }
+                };
+
+                var startIndex = 0;
+                var total = _libraryManager.GetCount(query);
+
+                while (true)
                 {
                     cancellationToken.ThrowIfCancellationRequested();
-                    scanned++;
 
-                    try
+                    query.StartIndex = startIndex;
+                    var page = _libraryManager.GetItemList(query);
+                    if (page.Count == 0)
                     {
-                        // Only ever touch a series nothing else has identified. The DramaBox provider
-                        // replaces the series name with the platform title, so matching a series that
-                        // already has, say, a TMDb identity and a coincidentally equal title would
-                        // silently rewrite the name of an unrelated show.
-                        if (item.ProviderIds is { Count: > 0 })
+                        break;
+                    }
+
+                    foreach (var item in page)
+                    {
+                        cancellationToken.ThrowIfCancellationRequested();
+                        scanned++;
+
+                        try
                         {
-                            continue;
-                        }
-
-                        var match = await _dramaBoxClient.MatchByTitleAsync(item.Name, AutoMatchThreshold, cancellationToken).ConfigureAwait(false);
-                        if (match is null)
-                        {
-                            continue;
-                        }
-
-                        _logger.LogInformation(
-                            "DramaBox matched '{LibraryName}' to '{DramaBoxName}' (id {BookId}, score {Score})",
-                            item.Name,
-                            match.Book.Name,
-                            match.Book.BookId,
-                            match.Score);
-
-                        // Identify through the refresh options instead of writing the provider id here.
-                        // Setting the id and calling UpdateToRepositoryAsync persisted the item straight
-                        // from a task context and hit, on every single series,
-                        // "The instance of entity type 'BaseItemEntity' cannot be tracked because another
-                        // instance with the same key value for {'Id'} is already being tracked", thrown
-                        // from AddRange inside the persistence service. The task then matched nothing at
-                        // all: 71 series logged as errors in one run. Passing the match as SearchResult
-                        // is the path the Identify dialog already uses — the metadata service applies
-                        // the provider ids itself (MetadataService.ApplySearchResult), so no direct save
-                        // is needed and the whole class of tracking conflicts disappears.
-                        var searchResult = new RemoteSearchResult
-                        {
-                            Name = match.Book.Name,
-                            ImageUrl = DramaBoxTitleMatcher.BuildCoverUrl(match.Book.Cover, 360, 640),
-                            Overview = match.Book.Overview
-                        };
-                        searchResult.SetProviderId(DramaBoxSeriesProvider.ProviderKey, match.Book.BookId);
-
-                        _providerManager.QueueRefresh(
-                            item.Id,
-                            new MetadataRefreshOptions(new DirectoryService(_fileSystem))
+                            // Only ever touch a series nothing else has identified. The DramaBox provider
+                            // replaces the series name with the platform title, so matching a series that
+                            // already has, say, a TMDb identity and a coincidentally equal title would
+                            // silently rewrite the name of an unrelated show.
+                            if (item.ProviderIds is { Count: > 0 })
                             {
-                                MetadataRefreshMode = MetadataRefreshMode.FullRefresh,
-                                ImageRefreshMode = MetadataRefreshMode.FullRefresh,
-                                ReplaceAllMetadata = true,
-                                ReplaceAllImages = true,
-                                IsAutomated = true,
-                                SearchResult = searchResult
-                            },
-                            RefreshPriority.Normal);
+                                continue;
+                            }
+                            candidates++;
 
-                        matched++;
+                            var match = await _dramaBoxClient.MatchByTitleAsync(item.Name, AutoMatchThreshold, cancellationToken).ConfigureAwait(false);
+                            if (match is null)
+                            {
+                                continue;
+                            }
+
+                            _logger.LogInformation(
+                                "DramaBox matched '{LibraryName}' to '{DramaBoxName}' (id {BookId}, score {Score})",
+                                item.Name,
+                                match.Book.Name,
+                                match.Book.BookId,
+                                match.Score);
+
+                            // Identify through the refresh options instead of writing the provider id here.
+                            // Setting the id and calling UpdateToRepositoryAsync persisted the item straight
+                            // from a task context and hit, on every single series,
+                            // "The instance of entity type 'BaseItemEntity' cannot be tracked because another
+                            // instance with the same key value for {'Id'} is already being tracked", thrown
+                            // from AddRange inside the persistence service. The task then matched nothing at
+                            // all: 71 series logged as errors in one run. Passing the match as SearchResult
+                            // is the path the Identify dialog already uses — the metadata service applies
+                            // the provider ids itself (MetadataService.ApplySearchResult), so no direct save
+                            // is needed and the whole class of tracking conflicts disappears.
+                            var searchResult = new RemoteSearchResult
+                            {
+                                Name = match.Book.Name,
+                                ImageUrl = DramaBoxTitleMatcher.BuildCoverUrl(match.Book.Cover, 360, 640),
+                                Overview = match.Book.Overview
+                            };
+                            searchResult.SetProviderId(DramaBoxSeriesProvider.ProviderKey, match.Book.BookId);
+
+                            _providerManager.QueueRefresh(
+                                item.Id,
+                                new MetadataRefreshOptions(new DirectoryService(_fileSystem))
+                                {
+                                    MetadataRefreshMode = MetadataRefreshMode.FullRefresh,
+                                    ImageRefreshMode = MetadataRefreshMode.FullRefresh,
+                                    ReplaceAllMetadata = true,
+                                    ReplaceAllImages = true,
+                                    IsAutomated = true,
+                                    SearchResult = searchResult
+                                },
+                                RefreshPriority.Normal);
+
+                            matched++;
+                        }
+                        catch (OperationCanceledException)
+                        {
+                            throw;
+                        }
+                        catch (Exception ex)
+                        {
+                            failures++;
+                            _logger.LogError(ex, "DramaBox could not process series {ItemId} {ItemName}", item.Id, item.Name);
+                        }
                     }
-                    catch (OperationCanceledException)
-                    {
-                        throw;
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.LogError(ex, "DramaBox could not process series {ItemId} {ItemName}", item.Id, item.Name);
-                    }
+
+                    startIndex += page.Count;
+                    progress.Report(0.5 + (0.5 * Math.Min(1.0, (double)startIndex / Math.Max(1, total))));
                 }
 
-                startIndex += page.Count;
-                progress.Report(0.5 + (0.5 * Math.Min(1.0, (double)startIndex / Math.Max(1, total))));
+                result = scanned == 0 ? "no_items" : candidates == 0 ? "no_candidates" : failures > 0 ? "partial_failure" : "success";
+                progress.Report(1);
+                _logger.LogInformation(
+                    "DramaBox match finished: {Scanned} series scanned, {Matched} identified",
+                    scanned,
+                    matched);
             }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                result = "cancelled";
+                throw;
+            }
+            catch
+            {
+                result = "failure";
+                throw;
+            }
+            finally
+            {
+                if (matchStartedAt != 0)
+                {
+                    DramaBoxMatchMetrics.RecordMatchDuration(Stopwatch.GetElapsedTime(matchStartedAt).TotalSeconds);
+                }
 
-            progress.Report(1);
-            _logger.LogInformation(
-                "DramaBox match finished: {Scanned} series scanned, {Matched} identified",
-                scanned,
-                matched);
+                DramaBoxMatchMetrics.RecordRun(
+                    result,
+                    Stopwatch.GetElapsedTime(startedAt).TotalSeconds,
+                    scanned,
+                    candidates,
+                    matched,
+                    failures);
+                DramaBoxMatchMetrics.RecordActive(-1);
+            }
         }
     }
 }

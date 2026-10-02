@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
@@ -54,57 +55,98 @@ public class MediaSegmentExtractionTask : IScheduledTask
     /// <inheritdoc/>
     public async Task ExecuteAsync(IProgress<double> progress, CancellationToken cancellationToken)
     {
-        cancellationToken.ThrowIfCancellationRequested();
+        var startedAt = Stopwatch.GetTimestamp();
+        var result = "success";
+        long scannedCount = 0;
+        long processedCount = 0;
+        long skippedCount = 0;
+        MediaSegmentExtractionMetrics.RecordActive(1);
 
-        progress.Report(0);
-
-        var pagesize = 100;
-
-        var query = new InternalItemsQuery
+        try
         {
-            MediaTypes = [MediaType.Video, MediaType.Audio],
-            IsVirtualItem = false,
-            IncludeItemTypes = _itemTypes,
-            DtoOptions = new DtoOptions(true),
-            SourceTypes = [SourceType.Library],
-            Recursive = true,
-            Limit = pagesize
-        };
+            cancellationToken.ThrowIfCancellationRequested();
+            progress.Report(0);
 
-        var numberOfVideos = _libraryManager.GetCount(query);
+            const int pageSize = 100;
 
-        var startIndex = 0;
-        var numComplete = 0;
-
-        while (startIndex < numberOfVideos)
-        {
-            query.StartIndex = startIndex;
-
-            var baseItems = _libraryManager.GetItemList(query);
-            var currentPageCount = baseItems.Count;
-            // TODO parallelize with Parallel.ForEach?
-            for (var i = 0; i < currentPageCount; i++)
+            var query = new InternalItemsQuery
             {
-                cancellationToken.ThrowIfCancellationRequested();
+                MediaTypes = [MediaType.Video, MediaType.Audio],
+                IsVirtualItem = false,
+                IncludeItemTypes = _itemTypes,
+                DtoOptions = new DtoOptions(true),
+                SourceTypes = [SourceType.Library],
+                Recursive = true,
+                Limit = pageSize
+            };
 
-                var item = baseItems[i];
-                // Only local files supported
-                if (item.IsFileProtocol && File.Exists(item.Path))
-                {
-                    var libraryOptions = _libraryManager.GetLibraryOptions(item);
-                    await _mediaSegmentManager.RunSegmentPluginProviders(item, libraryOptions, false, cancellationToken).ConfigureAwait(false);
-                }
-
-                // Update progress
-                numComplete++;
-                double percent = (double)numComplete / numberOfVideos;
-                progress.Report(100 * percent);
+            var numberOfVideos = _libraryManager.GetCount(query);
+            if (numberOfVideos == 0)
+            {
+                result = "no_items";
+                progress.Report(100);
+                return;
             }
 
-            startIndex += pagesize;
-        }
+            var startIndex = 0;
+            var numComplete = 0;
 
-        progress.Report(100);
+            while (startIndex < numberOfVideos)
+            {
+                query.StartIndex = startIndex;
+
+                var baseItems = _libraryManager.GetItemList(query);
+                var currentPageCount = baseItems.Count;
+                scannedCount += currentPageCount;
+                // TODO parallelize with Parallel.ForEach?
+                for (var i = 0; i < currentPageCount; i++)
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+
+                    var item = baseItems[i];
+                    // Only local files supported
+                    if (item.IsFileProtocol && File.Exists(item.Path))
+                    {
+                        var libraryOptions = _libraryManager.GetLibraryOptions(item);
+                        await _mediaSegmentManager.RunSegmentPluginProviders(item, libraryOptions, false, cancellationToken).ConfigureAwait(false);
+                        processedCount++;
+                    }
+                    else
+                    {
+                        skippedCount++;
+                    }
+
+                    // Update progress
+                    numComplete++;
+                    double percent = (double)numComplete / numberOfVideos;
+                    progress.Report(100 * percent);
+                }
+
+                startIndex += pageSize;
+            }
+
+            progress.Report(100);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            result = "cancelled";
+            throw;
+        }
+        catch
+        {
+            result = "failure";
+            throw;
+        }
+        finally
+        {
+            MediaSegmentExtractionMetrics.RecordRun(
+                result,
+                Stopwatch.GetElapsedTime(startedAt).TotalSeconds,
+                scannedCount,
+                processedCount,
+                skippedCount);
+            MediaSegmentExtractionMetrics.RecordActive(-1);
+        }
     }
 
     /// <inheritdoc/>
@@ -117,4 +159,3 @@ public class MediaSegmentExtractionTask : IScheduledTask
         };
     }
 }
-

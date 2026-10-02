@@ -28,6 +28,8 @@ import org.mulletaflix.domain.repository.ServerVerification
 import org.mulletaflix.domain.repository.UserSession
 import org.mulletaflix.domain.repository.AppThemeSetting
 import org.mulletaflix.domain.repository.SettingsRepository
+import org.mulletaflix.domain.repository.LibraryCatalogCache
+import org.mulletaflix.domain.model.CachedLibraryCatalog
 
 import org.mulletaflix.domain.usecase.GetItemDetailUseCase
 import org.mulletaflix.domain.usecase.GetLibraryItemsUseCase
@@ -48,14 +50,137 @@ class LibraryViewModelTest {
     private fun createViewModel(
         auth: AuthRepository = FakeAuthRepository(),
         settings: FakeSettingsRepository = FakeSettingsRepository(),
+        network: FakeNetworkMonitor = FakeNetworkMonitor(),
+        catalogCache: LibraryCatalogCache = org.mulletaflix.domain.repository.NoOpLibraryCatalogCache,
     ): LibraryViewModel {
         return LibraryViewModel(
             getLibraryItemsUseCase = GetLibraryItemsUseCase(media),
             getItemDetailUseCase = GetItemDetailUseCase(media),
             authRepository = auth,
             settingsRepository = settings,
-            networkMonitor = FakeNetworkMonitor(),
+            networkMonitor = network,
+            libraryCatalogCache = catalogCache,
         )
+    }
+
+    @Test
+    fun `last confirmed library page is saved and restored offline without network calls`() = runTest {
+        val first = MediaItem("movie-1", "Filme 1", MediaItemType.Movie, overview = "Sinopse segura")
+        val second = MediaItem("movie-2", "Filme 2", MediaItemType.Movie)
+        media.itemsByLibrary["library-1"] = listOf(first, second) to 2
+        val cache = FakeLibraryCatalogCache()
+        val online = FakeNetworkMonitor()
+        val onlineVm = createViewModel(network = online, catalogCache = cache)
+        advanceUntilIdle()
+        onlineVm.loadLibrary("library-1")
+        advanceUntilIdle()
+
+        assertEquals(listOf(first, second), cache.snapshots.getValue("user-1" to "library-1")?.items)
+
+        val offlineMediaCalls = media.itemCalls
+        val offlineDetailCalls = media.detailCalls
+        val offlineVm = createViewModel(network = FakeNetworkMonitor(initialOnline = false), catalogCache = cache)
+        advanceUntilIdle()
+        offlineVm.loadLibrary("library-1")
+        advanceUntilIdle()
+
+        assertEquals(listOf(first, second), offlineVm.state.value.items)
+        assertEquals("Biblioteca", offlineVm.state.value.libraryName)
+        assertTrue(offlineVm.state.value.isShowingCachedCatalog)
+        assertTrue(offlineVm.state.value.catalogSavedAtEpochMillis != null)
+        assertEquals(false, offlineVm.state.value.hasMore)
+        assertEquals(2, offlineVm.state.value.catalogTotalItemCount)
+        assertEquals(offlineMediaCalls, media.itemCalls)
+        assertEquals(offlineDetailCalls, media.detailCalls)
+    }
+
+    @Test
+    fun `offline library snapshot cannot cross library or account boundary`() = runTest {
+        val cache = FakeLibraryCatalogCache().apply {
+            snapshots["user-1" to "library-1"] = CachedLibraryCatalog(
+                libraryId = "library-1",
+                libraryName = "Minha Biblioteca",
+                collectionType = "movies",
+                items = listOf(MediaItem("movie-1", "Privado", MediaItemType.Movie)),
+                sortBy = "SortName",
+                sortOrder = "Ascending",
+                activeFilters = emptyList(),
+                savedAtEpochMillis = 1234L,
+                totalItemCount = 1,
+            )
+        }
+        val viewModel = createViewModel(
+            auth = FakeAuthRepository("user-2"),
+            network = FakeNetworkMonitor(initialOnline = false),
+            catalogCache = cache,
+        )
+        advanceUntilIdle()
+
+        viewModel.loadLibrary("library-1")
+        advanceUntilIdle()
+
+        assertEquals(emptyList<MediaItem>(), viewModel.state.value.items)
+        assertEquals(false, viewModel.state.value.isShowingCachedCatalog)
+        assertTrue(viewModel.state.value.error.orEmpty().contains("Nenhuma lista salva"))
+        assertEquals("user-2" to "library-1", cache.lastReadKey)
+    }
+
+    @Test
+    fun `offline tv never restores a cached books library`() = runTest {
+        val cache = FakeLibraryCatalogCache().apply {
+            snapshots["user-1" to "books-library"] = CachedLibraryCatalog(
+                libraryId = "books-library",
+                libraryName = "Livros",
+                collectionType = "books",
+                items = listOf(MediaItem("book-1", "Livro", MediaItemType.Book)),
+                sortBy = "SortName",
+                sortOrder = "Ascending",
+                activeFilters = emptyList(),
+                savedAtEpochMillis = 1234L,
+                totalItemCount = 1,
+            )
+        }
+        val viewModel = createViewModel(network = FakeNetworkMonitor(initialOnline = false), catalogCache = cache)
+        advanceUntilIdle()
+
+        viewModel.loadLibrary("books-library", isTelevision = true)
+        advanceUntilIdle()
+
+        assertEquals(emptyList<MediaItem>(), viewModel.state.value.items)
+        assertEquals(false, viewModel.state.value.isShowingCachedCatalog)
+        assertEquals("A biblioteca de Livros não está disponível na Android TV.", viewModel.state.value.error)
+    }
+
+    @Test
+    fun `offline sort and filters cannot relabel or alter cached query`() = runTest {
+        val cache = FakeLibraryCatalogCache().apply {
+            snapshots["user-1" to "library-1"] = CachedLibraryCatalog(
+                libraryId = "library-1",
+                libraryName = "Biblioteca",
+                collectionType = "movies",
+                items = listOf(MediaItem("movie-1", "Filme", MediaItemType.Movie)),
+                sortBy = "PremiereDate",
+                sortOrder = "Descending",
+                activeFilters = listOf(LibraryViewModel.FILTER_FAVORITES),
+                savedAtEpochMillis = 1234L,
+                totalItemCount = 1,
+            )
+        }
+        val viewModel = createViewModel(network = FakeNetworkMonitor(initialOnline = false), catalogCache = cache)
+        advanceUntilIdle()
+        viewModel.loadLibrary("library-1")
+        advanceUntilIdle()
+
+        viewModel.setSort(SortOption.Name, SortOrder.Ascending)
+        viewModel.toggleFilter(LibraryViewModel.FILTER_PLAYED)
+        viewModel.clearFilters()
+        advanceUntilIdle()
+
+        assertEquals(SortOption.ReleaseDate, viewModel.state.value.sortBy)
+        assertEquals(SortOrder.Descending, viewModel.state.value.sortOrder)
+        assertEquals(listOf(LibraryViewModel.FILTER_FAVORITES), viewModel.state.value.activeFilters)
+        assertEquals(0, cache.writeCount)
+        assertEquals(0, media.itemCalls)
     }
 
     @Test
@@ -826,6 +951,42 @@ class LibraryViewModelTest {
         assertEquals(false, viewModel.state.value.isLoading)
         assertEquals(false, viewModel.state.value.isRefreshing)
         assertEquals(LibraryViewModel.EXPIRED_SESSION_MESSAGE, viewModel.state.value.error)
+    }
+
+    private class FakeLibraryCatalogCache : LibraryCatalogCache {
+        val snapshots = mutableMapOf<Pair<String, String>, CachedLibraryCatalog>()
+        var lastReadKey: Pair<String, String>? = null
+        var writeCount = 0
+
+        override suspend fun read(userId: String, libraryId: String): CachedLibraryCatalog? {
+            lastReadKey = userId to libraryId
+            return snapshots[userId to libraryId]
+        }
+
+        override suspend fun write(
+            userId: String,
+            libraryId: String,
+            libraryName: String,
+            collectionType: String?,
+            sortBy: String,
+            sortOrder: String,
+            activeFilters: List<String>,
+            items: List<MediaItem>,
+            totalItemCount: Int,
+        ) {
+            writeCount++
+            snapshots[userId to libraryId] = CachedLibraryCatalog(
+                libraryId = libraryId,
+                libraryName = libraryName,
+                collectionType = collectionType,
+                items = items,
+                sortBy = sortBy,
+                sortOrder = sortOrder,
+                activeFilters = activeFilters,
+                savedAtEpochMillis = 1234L,
+                totalItemCount = totalItemCount,
+            )
+        }
     }
 
     private class FakeMediaRepository : MediaRepository {

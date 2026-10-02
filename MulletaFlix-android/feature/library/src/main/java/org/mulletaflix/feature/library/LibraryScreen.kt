@@ -27,6 +27,8 @@ import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import android.content.res.Configuration
+import java.text.DateFormat
+import java.util.Date
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -59,6 +61,15 @@ fun LibraryScreen(
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val loadError = state.error
+    val snackbarHostState = remember { SnackbarHostState() }
+    val coroutineScope = rememberCoroutineScope()
+    val openLibraryItem: (String) -> Unit = { itemId ->
+        if (state.isOffline) {
+            coroutineScope.launch { snackbarHostState.showSnackbar("Detalhes indisponíveis sem conexão. Conecte-se para abrir este título.") }
+        } else {
+            onItemClick(itemId)
+        }
+    }
     val lifecycleOwner = LocalLifecycleOwner.current
     val isTelevision = (LocalConfiguration.current.uiMode and Configuration.UI_MODE_TYPE_MASK) ==
         Configuration.UI_MODE_TYPE_TELEVISION
@@ -79,6 +90,7 @@ fun LibraryScreen(
     )
 
     Scaffold(
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             TopAppBar(
                 title = { Text(state.libraryName) },
@@ -98,14 +110,14 @@ fun LibraryScreen(
                         Icon(if (state.isGridView) Icons.AutoMirrored.Filled.ViewList else Icons.Default.GridView, contentDescription = "Alternar visualização")
                     }
                     // Sort
-                    MulletaFlixTopBarAction(onClick = viewModel::showSortMenu) {
+                    MulletaFlixTopBarAction(onClick = viewModel::showSortMenu, enabled = !state.isOffline) {
                         Icon(
                             Icons.AutoMirrored.Filled.Sort,
                             contentDescription = "Ordenar: ${state.sortBy.label}, ${state.sortOrder.label}",
                         )
                     }
                     // Filter
-                    MulletaFlixTopBarAction(onClick = viewModel::showFilterMenu) {
+                    MulletaFlixTopBarAction(onClick = viewModel::showFilterMenu, enabled = !state.isOffline) {
                         Icon(Icons.Default.FilterList, contentDescription = "Filtrar")
                     }
                 }
@@ -173,7 +185,8 @@ fun LibraryScreen(
                             ActiveFiltersRow(
                                 filters = state.activeFilters,
                                 onRemoveFilter = viewModel::removeFilter,
-                                onClearAll = viewModel::clearFilters
+                                onClearAll = viewModel::clearFilters,
+                                enabled = !state.isOffline,
                             )
                         }
                     }
@@ -194,14 +207,14 @@ fun LibraryScreen(
                                  unplayedCount = item.unplayedItemCount ?: 0,
                                  qualityBadge = when { item.has4K -> "4K"; item.hasHD -> "HD"; else -> null },
                                  focusFriendly = isTelevision,
-                                 onClick = { onItemClick(item.id) },
+                                 onClick = { openLibraryItem(item.id) },
                                 modifier = Modifier.fillMaxWidth()
                             )
                         } else {
                             LibraryListRow(
                                 item = item,
                                 focusFriendly = isTelevision,
-                                onClick = { onItemClick(item.id) },
+                                onClick = { openLibraryItem(item.id) },
                             )
                         }
                     }
@@ -238,6 +251,14 @@ fun LibraryScreen(
 
             if (state.isOffline) {
                 LibraryOfflineBanner(
+                    message = if (state.isShowingCachedCatalog && state.catalogSavedAtEpochMillis != null) {
+                        val savedCount = state.items.size
+                        val totalCount = maxOf(savedCount, state.catalogTotalItemCount ?: savedCount)
+                        val quantity = if (savedCount < totalCount) "$savedCount de $totalCount títulos" else "$savedCount títulos"
+                        "Sem conexão. $quantity no snapshot salvo ${offlineSnapshotTime(checkNotNull(state.catalogSavedAtEpochMillis))}; detalhes precisam de rede."
+                    } else {
+                        "Sem conexão. A biblioteca será atualizada quando a rede voltar."
+                    },
                     onRetry = { viewModel.loadLibrary(libraryId, isTelevision) },
                     modifier = Modifier
                         .align(Alignment.TopCenter)
@@ -635,7 +656,12 @@ internal fun libraryCardShape(item: MediaItem): MediaCardShape =
     if (item.type.usesPosterArtwork()) MediaCardShape.Portrait else MediaCardShape.Landscape
 
 @Composable
-private fun ActiveFiltersRow(filters: List<String>, onRemoveFilter: (String) -> Unit, onClearAll: () -> Unit) {
+private fun ActiveFiltersRow(
+    filters: List<String>,
+    onRemoveFilter: (String) -> Unit,
+    onClearAll: () -> Unit,
+    enabled: Boolean = true,
+) {
     Row(
         modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp),
         horizontalArrangement = Arrangement.spacedBy(4.dp),
@@ -645,6 +671,7 @@ private fun ActiveFiltersRow(filters: List<String>, onRemoveFilter: (String) -> 
             AssistChip(
                 onClick = { onRemoveFilter(filter) },
                 label = { Text(libraryFacetFilterLabel(filter)) },
+                enabled = enabled,
                 modifier = Modifier
                     .remoteFocusRing(RoundedCornerShape(8.dp))
                     .semantics { contentDescription = "Remover filtro $filter" },
@@ -653,10 +680,14 @@ private fun ActiveFiltersRow(filters: List<String>, onRemoveFilter: (String) -> 
         }
         TextButton(
             onClick = onClearAll,
+            enabled = enabled,
             modifier = Modifier.remoteFocusRing(RoundedCornerShape(8.dp)),
         ) { Text("Limpar") }
     }
 }
+
+internal fun offlineSnapshotTime(epochMillis: Long): String =
+    DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT).format(Date(epochMillis))
 
 @Composable
 internal fun SortDropdown(

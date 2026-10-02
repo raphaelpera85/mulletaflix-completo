@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -102,151 +103,189 @@ namespace Emby.Server.Implementations.ScheduledTasks.Tasks
         /// <inheritdoc />
         public async Task ExecuteAsync(IProgress<double> progress, CancellationToken cancellationToken)
         {
-            cancellationToken.ThrowIfCancellationRequested();
-            progress.Report(0);
+            var startedAt = Stopwatch.GetTimestamp();
+            var result = "success";
+            long scannedCount = 0;
+            long candidateCount = 0;
+            long matchedCount = 0;
+            long failedCount = 0;
+            DramaFindsMatchMetrics.RecordActive(1);
 
-            var query = new InternalItemsQuery
-            {
-                IncludeItemTypes = new[] { BaseItemKind.Series },
-                Recursive = true,
-                IsVirtualItem = false,
-                Limit = PageSize,
-                DtoOptions = new DtoOptions
-                {
-                    EnableImages = false,
-                    Fields = new[] { ItemFields.ProviderIds }
-                }
-            };
-
-            var startIndex = 0;
-            var scanned = 0;
-            var matched = 0;
-            var total = _libraryManager.GetCount(query);
-
-            while (true)
+            try
             {
                 cancellationToken.ThrowIfCancellationRequested();
+                progress.Report(0);
 
-                if (_dramaFindsClient.IsInFailureCooldown)
+                var query = new InternalItemsQuery
                 {
-                    // The platform refused a request, so every remaining search would be answered
-                    // from the cooldown without a round trip. Stop instead of walking the rest of
-                    // the library for nothing.
-                    _logger.LogWarning(
-                        "DramaFinds is in failure cooldown; stopping the match run early after {Scanned} series",
-                        scanned);
-                    break;
-                }
+                    IncludeItemTypes = new[] { BaseItemKind.Series },
+                    Recursive = true,
+                    IsVirtualItem = false,
+                    Limit = PageSize,
+                    DtoOptions = new DtoOptions
+                    {
+                        EnableImages = false,
+                        Fields = new[] { ItemFields.ProviderIds }
+                    }
+                };
 
-                query.StartIndex = startIndex;
-                var page = _libraryManager.GetItemList(query);
-                if (page.Count == 0)
-                {
-                    break;
-                }
+                var startIndex = 0;
+                var total = _libraryManager.GetCount(query);
 
-                foreach (var item in page)
+                while (true)
                 {
                     cancellationToken.ThrowIfCancellationRequested();
-                    scanned++;
 
-                    try
+                    if (_dramaFindsClient.IsInFailureCooldown)
                     {
-                        // Only ever touch a series nothing else has identified. The DramaFinds
-                        // provider replaces the series name with the platform title, so matching a
-                        // series that already has, say, a TMDb identity and a coincidentally equal
-                        // title would silently rewrite the name of an unrelated show.
-                        if (item.ProviderIds is { Count: > 0 })
+                        // The platform refused a request, so every remaining search would be answered
+                        // from the cooldown without a round trip. Stop instead of walking the rest of
+                        // the library for nothing.
+                        _logger.LogWarning(
+                            "DramaFinds is in failure cooldown; stopping the match run early after {Scanned} series",
+                            scannedCount);
+                        result = "cooldown";
+                        break;
+                    }
+
+                    query.StartIndex = startIndex;
+                    var page = _libraryManager.GetItemList(query);
+                    if (page.Count == 0)
+                    {
+                        break;
+                    }
+
+                    foreach (var item in page)
+                    {
+                        cancellationToken.ThrowIfCancellationRequested();
+                        scannedCount++;
+
+                        try
                         {
-                            continue;
-                        }
-
-                        var matches = await _dramaFindsClient
-                            .SearchAsync(item.Name, SearchResultsPerSeries, cancellationToken)
-                            .ConfigureAwait(false);
-
-                        // The candidates arrive ranked, so the first one over the threshold is the
-                        // best one. Anything the fuzzy search returned for a shared word stays in
-                        // the list and is discarded here.
-                        var match = matches.FirstOrDefault(candidate => candidate.Score >= AutoMatchThreshold);
-                        if (match is null)
-                        {
-                            continue;
-                        }
-
-                        // The platform keeps duplicate ids for one drama. The ranking is
-                        // deterministic, so the choice is stable, but it is logged because picking
-                        // silently between equally named editions is how two series end up sharing
-                        // one identity.
-                        if (matches.Count > 1 && matches[1].Score >= AutoMatchThreshold)
-                        {
-                            _logger.LogInformation(
-                                "DramaFinds holds {Count} equally strong editions of '{LibraryName}'; chose drama {DramaId} (released {ReleaseDate}) as the most recent",
-                                matches.Count,
-                                item.Name,
-                                match.Drama.DramaId,
-                                match.Drama.ReleaseDate);
-                        }
-
-                        _logger.LogInformation(
-                            "DramaFinds matched '{LibraryName}' to '{DramaFindsName}' (id {DramaId}, score {Score})",
-                            item.Name,
-                            match.Drama.Title,
-                            match.Drama.DramaId,
-                            match.Score);
-
-                        // Identify through the refresh options instead of writing the provider id
-                        // here. Setting the id and calling UpdateToRepositoryAsync persisted the
-                        // item straight from a task context and hit, on every single series,
-                        // "The instance of entity type 'BaseItemEntity' cannot be tracked because
-                        // another instance with the same key value for {'Id'} is already being
-                        // tracked", thrown from AddRange inside the persistence service: the task
-                        // then matched nothing at all. Passing the match as SearchResult is the path
-                        // the Identify dialog already uses — the metadata service applies the
-                        // provider ids itself (MetadataService.ApplySearchResult), so no direct save
-                        // is needed and the whole class of tracking conflicts disappears.
-                        var searchResult = new RemoteSearchResult
-                        {
-                            Name = match.Drama.Title,
-                            ImageUrl = match.Drama.Cover,
-                            Overview = match.Drama.Overview
-                        };
-                        searchResult.SetProviderId(DramaFindsSeriesProvider.ProviderKey, match.Drama.DramaId);
-
-                        _providerManager.QueueRefresh(
-                            item.Id,
-                            new MetadataRefreshOptions(new DirectoryService(_fileSystem))
+                            // Only ever touch a series nothing else has identified. The DramaFinds
+                            // provider replaces the series name with the platform title, so matching a
+                            // series that already has, say, a TMDb identity and a coincidentally equal
+                            // title would silently rewrite the name of an unrelated show.
+                            if (item.ProviderIds is { Count: > 0 })
                             {
-                                MetadataRefreshMode = MetadataRefreshMode.FullRefresh,
-                                ImageRefreshMode = MetadataRefreshMode.FullRefresh,
-                                ReplaceAllMetadata = true,
-                                ReplaceAllImages = true,
-                                IsAutomated = true,
-                                SearchResult = searchResult
-                            },
-                            RefreshPriority.Normal);
+                                continue;
+                            }
+                            candidateCount++;
 
-                        matched++;
+                            var matches = await _dramaFindsClient
+                                .SearchAsync(item.Name, SearchResultsPerSeries, cancellationToken)
+                                .ConfigureAwait(false);
+
+                            // The candidates arrive ranked, so the first one over the threshold is the
+                            // best one. Anything the fuzzy search returned for a shared word stays in
+                            // the list and is discarded here.
+                            var match = matches.FirstOrDefault(candidate => candidate.Score >= AutoMatchThreshold);
+                            if (match is null)
+                            {
+                                continue;
+                            }
+
+                            // The platform keeps duplicate ids for one drama. The ranking is
+                            // deterministic, so the choice is stable, but it is logged because picking
+                            // silently between equally named editions is how two series end up sharing
+                            // one identity.
+                            if (matches.Count > 1 && matches[1].Score >= AutoMatchThreshold)
+                            {
+                                _logger.LogInformation(
+                                    "DramaFinds holds {Count} equally strong editions of '{LibraryName}'; chose drama {DramaId} (released {ReleaseDate}) as the most recent",
+                                    matches.Count,
+                                    item.Name,
+                                    match.Drama.DramaId,
+                                    match.Drama.ReleaseDate);
+                            }
+
+                            _logger.LogInformation(
+                                "DramaFinds matched '{LibraryName}' to '{DramaFindsName}' (id {DramaId}, score {Score})",
+                                item.Name,
+                                match.Drama.Title,
+                                match.Drama.DramaId,
+                                match.Score);
+
+                            // Identify through the refresh options instead of writing the provider id
+                            // here. Setting the id and calling UpdateToRepositoryAsync persisted the
+                            // item straight from a task context and hit, on every single series,
+                            // "The instance of entity type 'BaseItemEntity' cannot be tracked because
+                            // another instance with the same key value for {'Id'} is already being
+                            // tracked", thrown from AddRange inside the persistence service: the task
+                            // then matched nothing at all. Passing the match as SearchResult is the path
+                            // the Identify dialog already uses — the metadata service applies the
+                            // provider ids itself (MetadataService.ApplySearchResult), so no direct save
+                            // is needed and the whole class of tracking conflicts disappears.
+                            var searchResult = new RemoteSearchResult
+                            {
+                                Name = match.Drama.Title,
+                                ImageUrl = match.Drama.Cover,
+                                Overview = match.Drama.Overview
+                            };
+                            searchResult.SetProviderId(DramaFindsSeriesProvider.ProviderKey, match.Drama.DramaId);
+
+                            _providerManager.QueueRefresh(
+                                item.Id,
+                                new MetadataRefreshOptions(new DirectoryService(_fileSystem))
+                                {
+                                    MetadataRefreshMode = MetadataRefreshMode.FullRefresh,
+                                    ImageRefreshMode = MetadataRefreshMode.FullRefresh,
+                                    ReplaceAllMetadata = true,
+                                    ReplaceAllImages = true,
+                                    IsAutomated = true,
+                                    SearchResult = searchResult
+                                },
+                                RefreshPriority.Normal);
+
+                            matchedCount++;
+                        }
+                        catch (OperationCanceledException)
+                        {
+                            throw;
+                        }
+                        catch (Exception ex)
+                        {
+                            failedCount++;
+                            _logger.LogError(ex, "DramaFinds could not process series {ItemId} {ItemName}", item.Id, item.Name);
+                        }
                     }
-                    catch (OperationCanceledException)
-                    {
-                        throw;
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.LogError(ex, "DramaFinds could not process series {ItemId} {ItemName}", item.Id, item.Name);
-                    }
+
+                    startIndex += page.Count;
+                    progress.Report(Math.Min(1.0, (double)startIndex / Math.Max(1, total)));
                 }
 
-                startIndex += page.Count;
-                progress.Report(Math.Min(1.0, (double)startIndex / Math.Max(1, total)));
-            }
+                if (result == "success")
+                {
+                    result = scannedCount == 0 ? "no_items" : candidateCount == 0 ? "no_candidates" : failedCount > 0 ? "partial_failure" : "success";
+                }
 
-            progress.Report(1);
-            _logger.LogInformation(
-                "DramaFinds match finished: {Scanned} series scanned, {Matched} identified",
-                scanned,
-                matched);
+                progress.Report(1);
+                _logger.LogInformation(
+                    "DramaFinds match finished: {Scanned} series scanned, {Matched} identified",
+                    scannedCount,
+                    matchedCount);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                result = "cancelled";
+                throw;
+            }
+            catch
+            {
+                result = "failure";
+                throw;
+            }
+            finally
+            {
+                DramaFindsMatchMetrics.RecordRun(
+                    result,
+                    Stopwatch.GetElapsedTime(startedAt).TotalSeconds,
+                    scannedCount,
+                    candidateCount,
+                    matchedCount,
+                    failedCount);
+                DramaFindsMatchMetrics.RecordActive(-1);
+            }
         }
     }
 }

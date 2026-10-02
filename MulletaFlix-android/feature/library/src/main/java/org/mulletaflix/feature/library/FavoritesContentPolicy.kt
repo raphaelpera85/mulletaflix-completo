@@ -9,3 +9,7 @@ internal fun favoritesItemsForDevice(items: List<MediaItem>, isTelevision: Boole
 internal fun isBooksLibrary(item: MediaItem?): Boolean =
     item?.collectionType?.trim().equals("books", ignoreCase = true) ||
         item?.name?.trim().let { it.equals("Livros", ignoreCase = true) || it.equals("Books", ignoreCase = true) }
+
+internal fun isBooksLibrary(collectionType: String?, libraryName: String?): Boolean =
+    collectionType?.trim().equals("books", ignoreCase = true) ||
+        libraryName?.trim().let { it.equals("Livros", ignoreCase = true) || it.equals("Books", ignoreCase = true) }

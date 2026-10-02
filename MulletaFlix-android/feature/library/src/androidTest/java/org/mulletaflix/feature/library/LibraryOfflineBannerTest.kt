@@ -60,6 +60,19 @@ class LibraryOfflineBannerTest {
             .assertIsDisplayed()
         composeRule.onNodeWithText("Tentar novamente").assertIsDisplayed()
     }
+
+    @Test
+    fun savedCatalogMessageExplainsItsOfflineLimitations() {
+        val message = "Sem conexão. Lista salva 01/10/26 12:30; detalhes e streaming precisam de rede."
+        composeRule.setContent {
+            MaterialTheme {
+                LibraryOfflineBanner(message = message, onRetry = {})
+            }
+        }
+
+        composeRule.onNodeWithText(message).assertIsDisplayed()
+        composeRule.onNodeWithText("Tentar novamente").assertIsDisplayed()
+    }
 }
 
 @Composable

@@ -27,6 +27,10 @@ abstract class RepositoryModule {
 
     @Binds
     @Singleton
+    abstract fun bindLibraryCatalogCache(impl: LibraryCatalogCacheRepositoryImpl): LibraryCatalogCache
+
+    @Binds
+    @Singleton
     abstract fun bindAuthRepository(impl: AuthRepositoryImpl): AuthRepository
 
     @Binds

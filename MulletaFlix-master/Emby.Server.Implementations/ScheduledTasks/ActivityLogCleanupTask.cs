@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -56,28 +57,57 @@ public class ActivityLogCleanupTask : IScheduledTask
     /// <inheritdoc />
     public async Task ExecuteAsync(IProgress<double> progress, CancellationToken cancellationToken)
     {
-        _logger.LogInformation("Iniciando limpeza da trilha de auditoria...");
+        var startedAt = Stopwatch.GetTimestamp();
+        var result = "success";
+        long expiredCandidates = 0;
+        long deletedEntries = 0;
+        ActivityLogCleanupMetrics.RecordActive(1);
 
-        var cutoff = DateTime.UtcNow.Subtract(ActivityLogRetention);
-        await using var dbContext = await _dbContextFactory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
-
-        var query = dbContext.ActivityLogs.Where(entry => entry.DateCreated < cutoff);
-        var totalToDelete = await query.CountAsync(cancellationToken).ConfigureAwait(false);
-
-        if (totalToDelete == 0)
+        try
         {
-            _logger.LogInformation("Nenhuma entrada de auditoria antiga encontrada para limpeza.");
+            _logger.LogInformation("Iniciando limpeza da trilha de auditoria...");
+
+            var cutoff = DateTime.UtcNow.Subtract(ActivityLogRetention);
+            await using var dbContext = await _dbContextFactory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
+
+            var query = dbContext.ActivityLogs.Where(entry => entry.DateCreated < cutoff);
+            expiredCandidates = await query.CountAsync(cancellationToken).ConfigureAwait(false);
+
+            if (expiredCandidates == 0)
+            {
+                result = "no_items";
+                _logger.LogInformation("Nenhuma entrada de auditoria antiga encontrada para limpeza.");
+                progress.Report(100);
+                return;
+            }
+
+            deletedEntries = await query.ExecuteDeleteAsync(cancellationToken).ConfigureAwait(false);
+            _logger.LogInformation(
+                "Limpeza da trilha de auditoria concluída. Total removido: {DeletedCount}. Corte aplicado: {Cutoff}",
+                deletedEntries,
+                cutoff);
+
             progress.Report(100);
-            return;
         }
-
-        var deleted = await query.ExecuteDeleteAsync(cancellationToken).ConfigureAwait(false);
-        _logger.LogInformation(
-            "Limpeza da trilha de auditoria concluída. Total removido: {DeletedCount}. Corte aplicado: {Cutoff}",
-            deleted,
-            cutoff);
-
-        progress.Report(100);
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            result = "cancelled";
+            throw;
+        }
+        catch
+        {
+            result = "failure";
+            throw;
+        }
+        finally
+        {
+            ActivityLogCleanupMetrics.RecordRun(
+                result,
+                Stopwatch.GetElapsedTime(startedAt).TotalSeconds,
+                expiredCandidates,
+                deletedEntries);
+            ActivityLogCleanupMetrics.RecordActive(-1);
+        }
     }
 
     /// <inheritdoc />

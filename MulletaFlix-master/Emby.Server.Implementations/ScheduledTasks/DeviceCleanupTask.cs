@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -52,75 +53,110 @@ namespace Emby.Server.Implementations.ScheduledTasks
         /// <inheritdoc />
         public async Task ExecuteAsync(IProgress<double> progress, CancellationToken cancellationToken)
         {
-            _logger.LogInformation("Iniciando limpeza de dispositivos inativos...");
+            var startedAt = Stopwatch.GetTimestamp();
+            var result = "success";
+            long sessionCount = 0;
+            long activeDeviceCount = 0;
+            long totalDevices = 0;
+            long keptCount = 0;
+            long deletedCount = 0;
+            DeviceCleanupMetrics.RecordActive(1);
 
-            // Get all active session device IDs
-            var activeSessions = _sessionManager.Sessions.ToList();
-            var activeDeviceIds = new HashSet<string>(
-                activeSessions
-                    .Where(s => s.IsActive && !string.IsNullOrEmpty(s.DeviceId))
-                    .Select(s => s.DeviceId!),
-                StringComparer.OrdinalIgnoreCase);
-
-            _logger.LogInformation(
-                "Sessões ativas encontradas: {ActiveSessionCount}. Dispositivos com sessão ativa: {ActiveDeviceCount}",
-                activeSessions.Count(s => s.IsActive),
-                activeDeviceIds.Count);
-
-            // Get all devices
-            var allDevices = _deviceManager.GetDevicesForUser(null);
-
-            if (allDevices.Items.Count == 0)
+            try
             {
-                _logger.LogInformation("Nenhum dispositivo encontrado para limpeza.");
-                progress.Report(100);
-                return;
-            }
+                _logger.LogInformation("Iniciando limpeza de dispositivos inativos...");
 
-            int totalDevices = allDevices.Items.Count;
-            int deletedCount = 0;
-            int keptCount = 0;
-            int currentIndex = 0;
-            var cutoff = DateTime.UtcNow.Subtract(DeviceRetention);
+                // Get all active session device IDs
+                var activeSessions = _sessionManager.Sessions.ToList();
+                sessionCount = activeSessions.Count(s => s.IsActive);
+                var activeDeviceIds = new HashSet<string>(
+                    activeSessions
+                        .Where(s => s.IsActive && !string.IsNullOrEmpty(s.DeviceId))
+                        .Select(s => s.DeviceId!),
+                    StringComparer.OrdinalIgnoreCase);
+                activeDeviceCount = activeDeviceIds.Count;
 
-            foreach (var deviceInfo in allDevices.Items)
-            {
-                cancellationToken.ThrowIfCancellationRequested();
+                _logger.LogInformation(
+                    "Sessões ativas encontradas: {ActiveSessionCount}. Dispositivos com sessão ativa: {ActiveDeviceCount}",
+                    sessionCount,
+                    activeDeviceCount);
 
-                currentIndex++;
-                progress.Report((double)currentIndex / totalDevices * 100);
+                // Get all devices
+                var allDevices = _deviceManager.GetDevicesForUser(null);
 
-                var isActive = activeDeviceIds.Contains(deviceInfo.Id);
-                if (!ShouldDeleteDevice(deviceInfo.DateLastActivity, isActive, cutoff))
+                if (allDevices.Items.Count == 0)
                 {
-                    keptCount++;
-                    continue;
+                    result = "no_items";
+                    _logger.LogInformation("Nenhum dispositivo encontrado para limpeza.");
+                    progress.Report(100);
+                    return;
                 }
 
-                // Get the device entity and delete it
-                var device = _deviceManager.GetDevice(deviceInfo.Id);
-                if (device is not null)
-                {
-                    // Get the full Device entity from the DeviceInfoDto
-                    var expiredDevices = _deviceManager.GetDevices(
-                            new MulletaFlix.Data.Queries.DeviceQuery { DeviceId = deviceInfo.Id })
-                        .Items
-                        .Where(item => item.DateLastActivity < cutoff)
-                        .ToArray();
+                totalDevices = allDevices.Items.Count;
+                int currentIndex = 0;
+                var cutoff = DateTime.UtcNow.Subtract(DeviceRetention);
 
-                    foreach (var fullDevice in expiredDevices)
+                foreach (var deviceInfo in allDevices.Items)
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+
+                    currentIndex++;
+                    progress.Report((double)currentIndex / totalDevices * 100);
+
+                    var isActive = activeDeviceIds.Contains(deviceInfo.Id);
+                    if (!ShouldDeleteDevice(deviceInfo.DateLastActivity, isActive, cutoff))
                     {
-                        await _deviceManager.DeleteDevice(fullDevice).ConfigureAwait(false);
-                        deletedCount++;
+                        keptCount++;
+                        continue;
+                    }
+
+                    // Get the device entity and delete it
+                    var device = _deviceManager.GetDevice(deviceInfo.Id);
+                    if (device is not null)
+                    {
+                        // Get the full Device entity from the DeviceInfoDto
+                        var expiredDevices = _deviceManager.GetDevices(
+                                new MulletaFlix.Data.Queries.DeviceQuery { DeviceId = deviceInfo.Id })
+                            .Items
+                            .Where(item => item.DateLastActivity < cutoff)
+                            .ToArray();
+
+                        foreach (var fullDevice in expiredDevices)
+                        {
+                            await _deviceManager.DeleteDevice(fullDevice).ConfigureAwait(false);
+                            deletedCount++;
+                        }
                     }
                 }
-            }
 
-            _logger.LogInformation(
-                "Limpeza de dispositivos concluída. Total: {TotalDevices}, Mantidos (sessão ativa): {KeptCount}, Removidos (inativos): {DeletedCount}",
-                totalDevices,
-                keptCount,
-                deletedCount);
+                _logger.LogInformation(
+                    "Limpeza de dispositivos concluída. Total: {TotalDevices}, Mantidos (sessão ativa): {KeptCount}, Removidos (inativos): {DeletedCount}",
+                    totalDevices,
+                    keptCount,
+                    deletedCount);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                result = "cancelled";
+                throw;
+            }
+            catch
+            {
+                result = "failure";
+                throw;
+            }
+            finally
+            {
+                DeviceCleanupMetrics.RecordRun(
+                    result,
+                    Stopwatch.GetElapsedTime(startedAt).TotalSeconds,
+                    sessionCount,
+                    activeDeviceCount,
+                    totalDevices,
+                    keptCount,
+                    deletedCount);
+                DeviceCleanupMetrics.RecordActive(-1);
+            }
         }
 
         public static bool ShouldDeleteDevice(DateTime? lastActivity, bool isActive, DateTime cutoff)

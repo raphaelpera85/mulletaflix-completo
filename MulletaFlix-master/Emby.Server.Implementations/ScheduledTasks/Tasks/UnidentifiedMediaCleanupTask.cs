@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using System.Linq;
@@ -61,117 +62,149 @@ public class UnidentifiedMediaCleanupTask : IScheduledTask
 
     public async Task ExecuteAsync(IProgress<double> progress, CancellationToken cancellationToken)
     {
-        cancellationToken.ThrowIfCancellationRequested();
-        progress.Report(0);
+        var startedAt = Stopwatch.GetTimestamp();
+        var result = "success";
+        long scannedCount = 0;
+        long queuedCount = 0;
+        long failureCount = 0;
+        UnidentifiedMediaCleanupMetrics.RecordActive(1);
 
-        var types = new[] { BaseItemKind.Movie, BaseItemKind.Series, BaseItemKind.Episode };
-
-        const int PageSize = 500;
-        var query = new InternalItemsQuery
-        {
-            IncludeItemTypes = types,
-            Recursive = true,
-            IsVirtualItem = false,
-            Limit = PageSize,
-            DtoOptions = new DtoOptions
-            {
-                EnableImages = false,
-                Fields = new[] { ItemFields.ProviderIds }
-            }
-        };
-
-        // Page the scan instead of materialising the whole library. This used to load every Movie,
-        // Series and Episode at once and then keep a second list of the unidentified subset — one of
-        // the largest peak-memory contributors on a host that was paging hard enough to freeze the
-        // process for 50-100 seconds at a time. Only the unidentified subset is retained now, which
-        // is the small fraction that actually needs a refresh.
-        var unidentified = new List<BaseItem>();
-        var startIndex = 0;
-        while (true)
+        try
         {
             cancellationToken.ThrowIfCancellationRequested();
+            progress.Report(0);
 
-            query.StartIndex = startIndex;
-            var page = _libraryManager.GetItemList(query);
-            if (page.Count == 0)
+            var types = new[] { BaseItemKind.Movie, BaseItemKind.Series, BaseItemKind.Episode };
+            const int pageSize = 500;
+            var query = new InternalItemsQuery
             {
-                break;
-            }
-
-            foreach (var item in page)
-            {
-                if (item.ProviderIds is null || item.ProviderIds.Count == 0)
+                IncludeItemTypes = types,
+                Recursive = true,
+                IsVirtualItem = false,
+                Limit = pageSize,
+                DtoOptions = new DtoOptions
                 {
-                    unidentified.Add(item);
+                    EnableImages = false,
+                    Fields = new[] { ItemFields.ProviderIds }
                 }
-            }
+            };
 
-            startIndex += PageSize;
-        }
-
-        _logger.LogInformation(
-            "UnidentifiedMediaCleanup: Found {Count} unidentified items. Processing...",
-            unidentified.Count);
-
-        if (unidentified.Count == 0)
-        {
-            progress.Report(100);
-            return;
-        }
-
-        var index = 0;
-        var queuedCount = 0;
-        foreach (var item in unidentified)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-
-            try
+            // Page the scan instead of materialising the whole library. This used to load every Movie,
+            // Series and Episode at once and then keep a second list of the unidentified subset — one of
+            // the largest peak-memory contributors on a host that was paging hard enough to freeze the
+            // process for 50-100 seconds at a time. Only the unidentified subset is retained now, which
+            // is the small fraction that actually needs a refresh.
+            var unidentified = new List<BaseItem>();
+            var startIndex = 0;
+            while (true)
             {
-                var path = item.Path;
-                var originalName = item.Name;
+                cancellationToken.ThrowIfCancellationRequested();
 
-                if (!string.IsNullOrEmpty(path))
+                query.StartIndex = startIndex;
+                var page = _libraryManager.GetItemList(query);
+                if (page.Count == 0)
                 {
-                    CleanFileName(path, out var parsedTitle, out var parsedYear);
+                    break;
+                }
 
-                    if (!string.IsNullOrEmpty(parsedTitle)
-                        && !string.Equals(originalName, parsedTitle, StringComparison.OrdinalIgnoreCase)
-                        && parsedTitle.Length > 3)
+                scannedCount += page.Count;
+                foreach (var item in page)
+                {
+                    if (item.ProviderIds is null || item.ProviderIds.Count == 0)
                     {
-                        _logger.LogDebug(
-                            "Item {ItemId} name '{OriginalName}' -> parsed title '{ParsedTitle}' (year: {ParsedYear})",
-                            item.Id,
-                            originalName,
-                            parsedTitle,
-                            parsedYear);
+                        unidentified.Add(item);
                     }
                 }
 
-                _providerManager.QueueRefresh(
-                    item.Id,
-                    new MetadataRefreshOptions(new DirectoryService(_fileSystem))
-                    {
-                        MetadataRefreshMode = MetadataRefreshMode.Default,
-                        IsAutomated = true
-                    },
-                    RefreshPriority.Normal);
-
-                queuedCount++;
+                startIndex += pageSize;
             }
-            catch (Exception ex)
+
+            _logger.LogInformation(
+                "UnidentifiedMediaCleanup: Found {Count} unidentified items. Processing...",
+                unidentified.Count);
+
+            if (unidentified.Count == 0)
             {
-                _logger.LogError(ex, "Error queueing refresh for item {ItemId} {ItemName}", item.Id, item.Name);
+                result = "no_items";
+                progress.Report(100);
+                return;
             }
 
-            index++;
-            progress.Report((double)index / unidentified.Count * 100);
+            var index = 0;
+            foreach (var item in unidentified)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+
+                try
+                {
+                    var path = item.Path;
+                    var originalName = item.Name;
+
+                    if (!string.IsNullOrEmpty(path))
+                    {
+                        CleanFileName(path, out var parsedTitle, out var parsedYear);
+
+                        if (!string.IsNullOrEmpty(parsedTitle)
+                            && !string.Equals(originalName, parsedTitle, StringComparison.OrdinalIgnoreCase)
+                            && parsedTitle.Length > 3)
+                        {
+                            _logger.LogDebug(
+                                "Item {ItemId} name '{OriginalName}' -> parsed title '{ParsedTitle}' (year: {ParsedYear})",
+                                item.Id,
+                                originalName,
+                                parsedTitle,
+                                parsedYear);
+                        }
+                    }
+
+                    _providerManager.QueueRefresh(
+                        item.Id,
+                        new MetadataRefreshOptions(new DirectoryService(_fileSystem))
+                        {
+                            MetadataRefreshMode = MetadataRefreshMode.Default,
+                            IsAutomated = true
+                        },
+                        RefreshPriority.Normal);
+
+                    queuedCount++;
+                }
+                catch (Exception ex)
+                {
+                    failureCount++;
+                    _logger.LogError(ex, "Error queueing refresh for item {ItemId} {ItemName}", item.Id, item.Name);
+                }
+
+                index++;
+                progress.Report((double)index / unidentified.Count * 100);
+            }
+
+            _logger.LogInformation(
+                "UnidentifiedMediaCleanup: Queued refresh for {Count} items.",
+                queuedCount);
+
+            result = failureCount > 0 ? "partial_failure" : "success";
+            progress.Report(100);
         }
-
-        _logger.LogInformation(
-            "UnidentifiedMediaCleanup: Queued refresh for {Count} items.",
-            queuedCount);
-
-        progress.Report(100);
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            result = "cancelled";
+            throw;
+        }
+        catch
+        {
+            result = "failure";
+            throw;
+        }
+        finally
+        {
+            UnidentifiedMediaCleanupMetrics.RecordRun(
+                result,
+                Stopwatch.GetElapsedTime(startedAt).TotalSeconds,
+                scannedCount,
+                queuedCount,
+                failureCount);
+            UnidentifiedMediaCleanupMetrics.RecordActive(-1);
+        }
     }
 
     private static void CleanFileName(string path, out string title, out int? year)

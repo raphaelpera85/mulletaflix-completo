@@ -212,6 +212,7 @@ class PlayerViewModel @Inject constructor(
     private val _state = MutableStateFlow(PlayerState())
     val state: StateFlow<PlayerState> = _state.asStateFlow()
     private val playbackSessionDiagnostics = PlaybackSessionDiagnostics()
+    private val pendingVideoFormatEvents = PendingPlaybackVideoFormats()
     private var playbackDiagnosticsTicker: Job? = null
 
     private val trackSelector = DefaultTrackSelector(context)
@@ -431,6 +432,26 @@ class PlayerViewModel @Inject constructor(
             }
         })
         exo.addAnalyticsListener(object : AnalyticsListener {
+            override fun onMediaItemTransition(
+                eventTime: AnalyticsListener.EventTime,
+                mediaItem: Media3Item?,
+                reason: Int,
+            ) {
+                if (!isCurrentLocalPlaybackEvent(eventTime)) return
+                val pendingFormat = takePlaybackVideoFormatForActiveTransition(
+                    pendingFormats = pendingVideoFormatEvents,
+                    transitionPeriodId = eventTime.mediaPeriodId,
+                    currentPeriodId = eventTime.currentMediaPeriodId,
+                ) ?: return
+                playbackSessionDiagnostics.onVideoFormatChanged(
+                    width = pendingFormat.width,
+                    height = pendingFormat.height,
+                    codecs = pendingFormat.codecs ?: pendingFormat.sampleMimeType,
+                    bitrate = pendingFormat.bitrate.toLong(),
+                )
+                publishPlaybackSessionDiagnostics()
+            }
+
             override fun onPlaybackStateChanged(eventTime: AnalyticsListener.EventTime, state: Int) {
                 if (!isCurrentLocalPlaybackEvent(eventTime)) return
                 playbackSessionDiagnostics.onPlaybackStateChanged(
@@ -475,14 +496,18 @@ class PlayerViewModel @Inject constructor(
                 format: androidx.media3.common.Format,
                 decoderReuseEvaluation: DecoderReuseEvaluation?,
             ) {
-                if (!isCurrentLocalPlaybackEvent(eventTime)) return
-                playbackSessionDiagnostics.onVideoFormatChanged(
-                    width = format.width,
-                    height = format.height,
-                    codecs = format.codecs ?: format.sampleMimeType,
-                    bitrate = format.bitrate.toLong(),
-                )
-                publishPlaybackSessionDiagnostics()
+                if (isCurrentLocalPlaybackEvent(eventTime)) {
+                    playbackSessionDiagnostics.onVideoFormatChanged(
+                        width = format.width,
+                        height = format.height,
+                        codecs = format.codecs ?: format.sampleMimeType,
+                        bitrate = format.bitrate.toLong(),
+                    )
+                    publishPlaybackSessionDiagnostics()
+                } else if (isLocalPlaybackTimelineEvent(eventTime)) {
+                    val period = eventTime.mediaPeriodId ?: return
+                    pendingVideoFormatEvents.enqueue(period, format)
+                }
             }
         })
     }
@@ -747,6 +772,7 @@ class PlayerViewModel @Inject constructor(
     }
 
     fun loadMedia(itemId: String) {
+        pendingVideoFormatEvents.clear()
         playbackSessionDiagnostics.reset()
         playbackDiagnosticsTicker?.cancel()
         playbackDiagnosticsTicker = null
@@ -1116,6 +1142,7 @@ class PlayerViewModel @Inject constructor(
 
     /** Plays a completed Media3 download through the shared cache, without server calls. */
     fun loadOffline(uri: String, title: String, downloadId: String? = null) {
+        pendingVideoFormatEvents.clear()
         playbackSessionDiagnostics.reset()
         playbackDiagnosticsTicker?.cancel()
         playbackDiagnosticsTicker = null
@@ -2261,6 +2288,7 @@ class PlayerViewModel @Inject constructor(
 
     private fun invalidateLocalPlaybackDiagnosticsForCast(isCasting: Boolean) {
         if (!isCasting) return
+        pendingVideoFormatEvents.clear()
         playbackSessionDiagnostics.reset()
         playbackDiagnosticsTicker?.cancel()
         playbackDiagnosticsTicker = null
@@ -2271,8 +2299,19 @@ class PlayerViewModel @Inject constructor(
         }
     }
 
-    /** Ignores analytics queued by a media period that is no longer in the local player's timeline. */
+    /** Accepts local analytics only when its period is active at the event timestamp. */
     private fun isCurrentLocalPlaybackEvent(eventTime: AnalyticsListener.EventTime): Boolean {
+        if (!isLocalPlaybackTimelineEvent(eventTime)) return false
+        val eventPeriodId = eventTime.mediaPeriodId ?: return false
+        if (!isPlaybackDiagnosticsEventForCurrentPeriod(
+                eventPeriodId = eventPeriodId,
+                currentPeriodId = eventTime.currentMediaPeriodId,
+            )
+        ) return false
+        return true
+    }
+
+    private fun isLocalPlaybackTimelineEvent(eventTime: AnalyticsListener.EventTime): Boolean {
         if (_state.value.isCasting) return false
         val eventPeriodId = eventTime.mediaPeriodId ?: return false
         val eventTimeline = eventTime.timeline

@@ -1,8 +1,23 @@
 using System;
+using System.Collections.Generic;
+using System.Diagnostics.Metrics;
 using System.IO;
+using System.Linq;
+using System.Net.Http;
 using System.Reflection;
+using System.Threading;
+using System.Threading.Tasks;
+using MediaBrowser.Common.Configuration;
+using MediaBrowser.Controller;
+using MediaBrowser.Controller.Library;
+using MediaBrowser.Controller.LiveTv;
 using MediaBrowser.Providers.Plugins.MidiaStorageOnline;
+using MediaBrowser.Providers.Plugins.MidiaStorageOnline.Configuration;
 using MediaBrowser.Providers.Plugins.MidiaStorageOnline.ScheduledTasks;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging.Abstractions;
+using Moq;
+using MulletaFlix.Database.Implementations;
 using MulletaFlix.Database.Implementations.Entities;
 using Xunit;
 
@@ -10,6 +25,52 @@ namespace MulletaFlix.Providers.Tests.Plugins.MidiaStorageOnline;
 
 public class MidiaStorageOnlineSyncTaskTests
 {
+    [Fact]
+    public async Task ExecuteAsync_WithoutPlaylistSourceReportsSkippedAndReleasesActiveGauge()
+    {
+        var measurements = new List<(string Name, object Value, KeyValuePair<string, object?>[] Tags)>();
+        using var listener = new MeterListener();
+        listener.InstrumentPublished = (instrument, meterListener) =>
+        {
+            if (instrument.Meter.Name == MidiaStorageOnlineSyncMetrics.MeterName)
+            {
+                meterListener.EnableMeasurementEvents(instrument);
+            }
+        };
+        listener.SetMeasurementEventCallback<long>((instrument, value, tags, _) =>
+            measurements.Add((instrument.Name, value, tags.ToArray())));
+        listener.SetMeasurementEventCallback<double>((instrument, value, tags, _) =>
+            measurements.Add((instrument.Name, value, tags.ToArray())));
+        listener.Start();
+
+        var configurationManager = new Mock<IConfigurationManager>();
+        configurationManager.Setup(manager => manager.GetConfiguration("midiastorageonline"))
+            .Returns(new PluginConfiguration());
+        var task = new MidiaStorageOnlineSyncTask(
+            Mock.Of<IHttpClientFactory>(),
+            configurationManager.Object,
+            Mock.Of<IServerApplicationHost>(),
+            Mock.Of<ILibraryMonitor>(),
+            Mock.Of<ITunerHostManager>(),
+            Mock.Of<ILibraryManager>(),
+            Mock.Of<IDbContextFactory<MulletaFlixDbContext>>(),
+            NullLogger<MidiaStorageOnlineSyncTask>.Instance);
+
+        await task.ExecuteAsync(Mock.Of<IProgress<double>>(), CancellationToken.None);
+
+        var run = Assert.Single(measurements.Where(item => item.Name == "mulletaflix.media_sync.runs"));
+        Assert.Contains(run.Tags, tag => tag.Key == "result" && Equals(tag.Value, "skipped"));
+        Assert.Single(measurements.Where(item => item.Name == "mulletaflix.media_sync.duration"));
+        Assert.Equal(new object[] { 1L, -1L }, measurements
+            .Where(item => item.Name == "mulletaflix.media_sync.active_runs")
+            .Select(item => item.Value)
+            .ToArray());
+        Assert.DoesNotContain(measurements, item => item.Tags.Any(tag =>
+            tag.Key.Contains("url", StringComparison.OrdinalIgnoreCase)
+            || tag.Key.Contains("path", StringComparison.OrdinalIgnoreCase)
+            || tag.Key.Contains("media", StringComparison.OrdinalIgnoreCase)));
+    }
+
     [Theory]
     [InlineData("strm", false)]
     [InlineData("STRM", false)]

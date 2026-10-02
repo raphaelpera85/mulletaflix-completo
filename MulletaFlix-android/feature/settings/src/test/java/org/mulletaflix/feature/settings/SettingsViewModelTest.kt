@@ -296,6 +296,7 @@ class SettingsViewModelTest {
     fun `clearing image cache exposes a completion message`() = runTest {
         val cacheRoot = Files.createTempDirectory("mulletaflix-settings-test").toFile()
         every { context.cacheDir } returns cacheRoot
+        var artworkCacheCleared = false
         val authRepo = FakeAuthRepository()
         val viewModel = SettingsViewModel(
             context,
@@ -303,6 +304,9 @@ class SettingsViewModelTest {
             authRepo,
             LogoutUseCase(authRepo),
             ioDispatcher = dispatcher,
+            artworkCacheCleaner = org.mulletaflix.core.common.cache.ArtworkCacheCleaner {
+                artworkCacheCleared = true
+            },
         )
         advanceUntilIdle()
 
@@ -310,6 +314,7 @@ class SettingsViewModelTest {
         advanceUntilIdle()
 
         assertEquals("Cache de imagens limpo.", viewModel.state.value.cacheStatusMessage)
+        assertTrue("manual cleanup clears Coil memory and disk caches", artworkCacheCleared)
         cacheRoot.deleteRecursively()
     }
 
@@ -328,12 +333,17 @@ class SettingsViewModelTest {
             }
         }
         val settingsRepo = FakeSettingsRepository()
+        var artworkCacheCleared = false
         val viewModel = SettingsViewModel(
             context,
             settingsRepo,
             authRepo,
             LogoutUseCase(authRepo),
             ioDispatcher = dispatcher,
+            artworkCacheCleaner = org.mulletaflix.core.common.cache.ArtworkCacheCleaner {
+                artworkCacheCleared = true
+                cacheRoot.resolve("image_cache").deleteRecursively()
+            },
         )
         advanceUntilIdle()
 
@@ -343,6 +353,7 @@ class SettingsViewModelTest {
         assertEquals("Dados locais limpos. Você saiu da conta.", viewModel.state.value.cacheStatusMessage)
         assertTrue(loggedOut)
         assertTrue(settingsRepo.localPreferencesCleared)
+        assertTrue("all-local-data cleanup clears Coil caches", artworkCacheCleared)
         assertTrue(downloads.exists())
         assertFalse(cacheRoot.resolve("image_cache").exists())
         assertFalse(cacheRoot.resolve("temporary").exists())

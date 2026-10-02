@@ -11,6 +11,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.launch
 import org.mulletaflix.core.common.dispatcher.IoDispatcher
+import org.mulletaflix.core.common.cache.ArtworkCacheCleaner
 import org.mulletaflix.core.common.update.AppUpdateDownloader
 import org.mulletaflix.core.common.update.AppUpdateInstallOutcome
 import org.mulletaflix.core.common.update.DownloadState
@@ -73,6 +74,7 @@ class SettingsViewModel @Inject constructor(
     private val verifyServerUseCase: VerifyServerUseCase? = null,
     private val searchHistoryRepository: SearchHistoryRepository? = null,
     @param:IoDispatcher private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
+    private val artworkCacheCleaner: ArtworkCacheCleaner = ArtworkCacheCleaner {},
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(SettingsState())
@@ -317,8 +319,11 @@ class SettingsViewModel @Inject constructor(
         viewModelScope.launch {
             runCatching {
                 withContext(ioDispatcher) {
-                    context.cacheDir.resolve("image_cache").deleteRecursively()
-                    context.cacheDir.resolve("coil").deleteRecursively()
+                    artworkCacheCleaner.clear()
+                    val legacyCoilCache = context.cacheDir.resolve("coil")
+                    check(!legacyCoilCache.exists() || legacyCoilCache.deleteRecursively()) {
+                        "Não foi possível remover o cache legado do Coil"
+                    }
                 }
             }.onSuccess {
                 _state.update { it.copy(cacheStatusMessage = "Cache de imagens limpo.") }
@@ -346,6 +351,7 @@ class SettingsViewModel @Inject constructor(
                 searchHistoryRepository?.clear(userId)
 
                 withContext(ioDispatcher) {
+                    artworkCacheCleaner.clear()
                     context.cacheDir.listFiles()
                         ?.let { files ->
                             cacheEntriesToRemove(files.map { it.name })

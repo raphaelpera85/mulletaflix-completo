@@ -1,17 +1,19 @@
 using System;
 using System.Collections.Generic;
+using System.Security.Claims;
 using System.Threading.Tasks;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.Nebula;
 using MediaBrowser.Model.Activity;
 using MediaBrowser.Model.Nebula;
+using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Mvc;
 using Moq;
+using MulletaFlix.Api.Constants;
 using MulletaFlix.Api.Controllers;
 using MulletaFlix.Api.Models.UserFeedbackDtos;
 using MulletaFlix.Database.Implementations.Entities;
-using Microsoft.AspNetCore.Http;
-using Microsoft.AspNetCore.Mvc;
 using Xunit;
 
 namespace MulletaFlix.Api.Tests.Controllers;
@@ -78,7 +80,16 @@ public class UserFeedbackControllerTests
             .Callback<ActivityLog>(entry => storedEntry = entry)
             .Returns(Task.CompletedTask);
         var controller = new UserFeedbackController(activityManager.Object, Mock.Of<ILibraryManager>(), nebulaManager.Object);
-        controller.ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() };
+        var callerUserId = Guid.NewGuid();
+        controller.ControllerContext = new ControllerContext
+        {
+            HttpContext = new DefaultHttpContext
+            {
+                User = new ClaimsPrincipal(new ClaimsIdentity(
+                    [new Claim(InternalClaimTypes.UserId, callerUserId.ToString("D"))],
+                    "test"))
+            }
+        };
 
         var result = await controller.CreateMediaRequest(new MediaRequestDto
         {
@@ -94,6 +105,7 @@ public class UserFeedbackControllerTests
         Assert.Equal("Series · 2025", storedEntry.Overview);
         Assert.Equal("Please add season two.", storedEntry.ShortOverview);
         Assert.Equal("MediaRequest", storedEntry.Type);
+        Assert.Equal(callerUserId, storedEntry.UserId);
         nebulaManager.Verify(manager => manager.PrioritizeMedia(string.Empty, null, "The Example"), Times.Once);
     }
 
@@ -119,6 +131,48 @@ public class UserFeedbackControllerTests
     }
 
     [Fact]
+    public async Task CreatePlaybackIssue_UsesCallerIdentityForLookupAndReport()
+    {
+        var callerUserId = Guid.NewGuid();
+        var itemId = Guid.NewGuid();
+        var item = new Mock<BaseItem>();
+        item.Setup(libraryItem => libraryItem.Name).Returns("The Example");
+        ActivityLog? storedEntry = null;
+        var libraryManager = new Mock<ILibraryManager>();
+        libraryManager.Setup(manager => manager.GetItemById<BaseItem>(itemId, callerUserId)).Returns(item.Object);
+        var activityManager = new Mock<IActivityManager>();
+        activityManager.Setup(manager => manager.CreateAsync(It.IsAny<ActivityLog>()))
+            .Callback<ActivityLog>(entry => storedEntry = entry)
+            .Returns(Task.CompletedTask);
+        var controller = new UserFeedbackController(activityManager.Object, libraryManager.Object, Mock.Of<INebulaFtpManager>())
+        {
+            ControllerContext = new ControllerContext
+            {
+                HttpContext = new DefaultHttpContext
+                {
+                    User = new ClaimsPrincipal(new ClaimsIdentity(
+                        [new Claim(InternalClaimTypes.UserId, callerUserId.ToString("D"))],
+                        "test"))
+                }
+            }
+        };
+
+        var result = await controller.CreatePlaybackIssue(new PlaybackIssueDto
+        {
+            ItemId = itemId,
+            Category = "Playback",
+            Description = "The video stops."
+        });
+
+        Assert.IsType<NoContentResult>(result);
+        libraryManager.Verify(manager => manager.GetItemById<BaseItem>(itemId, callerUserId), Times.Once);
+        Assert.NotNull(storedEntry);
+        Assert.Equal(callerUserId, storedEntry!.UserId);
+        Assert.Equal("PlaybackIssue", storedEntry.Type);
+        activityManager.Verify(manager => manager.CreateAsync(It.IsAny<ActivityLog>()), Times.Once);
+    }
+
+    [Fact]
     public async Task GetMyMediaRequests_FiltersByCallerUserIdAndMediaRequestType()
     {
         MulletaFlix.Data.Queries.ActivityLogQuery? capturedQuery = null;
@@ -134,7 +188,16 @@ public class UserFeedbackControllerTests
         var nebulaManager = new Mock<INebulaFtpManager>();
         nebulaManager.Setup(manager => manager.IsMediaRequestPrioritized("The Example")).Returns(true);
         var controller = new UserFeedbackController(activityManager.Object, Mock.Of<ILibraryManager>(), nebulaManager.Object);
-        controller.ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() };
+        var callerUserId = Guid.NewGuid();
+        controller.ControllerContext = new ControllerContext
+        {
+            HttpContext = new DefaultHttpContext
+            {
+                User = new ClaimsPrincipal(new ClaimsIdentity(
+                    [new Claim(InternalClaimTypes.UserId, callerUserId.ToString("D"))],
+                    "test"))
+            }
+        };
 
         var result = await controller.GetMyMediaRequests(limit: 50);
 
@@ -143,6 +206,7 @@ public class UserFeedbackControllerTests
         Assert.Equal(new[] { 42L }, actual.PriorityRequestIds);
         Assert.Same(entry, Assert.Single(actual.Items));
         Assert.NotNull(capturedQuery);
+        Assert.Equal(callerUserId, capturedQuery!.UserId);
         Assert.Equal("MediaRequest", capturedQuery!.Type);
         Assert.Equal(50, capturedQuery.Limit);
         nebulaManager.Verify(manager => manager.IsMediaRequestPrioritized("The Example"), Times.Once);

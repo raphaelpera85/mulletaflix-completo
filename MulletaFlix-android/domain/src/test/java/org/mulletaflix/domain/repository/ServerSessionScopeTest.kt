@@ -33,22 +33,19 @@ class ServerSessionScopeTest {
     }
 
     @Test
-    fun `sem identidade de um dos lados a sessao e mantida`() {
-        // Instalação antiga sem `SERVER_ID`, ou servidor que não publica `Id`.
-        // Deslogar por não conseguir provar seria pior que o risco evitado — e o
-        // próximo login grava a identidade.
-        assertFalse(shouldClearSessionForServerChange(null, "server-b"))
-        assertFalse(shouldClearSessionForServerChange("server-a", null))
-        assertFalse(shouldClearSessionForServerChange(null, null))
-        assertFalse(shouldClearSessionForServerChange("", "server-b"))
-        assertFalse(shouldClearSessionForServerChange("server-a", "   "))
+    fun `identidade ausente descarta sessao mesmo no mesmo endpoint`() {
+        assertTrue(shouldClearSessionForServerChange(null, "server-b"))
+        assertTrue(shouldClearSessionForServerChange("server-a", null))
+        assertTrue(shouldClearSessionForServerChange(null, null))
+        assertTrue(shouldClearSessionForServerChange("", "server-b"))
+        assertTrue(shouldClearSessionForServerChange("server-a", "   "))
+        assertTrue(shouldClearSessionForServerChange("invalid", null))
     }
 
     @Test
     fun `a decisao nao depende da ordem dos argumentos`() {
         assertTrue(shouldClearSessionForServerChange("a", "b"))
         assertTrue(shouldClearSessionForServerChange("b", "a"))
-        assertFalse(shouldClearSessionForServerChange("a", "a"))
         assertFalse(shouldClearSessionForServerChange("a", "a"))
     }
 }

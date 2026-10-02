@@ -2,12 +2,20 @@
 
 Este documento rastreia o status de implementação de todas as funcionalidades, módulos, telas e componentes do aplicativo oficial **MulletaFlix Android**.
 
+## Isolamento da verificação de servidor (APK local; sem release)
+
+- [x] Verificar o endpoint candidato sem alterar a URL global antes da resposta de identidade; a requisição não envia token de sessão nem ID persistente do dispositivo.
+- [x] Preservar sessão ao alternar LAN/internet somente quando ambos os IDs confirmam o mesmo servidor. Se qualquer ID estiver ausente, descartar a sessão (mesmo no mesmo endpoint), pois o backend pode ter sido substituído.
+- [x] Cobrir host candidato/token/identidade por `MockWebServer`, troca de servidor, LAN↔internet, identidade ausente na sessão/resposta, falha e cancelamento da consulta.
+- [x] `:core:api:testDebugUnitTest`, `:data:testDebugUnitTest` e `:domain:testDebugUnitTest` passaram; suíte global `testDebugUnitTest`, `:app:lintDebug` e `:app:assembleDebug`: `BUILD SUCCESSFUL`.
+- [ ] Sem bump, APK de produção ou publicação nesta validação. Na próxima release APK, conferir release anterior/certificado de produção e atualizar no portal a versão e o link de download do APK; não alterar release do servidor.
+
 ## Diagnósticos locais da sessão de reprodução (APK local; sem release)
 
 - [x] Mostrar primeiro quadro, episódios/tempo em buffer, quadros descartados e formato de vídeo efetivamente recebido pelo player Media3.
 - [x] Contar somente rebuffer após o primeiro quadro, excluir pausas do usuário e atualizar o tempo somente enquanto há buffer ativo.
-- [x] Filtrar callbacks de períodos antigos e limpar métricas locais ao iniciar Cast; sem telemetria remota e sem atribuir métricas locais ao receptor.
-- [x] Cobrir o rastreador e o texto compartilhado por testes unitários; `:feature:player:testDebugUnitTest` e `:feature:player:compileDebugKotlin`: `BUILD SUCCESSFUL`.
+- [x] Filtrar métricas de períodos antigos e da fila pré-carregada; guardar formato de vídeo futuro e promovê-lo apenas quando o período virar ativo. Limpar estado pendente em Cast e ao iniciar nova mídia.
+- [x] Cobrir rastreador, política de período ativo, promoção/limpeza de formato pendente e texto compartilhado; `:feature:player:testDebugUnitTest` valida mídia ativa, fila, sequência antiga, evento sem período e transição.
 - [x] Painel instrumentado: 5 testes passaram em cada AVD de telefone API 35, tablet API 35 e Android TV API 34; AVDs encerrados pelo wrapper.
 - [x] `testDebugUnitTest` global, `:app:assembleDebug` e `:app:lintDebug`: `BUILD SUCCESSFUL` antes da revisão; os testes/compilação do Player passaram novamente após as correções da revisão.
 - [ ] Sem bump, APK de produção ou publicação nesta validação. Conferir release anterior e assinatura de produção antes de uma futura release.
@@ -66,6 +74,8 @@ Este documento rastreia o status de implementação de todas as funcionalidades,
 - [x] Isolar downloads com mesmo usuário/mídia quando pertencem a servidores diferentes; usar o identificador da fila para selecionar, retomar, remover e abrir o download offline correto, preservando o ID público da mídia.
 - [x] Recusar retry de downloads antigos sem servidor de origem conhecido, em vez de associá-los silenciosamente ao servidor atual.
 - [x] Limpar cache em memória e disco do Coil a cada hora enquanto o app está aberto e agendar limpeza horária pelo WorkManager para quando o processo estiver parado.
+- [x] Reutilizar o limpador Coil de memória/disco nas ações manuais de Ajustes, Perfil e limpeza de dados locais; manter o diretório de disco do Coil sob controle do próprio cache e preservar downloads Media3.
+- [x] Testar que cada entrada manual invoca a limpeza compartilhada e que a limpeza de dados locais preserva downloads; cobertura unitária de Settings/Profile e teste instrumentado da limpeza real do cache.
 - [x] Testar o trabalho periódico real com `TestDriver`: confirmar intervalo de 1 h, limpeza dos caches Coil em memória/disco e preservação de uma entrada isolada no cache offline Media3; o prazo real do sistema operacional não é simulado.
 - [x] Não apagar downloads offline explícitos: o player de streaming não persiste bytes de sessões online e compartilha apenas conteúdo já baixado.
 - [x] Ocultar toda ação de iniciar download na Android TV, inclusive baixar filme/série e temporada; não mostrar progresso nem cancelamento de lote na interface TV. Celular/tablet mantêm as ações.

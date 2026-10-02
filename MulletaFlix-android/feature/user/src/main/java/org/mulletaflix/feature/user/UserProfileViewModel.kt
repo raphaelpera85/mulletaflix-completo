@@ -12,6 +12,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.mulletaflix.core.common.dispatcher.IoDispatcher
+import org.mulletaflix.core.common.cache.ArtworkCacheCleaner
 import org.mulletaflix.core.api.SessionRepository
 import org.mulletaflix.domain.model.UserProfile
 import org.mulletaflix.domain.repository.AuthRepository
@@ -52,6 +53,7 @@ class UserProfileViewModel @Inject constructor(
     private val switchUserUseCase: SwitchUserUseCase,
     @param:ApplicationContext private val context: Context,
     @param:IoDispatcher private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
+    private val artworkCacheCleaner: ArtworkCacheCleaner = ArtworkCacheCleaner {},
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(UserProfileUiState())
@@ -228,9 +230,14 @@ class UserProfileViewModel @Inject constructor(
         viewModelScope.launch {
             try {
                 withContext(ioDispatcher) {
-                    context.cacheDir.resolve("image_cache").deleteRecursively()
-                    context.cacheDir.resolve("coil").deleteRecursively()
-                    context.cacheDir.resolve("code_cache").deleteRecursively()
+                    artworkCacheCleaner.clear()
+                    val legacyCacheDirectories = listOf("coil", "code_cache")
+                    legacyCacheDirectories.forEach { directoryName ->
+                        val directory = context.cacheDir.resolve(directoryName)
+                        check(!directory.exists() || directory.deleteRecursively()) {
+                            "Não foi possível remover ${directory.name}"
+                        }
+                    }
                 }
                 calculateCacheSize()
                 _uiState.update {

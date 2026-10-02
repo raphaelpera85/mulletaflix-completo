@@ -94,13 +94,43 @@ namespace MediaBrowser.Providers.Plugins.MidiaStorageOnline.ScheduledTasks
 
         public Task ExecuteAsync(IProgress<double> progress, CancellationToken cancellationToken)
         {
-            var config = GetConfig();
-            if (!HasPlaylistSource(config))
+            return ExecuteWithMetricsAsync(progress, cancellationToken);
+        }
+
+        private async Task ExecuteWithMetricsAsync(IProgress<double> progress, CancellationToken cancellationToken)
+        {
+            var startedAt = System.Diagnostics.Stopwatch.GetTimestamp();
+            var result = "skipped";
+            MidiaStorageOnlineSyncMetrics.RecordActive(1);
+            try
             {
-                Log("Nenhuma origem M3U configurada. Ative storage mundial ou informe uma URL.");
-                return Task.CompletedTask;
+                var config = GetConfig();
+                if (!HasPlaylistSource(config))
+                {
+                    Log("Nenhuma origem M3U configurada. Ative storage mundial ou informe uma URL.");
+                    return;
+                }
+
+                await SyncInternal(config, progress, cancellationToken).ConfigureAwait(false);
+                result = config.LastSyncError is null ? "success" : "failure";
             }
-            return SyncInternal(config, progress, cancellationToken);
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                result = "cancelled";
+                throw;
+            }
+            catch
+            {
+                result = "failure";
+                throw;
+            }
+            finally
+            {
+                MidiaStorageOnlineSyncMetrics.RecordRun(
+                    result,
+                    System.Diagnostics.Stopwatch.GetElapsedTime(startedAt).TotalSeconds);
+                MidiaStorageOnlineSyncMetrics.RecordActive(-1);
+            }
         }
 
         private static readonly object ManifestLock = new object();
@@ -210,6 +240,7 @@ namespace MediaBrowser.Providers.Plugins.MidiaStorageOnline.ScheduledTasks
                 var totalParsed = entries.Count;
                 var channelCandidates = entries.Where(e => e.Type == "Canal").ToList();
                 var mediaCandidates = entries.Where(e => e.Type == "Filme" || e.Type == "Serie").ToList();
+                MidiaStorageOnlineSyncMetrics.RecordParsedEntries(totalParsed, channelCandidates.Count, mediaCandidates.Count);
 
                 var channelEntries = (await MidiaStorageOnlineLinkValidator.FilterOnlineEntriesAsync(
                     channelCandidates,
@@ -545,6 +576,10 @@ namespace MediaBrowser.Providers.Plugins.MidiaStorageOnline.ScheduledTasks
                         Log($"Falha ao atualizar canais Live TV após o sync: {refreshEx.Message}");
                     }
                 }
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+            {
+                throw;
             }
             catch (Exception ex)
             {

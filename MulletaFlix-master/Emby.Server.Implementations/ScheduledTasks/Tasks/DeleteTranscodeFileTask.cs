@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -80,10 +81,48 @@ public class DeleteTranscodeFileTask : IScheduledTask, IConfigurableScheduledTas
     /// <inheritdoc />
     public Task ExecuteAsync(IProgress<double> progress, CancellationToken cancellationToken)
     {
-        var minDateModified = DateTime.UtcNow.AddDays(-1);
-        progress.Report(50);
+        var startedAt = Stopwatch.GetTimestamp();
+        var result = "success";
+        long scanned = 0;
+        long expired = 0;
+        long deleteAttempts = 0;
+        TranscodeCleanupMetrics.RecordActive(1);
 
-        DeleteTempFilesFromDirectory(_configurationManager.GetTranscodePath(), minDateModified, progress, cancellationToken);
+        try
+        {
+            var minDateModified = DateTime.UtcNow.AddDays(-1);
+            progress.Report(50);
+
+            (scanned, expired, deleteAttempts) = DeleteTempFilesFromDirectory(
+                _configurationManager.GetTranscodePath(),
+                minDateModified,
+                progress,
+                cancellationToken);
+            if (scanned == 0)
+            {
+                result = "no_files";
+            }
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            result = "cancelled";
+            throw;
+        }
+        catch
+        {
+            result = "failure";
+            throw;
+        }
+        finally
+        {
+            TranscodeCleanupMetrics.RecordRun(
+                result,
+                Stopwatch.GetElapsedTime(startedAt).TotalSeconds,
+                scanned,
+                expired,
+                deleteAttempts);
+            TranscodeCleanupMetrics.RecordActive(-1);
+        }
 
         return Task.CompletedTask;
     }
@@ -95,13 +134,19 @@ public class DeleteTranscodeFileTask : IScheduledTask, IConfigurableScheduledTas
     /// <param name="minDateModified">The min date modified.</param>
     /// <param name="progress">The progress.</param>
     /// <param name="cancellationToken">The task cancellation token.</param>
-    private void DeleteTempFilesFromDirectory(string directory, DateTime minDateModified, IProgress<double> progress, CancellationToken cancellationToken)
+    private (long Scanned, long Expired, long DeleteAttempts) DeleteTempFilesFromDirectory(
+        string directory,
+        DateTime minDateModified,
+        IProgress<double> progress,
+        CancellationToken cancellationToken)
     {
-        var filesToDelete = _fileSystem.GetFiles(directory, true)
+        var allFiles = _fileSystem.GetFiles(directory, true).ToList();
+        var filesToDelete = allFiles
             .Where(f => _fileSystem.GetLastWriteTimeUtc(f) < minDateModified)
             .ToList();
 
         var index = 0;
+        long deleteAttempts = 0;
 
         foreach (var file in filesToDelete)
         {
@@ -112,6 +157,7 @@ public class DeleteTranscodeFileTask : IScheduledTask, IConfigurableScheduledTas
 
             cancellationToken.ThrowIfCancellationRequested();
 
+            deleteAttempts++;
             FileSystemHelper.DeleteFile(_fileSystem, file.FullName, _logger);
 
             index++;
@@ -120,5 +166,6 @@ public class DeleteTranscodeFileTask : IScheduledTask, IConfigurableScheduledTas
         FileSystemHelper.DeleteEmptyFolders(_fileSystem, directory, _logger);
 
         progress.Report(100);
+        return (allFiles.Count, filesToDelete.Count, deleteAttempts);
     }
 }

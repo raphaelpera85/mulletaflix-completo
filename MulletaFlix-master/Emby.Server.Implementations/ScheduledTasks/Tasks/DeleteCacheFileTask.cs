@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Threading;
@@ -80,28 +81,59 @@ public class DeleteCacheFileTask : IScheduledTask, IConfigurableScheduledTask
     /// <inheritdoc />
     public Task ExecuteAsync(IProgress<double> progress, CancellationToken cancellationToken)
     {
-        var minDateModified = DateTime.UtcNow.AddDays(-30);
+        var startedAt = Stopwatch.GetTimestamp();
+        var result = "success";
+        long scanned = 0;
+        long expired = 0;
+        long deleteAttempts = 0;
+        CacheCleanupMetrics.RecordActive(1);
 
         try
         {
-            DeleteCacheFilesFromDirectory(_applicationPaths.CachePath, minDateModified, progress, cancellationToken);
-        }
-        catch (DirectoryNotFoundException)
-        {
-            // No biggie here. Nothing to delete
-        }
+            var cacheResult = TryDeleteCacheFilesFromDirectory(
+                _applicationPaths.CachePath,
+                DateTime.UtcNow.AddDays(-30),
+                progress,
+                cancellationToken);
+            scanned += cacheResult.Scanned;
+            expired += cacheResult.Expired;
+            deleteAttempts += cacheResult.DeleteAttempts;
 
-        progress.Report(90);
+            progress.Report(90);
 
-        minDateModified = DateTime.UtcNow.AddDays(-1);
+            var tempResult = TryDeleteCacheFilesFromDirectory(
+                _applicationPaths.TempDirectory,
+                DateTime.UtcNow.AddDays(-1),
+                progress,
+                cancellationToken);
+            scanned += tempResult.Scanned;
+            expired += tempResult.Expired;
+            deleteAttempts += tempResult.DeleteAttempts;
 
-        try
-        {
-            DeleteCacheFilesFromDirectory(_applicationPaths.TempDirectory, minDateModified, progress, cancellationToken);
+            if (scanned == 0)
+            {
+                result = "no_files";
+            }
         }
-        catch (DirectoryNotFoundException)
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
-            // No biggie here. Nothing to delete
+            result = "cancelled";
+            throw;
+        }
+        catch
+        {
+            result = "failure";
+            throw;
+        }
+        finally
+        {
+            CacheCleanupMetrics.RecordRun(
+                result,
+                Stopwatch.GetElapsedTime(startedAt).TotalSeconds,
+                scanned,
+                expired,
+                deleteAttempts);
+            CacheCleanupMetrics.RecordActive(-1);
         }
 
         return Task.CompletedTask;
@@ -114,13 +146,42 @@ public class DeleteCacheFileTask : IScheduledTask, IConfigurableScheduledTask
     /// <param name="minDateModified">The min date modified.</param>
     /// <param name="progress">The progress.</param>
     /// <param name="cancellationToken">The task cancellation token.</param>
-    private void DeleteCacheFilesFromDirectory(string directory, DateTime minDateModified, IProgress<double> progress, CancellationToken cancellationToken)
+    private (long Scanned, long Expired, long DeleteAttempts) TryDeleteCacheFilesFromDirectory(
+        string directory,
+        DateTime minDateModified,
+        IProgress<double> progress,
+        CancellationToken cancellationToken)
     {
-        var filesToDelete = _fileSystem.GetFiles(directory, true)
-            .Where(f => _fileSystem.GetLastWriteTimeUtc(f) < minDateModified)
-            .ToList();
+        try
+        {
+            return DeleteCacheFilesFromDirectory(directory, minDateModified, progress, cancellationToken);
+        }
+        catch (DirectoryNotFoundException)
+        {
+            // No biggie here. Nothing to delete.
+            return (0, 0, 0);
+        }
+    }
+
+    /// <summary>
+    /// Deletes old files from one cache directory and returns aggregate counters.
+    /// </summary>
+    /// <param name="directory">The directory.</param>
+    /// <param name="minDateModified">The oldest permitted last write time.</param>
+    /// <param name="progress">The progress.</param>
+    /// <param name="cancellationToken">The task cancellation token.</param>
+    private (long Scanned, long Expired, long DeleteAttempts) DeleteCacheFilesFromDirectory(
+        string directory,
+        DateTime minDateModified,
+        IProgress<double> progress,
+        CancellationToken cancellationToken)
+    {
+        var allFiles = _fileSystem.GetFiles(directory, true).ToList();
+
+        var filesToDelete = allFiles.Where(f => _fileSystem.GetLastWriteTimeUtc(f) < minDateModified).ToList();
 
         var index = 0;
+        long deleteAttempts = 0;
 
         foreach (var file in filesToDelete)
         {
@@ -131,6 +192,7 @@ public class DeleteCacheFileTask : IScheduledTask, IConfigurableScheduledTask
 
             cancellationToken.ThrowIfCancellationRequested();
 
+            deleteAttempts++;
             FileSystemHelper.DeleteFile(_fileSystem, file.FullName, _logger);
 
             index++;
@@ -139,5 +201,6 @@ public class DeleteCacheFileTask : IScheduledTask, IConfigurableScheduledTask
         FileSystemHelper.DeleteEmptyFolders(_fileSystem, directory, _logger);
 
         progress.Report(100);
+        return (allFiles.Count, filesToDelete.Count, deleteAttempts);
     }
 }

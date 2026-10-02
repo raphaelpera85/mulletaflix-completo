@@ -31,7 +31,8 @@ internal fun buildMediaBrowserAuthorizationHeader(
 }
 
 /**
- * Adds the MulletaFlix client identity and the session token to a request.
+ * Adds the MulletaFlix client identity and, except during public server
+ * verification, the active session token to a request.
  *
  * Two things depend on this:
  *
@@ -55,20 +56,31 @@ class ClientIdentityInterceptor @Inject constructor(
 ) : Interceptor {
 
     override fun intercept(chain: Interceptor.Chain): Response {
-        val requestSession = chain.request().tag(FeedbackRequestSession::class.java)
-        val token = requestSession?.accessToken
-            ?: runBlocking { sessionRepository.getAccessToken().first() }
-        val deviceId = requestSession?.deviceId
-            ?: runBlocking { sessionRepository.getDeviceId().first() }
+        val request = chain.request()
+        val requestSession = request.tag(FeedbackRequestSession::class.java)
+        val isPublicServerVerification =
+            request.tag(PublicServerVerificationRequest::class.java) != null
+        val token = if (isPublicServerVerification) {
+            null
+        } else {
+            requestSession?.accessToken
+                ?: runBlocking { sessionRepository.getAccessToken().first() }
+        }
+        val deviceId = if (isPublicServerVerification) {
+            ""
+        } else {
+            requestSession?.deviceId
+                ?: runBlocking { sessionRepository.getDeviceId().first() }
+        }
 
-        val request = chain.request().newBuilder()
+        val authenticatedRequest = request.newBuilder()
             // `header` (not `addHeader`) keeps a single value even after a retry
             // re-enters this interceptor.
             .header("User-Agent", "$MULLETAFLIX_USER_AGENT_PRODUCT/${BuildConfig.CLIENT_VERSION}")
             .header("Authorization", buildMediaBrowserAuthorizationHeader(token, deviceId))
             .build()
 
-        return chain.proceed(request)
+        return chain.proceed(authenticatedRequest)
     }
 }
 

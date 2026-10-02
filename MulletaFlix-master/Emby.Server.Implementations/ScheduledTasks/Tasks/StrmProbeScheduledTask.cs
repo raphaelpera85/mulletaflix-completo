@@ -65,6 +65,28 @@ namespace Emby.Server.Implementations.ScheduledTasks.Tasks
         /// <inheritdoc />
         public async Task ExecuteAsync(IProgress<double> progress, CancellationToken cancellationToken)
         {
+            using var telemetry = StrmProbeMetrics.BeginRun();
+            try
+            {
+                await ExecuteCoreAsync(progress, cancellationToken, telemetry).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                telemetry.Complete(StrmProbeMetrics.Result.Cancelled);
+                throw;
+            }
+            catch
+            {
+                telemetry.Complete(StrmProbeMetrics.Result.Failure);
+                throw;
+            }
+        }
+
+        private async Task ExecuteCoreAsync(
+            IProgress<double> progress,
+            CancellationToken cancellationToken,
+            StrmProbeMetrics.RunScope telemetry)
+        {
             cancellationToken.ThrowIfCancellationRequested();
 
             // Page through movies and episodes instead of materialising the whole library.
@@ -99,6 +121,7 @@ namespace Emby.Server.Implementations.ScheduledTasks.Tasks
                 }
 
                 scannedItems += page.Count;
+                StrmProbeMetrics.RecordScannedItems(page.Count);
 
                 foreach (var x in page)
                 {
@@ -115,8 +138,11 @@ namespace Emby.Server.Implementations.ScheduledTasks.Tasks
             {
                 _logger.LogInformation("No unprobed STRM items found.");
                 progress.Report(100);
+                telemetry.Complete(StrmProbeMetrics.Result.NoItems);
                 return;
             }
+
+            StrmProbeMetrics.RecordCandidateItems(strmItems.Count);
 
             var totalLibraryItems = scannedItems;
             var correlationId = $"strm-probe-scheduled-task";
@@ -126,6 +152,7 @@ namespace Emby.Server.Implementations.ScheduledTasks.Tasks
             _jobQueue.CancelByCorrelationId(correlationId);
 
             _logger.LogInformation("Enqueueing STRM probe job in MulletaFlix Job Queue...");
+            var failedItems = 0;
             var job = _jobQueue.Enqueue(
                 "MetadataRefresh",
                 $"Reconhecimento de Áudio/Legendas ({strmItems.Count} STRMs)",
@@ -182,6 +209,8 @@ namespace Emby.Server.Implementations.ScheduledTasks.Tasks
                             }
                             catch (Exception ex)
                             {
+                                Interlocked.Increment(ref failedItems);
+                                StrmProbeMetrics.RecordFailedItem();
                                 _logger.LogError(ex, "Error probing STRM media info for {Path}", item.Path);
                             }
                             finally
@@ -235,6 +264,9 @@ namespace Emby.Server.Implementations.ScheduledTasks.Tasks
             }
 
             progress.Report(100);
+            telemetry.Complete(Volatile.Read(ref failedItems) == 0
+                ? StrmProbeMetrics.Result.Success
+                : StrmProbeMetrics.Result.PartialFailure);
         }
     }
 }

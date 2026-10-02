@@ -11,8 +11,8 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
- * Dynamically rewrites the host, scheme, and port of requests
- * to point to the user's currently configured MulletaFlix server.
+ * Rewrites requests to the configured server, with explicit routes for captured
+ * sessions and credential-free public server verification.
  */
 @Singleton
 class ServerUrlInterceptor @Inject constructor(
@@ -23,11 +23,16 @@ class ServerUrlInterceptor @Inject constructor(
         var request = chain.request()
         val requestSession = request.tag(FeedbackRequestSession::class.java)
         val currentServerUrl = runBlocking {
-            requestSession?.serverUrl ?: sessionRepository.getBaseUrl().first()
+            request.tag(PublicServerVerificationRequest::class.java)?.serverUrl
+                ?: requestSession?.serverUrl
+                ?: sessionRepository.getBaseUrl().first()
         }
 
         if (currentServerUrl.isNotBlank()) {
             val serverHttpUrl = currentServerUrl.toHttpUrlOrNull()
+            if (request.tag(PublicServerVerificationRequest::class.java) != null && serverHttpUrl == null) {
+                throw IllegalStateException("Candidate server URL is invalid")
+            }
             if (serverHttpUrl == null && requestSession != null) {
                 throw IllegalStateException("Captured feedback server URL is invalid")
             }

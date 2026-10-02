@@ -1,11 +1,10 @@
 package org.mulletaflix.data.repository
 
-import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.withContext
 import org.mulletaflix.core.api.MulletaFlixApiService
+import org.mulletaflix.core.api.PublicServerVerificationRequest
 import org.mulletaflix.core.api.SessionRepository
 import org.mulletaflix.core.api.dto.AuthenticateByNameDto
 import org.mulletaflix.core.api.dto.QuickConnectDto
@@ -28,31 +27,23 @@ class AuthRepositoryImpl @Inject constructor(
 
     override suspend fun verifyServer(url: String): Result<ServerVerification> = suspendRunCatching {
         val cleanUrl = url.trimEnd('/')
-        val previousUrl = sessionRepository.getBaseUrl().first()
         val sessionServerId = sessionRepository.getServerId().first()
-        sessionRepository.setBaseUrl(cleanUrl)
-        try {
-            val startedAt = System.nanoTime()
-            val info = api.getPublicSystemInfo()
-            // O endereço foi reescrito antes de a verificação terminar. Se o servidor
-            // verificado for outro, a sessão guardada (token e usuário) ainda é do
-            // servidor anterior e passaria a ser enviada para o host novo: o app
-            // acreditaria estar autenticado onde não tem sessão nenhuma.
-            if (shouldClearSessionForServerChange(sessionServerId, info.id)) {
-                sessionRepository.clearSession()
-            }
-            ServerVerification(
-                name = info.serverName ?: info.productName ?: "MulletaFlix Server",
-                version = info.version,
-                latencyMs = ((System.nanoTime() - startedAt) / 1_000_000L).coerceAtLeast(0L),
-                serverId = info.id,
+        val startedAt = System.nanoTime()
+        val info = api.getPublicSystemInfo(PublicServerVerificationRequest(cleanUrl))
+        if (shouldClearSessionForServerChange(
+                storedServerId = sessionServerId,
+                verifiedServerId = info.id,
             )
-        } catch (error: Throwable) {
-            // `setBaseUrl` é `suspend` e grava no DataStore: numa corrotina já
-            // cancelada ele lança antes de escrever, e a restauração não acontecia.
-            withContext(NonCancellable) { sessionRepository.setBaseUrl(previousUrl) }
-            throw error
+        ) {
+            sessionRepository.clearSession()
         }
+        sessionRepository.setBaseUrl(cleanUrl)
+        ServerVerification(
+            name = info.serverName ?: info.productName ?: "MulletaFlix Server",
+            version = info.version,
+            latencyMs = ((System.nanoTime() - startedAt) / 1_000_000L).coerceAtLeast(0L),
+            serverId = info.id,
+        )
     }
 
     override suspend fun register(username: String, password: String): Result<RegistrationResult> = suspendRunCatching {

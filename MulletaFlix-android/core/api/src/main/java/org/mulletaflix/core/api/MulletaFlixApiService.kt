@@ -415,7 +415,7 @@ interface MulletaFlixApiService {
     suspend fun getSystemInfo(): SystemInfoDto
 
     @GET("System/Info/Public")
-    suspend fun getPublicSystemInfo(): PublicSystemInfoDto
+    suspend fun getPublicSystemInfo(@Tag request: PublicServerVerificationRequest): PublicSystemInfoDto
 
     @GET("Health")
     suspend fun getHealth(): Map<String, String>

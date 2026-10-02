@@ -21,6 +21,8 @@ namespace MulletaFlix.Api.Jobs;
 /// </summary>
 public sealed class MulletaFlixJobQueue : BackgroundService, IJobQueue
 {
+    public const string MeterName = MulletaFlixJobQueueMetrics.MeterName;
+
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
     private readonly Channel<JobQueueWorkItem> _channel;
     private readonly Channel<JobQueueWorkItem> _persistenceChannel;
@@ -94,6 +96,7 @@ public sealed class MulletaFlixJobQueue : BackgroundService, IJobQueue
 
         _jobs[workItem.Id] = workItem;
         QueuePersistence(workItem);
+        MulletaFlixJobQueueMetrics.RecordEnqueued();
 
         if (!_channel.Writer.TryWrite(workItem))
         {
@@ -101,6 +104,7 @@ public sealed class MulletaFlixJobQueue : BackgroundService, IJobQueue
             workItem.ErrorMessage = "Nao foi possivel enfileirar o trabalho.";
             workItem.FinishedAt = DateTimeOffset.UtcNow;
             QueuePersistence(workItem);
+            MulletaFlixJobQueueMetrics.RecordFailed();
         }
 
         return ToDto(workItem);
@@ -143,6 +147,7 @@ public sealed class MulletaFlixJobQueue : BackgroundService, IJobQueue
         if (string.Equals(job.Status, "Queued", StringComparison.OrdinalIgnoreCase))
         {
             MarkCancelled(job, "Cancelado antes do inicio.");
+            MulletaFlixJobQueueMetrics.RecordCancelled();
         }
 
         return true;
@@ -280,6 +285,7 @@ public sealed class MulletaFlixJobQueue : BackgroundService, IJobQueue
         });
 
         job.Status = "Running";
+        MulletaFlixJobQueueMetrics.RecordStarted();
         job.StartedAt = DateTimeOffset.UtcNow;
         job.Phase = "Executando";
         job.Summary = "Processamento iniciado.";
@@ -296,10 +302,12 @@ public sealed class MulletaFlixJobQueue : BackgroundService, IJobQueue
             job.Summary = "Trabalho concluido.";
             job.FinishedAt = DateTimeOffset.UtcNow;
             AddLog(job, "Trabalho concluido.");
+            MulletaFlixJobQueueMetrics.RecordCompleted();
         }
         catch (OperationCanceledException) when (token.IsCancellationRequested)
         {
             MarkCancelled(job, "Trabalho cancelado.");
+            MulletaFlixJobQueueMetrics.RecordCancelled();
         }
         catch (Exception ex)
         {
@@ -309,6 +317,7 @@ public sealed class MulletaFlixJobQueue : BackgroundService, IJobQueue
             job.FinishedAt = DateTimeOffset.UtcNow;
             AddLog(job, $"Falha: {ex.Message}");
             _logger.LogError(ex, "Job {JobId} failed", job.Id);
+            MulletaFlixJobQueueMetrics.RecordFailed();
         }
         finally
         {

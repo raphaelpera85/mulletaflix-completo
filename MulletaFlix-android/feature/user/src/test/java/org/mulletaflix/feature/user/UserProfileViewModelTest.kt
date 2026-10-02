@@ -50,6 +50,8 @@ class UserProfileViewModelTest {
     private fun createViewModel(
         authRepo: AuthRepository,
         sessionRepo: SessionRepository = FakeSessionRepository(),
+        artworkCacheCleaner: org.mulletaflix.core.common.cache.ArtworkCacheCleaner =
+            org.mulletaflix.core.common.cache.ArtworkCacheCleaner {},
     ): UserProfileViewModel {
         return UserProfileViewModel(
             authRepository = authRepo,
@@ -59,6 +61,7 @@ class UserProfileViewModelTest {
             switchUserUseCase = SwitchUserUseCase(authRepo),
             context = context,
             ioDispatcher = dispatcher,
+            artworkCacheCleaner = artworkCacheCleaner,
         )
     }
 
@@ -222,8 +225,20 @@ class UserProfileViewModelTest {
     fun `clearCache deletes cache files and sets cacheCleared flag`() = runTest {
         val authRepo = FakeAuthRepository()
         val sessionRepo = FakeSessionRepository()
+        var artworkCacheCleared = false
+        val imageCache = requireNotNull(context.cacheDir).resolve("image_cache").apply {
+            mkdirs()
+            resolve("poster.bin").writeBytes(byteArrayOf(1, 2, 3))
+        }
 
-        val viewModel = createViewModel(authRepo, sessionRepo)
+        val viewModel = createViewModel(
+            authRepo,
+            sessionRepo,
+            artworkCacheCleaner = org.mulletaflix.core.common.cache.ArtworkCacheCleaner {
+                artworkCacheCleared = true
+                imageCache.deleteRecursively()
+            },
+        )
         advanceUntilIdle()
 
         viewModel.clearCache()
@@ -231,6 +246,8 @@ class UserProfileViewModelTest {
 
         assertTrue(viewModel.uiState.value.cacheCleared)
         assertTrue(viewModel.uiState.value.message?.contains("sucesso") == true)
+        assertTrue("profile cleanup clears Coil memory and disk caches", artworkCacheCleared)
+        assertFalse(imageCache.resolve("poster.bin").exists())
     }
 
     // ── Fakes ────────────────────────────────────────────────────────────────

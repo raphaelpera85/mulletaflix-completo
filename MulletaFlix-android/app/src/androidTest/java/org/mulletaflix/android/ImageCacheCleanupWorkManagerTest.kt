@@ -22,6 +22,7 @@ import java.io.File
 import java.io.FileOutputStream
 import java.util.UUID
 import java.util.concurrent.TimeUnit
+import kotlinx.coroutines.runBlocking
 import okio.buffer
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -105,6 +106,14 @@ class ImageCacheCleanupWorkManagerTest {
             assertNotNull(memoryCache[memoryKey])
             assertTrue(hasCoilDiskEntry(diskCache, diskKey))
             assertTrue(offlineCache.isCached(offlineKey, 0, offlineBytes.size.toLong()))
+
+            runBlocking { CoilArtworkCacheCleaner(context).clear() }
+            assertNull("manual clear evicts the in-memory poster", memoryCache[memoryKey])
+            assertFalse("manual clear evicts the disk poster", hasCoilDiskEntry(diskCache, diskKey))
+            assertTrue("manual artwork cleanup preserves offline media", offlineCache.isCached(offlineKey, 0, offlineBytes.size.toLong()))
+
+            memoryCache[memoryKey] = MemoryCache.Value(bitmap)
+            writeCoilDiskEntry(diskCache, diskKey)
 
             val testDriver = requireNotNull(WorkManagerTestInitHelper.getTestDriver(context))
             testDriver.setPeriodDelayMet(readyForTestCycle.id)

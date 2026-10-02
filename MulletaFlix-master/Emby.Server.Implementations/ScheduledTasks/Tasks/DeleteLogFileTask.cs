@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using System.Linq;
@@ -85,52 +86,94 @@ public class DeleteLogFileTask : IScheduledTask, IConfigurableScheduledTask
     /// <inheritdoc />
     public Task ExecuteAsync(IProgress<double> progress, CancellationToken cancellationToken)
     {
-        // Uma retenção não positiva colocaria o corte em "agora" (ou no futuro),
-        // tornando TODO log elegível — inclusive o arquivo que está sendo escrito
-        // neste instante. Isso apagaria justamente o rastro de diagnóstico que a
-        // tarefa deveria preservar, então o padrão é aplicado como piso.
-        var retentionDays = _configurationManager.CommonConfiguration.LogFileRetentionDays;
-        if (retentionDays <= 0)
+        var startedAt = Stopwatch.GetTimestamp();
+        var result = "success";
+        long scanned = 0;
+        long expired = 0;
+        long deleteAttempts = 0;
+        long deleteFailures = 0;
+        LogCleanupMetrics.RecordActive(1);
+
+        try
         {
-            retentionDays = DefaultLogFileRetentionDays;
-        }
-
-        // Delete log files more than n days old
-        var minDateModified = DateTime.UtcNow.AddDays(-retentionDays);
-
-        var filesToDelete = _fileSystem.GetFiles(_configurationManager.CommonApplicationPaths.LogDirectoryPath, true)
-            .Where(f => _fileSystem.GetLastWriteTimeUtc(f) < minDateModified)
-            .ToList();
-
-        var index = 0;
-
-        foreach (var file in filesToDelete)
-        {
-            double percent = index / (double)filesToDelete.Count;
-
-            progress.Report(100 * percent);
-
-            cancellationToken.ThrowIfCancellationRequested();
-
-            try
+            // Uma retenção não positiva colocaria o corte em "agora" (ou no futuro),
+            // tornando TODO log elegível — inclusive o arquivo que está sendo escrito
+            // neste instante. Isso apagaria justamente o rastro de diagnóstico que a
+            // tarefa deveria preservar, então o padrão é aplicado como piso.
+            var retentionDays = _configurationManager.CommonConfiguration.LogFileRetentionDays;
+            if (retentionDays <= 0)
             {
-                _fileSystem.DeleteFile(file.FullName);
-            }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-            {
-                // Em Windows o log ativo fica bloqueado pelo sink. Abortar aqui
-                // deixaria de remover os arquivos seguintes, que estão de fato
-                // vencidos, e a retenção pararia de funcionar silenciosamente.
-                _logger.LogWarning(
-                    ex,
-                    "Não foi possível remover o log vencido {Name}; a limpeza continua com os demais arquivos.",
-                    file.Name);
+                retentionDays = DefaultLogFileRetentionDays;
             }
 
-            index++;
-        }
+            // Delete log files more than n days old
+            var minDateModified = DateTime.UtcNow.AddDays(-retentionDays);
 
-        progress.Report(100);
+            var allFiles = _fileSystem.GetFiles(_configurationManager.CommonApplicationPaths.LogDirectoryPath, true).ToList();
+            var filesToDelete = allFiles
+                .Where(f => _fileSystem.GetLastWriteTimeUtc(f) < minDateModified)
+                .ToList();
+            scanned = allFiles.Count;
+            expired = filesToDelete.Count;
+            if (scanned == 0)
+            {
+                result = "no_files";
+            }
+
+            var index = 0;
+
+            foreach (var file in filesToDelete)
+            {
+                double percent = index / (double)filesToDelete.Count;
+
+                progress.Report(100 * percent);
+
+                cancellationToken.ThrowIfCancellationRequested();
+
+                try
+                {
+                    deleteAttempts++;
+                    _fileSystem.DeleteFile(file.FullName);
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                {
+                    deleteFailures++;
+                    result = "partial_failure";
+                    // Em Windows o log ativo fica bloqueado pelo sink. Abortar aqui
+                    // deixaria de remover os arquivos seguintes, que estão de fato
+                    // vencidos, e a retenção pararia de funcionar silenciosamente.
+                    _logger.LogWarning(
+                        ex,
+                        "Não foi possível remover o log vencido {Name}; a limpeza continua com os demais arquivos.",
+                        file.Name);
+                }
+
+                index++;
+            }
+
+            progress.Report(100);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            result = "cancelled";
+            throw;
+        }
+        catch
+        {
+            result = "failure";
+            throw;
+        }
+        finally
+        {
+            LogCleanupMetrics.RecordRun(
+                result,
+                Stopwatch.GetElapsedTime(startedAt).TotalSeconds,
+                scanned,
+                expired,
+                deleteAttempts,
+                deleteFailures);
+            LogCleanupMetrics.RecordActive(-1);
+        }
 
         return Task.CompletedTask;
     }

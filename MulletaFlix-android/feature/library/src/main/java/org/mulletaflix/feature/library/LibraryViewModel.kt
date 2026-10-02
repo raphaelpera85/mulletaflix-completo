@@ -16,6 +16,8 @@ import org.mulletaflix.domain.paging.shouldRequestNextPage
 import org.mulletaflix.domain.paging.singleRequestItemLimit
 import org.mulletaflix.domain.paging.supportsOffsetPaging
 import org.mulletaflix.domain.repository.AuthRepository
+import org.mulletaflix.domain.repository.LibraryCatalogCache
+import org.mulletaflix.domain.repository.NoOpLibraryCatalogCache
 import org.mulletaflix.domain.repository.SettingsRepository
 import org.mulletaflix.domain.usecase.GetItemDetailUseCase
 import org.mulletaflix.domain.usecase.GetLibraryItemsUseCase
@@ -34,6 +36,9 @@ data class LibraryState(
     val isLoadingFilterOptions: Boolean = false,
     val filterOptionsError: String? = null,
     val hasMore: Boolean = false,
+    val isShowingCachedCatalog: Boolean = false,
+    val catalogSavedAtEpochMillis: Long? = null,
+    val catalogTotalItemCount: Int? = null,
     val error: String? = null,
     val showSortMenu: Boolean = false,
     val showFilterMenu: Boolean = false,
@@ -48,6 +53,7 @@ class LibraryViewModel @Inject constructor(
     private val authRepository: AuthRepository,
     private val settingsRepository: SettingsRepository,
     private val networkMonitor: NetworkMonitor,
+    private val libraryCatalogCache: LibraryCatalogCache = NoOpLibraryCatalogCache,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(LibraryState())
@@ -55,6 +61,8 @@ class LibraryViewModel @Inject constructor(
 
     private var currentLibraryId: String? = null
     private var currentIsTelevision = false
+    private var currentLibraryCollectionType: String? = null
+    private var currentLibraryName: String = "Biblioteca"
     private var currentUserId: String? = null
     private var hasObservedUser = false
     private var currentIncludeItemTypes: String = LibraryBrowseTypes.DEFAULT
@@ -95,6 +103,7 @@ class LibraryViewModel @Inject constructor(
             var previousOnline: Boolean? = null
             networkMonitor.isOnline.distinctUntilChanged().collect { online ->
                 _state.update { it.copy(isOffline = !online) }
+                if (!online) _state.update { it.copy(showSortMenu = false, showFilterMenu = false) }
                 if (shouldRefreshLibraryOnNetworkReturn(previousOnline, online)) {
                     currentLibraryId?.let(::refreshIfIdle)
                 }
@@ -116,6 +125,9 @@ class LibraryViewModel @Inject constructor(
                         it.copy(
                             items = emptyList(),
                             hasMore = false,
+                            isShowingCachedCatalog = false,
+                            catalogSavedAtEpochMillis = null,
+                            catalogTotalItemCount = null,
                             isLoading = false,
                             isRefreshing = false,
                             showFilterMenu = false,
@@ -170,7 +182,74 @@ class LibraryViewModel @Inject constructor(
         currentLibraryId = libraryId
         currentIsTelevision = isTelevision
         if (_state.value.isOffline) {
-            _state.update { it.copy(isLoading = false, isRefreshing = false) }
+            if (switchedLibrary) {
+                fetchedItemCount = 0
+                _state.update {
+                    it.copy(
+                        items = emptyList(),
+                        hasMore = false,
+                        error = null,
+                        isShowingCachedCatalog = false,
+                        catalogSavedAtEpochMillis = null,
+                        catalogTotalItemCount = null,
+                    )
+                }
+            }
+            _state.update { it.copy(isLoading = true, isRefreshing = false, error = null) }
+            loadJob = viewModelScope.launch {
+                val userId = currentUserId ?: authRepository.getSavedUserId().firstOrNull()
+                if (userId == null) {
+                    if (requestGeneration == this@LibraryViewModel.requestGeneration) {
+                        _state.update { it.copy(isLoading = false, error = EXPIRED_SESSION_MESSAGE) }
+                    }
+                    return@launch
+                }
+                val snapshot = try {
+                    libraryCatalogCache.read(userId, libraryId)
+                } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                    throw cancelled
+                } catch (_: Exception) {
+                    null
+                }
+                if (!isCurrentLibraryRequest(requestGeneration, userId, libraryId)) return@launch
+                if (isTelevision && snapshot != null && isBooksLibrary(snapshot.collectionType, snapshot.libraryName)) {
+                    _state.update {
+                        it.copy(
+                            libraryName = snapshot.libraryName,
+                            items = emptyList(),
+                            hasMore = false,
+                            isLoading = false,
+                            isRefreshing = false,
+                            isShowingCachedCatalog = false,
+                            catalogSavedAtEpochMillis = null,
+                            error = "A biblioteca de Livros não está disponível na Android TV.",
+                        )
+                    }
+                    return@launch
+                }
+                val cachedSort = SortOption.values().firstOrNull { it.apiValue.equals(snapshot?.sortBy, ignoreCase = true) }
+                val cachedOrder = SortOrder.values().firstOrNull { it.apiValue.equals(snapshot?.sortOrder, ignoreCase = true) }
+                val restoredItems = snapshot?.items.orEmpty()
+                fetchedItemCount = restoredItems.size
+                currentLibraryCollectionType = snapshot?.collectionType
+                currentLibraryName = snapshot?.libraryName ?: "Biblioteca"
+                _state.update {
+                    it.copy(
+                        libraryName = snapshot?.libraryName ?: "Biblioteca",
+                        items = restoredItems,
+                        activeFilters = snapshot?.activeFilters?.let(::orderedFilters) ?: it.activeFilters,
+                        sortBy = cachedSort ?: it.sortBy,
+                        sortOrder = cachedOrder ?: it.sortOrder,
+                        hasMore = false,
+                        isLoading = false,
+                        isRefreshing = false,
+                        isShowingCachedCatalog = snapshot != null,
+                        catalogSavedAtEpochMillis = snapshot?.savedAtEpochMillis,
+                        catalogTotalItemCount = snapshot?.totalItemCount,
+                        error = if (snapshot == null) "Nenhuma lista salva neste dispositivo. Conecte-se para carregar a biblioteca." else null,
+                    )
+                }
+            }
             return
         }
         // Switching libraries must drop the previous catalog. Keeping it would
@@ -184,6 +263,9 @@ class LibraryViewModel @Inject constructor(
                     items = emptyList(),
                     hasMore = false,
                     error = null,
+                    isShowingCachedCatalog = false,
+                    catalogSavedAtEpochMillis = null,
+                    catalogTotalItemCount = null,
                 )
             }
         }
@@ -214,6 +296,8 @@ class LibraryViewModel @Inject constructor(
             if (!isCurrentLibraryRequest(requestGeneration, userId, libraryId)) return@launch
             val library = libResult.getOrNull()
             val libName = library?.name ?: "Biblioteca"
+            currentLibraryName = libName
+            currentLibraryCollectionType = library?.collectionType
             if (isTelevision && isBooksLibrary(library)) {
                 _state.update {
                     it.copy(
@@ -292,9 +376,13 @@ class LibraryViewModel @Inject constructor(
                             hasMorePages(items.size, items.size, total),
                         isLoading = false,
                         isRefreshing = false,
+                        isShowingCachedCatalog = false,
+                        catalogSavedAtEpochMillis = null,
+                        catalogTotalItemCount = null,
                         error = null,
                     )
                 }
+                persistLibrarySnapshot(userId, libraryId, libName, library?.collectionType, items, total)
             }.onFailure { error ->
                 if (!isCurrentLibraryRequest(requestGeneration, userId, libraryId)) return@onFailure
                 _state.update { it.copy(isLoading = false, isRefreshing = false, error = error.message ?: "Não foi possível carregar a biblioteca.") }
@@ -321,6 +409,33 @@ class LibraryViewModel @Inject constructor(
             (currentLibraryId == libraryId && (current.isLoading || current.isRefreshing))
         ) return
         loadLibrary(libraryId, isTelevision)
+    }
+
+    private suspend fun persistLibrarySnapshot(
+        userId: String,
+        libraryId: String,
+        libraryName: String,
+        collectionType: String?,
+        items: List<MediaItem>,
+        totalItemCount: Int,
+    ) {
+        try {
+            libraryCatalogCache.write(
+                userId = userId,
+                libraryId = libraryId,
+                libraryName = libraryName,
+                collectionType = collectionType,
+                sortBy = _state.value.sortBy.apiValue,
+                sortOrder = _state.value.sortOrder.apiValue,
+                activeFilters = _state.value.activeFilters,
+                items = items,
+                totalItemCount = totalItemCount,
+            )
+        } catch (cancelled: kotlinx.coroutines.CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            // Local persistence is best-effort; it must not break an online catalog.
+        }
     }
 
     fun loadMore() {
@@ -395,9 +510,13 @@ class LibraryViewModel @Inject constructor(
                         items = combined,
                         hasMore = hasMorePages(fetchedItemCount, newItems.size, total),
                         isLoading = false,
+                        isShowingCachedCatalog = false,
+                        catalogSavedAtEpochMillis = null,
+                        catalogTotalItemCount = null,
                         error = null,
                     )
                 }
+                persistLibrarySnapshot(userId, libId, currentLibraryName, currentLibraryCollectionType, combined, total)
             }.onFailure { error ->
                 if (!isCurrentLibraryRequest(requestGeneration, userId, libId)) return@onFailure
                 _state.update { it.copy(isLoading = false, error = error.message ?: "Não foi possível carregar mais itens.") }

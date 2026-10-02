@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -64,98 +65,132 @@ public sealed class GoodShortMatchTask : IScheduledTask
 
     public async Task ExecuteAsync(IProgress<double> progress, CancellationToken cancellationToken)
     {
-        progress.Report(0);
-        var query = new InternalItemsQuery
-        {
-            IncludeItemTypes = new[] { BaseItemKind.Series },
-            Recursive = true,
-            IsVirtualItem = false,
-            Limit = PageSize,
-            DtoOptions = new DtoOptions
-            {
-                EnableImages = false,
-                Fields = new[] { ItemFields.ProviderIds }
-            }
-        };
+        var startedAt = Stopwatch.GetTimestamp();
+        var result = "success";
+        long scanned = 0;
+        long candidates = 0;
+        long matched = 0;
+        long failures = 0;
+        GoodShortMatchMetrics.RecordActive(1);
 
-        var startIndex = 0;
-        var scanned = 0;
-        var matched = 0;
-        var total = _libraryManager.GetCount(query);
-
-        while (true)
+        try
         {
             cancellationToken.ThrowIfCancellationRequested();
-            query.StartIndex = startIndex;
-            var page = _libraryManager.GetItemList(query);
-            if (page.Count == 0)
+            progress.Report(0);
+            var query = new InternalItemsQuery
             {
-                break;
-            }
+                IncludeItemTypes = new[] { BaseItemKind.Series },
+                Recursive = true,
+                IsVirtualItem = false,
+                Limit = PageSize,
+                DtoOptions = new DtoOptions
+                {
+                    EnableImages = false,
+                    Fields = new[] { ItemFields.ProviderIds }
+                }
+            };
 
-            foreach (var item in page)
+            var startIndex = 0;
+            var total = _libraryManager.GetCount(query);
+
+            while (true)
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                scanned++;
-                try
+                query.StartIndex = startIndex;
+                var page = _libraryManager.GetItemList(query);
+                if (page.Count == 0)
                 {
-                    if (item.ProviderIds is { Count: > 0 })
-                    {
-                        continue;
-                    }
+                    break;
+                }
 
-                    var matches = await _client.SearchAsync(item.Name, 5, cancellationToken).ConfigureAwait(false);
-                    var match = matches.FirstOrDefault(candidate => candidate.Score >= AutoMatchThreshold);
-                    if (match is null)
+                foreach (var item in page)
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    scanned++;
+                    try
                     {
-                        continue;
-                    }
-
-                    var searchResult = new RemoteSearchResult
-                    {
-                        Name = match.Series.Name,
-                        ImageUrl = match.Series.Cover,
-                        Overview = match.Series.Overview,
-                        PremiereDate = match.Series.PremiereDate
-                    };
-                    searchResult.SetProviderId(GoodShortSeriesProvider.ProviderKey, match.Series.SeriesId);
-
-                    _providerManager.QueueRefresh(
-                        item.Id,
-                        new MetadataRefreshOptions(new DirectoryService(_fileSystem))
+                        if (item.ProviderIds is { Count: > 0 })
                         {
-                            MetadataRefreshMode = MetadataRefreshMode.FullRefresh,
-                            ImageRefreshMode = MetadataRefreshMode.FullRefresh,
-                            ReplaceAllMetadata = true,
-                            ReplaceAllImages = true,
-                            IsAutomated = true,
-                            SearchResult = searchResult
-                        },
-                        RefreshPriority.Normal);
+                            continue;
+                        }
+                        candidates++;
 
-                    matched++;
-                    _logger.LogInformation(
-                        "GoodShort matched '{LibraryName}' to '{GoodShortName}' (id {SeriesId}, score {Score})",
-                        item.Name,
-                        match.Series.Name,
-                        match.Series.SeriesId,
-                        match.Score);
+                        var matches = await _client.SearchAsync(item.Name, 5, cancellationToken).ConfigureAwait(false);
+                        var match = matches.FirstOrDefault(candidate => candidate.Score >= AutoMatchThreshold);
+                        if (match is null)
+                        {
+                            continue;
+                        }
+
+                        var searchResult = new RemoteSearchResult
+                        {
+                            Name = match.Series.Name,
+                            ImageUrl = match.Series.Cover,
+                            Overview = match.Series.Overview,
+                            PremiereDate = match.Series.PremiereDate
+                        };
+                        searchResult.SetProviderId(GoodShortSeriesProvider.ProviderKey, match.Series.SeriesId);
+
+                        _providerManager.QueueRefresh(
+                            item.Id,
+                            new MetadataRefreshOptions(new DirectoryService(_fileSystem))
+                            {
+                                MetadataRefreshMode = MetadataRefreshMode.FullRefresh,
+                                ImageRefreshMode = MetadataRefreshMode.FullRefresh,
+                                ReplaceAllMetadata = true,
+                                ReplaceAllImages = true,
+                                IsAutomated = true,
+                                SearchResult = searchResult
+                            },
+                            RefreshPriority.Normal);
+
+                        matched++;
+                        _logger.LogInformation(
+                            "GoodShort matched '{LibraryName}' to '{GoodShortName}' (id {SeriesId}, score {Score})",
+                            item.Name,
+                            match.Series.Name,
+                            match.Series.SeriesId,
+                            match.Score);
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        throw;
+                    }
+                    catch (Exception ex)
+                    {
+                        failures++;
+                        _logger.LogError(ex, "GoodShort could not process series {ItemId} {ItemName}", item.Id, item.Name);
+                    }
                 }
-                catch (OperationCanceledException)
-                {
-                    throw;
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex, "GoodShort could not process series {ItemId} {ItemName}", item.Id, item.Name);
-                }
+
+                startIndex += page.Count;
+                progress.Report(Math.Min(1.0, (double)startIndex / Math.Max(1, total)));
             }
 
-            startIndex += page.Count;
-            progress.Report(Math.Min(1.0, (double)startIndex / Math.Max(1, total)));
+            result = scanned == 0 ? "no_items" : candidates == 0 ? "no_candidates" : failures > 0 ? "partial_failure" : "success";
+            progress.Report(1);
+            _logger.LogInformation("GoodShort match finished: {Scanned} series scanned, {Matched} identified", scanned, matched);
         }
-
-        progress.Report(1);
-        _logger.LogInformation("GoodShort match finished: {Scanned} series scanned, {Matched} identified", scanned, matched);
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            result = "cancelled";
+            throw;
+        }
+        catch
+        {
+            result = "failure";
+            throw;
+        }
+        finally
+        {
+            GoodShortMatchMetrics.RecordRun(
+                result,
+                Stopwatch.GetElapsedTime(startedAt).TotalSeconds,
+                scanned,
+                candidates,
+                matched,
+                failures);
+            GoodShortMatchMetrics.RecordActive(-1);
+        }
     }
 }
