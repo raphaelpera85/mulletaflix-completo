@@ -24,7 +24,9 @@ import java.io.File
 import java.util.zip.CRC32
 import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
+import kotlin.math.abs
 import kotlinx.coroutines.runBlocking
+import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.readium.r2.shared.publication.Locator
@@ -76,7 +78,7 @@ class BookReaderLifecycleTestActivity : ComponentActivity() {
         }
     }
 
-    fun currentLocationHref(): String? = readerState.location?.href?.toString()
+    fun currentLocation(): Locator? = readerState.location
 
     fun locationUpdateCount(): Int = readerState.locationUpdates
 }
@@ -99,16 +101,19 @@ class BookReaderLifecycleTest {
             composeRule.onNodeWithText("Livro de teste").assertExists()
             composeRule.waitForNextEnabled()
             composeRule.waitUntil(timeoutMillis = 10_000) {
-                currentLocationHref() != null
+                currentLocation()?.locations?.progression != null
             }
-            val initialLocation = currentLocationHref()
+            val initialLocation = requireNotNull(currentLocation())
 
             composeRule.onNodeWithText("Próximo").performClick()
             composeRule.waitUntil(timeoutMillis = 10_000) {
                 val current = currentLocationHref()
-                current != null && current != initialLocation
+                val currentProgression = currentLocation()?.locations?.progression
+                current == initialLocation.href.toString() &&
+                    currentProgression != null &&
+                    currentProgression > requireNotNull(initialLocation.locations.progression)
             }
-            val advancedLocation = currentLocationHref()
+            val advancedLocation = requireNotNull(currentLocation())
             val updatesBeforeRecreate = locationUpdateCount()
 
             composeRule.activityRule.scenario.recreate()
@@ -117,7 +122,7 @@ class BookReaderLifecycleTest {
             composeRule.onNodeWithText("Livro de teste").assertExists()
             composeRule.waitUntil(timeoutMillis = 10_000) {
                 locationUpdateCount() > updatesBeforeRecreate &&
-                    currentLocationHref() == advancedLocation
+                    sameReadingPosition(currentLocation(), advancedLocation)
             }
             composeRule.waitForPreviousEnabled()
 
@@ -129,9 +134,13 @@ class BookReaderLifecycleTest {
                 composeRule.activity.resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
             }
             composeRule.waitUntil(timeoutMillis = 10_000) {
-                locationUpdateCount() > updatesBeforeRotation &&
-                    currentLocationHref() == advancedLocation
+                locationUpdateCount() > updatesBeforeRotation
             }
+            val rotatedLocation = currentLocation()
+            assertTrue(
+                "A rotação deve preservar a mesma posição de leitura. Antes=$advancedLocation Depois=$rotatedLocation",
+                sameReadingPosition(rotatedLocation, advancedLocation, progressionTolerance = 0.05),
+            )
             composeRule.waitForPreviousEnabled()
         } finally {
             composeRule.activityRule.scenario.onActivity { it.showPublication(null) }
@@ -162,6 +171,9 @@ class BookReaderLifecycleTest {
     }
 
     private fun minimalEpub(): ByteArray {
+        val longChapter = (1..100).joinToString(separator = "") { index ->
+            "<p>Parágrafo $index para validar restauração dentro do mesmo capítulo após recriação e rotação.</p>"
+        }
         val output = ByteArrayOutputStream()
         ZipOutputStream(output).use { zip ->
             val mimetype = "application/epub+zip".toByteArray()
@@ -205,7 +217,7 @@ class BookReaderLifecycleTest {
                 "OEBPS/chapter1.xhtml",
                 """<?xml version="1.0" encoding="UTF-8"?>
                     <html xmlns="http://www.w3.org/1999/xhtml"><head><title>Capítulo 1</title></head>
-                    <body><h1>Capítulo 1</h1><p>Teste de recriação.</p></body></html>
+                    <body><h1>Capítulo 1</h1>$longChapter</body></html>
                 """.trimIndent(),
             )
             zip.writeEntry(
@@ -237,10 +249,24 @@ class BookReaderLifecycleTest {
         }
     }
 
-    private fun currentLocationHref(): String? {
-        var href: String? = null
-        composeRule.activityRule.scenario.onActivity { href = it.currentLocationHref() }
-        return href
+    private fun currentLocation(): Locator? {
+        var location: Locator? = null
+        composeRule.activityRule.scenario.onActivity { location = it.currentLocation() }
+        return location
+    }
+
+    private fun currentLocationHref(): String? = currentLocation()?.href?.toString()
+
+    private fun sameReadingPosition(
+        actual: Locator?,
+        expected: Locator,
+        progressionTolerance: Double = 0.02,
+    ): Boolean {
+        if (actual?.href != expected.href) return false
+        if (actual.locations.position != expected.locations.position) return false
+        val actualProgression = actual.locations.progression ?: return false
+        val expectedProgression = expected.locations.progression ?: return false
+        return abs(actualProgression - expectedProgression) <= progressionTolerance
     }
 
     private fun locationUpdateCount(): Int {

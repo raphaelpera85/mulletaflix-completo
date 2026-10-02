@@ -3,6 +3,7 @@
     <application>
         <activity
             android:name="org.mulletaflix.feature.itemdetail.BookReaderLifecycleTestActivity"
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|colorMode|keyboard|keyboardHidden|navigation"
             android:exported="false" />
     </application>
 </manifest>
