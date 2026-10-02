@@ -73,7 +73,6 @@ fun ServerSelectionScreen(
     ) { granted ->
         if (granted) {
             localNetworkPermissionDenied = false
-            localNetworkPermissionPromptDismissed = false
             autoConnectionCycle = autoConnectionCycle.resetConnectionAttempt()
             viewModel.discoverLocalServers()
         } else {
@@ -249,26 +248,22 @@ fun ServerSelectionScreen(
                 Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 8.dp))
             }
 
-            OutlinedButton(
-                onClick = {
+            LocalNetworkDiscoveryControl(
+                isDiscovering = state.isDiscovering,
+                isLoading = state.isLoading,
+                permissionRequired = state.isLocalNetworkPermissionRequired,
+                permissionRequestDenied = localNetworkPermissionDenied,
+                permissionPromptDismissed = localNetworkPermissionPromptDismissed,
+                onPermissionPromptDismissedChange = { localNetworkPermissionPromptDismissed = it },
+                onDiscover = {
                     // Explicit LAN search ends manual selection and starts a fresh automatic cycle.
                     val generation = viewModel.discoverLocalServers()
                     autoConnectionCycle = autoConnectionCycle.onDiscoveryRequested(generation)
                 },
-                enabled = !state.isDiscovering && !state.isLoading,
-                modifier = Modifier.fillMaxWidth().height(48.dp),
-                shape = RoundedCornerShape(12.dp),
-                border = BorderStroke(1.dp, MaterialTheme.colorScheme.secondary.copy(alpha = 0.7f)),
-                colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.secondary),
-            ) {
-                if (state.isDiscovering) {
-                    CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
-                } else {
-                    Icon(Icons.Default.Refresh, contentDescription = null)
-                }
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(if (state.isDiscovering) "Procurando na rede…" else "Procurar na rede")
-            }
+                onRequestPermission = {
+                    localNetworkPermissionLauncher.launch(Manifest.permission.ACCESS_LOCAL_NETWORK)
+                },
+            )
 
             Spacer(modifier = Modifier.height(8.dp))
 
@@ -331,34 +326,6 @@ fun ServerSelectionScreen(
             }
         }
 
-        if (
-            state.isLocalNetworkPermissionRequired &&
-            !localNetworkPermissionDenied &&
-            !localNetworkPermissionPromptDismissed
-        ) {
-            AlertDialog(
-                onDismissRequest = { localNetworkPermissionPromptDismissed = true },
-                title = { Text("Encontrar servidor na rede local") },
-                text = {
-                    Text(
-                        "A permissão permite localizar automaticamente o servidor MulletaFlix na mesma rede. Você ainda pode conectar pela Internet se preferir não conceder o acesso.",
-                    )
-                },
-                confirmButton = {
-                    Button(
-                        onClick = {
-                            localNetworkPermissionLauncher.launch(Manifest.permission.ACCESS_LOCAL_NETWORK)
-                        },
-                    ) { Text("Permitir") }
-                },
-                dismissButton = {
-                    TextButton(onClick = { localNetworkPermissionPromptDismissed = true }) {
-                        Text("Agora não")
-                    }
-                },
-            )
-        }
-
         if (state.isLocalNetworkPermissionRequired && localNetworkPermissionDenied) {
             LocalNetworkPermissionDeniedDialog(
                 onDismiss = {
@@ -382,6 +349,58 @@ fun ServerSelectionScreen(
                 },
             )
         }
+    }
+}
+
+@Composable
+internal fun LocalNetworkDiscoveryControl(
+    isDiscovering: Boolean,
+    isLoading: Boolean,
+    permissionRequired: Boolean,
+    permissionRequestDenied: Boolean,
+    permissionPromptDismissed: Boolean,
+    onPermissionPromptDismissedChange: (Boolean) -> Unit,
+    onDiscover: () -> Unit,
+    onRequestPermission: () -> Unit,
+) {
+    OutlinedButton(
+        onClick = {
+            onPermissionPromptDismissedChange(false)
+            onDiscover()
+        },
+        enabled = !isDiscovering && !isLoading,
+        modifier = Modifier.fillMaxWidth().height(48.dp),
+        shape = RoundedCornerShape(12.dp),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.secondary.copy(alpha = 0.7f)),
+        colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.secondary),
+    ) {
+        if (isDiscovering) {
+            CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+        } else {
+            Icon(Icons.Default.Refresh, contentDescription = null)
+        }
+        Spacer(modifier = Modifier.width(8.dp))
+        Text(if (isDiscovering) "Procurando na rede…" else "Procurar na rede")
+    }
+
+    if (permissionRequired && !permissionRequestDenied && !permissionPromptDismissed) {
+        AlertDialog(
+            onDismissRequest = { onPermissionPromptDismissedChange(true) },
+            title = { Text("Encontrar servidor na rede local") },
+            text = {
+                Text(
+                    "A permissão permite localizar automaticamente o servidor MulletaFlix na mesma rede. Você ainda pode conectar pela Internet se preferir não conceder o acesso.",
+                )
+            },
+            confirmButton = {
+                Button(onClick = onRequestPermission) { Text("Permitir") }
+            },
+            dismissButton = {
+                TextButton(onClick = { onPermissionPromptDismissedChange(true) }) {
+                    Text("Agora não")
+                }
+            },
+        )
     }
 }
 

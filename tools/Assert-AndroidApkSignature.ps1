@@ -4,7 +4,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$script:ExpectedAndroidApkCertificateSha256 = '224F9A6BD12690E1114ACE649BBFA778D3E7E99DAE608FF711DDF9131E036273'
+$script:ExpectedAndroidApkCertificateSha256 = '4890D80B87FE27C804FF875B549ACD57B946FE6F9BBA0B9D7718989EC5A0A24C'
 
 function Get-AndroidApkCertificateFingerprint {
     param([Parameter(Mandatory)][string]$Path)

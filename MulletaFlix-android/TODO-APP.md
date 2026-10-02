@@ -2902,3 +2902,30 @@ Pendências relacionadas:
 - [x] Confirmar em APKs reais: `v1.3.70` oficial aceita `224F9A6B…`; APK local rejeitado por `4890D80B…`; destino do empacotador permaneceu inalterado.
 - [x] `testDebugUnitTest` e `:app:lintDebug`: `BUILD SUCCESSFUL`. `:app:assembleRelease` agora bloqueia intencionalmente a keystore divergente com mensagem contendo os dois fingerprints.
 - [ ] Não gerar/publicar nova release até `KEYSTORE_PATH` e demais credenciais apontarem para chave cujo certificado seja igual ao oficial; conferir a release anterior antes de qualquer bump.
+
+## Preferências de faixas por série (validação local; sem release)
+- [x] Guardar escolhas manuais de áudio/legenda por série dentro do escopo de usuário e servidor; usar o padrão da conta quando a série ainda não tem escolha.
+- [x] Limitar histórico a 32 séries por usuário/servidor e permitir limpar os overrides sem alterar os padrões da conta.
+- [x] Proteger episódios baixados sem ID de série válido para que uma seleção não sobrescreva o padrão global da conta.
+- [x] Cobrir isolamento, fallback, limpeza, limite e metadados inválidos em testes; corrigir a ajuda das Configurações para declarar que a aplicação automática descrita vale para reprodução online.
+- [x] Validar a suíte JVM completa: 1.338 testes, 0 falhas/erros/skips; `:app:compileDebugAndroidTestKotlin`, `:app:lintDebug` e `:app:assembleDebug`: `BUILD SUCCESSFUL`.
+- [x] Executar instrumentados na Android TV API 34: Settings 10/10 e Data 15/15; emulador fechado ao terminar.
+- [x] Revisão independente do evaluator: sem problemas restantes.
+- [ ] Sem bump, pacote ou publicação nesta rodada. Na próxima release autorizada, verificar a versão/APK anterior, usar certificado oficial de produção e atualizar notas, versão e link de download do APK no portal; não alterar release do servidor.
+
+## Retry da permissão de rede local (APK local; sem release)
+- [x] Depois de dispensar “Agora não”, nova busca manual reabre a justificativa de `ACCESS_LOCAL_NETWORK`; negar a permissão continua oferecendo Configurações ou conexão pela Internet.
+- [x] Adicionar teste Compose da sequência dispensar → buscar novamente → solicitar permissão; AVD Android TV API 34 passou 1/1.
+- [x] `testDebugUnitTest`: 1.334 testes, 0 falhas/erros/skips; `:app:compileDebugAndroidTestKotlin`, `:app:lintDebug`, `:app:assembleDebug`, `:feature:auth:lintDebug` e `:feature:auth:assembleDebugAndroidTest`: `BUILD SUCCESSFUL`.
+- [ ] API 37 não validada: AVD `MulletaflixApi37Clean` gerou relatório instrumentado com 0 testes; runner falhou ao restaurar animações/remover pacotes porque os serviços `settings`/`package` não estavam disponíveis. Não contar como execução aprovada.
+- [ ] Sem bump, APK de produção ou publicação. Antes de próxima release, conferir release anterior, usar certificado oficial e atualizar notas, versão e link APK do portal; não alterar release do servidor.
+- [x] Keystore substituída após rotação de certificado; `:app:verifyProductionSigningCertificate` passou em 2026-10-02 para o certificado registrado `4890D80B…C5A0A24C`.
+- [x] Proprietário informou que a chave antiga foi perdida e optou por reinstalar. Nova assinatura mantém o mesmo `applicationId`; para receber o APK novo, remover a instalação antiga antes de instalar. Aviso incluído nas notas e documentação do portal.
+
+## APK 1.3.81 — assinatura rotacionada e migração por reinstalação
+- [x] Versão já configurada no Git: `1.3.81`, `versionCode=381`; release Android anterior verificada: `app-v1.3.80`, APK `mulletaflix-app-v1.3.80.apk`.
+- [x] Atualizar o validador de empacotamento para exigir o certificado novo `4890D80B…C5A0A24C`; teste Pester aceita a nova chave e rejeita a antiga (2/2).
+- [x] `testDebugUnitTest`, `:app:lintRelease`, `:app:assembleRelease` e `:app:verifyProductionSigningCertificate`: `BUILD SUCCESSFUL`.
+- [x] `build-app-package.ps1 -Version 1.3.81`: APK de produção assinado e copiado; tamanho 7.705.289 bytes, SHA-256 `BC7F7357A6100FBE0106C47C25FCC5E34A63BD0FED4748969D44A887A509F136`.
+- [x] Atualizar fallback estático de versão/URLs Android e aviso de reinstalação no portal; manter `release-sync.js` ativo.
+- [ ] Publicar `app-v1.3.81` no GitHub e implantar portal somente depois que credencial GitHub estiver disponível; não tocar em releases do servidor.

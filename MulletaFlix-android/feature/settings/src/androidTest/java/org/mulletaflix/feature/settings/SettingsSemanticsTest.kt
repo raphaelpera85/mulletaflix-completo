@@ -152,7 +152,7 @@ class SettingsSemanticsTest {
             }
         }
 
-        composeRule.onNodeWithText("Em episódios, escolhas de áudio e legenda valem para a série. Sem escolha específica, o app usa o padrão da conta.")
+        composeRule.onNodeWithText("Ao reproduzir episódios online, escolhas de áudio e legenda valem para a série. Sem escolha específica, o app usa o padrão da conta.")
             .assertExists()
         composeRule.onNodeWithText("Restaurar padrões das séries").performClick()
         composeRule.onNodeWithText("Preferências específicas removidas. Padrões da conta mantidos.").assertExists()

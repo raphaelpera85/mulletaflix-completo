@@ -153,7 +153,7 @@ class SettingsRepositoryAccountScopeTest {
 
     @Test
     fun episodeWithoutSafeSeriesIdDoesNotOverwriteAccountTrackDefault() = runBlocking {
-        val account = seriesScope("user-a", "server-one", "series-one").copy(seriesId = null)
+        val account = seriesScope("user-a", "server-one", "series-one").copy(seriesId = null, isEpisode = false)
         settingsRepository.setPreferredAudioLanguage(account, "eng")
         settingsRepository.setPreferredAudioLanguage(account.copy(seriesId = "x".repeat(129), isEpisode = true), "spa")
 
@@ -166,6 +166,7 @@ class SettingsRepositoryAccountScopeTest {
             serverId = serverId,
             serverUrl = "http://mulletaflix.test:8096",
             seriesId = seriesId,
+            isEpisode = true,
         )
 
     private suspend fun signIn(userId: String, serverId: String) {

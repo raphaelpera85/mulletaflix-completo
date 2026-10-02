@@ -2,13 +2,13 @@
 
 Describe 'Assert-AndroidApkSignature' {
     It 'accepts the official production certificate' {
-        { Assert-AndroidApkCertificateFingerprint -Fingerprint '22:4f:9a:6b:d1:26:90:e1:11:4a:ce:64:9b:bf:a7:78:d3:e7:e9:9d:ae:60:8f:f7:11:dd:f9:13:1e:03:62:73' } | Should Not Throw
+        { Assert-AndroidApkCertificateFingerprint -Fingerprint '48:90:d8:0b:87:fe:27:c8:04:ff:87:5b:54:9a:cd:57:b9:46:fe:6f:9b:ba:0b:9d:77:18:98:9e:c5:a0:a2:4c' } | Should Not Throw
     }
 
     It 'rejects a different signing certificate' {
         $thrown = $false
         try {
-            Assert-AndroidApkCertificateFingerprint -Fingerprint '4890D80B87FE27C804FF875B549ACD57B946FE6F9BBA0B9D7718989EC5A0A24C'
+            Assert-AndroidApkCertificateFingerprint -Fingerprint '224F9A6BD12690E1114ACE649BBFA778D3E7E99DAE608FF711DDF9131E036273'
         } catch {
             $thrown = $true
         }

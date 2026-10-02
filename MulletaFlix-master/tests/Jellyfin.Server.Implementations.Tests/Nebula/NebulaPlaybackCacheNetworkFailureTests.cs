@@ -108,6 +108,49 @@ public class NebulaPlaybackCacheNetworkFailureTests
     }
 
     [Fact]
+    public async Task ChunkedPlayback_RetriesShortOriginResponseWithoutReturningTruncatedMedia()
+    {
+        var root = CreateTempDirectory();
+        try
+        {
+            using var cache = new NebulaPlaybackCache(root, NullLogger<NebulaPlaybackCache>.Instance);
+            var accessor = new NebulaPlaybackCacheAccessor();
+            accessor.Set(cache);
+            var fetchCount = 0;
+            var completePayload = new byte[1024];
+            completePayload[0] = 42;
+            var part = new NebulaStreamPart { PartIndex = 0, FileOffset = 0, Size = completePayload.Length };
+            await using var stream = new NebulaChunkedStream(
+                null,
+                new[] { part },
+                completePayload.Length,
+                NullLogger<NebulaChunkedStream>.Instance,
+                accessor,
+                "short-response-playback",
+                (_, _, _) =>
+                {
+                    if (Interlocked.Increment(ref fetchCount) == 1)
+                    {
+                        return Task.FromResult(new byte[512]);
+                    }
+
+                    return Task.FromResult(completePayload);
+                });
+
+            var buffer = new byte[completePayload.Length];
+            Assert.Equal(completePayload.Length, await stream.ReadAsync(buffer.AsMemory()));
+            Assert.True(fetchCount >= 2);
+            Assert.Equal(1, cache.TelegramFetchFailures);
+            Assert.Equal(completePayload, buffer);
+            Assert.Equal(completePayload.Length, cache.GetCacheSizeBytes());
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task MediaPathChange_UsesADistinctCacheEntry()
     {
         var root = CreateTempDirectory();

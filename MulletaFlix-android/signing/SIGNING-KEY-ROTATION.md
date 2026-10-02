@@ -11,6 +11,6 @@ O arquivo `.jks`, as senhas e qualquer cópia da chave privada ficam fora do Git
 
 ## Compatibilidade
 
-A release Android `v1.3.80` foi assinada com o certificado legado `224F9A6BD12690E1114ACE649BBFA778D3E7E99DAE608FF711DDF9131E036273`. Android não aceita uma atualização do mesmo pacote assinada por esta nova chave. Portanto, uma próxima publicação com a nova chave exige uma estratégia explícita: distribuição como novo aplicativo/pacote ou recuperação da chave legada para manter a atualização.
+A release Android `v1.3.80` foi assinada com o certificado legado `224F9A6BD12690E1114ACE649BBFA778D3E7E99DAE608FF711DDF9131E036273`. O proprietário confirmou que fará uma reinstalação limpa para receber a v1.3.81 assinada com a chave rotacionada `4890D80B87FE27C804FF875B549ACD57B946FE6F9BBA0B9D7718989EC5A0A24C`; remover o app pode apagar dados locais. Não altere o `applicationId`.
 
 Antes de qualquer publicação, execute `:app:verifyProductionSigningCertificate` e confirme que o APK foi assinado com o certificado desta documentação.
