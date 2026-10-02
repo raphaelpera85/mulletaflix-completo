@@ -48,4 +48,34 @@ class DetailPlaybackTargetTest {
         val series = MediaItem("s1", "Series", MediaItemType.Series)
         assertTrue(canPlayItem(series, listOf(firstEpisode)))
     }
+
+    @Test
+    fun `book opens reader on handheld devices`() {
+        val book = MediaItem("book-1", "Livro", MediaItemType.Book)
+
+        assertEquals(
+            DetailPlaybackTarget.ReadBook("book-1"),
+            detailPlaybackTarget(book, emptyList(), isTelevision = false),
+        )
+    }
+
+    @Test
+    fun `book reader action is unavailable on television`() {
+        val book = MediaItem("book-1", "Livro", MediaItemType.Book)
+
+        assertEquals(
+            DetailPlaybackTarget.Unavailable,
+            detailPlaybackTarget(book, emptyList(), isTelevision = true),
+        )
+    }
+
+    @Test
+    fun `series without episodes keeps disabled video action`() {
+        val series = MediaItem("s1", "Series", MediaItemType.Series)
+
+        assertEquals(
+            DetailPlaybackTarget.PlayVideo("s1", enabled = false),
+            detailPlaybackTarget(series, emptyList(), isTelevision = false),
+        )
+    }
 }

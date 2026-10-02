@@ -1,6 +1,7 @@
 package org.mulletaflix.core.api
 
 import retrofit2.http.*
+import retrofit2.http.Streaming
 import org.mulletaflix.core.api.dto.*
 import org.mulletaflix.core.common.session.FeedbackRequestSession
 
@@ -393,6 +394,14 @@ interface MulletaFlixApiService {
 
     @GET("Audio/{itemId}/Lyrics")
     suspend fun getLyrics(@Path("itemId") itemId: String): LyricsDto
+
+    // ── Books ────────────────────────────────────────────────────────────────
+
+    @Streaming
+    @GET("BookReader/Items/{itemId}/BookReader/Epub")
+    suspend fun getBookEpub(
+        @Path("itemId") itemId: String,
+    ): retrofit2.Response<okhttp3.ResponseBody>
 
     // ── Images ────────────────────────────────────────────────────────────────
 

@@ -37,6 +37,8 @@ media3 = "1.11.1"
 
 # Kotlin Coroutines
 coroutines = "1.11.0"
+readium = "3.4.0"
+desugarJdkLibs = "2.1.5"
 
 # Serialization
 serialization = "1.9.0"
@@ -115,6 +117,13 @@ media3-cast = { group = "androidx.media3", name = "media3-cast", version.ref = "
 
 # Coroutines
 kotlinx-coroutines-android = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-android", version.ref = "coroutines" }
+
+# EPUB reader (Readium)
+readium-shared = { group = "org.readium.kotlin-toolkit", name = "readium-shared", version.ref = "readium" }
+readium-streamer = { group = "org.readium.kotlin-toolkit", name = "readium-streamer", version.ref = "readium" }
+readium-navigator-web-reflowable = { group = "org.readium.kotlin-toolkit", name = "readium-navigator-web-reflowable", version.ref = "readium" }
+readium-navigator-web-fixedlayout = { group = "org.readium.kotlin-toolkit", name = "readium-navigator-web-fixedlayout", version.ref = "readium" }
+desugar-jdk-libs = { group = "com.android.tools", name = "desugar_jdk_libs", version.ref = "desugarJdkLibs" }
 
 # Serialization
 kotlinx-serialization-json = { group = "org.jetbrains.kotlinx", name = "kotlinx-serialization-json", version.ref = "serialization" }

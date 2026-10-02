@@ -3,6 +3,34 @@ package org.mulletaflix.feature.itemdetail
 import org.mulletaflix.domain.model.MediaItem
 import org.mulletaflix.domain.model.MediaItemType
 
+internal sealed interface DetailPlaybackTarget {
+    data class PlayVideo(
+        val itemId: String,
+        val enabled: Boolean = true,
+    ) : DetailPlaybackTarget
+
+    data class ReadBook(val itemId: String) : DetailPlaybackTarget
+
+    data object Unavailable : DetailPlaybackTarget
+}
+
+internal fun detailPlaybackTarget(
+    item: MediaItem,
+    episodes: List<MediaItem>,
+    isTelevision: Boolean,
+): DetailPlaybackTarget = when (item.type) {
+    MediaItemType.Book -> if (isTelevision) {
+        DetailPlaybackTarget.Unavailable
+    } else {
+        DetailPlaybackTarget.ReadBook(item.id)
+    }
+    MediaItemType.Series, MediaItemType.Season -> DetailPlaybackTarget.PlayVideo(
+        itemId = episodes.firstOrNull()?.id ?: item.id,
+        enabled = episodes.isNotEmpty(),
+    )
+    else -> DetailPlaybackTarget.PlayVideo(item.id)
+}
+
 /**
  * Item id handed to the player when the user presses "Reproduzir" on a detail page.
  *

@@ -59,6 +59,7 @@ import org.mulletaflix.designsystem.theme.MulletaFlixRed
 fun ItemDetailScreen(
     itemId: String,
     onPlay: (String) -> Unit,
+    onReadBook: (String) -> Unit,
     onItemClick: (String) -> Unit,
     onBack: () -> Unit,
     viewModel: ItemDetailViewModel = hiltViewModel()
@@ -81,14 +82,21 @@ fun ItemDetailScreen(
     Box(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
 
         state.item?.let { item ->
+            val primaryAction = detailPlaybackTarget(item, state.episodes, isTelevision)
             val hero: @Composable ColumnScope.() -> Unit = {
                 DetailHero(
                     item = item,
                     onBack = onBack,
                     onRefresh = { viewModel.loadItem(itemId) },
                     isRefreshing = state.isLoading,
-                    onPlay = { onPlay(playbackTargetId(item, state.episodes)) },
-                    playEnabled = canPlayItem(item, state.episodes),
+                    primaryAction = primaryAction,
+                    onPrimaryAction = {
+                        when (val action = primaryAction) {
+                            is DetailPlaybackTarget.PlayVideo -> if (action.enabled) onPlay(action.itemId)
+                            is DetailPlaybackTarget.ReadBook -> onReadBook(action.itemId)
+                            DetailPlaybackTarget.Unavailable -> Unit
+                        }
+                    },
                      onFavorite = { viewModel.toggleFavorite() },
                      onMarkWatched = { viewModel.toggleWatched() },
                      onDownload = { viewModel.downloadItem() },
@@ -287,8 +295,8 @@ internal fun DetailHero(
     onBack: () -> Unit,
     onRefresh: () -> Unit,
     isRefreshing: Boolean,
-    onPlay: () -> Unit,
-    playEnabled: Boolean,
+    primaryAction: DetailPlaybackTarget,
+    onPrimaryAction: () -> Unit,
     onFavorite: () -> Unit,
     onMarkWatched: () -> Unit,
     onDownload: () -> Unit,
@@ -396,11 +404,11 @@ internal fun DetailHero(
                 // Action buttons row
                 DetailActionRow(
                     item = item,
-                    playEnabled = playEnabled,
+                    primaryAction = primaryAction,
                     isDownloadPreparing = isDownloadPreparing,
                     isFavoriteUpdating = isFavoriteUpdating,
                     isWatchedUpdating = isWatchedUpdating,
-                    onPlay = onPlay,
+                    onPrimaryAction = onPrimaryAction,
                     onFavorite = onFavorite,
                     onMarkWatched = onMarkWatched,
                     onDownload = onDownload,
@@ -441,11 +449,11 @@ internal fun PlaybackIssueAction(
 @Composable
 internal fun DetailActionRow(
     item: MediaItem,
-    playEnabled: Boolean,
+    primaryAction: DetailPlaybackTarget,
     isDownloadPreparing: Boolean,
     isFavoriteUpdating: Boolean,
     isWatchedUpdating: Boolean,
-    onPlay: () -> Unit,
+    onPrimaryAction: () -> Unit,
     onFavorite: () -> Unit,
     onMarkWatched: () -> Unit,
     onDownload: () -> Unit,
@@ -459,15 +467,25 @@ internal fun DetailActionRow(
             .testTag("item-detail-actions-scroll-row"),
         horizontalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        // Play
-        Button(
-            onClick = onPlay,
-            enabled = playEnabled,
-            colors = ButtonDefaults.buttonColors(containerColor = MulletaFlixRed)
-        ) {
-            Icon(Icons.Default.PlayArrow, contentDescription = null)
-            Spacer(Modifier.width(4.dp))
-            Text(if ((item.playbackPositionTicks ?: 0L) > 0L) "Continuar" else "Reproduzir")
+        when (primaryAction) {
+            DetailPlaybackTarget.Unavailable -> Unit
+            is DetailPlaybackTarget.ReadBook -> Button(
+                onClick = onPrimaryAction,
+                colors = ButtonDefaults.buttonColors(containerColor = MulletaFlixRed),
+            ) {
+                Icon(Icons.Default.MenuBook, contentDescription = null)
+                Spacer(Modifier.width(4.dp))
+                Text("Ler livro")
+            }
+            is DetailPlaybackTarget.PlayVideo -> Button(
+                onClick = onPrimaryAction,
+                enabled = primaryAction.enabled,
+                colors = ButtonDefaults.buttonColors(containerColor = MulletaFlixRed),
+            ) {
+                Icon(Icons.Default.PlayArrow, contentDescription = null)
+                Spacer(Modifier.width(4.dp))
+                Text(if ((item.playbackPositionTicks ?: 0L) > 0L) "Continuar" else "Reproduzir")
+            }
         }
 
         // Favorite

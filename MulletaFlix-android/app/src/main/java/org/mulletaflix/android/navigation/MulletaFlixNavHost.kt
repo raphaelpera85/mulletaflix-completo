@@ -51,6 +51,7 @@ import org.mulletaflix.feature.home.HomeScreen
 import org.mulletaflix.feature.library.LibraryScreen
 import org.mulletaflix.feature.library.FavoritesScreen
 import org.mulletaflix.feature.itemdetail.ItemDetailScreen
+import org.mulletaflix.feature.itemdetail.BookReaderScreen
 import org.mulletaflix.feature.player.VideoPlayerScreen
 import org.mulletaflix.feature.player.PlayerMediaSessionBridge
 import org.mulletaflix.feature.player.CastConnectionState
@@ -143,7 +144,8 @@ fun MulletaFlixNavHost(
 
     val castMiniController by PlayerMediaSessionBridge.castMiniControllerState.collectAsState()
     val isPlayerRoute = currentRoute == MulletaFlixRoute.VIDEO_PLAYER ||
-        currentRoute == MulletaFlixRoute.OFFLINE_PLAYER
+        currentRoute == MulletaFlixRoute.OFFLINE_PLAYER ||
+        currentRoute == MulletaFlixRoute.BOOK_READER
     val isAuthRoute = currentRoute == MulletaFlixRoute.LOGIN ||
         currentRoute == MulletaFlixRoute.SERVER_SELECTION
 
@@ -343,8 +345,19 @@ fun MulletaFlixNavHost(
             ItemDetailScreen(
                 itemId = itemId,
                 onPlay = { id -> navController.navigate(MulletaFlixRoute.videoPlayer(id)) },
+                onReadBook = { id -> navController.navigate(MulletaFlixRoute.bookReader(id)) },
                 onItemClick = { id -> navController.navigate(MulletaFlixRoute.itemDetail(id)) },
                 onBack = { navController.popBackStack() }
+            )
+        }
+
+        composable(
+            route = MulletaFlixRoute.BOOK_READER,
+            arguments = listOf(navArgument("itemId") { type = NavType.StringType }),
+        ) { backStack ->
+            BookReaderScreen(
+                itemId = backStack.arguments?.getString("itemId") ?: "",
+                onBack = { navController.popBackStack() },
             )
         }
 
@@ -484,11 +497,13 @@ object MulletaFlixRoute {
 
     const val LIBRARY = "main/library/{libId}"
     const val ITEM_DETAIL = "detail/{itemId}"
+    const val BOOK_READER = "reader/book/{itemId}"
     const val VIDEO_PLAYER = "player/video/{itemId}"
     const val OFFLINE_PLAYER = "player/offline/{itemId}?uri={uri}&title={title}&downloadId={downloadId}"
 
     fun library(libId: String) = "main/library/$libId"
     fun itemDetail(itemId: String) = "detail/$itemId"
+    fun bookReader(itemId: String) = "reader/book/$itemId"
     fun videoPlayer(itemId: String) = "player/video/$itemId"
     fun offlinePlayer(
         itemId: String,
