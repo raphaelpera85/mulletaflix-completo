@@ -99,29 +99,29 @@ class BookReaderLifecycleTest {
             composeRule.onNodeWithText("Livro de teste").assertExists()
             composeRule.waitForNextEnabled()
             composeRule.waitUntil(timeoutMillis = 10_000) {
-                composeRule.currentLocationHref() != null
+                currentLocationHref() != null
             }
-            val initialLocation = composeRule.currentLocationHref()
+            val initialLocation = currentLocationHref()
 
             composeRule.onNodeWithText("Próximo").performClick()
             composeRule.waitUntil(timeoutMillis = 10_000) {
-                val current = composeRule.currentLocationHref()
+                val current = currentLocationHref()
                 current != null && current != initialLocation
             }
-            val advancedLocation = composeRule.currentLocationHref()
-            val updatesBeforeRecreate = composeRule.locationUpdateCount()
+            val advancedLocation = currentLocationHref()
+            val updatesBeforeRecreate = locationUpdateCount()
 
             composeRule.activityRule.scenario.recreate()
 
             composeRule.waitForIdle()
             composeRule.onNodeWithText("Livro de teste").assertExists()
             composeRule.waitUntil(timeoutMillis = 10_000) {
-                composeRule.locationUpdateCount() > updatesBeforeRecreate &&
-                    composeRule.currentLocationHref() == advancedLocation
+                locationUpdateCount() > updatesBeforeRecreate &&
+                    currentLocationHref() == advancedLocation
             }
             composeRule.waitForPreviousEnabled()
 
-            val updatesBeforeRotation = composeRule.locationUpdateCount()
+            val updatesBeforeRotation = locationUpdateCount()
             composeRule.activityRule.scenario.onActivity {
                 it.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
             }
@@ -129,8 +129,8 @@ class BookReaderLifecycleTest {
                 composeRule.activity.resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
             }
             composeRule.waitUntil(timeoutMillis = 10_000) {
-                composeRule.locationUpdateCount() > updatesBeforeRotation &&
-                    composeRule.currentLocationHref() == advancedLocation
+                locationUpdateCount() > updatesBeforeRotation &&
+                    currentLocationHref() == advancedLocation
             }
             composeRule.waitForPreviousEnabled()
         } finally {
@@ -237,15 +237,15 @@ class BookReaderLifecycleTest {
         }
     }
 
-    private fun androidx.compose.ui.test.junit4.AndroidComposeTestRule<*, *>.currentLocationHref(): String? {
+    private fun currentLocationHref(): String? {
         var href: String? = null
-        activityRule.scenario.onActivity { href = it.currentLocationHref() }
+        composeRule.activityRule.scenario.onActivity { href = it.currentLocationHref() }
         return href
     }
 
-    private fun androidx.compose.ui.test.junit4.AndroidComposeTestRule<*, *>.locationUpdateCount(): Int {
+    private fun locationUpdateCount(): Int {
         var count = 0
-        activityRule.scenario.onActivity { count = it.locationUpdateCount() }
+        composeRule.activityRule.scenario.onActivity { count = it.locationUpdateCount() }
         return count
     }
 
