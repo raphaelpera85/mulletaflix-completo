@@ -12,6 +12,9 @@ class GetFavoriteItemsUseCase @Inject constructor(
         userId: String,
         startIndex: Int = 0,
         limit: Int = 40,
+        sortBy: String = "SortName",
+        sortOrder: String = "Ascending",
+        searchTerm: String? = null,
     ): Result<Pair<List<MediaItem>, Int>> = runCatching {
         require(userId.isNotBlank()) { "O identificador do usuário é obrigatório." }
         require(startIndex >= 0) { "O índice inicial não pode ser negativo." }
@@ -19,9 +22,10 @@ class GetFavoriteItemsUseCase @Inject constructor(
 
         mediaRepository.getItems(
             userId = userId,
-            sortBy = "SortName",
-            sortOrder = "Ascending",
+            sortBy = sortBy,
+            sortOrder = sortOrder,
             filters = "IsFavorite",
+            searchTerm = searchTerm?.trim()?.takeIf(String::isNotEmpty),
             startIndex = startIndex,
             limit = limit,
             isFavorite = true,

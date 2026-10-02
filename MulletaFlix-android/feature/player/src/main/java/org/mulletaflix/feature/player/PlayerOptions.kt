@@ -38,10 +38,15 @@ data class PlaybackStats(
     val resolution: String? = null,
     val bitrate: String? = null,
     val playMethod: String = "Direct Play",
+    val sessionMetrics: PlaybackSessionMetrics? = null,
 )
 
 /** Stable, user-facing text for sharing playback diagnostics with support. */
-internal fun formatPlaybackStats(stats: PlaybackStats?, title: String? = null): String = buildString {
+internal fun formatPlaybackStats(
+    stats: PlaybackStats?,
+    title: String? = null,
+    isCasting: Boolean = false,
+): String = buildString {
     appendLine("Dados técnicos da mídia")
     title?.takeIf(String::isNotBlank)?.let { appendLine("Título: $it") }
     appendLine("Método de Reprodução: ${stats?.playMethod ?: "Direct Play"}")
@@ -49,6 +54,17 @@ internal fun formatPlaybackStats(stats: PlaybackStats?, title: String? = null): 
     stats?.videoCodec?.let { appendLine("Codec de Vídeo: $it") }
     stats?.audioCodec?.let { appendLine("Codec de Áudio: $it") }
     stats?.bitrate?.let { appendLine("Taxa de Bits: $it") }
+    appendLine("Métricas desta sessão:")
+    if (isCasting) {
+        appendLine("Diagnóstico local indisponível durante transmissão Cast")
+    } else {
+        val metrics = stats?.sessionMetrics
+        appendLine("Primeiro quadro de vídeo: ${metrics?.firstVideoFrameMs?.let(::formatPlaybackDuration) ?: "indisponível"}")
+        appendLine("Interrupções em buffer: ${metrics?.bufferingEpisodes ?: "indisponível"}")
+        appendLine("Tempo em buffer: ${metrics?.bufferingDurationMs?.let(::formatPlaybackDuration) ?: "indisponível"}")
+        appendLine("Quadros de vídeo perdidos: ${metrics?.droppedVideoFrames ?: "indisponível"}")
+        appendLine("Formato de vídeo ativo: ${metrics?.activeVideoFormat ?: "indisponível"}")
+    }
 }.trimEnd()
 
 /** Returns stable, user-facing quality choices from the actual video tracks. */

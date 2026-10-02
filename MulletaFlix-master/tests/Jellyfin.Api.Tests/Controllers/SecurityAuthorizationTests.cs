@@ -39,12 +39,21 @@ public class SecurityAuthorizationTests
         AssertClassHasPolicy(typeof(ActivityLogController), Policies.RequiresElevation);
         AssertClassHasPolicy(typeof(PlaybackReportsController), Policies.RequiresElevation);
         AssertClassHasPolicy(typeof(ServerHealthController), Policies.RequiresElevation);
+        AssertClassHasPolicy(typeof(NebulaFtpController), Policies.RequiresElevation);
         AssertMethodHasPolicy(typeof(DashboardController), nameof(DashboardController.GetConfigurationPages), Policies.RequiresElevation);
         AssertMethodHasPolicy(typeof(DashboardController), nameof(DashboardController.GetDashboardConfigurationPage), Policies.RequiresElevation);
         AssertMethodHasPolicy(typeof(SystemController), nameof(SystemController.GetSystemStorage), Policies.RequiresElevation);
         AssertMethodHasPolicy(typeof(SystemController), nameof(SystemController.GetServerLogs), Policies.RequiresElevation);
         AssertMethodHasPolicy(typeof(SystemController), nameof(SystemController.GetLogFile), Policies.RequiresElevation);
         AssertClassHasPolicy(typeof(EnvironmentController), Policies.FirstTimeSetupOrElevated);
+    }
+
+    [Fact]
+    public void ApiKeyManagementEndpoints_RequireElevation()
+    {
+        AssertMethodHasPolicy(typeof(ApiKeyController), nameof(ApiKeyController.GetKeys), Policies.RequiresElevation);
+        AssertMethodHasPolicy(typeof(ApiKeyController), nameof(ApiKeyController.CreateKey), Policies.RequiresElevation);
+        AssertMethodHasPolicy(typeof(ApiKeyController), nameof(ApiKeyController.RevokeKey), Policies.RequiresElevation);
     }
 
     [Fact]

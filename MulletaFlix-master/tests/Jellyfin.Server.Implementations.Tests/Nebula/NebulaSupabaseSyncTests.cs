@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics.Metrics;
 using System.Globalization;
 using System.Linq;
 using System.Net;
@@ -131,6 +132,51 @@ public class NebulaSupabaseSyncTests
 
         Assert.False(result.Success);
         Assert.Contains("origem relacional", result.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task SupabaseOperations_ReportBoundedMetricsAndReleaseActiveGaugeOnFailure()
+    {
+        var measurements = new List<(string Name, double Value, KeyValuePair<string, object?>[] Tags)>();
+        using var listener = new MeterListener();
+        listener.InstrumentPublished = (instrument, meterListener) =>
+        {
+            if (instrument.Meter.Name == NebulaSupabaseSyncService.MeterName)
+            {
+                meterListener.EnableMeasurementEvents(instrument);
+            }
+        };
+        listener.SetMeasurementEventCallback<long>((instrument, value, tags, _) =>
+            measurements.Add((instrument.Name, value, tags.ToArray())));
+        listener.SetMeasurementEventCallback<double>((instrument, value, tags, _) =>
+            measurements.Add((instrument.Name, value, tags.ToArray())));
+        listener.Start();
+
+        using var service = new NebulaSupabaseSyncService(null!, NullLogger<NebulaSupabaseSyncService>.Instance);
+        var result = await service.PerformBackupAsync("https://supabase.invalid", "sb_publishable_test", progressAction: null);
+        var userBackupResult = await service.PerformUsersBackupAsync("https://supabase.invalid", "sb_secret_test");
+
+        Assert.False(result.Success);
+        Assert.False(userBackupResult.Success);
+        var operations = measurements.Where(item => item.Name == "mulletaflix.supabase.operations").ToArray();
+        Assert.Equal(2, operations.Length);
+        Assert.All(operations, operation =>
+        {
+            Assert.Equal(1, operation.Value);
+            Assert.Contains(operation.Tags, tag => tag.Key == "result" && Equals(tag.Value, "failure"));
+        });
+        Assert.Contains(operations, operation => operation.Tags.Any(tag => tag.Key == "operation" && Equals(tag.Value, "mongodb_delta_sync")));
+        Assert.Contains(operations, operation => operation.Tags.Any(tag => tag.Key == "operation" && Equals(tag.Value, "backup_app_users")));
+        Assert.Equal(2, measurements.Count(item => item.Name == "mulletaflix.supabase.operation.duration" && item.Value >= 0));
+        Assert.Equal([1d, -1d, 1d, -1d], measurements
+            .Where(item => item.Name == "mulletaflix.supabase.active_operations")
+            .Select(item => item.Value)
+            .ToArray());
+        Assert.All(measurements, item => Assert.DoesNotContain(item.Tags, tag =>
+            tag.Key.Contains("url", StringComparison.OrdinalIgnoreCase)
+            || tag.Key.Contains("key", StringComparison.OrdinalIgnoreCase)
+            || tag.Key.Contains("path", StringComparison.OrdinalIgnoreCase)
+            || tag.Key.Contains("user", StringComparison.OrdinalIgnoreCase)));
     }
 
     [Fact]

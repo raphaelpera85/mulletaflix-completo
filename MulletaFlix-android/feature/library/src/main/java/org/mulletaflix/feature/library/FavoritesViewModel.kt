@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -28,6 +29,10 @@ data class FavoritesState(
     val hasMore: Boolean = false,
     val error: String? = null,
     val gridDensity: String = LIBRARY_GRID_DENSITY_COMFORTABLE,
+    val searchQuery: String = "",
+    val sortBy: SortOption = SortOption.Name,
+    val sortOrder: SortOrder = SortOrder.Ascending,
+    val showSortMenu: Boolean = false,
 )
 
 @HiltViewModel
@@ -42,6 +47,7 @@ class FavoritesViewModel @Inject constructor(
     val state: StateFlow<FavoritesState> = _state.asStateFlow()
     private val pageSize = 40
     private var loadJob: Job? = null
+    private var searchJob: Job? = null
     private var loadGeneration = 0L
     private var loadInFlight = false
     private var currentUserId: String? = null
@@ -78,6 +84,8 @@ class FavoritesViewModel @Inject constructor(
                 currentUserId = userId
                 hasObservedUser = true
                 if (userChanged) {
+                    searchJob?.cancel()
+                    searchJob = null
                     loadJob?.cancel()
                     loadInFlight = false
                     ++loadGeneration
@@ -89,6 +97,10 @@ class FavoritesViewModel @Inject constructor(
                             isLoading = false,
                             isRefreshing = false,
                             error = null,
+                            searchQuery = "",
+                            sortBy = SortOption.Name,
+                            sortOrder = SortOrder.Ascending,
+                            showSortMenu = false,
                         )
                     }
                 }
@@ -98,6 +110,42 @@ class FavoritesViewModel @Inject constructor(
     }
 
     fun refresh() {
+        searchJob?.cancel()
+        searchJob = null
+        reload()
+    }
+
+    fun setSearchQuery(query: String) {
+        if (_state.value.searchQuery == query) return
+        _state.update { it.copy(searchQuery = query) }
+        searchJob?.cancel()
+        searchJob = viewModelScope.launch {
+            delay(FAVORITES_SEARCH_DEBOUNCE_MS)
+            searchJob = null
+            reload()
+        }
+    }
+
+    fun toggleSortMenu() {
+        _state.update { it.copy(showSortMenu = !it.showSortMenu) }
+    }
+
+    fun dismissSortMenu() {
+        _state.update { it.copy(showSortMenu = false) }
+    }
+
+    fun setSort(option: SortOption, order: SortOrder) {
+        if (_state.value.sortBy == option && _state.value.sortOrder == order) {
+            dismissSortMenu()
+            return
+        }
+        _state.update { it.copy(sortBy = option, sortOrder = order, showSortMenu = false) }
+        reload()
+    }
+
+    private fun reload() {
+        searchJob?.cancel()
+        searchJob = null
         loadJob?.cancel()
         loadInFlight = false
         _state.update { it.copy(isRefreshing = true) }
@@ -139,7 +187,14 @@ class FavoritesViewModel @Inject constructor(
 
                 if (!isCurrentLoad(generation)) return@launch
                 _state.update { it.copy(isLoading = true, error = if (append) it.error else null) }
-                getFavoriteItemsUseCase(userId, startIndex, pageSize)
+                getFavoriteItemsUseCase(
+                    userId = userId,
+                    startIndex = startIndex,
+                    limit = pageSize,
+                    sortBy = _state.value.sortBy.apiValue,
+                    sortOrder = _state.value.sortOrder.apiValue,
+                    searchTerm = _state.value.searchQuery,
+                )
                     .onSuccess { (items, total) ->
                         if (!isCurrentLoad(generation)) return@onSuccess
                         fetchedItemCount = if (append) fetchedItemCount + items.size else items.size
@@ -190,3 +245,5 @@ class FavoritesViewModel @Inject constructor(
 
     private fun isCurrentLoad(generation: Long): Boolean = generation == loadGeneration
 }
+
+internal const val FAVORITES_SEARCH_DEBOUNCE_MS = 350L

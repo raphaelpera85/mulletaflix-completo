@@ -85,6 +85,7 @@ public sealed class NebulaChunkedStream : Stream
     private readonly string _mediaKey;
     private readonly IDisposable? _playbackLease;
     private readonly Func<NebulaStreamPart, int, CancellationToken, Task<byte[]>>? _chunkFetcher;
+    private readonly Task _wholeMediaPrefetchTask = Task.CompletedTask;
     private readonly SemaphoreSlim _lock = new(1, 1);
     private readonly CancellationTokenSource _streamCts = new();
 
@@ -170,9 +171,11 @@ public sealed class NebulaChunkedStream : Stream
 
         if (_playbackCache != null && _parts.Count > 0)
         {
-            _playbackCache.StartPrefetch(_mediaKey, PrefetchWholeMediaAsync);
+            _wholeMediaPrefetchTask = _playbackCache.StartPrefetch(_mediaKey, PrefetchWholeMediaAsync);
         }
     }
+
+    internal Task WholeMediaPrefetchTask => _wholeMediaPrefetchTask;
 
     /// <inheritdoc />
     public override bool CanRead => !_disposed;

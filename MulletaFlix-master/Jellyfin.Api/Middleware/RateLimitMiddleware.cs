@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Diagnostics.Metrics;
 using System.Linq;
 using System.Net;
 using System.Security.Cryptography;
@@ -15,6 +16,13 @@ namespace MulletaFlix.Api.Middleware;
 
 public class RateLimitMiddleware
 {
+    public const string MeterName = "MulletaFlix.Server.HttpAdmission";
+    private static readonly Meter AdmissionMeter = new(MeterName);
+    private static readonly Counter<long> RejectedRequestCounter = AdmissionMeter.CreateCounter<long>(
+        "mulletaflix.http.admission.rejected",
+        unit: "{request}",
+        description: "HTTP requests rejected by rate limits or heavy-operation admission.");
+
     private static readonly ConcurrentDictionary<string, RateLimitEntry> _failedLogins = new(StringComparer.OrdinalIgnoreCase);
     private static readonly ConcurrentDictionary<string, RateLimitEntry> _anonymousRequests = new(StringComparer.OrdinalIgnoreCase);
     private static readonly ConcurrentDictionary<string, RateLimitEntry> _searchRequests = new(StringComparer.OrdinalIgnoreCase);
@@ -111,6 +119,7 @@ public class RateLimitMiddleware
         var heavyOperationLimiter = GetHeavyOperationLimiter(context.Request.Method, context.Request.Path.Value);
         if (heavyOperationLimiter is not null && !heavyOperationLimiter.Wait(0))
         {
+            RecordRejection("heavy_operation");
             _logger.LogWarning("Concurrent heavy operation rejected for path {Path}", context.Request.Path);
             context.Response.StatusCode = (int)HttpStatusCode.TooManyRequests;
             context.Response.Headers.RetryAfter = "1";
@@ -151,6 +160,7 @@ public class RateLimitMiddleware
             loginEntry = _failedLogins.GetOrAdd(ip, _ => new RateLimitEntry());
             if (!loginEntry.TryEnterLogin(DateTime.UtcNow, LoginWindow, MaxFailedLogins, out var retryAfterLogin))
             {
+                RecordRejection("login");
                 _logger.LogWarning("Rate limit exceeded for login from IP {IP}", ip);
                 context.Response.StatusCode = (int)HttpStatusCode.TooManyRequests;
                 context.Response.Headers.RetryAfter = retryAfterLogin.ToString(System.Globalization.CultureInfo.InvariantCulture);
@@ -184,6 +194,7 @@ public class RateLimitMiddleware
             var clientKey = GetSelectiveClientKey(context, ip);
             if (!TryRecordAttempt(selectiveStore, clientKey, selectiveWindow, selectiveMax, out var retryAfterSelective))
             {
+                RecordRejection(selectiveCategory);
                 _logger.LogWarning("Rate limit exceeded for {Category} requests from IP {IP}", selectiveCategory, ip);
                 context.Response.StatusCode = (int)HttpStatusCode.TooManyRequests;
                 context.Response.Headers.RetryAfter = retryAfterSelective.ToString(System.Globalization.CultureInfo.InvariantCulture);
@@ -194,6 +205,7 @@ public class RateLimitMiddleware
         {
             if (!TryRecordAttempt(_anonymousRequests, ip, AnonymousWindow, MaxAnonymousRequests, out var retryAfterAnonymous))
             {
+                RecordRejection("anonymous");
                 _logger.LogWarning("Rate limit exceeded for anonymous requests from IP {IP}", ip);
                 context.Response.StatusCode = (int)HttpStatusCode.TooManyRequests;
                 context.Response.Headers.RetryAfter = retryAfterAnonymous.ToString(System.Globalization.CultureInfo.InvariantCulture);
@@ -216,6 +228,11 @@ public class RateLimitMiddleware
                 EvictStaleEntries(_failedLogins, DateTime.UtcNow);
             }
         }
+    }
+
+    private static void RecordRejection(string category)
+    {
+        RejectedRequestCounter.Add(1, new KeyValuePair<string, object?>("category", category));
     }
 
     private static SemaphoreSlim? GetHeavyOperationLimiter(string method, string? path)

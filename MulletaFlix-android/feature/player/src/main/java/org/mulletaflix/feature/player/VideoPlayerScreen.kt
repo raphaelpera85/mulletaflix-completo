@@ -699,8 +699,8 @@ fun VideoPlayerScreen(
                 onAspectRatioSelect = { ratio -> viewModel.setAspectRatio(ratio) },
                 onLockClick = { viewModel.setControlsLocked(true) },
                 onCastClick = { viewModel.startCast() },
-                onCopyStats = { copyPlaybackStats(context, state.title, state.playbackStats) },
-                onShareStats = { sharePlaybackStats(context, state.title, state.playbackStats) },
+                onCopyStats = { copyPlaybackStats(context, state.title, state.playbackStats, state.isCasting) },
+                onShareStats = { sharePlaybackStats(context, state.title, state.playbackStats, state.isCasting) },
                 canReportPlaybackIssue = true,
                 isReportingIssue = state.isReportingPlaybackIssue,
                 issueReportSent = state.playbackIssueReportSent,
@@ -1226,6 +1226,7 @@ internal fun PlayerOsd(
             PlaybackStatsDialog(
                 title = state.title,
                 stats = state.playbackStats,
+                isCasting = state.isCasting,
                 onCopy = onCopyStats,
                 onShare = onShareStats,
                 onDismiss = { showStatsDialog = false }
@@ -1773,6 +1774,7 @@ private fun AspectRatioMenu(
 internal fun PlaybackStatsDialog(
     title: String? = null,
     stats: PlaybackStats?,
+    isCasting: Boolean = false,
     onCopy: () -> Unit,
     onShare: () -> Unit,
     onDismiss: () -> Unit,
@@ -1800,6 +1802,32 @@ internal fun PlaybackStatsDialog(
                 stats?.videoCodec?.let { Text("Codec de Vídeo: $it", style = MaterialTheme.typography.bodyMedium) }
                 stats?.audioCodec?.let { Text("Codec de Áudio: $it", style = MaterialTheme.typography.bodyMedium) }
                 stats?.bitrate?.let { Text("Taxa de Bits: $it", style = MaterialTheme.typography.bodyMedium) }
+                Text("Métricas desta sessão", style = MaterialTheme.typography.titleSmall)
+                if (isCasting) {
+                    Text("Diagnóstico local indisponível durante transmissão Cast", style = MaterialTheme.typography.bodyMedium)
+                } else {
+                    val metrics = stats?.sessionMetrics
+                    Text(
+                        "Primeiro quadro de vídeo: ${metrics?.firstVideoFrameMs?.let(::formatPlaybackDuration) ?: "indisponível"}",
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                    Text(
+                        "Interrupções em buffer: ${metrics?.bufferingEpisodes ?: "indisponível"}",
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                    Text(
+                        "Tempo em buffer: ${metrics?.bufferingDurationMs?.let(::formatPlaybackDuration) ?: "indisponível"}",
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                    Text(
+                        "Quadros de vídeo perdidos: ${metrics?.droppedVideoFrames ?: "indisponível"}",
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                    Text(
+                        "Formato de vídeo ativo: ${metrics?.activeVideoFormat ?: "indisponível"}",
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                }
             }
         },
         confirmButton = {
@@ -1821,16 +1849,16 @@ internal fun PlaybackStatsDialog(
     )
 }
 
-private fun copyPlaybackStats(context: Context, title: String?, stats: PlaybackStats?) {
+private fun copyPlaybackStats(context: Context, title: String?, stats: PlaybackStats?, isCasting: Boolean) {
     val clipboard = context.getSystemService(ClipboardManager::class.java) ?: return
-    clipboard.setPrimaryClip(ClipData.newPlainText("Dados técnicos da mídia", formatPlaybackStats(stats, title)))
+    clipboard.setPrimaryClip(ClipData.newPlainText("Dados técnicos da mídia", formatPlaybackStats(stats, title, isCasting)))
 }
 
-private fun sharePlaybackStats(context: Context, title: String?, stats: PlaybackStats?) {
+private fun sharePlaybackStats(context: Context, title: String?, stats: PlaybackStats?, isCasting: Boolean) {
     val shareIntent = Intent(Intent.ACTION_SEND).apply {
         type = "text/plain"
         putExtra(Intent.EXTRA_SUBJECT, "Dados técnicos da mídia — MulletaFlix")
-        putExtra(Intent.EXTRA_TEXT, formatPlaybackStats(stats, title))
+        putExtra(Intent.EXTRA_TEXT, formatPlaybackStats(stats, title, isCasting))
         if (context !is Activity) addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
     }
     context.startActivity(Intent.createChooser(shareIntent, "Compartilhar dados técnicos"))

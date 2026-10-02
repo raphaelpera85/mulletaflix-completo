@@ -2,6 +2,7 @@ using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Diagnostics.Metrics;
 using System.Globalization;
 using System.IO;
 using System.Linq;
@@ -30,6 +31,13 @@ namespace MulletaFlix.Server.Implementations.Nebula;
 
 public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable, IAsyncDisposable
 {
+    public const string MeterName = "MulletaFlix.Nebula.Cleanup";
+
+    private static readonly Meter CleanupMeter = new(MeterName);
+    private static readonly Counter<long> CleanupCycleCounter = CleanupMeter.CreateCounter<long>("mulletaflix.nebula.cleanup.cycles");
+    private static readonly Histogram<double> CleanupCycleDuration = CleanupMeter.CreateHistogram<double>("mulletaflix.nebula.cleanup.duration", "s");
+    private static readonly UpDownCounter<long> ActiveCleanupCycles = CleanupMeter.CreateUpDownCounter<long>("mulletaflix.nebula.cleanup.active_cycles");
+
     private static readonly HttpClient RcloneRemoteControlClient = new() { Timeout = TimeSpan.FromSeconds(5) };
     private readonly IServerConfigurationManager _configManager;
     private readonly ILogger<NebulaFtpManager> _logger;
@@ -3026,17 +3034,41 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable, IAsyncDis
 
     private async Task RunCleanupCycleAsync(List<string> sources, CancellationToken cancellationToken)
     {
+        var startedAt = Stopwatch.GetTimestamp();
+        var outcome = "failure";
+        ActiveCleanupCycles.Add(1);
+        try
+        {
+            outcome = await RunCleanupCycleCoreAsync(sources, cancellationToken).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            outcome = "cancelled";
+            throw;
+        }
+        finally
+        {
+            var tags = new TagList { { "result", outcome } };
+            CleanupCycleCounter.Add(1, tags);
+            CleanupCycleDuration.Record(Stopwatch.GetElapsedTime(startedAt).TotalSeconds, tags);
+            ActiveCleanupCycles.Add(-1);
+        }
+    }
+
+    private async Task<string> RunCleanupCycleCoreAsync(List<string> sources, CancellationToken cancellationToken)
+    {
         if (_mongoContext == null)
         {
-            return;
+            return "skipped";
         }
 
         var completedPaths = await _mongoContext.GetCompletedTelegramLocalPathsAsync(cancellationToken).ConfigureAwait(false);
         if (completedPaths.Count == 0)
         {
-            return;
+            return "success";
         }
 
+        var hadSourceFailure = false;
         foreach (var source in sources)
         {
             if (!Directory.Exists(source))
@@ -3069,7 +3101,7 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable, IAsyncDis
                         // O progresso permanece registrado: o próximo ciclo retoma
                         // a partir da última entrada tratada.
                         completedTraversal = false;
-                        return;
+                        return "cancelled";
                     }
 
                     string fullPath;
@@ -3119,11 +3151,18 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable, IAsyncDis
                     }
                 }
             }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                return "cancelled";
+            }
             catch (Exception ex)
             {
+                hadSourceFailure = true;
                 _logger.LogDebug(ex, "Erro ao varrer pasta fonte de limpeza: {Source}", source);
             }
         }
+
+        return hadSourceFailure ? "partial_failure" : "success";
     }
 
     private void AddServerLog(string? line)

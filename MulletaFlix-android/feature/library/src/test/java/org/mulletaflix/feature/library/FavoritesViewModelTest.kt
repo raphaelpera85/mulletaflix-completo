@@ -7,6 +7,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
+import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
@@ -68,6 +69,97 @@ class FavoritesViewModelTest {
         assertEquals(listOf(first, second), viewModel.state.value.items)
         assertEquals(1, media.lastStartIndex)
         assertTrue(!viewModel.state.value.hasMore)
+    }
+
+    @Test
+    fun `search is debounced sent to server and starts pagination from first page`() = runTest {
+        val first = MediaItem("one", "One", MediaItemType.Movie)
+        val second = MediaItem("two", "Two", MediaItemType.Movie)
+        media.pages[0] = Result.success(listOf(first) to 2)
+        media.pages[1] = Result.success(listOf(second) to 2)
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+        viewModel.loadMore()
+        advanceUntilIdle()
+        val requestCountBeforeSearch = media.requestStarts.size
+        media.pages[0] = Result.success(emptyList<MediaItem>() to 0)
+
+        viewModel.setSearchQuery("  Matrix  ")
+        advanceTimeBy(FAVORITES_SEARCH_DEBOUNCE_MS - 1)
+        runCurrent()
+        assertEquals(requestCountBeforeSearch, media.requestStarts.size)
+
+        advanceTimeBy(1)
+        advanceUntilIdle()
+
+        assertEquals(requestCountBeforeSearch + 1, media.requestStarts.size)
+        assertEquals(0, media.lastStartIndex)
+        assertEquals("Matrix", media.lastSearchTerm)
+        assertEquals("  Matrix  ", viewModel.state.value.searchQuery)
+        assertEquals(emptyList<MediaItem>(), viewModel.state.value.items)
+        assertEquals(false, viewModel.state.value.hasMore)
+    }
+
+    @Test
+    fun `account change cancels pending debounced search`() = runTest {
+        val auth = FakeAuthRepository()
+        val viewModel = FavoritesViewModel(GetFavoriteItemsUseCase(media), auth, FakeSettingsRepository(), FakeNetworkMonitor())
+        advanceUntilIdle()
+        assertEquals(1, media.requestStarts.size)
+
+        viewModel.setSearchQuery("Matrix")
+        runCurrent()
+        auth.userIdState.value = "user-2"
+        runCurrent()
+        val requestsAfterAccountChange = media.requestStarts.size
+        advanceTimeBy(FAVORITES_SEARCH_DEBOUNCE_MS)
+        advanceUntilIdle()
+
+        assertEquals(requestsAfterAccountChange, media.requestStarts.size)
+        assertEquals("", viewModel.state.value.searchQuery)
+    }
+
+    @Test
+    fun `changing sort cancels pending debounced search and queries once`() = runTest {
+        val first = MediaItem("one", "One", MediaItemType.Movie)
+        media.pages[0] = Result.success(listOf(first) to 1)
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+
+        viewModel.setSearchQuery("Matrix")
+        runCurrent()
+        val requestsBeforeSort = media.requestStarts.size
+
+        viewModel.setSort(SortOption.Name, SortOrder.Descending)
+        runCurrent()
+        advanceTimeBy(FAVORITES_SEARCH_DEBOUNCE_MS)
+        advanceUntilIdle()
+
+        assertEquals(requestsBeforeSort + 1, media.requestStarts.size)
+        assertEquals("Matrix", media.lastSearchTerm)
+        assertEquals(SortOrder.Descending.apiValue, media.lastSortOrder)
+    }
+
+    @Test
+    fun `sort order is sent to server and resets paginated favorites`() = runTest {
+        val first = MediaItem("one", "One", MediaItemType.Movie)
+        val second = MediaItem("two", "Two", MediaItemType.Movie)
+        media.pages[0] = Result.success(listOf(first) to 2)
+        media.pages[1] = Result.success(listOf(second) to 2)
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+        viewModel.loadMore()
+        advanceUntilIdle()
+        media.pages[0] = Result.success(listOf(second, first) to 2)
+
+        viewModel.setSort(SortOption.Name, SortOrder.Descending)
+        advanceUntilIdle()
+
+        assertEquals(SortOption.Name.apiValue, media.lastSortBy)
+        assertEquals(SortOrder.Descending.apiValue, media.lastSortOrder)
+        assertEquals(0, media.lastStartIndex)
+        assertEquals(listOf(second, first), viewModel.state.value.items)
+        assertEquals(false, viewModel.state.value.hasMore)
     }
 
     /**
@@ -240,6 +332,9 @@ class FavoritesViewModelTest {
         var lastFilters: String? = null
         var lastIsFavorite: Boolean? = null
         var lastStartIndex = -1
+        var lastSearchTerm: String? = null
+        var lastSortBy: String? = null
+        var lastSortOrder: String? = null
         var requestStarts = mutableListOf<Int>()
         var responseSequence: ArrayDeque<CompletableDeferred<Result<Pair<List<MediaItem>, Int>>>>? = null
 
@@ -247,6 +342,9 @@ class FavoritesViewModelTest {
             lastFilters = filters
             lastIsFavorite = isFavorite
             lastStartIndex = startIndex
+            lastSearchTerm = searchTerm
+            lastSortBy = sortBy
+            lastSortOrder = sortOrder
             requestStarts += startIndex
             responseSequence?.removeFirstOrNull()?.let { deferred ->
                 return withContext(NonCancellable) { deferred.await() }

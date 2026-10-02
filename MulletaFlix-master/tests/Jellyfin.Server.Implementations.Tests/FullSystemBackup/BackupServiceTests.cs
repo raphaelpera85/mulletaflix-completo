@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Diagnostics.Metrics;
 using System.IO;
 using System.IO.Compression;
 using System.Linq;
@@ -300,6 +301,46 @@ public class BackupServiceTests
         _databaseProviderMock.Verify(
             provider => provider.RunScheduledOptimisation(It.IsAny<CancellationToken>()),
             Times.Exactly(2));
+    }
+
+    [Fact]
+    public async Task RestoreBackupAsync_ReportsBoundedOperationMetricsAndReleasesActiveGaugeOnFailure()
+    {
+        var measurements = new List<(string Name, double Value, KeyValuePair<string, object?>[] Tags)>();
+        using var listener = new MeterListener();
+        listener.InstrumentPublished = (instrument, meterListener) =>
+        {
+            if (instrument.Meter.Name == BackupService.MeterName)
+            {
+                meterListener.EnableMeasurementEvents(instrument);
+            }
+        };
+        listener.SetMeasurementEventCallback<long>((instrument, value, tags, _) =>
+            measurements.Add((instrument.Name, value, tags.ToArray())));
+        listener.SetMeasurementEventCallback<double>((instrument, value, tags, _) =>
+            measurements.Add((instrument.Name, value, tags.ToArray())));
+        listener.Start();
+
+        var service = CreateService();
+        await Assert.ThrowsAsync<FileNotFoundException>(
+            () => service.RestoreBackupAsync(Path.Combine(Path.GetTempPath(), $"missing-{Guid.NewGuid():N}.zip")));
+
+        var operation = Assert.Single(measurements.Where(item =>
+            item.Name == "mulletaflix.backup.operations"
+            && item.Tags.Any(tag => tag.Key == "result" && Equals(tag.Value, "failure"))));
+        Assert.Equal(1, operation.Value);
+        Assert.Contains(operation.Tags, tag => tag.Key == "operation" && Equals(tag.Value, "restore"));
+        Assert.Contains(measurements, item => item.Name == "mulletaflix.backup.operation.duration" && item.Value >= 0);
+
+        var activeValues = measurements
+            .Where(item => item.Name == "mulletaflix.backup.active_operations")
+            .Select(item => item.Value)
+            .ToArray();
+        Assert.Equal([1d, -1d], activeValues);
+        Assert.All(measurements, item => Assert.DoesNotContain(item.Tags, tag =>
+            tag.Key.Contains("path", StringComparison.OrdinalIgnoreCase)
+            || tag.Key.Contains("file", StringComparison.OrdinalIgnoreCase)
+            || tag.Key.Contains("user", StringComparison.OrdinalIgnoreCase)));
     }
 
     [Fact]

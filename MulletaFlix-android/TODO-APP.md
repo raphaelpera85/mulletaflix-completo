@@ -2,6 +2,29 @@
 
 Este documento rastreia o status de implementação de todas as funcionalidades, módulos, telas e componentes do aplicativo oficial **MulletaFlix Android**.
 
+## Diagnósticos locais da sessão de reprodução (APK local; sem release)
+
+- [x] Mostrar primeiro quadro, episódios/tempo em buffer, quadros descartados e formato de vídeo efetivamente recebido pelo player Media3.
+- [x] Contar somente rebuffer após o primeiro quadro, excluir pausas do usuário e atualizar o tempo somente enquanto há buffer ativo.
+- [x] Filtrar callbacks de períodos antigos e limpar métricas locais ao iniciar Cast; sem telemetria remota e sem atribuir métricas locais ao receptor.
+- [x] Cobrir o rastreador e o texto compartilhado por testes unitários; `:feature:player:testDebugUnitTest` e `:feature:player:compileDebugKotlin`: `BUILD SUCCESSFUL`.
+- [x] Painel instrumentado: 5 testes passaram em cada AVD de telefone API 35, tablet API 35 e Android TV API 34; AVDs encerrados pelo wrapper.
+- [x] `testDebugUnitTest` global, `:app:assembleDebug` e `:app:lintDebug`: `BUILD SUCCESSFUL` antes da revisão; os testes/compilação do Player passaram novamente após as correções da revisão.
+- [ ] Sem bump, APK de produção ou publicação nesta validação. Conferir release anterior e assinatura de produção antes de uma futura release.
+
+## Busca e ordenação em Minha Lista (APK local; sem release)
+
+- [x] Adicionar busca por título no servidor, com debounce de 350 ms; nova consulta reinicia a paginação e descarta respostas antigas.
+- [x] Adicionar ordenação suportada pelo servidor com direção ascendente/descendente; excluir ordenação aleatória para manter páginas estáveis.
+- [x] Mostrar resultado vazio com ação para limpar busca; desabilitar busca/ordenação quando offline, mantendo a lista carregada.
+- [x] Testar parâmetros remotos, debounce, reinício da paginação, ordem descendente, acessibilidade dos controles e estado offline.
+- [x] Cancelar busca pendente ao trocar de conta; cobrir a condição de corrida com teste unitário.
+- [x] Cancelar debounce pendente quando ordenação dispara consulta imediata; regressão unitária cobre uma única chamada ao servidor.
+- [x] Testes instrumentados dos controles passaram nos AVDs telefone API 35, tablet API 35 e Android TV API 34; wrappers encerraram os emuladores.
+- [x] `testDebugUnitTest`, `:app:assembleDebug` e `:app:lintDebug`: `BUILD SUCCESSFUL` após a revisão e a correção da busca pendente na troca de conta.
+- [ ] Revalidar instrumentação por perfil e quality gate global após a correção de consulta duplicada na ordenação.
+- [ ] Sem bump, APK de produção ou publicação nesta validação. Conferir release anterior e assinatura de produção antes de uma futura release.
+
 ## Formulários de feedback responsivos (APK local; sem release)
 
 - [x] Limitar a altura disponível do corpo nos diálogos de solicitação de mídia e relato de reprodução, com rolagem interna para manter campos inferiores acessíveis quando há muitas sugestões ou mensagens longas.

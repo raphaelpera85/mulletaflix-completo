@@ -33,6 +33,13 @@ class PlayerOptionsTest {
                 resolution = "1920x1080",
                 bitrate = "8 Mbps",
                 playMethod = "Transcode",
+                sessionMetrics = PlaybackSessionMetrics(
+                    firstVideoFrameMs = 1_250L,
+                    bufferingEpisodes = 2,
+                    bufferingDurationMs = 3_400L,
+                    droppedVideoFrames = 7,
+                    activeVideoFormat = "1920x1080 · avc1.640028 · 8000 kbps",
+                ),
             ),
             title = "À Beira da Extinção",
         )
@@ -41,6 +48,24 @@ class PlayerOptionsTest {
         assertTrue(text.contains("Método de Reprodução: Transcode"))
         assertTrue(text.contains("Codec de Vídeo: H.265"))
         assertTrue(text.contains("Taxa de Bits: 8 Mbps"))
+        assertTrue(text.contains("Primeiro quadro de vídeo: 1.2 s"))
+        assertTrue(text.contains("Interrupções em buffer: 2"))
+        assertTrue(text.contains("Tempo em buffer: 3.4 s"))
+        assertTrue(text.contains("Quadros de vídeo perdidos: 7"))
+        assertTrue(text.contains("Formato de vídeo ativo: 1920x1080"))
+        assertFalse(text.contains("http://"))
+    }
+
+    @Test
+    fun `cast diagnostics do not claim local receiver metrics`() {
+        val text = formatPlaybackStats(
+            stats = PlaybackStats(videoCodec = "H.265"),
+            title = "Filme de teste",
+            isCasting = true,
+        )
+
+        assertTrue(text.contains("Diagnóstico local indisponível durante transmissão Cast"))
+        assertFalse(text.contains("Quadros de vídeo perdidos: 0"))
     }
     @Test
     fun `quality options are derived from video heights and deduplicated`() {

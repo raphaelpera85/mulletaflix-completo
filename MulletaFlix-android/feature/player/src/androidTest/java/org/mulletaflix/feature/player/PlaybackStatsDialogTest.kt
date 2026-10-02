@@ -82,4 +82,48 @@ class PlaybackStatsDialogTest {
         composeRule.onNodeWithText("Compartilhar").performClick()
         org.junit.Assert.assertEquals(1, shareCount)
     }
+
+    @Test
+    fun sessionMetricsAreShown() {
+        composeRule.setContent {
+            MaterialTheme {
+                PlaybackStatsDialog(
+                    stats = PlaybackStats(
+                        sessionMetrics = PlaybackSessionMetrics(
+                            firstVideoFrameMs = 720L,
+                            bufferingEpisodes = 1,
+                            bufferingDurationMs = 1_300L,
+                            droppedVideoFrames = 3,
+                            activeVideoFormat = "1920x1080 · avc1.640028 · 8000 kbps",
+                        ),
+                    ),
+                    onCopy = {},
+                    onShare = {},
+                    onDismiss = {},
+                )
+            }
+        }
+
+        composeRule.onNodeWithText("Primeiro quadro de vídeo: 720 ms").assertExists()
+        composeRule.onNodeWithText("Interrupções em buffer: 1").assertExists()
+        composeRule.onNodeWithText("Quadros de vídeo perdidos: 3").assertExists()
+    }
+
+    @Test
+    fun castMetricsAreExplicitlyUnavailable() {
+        composeRule.setContent {
+            MaterialTheme {
+                PlaybackStatsDialog(
+                    stats = PlaybackStats(videoCodec = "H.265"),
+                    isCasting = true,
+                    onCopy = {},
+                    onShare = {},
+                    onDismiss = {},
+                )
+            }
+        }
+
+        composeRule.onNodeWithText("Diagnóstico local indisponível durante transmissão Cast").assertExists()
+        composeRule.onNodeWithText("Quadros de vídeo perdidos: indisponível").assertDoesNotExist()
+    }
 }

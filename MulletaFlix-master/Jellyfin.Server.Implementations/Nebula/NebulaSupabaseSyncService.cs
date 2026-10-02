@@ -5,6 +5,8 @@
 
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
+using System.Diagnostics.Metrics;
 using System.Globalization;
 using System.Linq;
 using System.Net.Http;
@@ -32,6 +34,12 @@ namespace Jellyfin.Server.Implementations.Nebula;
 /// </summary>
 public sealed class NebulaSupabaseSyncService : IDisposable
 {
+    public const string MeterName = "MulletaFlix.Nebula.SupabaseSync";
+
+    private static readonly Meter SyncMeter = new(MeterName);
+    private static readonly Counter<long> OperationCounter = SyncMeter.CreateCounter<long>("mulletaflix.supabase.operations");
+    private static readonly Histogram<double> OperationDuration = SyncMeter.CreateHistogram<double>("mulletaflix.supabase.operation.duration", "s");
+    private static readonly UpDownCounter<long> ActiveOperations = SyncMeter.CreateUpDownCounter<long>("mulletaflix.supabase.active_operations");
     public const string ServiceRoleKeyRequiredMessage = "O backup e a restauração exigem a Secret key do Supabase (sb_secret_... ou chave JWT com role service_role). Não use a chave publishable/anon e não conceda permissões de escrita à role anon.";
 
     private readonly ILogger<NebulaSupabaseSyncService> _logger;
@@ -578,6 +586,21 @@ public sealed class NebulaSupabaseSyncService : IDisposable
         bool forceFullSync,
         CancellationToken cancellationToken = default)
     {
+        var operation = forceFullSync ? "mongodb_full_sync" : "mongodb_delta_sync";
+        return await MeasureOperationAsync(
+            operation,
+            () => PerformBackupCoreAsync(supabaseUrl, supabaseKey, progressAction, forceFullSync, cancellationToken),
+            result => cancellationToken.IsCancellationRequested ? "cancelled" : result.Success ? "success" : "failure",
+            cancellationToken).ConfigureAwait(false);
+    }
+
+    private async Task<NebulaSupabaseBackupResultDto> PerformBackupCoreAsync(
+        string supabaseUrl,
+        string supabaseKey,
+        Action<string>? progressAction,
+        bool forceFullSync,
+        CancellationToken cancellationToken)
+    {
         var result = new NebulaSupabaseBackupResultDto();
         var startTime = DateTime.UtcNow;
 
@@ -715,6 +738,20 @@ public sealed class NebulaSupabaseSyncService : IDisposable
         Action<string>? progressAction,
         bool forceFullRestore,
         CancellationToken cancellationToken = default)
+    {
+        return await MeasureOperationAsync(
+            "restore_users",
+            () => PerformRestoreCoreAsync(supabaseUrl, supabaseKey, progressAction, forceFullRestore, cancellationToken),
+            result => cancellationToken.IsCancellationRequested ? "cancelled" : result.Success ? "success" : "failure",
+            cancellationToken).ConfigureAwait(false);
+    }
+
+    private async Task<NebulaSupabaseRestoreResultDto> PerformRestoreCoreAsync(
+        string supabaseUrl,
+        string supabaseKey,
+        Action<string>? progressAction,
+        bool forceFullRestore,
+        CancellationToken cancellationToken)
     {
         _ = forceFullRestore;
         var result = new NebulaSupabaseRestoreResultDto();
@@ -871,6 +908,39 @@ public sealed class NebulaSupabaseSyncService : IDisposable
         }
     }
 
+    private static async Task<T> MeasureOperationAsync<T>(
+        string operation,
+        Func<Task<T>> action,
+        Func<T, string> getOutcome,
+        CancellationToken cancellationToken)
+    {
+        var startedAt = Stopwatch.GetTimestamp();
+        ActiveOperations.Add(1, new KeyValuePair<string, object?>("operation", operation));
+        var outcome = "failure";
+        try
+        {
+            var result = await action().ConfigureAwait(false);
+            outcome = getOutcome(result);
+            return result;
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            outcome = "cancelled";
+            throw;
+        }
+        finally
+        {
+            var tags = new TagList
+            {
+                { "operation", operation },
+                { "result", outcome }
+            };
+            OperationCounter.Add(1, tags);
+            OperationDuration.Record(Stopwatch.GetElapsedTime(startedAt).TotalSeconds, tags);
+            ActiveOperations.Add(-1, new KeyValuePair<string, object?>("operation", operation));
+        }
+    }
+
     private static SupabaseFileRecord ConvertBsonDocToSupabaseRecord(BsonDocument doc)
     {
         var id = doc.GetValue("_id").ToString()!;
@@ -928,6 +998,19 @@ public sealed class NebulaSupabaseSyncService : IDisposable
         Action<string>? progressAction = null,
         CancellationToken cancellationToken = default)
     {
+        return await MeasureOperationAsync(
+            "backup_app_users",
+            () => PerformUsersBackupCoreAsync(supabaseUrl, supabaseKey, progressAction, cancellationToken),
+            result => cancellationToken.IsCancellationRequested ? "cancelled" : result.Success ? "success" : "failure",
+            cancellationToken).ConfigureAwait(false);
+    }
+
+    private async Task<NebulaSupabaseBackupResultDto> PerformUsersBackupCoreAsync(
+        string supabaseUrl,
+        string supabaseKey,
+        Action<string>? progressAction,
+        CancellationToken cancellationToken)
+    {
         var result = new NebulaSupabaseBackupResultDto();
         var started = DateTime.UtcNow;
         if (string.IsNullOrWhiteSpace(supabaseUrl) || string.IsNullOrWhiteSpace(supabaseKey))
@@ -983,6 +1066,19 @@ public sealed class NebulaSupabaseSyncService : IDisposable
         string supabaseKey,
         Action<string>? progressAction = null,
         CancellationToken cancellationToken = default)
+    {
+        return await MeasureOperationAsync(
+            "restore_app_users",
+            () => PerformUsersRestoreCoreAsync(supabaseUrl, supabaseKey, progressAction, cancellationToken),
+            result => cancellationToken.IsCancellationRequested ? "cancelled" : result.Success ? "success" : "failure",
+            cancellationToken).ConfigureAwait(false);
+    }
+
+    private async Task<NebulaSupabaseRestoreResultDto> PerformUsersRestoreCoreAsync(
+        string supabaseUrl,
+        string supabaseKey,
+        Action<string>? progressAction,
+        CancellationToken cancellationToken)
     {
         var result = new NebulaSupabaseRestoreResultDto();
         var started = DateTime.UtcNow;

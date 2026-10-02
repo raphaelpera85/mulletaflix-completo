@@ -1,5 +1,7 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
+using System.Diagnostics.Metrics;
 using System.IO;
 using System.IO.Compression;
 using System.Linq;
@@ -27,6 +29,21 @@ namespace MulletaFlix.Server.Implementations.FullSystemBackup;
 /// </summary>
 public class BackupService : IBackupService
 {
+    public const string MeterName = "MulletaFlix.Server.Backup";
+    private static readonly Meter BackupMeter = new(MeterName);
+    private static readonly Counter<long> BackupOperationCounter = BackupMeter.CreateCounter<long>(
+        "mulletaflix.backup.operations",
+        unit: "{operation}",
+        description: "Completed or rejected full-system backup operations.");
+    private static readonly Histogram<double> BackupOperationDuration = BackupMeter.CreateHistogram<double>(
+        "mulletaflix.backup.operation.duration",
+        unit: "s",
+        description: "Duration of full-system backup operations.");
+    private static readonly UpDownCounter<long> ActiveBackupOperations = BackupMeter.CreateUpDownCounter<long>(
+        "mulletaflix.backup.active_operations",
+        unit: "{operation}",
+        description: "Currently admitted full-system backup operations.");
+
     private const string ManifestEntryName = "manifest.json";
     private readonly ILogger<BackupService> _logger;
     private readonly IDbContextFactory<MulletaFlixDbContext> _dbProvider;
@@ -71,7 +88,9 @@ public class BackupService : IBackupService
     /// <inheritdoc/>
     public void ScheduleRestoreAndRestartServer(string archivePath)
     {
-        if (Interlocked.CompareExchange(ref _backupOperationInProgress, 1, 0) != 0)
+        const string operation = "schedule_restore";
+        var startedAt = Stopwatch.GetTimestamp();
+        if (!TryBeginOperation(operation))
         {
             throw new BackupOperationInProgressException();
         }
@@ -81,6 +100,7 @@ public class BackupService : IBackupService
             _applicationHost.RestoreBackupPath = archivePath;
             _applicationHost.ShouldRestart = true;
             _applicationHost.NotifyPendingRestart();
+            RecordOperation(operation, "scheduled", startedAt);
             _ = Task.Run(async () =>
             {
                 try
@@ -97,7 +117,7 @@ public class BackupService : IBackupService
         }
         catch
         {
-            Volatile.Write(ref _backupOperationInProgress, 0);
+            CompleteOperation(operation, "failure", startedAt);
             throw;
         }
     }
@@ -105,18 +125,22 @@ public class BackupService : IBackupService
     /// <inheritdoc/>
     public async Task RestoreBackupAsync(string archivePath)
     {
-        if (Interlocked.CompareExchange(ref _backupOperationInProgress, 1, 0) != 0)
+        const string operation = "restore";
+        var startedAt = Stopwatch.GetTimestamp();
+        if (!TryBeginOperation(operation))
         {
             throw new BackupOperationInProgressException();
         }
 
+        var result = "failure";
         try
         {
             await RestoreBackupCoreAsync(archivePath).ConfigureAwait(false);
+            result = "success";
         }
         finally
         {
-            Volatile.Write(ref _backupOperationInProgress, 0);
+            CompleteOperation(operation, result, startedAt);
         }
     }
 
@@ -306,18 +330,56 @@ public class BackupService : IBackupService
     /// <inheritdoc/>
     public async Task<BackupManifestDto> CreateBackupAsync(BackupOptionsDto backupOptions)
     {
-        if (Interlocked.CompareExchange(ref _backupOperationInProgress, 1, 0) != 0)
+        const string operation = "create";
+        var startedAt = Stopwatch.GetTimestamp();
+        if (!TryBeginOperation(operation))
         {
             throw new BackupOperationInProgressException();
         }
 
+        var result = "failure";
         try
         {
-            return await CreateBackupCoreAsync(backupOptions).ConfigureAwait(false);
+            var manifest = await CreateBackupCoreAsync(backupOptions).ConfigureAwait(false);
+            result = "success";
+            return manifest;
         }
         finally
         {
-            Volatile.Write(ref _backupOperationInProgress, 0);
+            CompleteOperation(operation, result, startedAt);
+        }
+    }
+
+    private bool TryBeginOperation(string operation)
+    {
+        if (Interlocked.CompareExchange(ref _backupOperationInProgress, 1, 0) != 0)
+        {
+            RecordOperation(operation, "rejected", null);
+            return false;
+        }
+
+        ActiveBackupOperations.Add(1, new KeyValuePair<string, object?>("operation", operation));
+        return true;
+    }
+
+    private void CompleteOperation(string operation, string result, long startedAt)
+    {
+        RecordOperation(operation, result, startedAt);
+        ActiveBackupOperations.Add(-1, new KeyValuePair<string, object?>("operation", operation));
+        Volatile.Write(ref _backupOperationInProgress, 0);
+    }
+
+    private static void RecordOperation(string operation, string result, long? startedAt)
+    {
+        var tags = new TagList
+        {
+            { "operation", operation },
+            { "result", result }
+        };
+        BackupOperationCounter.Add(1, tags);
+        if (startedAt.HasValue)
+        {
+            BackupOperationDuration.Record(Stopwatch.GetElapsedTime(startedAt.Value).TotalSeconds, tags);
         }
     }
 

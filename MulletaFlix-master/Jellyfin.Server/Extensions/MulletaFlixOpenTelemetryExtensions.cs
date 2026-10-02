@@ -1,5 +1,8 @@
 using System;
 using System.Diagnostics;
+using MulletaFlix.Api.Middleware;
+using MulletaFlix.Server.Implementations.Nebula;
+using MulletaFlix.Server.Implementations.FullSystemBackup;
 using Jellyfin.Server.Implementations.Nebula;
 using Microsoft.Extensions.DependencyInjection;
 using OpenTelemetry.Metrics;
@@ -52,6 +55,11 @@ internal static class MulletaFlixOpenTelemetryExtensions
                 .AddMeter(NebulaUploadEngine.MeterName)
                 .AddMeter(NebulaDownloaderEngine.MeterName)
                 .AddMeter(NotificationsLibraryNotifier.MeterName)
+                .AddMeter(RateLimitMiddleware.MeterName)
+                .AddMeter(BackupService.MeterName)
+                .AddMeter(NebulaSupabaseSyncService.MeterName)
+                .AddMeter(NebulaMetadataExportService.MeterName)
+                .AddMeter(NebulaFtpManager.MeterName)
                 .AddOtlpExporter());
         }
 

@@ -1,4 +1,6 @@
 using System;
+using System.Collections.Generic;
+using System.Diagnostics.Metrics;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -14,6 +16,44 @@ namespace Jellyfin.Server.Implementations.Tests.Nebula;
 
 public class NebulaMetadataExportServiceTests
 {
+    [Fact]
+    public async Task RunGuardedExportAsync_EmitsOnlyBoundedMetricsAndReleasesActiveGaugeOnFailure()
+    {
+        var measurements = new List<(string Name, double Value, KeyValuePair<string, object?>[] Tags)>();
+        using var listener = new MeterListener();
+        listener.InstrumentPublished = (instrument, meterListener) =>
+        {
+            if (instrument.Meter.Name == NebulaMetadataExportService.MeterName)
+            {
+                meterListener.EnableMeasurementEvents(instrument);
+            }
+        };
+        listener.SetMeasurementEventCallback<long>((instrument, value, tags, _) =>
+            measurements.Add((instrument.Name, value, tags.ToArray())));
+        listener.SetMeasurementEventCallback<double>((instrument, value, tags, _) =>
+            measurements.Add((instrument.Name, value, tags.ToArray())));
+        listener.Start();
+
+        using var service = CreateService();
+        await Assert.ThrowsAsync<InvalidOperationException>(() => service.RunGuardedExportAsync(
+            _ => Task.FromException(new InvalidOperationException("private media path must not be exported")),
+            CancellationToken.None));
+
+        var operation = Assert.Single(measurements.Where(item =>
+            item.Name == "mulletaflix.metadata_export.operations"
+            && item.Tags.Any(tag => tag.Key == "result" && Equals(tag.Value, "failure"))));
+        Assert.Equal(1, operation.Value);
+        Assert.Contains(measurements, item => item.Name == "mulletaflix.metadata_export.operation.duration" && item.Value >= 0);
+        Assert.Equal([1d, -1d], measurements
+            .Where(item => item.Name == "mulletaflix.metadata_export.active_operations")
+            .Select(item => item.Value)
+            .ToArray());
+        Assert.All(measurements, item => Assert.DoesNotContain(item.Tags, tag =>
+            tag.Key.Contains("path", StringComparison.OrdinalIgnoreCase)
+            || tag.Key.Contains("media", StringComparison.OrdinalIgnoreCase)
+            || tag.Key.Contains("user", StringComparison.OrdinalIgnoreCase)));
+    }
+
     /// <summary>
     /// A scan raises one event per indexed file, so the follow-up of every item used to run at the
     /// same time. Each one refreshes metadata, which is what saturated the MariaDB connection pool.

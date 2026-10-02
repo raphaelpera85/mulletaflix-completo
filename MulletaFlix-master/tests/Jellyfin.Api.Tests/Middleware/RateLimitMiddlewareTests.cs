@@ -1,4 +1,6 @@
 using System;
+using System.Collections.Generic;
+using System.Diagnostics.Metrics;
 using System.Linq;
 using System.Net;
 using System.Security.Claims;
@@ -104,6 +106,50 @@ public sealed class RateLimitMiddlewareTests
 
         Assert.Equal(StatusCodes.Status429TooManyRequests, blocked.Response.StatusCode);
         Assert.True(blocked.Response.Headers.ContainsKey("Retry-After"));
+    }
+
+    [Fact]
+    public async Task RejectedRequests_EmitOnlyLowCardinalityCategoryMetric()
+    {
+        var measurements = new List<(long Value, KeyValuePair<string, object?>[] Tags)>();
+        using var listener = new MeterListener();
+        listener.InstrumentPublished = (instrument, meterListener) =>
+        {
+            if (instrument.Meter.Name == RateLimitMiddleware.MeterName)
+            {
+                meterListener.EnableMeasurementEvents(instrument);
+            }
+        };
+        listener.SetMeasurementEventCallback<long>((_, value, tags, _) => measurements.Add((value, tags.ToArray())));
+        listener.Start();
+
+        var middleware = new RateLimitMiddleware(
+            context =>
+            {
+                context.Response.StatusCode = StatusCodes.Status200OK;
+                return Task.CompletedTask;
+            },
+            NullLogger<RateLimitMiddleware>.Instance);
+        var userId = Guid.NewGuid();
+
+        for (var i = 0; i < 11; i++)
+        {
+            var context = new DefaultHttpContext
+            {
+                User = new ClaimsPrincipal(new ClaimsIdentity(
+                    [new Claim(InternalClaimTypes.UserId, userId.ToString("N"))],
+                    "test"))
+            };
+            context.Connection.RemoteIpAddress = IPAddress.Parse("198.51.100.88");
+            context.Request.Path = "/NebulaFtp/Download";
+            await middleware.Invoke(context);
+        }
+
+        var measurement = Assert.Single(measurements);
+        Assert.Equal(1, measurement.Value);
+        var category = Assert.Single(measurement.Tags);
+        Assert.Equal("category", category.Key);
+        Assert.Equal("nebula", category.Value);
     }
 
     [Fact]

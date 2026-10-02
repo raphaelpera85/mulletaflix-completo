@@ -457,7 +457,7 @@ public sealed class NebulaPlaybackCache : IDisposable
     /// que criou o stream e, portanto, continua baixando as partes mesmo quando o cliente
     /// troca de range/segmento durante a reprodução.
     /// </summary>
-    public void StartPrefetch(string mediaKey, Func<CancellationToken, Task> prefetch)
+    public Task StartPrefetch(string mediaKey, Func<CancellationToken, Task> prefetch)
     {
         ArgumentNullException.ThrowIfNull(prefetch);
         var normalized = NormalizeMediaKey(mediaKey);
@@ -471,7 +471,7 @@ public sealed class NebulaPlaybackCache : IDisposable
             {
                 if (!currentPrefetch.IsCancellationRequested)
                 {
-                    return;
+                    return currentPrefetch.Completion;
                 }
 
                 _prefetches.TryRemove(new KeyValuePair<string, PrefetchState>(normalized, currentPrefetch));
@@ -482,14 +482,14 @@ public sealed class NebulaPlaybackCache : IDisposable
                 _logger.LogDebug(
                     "[NEBULA-CACHE] Pré-cache integral ignorado por limite de admissão; playback sob demanda permanece disponível para {MediaKey}.",
                     normalized);
-                return;
+                return Task.CompletedTask;
             }
 
             state = new PrefetchState(_logger);
             if (!_prefetches.TryAdd(normalized, state))
             {
                 state.Dispose();
-                return;
+                return Task.CompletedTask;
             }
 
             _allPrefetches.TryAdd(state, 0);
@@ -500,6 +500,7 @@ public sealed class NebulaPlaybackCache : IDisposable
         }
 
         _ = RunPrefetchAsync(normalized, state, prefetch);
+        return state.Completion;
     }
 
     /// <summary>Requests cancellation of a media prefetch after the playback session ends.</summary>
@@ -1118,6 +1119,8 @@ public sealed class NebulaPlaybackCache : IDisposable
             {
                 _prefetchConcurrency.Release();
             }
+
+            state.Complete();
         }
     }
 
@@ -1232,6 +1235,7 @@ public sealed class NebulaPlaybackCache : IDisposable
         private readonly object _gate = new();
         private readonly CancellationTokenSource _cancellation = new();
         private readonly ILogger _logger;
+        private readonly TaskCompletionSource _completion = new(TaskCreationOptions.RunContinuationsAsynchronously);
         private bool _disposed;
         private bool _disposeRequested;
         private Task? _cancelCallbacksTask;
@@ -1240,6 +1244,9 @@ public sealed class NebulaPlaybackCache : IDisposable
         private int _hasConcurrencySlot;
 
         public CancellationToken Token { get; }
+        public Task Completion => _completion.Task;
+
+        public void Complete() => _completion.TrySetResult();
 
         public PrefetchState(ILogger logger)
         {

@@ -18,6 +18,68 @@ namespace Jellyfin.Server.Implementations.Tests.Nebula;
 public sealed class NebulaPlaybackCacheTests
 {
     [Fact]
+    public async Task IntroPrefetchKeepsChunkedStreamAliveUntilCacheCompletes()
+    {
+        var root = CreateTempDirectory();
+        try
+        {
+            using var cache = new NebulaPlaybackCache(root, NullLogger<NebulaPlaybackCache>.Instance);
+            var cacheAccessor = new NebulaPlaybackCacheAccessor();
+            cacheAccessor.Set(cache);
+            var fetchStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var releaseFetch = new TaskCompletionSource<byte[]>(TaskCreationOptions.RunContinuationsAsynchronously);
+            var fetchCanceled = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var fetchCount = 0;
+            var mediaKey = "mongo:prefetch-lifetime-test";
+            var expectedBytes = new byte[] { 1, 2, 3, 4, 5 };
+            var stream = new NebulaChunkedStream(
+                null,
+                [new NebulaStreamPart { PartIndex = 0, FileOffset = 0, Size = expectedBytes.Length }],
+                expectedBytes.Length,
+                NullLogger<NebulaChunkedStream>.Instance,
+                cacheAccessor,
+                mediaKey,
+                async (_, _, cancellationToken) =>
+                {
+                    Interlocked.Increment(ref fetchCount);
+                    using var registration = cancellationToken.Register(() => fetchCanceled.TrySetResult());
+                    fetchStarted.TrySetResult();
+                    return await releaseFetch.Task.WaitAsync(cancellationToken);
+                });
+
+            var cleanup = NebulaHttpStreamServer.DisposePrefetchStreamWhenCompleteAsync(stream);
+            await fetchStarted.Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+
+            Assert.True(stream.CanRead);
+            Assert.False(fetchCanceled.Task.IsCompleted);
+
+            releaseFetch.TrySetResult(expectedBytes);
+            await cleanup.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+
+            Assert.False(stream.CanRead);
+            var cachedBytes = await cache.GetOrFetchChunkAsync(
+                mediaKey,
+                0,
+                0,
+                expectedBytes.Length,
+                _ =>
+                {
+                    Interlocked.Increment(ref fetchCount);
+                    return Task.FromResult(expectedBytes);
+                },
+                TestContext.Current.CancellationToken);
+
+            Assert.Equal(expectedBytes, cachedBytes);
+            Assert.Equal(1, Volatile.Read(ref fetchCount));
+            Assert.False(fetchCanceled.Task.IsCompleted);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task StartPrefetch_LimitsConcurrentMediaDownloadsWithoutDroppingQueuedMedia()
     {
         var root = CreateTempDirectory();

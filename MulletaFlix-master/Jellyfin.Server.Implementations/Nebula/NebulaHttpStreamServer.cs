@@ -98,7 +98,8 @@ public sealed class NebulaHttpStreamServer : IAsyncDisposable, IDisposable
                 return false;
             }
 
-            await using var stream = new NebulaChunkedStream(_telegramPool, parts, totalSize, _logger, _playbackCacheAccessor, GetMediaCacheKey(doc));
+            var stream = new NebulaChunkedStream(_telegramPool, parts, totalSize, _logger, _playbackCacheAccessor, GetMediaCacheKey(doc));
+            _ = DisposePrefetchStreamWhenCompleteAsync(stream);
             _logger.LogInformation("[NEBULA-PLAYBACK-CACHE] Pré-cache iniciado no começo da intro para {MediaName} ({Size} bytes).", doc.GetValue("name", "media.bin").AsString, totalSize);
             return true;
         }
@@ -110,6 +111,19 @@ public sealed class NebulaHttpStreamServer : IAsyncDisposable, IDisposable
         {
             _logger.LogWarning(ex, "[NEBULA-PLAYBACK-CACHE] Não foi possível antecipar o cache para {MediaPath}; a reprodução seguirá normalmente.", mediaPath);
             return false;
+        }
+    }
+
+    internal static async Task DisposePrefetchStreamWhenCompleteAsync(NebulaChunkedStream stream)
+    {
+        ArgumentNullException.ThrowIfNull(stream);
+        try
+        {
+            await stream.WholeMediaPrefetchTask.ConfigureAwait(false);
+        }
+        finally
+        {
+            await stream.DisposeAsync().ConfigureAwait(false);
         }
     }
 

@@ -3,10 +3,12 @@ package org.mulletaflix.feature.player
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import android.net.Uri
+import android.os.SystemClock
 import androidx.media3.common.MediaItem as Media3Item
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.Player
+import androidx.media3.common.Timeline
 import androidx.media3.common.C
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.util.UnstableApi
@@ -17,7 +19,9 @@ import com.google.android.gms.cast.framework.CastSession
 import com.google.android.gms.cast.framework.SessionManager
 import com.google.android.gms.cast.framework.SessionManagerListener
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.DecoderReuseEvaluation
 import androidx.media3.exoplayer.DefaultLoadControl
+import androidx.media3.exoplayer.analytics.AnalyticsListener
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
 import androidx.media3.datasource.DefaultDataSource
@@ -207,6 +211,8 @@ class PlayerViewModel @Inject constructor(
 
     private val _state = MutableStateFlow(PlayerState())
     val state: StateFlow<PlayerState> = _state.asStateFlow()
+    private val playbackSessionDiagnostics = PlaybackSessionDiagnostics()
+    private var playbackDiagnosticsTicker: Job? = null
 
     private val trackSelector = DefaultTrackSelector(context)
     private val streamingPolicy = streamingBufferPolicy()
@@ -422,6 +428,61 @@ class PlayerViewModel @Inject constructor(
                         error = userFacingPlaybackError(error.errorCode, error.localizedMessage),
                     )
                 }
+            }
+        })
+        exo.addAnalyticsListener(object : AnalyticsListener {
+            override fun onPlaybackStateChanged(eventTime: AnalyticsListener.EventTime, state: Int) {
+                if (!isCurrentLocalPlaybackEvent(eventTime)) return
+                playbackSessionDiagnostics.onPlaybackStateChanged(
+                    isBuffering = state == Player.STATE_BUFFERING,
+                    nowMs = SystemClock.elapsedRealtime(),
+                )
+                publishPlaybackSessionDiagnostics()
+            }
+
+            override fun onPlayWhenReadyChanged(
+                eventTime: AnalyticsListener.EventTime,
+                playWhenReady: Boolean,
+                reason: Int,
+            ) {
+                if (!isCurrentLocalPlaybackEvent(eventTime)) return
+                playbackSessionDiagnostics.onPlayWhenReadyChanged(playWhenReady, SystemClock.elapsedRealtime())
+                publishPlaybackSessionDiagnostics()
+            }
+
+            override fun onRenderedFirstFrame(
+                eventTime: AnalyticsListener.EventTime,
+                output: Any,
+                renderTimeMs: Long,
+            ) {
+                if (!isCurrentLocalPlaybackEvent(eventTime)) return
+                playbackSessionDiagnostics.onFirstVideoFrameRendered(renderTimeMs)
+                publishPlaybackSessionDiagnostics()
+            }
+
+            override fun onDroppedVideoFrames(
+                eventTime: AnalyticsListener.EventTime,
+                droppedFrames: Int,
+                elapsedMs: Long,
+            ) {
+                if (!isCurrentLocalPlaybackEvent(eventTime)) return
+                playbackSessionDiagnostics.onDroppedVideoFrames(droppedFrames)
+                publishPlaybackSessionDiagnostics()
+            }
+
+            override fun onVideoInputFormatChanged(
+                eventTime: AnalyticsListener.EventTime,
+                format: androidx.media3.common.Format,
+                decoderReuseEvaluation: DecoderReuseEvaluation?,
+            ) {
+                if (!isCurrentLocalPlaybackEvent(eventTime)) return
+                playbackSessionDiagnostics.onVideoFormatChanged(
+                    width = format.width,
+                    height = format.height,
+                    codecs = format.codecs ?: format.sampleMimeType,
+                    bitrate = format.bitrate.toLong(),
+                )
+                publishPlaybackSessionDiagnostics()
             }
         })
     }
@@ -686,6 +747,9 @@ class PlayerViewModel @Inject constructor(
     }
 
     fun loadMedia(itemId: String) {
+        playbackSessionDiagnostics.reset()
+        playbackDiagnosticsTicker?.cancel()
+        playbackDiagnosticsTicker = null
         val previousStopJob = stopCurrentRemotePlaybackBeforeLoad()
         val loadGeneration = ++playbackLoadGeneration
         val sessionAtLoad = sessionGeneration
@@ -957,6 +1021,7 @@ class PlayerViewModel @Inject constructor(
                 resolution = if ((videoStream?.width ?: 0) > 0 && (videoStream?.height ?: 0) > 0) "${videoStream?.width}x${videoStream?.height}" else null,
                 bitrate = videoStream?.bitRate?.let { "${it / 1000} kbps" },
                 playMethod = if (mediaSource.transcodeUrl != null && streamUrl == mediaSource.transcodeUrl) "Transcode" else "Direct Play",
+                sessionMetrics = playbackSessionDiagnostics.snapshot(SystemClock.elapsedRealtime()),
             )
 
             val availableQualities = qualityOptions(mediaStreams)
@@ -1011,6 +1076,8 @@ class PlayerViewModel @Inject constructor(
             if (!isCurrentPlaybackLoad(loadGeneration, playbackLoadGeneration, itemId, currentItemId, sessionAtLoad, sessionGeneration)) return@launch
 
             player.setMediaItem(mediaItem)
+            if (!_state.value.isCasting) playbackSessionDiagnostics.onPrepared(SystemClock.elapsedRealtime())
+            publishPlaybackSessionDiagnostics()
             player.prepare()
             applyDefaultPlaybackPreferences()
 
@@ -1049,6 +1116,9 @@ class PlayerViewModel @Inject constructor(
 
     /** Plays a completed Media3 download through the shared cache, without server calls. */
     fun loadOffline(uri: String, title: String, downloadId: String? = null) {
+        playbackSessionDiagnostics.reset()
+        playbackDiagnosticsTicker?.cancel()
+        playbackDiagnosticsTicker = null
         val previousStopJob = stopCurrentRemotePlaybackBeforeLoad()
         val loadGeneration = ++playbackLoadGeneration
         val sessionAtLoad = sessionGeneration
@@ -1164,6 +1234,14 @@ class PlayerViewModel @Inject constructor(
                 isNetworkMetered = _state.value.isNetworkMetered,
                 sleepTimer = _state.value.sleepTimerSelection(),
             ).copy(nextEpisode = nextDownloadedEpisode)
+            _state.update {
+                it.copy(
+                    playbackStats = PlaybackStats(
+                        playMethod = "Reprodução offline",
+                        sessionMetrics = playbackSessionDiagnostics.snapshot(SystemClock.elapsedRealtime()),
+                    ),
+                )
+            }
             player.setMediaItem(
                 Media3Item.Builder()
                     .setUri(uri)
@@ -1173,8 +1251,10 @@ class PlayerViewModel @Inject constructor(
                             .build(),
                     )
                     .setSubtitleConfigurations(offlineSubtitleConfigurations)
-                    .build(),
+                .build(),
             )
+            if (!_state.value.isCasting) playbackSessionDiagnostics.onPrepared(SystemClock.elapsedRealtime())
+            publishPlaybackSessionDiagnostics()
             player.prepare()
             applyDefaultPlaybackPreferences()
             localOfflinePlaybackPosition()
@@ -2116,6 +2196,7 @@ class PlayerViewModel @Inject constructor(
         progressJob?.cancel()
         serverProgressJob?.cancel()
         nextEpisodeCountdownJob?.cancel()
+        playbackDiagnosticsTicker?.cancel()
         sleepTimerJob?.cancel()
         persistLocalPlaybackPosition(force = true)
         reportPlaybackStopped()
@@ -2124,7 +2205,38 @@ class PlayerViewModel @Inject constructor(
         localPlayer.release()
     }
 
+    private fun publishPlaybackSessionDiagnostics() {
+        val metrics = playbackSessionDiagnostics.snapshot(SystemClock.elapsedRealtime())
+        _state.update { current ->
+            current.playbackStats?.let { stats ->
+                current.copy(playbackStats = stats.copy(sessionMetrics = metrics))
+            } ?: current
+        }
+
+        if (metrics.isBuffering && !_state.value.isCasting) {
+            if (playbackDiagnosticsTicker?.isActive != true) {
+                playbackDiagnosticsTicker = viewModelScope.launch {
+                    while (isActive) {
+                        delay(1_000L)
+                        val currentMetrics = playbackSessionDiagnostics.snapshot(SystemClock.elapsedRealtime())
+                        _state.update { current ->
+                            current.playbackStats?.let { stats ->
+                                current.copy(playbackStats = stats.copy(sessionMetrics = currentMetrics))
+                            } ?: current
+                        }
+                        if (!currentMetrics.isBuffering || _state.value.isCasting) break
+                    }
+                    playbackDiagnosticsTicker = null
+                }
+            }
+        } else {
+            playbackDiagnosticsTicker?.cancel()
+            playbackDiagnosticsTicker = null
+        }
+    }
+
     private fun updateCastState(isCasting: Boolean) {
+        invalidateLocalPlaybackDiagnosticsForCast(isCasting)
         _state.update { it.copy(isCasting = isCasting) }
         val session = castSessionManager?.currentCastSession
         PlayerMediaSessionBridge.updateCastState(
@@ -2138,12 +2250,37 @@ class PlayerViewModel @Inject constructor(
         session: CastSession,
         connectionState: CastConnectionState,
     ) {
+        invalidateLocalPlaybackDiagnosticsForCast(isCasting)
         _state.update { it.copy(isCasting = isCasting) }
         PlayerMediaSessionBridge.updateCastState(
             isCasting = isCasting,
             receiverName = if (isCasting) session.castDevice?.friendlyName else null,
             connectionState = connectionState,
         )
+    }
+
+    private fun invalidateLocalPlaybackDiagnosticsForCast(isCasting: Boolean) {
+        if (!isCasting) return
+        playbackSessionDiagnostics.reset()
+        playbackDiagnosticsTicker?.cancel()
+        playbackDiagnosticsTicker = null
+        _state.update { current ->
+            current.playbackStats?.let { stats ->
+                current.copy(playbackStats = stats.copy(sessionMetrics = null))
+            } ?: current
+        }
+    }
+
+    /** Ignores analytics queued by a media period that is no longer in the local player's timeline. */
+    private fun isCurrentLocalPlaybackEvent(eventTime: AnalyticsListener.EventTime): Boolean {
+        if (_state.value.isCasting) return false
+        val eventPeriodId = eventTime.mediaPeriodId ?: return false
+        val eventTimeline = eventTime.timeline
+        val currentTimeline = localPlayer.currentTimeline
+        if (eventTimeline.isEmpty || currentTimeline.isEmpty) return false
+        val eventPeriodUid = eventPeriodId.periodUid
+        return eventTimeline.getIndexOfPeriod(eventPeriodUid) != C.INDEX_UNSET &&
+            currentTimeline.getIndexOfPeriod(eventPeriodUid) != C.INDEX_UNSET
     }
 
     private suspend fun createExternalSubtitleConfiguration(

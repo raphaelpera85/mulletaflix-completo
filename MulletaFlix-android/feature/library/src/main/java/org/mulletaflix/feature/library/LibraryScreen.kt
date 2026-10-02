@@ -664,12 +664,13 @@ internal fun SortDropdown(
     currentOrder: SortOrder,
     onApply: (SortOption, SortOrder) -> Unit,
     onDismiss: () -> Unit,
+    options: List<SortOption> = SortOption.values().toList(),
 ) {
     var selectedOption by remember(current) { mutableStateOf(current) }
     var selectedOrder by remember(currentOrder) { mutableStateOf(currentOrder) }
 
     DropdownMenu(expanded = true, onDismissRequest = onDismiss) {
-        SortOption.values().forEach { option ->
+        options.forEach { option ->
             DropdownMenuItem(
                 text = { Text(option.label) },
                 leadingIcon = { if (selectedOption == option) Icon(Icons.Default.Check, contentDescription = null) },

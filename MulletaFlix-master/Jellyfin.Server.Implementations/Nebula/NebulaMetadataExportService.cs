@@ -3,6 +3,8 @@
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Diagnostics;
+using System.Diagnostics.Metrics;
 using System.IO;
 using System.Linq;
 using System.Threading;
@@ -25,6 +27,13 @@ namespace Jellyfin.Server.Implementations.Nebula;
 /// </summary>
 public sealed class NebulaMetadataExportService : IHostedService, IDisposable
 {
+    public const string MeterName = "MulletaFlix.Nebula.MetadataExport";
+
+    private static readonly Meter ExportMeter = new(MeterName);
+    private static readonly Counter<long> ExportCounter = ExportMeter.CreateCounter<long>("mulletaflix.metadata_export.operations");
+    private static readonly Histogram<double> ExportDuration = ExportMeter.CreateHistogram<double>("mulletaflix.metadata_export.operation.duration", "s");
+    private static readonly UpDownCounter<long> ActiveExports = ExportMeter.CreateUpDownCounter<long>("mulletaflix.metadata_export.active_operations");
+
     internal const string PendingMarkerFileName = ".nebula-metadata-pending";
 
     /// <summary>
@@ -173,12 +182,29 @@ public sealed class NebulaMetadataExportService : IHostedService, IDisposable
     internal async Task RunGuardedExportAsync(Func<CancellationToken, Task> export, CancellationToken cancellationToken)
     {
         await _exportSlots.WaitAsync(cancellationToken).ConfigureAwait(false);
+        var startedAt = Stopwatch.GetTimestamp();
+        var outcome = "success";
+        ActiveExports.Add(1);
         try
         {
             await export(cancellationToken).ConfigureAwait(false);
         }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            outcome = "cancelled";
+            throw;
+        }
+        catch
+        {
+            outcome = "failure";
+            throw;
+        }
         finally
         {
+            var tags = new TagList { { "result", outcome } };
+            ExportCounter.Add(1, tags);
+            ExportDuration.Record(Stopwatch.GetElapsedTime(startedAt).TotalSeconds, tags);
+            ActiveExports.Add(-1);
             _exportSlots.Release();
         }
     }

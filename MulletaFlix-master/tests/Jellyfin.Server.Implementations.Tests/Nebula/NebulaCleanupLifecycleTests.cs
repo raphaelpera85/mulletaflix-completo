@@ -1,5 +1,8 @@
 using System;
+using System.Collections.Generic;
+using System.Diagnostics.Metrics;
 using System.IO;
+using System.Linq;
 using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
@@ -15,6 +18,49 @@ namespace MulletaFlix.Server.Implementations.Tests.Nebula;
 
 public sealed class NebulaCleanupLifecycleTests
 {
+    [Fact]
+    public async Task CleanupCycle_ReportsBoundedMetricsWhenSkipped()
+    {
+        var measurements = new List<(string Name, double Value, KeyValuePair<string, object?>[] Tags)>();
+        using var listener = new MeterListener();
+        listener.InstrumentPublished = (instrument, meterListener) =>
+        {
+            if (instrument.Meter.Name == NebulaFtpManager.MeterName)
+            {
+                meterListener.EnableMeasurementEvents(instrument);
+            }
+        };
+        listener.SetMeasurementEventCallback<long>((instrument, value, tags, _) =>
+            measurements.Add((instrument.Name, value, tags.ToArray())));
+        listener.SetMeasurementEventCallback<double>((instrument, value, tags, _) =>
+            measurements.Add((instrument.Name, value, tags.ToArray())));
+        listener.Start();
+
+        var manager = CreateManager();
+        try
+        {
+            var method = typeof(NebulaFtpManager).GetMethod("RunCleanupCycleAsync", BindingFlags.Instance | BindingFlags.NonPublic)!;
+            var cleanup = (Task)method.Invoke(manager, [new List<string>(), CancellationToken.None])!;
+            await cleanup;
+
+            var cycle = Assert.Single(measurements.Where(item => item.Name == "mulletaflix.nebula.cleanup.cycles"));
+            Assert.Equal(1, cycle.Value);
+            Assert.Contains(cycle.Tags, tag => tag.Key == "result" && Equals(tag.Value, "skipped"));
+            Assert.Single(measurements.Where(item => item.Name == "mulletaflix.nebula.cleanup.duration"));
+            Assert.Equal([1d, -1d], measurements
+                .Where(item => item.Name == "mulletaflix.nebula.cleanup.active_cycles")
+                .Select(item => item.Value)
+                .ToArray());
+            Assert.All(measurements, item => Assert.DoesNotContain(item.Tags, tag =>
+                tag.Key.Contains("path", StringComparison.OrdinalIgnoreCase)
+                || tag.Key.Contains("file", StringComparison.OrdinalIgnoreCase)));
+        }
+        finally
+        {
+            await DisposeLocalQueueAsync(manager);
+        }
+    }
+
     [Fact]
     public async Task DisposeAsync_RetriesAfterOwnedProcessStopFailure()
     {

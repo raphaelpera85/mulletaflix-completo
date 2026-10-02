@@ -2,10 +2,12 @@ package org.mulletaflix.feature.library
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.grid.GridCells
@@ -15,13 +17,17 @@ import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -34,6 +40,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import android.content.res.Configuration
@@ -109,38 +117,113 @@ fun FavoritesScreen(
             onRefresh = viewModel::refresh,
             modifier = Modifier.fillMaxSize().padding(padding),
         ) {
-        Box(Modifier.fillMaxSize()) {
-            when {
-                state.isLoading && visibleItems.isEmpty() ->
-                    CircularProgressIndicator(Modifier.align(Alignment.Center))
-                state.error != null && visibleItems.isEmpty() ->
-                    ErrorState(state.error!!, viewModel::refresh)
-                visibleItems.isEmpty() ->
-                    EmptyFavoritesState()
-                else ->
-                    FavoritesGrid(visibleItems, state.hasMore, state.isLoading, gridColumns, isTelevision, gridState, onItemClick, viewModel::loadMore)
-            }
-            if (state.error != null && visibleItems.isNotEmpty()) {
-                FavoritesInlineError(
-                    message = state.error!!,
-                    onRetry = viewModel::refresh,
-                    modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(12.dp),
+            Column(Modifier.fillMaxSize()) {
+                FavoritesCatalogControls(
+                    query = state.searchQuery,
+                    sortBy = state.sortBy,
+                    sortOrder = state.sortOrder,
+                    showSortMenu = state.showSortMenu,
+                    isOffline = state.isOffline,
+                    onQueryChange = viewModel::setSearchQuery,
+                    onToggleSortMenu = viewModel::toggleSortMenu,
+                    onDismissSortMenu = viewModel::dismissSortMenu,
+                    onApplySort = viewModel::setSort,
                 )
+                Box(Modifier.fillMaxWidth().weight(1f)) {
+                    when {
+                        state.isLoading && visibleItems.isEmpty() ->
+                            CircularProgressIndicator(Modifier.align(Alignment.Center))
+                        state.error != null && visibleItems.isEmpty() ->
+                            ErrorState(state.error!!, viewModel::refresh)
+                        visibleItems.isEmpty() && state.searchQuery.isNotBlank() ->
+                            EmptyFavoritesSearchState { viewModel.setSearchQuery("") }
+                        visibleItems.isEmpty() ->
+                            EmptyFavoritesState()
+                        else ->
+                            FavoritesGrid(visibleItems, state.hasMore, state.isLoading, gridColumns, isTelevision, gridState, onItemClick, viewModel::loadMore)
+                    }
+                    if (state.error != null && visibleItems.isNotEmpty()) {
+                        FavoritesInlineError(
+                            message = state.error!!,
+                            onRetry = viewModel::refresh,
+                            modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(12.dp),
+                        )
+                    }
+                    if (state.isOffline) {
+                        LibraryOfflineBanner(
+                            message = "Sem conexão. Minha Lista será atualizada quando a rede voltar.",
+                            onRetry = viewModel::refresh,
+                            modifier = Modifier
+                                .align(Alignment.TopCenter)
+                                .padding(12.dp)
+                                .zIndex(1f),
+                        )
+                    }
+                }
             }
-            if (state.isOffline) {
-                LibraryOfflineBanner(
-                    message = "Sem conexão. Minha Lista será atualizada quando a rede voltar.",
-                    onRetry = viewModel::refresh,
-                    modifier = Modifier
-                        .align(Alignment.TopCenter)
-                        .padding(12.dp)
-                        .zIndex(1f),
-                )
-            }
-        }
         }
     }
 }
+
+@Composable
+internal fun FavoritesCatalogControls(
+    query: String,
+    sortBy: SortOption,
+    sortOrder: SortOrder,
+    showSortMenu: Boolean,
+    isOffline: Boolean,
+    onQueryChange: (String) -> Unit,
+    onToggleSortMenu: () -> Unit,
+    onDismissSortMenu: () -> Unit,
+    onApplySort: (SortOption, SortOrder) -> Unit,
+) {
+    Column(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        OutlinedTextField(
+            value = query,
+            onValueChange = onQueryChange,
+            enabled = !isOffline,
+            modifier = Modifier.fillMaxWidth().semantics {
+                contentDescription = "Buscar títulos em Minha Lista"
+            },
+            label = { Text("Buscar títulos") },
+            leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
+            trailingIcon = if (query.isNotEmpty()) {
+                {
+                    IconButton(
+                        onClick = { onQueryChange("") },
+                        modifier = Modifier.semantics { contentDescription = "Limpar busca" },
+                    ) { Icon(Icons.Default.Clear, contentDescription = null) }
+                }
+            } else {
+                null
+            },
+            singleLine = true,
+        )
+        Box(Modifier.fillMaxWidth()) {
+            Button(
+                onClick = onToggleSortMenu,
+                enabled = !isOffline,
+                modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
+            ) {
+                Text("Ordenar: ${sortBy.label} · ${sortOrder.label}")
+            }
+            if (showSortMenu) {
+                SortDropdown(
+                    current = sortBy,
+                    currentOrder = sortOrder,
+                    onApply = onApplySort,
+                    onDismiss = onDismissSortMenu,
+                    options = FAVORITES_SORT_OPTIONS,
+                )
+            }
+        }
+    }
+}
+
+private val FAVORITES_SORT_OPTIONS = SortOption.values().filter { it != SortOption.Random }
 
 @Composable
 internal fun FavoritesInlineError(
@@ -207,6 +290,21 @@ private fun FavoritesGrid(
                     CircularProgressIndicator(Modifier.padding(16.dp).size(28.dp))
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun EmptyFavoritesSearchState(onClearSearch: () -> Unit) {
+    Box(Modifier.fillMaxSize().padding(24.dp), contentAlignment = Alignment.Center) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Icon(Icons.Default.Search, contentDescription = null, modifier = Modifier.size(56.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text("Nenhum título encontrado", style = MaterialTheme.typography.titleMedium)
+            Text("Tente outro nome ou limpe a busca.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            TextButton(onClick = onClearSearch) { Text("Limpar busca") }
         }
     }
 }
