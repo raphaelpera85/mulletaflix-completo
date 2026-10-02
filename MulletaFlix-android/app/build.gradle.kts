@@ -9,7 +9,9 @@ plugins {
     alias(libs.plugins.ksp)
 }
 
-val officialReleaseSignerSha256 = "224F9A6BD12690E1114ACE649BBFA778D3E7E99DAE608FF711DDF9131E036273"
+// Chave de produção adotada após a rotação registrada em signing/SIGNING-KEY-ROTATION.md.
+// A keystore privada nunca deve ser versionada; somente o certificado público é mantido no Git.
+val officialReleaseSignerSha256 = "4890D80B87FE27C804FF875B549ACD57B946FE6F9BBA0B9D7718989EC5A0A24C"
 
 android {
     namespace = "org.mulletaflix.android"
