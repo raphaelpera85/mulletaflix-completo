@@ -76,7 +76,11 @@ internal static class MulletaFlixOpenTelemetryExtensions
                 .AddMeter(CacheCleanupMetrics.MeterName)
                 .AddMeter(ActivityLogCleanupMetrics.MeterName)
                 .AddMeter(UserDataCleanupMetrics.MeterName)
+                .AddMeter(LicenseExpirationMetrics.MeterName)
                 .AddMeter(LogCleanupMetrics.MeterName)
+            .AddMeter(ChapterImagesMetrics.MeterName)
+            .AddMeter(OptimizeDatabaseMetrics.MeterName)
+            .AddMeter(PluginUpdateMetrics.MeterName)
                 .AddMeter(MulletaFlix.Api.Jobs.MulletaFlixJobQueue.MeterName)
                 .AddOtlpExporter());
         }

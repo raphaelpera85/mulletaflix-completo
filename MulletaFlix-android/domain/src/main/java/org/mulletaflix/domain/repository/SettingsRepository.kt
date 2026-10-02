@@ -34,6 +34,9 @@ interface SettingsRepository {
     suspend fun setPreferredSubtitleLanguage(scope: UserMediaPreferenceScope, language: String?) =
         setPreferredSubtitleLanguage(language)
 
+    /** Remove episode-specific track overrides for the active account/server, preserving account defaults. */
+    suspend fun clearSeriesTrackPreferences() = Unit
+
     fun isAutoPlayEnabled(): Flow<Boolean>
     suspend fun setAutoPlayEnabled(enabled: Boolean)
 

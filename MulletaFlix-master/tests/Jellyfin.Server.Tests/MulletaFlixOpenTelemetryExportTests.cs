@@ -233,6 +233,19 @@ public sealed class MulletaFlixOpenTelemetryExportTests
                 Mock.Of<ILocalizationManager>(),
                 Mock.Of<IMediaSegmentManager>());
             await segmentExtraction.ExecuteAsync(Mock.Of<IProgress<double>>(), TestContext.Current.CancellationToken);
+            var chapterLibrary = new Mock<ILibraryManager>();
+            chapterLibrary.Setup(manager => manager.GetCount(It.IsAny<MediaBrowser.Controller.Entities.InternalItemsQuery>()))
+                .Returns(0);
+            var chapterPaths = new Mock<MediaBrowser.Common.Configuration.IApplicationPaths>();
+            chapterPaths.SetupGet(paths => paths.CachePath).Returns(Path.GetTempPath());
+            var chapterImages = new ChapterImagesTask(
+                NullLogger<ChapterImagesTask>.Instance,
+                chapterLibrary.Object,
+                chapterPaths.Object,
+                Mock.Of<MediaBrowser.Controller.Chapters.IChapterManager>(),
+                Mock.Of<IFileSystem>(),
+                Mock.Of<ILocalizationManager>());
+            await chapterImages.ExecuteAsync(Mock.Of<IProgress<double>>(), TestContext.Current.CancellationToken);
             var syncConfiguration = new Mock<MediaBrowser.Common.Configuration.IConfigurationManager>();
             syncConfiguration.Setup(manager => manager.GetConfiguration("midiastorageonline"))
                 .Returns(new MediaBrowser.Providers.Plugins.MidiaStorageOnline.Configuration.PluginConfiguration());
@@ -393,6 +406,14 @@ public sealed class MulletaFlixOpenTelemetryExportTests
                 userDataDbFactory.Object,
                 NullLogger<CleanupUserDataTask>.Instance);
             await userDataCleanup.ExecuteAsync(Mock.Of<IProgress<double>>(), TestContext.Current.CancellationToken);
+            var licenseManager = new Mock<MediaBrowser.Controller.Library.IUserLicenseManager>();
+            licenseManager.Setup(manager => manager.ExpireOutdatedLicensesAsync(It.IsAny<CancellationToken>()))
+                .ReturnsAsync(0);
+            var licenseExpiration = new Emby.Server.Implementations.ScheduledTasks.Tasks.ExpireLicensesTask(
+                licenseManager.Object,
+                Mock.Of<ILocalizationManager>(),
+                NullLogger<Emby.Server.Implementations.ScheduledTasks.Tasks.ExpireLicensesTask>.Instance);
+            await licenseExpiration.ExecuteAsync(Mock.Of<IProgress<double>>(), TestContext.Current.CancellationToken);
             const string logDirectory = "test-log-directory";
             var logConfiguration = new Mock<MediaBrowser.Common.Configuration.IConfigurationManager>();
             logConfiguration.SetupGet(configuration => configuration.CommonConfiguration)
@@ -425,6 +446,22 @@ public sealed class MulletaFlixOpenTelemetryExportTests
                 nebulaManager,
                 [new List<string>(), CancellationToken.None])!;
             await cleanupTask;
+            var databaseProvider = new Mock<MulletaFlix.Database.Implementations.IMulletaFlixDatabaseProvider>();
+            databaseProvider.Setup(provider => provider.RunScheduledOptimisation(It.IsAny<CancellationToken>()))
+                .Returns(Task.CompletedTask);
+            var databaseOptimization = new OptimizeDatabaseTask(
+                NullLogger<OptimizeDatabaseTask>.Instance,
+                Mock.Of<ILocalizationManager>(),
+                databaseProvider.Object);
+            await databaseOptimization.ExecuteAsync(Mock.Of<IProgress<double>>(), CancellationToken.None);
+            var pluginUpdateManager = new Mock<MediaBrowser.Common.Updates.IInstallationManager>();
+            pluginUpdateManager.Setup(manager => manager.GetAvailablePluginUpdates(It.IsAny<CancellationToken>()))
+                .ReturnsAsync(Array.Empty<MediaBrowser.Model.Updates.InstallationInfo>());
+            var pluginUpdate = new PluginUpdateTask(
+                NullLogger<PluginUpdateTask>.Instance,
+                pluginUpdateManager.Object,
+                Mock.Of<ILocalizationManager>());
+            await pluginUpdate.ExecuteAsync(Mock.Of<IProgress<double>>(), CancellationToken.None);
             Assert.True(meterProvider.ForceFlush(10000), "O MeterProvider não conseguiu drenar as métricas.");
 
             var payloads = await receiver.WaitForRequestsAsync(1, TimeSpan.FromSeconds(30));
@@ -495,6 +532,26 @@ public sealed class MulletaFlixOpenTelemetryExportTests
             Assert.Contains("mulletaflix.user_data_cleanup.entries.expired_candidates_per_run", encodedPayload, StringComparison.Ordinal);
             Assert.Contains("mulletaflix.user_data_cleanup.entries.deleted_per_run", encodedPayload, StringComparison.Ordinal);
             Assert.Contains("mulletaflix.user_data_cleanup.active_runs", encodedPayload, StringComparison.Ordinal);
+            Assert.Contains("mulletaflix.license_expiration.runs", encodedPayload, StringComparison.Ordinal);
+            Assert.Contains("mulletaflix.license_expiration.duration", encodedPayload, StringComparison.Ordinal);
+            Assert.Contains("mulletaflix.license_expiration.users.disabled_per_run", encodedPayload, StringComparison.Ordinal);
+            Assert.Contains("mulletaflix.license_expiration.active_runs", encodedPayload, StringComparison.Ordinal);
+            Assert.Contains("mulletaflix.chapter_images.runs", encodedPayload, StringComparison.Ordinal);
+            Assert.Contains("mulletaflix.chapter_images.duration", encodedPayload, StringComparison.Ordinal);
+            Assert.Contains("mulletaflix.chapter_images.videos.total_per_run", encodedPayload, StringComparison.Ordinal);
+            Assert.Contains("mulletaflix.chapter_images.videos.scanned", encodedPayload, StringComparison.Ordinal);
+            Assert.Contains("mulletaflix.chapter_images.videos.processed", encodedPayload, StringComparison.Ordinal);
+            Assert.Contains("mulletaflix.chapter_images.videos.failed", encodedPayload, StringComparison.Ordinal);
+            Assert.Contains("mulletaflix.chapter_images.active_runs", encodedPayload, StringComparison.Ordinal);
+            Assert.Contains("mulletaflix.database_optimization.runs", encodedPayload, StringComparison.Ordinal);
+            Assert.Contains("mulletaflix.database_optimization.duration", encodedPayload, StringComparison.Ordinal);
+            Assert.Contains("mulletaflix.database_optimization.active_runs", encodedPayload, StringComparison.Ordinal);
+            Assert.Contains("mulletaflix.plugin_updates.runs", encodedPayload, StringComparison.Ordinal);
+            Assert.Contains("mulletaflix.plugin_updates.duration", encodedPayload, StringComparison.Ordinal);
+            Assert.Contains("mulletaflix.plugin_updates.packages.available_per_run", encodedPayload, StringComparison.Ordinal);
+            Assert.Contains("mulletaflix.plugin_updates.packages.attempted", encodedPayload, StringComparison.Ordinal);
+            Assert.Contains("mulletaflix.plugin_updates.packages.failed", encodedPayload, StringComparison.Ordinal);
+            Assert.Contains("mulletaflix.plugin_updates.active_runs", encodedPayload, StringComparison.Ordinal);
             Assert.Contains("mulletaflix.jobs.enqueued", encodedPayload, StringComparison.Ordinal);
             Assert.Contains("mulletaflix.jobs.cancelled", encodedPayload, StringComparison.Ordinal);
             Assert.Contains("no_items", encodedPayload, StringComparison.Ordinal);

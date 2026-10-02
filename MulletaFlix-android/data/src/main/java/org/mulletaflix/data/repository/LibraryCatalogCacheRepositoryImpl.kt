@@ -140,7 +140,7 @@ class LibraryCatalogCacheRepositoryImpl @Inject constructor(
                 .orEmpty()
                 .filterNot { it.libraryId == libraryId && it.scope == scope }
             val boundedStore = LibraryCatalogStoreDto(
-                snapshots = (existing.filter { it.scope == scope } + snapshot)
+                snapshots = (listOf(snapshot) + existing.filter { it.scope == scope })
                     .sortedByDescending { it.savedAtEpochMillis }
                     .take(MAX_CACHED_LIBRARIES),
             )

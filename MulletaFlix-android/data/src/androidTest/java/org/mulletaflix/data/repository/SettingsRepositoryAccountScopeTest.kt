@@ -96,6 +96,78 @@ class SettingsRepositoryAccountScopeTest {
         assertEquals("por", settingsRepository.getPreferredSubtitleLanguage().first())
     }
 
+    @Test
+    fun seriesTrackChoicesOverrideAccountDefaultsWithoutCrossingSeriesOrProfile() = runBlocking {
+        signIn(userId = "user-a", serverId = "server-one")
+        settingsRepository.setPreferredAudioLanguage("eng")
+        settingsRepository.setPreferredSubtitleLanguage("off")
+        val firstSeries = seriesScope("user-a", "server-one", "series-one")
+        val secondSeries = seriesScope("user-a", "server-one", "series-two")
+
+        settingsRepository.setPreferredAudioLanguage(firstSeries, "spa")
+        settingsRepository.setPreferredSubtitleLanguage(firstSeries, "fra")
+
+        assertEquals("spa", settingsRepository.getPreferredAudioLanguage(firstSeries).first())
+        assertEquals("fra", settingsRepository.getPreferredSubtitleLanguage(firstSeries).first())
+        assertEquals("eng", settingsRepository.getPreferredAudioLanguage(secondSeries).first())
+        assertEquals("off", settingsRepository.getPreferredSubtitleLanguage(secondSeries).first())
+        assertEquals("eng", settingsRepository.getPreferredAudioLanguage().first())
+
+        signIn(userId = "user-b", serverId = "server-one")
+        val sameSeriesForOtherUser = seriesScope("user-b", "server-one", "series-one")
+        assertEquals("por", settingsRepository.getPreferredAudioLanguage(sameSeriesForOtherUser).first())
+        assertEquals("por", settingsRepository.getPreferredSubtitleLanguage(sameSeriesForOtherUser).first())
+    }
+
+    @Test
+    fun clearingSeriesChoicesPreservesAccountDefaultsAndOtherProfiles() = runBlocking {
+        signIn(userId = "user-a", serverId = "server-one")
+        settingsRepository.setPreferredAudioLanguage("eng")
+        settingsRepository.setPreferredSubtitleLanguage("off")
+        val firstSeries = seriesScope("user-a", "server-one", "series-one")
+        settingsRepository.setPreferredAudioLanguage(firstSeries, "spa")
+        settingsRepository.setPreferredSubtitleLanguage(firstSeries, "fra")
+
+        settingsRepository.clearSeriesTrackPreferences()
+
+        assertEquals("eng", settingsRepository.getPreferredAudioLanguage(firstSeries).first())
+        assertEquals("off", settingsRepository.getPreferredSubtitleLanguage(firstSeries).first())
+        assertEquals("eng", settingsRepository.getPreferredAudioLanguage().first())
+        assertEquals("off", settingsRepository.getPreferredSubtitleLanguage().first())
+    }
+
+    @Test
+    fun seriesTrackOverridesAreBoundedToMostRecentlyChanged32Series() = runBlocking {
+        signIn(userId = "user-a", serverId = "server-one")
+        settingsRepository.setPreferredAudioLanguage("eng")
+        val seriesScopes = (1..33).map { number ->
+            seriesScope("user-a", "server-one", "series-$number")
+        }
+
+        seriesScopes.forEach { scope -> settingsRepository.setPreferredAudioLanguage(scope, "spa") }
+
+        assertEquals("eng", settingsRepository.getPreferredAudioLanguage(seriesScopes.first()).first())
+        assertEquals("spa", settingsRepository.getPreferredAudioLanguage(seriesScopes[1]).first())
+        assertEquals("spa", settingsRepository.getPreferredAudioLanguage(seriesScopes.last()).first())
+    }
+
+    @Test
+    fun episodeWithoutSafeSeriesIdDoesNotOverwriteAccountTrackDefault() = runBlocking {
+        val account = seriesScope("user-a", "server-one", "series-one").copy(seriesId = null)
+        settingsRepository.setPreferredAudioLanguage(account, "eng")
+        settingsRepository.setPreferredAudioLanguage(account.copy(seriesId = "x".repeat(129), isEpisode = true), "spa")
+
+        assertEquals("eng", settingsRepository.getPreferredAudioLanguage(account).first())
+    }
+
+    private fun seriesScope(userId: String, serverId: String, seriesId: String) =
+        org.mulletaflix.domain.model.UserMediaPreferenceScope(
+            userId = userId,
+            serverId = serverId,
+            serverUrl = "http://mulletaflix.test:8096",
+            seriesId = seriesId,
+        )
+
     private suspend fun signIn(userId: String, serverId: String) {
         sessionRepository.saveSession(
             serverUrl = "http://mulletaflix.test:8096",

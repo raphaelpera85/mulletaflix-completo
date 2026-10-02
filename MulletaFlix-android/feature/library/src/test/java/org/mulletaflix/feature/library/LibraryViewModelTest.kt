@@ -75,7 +75,7 @@ class LibraryViewModelTest {
         onlineVm.loadLibrary("library-1")
         advanceUntilIdle()
 
-        assertEquals(listOf(first, second), cache.snapshots.getValue("user-1" to "library-1")?.items)
+        assertEquals(listOf(first, second), cache.snapshots.getValue("user-1" to "library-1").items)
 
         val offlineMediaCalls = media.itemCalls
         val offlineDetailCalls = media.detailCalls
@@ -92,6 +92,113 @@ class LibraryViewModelTest {
         assertEquals(2, offlineVm.state.value.catalogTotalItemCount)
         assertEquals(offlineMediaCalls, media.itemCalls)
         assertEquals(offlineDetailCalls, media.detailCalls)
+    }
+
+    @Test
+    fun `network loss during library request restores matching saved snapshot`() = runTest {
+        val saved = MediaItem("saved-movie", "Salvo", MediaItemType.Movie)
+        val cache = FakeLibraryCatalogCache().apply {
+            snapshots["user-1" to "library-1"] = CachedLibraryCatalog(
+                libraryId = "library-1",
+                libraryName = "Filmes",
+                collectionType = "movies",
+                items = listOf(saved),
+                sortBy = "SortName",
+                sortOrder = "Ascending",
+                activeFilters = emptyList(),
+                savedAtEpochMillis = 1234L,
+                totalItemCount = 1,
+            )
+        }
+        val network = FakeNetworkMonitor()
+        val pendingResponse = CompletableDeferred<Result<Pair<List<MediaItem>, Int>>>()
+        media.responseSequence = ArrayDeque(listOf(pendingResponse))
+        val viewModel = createViewModel(network = network, catalogCache = cache)
+        advanceUntilIdle()
+
+        viewModel.loadLibrary("library-1")
+        runCurrent()
+        assertEquals(1, media.itemCalls)
+
+        network.setOnline(false)
+        runCurrent()
+        pendingResponse.complete(Result.failure(IllegalStateException("A conexão caiu")))
+        advanceUntilIdle()
+
+        assertEquals(listOf(saved), viewModel.state.value.items)
+        assertTrue(viewModel.state.value.isShowingCachedCatalog)
+        assertEquals("Filmes", viewModel.state.value.libraryName)
+        assertEquals(null, viewModel.state.value.error)
+    }
+
+    @Test
+    fun `network loss without snapshot preserves results already loaded in memory`() = runTest {
+        val loaded = MediaItem("movie-1", "Já carregado", MediaItemType.Movie)
+        media.itemsByLibrary["library-1"] = listOf(loaded) to 1
+        val cache = FakeLibraryCatalogCache()
+        val network = FakeNetworkMonitor()
+        val viewModel = createViewModel(network = network, catalogCache = cache)
+        advanceUntilIdle()
+        viewModel.loadLibrary("library-1")
+        advanceUntilIdle()
+        cache.snapshots.clear()
+
+        val pendingResponse = CompletableDeferred<Result<Pair<List<MediaItem>, Int>>>()
+        media.responseSequence = ArrayDeque(listOf(pendingResponse))
+        viewModel.loadLibrary("library-1")
+        runCurrent()
+        network.setOnline(false)
+        runCurrent()
+        pendingResponse.complete(Result.failure(IllegalStateException("A conexão caiu")))
+        advanceUntilIdle()
+
+        assertEquals(listOf(loaded), viewModel.state.value.items)
+        assertEquals(false, viewModel.state.value.isShowingCachedCatalog)
+        assertTrue(viewModel.state.value.error.orEmpty().contains("resultados carregados anteriormente"))
+    }
+
+    @Test
+    fun `network return during cache read refreshes once after restoring snapshot`() = runTest {
+        val saved = MediaItem("saved-movie", "Salvo", MediaItemType.Movie)
+        val snapshot = CachedLibraryCatalog(
+            libraryId = "library-1",
+            libraryName = "Filmes",
+            collectionType = "movies",
+            items = listOf(saved),
+            sortBy = "SortName",
+            sortOrder = "Ascending",
+            activeFilters = emptyList(),
+            savedAtEpochMillis = 1234L,
+            totalItemCount = 1,
+        )
+        val cache = FakeLibraryCatalogCache()
+        val pendingRead = CompletableDeferred<CachedLibraryCatalog?>()
+        cache.pendingRead = pendingRead
+        val pendingOnlineResponse = CompletableDeferred<Result<Pair<List<MediaItem>, Int>>>()
+        media.responseSequence = ArrayDeque(listOf(pendingOnlineResponse))
+        val network = FakeNetworkMonitor(initialOnline = false)
+        val viewModel = createViewModel(network = network, catalogCache = cache)
+        advanceUntilIdle()
+
+        viewModel.loadLibrary("library-1")
+        runCurrent()
+        assertEquals(0, media.itemCalls)
+
+        network.setOnline(true)
+        runCurrent()
+        assertEquals(0, media.itemCalls)
+        pendingRead.complete(snapshot)
+        runCurrent()
+
+        assertEquals(1, media.itemCalls)
+        assertEquals(1, media.detailCalls)
+        assertEquals(listOf(saved), viewModel.state.value.items)
+        assertEquals(true, viewModel.state.value.isShowingCachedCatalog)
+
+        pendingOnlineResponse.complete(Result.success(emptyList<MediaItem>() to 0))
+        advanceUntilIdle()
+        assertEquals(false, viewModel.state.value.isOffline)
+        assertEquals(false, viewModel.state.value.isShowingCachedCatalog)
     }
 
     @Test
@@ -957,10 +1064,11 @@ class LibraryViewModelTest {
         val snapshots = mutableMapOf<Pair<String, String>, CachedLibraryCatalog>()
         var lastReadKey: Pair<String, String>? = null
         var writeCount = 0
+        var pendingRead: CompletableDeferred<CachedLibraryCatalog?>? = null
 
         override suspend fun read(userId: String, libraryId: String): CachedLibraryCatalog? {
             lastReadKey = userId to libraryId
-            return snapshots[userId to libraryId]
+            return pendingRead?.await() ?: snapshots[userId to libraryId]
         }
 
         override suspend fun write(

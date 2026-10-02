@@ -13,3 +13,8 @@ internal fun isBooksLibrary(item: MediaItem?): Boolean =
 internal fun isBooksLibrary(collectionType: String?, libraryName: String?): Boolean =
     collectionType?.trim().equals("books", ignoreCase = true) ||
         libraryName?.trim().let { it.equals("Livros", ignoreCase = true) || it.equals("Books", ignoreCase = true) }
+
+internal enum class LibraryItemTapAction { OpenDetails, ExplainOffline }
+
+internal fun libraryItemTapAction(isOffline: Boolean): LibraryItemTapAction =
+    if (isOffline) LibraryItemTapAction.ExplainOffline else LibraryItemTapAction.OpenDetails

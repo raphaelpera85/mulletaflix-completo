@@ -68,6 +68,7 @@ fun SettingsScreen(
     var showLicensesDialog by remember { mutableStateOf(false) }
     var showClearAllDataDialog by remember { mutableStateOf(false) }
     var showClearImageCacheDialog by remember { mutableStateOf(false) }
+    var showClearSeriesTrackPreferencesDialog by remember { mutableStateOf(false) }
     val context = androidx.compose.ui.platform.LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
 
@@ -326,6 +327,11 @@ fun SettingsScreen(
                 )
             }
 
+            SeriesTrackPreferencesGroup(
+                statusMessage = state.seriesTrackPreferenceStatusMessage,
+                onClear = { showClearSeriesTrackPreferencesDialog = true },
+            )
+
             DownloadsSettingsGroup(
                 downloadPath = state.downloadPath,
                 storageLabel = state.downloadStorageLabel,
@@ -437,6 +443,24 @@ fun SettingsScreen(
                 )
             }
 
+            if (showClearSeriesTrackPreferencesDialog) {
+                AlertDialog(
+                    onDismissRequest = { showClearSeriesTrackPreferencesDialog = false },
+                    icon = { Icon(Icons.Default.Restore, contentDescription = null, tint = MaterialTheme.colorScheme.secondary) },
+                    title = { Text("Restaurar padrões das séries?") },
+                    text = { Text("As escolhas de áudio e legenda por série serão removidas. Os padrões da conta serão mantidos.") },
+                    confirmButton = {
+                        TextButton(onClick = {
+                            showClearSeriesTrackPreferencesDialog = false
+                            viewModel.clearSeriesTrackPreferences()
+                        }) { Text("Restaurar") }
+                    },
+                    dismissButton = {
+                        TextButton(onClick = { showClearSeriesTrackPreferencesDialog = false }) { Text("Cancelar") }
+                    },
+                )
+            }
+
             if (state.showUpdateDialog && state.updateInfo != null) {
                 val update = state.updateInfo!!
                 val context = androidx.compose.ui.platform.LocalContext.current
@@ -538,6 +562,35 @@ internal fun DownloadsSettingsGroup(
         SettingsItem(icon = Icons.Default.Folder, title = "Pasta de Downloads", subtitle = downloadPath, enabled = false)
         SettingsItem(icon = Icons.Default.Storage, title = "Espaço livre para downloads", subtitle = storageLabel, enabled = false)
         // Download uses URL returned by server; no separate quality preference exists.
+    }
+}
+
+@Composable
+internal fun SeriesTrackPreferencesGroup(
+    statusMessage: String?,
+    onClear: () -> Unit,
+) {
+    SettingsGroup(title = "Preferências de séries") {
+        Text(
+            text = "Ao reproduzir episódios online, escolhas de áudio e legenda valem para a série. Sem escolha específica, o app usa o padrão da conta.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp),
+        )
+        SettingsItem(
+            icon = Icons.Default.Restore,
+            title = "Restaurar padrões das séries",
+            subtitle = "Remove apenas escolhas específicas por série",
+            onClick = onClear,
+        )
+        statusMessage?.let { message ->
+            Text(
+                text = message,
+                color = MaterialTheme.colorScheme.primary,
+                style = MaterialTheme.typography.bodySmall,
+                modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp),
+            )
+        }
     }
 }
 

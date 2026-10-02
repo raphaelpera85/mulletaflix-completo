@@ -115,6 +115,7 @@
     "DeathDateValue": "Morte: {0}",
     "Default": "Padrão",
     "ErrorDefault": "Ocorreu um erro ao processar o requisito. Por favor, tente novamente mais tarde.",
+    "AccessibilityLoading": "Carregando",
     "DefaultMetadataLangaugeDescription": "Estas são suas configurações padrão e podem ser personalizadas por biblioteca.",
     "DefaultSubtitlesHelp": "Legendas são carregadas com base nas configurações padrão e de legendas forçadas nos metadados incorporados. As preferências de idioma são consideradas quando existem múltiplas opções disponíveis.",
     "Delete": "Excluir",

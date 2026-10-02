@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Net.Http;
@@ -74,12 +75,20 @@ public class PluginUpdateTask : IScheduledTask, IConfigurableScheduledTask
     /// <inheritdoc />
     public async Task ExecuteAsync(IProgress<double> progress, CancellationToken cancellationToken)
     {
+        var startedAt = Stopwatch.GetTimestamp();
+        var result = "success";
+        var availablePackages = 0L;
+        var attemptedPackages = 0L;
+        var failedPackages = 0L;
+        PluginUpdateMetrics.RecordActive(1);
+
         try
         {
             progress.Report(0);
 
             var packageFetchTask = _installationManager.GetAvailablePluginUpdates(cancellationToken);
             var packagesToInstall = (await packageFetchTask.ConfigureAwait(false)).ToList();
+            availablePackages = packagesToInstall.Count;
 
             progress.Report(10);
 
@@ -92,6 +101,7 @@ public class PluginUpdateTask : IScheduledTask, IConfigurableScheduledTask
                 try
                 {
                     await _installationManager.InstallPackage(package, cancellationToken).ConfigureAwait(false);
+                    attemptedPackages++;
                 }
                 catch (OperationCanceledException)
                 {
@@ -100,17 +110,26 @@ public class PluginUpdateTask : IScheduledTask, IConfigurableScheduledTask
                     {
                         throw;
                     }
+
+                    attemptedPackages++;
+                    failedPackages++;
                 }
                 catch (HttpRequestException ex)
                 {
+                    attemptedPackages++;
+                    failedPackages++;
                     _logger.LogError(ex, "Error downloading {Name}", package.Name);
                 }
                 catch (IOException ex)
                 {
+                    attemptedPackages++;
+                    failedPackages++;
                     _logger.LogError(ex, "Error updating {Name}", package.Name);
                 }
                 catch (InvalidDataException ex)
                 {
+                    attemptedPackages++;
+                    failedPackages++;
                     _logger.LogError(ex, "Error updating {Name}", package.Name);
                 }
 
@@ -122,14 +141,27 @@ public class PluginUpdateTask : IScheduledTask, IConfigurableScheduledTask
             }
 
             progress.Report(100);
+            result = failedPackages > 0 ? "partial_failure" : packagesToInstall.Count == 0 ? "no_items" : "success";
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
+            result = "cancelled";
             throw;
         }
         catch (Exception ex)
         {
+            result = "failure";
             _logger.LogError(ex, "Plugin update task failed; continuing server startup.");
+        }
+        finally
+        {
+            PluginUpdateMetrics.RecordActive(-1);
+            PluginUpdateMetrics.RecordRun(
+                result,
+                Stopwatch.GetElapsedTime(startedAt).TotalSeconds,
+                availablePackages,
+                attemptedPackages,
+                failedPackages);
         }
     }
 }

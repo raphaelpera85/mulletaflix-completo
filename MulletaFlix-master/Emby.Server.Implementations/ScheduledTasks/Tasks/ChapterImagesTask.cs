@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Threading;
@@ -82,112 +83,171 @@ public class ChapterImagesTask : IScheduledTask
     /// <inheritdoc />
     public async Task ExecuteAsync(IProgress<double> progress, CancellationToken cancellationToken)
     {
-        const int PageSize = 100;
-        var query = new InternalItemsQuery
+        var startedAt = Stopwatch.GetTimestamp();
+        var result = "success";
+        long totalVideos = 0;
+        long scannedVideos = 0;
+        long processedVideos = 0;
+        long failedVideos = 0;
+        ChapterImagesMetrics.RecordActive(1);
+
+        try
         {
-            MediaTypes = [MediaType.Video],
-            IsFolder = false,
-            Recursive = true,
-            DtoOptions = new DtoOptions(false)
+            const int PageSize = 100;
+            var query = new InternalItemsQuery
             {
-                EnableImages = false
-            },
-            SourceTypes = [SourceType.Library],
-            IsVirtualItem = false,
-            Limit = PageSize
-        };
+                MediaTypes = [MediaType.Video],
+                IsFolder = false,
+                Recursive = true,
+                DtoOptions = new DtoOptions(false)
+                {
+                    EnableImages = false
+                },
+                SourceTypes = [SourceType.Library],
+                IsVirtualItem = false,
+                Limit = PageSize
+            };
 
-        // Count first, then page. This used to load every Video entity at once — 77,909 items on
-        // this library — and that peak was one of the largest contributors to the host paging hard
-        // enough to freeze the whole process for 50-100 seconds at a time (measured: 26 log silences
-        // above 20 s, worst 102.6 s, with only ~1.9 GB of RAM free). The sibling tasks
-        // (MediaSegmentExtractionTask, TrickplayImagesTask) already page this way.
-        var numberOfVideos = _libraryManager.GetCount(query);
-
-        var numComplete = 0;
-
-        var failHistoryPath = Path.Combine(_appPaths.CachePath, "chapter-failures.txt");
-
-        // HashSet, not List: this was an O(n) scan per item over a collection that grows with every
-        // failure.
-        HashSet<string> previouslyFailedImages;
-
-        if (File.Exists(failHistoryPath))
-        {
-            try
+            // Count first, then page. This used to load every Video entity at once — 77,909 items on
+            // this library — and that peak was one of the largest contributors to the host paging hard
+            // enough to freeze the whole process for 50-100 seconds at a time (measured: 26 log silences
+            // above 20 s, worst 102.6 s, with only ~1.9 GB of RAM free). The sibling tasks
+            // (MediaSegmentExtractionTask, TrickplayImagesTask) already page this way.
+            var numberOfVideos = _libraryManager.GetCount(query);
+            totalVideos = numberOfVideos;
+            if (numberOfVideos == 0)
             {
-                previouslyFailedImages = new HashSet<string>(
-                    (await File.ReadAllTextAsync(failHistoryPath, cancellationToken).ConfigureAwait(false))
-                        .Split('|', StringSplitOptions.RemoveEmptyEntries),
-                    StringComparer.OrdinalIgnoreCase);
+                result = "no_items";
             }
-            catch (IOException)
+
+            var numComplete = 0;
+
+            var failHistoryPath = Path.Combine(_appPaths.CachePath, "chapter-failures.txt");
+
+            // HashSet, not List: this was an O(n) scan per item over a collection that grows with every
+            // failure.
+            HashSet<string> previouslyFailedImages;
+
+            if (File.Exists(failHistoryPath))
+            {
+                try
+                {
+                    previouslyFailedImages = new HashSet<string>(
+                        (await File.ReadAllTextAsync(failHistoryPath, cancellationToken).ConfigureAwait(false))
+                            .Split('|', StringSplitOptions.RemoveEmptyEntries),
+                        StringComparer.OrdinalIgnoreCase);
+                }
+                catch (IOException)
+                {
+                    previouslyFailedImages = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                }
+            }
+            else
             {
                 previouslyFailedImages = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             }
-        }
-        else
-        {
-            previouslyFailedImages = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        }
 
-        var directoryService = new DirectoryService(_fileSystem);
+            var directoryService = new DirectoryService(_fileSystem);
 
-        var startIndex = 0;
-        while (startIndex < numberOfVideos)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-
-            query.StartIndex = startIndex;
-            var videos = _libraryManager.GetItemList(query).OfType<Video>().ToList();
-            if (videos.Count == 0)
+            var startIndex = 0;
+            while (startIndex < numberOfVideos)
             {
-                break;
-            }
+                cancellationToken.ThrowIfCancellationRequested();
 
-            foreach (var video in videos)
-            {
-            cancellationToken.ThrowIfCancellationRequested();
-
-            var key = video.Path + video.DateModified.Ticks;
-
-            var extract = !previouslyFailedImages.Contains(key);
-
-            try
-            {
-                var chapters = _chapterManager.GetChapters(video.Id);
-
-                var success = await _chapterManager.RefreshChapterImages(video, directoryService, chapters, extract, true, cancellationToken).ConfigureAwait(false);
-
-                if (!success)
+                query.StartIndex = startIndex;
+                var videos = _libraryManager.GetItemList(query).OfType<Video>().ToList();
+                if (videos.Count == 0)
                 {
-                    previouslyFailedImages.Add(key);
-
-                    var parentPath = Path.GetDirectoryName(failHistoryPath);
-                    if (parentPath is not null)
-                    {
-                        Directory.CreateDirectory(parentPath);
-                    }
-
-                    string text = string.Join('|', previouslyFailedImages);
-                    await File.WriteAllTextAsync(failHistoryPath, text, cancellationToken).ConfigureAwait(false);
+                    break;
                 }
 
-                numComplete++;
-                double percent = numberOfVideos == 0 ? 100 : (double)numComplete / numberOfVideos;
+                scannedVideos += videos.Count;
 
-                progress.Report(100 * percent);
+                foreach (var video in videos)
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+
+                    var key = video.Path + video.DateModified.Ticks;
+
+                    var extract = !previouslyFailedImages.Contains(key);
+
+                    try
+                    {
+                        var chapters = _chapterManager.GetChapters(video.Id);
+
+                        var success = await _chapterManager.RefreshChapterImages(video, directoryService, chapters, extract, true, cancellationToken).ConfigureAwait(false);
+
+                        if (!success)
+                        {
+                            previouslyFailedImages.Add(key);
+
+                            var parentPath = Path.GetDirectoryName(failHistoryPath);
+                            if (parentPath is not null)
+                            {
+                                Directory.CreateDirectory(parentPath);
+                            }
+
+                            string text = string.Join('|', previouslyFailedImages);
+                            await File.WriteAllTextAsync(failHistoryPath, text, cancellationToken).ConfigureAwait(false);
+                            failedVideos++;
+                        }
+                        else
+                        {
+                            processedVideos++;
+                        }
+
+                        numComplete++;
+                        double percent = numberOfVideos == 0 ? 100 : (double)numComplete / numberOfVideos;
+
+                        progress.Report(100 * percent);
+                    }
+                    catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                    {
+                        throw;
+                    }
+                    catch (ObjectDisposedException ex)
+                    {
+                        failedVideos++;
+                        result = processedVideos > 0 ? "partial_failure" : "failure";
+                        // TODO Investigate and properly fix.
+                        _logger.LogError(ex, "Object Disposed");
+                        return;
+                    }
+                    catch
+                    {
+                        failedVideos++;
+                        throw;
+                    }
+                }
+
+                startIndex += PageSize;
             }
-            catch (ObjectDisposedException ex)
+
+            if (failedVideos > 0)
             {
-                // TODO Investigate and properly fix.
-                _logger.LogError(ex, "Object Disposed");
-                return;
+                result = "partial_failure";
             }
-            }
-
-            startIndex += PageSize;
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            result = "cancelled";
+            throw;
+        }
+        catch
+        {
+            result = "failure";
+            throw;
+        }
+        finally
+        {
+            ChapterImagesMetrics.RecordRun(
+                result,
+                Stopwatch.GetElapsedTime(startedAt).TotalSeconds,
+                totalVideos,
+                scannedVideos,
+                processedVideos,
+                failedVideos);
+            ChapterImagesMetrics.RecordActive(-1);
         }
     }
 }
-

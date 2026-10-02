@@ -64,10 +64,11 @@ fun LibraryScreen(
     val snackbarHostState = remember { SnackbarHostState() }
     val coroutineScope = rememberCoroutineScope()
     val openLibraryItem: (String) -> Unit = { itemId ->
-        if (state.isOffline) {
-            coroutineScope.launch { snackbarHostState.showSnackbar("Detalhes indisponíveis sem conexão. Conecte-se para abrir este título.") }
-        } else {
-            onItemClick(itemId)
+        when (libraryItemTapAction(state.isOffline)) {
+            LibraryItemTapAction.OpenDetails -> onItemClick(itemId)
+            LibraryItemTapAction.ExplainOffline -> coroutineScope.launch {
+                snackbarHostState.showSnackbar("Detalhes indisponíveis sem conexão. Conecte-se para abrir este título.")
+            }
         }
     }
     val lifecycleOwner = LocalLifecycleOwner.current

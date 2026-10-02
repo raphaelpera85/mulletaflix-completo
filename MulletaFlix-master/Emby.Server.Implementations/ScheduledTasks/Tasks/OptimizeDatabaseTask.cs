@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Threading;
 using System.Threading.Tasks;
 using MulletaFlix.Database.Implementations;
@@ -70,6 +71,9 @@ public class OptimizeDatabaseTask : IScheduledTask, IConfigurableScheduledTask
     public async Task ExecuteAsync(IProgress<double> progress, CancellationToken cancellationToken)
     {
         _logger.LogInformation("Optimizing the MulletaFlix database...");
+        var startedAt = Stopwatch.GetTimestamp();
+        var result = "success";
+        OptimizeDatabaseMetrics.RecordActive(1);
 
         try
         {
@@ -77,7 +81,13 @@ public class OptimizeDatabaseTask : IScheduledTask, IConfigurableScheduledTask
         }
         catch (Exception e)
         {
+            result = "failure";
             _logger.LogError(e, "Error while optimizing the MulletaFlix database");
+        }
+        finally
+        {
+            OptimizeDatabaseMetrics.RecordActive(-1);
+            OptimizeDatabaseMetrics.RecordRun(result, Stopwatch.GetElapsedTime(startedAt).TotalSeconds);
         }
     }
 }

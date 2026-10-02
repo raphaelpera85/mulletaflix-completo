@@ -223,6 +223,22 @@ class SettingsViewModelTest {
     }
 
     @Test
+    fun `clearing series track preferences leaves account defaults in place`() = runTest {
+        val settingsRepo = FakeSettingsRepository()
+        val authRepo = FakeAuthRepository()
+        val viewModel = SettingsViewModel(context, settingsRepo, authRepo, LogoutUseCase(authRepo))
+        advanceUntilIdle()
+
+        viewModel.clearSeriesTrackPreferences()
+        advanceUntilIdle()
+
+        assertTrue(settingsRepo.seriesTrackPreferencesCleared)
+        assertEquals("Preferências específicas removidas. Padrões da conta mantidos.", viewModel.state.value.seriesTrackPreferenceStatusMessage)
+        assertEquals("eng", settingsRepo.audioLanguage)
+        assertEquals("pt-br", settingsRepo.subtitleLanguage)
+    }
+
+    @Test
     fun `every language the player can store is displayed and preserved`() = runTest {
         // The player saves whatever code the server reported. Previously only
         // por/pt/eng/en were recognised, so Spanish, French and German were all
@@ -691,6 +707,7 @@ class SettingsViewModelTest {
 
     private class FakeSettingsRepository : SettingsRepository {
         var localPreferencesCleared: Boolean = false
+        var seriesTrackPreferencesCleared: Boolean = false
         var currentTheme: AppThemeSetting = AppThemeSetting.Dark
         var autoPlay: Boolean = true
         var skipIntro: Boolean = true
@@ -734,6 +751,10 @@ class SettingsViewModelTest {
 
         override suspend fun clearLocalPreferences() {
             localPreferencesCleared = true
+        }
+
+        override suspend fun clearSeriesTrackPreferences() {
+            seriesTrackPreferencesCleared = true
         }
 
         override fun getSubtitleFontSize(): Flow<Int> = MutableStateFlow(subtitleSize)

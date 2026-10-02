@@ -2,6 +2,31 @@
 
 Este documento rastreia o status de implementação de todas as funcionalidades, módulos, telas e componentes do aplicativo oficial **MulletaFlix Android**.
 
+## Consulta offline de bibliotecas (APK local; sem release)
+
+- [x] Salvar snapshots de até oito bibliotecas recentes por servidor/conta, com até 200 cards por biblioteca; preservar nome, ordenação, filtros e contagem total para identificar snapshots parciais.
+- [x] Persistir somente metadados estritos para cards (IDs/imagens/metadados); excluir fontes, faixas, URLs de stream, caminhos e permissões de download; truncar campos textuais e rejeitar IDs que não sejam seguros para URL.
+- [x] Restaurar somente a biblioteca e identidade da sessão correspondentes; limpar snapshots inválidos sem apagar gravações concorrentes; TV continua sem bibliotecas de Livros/Audiobooks, também no modo offline.
+- [x] No offline, mostrar data e cobertura do snapshot, bloquear ações remotas de ordenação/filtros e explicar por snackbar que abrir detalhes requer conexão; reabrir o catálogo não chama endpoints.
+- [x] Testes cobrem serialização sem fontes/segredos, tamanho máximo, URLs LAN/pública do mesmo servidor, isolamento por servidor/conta, LRU das oito bibliotecas no DataStore real, metadados incompletos de playback, restauração offline, conta divergente, TV Books e bloqueio de ações offline.
+- [x] Banner salvo validado em instrumentação por perfil: telefone API 35 (1 teste específico), tablet API 35 (1) e Android TV API 34 (4/4, incluindo foco remoto); teste DataStore real no telefone. Wrappers encerraram AVDs.
+- [x] Gate global APK validado: `testDebugUnitTest`, `:app:compileDebugAndroidTestKotlin`, `:app:lintDebug` e `:app:assembleDebug` terminaram em `BUILD SUCCESSFUL`; 1.378 testes registrados no conjunto local de relatórios debug/connected, sem falhas ou skips. AVDs encerrados.
+- [ ] Sem bump/APK de produção/publicação; em uma release autorizada, verificar antes a versão anterior e sincronizar versão+URL APK no portal, sem release do servidor.
+
+## Preferências de faixas por série (APK local; sem release)
+
+- [ ] Salvar áudio/legenda escolhidos em episódios como override escopado por série; manter preferência da conta como fallback e preservar comportamento de filmes.
+- [ ] Isolar chaves por usuário/servidor+série, limitar armazenamento às 32 séries usadas mais recentemente e permitir limpar overrides sem apagar padrões globais.
+- [ ] Explicar o escopo no app e confirmar a limpeza; cobrir DataStore, fallback, isolamento, limite, ViewModel e semântica Compose.
+- [ ] Validar testes unitários, DataStore e Configurações instrumentados em TV, lint, compilação instrumentada e assembleDebug; sem bump, release, alteração do servidor ou portal.
+
+## Corridas de rede ao restaurar catálogo offline (APK local; sem release)
+
+- [x] Quando a consulta do catálogo falhar após perder a rede, restaurar o snapshot compatível com conta/biblioteca; não mascarar falhas enquanto a rede estiver ativa.
+- [x] Se a conectividade voltar durante leitura do DataStore, mostrar snapshot sem perder o estado e iniciar uma única atualização online após concluir a carga ativa.
+- [x] Testes concorrentes cobrem queda de rede durante consulta e retorno durante leitura suspensa; validar chamadas remotas, proteção por geração e estado final.
+- [x] `:feature:library:testDebugUnitTest`, suíte global, `:app:lintDebug`, compilação instrumentada e `:app:assembleDebug` terminaram com `BUILD SUCCESSFUL` (código 0). Nenhuma alteração no servidor/portal e nenhuma release.
+
 ## Isolamento da verificação de servidor (APK local; sem release)
 
 - [x] Verificar o endpoint candidato sem alterar a URL global antes da resposta de identidade; a requisição não envia token de sessão nem ID persistente do dispositivo.

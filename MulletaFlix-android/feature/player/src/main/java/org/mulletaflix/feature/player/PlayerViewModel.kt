@@ -851,6 +851,8 @@ class PlayerViewModel @Inject constructor(
                 return@launch
             }
             if (!isCurrentPlaybackLoad(loadGeneration, playbackLoadGeneration, itemId, currentItemId, sessionAtLoad, sessionGeneration)) return@launch
+            val playbackPreferenceScope = preferenceScope.forPlaybackItem(item)
+            currentMediaPreferenceScope = playbackPreferenceScope
             currentItemChapters = item.chapters
             _state.update { it.copy(title = item.name, chapters = item.chapters, error = null) }
 
@@ -888,8 +890,8 @@ class PlayerViewModel @Inject constructor(
                 }
             }
 
-            val preferredAudioLanguage = settingsRepository.getPreferredAudioLanguage(preferenceScope).first()
-            val preferredSubtitleLanguage = settingsRepository.getPreferredSubtitleLanguage(preferenceScope).first()
+            val preferredAudioLanguage = settingsRepository.getPreferredAudioLanguage(playbackPreferenceScope).first()
+            val preferredSubtitleLanguage = settingsRepository.getPreferredSubtitleLanguage(playbackPreferenceScope).first()
             val itemAudioStreams = item.mediaStreams
                 .filter { it.type == org.mulletaflix.domain.model.MediaStreamType.Audio }
             val itemSubtitleStreams = item.mediaStreams
@@ -1207,6 +1209,9 @@ class PlayerViewModel @Inject constructor(
                 .getOrDefault(emptyList())
             val currentDownload = downloadId?.let { id ->
                 downloadedEpisodes.firstOrNull { entry -> entry.downloadId == id && entry.uri == uri }
+            }
+            currentDownload?.episodeMetadata?.let { metadata ->
+                currentMediaPreferenceScope = currentMediaPreferenceScope?.forEpisodeSeries(metadata.seriesId)
             }
             val offlineTitle = offlineMediaNotificationTitle(title, currentDownload?.episodeMetadata)
             _state.update { it.copy(title = offlineTitle) }

@@ -13,6 +13,17 @@ INTENT: `LibraryViewModel.loadLibrary` encerra a carga offline sem restaurar ite
 - Quality bar: testes Android unitários, compilação dos testes instrumentados do APK, lint e assemble; instrumentação de UI em AVD celular e TV se o ambiente suportar. Encerrar AVDs após uso.
 - Sem release nesta tarefa. Se uma release APK for autorizada/criada depois, sincronizar no portal a versão, link do APK e notas correspondentes; nenhuma alteração do servidor.
 
+## Continuação: transições de rede durante leitura e consulta
+
+INTENT: code restores a snapshot only when a load starts offline; the existing network observer expects refresh on reconnection, and the tests/task expect cache fallback after a network drop plus refresh after connectivity returns during cache read; README identifies the remote server as catalog/stream source, while this plan limits offline behavior to read-only metadata and does not promise offline playback.
+
+### Plano Gauntlet
+
+- [x] Ao falhar uma consulta de biblioteca com a rede offline, restaurar snapshot da mesma conta/biblioteca; manter erros de autenticação e de servidor online explícitos.
+- [x] Se a rede voltar enquanto o DataStore lê um snapshot, concluir a restauração sem perder dados e então disparar exatamente uma consulta online; proteger por geração contra biblioteca/sessão obsoleta.
+- [x] Testes concorrentes suspendem a leitura do cache e a resposta remota para reproduzir ambas as corridas e verificar contagem de chamadas e estado final.
+- [x] Testes unitários do módulo e suíte Android, lint, compilação instrumentada e montagem Debug passaram; revisão adversarial sem defeitos acionáveis. Não foi necessário iniciar emuladores.
+
 ## Plano
 
 1. Criar contrato de domínio e cache persistente versionado/escopado, com DTO enxuto e tamanho limitado.

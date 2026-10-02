@@ -37,6 +37,7 @@ class SettingsRepositoryImpl @Inject constructor(
         val PIP_ENABLED = booleanPreferencesKey("pip_enabled")
         val AUDIO_LANG = stringPreferencesKey("preferred_audio_lang")
         val SUBTITLE_LANG = stringPreferencesKey("preferred_subtitle_lang")
+        val SERIES_TRACK_PREFERENCE_ORDER_PREFIX = "series_track_preference_order_"
         val AUTOPLAY_ENABLED = booleanPreferencesKey("autoplay_enabled")
         val SKIP_INTRO_ENABLED = booleanPreferencesKey("skip_intro_enabled")
         val AUTOMATIC_INTRO_SKIP_ENABLED = booleanPreferencesKey("automatic_intro_skip_enabled")
@@ -85,7 +86,11 @@ class SettingsRepositoryImpl @Inject constructor(
         currentPreferenceScope.flatMapLatest { preferredLanguageFlow(Keys.AUDIO_LANG, it) }
 
     override fun getPreferredAudioLanguage(scope: UserMediaPreferenceScope): Flow<String?> =
-        preferredLanguageFlow(Keys.AUDIO_LANG, preferenceScope(scope.userId, scope.serverId, scope.serverUrl))
+        preferredLanguageFlow(
+            Keys.AUDIO_LANG,
+            preferenceScope(scope.userId, scope.serverId, scope.serverUrl),
+            scope.seriesId,
+        )
 
     override suspend fun setPreferredAudioLanguage(language: String?) =
         setPreferredLanguage(Keys.AUDIO_LANG, language)
@@ -95,6 +100,8 @@ class SettingsRepositoryImpl @Inject constructor(
             Keys.AUDIO_LANG,
             language,
             preferenceScope(scope.userId, scope.serverId, scope.serverUrl),
+            scope.seriesId,
+            scope.isEpisode,
         )
 
     @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
@@ -102,7 +109,11 @@ class SettingsRepositoryImpl @Inject constructor(
         currentPreferenceScope.flatMapLatest { preferredLanguageFlow(Keys.SUBTITLE_LANG, it) }
 
     override fun getPreferredSubtitleLanguage(scope: UserMediaPreferenceScope): Flow<String?> =
-        preferredLanguageFlow(Keys.SUBTITLE_LANG, preferenceScope(scope.userId, scope.serverId, scope.serverUrl))
+        preferredLanguageFlow(
+            Keys.SUBTITLE_LANG,
+            preferenceScope(scope.userId, scope.serverId, scope.serverUrl),
+            scope.seriesId,
+        )
 
     override suspend fun setPreferredSubtitleLanguage(language: String?) =
         setPreferredLanguage(Keys.SUBTITLE_LANG, language)
@@ -112,19 +123,26 @@ class SettingsRepositoryImpl @Inject constructor(
             Keys.SUBTITLE_LANG,
             language,
             preferenceScope(scope.userId, scope.serverId, scope.serverUrl),
+            scope.seriesId,
+            scope.isEpisode,
         )
 
     @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
     private fun preferredLanguageFlow(
         key: Preferences.Key<String>,
         scope: PreferenceScope?,
+        seriesId: String? = null,
     ): Flow<String?> = if (scope == null) {
         context.settingsDataStore.data.map { it[key] ?: "por" }
     } else {
         flow {
             migrateLegacyLanguagePreferences(scope)
             emitAll(context.settingsDataStore.data.map { preferences ->
-                preferences[scopedLanguageKey(key, scope)] ?: "por"
+                seriesId
+                    ?.takeIf(::isSafeSeriesId)
+                    ?.let { preferences[seriesLanguageKey(key, scope, it)] }
+                    ?: preferences[scopedLanguageKey(key, scope)]
+                    ?: "por"
             })
         }
     }
@@ -137,17 +155,91 @@ class SettingsRepositoryImpl @Inject constructor(
         key: Preferences.Key<String>,
         language: String?,
         scope: PreferenceScope?,
+        seriesId: String? = null,
+        isEpisode: Boolean = false,
     ) {
         if (scope != null) migrateLegacyLanguagePreferences(scope)
+        val safeSeriesId = seriesId?.takeIf { isEpisode && isSafeSeriesId(it) }
         context.settingsDataStore.edit { preferences ->
             if (scope == null) {
+                if (isEpisode) return@edit
                 if (language == null) preferences.remove(key) else preferences[key] = language
-            } else {
+            } else if (safeSeriesId == null) {
+                if (isEpisode) return@edit
                 val scopedKey = scopedLanguageKey(key, scope)
                 if (language == null) preferences.remove(scopedKey) else preferences[scopedKey] = language
+            } else {
+                val seriesToken = seriesToken(safeSeriesId)
+                val seriesKey = seriesLanguageKey(key, scope, safeSeriesId)
+                if (language == null) {
+                    preferences.remove(seriesKey)
+                    if (seriesTrackKeys(scope, seriesToken).none { it in preferences }) {
+                        val orderKey = seriesTrackPreferenceOrderKey(scope)
+                        preferences[orderKey] = preferences[orderKey]
+                            .orEmpty()
+                            .split(',')
+                            .filter { it.isNotBlank() && it != seriesToken }
+                            .joinToString(",")
+                    }
+                } else {
+                    preferences[seriesKey] = language
+                    rememberSeriesTrackPreference(preferences, scope, seriesToken)
+                }
             }
         }
     }
+
+    override suspend fun clearSeriesTrackPreferences() {
+        val scope = currentPreferenceScope.first() ?: return
+        context.settingsDataStore.edit { preferences ->
+            val prefixes = listOf(Keys.AUDIO_LANG, Keys.SUBTITLE_LANG).map { "${it.name}_${scope.token}_series_" }
+            preferences.asMap().keys
+                .filter { key -> prefixes.any(key.name::startsWith) }
+                .forEach { key -> preferences.remove(key) }
+            preferences.remove(seriesTrackPreferenceOrderKey(scope))
+        }
+    }
+
+    private fun rememberSeriesTrackPreference(
+        preferences: MutablePreferences,
+        scope: PreferenceScope,
+        seriesToken: String,
+    ) {
+        val orderKey = seriesTrackPreferenceOrderKey(scope)
+        val previous = preferences[orderKey]
+            .orEmpty()
+            .split(',')
+            .filter { it.isNotBlank() && it != seriesToken }
+        val retained = (previous + seriesToken).takeLast(MAX_SERIES_TRACK_PREFERENCES)
+        val evicted = previous.filterNot(retained::contains)
+        evicted.forEach { token ->
+            seriesTrackKeys(scope, token).forEach(preferences::remove)
+        }
+        preferences[orderKey] = retained.joinToString(",")
+    }
+
+    private fun seriesTrackKeys(
+        scope: PreferenceScope,
+        seriesToken: String,
+    ): List<Preferences.Key<String>> = listOf(
+        stringPreferencesKey("${Keys.AUDIO_LANG.name}_${scope.token}_series_$seriesToken"),
+        stringPreferencesKey("${Keys.SUBTITLE_LANG.name}_${scope.token}_series_$seriesToken"),
+    )
+
+    private fun seriesLanguageKey(
+        key: Preferences.Key<String>,
+        scope: PreferenceScope,
+        seriesId: String,
+    ): Preferences.Key<String> = stringPreferencesKey(
+        "${key.name}_${scope.token}_series_${seriesToken(seriesId)}",
+    )
+
+    private fun seriesTrackPreferenceOrderKey(scope: PreferenceScope): Preferences.Key<String> =
+        stringPreferencesKey("${Keys.SERIES_TRACK_PREFERENCE_ORDER_PREFIX}${scope.token}")
+
+    private fun seriesToken(seriesId: String): String = scopeToken("series", seriesId.trim())
+
+    private fun isSafeSeriesId(seriesId: String): Boolean = seriesId.isNotBlank() && seriesId.length <= 128
 
     private fun preferenceScope(userId: String?, serverId: String?, serverUrl: String): PreferenceScope? {
         val cleanUserId = userId?.trim()?.takeIf { it.isNotEmpty() } ?: return null
@@ -185,6 +277,10 @@ class SettingsRepositoryImpl @Inject constructor(
                 append(alphabet[value and 0x0f])
             }
         }
+    }
+
+    private companion object {
+        const val MAX_SERIES_TRACK_PREFERENCES = 32
     }
 
     override fun isAutoPlayEnabled(): Flow<Boolean> =

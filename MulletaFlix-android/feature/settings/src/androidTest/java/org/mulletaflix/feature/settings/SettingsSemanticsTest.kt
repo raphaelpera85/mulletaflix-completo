@@ -139,4 +139,25 @@ class SettingsSemanticsTest {
         composeRule.onAllNodesWithText("Pasta de Downloads").assertCountEquals(1)
         composeRule.onAllNodesWithText("Espaço livre para downloads").assertCountEquals(1)
     }
+
+    @Test
+    fun seriesTrackPreferenceResetIsExplainedAndAccessible() {
+        var clicks = 0
+        composeRule.setContent {
+            MaterialTheme {
+                SeriesTrackPreferencesGroup(
+                    statusMessage = "Preferências específicas removidas. Padrões da conta mantidos.",
+                    onClear = { clicks++ },
+                )
+            }
+        }
+
+        composeRule.onNodeWithText("Em episódios, escolhas de áudio e legenda valem para a série. Sem escolha específica, o app usa o padrão da conta.")
+            .assertExists()
+        composeRule.onNodeWithText("Restaurar padrões das séries").performClick()
+        composeRule.onNodeWithText("Preferências específicas removidas. Padrões da conta mantidos.").assertExists()
+
+        assertEquals(1, clicks)
+        assertEquals("a ação de redefinição precisa ser acessível como botão", 1, roles())
+    }
 }

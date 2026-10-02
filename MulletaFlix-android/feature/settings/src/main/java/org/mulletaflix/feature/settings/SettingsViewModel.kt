@@ -61,6 +61,7 @@ data class SettingsState(
     val isCheckingConnection: Boolean = false,
     val connectionStatus: String? = null,
     val cacheStatusMessage: String? = null,
+    val seriesTrackPreferenceStatusMessage: String? = null,
 )
 
 @HiltViewModel
@@ -210,6 +211,28 @@ class SettingsViewModel @Inject constructor(
         _state.update { it.copy(audioLanguage = MediaLanguage.label(language)) }
         viewModelScope.launch {
             settingsRepository.setPreferredAudioLanguage(MediaLanguage.code(language))
+        }
+    }
+
+    fun clearSeriesTrackPreferences() {
+        _state.update { it.copy(seriesTrackPreferenceStatusMessage = null) }
+        viewModelScope.launch {
+            runCatching { settingsRepository.clearSeriesTrackPreferences() }
+                .onSuccess {
+                    _state.update {
+                        it.copy(seriesTrackPreferenceStatusMessage = "Preferências específicas removidas. Padrões da conta mantidos.")
+                    }
+                }
+                .onFailure { error ->
+                    _state.update {
+                        it.copy(
+                            seriesTrackPreferenceStatusMessage = error.localizedMessage
+                                ?.takeIf(String::isNotBlank)
+                                ?.let { message -> "Não foi possível limpar as preferências: $message" }
+                                ?: "Não foi possível limpar as preferências por série.",
+                        )
+                    }
+                }
         }
     }
 

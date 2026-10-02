@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Threading;
 using System.Threading.Tasks;
 using MediaBrowser.Controller.Library;
@@ -50,22 +51,45 @@ public class ExpireLicensesTask : IScheduledTask
     /// <inheritdoc/>
     public async Task ExecuteAsync(IProgress<double> progress, CancellationToken cancellationToken)
     {
-        _logger.LogInformation("Starting license expiration check...");
-        progress.Report(0);
-
-        var disabledCount = await _licenseManager.ExpireOutdatedLicensesAsync(cancellationToken)
-            .ConfigureAwait(false);
-
-        if (disabledCount > 0)
+        var startedAt = Stopwatch.GetTimestamp();
+        long disabledCount = 0;
+        var result = "failure";
+        LicenseExpirationMetrics.RecordActive(1);
+        try
         {
-            _logger.LogInformation("{Count} user(s) disabled due to expired licenses.", disabledCount);
-        }
-        else
-        {
-            _logger.LogDebug("No expired licenses found.");
-        }
+            _logger.LogInformation("Starting license expiration check...");
+            progress.Report(0);
 
-        progress.Report(100);
+            disabledCount = await _licenseManager.ExpireOutdatedLicensesAsync(cancellationToken)
+                .ConfigureAwait(false);
+
+            if (disabledCount > 0)
+            {
+                _logger.LogInformation("{Count} user(s) disabled due to expired licenses.", disabledCount);
+            }
+            else
+            {
+                _logger.LogDebug("No expired licenses found.");
+            }
+
+            progress.Report(100);
+            result = disabledCount == 0 ? "no_items" : "success";
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            result = "cancelled";
+            throw;
+        }
+        catch
+        {
+            result = "failure";
+            throw;
+        }
+        finally
+        {
+            LicenseExpirationMetrics.RecordRun(result, Stopwatch.GetElapsedTime(startedAt).TotalSeconds, disabledCount);
+            LicenseExpirationMetrics.RecordActive(-1);
+        }
     }
 
     /// <inheritdoc/>

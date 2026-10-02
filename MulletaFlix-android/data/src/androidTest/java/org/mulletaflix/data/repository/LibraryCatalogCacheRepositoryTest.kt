@@ -20,7 +20,7 @@ import org.mulletaflix.domain.model.MediaStreamType
 
 class LibraryCatalogCacheRepositoryTest {
     @Test
-    fun `datastore isolates users preserves several libraries and strips playback data`() = runBlocking {
+    fun datastoreIsolatesUsersPreservesRecentLibrariesAndStripsPlaybackData() = runBlocking {
         val session = TestSessionRepository()
         val cache = LibraryCatalogCacheRepositoryImpl(
             InstrumentationRegistry.getInstrumentation().targetContext,

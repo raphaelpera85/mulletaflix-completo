@@ -105,7 +105,9 @@ class LibraryViewModel @Inject constructor(
                 _state.update { it.copy(isOffline = !online) }
                 if (!online) _state.update { it.copy(showSortMenu = false, showFilterMenu = false) }
                 if (shouldRefreshLibraryOnNetworkReturn(previousOnline, online)) {
-                    currentLibraryId?.let(::refreshIfIdle)
+                    currentLibraryId?.let { libraryId ->
+                        refreshIfIdle(libraryId, currentIsTelevision, deferUntilIdle = true)
+                    }
                 }
                 previousOnline = online
             }
@@ -204,51 +206,7 @@ class LibraryViewModel @Inject constructor(
                     }
                     return@launch
                 }
-                val snapshot = try {
-                    libraryCatalogCache.read(userId, libraryId)
-                } catch (cancelled: kotlinx.coroutines.CancellationException) {
-                    throw cancelled
-                } catch (_: Exception) {
-                    null
-                }
-                if (!isCurrentLibraryRequest(requestGeneration, userId, libraryId)) return@launch
-                if (isTelevision && snapshot != null && isBooksLibrary(snapshot.collectionType, snapshot.libraryName)) {
-                    _state.update {
-                        it.copy(
-                            libraryName = snapshot.libraryName,
-                            items = emptyList(),
-                            hasMore = false,
-                            isLoading = false,
-                            isRefreshing = false,
-                            isShowingCachedCatalog = false,
-                            catalogSavedAtEpochMillis = null,
-                            error = "A biblioteca de Livros não está disponível na Android TV.",
-                        )
-                    }
-                    return@launch
-                }
-                val cachedSort = SortOption.values().firstOrNull { it.apiValue.equals(snapshot?.sortBy, ignoreCase = true) }
-                val cachedOrder = SortOrder.values().firstOrNull { it.apiValue.equals(snapshot?.sortOrder, ignoreCase = true) }
-                val restoredItems = snapshot?.items.orEmpty()
-                fetchedItemCount = restoredItems.size
-                currentLibraryCollectionType = snapshot?.collectionType
-                currentLibraryName = snapshot?.libraryName ?: "Biblioteca"
-                _state.update {
-                    it.copy(
-                        libraryName = snapshot?.libraryName ?: "Biblioteca",
-                        items = restoredItems,
-                        activeFilters = snapshot?.activeFilters?.let(::orderedFilters) ?: it.activeFilters,
-                        sortBy = cachedSort ?: it.sortBy,
-                        sortOrder = cachedOrder ?: it.sortOrder,
-                        hasMore = false,
-                        isLoading = false,
-                        isRefreshing = false,
-                        isShowingCachedCatalog = snapshot != null,
-                        catalogSavedAtEpochMillis = snapshot?.savedAtEpochMillis,
-                        catalogTotalItemCount = snapshot?.totalItemCount,
-                        error = if (snapshot == null) "Nenhuma lista salva neste dispositivo. Conecte-se para carregar a biblioteca." else null,
-                    )
-                }
+                restoreCachedCatalog(userId, libraryId, isTelevision, requestGeneration)
             }
             return
         }
@@ -294,6 +252,10 @@ class LibraryViewModel @Inject constructor(
             // Get library details (name + collection type drive the browse query)
             val libResult = getItemDetailUseCase(userId, libraryId)
             if (!isCurrentLibraryRequest(requestGeneration, userId, libraryId)) return@launch
+            if (libResult.isFailure && !networkMonitor.isOnline.first()) {
+                restoreCachedCatalog(userId, libraryId, isTelevision, requestGeneration)
+                return@launch
+            }
             val library = libResult.getOrNull()
             val libName = library?.name ?: "Biblioteca"
             currentLibraryName = libName
@@ -355,6 +317,10 @@ class LibraryViewModel @Inject constructor(
                     )
                     val fullCatalogItems = fullCatalogResult.getOrElse { error ->
                         if (!isCurrentLibraryRequest(requestGeneration, userId, libraryId)) return@onSuccess
+                        if (!networkMonitor.isOnline.first()) {
+                            restoreCachedCatalog(userId, libraryId, isTelevision, requestGeneration)
+                            return@onSuccess
+                        }
                         _state.update {
                             it.copy(
                                 isLoading = false,
@@ -385,7 +351,86 @@ class LibraryViewModel @Inject constructor(
                 persistLibrarySnapshot(userId, libraryId, libName, library?.collectionType, items, total)
             }.onFailure { error ->
                 if (!isCurrentLibraryRequest(requestGeneration, userId, libraryId)) return@onFailure
+                if (!networkMonitor.isOnline.first()) {
+                    restoreCachedCatalog(userId, libraryId, isTelevision, requestGeneration)
+                    return@onFailure
+                }
                 _state.update { it.copy(isLoading = false, isRefreshing = false, error = error.message ?: "Não foi possível carregar a biblioteca.") }
+            }
+        }
+    }
+
+    private suspend fun restoreCachedCatalog(
+        userId: String,
+        libraryId: String,
+        isTelevision: Boolean,
+        generation: Long,
+    ) {
+        val snapshot = try {
+            libraryCatalogCache.read(userId, libraryId)
+        } catch (cancelled: kotlinx.coroutines.CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            null
+        }
+        if (!isCurrentLibraryRequest(generation, userId, libraryId)) return
+
+        if (isTelevision && snapshot != null && isBooksLibrary(snapshot.collectionType, snapshot.libraryName)) {
+            _state.update {
+                it.copy(
+                    libraryName = snapshot.libraryName,
+                    items = emptyList(),
+                    hasMore = false,
+                    isLoading = false,
+                    isRefreshing = false,
+                    isShowingCachedCatalog = false,
+                    catalogSavedAtEpochMillis = null,
+                    catalogTotalItemCount = null,
+                    error = "A biblioteca de Livros não está disponível na Android TV.",
+                )
+            }
+            return
+        }
+
+        val cachedSort = SortOption.values().firstOrNull { it.apiValue.equals(snapshot?.sortBy, ignoreCase = true) }
+        val cachedOrder = SortOrder.values().firstOrNull { it.apiValue.equals(snapshot?.sortOrder, ignoreCase = true) }
+        if (snapshot != null) {
+            fetchedItemCount = snapshot.items.size
+            currentLibraryCollectionType = snapshot.collectionType
+            currentLibraryName = snapshot.libraryName
+        }
+        _state.update {
+            it.copy(
+                libraryName = snapshot?.libraryName ?: it.libraryName,
+                items = snapshot?.items ?: it.items,
+                activeFilters = snapshot?.activeFilters?.let(::orderedFilters) ?: it.activeFilters,
+                sortBy = cachedSort ?: it.sortBy,
+                sortOrder = cachedOrder ?: it.sortOrder,
+                hasMore = if (snapshot != null) false else it.hasMore,
+                isLoading = false,
+                isRefreshing = false,
+                isShowingCachedCatalog = snapshot != null,
+                catalogSavedAtEpochMillis = snapshot?.savedAtEpochMillis ?: it.catalogSavedAtEpochMillis,
+                catalogTotalItemCount = snapshot?.totalItemCount ?: it.catalogTotalItemCount,
+                error = when {
+                    snapshot != null -> null
+                    it.items.isEmpty() -> "Nenhuma lista salva neste dispositivo. Conecte-se para carregar a biblioteca."
+                    else -> "Sem conexão. Exibindo os resultados carregados anteriormente."
+                },
+            )
+        }
+
+        if (networkMonitor.isOnline.first()) {
+            refreshAfterActiveLoad(generation, libraryId, isTelevision)
+        }
+    }
+
+    private fun refreshAfterActiveLoad(generation: Long, libraryId: String, isTelevision: Boolean) {
+        val activeLoad = loadJob ?: return
+        viewModelScope.launch {
+            activeLoad.join()
+            if (generation == requestGeneration && currentLibraryId == libraryId && !_state.value.isOffline) {
+                loadLibrary(libraryId, isTelevision)
             }
         }
     }
@@ -395,7 +440,11 @@ class LibraryViewModel @Inject constructor(
      * This is used by the TV foreground timer to avoid cancelling a slow
      * catalog response and replacing it with another request.
      */
-    fun refreshIfIdle(libraryId: String, isTelevision: Boolean = currentIsTelevision) {
+    fun refreshIfIdle(
+        libraryId: String,
+        isTelevision: Boolean = currentIsTelevision,
+        deferUntilIdle: Boolean = false,
+    ) {
         val current = _state.value
         // `loadLibrary` starts a coroutine before persisted query preferences
         // have necessarily emitted. During that short window the state still
@@ -403,11 +452,13 @@ class LibraryViewModel @Inject constructor(
         // library with both the initial load and the foreground refresh effect
         // active, so checking the job prevents the refresh from cancelling the
         // first request and starting a duplicate one.
-        if (
-            current.isOffline ||
-            loadJob?.isActive == true ||
-            (currentLibraryId == libraryId && (current.isLoading || current.isRefreshing))
-        ) return
+        if (current.isOffline) return
+        if (loadJob?.isActive == true || (currentLibraryId == libraryId && (current.isLoading || current.isRefreshing))) {
+            if (deferUntilIdle && currentLibraryId == libraryId) {
+                refreshAfterActiveLoad(requestGeneration, libraryId, isTelevision)
+            }
+            return
+        }
         loadLibrary(libraryId, isTelevision)
     }
 
