@@ -134,7 +134,12 @@ class BookReaderLifecycleTest {
                 composeRule.activity.resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
             }
             composeRule.waitUntil(timeoutMillis = 10_000) {
-                locationUpdateCount() > updatesBeforeRotation
+                locationUpdateCount() > updatesBeforeRotation &&
+                    sameReadingPosition(
+                        currentLocation(),
+                        advancedLocation,
+                        progressionTolerance = 0.05,
+                    )
             }
             val rotatedLocation = currentLocation()
             assertTrue(

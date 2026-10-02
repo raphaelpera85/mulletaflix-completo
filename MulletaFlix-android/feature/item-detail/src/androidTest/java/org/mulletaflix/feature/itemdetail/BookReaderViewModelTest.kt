@@ -124,6 +124,54 @@ class BookReaderViewModelTest {
     }
 
     @Test
+    fun httpReaderErrorsAreSurfacedWithoutLeavingTemporaryFiles() = runBlocking {
+        val cases = listOf(
+            Triple(401, "book-401", "sessão"),
+            Triple(403, "book-403", "autorização"),
+            Triple(404, "book-404", "não foi encontrado"),
+            Triple(415, "book-415", "formato"),
+        )
+        cases.forEach { (code, itemId, expectedMessage) ->
+            val (viewModel, store) = viewModel {
+                Response.error(code, "error-$code".toResponseBody("text/plain".toMediaType()))
+            }
+            val cacheBefore = readerCacheFiles()
+
+            try {
+                viewModel.load(itemId)
+                val failed = awaitTerminalState(viewModel) {
+                    !it.isLoading && it.errorMessage.orEmpty().contains(expectedMessage)
+                }
+                assertNull(failed.publication)
+                assertEquals(cacheBefore, readerCacheFiles())
+            } finally {
+                store.clear()
+                readerCacheFiles().minus(cacheBefore).forEach { it.delete() }
+            }
+        }
+    }
+
+    @Test
+    fun interruptedDownloadFailsAndRemovesPartialTemporaryFile() = runBlocking {
+        val (viewModel, store) = viewModel {
+            Response.success(InterruptedResponseBody())
+        }
+        val cacheBefore = readerCacheFiles()
+
+        try {
+            viewModel.load("interrupted-book")
+            val failed = awaitTerminalState(viewModel)
+
+            assertNull(failed.publication)
+            assertTrue(failed.errorMessage.orEmpty().contains("rede interrompida"))
+            assertEquals(cacheBefore, readerCacheFiles())
+        } finally {
+            store.clear()
+            readerCacheFiles().minus(cacheBefore).forEach { it.delete() }
+        }
+    }
+
+    @Test
     fun retryCancelsBlockedStreamClosesBodyAndRemovesTemporaryFile() = runBlocking {
         val cacheBefore = readerCacheFiles()
         val blockedBody = BlockingResponseBody()
@@ -312,6 +360,36 @@ class BookReaderViewModelTest {
         fun awaitReadStarted(): Boolean = input.readStarted.await(5, TimeUnit.SECONDS)
 
         fun awaitClosed(): Boolean = input.closed.await(5, TimeUnit.SECONDS)
+    }
+
+    private class InterruptedResponseBody : ResponseBody() {
+        private val input = InterruptedInputStream()
+        private val bufferedSource = input.source().buffer()
+
+        override fun contentType() = "application/epub+zip".toMediaType()
+
+        override fun contentLength(): Long = -1L
+
+        override fun source(): BufferedSource = bufferedSource
+    }
+
+    private class InterruptedInputStream : InputStream() {
+        private var emittedPrefix = false
+
+        override fun read(): Int {
+            if (emittedPrefix) throw IOException("rede interrompida")
+            emittedPrefix = true
+            return 'P'.code
+        }
+
+        override fun read(buffer: ByteArray, offset: Int, length: Int): Int {
+            if (emittedPrefix) throw IOException("rede interrompida")
+            val prefix = byteArrayOf('P'.code.toByte(), 'K'.code.toByte())
+            val count = minOf(length, prefix.size)
+            prefix.copyInto(buffer, destinationOffset = offset, endIndex = count)
+            emittedPrefix = true
+            return count
+        }
     }
 
     private class BlockingInputStream : InputStream() {
