@@ -29,6 +29,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.mulletaflix.domain.model.MediaItem
 import org.mulletaflix.domain.model.MediaItemType
+import org.mulletaflix.domain.model.MediaSource
 import org.mulletaflix.domain.model.MediaStream
 import org.mulletaflix.domain.model.MediaStreamType
 
@@ -65,11 +66,11 @@ class DetailActionRowTest {
                         isFavorite = isFavorite,
                         isPlayed = isPlayed,
                     ),
-                    playEnabled = true,
+                    primaryAction = DetailPlaybackTarget.PlayVideo("m1"),
                     isDownloadPreparing = isDownloadPreparing,
                     isFavoriteUpdating = isFavoriteUpdating,
                     isWatchedUpdating = isWatchedUpdating,
-                    onPlay = {},
+                    onPrimaryAction = {},
                     onFavorite = {},
                     onMarkWatched = {},
                     onDownload = {},
@@ -128,23 +129,80 @@ class DetailActionRowTest {
     }
 
     @Test
+    fun bookUsesReaderActionInsteadOfVideoPlayback() {
+        var clicks = 0
+        composeRule.setContent {
+            MaterialTheme {
+                DetailActionRow(
+                    item = MediaItem(
+                        id = "book-1",
+                        name = "Livro",
+                        type = MediaItemType.Book,
+                        mediaSources = listOf(MediaSource(id = "book-source", container = "epub")),
+                    ),
+                    primaryAction = DetailPlaybackTarget.ReadBook("book-1"),
+                    isDownloadPreparing = false,
+                    isFavoriteUpdating = false,
+                    isWatchedUpdating = false,
+                    onPrimaryAction = { clicks++ },
+                    onFavorite = {},
+                    onMarkWatched = {},
+                    onDownload = {},
+                    onPlaylist = {},
+                    onShare = {},
+                )
+            }
+        }
+
+        composeRule.onNodeWithText("Ler livro").assertExists().performClick()
+        composeRule.onNodeWithText("Reproduzir").assertDoesNotExist()
+        composeRule.runOnIdle { org.junit.Assert.assertEquals(1, clicks) }
+    }
+
+    @Test
+    fun televisionUnavailableBookActionIsNotRendered() {
+        composeRule.setContent {
+            MaterialTheme {
+                DetailActionRow(
+                    item = MediaItem(
+                        id = "book-1",
+                        name = "Livro",
+                        type = MediaItemType.Book,
+                        mediaSources = listOf(MediaSource(id = "book-source", container = "epub")),
+                    ),
+                    primaryAction = DetailPlaybackTarget.Unavailable,
+                    isDownloadPreparing = false,
+                    isFavoriteUpdating = false,
+                    isWatchedUpdating = false,
+                    onPrimaryAction = {},
+                    onFavorite = {},
+                    onMarkWatched = {},
+                    onDownload = {},
+                    onPlaylist = {},
+                    onShare = {},
+                )
+            }
+        }
+
+        composeRule.onNodeWithText("Ler livro").assertDoesNotExist()
+        composeRule.onNodeWithText("Reproduzir").assertDoesNotExist()
+    }
+
+    @Test
     fun narrowHeroKeepsPosterWholeAndActionsReachableAtTwoHundredPercentFontScale() {
         val longTitle = "Título longo para acessibilidade ampliada ".repeat(10)
         var shareClicks = 0
         composeRule.setContent {
-            DeviceConfigurationOverride(
-                DeviceConfigurationOverride.WindowSize(DpSize(840.dp, 420.dp)),
-            ) {
-                DeviceConfigurationOverride(DeviceConfigurationOverride.FontScale(2f)) {
-                    MaterialTheme {
-                        Box(Modifier.width(340.dp).height(420.dp)) {
-                            DetailHero(
+            DeviceConfigurationOverride(DeviceConfigurationOverride.FontScale(2f)) {
+                MaterialTheme {
+                    Box(Modifier.width(340.dp).height(420.dp)) {
+                        DetailHero(
                                 item = MediaItem(id = "m1", name = longTitle, type = MediaItemType.Movie),
                                 onBack = {},
                                 onRefresh = {},
                                 isRefreshing = false,
-                                onPlay = {},
-                                playEnabled = true,
+                                primaryAction = DetailPlaybackTarget.PlayVideo("m1"),
+                                onPrimaryAction = {},
                                 onFavorite = {},
                                 onMarkWatched = {},
                                 onDownload = {},
@@ -155,8 +213,7 @@ class DetailActionRowTest {
                                 onPlaylist = {},
                                 onShare = { shareClicks++ },
                                 isLoading = false,
-                            )
-                        }
+                        )
                     }
                 }
             }
@@ -185,11 +242,11 @@ class DetailActionRowTest {
             MaterialTheme {
                 DetailActionRow(
                     item = MediaItem(id = "m1", name = "Filme", type = MediaItemType.Movie),
-                    playEnabled = true,
+                    primaryAction = DetailPlaybackTarget.PlayVideo("m1"),
                     isDownloadPreparing = false,
                     isFavoriteUpdating = true,
                     isWatchedUpdating = false,
-                    onPlay = {},
+                    onPrimaryAction = {},
                     onFavorite = { clicks++ },
                     onMarkWatched = {},
                     onDownload = {},

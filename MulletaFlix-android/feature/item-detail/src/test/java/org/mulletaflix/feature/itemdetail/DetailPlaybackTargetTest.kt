@@ -6,6 +6,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.mulletaflix.domain.model.MediaItem
 import org.mulletaflix.domain.model.MediaItemType
+import org.mulletaflix.domain.model.MediaSource
 
 class DetailPlaybackTargetTest {
 
@@ -51,7 +52,12 @@ class DetailPlaybackTargetTest {
 
     @Test
     fun `book opens reader on handheld devices`() {
-        val book = MediaItem("book-1", "Livro", MediaItemType.Book)
+        val book = MediaItem(
+            "book-1",
+            "Livro",
+            MediaItemType.Book,
+            mediaSources = listOf(MediaSource(id = "source", container = "epub")),
+        )
 
         assertEquals(
             DetailPlaybackTarget.ReadBook("book-1"),
@@ -61,12 +67,46 @@ class DetailPlaybackTargetTest {
 
     @Test
     fun `book reader action is unavailable on television`() {
-        val book = MediaItem("book-1", "Livro", MediaItemType.Book)
+        val book = MediaItem(
+            "book-1",
+            "Livro",
+            MediaItemType.Book,
+            mediaSources = listOf(MediaSource(id = "source", container = "epub")),
+        )
 
         assertEquals(
             DetailPlaybackTarget.Unavailable,
             detailPlaybackTarget(book, emptyList(), isTelevision = true),
         )
+    }
+
+    @Test
+    fun `convertible document formats use book reader but comics do not`() {
+        listOf("pdf", "mobi", "azw", "azw3", "txt", "html", "htm").forEach { format ->
+            val book = MediaItem(
+                "book-$format",
+                "Livro $format",
+                MediaItemType.Book,
+                mediaSources = listOf(MediaSource(id = "source", container = format)),
+            )
+            assertEquals(
+                DetailPlaybackTarget.ReadBook(book.id),
+                detailPlaybackTarget(book, emptyList(), isTelevision = false),
+            )
+        }
+
+        listOf("cbz", "cbr", "cb7", "cbt").forEach { format ->
+            val comic = MediaItem(
+                "comic-$format",
+                "Quadrinho $format",
+                MediaItemType.Book,
+                mediaSources = listOf(MediaSource(id = "source", container = format)),
+            )
+            assertEquals(
+                DetailPlaybackTarget.Unavailable,
+                detailPlaybackTarget(comic, emptyList(), isTelevision = false),
+            )
+        }
     }
 
     @Test

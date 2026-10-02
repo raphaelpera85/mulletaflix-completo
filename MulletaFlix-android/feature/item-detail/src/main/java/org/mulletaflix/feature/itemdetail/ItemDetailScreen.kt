@@ -10,6 +10,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material.icons.automirrored.filled.PlaylistAdd
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.outlined.*
@@ -473,7 +474,7 @@ internal fun DetailActionRow(
                 onClick = onPrimaryAction,
                 colors = ButtonDefaults.buttonColors(containerColor = MulletaFlixRed),
             ) {
-                Icon(Icons.Default.MenuBook, contentDescription = null)
+                Icon(Icons.AutoMirrored.Filled.MenuBook, contentDescription = null)
                 Spacer(Modifier.width(4.dp))
                 Text("Ler livro")
             }

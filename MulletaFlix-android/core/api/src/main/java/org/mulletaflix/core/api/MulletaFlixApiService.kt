@@ -180,6 +180,7 @@ interface MulletaFlixApiService {
     suspend fun getItem(
         @Path("userId") userId: String,
         @Path("itemId") itemId: String,
+        @Query("Fields") fields: String = "MediaSources",
     ): BaseItemDto
 
     @GET("Items/{itemId}/Similar")

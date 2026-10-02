@@ -1,0 +1,257 @@
+@file:OptIn(org.readium.r2.shared.ExperimentalReadiumApi::class)
+
+package org.mulletaflix.feature.itemdetail
+
+import android.content.Context
+import android.content.pm.ActivityInfo
+import android.content.res.Configuration
+import android.os.Bundle
+import androidx.activity.ComponentActivity
+import androidx.activity.compose.setContent
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.test.assertIsEnabled
+import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
+import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.performClick
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.ViewModelProvider
+import androidx.test.core.app.ApplicationProvider
+import java.io.ByteArrayOutputStream
+import java.io.File
+import java.util.zip.CRC32
+import java.util.zip.ZipEntry
+import java.util.zip.ZipOutputStream
+import kotlinx.coroutines.runBlocking
+import org.junit.Rule
+import org.junit.Test
+import org.readium.r2.shared.publication.Locator
+import org.readium.r2.shared.publication.Publication
+import org.readium.r2.shared.util.asset.AssetRetriever
+import org.readium.r2.shared.util.http.DefaultHttpClient
+import org.readium.r2.streamer.PublicationOpener
+import org.readium.r2.streamer.parser.DefaultPublicationParser
+
+class BookReaderLifecycleStateViewModel : ViewModel() {
+    var publication by mutableStateOf<Publication?>(null)
+    var location by mutableStateOf<Locator?>(null)
+    var locationUpdates by mutableStateOf(0)
+}
+
+class BookReaderLifecycleTestActivity : ComponentActivity() {
+    private lateinit var readerState: BookReaderLifecycleStateViewModel
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        readerState = ViewModelProvider(this)[BookReaderLifecycleStateViewModel::class.java]
+        setContent {
+            MaterialTheme {
+                val current = readerState.publication
+                BookReaderContent(
+                    state = if (current != null) {
+                        BookReaderUiState(
+                            publication = current,
+                            lastLocation = readerState.location,
+                        )
+                    } else {
+                        BookReaderUiState(isLoading = true)
+                    },
+                    onBack = {},
+                    onRetry = {},
+                    onLocationChanged = { locator ->
+                        readerState.location = locator
+                        readerState.locationUpdates++
+                    },
+                )
+            }
+        }
+    }
+
+    fun showPublication(value: Publication?) {
+        readerState.publication = value
+        if (value == null) {
+            readerState.location = null
+        }
+    }
+
+    fun currentLocationHref(): String? = readerState.location?.href?.toString()
+
+    fun locationUpdateCount(): Int = readerState.locationUpdates
+}
+
+class BookReaderLifecycleTest {
+
+    @get:Rule
+    val composeRule = createAndroidComposeRule<BookReaderLifecycleTestActivity>()
+
+    @Test
+    fun readerRestoresLocationAfterActivityRecreationAndRealRotation() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val bookFile = File.createTempFile("mulletaflix-reader-lifecycle-", ".epub", context.cacheDir)
+        bookFile.writeBytes(minimalEpub())
+        val publication = openPublication(context, bookFile)
+
+        try {
+            composeRule.activityRule.scenario.onActivity { it.showPublication(publication) }
+            composeRule.waitForIdle()
+            composeRule.onNodeWithText("Livro de teste").assertExists()
+            composeRule.waitForNextEnabled()
+            composeRule.waitUntil(timeoutMillis = 10_000) {
+                composeRule.currentLocationHref() != null
+            }
+            val initialLocation = composeRule.currentLocationHref()
+
+            composeRule.onNodeWithText("Próximo").performClick()
+            composeRule.waitUntil(timeoutMillis = 10_000) {
+                val current = composeRule.currentLocationHref()
+                current != null && current != initialLocation
+            }
+            val advancedLocation = composeRule.currentLocationHref()
+            val updatesBeforeRecreate = composeRule.locationUpdateCount()
+
+            composeRule.activityRule.scenario.recreate()
+
+            composeRule.waitForIdle()
+            composeRule.onNodeWithText("Livro de teste").assertExists()
+            composeRule.waitUntil(timeoutMillis = 10_000) {
+                composeRule.locationUpdateCount() > updatesBeforeRecreate &&
+                    composeRule.currentLocationHref() == advancedLocation
+            }
+            composeRule.waitForPreviousEnabled()
+
+            val updatesBeforeRotation = composeRule.locationUpdateCount()
+            composeRule.activityRule.scenario.onActivity {
+                it.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+            }
+            composeRule.waitUntil(timeoutMillis = 15_000) {
+                composeRule.activity.resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
+            }
+            composeRule.waitUntil(timeoutMillis = 10_000) {
+                composeRule.locationUpdateCount() > updatesBeforeRotation &&
+                    composeRule.currentLocationHref() == advancedLocation
+            }
+            composeRule.waitForPreviousEnabled()
+        } finally {
+            composeRule.activityRule.scenario.onActivity { it.showPublication(null) }
+            composeRule.waitForIdle()
+            publication.close()
+            bookFile.delete()
+        }
+    }
+
+    private suspend fun openPublication(context: Context, file: File): Publication {
+        val httpClient = DefaultHttpClient()
+        val assetRetriever = AssetRetriever(context.contentResolver, httpClient)
+        val parser = DefaultPublicationParser(
+            context = context,
+            httpClient = httpClient,
+            assetRetriever = assetRetriever,
+            pdfFactory = null,
+        )
+        val asset = assetRetriever.retrieve(file).getOrNull()
+            ?: error("EPUB local de teste não foi reconhecido")
+        return PublicationOpener(parser)
+            .open(asset = asset, allowUserInteraction = false)
+            .getOrNull()
+            ?: run {
+                asset.close()
+                error("EPUB local de teste não pôde ser aberto")
+            }
+    }
+
+    private fun minimalEpub(): ByteArray {
+        val output = ByteArrayOutputStream()
+        ZipOutputStream(output).use { zip ->
+            val mimetype = "application/epub+zip".toByteArray()
+            val crc = CRC32().apply { update(mimetype) }
+            zip.putNextEntry(ZipEntry("mimetype").apply {
+                method = ZipEntry.STORED
+                size = mimetype.size.toLong()
+                compressedSize = mimetype.size.toLong()
+                this.crc = crc.value
+            })
+            zip.write(mimetype)
+            zip.closeEntry()
+
+            zip.writeEntry(
+                "META-INF/container.xml",
+                """<?xml version="1.0" encoding="UTF-8"?>
+                    <container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">
+                      <rootfiles><rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/></rootfiles>
+                    </container>
+                """.trimIndent(),
+            )
+            zip.writeEntry(
+                "OEBPS/content.opf",
+                """<?xml version="1.0" encoding="UTF-8"?>
+                    <package version="3.0" unique-identifier="pub-id" xmlns="http://www.idpf.org/2007/opf">
+                      <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
+                        <dc:identifier id="pub-id">urn:uuid:mulletaflix-reader-lifecycle-test</dc:identifier>
+                        <dc:title>Livro de teste</dc:title>
+                        <dc:language>pt-BR</dc:language>
+                        <meta property="dcterms:modified">2026-10-02T00:00:00Z</meta>
+                      </metadata>
+                      <manifest>
+                        <item id="chapter1" href="chapter1.xhtml" media-type="application/xhtml+xml"/>
+                        <item id="chapter2" href="chapter2.xhtml" media-type="application/xhtml+xml"/>
+                      </manifest>
+                      <spine><itemref idref="chapter1"/><itemref idref="chapter2"/></spine>
+                    </package>
+                """.trimIndent(),
+            )
+            zip.writeEntry(
+                "OEBPS/chapter1.xhtml",
+                """<?xml version="1.0" encoding="UTF-8"?>
+                    <html xmlns="http://www.w3.org/1999/xhtml"><head><title>Capítulo 1</title></head>
+                    <body><h1>Capítulo 1</h1><p>Teste de recriação.</p></body></html>
+                """.trimIndent(),
+            )
+            zip.writeEntry(
+                "OEBPS/chapter2.xhtml",
+                """<?xml version="1.0" encoding="UTF-8"?>
+                    <html xmlns="http://www.w3.org/1999/xhtml"><head><title>Capítulo 2</title></head>
+                    <body><h1>Capítulo 2</h1><p>Continuação do teste de recriação.</p></body></html>
+                """.trimIndent(),
+            )
+        }
+        return output.toByteArray()
+    }
+
+    private fun androidx.compose.ui.test.junit4.AndroidComposeTestRule<*, *>.waitForNextEnabled() {
+        waitUntil(timeoutMillis = 10_000) {
+            runCatching {
+                onNodeWithText("Próximo").assertIsEnabled()
+                true
+            }.getOrDefault(false)
+        }
+    }
+
+    private fun androidx.compose.ui.test.junit4.AndroidComposeTestRule<*, *>.waitForPreviousEnabled() {
+        waitUntil(timeoutMillis = 10_000) {
+            runCatching {
+                onNodeWithText("Anterior").assertIsEnabled()
+                true
+            }.getOrDefault(false)
+        }
+    }
+
+    private fun androidx.compose.ui.test.junit4.AndroidComposeTestRule<*, *>.currentLocationHref(): String? {
+        var href: String? = null
+        activityRule.scenario.onActivity { href = it.currentLocationHref() }
+        return href
+    }
+
+    private fun androidx.compose.ui.test.junit4.AndroidComposeTestRule<*, *>.locationUpdateCount(): Int {
+        var count = 0
+        activityRule.scenario.onActivity { count = it.locationUpdateCount() }
+        return count
+    }
+
+    private fun ZipOutputStream.writeEntry(name: String, contents: String) {
+        putNextEntry(ZipEntry(name))
+        write(contents.toByteArray())
+        closeEntry()
+    }
+}

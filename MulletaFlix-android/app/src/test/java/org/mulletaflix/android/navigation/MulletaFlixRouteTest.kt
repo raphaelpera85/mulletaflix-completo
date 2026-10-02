@@ -26,6 +26,12 @@ class MulletaFlixRouteTest {
     }
 
     @Test
+    fun bookReader_formatsRouteCorrectly() {
+        val route = MulletaFlixRoute.bookReader("book-123")
+        assertEquals("reader/book/book-123", route)
+    }
+
+    @Test
     fun offlinePlayer_urlEncodesParameters() {
         val route = MulletaFlixRoute.offlinePlayer(
             itemId = "downloaded 1",
