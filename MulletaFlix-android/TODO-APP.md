@@ -20,9 +20,9 @@ Este documento rastreia o status de implementação de todas as funcionalidades,
 - [x] Testar parâmetros remotos, debounce, reinício da paginação, ordem descendente, acessibilidade dos controles e estado offline.
 - [x] Cancelar busca pendente ao trocar de conta; cobrir a condição de corrida com teste unitário.
 - [x] Cancelar debounce pendente quando ordenação dispara consulta imediata; regressão unitária cobre uma única chamada ao servidor.
-- [x] Testes instrumentados dos controles passaram nos AVDs telefone API 35, tablet API 35 e Android TV API 34; wrappers encerraram os emuladores.
-- [x] `testDebugUnitTest`, `:app:assembleDebug` e `:app:lintDebug`: `BUILD SUCCESSFUL` após a revisão e a correção da busca pendente na troca de conta.
-- [ ] Revalidar instrumentação por perfil e quality gate global após a correção de consulta duplicada na ordenação.
+- [x] Testes instrumentados dos controles passaram nos AVDs telefone API 35, tablet API 35 e Android TV API 34; wrappers encerraram os emuladores. Repetidos após a correção desta corrida, todos passaram.
+- [x] Gate global anterior (`testDebugUnitTest`, `:app:assembleDebug`, `:app:lintDebug`) passou antes da regressão adicional de ordenação.
+- [x] Revalidação após a correção da consulta duplicada: `testDebugUnitTest`, `:app:assembleDebug` e `:app:lintDebug` passaram (`BUILD SUCCESSFUL`).
 - [ ] Sem bump, APK de produção ou publicação nesta validação. Conferir release anterior e assinatura de produção antes de uma futura release.
 
 ## Formulários de feedback responsivos (APK local; sem release)
