@@ -120,17 +120,26 @@ export const Component = () => {
         try {
             const apiClient = getApiClient();
             const url = apiClient.getUrl('NebulaFtp/PlaybackCache/Path');
-            const updated = await (apiClient.ajax({
+            const requestedPath = cachePathInput.trim();
+            await (apiClient.ajax({
                 type: 'POST',
                 url,
                 dataType: 'json',
                 data: JSON.stringify({
-                    CachePath: cachePathInput.trim(),
+                    CachePath: requestedPath,
                     MaxCacheSizeGb: maxCacheSizeGb,
                     MinimumFreeSpaceGb: minimumFreeSpaceGb
                 }),
                 contentType: 'application/json'
             }) as Promise<NebulaPlaybackCacheStatus>);
+
+            const statusUrl = apiClient.getUrl('NebulaFtp/PlaybackCache');
+            const updated = await (apiClient.getJSON(statusUrl) as Promise<NebulaPlaybackCacheStatus>);
+            if ((updated.configuredPath || '') !== requestedPath) {
+                setStatus(updated);
+                setCachePathInput(updated.configuredPath || '');
+                throw new Error('O servidor não confirmou o caminho de cache solicitado. Verifique as permissões e os logs do servidor.');
+            }
 
             setStatus(updated);
             setCachePathInput(updated.configuredPath || '');

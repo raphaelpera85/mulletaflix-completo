@@ -1,8 +1,9 @@
-﻿using System;
+using System;
 using System.ComponentModel.DataAnnotations;
 using System.Diagnostics.CodeAnalysis;
 using System.IO;
 using System.Threading.Tasks;
+using MulletaFlix.Api.Extensions;
 using MulletaFlix.Api.Attributes;
 using MulletaFlix.Api.Helpers;
 using MediaBrowser.Common.Configuration;
@@ -120,7 +121,14 @@ public class HlsSegmentController : BaseMulletaFlixApiController
         [FromQuery, Required] string deviceId,
         [FromQuery, Required] string playSessionId)
     {
-        _transcodeManager.KillTranscodingJobs(deviceId, playSessionId, _ => true);
+        var authenticatedDeviceId = User.GetDeviceId();
+        if (string.IsNullOrWhiteSpace(authenticatedDeviceId)
+            || !string.Equals(deviceId, authenticatedDeviceId, StringComparison.OrdinalIgnoreCase))
+        {
+            return Forbid();
+        }
+
+        _transcodeManager.KillTranscodingJobs(authenticatedDeviceId, playSessionId, _ => true);
         return NoContent();
     }
 

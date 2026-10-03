@@ -538,7 +538,8 @@ public sealed class NebulaFtpControllerTests
 
         Assert.Throws<System.IO.IOException>(() => controller.RotateSecrets(new NebulaCredentialRotationRequest
         {
-            Password = "new-password", HttpStreamToken = "new-token"
+            Password = "new-password",
+            HttpStreamToken = "new-token"
         }));
 
         Assert.Equal("old-password", existing.Password);
@@ -637,6 +638,25 @@ public sealed class NebulaFtpControllerTests
 
         var ok = Assert.IsAssignableFrom<OkObjectResult>(result.Result);
         Assert.Same(expected, ok.Value);
+    }
+
+    [Fact]
+    public async Task UpdatePlaybackCachePath_WhenStatusDoesNotConfirmRequestedPath_ReturnsServerError()
+    {
+        var manager = new Mock<INebulaFtpManager>(MockBehavior.Strict);
+        var configuration = new Mock<IServerConfigurationManager>(MockBehavior.Strict);
+        manager.Setup(m => m.UpdatePlaybackCachePathAsync(@"E:\new-cache", 120, 8, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(true);
+        manager.Setup(m => m.GetPlaybackCacheStatus())
+            .Returns(new NebulaPlaybackCacheStatusDto { ConfiguredPath = @"E:\old-cache" });
+        var controller = new NebulaFtpController(manager.Object, configuration.Object);
+
+        var result = await controller.UpdatePlaybackCachePath(
+            new NebulaUpdatePlaybackCachePathRequest { CachePath = @"E:\new-cache", MaxCacheSizeGb = 120, MinimumFreeSpaceGb = 8 },
+            CancellationToken.None);
+
+        var error = Assert.IsType<ObjectResult>(result.Result);
+        Assert.Equal(StatusCodes.Status500InternalServerError, error.StatusCode);
     }
 
     [Fact]

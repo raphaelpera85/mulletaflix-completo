@@ -130,6 +130,26 @@ public sealed class TranscodeManager : ITranscodeManager, IDisposable
     }
 
     /// <inheritdoc />
+    public TranscodingJob? GetTranscodingJob(string deviceId, string playSessionId)
+    {
+        if (string.IsNullOrWhiteSpace(deviceId) || string.IsNullOrWhiteSpace(playSessionId))
+        {
+            return null;
+        }
+
+        foreach (var job in _activeTranscodingJobs.Values)
+        {
+            if (string.Equals(job.DeviceId, deviceId, StringComparison.OrdinalIgnoreCase)
+                && string.Equals(job.PlaySessionId, playSessionId, StringComparison.OrdinalIgnoreCase))
+            {
+                return job;
+            }
+        }
+
+        return null;
+    }
+
+    /// <inheritdoc />
     public TranscodingJob? GetTranscodingJob(string path, TranscodingJobType type)
     {
         // The dictionary is keyed by output path, so this is a single lookup rather than the
@@ -164,6 +184,27 @@ public sealed class TranscodeManager : ITranscodeManager, IDisposable
 
             PingTimer(job, true);
         }
+    }
+
+    /// <inheritdoc />
+    public void PingTranscodingJob(string deviceId, string playSessionId, bool? isUserPaused)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(deviceId);
+        ArgumentException.ThrowIfNullOrEmpty(playSessionId);
+
+        var job = GetTranscodingJob(deviceId, playSessionId);
+        if (job is null)
+        {
+            return;
+        }
+
+        if (isUserPaused.HasValue)
+        {
+            _logger.LogDebug("Setting job.IsUserPaused to {IsUserPaused}. jobId: {JobId}", isUserPaused, job.Id);
+            job.IsUserPaused = isUserPaused.Value;
+        }
+
+        PingTimer(job, true);
     }
 
     private void PingTimer(TranscodingJob job, bool isProgressCheckIn)
@@ -230,12 +271,18 @@ public sealed class TranscodeManager : ITranscodeManager, IDisposable
     /// <inheritdoc />
     public Task KillTranscodingJobs(string deviceId, string? playSessionId, Func<string, bool> deleteFiles)
     {
+        if (string.IsNullOrWhiteSpace(deviceId))
+        {
+            return Task.CompletedTask;
+        }
+
         // This is really only needed for HLS.
         // Progressive streams can stop on their own reliably.
         var jobs = _activeTranscodingJobs.Values
             .Where(j => string.IsNullOrWhiteSpace(playSessionId)
                 ? string.Equals(deviceId, j.DeviceId, StringComparison.OrdinalIgnoreCase)
-                : string.Equals(playSessionId, j.PlaySessionId, StringComparison.OrdinalIgnoreCase))
+                : string.Equals(deviceId, j.DeviceId, StringComparison.OrdinalIgnoreCase)
+                    && string.Equals(playSessionId, j.PlaySessionId, StringComparison.OrdinalIgnoreCase))
             .ToList();
 
         return Task.WhenAll(GetKillJobs());
@@ -749,7 +796,14 @@ public sealed class TranscodeManager : ITranscodeManager, IDisposable
     {
         if (!string.IsNullOrWhiteSpace(e.PlaySessionId))
         {
-            PingTranscodingJob(e.PlaySessionId, e.IsPaused);
+            if (!string.IsNullOrWhiteSpace(e.DeviceId))
+            {
+                PingTranscodingJob(e.DeviceId, e.PlaySessionId, e.IsPaused);
+            }
+            else
+            {
+                PingTranscodingJob(e.PlaySessionId, e.IsPaused);
+            }
         }
     }
 

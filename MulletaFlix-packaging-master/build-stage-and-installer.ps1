@@ -120,7 +120,7 @@ function Build-Server {
     Assert-Path $serverRoot 'Server source'
 
     $backupItems = @()
-    $preserves = @('mariadb', 'MulletaFlix-web', 'mulletaflix-windows-tray', 'ffmpeg.exe', 'ffprobe.exe', 'nssm.exe', 'icon.ico', 'LICENSE')
+    $preserves = @('mariadb', 'MulletaFlix-web', 'mulletaflix-windows-tray', 'ffmpeg.exe', 'ffprobe.exe', 'nssm.exe', 'icon.ico', 'LICENSE', 'nginx', 'win-acme', 'configure-https.ps1')
 
     foreach ($item in $preserves) {
         $sourcePath = Join-Path $stageDir $item
@@ -473,6 +473,52 @@ function Build-Installer {
     & $installerScript
 }
 
+function Prepare-HttpsTools {
+    Write-Step 'Preparing Nginx and ACME HTTPS tools'
+
+    $configureScript = Join-Path $projectRoot 'tools\release\configure-https.ps1'
+    $duckDnsScript = Join-Path $projectRoot 'tools\release\duckdns-update.ps1'
+    Assert-Path $configureScript 'HTTPS configurator'
+    Assert-Path $duckDnsScript 'DuckDNS updater'
+    Copy-Item -LiteralPath $configureScript -Destination (Join-Path $stageDir 'configure-https.ps1') -Force
+    Copy-Item -LiteralPath $duckDnsScript -Destination (Join-Path $stageDir 'duckdns-update.ps1') -Force
+
+    $nginxDir = Join-Path $stageDir 'nginx'
+    if (-not (Test-Path -LiteralPath (Join-Path $nginxDir 'nginx.exe'))) {
+        $nginxVersion = '1.30.5'
+        $nginxZip = Join-Path $env:TEMP "mulletaflix-nginx-$nginxVersion.zip"
+        $nginxExtract = Join-Path $env:TEMP "mulletaflix-nginx-$nginxVersion"
+        try {
+            Invoke-WebRequest -Uri "https://nginx.org/download/nginx-$nginxVersion.zip" -OutFile $nginxZip -UseBasicParsing
+            if (Test-Path -LiteralPath $nginxExtract) { Remove-Item -LiteralPath $nginxExtract -Recurse -Force }
+            Expand-Archive -LiteralPath $nginxZip -DestinationPath $nginxExtract
+            $source = Join-Path $nginxExtract "nginx-$nginxVersion"
+            if (Test-Path -LiteralPath $nginxDir) { Remove-Item -LiteralPath $nginxDir -Recurse -Force }
+            Move-Item -LiteralPath $source -Destination $nginxDir
+        } finally {
+            Remove-Item -LiteralPath $nginxZip -Force -ErrorAction SilentlyContinue
+            Remove-Item -LiteralPath $nginxExtract -Recurse -Force -ErrorAction SilentlyContinue
+        }
+    }
+
+    $wacsDir = Join-Path $stageDir 'win-acme'
+    if (-not (Test-Path -LiteralPath (Join-Path $wacsDir 'wacs.exe'))) {
+        $wacsVersion = '2.2.9.1701'
+        $wacsZip = Join-Path $env:TEMP "mulletaflix-win-acme-$wacsVersion.zip"
+        New-Item -ItemType Directory -Force -Path $wacsDir | Out-Null
+        try {
+            Invoke-WebRequest -Uri "https://github.com/win-acme/win-acme/releases/download/v$wacsVersion/win-acme.v$wacsVersion.x64.trimmed.zip" -OutFile $wacsZip -UseBasicParsing
+            Expand-Archive -LiteralPath $wacsZip -DestinationPath $wacsDir -Force
+        } finally {
+            Remove-Item -LiteralPath $wacsZip -Force -ErrorAction SilentlyContinue
+        }
+    }
+
+    Assert-Path (Join-Path $nginxDir 'nginx.exe') 'Nginx payload'
+    Assert-Path (Join-Path $wacsDir 'wacs.exe') 'win-acme payload'
+    Write-Host 'Nginx, win-acme and HTTPS configurator are included in the stage.' -ForegroundColor Green
+}
+
 Write-Host '==================================================' -ForegroundColor Cyan
 Write-Host '   MulletaFlix Stage + Installer Release Builder   ' -ForegroundColor Cyan
 Write-Host '==================================================' -ForegroundColor Cyan
@@ -502,6 +548,7 @@ if (-not $SkipTrayBuild) {
 }
 
 Copy-RuntimeExtras
+Prepare-HttpsTools
 Write-Step 'Validating stage integrity'
 Assert-StageIntegrity -StageDirectory $stageDir -ProjectRoot $projectRoot
 

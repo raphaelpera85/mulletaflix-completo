@@ -23,6 +23,14 @@ public interface ITranscodeManager
     public TranscodingJob? GetTranscodingJob(string playSessionId);
 
     /// <summary>
+    /// Gets the transcoding job for a device and play session.
+    /// </summary>
+    /// <param name="deviceId">The device identifier.</param>
+    /// <param name="playSessionId">The play session identifier.</param>
+    /// <returns>The matching job, if found.</returns>
+    public TranscodingJob? GetTranscodingJob(string deviceId, string playSessionId);
+
+    /// <summary>
     /// Get transcoding job.
     /// </summary>
     /// <param name="path">Path to the transcoding file.</param>
@@ -37,6 +45,14 @@ public interface ITranscodeManager
     /// <param name="isUserPaused">Is user paused.</param>
     /// <exception cref="ArgumentNullException">Play session id is null.</exception>
     public void PingTranscodingJob(string playSessionId, bool? isUserPaused);
+
+    /// <summary>
+    /// Pings the transcoding job belonging to a device and play session.
+    /// </summary>
+    /// <param name="deviceId">The device identifier.</param>
+    /// <param name="playSessionId">The play session identifier.</param>
+    /// <param name="isUserPaused">Whether playback is paused by the user.</param>
+    public void PingTranscodingJob(string deviceId, string playSessionId, bool? isUserPaused);
 
     /// <summary>
     /// Kills the single transcoding job.

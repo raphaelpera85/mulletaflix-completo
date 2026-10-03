@@ -576,6 +576,10 @@ public class LiveTvController : BaseMulletaFlixApiController
         var user = userId.IsNullOrEmpty()
             ? null
             : _userManager.GetUserById(userId.Value);
+        if (!userId.IsNullOrEmpty() && user is null)
+        {
+            return Unauthorized();
+        }
 
         var query = new InternalItemsQuery(user)
         {
@@ -604,11 +608,13 @@ public class LiveTvController : BaseMulletaFlixApiController
         {
             query.IsSeries = true;
 
-            var series = _libraryManager.GetItemById<Series>(librarySeriesId.Value);
-            if (series is not null)
+            var series = _libraryManager.GetItemById<Series>(librarySeriesId.Value, user);
+            if (series is null)
             {
-                query.Name = series.Name;
+                return NotFound();
             }
+
+            query.Name = series.Name;
         }
 
         var dtoOptions = new DtoOptions { Fields = fields }
@@ -629,7 +635,12 @@ public class LiveTvController : BaseMulletaFlixApiController
     [Authorize(Policy = Policies.LiveTvAccess)]
     public async Task<ActionResult<QueryResult<BaseItemDto>>> GetPrograms([FromBody] GetProgramsDto body)
     {
-        var user = body.UserId.IsNullOrEmpty() ? null : _userManager.GetUserById(body.UserId.Value);
+        var userId = RequestHelpers.GetUserId(User, body.UserId);
+        var user = userId == Guid.Empty ? null : _userManager.GetUserById(userId);
+        if (userId != Guid.Empty && user is null)
+        {
+            return Unauthorized();
+        }
 
         var query = new InternalItemsQuery(user)
         {
@@ -658,11 +669,13 @@ public class LiveTvController : BaseMulletaFlixApiController
         {
             query.IsSeries = true;
 
-            var series = _libraryManager.GetItemById<Series>(body.LibrarySeriesId.Value);
-            if (series is not null)
+            var series = _libraryManager.GetItemById<Series>(body.LibrarySeriesId.Value, user);
+            if (series is null)
             {
-                query.Name = series.Name;
+                return NotFound();
             }
+
+            query.Name = series.Name;
         }
 
         var dtoOptions = new DtoOptions { Fields = body.Fields ?? [] }

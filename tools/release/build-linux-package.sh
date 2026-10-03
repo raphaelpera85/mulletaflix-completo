@@ -81,6 +81,7 @@ popd >/dev/null
 cp -a "$web_build_dir/dist" "$app_dir/server/MulletaFlix-web"
 
 cp "$repo_root/tools/release/linux-install.sh" "$app_dir/install.sh"
+cp "$repo_root/tools/release/duckdns-update.sh" "$app_dir/duckdns-update.sh"
 cp "$repo_root/tools/release/mulletaflix.service" "$app_dir/mulletaflix.service"
 cp "$repo_root/tools/release/LINUX-README.md" "$app_dir/README.md"
 

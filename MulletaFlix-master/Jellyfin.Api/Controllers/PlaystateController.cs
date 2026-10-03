@@ -313,7 +313,12 @@ public class PlaystateController : BaseMulletaFlixApiController
     [ProducesResponseType(StatusCodes.Status204NoContent)]
     public ActionResult PingPlaybackSession([FromQuery, Required] string playSessionId)
     {
-        _transcodeManager.PingTranscodingJob(playSessionId, null);
+        var deviceId = User.GetDeviceId();
+        if (!string.IsNullOrWhiteSpace(deviceId))
+        {
+            _transcodeManager.PingTranscodingJob(deviceId, playSessionId, null);
+        }
+
         return NoContent();
     }
 
@@ -607,7 +612,10 @@ public class PlaystateController : BaseMulletaFlixApiController
     {
         if (method == PlayMethod.Transcode)
         {
-            var job = string.IsNullOrWhiteSpace(playSessionId) ? null : _transcodeManager.GetTranscodingJob(playSessionId);
+            var deviceId = User.GetDeviceId();
+            var job = string.IsNullOrWhiteSpace(deviceId) || string.IsNullOrWhiteSpace(playSessionId)
+                ? null
+                : _transcodeManager.GetTranscodingJob(deviceId, playSessionId);
             if (job is null)
             {
                 return PlayMethod.DirectPlay;

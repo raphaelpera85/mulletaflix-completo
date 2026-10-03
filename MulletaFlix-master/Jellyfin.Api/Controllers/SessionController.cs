@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.ComponentModel.DataAnnotations;
 using System.Linq;
@@ -9,6 +9,7 @@ using MulletaFlix.Api.Helpers;
 using MulletaFlix.Api.ModelBinders;
 using MulletaFlix.Data.Enums;
 using MediaBrowser.Common.Api;
+using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.Session;
 using MediaBrowser.Model.Dto;
@@ -28,18 +29,22 @@ public class SessionController : BaseMulletaFlixApiController
 {
     private readonly ISessionManager _sessionManager;
     private readonly IUserManager _userManager;
+    private readonly ILibraryManager _libraryManager;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="SessionController"/> class.
     /// </summary>
     /// <param name="sessionManager">Instance of <see cref="ISessionManager"/> interface.</param>
     /// <param name="userManager">Instance of <see cref="IUserManager"/> interface.</param>
+    /// <param name="libraryManager">Instance of <see cref="ILibraryManager"/> interface.</param>
     public SessionController(
         ISessionManager sessionManager,
-        IUserManager userManager)
+        IUserManager userManager,
+        ILibraryManager libraryManager)
     {
         _sessionManager = sessionManager;
         _userManager = userManager;
+        _libraryManager = libraryManager;
     }
 
     /// <summary>
@@ -404,6 +409,11 @@ public class SessionController : BaseMulletaFlixApiController
             id = await RequestHelpers.GetSessionId(_sessionManager, _userManager, HttpContext).ConfigureAwait(false);
         }
 
+        if (!CanAccessSession(id))
+        {
+            return Forbid();
+        }
+
         _sessionManager.ReportCapabilities(id, new ClientCapabilities
         {
             PlayableMediaTypes = playableMediaTypes,
@@ -433,6 +443,11 @@ public class SessionController : BaseMulletaFlixApiController
             id = await RequestHelpers.GetSessionId(_sessionManager, _userManager, HttpContext).ConfigureAwait(false);
         }
 
+        if (!CanAccessSession(id))
+        {
+            return Forbid();
+        }
+
         _sessionManager.ReportCapabilities(id, capabilities.ToClientCapabilities());
 
         return NoContent();
@@ -452,9 +467,35 @@ public class SessionController : BaseMulletaFlixApiController
         [FromQuery] string? sessionId,
         [FromQuery, Required] string? itemId)
     {
-        string session = sessionId ?? await RequestHelpers.GetSessionId(_sessionManager, _userManager, HttpContext).ConfigureAwait(false);
+        if (!Guid.TryParse(itemId, out var parsedItemId))
+        {
+            return BadRequest();
+        }
 
-        _sessionManager.ReportNowViewingItem(session, itemId);
+        var session = string.IsNullOrWhiteSpace(sessionId)
+            ? await RequestHelpers.GetSessionId(_sessionManager, _userManager, HttpContext).ConfigureAwait(false)
+            : sessionId;
+
+        if (!CanAccessSession(session))
+        {
+            return Forbid();
+        }
+
+        var userId = User.GetUserId();
+        var isApiKey = User.GetIsApiKey();
+        var user = isApiKey || userId == Guid.Empty ? null : _userManager.GetUserById(userId);
+        if (!isApiKey && user is null)
+        {
+            return Unauthorized();
+        }
+
+        var item = _libraryManager.GetItemById<BaseItem>(parsedItemId, user);
+        if (item is null)
+        {
+            return NotFound();
+        }
+
+        _sessionManager.ReportNowViewingItem(session, parsedItemId.ToString("N"));
         return NoContent();
     }
 
@@ -504,6 +545,11 @@ public class SessionController : BaseMulletaFlixApiController
     {
         var userId = User.GetUserId();
         var isApiKey = User.GetIsApiKey();
+        if (!isApiKey && (userId == Guid.Empty || _userManager.GetUserById(userId) is null))
+        {
+            return null;
+        }
+
         Guid? controllableByUserId = userId == Guid.Empty ? null : userId;
         var accessibleSessions = _sessionManager.GetSessions(
             userId,
@@ -522,12 +568,19 @@ public class SessionController : BaseMulletaFlixApiController
 
     private bool CanAccessSession(string targetSessionId)
     {
+        var userId = User.GetUserId();
+        var isApiKey = User.GetIsApiKey();
+        if (!isApiKey && (userId == Guid.Empty || _userManager.GetUserById(userId) is null))
+        {
+            return false;
+        }
+
         var accessibleSessions = _sessionManager.GetSessions(
-            User.GetUserId(),
+            userId,
             string.Empty,
             null,
             null,
-            User.GetIsApiKey());
+            isApiKey);
 
         return accessibleSessions.Any(session => string.Equals(session.Id, targetSessionId, StringComparison.Ordinal));
     }

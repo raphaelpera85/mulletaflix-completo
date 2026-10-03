@@ -1,5 +1,7 @@
 using System;
 using System.IO;
+using System.Security.Claims;
+using MulletaFlix.Api.Constants;
 using MediaBrowser.Common.Configuration;
 using MediaBrowser.Controller.Configuration;
 using MediaBrowser.Controller.MediaEncoding;
@@ -86,7 +88,27 @@ public sealed class HlsSegmentControllerPathTests
         Assert.IsType<PhysicalFileResult>(result);
     }
 
-    private static HlsSegmentController CreateController(string transcodePath, string requestPath)
+    [Fact]
+    public void StopEncodingProcess_RejectsDifferentDeviceFromAuthenticatedClient()
+    {
+        var transcodeManager = new Mock<ITranscodeManager>(MockBehavior.Strict);
+        var controller = CreateController(Path.GetTempPath(), "/Videos/ActiveEncodings", transcodeManager.Object);
+        controller.ControllerContext.HttpContext.User = new ClaimsPrincipal(new ClaimsIdentity(
+            new[] { new Claim(InternalClaimTypes.DeviceId, "authenticated-device") },
+            "test"));
+
+        var result = controller.StopEncodingProcess("other-device", "session-1");
+
+        Assert.IsType<ForbidResult>(result);
+        transcodeManager.Verify(
+            manager => manager.KillTranscodingJobs(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<Func<string, bool>>()),
+            Times.Never);
+    }
+
+    private static HlsSegmentController CreateController(
+        string transcodePath,
+        string requestPath,
+        ITranscodeManager? transcodeManager = null)
     {
         var applicationPaths = new Mock<IApplicationPaths>();
         applicationPaths.Setup(paths => paths.CreateAndCheckMarker(transcodePath, "transcode", true));
@@ -102,7 +124,7 @@ public sealed class HlsSegmentControllerPathTests
         var controller = new HlsSegmentController(
             Mock.Of<IFileSystem>(),
             configurationManager.Object,
-            Mock.Of<ITranscodeManager>());
+            transcodeManager ?? Mock.Of<ITranscodeManager>());
         var httpContext = new DefaultHttpContext();
         httpContext.Request.Path = requestPath;
         controller.ControllerContext = new ControllerContext { HttpContext = httpContext };

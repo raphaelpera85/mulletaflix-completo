@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
@@ -120,6 +120,14 @@ public static class StreamingHelpers
 
         state.IsInputVideo = item.MediaType == MediaType.Video;
 
+        // The device id is supplied in the streaming request, but authenticated clients
+        // already have a token-bound device id. Prefer that identity for job ownership.
+        var authenticatedDeviceId = httpContext.User.GetDeviceId();
+        if (!string.IsNullOrWhiteSpace(authenticatedDeviceId))
+        {
+            streamingRequest.DeviceId = authenticatedDeviceId;
+        }
+
         MediaSourceInfo? mediaSource = null;
         if (string.IsNullOrWhiteSpace(streamingRequest.LiveStreamId))
         {
@@ -131,8 +139,9 @@ public static class StreamingHelpers
             }
             else
             {
-                var currentJob = !string.IsNullOrWhiteSpace(streamingRequest.PlaySessionId)
-                    ? transcodeManager.GetTranscodingJob(streamingRequest.PlaySessionId)
+                var deviceId = httpContext.User.GetDeviceId();
+                var currentJob = !string.IsNullOrWhiteSpace(deviceId) && !string.IsNullOrWhiteSpace(streamingRequest.PlaySessionId)
+                    ? transcodeManager.GetTranscodingJob(deviceId, streamingRequest.PlaySessionId)
                     : null;
 
                 if (currentJob is not null)

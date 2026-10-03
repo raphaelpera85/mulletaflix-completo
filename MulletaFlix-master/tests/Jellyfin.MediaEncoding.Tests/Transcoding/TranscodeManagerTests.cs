@@ -1,5 +1,7 @@
 using System;
 using System.IO;
+using System.Collections.Concurrent;
+using System.Reflection;
 using System.Threading.Tasks;
 using MediaBrowser.Common.Configuration;
 using MediaBrowser.Controller.Configuration;
@@ -89,6 +91,49 @@ public class TranscodeManagerTests
     {
         using var manager = CreateManager(maxConcurrentJobs: 4);
         await manager.KillTranscodingJobs("device-1", "session-1", _ => true);
+    }
+
+    [Fact]
+    public async Task KillTranscodingJobs_DoesNotKillOtherDevice_WhenPlaySessionIdMatches()
+    {
+        using var manager = CreateManager(maxConcurrentJobs: 4);
+        AddJob(manager, "device-1", "session-shared", @"C:\transcode\device-1.m3u8");
+        AddJob(manager, "device-2", "session-shared", @"C:\transcode\device-2.m3u8");
+
+        await manager.KillTranscodingJobs("device-1", "session-shared", _ => false);
+
+        Assert.Equal(1, manager.ActiveTranscodingJobsCount);
+        Assert.Null(manager.GetTranscodingJob("device-1", "session-shared"));
+        Assert.NotNull(manager.GetTranscodingJob("device-2", "session-shared"));
+    }
+
+    [Fact]
+    public void PingTranscodingJob_OnlyUpdatesMatchingDevice_WhenPlaySessionIdMatches()
+    {
+        using var manager = CreateManager(maxConcurrentJobs: 4);
+        var firstDeviceJob = AddJob(manager, "device-1", "session-shared", @"C:\transcode\device-1.m3u8");
+        var secondDeviceJob = AddJob(manager, "device-2", "session-shared", @"C:\transcode\device-2.m3u8");
+
+        manager.PingTranscodingJob("device-1", "session-shared", true);
+
+        Assert.True(firstDeviceJob.IsUserPaused);
+        Assert.False(secondDeviceJob.IsUserPaused);
+    }
+
+    private static TranscodingJob AddJob(TranscodeManager manager, string deviceId, string playSessionId, string path)
+    {
+        var jobsField = typeof(TranscodeManager).GetField("_activeTranscodingJobs", BindingFlags.Instance | BindingFlags.NonPublic)!;
+        var jobs = (ConcurrentDictionary<string, TranscodingJob>)jobsField.GetValue(manager)!;
+        var job = new TranscodingJob(NullLogger<TranscodingJob>.Instance)
+        {
+            DeviceId = deviceId,
+            PlaySessionId = playSessionId,
+            Path = path,
+            Type = TranscodingJobType.Progressive,
+            HasExited = true
+        };
+        Assert.True(jobs.TryAdd(path, job));
+        return job;
     }
 
     [Fact]

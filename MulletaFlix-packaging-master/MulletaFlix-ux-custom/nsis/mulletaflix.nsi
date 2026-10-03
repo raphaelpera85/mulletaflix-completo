@@ -13,6 +13,7 @@ Unicode True
 !include "FileFunc.nsh"
 !include "Sections.nsh"
 !include "LogicLib.nsh"
+!include "nsDialogs.nsh"
 !addplugindir "plugins"
 !include "helpers\nsProcess.nsh"
 !include "helpers\ShowError.nsh"
@@ -30,6 +31,19 @@ Unicode True
     Var _MAKESHORTCUTS_
     Var _FOLDEREXISTS_
     Var _DELETE_DATA_
+    Var _TESTMODE_
+    Var _HTTPSHOST_
+    Var _HTTPEMAIL_
+    Var _HTTPSSETUP_
+    Var _DUCKDNSSUBDOMAIN_
+    Var _DUCKDNSTOKEN_
+    Var hCtl_https
+    Var hCtl_https_Enable
+    Var hCtl_https_Host
+    Var hCtl_https_Email
+    Var hCtl_duckdns_Enable
+    Var hCtl_duckdns_Subdomain
+    Var hCtl_duckdns_Token
 
 
 
@@ -119,6 +133,9 @@ CRCCheck on ; make sure the installer wasn't corrupted while downloading
     #!define MUI_PAGE_CUSTOMFUNCTION_LEAVE ServiceConfigPage_Config
     #!insertmacro MUI_PAGE_CUSTOM ServiceAccountType
     Page custom ShowServiceConfigPage ServiceConfigPage_Config
+
+; HTTPS configuration page
+    Page custom ShowHttpsPage LeaveHttpsPage
 
 ; Confirmation Page
     Page custom ShowConfirmationPage ; just letting the user know what they chose to install
@@ -455,6 +472,27 @@ ${AndIf} $_INSTALLSERVICE_ == "Yes"
 ${EndIf}
 SectionEnd
 
+Section "-configure HTTPS" ConfigureHttps
+    ${If} $_TESTMODE_ == "Yes"
+        DetailPrint "Skipping HTTPS setup in TESTMODE."
+        Goto ConfigureHttpsDone
+    ${EndIf}
+    ${If} $_HTTPSSETUP_ != "Yes"
+        DetailPrint "HTTPS setup disabled by user."
+        Goto ConfigureHttpsDone
+    ${EndIf}
+    ${If} ${FileExists} "$INSTDIR\configure-https.ps1"
+        DetailPrint "Installing and configuring Nginx HTTPS proxy..."
+        ExecWait 'powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$INSTDIR\configure-https.ps1" -InstallRoot "$INSTDIR" -HostName "$_HTTPSHOST_" -EmailAddress "$_HTTPEMAIL_" -DuckDnsSubdomain "$_DUCKDNSSUBDOMAIN_" -DuckDnsToken "$_DUCKDNSTOKEN_"' $0
+        ${If} $0 <> 0
+            MessageBox MB_OK|MB_ICONEXCLAMATION "MulletaFlix was installed, but HTTPS could not be configured. Verify DNS and that ports 80/443 reach this computer, then run configure-https.ps1 as Administrator."
+        ${EndIf}
+    ${Else}
+        MessageBox MB_OK|MB_ICONEXCLAMATION "The installer does not contain the HTTPS configurator. Rebuild the installer with the current packaging stage."
+    ${EndIf}
+    ConfigureHttpsDone:
+SectionEnd
+
 Section "Create Shortcuts" CreateWinShortcuts
     ${If} $_MAKESHORTCUTS_ == "Yes"
         CreateDirectory "$SMPROGRAMS\MulletaFlix Server"
@@ -584,6 +622,12 @@ Function .onInit
     StrCpy $_EXPLICITINSTALLDIR_ "No"
     StrCpy $_EXISTINGSERVICE_ "No"
     StrCpy $_MAKESHORTCUTS_ "No"
+    StrCpy $_TESTMODE_ "No"
+    StrCpy $_HTTPSHOST_ "mulletaflix.duckdns.org"
+    StrCpy $_HTTPEMAIL_ ""
+    StrCpy $_HTTPSSETUP_ "Yes"
+    StrCpy $_DUCKDNSSUBDOMAIN_ "mulletaflix"
+    StrCpy $_DUCKDNSTOKEN_ ""
 
     SetShellVarContext current
     StrCpy $_MULLETAFLIXDATADIR_ "$%ProgramData%\MulletaFlix\Server"
@@ -613,6 +657,7 @@ Function .onInit
     ClearErrors
     ${GetOptions} "$R1" "/TESTMODE" $R2
     ${IfNot} ${Errors}
+        StrCpy $_TESTMODE_ "Yes"
         Goto NoExisitingInstall
     ${EndIf}
 
@@ -687,6 +732,73 @@ Function .onInit
     ProceedWithUpgrade:
 
     NoExisitingInstall: ; by this time, the variables have been correctly set to reflect previous install details
+FunctionEnd
+
+Function ShowHttpsPage
+    nsDialogs::Create 1018
+    Pop $hCtl_https
+    ${If} $hCtl_https == error
+        Abort
+    ${EndIf}
+    !insertmacro MUI_HEADER_TEXT "Configure HTTPS" "Nginx and Let's Encrypt will secure your MulletaFlix server."
+    ${NSD_CreateCheckbox} 8u 8u 280u 15u "Configure HTTPS automatically (recommended)"
+    Pop $hCtl_https_Enable
+    ${NSD_Check} $hCtl_https_Enable
+    ${NSD_CreateLabel} 8u 34u 280u 16u "Public hostname (DNS must point to this server):"
+    Pop $0
+    ${NSD_CreateText} 8u 50u 280u 14u $_HTTPSHOST_
+    Pop $hCtl_https_Host
+    ${NSD_CreateLabel} 8u 70u 280u 16u "Let's Encrypt notification email:"
+    Pop $0
+    ${NSD_CreateText} 8u 86u 280u 14u $_HTTPEMAIL_
+    Pop $hCtl_https_Email
+    ${NSD_CreateCheckbox} 8u 108u 280u 15u "Atualizar endereço DuckDNS automaticamente"
+    Pop $hCtl_duckdns_Enable
+    ${NSD_Check} $hCtl_duckdns_Enable
+    ${NSD_CreateLabel} 8u 130u 130u 16u "Subdomínio DuckDNS:"
+    Pop $0
+    ${NSD_CreateText} 142u 128u 146u 14u $_DUCKDNSSUBDOMAIN_
+    Pop $hCtl_duckdns_Subdomain
+    ${NSD_CreateLabel} 8u 152u 130u 16u "Token DuckDNS:"
+    Pop $0
+    ${NSD_CreatePassword} 142u 150u 146u 14u $_DUCKDNSTOKEN_
+    Pop $hCtl_duckdns_Token
+    nsDialogs::Show
+FunctionEnd
+
+Function LeaveHttpsPage
+    ${NSD_GetState} $hCtl_https_Enable $0
+    ${If} $0 == 1
+        StrCpy $_HTTPSSETUP_ "Yes"
+        ${NSD_GetText} $hCtl_https_Host $_HTTPSHOST_
+        ${NSD_GetText} $hCtl_https_Email $_HTTPEMAIL_
+        ${NSD_GetState} $hCtl_duckdns_Enable $1
+        ${If} $1 == 1
+            ${NSD_GetText} $hCtl_duckdns_Subdomain $_DUCKDNSSUBDOMAIN_
+            ${NSD_GetText} $hCtl_duckdns_Token $_DUCKDNSTOKEN_
+            ${If} $_DUCKDNSSUBDOMAIN_ == ""
+                MessageBox MB_OK|MB_ICONSTOP "Informe o subdomínio DuckDNS."
+                Abort
+            ${EndIf}
+            ${If} $_DUCKDNSTOKEN_ == ""
+                MessageBox MB_OK|MB_ICONSTOP "Informe o token da sua conta DuckDNS."
+                Abort
+            ${EndIf}
+        ${Else}
+            StrCpy $_DUCKDNSSUBDOMAIN_ ""
+            StrCpy $_DUCKDNSTOKEN_ ""
+        ${EndIf}
+        ${If} $_HTTPSHOST_ == ""
+            MessageBox MB_OK|MB_ICONSTOP "A public hostname is required for HTTPS."
+            Abort
+        ${EndIf}
+        ${If} $_HTTPEMAIL_ == ""
+            MessageBox MB_OK|MB_ICONSTOP "An email address is required for Let's Encrypt certificate notifications."
+            Abort
+        ${EndIf}
+    ${Else}
+        StrCpy $_HTTPSSETUP_ "No"
+    ${EndIf}
 FunctionEnd
 
 Function HideFolderWarningPage

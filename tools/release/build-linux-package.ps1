@@ -17,7 +17,7 @@ try {
     if ($LASTEXITCODE -ne 0) { throw "Linux publish failed: $LASTEXITCODE" }
     & (Join-Path $PSScriptRoot 'stage-file-transformation-plugin.ps1') -ApplicationDirectory $serverDir
     Copy-Item -LiteralPath $webPath -Destination (Join-Path $serverDir 'MulletaFlix-web') -Recurse
-    foreach ($mapping in @(@('linux-install.sh','install.sh'), @('mulletaflix.service','mulletaflix.service'), @('LINUX-README.md','README.md'))) {
+    foreach ($mapping in @(@('linux-install.sh','install.sh'), @('duckdns-update.sh','duckdns-update.sh'), @('mulletaflix.service','mulletaflix.service'), @('LINUX-README.md','README.md'))) {
         # Linux shell files must have LF endings even when the checkout uses CRLF.
         $content = [System.IO.File]::ReadAllText((Join-Path $PSScriptRoot $mapping[0])).Replace("`r`n", "`n")
         [System.IO.File]::WriteAllText((Join-Path $appDir $mapping[1]), $content, [System.Text.UTF8Encoding]::new($false))

@@ -207,6 +207,17 @@ public sealed class NebulaFtpController : BaseMulletaFlixApiController
         }
 
         var status = _nebulaManager.GetPlaybackCacheStatus();
+        if (request.CachePath is not null
+            && !string.Equals(
+                status.ConfiguredPath,
+                request.CachePath.Trim(),
+                OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal))
+        {
+            return StatusCode(
+                StatusCodes.Status500InternalServerError,
+                "O servidor aceitou a atualização, mas não confirmou o caminho de cache persistido.");
+        }
+
         return Ok(status);
     }
 
