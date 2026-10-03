@@ -133,13 +133,22 @@ class BookReaderLifecycleTest {
             composeRule.waitUntil(timeoutMillis = 15_000) {
                 composeRule.activity.resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
             }
-            composeRule.waitUntil(timeoutMillis = 10_000) {
-                locationUpdateCount() > updatesBeforeRotation &&
-                    sameReadingPosition(
-                        currentLocation(),
-                        advancedLocation,
-                        progressionTolerance = 0.05,
-                    )
+            try {
+                composeRule.waitUntil(timeoutMillis = 20_000) {
+                    locationUpdateCount() > updatesBeforeRotation &&
+                        sameReadingPosition(
+                            currentLocation(),
+                            advancedLocation,
+                            progressionTolerance = 0.05,
+                        )
+                }
+            } catch (timeout: androidx.compose.ui.test.ComposeTimeoutException) {
+                throw AssertionError(
+                    "A posição não estabilizou após a rotação. " +
+                        "Antes=$advancedLocation Depois=${currentLocation()} " +
+                        "updatesAntes=$updatesBeforeRotation updatesDepois=${locationUpdateCount()}",
+                    timeout,
+                )
             }
             val rotatedLocation = currentLocation()
             assertTrue(

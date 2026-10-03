@@ -1,27 +1,25 @@
 package org.mulletaflix.core.api
 
-import com.squareup.moshi.Moshi
-import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
-import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.runBlocking
-import okhttp3.OkHttpClient
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
+import org.mulletaflix.core.api.di.NetworkModule
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
-import retrofit2.Retrofit
-import retrofit2.converter.moshi.MoshiConverterFactory
+import retrofit2.http.Streaming
 
 class BookReaderHttpContractTest {
-
     private lateinit var server: MockWebServer
 
     @Before
     fun setUp() {
-        server = MockWebServer().also { it.start() }
+        server = MockWebServer()
+        server.start()
     }
 
     @After
@@ -30,46 +28,65 @@ class BookReaderHttpContractTest {
     }
 
     @Test
-    fun `book download uses exact path and authenticated client identity`() = runBlocking {
+    fun `book epub uses authenticated streaming endpoint`() = runBlocking {
+        val epubBytes = "epub-test-payload".toByteArray()
         server.enqueue(
             MockResponse()
                 .setResponseCode(200)
                 .setHeader("Content-Type", "application/epub+zip")
-                .setBody("epub-body"),
+                .setBody(okio.Buffer().write(epubBytes)),
         )
 
         val response = api().getBookEpub("book-123")
-        response.body()?.close()
-        val request = server.takeRequest()
 
-        assertEquals("/BookReader/Items/book-123/BookReader/Epub", request.path)
-        val authorization = request.getHeader("Authorization").orEmpty()
-        assertTrue(authorization.contains("Client=\"MulletaFlix Android\""))
-        assertTrue(authorization.contains("DeviceId=\"reader-device\""))
-        assertTrue(authorization.contains("Token=\"reader-token\""))
+        assertTrue(response.isSuccessful)
+        val body = response.body()
+        assertNotNull(body)
+        body!!.use {
+            assertEquals("application/epub+zip", it.contentType()?.toString())
+            assertTrue(epubBytes.contentEquals(it.bytes()))
+        }
+
+        val request = server.takeRequest()
+        assertEquals("GET", request.method)
+        assertEquals("/BookReader/Items/book-123/BookReader/Epub", request.requestUrl?.encodedPath)
+        assertEquals(
+            "MediaBrowser Token=\"reader-token\", Client=\"MulletaFlix Android\", " +
+                "Device=\"Android\", DeviceId=\"reader-device\", Version=\"${BuildConfig.CLIENT_VERSION}\"",
+            request.getHeader("Authorization"),
+        )
+    }
+
+    @Test
+    fun `book epub contract keeps retrofit streaming annotation`() {
+        val method = MulletaFlixApiService::class.java.methods.single { it.name == "getBookEpub" }
+
+        assertNotNull(method.getAnnotation(Streaming::class.java))
     }
 
     private fun api(): MulletaFlixApiService {
-        val session = object : SessionRepository {
-            override fun getAccessToken() = flowOf<String?>("reader-token")
-            override fun getDeviceId() = flowOf("reader-device")
-            override fun getBaseUrl() = flowOf(server.url("/").toString().trimEnd('/'))
-            override fun getCurrentUserId() = flowOf<String?>("reader-user")
-            override suspend fun saveSession(serverUrl: String, token: String, userId: String, deviceId: String) = Unit
-            override suspend fun setBaseUrl(url: String) = Unit
-            override suspend fun clearSession() = Unit
-        }
-        val client = OkHttpClient.Builder()
-            .addInterceptor(ServerUrlInterceptor(session))
-            .addInterceptor(ClientIdentityInterceptor(session))
-            .build()
-        val moshi = Moshi.Builder().addLast(KotlinJsonAdapterFactory()).build()
+        val session = ReaderSessionRepository(server.url("/").toString().trimEnd('/'))
+        val client = NetworkModule.provideOkHttpClient(
+            clientIdentityInterceptor = ClientIdentityInterceptor(session),
+            apiRetryInterceptor = ApiRetryInterceptor(),
+            serverUrlInterceptor = ServerUrlInterceptor(session),
+        )
+        val retrofit = NetworkModule.provideRetrofit(client, NetworkModule.provideMoshi())
+        return NetworkModule.provideApiService(retrofit)
+    }
 
-        return Retrofit.Builder()
-            .baseUrl("http://localhost:8096/")
-            .client(client)
-            .addConverterFactory(MoshiConverterFactory.create(moshi))
-            .build()
-            .create(MulletaFlixApiService::class.java)
+    private class ReaderSessionRepository(serverUrl: String) : SessionRepository {
+        private val baseUrl = MutableStateFlow(serverUrl)
+        private val token = MutableStateFlow<String?>("reader-token")
+        private val userId = MutableStateFlow<String?>("reader-user")
+        private val deviceId = MutableStateFlow("reader-device")
+
+        override fun getAccessToken() = token
+        override fun getDeviceId() = deviceId
+        override fun getBaseUrl() = baseUrl
+        override fun getCurrentUserId() = userId
+        override suspend fun saveSession(serverUrl: String, token: String, userId: String, deviceId: String) = Unit
+        override suspend fun setBaseUrl(url: String) = Unit
+        override suspend fun clearSession() = Unit
     }
 }
