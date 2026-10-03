@@ -149,14 +149,14 @@ public class LibraryStructureController : BaseMulletaFlixApiController
         [FromQuery] string? newName,
         [FromQuery] bool refreshLibrary = false)
     {
-        if (string.IsNullOrWhiteSpace(name))
+        if (!IsSinglePathSegment(name))
         {
-            throw new ArgumentNullException(nameof(name));
+            return BadRequest("Library name must be a single directory name.");
         }
 
-        if (string.IsNullOrWhiteSpace(newName))
+        if (!IsSinglePathSegment(newName))
         {
-            throw new ArgumentNullException(nameof(newName));
+            return BadRequest("New library name must be a single directory name.");
         }
 
         var rootFolderPath = _appPaths.DefaultUserViewsPath;
@@ -184,6 +184,26 @@ public class LibraryStructureController : BaseMulletaFlixApiController
         {
             Response.Headers.RetryAfter = "1";
             return StatusCode(StatusCodes.Status429TooManyRequests);
+        }
+
+        // Revalidate after acquiring the operation gate so queued filesystem changes
+        // cannot rely solely on the earlier request validation.
+        if (!IsPathWithinRoot(rootFolderPath, currentPath) || !IsPathWithinRoot(rootFolderPath, newPath))
+        {
+            operationLease.Dispose();
+            return BadRequest("Library names must resolve below the default user views directory.");
+        }
+
+        if (!Directory.Exists(currentPath))
+        {
+            operationLease.Dispose();
+            return NotFound("The media collection does not exist.");
+        }
+
+        if (!string.Equals(currentPath, newPath, StringComparison.OrdinalIgnoreCase) && Directory.Exists(newPath))
+        {
+            operationLease.Dispose();
+            return Conflict($"The media library already exists at {newPath}.");
         }
 
         try
@@ -428,12 +448,62 @@ public class LibraryStructureController : BaseMulletaFlixApiController
 
     internal static bool IsPathWithinRoot(string rootPath, string candidatePath)
     {
-        var fullRootPath = Path.GetFullPath(rootPath)
-            .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
-            + Path.DirectorySeparatorChar;
-        var fullCandidatePath = Path.GetFullPath(candidatePath);
-        var comparison = OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
-        return fullCandidatePath.StartsWith(fullRootPath, comparison);
+        try
+        {
+            var fullRootPath = Path.TrimEndingDirectorySeparator(Path.GetFullPath(rootPath));
+            var fullCandidatePath = Path.GetFullPath(candidatePath);
+            var comparison = OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
+            var relativePath = Path.GetRelativePath(fullRootPath, fullCandidatePath);
+            if (relativePath == "."
+                || Path.IsPathRooted(relativePath)
+                || relativePath == ".."
+                || relativePath.StartsWith(".." + Path.DirectorySeparatorChar, comparison)
+                || relativePath.StartsWith(".." + Path.AltDirectorySeparatorChar, comparison))
+            {
+                return false;
+            }
+
+            var currentPath = fullRootPath;
+            foreach (var segment in relativePath.Split(
+                new[] { Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar },
+                StringSplitOptions.RemoveEmptyEntries))
+            {
+                currentPath = Path.Combine(currentPath, segment);
+                try
+                {
+                    if ((System.IO.File.GetAttributes(currentPath) & FileAttributes.ReparsePoint) != 0)
+                    {
+                        return false;
+                    }
+                }
+                catch (FileNotFoundException)
+                {
+                    // A not-yet-created destination is valid; no later component can exist beneath it.
+                    break;
+                }
+                catch (DirectoryNotFoundException)
+                {
+                    // A not-yet-created destination is valid; no later component can exist beneath it.
+                    break;
+                }
+            }
+
+            return true;
+        }
+        catch (Exception ex) when (ex is ArgumentException or NotSupportedException or IOException or UnauthorizedAccessException)
+        {
+            return false;
+        }
+    }
+
+    internal static bool IsSinglePathSegment(string? name)
+    {
+        return !string.IsNullOrWhiteSpace(name)
+            && name != "."
+            && name != ".."
+            && name.IndexOf('\0', StringComparison.Ordinal) < 0
+            && !Path.IsPathRooted(name)
+            && name.IndexOfAny(new[] { Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar, '/', '\\' }) < 0;
     }
 
     private void ApplyLibraryDefaults(LibraryOptions options)

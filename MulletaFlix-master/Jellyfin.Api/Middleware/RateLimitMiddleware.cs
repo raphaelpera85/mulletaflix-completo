@@ -28,6 +28,7 @@ public class RateLimitMiddleware
     private static readonly ConcurrentDictionary<string, RateLimitEntry> _searchRequests = new(StringComparer.OrdinalIgnoreCase);
     private static readonly ConcurrentDictionary<string, RateLimitEntry> _administrativeRequests = new(StringComparer.OrdinalIgnoreCase);
     private static readonly ConcurrentDictionary<string, RateLimitEntry> _nebulaRequests = new(StringComparer.OrdinalIgnoreCase);
+    private static readonly ConcurrentDictionary<string, RateLimitEntry> _clientLogRequests = new(StringComparer.OrdinalIgnoreCase);
     private static readonly SemaphoreSlim _heavyBackupOperations = new(1, 1);
     private static readonly SemaphoreSlim _catalogScans = new(1, 1);
 
@@ -42,6 +43,8 @@ public class RateLimitMiddleware
     private const int MaxAdministrativeRequests = 20;
     private static readonly TimeSpan NebulaWindow = TimeSpan.FromSeconds(10);
     private const int MaxNebulaRequests = 10;
+    private static readonly TimeSpan ClientLogWindow = TimeSpan.FromMinutes(1);
+    private const int MaxClientLogRequests = 5;
 
     private static readonly string[] StaticWebPaths =
     [
@@ -174,6 +177,7 @@ public class RateLimitMiddleware
                 "search" => _searchRequests,
                 "administration" => _administrativeRequests,
                 "nebula" => _nebulaRequests,
+                "client-log" => _clientLogRequests,
                 _ => throw new InvalidOperationException($"Unknown rate-limit category: {selectiveCategory}")
             };
             var selectiveWindow = selectiveCategory switch
@@ -181,6 +185,7 @@ public class RateLimitMiddleware
                 "search" => SearchWindow,
                 "administration" => AdministrativeWindow,
                 "nebula" => NebulaWindow,
+                "client-log" => ClientLogWindow,
                 _ => throw new InvalidOperationException($"Unknown rate-limit category: {selectiveCategory}")
             };
             var selectiveMax = selectiveCategory switch
@@ -188,6 +193,7 @@ public class RateLimitMiddleware
                 "search" => MaxSearchRequests,
                 "administration" => MaxAdministrativeRequests,
                 "nebula" => MaxNebulaRequests,
+                "client-log" => MaxClientLogRequests,
                 _ => throw new InvalidOperationException($"Unknown rate-limit category: {selectiveCategory}")
             };
 
@@ -293,6 +299,11 @@ public class RateLimitMiddleware
         if (IsPathOrDescendant(path, "/NebulaFtp"))
         {
             return "nebula";
+        }
+
+        if (IsPathOrDescendant(path, "/ClientLog/Document"))
+        {
+            return "client-log";
         }
 
         foreach (var route in AdministrativePaths)

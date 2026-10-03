@@ -8,6 +8,7 @@ import peoplecardbuilder from 'components/cardbuilder/peoplecardbuilder';
 import { getBackdropShape, getPortraitShape } from 'components/cardbuilder/utils/shape';
 import itemContextMenu from 'components/itemContextMenu';
 import itemHelper from 'components/itemHelper';
+import { loadSectionItems } from 'components/asyncItemsSection';
 import layoutManager from 'components/layoutManager';
 import loading from 'components/loading/loading';
 import mediainfo from 'components/mediainfo/mediainfo';
@@ -512,27 +513,20 @@ function loadSections(view: HTMLElement, item: any, apiClient: any): void {
         const nextUpSection = view.querySelector<HTMLElement>('.nextUpSection');
         const nextUpItems = view.querySelector<HTMLElement>('.nextUpItems');
         if (nextUpSection && nextUpItems) {
-            apiClient.getNextUpEpisodes({
-                SeriesId: item.Id,
-                UserId: userId
-            }).then((result: any) => {
-                const items = result.Items || [];
-                if (items.length) {
-                    nextUpSection.classList.remove('hide');
-                    cardBuilder.buildCards(items, {
-                        itemsContainer: nextUpItems,
-                        shape: getBackdropShape(enableScrollX()),
-                        preferThumb: true,
-                        showTitle: true,
-                        showParentTitle: false,
-                        overlayPlayButton: true,
-                        centerText: true
-                    });
-                } else {
-                    nextUpSection.classList.add('hide');
-                }
-            }).catch(() => {
-                nextUpSection.classList.add('hide');
+            loadSectionItems({
+                section: nextUpSection,
+                loadItems: () => apiClient.getNextUpEpisodes({ SeriesId: item.Id, UserId: userId }),
+                selectItems: (result: any) => result.Items || [],
+                renderItems: items => cardBuilder.buildCards(items, {
+                    itemsContainer: nextUpItems,
+                    shape: getBackdropShape(enableScrollX()),
+                    preferThumb: true,
+                    showTitle: true,
+                    showParentTitle: false,
+                    overlayPlayButton: true,
+                    centerText: true
+                }),
+                label: 'next-up episodes'
             });
         }
     }
@@ -542,68 +536,56 @@ function loadSections(view: HTMLElement, item: any, apiClient: any): void {
     const childrenContainer = childrenCollapsible?.querySelector<HTMLElement>('.itemsContainer');
 
     if (item.Type === 'Series' && childrenContainer) {
-        apiClient.getItems(userId, {
-            ParentId: item.Id,
-            IncludeItemTypes: 'Season',
-            SortBy: 'SortName'
-        }).then((result: any) => {
-            const items = result.Items || [];
-            if (items.length) {
-                childrenCollapsible?.classList.remove('hide');
-                cardBuilder.buildCards(items, {
-                    itemsContainer: childrenContainer,
-                    shape: getPortraitShape(enableScrollX()),
-                    showTitle: true,
-                    centerText: true,
-                    overlayPlayButton: true
-                });
-            }
-        }).catch((error: unknown) => {
-            childrenCollapsible?.classList.add('hide');
-            console.error('[itemDetails] failed to load seasons', error);
+        loadSectionItems({
+            section: childrenCollapsible!,
+            loadItems: () => apiClient.getItems(userId, {
+                ParentId: item.Id,
+                IncludeItemTypes: 'Season',
+                SortBy: 'SortName'
+            }),
+            selectItems: (result: any) => result.Items || [],
+            renderItems: items => cardBuilder.buildCards(items, {
+                itemsContainer: childrenContainer,
+                shape: getPortraitShape(enableScrollX()),
+                showTitle: true,
+                centerText: true,
+                overlayPlayButton: true
+            }),
+            label: 'seasons'
         });
     } else if (item.Type === 'Season' && childrenContainer) {
-        apiClient.getEpisodes(item.SeriesId, {
-            SeasonId: item.Id,
-            UserId: userId,
-            Fields: 'ItemCounts,PrimaryImageAspectRatio,BasicSyncInfo,CanDelete,MediaSourceCount,Overview'
-        }).then((result: any) => {
-            const items = result.Items || [];
-            if (items.length) {
-                childrenCollapsible?.classList.remove('hide');
-                cardBuilder.buildCards(items, {
-                    itemsContainer: childrenContainer,
-                    shape: getBackdropShape(enableScrollX()),
-                    preferThumb: true,
-                    showTitle: true,
-                    showParentTitle: false,
-                    overlayPlayButton: true,
-                    centerText: true
-                });
-            }
-        }).catch((error: unknown) => {
-            childrenCollapsible?.classList.add('hide');
-            console.error('[itemDetails] failed to load episodes', error);
+        loadSectionItems({
+            section: childrenCollapsible!,
+            loadItems: () => apiClient.getEpisodes(item.SeriesId, {
+                SeasonId: item.Id,
+                UserId: userId,
+                Fields: 'ItemCounts,PrimaryImageAspectRatio,BasicSyncInfo,CanDelete,MediaSourceCount,Overview'
+            }),
+            selectItems: (result: any) => result.Items || [],
+            renderItems: items => cardBuilder.buildCards(items, {
+                itemsContainer: childrenContainer,
+                shape: getBackdropShape(enableScrollX()),
+                preferThumb: true,
+                showTitle: true,
+                showParentTitle: false,
+                overlayPlayButton: true,
+                centerText: true
+            }),
+            label: 'episodes'
         });
     } else if ((item.Type === 'MusicAlbum' || item.Type === 'Playlist') && childrenContainer) {
-        apiClient.getItems(userId, {
-            ParentId: item.Id,
-            SortBy: 'SortName'
-        }).then((result: any) => {
-            const items = result.Items || [];
-            if (items.length) {
-                childrenCollapsible?.classList.remove('hide');
-                cardBuilder.buildCards(items, {
-                    itemsContainer: childrenContainer,
-                    shape: 'square',
-                    showTitle: true,
-                    centerText: true,
-                    overlayPlayButton: true
-                });
-            }
-        }).catch((error: unknown) => {
-            childrenCollapsible?.classList.add('hide');
-            console.error('[itemDetails] failed to load child items', error);
+        loadSectionItems({
+            section: childrenCollapsible!,
+            loadItems: () => apiClient.getItems(userId, { ParentId: item.Id, SortBy: 'SortName' }),
+            selectItems: (result: any) => result.Items || [],
+            renderItems: items => cardBuilder.buildCards(items, {
+                itemsContainer: childrenContainer,
+                shape: 'square',
+                showTitle: true,
+                centerText: true,
+                overlayPlayButton: true
+            }),
+            label: 'child items'
         });
     }
 
@@ -626,22 +608,19 @@ function loadSections(view: HTMLElement, item: any, apiClient: any): void {
     const specialsCollapsible = view.querySelector<HTMLElement>('#specialsCollapsible');
     const specialsContent = view.querySelector<HTMLElement>('#specialsContent');
     if (specialsCollapsible && specialsContent) {
-        apiClient.getSpecialFeatures(userId, item.Id).then((specials: any[]) => {
-            if (specials && specials.length) {
-                specialsCollapsible.classList.remove('hide');
-                cardBuilder.buildCards(specials, {
-                    itemsContainer: specialsContent,
-                    shape: getBackdropShape(enableScrollX()),
-                    preferThumb: true,
-                    showTitle: true,
-                    centerText: true,
-                    overlayPlayButton: true
-                });
-            } else {
-                specialsCollapsible.classList.add('hide');
-            }
-        }).catch(() => {
-            specialsCollapsible.classList.add('hide');
+        loadSectionItems({
+            section: specialsCollapsible,
+            loadItems: () => apiClient.getSpecialFeatures(userId, item.Id),
+            selectItems: (specials: any[]) => specials || [],
+            renderItems: specials => cardBuilder.buildCards(specials, {
+                itemsContainer: specialsContent,
+                shape: getBackdropShape(enableScrollX()),
+                preferThumb: true,
+                showTitle: true,
+                centerText: true,
+                overlayPlayButton: true
+            }),
+            label: 'special features'
         });
     }
 
@@ -650,22 +629,18 @@ function loadSections(view: HTMLElement, item: any, apiClient: any): void {
     const partsContent = view.querySelector<HTMLElement>('#additionalPartsContent');
     if (partsCollapsible && partsContent) {
         if (item.PartCount && item.PartCount > 1) {
-            apiClient.getAdditionalVideoParts(userId, item.Id).then((result: any) => {
-                const parts = result.Items || [];
-                if (parts.length) {
-                    partsCollapsible.classList.remove('hide');
-                    cardBuilder.buildCards(parts, {
-                        itemsContainer: partsContent,
-                        shape: getBackdropShape(enableScrollX()),
-                        showTitle: true,
-                        centerText: true,
-                        overlayPlayButton: true
-                    });
-                } else {
-                    partsCollapsible.classList.add('hide');
-                }
-            }).catch(() => {
-                partsCollapsible.classList.add('hide');
+            loadSectionItems({
+                section: partsCollapsible,
+                loadItems: () => apiClient.getAdditionalVideoParts(userId, item.Id),
+                selectItems: (result: any) => result.Items || [],
+                renderItems: parts => cardBuilder.buildCards(parts, {
+                    itemsContainer: partsContent,
+                    shape: getBackdropShape(enableScrollX()),
+                    showTitle: true,
+                    centerText: true,
+                    overlayPlayButton: true
+                }),
+                label: 'additional video parts'
             });
         } else {
             partsCollapsible.classList.add('hide');
@@ -702,25 +677,18 @@ function loadSections(view: HTMLElement, item: any, apiClient: any): void {
     const similarCollapsible = view.querySelector<HTMLElement>('#similarCollapsible');
     const similarContent = view.querySelector<HTMLElement>('.similarContent');
     if (similarCollapsible && similarContent) {
-        apiClient.getSimilarItems(item.Id, {
-            UserId: userId,
-            Limit: 12
-        }).then((result: any) => {
-            const similarItems = result.Items || [];
-            if (similarItems.length) {
-                similarCollapsible.classList.remove('hide');
-                cardBuilder.buildCards(similarItems, {
-                    itemsContainer: similarContent,
-                    shape: getPortraitShape(enableScrollX()),
-                    showTitle: true,
-                    centerText: true,
-                    overlayPlayButton: true
-                });
-            } else {
-                similarCollapsible.classList.add('hide');
-            }
-        }).catch(() => {
-            similarCollapsible.classList.add('hide');
+        loadSectionItems({
+            section: similarCollapsible,
+            loadItems: () => apiClient.getSimilarItems(item.Id, { UserId: userId, Limit: 12 }),
+            selectItems: (result: any) => result.Items || [],
+            renderItems: items => cardBuilder.buildCards(items, {
+                itemsContainer: similarContent,
+                shape: getPortraitShape(enableScrollX()),
+                showTitle: true,
+                centerText: true,
+                overlayPlayButton: true
+            }),
+            label: 'similar items'
         });
     }
 }

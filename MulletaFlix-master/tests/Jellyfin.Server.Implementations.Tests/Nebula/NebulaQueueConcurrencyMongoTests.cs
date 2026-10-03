@@ -19,23 +19,32 @@ namespace MulletaFlix.Server.Implementations.Tests.Nebula;
 /// O fencing de posse e o lease explícito existem para impedir que dois workers
 /// gravem no mesmo documento. Testes com mocks não provam isso: só uma corrida
 /// real contra o banco mostra se o claim é atômico. Os testes são ignorados
-/// quando não há instância na porta de teste, para não quebrar a suíte em
-/// ambientes sem MongoDB.
+/// quando não há uma instância local explicitamente configurada para testes.
 /// </remarks>
 [Trait("Category", "RequiresMongo")]
 public sealed class NebulaQueueConcurrencyMongoTests : IDisposable
 {
-    private const string TestConnectionString = "mongodb://127.0.0.1:27099/?serverSelectionTimeoutMS=1500";
-
-    private readonly string _databaseName = "nebula_t2_" + Guid.NewGuid().ToString("N")[..8];
+    private readonly string _databaseName = "nebula_t2_" + Guid.NewGuid().ToString("N");
+    private readonly string _testConnectionString;
     private readonly bool _available;
+    private readonly string _skipReason;
     private readonly MongoClient? _client;
 
     public NebulaQueueConcurrencyMongoTests()
     {
+        if (!NebulaMongoTestConnection.TryGet(out var testConnectionString, out var skipReason))
+        {
+            _testConnectionString = string.Empty;
+            _skipReason = skipReason;
+            _available = false;
+            return;
+        }
+
+        _testConnectionString = testConnectionString;
+        _skipReason = string.Empty;
         try
         {
-            var settings = MongoClientSettings.FromConnectionString(TestConnectionString);
+            var settings = MongoClientSettings.FromConnectionString(_testConnectionString);
             settings.ServerSelectionTimeout = TimeSpan.FromSeconds(2);
             _client = new MongoClient(settings);
             _client.GetDatabase("admin").RunCommand<BsonDocument>(new BsonDocument("ping", 1));
@@ -44,11 +53,12 @@ public sealed class NebulaQueueConcurrencyMongoTests : IDisposable
         catch (Exception)
         {
             _available = false;
+            _skipReason = "MongoDB de teste indisponível no destino local opt-in.";
         }
     }
 
     private NebulaMongoContext CreateContext()
-        => new(TestConnectionString, _databaseName, NullLogger<NebulaMongoContext>.Instance);
+        => new(_testConnectionString, _databaseName, NullLogger<NebulaMongoContext>.Instance);
 
     private IMongoCollection<BsonDocument> Files
         => _client!.GetDatabase(_databaseName).GetCollection<BsonDocument>("files");
@@ -74,7 +84,7 @@ public sealed class NebulaQueueConcurrencyMongoTests : IDisposable
     [Fact]
     public async Task UploadQueueSummary_RecordsSuccessfulMongoActivity()
     {
-        Assert.SkipUnless(_available, "MongoDB de teste indisponível em 127.0.0.1:27099.");
+        Assert.SkipUnless(_available, _skipReason);
 
         var stopped = new List<System.Diagnostics.Activity>();
         using var listener = new System.Diagnostics.ActivityListener
@@ -103,7 +113,7 @@ public sealed class NebulaQueueConcurrencyMongoTests : IDisposable
     [Fact]
     public async Task ConcurrentClaims_OnlyOneWorkerWinsTheDocument()
     {
-        Assert.SkipUnless(_available, "MongoDB de teste indisponível em 127.0.0.1:27099.");
+        Assert.SkipUnless(_available, _skipReason);
 
         using var context = CreateContext();
         var id = await InsertQueuedFileAsync();
@@ -133,7 +143,7 @@ public sealed class NebulaQueueConcurrencyMongoTests : IDisposable
     [Fact]
     public async Task ProgressWrite_FromANonOwnerWorkerIsRejected()
     {
-        Assert.SkipUnless(_available, "MongoDB de teste indisponível em 127.0.0.1:27099.");
+        Assert.SkipUnless(_available, _skipReason);
 
         using var context = CreateContext();
         var id = await InsertQueuedFileAsync();
@@ -161,7 +171,7 @@ public sealed class NebulaQueueConcurrencyMongoTests : IDisposable
     [Fact]
     public async Task RequeuedDocument_CannotBeWrittenByTheZombieWorker()
     {
-        Assert.SkipUnless(_available, "MongoDB de teste indisponível em 127.0.0.1:27099.");
+        Assert.SkipUnless(_available, _skipReason);
 
         using var context = CreateContext();
         var id = await InsertQueuedFileAsync();
@@ -225,7 +235,7 @@ public sealed class NebulaQueueConcurrencyMongoTests : IDisposable
     [Fact]
     public async Task CompletedUpload_IsNotReclaimedByANewClaim()
     {
-        Assert.SkipUnless(_available, "MongoDB de teste indisponível em 127.0.0.1:27099.");
+        Assert.SkipUnless(_available, _skipReason);
 
         using var context = CreateContext();
         var id = await InsertQueuedFileAsync();
@@ -256,7 +266,7 @@ public sealed class NebulaQueueConcurrencyMongoTests : IDisposable
     [Fact]
     public async Task FailedUpload_HonoursRetryAfterBeforeBeingClaimedAgain()
     {
-        Assert.SkipUnless(_available, "MongoDB de teste indisponível em 127.0.0.1:27099.");
+        Assert.SkipUnless(_available, _skipReason);
 
         using var context = CreateContext();
         var id = await InsertQueuedFileAsync();
@@ -286,7 +296,7 @@ public sealed class NebulaQueueConcurrencyMongoTests : IDisposable
     [Fact]
     public async Task PriorityPersistedInMongo_SurvivesRestartAndIsReconciled()
     {
-        Assert.SkipUnless(_available, "MongoDB de teste indisponível em 127.0.0.1:27099.");
+        Assert.SkipUnless(_available, _skipReason);
 
         using var context = CreateContext();
         var regular = await InsertQueuedFileAsync();
@@ -323,7 +333,7 @@ public sealed class NebulaQueueConcurrencyMongoTests : IDisposable
     [Fact]
     public async Task ClearingPriority_RestoresRegularOrdering()
     {
-        Assert.SkipUnless(_available, "MongoDB de teste indisponível em 127.0.0.1:27099.");
+        Assert.SkipUnless(_available, _skipReason);
 
         using var context = CreateContext();
         var id = await InsertQueuedFileAsync();
@@ -342,7 +352,7 @@ public sealed class NebulaQueueConcurrencyMongoTests : IDisposable
     [Fact]
     public async Task CompletedMedia_CannotBePrioritised()
     {
-        Assert.SkipUnless(_available, "MongoDB de teste indisponível em 127.0.0.1:27099.");
+        Assert.SkipUnless(_available, _skipReason);
 
         using var context = CreateContext();
         var id = await InsertQueuedFileAsync();
@@ -362,7 +372,7 @@ public sealed class NebulaQueueConcurrencyMongoTests : IDisposable
     [Fact]
     public async Task CatalogRoundTrip_PreservesDocumentsAndCountsAcrossDatabases()
     {
-        Assert.SkipUnless(_available, "MongoDB de teste indisponível em 127.0.0.1:27099.");
+        Assert.SkipUnless(_available, _skipReason);
 
         // T4.3 exige validar backup/restauração MongoDB com contagens e duração
         // medida. O ciclo Mongo↔Supabase depende de serviço remoto, mas a
@@ -423,7 +433,7 @@ public sealed class NebulaQueueConcurrencyMongoTests : IDisposable
 
             // Mídia concluída restaurada não pode ser reivindicada de novo.
             using var restoredContext = new NebulaMongoContext(
-                TestConnectionString,
+                _testConnectionString,
                 restoredDatabaseName,
                 NullLogger<NebulaMongoContext>.Instance);
             Assert.Null(await restoredContext.ClaimFileForUploadAsync(completedId, 9, 0, CancellationToken.None));
@@ -443,7 +453,7 @@ public sealed class NebulaQueueConcurrencyMongoTests : IDisposable
     [Fact]
     public async Task RestoredCatalog_KeepsPendingWorkClaimable()
     {
-        Assert.SkipUnless(_available, "MongoDB de teste indisponível em 127.0.0.1:27099.");
+        Assert.SkipUnless(_available, _skipReason);
 
         using var source = CreateContext();
         var pendingId = await InsertQueuedFileAsync();
@@ -459,7 +469,7 @@ public sealed class NebulaQueueConcurrencyMongoTests : IDisposable
             // Trabalho pendente precisa voltar reivindicável: uma restauração que
             // deixasse a fila travada exigiria intervenção manual para retomar.
             using var restoredContext = new NebulaMongoContext(
-                TestConnectionString,
+                _testConnectionString,
                 restoredDatabaseName,
                 NullLogger<NebulaMongoContext>.Instance);
             var claimed = await restoredContext.ClaimFileForUploadAsync(pendingId, 1, 0, CancellationToken.None);

@@ -62,13 +62,24 @@ public class FilterController : BaseMulletaFlixApiController
         var user = userId.IsNullOrEmpty()
             ? null
             : _userManager.GetUserById(userId.Value);
+        if (!userId.IsNullOrEmpty() && user is null)
+        {
+            return Unauthorized();
+        }
 
         BaseItem? item = null;
         if (includeItemTypes.Length != 1
             || !(includeItemTypes[0] == BaseItemKind.Trailer
                  || includeItemTypes[0] == BaseItemKind.Program))
         {
-            item = _libraryManager.GetParentItem(parentId, user?.Id);
+            if (parentId.HasValue)
+            {
+                item = RequestHelpers.GetParentItem(_libraryManager, parentId, userId, user);
+            }
+            else
+            {
+                item = _libraryManager.GetParentItem(null, user?.Id);
+            }
         }
 
         if (item is not Folder folder)
@@ -127,6 +138,10 @@ public class FilterController : BaseMulletaFlixApiController
         var user = userId.IsNullOrEmpty()
             ? null
             : _userManager.GetUserById(userId.Value);
+        if (!userId.IsNullOrEmpty() && user is null)
+        {
+            return Unauthorized();
+        }
 
         BaseItem? parentItem = null;
         if (includeItemTypes.Length == 1
@@ -137,7 +152,11 @@ public class FilterController : BaseMulletaFlixApiController
         }
         else if (parentId.HasValue)
         {
-            parentItem = _libraryManager.GetItemById<BaseItem>(parentId.Value);
+            parentItem = RequestHelpers.GetParentItem(_libraryManager, parentId, userId, user);
+            if (parentItem is null)
+            {
+                return new QueryFilters();
+            }
         }
 
         var filters = new QueryFilters();
@@ -221,4 +240,3 @@ public class FilterController : BaseMulletaFlixApiController
         return filters;
     }
 }
-

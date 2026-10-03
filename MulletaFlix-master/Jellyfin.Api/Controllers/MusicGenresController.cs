@@ -73,6 +73,7 @@ public class MusicGenresController : BaseMulletaFlixApiController
     /// <response code="200">Music genres returned.</response>
     /// <returns>An <see cref="OkResult"/> containing the queryresult of music genres.</returns>
     [HttpGet]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
     [Obsolete("Use GetGenres instead")]
     [ApiExplorerSettings(IgnoreApi = true)]
     public ActionResult<QueryResult<BaseItemDto>> GetMusicGenres(
@@ -103,7 +104,11 @@ public class MusicGenresController : BaseMulletaFlixApiController
             ? null
             : _userManager.GetUserById(userId.Value);
 
-        var parentItem = _libraryManager.GetParentItem(parentId, userId);
+        var parentItem = RequestHelpers.GetParentItem(_libraryManager, parentId, userId, user);
+        if (parentItem is null)
+        {
+            return NotFound();
+        }
 
         var query = new InternalItemsQuery(user)
         {
@@ -206,4 +211,3 @@ public class MusicGenresController : BaseMulletaFlixApiController
         return result;
     }
 }
-

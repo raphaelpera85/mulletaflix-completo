@@ -1,4 +1,5 @@
 using System;
+using System.IO;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Model.MediaInfo;
@@ -70,5 +71,16 @@ public class BaseItemTests
         Assert.Equal(2, userData.PlayCount);
         userDataManager.Verify(m => m.SaveUserData(user, item, userData, MediaBrowser.Model.Entities.UserDataSaveReason.UpdateUserData, It.IsAny<System.Threading.CancellationToken>()), Times.Once);
     }
-}
 
+    [Fact]
+    public void Book_EnablesLocalMetadataForLocalBookFiles()
+    {
+        var mediaSourceManager = new Mock<IMediaSourceManager>();
+        mediaSourceManager.Setup(x => x.GetPathProtocol(It.IsAny<string>())).Returns(MediaProtocol.File);
+        BaseItem.MediaSourceManager = mediaSourceManager.Object;
+        var book = new Book { Path = Path.GetFullPath(Path.Combine("library", "fantasy", "Cityscape.epub")) };
+
+        Assert.True(book.SupportsLocalMetadata);
+        Assert.True(book.IsSaveLocalMetadataEnabled());
+    }
+}

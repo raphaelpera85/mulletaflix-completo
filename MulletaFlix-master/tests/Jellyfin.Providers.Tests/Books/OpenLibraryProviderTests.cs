@@ -253,6 +253,57 @@ public class OpenLibraryProviderTests
         Assert.Equal("Ari Marmell", Assert.Single(metadata.People!).Name);
     }
 
+    [Fact]
+    public async Task GetMetadata_Title_SelectsMatchingBookInsteadOfFirstBookBySameAuthor()
+    {
+        var searchUrl = new Uri("https://openlibrary.org/search.json?title=A%20Life%20With%20Footnotes&fields=key,title,author_name,first_publish_year,isbn,cover_edition_key,cover_i&limit=10");
+        var provider = CreateProvider(new Dictionary<Uri, string>
+        {
+            [searchUrl] = """
+                {"docs":[
+                  {"key":"/works/OL1W","title":"The Colour of Magic","author_name":["Terry Pratchett"],"cover_edition_key":"OL1M"},
+                  {"key":"/works/OL2W","title":"A Life With Footnotes","author_name":["Terry Pratchett"],"cover_edition_key":"OL2M"}
+                ]}
+                """,
+            [new Uri("https://openlibrary.org/books/OL2M.json")] = """
+                {"key":"/books/OL2M","title":"A Life With Footnotes","publish_date":"2022","covers":[222]}
+                """
+        });
+
+        var metadata = await provider.GetMetadata(new BookInfo { Name = "Terry Pratchett - A Life With Footnotes" }, CancellationToken.None);
+
+        Assert.True(metadata.HasMetadata);
+        Assert.Equal("A Life With Footnotes", metadata.Item!.Name);
+        Assert.Equal("OL2M", metadata.Item.GetProviderId("OpenLibrary"));
+        Assert.Equal("https://covers.openlibrary.org/b/id/222-L.jpg", Assert.Single(metadata.RemoteImages).Url);
+    }
+
+    [Fact]
+    public async Task GetMetadata_Isbn_SelectsEditionContainingRequestedIsbn()
+    {
+        var provider = CreateProvider(new Dictionary<Uri, string>
+        {
+            [new Uri("https://openlibrary.org/search.json?isbn=9780000000002&fields=key,title,author_name,first_publish_year,isbn,cover_edition_key,cover_i&limit=10")] = """
+                {"docs":[
+                  {"key":"/works/OL1W","title":"Different Book","isbn":["9780000000001"],"cover_edition_key":"OL1M"},
+                  {"key":"/works/OL2W","title":"Requested Book","isbn":["9780000000001","9780000000002"],"cover_edition_key":"OL2M"}
+                ]}
+                """,
+            [new Uri("https://openlibrary.org/books/OL2M.json")] = """
+                {"key":"/books/OL2M","title":"Requested Book","publish_date":"2020","covers":[222],"isbn_13":["9780000000002"]}
+                """
+        });
+        var info = new BookInfo();
+        info.ProviderIds["ISBN"] = "9780000000002";
+
+        var metadata = await provider.GetMetadata(info, CancellationToken.None);
+
+        Assert.True(metadata.HasMetadata);
+        Assert.Equal("Requested Book", metadata.Item!.Name);
+        Assert.Equal("OL2M", metadata.Item.GetProviderId("OpenLibrary"));
+        Assert.Equal("9780000000002", metadata.Item.GetProviderId("ISBN"));
+    }
+
     private static OpenLibraryProvider CreateProvider(Uri[] expectedUris, string responseBody)
         => CreateProvider(expectedUris.ToDictionary(uri => uri, _ => responseBody));
 

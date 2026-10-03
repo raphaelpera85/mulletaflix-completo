@@ -14,6 +14,7 @@ import DateTimeCell from 'apps/dashboard/components/table/DateTimeCell';
 import { DEFAULT_TABLE_OPTIONS } from 'apps/dashboard/components/table/TablePage';
 import { useLogEntries } from 'apps/dashboard/features/activity/api/useLogEntries';
 import { useUsersDetails } from 'hooks/useUsers';
+import { useApi } from 'hooks/useApi';
 import globalize from 'lib/globalize';
 import Page from 'components/Page';
 import { ServerConnections } from 'lib/jellyfin-apiclient';
@@ -33,15 +34,16 @@ const getMediaCatalog = async (): Promise<MediaCatalogTitle[]> => {
 };
 
 const UserFeedbackListPage = ({ type, titleKey }: UserFeedbackListPageProps) => {
+    const { api } = useApi();
     const { usersById, isLoading: isUsersLoading, isError: isUsersError, refetch: refetchUsers } = useUsersDetails();
-    const { data, isLoading, isError, refetch } = useLogEntries({
+    const { data, isLoading, isPending, isError, refetch } = useLogEntries({
         type,
         startIndex: 0,
         limit: 1000,
         sortBy: [ ActivityLogSortBy.DateCreated ],
         sortOrder: [ SortOrder.Descending ]
     });
-    const catalogQuery = useQuery({
+    const { data: catalogData, isLoading: isCatalogLoading, isError: isCatalogError, refetch: refetchCatalog } = useQuery({
         queryKey: [ 'MediaRequestCatalog' ],
         queryFn: getMediaCatalog,
         enabled: type === 'MediaRequest',
@@ -49,8 +51,8 @@ const UserFeedbackListPage = ({ type, titleKey }: UserFeedbackListPageProps) => 
     });
 
     const { pending: pendingRequests, included: includedRequests } = useMemo(
-        () => classifyMediaRequests(data?.Items || [], catalogQuery.data || []),
-        [ catalogQuery.data, data?.Items ]
+        () => classifyMediaRequests(data?.Items || [], catalogData || []),
+        [ catalogData, data?.Items ]
     );
 
     const columns = useMemo<MRT_ColumnDef<ActivityLogEntry>[]>(() => [
@@ -79,7 +81,7 @@ const UserFeedbackListPage = ({ type, titleKey }: UserFeedbackListPageProps) => 
         ...(type === 'PlaybackIssue' ? [{ accessorKey: 'ItemId' as const, header: 'Item ID', size: 220 }] : [])
     ], [ type, usersById ]);
 
-    const tableState = { isLoading: isLoading || isUsersLoading || (type === 'MediaRequest' && catalogQuery.isLoading) };
+    const tableState = { isLoading: isLoading || isPending || isUsersLoading || (type === 'MediaRequest' && isCatalogLoading) };
     const allRows = data?.Items || [];
     const pendingTable = useMaterialReactTable({
         ...DEFAULT_TABLE_OPTIONS,
@@ -105,9 +107,19 @@ const UserFeedbackListPage = ({ type, titleKey }: UserFeedbackListPageProps) => 
     });
 
     const retry = useCallback(() => {
-        void Promise.all([ refetch(), refetchUsers(), catalogQuery.refetch() ]);
-    }, [ catalogQuery, refetch, refetchUsers ]);
-    const hasError = isError || isUsersError || (type === 'MediaRequest' && catalogQuery.isError);
+        void refetch();
+        void refetchUsers();
+        if (type === 'MediaRequest') void refetchCatalog();
+    }, [ refetch, refetchCatalog, refetchUsers, type ]);
+    const hasError = !api || isError || isUsersError || (type === 'MediaRequest' && isCatalogError);
+    const renderTable = (table: typeof pendingTable, rows: ActivityLogEntry[]) => {
+        if (!tableState.isLoading && rows.length === 0) {
+            return <Alert severity='info' role='status'>{globalize.translate('MessageNoItemsAvailable')}</Alert>;
+        }
+
+        return <MaterialReactTable table={table} />;
+    };
+
     let content;
     if (hasError) {
         content = (
@@ -116,17 +128,17 @@ const UserFeedbackListPage = ({ type, titleKey }: UserFeedbackListPageProps) => 
             </Alert>
         );
     } else if (type === 'PlaybackIssue') {
-        content = <MaterialReactTable table={pendingTable} />;
+        content = renderTable(pendingTable, allRows);
     } else {
         content = (
             <Stack spacing={4} sx={{ minHeight: 0 }}>
                 <Box>
                     <Typography variant='h2' sx={{ mb: 1 }}>{globalize.translate('MediaRequestsPendingTitle')} ({pendingRequests.length})</Typography>
-                    <MaterialReactTable table={pendingTable} />
+                    {renderTable(pendingTable, pendingRequests)}
                 </Box>
                 <Box>
                     <Typography variant='h2' sx={{ mb: 1 }}>{globalize.translate('MediaRequestsIncludedTitle')} ({includedRequests.length})</Typography>
-                    <MaterialReactTable table={includedTable} />
+                    {renderTable(includedTable, includedRequests)}
                 </Box>
             </Stack>
         );

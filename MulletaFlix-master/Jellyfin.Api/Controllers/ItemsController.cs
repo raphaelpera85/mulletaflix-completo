@@ -171,6 +171,7 @@ public class ItemsController : BaseMulletaFlixApiController
     /// <returns>A <see cref="QueryResult{BaseItemDto}"/> with the items.</returns>
     [HttpGet("Items")]
     [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<ActionResult<QueryResult<BaseItemDto>>> GetItems(
         [FromQuery] Guid? userId,
         [FromQuery] string? maxOfficialRating,
@@ -284,7 +285,11 @@ public class ItemsController : BaseMulletaFlixApiController
         var dtoOptions = new DtoOptions { Fields = fields }
             .AddAdditionalDtoOptions(enableImages, enableUserData, imageTypeLimit, enableImageTypes);
 
-        var item = _libraryManager.GetParentItem(parentId, userId);
+        var item = RequestHelpers.GetParentItem(_libraryManager, parentId, userId, user);
+        if (item is null)
+        {
+            return NotFound();
+        }
         QueryResult<BaseItem> result;
 
         Guid[] linkedChildAncestorIds = [];
@@ -1143,4 +1148,3 @@ public class ItemsController : BaseMulletaFlixApiController
         [FromBody, Required] UpdateUserItemDataDto userDataDto)
         => UpdateItemUserData(userId, itemId, userDataDto);
 }
-

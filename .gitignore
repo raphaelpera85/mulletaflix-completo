@@ -62,6 +62,7 @@ MulletaFlix-android/.gradle/
 MulletaFlix-android/.kotlin/
 MulletaFlix-android/**/build/
 MulletaFlix-android/local.properties
+MulletaFlix-android/app/src/main/assets/adi-registration.properties
 
 # Backups/snapshots grandes de biblioteca (arquivos > 100MB que o GitHub recusa)
 artifacts/*/files.jsonl

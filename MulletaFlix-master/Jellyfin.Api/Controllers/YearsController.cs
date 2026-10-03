@@ -72,6 +72,7 @@ public class YearsController : BaseMulletaFlixApiController
     /// <returns> A <see cref="QueryResult{BaseItemDto}"/> containing the year result.</returns>
     [HttpGet]
     [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
     public ActionResult<QueryResult<BaseItemDto>> GetYears(
         [FromQuery] int? startIndex,
         [FromQuery] int? limit,
@@ -96,7 +97,11 @@ public class YearsController : BaseMulletaFlixApiController
         User? user = userId.IsNullOrEmpty()
             ? null
             : _userManager.GetUserById(userId.Value);
-        BaseItem parentItem = _libraryManager.GetParentItem(parentId, userId);
+        var parentItem = RequestHelpers.GetParentItem(_libraryManager, parentId, userId, user);
+        if (parentItem is null)
+        {
+            return NotFound();
+        }
 
         var query = new InternalItemsQuery(user)
         {
@@ -227,4 +232,3 @@ public class YearsController : BaseMulletaFlixApiController
             .Select(_libraryManager.GetYear);
     }
 }
-

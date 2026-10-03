@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.ComponentModel.DataAnnotations;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using MulletaFlix.Api.Extensions;
@@ -86,6 +87,12 @@ public class SessionController : BaseMulletaFlixApiController
         [FromQuery, Required] string itemId,
         [FromQuery, Required] string itemName)
     {
+        var controllingSession = await GetAuthorizedControllingSession(sessionId).ConfigureAwait(false);
+        if (controllingSession is null)
+        {
+            return Forbid();
+        }
+
         var command = new BrowseRequest
         {
             ItemId = itemId,
@@ -94,7 +101,7 @@ public class SessionController : BaseMulletaFlixApiController
         };
 
         await _sessionManager.SendBrowseCommand(
-            await RequestHelpers.GetSessionId(_sessionManager, _userManager, HttpContext).ConfigureAwait(false),
+            controllingSession.Id,
             sessionId,
             command,
             CancellationToken.None)
@@ -129,6 +136,12 @@ public class SessionController : BaseMulletaFlixApiController
         [FromQuery] int? subtitleStreamIndex,
         [FromQuery] int? startIndex)
     {
+        var controllingSession = await GetAuthorizedControllingSession(sessionId).ConfigureAwait(false);
+        if (controllingSession is null)
+        {
+            return Forbid();
+        }
+
         var playRequest = new PlayRequest
         {
             ItemIds = itemIds,
@@ -141,7 +154,7 @@ public class SessionController : BaseMulletaFlixApiController
         };
 
         await _sessionManager.SendPlayCommand(
-            await RequestHelpers.GetSessionId(_sessionManager, _userManager, HttpContext).ConfigureAwait(false),
+            controllingSession.Id,
             sessionId,
             playRequest,
             CancellationToken.None)
@@ -168,8 +181,14 @@ public class SessionController : BaseMulletaFlixApiController
         [FromQuery] long? seekPositionTicks,
         [FromQuery] string? controllingUserId)
     {
+        var controllingSession = await GetAuthorizedControllingSession(sessionId).ConfigureAwait(false);
+        if (controllingSession is null)
+        {
+            return Forbid();
+        }
+
         await _sessionManager.SendPlaystateCommand(
-            await RequestHelpers.GetSessionId(_sessionManager, _userManager, HttpContext).ConfigureAwait(false),
+            controllingSession.Id,
             sessionId,
             new PlaystateRequest()
             {
@@ -197,7 +216,11 @@ public class SessionController : BaseMulletaFlixApiController
         [FromRoute, Required] string sessionId,
         [FromRoute, Required] GeneralCommandType command)
     {
-        var currentSession = await RequestHelpers.GetSession(_sessionManager, _userManager, HttpContext).ConfigureAwait(false);
+        var currentSession = await GetAuthorizedControllingSession(sessionId).ConfigureAwait(false);
+        if (currentSession is null)
+        {
+            return Forbid();
+        }
         var generalCommand = new GeneralCommand
         {
             Name = command,
@@ -223,7 +246,11 @@ public class SessionController : BaseMulletaFlixApiController
         [FromRoute, Required] string sessionId,
         [FromRoute, Required] GeneralCommandType command)
     {
-        var currentSession = await RequestHelpers.GetSession(_sessionManager, _userManager, HttpContext).ConfigureAwait(false);
+        var currentSession = await GetAuthorizedControllingSession(sessionId).ConfigureAwait(false);
+        if (currentSession is null)
+        {
+            return Forbid();
+        }
 
         var generalCommand = new GeneralCommand
         {
@@ -251,7 +278,11 @@ public class SessionController : BaseMulletaFlixApiController
         [FromRoute, Required] string sessionId,
         [FromBody, Required] GeneralCommand command)
     {
-        var currentSession = await RequestHelpers.GetSession(_sessionManager, _userManager, HttpContext).ConfigureAwait(false);
+        var currentSession = await GetAuthorizedControllingSession(sessionId).ConfigureAwait(false);
+        if (currentSession is null)
+        {
+            return Forbid();
+        }
 
         ArgumentNullException.ThrowIfNull(command);
 
@@ -281,13 +312,19 @@ public class SessionController : BaseMulletaFlixApiController
         [FromRoute, Required] string sessionId,
         [FromBody, Required] MessageCommand command)
     {
+        var controllingSession = await GetAuthorizedControllingSession(sessionId).ConfigureAwait(false);
+        if (controllingSession is null)
+        {
+            return Forbid();
+        }
+
         if (string.IsNullOrWhiteSpace(command.Header))
         {
             command.Header = "Message from Server";
         }
 
         await _sessionManager.SendMessageCommand(
-            await RequestHelpers.GetSessionId(_sessionManager, _userManager, HttpContext).ConfigureAwait(false),
+            controllingSession.Id,
             sessionId,
             command,
             CancellationToken.None)
@@ -310,6 +347,11 @@ public class SessionController : BaseMulletaFlixApiController
         [FromRoute, Required] string sessionId,
         [FromRoute, Required] Guid userId)
     {
+        if (!CanAccessSession(sessionId))
+        {
+            return Forbid();
+        }
+
         _sessionManager.AddAdditionalUser(sessionId, userId);
         return NoContent();
     }
@@ -328,6 +370,11 @@ public class SessionController : BaseMulletaFlixApiController
         [FromRoute, Required] string sessionId,
         [FromRoute, Required] Guid userId)
     {
+        if (!CanAccessSession(sessionId))
+        {
+            return Forbid();
+        }
+
         _sessionManager.RemoveAdditionalUser(sessionId, userId);
         return NoContent();
     }
@@ -452,5 +499,36 @@ public class SessionController : BaseMulletaFlixApiController
     {
         return _userManager.GetPasswordResetProviders();
     }
-}
 
+    private async Task<SessionInfo?> GetAuthorizedControllingSession(string targetSessionId)
+    {
+        var userId = User.GetUserId();
+        var isApiKey = User.GetIsApiKey();
+        Guid? controllableByUserId = userId == Guid.Empty ? null : userId;
+        var accessibleSessions = _sessionManager.GetSessions(
+            userId,
+            string.Empty,
+            null,
+            controllableByUserId,
+            isApiKey);
+
+        if (!accessibleSessions.Any(session => string.Equals(session.Id, targetSessionId, StringComparison.Ordinal)))
+        {
+            return null;
+        }
+
+        return await RequestHelpers.GetSession(_sessionManager, _userManager, HttpContext).ConfigureAwait(false);
+    }
+
+    private bool CanAccessSession(string targetSessionId)
+    {
+        var accessibleSessions = _sessionManager.GetSessions(
+            User.GetUserId(),
+            string.Empty,
+            null,
+            null,
+            User.GetIsApiKey());
+
+        return accessibleSessions.Any(session => string.Equals(session.Id, targetSessionId, StringComparison.Ordinal));
+    }
+}

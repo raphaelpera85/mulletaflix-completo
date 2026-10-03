@@ -74,6 +74,7 @@ public class GenresController : BaseMulletaFlixApiController
     /// <returns>An <see cref="OkResult"/> containing the queryresult of genres.</returns>
     [HttpGet]
     [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
     public ActionResult<QueryResult<BaseItemDto>> GetGenres(
         [FromQuery] int? startIndex,
         [FromQuery] int? limit,
@@ -102,7 +103,11 @@ public class GenresController : BaseMulletaFlixApiController
             ? null
             : _userManager.GetUserById(userId.Value);
 
-        var parentItem = _libraryManager.GetParentItem(parentId, userId);
+        var parentItem = RequestHelpers.GetParentItem(_libraryManager, parentId, userId, user);
+        if (parentItem is null)
+        {
+            return NotFound();
+        }
 
         var query = new InternalItemsQuery(user)
         {
@@ -208,4 +213,3 @@ public class GenresController : BaseMulletaFlixApiController
         return result;
     }
 }
-

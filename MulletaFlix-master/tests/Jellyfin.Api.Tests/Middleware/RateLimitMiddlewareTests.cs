@@ -64,6 +64,9 @@ public sealed class RateLimitMiddlewareTests
     [InlineData("/Search/Hints", "search")]
     [InlineData("/Items/RemoteSearch", "search")]
     [InlineData("/NebulaFtp/Download", "nebula")]
+    [InlineData("/ClientLog/Document", "client-log")]
+    [InlineData("/ClientLog/Document/Extra", "client-log")]
+    [InlineData("/ClientLogger/Document", null)]
     [InlineData("/Backup/Create", "administration")]
     [InlineData("/System/Logs", "administration")]
     [InlineData("/Systematic/Logs", null)]
@@ -193,6 +196,51 @@ public sealed class RateLimitMiddlewareTests
         await middleware.Invoke(firstUserBlocked);
         Assert.Equal(StatusCodes.Status429TooManyRequests, firstUserBlocked.Response.StatusCode);
         Assert.True(firstUserBlocked.Response.Headers.ContainsKey("Retry-After"));
+    }
+
+    [Fact]
+    public async Task ClientLogUploads_AreLimitedPerAuthenticatedUserAndReturnRetryAfter()
+    {
+        var middleware = new RateLimitMiddleware(
+            context =>
+            {
+                context.Response.StatusCode = StatusCodes.Status200OK;
+                return Task.CompletedTask;
+            },
+            NullLogger<RateLimitMiddleware>.Instance);
+        var firstUserId = Guid.NewGuid();
+        var secondUserId = Guid.NewGuid();
+
+        DefaultHttpContext CreateContext(Guid userId)
+        {
+            var context = new DefaultHttpContext
+            {
+                User = new ClaimsPrincipal(new ClaimsIdentity(
+                    [new Claim(InternalClaimTypes.UserId, userId.ToString("N"))],
+                    "test"))
+            };
+            context.Connection.RemoteIpAddress = IPAddress.Parse("198.51.100.91");
+            context.Request.Path = "/ClientLog/Document";
+            context.Request.Method = "POST";
+            return context;
+        }
+
+        for (var i = 0; i < 5; i++)
+        {
+            var allowed = CreateContext(firstUserId);
+            await middleware.Invoke(allowed);
+            Assert.Equal(StatusCodes.Status200OK, allowed.Response.StatusCode);
+        }
+
+        var blocked = CreateContext(firstUserId);
+        await middleware.Invoke(blocked);
+        Assert.Equal(StatusCodes.Status429TooManyRequests, blocked.Response.StatusCode);
+        Assert.True(int.TryParse(blocked.Response.Headers.RetryAfter, out var retryAfter));
+        Assert.InRange(retryAfter, 1, 60);
+
+        var independentUser = CreateContext(secondUserId);
+        await middleware.Invoke(independentUser);
+        Assert.Equal(StatusCodes.Status200OK, independentUser.Response.StatusCode);
     }
 
     [Fact]

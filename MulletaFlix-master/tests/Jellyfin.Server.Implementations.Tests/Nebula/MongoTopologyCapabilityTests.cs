@@ -1,5 +1,4 @@
 using System;
-using System.Threading;
 using System.Threading.Tasks;
 using MongoDB.Bson;
 using MongoDB.Driver;
@@ -22,16 +21,20 @@ namespace MulletaFlix.Server.Implementations.Tests.Nebula;
 [Trait("Category", "RequiresMongo")]
 public sealed class MongoTopologyCapabilityTests
 {
-    private const string TestConnectionString = "mongodb://127.0.0.1:27099/?serverSelectionTimeoutMS=1500";
-
     [Fact]
     public async Task ChangeStreamSupport_MatchesTheReportedTopology()
     {
+        if (!NebulaMongoTestConnection.TryGet(out var testConnectionString, out var skipReason))
+        {
+            Assert.Skip(skipReason);
+            return;
+        }
+
         MongoClient client;
         BsonDocument helloResult;
         try
         {
-            var settings = MongoClientSettings.FromConnectionString(TestConnectionString);
+            var settings = MongoClientSettings.FromConnectionString(testConnectionString);
             settings.ServerSelectionTimeout = TimeSpan.FromSeconds(2);
             client = new MongoClient(settings);
             helloResult = await client.GetDatabase("admin")
@@ -39,7 +42,7 @@ public sealed class MongoTopologyCapabilityTests
         }
         catch (Exception)
         {
-            Assert.Skip("MongoDB de teste indisponível em 127.0.0.1:27099.");
+            Assert.Skip("MongoDB de teste indisponível no destino local opt-in.");
             return;
         }
 
@@ -53,7 +56,8 @@ public sealed class MongoTopologyCapabilityTests
         // quando a topologia o suporta. Um standalone rejeita com erro do
         // servidor, e é justamente por isso que a decisão de T5.5 não pode ser
         // tomada no papel.
-        var database = client.GetDatabase("mulletaflix_topology_probe");
+        var databaseName = "mulletaflix_topology_probe_" + Guid.NewGuid().ToString("N");
+        var database = client.GetDatabase(databaseName);
         var collection = database.GetCollection<BsonDocument>("probe");
         var changeStreamWorked = false;
         try
@@ -75,7 +79,7 @@ public sealed class MongoTopologyCapabilityTests
             try
             {
                 await client.DropDatabaseAsync(
-                    "mulletaflix_topology_probe",
+                    databaseName,
                     TestContext.Current.CancellationToken);
             }
             catch (Exception)
@@ -97,16 +101,20 @@ public sealed class MongoTopologyCapabilityTests
     }
 
     [Fact]
-    public async Task ProductionTopology_IsInspectedWithoutBeingModified()
+    public async Task ConfiguredTestTopology_IsInspectedWithoutBeingModified()
     {
-        // T5.5 exige verificar a topologia da instalação real antes de planejar
-        // Change Streams. Esta é uma leitura pura: apenas o comando `hello`, sem
-        // escrita, sem abrir Change Stream e sem tocar em dados.
+        if (!NebulaMongoTestConnection.TryGet(out var testConnectionString, out var skipReason))
+        {
+            Assert.Skip(skipReason);
+            return;
+        }
+
+        // Somente inspeciona a topologia da instância de teste opt-in. Nunca
+        // consulta automaticamente a instância de produção na porta padrão.
         BsonDocument hello;
         try
         {
-            var settings = MongoClientSettings.FromConnectionString(
-                "mongodb://127.0.0.1:27017/?serverSelectionTimeoutMS=1500");
+            var settings = MongoClientSettings.FromConnectionString(testConnectionString);
             settings.ServerSelectionTimeout = TimeSpan.FromSeconds(2);
             var client = new MongoClient(settings);
             hello = await client.GetDatabase("admin")
@@ -116,7 +124,7 @@ public sealed class MongoTopologyCapabilityTests
         }
         catch (Exception)
         {
-            Assert.Skip("MongoDB de produção indisponível em 127.0.0.1:27017.");
+            Assert.Skip("MongoDB de teste indisponível no destino local opt-in.");
             return;
         }
 

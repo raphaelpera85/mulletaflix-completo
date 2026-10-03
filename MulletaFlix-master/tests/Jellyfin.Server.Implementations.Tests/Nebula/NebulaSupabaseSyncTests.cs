@@ -22,6 +22,13 @@ namespace MulletaFlix.Server.Implementations.Tests.Nebula;
 
 public class NebulaSupabaseSyncTests
 {
+    private readonly ITestOutputHelper _output;
+
+    public NebulaSupabaseSyncTests(ITestOutputHelper output)
+    {
+        _output = output;
+    }
+
     [Fact]
     public void AutomaticMongoBackupDefaultsToHourlyForConfigurationAndStatus()
     {
@@ -334,7 +341,11 @@ public class NebulaSupabaseSyncTests
         Assert.True(result.Success, result.Message);
         Assert.Equal(1, result.UsersRestored);
         Assert.True(double.IsFinite(result.ElapsedSeconds));
-        Assert.True(result.ElapsedSeconds >= 0);
+        _output.WriteLine(
+            "Restore com fixture HTTP/EF InMemory: restoredUsers={0}; restoredFiles={1}; elapsedSeconds={2:F3}",
+            result.UsersRestored,
+            result.FilesRestored,
+            result.ElapsedSeconds);
         await using var verificationDb = new UsersDbContext(options, NullLogger<UsersDbContext>.Instance);
         var restoredUser = await verificationDb.Users.SingleAsync(user => user.Id == restoredId);
         Assert.Equal("restored-user", restoredUser.Username);
@@ -342,6 +353,60 @@ public class NebulaSupabaseSyncTests
         Assert.Equal("hash-value", restoredUser.Password);
         Assert.Equal(1, handler.RequestCount);
         Assert.Equal(HttpMethod.Get, handler.LastMethod);
+    }
+
+    [Fact]
+    public async Task FullRestore_WritesAndQueriesApplicationUserFromIsolatedSupabaseFixture()
+    {
+        var options = new DbContextOptionsBuilder<UsersDbContext>()
+            .UseInMemoryDatabase(Guid.NewGuid().ToString("N"))
+            .Options;
+        var factory = CreateUsersContextFactory(options);
+        var restoredId = Guid.NewGuid();
+        var handler = new SequenceResponseHandler(
+            new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("[]") },
+            new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(
+                    $"[{{\"id\":\"{restoredId:D}\",\"username\":\"full-restore-user\",\"normalized_username\":\"FULL-RESTORE-USER\",\"password\":\"fixture-hash\",\"phone_number\":\"5550100\",\"must_update_password\":true,\"authentication_provider_id\":\"default\",\"password_reset_provider_id\":\"default\",\"enable_local_password\":true,\"enable_user_preference_access\":true,\"permissions\":[],\"license\":null}}]")
+            },
+            new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("[]") });
+        using var service = new NebulaSupabaseSyncService(
+            null!,
+            NullLogger<NebulaSupabaseSyncService>.Instance,
+            factory,
+            handler);
+
+        var result = await service.PerformRestoreAsync(
+            "https://supabase.invalid",
+            "sb_secret_test",
+            progressAction: null,
+            forceFullRestore: true,
+            TestContext.Current.CancellationToken);
+
+        Assert.True(result.Success, result.Message);
+        Assert.Equal(1, result.UsersRestored);
+        Assert.Equal(0, result.FilesRestored);
+        Assert.True(double.IsFinite(result.ElapsedSeconds));
+        _output.WriteLine(
+            "Restore com fixture HTTP/EF InMemory: restoredUsers={0}; restoredFiles={1}; elapsedSeconds={2:F3}",
+            result.UsersRestored,
+            result.FilesRestored,
+            result.ElapsedSeconds);
+        Assert.NotNull(service.LastSuccessfulRestoreTime);
+        Assert.Equal([HttpMethod.Get, HttpMethod.Get, HttpMethod.Get], handler.Methods);
+
+        await using var verificationDb = new UsersDbContext(options, NullLogger<UsersDbContext>.Instance);
+        var restoredUser = await verificationDb.Users.SingleAsync(
+            user => user.Id == restoredId,
+            TestContext.Current.CancellationToken);
+        Assert.Equal("full-restore-user", restoredUser.Username);
+        Assert.Equal("FULL-RESTORE-USER", restoredUser.NormalizedUsername);
+        Assert.Equal("fixture-hash", restoredUser.Password);
+        Assert.Equal("5550100", restoredUser.PhoneNumber);
+        Assert.True(restoredUser.MustUpdatePassword);
+        Assert.True(restoredUser.EnableLocalPassword);
+        Assert.True(restoredUser.EnableUserPreferenceAccess);
     }
 
     [Fact]

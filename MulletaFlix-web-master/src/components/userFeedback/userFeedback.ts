@@ -27,18 +27,41 @@ interface MediaSuggestionIndexStatus {
     FailedRootCount: number;
 }
 
+type FeedbackFormField = HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement;
+
+let feedbackDialogSequence = 0;
+
+function announceFeedbackStatus(message: string): void {
+    let region = document.getElementById('userFeedbackLiveStatus');
+    if (!region) {
+        region = document.createElement('div');
+        region.id = 'userFeedbackLiveStatus';
+        region.setAttribute('role', 'status');
+        region.setAttribute('aria-live', 'polite');
+        region.setAttribute('aria-atomic', 'true');
+        region.style.cssText = 'position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0';
+        document.body.appendChild(region);
+    }
+
+    region.textContent = '';
+    window.setTimeout(() => {
+        region!.textContent = message;
+    }, 0);
+}
+
 function openFeedbackDialog(apiClient: ApiClient, options: {
     title: string;
     endpoint: string;
-    fields: string;
+    fields: (idPrefix: string) => string;
     payload: (form: HTMLFormElement) => FeedbackPayload;
 }): void {
     const dialog = dialogHelper.createDialog({ removeOnClose: true, scrollY: true });
     dialog.classList.add('formDialog');
+    const idPrefix = `userFeedback-${++feedbackDialogSequence}`;
     dialog.innerHTML = `<div class="dialogContentInner padded-left padded-right padded-bottom">
         <h2>${escapeHtml(options.title)}</h2>
-        <form class="userFeedbackForm">
-            ${options.fields}
+        <form class="userFeedbackForm" novalidate>
+            ${options.fields(idPrefix)}
             <div class="flex justify-content-flex-end padded-top">
                 <button is="emby-button" type="button" class="btnCancel button-flat">${escapeHtml(globalize.translate('ButtonCancel'))}</button>
                 <button is="emby-button" type="submit" class="button-submit button-accent">${escapeHtml(globalize.translate('ButtonSend'))}</button>
@@ -48,6 +71,77 @@ function openFeedbackDialog(apiClient: ApiClient, options: {
 
     dialog.querySelector('.btnCancel')?.addEventListener('click', () => dialogHelper.close(dialog));
     const form = dialog.querySelector<HTMLFormElement>('form');
+    const formError = document.createElement('div');
+    formError.className = 'fieldDescription userFeedbackFormError';
+    formError.setAttribute('role', 'alert');
+    formError.setAttribute('aria-atomic', 'true');
+    formError.hidden = true;
+    formError.id = `${idPrefix}-form-error`;
+    const validationErrors = new Map<FeedbackFormField, HTMLElement>();
+    if (form) {
+        form.setAttribute('aria-describedby', formError.id);
+        const actions = form.querySelector('.flex');
+        form.insertBefore(formError, actions);
+        form.addEventListener('input', () => {
+            formError.hidden = true;
+            formError.textContent = '';
+        });
+
+        const fields = Array.from(form.querySelectorAll<FeedbackFormField>('input, select, textarea'));
+        fields.forEach((field, index) => {
+            const error = document.createElement('div');
+            error.className = 'fieldDescription userFeedbackFieldError';
+            error.id = `${idPrefix}-field-error-${index}`;
+            error.setAttribute('role', 'status');
+            error.setAttribute('aria-live', 'polite');
+            error.setAttribute('aria-atomic', 'true');
+            error.hidden = true;
+            field.insertAdjacentElement('afterend', error);
+            const describedBy = field.getAttribute('aria-describedby');
+            field.setAttribute('aria-describedby', [describedBy, error.id].filter(Boolean).join(' '));
+            validationErrors.set(field, error);
+        });
+    }
+
+    const getValidationMessage = (field: FeedbackFormField): string => {
+        const titleIsBlank = field.name === 'title' && !field.value.trim();
+        if (field.validity.valueMissing || titleIsBlank) {
+            return globalize.translate(field.dataset.requiredMessageKey || 'UserFeedbackFieldRequired');
+        }
+        if (field.validity.rangeUnderflow || field.validity.rangeOverflow || field.validity.stepMismatch) {
+            return globalize.translate(field.dataset.rangeMessageKey || 'UserFeedbackFieldInvalid');
+        }
+        return globalize.translate('UserFeedbackFieldInvalid');
+    };
+    const updateFieldValidation = (field: FeedbackFormField, force: boolean): boolean => {
+        const error = validationErrors.get(field);
+        if (!error) return true;
+
+        const titleIsBlank = field.name === 'title' && !field.value.trim();
+        const isValid = field.validity.valid && !titleIsBlank;
+        if (isValid) {
+            error.hidden = true;
+            error.textContent = '';
+            field.removeAttribute('aria-invalid');
+        } else if (force || !error.hidden) {
+            error.textContent = getValidationMessage(field);
+            error.hidden = false;
+            field.setAttribute('aria-invalid', 'true');
+        }
+        return isValid;
+    };
+    form?.addEventListener('input', event => {
+        const field = event.target;
+        if (field instanceof HTMLInputElement || field instanceof HTMLSelectElement || field instanceof HTMLTextAreaElement) {
+            updateFieldValidation(field, false);
+        }
+    });
+    form?.addEventListener('change', event => {
+        const field = event.target;
+        if (field instanceof HTMLInputElement || field instanceof HTMLSelectElement || field instanceof HTMLTextAreaElement) {
+            updateFieldValidation(field, false);
+        }
+    });
     const titleInput = form?.querySelector<HTMLInputElement>('input[name="title"]');
     if (titleInput) {
         const mediaTitleInput = titleInput;
@@ -274,7 +368,14 @@ function openFeedbackDialog(apiClient: ApiClient, options: {
 
     form?.addEventListener('submit', (event) => {
         event.preventDefault();
-        if (!form.reportValidity()) return;
+        formError.hidden = true;
+        formError.textContent = '';
+        const invalidFields = Array.from(form.querySelectorAll<FeedbackFormField>('input, select, textarea'))
+            .filter(field => !updateFieldValidation(field, true));
+        if (invalidFields.length > 0) {
+            invalidFields[0].focus();
+            return;
+        }
 
         const submitButton = form.querySelector<HTMLButtonElement>('button[type="submit"]');
         if (submitButton) submitButton.disabled = true;
@@ -286,10 +387,13 @@ function openFeedbackDialog(apiClient: ApiClient, options: {
             contentType: 'application/json'
         } as never).then(() => {
             dialogHelper.close(dialog);
-            toast(globalize.translate('UserFeedbackSent'));
+            const successMessage = globalize.translate('UserFeedbackSent');
+            announceFeedbackStatus(successMessage);
+            toast(successMessage);
         }).catch((error: unknown) => {
             console.error('[UserFeedback] submit failed', error);
-            toast(globalize.translate('UserFeedbackSendFailed'));
+            formError.textContent = globalize.translate('UserFeedbackSendFailed');
+            formError.hidden = false;
             if (submitButton) submitButton.disabled = false;
         });
     });
@@ -303,8 +407,9 @@ export function showMediaRequestDialog(apiClient: ApiClient): void {
     openFeedbackDialog(apiClient, {
         title: globalize.translate('MediaRequestTitle'),
         endpoint: 'UserFeedback/MediaRequests',
-        fields: `<div class="inputContainer"><input class="emby-input" name="title" maxlength="200" required autocomplete="off" placeholder="${escapeHtml(globalize.translate('MediaRequestName'))}" /></div>
-            <div class="selectContainer"><select is="emby-select" name="mediaType" class="emby-select" required aria-label="${escapeHtml(globalize.translate('MediaType'))}">
+        fields: (idPrefix) => `<div class="inputContainer"><label class="inputLabel" for="${idPrefix}-title">${escapeHtml(globalize.translate('MediaRequestName'))}</label><input id="${idPrefix}-title" class="emby-input" name="title" maxlength="200" required data-required-message-key="MediaRequestTitleRequired" autocomplete="off" aria-label="${escapeHtml(globalize.translate('MediaRequestName'))}" placeholder="${escapeHtml(globalize.translate('MediaRequestName'))}" /></div>
+            <div class="selectContainer"><label class="selectLabel" for="${idPrefix}-media-type">${escapeHtml(globalize.translate('MediaType'))}</label><select id="${idPrefix}-media-type" is="emby-select" name="mediaType" class="emby-select" required data-required-message-key="MediaRequestTypeRequired" aria-label="${escapeHtml(globalize.translate('MediaType'))}">
+                <option value="" selected disabled>${escapeHtml(globalize.translate('MediaRequestTypeSelect'))}</option>
                 <option value="Movie">${escapeHtml(globalize.translate('MediaRequestTypeMovie'))}</option>
                 <option value="Series">${escapeHtml(globalize.translate('MediaRequestTypeSeries'))}</option>
                 <option value="Animation">${escapeHtml(globalize.translate('MediaRequestTypeAnimation'))}</option>
@@ -312,8 +417,8 @@ export function showMediaRequestDialog(apiClient: ApiClient): void {
                 <option value="Dorama">${escapeHtml(globalize.translate('MediaRequestTypeDorama'))}</option>
                 <option value="Other">${escapeHtml(globalize.translate('Other'))}</option>
             </select></div>
-            <div class="inputContainer"><input class="emby-input" name="year" type="number" min="1888" max="2200" placeholder="${escapeHtml(globalize.translate('LabelYear'))}" /></div>
-            <div class="inputContainer"><textarea is="emby-textarea" class="emby-textarea" name="notes" maxlength="1000" placeholder="${escapeHtml(globalize.translate('LabelOverview'))}"></textarea></div>`,
+            <div class="inputContainer"><label class="inputLabel" for="${idPrefix}-year">${escapeHtml(globalize.translate('LabelYear'))}</label><input id="${idPrefix}-year" class="emby-input" name="year" type="number" min="1888" max="2200" data-range-message-key="MediaRequestYearRangeInvalid" aria-label="${escapeHtml(globalize.translate('LabelYear'))}" placeholder="${escapeHtml(globalize.translate('LabelYear'))}" /></div>
+            <div class="inputContainer"><label class="inputLabel" for="${idPrefix}-notes">${escapeHtml(globalize.translate('MediaRequestNotes'))}</label><textarea id="${idPrefix}-notes" is="emby-textarea" class="emby-textarea" name="notes" maxlength="1000" aria-label="${escapeHtml(globalize.translate('MediaRequestNotes'))}" placeholder="${escapeHtml(globalize.translate('MediaRequestNotes'))}"></textarea></div>`,
         payload: (form) => {
             const data = new FormData(form);
             const rawYear = String(data.get('year') || '').trim();
@@ -331,14 +436,15 @@ export function showPlaybackIssueDialog(apiClient: ApiClient, item: { Id: string
     openFeedbackDialog(apiClient, {
         title: globalize.translate('PlaybackIssueTitle'),
         endpoint: 'UserFeedback/PlaybackIssues',
-        fields: `<p>${escapeHtml(item.Name || '')}</p>
-            <div class="selectContainer"><select is="emby-select" name="category" class="emby-select" required aria-label="${escapeHtml(globalize.translate('LabelType'))}">
+        fields: (idPrefix) => `<p>${escapeHtml(item.Name || '')}</p>
+            <div class="selectContainer"><label class="selectLabel" for="${idPrefix}-category">${escapeHtml(globalize.translate('LabelType'))}</label><select id="${idPrefix}-category" is="emby-select" name="category" class="emby-select" required data-required-message-key="PlaybackIssueCategoryRequired" aria-label="${escapeHtml(globalize.translate('LabelType'))}">
+                <option value="" selected disabled>${escapeHtml(globalize.translate('PlaybackIssueCategorySelect'))}</option>
                 <option value="Playback">${escapeHtml(globalize.translate('PlaybackIssueCategoryPlayback'))}</option>
                 <option value="MissingMedia">${escapeHtml(globalize.translate('PlaybackIssueCategoryMedia'))}</option>
                 <option value="WrongMetadata">${escapeHtml(globalize.translate('PlaybackIssueCategoryMetadata'))}</option>
                 <option value="Other">${escapeHtml(globalize.translate('Other'))}</option>
             </select></div>
-            <div class="inputContainer"><textarea is="emby-textarea" class="emby-textarea" name="description" maxlength="1000" placeholder="${escapeHtml(globalize.translate('PlaybackIssueDetails'))}"></textarea></div>`,
+            <div class="inputContainer"><label class="inputLabel" for="${idPrefix}-details">${escapeHtml(globalize.translate('PlaybackIssueDetails'))}</label><textarea id="${idPrefix}-details" is="emby-textarea" class="emby-textarea" name="description" maxlength="1000" aria-label="${escapeHtml(globalize.translate('PlaybackIssueDetails'))}" placeholder="${escapeHtml(globalize.translate('PlaybackIssueDetails'))}"></textarea></div>`,
         payload: (form) => {
             const data = new FormData(form);
             return {

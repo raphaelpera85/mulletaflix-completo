@@ -44,6 +44,24 @@ class DetailPlaybackTargetTest {
     }
 
     @Test
+    fun `books open the reader and never the video player`() {
+        val book = MediaItem("book-1", "Livro", MediaItemType.Book)
+
+        assertEquals(DetailPrimaryAction.ReadBook, detailPrimaryAction(book))
+        assertFalse(canPlayItem(book, emptyList()))
+        assertTrue(canReadBookOnDevice(book, isTelevision = false))
+        assertFalse(canReadBookOnDevice(book, isTelevision = true))
+    }
+
+    @Test
+    fun `non-book detail actions stay on the video and media player path`() {
+        assertEquals(
+            DetailPrimaryAction.PlayVideo,
+            detailPrimaryAction(MediaItem("movie-1", "Filme", MediaItemType.Movie)),
+        )
+    }
+
+    @Test
     fun `series with episodes can play`() {
         val series = MediaItem("s1", "Series", MediaItemType.Series)
         assertTrue(canPlayItem(series, listOf(firstEpisode)))

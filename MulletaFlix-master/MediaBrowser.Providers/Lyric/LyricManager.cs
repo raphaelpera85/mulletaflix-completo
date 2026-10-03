@@ -306,10 +306,16 @@ public class LyricManager : ILyricManager
 
     private async Task<LyricDto?> InternalParseRemoteLyricsAsync(string format, Stream lyricStream, CancellationToken cancellationToken)
     {
+        if (!IsSafeLyricFormat(format))
+        {
+            _logger.LogWarning("Ignoring lyrics with invalid format token.");
+            return null;
+        }
+
         lyricStream.Seek(0, SeekOrigin.Begin);
         using var streamReader = new StreamReader(lyricStream, leaveOpen: true);
         var lyrics = await streamReader.ReadToEndAsync(cancellationToken).ConfigureAwait(false);
-        var lyricFile = new LyricFile($"lyric.{format}", lyrics);
+        var lyricFile = new LyricFile($"lyric.{format.ToLowerInvariant()}", lyrics);
         foreach (var parser in _lyricParsers)
         {
             var parsedLyrics = parser.ParseLyrics(lyricFile);
@@ -379,6 +385,12 @@ public class LyricManager : ILyricManager
         string format,
         Stream lyricStream)
     {
+        if (!IsSafeLyricFormat(format))
+        {
+            _logger.LogWarning("Refusing to save lyrics with invalid format token.");
+            return;
+        }
+
         var saveInMediaFolder = libraryOptions.SaveLyricsWithMedia;
 
         var memoryStream = new MemoryStream();
@@ -392,22 +404,23 @@ public class LyricManager : ILyricManager
             }
 
             var savePaths = new List<string>();
-            var saveFileName = Path.GetFileNameWithoutExtension(audio.Path) + "." + format.ReplaceLineEndings(string.Empty).ToLowerInvariant();
+            var saveFileName = Path.GetFileNameWithoutExtension(audio.Path) + "." + format.ToLowerInvariant();
 
             if (saveInMediaFolder)
             {
-                var mediaFolderPath = Path.GetFullPath(Path.Combine(audio.ContainingFolderPath, saveFileName));
+                var mediaFolderPath = Path.Combine(audio.ContainingFolderPath, saveFileName);
                 // TODO: Add some error handling to the API user: return BadRequest("Could not save lyric, bad path.");
-                if (mediaFolderPath.StartsWith(audio.ContainingFolderPath, StringComparison.Ordinal))
+                if (IsPathWithinDirectory(audio.ContainingFolderPath, mediaFolderPath))
                 {
                     savePaths.Add(mediaFolderPath);
                 }
             }
 
-            var internalPath = Path.GetFullPath(Path.Combine(audio.GetInternalMetadataPath(), saveFileName));
+            var metadataPath = audio.GetInternalMetadataPath();
+            var internalPath = Path.Combine(metadataPath, saveFileName);
 
             // TODO: Add some error to the user: return BadRequest("Could not save lyric, bad path.");
-            if (internalPath.StartsWith(audio.GetInternalMetadataPath(), StringComparison.Ordinal))
+            if (IsPathWithinDirectory(metadataPath, internalPath))
             {
                 savePaths.Add(internalPath);
             }
@@ -420,6 +433,98 @@ public class LyricManager : ILyricManager
             {
                 _logger.LogError("An uploaded lyric could not be saved because the resulting paths were invalid.");
             }
+        }
+    }
+
+    internal static bool IsSafeLyricFormat(string? format)
+    {
+        if (string.IsNullOrEmpty(format))
+        {
+            return false;
+        }
+
+        foreach (var character in format)
+        {
+            if (!((character >= 'a' && character <= 'z')
+                || (character >= 'A' && character <= 'Z')
+                || (character >= '0' && character <= '9')
+                || character is '-' or '_'))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    internal static bool IsPathWithinDirectory(string directoryPath, string candidatePath)
+    {
+        if (string.IsNullOrWhiteSpace(directoryPath) || string.IsNullOrWhiteSpace(candidatePath))
+        {
+            return false;
+        }
+
+        try
+        {
+            var fullDirectoryPath = Path.GetFullPath(directoryPath);
+            var fullCandidatePath = Path.GetFullPath(candidatePath);
+            var relativePath = Path.GetRelativePath(fullDirectoryPath, fullCandidatePath);
+            if (Path.IsPathRooted(relativePath)
+                || string.Equals(relativePath, ".", StringComparison.Ordinal)
+                || string.Equals(relativePath, "..", StringComparison.Ordinal)
+                || relativePath.StartsWith(".." + Path.DirectorySeparatorChar, StringComparison.Ordinal)
+                || relativePath.StartsWith(".." + Path.AltDirectorySeparatorChar, StringComparison.Ordinal))
+            {
+                return false;
+            }
+
+            var currentPath = fullDirectoryPath;
+            foreach (var segment in relativePath.Split([Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar], StringSplitOptions.RemoveEmptyEntries))
+            {
+                currentPath = Path.Combine(currentPath, segment);
+                if (IsReparsePoint(currentPath))
+                {
+                    return false;
+                }
+            }
+
+            return true;
+        }
+        catch (ArgumentException)
+        {
+            return false;
+        }
+        catch (IOException)
+        {
+            return false;
+        }
+        catch (NotSupportedException)
+        {
+            return false;
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return false;
+        }
+    }
+
+    private static bool IsReparsePoint(string path)
+    {
+        try
+        {
+            return (File.GetAttributes(path) & FileAttributes.ReparsePoint) != 0;
+        }
+        catch (FileNotFoundException)
+        {
+            return false;
+        }
+        catch (DirectoryNotFoundException)
+        {
+            return false;
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return true;
         }
     }
 
@@ -466,4 +571,3 @@ public class LyricManager : ILyricManager
         }
     }
 }
-

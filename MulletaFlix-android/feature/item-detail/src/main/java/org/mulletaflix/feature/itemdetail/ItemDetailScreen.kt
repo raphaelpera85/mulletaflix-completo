@@ -59,6 +59,7 @@ import org.mulletaflix.designsystem.theme.MulletaFlixRed
 fun ItemDetailScreen(
     itemId: String,
     onPlay: (String) -> Unit,
+    onReadBook: (String) -> Unit,
     onItemClick: (String) -> Unit,
     onBack: () -> Unit,
     viewModel: ItemDetailViewModel = hiltViewModel()
@@ -87,8 +88,17 @@ fun ItemDetailScreen(
                     onBack = onBack,
                     onRefresh = { viewModel.loadItem(itemId) },
                     isRefreshing = state.isLoading,
-                    onPlay = { onPlay(playbackTargetId(item, state.episodes)) },
-                    playEnabled = canPlayItem(item, state.episodes),
+                    onPlay = {
+                        when (detailPrimaryAction(item)) {
+                            DetailPrimaryAction.ReadBook -> onReadBook(item.id)
+                            DetailPrimaryAction.PlayVideo -> onPlay(playbackTargetId(item, state.episodes))
+                        }
+                    },
+                    playEnabled = if (item.type == MediaItemType.Book) {
+                        canReadBookOnDevice(item, isTelevision)
+                    } else {
+                        canPlayItem(item, state.episodes)
+                    },
                      onFavorite = { viewModel.toggleFavorite() },
                      onMarkWatched = { viewModel.toggleWatched() },
                      onDownload = { viewModel.downloadItem() },
@@ -465,9 +475,18 @@ internal fun DetailActionRow(
             enabled = playEnabled,
             colors = ButtonDefaults.buttonColors(containerColor = MulletaFlixRed)
         ) {
-            Icon(Icons.Default.PlayArrow, contentDescription = null)
+            Icon(
+                if (item.type == MediaItemType.Book) Icons.Default.MenuBook else Icons.Default.PlayArrow,
+                contentDescription = null,
+            )
             Spacer(Modifier.width(4.dp))
-            Text(if ((item.playbackPositionTicks ?: 0L) > 0L) "Continuar" else "Reproduzir")
+            Text(
+                when {
+                    item.type == MediaItemType.Book -> "Ler livro"
+                    (item.playbackPositionTicks ?: 0L) > 0L -> "Continuar"
+                    else -> "Reproduzir"
+                },
+            )
         }
 
         // Favorite

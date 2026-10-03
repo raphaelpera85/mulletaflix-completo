@@ -50,6 +50,10 @@ const ERROR_STATES = [
 
 const SESSION_VALIDATION_TIMEOUT_MS = 5000;
 
+const reloadConnectionPage = (): void => {
+    window.location.reload();
+};
+
 async function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
     let timeoutId: ReturnType<typeof setTimeout> | undefined;
     const timeout = new Promise<never>((_, reject) => {
@@ -307,7 +311,7 @@ const ConnectionRequired: FunctionComponent<ConnectionRequiredProps> = ({
     }, [handleIncompleteWizard, handleWizard, level, setConnectionError, validateUserAccess]);
 
     if (errorState) {
-        return <ConnectionErrorPage state={errorState} />;
+        return <ConnectionErrorPage state={errorState} onRetry={reloadConnectionPage} />;
     }
 
     // The startup wizard can be opened immediately after the connection

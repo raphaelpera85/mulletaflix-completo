@@ -4,6 +4,7 @@ import type { BaseItemDtoQueryResult } from '@jellyfin/sdk/lib/generated-client'
 import listView from 'components/listview/listview';
 import cardBuilder from 'components/cardbuilder/cardBuilder';
 import imageLoader from 'components/images/imageLoader';
+import { loadSectionItems } from 'components/asyncItemsSection';
 import globalize from 'lib/globalize';
 import { ServerConnections } from 'lib/jellyfin-apiclient';
 import type { ItemDto } from 'types/base/models/item-dto';
@@ -360,40 +361,42 @@ function renderSection(item: ItemData, element: HTMLElement, type: string | null
 
 function loadItems(element: HTMLElement, item: ItemData, type: string | null, query: QueryOptions, listOptions: ListOptions): void {
     query = getQuery(query, item);
-    getItemsFunction(query, item)(query.StartIndex, query.Limit, query.Fields).then(function (result: BaseItemDtoQueryResult) {
-        // If results are empty, hide the section
-        if (!result.Items?.length) {
-            element.classList.add('hide');
-            return;
-        }
+    let totalRecordCount = 0;
+    loadSectionItems({
+        section: element,
+        loadItems: () => getItemsFunction(query, item)(query.StartIndex, query.Limit, query.Fields),
+        selectItems: (result: BaseItemDtoQueryResult) => {
+            totalRecordCount = result.TotalRecordCount || 0;
+            return result.Items || [];
+        },
+        renderItems: items => {
+            let html = '';
 
-        let html = '';
+            if (query.Limit && totalRecordCount > query.Limit) {
+                const link = element.querySelector('a')!;
+                link.classList.remove('hide');
+                link.setAttribute('href', getMoreItemsHref(item, type));
+            } else {
+                element.querySelector('a')!.classList.add('hide');
+            }
 
-        if (query.Limit && (result.TotalRecordCount ?? 0) > query.Limit) {
-            const link = element.querySelector('a')!;
-            link.classList.remove('hide');
-            link.setAttribute('href', getMoreItemsHref(item, type));
-        } else {
-            element.querySelector('a')!.classList.add('hide');
-        }
+            listOptions.items = items as ItemDto[];
+            const itemsContainer = element.querySelector('.itemsContainer')!;
 
-        listOptions.items = result.Items as ItemDto[];
-        const itemsContainer = element.querySelector('.itemsContainer')!;
+            if (type === 'Audio') {
+                html = listView.getListViewHtml(listOptions);
+                itemsContainer.classList.remove('vertical-wrap');
+                itemsContainer.classList.add('vertical-list');
+            } else {
+                html = cardBuilder.getCardsHtml(listOptions);
+                itemsContainer.classList.add('vertical-wrap');
+                itemsContainer.classList.remove('vertical-list');
+            }
 
-        if (type === 'Audio') {
-            html = listView.getListViewHtml(listOptions);
-            itemsContainer.classList.remove('vertical-wrap');
-            itemsContainer.classList.add('vertical-list');
-        } else {
-            html = cardBuilder.getCardsHtml(listOptions);
-            itemsContainer.classList.add('vertical-wrap');
-            itemsContainer.classList.remove('vertical-list');
-        }
-
-        itemsContainer.innerHTML = html;
-        imageLoader.lazyChildren(itemsContainer);
-    }).catch(() => {
-        element.classList.add('hide');
+            itemsContainer.innerHTML = html;
+            imageLoader.lazyChildren(itemsContainer);
+        },
+        label: `${type || item.Type || 'media'} section`
     });
 }
 

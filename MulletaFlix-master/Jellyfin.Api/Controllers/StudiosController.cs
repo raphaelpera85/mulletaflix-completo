@@ -70,6 +70,7 @@ public class StudiosController : BaseMulletaFlixApiController
     /// <returns>An <see cref="OkResult"/> containing the studios.</returns>
     [HttpGet]
     [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
     public ActionResult<QueryResult<BaseItemDto>> GetStudios(
         [FromQuery] int? startIndex,
         [FromQuery] int? limit,
@@ -97,7 +98,11 @@ public class StudiosController : BaseMulletaFlixApiController
             ? null
             : _userManager.GetUserById(userId.Value);
 
-        var parentItem = _libraryManager.GetParentItem(parentId, userId);
+        var parentItem = RequestHelpers.GetParentItem(_libraryManager, parentId, userId, user);
+        if (parentItem is null)
+        {
+            return NotFound();
+        }
 
         var query = new InternalItemsQuery(user)
         {
@@ -156,4 +161,3 @@ public class StudiosController : BaseMulletaFlixApiController
         return await _dtoService.GetBaseItemDtoAsync(item, dtoOptions).ConfigureAwait(false);
     }
 }
-

@@ -65,6 +65,8 @@ espressoCore = "3.7.0"
 testRunner = "1.7.0"
 mockk = "1.14.7"
 coroutinesTest = "1.11.0"
+readium = "3.4.0"
+desugarJdkLibs = "2.1.5"
 
 [libraries]
 # Core
@@ -115,6 +117,9 @@ media3-cast = { group = "androidx.media3", name = "media3-cast", version.ref = "
 
 # Coroutines
 kotlinx-coroutines-android = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-android", version.ref = "coroutines" }
+readium-streamer = { group = "org.readium.kotlin-toolkit", name = "readium-streamer", version.ref = "readium" }
+readium-navigator-web-reflowable = { group = "org.readium.kotlin-toolkit", name = "readium-navigator-web-reflowable", version.ref = "readium" }
+android-desugar-jdk-libs = { group = "com.android.tools", name = "desugar_jdk_libs", version.ref = "desugarJdkLibs" }
 
 # Serialization
 kotlinx-serialization-json = { group = "org.jetbrains.kotlinx", name = "kotlinx-serialization-json", version.ref = "serialization" }

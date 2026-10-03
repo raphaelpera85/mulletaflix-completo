@@ -86,6 +86,7 @@ public sealed class NebulaChunkedStream : Stream
     private readonly IDisposable? _playbackLease;
     private readonly Func<NebulaStreamPart, int, CancellationToken, Task<byte[]>>? _chunkFetcher;
     private readonly Task _wholeMediaPrefetchTask = Task.CompletedTask;
+    private long _wholeMediaPrefetchGeneration;
     private readonly SemaphoreSlim _lock = new(1, 1);
     private readonly CancellationTokenSource _streamCts = new();
 
@@ -106,7 +107,7 @@ public sealed class NebulaChunkedStream : Stream
         ILogger logger,
         NebulaPlaybackCache? playbackCache = null,
         string? mediaKey = null)
-        : this(telegramPool, parts, totalLength, logger, playbackCache, null, mediaKey, null)
+        : this(telegramPool, parts, totalLength, logger, playbackCache, null, mediaKey, null, acquirePlaybackLease: true, lifecycleCancellationToken: CancellationToken.None)
     {
     }
 
@@ -117,7 +118,45 @@ public sealed class NebulaChunkedStream : Stream
         ILogger logger,
         NebulaPlaybackCacheAccessor? playbackCacheAccessor,
         string? mediaKey)
-        : this(telegramPool, parts, totalLength, logger, null, playbackCacheAccessor, mediaKey, null)
+        : this(telegramPool, parts, totalLength, logger, null, playbackCacheAccessor, mediaKey, null, acquirePlaybackLease: true, lifecycleCancellationToken: CancellationToken.None)
+    {
+    }
+
+    internal NebulaChunkedStream(
+        NebulaTelegramPool? telegramPool,
+        IEnumerable<NebulaStreamPart> parts,
+        long? totalLength,
+        ILogger logger,
+        NebulaPlaybackCacheAccessor? playbackCacheAccessor,
+        string? mediaKey,
+        bool acquirePlaybackLease)
+        : this(telegramPool, parts, totalLength, logger, null, playbackCacheAccessor, mediaKey, null, acquirePlaybackLease, lifecycleCancellationToken: CancellationToken.None)
+    {
+    }
+
+    internal NebulaChunkedStream(
+        NebulaTelegramPool? telegramPool,
+        IEnumerable<NebulaStreamPart> parts,
+        long? totalLength,
+        ILogger logger,
+        NebulaPlaybackCacheAccessor? playbackCacheAccessor,
+        string? mediaKey,
+        bool acquirePlaybackLease,
+        Func<NebulaStreamPart, int, CancellationToken, Task<byte[]>>? chunkFetcher)
+        : this(telegramPool, parts, totalLength, logger, null, playbackCacheAccessor, mediaKey, chunkFetcher, acquirePlaybackLease, lifecycleCancellationToken: CancellationToken.None)
+    {
+    }
+
+    internal NebulaChunkedStream(
+        NebulaTelegramPool? telegramPool,
+        IEnumerable<NebulaStreamPart> parts,
+        long? totalLength,
+        ILogger logger,
+        NebulaPlaybackCacheAccessor? playbackCacheAccessor,
+        string? mediaKey,
+        bool acquirePlaybackLease,
+        CancellationToken lifecycleCancellationToken)
+        : this(telegramPool, parts, totalLength, logger, null, playbackCacheAccessor, mediaKey, null, acquirePlaybackLease, lifecycleCancellationToken)
     {
     }
 
@@ -129,7 +168,7 @@ public sealed class NebulaChunkedStream : Stream
         NebulaPlaybackCacheAccessor? playbackCacheAccessor,
         string? mediaKey,
         Func<NebulaStreamPart, int, CancellationToken, Task<byte[]>>? chunkFetcher)
-        : this(telegramPool, parts, totalLength, logger, null, playbackCacheAccessor, mediaKey, chunkFetcher)
+        : this(telegramPool, parts, totalLength, logger, null, playbackCacheAccessor, mediaKey, chunkFetcher, acquirePlaybackLease: true, lifecycleCancellationToken: CancellationToken.None)
     {
     }
 
@@ -141,7 +180,9 @@ public sealed class NebulaChunkedStream : Stream
         NebulaPlaybackCache? playbackCache,
         NebulaPlaybackCacheAccessor? playbackCacheAccessor,
         string? mediaKey,
-        Func<NebulaStreamPart, int, CancellationToken, Task<byte[]>>? chunkFetcher)
+        Func<NebulaStreamPart, int, CancellationToken, Task<byte[]>>? chunkFetcher,
+        bool acquirePlaybackLease,
+        CancellationToken lifecycleCancellationToken)
     {
         _telegramPool = telegramPool;
         _chunkFetcher = chunkFetcher;
@@ -152,11 +193,21 @@ public sealed class NebulaChunkedStream : Stream
         if (playbackCache != null)
         {
             _playbackCache = playbackCache;
-            _playbackLease = playbackCache.Acquire(_mediaKey);
+            if (acquirePlaybackLease)
+            {
+                _playbackLease = playbackCache.Acquire(_mediaKey);
+            }
         }
         else if (playbackCacheAccessor != null)
         {
-            (_playbackCache, _playbackLease) = playbackCacheAccessor.Acquire(_mediaKey);
+            if (acquirePlaybackLease)
+            {
+                (_playbackCache, _playbackLease) = playbackCacheAccessor.Acquire(_mediaKey);
+            }
+            else
+            {
+                _playbackCache = playbackCacheAccessor.Current;
+            }
         }
 
         if (_parts.Count > 0)
@@ -171,11 +222,16 @@ public sealed class NebulaChunkedStream : Stream
 
         if (_playbackCache != null && _parts.Count > 0)
         {
-            _wholeMediaPrefetchTask = _playbackCache.StartPrefetch(_mediaKey, PrefetchWholeMediaAsync);
+            var prefetchHandle = _playbackCache.StartPrefetchWithHandle(_mediaKey, PrefetchWholeMediaAsync, lifecycleCancellationToken);
+            _wholeMediaPrefetchTask = prefetchHandle.Completion;
+            _wholeMediaPrefetchGeneration = prefetchHandle.Generation;
         }
     }
 
     internal Task WholeMediaPrefetchTask => _wholeMediaPrefetchTask;
+
+    internal bool CancelWholeMediaPrefetch()
+        => _playbackCache?.CancelPrefetch(_mediaKey, _wholeMediaPrefetchTask, _wholeMediaPrefetchGeneration) ?? false;
 
     /// <inheritdoc />
     public override bool CanRead => !_disposed;

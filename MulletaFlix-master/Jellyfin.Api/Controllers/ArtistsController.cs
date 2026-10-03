@@ -88,6 +88,7 @@ public class ArtistsController : BaseMulletaFlixApiController
     /// <returns>An <see cref="OkResult"/> containing the artists.</returns>
     [HttpGet]
     [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
     [Obsolete("Use GetPersons")]
     public ActionResult<QueryResult<BaseItemDto>> GetArtists(
         [FromQuery] double? minCommunityRating,
@@ -128,11 +129,15 @@ public class ArtistsController : BaseMulletaFlixApiController
             .AddAdditionalDtoOptions(enableImages, enableUserData, imageTypeLimit, enableImageTypes);
 
         User? user = null;
-        BaseItem parentItem = _libraryManager.GetParentItem(parentId, userId);
-
         if (!userId.IsNullOrEmpty())
         {
             user = _userManager.GetUserById(userId.Value);
+        }
+
+        var parentItem = RequestHelpers.GetParentItem(_libraryManager, parentId, userId, user);
+        if (parentItem is null)
+        {
+            return NotFound();
         }
 
         var query = new InternalItemsQuery(user)
@@ -260,6 +265,7 @@ public class ArtistsController : BaseMulletaFlixApiController
     /// <returns>An <see cref="OkResult"/> containing the album artists.</returns>
     [HttpGet("AlbumArtists")]
     [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
     [Obsolete("Use GetPersons")]
     public ActionResult<QueryResult<BaseItemDto>> GetAlbumArtists(
         [FromQuery] double? minCommunityRating,
@@ -300,11 +306,15 @@ public class ArtistsController : BaseMulletaFlixApiController
             .AddAdditionalDtoOptions(enableImages, enableUserData, imageTypeLimit, enableImageTypes);
 
         User? user = null;
-        BaseItem parentItem = _libraryManager.GetParentItem(parentId, userId);
-
         if (!userId.IsNullOrEmpty())
         {
             user = _userManager.GetUserById(userId.Value);
+        }
+
+        var parentItem = RequestHelpers.GetParentItem(_libraryManager, parentId, userId, user);
+        if (parentItem is null)
+        {
+            return NotFound();
         }
 
         var query = new InternalItemsQuery(user)
@@ -420,4 +430,3 @@ public class ArtistsController : BaseMulletaFlixApiController
         return await _dtoService.GetBaseItemDtoAsync(item, dtoOptions).ConfigureAwait(false);
     }
 }
-

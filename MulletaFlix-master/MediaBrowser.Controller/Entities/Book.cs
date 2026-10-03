@@ -28,6 +28,15 @@ namespace MediaBrowser.Controller.Entities
 
         public override bool SupportsPlayedStatus => true;
 
+        /// <summary>
+        /// Keep book artwork and metadata next to local book files so they remain
+        /// available with the library content and can be reused after a rescan.
+        /// </summary>
+        public override bool IsSaveLocalMetadataEnabled()
+        {
+            return SupportsLocalMetadata;
+        }
+
         public override bool SupportsPositionTicksResume => true;
 
         [JsonIgnore]

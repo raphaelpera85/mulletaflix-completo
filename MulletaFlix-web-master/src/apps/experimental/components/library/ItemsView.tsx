@@ -22,6 +22,7 @@ import { getDefaultLibraryViewSettings, getSettingsKey } from 'utils/items';
 import Loading from 'components/loading/LoadingComponent';
 import { playbackManager } from 'components/playback/playbackmanager';
 import ItemsContainer from 'elements/emby-itemscontainer/ItemsContainer';
+import LoadErrorMessage from 'components/common/LoadErrorMessage';
 import NoItemsMessage from 'components/common/NoItemsMessage';
 import Lists from 'components/listview/List/Lists';
 import Cards from 'components/cardbuilder/Card/Cards';
@@ -90,6 +91,7 @@ const ItemsView: FC<ItemsViewProps> = ({
     const { __legacyApiClient__ } = useApi();
     const {
         isPending,
+        isError,
         data: itemsResult,
         isPlaceholderData,
         refetch
@@ -100,6 +102,9 @@ const ItemsView: FC<ItemsViewProps> = ({
         libraryViewSettings
     );
     const { data: item } = useItem(parentId || undefined);
+    const handleRetry = useCallback(() => {
+        refetch().catch(() => undefined);
+    }, [refetch]);
 
     const getListOptions = useCallback(() => {
         const listOptions: ListOptions = {
@@ -245,7 +250,9 @@ const ItemsView: FC<ItemsViewProps> = ({
     const isPaginationRequired = paginationLimit > 0 && paginationLimit < totalRecordCount;
 
     let itemCountDisplay = '\u2219'; // Bullet "operator" character as a loading indicator
-    if (!isPending) {
+    if (isError && !itemsResult?.Items?.length) {
+        itemCountDisplay = '\u2014';
+    } else if (!isPending) {
         itemCountDisplay = isPaginationRequired ?
             globalize.translate('ListPaging', String(paginationStart), String(paginationEnd), String(totalRecordCount)) :
             String(totalRecordCount);
@@ -424,7 +431,8 @@ const ItemsView: FC<ItemsViewProps> = ({
                     reloadItems={refetch}
                     queryKey={['ItemsViewByType']}
                 >
-                    {getItems()}
+                    {isError && <LoadErrorMessage onRetry={handleRetry} />}
+                    {(!isError || Boolean(itemsResult?.Items?.length)) && getItems()}
                 </ItemsContainer>
             )}
         </Box>

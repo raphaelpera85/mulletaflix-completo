@@ -4,6 +4,7 @@ using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using MediaBrowser.Controller.Books;
+using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Library;
 using MulletaFlix.Api.Helpers;
 using Microsoft.AspNetCore.Authorization;
@@ -23,6 +24,7 @@ namespace MulletaFlix.Api.Controllers
     {
         private readonly IBookConversionService _bookConversionService;
         private readonly ILibraryManager _libraryManager;
+        private readonly IUserManager _userManager;
         private readonly ILogger<BookReaderController> _logger;
 
         /// <summary>
@@ -31,10 +33,12 @@ namespace MulletaFlix.Api.Controllers
         public BookReaderController(
             IBookConversionService bookConversionService,
             ILibraryManager libraryManager,
+            IUserManager userManager,
             ILogger<BookReaderController> logger)
         {
             _bookConversionService = bookConversionService;
             _libraryManager = libraryManager;
+            _userManager = userManager;
             _logger = logger;
         }
 
@@ -59,19 +63,22 @@ namespace MulletaFlix.Api.Controllers
             [FromRoute, Required] Guid itemId,
             [FromQuery] Guid? userId = null)
         {
-            var item = _libraryManager.GetItemById(itemId);
-            if (item == null)
+            var requestUserId = RequestHelpers.GetUserId(User, userId);
+            if (requestUserId == Guid.Empty)
             {
-                return NotFound("Item not found.");
+                return Unauthorized();
             }
 
-            if (!item.IsVisibleStandalone(null))
+            var user = _userManager.GetUserById(requestUserId);
+            if (user is null)
             {
-                var requestUserId = RequestHelpers.GetUserId(User, userId);
-                if (requestUserId == Guid.Empty)
-                {
-                    return Unauthorized();
-                }
+                return Unauthorized();
+            }
+
+            var item = _libraryManager.GetItemById<BaseItem>(itemId, user);
+            if (item == null)
+            {
+                return NotFound();
             }
 
             var result = await _bookConversionService.GetEpubStreamAsync(itemId, HttpContext.RequestAborted)
@@ -128,19 +135,22 @@ namespace MulletaFlix.Api.Controllers
             [FromRoute, Required] Guid itemId,
             [FromQuery] Guid? userId = null)
         {
-            var item = _libraryManager.GetItemById(itemId);
-            if (item == null)
+            var requestUserId = RequestHelpers.GetUserId(User, userId);
+            if (requestUserId == Guid.Empty)
             {
-                return NotFound("Item not found.");
+                return Unauthorized();
             }
 
-            if (!item.IsVisibleStandalone(null))
+            var user = _userManager.GetUserById(requestUserId);
+            if (user is null)
             {
-                var requestUserId = RequestHelpers.GetUserId(User, userId);
-                if (requestUserId == Guid.Empty)
-                {
-                    return Unauthorized();
-                }
+                return Unauthorized();
+            }
+
+            var item = _libraryManager.GetItemById<BaseItem>(itemId, user);
+            if (item == null)
+            {
+                return NotFound();
             }
 
             var status = await _bookConversionService.GetStatusAsync(itemId, HttpContext.RequestAborted)

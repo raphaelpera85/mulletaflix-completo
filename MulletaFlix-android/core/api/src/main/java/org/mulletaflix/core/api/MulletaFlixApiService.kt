@@ -181,6 +181,11 @@ interface MulletaFlixApiService {
         @Path("itemId") itemId: String,
     ): BaseItemDto
 
+    /** Authenticated EPUB stream; the server converts supported ebook formats on demand. */
+    @Streaming
+    @GET("BookReader/Items/{itemId}/BookReader/Epub")
+    suspend fun getBookReaderEpub(@Path("itemId") itemId: String): okhttp3.ResponseBody
+
     @GET("Items/{itemId}/Similar")
     suspend fun getSimilarItems(
         @Path("itemId") itemId: String,

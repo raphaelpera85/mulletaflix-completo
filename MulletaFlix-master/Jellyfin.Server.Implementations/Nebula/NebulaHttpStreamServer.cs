@@ -92,14 +92,24 @@ public sealed class NebulaHttpStreamServer : IAsyncDisposable, IDisposable
                 return false;
             }
 
+            cancellationToken.ThrowIfCancellationRequested();
+
             var (parts, totalSize) = BuildStreamParts(doc);
             if (totalSize <= 0 || parts.Count == 0 || parts.Any(part => string.IsNullOrWhiteSpace(part.FileId) || part.ChatId == 0 || part.MessageId == 0))
             {
                 return false;
             }
 
-            var stream = new NebulaChunkedStream(_telegramPool, parts, totalSize, _logger, _playbackCacheAccessor, GetMediaCacheKey(doc));
-            _ = DisposePrefetchStreamWhenCompleteAsync(stream);
+            var stream = new NebulaChunkedStream(
+                _telegramPool,
+                parts,
+                totalSize,
+                _logger,
+                _playbackCacheAccessor,
+                GetMediaCacheKey(doc),
+                acquirePlaybackLease: false,
+                lifecycleCancellationToken: cancellationToken);
+            _ = DisposePrefetchStreamWhenCompleteAsync(stream, cancellationToken);
             _logger.LogInformation("[NEBULA-PLAYBACK-CACHE] Pré-cache iniciado no começo da intro para {MediaName} ({Size} bytes).", doc.GetValue("name", "media.bin").AsString, totalSize);
             return true;
         }
@@ -114,11 +124,21 @@ public sealed class NebulaHttpStreamServer : IAsyncDisposable, IDisposable
         }
     }
 
-    internal static async Task DisposePrefetchStreamWhenCompleteAsync(NebulaChunkedStream stream)
+    internal static async Task DisposePrefetchStreamWhenCompleteAsync(
+        NebulaChunkedStream stream,
+        CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(stream);
+        var cancellationSignaled = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var cancellationRegistration = cancellationToken.Register(() => cancellationSignaled.TrySetResult());
         try
         {
+            if (cancellationToken.CanBeCanceled
+                && await Task.WhenAny(stream.WholeMediaPrefetchTask, cancellationSignaled.Task).ConfigureAwait(false) == cancellationSignaled.Task)
+            {
+                stream.CancelWholeMediaPrefetch();
+            }
+
             await stream.WholeMediaPrefetchTask.ConfigureAwait(false);
         }
         finally

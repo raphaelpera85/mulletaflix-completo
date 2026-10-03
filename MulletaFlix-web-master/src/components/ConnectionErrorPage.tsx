@@ -1,5 +1,6 @@
 import DOMPurify from 'dompurify';
 import React, { FC, useCallback, useEffect, useState } from 'react';
+import Button from '@mui/material/Button';
 
 import { appHost } from 'components/apphost';
 import Page from 'components/Page';
@@ -10,16 +11,27 @@ import globalize from 'lib/globalize';
 import { ConnectionState, ServerConnections } from 'lib/jellyfin-apiclient';
 
 interface ConnectionErrorPageProps {
-    state: ConnectionState
+    state: ConnectionState;
+    onRetry?: () => void;
 }
 
 const ConnectionErrorPage: FC<ConnectionErrorPageProps> = ({
-    state
+    state,
+    onRetry
 }) => {
     const [ title, setTitle ] = useState<string>();
     const [ htmlMessage, setHtmlMessage ] = useState<string>();
     const [ message, setMessage ] = useState<string>();
     const [ isConnectDisabled, setIsConnectDisabled ] = useState(false);
+
+    useEffect(() => {
+        if (state !== ConnectionState.Unavailable || !onRetry) return;
+
+        const retryWhenOnline = (): void => onRetry();
+        window.addEventListener('online', retryWhenOnline, { once: true });
+
+        return () => window.removeEventListener('online', retryWhenOnline);
+    }, [ onRetry, state ]);
 
     const onForceConnect = useCallback(async () => {
         setIsConnectDisabled(true);
@@ -91,6 +103,15 @@ const ConnectionErrorPage: FC<ConnectionErrorPageProps> = ({
                     <p style={{ maxWidth: '80ch' }}>
                         {message}
                     </p>
+                )}
+
+                {state === ConnectionState.Unavailable && onRetry && (
+                    <Button
+                        variant='contained'
+                        onClick={onRetry}
+                    >
+                        {globalize.translate('Retry')}
+                    </Button>
                 )}
 
                 {appHost.supports(AppFeature.MultiServer) && (

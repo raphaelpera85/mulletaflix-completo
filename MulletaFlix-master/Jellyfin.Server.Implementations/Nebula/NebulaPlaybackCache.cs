@@ -12,6 +12,8 @@ using Microsoft.Extensions.Logging;
 
 namespace Jellyfin.Server.Implementations.Nebula;
 
+internal readonly record struct NebulaPrefetchHandle(Task Completion, long Generation);
+
 /// <summary>
 /// Cache compartilhado, temporário e em disco para blocos de mídias reproduzidas pelo Nebula.
 /// O cache é separado por mídia e expira 1 hora depois da última atividade não utilizada.
@@ -458,20 +460,28 @@ public sealed class NebulaPlaybackCache : IDisposable
     /// troca de range/segmento durante a reprodução.
     /// </summary>
     public Task StartPrefetch(string mediaKey, Func<CancellationToken, Task> prefetch)
+        => StartPrefetchWithHandle(mediaKey, prefetch, CancellationToken.None).Completion;
+
+    internal NebulaPrefetchHandle StartPrefetchWithHandle(
+        string mediaKey,
+        Func<CancellationToken, Task> prefetch,
+        CancellationToken lifecycleCancellationToken)
     {
         ArgumentNullException.ThrowIfNull(prefetch);
         var normalized = NormalizeMediaKey(mediaKey);
         PrefetchState state;
-        _storageGate.Wait();
+        long generation;
+        _storageGate.Wait(lifecycleCancellationToken);
         try
         {
+            lifecycleCancellationToken.ThrowIfCancellationRequested();
             ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
             _cancelWhenIdle.TryRemove(normalized, out _);
             if (_prefetches.TryGetValue(normalized, out var currentPrefetch))
             {
                 if (!currentPrefetch.IsCancellationRequested)
                 {
-                    return currentPrefetch.Completion;
+                    return new NebulaPrefetchHandle(currentPrefetch.Completion, currentPrefetch.Generation);
                 }
 
                 _prefetches.TryRemove(new KeyValuePair<string, PrefetchState>(normalized, currentPrefetch));
@@ -482,17 +492,18 @@ public sealed class NebulaPlaybackCache : IDisposable
                 _logger.LogDebug(
                     "[NEBULA-CACHE] Pré-cache integral ignorado por limite de admissão; playback sob demanda permanece disponível para {MediaKey}.",
                     normalized);
-                return Task.CompletedTask;
+                return new NebulaPrefetchHandle(Task.CompletedTask, 0);
             }
 
             state = new PrefetchState(_logger);
             if (!_prefetches.TryAdd(normalized, state))
             {
                 state.Dispose();
-                return Task.CompletedTask;
+                return new NebulaPrefetchHandle(Task.CompletedTask, 0);
             }
 
             _allPrefetches.TryAdd(state, 0);
+            generation = state.Generation;
         }
         finally
         {
@@ -500,7 +511,7 @@ public sealed class NebulaPlaybackCache : IDisposable
         }
 
         _ = RunPrefetchAsync(normalized, state, prefetch);
-        return state.Completion;
+        return new NebulaPrefetchHandle(state.Completion, generation);
     }
 
     /// <summary>Requests cancellation of a media prefetch after the playback session ends.</summary>
@@ -512,6 +523,40 @@ public sealed class NebulaPlaybackCache : IDisposable
         try
         {
             if (Volatile.Read(ref _disposed) != 0 || !_prefetches.TryGetValue(normalized, out var state))
+            {
+                return false;
+            }
+
+            if (_activeMedia.ContainsKey(normalized))
+            {
+                _cancelWhenIdle[normalized] = 0;
+                return true;
+            }
+
+            state.MarkCancellationRequested();
+            stateToCancel = state;
+        }
+        finally
+        {
+            _storageGate.Release();
+        }
+
+        stateToCancel.Cancel();
+        return true;
+    }
+
+    internal bool CancelPrefetch(string mediaKey, Task expectedCompletion, long expectedGeneration)
+    {
+        ArgumentNullException.ThrowIfNull(expectedCompletion);
+        var normalized = NormalizeMediaKey(mediaKey);
+        PrefetchState? stateToCancel = null;
+        _storageGate.Wait();
+        try
+        {
+            if (Volatile.Read(ref _disposed) != 0
+                || !_prefetches.TryGetValue(normalized, out var state)
+                || !ReferenceEquals(state.Completion, expectedCompletion)
+                || state.Generation != expectedGeneration)
             {
                 return false;
             }
@@ -1238,6 +1283,7 @@ public sealed class NebulaPlaybackCache : IDisposable
         private readonly TaskCompletionSource _completion = new(TaskCreationOptions.RunContinuationsAsynchronously);
         private bool _disposed;
         private bool _disposeRequested;
+        private long _generation;
         private Task? _cancelCallbacksTask;
         private int _cancellationRequested;
         private int _cancelSignaled;
@@ -1258,6 +1304,8 @@ public sealed class NebulaPlaybackCache : IDisposable
 
         public bool HasConcurrencySlot => Volatile.Read(ref _hasConcurrencySlot) != 0;
 
+        public long Generation => Interlocked.Read(ref _generation);
+
         public void MarkConcurrencySlotAcquired() => Volatile.Write(ref _hasConcurrencySlot, 1);
 
         public void MarkCancellationRequested()
@@ -1275,9 +1323,10 @@ public sealed class NebulaPlaybackCache : IDisposable
         {
             lock (_gate)
             {
-                if (!_disposed && _cancelSignaled == 0)
+                if (!_disposed && _cancelSignaled == 0 && IsCancellationRequested)
                 {
                     Volatile.Write(ref _cancellationRequested, 0);
+                    Interlocked.Increment(ref _generation);
                 }
             }
         }

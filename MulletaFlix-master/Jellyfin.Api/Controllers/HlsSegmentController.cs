@@ -60,11 +60,16 @@ public class HlsSegmentController : BaseMulletaFlixApiController
     public ActionResult GetHlsAudioSegmentLegacy([FromRoute, Required] string itemId, [FromRoute, Required] string segmentId)
     {
         // TODO: Deprecate with new iOS app
-        var file = string.Concat(segmentId, Path.GetExtension(Request.Path.Value.AsSpan()));
+        var extension = Path.GetExtension(Request.Path.Value.AsSpan()).ToString();
+        if (!IsSafeHlsPathSegment(segmentId)
+            || (!extension.Equals(".mp3", StringComparison.OrdinalIgnoreCase)
+                && !extension.Equals(".aac", StringComparison.OrdinalIgnoreCase)))
+        {
+            return BadRequest("Invalid segment.");
+        }
+
         var transcodePath = _serverConfigurationManager.GetTranscodePath();
-        file = Path.GetFullPath(Path.Combine(transcodePath, file));
-        var fileDir = Path.GetDirectoryName(file);
-        if (string.IsNullOrEmpty(fileDir) || !fileDir.StartsWith(transcodePath, StringComparison.InvariantCulture))
+        if (!TryResolveTranscodeFilePath(transcodePath, string.Concat(segmentId, extension), out var file))
         {
             return BadRequest("Invalid segment.");
         }
@@ -86,12 +91,14 @@ public class HlsSegmentController : BaseMulletaFlixApiController
     [SuppressMessage("Microsoft.Performance", "CA1801:ReviewUnusedParameters", MessageId = "itemId", Justification = "Required for ServiceStack")]
     public ActionResult GetHlsPlaylistLegacy([FromRoute, Required] string itemId, [FromRoute, Required] string playlistId)
     {
-        var file = string.Concat(playlistId, Path.GetExtension(Request.Path.Value.AsSpan()));
+        if (!IsSafeHlsPathSegment(playlistId))
+        {
+            return BadRequest("Invalid segment.");
+        }
+
         var transcodePath = _serverConfigurationManager.GetTranscodePath();
-        file = Path.GetFullPath(Path.Combine(transcodePath, file));
-        var fileDir = Path.GetDirectoryName(file);
-        if (string.IsNullOrEmpty(fileDir) || !fileDir.StartsWith(transcodePath, StringComparison.InvariantCulture)
-            || Path.GetExtension(file.AsSpan()).Equals(".m3u8", StringComparison.OrdinalIgnoreCase))
+        if (!TryResolveTranscodeFilePath(transcodePath, string.Concat(playlistId, ".m3u8"), out var file)
+            || !Path.GetExtension(file.AsSpan()).Equals(".m3u8", StringComparison.OrdinalIgnoreCase))
         {
             return BadRequest("Invalid segment.");
         }
@@ -140,12 +147,15 @@ public class HlsSegmentController : BaseMulletaFlixApiController
         [FromRoute, Required] string segmentId,
         [FromRoute, Required] string segmentContainer)
     {
-        var file = string.Concat(segmentId, Path.GetExtension(Request.Path.Value.AsSpan()));
-        var transcodeFolderPath = _serverConfigurationManager.GetTranscodePath();
+        if (!IsSafeHlsPathSegment(segmentId)
+            || !IsSafeHlsPathSegment(playlistId)
+            || !IsSafeHlsPathSegment(segmentContainer))
+        {
+            return BadRequest("Invalid segment.");
+        }
 
-        file = Path.GetFullPath(Path.Combine(transcodeFolderPath, file));
-        var fileDir = Path.GetDirectoryName(file);
-        if (string.IsNullOrEmpty(fileDir) || !fileDir.StartsWith(transcodeFolderPath, StringComparison.InvariantCulture))
+        var transcodeFolderPath = _serverConfigurationManager.GetTranscodePath();
+        if (!TryResolveTranscodeFilePath(transcodeFolderPath, string.Concat(segmentId, ".", segmentContainer), out var file))
         {
             return BadRequest("Invalid segment.");
         }
@@ -159,8 +169,10 @@ public class HlsSegmentController : BaseMulletaFlixApiController
         // transcoding job) on every single segment request. Only fall back to the old
         // directory scan if the expected file is missing, e.g. a differently-named artifact
         // from an older/alternate encoder path.
-        var directPlaylistPath = Path.GetFullPath(Path.Combine(transcodeFolderPath, normalizedPlaylistId + ".m3u8"));
-        string? playlistPath = System.IO.File.Exists(directPlaylistPath) ? directPlaylistPath : null;
+        string? playlistPath = TryResolveTranscodeFilePath(transcodeFolderPath, normalizedPlaylistId + ".m3u8", out var directPlaylistPath)
+            && System.IO.File.Exists(directPlaylistPath)
+                ? directPlaylistPath
+                : null;
 
         if (playlistPath is null)
         {
@@ -185,6 +197,95 @@ public class HlsSegmentController : BaseMulletaFlixApiController
             : GetFileResult(file, playlistPath);
     }
 
+    private static bool IsSafeHlsPathSegment(string? segment)
+    {
+        if (string.IsNullOrWhiteSpace(segment)
+            || segment is "." or ".."
+            || !string.Equals(Path.GetFileName(segment), segment, StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        foreach (var character in segment)
+        {
+            if (char.IsControl(character) || character is '<' or '>' or ':' or '"' or '/' or '\\' or '|' or '?' or '*')
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private static bool TryResolveTranscodeFilePath(string transcodePath, string fileName, out string fullPath)
+    {
+        fullPath = string.Empty;
+        if (!IsSafeHlsPathSegment(fileName))
+        {
+            return false;
+        }
+
+        try
+        {
+            var fullTranscodePath = Path.GetFullPath(transcodePath);
+            var candidatePath = Path.GetFullPath(Path.Combine(fullTranscodePath, fileName));
+            var relativePath = Path.GetRelativePath(fullTranscodePath, candidatePath);
+            if (Path.IsPathRooted(relativePath)
+                || string.Equals(relativePath, ".", StringComparison.Ordinal)
+                || string.Equals(relativePath, "..", StringComparison.Ordinal)
+                || relativePath.StartsWith(".." + Path.DirectorySeparatorChar, StringComparison.Ordinal)
+                || relativePath.StartsWith(".." + Path.AltDirectorySeparatorChar, StringComparison.Ordinal)
+                || relativePath.AsSpan().IndexOfAny(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar) >= 0)
+            {
+                return false;
+            }
+
+            if (IsReparsePoint(candidatePath))
+            {
+                return false;
+            }
+
+            fullPath = candidatePath;
+            return true;
+        }
+        catch (ArgumentException)
+        {
+            return false;
+        }
+        catch (IOException)
+        {
+            return false;
+        }
+        catch (NotSupportedException)
+        {
+            return false;
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return false;
+        }
+    }
+
+    private static bool IsReparsePoint(string path)
+    {
+        try
+        {
+            return (System.IO.File.GetAttributes(path) & FileAttributes.ReparsePoint) != 0;
+        }
+        catch (FileNotFoundException)
+        {
+            return false;
+        }
+        catch (DirectoryNotFoundException)
+        {
+            return false;
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return true;
+        }
+    }
+
     private ActionResult GetFileResult(string path, string playlistPath)
     {
         var transcodingJob = _transcodeManager.OnTranscodeBeginRequest(playlistPath, TranscodingJobType.Hls);
@@ -202,4 +303,3 @@ public class HlsSegmentController : BaseMulletaFlixApiController
         return FileStreamResponseHelpers.GetStaticFileResult(path, MimeTypes.GetMimeType(path));
     }
 }
-

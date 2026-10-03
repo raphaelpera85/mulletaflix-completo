@@ -16,11 +16,20 @@ internal fun playbackTargetId(item: MediaItem, episodes: List<MediaItem>): Strin
     else -> item.id
 }
 
+internal enum class DetailPrimaryAction { PlayVideo, ReadBook }
+
+internal fun detailPrimaryAction(item: MediaItem): DetailPrimaryAction =
+    if (item.type == MediaItemType.Book) DetailPrimaryAction.ReadBook else DetailPrimaryAction.PlayVideo
+
+internal fun canReadBookOnDevice(item: MediaItem, isTelevision: Boolean): Boolean =
+    item.type == MediaItemType.Book && !isTelevision
+
 /**
  * Whether the "Reproduzir" action can do anything for [item]: containers without
  * a loaded episode would only open a player that cannot prepare the media.
  */
 internal fun canPlayItem(item: MediaItem, episodes: List<MediaItem>): Boolean = when (item.type) {
     MediaItemType.Series, MediaItemType.Season -> episodes.isNotEmpty()
+    MediaItemType.Book -> false
     else -> true
 }

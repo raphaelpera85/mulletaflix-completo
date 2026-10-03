@@ -123,7 +123,9 @@ namespace MediaBrowser.Providers.Books.OpenLibrary
         {
             var cleanIsbn = NormalizeIsbn(isbn);
             var results = await GetSearchResultsByIsbn(cleanIsbn, cancellationToken).ConfigureAwait(false);
-            var best = results.FirstOrDefault();
+            var best = results.FirstOrDefault(result => string.Equals(
+                NormalizeIsbn(result.GetProviderId("ISBN")), cleanIsbn, StringComparison.OrdinalIgnoreCase))
+                ?? results.FirstOrDefault();
             if (best is null)
             {
                 return new MetadataResult<Book>();
@@ -204,7 +206,7 @@ namespace MediaBrowser.Providers.Books.OpenLibrary
         private async Task<MetadataResult<Book>> GetMetadataBySearch(string title, CancellationToken cancellationToken)
         {
             var results = await GetSearchResults(new BookInfo { Name = title }, cancellationToken).ConfigureAwait(false);
-            var best = results.FirstOrDefault();
+            var best = SelectBestTitleMatch(results, title);
             if (best is null)
             {
                 return new MetadataResult<Book>();
@@ -335,7 +337,7 @@ namespace MediaBrowser.Providers.Books.OpenLibrary
                 var searchResult = JsonSerializer.Deserialize<OpenLibrarySearchResult>(json);
                 if (searchResult?.Docs is not null)
                 {
-                    AddSearchDocuments(results, searchResult.Docs);
+                    AddSearchDocuments(results, searchResult.Docs, isbn);
                 }
             }
             catch (Exception ex)
@@ -346,7 +348,7 @@ namespace MediaBrowser.Providers.Books.OpenLibrary
             return results;
         }
 
-        private void AddSearchDocuments(ICollection<RemoteSearchResult> results, IEnumerable<OpenLibraryDoc> docs)
+        private void AddSearchDocuments(ICollection<RemoteSearchResult> results, IEnumerable<OpenLibraryDoc> docs, string? preferredIsbn = null)
         {
             foreach (var doc in docs)
             {
@@ -362,9 +364,12 @@ namespace MediaBrowser.Providers.Books.OpenLibrary
                     ProductionYear = doc.FirstPublishYear > 0 ? doc.FirstPublishYear : null
                 };
 
-                if (doc.Isbn is { Length: > 0 })
+                var matchingIsbn = doc.Isbn?.FirstOrDefault(candidate =>
+                    string.Equals(NormalizeIsbn(candidate), NormalizeIsbn(preferredIsbn), StringComparison.OrdinalIgnoreCase));
+                var selectedIsbn = matchingIsbn ?? doc.Isbn?.FirstOrDefault();
+                if (!string.IsNullOrWhiteSpace(selectedIsbn))
                 {
-                    item.SetProviderId("ISBN", doc.Isbn[0]);
+                    item.SetProviderId("ISBN", selectedIsbn);
                 }
 
                 if (!string.IsNullOrWhiteSpace(doc.CoverEditionKey))
@@ -376,9 +381,9 @@ namespace MediaBrowser.Providers.Books.OpenLibrary
                 {
                     item.ImageUrl = $"https://covers.openlibrary.org/b/id/{doc.CoverId}-M.jpg";
                 }
-                else if (doc.Isbn is { Length: > 0 } && !string.IsNullOrWhiteSpace(doc.Isbn[0]))
+                else if (!string.IsNullOrWhiteSpace(selectedIsbn))
                 {
-                    item.ImageUrl = $"https://covers.openlibrary.org/b/isbn/{doc.Isbn[0]}-M.jpg";
+                    item.ImageUrl = $"https://covers.openlibrary.org/b/isbn/{selectedIsbn}-M.jpg";
                 }
 
                 if (!string.IsNullOrWhiteSpace(doc.Key) && string.IsNullOrWhiteSpace(item.GetProviderId("OpenLibrary")))
@@ -463,6 +468,54 @@ namespace MediaBrowser.Providers.Books.OpenLibrary
 
             var match = Regex.Match(value, @"OL\d+[MW]", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
             return match.Success ? match.Value.ToUpperInvariant() : null;
+        }
+
+        private static RemoteSearchResult? SelectBestTitleMatch(IEnumerable<RemoteSearchResult> results, string title)
+        {
+            var candidates = results.ToList();
+            if (candidates.Count == 0)
+            {
+                return null;
+            }
+
+            var requested = NormalizeTitleForMatching(title);
+            var requestedTokens = requested.Split(' ', StringSplitOptions.RemoveEmptyEntries)
+                .ToHashSet(StringComparer.Ordinal);
+            if (requestedTokens.Count == 0)
+            {
+                return candidates.FirstOrDefault();
+            }
+
+            return candidates
+                .Select(result =>
+                {
+                    var candidate = NormalizeTitleForMatching(result.Name ?? string.Empty);
+                    var candidateTokens = candidate.Split(' ', StringSplitOptions.RemoveEmptyEntries)
+                        .ToHashSet(StringComparer.Ordinal);
+                    var overlap = requestedTokens.Count(token => candidateTokens.Contains(token));
+                    var score = (2d * overlap) / (requestedTokens.Count + candidateTokens.Count);
+                    if (string.Equals(requested, candidate, StringComparison.Ordinal))
+                    {
+                        score += 2d;
+                    }
+                    else if (requested.Contains(candidate, StringComparison.Ordinal)
+                        || candidate.Contains(requested, StringComparison.Ordinal))
+                    {
+                        score += 1d;
+                    }
+
+                    return (Result: result, Score: score);
+                })
+                .OrderByDescending(candidate => candidate.Score)
+                .Select(candidate => candidate.Result)
+                .FirstOrDefault();
+        }
+
+        private static string NormalizeTitleForMatching(string value)
+        {
+            var withoutDiacritics = RemoveDiacritics(value).ToLowerInvariant();
+            var alphanumeric = Regex.Replace(withoutDiacritics, @"[^\p{L}\p{N}]+", " ", RegexOptions.CultureInvariant);
+            return Regex.Replace(alphanumeric, @"\s+", " ", RegexOptions.CultureInvariant).Trim();
         }
 
         private static IEnumerable<string> BuildSearchQueries(string query)

@@ -66,6 +66,7 @@ android {
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
+        isCoreLibraryDesugaringEnabled = true
     }
 
 
@@ -154,6 +155,7 @@ tasks.configureEach {
 }
 
 dependencies {
+    coreLibraryDesugaring(libs.android.desugar.jdk.libs)
     implementation(project(":core:common"))
     implementation(project(":core:api"))
     implementation(project(":domain"))

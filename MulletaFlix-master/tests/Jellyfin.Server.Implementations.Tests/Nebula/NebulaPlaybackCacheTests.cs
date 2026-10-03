@@ -7,6 +7,8 @@ using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
 using Jellyfin.Server.Implementations.Nebula;
+using MediaBrowser.Controller.Entities.Movies;
+using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.Nebula;
 using MediaBrowser.Controller.Session;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -71,6 +73,259 @@ public sealed class NebulaPlaybackCacheTests
 
             Assert.Equal(expectedBytes, cachedBytes);
             Assert.Equal(1, Volatile.Read(ref fetchCount));
+            Assert.False(fetchCanceled.Task.IsCompleted);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task IntroPrefetchDoesNotHoldPlaybackLeaseAndCancelsWhenPlaybackEnds()
+    {
+        var root = CreateTempDirectory();
+        try
+        {
+            using var cache = new NebulaPlaybackCache(root, NullLogger<NebulaPlaybackCache>.Instance);
+            var cacheAccessor = new NebulaPlaybackCacheAccessor();
+            cacheAccessor.Set(cache);
+            var fetchStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var fetchCanceled = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var mediaKey = "mongo:prefetch-does-not-own-playback-lease";
+            var playbackLease = cache.Acquire(mediaKey);
+            var stream = new NebulaChunkedStream(
+                null,
+                [new NebulaStreamPart { PartIndex = 0, FileOffset = 0, Size = 5 }],
+                5,
+                NullLogger<NebulaChunkedStream>.Instance,
+                cacheAccessor,
+                mediaKey,
+                acquirePlaybackLease: false,
+                async (_, _, cancellationToken) =>
+                {
+                    using var registration = cancellationToken.Register(() => fetchCanceled.TrySetResult());
+                    fetchStarted.TrySetResult();
+                    await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+                    return Array.Empty<byte>();
+                });
+
+            var cleanup = NebulaHttpStreamServer.DisposePrefetchStreamWhenCompleteAsync(stream);
+            await fetchStarted.Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+            Assert.Equal(1, cache.ActiveLeasesCount);
+
+            Assert.True(cache.CancelPrefetch(mediaKey));
+            Assert.False(fetchCanceled.Task.IsCompleted);
+
+            playbackLease.Dispose();
+            await fetchCanceled.Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+            await cleanup.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+
+            Assert.Equal(0, cache.ActiveLeasesCount);
+            Assert.Equal(0, cache.PendingPrefetchCount);
+            Assert.False(stream.CanRead);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task IntroPrefetchLifecycleCancellationCancelsWholeMediaTask()
+    {
+        var root = CreateTempDirectory();
+        try
+        {
+            using var cache = new NebulaPlaybackCache(root, NullLogger<NebulaPlaybackCache>.Instance);
+            var cacheAccessor = new NebulaPlaybackCacheAccessor();
+            cacheAccessor.Set(cache);
+            var fetchStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var fetchCanceled = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var mediaKey = "mongo:prefetch-lifecycle-cancel";
+            var stream = new NebulaChunkedStream(
+                null,
+                [new NebulaStreamPart { PartIndex = 0, FileOffset = 0, Size = 5 }],
+                5,
+                NullLogger<NebulaChunkedStream>.Instance,
+                cacheAccessor,
+                mediaKey,
+                acquirePlaybackLease: false,
+                async (_, _, cancellationToken) =>
+                {
+                    using var registration = cancellationToken.Register(() => fetchCanceled.TrySetResult());
+                    fetchStarted.TrySetResult();
+                    await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+                    return Array.Empty<byte>();
+                });
+            using var lifecycleCancellation = new CancellationTokenSource();
+
+            var cleanup = NebulaHttpStreamServer.DisposePrefetchStreamWhenCompleteAsync(stream, lifecycleCancellation.Token);
+            await fetchStarted.Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+            lifecycleCancellation.Cancel();
+
+            await fetchCanceled.Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+            await cleanup.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+
+            Assert.Equal(0, cache.PendingPrefetchCount);
+            Assert.Equal(0, cache.ActiveLeasesCount);
+            Assert.False(stream.CanRead);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task PrefetchCancellationTicketCannotCancelResumedPlaybackGeneration()
+    {
+        var root = CreateTempDirectory();
+        try
+        {
+            using var cache = new NebulaPlaybackCache(root, NullLogger<NebulaPlaybackCache>.Instance);
+            var cacheAccessor = new NebulaPlaybackCacheAccessor();
+            cacheAccessor.Set(cache);
+            var fetchStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var fetchCanceled = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var mediaKey = "mongo:prefetch-resumed-generation";
+            using var oldLifecycle = new CancellationTokenSource();
+            var oldStream = new NebulaChunkedStream(
+                null,
+                [new NebulaStreamPart { PartIndex = 0, FileOffset = 0, Size = 5 }],
+                5,
+                NullLogger<NebulaChunkedStream>.Instance,
+                cacheAccessor,
+                mediaKey,
+                acquirePlaybackLease: false,
+                async (_, _, cancellationToken) =>
+                {
+                    using var registration = cancellationToken.Register(() => fetchCanceled.TrySetResult());
+                    fetchStarted.TrySetResult();
+                    await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+                    return Array.Empty<byte>();
+                });
+            var oldCleanup = NebulaHttpStreamServer.DisposePrefetchStreamWhenCompleteAsync(oldStream, oldLifecycle.Token);
+            await fetchStarted.Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+
+            var resumedPlaybackLease = cache.Acquire(mediaKey);
+            var resumedStream = new NebulaChunkedStream(
+                null,
+                [new NebulaStreamPart { PartIndex = 0, FileOffset = 0, Size = 5 }],
+                5,
+                NullLogger<NebulaChunkedStream>.Instance,
+                cacheAccessor,
+                mediaKey,
+                acquirePlaybackLease: false);
+            var resumedCleanup = NebulaHttpStreamServer.DisposePrefetchStreamWhenCompleteAsync(resumedStream);
+            oldLifecycle.Cancel();
+
+            Assert.False(fetchCanceled.Task.IsCompleted);
+            Assert.Equal(1, cache.PendingPrefetchCount);
+
+            resumedPlaybackLease.Dispose();
+            await fetchCanceled.Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+            await Task.WhenAll(oldCleanup, resumedCleanup).WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+
+            Assert.Equal(0, cache.PendingPrefetchCount);
+            Assert.Equal(0, cache.ActiveLeasesCount);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task PrefetchCancellationTicketDefersUntilResumedPlaybackLeaseCloses()
+    {
+        var root = CreateTempDirectory();
+        try
+        {
+            using var cache = new NebulaPlaybackCache(root, NullLogger<NebulaPlaybackCache>.Instance);
+            var fetchStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var fetchCanceled = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            const string mediaKey = "mongo:prefetch-cancel-after-resume";
+            var prefetch = cache.StartPrefetchWithHandle(
+                mediaKey,
+                async cancellationToken =>
+                {
+                    using var registration = cancellationToken.Register(() => fetchCanceled.TrySetResult());
+                    fetchStarted.TrySetResult();
+                    await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+                },
+                CancellationToken.None);
+            var playbackLease = cache.Acquire(mediaKey);
+            await fetchStarted.Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+
+            Assert.True(cache.CancelPrefetch(mediaKey, prefetch.Completion, prefetch.Generation));
+            Assert.False(fetchCanceled.Task.IsCompleted);
+            Assert.Equal(1, cache.PendingPrefetchCount);
+
+            playbackLease.Dispose();
+            await fetchCanceled.Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+            await prefetch.Completion.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+
+            Assert.Equal(0, cache.PendingPrefetchCount);
+            Assert.Equal(0, cache.ActiveLeasesCount);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task PrefetchCancellationTicketCannotCancelReplacementTaskForSameMedia()
+    {
+        var root = CreateTempDirectory();
+        try
+        {
+            using var cache = new NebulaPlaybackCache(root, NullLogger<NebulaPlaybackCache>.Instance);
+            var cacheAccessor = new NebulaPlaybackCacheAccessor();
+            cacheAccessor.Set(cache);
+            var mediaKey = "mongo:prefetch-replaced-generation";
+            var oldStream = new NebulaChunkedStream(
+                null,
+                [new NebulaStreamPart { PartIndex = 0, FileOffset = 0, Size = 5 }],
+                5,
+                NullLogger<NebulaChunkedStream>.Instance,
+                cacheAccessor,
+                mediaKey,
+                acquirePlaybackLease: false,
+                (_, _, _) => Task.FromResult<byte[]>([1, 2, 3, 4, 5]));
+
+            await NebulaHttpStreamServer.DisposePrefetchStreamWhenCompleteAsync(oldStream)
+                .WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+            Assert.True(cache.ClearCache());
+
+            var fetchStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var fetchCanceled = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var releaseFetch = new TaskCompletionSource<byte[]>(TaskCreationOptions.RunContinuationsAsynchronously);
+            var replacementStream = new NebulaChunkedStream(
+                null,
+                [new NebulaStreamPart { PartIndex = 0, FileOffset = 0, Size = 5 }],
+                5,
+                NullLogger<NebulaChunkedStream>.Instance,
+                cacheAccessor,
+                mediaKey,
+                acquirePlaybackLease: false,
+                async (_, _, cancellationToken) =>
+                {
+                    using var registration = cancellationToken.Register(() => fetchCanceled.TrySetResult());
+                    fetchStarted.TrySetResult();
+                    return await releaseFetch.Task.WaitAsync(cancellationToken);
+                });
+            var replacementCleanup = NebulaHttpStreamServer.DisposePrefetchStreamWhenCompleteAsync(replacementStream);
+            await fetchStarted.Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+
+            Assert.False(oldStream.CancelWholeMediaPrefetch());
+            Assert.False(fetchCanceled.Task.IsCompleted);
+            Assert.Equal(1, cache.PendingPrefetchCount);
+
+            releaseFetch.TrySetResult([5, 4, 3, 2, 1]);
+            await replacementCleanup.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+            Assert.Equal(0, cache.PendingPrefetchCount);
             Assert.False(fetchCanceled.Task.IsCompleted);
         }
         finally
@@ -607,6 +862,201 @@ public sealed class NebulaPlaybackCacheTests
         await monitor.TrackPlaybackStoppedAsync("session-b", "play-b");
 
         Assert.Equal(new[] { "N:/Series/Example.mkv" }, cancelledPaths);
+    }
+
+    [Fact]
+    public async Task PlaybackSessionMonitor_TracksSessionManagerEventsAndUnsubscribesOnStop()
+    {
+        var sessionManager = new Mock<ISessionManager>();
+        EventHandler<PlaybackProgressEventArgs>? playbackStartHandler = null;
+        EventHandler<PlaybackStopEventArgs>? playbackStoppedHandler = null;
+        sessionManager
+            .SetupAdd(mock => mock.PlaybackStart += It.IsAny<EventHandler<PlaybackProgressEventArgs>>())
+            .Callback<EventHandler<PlaybackProgressEventArgs>>(handler => playbackStartHandler = handler);
+        sessionManager
+            .SetupAdd(mock => mock.PlaybackStopped += It.IsAny<EventHandler<PlaybackStopEventArgs>>())
+            .Callback<EventHandler<PlaybackStopEventArgs>>(handler => playbackStoppedHandler = handler);
+        var manager = new Mock<INebulaFtpManager>();
+        manager
+            .Setup(mock => mock.CancelPlaybackPrefetchAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .Returns(Task.FromResult(true));
+        var monitor = new NebulaPlaybackSessionMonitor(
+            sessionManager.Object,
+            manager.Object,
+            NullLogger<NebulaPlaybackSessionMonitor>.Instance);
+        var session = new SessionInfo(sessionManager.Object, NullLogger<SessionInfo>.Instance)
+        {
+            Id = "session-events"
+        };
+
+        await monitor.StartAsync(CancellationToken.None);
+
+        sessionManager.Raise(
+            mock => mock.PlaybackStart += null,
+            new PlaybackProgressEventArgs
+            {
+                Session = session,
+                PlaySessionId = "play-events",
+                Item = new Movie { Path = "N:/Series/EventDriven.mkv" }
+            });
+        sessionManager.Raise(
+            mock => mock.PlaybackStopped += null,
+            new PlaybackStopEventArgs
+            {
+                Session = session,
+                PlaySessionId = "play-events",
+                Item = new Movie { Path = "N:/Series/EventDriven.mkv" }
+            });
+
+        manager.Verify(
+            mock => mock.CancelPlaybackPrefetchAsync("N:/Series/EventDriven.mkv", It.IsAny<CancellationToken>()),
+            Times.Once);
+
+        await monitor.StopAsync(CancellationToken.None);
+
+        sessionManager.VerifyRemove(
+            mock => mock.PlaybackStart -= It.Is<EventHandler<PlaybackProgressEventArgs>>(
+                handler => handler.Target == monitor && handler.Method.Name == "OnPlaybackStart"),
+            Times.Once);
+        sessionManager.VerifyRemove(
+            mock => mock.PlaybackStopped -= It.Is<EventHandler<PlaybackStopEventArgs>>(
+                handler => handler.Target == monitor && handler.Method.Name == "OnPlaybackStopped"),
+            Times.Once);
+
+        // Prove each event was detached independently: a stale start would be
+        // observed by the direct stop call; a stale stop would cancel this seed.
+        Assert.NotNull(playbackStartHandler);
+        Assert.NotNull(playbackStoppedHandler);
+        playbackStartHandler!(sessionManager.Object, new PlaybackProgressEventArgs
+        {
+            Session = session,
+            PlaySessionId = "play-start-after-stop",
+            Item = new Movie { Path = "N:/Series/StartAfterStop.mkv" }
+        });
+        await monitor.TrackPlaybackStoppedAsync("session-events", "play-start-after-stop");
+
+        await monitor.TrackPlaybackStartAsync(
+            "session-events",
+            "play-stop-after-stop",
+            "N:/Series/StopAfterStop.mkv");
+        playbackStoppedHandler!(sessionManager.Object, new PlaybackStopEventArgs
+        {
+            Session = session,
+            PlaySessionId = "play-stop-after-stop",
+            Item = new Movie { Path = "N:/Series/StopAfterStop.mkv" }
+        });
+
+        manager.Verify(
+            mock => mock.CancelPlaybackPrefetchAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()),
+            Times.Once);
+    }
+
+    [Fact]
+    public async Task PlaybackSessionMonitor_StopWaitsForInFlightEventHandler()
+    {
+        var sessionManager = new Mock<ISessionManager>();
+        var cancelStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var finishCancel = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var manager = new Mock<INebulaFtpManager>();
+        manager
+            .Setup(mock => mock.CancelPlaybackPrefetchAsync("N:/Series/Previous.mkv", It.IsAny<CancellationToken>()))
+            .Returns(async (string _, CancellationToken _) =>
+            {
+                cancelStarted.TrySetResult();
+                await finishCancel.Task;
+                return true;
+            });
+        var monitor = new NebulaPlaybackSessionMonitor(
+            sessionManager.Object,
+            manager.Object,
+            NullLogger<NebulaPlaybackSessionMonitor>.Instance);
+        var session = new SessionInfo(sessionManager.Object, NullLogger<SessionInfo>.Instance)
+        {
+            Id = "session-drain"
+        };
+
+        await monitor.StartAsync(CancellationToken.None);
+        sessionManager.Raise(
+            mock => mock.PlaybackStart += null,
+            new PlaybackProgressEventArgs
+            {
+                Session = session,
+                PlaySessionId = "play-previous",
+                Item = new Movie { Path = "N:/Series/Previous.mkv" }
+            });
+        sessionManager.Raise(
+            mock => mock.PlaybackStart += null,
+            new PlaybackProgressEventArgs
+            {
+                Session = session,
+                PlaySessionId = "play-current",
+                Item = new Movie { Path = "N:/Series/Current.mkv" }
+            });
+        await cancelStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+        var stopTask = monitor.StopAsync(CancellationToken.None);
+        Assert.False(stopTask.IsCompleted);
+        finishCancel.TrySetResult();
+        await stopTask;
+
+        manager.Verify(
+            mock => mock.CancelPlaybackPrefetchAsync("N:/Series/Previous.mkv", It.IsAny<CancellationToken>()),
+            Times.Once);
+        manager.Verify(
+            mock => mock.StartPlaybackPrefetchAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    [Fact]
+    public async Task PlaybackSessionMonitor_StopCancelsInFlightEventWork()
+    {
+        var sessionManager = new Mock<ISessionManager>();
+        var cancelStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var tokenCancelled = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var manager = new Mock<INebulaFtpManager>();
+        manager
+            .Setup(mock => mock.CancelPlaybackPrefetchAsync("N:/Series/Previous.mkv", It.IsAny<CancellationToken>()))
+            .Returns(async (string _, CancellationToken cancellationToken) =>
+            {
+                using var registration = cancellationToken.Register(() => tokenCancelled.TrySetResult());
+                cancelStarted.TrySetResult();
+                await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+                return true;
+            });
+        var monitor = new NebulaPlaybackSessionMonitor(
+            sessionManager.Object,
+            manager.Object,
+            NullLogger<NebulaPlaybackSessionMonitor>.Instance);
+        var session = new SessionInfo(sessionManager.Object, NullLogger<SessionInfo>.Instance)
+        {
+            Id = "session-cancel"
+        };
+
+        await monitor.StartAsync(CancellationToken.None);
+        sessionManager.Raise(
+            mock => mock.PlaybackStart += null,
+            new PlaybackProgressEventArgs
+            {
+                Session = session,
+                PlaySessionId = "play-previous",
+                Item = new Movie { Path = "N:/Series/Previous.mkv" }
+            });
+        sessionManager.Raise(
+            mock => mock.PlaybackStart += null,
+            new PlaybackProgressEventArgs
+            {
+                Session = session,
+                PlaySessionId = "play-current",
+                Item = new Movie { Path = "N:/Series/Current.mkv" }
+            });
+        await cancelStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+        await monitor.StopAsync(CancellationToken.None);
+        await tokenCancelled.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+        manager.Verify(
+            mock => mock.StartPlaybackPrefetchAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()),
+            Times.Never);
     }
 
     [Fact]

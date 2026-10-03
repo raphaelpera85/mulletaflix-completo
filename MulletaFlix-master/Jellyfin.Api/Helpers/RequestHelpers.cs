@@ -85,6 +85,33 @@ public static class RequestHelpers
     }
 
     /// <summary>
+    /// Gets a requested parent item using the current user's visibility scope.
+    /// </summary>
+    /// <param name="libraryManager">The library manager.</param>
+    /// <param name="parentId">The optional parent item id.</param>
+    /// <param name="userId">The optional user id used to select the root when no parent is supplied.</param>
+    /// <param name="user">The current user, or <see langword="null"/> for API-key access.</param>
+    /// <returns>The visible parent, or <see langword="null"/> when an explicit parent is missing or hidden.</returns>
+    public static BaseItem? GetParentItem(ILibraryManager libraryManager, Guid? parentId, Guid? userId, User? user)
+    {
+        ArgumentNullException.ThrowIfNull(libraryManager);
+
+        // A missing User is expected for API-key requests, but a supplied user id that no longer
+        // resolves must not silently turn an item lookup into an unscoped lookup.
+        if (!userId.IsNullOrEmpty() && user is null)
+        {
+            return null;
+        }
+
+        if (!parentId.HasValue)
+        {
+            return libraryManager.GetParentItem(null, userId);
+        }
+
+        return libraryManager.GetItemById<BaseItem>(parentId.Value, user);
+    }
+
+    /// <summary>
     /// Checks if the user can update an entry.
     /// </summary>
     /// <param name="claimsPrincipal">The <see cref="ClaimsPrincipal"/> for the current request.</param>
@@ -186,4 +213,3 @@ public static class RequestHelpers
             dtos.ToArray());
     }
 }
-
