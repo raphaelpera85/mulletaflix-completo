@@ -83,6 +83,80 @@ public class SessionControllerAuthorizationTests
             Times.Never);
     }
 
+    [Fact]
+    public async Task SendPlaystateCommand_AllowsTargetSessionReturnedByPermissionFilteredSessions()
+    {
+        var user = CreateUser();
+        var sessionManager = new Mock<ISessionManager>();
+        var userManager = new Mock<IUserManager>();
+        userManager.Setup(manager => manager.GetUserById(user.Id)).Returns(user);
+        var controllerSession = new SessionInfo(sessionManager.Object, NullLogger.Instance)
+        {
+            Id = "controller-session",
+            UserId = user.Id
+        };
+        sessionManager.Setup(manager => manager.LogSessionActivity(
+                It.IsAny<string>(),
+                It.IsAny<string>(),
+                It.IsAny<string>(),
+                It.IsAny<string>(),
+                It.IsAny<string>(),
+                user))
+            .ReturnsAsync(controllerSession);
+        sessionManager.Setup(manager => manager.GetSessions(user.Id, string.Empty, null, user.Id, false))
+            .Returns([new SessionInfoDto { Id = "allowed-session" }]);
+        sessionManager.Setup(manager => manager.SendPlaystateCommand(
+                "controller-session",
+                "allowed-session",
+                It.IsAny<PlaystateRequest>(),
+                It.IsAny<CancellationToken>()))
+            .Returns(Task.CompletedTask);
+
+        var controller = CreateController(sessionManager.Object, userManager.Object, user.Id);
+
+        var result = await controller.SendPlaystateCommand("allowed-session", PlaystateCommand.Stop, null, null);
+
+        Assert.IsType<NoContentResult>(result);
+        sessionManager.Verify(
+            manager => manager.SendPlaystateCommand(
+                "controller-session",
+                "allowed-session",
+                It.IsAny<PlaystateRequest>(),
+                It.IsAny<CancellationToken>()),
+            Times.Once);
+    }
+
+    [Fact]
+    public void AddUserToSession_ForbidsSessionOutsideRequestUsersSessions()
+    {
+        var user = CreateUser();
+        var sessionManager = new Mock<ISessionManager>();
+        sessionManager.Setup(manager => manager.GetSessions(user.Id, string.Empty, null, null, false))
+            .Returns(Array.Empty<SessionInfoDto>());
+        var controller = CreateController(sessionManager.Object, Mock.Of<IUserManager>(), user.Id);
+
+        var result = controller.AddUserToSession("other-users-session", Guid.NewGuid());
+
+        Assert.IsType<ForbidResult>(result);
+        sessionManager.Verify(manager => manager.AddAdditionalUser(It.IsAny<string>(), It.IsAny<Guid>()), Times.Never);
+    }
+
+    private static SessionController CreateController(ISessionManager sessionManager, IUserManager userManager, Guid userId)
+    {
+        var controller = new SessionController(sessionManager, userManager);
+        var identity = new ClaimsIdentity(
+            [
+                new Claim(InternalClaimTypes.UserId, userId.ToString("N")),
+                new Claim(InternalClaimTypes.IsApiKey, bool.FalseString)
+            ],
+            "TestAuth");
+        controller.ControllerContext = new ControllerContext
+        {
+            HttpContext = new DefaultHttpContext { User = new ClaimsPrincipal(identity) }
+        };
+        return controller;
+    }
+
     private static User CreateUser()
     {
         var user = new User(
