@@ -141,6 +141,40 @@ public class SessionControllerAuthorizationTests
         sessionManager.Verify(manager => manager.AddAdditionalUser(It.IsAny<string>(), It.IsAny<Guid>()), Times.Never);
     }
 
+    [Fact]
+    public async Task PostCapabilities_ForbidsSessionOutsideRequestUsersSessions()
+    {
+        var user = CreateUser();
+        var sessionManager = new Mock<ISessionManager>();
+        sessionManager.Setup(manager => manager.GetSessions(user.Id, string.Empty, null, null, false))
+            .Returns(Array.Empty<SessionInfoDto>());
+        var controller = CreateController(sessionManager.Object, Mock.Of<IUserManager>(), user.Id);
+
+        var result = await controller.PostCapabilities("other-users-session", [], [], false, true);
+
+        Assert.IsType<ForbidResult>(result);
+        sessionManager.Verify(manager => manager.ReportCapabilities(
+            It.IsAny<string>(),
+            It.IsAny<ClientCapabilities>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task ReportViewing_ForbidsSessionOutsideRequestUsersSessions()
+    {
+        var user = CreateUser();
+        var sessionManager = new Mock<ISessionManager>();
+        sessionManager.Setup(manager => manager.GetSessions(user.Id, string.Empty, null, null, false))
+            .Returns(Array.Empty<SessionInfoDto>());
+        var controller = CreateController(sessionManager.Object, Mock.Of<IUserManager>(), user.Id);
+
+        var result = await controller.ReportViewing("other-users-session", Guid.NewGuid().ToString("N"));
+
+        Assert.IsType<ForbidResult>(result);
+        sessionManager.Verify(
+            manager => manager.ReportNowViewingItem(It.IsAny<string>(), It.IsAny<string>()),
+            Times.Never);
+    }
+
     private static SessionController CreateController(ISessionManager sessionManager, IUserManager userManager, Guid userId)
     {
         var controller = new SessionController(sessionManager, userManager);
