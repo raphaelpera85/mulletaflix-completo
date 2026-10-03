@@ -18,6 +18,8 @@ import java.util.zip.CRC32
 import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
@@ -34,7 +36,11 @@ import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import org.json.JSONObject
+import org.mulletaflix.core.api.HomeFeedCacheScope
 import org.mulletaflix.core.api.MulletaFlixApiService
+import org.mulletaflix.core.api.SessionRepository
+import org.readium.r2.shared.publication.Locator
 import retrofit2.Response
 
 class BookReaderViewModelTest {
@@ -228,7 +234,63 @@ class BookReaderViewModelTest {
         }
     }
 
+    @Test
+    fun readingPositionRestoresAfterReaderViewModelIsDestroyedAndReopened() = runBlocking {
+        val itemId = "persisted-book-${System.nanoTime()}"
+        val sessionScope = HomeFeedCacheScope(
+            serverId = "server-reader-test",
+            serverUrl = "http://reader.test:8096",
+            userId = "reader-user",
+        )
+        val progressScope = sessionScope.bookReaderProgressScope(itemId)
+        val progressStore = BookReaderProgressStore(context)
+        progressStore.remove(progressScope)
+        val savedLocator = requireNotNull(
+            Locator.fromJSON(
+                JSONObject(
+                    """{
+                        "href":"OEBPS/chapter.xhtml",
+                        "type":"application/xhtml+xml",
+                        "locations":{"progression":0.42}
+                    }""".trimIndent(),
+                ),
+            ),
+        )
+
+        val (firstViewModel, firstStore) = viewModel(
+            responseProvider = { Response.success(epubBody(minimalEpub())) },
+            sessionScope = sessionScope,
+        )
+        try {
+            firstViewModel.load(itemId)
+            awaitTerminalState(firstViewModel)
+            firstViewModel.updateLocation(savedLocator)
+        } finally {
+            firstStore.clear()
+        }
+
+        val (reopenedViewModel, reopenedStore) = viewModel(
+            responseProvider = { Response.success(epubBody(minimalEpub())) },
+            sessionScope = sessionScope,
+        )
+        try {
+            reopenedViewModel.load(itemId)
+            val reopened = awaitTerminalState(reopenedViewModel)
+
+            assertEquals(savedLocator.href, reopened.lastLocation?.href)
+            assertEquals(0.42, reopened.lastLocation?.locations?.progression ?: -1.0, 0.0001)
+        } finally {
+            reopenedStore.clear()
+            progressStore.remove(progressScope)
+        }
+    }
+
     private fun viewModel(
+        sessionScope: HomeFeedCacheScope? = HomeFeedCacheScope(
+            serverId = "book-reader-test-server",
+            serverUrl = "http://book-reader.test:8096",
+            userId = "book-reader-test-user",
+        ),
         responseProvider: () -> Response<ResponseBody>,
     ): Pair<BookReaderViewModel, ViewModelStore> {
         val api = Proxy.newProxyInstance(
@@ -251,9 +313,22 @@ class BookReaderViewModelTest {
         val factory = object : ViewModelProvider.Factory {
             @Suppress("UNCHECKED_CAST")
             override fun <T : ViewModel> create(modelClass: Class<T>): T =
-                BookReaderViewModel(context, api) as T
+                BookReaderViewModel(context, api, TestSessionRepository(sessionScope)) as T
         }
         return ViewModelProvider(owner, factory)[BookReaderViewModel::class.java] to store
+    }
+
+    private class TestSessionRepository(
+        private val scope: HomeFeedCacheScope?,
+    ) : SessionRepository {
+        override fun getAccessToken(): Flow<String?> = flowOf("reader-token")
+        override fun getDeviceId(): Flow<String> = flowOf("reader-device")
+        override fun getBaseUrl(): Flow<String> = flowOf(scope?.serverUrl.orEmpty())
+        override fun getCurrentUserId(): Flow<String?> = flowOf(scope?.userId)
+        override fun getHomeFeedCacheScope(): Flow<HomeFeedCacheScope?> = flowOf(scope)
+        override suspend fun saveSession(serverUrl: String, token: String, userId: String, deviceId: String) = Unit
+        override suspend fun setBaseUrl(url: String) = Unit
+        override suspend fun clearSession() = Unit
     }
 
     private suspend fun awaitTerminalState(

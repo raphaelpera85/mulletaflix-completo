@@ -15,12 +15,14 @@ import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.mulletaflix.core.api.MulletaFlixApiService
+import org.mulletaflix.core.api.SessionRepository
 import org.readium.r2.shared.publication.Locator
 import org.readium.r2.shared.publication.Publication
 import org.readium.r2.shared.util.asset.AssetRetriever
@@ -53,6 +55,7 @@ internal fun bookReaderHttpErrorMessage(code: Int): String = when (code) {
 internal class BookReaderViewModel @Inject constructor(
     @ApplicationContext private val context: Context,
     private val api: MulletaFlixApiService,
+    private val sessionRepository: SessionRepository,
 ) : ViewModel() {
 
     private val httpClient = DefaultHttpClient()
@@ -74,6 +77,8 @@ internal class BookReaderViewModel @Inject constructor(
     private var currentPublication: Publication? = null
     private var currentBookFile: File? = null
     private var currentLocation: Locator? = null
+    private var currentProgressScope: BookReaderProgressScope? = null
+    private val progressStore = BookReaderProgressStore(context)
     private val bookCacheDir = File(context.cacheDir, BOOK_READER_CACHE_DIR).apply {
         mkdirs()
         listFiles().orEmpty().forEach { staleFile ->
@@ -96,6 +101,12 @@ internal class BookReaderViewModel @Inject constructor(
             // Retry/new navigation must not overlap the cleanup of the previous transfer.
             previousJob?.join()
             closeCurrentBook()
+            val progressScope = sessionRepository.getHomeFeedCacheScope().first()
+                ?.bookReaderProgressScope(itemId)
+            if (progressScope != currentProgressScope) {
+                currentProgressScope = progressScope
+                currentLocation = progressScope?.let(progressStore::read)
+            }
             _state.value = BookReaderUiState(isLoading = true, lastLocation = currentLocation)
 
             try {
@@ -127,6 +138,7 @@ internal class BookReaderViewModel @Inject constructor(
     fun updateLocation(locator: Locator) {
         currentLocation = locator
         _state.value = _state.value.copy(lastLocation = locator)
+        currentProgressScope?.let { progressStore.write(it, locator) }
     }
 
     private suspend fun downloadAndOpen(itemId: String): Publication {
