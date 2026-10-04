@@ -37,11 +37,11 @@
       "local": "D:\\Users\\Raphael\\Documents\\Projetos\\mulletaflix",
       "location": "portal-site/homologacao.js",
       "scope": "Impedir que null seja exibido como 0% na tabela de homologação",
-      "progressPercent": 0,
-      "status": "in_progress",
+      "progressPercent": 100,
+      "status": "completed",
       "startedAt": "2026-10-04T14:02:00-03:00",
-      "updatedAt": "2026-10-04T14:02:00-03:00",
-      "evidence": "Correção iniciada após identificar conversão automática de null para zero pelo JavaScript."
+      "updatedAt": "2026-10-04T14:06:00-03:00",
+      "evidence": "Corrigida a conversão null→0 no JavaScript; a tabela agora exibe Não consolidado enquanto não houver medição formal. Git principal: c1fcbe02; portal: d2f69b7; Vercel READY: dpl_7vM16tkoiRjoR3wLSfYFaKtF9Wgi; JSON público HTTP 200 validado."
     },
     {
       "id": "android-gpu-dedicated-player-phone-2026-10-04",
