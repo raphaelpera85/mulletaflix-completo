@@ -57,7 +57,7 @@ public sealed class NebulaSupabaseRestoreMongoTests : IDisposable
     }
 
     [Fact]
-    public async Task Restore_PersistsSupabaseUsersAndBotTokensIntoIsolatedStores()
+    public async Task Restore_PersistsSupabaseCatalogUsersAndBotTokensIntoIsolatedStores()
     {
         Assert.SkipUnless(_mongoAvailable, _skipReason);
 
@@ -70,6 +70,11 @@ public sealed class NebulaSupabaseRestoreMongoTests : IDisposable
 
         var appUserId = Guid.NewGuid();
         var handler = new RestoreResponseHandler(
+            new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(
+                    "[{\"id\":\"restore-file-fixture\",\"name\":\"Restored title.mkv\",\"parent\":null,\"size\":12345,\"status\":\"completed\",\"parts\":[{\"message_id\":77,\"file_id\":\"telegram-file-fixture\"}],\"uploaded_at\":1700000000,\"doc_data\":{\"_id\":\"restore-file-fixture\",\"name\":\"Restored title.mkv\",\"status\":\"completed\",\"remote_marker\":\"restored\"}}]")
+            },
             new HttpResponseMessage(HttpStatusCode.OK)
             {
                 Content = new StringContent(
@@ -89,6 +94,13 @@ public sealed class NebulaSupabaseRestoreMongoTests : IDisposable
             _testConnectionString,
             _databaseName,
             NullLogger<NebulaMongoContext>.Instance);
+        await mongoContext.UpsertRawDocAsync(
+            new BsonDocument
+            {
+                { "_id", "restore-file-fixture" },
+                { "local_only_marker", "keep-local" }
+            },
+            TestContext.Current.CancellationToken);
         using var service = new NebulaSupabaseSyncService(
             mongoContext,
             NullLogger<NebulaSupabaseSyncService>.Instance,
@@ -102,25 +114,38 @@ public sealed class NebulaSupabaseRestoreMongoTests : IDisposable
             forceFullRestore: true,
             TestContext.Current.CancellationToken);
         Assert.True(result.Success, result.Message);
-        Assert.Equal(0, result.FilesRestored);
+        Assert.Equal(1, result.FilesRestored);
         Assert.Equal(2, result.UsersRestored);
         Assert.True(double.IsFinite(result.ElapsedSeconds));
         _output.WriteLine(
-            "Restore Supabase→Mongo isolado: restoredUsers={0}; restoredFiles={1}; elapsedSeconds={2:F3}",
-            result.UsersRestored,
+            "Restore Supabase→Mongo isolado: restoredFiles={0}; restoredUsers={1}; elapsedSeconds={2:F3}",
             result.FilesRestored,
+            result.UsersRestored,
             result.ElapsedSeconds);
         Assert.NotNull(service.LastSuccessfulRestoreTime);
-        Assert.Equal(3, handler.Requests.Count);
+        Assert.Equal(4, handler.Requests.Count);
         Assert.All(handler.Requests, request =>
         {
             Assert.Equal(HttpMethod.Get, request.Method);
             Assert.Contains("apikey", request.Headers.Keys);
             Assert.Equal("Bearer sb_secret_test", request.Headers["Authorization"]);
         });
-        Assert.Contains("/rest/v1/nebula_users?select=*", handler.Requests[0].Uri, StringComparison.Ordinal);
-        Assert.Contains("/rest/v1/mulletaflix_users?select=*&order=username.asc", handler.Requests[1].Uri, StringComparison.Ordinal);
-        Assert.Contains("/rest/v1/nebula_bot_tokens?select=*&order=index.asc", handler.Requests[2].Uri, StringComparison.Ordinal);
+        Assert.Contains("/rest/v1/nebula_files?select=id,name,parent,size,status,parts,uploaded_at,doc_data&order=id.asc&limit=500&offset=0", handler.Requests[0].Uri, StringComparison.Ordinal);
+        Assert.Contains("/rest/v1/nebula_users?select=*", handler.Requests[1].Uri, StringComparison.Ordinal);
+        Assert.Contains("/rest/v1/mulletaflix_users?select=*&order=username.asc", handler.Requests[2].Uri, StringComparison.Ordinal);
+        Assert.Contains("/rest/v1/nebula_bot_tokens?select=*&order=index.asc", handler.Requests[3].Uri, StringComparison.Ordinal);
+
+        var restoredFiles = await mongoContext.GetAllFilesForSyncAsync(TestContext.Current.CancellationToken);
+        var restoredFile = Assert.Single(restoredFiles);
+        Assert.Equal("restore-file-fixture", restoredFile["_id"].AsString);
+        Assert.Equal("Restored title.mkv", restoredFile["name"].AsString);
+        Assert.Equal("completed", restoredFile["status"].AsString);
+        Assert.Equal(12345L, restoredFile["size"].ToInt64());
+        Assert.Equal(77L, restoredFile["parts"][0]["message_id"].ToInt64());
+        Assert.Equal("telegram-file-fixture", restoredFile["parts"][0]["file_id"].AsString);
+        Assert.Equal("restored", restoredFile["remote_marker"].AsString);
+        Assert.Equal("keep-local", restoredFile["local_only_marker"].AsString);
+        Assert.Equal(1, await mongoContext.CountFilesAsync(TestContext.Current.CancellationToken));
 
         var ftpUsers = await mongoContext.GetAllUsersForSyncAsync(TestContext.Current.CancellationToken);
         var ftpUser = Assert.Single(ftpUsers);

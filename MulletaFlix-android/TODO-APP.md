@@ -2,6 +2,23 @@
 
 Este documento rastreia o status de implementação de todas as funcionalidades, módulos, telas e componentes do aplicativo oficial **MulletaFlix Android**.
 
+## Retomada local de leitura EPUB (APK local; sem release)
+
+- [x] Salvar o localizador Readium do livro em DataStore e retomá-lo ao reabrir o mesmo título.
+- [x] Isolar o progresso por identidade estável do servidor, conta e mídia; persistir somente a posição, sem URL, token ou credenciais.
+- [x] Ignorar progresso ilegível ou de recurso ausente na publicação atual; limitar o histórico local aos 100 livros recentes.
+- [x] Testes instrumentados no telefone API 35 cobrem persistência/isolamento, retomada real na rendition Readium, EPUB válido e malformado; AVD usou GPU NVIDIA e foi fechado ao terminar.
+- [ ] Revalidar após revisão adversarial; sem bump, pacote de produção ou publicação nesta rodada.
+
+## Parser de EPUB inválido tratado sem derrubar o leitor (APK local; sem release)
+
+- [x] Abrir arquivos EPUB válidos com Readium 3.4 e conferir metadados e ordem de leitura por teste instrumentado.
+- [x] Converter a `AssertionError` emitida pelo parser para OPF/XML malformado em erro recuperável do leitor; testar a causa encadeada para provar que esse caminho foi exercitado.
+- [x] Telefone API 35: `:feature:item-detail:connectedDebugAndroidTest`, 2 testes aprovados, 0 falhas/erros/skips; wrapper validou o PID do AVD na NVIDIA e encerrou o emulador.
+- [x] `testDebugUnitTest`: 1.352 testes, 0 falhas/erros/skips; `:feature:item-detail:lintDebug`, `:app:lintDebug`, `:app:assembleDebug` e `:app:compileDebugAndroidTestKotlin`: `BUILD SUCCESSFUL`.
+- [x] Revisão independente após endurecer a checagem de GPU por PID e aceitar os tipos de processo gráficos NVIDIA `G` e `C+G`: sem achados pendentes.
+- [ ] Sem bump nem publicação; não alterar servidor ou portal. Conferir assinatura oficial e release anterior somente antes de futura release autorizada.
+
 ## Leitura de livros aceita respostas binárias genéricas (APK local; sem release)
 
 - [x] Continuar tentando interpretar a resposta EPUB quando o servidor omitir `Content-Type` ou responder `application/octet-stream`; deixar o parser Readium validar o conteúdo real.

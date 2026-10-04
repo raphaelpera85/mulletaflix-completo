@@ -27,6 +27,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -40,7 +41,10 @@ import org.readium.navigator.web.reflowable.ReflowableWebRendition
 import org.readium.navigator.web.reflowable.ReflowableWebRenditionFactory
 import org.readium.navigator.web.reflowable.ReflowableWebRenditionState
 import org.readium.navigator.web.reflowable.preferences.ReflowableWebPreferences
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
+import org.readium.navigator.web.reflowable.ReflowableWebGoLocation
 
 @Composable
 @OptIn(ExperimentalMaterial3Api::class)
@@ -65,10 +69,17 @@ fun BookReaderScreen(
                 configuration = ReflowableWebConfiguration(),
             )?.createRenditionState(
                 initialPreferences = ReflowableWebPreferences(),
-                initialLocation = null,
+                initialLocation = state.initialLocator?.let(::ReflowableWebGoLocation),
             )?.getOrNull() ?: error("Não foi possível preparar a leitura.")
         }.onSuccess { renditionState = it }
             .onFailure { renditionError = "Não foi possível renderizar este livro." }
+    }
+    val renditionController = renditionState?.controller
+    LaunchedEffect(itemId, renditionController) {
+        val controller = renditionController ?: return@LaunchedEffect
+        snapshotFlow { controller.location.toLocator() }
+            .distinctUntilChanged()
+            .collect { locator -> viewModel.saveReadingProgression(itemId, locator) }
     }
 
     Scaffold(

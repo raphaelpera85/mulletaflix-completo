@@ -74,6 +74,8 @@ Comandos úteis:
 
 Use `tools\with-emulator.ps1` para iniciar um AVD somente durante um comando; o script encerra o processo criado no bloco `finally`:
 
+O wrapper inicia por padrão com `-gpu host` e configura a preferência Windows de alto desempenho apenas para `emulator.exe` e `qemu-system-x86_64.exe`, para o notebook usar a GPU dedicada nos testes sem alterar a preferência global. Se `nvidia-smi` estiver disponível e detectar NVIDIA, o wrapper aguarda e verifica que o PID QEMU daquele AVD está usando-a antes dos testes. `-GpuMode swiftshader` é somente um fallback se o driver host falhar.
+
 Todo teste instrumentado executado pelo wrapper deve declarar `expectedDeviceProfile=PHONE`, `TABLET` ou `TV`; ele confere o perfil real do AVD antes de iniciar Gradle. Exemplo em TV:
 
 ```powershell

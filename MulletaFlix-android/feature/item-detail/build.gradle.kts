@@ -35,6 +35,7 @@ dependencies {
     ksp(libs.hilt.android.compiler)
     implementation(libs.hilt.navigation.compose)
     implementation(libs.kotlinx.coroutines.android)
+    implementation(libs.datastore.preferences)
     coreLibraryDesugaring(libs.android.desugar.jdk.libs)
     implementation(libs.readium.streamer)
     implementation(libs.readium.navigator.web.reflowable)

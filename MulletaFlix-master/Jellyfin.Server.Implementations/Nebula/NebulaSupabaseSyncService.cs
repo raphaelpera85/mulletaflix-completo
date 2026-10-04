@@ -35,6 +35,7 @@ namespace Jellyfin.Server.Implementations.Nebula;
 public sealed class NebulaSupabaseSyncService : IDisposable
 {
     public const string MeterName = "MulletaFlix.Nebula.SupabaseSync";
+    internal const int SupabaseRestorePageSize = 500;
 
     private static readonly Meter SyncMeter = new(MeterName);
     private static readonly Counter<long> OperationCounter = SyncMeter.CreateCounter<long>("mulletaflix.supabase.operations");
@@ -718,7 +719,7 @@ public sealed class NebulaSupabaseSyncService : IDisposable
     }
 
     /// <summary>
-    /// Restaura a biblioteca, usuários e tokens do Supabase para o MongoDB com relatório de progresso.
+    /// Restaura o catálogo, usuários FTP, usuários do MulletaFlix e tokens do Supabase.
     /// </summary>
     public Task<NebulaSupabaseRestoreResultDto> PerformRestoreAsync(
         string supabaseUrl,
@@ -730,7 +731,7 @@ public sealed class NebulaSupabaseSyncService : IDisposable
     }
 
     /// <summary>
-    /// Restaura usuários e tokens do Supabase para o MongoDB.
+    /// Restaura o catálogo, usuários FTP, usuários do MulletaFlix e tokens do Supabase.
     /// </summary>
     public async Task<NebulaSupabaseRestoreResultDto> PerformRestoreAsync(
         string supabaseUrl,
@@ -740,7 +741,7 @@ public sealed class NebulaSupabaseSyncService : IDisposable
         CancellationToken cancellationToken = default)
     {
         return await MeasureOperationAsync(
-            "restore_users",
+            "restore_catalog",
             () => PerformRestoreCoreAsync(supabaseUrl, supabaseKey, progressAction, forceFullRestore, cancellationToken),
             result => cancellationToken.IsCancellationRequested ? "cancelled" : result.Success ? "success" : "failure",
             cancellationToken).ConfigureAwait(false);
@@ -775,11 +776,23 @@ public sealed class NebulaSupabaseSyncService : IDisposable
         await _backupGate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            // Esta tela é exclusiva de usuários. Nunca leia ou grave nebula_files:
-            // a restauração não altera mídia, NFO, imagens, fila ou cache.
-            const int restoredFiles = 0;
-            _logger.LogInformation("[SUPABASE-RESTORE] Restauração de usuários iniciada; arquivos de mídia ignorados.");
-            progressAction?.Invoke("[SUPABASE-RESTORE] Restauração de usuários iniciada; mídia ignorada.");
+            _logger.LogInformation("[SUPABASE-RESTORE] Restauração do catálogo Nebula iniciada; mídias locais serão mescladas, não removidas.");
+            progressAction?.Invoke("[SUPABASE-RESTORE] Restaurando catálogo Nebula do Supabase.");
+
+            var restoredFiles = await RestoreFilesFromSupabaseAsync(
+                supabaseUrl,
+                supabaseKey,
+                async (documents, token) =>
+                {
+                    if (_mongoContext is null)
+                    {
+                        throw new InvalidOperationException("MongoDB não está disponível para restaurar o catálogo Nebula.");
+                    }
+
+                    return await _mongoContext.BulkUpsertRawDocsAsync(documents, token).ConfigureAwait(false);
+                },
+                progressAction,
+                cancellationToken).ConfigureAwait(false);
 
             // Restaura usuários
             var restoredUsers = 0;
@@ -889,7 +902,7 @@ public sealed class NebulaSupabaseSyncService : IDisposable
             result.FilesRestored = restoredFiles;
             result.UsersRestored = restoredUsers + restoredAppUsers;
             result.ElapsedSeconds = (DateTime.UtcNow - startTime).TotalSeconds;
-            result.Message = $"Restauração de usuários finalizada com sucesso! {restoredUsers} usuários FTP e {restoredAppUsers} usuários do MulletaFlix recuperados em {result.ElapsedSeconds:F1}s. Mídia não alterada.";
+            result.Message = $"Restauração finalizada com sucesso! {restoredFiles} arquivos Nebula, {restoredUsers} usuários FTP e {restoredAppUsers} usuários do MulletaFlix recuperados em {result.ElapsedSeconds:F1}s. Arquivos locais não foram removidos.";
             _logger.LogInformation("[SUPABASE-RESTORE] {Message}", result.Message);
             progressAction?.Invoke($"[SUPABASE-RESTORE] {result.Message}");
             return result;
@@ -906,6 +919,83 @@ public sealed class NebulaSupabaseSyncService : IDisposable
         {
             _backupGate.Release();
         }
+    }
+
+    internal async Task<int> RestoreFilesFromSupabaseAsync(
+        string supabaseUrl,
+        string supabaseKey,
+        Func<IReadOnlyCollection<BsonDocument>, CancellationToken, Task<int>> persistBatch,
+        Action<string>? progressAction,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(persistBatch);
+
+        var restored = 0;
+        long offset = 0;
+        while (true)
+        {
+            var uri = $"{supabaseUrl.TrimEnd('/')}/rest/v1/nebula_files?select=id,name,parent,size,status,parts,uploaded_at,doc_data&order=id.asc&limit={SupabaseRestorePageSize}&offset={offset}";
+            using var request = new HttpRequestMessage(HttpMethod.Get, uri);
+            request.Headers.Add("apikey", supabaseKey);
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", supabaseKey);
+
+            using var response = await _httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
+            if (!response.IsSuccessStatusCode)
+            {
+                var errorBody = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+                throw new InvalidOperationException($"Supabase rejeitou a restauração do catálogo Nebula: HTTP {(int)response.StatusCode} - {errorBody}");
+            }
+
+            var body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+            using var document = JsonDocument.Parse(body);
+            if (document.RootElement.ValueKind != JsonValueKind.Array)
+            {
+                throw new InvalidOperationException("A resposta nebula_files do Supabase não é uma lista JSON.");
+            }
+
+            var batch = new List<BsonDocument>();
+            foreach (var row in document.RootElement.EnumerateArray())
+            {
+                if (row.ValueKind != JsonValueKind.Object
+                    || !row.TryGetProperty("id", out var idElement)
+                    || idElement.ValueKind != JsonValueKind.String
+                    || string.IsNullOrWhiteSpace(idElement.GetString())
+                    || !row.TryGetProperty("doc_data", out var dataElement)
+                    || dataElement.ValueKind != JsonValueKind.Object)
+                {
+                    throw new InvalidOperationException("A resposta nebula_files contém registro sem id ou doc_data válido.");
+                }
+
+                var bson = MongoDB.Bson.Serialization.BsonSerializer.Deserialize<BsonDocument>(dataElement.GetRawText());
+                bson["_id"] = idElement.GetString()!;
+                foreach (var field in new[] { "name", "parent", "size", "status", "parts", "uploaded_at" })
+                {
+                    if (row.TryGetProperty(field, out var value))
+                    {
+                        var wrapper = MongoDB.Bson.Serialization.BsonSerializer.Deserialize<BsonDocument>(
+                            "{\"value\":" + value.GetRawText() + "}");
+                        bson[field] = wrapper["value"];
+                    }
+                }
+
+                batch.Add(bson);
+            }
+
+            if (batch.Count == 0)
+            {
+                break;
+            }
+
+            restored += await persistBatch(batch, cancellationToken).ConfigureAwait(false);
+            progressAction?.Invoke($"[SUPABASE-RESTORE] Catálogo Nebula: {restored} registros mesclados.");
+
+            // PostgREST may enforce a server-side max_rows lower than the
+            // requested limit. Advance by what it actually returned instead
+            // of treating a short page as the end of the table.
+            offset = checked(offset + batch.Count);
+        }
+
+        return restored;
     }
 
     private static async Task<T> MeasureOperationAsync<T>(

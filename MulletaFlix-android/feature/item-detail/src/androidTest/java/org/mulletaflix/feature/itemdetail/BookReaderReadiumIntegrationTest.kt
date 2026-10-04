@@ -1,5 +1,9 @@
 package org.mulletaflix.feature.itemdetail
 
+import android.app.Application
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import java.io.File
@@ -8,18 +12,26 @@ import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
+import org.json.JSONObject
+import org.mulletaflix.core.api.HomeFeedCacheScope
+import org.readium.navigator.web.reflowable.ReflowableWebConfiguration
+import org.readium.navigator.web.reflowable.ReflowableWebGoLocation
+import org.readium.navigator.web.reflowable.ReflowableWebRendition
+import org.readium.navigator.web.reflowable.ReflowableWebRenditionFactory
+import org.readium.navigator.web.reflowable.preferences.ReflowableWebPreferences
+import org.readium.r2.shared.publication.Locator
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNotNull
-import org.junit.Assert.assertNull
+import org.junit.Assert.assertThrows
+import org.junit.Assert.assertTrue
+import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
-import org.readium.r2.shared.util.http.DefaultHttpClient
-import org.readium.r2.shared.util.asset.AssetRetriever
-import org.readium.r2.streamer.PublicationOpener
-import org.readium.r2.streamer.parser.DefaultPublicationParser
 
 @RunWith(AndroidJUnit4::class)
 class BookReaderReadiumIntegrationTest {
+    @get:Rule
+    val composeRule = createComposeRule()
+
     private val context = InstrumentationRegistry.getInstrumentation().targetContext
 
     @Test
@@ -29,16 +41,15 @@ class BookReaderReadiumIntegrationTest {
         try {
             val publication = open(epub)
 
-            assertNotNull(publication)
-            assertEquals("Integration Test Book", publication?.metadata?.title)
-            assertEquals(1, publication?.readingOrder?.size)
+            assertEquals("Integration Test Book", publication.metadata.title)
+            assertEquals(2, publication.readingOrder.size)
         } finally {
             epub.delete()
         }
     }
 
     @Test
-    fun rejectsMalformedEpubWithoutThrowingFromReadiumResultApi() {
+    fun convertsMalformedEpubParserAssertionIntoReaderFailure() {
         val invalidEpub = File.createTempFile("invalid-book-", ".epub", context.cacheDir)
         ZipOutputStream(invalidEpub.outputStream()).use { zip ->
             val mimetype = "application/epub+zip".toByteArray(Charsets.US_ASCII)
@@ -62,24 +73,74 @@ class BookReaderReadiumIntegrationTest {
         }
 
         try {
-            assertNull(open(invalidEpub))
+            val failure = assertThrows(IllegalArgumentException::class.java) { open(invalidEpub) }
+            assertTrue(failure.cause is AssertionError)
         } finally {
             invalidEpub.delete()
         }
     }
 
+    @Test
+    fun readingProgressPersistsAcrossStoreInstancesAndIsolatedByAccountAndServer() = runBlocking {
+        val store = BookReaderProgressStore(context)
+        val reloadedStore = BookReaderProgressStore(context)
+        val scope = HomeFeedCacheScope("server-progress-test", "https://server.example", "user-progress-test")
+        val differentAccount = scope.copy(userId = "another-user")
+        val differentServer = scope.copy(serverId = "another-server")
+        val sameServerLanEndpoint = scope.copy(serverUrl = "http://192.168.1.20:8096")
+        val itemId = "book-progress-${System.nanoTime()}"
+        val locator = locator("OPS/chapter-2.xhtml", 0.42)
+        val urlOnlyScope = scope.copy(serverId = null, serverUrl = "https://server.example/")
+        val normalizedUrlScope = urlOnlyScope.copy(serverUrl = "https://server.example")
+        val urlItemId = "$itemId-url"
+
+        try {
+            store.write(scope, itemId, locator)
+
+            assertEquals(locator.toJSON().toString(), reloadedStore.read(scope, itemId)?.toJSON().toString())
+            assertEquals(locator.toJSON().toString(), reloadedStore.read(sameServerLanEndpoint, itemId)?.toJSON().toString())
+            assertEquals(null, reloadedStore.read(differentAccount, itemId))
+            assertEquals(null, reloadedStore.read(differentServer, itemId))
+            store.write(urlOnlyScope, urlItemId, locator)
+            assertEquals(locator.toJSON().toString(), reloadedStore.read(normalizedUrlScope, urlItemId)?.toJSON().toString())
+        } finally {
+            reloadedStore.remove(scope, itemId)
+            reloadedStore.remove(urlOnlyScope, urlItemId)
+        }
+    }
+
+    @Test
+    fun reflowableRenditionRestoresSavedLocationAfterRecreation() {
+        val epub = createEpub()
+        try {
+            val publication = open(epub)
+            val savedLocator = locator("OPS/chapter-2.xhtml", 0.42)
+            val renditionState = runBlocking(Dispatchers.IO) {
+                ReflowableWebRenditionFactory(
+                    application = context.applicationContext as Application,
+                    publication = publication,
+                    configuration = ReflowableWebConfiguration(),
+                ).createRenditionState(
+                    initialPreferences = ReflowableWebPreferences(),
+                    initialLocation = ReflowableWebGoLocation(savedLocator),
+                ).getOrNull()
+            }
+            val validRenditionState = requireNotNull(renditionState)
+
+            composeRule.setContent {
+                ReflowableWebRendition(state = validRenditionState, modifier = Modifier.fillMaxSize())
+            }
+            composeRule.waitUntil(timeoutMillis = 10_000) {
+                validRenditionState.controller?.location?.href?.toString() == "OPS/chapter-2.xhtml"
+            }
+            assertEquals("OPS/chapter-2.xhtml", validRenditionState.controller?.location?.href?.toString())
+        } finally {
+            epub.delete()
+        }
+    }
+
     private fun open(file: File) = runBlocking(Dispatchers.IO) {
-        val httpClient = DefaultHttpClient()
-        val assetRetriever = AssetRetriever(context.contentResolver, httpClient)
-        val parser = DefaultPublicationParser(
-            context = context,
-            httpClient = httpClient,
-            assetRetriever = assetRetriever,
-            pdfFactory = null,
-        )
-        val asset = assetRetriever.retrieve(file).getOrNull()
-        if (asset == null) null
-        else PublicationOpener(parser).open(asset, allowUserInteraction = false).getOrNull()
+        openBookPublication(context, file)
     }
 
     private fun createEpub(): File {
@@ -112,8 +173,11 @@ class BookReaderReadiumIntegrationTest {
                         <dc:title>Integration Test Book</dc:title>
                         <dc:language>pt-BR</dc:language>
                       </metadata>
-                      <manifest><item id="chapter" href="chapter.xhtml" media-type="application/xhtml+xml"/></manifest>
-                      <spine><itemref idref="chapter"/></spine>
+                      <manifest>
+                        <item id="chapter" href="chapter.xhtml" media-type="application/xhtml+xml"/>
+                        <item id="chapter-2" href="chapter-2.xhtml" media-type="application/xhtml+xml"/>
+                      </manifest>
+                      <spine><itemref idref="chapter"/><itemref idref="chapter-2"/></spine>
                     </package>""".trimIndent(),
             )
             zip.writeEntry(
@@ -124,9 +188,25 @@ class BookReaderReadiumIntegrationTest {
                       <body><h1>Leitura funcionando</h1><p>Conteúdo EPUB mínimo válido.</p></body>
                     </html>""".trimIndent(),
             )
+            zip.writeEntry(
+                "OPS/chapter-2.xhtml",
+                """<?xml version="1.0" encoding="UTF-8"?>
+                    <html xmlns="http://www.w3.org/1999/xhtml" lang="pt-BR">
+                      <head><title>Capítulo dois</title></head>
+                      <body><h1>Retomada funcionando</h1><p>Posição salva restaurada.</p></body>
+                    </html>""".trimIndent(),
+            )
         }
         return file
     }
+
+    private fun locator(href: String, progression: Double) = requireNotNull(
+        Locator.fromJSON(
+            JSONObject(
+                """{"href":"$href","type":"application/xhtml+xml","locations":{"progression":$progression}}""",
+            ),
+        ),
+    )
 
     private fun ZipOutputStream.writeEntry(path: String, content: String) {
         putNextEntry(ZipEntry(path))

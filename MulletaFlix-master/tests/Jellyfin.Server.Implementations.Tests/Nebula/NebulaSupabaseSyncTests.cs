@@ -365,6 +365,7 @@ public class NebulaSupabaseSyncTests
         var restoredId = Guid.NewGuid();
         var handler = new SequenceResponseHandler(
             new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("[]") },
+            new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("[]") },
             new HttpResponseMessage(HttpStatusCode.OK)
             {
                 Content = new StringContent(
@@ -394,7 +395,7 @@ public class NebulaSupabaseSyncTests
             result.FilesRestored,
             result.ElapsedSeconds);
         Assert.NotNull(service.LastSuccessfulRestoreTime);
-        Assert.Equal([HttpMethod.Get, HttpMethod.Get, HttpMethod.Get], handler.Methods);
+        Assert.Equal([HttpMethod.Get, HttpMethod.Get, HttpMethod.Get, HttpMethod.Get], handler.Methods);
 
         await using var verificationDb = new UsersDbContext(options, NullLogger<UsersDbContext>.Instance);
         var restoredUser = await verificationDb.Users.SingleAsync(
@@ -412,10 +413,12 @@ public class NebulaSupabaseSyncTests
     [Fact]
     public async Task MongoRestoreFailsWhenFtpUserReadIsRejected()
     {
-        var handler = new StaticResponseHandler(new HttpResponseMessage(HttpStatusCode.ServiceUnavailable)
-        {
-            Content = new StringContent("FTP user table unavailable")
-        });
+        var handler = new SequenceResponseHandler(
+            new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("[]") },
+            new HttpResponseMessage(HttpStatusCode.ServiceUnavailable)
+            {
+                Content = new StringContent("FTP user table unavailable")
+            });
         using var service = new NebulaSupabaseSyncService(
             null!,
             NullLogger<NebulaSupabaseSyncService>.Instance,
@@ -429,8 +432,35 @@ public class NebulaSupabaseSyncTests
         Assert.False(result.Success);
         Assert.Contains("restauração de usuários FTP", result.Message, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("HTTP 503", result.Message, StringComparison.Ordinal);
+        Assert.Equal(new[] { HttpMethod.Get, HttpMethod.Get }, handler.Methods);
+    }
+
+    [Fact]
+    public async Task MongoRestoreFailsWhenCatalogHasRowsButMongoContextIsUnavailable()
+    {
+        var handler = new StaticResponseHandler(new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StringContent(
+                "[{\"id\":\"restore-file\",\"name\":\"title.mkv\",\"parent\":null,\"size\":10,\"status\":\"completed\",\"parts\":[],\"doc_data\":{\"_id\":\"restore-file\"}}]")
+        });
+        using var service = new NebulaSupabaseSyncService(
+            null!,
+            NullLogger<NebulaSupabaseSyncService>.Instance,
+            CreateUsersContextFactory(new DbContextOptionsBuilder<UsersDbContext>()
+                .UseInMemoryDatabase(Guid.NewGuid().ToString("N"))
+                .Options),
+            handler);
+
+        var result = await service.PerformRestoreAsync(
+            "https://supabase.invalid",
+            "sb_secret_test",
+            cancellationToken: TestContext.Current.CancellationToken);
+
+        Assert.False(result.Success);
+        Assert.Contains("MongoDB não está disponível", result.Message, StringComparison.Ordinal);
+        Assert.Equal(0, result.FilesRestored);
+        Assert.Null(service.LastSuccessfulRestoreTime);
         Assert.Equal(1, handler.RequestCount);
-        Assert.Equal(HttpMethod.Get, handler.LastMethod);
     }
 
     [Fact]
@@ -440,6 +470,7 @@ public class NebulaSupabaseSyncTests
             .UseInMemoryDatabase(Guid.NewGuid().ToString("N"))
             .Options;
         var handler = new SequenceResponseHandler(
+            new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("[]") },
             new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("[]") },
             new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("[]") },
             new HttpResponseMessage(HttpStatusCode.ServiceUnavailable)
@@ -457,16 +488,18 @@ public class NebulaSupabaseSyncTests
         Assert.False(result.Success);
         Assert.Contains("restauração de tokens de bot", result.Message, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("HTTP 503", result.Message, StringComparison.Ordinal);
-        Assert.Equal(new[] { HttpMethod.Get, HttpMethod.Get, HttpMethod.Get }, handler.Methods);
+        Assert.Equal(new[] { HttpMethod.Get, HttpMethod.Get, HttpMethod.Get, HttpMethod.Get }, handler.Methods);
     }
 
     [Fact]
     public async Task MongoRestoreFailsWhenFtpUserResponseIsNotAJsonArray()
     {
-        var handler = new StaticResponseHandler(new HttpResponseMessage(HttpStatusCode.OK)
-        {
-            Content = new StringContent("{\"unexpected\":true}")
-        });
+        var handler = new SequenceResponseHandler(
+            new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("[]") },
+            new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent("{\"unexpected\":true}")
+            });
         using var service = new NebulaSupabaseSyncService(
             null!,
             NullLogger<NebulaSupabaseSyncService>.Instance,
@@ -480,13 +513,14 @@ public class NebulaSupabaseSyncTests
         Assert.False(result.Success);
         Assert.Contains("não é uma lista JSON", result.Message, StringComparison.OrdinalIgnoreCase);
         Assert.Null(service.LastSuccessfulRestoreTime);
-        Assert.Equal(1, handler.RequestCount);
+        Assert.Equal(new[] { HttpMethod.Get, HttpMethod.Get }, handler.Methods);
     }
 
     [Fact]
     public async Task MongoRestoreFailsWhenBotTokenResponseIsNotAJsonArray()
     {
         var handler = new SequenceResponseHandler(
+            new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("[]") },
             new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("[]") },
             new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("[]") },
             new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("{\"unexpected\":true}") });
@@ -503,7 +537,7 @@ public class NebulaSupabaseSyncTests
         Assert.False(result.Success);
         Assert.Contains("não é uma lista JSON", result.Message, StringComparison.OrdinalIgnoreCase);
         Assert.Null(service.LastSuccessfulRestoreTime);
-        Assert.Equal(new[] { HttpMethod.Get, HttpMethod.Get, HttpMethod.Get }, handler.Methods);
+        Assert.Equal(new[] { HttpMethod.Get, HttpMethod.Get, HttpMethod.Get, HttpMethod.Get }, handler.Methods);
     }
 
     [Fact]
@@ -513,6 +547,7 @@ public class NebulaSupabaseSyncTests
             .UseInMemoryDatabase(Guid.NewGuid().ToString("N"))
             .Options;
         var handler = new SequenceResponseHandler(
+            new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("[]") },
             new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("[]") },
             new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("[]") },
             new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("[]") });
@@ -526,7 +561,7 @@ public class NebulaSupabaseSyncTests
 
         Assert.True(result.Success, result.Message);
         Assert.Equal(0, result.UsersRestored);
-        Assert.Equal(new[] { HttpMethod.Get, HttpMethod.Get, HttpMethod.Get }, handler.Methods);
+        Assert.Equal(new[] { HttpMethod.Get, HttpMethod.Get, HttpMethod.Get, HttpMethod.Get }, handler.Methods);
     }
 
     [Fact]

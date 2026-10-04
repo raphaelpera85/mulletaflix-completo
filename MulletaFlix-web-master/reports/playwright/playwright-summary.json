@@ -1,35 +1,35 @@
 {
   "title": "MulletaFlix Playwright Summary",
-  "generatedAt": "2026-10-04T06:13:19.736Z",
+  "generatedAt": "2026-10-04T08:19:44.601Z",
   "baseUrl": "http://127.0.0.1:18096",
-  "status": "failed",
+  "status": "success",
   "specCount": 17,
   "tests": {
-    "total": 0,
-    "passed": 0,
+    "total": 1,
+    "passed": 1,
     "failed": 0,
     "flaky": 0,
     "skipped": 0,
-    "durationMs": 11.04200000000003
+    "durationMs": 43716.502
   },
   "stageProbe": {
     "reachable": true,
-    "startupWizardCompleted": false,
-    "systemId": "ea35bd1ad7db467c80390230293bba40",
+    "startupWizardCompleted": true,
+    "systemId": "cffe1742c36e48f48099fcfaccb0c80b",
     "error": null
   },
   "stageChecks": {
-    "wizard": true,
-    "admin": false,
-    "user": false,
-    "login": false
+    "wizard": false,
+    "admin": true,
+    "user": true,
+    "login": true
   },
   "assumptions": [
     "Os specs devem continuar separados do código de apoio em tests/playwright/specs.",
     "O runner escolhe uma porta local isolada quando 127.0.0.1:8096 já está ocupada.",
     "Stage inicial limpo confirmado com StartupWizardCompleted=false",
-    "StartupWizardCompleted=false",
+    "StartupWizardCompleted=true",
     "O relatório JSON cru do Playwright foi gerado e consolidado pelo runner."
   ],
-  "conclusion": "A suíte falhou. Corrija os pontos listados no relatório antes de expandir a cobertura."
+  "conclusion": "A suíte terminou sem falhas inesperadas e o fluxo base está pronto para expansão."
 }

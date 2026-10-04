@@ -5,6 +5,9 @@ param(
     [Parameter(Mandatory = $true)]
     [int] $Port,
 
+    [ValidateSet('host', 'auto', 'software', 'swiftshader', 'lavapipe', 'swangle')]
+    [string] $GpuMode = 'host',
+
     [Parameter(Mandatory = $true, Position = 0)]
     [string] $Command,
 
@@ -63,6 +66,84 @@ function Get-PackageManagerReady {
     }
 }
 
+function Set-HighPerformanceGpuPreference {
+    param([string] $ExecutablePath)
+
+    $preferencesPath = 'HKCU:\Software\Microsoft\DirectX\UserGpuPreferences'
+    if (-not (Test-Path $preferencesPath)) {
+        New-Item -Path $preferencesPath -Force | Out-Null
+    }
+
+    $current = (Get-ItemProperty -Path $preferencesPath -Name $ExecutablePath -ErrorAction SilentlyContinue).$ExecutablePath
+    if ($current -match 'GpuPreference=\d+;') {
+        $updated = $current -replace 'GpuPreference=\d+;', 'GpuPreference=2;'
+    } else {
+        $updated = "$current;GpuPreference=2;".TrimStart(';')
+    }
+    New-ItemProperty -Path $preferencesPath -Name $ExecutablePath -Value $updated -PropertyType String -Force | Out-Null
+}
+
+function Assert-EmulatorUsesHighPerformanceNvidiaGpu {
+    param([string] $AvdName, [System.Diagnostics.Process] $RootProcess)
+
+    $nvidiaSmi = Get-Command 'nvidia-smi' -ErrorAction SilentlyContinue
+    if (-not $nvidiaSmi) {
+        Write-Warning 'nvidia-smi is unavailable; -gpu host is enabled, but dedicated GPU selection cannot be verified.'
+        return
+    }
+
+    $gpuNames = & $nvidiaSmi.Source '--query-gpu=name' '--format=csv,noheader' 2>&1
+    if ($LASTEXITCODE -ne 0) {
+        throw 'nvidia-smi could not identify the installed GPU.'
+    }
+    if (-not ($gpuNames | Where-Object { $_ -match '^NVIDIA\b' })) {
+        Write-Host 'No NVIDIA adapter detected; Android Emulator is using host GPU selection.'
+        return
+    }
+
+    $allProcesses = @(Get-CimInstance Win32_Process -ErrorAction Stop)
+    $expectedProcessIds = [System.Collections.Generic.HashSet[int]]::new()
+    if ($RootProcess) {
+        [void] $expectedProcessIds.Add($RootProcess.Id)
+        do {
+            $before = $expectedProcessIds.Count
+            $allProcesses |
+                Where-Object { $expectedProcessIds.Contains([int]$_.ParentProcessId) } |
+                ForEach-Object { [void] $expectedProcessIds.Add([int]$_.ProcessId) }
+        } while ($expectedProcessIds.Count -gt $before)
+    }
+
+    $qemuProcesses = @($allProcesses | Where-Object { $_.Name -eq 'qemu-system-x86_64.exe' })
+    if ($RootProcess) {
+        $targetQemuProcesses = @($qemuProcesses | Where-Object { $expectedProcessIds.Contains([int]$_.ProcessId) })
+    } elseif ($qemuProcesses.Count -eq 1) {
+        $targetQemuProcesses = $qemuProcesses
+    } else {
+        $targetQemuProcesses = @($qemuProcesses | Where-Object { $_.CommandLine -match [regex]::Escape($AvdName) })
+    }
+    if ($targetQemuProcesses.Count -ne 1) {
+        throw "Could not uniquely identify the QEMU process for AVD $AvdName; close other emulators and run this test through the wrapper."
+    }
+    $targetQemuPid = [int] $targetQemuProcesses[0].ProcessId
+
+    $deadline = (Get-Date).AddSeconds(30)
+    do {
+        $gpuStatus = & $nvidiaSmi.Source 2>&1
+        if ($LASTEXITCODE -ne 0) {
+            throw 'nvidia-smi could not verify Android Emulator GPU usage.'
+        }
+        foreach ($line in $gpuStatus) {
+            if ($line -match '^\s*\|.*\s(?<pid>\d+)\s+(?:C\+)?G\s+.*qemu-system-x86_64\.exe' -and [int]$Matches.pid -eq $targetQemuPid) {
+                Write-Host "Verified: AVD $AvdName QEMU PID $targetQemuPid is using the NVIDIA GPU."
+                return
+            }
+        }
+        Start-Sleep -Seconds 1
+    } while ((Get-Date) -lt $deadline)
+
+    throw "NVIDIA GPU is available, but AVD $AvdName QEMU PID $targetQemuPid is not using it. Check Windows Graphics preferences and the NVIDIA driver."
+}
+
 try {
     $serialPattern = '^\s*' + [regex]::Escape($serial) + '\s'
     $existing = (& $adb devices) | Where-Object { $_ -match $serialPattern }
@@ -72,12 +153,20 @@ try {
         throw "ADB serial $serial already exists in state '$state'; resolve that device before starting $AvdName."
     }
     if (-not $existingReady) {
+        if ($GpuMode -eq 'host') {
+            # Prefer the Windows high-performance adapter for emulator graphics only.
+            Set-HighPerformanceGpuPreference -ExecutablePath $emulator
+            $qemu = Join-Path $sdkRoot 'emulator\qemu\windows-x86_64\qemu-system-x86_64.exe'
+            if (Test-Path $qemu) {
+                Set-HighPerformanceGpuPreference -ExecutablePath $qemu
+            }
+        }
         $emulatorProcess = Start-Process -FilePath $emulator -ArgumentList @(
             "-avd", $AvdName,
             "-port", $Port,
             "-no-snapshot",
             "-no-boot-anim",
-            "-gpu", "swiftshader_indirect"
+            "-gpu", $GpuMode
         ) -WindowStyle Normal -PassThru
         $startedHere = $true
     }
@@ -99,6 +188,9 @@ try {
     }
     if (-not $packageManagerReady) {
         throw "Emulator $AvdName booted, but Package Manager did not become ready on $serial."
+    }
+    if ($GpuMode -eq 'host') {
+        Assert-EmulatorUsesHighPerformanceNvidiaGpu -AvdName $AvdName -RootProcess $emulatorProcess
     }
 
     $instrumentedTasks = @(Get-AndroidInstrumentationTasks -CommandArguments $CommandArgument)

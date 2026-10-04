@@ -18,6 +18,7 @@ test('creates an empty playlist, discovers it from the home navigation, and pers
 
     const playlistName = `UX playlist ${crypto.randomUUID().slice(0, 8)}`;
     let playlistId: string | undefined;
+    let accessToken: string | undefined;
     let persistedContext: BrowserContext | undefined;
     let persistedStorageState: Awaited<ReturnType<BrowserContext['storageState']>> | undefined;
     let testFailure: unknown;
@@ -37,6 +38,9 @@ test('creates an empty playlist, discovers it from the home navigation, and pers
         const creation = await creationResponse.json() as { Id?: string };
         playlistId = creation.Id;
         expect(playlistId).toBeTruthy();
+        const credentials = await page.evaluate(() => JSON.parse(localStorage.getItem('jellyfin_credentials') || '{}'));
+        accessToken = credentials.Servers?.find((server: { AccessToken?: string }) => server.AccessToken)?.AccessToken;
+        expect(accessToken).toBeTruthy();
 
         await expect(dialog).toBeHidden({ timeout: 30_000 });
         // Empty playlists have no details content; land on their index so the new list is discoverable.
@@ -70,6 +74,28 @@ test('creates an empty playlist, discovers it from the home navigation, and pers
         persistedContext = undefined;
 
         await restartOwnedStage();
+        // The restart helper waits for the public startup endpoint, which can
+        // answer during the transient setup host. Wait for the authenticated
+        // playlist API itself before opening the browser route.
+        await expect.poll(async () => {
+            try {
+                const response = await fetch(`${getStageBaseUrl()}/Playlists`, {
+                    headers: { 'X-Emby-Token': accessToken! }
+                });
+                if (!response.ok) {
+                    return false;
+                }
+
+                const restartedApiListing = await response.json() as { Items?: Array<{ Id?: string; Name?: string }> };
+                return restartedApiListing.Items?.some(item =>
+                    item.Id?.replaceAll('-', '').toLowerCase() === playlistId?.replaceAll('-', '').toLowerCase()
+                    && item.Name === playlistName
+                ) ?? false;
+            } catch {
+                return false;
+            }
+        }, { timeout: 30_000 }).toBe(true);
+
         persistedContext = await browser.newContext({ storageState: persistedStorageState });
         const restartedPage = await persistedContext.newPage();
         const restartedListingPromise = restartedPage.waitForResponse(response =>
@@ -94,15 +120,13 @@ test('creates an empty playlist, discovers it from the home navigation, and pers
     let cleanupFailure: Error | undefined;
     if (playlistId) {
         try {
-            const storage = await page.evaluate(() => JSON.parse(localStorage.getItem('jellyfin_credentials') || '{}'));
-            const token = storage.Servers?.find((server: { AccessToken?: string }) => server.AccessToken)?.AccessToken;
-            if (!token) {
+            if (!accessToken) {
                 throw new Error(`Could not clean up test playlist ${playlistId}: authenticated server token is unavailable.`);
             }
 
             const cleanupResponse = await fetch(`${getStageBaseUrl()}/Items/${playlistId}`, {
                 method: 'DELETE',
-                headers: { 'X-Emby-Token': token }
+                headers: { 'X-Emby-Token': accessToken }
             });
             if (![200, 204, 404].includes(cleanupResponse.status)) {
                 throw new Error(`Could not clean up test playlist ${playlistId}: DELETE returned HTTP ${cleanupResponse.status}.`);

@@ -74,8 +74,11 @@ export async function loginWithManualForm(page, username, password) {
 
         return null;
     };
-    const usernameCandidates = page.locator('#txtManualName, input[autocomplete="username"]');
-    let usernameInput = await visibleCandidate(usernameCandidates);
+    const usernameCandidates = page.locator(
+        '#loginPage:visible #txtManualName, #loginPage:visible #txtUsername, #loginPage:visible input[autocomplete="username"], #loginPage:visible input:not([type="password"]):not([type="checkbox"]):not([type="hidden"])'
+    );
+    let usernameInput = await visibleCandidate(usernameCandidates)
+        || await visibleCandidate(page.getByRole('textbox'));
 
     if (!usernameInput) {
         const manualLoginButton = page.locator('#loginPage:visible .btnManual:visible').last();
@@ -92,14 +95,34 @@ export async function loginWithManualForm(page, username, password) {
     }
 
     await usernameInput.fill(username);
-    const passwordInput = await visibleCandidate(page.locator('#txtManualPassword, input[autocomplete="current-password"]'));
-    const submitButton = await visibleCandidate(page.locator('#loginPage button[type="submit"]'));
+    await expect(usernameInput).toHaveValue(username);
+    const passwordCandidates = page.locator(
+        '#loginPage:visible #txtManualPassword, #loginPage:visible #txtPassword, #loginPage:visible input[type="password"], #loginPage:visible input[autocomplete="current-password"]'
+    );
+    const passwordInput = await visibleCandidate(passwordCandidates)
+        || await visibleCandidate(page.getByRole('textbox').nth(1));
+    const submitButton = await visibleCandidate(page.locator('#loginPage button[type="submit"]'))
+        || await visibleCandidate(page.getByRole('button', { name: /^(sign in|entrar)$/i }));
     if (!passwordInput || !submitButton) {
         throw new Error('Login form did not expose visible password and submit controls.');
     }
 
     await passwordInput.fill(password);
+    await expect(passwordInput).toHaveValue(password);
+    // Filling the password can trigger the legacy login form's autofill/update
+    // handlers; assert both required fields immediately before submitting so
+    // native browser validation cannot silently suppress the auth request.
+    await expect(usernameInput).toHaveValue(username);
+    const authenticationResponse = page.waitForResponse(response =>
+        response.request().method() === 'POST'
+        && new URL(response.url()).pathname.toLowerCase().endsWith('/users/authenticatebyname'),
+        { timeout: 10_000 }
+    );
     await submitButton.click();
+    const response = await authenticationResponse;
+    if (!response.ok()) {
+        throw new Error(`Login request failed with HTTP ${response.status()}: ${await response.text()}`);
+    }
 
     await page.locator('#indexPage').waitFor({ state: 'visible', timeout: 30_000 });
     await expect(page.locator('.headerUserButton')).toHaveAttribute('title', username, { timeout: 30_000 });
