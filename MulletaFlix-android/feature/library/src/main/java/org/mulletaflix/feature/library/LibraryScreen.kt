@@ -237,8 +237,17 @@ fun LibraryScreen(
                 val canShowLetterRail = (isTelevision || isTablet) && state.items.isNotEmpty() &&
                     state.sortBy == SortOption.Name &&
                     state.sortOrder == SortOrder.Ascending
-                val letterTargets = remember(state.items, state.hasMore, loadError) {
-                    libraryLetterTargets(state.items, hasMore = state.hasMore && loadError == null)
+                val letterTargets = remember(
+                    state.items,
+                    state.hasMore,
+                    loadError,
+                    state.letterNavigationTarget,
+                ) {
+                    libraryLetterTargets(
+                        items = state.items,
+                        hasMore = state.hasMore && loadError == null,
+                        pendingLetter = state.letterNavigationTarget,
+                    )
                 }
                 if (canShowLetterRail && letterTargets.isNotEmpty()) {
                     LibraryLetterNavigationEffect(
@@ -255,6 +264,7 @@ fun LibraryScreen(
                     LibraryLetterRail(
                         targets = letterTargets,
                         loadingLetter = state.letterNavigationTarget,
+                        navigationError = loadError != null && state.letterNavigationTarget != null,
                         onTargetSelected = viewModel::navigateToLetter,
                         modifier = Modifier.align(Alignment.CenterEnd).padding(end = 2.dp),
                     )
@@ -348,6 +358,7 @@ internal fun LibraryGridLayout(
 internal fun LibraryLetterRail(
     targets: List<LibraryLetterTarget>,
     loadingLetter: String?,
+    navigationError: Boolean,
     onTargetSelected: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -367,7 +378,9 @@ internal fun LibraryLetterRail(
                     .sizeIn(minWidth = 48.dp, minHeight = 48.dp)
                     .remoteFocusRing(RoundedCornerShape(8.dp))
                     .semantics {
-                        contentDescription = if (target.letter == loadingLetter) {
+                        contentDescription = if (target.letter == loadingLetter && navigationError) {
+                            "Falha ao carregar títulos até a letra ${target.letter}. Toque para tentar novamente"
+                        } else if (target.letter == loadingLetter) {
                             "Carregando títulos até a letra ${target.letter}"
                         } else {
                             "Ir para letra ${target.letter}"
@@ -375,7 +388,7 @@ internal fun LibraryLetterRail(
                     },
                 contentPadding = PaddingValues(0.dp),
             ) {
-                if (target.letter == loadingLetter) {
+                if (target.letter == loadingLetter && !navigationError) {
                     CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
                 } else {
                     Text(target.letter, style = MaterialTheme.typography.labelSmall)
@@ -416,6 +429,7 @@ internal fun LibraryLetterNavigationEffect(
             }
             LibraryLetterNavigationDecision.LoadMore -> onLoadMore()
             LibraryLetterNavigationDecision.Wait -> Unit
+            LibraryLetterNavigationDecision.Failed -> Unit
             LibraryLetterNavigationDecision.NoItems -> onFinished(letter)
         }
     }

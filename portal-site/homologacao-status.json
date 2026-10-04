@@ -1,0 +1,32 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-10-04T00:00:00-03:00",
+  "source": {
+    "roadmap": "https://github.com/raphaelpera85/mulletaflix-completo/blob/main/docs/roadmap-evolucao-tecnologica-servidor-e-web.md",
+    "repository": "https://github.com/raphaelpera85/mulletaflix-completo"
+  },
+  "coverage": {
+    "completed": 272,
+    "pending": 66,
+    "total": 338,
+    "definition": "Itens marcados como concluídos ou pendentes no roadmap versionado."
+  },
+  "tracks": [
+    { "id": "server", "name": "Servidor Windows/Linux", "kind": "server", "status": "monitoring", "source": "GitHub Actions e releases" },
+    { "id": "android", "name": "Aplicativo Android (APK)", "kind": "apk", "status": "monitoring", "source": "GitHub Actions e releases" },
+    { "id": "web", "name": "Frontend Web", "kind": "web", "status": "monitoring", "source": "GitHub Actions e roadmap" }
+  ],
+  "features": [
+    { "id": "T0.1", "name": "Baseline de produção", "area": "Servidor", "status": "pending", "source": "roadmap" },
+    { "id": "T0.2", "name": "Mapa de fluxos e dependências", "area": "Servidor", "status": "completed", "source": "roadmap" },
+    { "id": "T1.1", "name": "Instrumentação OpenTelemetry", "area": "Servidor", "status": "completed", "source": "roadmap" },
+    { "id": "W1.1", "name": "Estados de página e recuperação", "area": "Web", "status": "pending", "source": "roadmap" },
+    { "id": "W4.1", "name": "Cobertura Playwright dos fluxos críticos", "area": "Web", "status": "pending", "source": "roadmap" },
+    { "id": "T9.1", "name": "Auditoria do provisionamento HTTPS/DuckDNS", "area": "Servidor", "status": "pending", "source": "roadmap" },
+    { "id": "T9.2", "name": "API administrativa e estado seguro", "area": "Servidor", "status": "pending", "source": "roadmap" },
+    { "id": "T9.3", "name": "Provisionamento cross-platform", "area": "Windows/Linux", "status": "pending", "source": "roadmap" },
+    { "id": "T9.4", "name": "Tela de gestão de domínio", "area": "Web", "status": "pending", "source": "roadmap" },
+    { "id": "T9.5", "name": "Validação e QA da tela", "area": "Web/QA", "status": "pending", "source": "roadmap" }
+  ],
+  "events": []
+}

@@ -35,6 +35,10 @@ class LibraryLetterIndexTest {
         assertEquals(('A'..'Z').map(Char::toString) + "#", targets.map { it.letter })
         assertEquals(0, targets.first { it.letter == "A" }.itemIndex)
         assertEquals(null, targets.first { it.letter == "Z" }.itemIndex)
+
+        val retryTarget = libraryLetterTargets(items, pendingLetter = "Z").last()
+        assertEquals("Z", retryTarget.letter)
+        assertEquals(null, retryTarget.itemIndex)
     }
 
     @Test
@@ -60,7 +64,7 @@ class LibraryLetterIndexTest {
             ),
         )
         assertEquals(
-            LibraryLetterNavigationDecision.ScrollTo(0),
+            LibraryLetterNavigationDecision.Failed,
             libraryLetterNavigationDecision(items, "Z", hasMore = true, isLoading = false, hasLoadError = true),
         )
         assertEquals(

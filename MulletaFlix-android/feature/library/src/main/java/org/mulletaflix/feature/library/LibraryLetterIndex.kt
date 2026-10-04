@@ -10,6 +10,7 @@ internal sealed interface LibraryLetterNavigationDecision {
     data class ScrollTo(val itemIndex: Int) : LibraryLetterNavigationDecision
     data object LoadMore : LibraryLetterNavigationDecision
     data object Wait : LibraryLetterNavigationDecision
+    data object Failed : LibraryLetterNavigationDecision
     data object NoItems : LibraryLetterNavigationDecision
 }
 
@@ -23,8 +24,9 @@ internal fun libraryGridTargetIndex(
 internal fun libraryLetterTargets(
     items: List<MediaItem>,
     hasMore: Boolean = false,
+    pendingLetter: String? = null,
 ): List<LibraryLetterTarget> {
-    val targets = linkedMapOf<String, Int>()
+    val targets = linkedMapOf<String, Int?>()
     items.forEachIndexed { index, item ->
         val first = libraryItemInitial(item.name)
         targets.putIfAbsent(first, index)
@@ -33,6 +35,9 @@ internal fun libraryLetterTargets(
         return ('A'..'Z').map { letter ->
             LibraryLetterTarget(letter.toString(), targets[letter.toString()])
         } + LibraryLetterTarget("#", targets["#"])
+    }
+    if (pendingLetter != null && pendingLetter !in targets) {
+        targets[pendingLetter] = null
     }
     return targets.map { (letter, index) -> LibraryLetterTarget(letter, index) }
 }
@@ -47,6 +52,7 @@ internal fun libraryLetterNavigationDecision(
     val normalizedLetter = letter.uppercase(Locale.ROOT)
     val exactTarget = items.indexOfFirst { libraryItemInitial(it.name) == normalizedLetter }
     if (exactTarget >= 0) return LibraryLetterNavigationDecision.ScrollTo(exactTarget)
+    if (hasLoadError) return LibraryLetterNavigationDecision.Failed
 
     if (normalizedLetter in "A".."Z") {
         val nextLetter = items.indexOfFirst { item ->

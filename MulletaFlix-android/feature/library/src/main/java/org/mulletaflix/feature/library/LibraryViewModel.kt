@@ -590,7 +590,7 @@ class LibraryViewModel @Inject constructor(
         if (current.sortBy != SortOption.Name || current.sortOrder != SortOrder.Ascending) return
         val normalized = letter.uppercase(Locale.ROOT)
         if (normalized != "#" && (normalized.length != 1 || normalized[0] !in 'A'..'Z')) return
-        _state.update { it.copy(letterNavigationTarget = normalized) }
+        _state.update { it.copy(letterNavigationTarget = normalized, error = null) }
     }
 
     fun finishLetterNavigation(letter: String) {

@@ -74,6 +74,7 @@ public class GenresController : BaseMulletaFlixApiController
     /// <returns>An <see cref="OkResult"/> containing the queryresult of genres.</returns>
     [HttpGet]
     [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public ActionResult<QueryResult<BaseItemDto>> GetGenres(
         [FromQuery] int? startIndex,
@@ -96,12 +97,13 @@ public class GenresController : BaseMulletaFlixApiController
         [FromQuery] bool enableTotalRecordCount = true)
     {
         userId = RequestHelpers.GetUserId(User, userId);
+        if (!TryResolveGenreUser(userId, out var user))
+        {
+            return Unauthorized();
+        }
+
         var dtoOptions = new DtoOptions { Fields = fields }
             .AddAdditionalDtoOptions(enableImages, false, imageTypeLimit, enableImageTypes);
-
-        User? user = userId.IsNullOrEmpty()
-            ? null
-            : _userManager.GetUserById(userId.Value);
 
         var parentItem = RequestHelpers.GetParentItem(_libraryManager, parentId, userId, user);
         if (parentItem is null)
@@ -162,9 +164,15 @@ public class GenresController : BaseMulletaFlixApiController
     /// <returns>An <see cref="OkResult"/> containing the genre.</returns>
     [HttpGet("{genreName}")]
     [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<ActionResult<BaseItemDto>> GetGenre([FromRoute, Required] string genreName, [FromQuery] Guid? userId)
     {
         userId = RequestHelpers.GetUserId(User, userId);
+        if (!TryResolveGenreUser(userId, out var user))
+        {
+            return Unauthorized();
+        }
+
         var dtoOptions = new DtoOptions();
 
         Genre? item;
@@ -179,11 +187,19 @@ public class GenresController : BaseMulletaFlixApiController
 
         item ??= new Genre();
 
-        var user = userId.IsNullOrEmpty()
-            ? null
-            : _userManager.GetUserById(userId.Value);
-
         return await _dtoService.GetBaseItemDtoAsync(item, dtoOptions, user).ConfigureAwait(false);
+    }
+
+    private bool TryResolveGenreUser(Guid? userId, out User? user)
+    {
+        user = null;
+        if (userId.IsNullOrEmpty())
+        {
+            return User.GetIsApiKey();
+        }
+
+        user = _userManager.GetUserById(userId.Value);
+        return user is not null;
     }
 
     private T? GetItemFromSlugName<T>(ILibraryManager libraryManager, string name, DtoOptions dtoOptions, BaseItemKind baseItemKind)
