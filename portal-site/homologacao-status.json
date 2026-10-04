@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-10-04T13:54:00-03:00",
+  "generatedAt": "2026-10-04T14:47:34-03:00",
   "source": {
     "roadmap": "https://github.com/raphaelpera85/mulletaflix-completo/blob/main/docs/roadmap-evolucao-tecnologica-servidor-e-web.md",
     "repository": "https://github.com/raphaelpera85/mulletaflix-completo"
@@ -29,6 +29,34 @@
     { "id": "T9.5", "name": "Validação e QA da tela", "area": "Web/QA", "status": "pending", "source": "roadmap" }
   ],
   "events": [
+    {
+      "id": "portal-null-percent-display-2026-10-04",
+      "title": "Correção de exibição de percentual não consolidado",
+      "agent": "Codex",
+      "front": "Portal / Dashboard",
+      "local": "D:\\Users\\Raphael\\Documents\\Projetos\\mulletaflix",
+      "location": "portal-site/homologacao.js",
+      "scope": "Impedir que null seja exibido como 0% na tabela de homologação",
+      "progressPercent": 0,
+      "status": "in_progress",
+      "startedAt": "2026-10-04T14:02:00-03:00",
+      "updatedAt": "2026-10-04T14:02:00-03:00",
+      "evidence": "Correção iniciada após identificar conversão automática de null para zero pelo JavaScript."
+    },
+    {
+      "id": "android-gpu-dedicated-player-phone-2026-10-04",
+      "title": "Teste Android com GPU NVIDIA dedicada",
+      "agent": "Codex",
+      "front": "APK / execução de testes Android com RTX 3050",
+      "local": "D:\\Users\\Raphael\\Documents\\Projetos\\mulletaflix\\MulletaFlix-android",
+      "location": "MulletaFlix-android local; wrapper inicia e fecha AVD",
+      "scope": "BookReaderFontSizeControlsTest em MulletaflixApi35; PHONE; validar seleção da GPU dedicada NVIDIA e encerramento do emulador",
+      "status": "in_progress",
+      "progressPercent": 0,
+      "startedAt": "2026-10-04T14:47:34-03:00",
+      "updatedAt": "2026-10-04T14:47:34-03:00",
+      "evidence": "Execução planejada. Wrapper configura GpuPreference=2 para emulator.exe e QEMU, inicia AVD com -gpu host e exige confirmação do PID QEMU na NVIDIA por nvidia-smi antes de executar os testes."
+    },
     {
       "id": "portal-correct-platform-percentages-2026-10-04",
       "title": "Correção dos percentuais de homologação",
