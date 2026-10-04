@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-10-04T00:00:00-03:00",
+  "generatedAt": "2026-10-04T13:26:00-03:00",
   "source": {
     "roadmap": "https://github.com/raphaelpera85/mulletaflix-completo/blob/main/docs/roadmap-evolucao-tecnologica-servidor-e-web.md",
     "repository": "https://github.com/raphaelpera85/mulletaflix-completo"
@@ -28,5 +28,51 @@
     { "id": "T9.4", "name": "Tela de gestão de domínio", "area": "Web", "status": "pending", "source": "roadmap" },
     { "id": "T9.5", "name": "Validação e QA da tela", "area": "Web/QA", "status": "pending", "source": "roadmap" }
   ],
-  "events": []
+  "events": [
+    {
+      "title": "Suíte .NET Release — testes da solução",
+      "agent": "Codex",
+      "location": "MulletaFlix-master (local, instância de produção fechada)",
+      "scope": "dotnet test MulletaFlix.sln --no-restore -c Release -m:1 --verbosity quiet",
+      "status": "in_progress",
+      "updatedAt": "2026-10-04T13:26:00-03:00",
+      "evidence": "Comando iniciado; projetos iniciais aprovados, suíte de integração ainda executando."
+    },
+    {
+      "title": "Verificação de build TypeScript Web",
+      "agent": "Codex",
+      "location": "MulletaFlix-web-master (local)",
+      "scope": "npm run build:check",
+      "status": "completed",
+      "updatedAt": "2026-10-04T13:26:00-03:00",
+      "evidence": "npm run build:check terminou com exit code 0 (tsc --noEmit)."
+    },
+    {
+      "title": "Testes unitários Android",
+      "agent": "Codex",
+      "location": "MulletaFlix-android (local; somente teste, sem artefato de release)",
+      "scope": ".\\gradlew.bat testDebugUnitTest",
+      "status": "completed",
+      "updatedAt": "2026-10-04T13:26:00-03:00",
+      "evidence": "BUILD SUCCESSFUL; 456 actionable tasks, 456 up-to-date."
+    },
+    {
+      "title": "Format verification e diff check",
+      "agent": "Codex",
+      "location": "MulletaFlix-master (local)",
+      "scope": "dotnet format whitespace --verify-no-changes nos quatro controllers alterados; git diff --check",
+      "status": "completed",
+      "updatedAt": "2026-10-04T13:26:00-03:00",
+      "evidence": "Verificação terminou sem erros; diff check limpo. Busca contextual encontrou cinco ocorrências do padrão em outros controllers para revisão futura."
+    },
+    {
+      "id": "ios-gauntlet-2026-10-04",
+      "agent": "Codex",
+      "front": "iOS",
+      "local": "D:\\Users\\Raphael\\Documents\\Projetos\\mulletaflix",
+      "scope": "Validação estrutural, testes declarados e análise de produção do aplicativo iOS",
+      "status": "in_progress",
+      "startedAt": "2026-10-04T00:00:00-03:00"
+    }
+  ]
 }
