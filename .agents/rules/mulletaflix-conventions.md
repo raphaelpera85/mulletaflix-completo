@@ -93,6 +93,7 @@ Cada card deve apresentar claramente:
 - Manter `portal-site/release-sync.js` carregado nas páginas públicas de início, downloads e documentação. Esse fluxo sincroniza versões e URLs das releases estáveis em produção e não pode ser removido.
 - Publicar o portal e validar suas rotas HTTP 200, confirmando que a versão exibida corresponde à release publicada mais recente.
 - A regra vale para todos os agentes, subagentes e automações que criem ou publiquem releases.
+- Toda nova página pública criada em `portal-site` deve possuir URL canônica e ser adicionada ao `portal-site/sitemap.xml` na mesma alteração. Validar com `.\tools\Validate-PortalSitemap.ps1` antes de concluir.
 
 ---
 

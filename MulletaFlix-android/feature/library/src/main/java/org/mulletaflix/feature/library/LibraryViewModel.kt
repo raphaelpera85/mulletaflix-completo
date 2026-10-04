@@ -525,7 +525,13 @@ class LibraryViewModel @Inject constructor(
         // synchronous transition closes that small window and prevents duplicate
         // pages from being appended.
         val requestGeneration = ++this.requestGeneration
-        _state.update { it.copy(isLoading = true, letterNavigationError = false) }
+        _state.update {
+            it.copy(
+                isLoading = true,
+                error = if (it.letterNavigationError) null else it.error,
+                letterNavigationError = false,
+            )
+        }
         loadJob = viewModelScope.launch {
             val userId = currentUserId ?: authRepository.getSavedUserId().firstOrNull() ?: run {
                 _state.update {

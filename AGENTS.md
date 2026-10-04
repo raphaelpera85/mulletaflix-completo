@@ -37,3 +37,8 @@ Este projeto e todas as suas sessões de desenvolvimento são governados estrita
    - O arquivo `portal-site/release-sync.js` deve permanecer carregado nas páginas de downloads, documentação e início. Ele sincroniza em produção as versões e URLs com as releases estáveis do GitHub; não remova esse fluxo nem substitua os links por versões fixas sem atualizar também a sincronização.
    - Quando uma mudança de release alterar texto, changelog ou disponibilidade de plataforma, atualize também `portal-site/updates.html` e `portal-site/docs.html`, publique o portal e valide as rotas públicas com HTTP 200 e a versão efetivamente exibida.
    - Esta regra vale para todos os agentes, subagentes e automações que criarem, atualizarem ou publicarem releases neste projeto.
+
+6. **Premissa obrigatória do sitemap do portal**:
+   - Sempre que uma nova página pública for criada no `portal-site`, ela deve conter uma URL canônica e ser adicionada imediatamente ao `portal-site/sitemap.xml`.
+   - Antes de finalizar a tarefa, execute `.\tools\Validate-PortalSitemap.ps1` e corrija qualquer página pública ausente do mapa enviado ao Google Search.
+   - A regra vale para todos os agentes, subagentes e automações que criarem páginas no portal.

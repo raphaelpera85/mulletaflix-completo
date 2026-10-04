@@ -61,6 +61,39 @@ public sealed class RecommendationUserAuthorizationTests
             Times.Once);
     }
 
+    [Fact]
+    public async Task GetMovieRecommendations_ApiKeyWithoutUserRemainsSupported()
+    {
+        var fixture = CreateFixture(isApiKey: true, includeUserIdClaim: false);
+        fixture.SimilarItemsManager
+            .Setup(manager => manager.GetMovieRecommendationsAsync(
+                null,
+                Guid.Empty,
+                It.IsAny<int>(),
+                It.IsAny<int>(),
+                It.IsAny<DtoOptions>(),
+                It.IsAny<System.Threading.CancellationToken>()))
+            .ReturnsAsync(Array.Empty<SimilarItemsRecommendation>());
+
+        var result = await fixture.MoviesController.GetMovieRecommendations(
+            null,
+            null,
+            [],
+            cancellationToken: TestContext.Current.CancellationToken);
+
+        Assert.NotNull(result.Result);
+        Assert.IsNotType<UnauthorizedResult>(result.Result);
+        fixture.SimilarItemsManager.Verify(
+            manager => manager.GetMovieRecommendationsAsync(
+                null,
+                Guid.Empty,
+                It.IsAny<int>(),
+                It.IsAny<int>(),
+                It.IsAny<DtoOptions>(),
+                It.IsAny<System.Threading.CancellationToken>()),
+            Times.Once);
+    }
+
     private static async Task<IActionResult?> InvokeEndpoint(ControllerFixture fixture, string endpoint)
     {
         return endpoint switch
