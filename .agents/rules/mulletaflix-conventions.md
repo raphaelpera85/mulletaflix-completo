@@ -97,6 +97,7 @@ Cada card deve apresentar claramente:
 
 ### 4.5 Registro de progresso, homologação e deploy
 - No início, durante e no fim de cada tarefa, atualizar `portal-site/homologacao-status.json` com local, status, evidência e porcentagem real de desenvolvimento/testes coberta.
+- Manter registros separados para `server` e `android`/`apk`; o APK não pode ser representado apenas pelo status do servidor. Registrar também build, testes e artefato Android quando aplicável.
 - Publicar o JSON no Git e sincronizar `portal-site/` para `raphaelpera85/Mulletaflix-Portal` na branch `main`, que é a origem do projeto Vercel.
 - Validar pela skill de deployments do Vercel o commit, o estado `READY` e HTTP 200 das rotas públicas, incluindo `/homologacao` e `/sitemap.xml`.
 

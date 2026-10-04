@@ -39,14 +39,16 @@
       const state = run ? (run.status === 'completed' ? (run.conclusion === 'success' ? 'success' : 'failure') : 'in_progress') : track.status || 'unknown';
       const label = run ? `${statusText[state]} · ${run.name}` : statusText[state];
       const detail = run ? `Último workflow: ${date(run.updated_at)}` : release ? `Release estável: ${escapeHtml(release.tag_name)}` : 'Aguardando evidência pública.';
-      return `<article class="track-card"><div class="track-top"><span class="status-chip ${statusClass(state)}"><i></i>${escapeHtml(label)}</span><span class="track-kind">${escapeHtml(track.kind)}</span></div><h3>${escapeHtml(track.name)}</h3><p>${escapeHtml(detail)}</p><div class="track-source">Fonte: ${escapeHtml(track.source)}</div></article>`;
+      const progress = Number.isFinite(Number(track.progressPercent)) ? Math.max(0, Math.min(100, Number(track.progressPercent))) : null;
+      const progressLine = progress === null ? 'Percentual: aguardando registro do agente' : `Percentual: ${progress}%`;
+      return `<article class="track-card"><div class="track-top"><span class="status-chip ${statusClass(state)}"><i></i>${escapeHtml(label)}</span><span class="track-kind">${escapeHtml(track.kind)}</span></div><h3>${escapeHtml(track.name)}</h3><p>${escapeHtml(detail)}</p><div class="track-progress"><strong>${progressLine}</strong></div><div class="track-source">Fonte: ${escapeHtml(track.source)}</div></article>`;
     }).join('');
     const lastRun = (runs || []).slice().sort((a, b) => new Date(b.updated_at) - new Date(a.updated_at))[0];
     byId('live-updated').textContent = `Última leitura pública: ${date(lastRun?.updated_at || new Date())}`;
   };
   const renderEvents = data => {
     const events = Array.isArray(data.events) ? data.events : [];
-    byId('event-list').innerHTML = events.length ? events.slice(0, 12).map(event => `<li><span class="event-dot ${statusClass(event.status)}"></span><div><strong>${escapeHtml(event.title)}</strong><p>${escapeHtml(event.location || 'Local não informado')} · ${escapeHtml(statusText[event.status] || event.status)} · ${date(event.updatedAt)}</p></div></li>`).join('') : '<li class="empty-event"><strong>Nenhum evento de homologação publicado</strong><p>Quando um agente iniciar um teste, registre-o em <code>portal-site/homologacao-status.json</code> com local, status e evidência.</p></li>';
+    byId('event-list').innerHTML = events.length ? events.slice(0, 12).map(event => { const progress = Number.isFinite(Number(event.progressPercent)) ? ` · ${Number(event.progressPercent)}%` : ''; return `<li><span class="event-dot ${statusClass(event.status)}"></span><div><strong>${escapeHtml(event.title)}</strong><p>${escapeHtml(event.location || 'Local não informado')} · ${escapeHtml(statusText[event.status] || event.status)}${progress} · ${date(event.updatedAt)}</p></div></li>`; }).join('') : '<li class="empty-event"><strong>Nenhum evento de homologação publicado</strong><p>Quando um agente iniciar um teste, registre-o em <code>portal-site/homologacao-status.json</code> com local, status, percentual e evidência.</p></li>';
   };
   const load = async () => {
     const [data, runs, releases] = await Promise.all([

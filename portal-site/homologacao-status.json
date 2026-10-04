@@ -13,7 +13,7 @@
   },
   "tracks": [
     { "id": "server", "name": "Servidor Windows/Linux", "kind": "server", "status": "monitoring", "source": "GitHub Actions e releases" },
-    { "id": "android", "name": "Aplicativo Android (APK)", "kind": "apk", "status": "monitoring", "source": "GitHub Actions e releases" },
+    { "id": "android", "name": "Aplicativo Android (APK)", "kind": "apk", "status": "monitoring", "progressPercent": 100, "source": "GitHub Actions, testes instrumentados e releases" },
     { "id": "web", "name": "Frontend Web", "kind": "web", "status": "monitoring", "source": "GitHub Actions e roadmap" }
   ],
   "features": [
@@ -37,11 +37,11 @@
       "local": "D:\\Users\\Raphael\\Documents\\Projetos\\mulletaflix",
       "location": "AGENTS.md, .agents/rules e repositório Mulletaflix-Portal",
       "scope": "Registrar início, atualizar status e porcentagem durante a tarefa, publicar no Git e validar o deploy Vercel",
-      "progressPercent": 0,
-      "status": "in_progress",
+      "progressPercent": 100,
+      "status": "completed",
       "startedAt": "2026-10-04T13:37:50-03:00",
       "updatedAt": "2026-10-04T13:37:50-03:00",
-      "evidence": "Orientação em implementação; rota de publicação identificada como raphaelpera85/Mulletaflix-Portal na branch main."
+      "evidence": "AGENTS.md e .agents/rules atualizados com a rota obrigatória. JSON publicado no Git; portal sincronizado em raphaelpera85/Mulletaflix-Portal; deploy Vercel READY no commit 96ccfb5 e rotas públicas verificadas com HTTP 200."
     },
     {
       "title": "Suíte .NET Release — testes da solução",
@@ -117,6 +117,7 @@
       "location": "MulletaFlix-android (local; AVD aberto somente durante o teste)",
       "scope": "HomeAdaptiveUsageTest em MulletaflixTvApi34 via tools\\with-emulator.ps1 -gpu host; verificar uso da RTX 3050 dedicada e encerramento do AVD",
       "status": "completed",
+      "progressPercent": 100,
       "startedAt": "2026-10-04T13:30:15-03:00",
       "updatedAt": "2026-10-04T13:33:20-03:00",
       "evidence": "BUILD SUCCESSFUL (1m16s; exit code 0). Relatório TEST-MulletaflixTvApi34(AVD) - 14.xml: 1 teste, 0 falhas, 0 erros, 0 ignorados. O wrapper confirmou: AVD MulletaflixTvApi34 QEMU PID 25572 está usando NVIDIA GPU antes de Gradle; GPU identificada como RTX 3050 Laptop 6 GB. AVD encerrou (adb devices sem emuladores); NVIDIA reportou 0 MiB usados após o teste. Nenhum arquivo de produção/release foi gerado."
