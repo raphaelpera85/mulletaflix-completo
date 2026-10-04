@@ -6,7 +6,8 @@
       "test",
       "--config",
       "playwright.stage.config.ts",
-      "tests/playwright/specs/24-scrollbuttons.spec.ts"
+      "--list",
+      "--grep=playlist"
     ],
     "configFile": "D:\\Users\\Raphael\\Documents\\Projetos\\mulletaflix\\MulletaFlix-web-master\\playwright.stage.config.ts",
     "rootDir": "D:/Users/Raphael/Documents/Projetos/mulletaflix/MulletaFlix-web-master/tests/playwright/specs",
@@ -19,24 +20,22 @@
     "grep": {},
     "grepInvert": null,
     "maxFailures": 0,
-    "metadata": {
-      "actualWorkers": 1
-    },
+    "metadata": {},
     "preserveOutput": "always",
     "projects": [
       {
         "outputDir": "D:/Users/Raphael/Documents/Projetos/mulletaflix/MulletaFlix-web-master/test-results/playwright",
         "repeatEach": 1,
         "retries": 0,
-        "metadata": {
-          "actualWorkers": 1
-        },
+        "metadata": {},
         "id": "chromium",
         "name": "chromium",
         "testDir": "D:/Users/Raphael/Documents/Projetos/mulletaflix/MulletaFlix-web-master/tests/playwright/specs",
         "testIgnore": [],
         "testMatch": [
-          "/.*\\.spec\\.(ts|js|mjs)$/"
+          "**/*.spec.ts",
+          "**/*.spec.js",
+          "**/*.spec.mjs"
         ],
         "timeout": 120000
       }
@@ -66,55 +65,23 @@
     "workers": 1,
     "webServer": null
   },
-  "suites": [
+  "suites": [],
+  "errors": [
     {
-      "title": "24-scrollbuttons.spec.ts",
-      "file": "24-scrollbuttons.spec.ts",
-      "column": 0,
-      "line": 0,
-      "specs": [
-        {
-          "title": "search-style scroller reveals and updates navigation after cards mount",
-          "ok": true,
-          "tags": [],
-          "tests": [
-            {
-              "timeout": 120000,
-              "annotations": [],
-              "expectedStatus": "passed",
-              "projectId": "chromium",
-              "projectName": "chromium",
-              "results": [
-                {
-                  "workerIndex": 0,
-                  "parallelIndex": 0,
-                  "status": "passed",
-                  "duration": 882,
-                  "errors": [],
-                  "stdout": [],
-                  "stderr": [],
-                  "retry": 0,
-                  "startTime": "2026-09-30T03:50:58.578Z",
-                  "annotations": [],
-                  "attachments": []
-                }
-              ],
-              "status": "expected"
-            }
-          ],
-          "id": "9fab20378ea7e31d7438-5e375ae6afc77bdacd58",
-          "file": "24-scrollbuttons.spec.ts",
-          "line": 3,
-          "column": 5
-        }
-      ]
+      "message": "Error: Set MFLX_ADMIN_USER and MFLX_ADMIN_PASSWORD before running Playwright.",
+      "stack": "Error: Set MFLX_ADMIN_USER and MFLX_ADMIN_PASSWORD before running Playwright.\n    at getAdminCredentials (D:\\Users\\Raphael\\Documents\\Projetos\\mulletaflix\\MulletaFlix-web-master\\tests\\playwright\\support\\admin-user.mjs:29:15)\n    at Object.<anonymous> (D:\\Users\\Raphael\\Documents\\Projetos\\mulletaflix\\MulletaFlix-web-master\\tests\\playwright\\specs\\00-wizard.spec.ts:6:39)",
+      "location": {
+        "file": "D:\\Users\\Raphael\\Documents\\Projetos\\mulletaflix\\MulletaFlix-web-master\\tests\\playwright\\support\\admin-user.mjs",
+        "column": 15,
+        "line": 29
+      },
+      "snippet": "\u001b[90m   at \u001b[39m..\\support\\admin-user.mjs:29\n\n  27 |\n  28 |     if (!username || !password) {\n> 29 |         throw new Error('Set MFLX_ADMIN_USER and MFLX_ADMIN_PASSWORD before running Playwright.');\n     |               ^\n  30 |     }\n  31 |\n  32 |     return { username, password };"
     }
   ],
-  "errors": [],
   "stats": {
-    "startTime": "2026-09-30T03:50:58.187Z",
-    "duration": 1595.327,
-    "expected": 1,
+    "startTime": "2026-10-04T00:32:22.428Z",
+    "duration": 581.7929999999999,
+    "expected": 0,
     "skipped": 0,
     "unexpected": 0,
     "flaky": 0

@@ -4,6 +4,7 @@ import { CollectionType } from '@jellyfin/sdk/lib/generated-client/models/collec
 import AddCircle from '@mui/icons-material/AddCircle';
 import ArrowDropDown from '@mui/icons-material/ArrowDropDown';
 import Favorite from '@mui/icons-material/Favorite';
+import QueueMusic from '@mui/icons-material/QueueMusic';
 import Button from '@mui/material/Button/Button';
 import Icon from '@mui/material/Icon';
 import { Theme } from '@mui/material/styles';
@@ -141,6 +142,16 @@ const UserViewNav = () => {
                 to='/home?tab=1'
             >
                 {globalize.translate(MetaView.Favorites.Name ?? '')}
+            </Button>
+
+            <Button
+                variant='text'
+                color={location.pathname === '/playlists' ? 'primary' : 'inherit'}
+                startIcon={<QueueMusic />}
+                component={Link}
+                to='/playlists'
+            >
+                {globalize.translate('Playlists')}
             </Button>
 
             <Button
