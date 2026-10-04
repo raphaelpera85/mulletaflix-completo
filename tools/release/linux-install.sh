@@ -19,14 +19,20 @@ fi
 public_host="${MULLETAFLIX_PUBLIC_HOST:-}"
 acme_email="${MULLETAFLIX_ACME_EMAIL:-}"
 duckdns_subdomain="${MULLETAFLIX_DUCKDNS_SUBDOMAIN:-}"
-duckdns_token="${MULLETAFLIX_DUCKDNS_TOKEN:-}"
+duckdns_token_file=""
+duckdns_token=""
 skip_https="${MULLETAFLIX_SKIP_HTTPS:-0}"
+if [[ -n "${MULLETAFLIX_DUCKDNS_TOKEN:-}" ]]; then
+  unset MULLETAFLIX_DUCKDNS_TOKEN
+  echo "MULLETAFLIX_DUCKDNS_TOKEN is no longer accepted; use a protected token file or interactive prompt." >&2
+  exit 1
+fi
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --https-host) public_host="${2:?missing hostname}"; shift 2 ;;
     --https-email) acme_email="${2:?missing ACME email}"; shift 2 ;;
     --duckdns-subdomain) duckdns_subdomain="${2:?missing DuckDNS subdomain}"; shift 2 ;;
-    --duckdns-token) duckdns_token="${2:?missing DuckDNS token}"; shift 2 ;;
+    --duckdns-token-file) duckdns_token_file="${2:?missing DuckDNS token file}"; shift 2 ;;
     --skip-https) skip_https=1; shift ;;
     *) echo "Unknown option: $1" >&2; exit 1 ;;
   esac
@@ -37,11 +43,32 @@ if [[ -n "$duckdns_subdomain" ]]; then
     echo "Invalid DuckDNS subdomain." >&2
     exit 1
   fi
-  if [[ -z "$duckdns_token" ]]; then
-    echo "DuckDNS token is required when --duckdns-subdomain is used." >&2
+  if [[ -n "$duckdns_token_file" ]]; then
+    if [[ ! -f "$duckdns_token_file" || -L "$duckdns_token_file" || ! -r "$duckdns_token_file" ]]; then
+      echo "DuckDNS token file must be a readable regular file, not a symlink." >&2
+      exit 1
+    fi
+    token_mode="$(stat -c '%a' -- "$duckdns_token_file")"
+    if [[ ! "$token_mode" =~ ^[0-7]{3,4}$ ]] || (( (8#$token_mode & 077) != 0 )); then
+      echo "DuckDNS token file must not be accessible by group or other users (chmod 600)." >&2
+      exit 1
+    fi
+    duckdns_token="$(< "$duckdns_token_file")"
+  elif [[ -t 0 ]]; then
+    read -r -s -p 'DuckDNS token: ' duckdns_token
+    printf '\n'
+  else
+    echo "DuckDNS token is required; use --duckdns-token-file with a chmod 600 file." >&2
+    exit 1
+  fi
+  if [[ -z "$duckdns_token" || "$duckdns_token" == *$'\n'* || "$duckdns_token" == *$'\r'* ]]; then
+    echo "DuckDNS token is missing or contains a line break." >&2
     exit 1
   fi
   public_host="${duckdns_subdomain}.duckdns.org"
+elif [[ -n "$duckdns_token_file" ]]; then
+  echo "--duckdns-token-file requires --duckdns-subdomain." >&2
+  exit 1
 fi
 if [[ -n "$public_host" && ! "$public_host" =~ ^[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?(\.[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?)*$ ]]; then
   echo "Invalid public hostname." >&2
@@ -110,7 +137,8 @@ systemctl enable --now mulletaflix.service
 
 if [[ -n "$duckdns_subdomain" ]]; then
   install -m 0600 /dev/null /etc/mulletaflix/duckdns.env
-  printf 'DUCKDNS_SUBDOMAIN=%q\nDUCKDNS_TOKEN=%q\n' "$duckdns_subdomain" "$duckdns_token" > /etc/mulletaflix/duckdns.env
+  printf 'DUCKDNS_SUBDOMAIN=%s\nDUCKDNS_TOKEN=%s\n' "$duckdns_subdomain" "$duckdns_token" > /etc/mulletaflix/duckdns.env
+  unset duckdns_token
   install -m 0750 "$package_root/duckdns-update.sh" /usr/local/sbin/mulletaflix-duckdns-update
   cat > /etc/systemd/system/mulletaflix-duckdns.service <<'EOF'
 [Unit]

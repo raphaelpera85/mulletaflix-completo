@@ -12,6 +12,7 @@ import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.onStart
 import org.mulletaflix.core.api.SessionRepository
 import org.mulletaflix.core.api.HomeFeedCacheScope
 import org.mulletaflix.core.common.session.FeedbackRequestSession
@@ -37,11 +38,38 @@ class SessionRepositoryImpl @Inject constructor(
     }
 
     companion object {
-        const val DEFAULT_MULLETAFLIX_SERVER_URL = "http://mulletaflix.duckdns.org:8096"
+        const val DEFAULT_MULLETAFLIX_SERVER_URL = "https://mulletaflix.duckdns.org"
+    }
+
+    private fun sessionData() = context.dataStore.data.onStart {
+        context.dataStore.edit { preferences ->
+            val oldUrl = preferences[PreferencesKeys.SERVER_URL]
+            if (oldUrl != null) {
+                val migratedUrl = migrateLegacyOfficialServerUrl(oldUrl)
+                if (migratedUrl != oldUrl) preferences[PreferencesKeys.SERVER_URL] = migratedUrl
+            }
+            val rawServers = preferences[PreferencesKeys.SAVED_SERVERS]
+            if (!rawServers.isNullOrBlank()) {
+                val migratedServers = runCatching {
+                    val source = org.json.JSONArray(rawServers)
+                    org.json.JSONArray().apply {
+                        for (index in 0 until source.length()) {
+                            val server = source.getJSONObject(index)
+                            val url = server.optString("url")
+                            if (url.isNotBlank()) server.put("url", migrateLegacyOfficialServerUrl(url))
+                            put(server)
+                        }
+                    }.toString()
+                }.getOrNull()
+                if (migratedServers != null && migratedServers != rawServers) {
+                    preferences[PreferencesKeys.SAVED_SERVERS] = migratedServers
+                }
+            }
+        }
     }
 
     override fun getAccessToken(): Flow<String?> {
-        return context.dataStore.data.map { preferences ->
+        return sessionData().map { preferences ->
             preferences[PreferencesKeys.ACCESS_TOKEN]
         }
     }
@@ -76,7 +104,7 @@ class SessionRepositoryImpl @Inject constructor(
     }
 
     override fun getBaseUrl(): Flow<String> {
-        return context.dataStore.data.map { preferences ->
+        return sessionData().map { preferences ->
             preferences[PreferencesKeys.SERVER_URL] ?: ""
         }
     }
@@ -89,7 +117,7 @@ class SessionRepositoryImpl @Inject constructor(
 
     override fun getFeedbackRequestSession(): Flow<FeedbackRequestSession?> = flow {
         val resolvedDeviceId = deviceId.get()
-        emitAll(context.dataStore.data.map { preferences ->
+        emitAll(sessionData().map { preferences ->
             val serverUrl = preferences[PreferencesKeys.SERVER_URL].orEmpty()
             val accessToken = preferences[PreferencesKeys.ACCESS_TOKEN]
             val userId = preferences[PreferencesKeys.USER_ID]
@@ -114,7 +142,7 @@ class SessionRepositoryImpl @Inject constructor(
         }
     }
 
-    override fun getHomeFeedCacheScope(): Flow<HomeFeedCacheScope?> = context.dataStore.data.map { preferences ->
+    override fun getHomeFeedCacheScope(): Flow<HomeFeedCacheScope?> = sessionData().map { preferences ->
         val userId = preferences[PreferencesKeys.USER_ID]
         val serverUrl = preferences[PreferencesKeys.SERVER_URL].orEmpty()
         if (userId.isNullOrBlank() || serverUrl.isBlank()) null
@@ -146,7 +174,7 @@ class SessionRepositoryImpl @Inject constructor(
         deviceId: String,
     ) {
         context.dataStore.edit { preferences ->
-            preferences[PreferencesKeys.SERVER_URL] = serverUrl.trimEnd('/')
+            preferences[PreferencesKeys.SERVER_URL] = migrateLegacyOfficialServerUrl(serverUrl)
             preferences[PreferencesKeys.ACCESS_TOKEN] = token
             // Normalized on write as well as on read. This id is embedded in the
             // Media3 download request id (`<userId>::<itemId>`), and the reader
@@ -166,7 +194,7 @@ class SessionRepositoryImpl @Inject constructor(
 
     override suspend fun setBaseUrl(url: String) {
         context.dataStore.edit { preferences ->
-            preferences[PreferencesKeys.SERVER_URL] = url.trimEnd('/')
+            preferences[PreferencesKeys.SERVER_URL] = migrateLegacyOfficialServerUrl(url)
         }
     }
 
@@ -187,14 +215,14 @@ class SessionRepositoryImpl @Inject constructor(
     }
 
     override fun getSavedServers(): Flow<List<org.mulletaflix.core.api.SavedServerSession>> {
-        return context.dataStore.data.map { preferences ->
+        return sessionData().map { preferences ->
             val raw = preferences[PreferencesKeys.SAVED_SERVERS]
             deserializeSavedServers(raw)
         }
     }
 
     override suspend fun addSavedServer(server: org.mulletaflix.core.api.SavedServerSession) {
-        val cleanUrl = server.url.trimEnd('/')
+        val cleanUrl = migrateLegacyOfficialServerUrl(server.url)
         context.dataStore.edit { preferences ->
             val currentList = deserializeSavedServers(preferences[PreferencesKeys.SAVED_SERVERS]).toMutableList()
             // Remove existing entry for the same URL (ignoring trailing slash)
@@ -244,7 +272,7 @@ class SessionRepositoryImpl @Inject constructor(
                     list.add(
                         org.mulletaflix.core.api.SavedServerSession(
                             name = obj.optString("name", "MulletaFlix Server"),
-                            url = obj.getString("url"),
+                            url = migrateLegacyOfficialServerUrl(obj.getString("url")),
                             latencyMs = if (obj.has("latencyMs")) obj.getLong("latencyMs") else null,
                             version = if (obj.has("version")) obj.getString("version") else null,
                             serverId = if (obj.has("serverId")) obj.getString("serverId") else null,
@@ -267,5 +295,14 @@ class SessionRepositoryImpl @Inject constructor(
             )
         }
         return list.sortedByDescending { it.lastConnected }
+    }
+}
+
+internal fun migrateLegacyOfficialServerUrl(url: String): String {
+    val normalized = url.trim().trimEnd('/')
+    return if (normalized.equals("http://mulletaflix.duckdns.org:8096", ignoreCase = true)) {
+        SessionRepositoryImpl.DEFAULT_MULLETAFLIX_SERVER_URL
+    } else {
+        normalized
     }
 }

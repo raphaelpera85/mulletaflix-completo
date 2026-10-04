@@ -4,7 +4,7 @@ Aplicativo Android oficial do [MulletaFlix](https://github.com/raphaelpera85/Mul
 
 O APK atua como cliente/player: autenticação, catálogo, metadados e streams são
 fornecidos pelo servidor MulletaFlix remoto. A URL pública padrão é
-`http://mulletaflix.duckdns.org:8096`. Ao iniciar, o app procura automaticamente
+`https://mulletaflix.duckdns.org`. Ao iniciar, o app procura automaticamente
 um servidor MulletaFlix na mesma LAN, verifica a conexão e o prioriza; se nenhum
 servidor local responder, usa a URL pública. A busca manual continua disponível.
 

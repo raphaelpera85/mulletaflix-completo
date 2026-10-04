@@ -14,7 +14,7 @@ import java.net.URI
 private val LOOPBACK_HOSTS = setOf("localhost", "127.0.0.1", "0.0.0.0", "::", "::1")
 
 /** The official public endpoint, used whenever a private address must be replaced. */
-const val PUBLIC_SERVER_URL = "http://mulletaflix.duckdns.org:8096"
+const val PUBLIC_SERVER_URL = "https://mulletaflix.duckdns.org"
 
 /** Returns true only for hosts that are unambiguously local/private. */
 fun isLocalServerUrl(url: String): Boolean {

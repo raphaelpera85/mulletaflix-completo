@@ -26,11 +26,11 @@ class ShareItemContentTest {
     @Test
     fun `loopback server uses the public MulletaFlix link when sharing`() {
         assertEquals(
-            "http://mulletaflix.duckdns.org:8096/web/#/details?id=movie-1",
+            "https://mulletaflix.duckdns.org/web/#/details?id=movie-1",
             buildItemShareUrl("http://localhost:8096", "movie-1"),
         )
         assertEquals(
-            "http://mulletaflix.duckdns.org:8096",
+            "https://mulletaflix.duckdns.org",
             canonicalShareBaseUrl("http://127.0.0.1:8096/"),
         )
     }
@@ -47,12 +47,12 @@ class ShareItemContentTest {
         ).forEach { lanUrl ->
             assertEquals(
                 "$lanUrl must not leak into a shared link",
-                "http://mulletaflix.duckdns.org:8096",
+                "https://mulletaflix.duckdns.org",
                 canonicalShareBaseUrl(lanUrl),
             )
         }
         assertEquals(
-            "http://mulletaflix.duckdns.org:8096/web/#/details?id=movie-1",
+            "https://mulletaflix.duckdns.org/web/#/details?id=movie-1",
             buildItemShareUrl("http://192.168.1.20:8096", "movie-1"),
         )
     }

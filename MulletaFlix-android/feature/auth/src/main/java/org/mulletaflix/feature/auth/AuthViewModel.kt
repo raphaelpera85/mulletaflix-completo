@@ -20,7 +20,7 @@ import org.mulletaflix.domain.usecase.RegisterUseCase
 import org.mulletaflix.domain.usecase.VerifyServerUseCase
 import javax.inject.Inject
 
-const val DEFAULT_MULLETAFLIX_SERVER_URL = "http://mulletaflix.duckdns.org:8096"
+const val DEFAULT_MULLETAFLIX_SERVER_URL = "https://mulletaflix.duckdns.org"
 
 data class ServerInfo(
     val name: String,

@@ -10,12 +10,14 @@ cd mulletaflix-linux-x64
 sudo ./install.sh
 ```
 
-To configure a DuckDNS hostname, pass the subdomain and the token generated in your DuckDNS account. The installer updates the public IP automatically every five minutes and can issue the Let's Encrypt certificate in the same run:
+To configure a DuckDNS hostname, provide the subdomain and email. In an interactive terminal, the installer prompts for the token without echoing it. For unattended installation, place the token on one line in a file readable only by its owner (`chmod 600 <file>`) and pass the file path. Do not put the token itself in a command, environment variable, screenshot, or log. The installer updates the public IP automatically every five minutes and can issue the Let's Encrypt certificate in the same run:
 
 ```bash
-sudo ./install.sh --duckdns-subdomain mulletaflix --duckdns-token '<DUCKDNS_TOKEN>' \
+sudo ./install.sh --duckdns-subdomain mulletaflix \
   --https-email raphaelpera85@gmail.com
 ```
+
+For unattended installation, add `--duckdns-token-file /root/mulletaflix-duckdns-token` after protecting the file with `chmod 600`. DuckDNS's own HTTPS update protocol requires its token in the request query; the updater keeps that request in a short-lived mode-0600 config file and does not put the token in the `curl` process arguments or logs.
 
 This produces `mulletaflix.duckdns.org`. The token is stored in `/etc/mulletaflix/duckdns.env` with mode `0600`; the updater is managed by `mulletaflix-duckdns.timer`.
 
