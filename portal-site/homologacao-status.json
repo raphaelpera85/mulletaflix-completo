@@ -51,11 +51,11 @@
       "local": "D:\\Users\\Raphael\\Documents\\Projetos\\mulletaflix",
       "location": "MulletaFlix-master/TestResults e MulletaFlix-android/**/build/test-results",
       "scope": "Contar casos reportados e separar auditoria de testes da homologação formal",
-      "progressPercent": 0,
-      "status": "in_progress",
+      "progressPercent": 100,
+      "status": "completed",
       "startedAt": "2026-10-04T14:20:00-03:00",
-      "updatedAt": "2026-10-04T14:20:00-03:00",
-      "evidence": "Inventário iniciado: Servidor 1.215 casos TRX; Android 1.382 casos JUnit. Os percentuais serão exibidos como auditoria dos relatórios, não como homologação final."
+      "updatedAt": "2026-10-04T14:24:00-03:00",
+      "evidence": "Denominador calculado a partir dos relatórios auditáveis: Servidor 1.215 casos TRX (1.165 aprovados, 50 ignorados, 0 falhas = 95,9% aprovados); Android 1.382 casos JUnit (1.382 aprovados, 0 ignorados, 0 falhas = 100% aprovados). Percentuais identificados como auditoria de testes; homologação formal permanece separada. Git principal: 7312ee20; portal: 9629fe1; JSON HTTP 200 validado."
     },
     {
       "id": "nebula-initial-completed-media-refresh-2026-10-04",
