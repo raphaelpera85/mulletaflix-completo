@@ -37,11 +37,11 @@
       "local": "D:\\Users\\Raphael\\Documents\\Projetos\\mulletaflix",
       "location": "portal-site/homologacao-status.json e dashboard",
       "scope": "Remover percentuais inferidos de testes parciais e explicitar bloqueios",
-      "progressPercent": 0,
-      "status": "in_progress",
+      "progressPercent": 100,
+      "status": "completed",
       "startedAt": "2026-10-04T13:55:00-03:00",
-      "updatedAt": "2026-10-04T13:55:00-03:00",
-      "evidence": "Revisão iniciada após identificar que os valores 98% e 100% não representavam homologação formal consolidada."
+      "updatedAt": "2026-10-04T13:58:00-03:00",
+      "evidence": "Percentuais 98% e 100% removidos. Servidor e APK agora aparecem como Em execução / Não consolidado até haver medição formal; bloqueios são exibidos na evidência. Git principal: 7c74e27c; portal: 6c74647; Vercel READY: dpl_9iW6Ux9hiSKfL77CHfCxkaS94YDq. JSON público HTTP 200 validado."
     },
     {
       "id": "portal-platform-table-2026-10-04",
