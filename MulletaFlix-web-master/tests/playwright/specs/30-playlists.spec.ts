@@ -1,5 +1,6 @@
 import { expect, test, type BrowserContext } from '@playwright/test';
 import crypto from 'node:crypto';
+import { resolve } from 'node:path';
 import { getAdminCredentials, loginWithManualForm } from '../support/admin-user.mjs';
 import { restartOwnedStage } from '../support/restart-stage.mjs';
 import { getStageBaseUrl, navigateStage, openStage } from '../support/stage.mjs';
@@ -47,6 +48,39 @@ test('creates an empty playlist, discovers it from the home navigation, and pers
         await expect(page.locator('#playlistsPage')).toBeVisible({ timeout: 30_000 });
         const playlistCard = page.locator('#playlistsPage').getByText(playlistName, { exact: true });
         await expect(playlistCard).toBeVisible({ timeout: 30_000 });
+
+        for (const width of [390, 1280]) {
+            await page.setViewportSize({ width, height: 900 });
+            await expect(page.getByRole('button', { name: /^(New Playlist|Nova Playlist)$/i })).toBeVisible();
+            await page.addScriptTag({ path: resolve('node_modules/axe-core/axe.min.js') });
+            const violations = await page.evaluate(async () => {
+                const axe = (window as Window & {
+                    axe?: {
+                        run: (context: Document, options: object) => Promise<{
+                            violations: Array<{
+                                id: string;
+                                impact: string;
+                                help: string;
+                                nodes: Array<{ target: string[]; failureSummary?: string }>;
+                            }>;
+                        }>;
+                    };
+                }).axe;
+                if (!axe) throw new Error('axe-core did not load');
+                const results = await axe.run(document, {
+                    runOnly: { type: 'tag', values: ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'] }
+                });
+                return results.violations.map(({ id, impact, help, nodes }) => ({
+                    id,
+                    impact,
+                    help,
+                    nodes: nodes.map(node => ({ target: node.target, failureSummary: node.failureSummary }))
+                }));
+            });
+            expect(violations, `axe-core violations on playlist page at ${width}px: ${JSON.stringify(violations, null, 2)}`).toEqual([]);
+            expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+            await expect(playlistCard).toBeVisible();
+        }
 
         const browser = page.context().browser();
         if (!browser) {

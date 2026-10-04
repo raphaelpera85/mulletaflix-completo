@@ -152,6 +152,7 @@ fun BookReaderScreen(
 }
 
 @Composable
+@OptIn(ExperimentalMaterial3Api::class)
 internal fun BookReaderProgressActions(
     enabled: Boolean,
     onRestart: () -> Unit,

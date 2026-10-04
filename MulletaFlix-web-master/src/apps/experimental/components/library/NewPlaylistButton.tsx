@@ -30,6 +30,7 @@ const NewPlaylistButton: FC<NewPlaylistButtonProps> = ({
     return (
         <Button
             variant='contained'
+            aria-label={globalize.translate('NewPlaylist')}
             startIcon={isTextVisible ? <PlaylistAdd /> : undefined}
             onClick={showPlaylistEditor}
         >
