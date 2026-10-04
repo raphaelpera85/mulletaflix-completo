@@ -169,6 +169,20 @@ class BookReaderReadiumIntegrationTest {
     }
 
     @Test
+    fun legacyComicLocatorIsMigratedToAValidReadiumUrlAndKeepsPageIndex() {
+        val oldLocatorJson = JSONObject(
+            """{"href":"mulletaflix:cbz:page:3","locations":{"position":4,"totalProgression":0.5}}""",
+        )
+
+        val migratedJson = requireNotNull(ComicBookArchive.migrateLegacyPageLocator(oldLocatorJson))
+        val migratedLocator = requireNotNull(Locator.fromJSON(migratedJson))
+
+        assertEquals("mulletaflix-cbz-page-3", migratedJson.getString("href"))
+        assertEquals("application/octet-stream", migratedJson.getString("type"))
+        assertEquals(3, ComicBookArchive.pageIndexFromLocator(migratedLocator, pageCount = 8))
+    }
+
+    @Test
     fun reflowableRenditionRestoresSavedLocationAfterRecreation() {
         val epub = createEpub()
         try {

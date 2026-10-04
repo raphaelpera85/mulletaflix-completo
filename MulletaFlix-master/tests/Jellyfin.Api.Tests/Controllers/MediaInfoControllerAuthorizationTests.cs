@@ -2,6 +2,7 @@ using System;
 using System.Security.Claims;
 using System.Threading;
 using System.Threading.Tasks;
+using MediaBrowser.Controller.Devices;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Model.Dlna;
@@ -38,6 +39,17 @@ public sealed class MediaInfoControllerAuthorizationTests
     }
 
     [Fact]
+    public async Task GetPlaybackInfo_AuthenticatedUserIdMissing_ReturnsUnauthorizedBeforeLibraryLookup()
+    {
+        var fixture = CreateFixture(includeUserIdClaim: false);
+
+        var result = await fixture.Controller.GetPlaybackInfo(fixture.ItemId, null);
+
+        Assert.IsType<UnauthorizedResult>(result.Result);
+        Assert.Empty(fixture.LibraryManager.Invocations);
+    }
+
+    [Fact]
     public async Task GetPostedPlaybackInfo_AuthenticatedUserCannotBeResolved_ReturnsUnauthorized()
     {
         var fixture = CreateFixture(userExists: false);
@@ -67,6 +79,76 @@ public sealed class MediaInfoControllerAuthorizationTests
     }
 
     [Fact]
+    public async Task GetPostedPlaybackInfo_AuthenticatedUserIdMissing_ReturnsUnauthorizedBeforeDeviceOrLibraryLookup()
+    {
+        var fixture = CreateFixture(includeUserIdClaim: false);
+
+        var result = await fixture.Controller.GetPostedPlaybackInfo(
+            fixture.ItemId,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            playbackInfoDto: null);
+
+        Assert.IsType<UnauthorizedResult>(result.Result);
+        Assert.Empty(fixture.LibraryManager.Invocations);
+        Assert.Empty(fixture.DeviceManager.Invocations);
+    }
+
+    [Fact]
+    public async Task GetPlaybackInfo_ApiKeyWithoutUser_PreservesUnscopedLookup()
+    {
+        var fixture = CreateFixture(isApiKey: true, itemIsVisible: false);
+
+        var result = await fixture.Controller.GetPlaybackInfo(fixture.ItemId, null);
+
+        Assert.IsType<NotFoundResult>(result.Result);
+        fixture.LibraryManager.Verify(
+            library => library.GetItemById<BaseItem>(fixture.ItemId, (User?)null),
+            Times.Once);
+    }
+
+    [Fact]
+    public async Task GetPostedPlaybackInfo_ApiKeyWithoutUser_PreservesUnscopedLookup()
+    {
+        var fixture = CreateFixture(isApiKey: true, itemIsVisible: false);
+
+        var result = await fixture.Controller.GetPostedPlaybackInfo(
+            fixture.ItemId,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            new PlaybackInfoDto { DeviceProfile = new DeviceProfile() });
+
+        Assert.IsType<NotFoundResult>(result.Result);
+        fixture.LibraryManager.Verify(
+            library => library.GetItemById<BaseItem>(fixture.ItemId, (User?)null),
+            Times.Once);
+    }
+
+    [Fact]
     public async Task OpenLiveStream_AuthenticatedUserCannotBeResolved_ReturnsUnauthorizedBeforeOpening()
     {
         var fixture = CreateFixture(userExists: false);
@@ -74,6 +156,20 @@ public sealed class MediaInfoControllerAuthorizationTests
         var result = await OpenLiveStream(fixture.Controller, fixture.ItemId);
 
         Assert.IsType<UnauthorizedResult>(result.Result);
+        fixture.MediaSourceManager.Verify(
+            manager => manager.OpenLiveStream(It.IsAny<LiveStreamRequest>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    [Fact]
+    public async Task OpenLiveStream_AuthenticatedUserIdMissing_ReturnsUnauthorizedBeforeLibraryOrStreamManager()
+    {
+        var fixture = CreateFixture(includeUserIdClaim: false);
+
+        var result = await OpenLiveStream(fixture.Controller, fixture.ItemId);
+
+        Assert.IsType<UnauthorizedResult>(result.Result);
+        Assert.Empty(fixture.LibraryManager.Invocations);
         fixture.MediaSourceManager.Verify(
             manager => manager.OpenLiveStream(It.IsAny<LiveStreamRequest>(), It.IsAny<CancellationToken>()),
             Times.Never);
@@ -171,7 +267,11 @@ public sealed class MediaInfoControllerAuthorizationTests
             null);
     }
 
-    private static ControllerFixture CreateFixture(bool userExists = true, bool itemIsVisible = true, bool isApiKey = false)
+    private static ControllerFixture CreateFixture(
+        bool userExists = true,
+        bool itemIsVisible = true,
+        bool isApiKey = false,
+        bool includeUserIdClaim = true)
     {
         var user = new User(
             "media-reader",
@@ -187,7 +287,7 @@ public sealed class MediaInfoControllerAuthorizationTests
         libraryManager.Setup(library => library.GetItemById<BaseItem>(itemId, user))
             .Returns(itemIsVisible ? visibleItem : null);
         libraryManager.Setup(library => library.GetItemById<BaseItem>(itemId, (User?)null))
-            .Returns(isApiKey ? visibleItem : null);
+            .Returns(itemIsVisible ? visibleItem : null);
 
         var userManager = new Mock<IUserManager>();
         userManager.Setup(manager => manager.GetUserById(user.Id)).Returns(userExists ? user : null);
@@ -196,6 +296,7 @@ public sealed class MediaInfoControllerAuthorizationTests
         mediaSourceManager
             .Setup(manager => manager.OpenLiveStream(It.IsAny<LiveStreamRequest>(), It.IsAny<CancellationToken>()))
             .ThrowsAsync(new OpenMediaSourceReachedException());
+        var deviceManager = new Mock<IDeviceManager>();
 
         var transientItems = new TransientMediaItemRegistry();
         var mediaInfoHelper = new MediaInfoHelper(
@@ -209,7 +310,7 @@ public sealed class MediaInfoControllerAuthorizationTests
             null!);
         var controller = new MediaInfoController(
             mediaSourceManager.Object,
-            null!,
+            deviceManager.Object,
             libraryManager.Object,
             null!,
             NullLogger<MediaInfoController>.Instance,
@@ -226,16 +327,19 @@ public sealed class MediaInfoControllerAuthorizationTests
             }
             : new[]
             {
-                new Claim(InternalClaimTypes.UserId, user.Id.ToString("N")),
                 new Claim(ClaimTypes.Name, user.Username)
             };
+        if (!isApiKey && includeUserIdClaim)
+        {
+            claims = [new Claim(InternalClaimTypes.UserId, user.Id.ToString("N")), .. claims];
+        }
         var identity = new ClaimsIdentity(claims, "TestAuth");
         controller.ControllerContext = new ControllerContext
         {
             HttpContext = new DefaultHttpContext { User = new ClaimsPrincipal(identity) }
         };
 
-        return new ControllerFixture(controller, user, itemId, libraryManager, mediaSourceManager, transientItems);
+        return new ControllerFixture(controller, user, itemId, libraryManager, mediaSourceManager, transientItems, deviceManager);
     }
 
     private sealed record ControllerFixture(
@@ -244,7 +348,8 @@ public sealed class MediaInfoControllerAuthorizationTests
         Guid ItemId,
         Mock<ILibraryManager> LibraryManager,
         Mock<IMediaSourceManager> MediaSourceManager,
-        TransientMediaItemRegistry TransientItems);
+        TransientMediaItemRegistry TransientItems,
+        Mock<IDeviceManager> DeviceManager);
 
     private sealed class OpenMediaSourceReachedException : Exception
     {

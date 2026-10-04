@@ -3021,3 +3021,12 @@ Pendências relacionadas:
 - [x] `build-app-package.ps1 -Version 1.3.81`: APK de produção assinado e copiado; tamanho 7.705.289 bytes, SHA-256 `BC7F7357A6100FBE0106C47C25FCC5E34A63BD0FED4748969D44A887A509F136`.
 - [x] Atualizar fallback estático de versão/URLs Android e aviso de reinstalação no portal; manter `release-sync.js` ativo.
 - [ ] Publicar `app-v1.3.81` no GitHub e implantar portal somente depois que credencial GitHub estiver disponível; não tocar em releases do servidor.
+
+## Leitor APK — tamanho de fonte EPUB e locators CBZ (validação local; sem release)
+- [x] Adicionar controles de fonte `80%–200%`, passos de `10%`, padrão `100%` e persistência DataStore por conta/servidor.
+- [x] Aplicar mudanças de fonte imediatamente no Readium sem perder localização; expor semântica acessível no alvo `IconButton`.
+- [x] Corrigir locators CBZ com `href` relativo e MIME obrigatório; migrar progresso antigo `mulletaflix:cbz:page:N` mantendo a página.
+- [x] `:feature:item-detail:testDebugUnitTest`: 80/80; controles UI em telefone: 5/5; tablet: 5/5; integração Readium/DataStore/CBZ no tablet: 8/8.
+- [x] `:feature:item-detail:lintDebug`, `:app:lintDebug`, `:app:assembleDebug` e `:app:compileDebugAndroidTestKotlin`: `BUILD SUCCESSFUL`.
+- [x] Emuladores testados via `tools/with-emulator.ps1`, abrindo e fechando ao fim. Windows `GpuPreference=2` para Emulator/QEMU; `-gpu host`; wrapper confirmou QEMU na NVIDIA RTX 3050 durante execuções.
+- [ ] Sem bump, APK de produção ou publicação. Antes de release futura, seguir a validação de assinatura e verificar a versão/artefato anterior; manter notas sincronizadas somente com mudanças incluídas no APK.

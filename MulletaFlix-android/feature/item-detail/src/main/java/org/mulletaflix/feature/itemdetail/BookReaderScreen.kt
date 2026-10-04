@@ -41,6 +41,8 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -221,8 +223,11 @@ internal fun BookReaderFontSizeControls(
         IconButton(
             onClick = onDecrease,
             enabled = enabled && fontSizePercent > BookReaderFontSize.MIN_PERCENT,
+            modifier = Modifier.semantics(mergeDescendants = true) {
+                contentDescription = "Diminuir tamanho do texto"
+            },
         ) {
-            Icon(Icons.Default.Remove, contentDescription = "Diminuir tamanho do texto")
+            Icon(Icons.Default.Remove, contentDescription = null)
         }
         Text(
             text = "${BookReaderFontSize.normalize(fontSizePercent)}%",
@@ -232,8 +237,11 @@ internal fun BookReaderFontSizeControls(
         IconButton(
             onClick = onIncrease,
             enabled = enabled && fontSizePercent < BookReaderFontSize.MAX_PERCENT,
+            modifier = Modifier.semantics(mergeDescendants = true) {
+                contentDescription = "Aumentar tamanho do texto"
+            },
         ) {
-            Icon(Icons.Default.Add, contentDescription = "Aumentar tamanho do texto")
+            Icon(Icons.Default.Add, contentDescription = null)
         }
     }
 }

@@ -5,11 +5,6 @@ using System.Linq;
 using System.Net.Mime;
 using System.Text.Json;
 using System.Threading.Tasks;
-using MulletaFlix.Api.Attributes;
-using MulletaFlix.Api.Extensions;
-using MulletaFlix.Api.Helpers;
-using MulletaFlix.Api.Models.MediaInfoDtos;
-using MulletaFlix.Extensions;
 using MediaBrowser.Common.Extensions;
 using MediaBrowser.Controller.Devices;
 using MediaBrowser.Controller.Entities;
@@ -23,6 +18,12 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.ModelBinding;
 using Microsoft.Extensions.Logging;
+using MulletaFlix.Api.Attributes;
+using MulletaFlix.Api.Extensions;
+using MulletaFlix.Api.Helpers;
+using MulletaFlix.Api.Models.MediaInfoDtos;
+using MulletaFlix.Database.Implementations.Entities;
+using MulletaFlix.Extensions;
 
 namespace MulletaFlix.Api.Controllers;
 
@@ -91,11 +92,7 @@ public class MediaInfoController : BaseMulletaFlixApiController
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<ActionResult<PlaybackInfoResponse>> GetPlaybackInfo([FromRoute, Required] Guid itemId, [FromQuery] Guid? userId)
     {
-        userId = RequestHelpers.GetUserId(User, userId);
-        var user = userId.IsNullOrEmpty()
-            ? null
-            : _userManager.GetUserById(userId.Value);
-        if (!userId.IsNullOrEmpty() && user is null)
+        if (!TryResolveRequestUser(userId, out _, out var user))
         {
             return Unauthorized();
         }
@@ -166,6 +163,14 @@ public class MediaInfoController : BaseMulletaFlixApiController
         [FromQuery, ParameterObsolete] bool? allowAudioStreamCopy,
         [FromBody(EmptyBodyBehavior = EmptyBodyBehavior.Allow)] PlaybackInfoDto? playbackInfoDto)
     {
+        // Copy params from posted body
+        // TODO clean up when breaking API compatibility.
+        userId ??= playbackInfoDto?.UserId;
+        if (!TryResolveRequestUser(userId, out var resolvedUserId, out var user))
+        {
+            return Unauthorized();
+        }
+
         var profile = playbackInfoDto?.DeviceProfile;
         _logger.LogDebug("GetPostedPlaybackInfo profile: {@Profile}", profile);
 
@@ -178,10 +183,6 @@ public class MediaInfoController : BaseMulletaFlixApiController
             }
         }
 
-        // Copy params from posted body
-        // TODO clean up when breaking API compatibility.
-        userId ??= playbackInfoDto?.UserId;
-        userId = RequestHelpers.GetUserId(User, userId);
         maxStreamingBitrate ??= playbackInfoDto?.MaxStreamingBitrate;
         startTimeTicks ??= playbackInfoDto?.StartTimeTicks;
         audioStreamIndex ??= playbackInfoDto?.AudioStreamIndex;
@@ -196,14 +197,7 @@ public class MediaInfoController : BaseMulletaFlixApiController
         allowVideoStreamCopy ??= playbackInfoDto?.AllowVideoStreamCopy ?? true;
         allowAudioStreamCopy ??= playbackInfoDto?.AllowAudioStreamCopy ?? true;
 
-        userId = RequestHelpers.GetUserId(User, userId);
-        var user = userId.IsNullOrEmpty()
-            ? null
-            : _userManager.GetUserById(userId.Value);
-        if (!userId.IsNullOrEmpty() && user is null)
-        {
-            return Unauthorized();
-        }
+        userId = resolvedUserId;
 
         var item = _libraryManager.GetItemById<BaseItem>(itemId, user);
         if (item is null)
@@ -343,12 +337,11 @@ public class MediaInfoController : BaseMulletaFlixApiController
         [FromQuery] bool? alwaysBurnInSubtitleWhenTranscoding)
     {
         userId ??= openLiveStreamDto?.UserId;
-        userId = RequestHelpers.GetUserId(User, userId);
-        var user = userId.Value == Guid.Empty ? null : _userManager.GetUserById(userId.Value);
-        if (userId.Value != Guid.Empty && user is null)
+        if (!TryResolveRequestUser(userId, out var resolvedUserId, out var user))
         {
             return Unauthorized();
         }
+        userId = resolvedUserId;
 
         var requestedItemId = itemId ?? openLiveStreamDto?.ItemId ?? Guid.Empty;
         if (requestedItemId != Guid.Empty)
@@ -383,6 +376,19 @@ public class MediaInfoController : BaseMulletaFlixApiController
             AlwaysBurnInSubtitleWhenTranscoding = alwaysBurnInSubtitleWhenTranscoding ?? openLiveStreamDto?.AlwaysBurnInSubtitleWhenTranscoding ?? false
         };
         return await _mediaInfoHelper.OpenMediaSource(HttpContext, request).ConfigureAwait(false);
+    }
+
+    private bool TryResolveRequestUser(Guid? requestedUserId, out Guid userId, out User? user)
+    {
+        userId = RequestHelpers.GetUserId(User, requestedUserId);
+        if (userId.IsEmpty())
+        {
+            user = null;
+            return User.GetIsApiKey();
+        }
+
+        user = _userManager.GetUserById(userId);
+        return user is not null;
     }
 
     /// <summary>

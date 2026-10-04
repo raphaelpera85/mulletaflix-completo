@@ -64,7 +64,8 @@ internal class ComicBookArchive private constructor(
         private const val MAX_SOURCE_DIMENSION = 100_000
         private const val MAX_SOURCE_PIXELS = 100_000_000L
         private const val MAX_DECODED_PIXELS = 16_777_216L
-        private const val PAGE_HREF_PREFIX = "mulletaflix:cbz:page:"
+        private const val PAGE_HREF_PREFIX = "mulletaflix-cbz-page-"
+        private const val LEGACY_PAGE_HREF_PREFIX = "mulletaflix:cbz:page:"
         private val imageExtensions = setOf("jpg", "jpeg", "png", "webp", "gif", "bmp")
         private val naturalSortTokens = Regex("\\d+|\\D+")
 
@@ -127,10 +128,26 @@ internal class ComicBookArchive private constructor(
         fun pageIndexFromLocator(locator: Locator?, pageCount: Int): Int? {
             if (pageCount <= 0 || locator == null) return null
             val href = locator.href.toString()
-            val index = href.removePrefix(PAGE_HREF_PREFIX)
-                .takeIf { it != href }
-                ?.toIntOrNull()
-            return index?.takeIf { it in 0 until pageCount }
+            val pageIndex = when {
+                href.startsWith(PAGE_HREF_PREFIX) -> href.removePrefix(PAGE_HREF_PREFIX)
+                href.startsWith(LEGACY_PAGE_HREF_PREFIX) -> href.removePrefix(LEGACY_PAGE_HREF_PREFIX)
+                else -> return null
+            }.toIntOrNull()
+            return pageIndex?.takeIf { it in 0 until pageCount }
+        }
+
+        fun migrateLegacyPageLocator(locatorJson: JSONObject): JSONObject? {
+            val href = locatorJson.optString("href")
+            if (!href.startsWith(LEGACY_PAGE_HREF_PREFIX)) return null
+            val pageIndex = href.removePrefix(LEGACY_PAGE_HREF_PREFIX).toIntOrNull() ?: return null
+            if (pageIndex < 0) return null
+
+            return JSONObject(locatorJson.toString()).apply {
+                put("href", "$PAGE_HREF_PREFIX$pageIndex")
+                if (!has("type") || optString("type").isBlank()) {
+                    put("type", "application/octet-stream")
+                }
+            }
         }
 
         private fun pageMediaType(pageName: String): String = when (pageName.substringAfterLast('.', "").lowercase()) {

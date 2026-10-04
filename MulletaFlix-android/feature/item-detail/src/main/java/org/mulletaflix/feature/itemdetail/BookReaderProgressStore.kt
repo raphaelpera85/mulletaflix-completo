@@ -39,7 +39,15 @@ internal class BookReaderProgressStore(context: Context) {
     suspend fun read(scope: HomeFeedCacheScope, itemId: String): Locator? = recoverBookReaderStorageFailure {
         val key = entryKey(scope, itemId)
         val encoded = store.data.first()[stringPreferencesKey(key)]
-        encoded?.let { Locator.fromJSON(JSONObject(it)) }
+        encoded?.let {
+            val locatorJson = JSONObject(it)
+            val migratedJson = ComicBookArchive.migrateLegacyPageLocator(locatorJson)
+            val locator = Locator.fromJSON(migratedJson ?: locatorJson)
+            if (migratedJson != null && locator != null) {
+                store.edit { preferences -> preferences[stringPreferencesKey(key)] = locator.toJSON().toString() }
+            }
+            locator
+        }
     }
 
     suspend fun write(scope: HomeFeedCacheScope, itemId: String, locator: Locator) {

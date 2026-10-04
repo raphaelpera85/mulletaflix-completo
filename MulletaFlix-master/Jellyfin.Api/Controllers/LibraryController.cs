@@ -6,15 +6,6 @@ using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
-using MulletaFlix.Api.Attributes;
-using MulletaFlix.Api.Extensions;
-using MulletaFlix.Api.Helpers;
-using MulletaFlix.Api.ModelBinders;
-using MulletaFlix.Api.Models.LibraryDtos;
-using MulletaFlix.Data.Enums;
-using MulletaFlix.Database.Implementations.Entities;
-using MulletaFlix.Database.Implementations.Enums;
-using MulletaFlix.Extensions;
 using MediaBrowser.Common.Api;
 using MediaBrowser.Common.Extensions;
 using MediaBrowser.Controller.Collections;
@@ -38,6 +29,15 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging;
+using MulletaFlix.Api.Attributes;
+using MulletaFlix.Api.Extensions;
+using MulletaFlix.Api.Helpers;
+using MulletaFlix.Api.ModelBinders;
+using MulletaFlix.Api.Models.LibraryDtos;
+using MulletaFlix.Data.Enums;
+using MulletaFlix.Database.Implementations.Entities;
+using MulletaFlix.Database.Implementations.Enums;
+using MulletaFlix.Extensions;
 
 namespace MulletaFlix.Api.Controllers;
 
@@ -150,6 +150,7 @@ public class LibraryController : BaseMulletaFlixApiController
     [Authorize]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<ActionResult<ThemeMediaResult>> GetThemeSongs(
         [FromRoute, Required] Guid itemId,
         [FromQuery] Guid? userId,
@@ -157,6 +158,11 @@ public class LibraryController : BaseMulletaFlixApiController
         [FromQuery, ModelBinder(typeof(CommaDelimitedCollectionModelBinder))] ItemSortBy[]? sortBy = null,
         [FromQuery, ModelBinder(typeof(CommaDelimitedCollectionModelBinder))] SortOrder[]? sortOrder = null)
     {
+        if (!TryResolveRequestUser(userId, out _))
+        {
+            return Unauthorized();
+        }
+
         var result = await GetThemeSongsResultAsync(itemId, userId, inheritFromParent, sortBy, sortOrder).ConfigureAwait(false);
         return result is null ? NotFound() : result;
     }
@@ -176,6 +182,7 @@ public class LibraryController : BaseMulletaFlixApiController
     [Authorize]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<ActionResult<ThemeMediaResult>> GetThemeVideos(
         [FromRoute, Required] Guid itemId,
         [FromQuery] Guid? userId,
@@ -183,6 +190,11 @@ public class LibraryController : BaseMulletaFlixApiController
         [FromQuery, ModelBinder(typeof(CommaDelimitedCollectionModelBinder))] ItemSortBy[]? sortBy = null,
         [FromQuery, ModelBinder(typeof(CommaDelimitedCollectionModelBinder))] SortOrder[]? sortOrder = null)
     {
+        if (!TryResolveRequestUser(userId, out _))
+        {
+            return Unauthorized();
+        }
+
         var result = await GetThemeVideosResultAsync(itemId, userId, inheritFromParent, sortBy, sortOrder).ConfigureAwait(false);
         return result is null ? NotFound() : result;
     }
@@ -201,6 +213,7 @@ public class LibraryController : BaseMulletaFlixApiController
     [HttpGet("Items/{itemId}/ThemeMedia")]
     [Authorize]
     [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<ActionResult<AllThemeMediaResult>> GetThemeMedia(
         [FromRoute, Required] Guid itemId,
         [FromQuery] Guid? userId,
@@ -208,6 +221,11 @@ public class LibraryController : BaseMulletaFlixApiController
         [FromQuery, ModelBinder(typeof(CommaDelimitedCollectionModelBinder))] ItemSortBy[]? sortBy = null,
         [FromQuery, ModelBinder(typeof(CommaDelimitedCollectionModelBinder))] SortOrder[]? sortOrder = null)
     {
+        if (!TryResolveRequestUser(userId, out _))
+        {
+            return Unauthorized();
+        }
+
         var themeSongsTask = GetThemeSongsResultAsync(
             itemId,
             userId,
@@ -238,6 +256,19 @@ public class LibraryController : BaseMulletaFlixApiController
             ThemeVideosResult = themeVideos,
             SoundtrackSongsResult = new ThemeMediaResult()
         };
+    }
+
+    private bool TryResolveRequestUser(Guid? requestedUserId, out User? user)
+    {
+        var userId = RequestHelpers.GetUserId(User, requestedUserId);
+        if (userId.IsEmpty())
+        {
+            user = null;
+            return User.GetIsApiKey();
+        }
+
+        user = _userManager.GetUserById(userId);
+        return user is not null;
     }
 
     private async Task<ThemeMediaResult?> GetThemeSongsResultAsync(
@@ -474,14 +505,15 @@ public class LibraryController : BaseMulletaFlixApiController
     [HttpGet("Items/Counts")]
     [Authorize]
     [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public ActionResult<ItemCounts> GetItemCounts(
         [FromQuery] Guid? userId,
         [FromQuery] bool? isFavorite)
     {
-        userId = RequestHelpers.GetUserId(User, userId);
-        var user = userId.IsNullOrEmpty()
-            ? null
-            : _userManager.GetUserById(userId.Value);
+        if (!TryResolveRequestUser(userId, out var user))
+        {
+            return Unauthorized();
+        }
 
         var query = new InternalItemsQuery(user)
         {
@@ -509,12 +541,14 @@ public class LibraryController : BaseMulletaFlixApiController
     [Authorize]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<ActionResult<IEnumerable<BaseItemDto>>> GetAncestors([FromRoute, Required] Guid itemId, [FromQuery] Guid? userId)
     {
-        userId = RequestHelpers.GetUserId(User, userId);
-        var user = userId.IsNullOrEmpty()
-            ? null
-            : _userManager.GetUserById(userId.Value);
+        if (!TryResolveRequestUser(userId, out var user))
+        {
+            return Unauthorized();
+        }
+
         var item = _libraryManager.GetItemById<BaseItem>(itemId, user);
         if (item is null)
         {
@@ -691,13 +725,16 @@ public class LibraryController : BaseMulletaFlixApiController
     [Authorize(Policy = Policies.Download)]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     [ProducesFile("video/*", "audio/*")]
     public async Task<ActionResult> GetDownload([FromRoute, Required] Guid itemId)
     {
         var userId = User.GetUserId();
-        var user = userId.IsEmpty()
-            ? null
-            : _userManager.GetUserById(userId);
+        if (!TryResolveRequestUser(userId, out var user))
+        {
+            return Unauthorized();
+        }
+
         var item = _libraryManager.GetItemById<BaseItem>(itemId, user);
         if (item is null)
         {
@@ -842,6 +879,7 @@ public class LibraryController : BaseMulletaFlixApiController
     [HttpGet("Trailers/{itemId}/Similar", Name = "GetSimilarTrailers")]
     [Authorize]
     [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<ActionResult<QueryResult<BaseItemDto>>> GetSimilarItems(
         [FromRoute, Required] Guid itemId,
         [FromQuery, ModelBinder(typeof(CommaDelimitedCollectionModelBinder))] Guid[] excludeArtistIds,
@@ -850,10 +888,11 @@ public class LibraryController : BaseMulletaFlixApiController
         [FromQuery, ModelBinder(typeof(CommaDelimitedCollectionModelBinder))] ItemFields[] fields,
         CancellationToken cancellationToken)
     {
-        userId = RequestHelpers.GetUserId(User, userId);
-        var user = userId.IsNullOrEmpty()
-            ? null
-            : _userManager.GetUserById(userId.Value);
+        if (!TryResolveRequestUser(userId, out var user))
+        {
+            return Unauthorized();
+        }
+
         var item = itemId.IsEmpty()
             ? (user is null
                 ? _libraryManager.RootFolder
@@ -1178,4 +1217,3 @@ public class UnidentifiedItemDto
     public string? Type { get; set; }
     public DateTime DateCreated { get; set; }
 }
-
