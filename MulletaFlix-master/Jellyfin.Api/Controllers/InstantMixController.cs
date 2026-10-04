@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.ComponentModel.DataAnnotations;
@@ -70,6 +70,7 @@ public class InstantMixController : BaseMulletaFlixApiController
     [HttpGet("Songs/{itemId}/InstantMix")]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<ActionResult<QueryResult<BaseItemDto>>> GetInstantMixFromSong(
         [FromRoute, Required] Guid itemId,
         [FromQuery] Guid? userId,
@@ -80,10 +81,11 @@ public class InstantMixController : BaseMulletaFlixApiController
         [FromQuery] int? imageTypeLimit,
         [FromQuery, ModelBinder(typeof(CommaDelimitedCollectionModelBinder))] ImageType[] enableImageTypes)
     {
-        userId = RequestHelpers.GetUserId(User, userId);
-        var user = userId.IsNullOrEmpty()
-            ? null
-            : _userManager.GetUserById(userId.Value);
+        if (!TryResolveInstantMixUser(userId, out var user))
+        {
+            return Unauthorized();
+        }
+
         var item = _libraryManager.GetItemById<BaseItem>(itemId, user);
         if (item is null)
         {
@@ -113,6 +115,7 @@ public class InstantMixController : BaseMulletaFlixApiController
     [HttpGet("Albums/{itemId}/InstantMix")]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<ActionResult<QueryResult<BaseItemDto>>> GetInstantMixFromAlbum(
         [FromRoute, Required] Guid itemId,
         [FromQuery] Guid? userId,
@@ -123,10 +126,11 @@ public class InstantMixController : BaseMulletaFlixApiController
         [FromQuery] int? imageTypeLimit,
         [FromQuery, ModelBinder(typeof(CommaDelimitedCollectionModelBinder))] ImageType[] enableImageTypes)
     {
-        userId = RequestHelpers.GetUserId(User, userId);
-        var user = userId.IsNullOrEmpty()
-            ? null
-            : _userManager.GetUserById(userId.Value);
+        if (!TryResolveInstantMixUser(userId, out var user))
+        {
+            return Unauthorized();
+        }
+
         var item = _libraryManager.GetItemById<BaseItem>(itemId, user);
         if (item is null)
         {
@@ -156,6 +160,7 @@ public class InstantMixController : BaseMulletaFlixApiController
     [HttpGet("Playlists/{itemId}/InstantMix")]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<ActionResult<QueryResult<BaseItemDto>>> GetInstantMixFromPlaylist(
         [FromRoute, Required] Guid itemId,
         [FromQuery] Guid? userId,
@@ -166,10 +171,11 @@ public class InstantMixController : BaseMulletaFlixApiController
         [FromQuery] int? imageTypeLimit,
         [FromQuery, ModelBinder(typeof(CommaDelimitedCollectionModelBinder))] ImageType[] enableImageTypes)
     {
-        userId = RequestHelpers.GetUserId(User, userId);
-        var user = userId.IsNullOrEmpty()
-            ? null
-            : _userManager.GetUserById(userId.Value);
+        if (!TryResolveInstantMixUser(userId, out var user))
+        {
+            return Unauthorized();
+        }
+
         var item = _libraryManager.GetItemById<Playlist>(itemId, user);
         if (item is null)
         {
@@ -197,6 +203,7 @@ public class InstantMixController : BaseMulletaFlixApiController
     /// <returns>A <see cref="QueryResult{BaseItemDto}"/> with the playlist items.</returns>
     [HttpGet("MusicGenres/{name}/InstantMix")]
     [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     [Obsolete("Use GetInstantMixFromItem")]
     public async Task<ActionResult<QueryResult<BaseItemDto>>> GetInstantMixFromMusicGenreByName(
         [FromRoute, Required] string name,
@@ -208,10 +215,11 @@ public class InstantMixController : BaseMulletaFlixApiController
         [FromQuery] int? imageTypeLimit,
         [FromQuery, ModelBinder(typeof(CommaDelimitedCollectionModelBinder))] ImageType[] enableImageTypes)
     {
-        userId = RequestHelpers.GetUserId(User, userId);
-        var user = userId.IsNullOrEmpty()
-            ? null
-            : _userManager.GetUserById(userId.Value);
+        if (!TryResolveInstantMixUser(userId, out var user))
+        {
+            return Unauthorized();
+        }
+
         var dtoOptions = new DtoOptions { Fields = fields }
             .AddAdditionalDtoOptions(enableImages, enableUserData, imageTypeLimit, enableImageTypes);
         var items = _musicManager.GetInstantMixFromGenres(new[] { name }, user, dtoOptions);
@@ -235,6 +243,7 @@ public class InstantMixController : BaseMulletaFlixApiController
     [HttpGet("Artists/{itemId}/InstantMix")]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<ActionResult<QueryResult<BaseItemDto>>> GetInstantMixFromArtists(
         [FromRoute, Required] Guid itemId,
         [FromQuery] Guid? userId,
@@ -245,10 +254,11 @@ public class InstantMixController : BaseMulletaFlixApiController
         [FromQuery] int? imageTypeLimit,
         [FromQuery, ModelBinder(typeof(CommaDelimitedCollectionModelBinder))] ImageType[] enableImageTypes)
     {
-        userId = RequestHelpers.GetUserId(User, userId);
-        var user = userId.IsNullOrEmpty()
-            ? null
-            : _userManager.GetUserById(userId.Value);
+        if (!TryResolveInstantMixUser(userId, out var user))
+        {
+            return Unauthorized();
+        }
+
         var item = _libraryManager.GetItemById<BaseItem>(itemId, user);
         if (item is null)
         {
@@ -278,6 +288,7 @@ public class InstantMixController : BaseMulletaFlixApiController
     [HttpGet("Items/{itemId}/InstantMix")]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<ActionResult<QueryResult<BaseItemDto>>> GetInstantMixFromItem(
         [FromRoute, Required] Guid itemId,
         [FromQuery] Guid? userId,
@@ -288,10 +299,11 @@ public class InstantMixController : BaseMulletaFlixApiController
         [FromQuery] int? imageTypeLimit,
         [FromQuery, ModelBinder(typeof(CommaDelimitedCollectionModelBinder))] ImageType[] enableImageTypes)
     {
-        userId = RequestHelpers.GetUserId(User, userId);
-        var user = userId.IsNullOrEmpty()
-            ? null
-            : _userManager.GetUserById(userId.Value);
+        if (!TryResolveInstantMixUser(userId, out var user))
+        {
+            return Unauthorized();
+        }
+
         var item = _libraryManager.GetItemById<BaseItem>(itemId, user);
         if (item is null)
         {
@@ -321,6 +333,7 @@ public class InstantMixController : BaseMulletaFlixApiController
     [HttpGet("Artists/InstantMix")]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     [Obsolete("Use GetInstantMixFromArtists")]
     [ApiExplorerSettings(IgnoreApi = true)]
     public async Task<ActionResult<QueryResult<BaseItemDto>>> GetInstantMixFromArtists2(
@@ -361,6 +374,7 @@ public class InstantMixController : BaseMulletaFlixApiController
     [HttpGet("MusicGenres/InstantMix")]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     [Obsolete("Use GetInstantMixFromItem")]
     public async Task<ActionResult<QueryResult<BaseItemDto>>> GetInstantMixFromMusicGenreById(
         [FromQuery, Required] Guid id,
@@ -372,10 +386,11 @@ public class InstantMixController : BaseMulletaFlixApiController
         [FromQuery] int? imageTypeLimit,
         [FromQuery, ModelBinder(typeof(CommaDelimitedCollectionModelBinder))] ImageType[] enableImageTypes)
     {
-        userId = RequestHelpers.GetUserId(User, userId);
-        var user = userId.IsNullOrEmpty()
-            ? null
-            : _userManager.GetUserById(userId.Value);
+        if (!TryResolveInstantMixUser(userId, out var user))
+        {
+            return Unauthorized();
+        }
+
         var item = _libraryManager.GetItemById<BaseItem>(id, user);
         if (item is null)
         {
@@ -386,6 +401,19 @@ public class InstantMixController : BaseMulletaFlixApiController
             .AddAdditionalDtoOptions(enableImages, enableUserData, imageTypeLimit, enableImageTypes);
         var items = _musicManager.GetInstantMixFromItem(item, user, dtoOptions);
         return await GetResult(items, user, limit, dtoOptions).ConfigureAwait(false);
+    }
+
+    private bool TryResolveInstantMixUser(Guid? requestedUserId, out User? user)
+    {
+        var userId = RequestHelpers.GetUserId(User, requestedUserId);
+        if (userId == Guid.Empty)
+        {
+            user = null;
+            return User.GetIsApiKey();
+        }
+
+        user = _userManager.GetUserById(userId);
+        return user is not null;
     }
 
     private async Task<QueryResult<BaseItemDto>> GetResult(IReadOnlyList<BaseItem> items, User? user, int? limit, DtoOptions dtoOptions)
@@ -405,4 +433,3 @@ public class InstantMixController : BaseMulletaFlixApiController
         return result;
     }
 }
-

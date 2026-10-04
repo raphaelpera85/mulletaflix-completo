@@ -413,25 +413,35 @@ class Media3DownloadRepository @Inject constructor(
                             activeCalls.add(call)
                             var retry = false
                             try {
-                                call.execute().use { response ->
-                                    if (!response.isSuccessful) {
-                                        retry = shouldRetryOfflineSubtitleHttpStatus(response.code)
-                                    } else {
-                                        val body = response.body ?: return@use
-                                        if (!isCurrentSubtitleSession(fetchSession, userId, serverScope)) return@use
-                                        val storedUri = try {
-                                            synchronized(subtitlePersistenceLock) {
-                                                jobContext.ensureActive()
-                                                if (!isInDownloadIndex(requestId)) return@synchronized
-                                                subtitleStore.store(serverScope, userId, requestId, subtitle, body.byteStream())
+                                when (val transfer = transferOfflineSubtitle(
+                                    call = call,
+                                    isSessionCurrent = {
+                                        isCurrentSubtitleSession(fetchSession, userId, serverScope)
+                                    },
+                                    persistBody = { body ->
+                                        synchronized(subtitlePersistenceLock) {
+                                            jobContext.ensureActive()
+                                            if (!isInDownloadIndex(requestId)) {
+                                                null
+                                            } else {
+                                                subtitleStore.store(
+                                                    serverScope,
+                                                    userId,
+                                                    requestId,
+                                                    subtitle,
+                                                    body,
+                                                )
                                             }
-                                        } catch (cancelled: kotlinx.coroutines.CancellationException) {
-                                            throw cancelled
-                                        } catch (_: Exception) {
-                                            null
                                         }
-                                        if (storedUri != null) subtitleUpdates.tryEmit(Unit)
+                                    },
+                                )) {
+                                    is OfflineSubtitleTransferResult.HttpFailure -> {
+                                        retry = shouldRetryOfflineSubtitleHttpStatus(transfer.statusCode)
                                     }
+                                    is OfflineSubtitleTransferResult.Stored -> subtitleUpdates.tryEmit(Unit)
+                                    OfflineSubtitleTransferResult.SessionChanged,
+                                    OfflineSubtitleTransferResult.MissingBody,
+                                    OfflineSubtitleTransferResult.NotStored -> Unit
                                 }
                             } catch (failure: IOException) {
                                 retry = isTransientOfflineSubtitleNetworkFailure(failure)

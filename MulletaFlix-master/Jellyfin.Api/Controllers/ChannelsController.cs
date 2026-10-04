@@ -1,8 +1,9 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.ComponentModel.DataAnnotations;
 using System.Threading;
 using System.Threading.Tasks;
+using MulletaFlix.Api.Extensions;
 using MulletaFlix.Api.Helpers;
 using MulletaFlix.Api.ModelBinders;
 using MulletaFlix.Data.Enums;
@@ -55,6 +56,7 @@ public class ChannelsController : BaseMulletaFlixApiController
     /// <returns>An <see cref="OkResult"/> containing the channels.</returns>
     [HttpGet]
     [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<ActionResult<QueryResult<BaseItemDto>>> GetChannels(
         [FromQuery] Guid? userId,
         [FromQuery] int? startIndex,
@@ -64,6 +66,16 @@ public class ChannelsController : BaseMulletaFlixApiController
         [FromQuery] bool? isFavorite)
     {
         userId = RequestHelpers.GetUserId(User, userId);
+        if (!User.GetIsApiKey() && userId.IsNullOrEmpty())
+        {
+            return Unauthorized();
+        }
+
+        if (!userId.IsNullOrEmpty() && _userManager.GetUserById(userId.Value) is null)
+        {
+            return Unauthorized();
+        }
+
         return await _channelManager.GetChannelsAsync(new ChannelQuery
         {
             Limit = limit,
@@ -117,6 +129,7 @@ public class ChannelsController : BaseMulletaFlixApiController
     /// The task result contains an <see cref="OkResult"/> containing the channel items.
     /// </returns>
     [HttpGet("{channelId}/Items")]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<ActionResult<QueryResult<BaseItemDto>>> GetChannelItems(
         [FromRoute, Required] Guid channelId,
         [FromQuery] Guid? folderId,
@@ -129,9 +142,18 @@ public class ChannelsController : BaseMulletaFlixApiController
         [FromQuery, ModelBinder(typeof(CommaDelimitedCollectionModelBinder))] ItemFields[] fields)
     {
         userId = RequestHelpers.GetUserId(User, userId);
+        if (!User.GetIsApiKey() && userId.IsNullOrEmpty())
+        {
+            return Unauthorized();
+        }
+
         var user = userId.IsNullOrEmpty()
             ? null
             : _userManager.GetUserById(userId.Value);
+        if (!userId.IsNullOrEmpty() && user is null)
+        {
+            return Unauthorized();
+        }
 
         var query = new InternalItemsQuery(user)
         {
@@ -163,6 +185,7 @@ public class ChannelsController : BaseMulletaFlixApiController
     /// The task result contains an <see cref="OkResult"/> containing the latest channel items.
     /// </returns>
     [HttpGet("Items/Latest")]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<ActionResult<QueryResult<BaseItemDto>>> GetLatestChannelItems(
         [FromQuery] Guid? userId,
         [FromQuery] int? startIndex,
@@ -172,9 +195,18 @@ public class ChannelsController : BaseMulletaFlixApiController
         [FromQuery, ModelBinder(typeof(CommaDelimitedCollectionModelBinder))] Guid[] channelIds)
     {
         userId = RequestHelpers.GetUserId(User, userId);
+        if (!User.GetIsApiKey() && userId.IsNullOrEmpty())
+        {
+            return Unauthorized();
+        }
+
         var user = userId.IsNullOrEmpty()
             ? null
             : _userManager.GetUserById(userId.Value);
+        if (!userId.IsNullOrEmpty() && user is null)
+        {
+            return Unauthorized();
+        }
 
         var query = new InternalItemsQuery(user)
         {
@@ -189,4 +221,3 @@ public class ChannelsController : BaseMulletaFlixApiController
         return await _channelManager.GetLatestChannelItems(query, CancellationToken.None).ConfigureAwait(false);
     }
 }
-

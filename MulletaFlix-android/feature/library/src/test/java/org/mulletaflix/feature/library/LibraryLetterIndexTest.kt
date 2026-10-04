@@ -27,6 +27,53 @@ class LibraryLetterIndexTest {
     }
 
     @Test
+    fun `paging exposes unloaded letters without inventing loaded item indexes`() {
+        val items = listOf(MediaItem("1", "Árvore", MediaItemType.Movie))
+
+        val targets = libraryLetterTargets(items, hasMore = true)
+
+        assertEquals(('A'..'Z').map(Char::toString) + "#", targets.map { it.letter })
+        assertEquals(0, targets.first { it.letter == "A" }.itemIndex)
+        assertEquals(null, targets.first { it.letter == "Z" }.itemIndex)
+    }
+
+    @Test
+    fun `letter navigation asks for next page until requested or later letter exists`() {
+        val items = listOf(MediaItem("1", "Árvore", MediaItemType.Movie))
+
+        assertEquals(
+            LibraryLetterNavigationDecision.LoadMore,
+            libraryLetterNavigationDecision(items, "Z", hasMore = true, isLoading = false, hasLoadError = false),
+        )
+        assertEquals(
+            LibraryLetterNavigationDecision.Wait,
+            libraryLetterNavigationDecision(items, "Z", hasMore = true, isLoading = true, hasLoadError = false),
+        )
+        assertEquals(
+            LibraryLetterNavigationDecision.ScrollTo(1),
+            libraryLetterNavigationDecision(
+                items + MediaItem("2", "Épico", MediaItemType.Movie),
+                "C",
+                hasMore = true,
+                isLoading = false,
+                hasLoadError = false,
+            ),
+        )
+        assertEquals(
+            LibraryLetterNavigationDecision.ScrollTo(0),
+            libraryLetterNavigationDecision(items, "Z", hasMore = true, isLoading = false, hasLoadError = true),
+        )
+        assertEquals(
+            LibraryLetterNavigationDecision.ScrollTo(0),
+            libraryLetterNavigationDecision(items, "Z", hasMore = false, isLoading = false, hasLoadError = false),
+        )
+        assertEquals(
+            LibraryLetterNavigationDecision.NoItems,
+            libraryLetterNavigationDecision(emptyList(), "Z", hasMore = false, isLoading = false, hasLoadError = false),
+        )
+    }
+
+    @Test
     fun `grid jump accounts for current error and filter headers`() {
         assertEquals(7, libraryGridTargetIndex(7, hasLoadError = false, hasActiveFilters = false))
         assertEquals(8, libraryGridTargetIndex(7, hasLoadError = true, hasActiveFilters = false))

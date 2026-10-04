@@ -234,19 +234,30 @@ fun LibraryScreen(
                         Spacer(modifier = Modifier.height(80.dp))
                     }
                 }
-                if ((isTelevision || isTablet) && !state.hasMore && state.sortBy == SortOption.Name &&
+                val canShowLetterRail = (isTelevision || isTablet) && state.items.isNotEmpty() &&
+                    state.sortBy == SortOption.Name &&
                     state.sortOrder == SortOrder.Ascending
-                ) {
-                    val letterTargets = remember(state.items) { libraryLetterTargets(state.items) }
-                    if (letterTargets.isNotEmpty()) {
-                        LibraryLetterRail(
-                            targets = letterTargets,
-                            hasLoadError = loadError != null,
-                            hasActiveFilters = state.activeFilters.isNotEmpty(),
-                            gridState = gridState,
-                            modifier = Modifier.align(Alignment.CenterEnd).padding(end = 2.dp),
-                        )
-                    }
+                val letterTargets = remember(state.items, state.hasMore, loadError) {
+                    libraryLetterTargets(state.items, hasMore = state.hasMore && loadError == null)
+                }
+                if (canShowLetterRail && letterTargets.isNotEmpty()) {
+                    LibraryLetterNavigationEffect(
+                        targetLetter = state.letterNavigationTarget,
+                        items = state.items,
+                        hasMore = state.hasMore,
+                        isLoading = state.isLoading,
+                        hasLoadError = loadError != null,
+                        hasActiveFilters = state.activeFilters.isNotEmpty(),
+                        gridState = gridState,
+                        onLoadMore = viewModel::loadMore,
+                        onFinished = viewModel::finishLetterNavigation,
+                    )
+                    LibraryLetterRail(
+                        targets = letterTargets,
+                        loadingLetter = state.letterNavigationTarget,
+                        onTargetSelected = viewModel::navigateToLetter,
+                        modifier = Modifier.align(Alignment.CenterEnd).padding(end = 2.dp),
+                    )
                 }
             }
 
@@ -336,12 +347,10 @@ internal fun LibraryGridLayout(
 @Composable
 internal fun LibraryLetterRail(
     targets: List<LibraryLetterTarget>,
-    hasLoadError: Boolean,
-    hasActiveFilters: Boolean,
-    gridState: LazyGridState,
+    loadingLetter: String?,
+    onTargetSelected: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val scope = rememberCoroutineScope()
     Column(
             modifier = modifier
             .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.92f), RoundedCornerShape(12.dp))
@@ -353,22 +362,61 @@ internal fun LibraryLetterRail(
     ) {
         targets.forEach { target ->
             TextButton(
-                onClick = {
-                    val absoluteIndex = libraryGridTargetIndex(
-                        target.itemIndex,
-                        hasLoadError,
-                        hasActiveFilters,
-                    )
-                    scope.launch { gridState.animateScrollToItem(absoluteIndex) }
-                },
+                onClick = { onTargetSelected(target.letter) },
                 modifier = Modifier
                     .sizeIn(minWidth = 48.dp, minHeight = 48.dp)
                     .remoteFocusRing(RoundedCornerShape(8.dp))
-                    .semantics { contentDescription = "Ir para letra ${target.letter}" },
+                    .semantics {
+                        contentDescription = if (target.letter == loadingLetter) {
+                            "Carregando títulos até a letra ${target.letter}"
+                        } else {
+                            "Ir para letra ${target.letter}"
+                        }
+                    },
                 contentPadding = PaddingValues(0.dp),
             ) {
-                Text(target.letter, style = MaterialTheme.typography.labelSmall)
+                if (target.letter == loadingLetter) {
+                    CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+                } else {
+                    Text(target.letter, style = MaterialTheme.typography.labelSmall)
+                }
             }
+        }
+    }
+}
+
+@Composable
+internal fun LibraryLetterNavigationEffect(
+    targetLetter: String?,
+    items: List<MediaItem>,
+    hasMore: Boolean,
+    isLoading: Boolean,
+    hasLoadError: Boolean,
+    hasActiveFilters: Boolean,
+    gridState: LazyGridState,
+    onLoadMore: () -> Unit,
+    onFinished: (String) -> Unit,
+) {
+    LaunchedEffect(targetLetter, items, hasMore, isLoading, hasLoadError, hasActiveFilters) {
+        val letter = targetLetter ?: return@LaunchedEffect
+        when (
+            val decision = libraryLetterNavigationDecision(
+                items = items,
+                letter = letter,
+                hasMore = hasMore,
+                isLoading = isLoading,
+                hasLoadError = hasLoadError,
+            )
+        ) {
+            is LibraryLetterNavigationDecision.ScrollTo -> {
+                gridState.animateScrollToItem(
+                    libraryGridTargetIndex(decision.itemIndex, hasLoadError, hasActiveFilters),
+                )
+                onFinished(letter)
+            }
+            LibraryLetterNavigationDecision.LoadMore -> onLoadMore()
+            LibraryLetterNavigationDecision.Wait -> Unit
+            LibraryLetterNavigationDecision.NoItems -> onFinished(letter)
         }
     }
 }

@@ -7,6 +7,7 @@ import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import org.mulletaflix.core.common.network.NetworkMonitor
+import java.util.Locale
 import org.mulletaflix.domain.model.LibraryBrowseTypes
 import org.mulletaflix.domain.model.LibraryFilterOptions
 import org.mulletaflix.domain.model.MediaItem
@@ -39,6 +40,7 @@ data class LibraryState(
     val isShowingCachedCatalog: Boolean = false,
     val catalogSavedAtEpochMillis: Long? = null,
     val catalogTotalItemCount: Int? = null,
+    val letterNavigationTarget: String? = null,
     val error: String? = null,
     val showSortMenu: Boolean = false,
     val showFilterMenu: Boolean = false,
@@ -126,6 +128,7 @@ class LibraryViewModel @Inject constructor(
                     _state.update {
                         it.copy(
                             items = emptyList(),
+                            letterNavigationTarget = null,
                             hasMore = false,
                             isShowingCachedCatalog = false,
                             catalogSavedAtEpochMillis = null,
@@ -176,7 +179,14 @@ class LibraryViewModel @Inject constructor(
         }
     }
 
-    fun loadLibrary(libraryId: String, isTelevision: Boolean = currentIsTelevision) {
+    fun loadLibrary(
+        libraryId: String,
+        isTelevision: Boolean = currentIsTelevision,
+        preserveLetterNavigation: Boolean = false,
+    ) {
+        if (!preserveLetterNavigation) {
+            _state.update { it.copy(letterNavigationTarget = null) }
+        }
         loadJob?.cancel()
         invalidateFilterOptions()
         val requestGeneration = ++this.requestGeneration
@@ -459,7 +469,7 @@ class LibraryViewModel @Inject constructor(
             }
             return
         }
-        loadLibrary(libraryId, isTelevision)
+        loadLibrary(libraryId, isTelevision, preserveLetterNavigation = true)
     }
 
     private suspend fun persistLibrarySnapshot(
@@ -572,6 +582,20 @@ class LibraryViewModel @Inject constructor(
                 if (!isCurrentLibraryRequest(requestGeneration, userId, libId)) return@onFailure
                 _state.update { it.copy(isLoading = false, error = error.message ?: "Não foi possível carregar mais itens.") }
             }
+        }
+    }
+
+    fun navigateToLetter(letter: String) {
+        val current = _state.value
+        if (current.sortBy != SortOption.Name || current.sortOrder != SortOrder.Ascending) return
+        val normalized = letter.uppercase(Locale.ROOT)
+        if (normalized != "#" && (normalized.length != 1 || normalized[0] !in 'A'..'Z')) return
+        _state.update { it.copy(letterNavigationTarget = normalized) }
+    }
+
+    fun finishLetterNavigation(letter: String) {
+        _state.update {
+            if (it.letterNavigationTarget == letter) it.copy(letterNavigationTarget = null) else it
         }
     }
 

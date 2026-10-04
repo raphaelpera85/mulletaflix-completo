@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Security.Claims;
 using System.Threading;
 using System.Threading.Tasks;
@@ -28,6 +29,85 @@ namespace MulletaFlix.Api.Tests.Controllers;
 
 public class LiveTvProgramsAuthorizationTests
 {
+    [Theory]
+    [InlineData("channels", true)]
+    [InlineData("channels", false)]
+    [InlineData("channel", true)]
+    [InlineData("channel", false)]
+    [InlineData("recordings", true)]
+    [InlineData("recordings", false)]
+    [InlineData("recording-folders", true)]
+    [InlineData("recording-folders", false)]
+    [InlineData("recording", true)]
+    [InlineData("recording", false)]
+    [InlineData("programs", true)]
+    [InlineData("programs", false)]
+    [InlineData("programs-post", true)]
+    [InlineData("programs-post", false)]
+    [InlineData("programs-recommended", true)]
+    [InlineData("programs-recommended", false)]
+    [InlineData("program", true)]
+    [InlineData("program", false)]
+    public async Task ReadEndpoints_ReturnUnauthorizedWhenUserIsMissingOrCannotBeResolved(
+        string endpoint,
+        bool includeUserIdClaim)
+    {
+        var fixture = CreateFixture(userExists: !includeUserIdClaim, includeUserIdClaim: includeUserIdClaim);
+
+        var result = await InvokeReadEndpoint(fixture, endpoint);
+
+        Assert.IsType<UnauthorizedResult>(result);
+        Assert.Empty(fixture.LiveTvManager.Invocations);
+        Assert.Empty(fixture.LibraryManager.Invocations);
+    }
+
+    [Fact]
+    public async Task GetLiveTvPrograms_ApiKeyWithoutUser_RemainsSupported()
+    {
+        var fixture = CreateFixture(isApiKey: true, includeUserIdClaim: false);
+        InternalItemsQuery? capturedQuery = null;
+        fixture.LiveTvManager
+            .Setup(manager => manager.GetPrograms(
+                It.IsAny<InternalItemsQuery>(),
+                It.IsAny<DtoOptions>(),
+                It.IsAny<CancellationToken>()))
+            .Callback<InternalItemsQuery, DtoOptions, CancellationToken>((query, _, _) => capturedQuery = query)
+            .ReturnsAsync(new QueryResult<BaseItemDto>());
+
+        var result = await fixture.Controller.GetLiveTvPrograms(
+            [],
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            [],
+            [],
+            [],
+            [],
+            null,
+            null,
+            [],
+            null,
+            null,
+            null,
+            [],
+            true);
+
+        Assert.NotNull(result.Value);
+        Assert.NotNull(capturedQuery);
+        Assert.Null(capturedQuery.User);
+    }
+
     [Fact]
     public async Task GetLiveTvPrograms_ReturnsNotFoundForSeriesOutsideUsersLibrary()
     {
@@ -173,7 +253,85 @@ public class LiveTvProgramsAuthorizationTests
             true);
     }
 
-    private static ControllerFixture CreateFixture(bool userExists = true)
+    private static async Task<IActionResult?> InvokeReadEndpoint(ControllerFixture fixture, string endpoint)
+    {
+        switch (endpoint)
+        {
+            case "channels":
+                return (await fixture.Controller.GetLiveTvChannels(
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    [],
+                    [],
+                    null,
+                    [],
+                    null)).Result;
+            case "channel":
+                return (await fixture.Controller.GetChannel(Guid.NewGuid(), null)).Result;
+            case "recordings":
+                return (await fixture.Controller.GetRecordings(
+                    null, null, null, null, null, null, null, null, null, [], [], null, null, null, null, null, null, true)).Result;
+            case "recording-folders":
+                return (await fixture.Controller.GetRecordingFolders(null)).Result;
+            case "recording":
+                return (await fixture.Controller.GetRecording(Guid.NewGuid(), null)).Result;
+            case "programs":
+                return (await fixture.Controller.GetLiveTvPrograms(
+                    [],
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    [],
+                    [],
+                    [],
+                    [],
+                    null,
+                    null,
+                    [],
+                    null,
+                    null,
+                    null,
+                    [],
+                    true)).Result;
+            case "programs-post":
+                return (await fixture.Controller.GetPrograms(new GetProgramsDto())).Result;
+            case "programs-recommended":
+                return (await fixture.Controller.GetRecommendedPrograms(
+                    null, null, null, null, null, null, null, null, null, null, null, null, [], [], [], null, true)).Result;
+            case "program":
+                return (await fixture.Controller.GetProgram("program-id", null)).Result;
+            default:
+                throw new ArgumentOutOfRangeException(nameof(endpoint), endpoint, "Unknown endpoint");
+        }
+    }
+
+    private static ControllerFixture CreateFixture(
+        bool userExists = true,
+        bool includeUserIdClaim = true,
+        bool isApiKey = false)
     {
         var user = new User(
             "reader",
@@ -204,9 +362,18 @@ public class LiveTvProgramsAuthorizationTests
             Mock.Of<IMediaSourceManager>(),
             Mock.Of<ITranscodeManager>(),
             Mock.Of<ISchedulesDirectService>());
-        var identity = new ClaimsIdentity(
-            [new Claim(InternalClaimTypes.UserId, user.Id.ToString("N"))],
-            "TestAuth");
+        var claims = new List<Claim>();
+        if (includeUserIdClaim)
+        {
+            claims.Add(new Claim(InternalClaimTypes.UserId, user.Id.ToString("N")));
+        }
+
+        if (isApiKey)
+        {
+            claims.Add(new Claim(InternalClaimTypes.IsApiKey, bool.TrueString));
+        }
+
+        var identity = new ClaimsIdentity(claims, "TestAuth");
         controller.ControllerContext = new ControllerContext
         {
             HttpContext = new DefaultHttpContext { User = new ClaimsPrincipal(identity) }

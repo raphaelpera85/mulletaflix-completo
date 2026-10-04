@@ -2,6 +2,15 @@
 
 Este documento rastreia o status de implementação de todas as funcionalidades, módulos, telas e componentes do aplicativo oficial **MulletaFlix Android**.
 
+## Navegação dos cards de biblioteca na Home (APK local; sem release)
+
+- [x] Centralizar o despacho do card: biblioteca comum envia seu ID à rota paginada; biblioteca `livetv` abre a tela dedicada de TV ao vivo.
+- [x] Testar os cards reais `LibraryTiles`/`MediaCard`: toque em biblioteca comum e TV ao vivo nos perfis telefone, tablet e TV; na TV, uma tecla central do D-pad ativa o card focado.
+- [x] O teste de controle remoto confirma o perfil detectado no dispositivo, além do argumento do runner, para impedir que um telefone simule TV por configuração.
+- [x] `:feature:home:testDebugUnitTest` e `:feature:home:compileDebugAndroidTestKotlin`: `BUILD SUCCESSFUL`; teste instrumentado passou em telefone API 35 (2/2), tablet API 35 (2/2) e Android TV API 34 (3/3, incluindo D-pad). Cada AVD usou GPU NVIDIA e foi encerrada pelo wrapper.
+- [x] `testDebugUnitTest`, `:app:lintDebug` e `:app:assembleDebug`: `BUILD SUCCESSFUL`; nenhum teste global falhou.
+- [ ] Sem bump, APK de produção ou publicação; esta rodada valida navegação e testes. Verificar release anterior e certificado oficial antes de futura release autorizada.
+
 ## PiP móvel e pausa ao minimizar na Android TV (APK local; sem release)
 
 - [x] Restringir PiP manual, automático e pelo evento de saída do app a celular/tablet; Android TV deixa o player pausar quando Activity chega a `ON_STOP`.
@@ -308,7 +317,9 @@ Este documento rastreia o status de implementação de todas as funcionalidades,
 
 - [x] `testDebugUnitTest`: 1.209 testes JVM, 0 falhas, 0 erros e 0 ignorados; `:app:lintDebug` e `:feature:player:compileDebugAndroidTestKotlin`: `BUILD SUCCESSFUL`.
 - [x] `:feature:player:connectedDebugAndroidTest` filtrado para `ExternalSubtitlePlaybackIntegrationTest`: 2 testes passaram no AVD de telefone; emulador encerrado pelo wrapper.
-- [x] Regressões unitárias cobrem a persistência da escolha “sem legendas”; os testes de integração validam reprodução local SRT por Media3. O fluxo completo de download contra servidor implantado ainda não foi exercitado.
+- [x] Regressões unitárias cobrem a persistência da escolha “sem legendas”; os testes de integração validam reprodução local SRT por Media3.
+- [x] Extrair a transferência HTTP usada pela fila de downloads e cobrir com servidor loopback: resposta 200 e metadados recuperáveis, isolamento por conta/download, resposta 503 classificável para retry, HTML rejeitado sem arquivo parcial e sessão obsoleta sem persistência; 4 testes JVM.
+- [ ] O fluxo contra o servidor Mulletaflix implantado e o uso da legenda no player offline ainda precisam de validação end-to-end com servidor e mídia de teste.
 - [ ] Verificar build APK de produção com certificado idêntico à release oficial antes de empacotar/publicar.
 
 ## Trabalho APK — legendas externas durante Cast (validação local, receiver real pendente; não publicado)

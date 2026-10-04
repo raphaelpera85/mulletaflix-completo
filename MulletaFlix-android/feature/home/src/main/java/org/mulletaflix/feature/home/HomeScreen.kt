@@ -331,7 +331,7 @@ fun HomeScreen(
                         libraries = visibleLibraries,
                         layoutSpec = layoutSpec,
                         onLibraryClick = { library ->
-                            if (shouldOpenLiveTv(library)) onLiveTvClick() else onLibraryClick(library.id)
+                            dispatchHomeLibraryClick(library, onLibraryClick, onLiveTvClick)
                         },
                     )
                 }
@@ -815,7 +815,7 @@ internal fun defaultMediaSectionShape(item: MediaItem): MediaCardShape =
 // ── Library Tiles ─────────────────────────────────────────────────────────────
 
 @Composable
-private fun LibraryTiles(
+internal fun LibraryTiles(
     libraries: List<MediaItem>,
     layoutSpec: HomeLayoutSpec,
     onLibraryClick: (MediaItem) -> Unit,
@@ -852,6 +852,14 @@ private fun LibraryTiles(
 
 internal fun shouldOpenLiveTv(library: MediaItem): Boolean =
     library.collectionType.equals("livetv", ignoreCase = true)
+
+internal fun dispatchHomeLibraryClick(
+    library: MediaItem,
+    onLibraryClick: (String) -> Unit,
+    onLiveTvClick: () -> Unit,
+) {
+    if (shouldOpenLiveTv(library)) onLiveTvClick() else onLibraryClick(library.id)
+}
 
 internal fun homeLibrariesForDevice(libraries: List<MediaItem>, isTelevision: Boolean): List<MediaItem> =
     libraries.filter { shouldShowLibraryOnDevice(it, isTelevision) }

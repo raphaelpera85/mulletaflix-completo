@@ -14,6 +14,7 @@ using MulletaFlix.Api.Helpers;
 using MulletaFlix.Api.ModelBinders;
 using MulletaFlix.Api.Models.LiveTvDtos;
 using MulletaFlix.Data.Enums;
+using MulletaFlix.Database.Implementations.Entities;
 using MulletaFlix.Database.Implementations.Enums;
 using MulletaFlix.Extensions;
 using MediaBrowser.Common.Api;
@@ -138,6 +139,7 @@ public class LiveTvController : BaseMulletaFlixApiController
     /// </returns>
     [HttpGet("Channels")]
     [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     [Authorize(Policy = Policies.LiveTvAccess)]
     public async Task<ActionResult<QueryResult<BaseItemDto>>> GetLiveTvChannels(
         [FromQuery] ChannelType? type,
@@ -162,7 +164,11 @@ public class LiveTvController : BaseMulletaFlixApiController
         [FromQuery] bool enableFavoriteSorting = false,
         [FromQuery] bool addCurrentProgram = true)
     {
-        userId = RequestHelpers.GetUserId(User, userId);
+        if (!TryResolveLiveTvUser(userId, out var resolvedUserId, out var user))
+        {
+            return Unauthorized();
+        }
+
         var dtoOptions = new DtoOptions { Fields = fields }
             .AddAdditionalDtoOptions(enableImages, enableUserData, imageTypeLimit, enableImageTypes);
 
@@ -170,7 +176,7 @@ public class LiveTvController : BaseMulletaFlixApiController
             new LiveTvChannelQuery
             {
                 ChannelType = type,
-                UserId = userId.Value,
+                UserId = resolvedUserId.Value,
                 StartIndex = startIndex,
                 Limit = limit,
                 IsFavorite = isFavorite,
@@ -188,10 +194,6 @@ public class LiveTvController : BaseMulletaFlixApiController
             },
             dtoOptions,
             CancellationToken.None);
-
-        var user = userId.IsNullOrEmpty()
-            ? null
-            : _userManager.GetUserById(userId.Value);
 
         var fieldsList = dtoOptions.Fields.ToList();
         fieldsList.Remove(ItemFields.CanDelete);
@@ -219,13 +221,15 @@ public class LiveTvController : BaseMulletaFlixApiController
     [HttpGet("Channels/{channelId}")]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     [Authorize(Policy = Policies.LiveTvAccess)]
     public async Task<ActionResult<BaseItemDto>> GetChannel([FromRoute, Required] Guid channelId, [FromQuery] Guid? userId)
     {
-        userId = RequestHelpers.GetUserId(User, userId);
-        var user = userId.IsNullOrEmpty()
-            ? null
-            : _userManager.GetUserById(userId.Value);
+        if (!TryResolveLiveTvUser(userId, out _, out var user))
+        {
+            return Unauthorized();
+        }
+
         var item = channelId.IsEmpty()
             ? _libraryManager.GetUserRootFolder()
             : _libraryManager.GetItemById<BaseItem>(channelId, user);
@@ -265,6 +269,7 @@ public class LiveTvController : BaseMulletaFlixApiController
     /// <returns>An <see cref="OkResult"/> containing the live tv recordings.</returns>
     [HttpGet("Recordings")]
     [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     [Authorize(Policy = Policies.LiveTvAccess)]
     public async Task<ActionResult<QueryResult<BaseItemDto>>> GetRecordings(
         [FromQuery] string? channelId,
@@ -287,7 +292,11 @@ public class LiveTvController : BaseMulletaFlixApiController
         [FromQuery] bool? isLibraryItem,
         [FromQuery] bool enableTotalRecordCount = true)
     {
-        userId = RequestHelpers.GetUserId(User, userId);
+        if (!TryResolveLiveTvUser(userId, out var resolvedUserId, out _))
+        {
+            return Unauthorized();
+        }
+
         var dtoOptions = new DtoOptions { Fields = fields }
             .AddAdditionalDtoOptions(enableImages, enableUserData, imageTypeLimit, enableImageTypes);
 
@@ -295,7 +304,7 @@ public class LiveTvController : BaseMulletaFlixApiController
             new RecordingQuery
             {
                 ChannelId = channelId,
-                UserId = userId.Value,
+                UserId = resolvedUserId.Value,
                 StartIndex = startIndex,
                 Limit = limit,
                 Status = status,
@@ -382,13 +391,15 @@ public class LiveTvController : BaseMulletaFlixApiController
     /// <returns>An <see cref="OkResult"/> containing the recording folders.</returns>
     [HttpGet("Recordings/Folders")]
     [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     [Authorize(Policy = Policies.LiveTvAccess)]
     public async Task<ActionResult<QueryResult<BaseItemDto>>> GetRecordingFolders([FromQuery] Guid? userId)
     {
-        userId = RequestHelpers.GetUserId(User, userId);
-        var user = userId.IsNullOrEmpty()
-            ? null
-            : _userManager.GetUserById(userId.Value);
+        if (!TryResolveLiveTvUser(userId, out _, out var user))
+        {
+            return Unauthorized();
+        }
+
         var folders = await _liveTvManager.GetRecordingFoldersAsync(user).ConfigureAwait(false);
 
         var returnArray = await _dtoService.GetBaseItemDtosAsync(folders, new DtoOptions(), user).ConfigureAwait(false);
@@ -407,13 +418,15 @@ public class LiveTvController : BaseMulletaFlixApiController
     [HttpGet("Recordings/{recordingId}")]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     [Authorize(Policy = Policies.LiveTvAccess)]
     public async Task<ActionResult<BaseItemDto>> GetRecording([FromRoute, Required] Guid recordingId, [FromQuery] Guid? userId)
     {
-        userId = RequestHelpers.GetUserId(User, userId);
-        var user = userId.IsNullOrEmpty()
-            ? null
-            : _userManager.GetUserById(userId.Value);
+        if (!TryResolveLiveTvUser(userId, out _, out var user))
+        {
+            return Unauthorized();
+        }
+
         var item = recordingId.IsEmpty()
             ? _libraryManager.GetUserRootFolder()
             : _libraryManager.GetItemById<BaseItem>(recordingId, user);
@@ -542,6 +555,7 @@ public class LiveTvController : BaseMulletaFlixApiController
     /// </returns>
     [HttpGet("Programs")]
     [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     [Authorize(Policy = Policies.LiveTvAccess)]
     public async Task<ActionResult<QueryResult<BaseItemDto>>> GetLiveTvPrograms(
         [FromQuery, ModelBinder(typeof(CommaDelimitedCollectionModelBinder))] Guid[] channelIds,
@@ -572,11 +586,7 @@ public class LiveTvController : BaseMulletaFlixApiController
         [FromQuery, ModelBinder(typeof(CommaDelimitedCollectionModelBinder))] ItemFields[] fields,
         [FromQuery] bool enableTotalRecordCount = true)
     {
-        userId = RequestHelpers.GetUserId(User, userId);
-        var user = userId.IsNullOrEmpty()
-            ? null
-            : _userManager.GetUserById(userId.Value);
-        if (!userId.IsNullOrEmpty() && user is null)
+        if (!TryResolveLiveTvUser(userId, out _, out var user))
         {
             return Unauthorized();
         }
@@ -632,12 +642,11 @@ public class LiveTvController : BaseMulletaFlixApiController
     /// </returns>
     [HttpPost("Programs")]
     [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     [Authorize(Policy = Policies.LiveTvAccess)]
     public async Task<ActionResult<QueryResult<BaseItemDto>>> GetPrograms([FromBody] GetProgramsDto body)
     {
-        var userId = RequestHelpers.GetUserId(User, body.UserId);
-        var user = userId == Guid.Empty ? null : _userManager.GetUserById(userId);
-        if (userId != Guid.Empty && user is null)
+        if (!TryResolveLiveTvUser(body.UserId, out _, out var user))
         {
             return Unauthorized();
         }
@@ -708,6 +717,7 @@ public class LiveTvController : BaseMulletaFlixApiController
     [HttpGet("Programs/Recommended")]
     [Authorize(Policy = Policies.LiveTvAccess)]
     [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<ActionResult<QueryResult<BaseItemDto>>> GetRecommendedPrograms(
         [FromQuery] Guid? userId,
         [FromQuery] int? startIndex,
@@ -727,10 +737,11 @@ public class LiveTvController : BaseMulletaFlixApiController
         [FromQuery] bool? enableUserData,
         [FromQuery] bool enableTotalRecordCount = true)
     {
-        userId = RequestHelpers.GetUserId(User, userId);
-        var user = userId.IsNullOrEmpty()
-            ? null
-            : _userManager.GetUserById(userId.Value);
+        if (!TryResolveLiveTvUser(userId, out _, out var user))
+        {
+            return Unauthorized();
+        }
+
 
         var query = new InternalItemsQuery(user)
         {
@@ -764,14 +775,15 @@ public class LiveTvController : BaseMulletaFlixApiController
     [Authorize(Policy = Policies.LiveTvAccess)]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<ActionResult<BaseItemDto>> GetProgram(
         [FromRoute, Required] string programId,
         [FromQuery] Guid? userId)
     {
-        userId = RequestHelpers.GetUserId(User, userId);
-        var user = userId.IsNullOrEmpty()
-            ? null
-            : _userManager.GetUserById(userId.Value);
+        if (!TryResolveLiveTvUser(userId, out _, out var user))
+        {
+            return Unauthorized();
+        }
         var result = await _liveTvManager.GetProgram(programId, CancellationToken.None, user).ConfigureAwait(false);
 
         if (result is null)
@@ -780,6 +792,19 @@ public class LiveTvController : BaseMulletaFlixApiController
         }
 
         return Ok(result);
+    }
+
+    private bool TryResolveLiveTvUser(Guid? requestedUserId, out Guid? resolvedUserId, out User? user)
+    {
+        resolvedUserId = RequestHelpers.GetUserId(User, requestedUserId);
+        if (resolvedUserId.IsNullOrEmpty())
+        {
+            user = null;
+            return User.GetIsApiKey();
+        }
+
+        user = _userManager.GetUserById(resolvedUserId.Value);
+        return user is not null;
     }
 
     /// <summary>
