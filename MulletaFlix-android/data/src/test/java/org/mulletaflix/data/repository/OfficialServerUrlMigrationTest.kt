@@ -19,12 +19,16 @@ class OfficialServerUrlMigrationTest {
     @Test
     fun `does not rewrite local or custom server addresses`() {
         assertEquals(
-            "http://192.168.1.20:8096",
+            "http://192.168.1.20:8096/",
             migrateLegacyOfficialServerUrl("http://192.168.1.20:8096/"),
         )
         assertEquals(
             "http://media.example.org:8096",
             migrateLegacyOfficialServerUrl("http://media.example.org:8096"),
+        )
+        assertEquals(
+            "  http://media.example.org:8096/  ",
+            migrateLegacyOfficialServerUrl("  http://media.example.org:8096/  "),
         )
     }
 }

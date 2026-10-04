@@ -2168,6 +2168,13 @@ Este documento é backlog em execução; não autoriza publicar uma release ante
 - TWINS: `rg` global para token literal em opção antiga encontrou a referência de rejeição e a documentação nova; nenhum fluxo Linux ainda constrói `curl --data-urlencode "token=..."` nem executa `source "$env_file"`. Fluxo Windows NSIS/PowerShell continua vulnerável e pendente em T9.1; não declarar a auditoria ou T9 concluídos.
 - Avaliador adversarial independente não pôde ser acionado porque o limite de threads de agentes foi atingido; revisão local cobriu mudanças, testes e twins. Repetir revisão independente quando houver slot disponível.
 
+### 03/10/2026 — Evitar falso sucesso ao salvar pasta de cache Nebula (T3.6 parcial)
+
+- INTENT: a tela aceitava o campo vazio como sucesso, embora vazio signifique “usar o cache padrão”; a UI também descartava a resposta confirmada pelo `POST` e fazia um `GET` separado. Isso podia deixar o campo vazio sem distinguir uma configuração personalizada de um retorno ao padrão.
+- O botão de salvar agora exige um diretório preenchido; o uso do cache padrão é uma ação explícita e confirmada. A tela usa e verifica o status devolvido pela própria atualização, e o texto de ajuda explica a diferença.
+- Gauntlet: `npm run build:check` passou; `npm test -- --run` passou **312/312**; testes focados de persistência/ciclo de vida `CacheSettingsSamePath_KeepsActiveLeaseAndUsesLatestOmittedQuota` e `FailedCacheSettingsSave_PreservesRuntimeCacheAndConfiguration` passaram (**3/3 casos** incluindo teoria). `git diff --check` passou para o arquivo alterado. Não foi possível validar visualmente contra a instância ativa do servidor nesta sessão.
+- T3.6 segue parcial; ainda faltam os testes de runtime e recuperação já descritos acima. Nenhuma release/implantação intermediária foi criada; gate global do roadmap permanece ativo.
+
 ## Referências técnicas
 
 Fontes oficiais consultadas em 28/09/2026. Disponibilidade, suporte e requisitos de hardware devem ser revalidados antes de qualquer implementação.

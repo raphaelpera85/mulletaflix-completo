@@ -174,7 +174,7 @@ class SessionRepositoryImpl @Inject constructor(
         deviceId: String,
     ) {
         context.dataStore.edit { preferences ->
-            preferences[PreferencesKeys.SERVER_URL] = migrateLegacyOfficialServerUrl(serverUrl)
+            preferences[PreferencesKeys.SERVER_URL] = migrateLegacyOfficialServerUrl(serverUrl.trimEnd('/'))
             preferences[PreferencesKeys.ACCESS_TOKEN] = token
             // Normalized on write as well as on read. This id is embedded in the
             // Media3 download request id (`<userId>::<itemId>`), and the reader
@@ -194,7 +194,7 @@ class SessionRepositoryImpl @Inject constructor(
 
     override suspend fun setBaseUrl(url: String) {
         context.dataStore.edit { preferences ->
-            preferences[PreferencesKeys.SERVER_URL] = migrateLegacyOfficialServerUrl(url)
+            preferences[PreferencesKeys.SERVER_URL] = migrateLegacyOfficialServerUrl(url.trimEnd('/'))
         }
     }
 
@@ -222,7 +222,7 @@ class SessionRepositoryImpl @Inject constructor(
     }
 
     override suspend fun addSavedServer(server: org.mulletaflix.core.api.SavedServerSession) {
-        val cleanUrl = migrateLegacyOfficialServerUrl(server.url)
+        val cleanUrl = migrateLegacyOfficialServerUrl(server.url.trimEnd('/'))
         context.dataStore.edit { preferences ->
             val currentList = deserializeSavedServers(preferences[PreferencesKeys.SAVED_SERVERS]).toMutableList()
             // Remove existing entry for the same URL (ignoring trailing slash)
@@ -303,6 +303,6 @@ internal fun migrateLegacyOfficialServerUrl(url: String): String {
     return if (normalized.equals("http://mulletaflix.duckdns.org:8096", ignoreCase = true)) {
         SessionRepositoryImpl.DEFAULT_MULLETAFLIX_SERVER_URL
     } else {
-        normalized
+        url
     }
 }

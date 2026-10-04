@@ -111,8 +111,7 @@ export const Component = () => {
         });
     }, [ cachePathInput ]);
 
-    const handleSavePath = useCallback(async (e: React.FormEvent) => {
-        e.preventDefault();
+    const persistCacheSettings = useCallback(async (requestedPath: string) => {
         setIsSaving(true);
         setSuccessMessage(null);
         setError(null);
@@ -120,8 +119,7 @@ export const Component = () => {
         try {
             const apiClient = getApiClient();
             const url = apiClient.getUrl('NebulaFtp/PlaybackCache/Path');
-            const requestedPath = cachePathInput.trim();
-            await (apiClient.ajax({
+            const saved = await (apiClient.ajax({
                 type: 'POST',
                 url,
                 dataType: 'json',
@@ -133,8 +131,7 @@ export const Component = () => {
                 contentType: 'application/json'
             }) as Promise<NebulaPlaybackCacheStatus>);
 
-            const statusUrl = apiClient.getUrl('NebulaFtp/PlaybackCache');
-            const updated = await (apiClient.getJSON(statusUrl) as Promise<NebulaPlaybackCacheStatus>);
+            const updated = saved;
             if ((updated.configuredPath || '') !== requestedPath) {
                 setStatus(updated);
                 setCachePathInput(updated.configuredPath || '');
@@ -152,7 +149,29 @@ export const Component = () => {
         } finally {
             setIsSaving(false);
         }
-    }, [ cachePathInput, maxCacheSizeGb, minimumFreeSpaceGb ]);
+    }, [ maxCacheSizeGb, minimumFreeSpaceGb ]);
+
+    const handleSavePath = useCallback((e: React.FormEvent) => {
+        e.preventDefault();
+        const requestedPath = cachePathInput.trim();
+        if (!requestedPath) {
+            const message = 'Selecione uma pasta de cache. Para voltar ao padrão, use o botão “Usar pasta padrão do servidor”.';
+            setError(message);
+            setSuccessMessage(null);
+            toast(`Erro: ${message}`);
+            return;
+        }
+
+        void persistCacheSettings(requestedPath);
+    }, [ cachePathInput, persistCacheSettings ]);
+
+    const handleUseDefaultCachePath = useCallback(() => {
+        if (!window.confirm('Deseja remover a pasta personalizada? O servidor voltará a usar a pasta padrão do sistema de streaming.')) {
+            return;
+        }
+
+        void persistCacheSettings('');
+    }, [ persistCacheSettings ]);
 
     const handleClearCache = useCallback(async () => {
         if (!window.confirm('Deseja realmente limpar o cache de reprodução do Nebula? Apenas arquivos que não estão sendo executados no momento serão removidos.')) {
@@ -387,7 +406,7 @@ export const Component = () => {
                                         label='Pasta de Cache'
                                         value={cachePathInput}
                                         onChange={handleCachePathChange}
-                                        helperText='Pasta onde os arquivos temporários são salvos. Caso o campo fique vazio, o servidor utiliza a pasta padrão do sistema de streaming.'
+                                        helperText='Pasta onde os arquivos temporários são salvos. Para usar o local padrão do servidor, selecione “Usar pasta padrão do servidor”.'
                                         fullWidth
                                         slotProps={{ input: {
                                             endAdornment: (
@@ -429,7 +448,7 @@ export const Component = () => {
                                         </Grid>
                                     </Grid>
 
-                                    <Box sx={{ display: 'flex', gap: 2, pt: 1 }}>
+                                    <Box sx={{ display: 'flex', gap: 2, pt: 1, flexWrap: 'wrap' }}>
                                         <Button
                                             type='submit'
                                             variant='contained'
@@ -437,6 +456,14 @@ export const Component = () => {
                                             disabled={isSaving}
                                         >
                                             Salvar Caminho
+                                        </Button>
+                                        <Button
+                                            type='button'
+                                            variant='outlined'
+                                            onClick={handleUseDefaultCachePath}
+                                            disabled={isSaving}
+                                        >
+                                            Usar pasta padrão do servidor
                                         </Button>
                                     </Box>
                                 </Stack>
