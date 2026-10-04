@@ -240,7 +240,7 @@ namespace MulletaFlix.Server.Implementations.Tests.Library
                 .Returns(globallyResolvedItem);
 
             var providerHash = provider.Object.GetType().FullName!.GetMD5().ToString("N", System.Globalization.CultureInfo.InvariantCulture);
-            await _mediaSourceManager.OpenLiveStreamInternal(
+            var openedStream = await _mediaSourceManager.OpenLiveStreamInternal(
                 new LiveStreamRequest
                 {
                     OpenToken = $"{providerHash}_open-token",
@@ -248,6 +248,12 @@ namespace MulletaFlix.Server.Implementations.Tests.Library
                     ItemId = _item.Id
                 },
                 TestContext.Current.CancellationToken);
+
+            var liveStreamId = openedStream.Item1.MediaSource.LiveStreamId;
+            Assert.True(_mediaSourceManager.IsLiveStreamOwnedByUser(liveStreamId, _user.Id));
+            Assert.False(_mediaSourceManager.IsLiveStreamOwnedByUser(liveStreamId, Guid.NewGuid()));
+            _mediaSourceManager.ReleaseLiveStreamOwnership(liveStreamId, _user.Id);
+            Assert.False(_mediaSourceManager.IsLiveStreamOwnedByUser(liveStreamId, _user.Id));
 
             _mockLibraryManager.Verify(
                 library => library.GetItemById<BaseItem>(_item.Id, _user),

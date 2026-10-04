@@ -18,6 +18,7 @@ using MediaBrowser.Controller.Configuration;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.MediaEncoding;
 using MediaBrowser.Controller.Streaming;
+using MediaBrowser.Controller.Session;
 using MediaBrowser.Controller.Trickplay;
 using MediaBrowser.Model.Dlna;
 using MediaBrowser.Model.Entities;
@@ -36,6 +37,7 @@ public class DynamicHlsHelper
 {
     private readonly ILibraryManager _libraryManager;
     private readonly IUserManager _userManager;
+    private readonly ISessionManager _sessionManager;
     private readonly IMediaSourceManager _mediaSourceManager;
     private readonly IServerConfigurationManager _serverConfigurationManager;
     private readonly IMediaEncoder _mediaEncoder;
@@ -52,6 +54,7 @@ public class DynamicHlsHelper
     /// </summary>
     /// <param name="libraryManager">Instance of the <see cref="ILibraryManager"/> interface.</param>
     /// <param name="userManager">Instance of the <see cref="IUserManager"/> interface.</param>
+    /// <param name="sessionManager">Instance of the <see cref="ISessionManager"/> interface.</param>
     /// <param name="mediaSourceManager">Instance of the <see cref="IMediaSourceManager"/> interface.</param>
     /// <param name="serverConfigurationManager">Instance of the <see cref="IServerConfigurationManager"/> interface.</param>
     /// <param name="mediaEncoder">Instance of the <see cref="IMediaEncoder"/> interface.</param>
@@ -65,6 +68,7 @@ public class DynamicHlsHelper
     public DynamicHlsHelper(
         ILibraryManager libraryManager,
         IUserManager userManager,
+        ISessionManager sessionManager,
         IMediaSourceManager mediaSourceManager,
         IServerConfigurationManager serverConfigurationManager,
         IMediaEncoder mediaEncoder,
@@ -78,6 +82,7 @@ public class DynamicHlsHelper
     {
         _libraryManager = libraryManager;
         _userManager = userManager;
+        _sessionManager = sessionManager;
         _mediaSourceManager = mediaSourceManager;
         _serverConfigurationManager = serverConfigurationManager;
         _mediaEncoder = mediaEncoder;
@@ -130,6 +135,7 @@ public class DynamicHlsHelper
                 _httpContextAccessor.HttpContext,
                 _mediaSourceManager,
                 _userManager,
+                _sessionManager,
                 _libraryManager,
                 _serverConfigurationManager,
                 _mediaEncoder,

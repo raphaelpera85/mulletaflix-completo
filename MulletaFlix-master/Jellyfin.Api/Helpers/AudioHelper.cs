@@ -9,6 +9,7 @@ using MediaBrowser.Controller.Configuration;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.MediaEncoding;
 using MediaBrowser.Controller.Streaming;
+using MediaBrowser.Controller.Session;
 using MediaBrowser.Model.Dto;
 using MediaBrowser.Model.MediaInfo;
 using MediaBrowser.Model.Net;
@@ -23,6 +24,7 @@ namespace MulletaFlix.Api.Helpers;
 public class AudioHelper
 {
     private readonly IUserManager _userManager;
+    private readonly ISessionManager _sessionManager;
     private readonly ILibraryManager _libraryManager;
     private readonly IMediaSourceManager _mediaSourceManager;
     private readonly IServerConfigurationManager _serverConfigurationManager;
@@ -36,6 +38,7 @@ public class AudioHelper
     /// Initializes a new instance of the <see cref="AudioHelper"/> class.
     /// </summary>
     /// <param name="userManager">Instance of the <see cref="IUserManager"/> interface.</param>
+    /// <param name="sessionManager">Instance of the <see cref="ISessionManager"/> interface.</param>
     /// <param name="libraryManager">Instance of the <see cref="ILibraryManager"/> interface.</param>
     /// <param name="mediaSourceManager">Instance of the <see cref="IMediaSourceManager"/> interface.</param>
     /// <param name="serverConfigurationManager">Instance of the <see cref="IServerConfigurationManager"/> interface.</param>
@@ -46,6 +49,7 @@ public class AudioHelper
     /// <param name="encodingHelper">Instance of <see cref="EncodingHelper"/>.</param>
     public AudioHelper(
         IUserManager userManager,
+        ISessionManager sessionManager,
         ILibraryManager libraryManager,
         IMediaSourceManager mediaSourceManager,
         IServerConfigurationManager serverConfigurationManager,
@@ -56,6 +60,7 @@ public class AudioHelper
         EncodingHelper encodingHelper)
     {
         _userManager = userManager;
+        _sessionManager = sessionManager;
         _libraryManager = libraryManager;
         _mediaSourceManager = mediaSourceManager;
         _serverConfigurationManager = serverConfigurationManager;
@@ -93,6 +98,7 @@ public class AudioHelper
                 _httpContextAccessor.HttpContext,
                 _mediaSourceManager,
                 _userManager,
+                _sessionManager,
                 _libraryManager,
                 _serverConfigurationManager,
                 _mediaEncoder,
@@ -105,13 +111,7 @@ public class AudioHelper
 
         if (streamingRequest.Static && state.DirectStreamProvider is not null)
         {
-            var liveStreamInfo = _mediaSourceManager.GetLiveStreamInfo(streamingRequest.LiveStreamId);
-            if (liveStreamInfo is null)
-            {
-                throw new FileNotFoundException();
-            }
-
-            var liveStream = new ProgressiveFileStream(liveStreamInfo.GetStream());
+            var liveStream = new ProgressiveFileStream(state.DirectStreamProvider.GetStream());
             // TODO (moved from MediaBrowser.Api): Don't hardcode contentType
             return new FileStreamResult(liveStream, MimeTypes.GetMimeType("file.ts"));
         }
@@ -159,4 +159,3 @@ public class AudioHelper
             cancellationTokenSource).ConfigureAwait(false);
     }
 }
-

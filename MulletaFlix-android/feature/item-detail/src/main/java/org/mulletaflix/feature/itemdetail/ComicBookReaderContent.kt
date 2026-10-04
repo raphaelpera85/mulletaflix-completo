@@ -3,6 +3,7 @@ package org.mulletaflix.feature.itemdetail
 import android.graphics.Bitmap
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -41,11 +42,15 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import kotlin.math.roundToInt
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 
 @Composable
@@ -67,11 +72,14 @@ internal fun ComicBookReaderContent(
         val targetWidth = with(density) { maxWidth.roundToPx() }.coerceAtLeast(1)
         val targetHeight = with(density) { maxHeight.roundToPx() }.coerceAtLeast(1)
         var bitmap by remember(archive, currentPage) { mutableStateOf<Bitmap?>(null) }
+        var decodedZoomTier by remember(archive, currentPage) { mutableIntStateOf(0) }
         var loadError by remember(archive, currentPage) { mutableStateOf<String?>(null) }
         var retryGeneration by remember(archive, currentPage) { mutableIntStateOf(0) }
         var panOffset by remember(archive, currentPage) { mutableStateOf(Offset.Zero) }
         val transformState = rememberTransformableState { centroid, zoomChange, panChange, _ ->
-            val nextZoom = normalizeComicPageZoom(zoom * zoomChange)
+            val currentZoom = normalizeComicPageZoom(zoom)
+            val nextZoom = normalizeComicPageZoom(currentZoom * zoomChange)
+            val effectiveZoomChange = nextZoom / currentZoom
             onZoomChange(nextZoom)
             val viewportWidth = with(density) { maxWidth.toPx() }
             val viewportHeight = with(density) { maxHeight.toPx() }
@@ -82,30 +90,31 @@ internal fun ComicBookReaderContent(
                 x = centroid.x - viewportWidth / 2f,
                 y = centroid.y - viewportHeight / 2f,
             )
-            val zoomOffset = centroidFromCenter - (centroidFromCenter - panOffset) * zoomChange
-            panOffset = Offset(
-                x = (zoomOffset.x + panChange.x).coerceIn(-imageBounds.x, imageBounds.x),
-                y = (zoomOffset.y + panChange.y).coerceIn(-imageBounds.y, imageBounds.y),
-            )
+            val zoomOffset = centroidFromCenter - (centroidFromCenter - panOffset) * effectiveZoomChange
+            panOffset = constrainComicPagePan(zoomOffset + panChange, imageBounds)
             if (nextZoom == 1f) panOffset = Offset.Zero
         }
         LaunchedEffect(zoom) {
-            if (zoom == 1f) panOffset = Offset.Zero
+            val currentBitmap = bitmap ?: return@LaunchedEffect
+            val imageBounds = comicPagePanBounds(
+                viewportWidth = with(density) { maxWidth.toPx() },
+                viewportHeight = with(density) { maxHeight.toPx() },
+                imageWidth = currentBitmap.width.toFloat(),
+                imageHeight = currentBitmap.height.toFloat(),
+                zoom = zoom,
+            )
+            panOffset = constrainComicPagePan(panOffset, imageBounds)
         }
 
         LaunchedEffect(archive, currentPage, targetWidth, targetHeight, retryGeneration) {
             bitmap = null
+            decodedZoomTier = 0
             loadError = null
             try {
                 bitmap = withContext(Dispatchers.IO) {
-                    archive.decodePage(
-                        currentPage,
-                        maxWidth = (targetWidth.toLong() * MAX_COMIC_PAGE_ZOOM.toInt())
-                            .coerceAtMost(Int.MAX_VALUE.toLong()).toInt(),
-                        maxHeight = (targetHeight.toLong() * MAX_COMIC_PAGE_ZOOM.toInt())
-                            .coerceAtMost(Int.MAX_VALUE.toLong()).toInt(),
-                    )
+                    archive.decodePage(currentPage, targetWidth, targetHeight)
                 }
+                decodedZoomTier = 1
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (_: Exception) {
@@ -113,22 +122,58 @@ internal fun ComicBookReaderContent(
             }
         }
 
-        when {
-            bitmap != null -> Image(
-                bitmap = requireNotNull(bitmap).asImageBitmap(),
-                contentDescription = "Página ${currentPage + 1} de ${archive.pageCount}, ampliação ${(zoom * 100).roundToInt()}%",
-                contentScale = ContentScale.Fit,
-                modifier = Modifier
-                    .fillMaxSize()
-                    .graphicsLayer {
-                        scaleX = zoom
-                        scaleY = zoom
-                        translationX = panOffset.x
-                        translationY = panOffset.y
-                        clip = true
+        LaunchedEffect(archive, currentPage, targetWidth, targetHeight, zoom, bitmap, decodedZoomTier) {
+            if (bitmap == null) return@LaunchedEffect
+            val targetTier = comicPageRenderTier(zoom)
+            if (targetTier == decodedZoomTier) return@LaunchedEffect
+            delay(COMIC_PAGE_RENDER_DEBOUNCE_MS)
+            try {
+                val replacement = withContext(Dispatchers.IO) {
+                    val decoded = archive.decodePage(
+                        currentPage,
+                        maxWidth = (targetWidth.toLong() * targetTier)
+                            .coerceAtMost(Int.MAX_VALUE.toLong()).toInt(),
+                        maxHeight = (targetHeight.toLong() * targetTier)
+                            .coerceAtMost(Int.MAX_VALUE.toLong()).toInt(),
+                    )
+                    try {
+                        currentCoroutineContext().ensureActive()
+                        decoded
+                    } catch (cancelled: CancellationException) {
+                        decoded.recycle()
+                        throw cancelled
                     }
-                    .transformable(transformState),
-            )
+                }
+                bitmap = replacement
+                decodedZoomTier = targetTier
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                // Keep last successful bitmap if the higher-resolution decode fails.
+            }
+        }
+
+        when {
+            bitmap != null -> Box(
+                modifier = Modifier.fillMaxSize().clipToBounds(),
+                contentAlignment = Alignment.Center,
+            ) {
+                Image(
+                    bitmap = requireNotNull(bitmap).asImageBitmap(),
+                    contentDescription = "Página ${currentPage + 1} de ${archive.pageCount}, ampliação ${(zoom * 100).roundToInt()}%",
+                    contentScale = ContentScale.Fit,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .testTag("comic-book-page")
+                        .graphicsLayer {
+                            scaleX = zoom
+                            scaleY = zoom
+                            translationX = panOffset.x
+                            translationY = panOffset.y
+                        }
+                        .transformable(transformState),
+                )
+            }
             loadError != null -> Row(
                 modifier = Modifier.fillMaxWidth().padding(24.dp),
                 horizontalArrangement = Arrangement.Center,
@@ -173,6 +218,7 @@ internal fun ComicBookZoomControls(
 }
 
 private const val COMIC_PAGE_ZOOM_STEP = 0.5f
+private const val COMIC_PAGE_RENDER_DEBOUNCE_MS = 250L
 
 @Composable
 internal fun ComicBookPageControls(

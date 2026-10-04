@@ -9,8 +9,10 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
@@ -18,7 +20,9 @@ import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithContentDescription
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performTouchInput
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import java.io.File
 import java.util.zip.ZipEntry
@@ -103,17 +107,26 @@ class ComicBookReaderIntegrationTest {
         try {
             val archive = ComicBookArchive.open(file)
             var zoom by mutableFloatStateOf(1f)
+            var currentPage by mutableIntStateOf(0)
 
             composeRule.setContent {
                 MaterialTheme {
+                    LaunchedEffect(currentPage) { zoom = 1f }
                     Scaffold(
                         topBar = {
                             ComicBookZoomControls(zoom = zoom, onZoomChange = { zoom = it })
                         },
+                        bottomBar = {
+                            ComicBookPageControls(
+                                currentPage = currentPage,
+                                pageCount = archive.pageCount,
+                                onPageSelected = { currentPage = it },
+                            )
+                        },
                     ) { padding ->
                         ComicBookReaderContent(
                             archive = archive,
-                            currentPage = 0,
+                            currentPage = currentPage,
                             zoom = zoom,
                             onZoomChange = { zoom = it },
                             modifier = Modifier.fillMaxSize().padding(padding),
@@ -135,6 +148,29 @@ class ComicBookReaderIntegrationTest {
             composeRule.runOnIdle { assertEquals(1f, zoom) }
             composeRule.onNodeWithText("100%").assertIsDisplayed()
             composeRule.onNodeWithContentDescription("Página 1 de 2, ampliação 100%").assertIsDisplayed()
+
+            composeRule.onNodeWithTag("comic-book-page").performTouchInput {
+                val pinchCenter = center
+                down(0, pinchCenter - Offset(40f, 0f))
+                down(1, pinchCenter + Offset(40f, 0f))
+                moveBy(0, Offset(-45f, 0f), delayMillis = 100)
+                moveBy(1, Offset(45f, 0f), delayMillis = 100)
+                up(0)
+                up(1)
+            }
+            composeRule.runOnIdle { org.junit.Assert.assertTrue("Pinch should enlarge the page", zoom > 1f) }
+            composeRule.onNodeWithTag("comic-book-page").performTouchInput {
+                down(0, center)
+                moveBy(0, Offset(40f, 30f), delayMillis = 100)
+                up(0)
+            }
+            composeRule.onNodeWithContentDescription("Próxima página").performClick()
+            composeRule.runOnIdle { assertEquals(1f, zoom) }
+            composeRule.waitUntil(timeoutMillis = 10_000) {
+                composeRule.onAllNodesWithContentDescription("Página 2 de 2, ampliação 100%")
+                    .fetchSemanticsNodes().isNotEmpty()
+            }
+            composeRule.onNodeWithContentDescription("Página 2 de 2, ampliação 100%").assertIsDisplayed()
         } finally {
             file.delete()
         }

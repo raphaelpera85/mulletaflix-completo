@@ -3038,3 +3038,13 @@ Pendências relacionadas:
 - [x] Testes instrumentados via wrapper com GPU NVIDIA e AVD encerrado ao fim: `SettingsRepositoryAccountScopeTest` no PHONE, 9/9; `ChoiceDialogOptionsTest` no PHONE e TV, 4/4 por perfil; `PlayerSeekControlsTest` no PHONE, TABLET e TV, 8/8 por perfil.
 - [x] `:feature:settings:lintDebug`, `:feature:player:lintDebug`, `:app:lintDebug`, `:app:assembleDebug` e `:app:compileDebugAndroidTestKotlin`: `BUILD SUCCESSFUL`.
 - [ ] Sem bump, APK de produção ou publicação; a mudança é exclusivamente do APK.
+
+## Leitor CBZ — zoom e pan acessíveis (sem release)
+- [x] Adicionar pinça e arraste para ampliar/deslocar páginas, controles acessíveis de zoom de 100%–400% e reset ao trocar de página.
+- [x] Restringir pan à área realmente visível da página e manter clipping fixo; usar resolução de tela inicialmente e decodificar resolução maior somente após zoom estável, respeitando o limite de pixels existente.
+- [x] Testes unitários de limites de zoom, tiers de resolução e pan: `:feature:item-detail:testDebugUnitTest`, 86/86, sem falhas/erros/skips.
+- [x] `ComicBookReaderIntegrationTest` no PHONE API 35 e TABLET API 35: 3/3 em cada perfil; cobre navegação, botões, pinça, arraste e reset por página.
+- [x] Revisão adversarial independente: sem achados restantes.
+- [x] `:feature:item-detail:lintDebug`, `:app:assembleDebug` e `:app:compileDebugAndroidTestKotlin`: `BUILD SUCCESSFUL`.
+- [x] AVDs iniciados e fechados pelo wrapper; QEMU identificado na NVIDIA RTX 3050 nos testes.
+- [ ] Sem bump, APK de produção ou publicação nesta melhoria local do APK.

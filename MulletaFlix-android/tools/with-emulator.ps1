@@ -91,8 +91,7 @@ function Assert-EmulatorUsesHighPerformanceNvidiaGpu {
 
     $nvidiaSmi = Get-Command 'nvidia-smi' -ErrorAction SilentlyContinue
     if (-not $nvidiaSmi) {
-        Write-Warning 'nvidia-smi is unavailable; -gpu host is enabled, but dedicated GPU selection cannot be verified.'
-        return
+        throw 'nvidia-smi is unavailable; refusing to run Android tests without verifying the dedicated NVIDIA GPU.'
     }
 
     $gpuNames = & $nvidiaSmi.Source '--query-gpu=name' '--format=csv,noheader' 2>&1
@@ -100,8 +99,7 @@ function Assert-EmulatorUsesHighPerformanceNvidiaGpu {
         throw 'nvidia-smi could not identify the installed GPU.'
     }
     if (-not ($gpuNames | Where-Object { $_ -match '^NVIDIA\b' })) {
-        Write-Host 'No NVIDIA adapter detected; Android Emulator is using host GPU selection.'
-        return
+        throw 'No NVIDIA adapter detected; refusing to run Android tests on an unverified or integrated GPU.'
     }
 
     $allProcesses = @(Get-CimInstance Win32_Process -ErrorAction Stop)
@@ -145,6 +143,11 @@ function Assert-EmulatorUsesHighPerformanceNvidiaGpu {
     } while ((Get-Date) -lt $deadline)
 
     throw "NVIDIA GPU is available, but AVD $AvdName QEMU PID $targetQemuPid is not using it. Check Windows Graphics preferences and the NVIDIA driver."
+}
+
+$instrumentedTasks = @(Get-AndroidInstrumentationTasks -CommandArguments $CommandArgument)
+if ($instrumentedTasks.Count -gt 0 -and $GpuMode -ne 'host') {
+    throw 'Instrumented Android tests require -GpuMode host so they cannot silently run on software rendering.'
 }
 
 try {
@@ -196,7 +199,6 @@ try {
         Assert-EmulatorUsesHighPerformanceNvidiaGpu -AvdName $AvdName -RootProcess $emulatorProcess
     }
 
-    $instrumentedTasks = @(Get-AndroidInstrumentationTasks -CommandArguments $CommandArgument)
     $instrumentedTestRequested = $instrumentedTasks.Count -gt 0
     $expectedProfile = Get-ExpectedAndroidDeviceProfile `
         -CommandArguments $CommandArgument `

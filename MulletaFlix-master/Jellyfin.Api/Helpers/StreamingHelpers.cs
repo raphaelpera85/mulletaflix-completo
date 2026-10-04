@@ -6,8 +6,11 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using MulletaFlix.Api.Extensions;
+using MulletaFlix.Data;
 using MulletaFlix.Data.Enums;
+using MulletaFlix.Database.Implementations.Entities;
 using MulletaFlix.Extensions;
+using MulletaFlix.Database.Implementations.Enums;
 using MediaBrowser.Common.Configuration;
 using MediaBrowser.Common.Extensions;
 using MediaBrowser.Controller.Configuration;
@@ -15,6 +18,7 @@ using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.MediaEncoding;
 using MediaBrowser.Controller.Streaming;
+using MediaBrowser.Controller.Session;
 using MediaBrowser.Model.Dlna;
 using MediaBrowser.Model.Dto;
 using MediaBrowser.Model.MediaInfo;
@@ -35,6 +39,7 @@ public static class StreamingHelpers
     /// <param name="httpContext">The <see cref="HttpContext"/>.</param>
     /// <param name="mediaSourceManager">Instance of the <see cref="IMediaSourceManager"/> interface.</param>
     /// <param name="userManager">Instance of the <see cref="IUserManager"/> interface.</param>
+    /// <param name="sessionManager">Instance of the <see cref="ISessionManager"/> interface.</param>
     /// <param name="libraryManager">Instance of the <see cref="ILibraryManager"/> interface.</param>
     /// <param name="serverConfigurationManager">Instance of the <see cref="IServerConfigurationManager"/> interface.</param>
     /// <param name="mediaEncoder">Instance of the <see cref="IMediaEncoder"/> interface.</param>
@@ -50,6 +55,7 @@ public static class StreamingHelpers
         HttpContext httpContext,
         IMediaSourceManager mediaSourceManager,
         IUserManager userManager,
+        ISessionManager sessionManager,
         ILibraryManager libraryManager,
         IServerConfigurationManager serverConfigurationManager,
         IMediaEncoder mediaEncoder,
@@ -115,6 +121,13 @@ public static class StreamingHelpers
         var item = libraryManager.GetItemById<BaseItem>(streamingRequest.Id, state.User);
         if (item is null && transientMediaItemRegistry?.TryGet(streamingRequest.Id, out item) != true)
         {
+            throw new ResourceNotFoundException();
+        }
+
+        if (!string.IsNullOrWhiteSpace(streamingRequest.LiveStreamId)
+            && !CanAccessLiveStream(httpContext.User, userManager, sessionManager, mediaSourceManager, streamingRequest.LiveStreamId))
+        {
+            // Hide whether a stream exists when it is not associated with the caller's session.
             throw new ResourceNotFoundException();
         }
 
@@ -304,6 +317,56 @@ public static class StreamingHelpers
             streamingRequest.PlaySessionId);
 
         return state;
+    }
+
+    /// <summary>
+    /// Determines whether the authenticated principal may access an active live stream.
+    /// </summary>
+    public static bool CanAccessLiveStream(
+        System.Security.Claims.ClaimsPrincipal principal,
+        IUserManager userManager,
+        ISessionManager sessionManager,
+        IMediaSourceManager mediaSourceManager,
+        string liveStreamId)
+    {
+        if (string.IsNullOrWhiteSpace(liveStreamId))
+        {
+            return false;
+        }
+
+        var userId = principal.GetUserId();
+        var isApiKey = principal.GetIsApiKey();
+        User? caller = null;
+        if (!isApiKey)
+        {
+            if (userId == Guid.Empty)
+            {
+                return false;
+            }
+
+            caller = userManager.GetUserById(userId);
+            if (caller is null)
+            {
+                return false;
+            }
+        }
+
+        var canManageAllSessions = isApiKey || caller?.HasPermission(PermissionKind.IsAdministrator) == true;
+        if (canManageAllSessions && mediaSourceManager.GetLiveStreamInfo(liveStreamId) is not null)
+        {
+            return true;
+        }
+
+        if (mediaSourceManager.IsLiveStreamOwnedByUser(liveStreamId, userId))
+        {
+            return true;
+        }
+
+        return sessionManager.GetSessions(userId, string.Empty, null, null, isApiKey)
+            .Any(session => string.Equals(session.PlayState?.LiveStreamId, liveStreamId, StringComparison.Ordinal)
+                && (canManageAllSessions
+                    || session.UserId == userId
+                    || session.AdditionalUsers?.Any(additionalUser => additionalUser.UserId == userId) == true));
     }
 
     /// <summary>

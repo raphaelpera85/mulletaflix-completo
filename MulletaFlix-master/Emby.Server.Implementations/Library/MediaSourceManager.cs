@@ -60,6 +60,7 @@ namespace Emby.Server.Implementations.Library
         private readonly IMediaAttachmentRepository _mediaAttachmentRepository;
         private readonly IStrmPrebufferManager _prebufferManager;
         private readonly ConcurrentDictionary<string, ILiveStream> _openStreams = new ConcurrentDictionary<string, ILiveStream>(StringComparer.OrdinalIgnoreCase);
+        private readonly ConcurrentDictionary<string, ConcurrentDictionary<Guid, int>> _liveStreamOwners = new ConcurrentDictionary<string, ConcurrentDictionary<Guid, int>>(StringComparer.OrdinalIgnoreCase);
         private readonly AsyncNonKeyedLocker _liveStreamLocker = new(1);
         private readonly JsonSerializerOptions _jsonOptions = JsonDefaults.Options;
 
@@ -657,6 +658,12 @@ namespace Emby.Server.Implementations.Library
             using (await _liveStreamLocker.LockAsync(cancellationToken).ConfigureAwait(false))
             {
                 _openStreams[mediaSource.LiveStreamId] = liveStream;
+                if (!request.UserId.IsEmpty())
+                {
+                    _liveStreamOwners
+                        .GetOrAdd(mediaSource.LiveStreamId, _ => new ConcurrentDictionary<Guid, int>())
+                        .AddOrUpdate(request.UserId, 1, (_, count) => count + 1);
+                }
             }
 
             try
@@ -967,6 +974,34 @@ namespace Emby.Server.Implementations.Library
             return null;
         }
 
+        public bool IsLiveStreamOwnedByUser(string id, Guid userId)
+        {
+            ArgumentException.ThrowIfNullOrEmpty(id);
+            return !userId.IsEmpty()
+                && _liveStreamOwners.TryGetValue(id, out var owners)
+                && owners.ContainsKey(userId);
+        }
+
+        public void ReleaseLiveStreamOwnership(string id, Guid userId)
+        {
+            ArgumentException.ThrowIfNullOrEmpty(id);
+            if (userId.IsEmpty() || !_liveStreamOwners.TryGetValue(id, out var owners))
+            {
+                return;
+            }
+
+            while (owners.TryGetValue(userId, out var count))
+            {
+                var removed = count <= 1
+                    ? ((ICollection<KeyValuePair<Guid, int>>)owners).Remove(new KeyValuePair<Guid, int>(userId, count))
+                    : owners.TryUpdate(userId, count - 1, count);
+                if (removed)
+                {
+                    break;
+                }
+            }
+        }
+
         /// <inheritdoc />
         public ILiveStream GetLiveStreamInfoByUniqueId(string uniqueId)
         {
@@ -1020,6 +1055,7 @@ namespace Emby.Server.Implementations.Library
                     if (liveStream.ConsumerCount <= 0)
                     {
                         _openStreams.TryRemove(id, out _);
+                        _liveStreamOwners.TryRemove(id, out _);
 
                         _logger.LogInformation("Closing live stream {0}", id);
 

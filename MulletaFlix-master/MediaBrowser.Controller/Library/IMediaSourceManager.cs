@@ -111,6 +111,21 @@ namespace MediaBrowser.Controller.Library
         public ILiveStream GetLiveStreamInfo(string id);
 
         /// <summary>
+        /// Determines whether the specified user opened the live stream.
+        /// </summary>
+        /// <param name="id">The live stream identifier.</param>
+        /// <param name="userId">The user identifier.</param>
+        /// <returns>True when the user opened an active consumer of the stream.</returns>
+        bool IsLiveStreamOwnedByUser(string id, Guid userId);
+
+        /// <summary>
+        /// Releases one live-stream ownership reference for the specified user.
+        /// </summary>
+        /// <param name="id">The live stream identifier.</param>
+        /// <param name="userId">The user identifier.</param>
+        void ReleaseLiveStreamOwnership(string id, Guid userId);
+
+        /// <summary>
         /// Gets the live stream info using the stream's unique id.
         /// </summary>
         /// <param name="uniqueId">The unique identifier.</param>

@@ -1,6 +1,7 @@
 package org.mulletaflix.feature.itemdetail
 
 import org.junit.Assert.assertEquals
+import androidx.compose.ui.geometry.Offset
 import org.junit.Test
 
 class ComicPageZoomTest {
@@ -45,5 +46,21 @@ class ComicPageZoomTest {
 
         assertEquals(0f, bounds.x)
         assertEquals(0f, bounds.y)
+    }
+
+    @Test
+    fun renderResolutionFollowsZoomInsteadOfAllocatingMaximumBitmapUpFront() {
+        assertEquals(1, comicPageRenderTier(1f))
+        assertEquals(2, comicPageRenderTier(1.5f))
+        assertEquals(4, comicPageRenderTier(MAX_COMIC_PAGE_ZOOM))
+        assertEquals(1, comicPageRenderTier(Float.NaN))
+    }
+
+    @Test
+    fun panOffsetIsClampedToVisibleImageBounds() {
+        assertEquals(
+            Offset(100f, -80f),
+            constrainComicPagePan(Offset(500f, -500f), Offset(100f, 80f)),
+        )
     }
 }

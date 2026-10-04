@@ -67,8 +67,8 @@ Use os AVDs abaixo para validar superfícies diferentes:
 Comandos úteis:
 
 ```powershell
-& "$env:ANDROID_HOME\emulator\emulator.exe" -avd MulletaflixTvApi34 -port 5556
-& "$env:ANDROID_HOME\emulator\emulator.exe" -avd MulletaflixTabletApi35 -port 5558
+& "$env:ANDROID_HOME\emulator\emulator.exe" -avd MulletaflixTvApi34 -port 5556 -gpu host
+& "$env:ANDROID_HOME\emulator\emulator.exe" -avd MulletaflixTabletApi35 -port 5558 -gpu host
 & "$env:ANDROID_HOME\platform-tools\adb.exe" devices
 ```
 
@@ -76,7 +76,7 @@ Use `tools\with-emulator.ps1` para iniciar um AVD somente durante um comando; o 
 
 O boot aceita até 4 minutos por padrão. Para uma imagem Android nova que ainda inicializa serviços do sistema, aumente somente o limite da execução (4–20 minutos), por exemplo `-BootTimeoutMinutes 12`; a espera extra não altera o critério de sucesso do teste.
 
-O wrapper inicia por padrão com `-gpu host` e configura a preferência Windows de alto desempenho apenas para `emulator.exe` e `qemu-system-x86_64.exe`, para o notebook usar a GPU dedicada nos testes sem alterar a preferência global. Se `nvidia-smi` estiver disponível e detectar NVIDIA, o wrapper aguarda e verifica que o PID QEMU daquele AVD está usando-a antes dos testes; em execução, `nvidia-smi` deve listar esse processo e a memória de vídeo usada. A GPU acelera a renderização do emulador; a RAM do Android convidado continua sendo RAM do sistema, não VRAM. `-GpuMode swiftshader` é somente um fallback se o driver host falhar.
+O wrapper inicia por padrão com `-gpu host` e configura a preferência Windows de alto desempenho apenas para `emulator.exe` e `qemu-system-x86_64.exe`, para o notebook usar a NVIDIA RTX 3050 sem alterar a preferência global. Antes dos testes, ele exige `nvidia-smi`, confirma que o PID QEMU daquele AVD aparece na NVIDIA e falha se não puder provar o uso da GPU dedicada. Testes instrumentados também rejeitam qualquer modo diferente de `host` antes de iniciar o AVD. Em execução, confira `nvidia-smi`: QEMU deve aparecer e a memória total usada na RTX deve subir. O driver WDDM pode mostrar `N/A` na coluna de memória por processo; a memória total da GPU ainda confirma alocação em VRAM. A GPU acelera renderização; RAM do Android convidado continua sendo RAM do sistema, não VRAM. `-GpuMode swiftshader` é fallback manual somente para comandos não instrumentados.
 
 Todo teste instrumentado executado pelo wrapper deve declarar `expectedDeviceProfile=PHONE`, `TABLET` ou `TV`; ele confere o perfil real do AVD antes de iniciar Gradle. Exemplo em TV:
 

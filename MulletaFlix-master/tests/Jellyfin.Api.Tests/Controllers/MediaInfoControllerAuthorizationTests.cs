@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using System.Security.Claims;
 using System.Threading;
 using System.Threading.Tasks;
@@ -19,6 +20,7 @@ using MulletaFlix.Api.Helpers;
 using MulletaFlix.Api.Models.MediaInfoDtos;
 using MulletaFlix.Data;
 using MulletaFlix.Database.Implementations.Entities;
+using MulletaFlix.Database.Implementations.Enums;
 using MulletaFlix.Server.Implementations.Users;
 using Xunit;
 
@@ -44,12 +46,70 @@ public sealed class MediaInfoControllerAuthorizationTests
     {
         var fixture = CreateFixture();
         fixture.SessionManager.Setup(manager => manager.GetSessions(fixture.User.Id, string.Empty, null, null, false))
-            .Returns([new SessionInfoDto { PlayState = new MediaBrowser.Model.Session.PlayerStateInfo { LiveStreamId = "owned-stream" } }]);
+            .Returns([new SessionInfoDto { UserId = fixture.User.Id, PlayState = new MediaBrowser.Model.Session.PlayerStateInfo { LiveStreamId = "owned-stream" } }]);
 
         var result = await fixture.Controller.CloseLiveStream("owned-stream");
 
         Assert.IsType<NoContentResult>(result);
         fixture.MediaSourceManager.Verify(manager => manager.CloseLiveStream("owned-stream"), Times.Once);
+    }
+
+    [Fact]
+    public async Task CloseLiveStream_ForbidsMatchingStreamOnUnownedSession()
+    {
+        var fixture = CreateFixture();
+        fixture.SessionManager.Setup(manager => manager.GetSessions(fixture.User.Id, string.Empty, null, null, false))
+            .Returns([new SessionInfoDto { PlayState = new MediaBrowser.Model.Session.PlayerStateInfo { LiveStreamId = "unowned-stream" } }]);
+
+        var result = await fixture.Controller.CloseLiveStream("unowned-stream");
+
+        Assert.IsType<ForbidResult>(result);
+        fixture.MediaSourceManager.Verify(manager => manager.CloseLiveStream(It.IsAny<string>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task CloseLiveStream_PreservesApiKeyAccessToVisibleSession()
+    {
+        var fixture = CreateFixture(isApiKey: true);
+        fixture.SessionManager.Setup(manager => manager.GetSessions(Guid.Empty, string.Empty, null, null, true))
+            .Returns([new SessionInfoDto { PlayState = new MediaBrowser.Model.Session.PlayerStateInfo { LiveStreamId = "admin-visible-stream" } }]);
+
+        var result = await fixture.Controller.CloseLiveStream("admin-visible-stream");
+
+        Assert.IsType<NoContentResult>(result);
+        fixture.MediaSourceManager.Verify(manager => manager.CloseLiveStream("admin-visible-stream"), Times.Once);
+    }
+
+    [Fact]
+    public async Task CloseLiveStream_PreservesAdministratorAccessToOtherUsersSession()
+    {
+        var fixture = CreateFixture();
+        fixture.User.Permissions.Single(permission => permission.Kind == PermissionKind.IsAdministrator).Value = true;
+        fixture.SessionManager.Setup(manager => manager.GetSessions(fixture.User.Id, string.Empty, null, null, false))
+            .Returns([new SessionInfoDto { UserId = Guid.NewGuid(), PlayState = new MediaBrowser.Model.Session.PlayerStateInfo { LiveStreamId = "admin-visible-stream" } }]);
+
+        var result = await fixture.Controller.CloseLiveStream("admin-visible-stream");
+
+        Assert.IsType<NoContentResult>(result);
+        fixture.MediaSourceManager.Verify(manager => manager.CloseLiveStream("admin-visible-stream"), Times.Once);
+    }
+
+    [Fact]
+    public async Task CloseLiveStream_AllowsStreamSharedWithRequestUser()
+    {
+        var fixture = CreateFixture();
+        fixture.SessionManager.Setup(manager => manager.GetSessions(fixture.User.Id, string.Empty, null, null, false))
+            .Returns([new SessionInfoDto
+            {
+                UserId = Guid.NewGuid(),
+                AdditionalUsers = [new MediaBrowser.Model.Session.SessionUserInfo { UserId = fixture.User.Id }],
+                PlayState = new MediaBrowser.Model.Session.PlayerStateInfo { LiveStreamId = "shared-stream" }
+            }]);
+
+        var result = await fixture.Controller.CloseLiveStream("shared-stream");
+
+        Assert.IsType<NoContentResult>(result);
+        fixture.MediaSourceManager.Verify(manager => manager.CloseLiveStream("shared-stream"), Times.Once);
     }
 
     [Fact]
@@ -73,7 +133,7 @@ public sealed class MediaInfoControllerAuthorizationTests
         var fixture = CreateFixture();
         var mediaSource = new MediaSourceInfo();
         fixture.SessionManager.Setup(manager => manager.GetSessions(fixture.User.Id, string.Empty, null, null, false))
-            .Returns([new SessionInfoDto { PlayState = new MediaBrowser.Model.Session.PlayerStateInfo { LiveStreamId = "owned-stream" } }]);
+            .Returns([new SessionInfoDto { UserId = fixture.User.Id, PlayState = new MediaBrowser.Model.Session.PlayerStateInfo { LiveStreamId = "owned-stream" } }]);
         fixture.MediaSourceManager.Setup(manager => manager.GetLiveStreamMediaInfo("owned-stream", It.IsAny<CancellationToken>()))
             .ReturnsAsync(mediaSource);
 

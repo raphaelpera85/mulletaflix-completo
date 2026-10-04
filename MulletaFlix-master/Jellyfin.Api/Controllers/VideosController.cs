@@ -20,6 +20,7 @@ using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.MediaEncoding;
 using MediaBrowser.Controller.Streaming;
+using MediaBrowser.Controller.Session;
 using MediaBrowser.Model.Dlna;
 using MediaBrowser.Model.Dto;
 using MediaBrowser.Model.Entities;
@@ -41,6 +42,7 @@ public class VideosController : BaseMulletaFlixApiController
 {
     private readonly ILibraryManager _libraryManager;
     private readonly IUserManager _userManager;
+    private readonly ISessionManager _sessionManager;
     private readonly IDtoService _dtoService;
     private readonly IMediaSourceManager _mediaSourceManager;
     private readonly IServerConfigurationManager _serverConfigurationManager;
@@ -57,6 +59,7 @@ public class VideosController : BaseMulletaFlixApiController
     /// </summary>
     /// <param name="libraryManager">Instance of the <see cref="ILibraryManager"/> interface.</param>
     /// <param name="userManager">Instance of the <see cref="IUserManager"/> interface.</param>
+    /// <param name="sessionManager">Instance of the <see cref="ISessionManager"/> interface.</param>
     /// <param name="dtoService">Instance of the <see cref="IDtoService"/> interface.</param>
     /// <param name="mediaSourceManager">Instance of the <see cref="IMediaSourceManager"/> interface.</param>
     /// <param name="serverConfigurationManager">Instance of the <see cref="IServerConfigurationManager"/> interface.</param>
@@ -68,6 +71,7 @@ public class VideosController : BaseMulletaFlixApiController
     public VideosController(
         ILibraryManager libraryManager,
         IUserManager userManager,
+        ISessionManager sessionManager,
         IDtoService dtoService,
         IMediaSourceManager mediaSourceManager,
         IServerConfigurationManager serverConfigurationManager,
@@ -79,6 +83,7 @@ public class VideosController : BaseMulletaFlixApiController
     {
         _libraryManager = libraryManager;
         _userManager = userManager;
+        _sessionManager = sessionManager;
         _dtoService = dtoService;
         _mediaSourceManager = mediaSourceManager;
         _serverConfigurationManager = serverConfigurationManager;
@@ -443,6 +448,7 @@ public class VideosController : BaseMulletaFlixApiController
                 HttpContext,
                 _mediaSourceManager,
                 _userManager,
+                _sessionManager,
                 _libraryManager,
                 _serverConfigurationManager,
                 _mediaEncoder,
@@ -455,13 +461,7 @@ public class VideosController : BaseMulletaFlixApiController
 
         if (@static.HasValue && @static.Value && state.DirectStreamProvider is not null)
         {
-            var liveStreamInfo = _mediaSourceManager.GetLiveStreamInfo(streamingRequest.LiveStreamId);
-            if (liveStreamInfo is null)
-            {
-                return NotFound();
-            }
-
-            var liveStream = new ProgressiveFileStream(liveStreamInfo.GetStream());
+            var liveStream = new ProgressiveFileStream(state.DirectStreamProvider.GetStream());
             // TODO (moved from MediaBrowser.Api): Don't hardcode contentType
             return File(liveStream, MimeTypes.GetMimeType("file.ts"));
         }

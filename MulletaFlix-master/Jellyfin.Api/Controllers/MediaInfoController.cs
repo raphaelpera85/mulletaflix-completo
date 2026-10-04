@@ -23,6 +23,8 @@ using MulletaFlix.Api.Attributes;
 using MulletaFlix.Api.Extensions;
 using MulletaFlix.Api.Helpers;
 using MulletaFlix.Api.Models.MediaInfoDtos;
+using MulletaFlix.Data;
+using MulletaFlix.Database.Implementations.Enums;
 using MulletaFlix.Database.Implementations.Entities;
 using MulletaFlix.Extensions;
 
@@ -412,6 +414,7 @@ public class MediaInfoController : BaseMulletaFlixApiController
         }
 
         await _mediaSourceManager.CloseLiveStream(liveStreamId).ConfigureAwait(false);
+        _mediaSourceManager.ReleaseLiveStreamOwnership(liveStreamId, User.GetUserId());
         return NoContent();
     }
 
@@ -475,15 +478,7 @@ public class MediaInfoController : BaseMulletaFlixApiController
 
     private bool CanAccessLiveStream(string liveStreamId)
     {
-        var userId = User.GetUserId();
-        var isApiKey = User.GetIsApiKey();
-        if (!isApiKey && (userId == Guid.Empty || _userManager.GetUserById(userId) is null))
-        {
-            return false;
-        }
-
-        return _sessionManager.GetSessions(userId, string.Empty, null, null, isApiKey)
-            .Any(session => string.Equals(session.PlayState?.LiveStreamId, liveStreamId, StringComparison.Ordinal));
+        return StreamingHelpers.CanAccessLiveStream(User, _userManager, _sessionManager, _mediaSourceManager, liveStreamId);
     }
 
     /// <summary>

@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-10-04T16:21:33-03:00",
+  "generatedAt": "2026-10-04T16:24:19-03:00",
   "source": {
     "roadmap": "https://github.com/raphaelpera85/mulletaflix-completo/blob/main/docs/roadmap-evolucao-tecnologica-servidor-e-web.md",
     "repository": "https://github.com/raphaelpera85/mulletaflix-completo"
@@ -37,11 +37,11 @@
       "local": "D:\\Users\\Raphael\\Documents\\Projetos\\mulletaflix\\MulletaFlix-master",
       "location": "Jellyfin.Api local; sem release",
       "scope": "Validar ownership da sessão antes de fechar live stream ou retornar seus metadados; manter controles de administrador e API key",
-      "status": "in_progress",
-      "progressPercent": 90,
+      "status": "completed",
+      "progressPercent": 100,
       "startedAt": "2026-10-04T16:08:00-03:00",
-      "updatedAt": "2026-10-04T16:21:33-03:00",
-      "evidence": "Regressão red reproduzida: uma sessão sem dono com liveStreamId correspondente retornava NoContent. Correção exige sessão do usuário ou participação AdditionalUsers; admin e API key preservados. Testes focados 20/20, Jellyfin.Api.Tests 466/466; build Release Jellyfin.Api 0 avisos/erros; formato, diff e JSON verificados. Revisão adversarial final ainda em andamento. AudioHelper/VideosController e contrato público de GetUserImage ficaram registrados como pendências da auditoria T6.1."
+      "updatedAt": "2026-10-04T16:24:19-03:00",
+      "evidence": "Regressão red reproduzida: uma sessão sem dono com liveStreamId correspondente retornava NoContent. Correção exige sessão do usuário ou participação AdditionalUsers; admin e API key preservados. Testes focados 20/20, Jellyfin.Api.Tests 466/466; build Release Jellyfin.Api 0 avisos/erros; formato, diff e JSON verificados. Revisão adversarial final não encontrou falhas: PlayState nulo e identidade ausente falham de forma segura; API keys têm privilégios administrativos neste servidor. AudioHelper/VideosController e contrato público de GetUserImage ficaram registrados como pendências da auditoria T6.1."
     },
     {
       "id": "test-report-denominator-2026-10-04",

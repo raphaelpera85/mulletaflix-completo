@@ -40,6 +40,7 @@ public sealed class VideosControllerAuthorizationTests
             null!,
             null!,
             null!,
+            null!,
             new TransientMediaItemRegistry())
         {
             ControllerContext = new ControllerContext
@@ -89,6 +90,7 @@ public sealed class VideosControllerAuthorizationTests
         var controller = new VideosController(
             libraryManager.Object,
             userManager.Object,
+            null!,
             null!,
             null!,
             null!,
@@ -151,6 +153,7 @@ public sealed class VideosControllerAuthorizationTests
         var controller = new VideosController(
             libraryManager.Object,
             userManager.Object,
+            null!,
             dtoService.Object,
             null!,
             null!,
