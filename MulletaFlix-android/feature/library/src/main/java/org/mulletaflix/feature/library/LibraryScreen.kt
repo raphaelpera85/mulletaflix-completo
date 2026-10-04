@@ -256,6 +256,7 @@ fun LibraryScreen(
                         hasMore = state.hasMore,
                         isLoading = state.isLoading,
                         hasLoadError = loadError != null,
+                        hasNavigationError = state.letterNavigationError,
                         hasActiveFilters = state.activeFilters.isNotEmpty(),
                         gridState = gridState,
                         onLoadMore = viewModel::loadMore,
@@ -264,7 +265,8 @@ fun LibraryScreen(
                     LibraryLetterRail(
                         targets = letterTargets,
                         loadingLetter = state.letterNavigationTarget,
-                        navigationError = loadError != null && state.letterNavigationTarget != null,
+                        navigationError = state.letterNavigationError,
+                        isTelevision = isTelevision,
                         onTargetSelected = viewModel::navigateToLetter,
                         modifier = Modifier.align(Alignment.CenterEnd).padding(end = 2.dp),
                     )
@@ -359,6 +361,7 @@ internal fun LibraryLetterRail(
     targets: List<LibraryLetterTarget>,
     loadingLetter: String?,
     navigationError: Boolean,
+    isTelevision: Boolean = false,
     onTargetSelected: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -379,7 +382,11 @@ internal fun LibraryLetterRail(
                     .remoteFocusRing(RoundedCornerShape(8.dp))
                     .semantics {
                         contentDescription = if (target.letter == loadingLetter && navigationError) {
-                            "Falha ao carregar títulos até a letra ${target.letter}. Toque para tentar novamente"
+                            if (isTelevision) {
+                                "Falha ao carregar títulos até a letra ${target.letter}. Pressione OK para tentar novamente"
+                            } else {
+                                "Falha ao carregar títulos até a letra ${target.letter}. Toque para tentar novamente"
+                            }
                         } else if (target.letter == loadingLetter) {
                             "Carregando títulos até a letra ${target.letter}"
                         } else {
@@ -405,12 +412,13 @@ internal fun LibraryLetterNavigationEffect(
     hasMore: Boolean,
     isLoading: Boolean,
     hasLoadError: Boolean,
+    hasNavigationError: Boolean = hasLoadError,
     hasActiveFilters: Boolean,
     gridState: LazyGridState,
     onLoadMore: () -> Unit,
     onFinished: (String) -> Unit,
 ) {
-    LaunchedEffect(targetLetter, items, hasMore, isLoading, hasLoadError, hasActiveFilters) {
+    LaunchedEffect(targetLetter, items, hasMore, isLoading, hasLoadError, hasNavigationError, hasActiveFilters) {
         val letter = targetLetter ?: return@LaunchedEffect
         when (
             val decision = libraryLetterNavigationDecision(
@@ -418,7 +426,7 @@ internal fun LibraryLetterNavigationEffect(
                 letter = letter,
                 hasMore = hasMore,
                 isLoading = isLoading,
-                hasLoadError = hasLoadError,
+                hasLoadError = hasNavigationError,
             )
         ) {
             is LibraryLetterNavigationDecision.ScrollTo -> {

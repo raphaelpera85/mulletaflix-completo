@@ -6,6 +6,7 @@ using System.Threading.Tasks;
 using MulletaFlix.Api.Extensions;
 using MulletaFlix.Api.Helpers;
 using MulletaFlix.Api.ModelBinders;
+using MulletaFlix.Database.Implementations.Entities;
 using MulletaFlix.Extensions;
 using MediaBrowser.Controller.Dto;
 using MediaBrowser.Controller.Library;
@@ -57,6 +58,8 @@ public class MoviesController : BaseMulletaFlixApiController
     /// <response code="200">Movie recommendations returned.</response>
     /// <returns>The list of movie recommendations.</returns>
     [HttpGet("Recommendations")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<ActionResult<IEnumerable<RecommendationDto>>> GetMovieRecommendations(
         [FromQuery] Guid? userId,
         [FromQuery] Guid? parentId,
@@ -66,9 +69,11 @@ public class MoviesController : BaseMulletaFlixApiController
         CancellationToken cancellationToken = default)
     {
         userId = RequestHelpers.GetUserId(User, userId);
-        var user = userId.IsNullOrEmpty()
-            ? null
-            : _userManager.GetUserById(userId.Value);
+        if (!TryResolveMovieUser(userId, out var user))
+        {
+            return Unauthorized();
+        }
+
         var dtoOptions = new DtoOptions { Fields = fields };
 
         var recommendations = await _similarItemsManager
@@ -83,5 +88,16 @@ public class MoviesController : BaseMulletaFlixApiController
             Items = await _dtoService.GetBaseItemDtosAsync(r.Items, dtoOptions, user).ConfigureAwait(false)
         })).ConfigureAwait(false));
     }
-}
 
+    private bool TryResolveMovieUser(Guid? userId, out User? user)
+    {
+        user = null;
+        if (userId.IsNullOrEmpty())
+        {
+            return User.GetIsApiKey();
+        }
+
+        user = _userManager.GetUserById(userId.Value);
+        return user is not null;
+    }
+}

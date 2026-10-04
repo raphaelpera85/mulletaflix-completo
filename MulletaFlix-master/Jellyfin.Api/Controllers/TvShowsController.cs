@@ -139,6 +139,7 @@ public class TvShowsController : BaseMulletaFlixApiController
     /// <returns>A <see cref="QueryResult{BaseItemDto}"/> with the upcoming episodes.</returns>
     [HttpGet("Upcoming")]
     [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<ActionResult<QueryResult<BaseItemDto>>> GetUpcomingEpisodes(
         [FromQuery] Guid? userId,
         [FromQuery] int? startIndex,
@@ -151,9 +152,10 @@ public class TvShowsController : BaseMulletaFlixApiController
         [FromQuery] bool? enableUserData)
     {
         userId = RequestHelpers.GetUserId(User, userId);
-        var user = userId.IsNullOrEmpty()
-            ? null
-            : _userManager.GetUserById(userId.Value);
+        if (!TryResolveTvShowUser(userId, out var user))
+        {
+            return Unauthorized();
+        }
 
         var minPremiereDate = DateTime.UtcNow.Date.AddDays(-1);
 
@@ -203,6 +205,7 @@ public class TvShowsController : BaseMulletaFlixApiController
     /// <returns>A <see cref="QueryResult{BaseItemDto}"/> with the episodes on success or a <see cref="NotFoundResult"/> if the series was not found.</returns>
     [HttpGet("{seriesId}/Episodes")]
     [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<ActionResult<QueryResult<BaseItemDto>>> GetEpisodes(
         [FromRoute, Required] Guid seriesId,
@@ -222,9 +225,10 @@ public class TvShowsController : BaseMulletaFlixApiController
         [FromQuery] ItemSortBy? sortBy)
     {
         userId = RequestHelpers.GetUserId(User, userId);
-        var user = userId.IsNullOrEmpty()
-            ? null
-            : _userManager.GetUserById(userId.Value);
+        if (!TryResolveTvShowUser(userId, out var user))
+        {
+            return Unauthorized();
+        }
 
         List<BaseItem> episodes;
 
@@ -326,6 +330,7 @@ public class TvShowsController : BaseMulletaFlixApiController
     /// <returns>A <see cref="QueryResult{BaseItemDto}"/> on success or a <see cref="NotFoundResult"/> if the series was not found.</returns>
     [HttpGet("{seriesId}/Seasons")]
     [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<ActionResult<QueryResult<BaseItemDto>>> GetSeasons(
         [FromRoute, Required] Guid seriesId,
@@ -340,9 +345,11 @@ public class TvShowsController : BaseMulletaFlixApiController
         [FromQuery] bool? enableUserData)
     {
         userId = RequestHelpers.GetUserId(User, userId);
-        var user = userId.IsNullOrEmpty()
-            ? null
-            : _userManager.GetUserById(userId.Value);
+        if (!TryResolveTvShowUser(userId, out var user))
+        {
+            return Unauthorized();
+        }
+
         var item = _libraryManager.GetItemById<Series>(seriesId, user);
         if (item is null)
         {
@@ -371,6 +378,18 @@ public class TvShowsController : BaseMulletaFlixApiController
         }
 
         return new QueryResult<BaseItemDto>(returnItems);
+    }
+
+    private bool TryResolveTvShowUser(Guid? userId, out User? user)
+    {
+        user = null;
+        if (userId.IsNullOrEmpty())
+        {
+            return User.GetIsApiKey();
+        }
+
+        user = _userManager.GetUserById(userId.Value);
+        return user is not null;
     }
 
     private async Task<List<BaseItemDto>> CreateSyntheticSeasonDtos(

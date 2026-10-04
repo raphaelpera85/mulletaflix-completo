@@ -104,6 +104,7 @@ class LibraryLetterRailTest {
                         hasMore = hasMore,
                         isLoading = isLoading,
                         hasLoadError = hasLoadError,
+                        hasNavigationError = hasLoadError,
                         hasActiveFilters = false,
                         gridState = state,
                         onLoadMore = {
@@ -127,6 +128,7 @@ class LibraryLetterRailTest {
                         targets = libraryLetterTargets(loadedItems, hasMore, selectedLetter),
                         loadingLetter = selectedLetter,
                         navigationError = hasLoadError && selectedLetter != null,
+                        isTelevision = isTelevision,
                         onTargetSelected = {
                             hasLoadError = false
                             selectedLetter = it
@@ -146,9 +148,12 @@ class LibraryLetterRailTest {
         composeRule.waitForIdle()
 
         assert(loadMoreCalls == 1)
-        val retryButton = composeRule.onNodeWithContentDescription(
-            "Falha ao carregar títulos até a letra B. Toque para tentar novamente",
-        ).assertIsDisplayed()
+        val retryDescription = if (isTelevision) {
+            "Falha ao carregar títulos até a letra B. Pressione OK para tentar novamente"
+        } else {
+            "Falha ao carregar títulos até a letra B. Toque para tentar novamente"
+        }
+        val retryButton = composeRule.onNodeWithContentDescription(retryDescription).assertIsDisplayed()
         if (isTelevision) {
             retryButton.requestFocus().performKeyInput { pressKey(Key.DirectionCenter) }
         } else {

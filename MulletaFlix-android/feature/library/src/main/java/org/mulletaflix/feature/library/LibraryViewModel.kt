@@ -41,6 +41,7 @@ data class LibraryState(
     val catalogSavedAtEpochMillis: Long? = null,
     val catalogTotalItemCount: Int? = null,
     val letterNavigationTarget: String? = null,
+    val letterNavigationError: Boolean = false,
     val error: String? = null,
     val showSortMenu: Boolean = false,
     val showFilterMenu: Boolean = false,
@@ -504,9 +505,10 @@ class LibraryViewModel @Inject constructor(
         val libId = currentLibraryId ?: run {
             if (currentUserId == null) {
                 _state.update {
-                    it.copy(
-                        isLoading = false,
-                        error = EXPIRED_SESSION_MESSAGE,
+                it.copy(
+                    isLoading = false,
+                    error = EXPIRED_SESSION_MESSAGE,
+                    letterNavigationError = it.letterNavigationTarget != null,
                     )
                 }
             }
@@ -523,13 +525,14 @@ class LibraryViewModel @Inject constructor(
         // synchronous transition closes that small window and prevents duplicate
         // pages from being appended.
         val requestGeneration = ++this.requestGeneration
-        _state.update { it.copy(isLoading = true, error = null) }
+        _state.update { it.copy(isLoading = true, letterNavigationError = false) }
         loadJob = viewModelScope.launch {
             val userId = currentUserId ?: authRepository.getSavedUserId().firstOrNull() ?: run {
                 _state.update {
                     it.copy(
                         isLoading = false,
                         error = EXPIRED_SESSION_MESSAGE,
+                        letterNavigationError = it.letterNavigationTarget != null,
                     )
                 }
                 return@launch
@@ -572,6 +575,7 @@ class LibraryViewModel @Inject constructor(
                         hasMore = hasMorePages(fetchedItemCount, newItems.size, total),
                         isLoading = false,
                         isShowingCachedCatalog = false,
+                        letterNavigationError = false,
                         catalogSavedAtEpochMillis = null,
                         catalogTotalItemCount = null,
                         error = null,
@@ -580,7 +584,13 @@ class LibraryViewModel @Inject constructor(
                 persistLibrarySnapshot(userId, libId, currentLibraryName, currentLibraryCollectionType, combined, total)
             }.onFailure { error ->
                 if (!isCurrentLibraryRequest(requestGeneration, userId, libId)) return@onFailure
-                _state.update { it.copy(isLoading = false, error = error.message ?: "Não foi possível carregar mais itens.") }
+                _state.update {
+                    it.copy(
+                        isLoading = false,
+                        error = error.message ?: "Não foi possível carregar mais itens.",
+                        letterNavigationError = it.letterNavigationTarget != null,
+                    )
+                }
             }
         }
     }
@@ -590,7 +600,7 @@ class LibraryViewModel @Inject constructor(
         if (current.sortBy != SortOption.Name || current.sortOrder != SortOrder.Ascending) return
         val normalized = letter.uppercase(Locale.ROOT)
         if (normalized != "#" && (normalized.length != 1 || normalized[0] !in 'A'..'Z')) return
-        _state.update { it.copy(letterNavigationTarget = normalized, error = null) }
+        _state.update { it.copy(letterNavigationTarget = normalized, letterNavigationError = false) }
     }
 
     fun finishLetterNavigation(letter: String) {
