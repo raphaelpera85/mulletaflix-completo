@@ -15,6 +15,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -47,14 +49,36 @@ class BookReaderViewModel @Inject constructor(
     private val progressStore = BookReaderProgressStore(context)
     private var loadedItemId: String? = null
     private var loadedProgressScope: HomeFeedCacheScope? = null
-    private var loadGeneration = 0L
-    private var progressSaveGeneration = 0L
+    private val loadGeneration = BookReaderRequestGeneration()
+    private val progressSaveGeneration = BookReaderRequestGeneration()
     private var progressSaveJob: Job? = null
     private val progressSaveMutex = Mutex()
 
+    init {
+        viewModelScope.launch {
+            var hasObservedScope = false
+            var observedScope: HomeFeedCacheScope? = null
+            sessionRepository.getHomeFeedCacheScope().distinctUntilChanged().collect { scope ->
+                val changed = hasObservedScope && observedScope != scope
+                hasObservedScope = true
+                observedScope = scope
+                val activeItemId = loadedItemId
+                if (changed && activeItemId != null) {
+                    // A load for the previous account/server must never render after a session switch.
+                    loadedProgressScope = null
+                    loadedItemId = null
+                    _state.value = BookReaderState(isLoading = true)
+                    progressSaveGeneration.begin()
+                    progressSaveJob?.cancel()
+                    load(activeItemId)
+                }
+            }
+        }
+    }
+
     fun load(itemId: String) {
         if (loadJob?.isActive == true && loadedItemId == itemId) return
-        val generation = ++loadGeneration
+        val generation = loadGeneration.begin()
         loadJob?.cancel()
         loadedItemId = itemId
         loadedProgressScope = null
@@ -63,7 +87,7 @@ class BookReaderViewModel @Inject constructor(
             val progressScope = recoverBookReaderStorageFailure {
                 sessionRepository.getHomeFeedCacheScope().first()
             }
-            if (generation != loadGeneration) return@launch
+            if (!loadGeneration.isCurrent(generation)) return@launch
             loadedProgressScope = progressScope
             val initialLocator = progressScope?.let { progressStore.read(it, itemId) }
             try {
@@ -94,7 +118,18 @@ class BookReaderViewModel @Inject constructor(
                 val restorableLocator = initialLocator?.takeIf { locator ->
                     publication.readingOrder.any { link -> link.href == locator.href }
                 }
-                if (generation != loadGeneration) return@launch
+                if (!loadGeneration.isCurrent(generation)) return@launch
+                val currentScope = recoverBookReaderStorageFailure {
+                    sessionRepository.getHomeFeedCacheScope().first()
+                }
+                if (!loadGeneration.isCurrent(generation)) return@launch
+                if (progressScope?.let { progressStore.entryKey(it, itemId) } !=
+                    currentScope?.let { progressStore.entryKey(it, itemId) }
+                ) {
+                    loadedItemId = null
+                    load(itemId)
+                    return@launch
+                }
                 _state.value = BookReaderState(
                     isLoading = false,
                     publication = publication,
@@ -103,7 +138,7 @@ class BookReaderViewModel @Inject constructor(
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (error: Exception) {
-                if (generation != loadGeneration) return@launch
+                if (!loadGeneration.isCurrent(generation)) return@launch
                 _state.value = BookReaderState(
                     isLoading = false,
                     error = error.message ?: "Não foi possível abrir este livro.",
@@ -115,7 +150,7 @@ class BookReaderViewModel @Inject constructor(
     fun saveReadingProgression(itemId: String, locator: Locator) {
         val expectedScope = loadedProgressScope ?: return
         if (loadedItemId != itemId || _state.value.publication == null) return
-        val generation = ++progressSaveGeneration
+        val generation = progressSaveGeneration.begin()
         progressSaveJob?.cancel()
         progressSaveJob = viewModelScope.launch {
             val currentScope = recoverBookReaderStorageFailure {
@@ -126,7 +161,7 @@ class BookReaderViewModel @Inject constructor(
                 return@launch
             }
             progressSaveMutex.withLock {
-                if (generation != progressSaveGeneration || loadedItemId != itemId) return@withLock
+                if (!progressSaveGeneration.isCurrent(generation) || loadedItemId != itemId) return@withLock
                 progressStore.write(expectedScope, itemId, locator)
             }
         }

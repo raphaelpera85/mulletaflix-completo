@@ -75,19 +75,20 @@ export async function loginWithManualForm(page, username, password) {
         return null;
     };
     const usernameCandidates = page.locator(
-        '#loginPage:visible #txtManualName, #loginPage:visible #txtUsername, #loginPage:visible input[autocomplete="username"], #loginPage:visible input:not([type="password"]):not([type="checkbox"]):not([type="hidden"])'
+        '#txtManualName, #txtUsername, #loginPage input[autocomplete="username"], #loginPage input[type="email"]'
     );
     let usernameInput = await visibleCandidate(usernameCandidates)
-        || await visibleCandidate(page.getByRole('textbox'));
+        || await visibleCandidate(page.getByRole('textbox').first());
 
     if (!usernameInput) {
-        const manualLoginButton = page.locator('#loginPage:visible .btnManual:visible').last();
+        const manualLoginButton = page.locator('#loginPage .btnManual');
         if (!(await manualLoginButton.isVisible().catch(() => false))) {
             throw new Error('Login page exposes neither the username/password form nor a visible manual-login button.');
         }
 
         await manualLoginButton.click();
-        usernameInput = await visibleCandidate(usernameCandidates);
+        usernameInput = page.locator('#txtManualName');
+        await usernameInput.waitFor({ state: 'visible', timeout: 10_000 });
     }
 
     if (!usernameInput) {
@@ -97,7 +98,7 @@ export async function loginWithManualForm(page, username, password) {
     await usernameInput.fill(username);
     await expect(usernameInput).toHaveValue(username);
     const passwordCandidates = page.locator(
-        '#loginPage:visible #txtManualPassword, #loginPage:visible #txtPassword, #loginPage:visible input[type="password"], #loginPage:visible input[autocomplete="current-password"]'
+        '#txtManualPassword, #txtPassword, #loginPage input[type="password"], #loginPage input[autocomplete="current-password"]'
     );
     const passwordInput = await visibleCandidate(passwordCandidates)
         || await visibleCandidate(page.getByRole('textbox').nth(1));

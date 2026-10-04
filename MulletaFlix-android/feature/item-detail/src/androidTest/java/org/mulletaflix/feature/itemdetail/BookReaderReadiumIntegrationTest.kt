@@ -120,10 +120,10 @@ class BookReaderReadiumIntegrationTest {
                     application = context.applicationContext as Application,
                     publication = publication,
                     configuration = ReflowableWebConfiguration(),
-                ).createRenditionState(
+                )?.createRenditionState(
                     initialPreferences = ReflowableWebPreferences(),
                     initialLocation = ReflowableWebGoLocation(savedLocator),
-                ).getOrNull()
+                )?.getOrNull()
             }
             val validRenditionState = requireNotNull(renditionState)
 

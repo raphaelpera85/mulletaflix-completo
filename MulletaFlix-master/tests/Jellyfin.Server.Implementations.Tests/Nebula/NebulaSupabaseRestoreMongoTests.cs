@@ -77,6 +77,10 @@ public sealed class NebulaSupabaseRestoreMongoTests : IDisposable
             },
             new HttpResponseMessage(HttpStatusCode.OK)
             {
+                Content = new StringContent("[]")
+            },
+            new HttpResponseMessage(HttpStatusCode.OK)
+            {
                 Content = new StringContent(
                     "[{\"doc_data\":{\"_id\":\"restore-ftp-user\",\"password_hash\":\"ftp-hash-fixture\",\"permissions\":\"elradfmwM\",\"fixture_marker\":\"preserved\"}}]")
             },
@@ -123,7 +127,7 @@ public sealed class NebulaSupabaseRestoreMongoTests : IDisposable
             result.UsersRestored,
             result.ElapsedSeconds);
         Assert.NotNull(service.LastSuccessfulRestoreTime);
-        Assert.Equal(4, handler.Requests.Count);
+        Assert.Equal(5, handler.Requests.Count);
         Assert.All(handler.Requests, request =>
         {
             Assert.Equal(HttpMethod.Get, request.Method);
@@ -131,9 +135,10 @@ public sealed class NebulaSupabaseRestoreMongoTests : IDisposable
             Assert.Equal("Bearer sb_secret_test", request.Headers["Authorization"]);
         });
         Assert.Contains("/rest/v1/nebula_files?select=id,name,parent,size,status,parts,uploaded_at,doc_data&order=id.asc&limit=500&offset=0", handler.Requests[0].Uri, StringComparison.Ordinal);
-        Assert.Contains("/rest/v1/nebula_users?select=*", handler.Requests[1].Uri, StringComparison.Ordinal);
-        Assert.Contains("/rest/v1/mulletaflix_users?select=*&order=username.asc", handler.Requests[2].Uri, StringComparison.Ordinal);
-        Assert.Contains("/rest/v1/nebula_bot_tokens?select=*&order=index.asc", handler.Requests[3].Uri, StringComparison.Ordinal);
+        Assert.Contains("/rest/v1/nebula_files?select=id,name,parent,size,status,parts,uploaded_at,doc_data&order=id.asc&limit=500&offset=1", handler.Requests[1].Uri, StringComparison.Ordinal);
+        Assert.Contains("/rest/v1/nebula_users?select=*", handler.Requests[2].Uri, StringComparison.Ordinal);
+        Assert.Contains("/rest/v1/mulletaflix_users?select=*&order=username.asc", handler.Requests[3].Uri, StringComparison.Ordinal);
+        Assert.Contains("/rest/v1/nebula_bot_tokens?select=*&order=index.asc", handler.Requests[4].Uri, StringComparison.Ordinal);
 
         var restoredFiles = await mongoContext.GetAllFilesForSyncAsync(TestContext.Current.CancellationToken);
         var restoredFile = Assert.Single(restoredFiles);
