@@ -1,8 +1,10 @@
 package org.mulletaflix.feature.player
 
-import androidx.media3.exoplayer.source.MediaSource
 import androidx.media3.common.Format
+import androidx.media3.common.util.UnstableApi
+import androidx.media3.exoplayer.source.MediaSource
 
+@UnstableApi
 internal class PendingPlaybackVideoFormats(private val maxEntries: Int = 8) {
     private val pending = ArrayDeque<Pair<MediaSource.MediaPeriodId, Format>>()
 
@@ -28,12 +30,14 @@ internal class PendingPlaybackVideoFormats(private val maxEntries: Int = 8) {
 }
 
 /** Keeps queued or stale media-period events out of the active playback diagnostics. */
+@UnstableApi
 internal fun isPlaybackDiagnosticsEventForCurrentPeriod(
     eventPeriodId: MediaSource.MediaPeriodId?,
     currentPeriodId: MediaSource.MediaPeriodId?,
 ): Boolean = eventPeriodId != null && currentPeriodId != null &&
     eventPeriodId.equalsExceptNextAdGroupIndex(currentPeriodId)
 
+@UnstableApi
 internal fun takePlaybackVideoFormatForActiveTransition(
     pendingFormats: PendingPlaybackVideoFormats,
     transitionPeriodId: MediaSource.MediaPeriodId?,

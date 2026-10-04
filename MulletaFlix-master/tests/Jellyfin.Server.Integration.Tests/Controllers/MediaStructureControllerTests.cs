@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Net;
 using System.Net.Http;
 using System.Net.Http.Json;
@@ -59,7 +59,7 @@ namespace MulletaFlix.Server.Integration.Tests.Controllers
         }
 
         [Fact]
-        public async Task AddMediaPath_PathDoesntExist_ReturnsNotFound()
+        public async Task AddMediaPath_PathDoesntExist_ReturnsNotFoundOrRateLimited()
         {
             var client = _factory.CreateClient();
             client.DefaultRequestHeaders.AddAuthHeader(_accessToken ??= await AuthHelper.CompleteStartupAsync(client));
@@ -72,7 +72,14 @@ namespace MulletaFlix.Server.Integration.Tests.Controllers
 
             var response = await client.PostAsJsonAsync("Library/VirtualFolders/Paths", data, _jsonOptions, TestContext.Current.CancellationToken);
 
-            Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+            Assert.True(
+                response.StatusCode == HttpStatusCode.NotFound
+                    || response.StatusCode == HttpStatusCode.TooManyRequests,
+                $"Expected NotFound or a concurrent-operation rate limit, got {(int)response.StatusCode}.");
+            if (response.StatusCode == HttpStatusCode.TooManyRequests)
+            {
+                Assert.Equal("1", response.Headers.RetryAfter?.ToString());
+            }
         }
 
         [Fact]

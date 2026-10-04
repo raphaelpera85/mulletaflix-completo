@@ -9,7 +9,8 @@ internal fun shouldEnterPictureInPicture(
     enabled: Boolean,
     isPlaying: Boolean,
     sdkInt: Int,
-): Boolean = enabled && isPlaying && sdkInt >= Build.VERSION_CODES.O
+    isTelevision: Boolean,
+): Boolean = !isTelevision && enabled && isPlaying && sdkInt >= Build.VERSION_CODES.O
 
 internal fun shouldShowPlayerOverlay(isInPictureInPictureMode: Boolean): Boolean =
     !isInPictureInPictureMode
@@ -18,13 +19,15 @@ internal fun shouldUseAutomaticPictureInPicture(
     enabled: Boolean,
     isPlaying: Boolean,
     sdkInt: Int,
-): Boolean = enabled && isPlaying && sdkInt >= Build.VERSION_CODES.S
+    isTelevision: Boolean,
+): Boolean = !isTelevision && enabled && isPlaying && sdkInt >= Build.VERSION_CODES.S
 
 internal fun shouldEnterPictureInPictureOnUserLeaveHint(
     enabled: Boolean,
     isPlaying: Boolean,
     sdkInt: Int,
-): Boolean = enabled && isPlaying && sdkInt >= Build.VERSION_CODES.O && sdkInt < Build.VERSION_CODES.S
+    isTelevision: Boolean,
+): Boolean = !isTelevision && enabled && isPlaying && sdkInt >= Build.VERSION_CODES.O && sdkInt < Build.VERSION_CODES.S
 
 /** Small bridge used by the host Activity for the system Home/user-leave event. */
 object PlayerPictureInPictureController {

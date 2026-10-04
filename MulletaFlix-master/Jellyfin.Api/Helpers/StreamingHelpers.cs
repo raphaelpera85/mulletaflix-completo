@@ -112,7 +112,7 @@ public static class StreamingHelpers
                                           ?? state.SupportedSubtitleCodecs.FirstOrDefault();
         }
 
-        var item = libraryManager.GetItemById<BaseItem>(streamingRequest.Id);
+        var item = libraryManager.GetItemById<BaseItem>(streamingRequest.Id, state.User);
         if (item is null && transientMediaItemRegistry?.TryGet(streamingRequest.Id, out item) != true)
         {
             throw new ResourceNotFoundException();

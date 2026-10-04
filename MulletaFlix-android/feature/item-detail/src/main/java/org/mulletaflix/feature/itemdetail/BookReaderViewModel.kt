@@ -29,11 +29,18 @@ import org.readium.r2.shared.publication.Publication
 import retrofit2.HttpException
 import javax.inject.Inject
 
-data class BookReaderState(
+internal data class BookReaderState(
     val isLoading: Boolean = true,
     val publication: Publication? = null,
+    val comicArchive: ComicBookArchive? = null,
     val initialLocator: Locator? = null,
     val error: String? = null,
+)
+
+private data class LoadedBookContent(
+    val publication: Publication? = null,
+    val comicArchive: ComicBookArchive? = null,
+    val cacheFile: File,
 )
 
 @HiltViewModel
@@ -43,7 +50,7 @@ class BookReaderViewModel @Inject constructor(
     @ApplicationContext private val context: Context,
 ) : ViewModel() {
     private val _state = MutableStateFlow(BookReaderState())
-    val state: StateFlow<BookReaderState> = _state.asStateFlow()
+    internal val state: StateFlow<BookReaderState> = _state.asStateFlow()
     private var loadJob: Job? = null
     private val bookCacheFiles = BookReaderCacheFiles(File(context.cacheDir, "book-reader"))
     private val progressStore = BookReaderProgressStore(context)
@@ -79,11 +86,13 @@ class BookReaderViewModel @Inject constructor(
     fun load(itemId: String) {
         if (loadJob?.isActive == true && loadedItemId == itemId) return
         val generation = loadGeneration.begin()
-        loadJob?.cancel()
+        val previousLoadJob = loadJob
+        previousLoadJob?.cancel()
         loadedItemId = itemId
         loadedProgressScope = null
         loadJob = viewModelScope.launch {
             _state.value = BookReaderState(isLoading = true)
+            previousLoadJob?.join()
             val progressScope = recoverBookReaderStorageFailure {
                 sessionRepository.getHomeFeedCacheScope().first()
             }
@@ -91,32 +100,49 @@ class BookReaderViewModel @Inject constructor(
             loadedProgressScope = progressScope
             val initialLocator = progressScope?.let { progressStore.read(it, itemId) }
             try {
-                val publication = withContext(Dispatchers.IO) {
+                val content = withContext(Dispatchers.IO) {
                     val body = try {
                         api.getBookReaderEpub(itemId)
                     } catch (failure: HttpException) {
                         error(bookReaderHttpFailureMessage(failure.code()))
                     }
-                    val contentType = body.contentType()?.let { "${it.type}/${it.subtype}" }.orEmpty()
-                    if (isClearlyNotEpubContentType(contentType)) {
-                        body.close()
-                        error("O servidor não enviou um arquivo de livro compatível para leitura.")
-                    }
-
-                    val target = bookCacheFiles.create()
-                    var copyCompleted = false
                     try {
-                        body.byteStream().use { input -> target.outputStream().use(input::copyTo) }
-                        currentCoroutineContext().ensureActive()
-                        copyCompleted = true
-                    } finally {
-                        if (!copyCompleted) bookCacheFiles.delete(target)
-                    }
+                        if (body.contentLength() > MAX_BOOK_PAYLOAD_BYTES) {
+                            error("Book file exceeds the supported size limit.")
+                        }
+                        val contentType = body.contentType()?.let { "${it.type}/${it.subtype}" }.orEmpty()
+                        val isComicArchive = ComicBookArchive.supports(contentType)
+                        if (!isComicArchive && isClearlyNotEpubContentType(contentType)) {
+                            error("O servidor não enviou um arquivo de livro compatível para leitura.")
+                        }
 
-                    openBookPublication(context, target)
+                        val target = bookCacheFiles.create(comicArchive = isComicArchive)
+                        var contentOpened = false
+                        try {
+                            body.byteStream().use { input ->
+                                target.outputStream().use { output -> copyBookReaderPayload(input, output) }
+                            }
+                            currentCoroutineContext().ensureActive()
+                            val loadedContent = if (isComicArchive) {
+                                LoadedBookContent(comicArchive = ComicBookArchive.open(target), cacheFile = target)
+                            } else {
+                                LoadedBookContent(publication = openBookPublication(context, target), cacheFile = target)
+                            }
+                            contentOpened = true
+                            loadedContent
+                        } finally {
+                            if (!contentOpened) bookCacheFiles.delete(target)
+                        }
+                    } finally {
+                        body.close()
+                    }
                 }
                 val restorableLocator = initialLocator?.takeIf { locator ->
-                    publication.readingOrder.any { link -> link.href == locator.href }
+                    if (content.comicArchive != null) {
+                        ComicBookArchive.pageIndexFromLocator(locator, content.comicArchive.pageCount) != null
+                    } else {
+                        content.publication?.readingOrder?.any { link -> link.href == locator.href } == true
+                    }
                 }
                 if (!loadGeneration.isCurrent(generation)) return@launch
                 val currentScope = recoverBookReaderStorageFailure {
@@ -130,15 +156,18 @@ class BookReaderViewModel @Inject constructor(
                     load(itemId)
                     return@launch
                 }
+                bookCacheFiles.deleteAllOwnedExcept(content.cacheFile)
                 _state.value = BookReaderState(
                     isLoading = false,
-                    publication = publication,
+                    publication = content.publication,
+                    comicArchive = content.comicArchive,
                     initialLocator = restorableLocator,
                 )
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (error: Exception) {
                 if (!loadGeneration.isCurrent(generation)) return@launch
+                bookCacheFiles.deleteAllOwned()
                 _state.value = BookReaderState(
                     isLoading = false,
                     error = error.message ?: "Não foi possível abrir este livro.",
@@ -149,7 +178,7 @@ class BookReaderViewModel @Inject constructor(
 
     fun saveReadingProgression(itemId: String, locator: Locator) {
         val expectedScope = loadedProgressScope ?: return
-        if (loadedItemId != itemId || _state.value.publication == null) return
+        if (loadedItemId != itemId || (_state.value.publication == null && _state.value.comicArchive == null)) return
         val generation = progressSaveGeneration.begin()
         progressSaveJob?.cancel()
         progressSaveJob = viewModelScope.launch {

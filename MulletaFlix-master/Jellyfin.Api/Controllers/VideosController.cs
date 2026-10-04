@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.ComponentModel.DataAnnotations;
 using System.Globalization;
@@ -315,7 +315,6 @@ public class VideosController : BaseMulletaFlixApiController
     /// <param name="enableAudioVbrEncoding">Optional. Whether to enable Audio Encoding.</param>
     /// <response code="200">Video stream returned.</response>
     /// <returns>A <see cref="FileResult"/> containing the audio file.</returns>
-    [AllowAnonymous]
     [HttpGet("{itemId}/stream")]
     [HttpHead("{itemId}/stream", Name = "HeadVideoStream")]
     [ProducesResponseType(StatusCodes.Status200OK)]
@@ -555,7 +554,6 @@ public class VideosController : BaseMulletaFlixApiController
     /// <param name="enableAudioVbrEncoding">Optional. Whether to enable Audio Encoding.</param>
     /// <response code="200">Video stream returned.</response>
     /// <returns>A <see cref="FileResult"/> containing the audio file.</returns>
-    [AllowAnonymous]
     [HttpGet("{itemId}/stream.{container}")]
     [HttpHead("{itemId}/stream.{container}", Name = "HeadVideoStreamByContainer")]
     [ProducesResponseType(StatusCodes.Status200OK)]

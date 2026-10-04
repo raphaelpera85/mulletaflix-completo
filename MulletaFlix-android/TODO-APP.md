@@ -2,6 +2,16 @@
 
 Este documento rastreia o status de implementação de todas as funcionalidades, módulos, telas e componentes do aplicativo oficial **MulletaFlix Android**.
 
+## Leitura de quadrinhos CBZ no APK (sem release)
+
+- [x] Detectar `application/x-cbz` e abrir arquivos CBZ sem extraí-los; ignorar metadados e ordenar páginas naturalmente.
+- [x] Navegar por páginas e retomar posição no DataStore, isolada por servidor/conta/mídia.
+- [x] Limitar download a 512 MiB, entrada de página a 128 MiB, origem a 100 milhões de pixels e bitmap decodificado a 16.777.216 pixels; reduzir bitmap ao espaço de exibição.
+- [x] Remover arquivos de cache substituídos após carregar o livro seguinte; apagar arquivos parciais em falha.
+- [x] Testes JVM e Compose instrumentados em telefone e tablet API 35 executados com QEMU verificado na NVIDIA RTX 3050; 4 testes de integração passaram, AVDs encerrados pelo wrapper.
+- [x] Quality Bar global: `testDebugUnitTest` (1.360 testes, 0 falhas), `:feature:item-detail:lintDebug`, `:app:lintDebug`, `:app:assembleDebug` e `:app:compileDebugAndroidTestKotlin` passaram.
+- [x] Revisão adversarial após as mitigações: sem problemas restantes; sem bump, pacote de produção ou publicação nesta rodada.
+
 ## Retomada local de leitura EPUB (APK local; sem release)
 
 - [x] Salvar o localizador Readium do livro em DataStore e retomá-lo ao reabrir o mesmo título.
@@ -16,7 +26,11 @@ Este documento rastreia o status de implementação de todas as funcionalidades,
 - [x] Remover Locator e marca temporal do mesmo livro/conta/servidor; preservar progresso de outras contas.
 - [x] Invalidar renderização e gravações pendentes antes de recarregar no início; mostrar erro se a exclusão falhar.
 - [x] Cobrir cancelar/confirmar pelo Compose e navegação por D-pad, além de remoção e isolamento no DataStore instrumentado.
-- [ ] Executar unit tests, lint e testes instrumentados em telefone e Android TV; registrar resultado antes da revisão final.
+- [x] Testes Compose: cancelar no telefone e tablet; confirmar por D-pad na Android TV. Os três AVDs usaram GPU NVIDIA e foram fechados ao fim.
+- [x] Integração Readium/DataStore: 4 testes passaram em tablet API 35; remoção limpa Locator/timestamp da conta atual e preserva outra conta.
+- [x] `AdaptiveItemDetailLayoutTest`: 5/5 no tablet API 35; `DetailActionRowTest.narrowHeroKeepsPosterWholeAndActionsReachableAtTwoHundredPercentFontScale`: telefone API 35 passou após alinhar a densidade medida com `DeviceConfigurationOverride`.
+- [x] `SeriesSectionTest` completa na TV API 34; pressupostos de foco remoto exercitados no perfil certo.
+- [x] Quality Bar: `testDebugUnitTest`, `:feature:item-detail:lintDebug`, `:app:lintDebug`, `:app:assembleDebug` e `:app:compileDebugAndroidTestKotlin` passaram.
 - [ ] Sem bump, pacote de produção ou publicação nesta rodada.
 
 ## Parser de EPUB inválido tratado sem derrubar o leitor (APK local; sem release)

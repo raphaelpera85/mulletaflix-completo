@@ -5,7 +5,9 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.width
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.runtime.SideEffect
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.test.DeviceConfigurationOverride
 import androidx.compose.ui.test.FontScale
 import androidx.compose.ui.test.WindowSize
@@ -132,11 +134,14 @@ class DetailActionRowTest {
     fun narrowHeroKeepsPosterWholeAndActionsReachableAtTwoHundredPercentFontScale() {
         val longTitle = "Título longo para acessibilidade ampliada ".repeat(10)
         var shareClicks = 0
+        var expectedPosterWidth = 0f
         composeRule.setContent {
             DeviceConfigurationOverride(
                 DeviceConfigurationOverride.WindowSize(DpSize(840.dp, 420.dp)),
             ) {
                 DeviceConfigurationOverride(DeviceConfigurationOverride.FontScale(2f)) {
+                    val testDensity = LocalDensity.current
+                    SideEffect { expectedPosterWidth = with(testDensity) { 88.dp.toPx() } }
                     MaterialTheme {
                         Box(Modifier.width(340.dp).height(420.dp)) {
                             DetailHero(
@@ -163,13 +168,12 @@ class DetailActionRowTest {
             }
         }
 
-        val expectedPosterWidth = with(composeRule.density) { 88.dp.toPx() }
         val posterBounds = composeRule.onNodeWithTag("item-detail-hero-poster")
             .fetchSemanticsNode().boundsInRoot
         val actualPosterWidth = posterBounds.width
         assertTrue(
             "Poster width: actual=${actualPosterWidth}px expected=${expectedPosterWidth}px " +
-                "rootDensity=${composeRule.density} fontScale=2.0",
+                "localDensity=${expectedPosterWidth / 88f}pxPerDp fontScale=2.0",
             kotlin.math.abs(actualPosterWidth - expectedPosterWidth) < 1f,
         )
         assert(kotlin.math.abs(posterBounds.height / posterBounds.width - 1.5f) < 0.01f)

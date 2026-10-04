@@ -114,6 +114,28 @@ class BookReaderReadiumIntegrationTest {
     }
 
     @Test
+    fun comicPageProgressPersistsAndRemainsScopedToItsAccountAndServer() = runBlocking {
+        val store = BookReaderProgressStore(context)
+        val reloadedStore = BookReaderProgressStore(context)
+        val scope = HomeFeedCacheScope("comic-server-test", "https://comic.example", "comic-user-test")
+        val otherAccount = scope.copy(userId = "other-comic-user")
+        val otherServer = scope.copy(serverId = "other-comic-server")
+        val itemId = "comic-progress-${System.nanoTime()}"
+        val locator = ComicBookArchive.locatorForPage(index = 4, pageCount = 12)
+
+        try {
+            store.write(scope, itemId, locator)
+
+            val restored = reloadedStore.read(scope, itemId)
+            assertEquals(4, ComicBookArchive.pageIndexFromLocator(restored, pageCount = 12))
+            assertEquals(null, reloadedStore.read(otherAccount, itemId))
+            assertEquals(null, reloadedStore.read(otherServer, itemId))
+        } finally {
+            reloadedStore.remove(scope, itemId)
+        }
+    }
+
+    @Test
     fun reflowableRenditionRestoresSavedLocationAfterRecreation() {
         val epub = createEpub()
         try {

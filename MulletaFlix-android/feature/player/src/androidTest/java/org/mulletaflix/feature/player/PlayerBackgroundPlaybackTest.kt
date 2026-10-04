@@ -1,5 +1,6 @@
 package org.mulletaflix.feature.player
 
+import android.content.pm.PackageManager
 import android.net.Uri
 import androidx.activity.ComponentActivity
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
@@ -29,6 +30,49 @@ class PlayerBackgroundPlaybackTest {
 
     @Test
     fun activeMediaPausesWhenActivityMovesDirectlyToStoppedState() = verifyPlayRequestWhenActivityStops()
+
+    @Test
+    fun activeMediaPausesWhenAndroidTvHomeKeyMinimizesTheActivity() {
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        assertTrue(
+            "This test must run on an Android TV profile",
+            context.packageManager.hasSystemFeature(PackageManager.FEATURE_LEANBACK),
+        )
+
+        val mediaFile = PlayerTestMedia.createSilentWav(context)
+        val player = AtomicReference<ExoPlayer>()
+        InstrumentationRegistry.getInstrumentation().runOnMainSync {
+            player.set(
+                ExoPlayer.Builder(context).build().apply {
+                    volume = 0f
+                    setMediaItem(MediaItem.fromUri(Uri.fromFile(mediaFile)))
+                    prepare()
+                    play()
+                },
+            )
+        }
+
+        try {
+            composeRule.setContent { PausePlaybackWhenActivityStops { player.get()?.pause() } }
+            composeRule.waitForIdle()
+            val activePlayer = checkNotNull(player.get())
+            composeRule.waitUntil(timeoutMillis = 10_000) { isPlaying(activePlayer) }
+
+            InstrumentationRegistry.getInstrumentation().uiAutomation
+                .executeShellCommand("input keyevent KEYCODE_HOME")
+                .close()
+
+            composeRule.waitUntil(timeoutMillis = 5_000) {
+                composeRule.activityRule.scenario.state == Lifecycle.State.CREATED
+            }
+            composeRule.waitUntil(timeoutMillis = 5_000) { !isPlaying(activePlayer) }
+
+            assertFalse("Pressing Home on Android TV must stop the Activity and pause media", isPlaying(activePlayer))
+        } finally {
+            InstrumentationRegistry.getInstrumentation().runOnMainSync { player.getAndSet(null)?.release() }
+            mediaFile.delete()
+        }
+    }
 
     private fun verifyPlayRequestWhenActivityStops(beforeStop: (ExoPlayer) -> Unit = {}) {
         val context = ApplicationProvider.getApplicationContext<android.content.Context>()

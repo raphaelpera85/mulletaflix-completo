@@ -30,9 +30,11 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -60,8 +62,10 @@ fun BookReaderScreen(
     viewModel: BookReaderViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val comicArchive = state.comicArchive
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
+    var currentComicPage by rememberSaveable(itemId) { mutableIntStateOf(0) }
     var renditionState by remember(itemId) { mutableStateOf<ReflowableWebRenditionState?>(null) }
     var renditionError by remember(itemId) { mutableStateOf<String?>(null) }
 
@@ -89,6 +93,21 @@ fun BookReaderScreen(
             .distinctUntilChanged()
             .collect { locator -> viewModel.saveReadingProgression(itemId, locator) }
     }
+    LaunchedEffect(itemId, state.comicArchive, state.initialLocator) {
+        val archive = state.comicArchive ?: return@LaunchedEffect
+        currentComicPage = ComicBookArchive.pageIndexFromLocator(state.initialLocator, archive.pageCount) ?: 0
+    }
+    LaunchedEffect(itemId, state.comicArchive) {
+        val archive = state.comicArchive ?: return@LaunchedEffect
+        snapshotFlow { currentComicPage }
+            .distinctUntilChanged()
+            .collect { page ->
+                viewModel.saveReadingProgression(
+                    itemId,
+                    ComicBookArchive.locatorForPage(page, archive.pageCount),
+                )
+            }
+    }
 
     Scaffold(
         topBar = {
@@ -102,7 +121,7 @@ fun BookReaderScreen(
                 actions = {
                     key(itemId) {
                         BookReaderProgressActions(
-                            enabled = state.publication != null && !state.isLoading,
+                            enabled = (state.publication != null || state.comicArchive != null) && !state.isLoading,
                             onRestart = { viewModel.restartReadingFromBeginning(itemId) },
                         )
                     }
@@ -110,18 +129,27 @@ fun BookReaderScreen(
             )
         },
         bottomBar = {
-            val controller = renditionState?.controller
-            Row(
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 8.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                IconButton(onClick = { controller?.let { nav -> coroutineScope.launch { nav.moveBackward() } } }, enabled = controller != null) {
-                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Página anterior")
-                }
-                Text("Toque nas setas para navegar", style = MaterialTheme.typography.labelMedium)
-                IconButton(onClick = { controller?.let { nav -> coroutineScope.launch { nav.moveForward() } } }, enabled = controller != null) {
-                    Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = "Próxima página")
+            val archive = state.comicArchive
+            if (archive != null) {
+                ComicBookPageControls(
+                    currentPage = currentComicPage,
+                    pageCount = archive.pageCount,
+                    onPageSelected = { page -> currentComicPage = page.coerceIn(0, archive.pageCount - 1) },
+                )
+            } else {
+                val controller = renditionState?.controller
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 8.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    IconButton(onClick = { controller?.let { nav -> coroutineScope.launch { nav.moveBackward() } } }, enabled = controller != null) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Página anterior")
+                    }
+                    Text("Toque nas setas para navegar", style = MaterialTheme.typography.labelMedium)
+                    IconButton(onClick = { controller?.let { nav -> coroutineScope.launch { nav.moveForward() } } }, enabled = controller != null) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = "Próxima página")
+                    }
                 }
             }
         },
@@ -140,6 +168,11 @@ fun BookReaderScreen(
                 renditionError != null -> ReaderMessage(
                     message = renditionError.orEmpty(),
                     onRetry = { viewModel.load(itemId) },
+                )
+                comicArchive != null -> ComicBookReaderContent(
+                    archive = comicArchive,
+                    currentPage = currentComicPage,
+                    modifier = Modifier.fillMaxSize(),
                 )
                 renditionState != null -> ReflowableWebRendition(
                     state = renditionState!!,

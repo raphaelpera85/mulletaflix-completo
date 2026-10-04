@@ -1,5 +1,6 @@
 package org.mulletaflix.feature.itemdetail
 
+import android.content.res.Configuration
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsFocused
@@ -12,6 +13,8 @@ import androidx.compose.ui.test.pressKey
 import androidx.compose.ui.test.requestFocus
 import androidx.compose.ui.input.key.Key
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import androidx.test.platform.app.InstrumentationRegistry
+import org.junit.Assume.assumeTrue
 import org.junit.Assert.assertEquals
 import org.junit.Rule
 import org.junit.Test
@@ -37,6 +40,11 @@ class BookReaderProgressActionsTest {
 
     @Test
     fun tvRemoteCanConfirmRestartFromTheMenu() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val isTelevision = (context.resources.configuration.uiMode and Configuration.UI_MODE_TYPE_MASK) ==
+            Configuration.UI_MODE_TYPE_TELEVISION
+        assumeTrue("D-pad restart behavior is specific to Android TV", isTelevision)
+
         var restartRequests = 0
         showActions { restartRequests++ }
 

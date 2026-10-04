@@ -1,57 +1,47 @@
 using System;
+using System.Globalization;
 using System.IO;
 using System.Net;
 using System.Net.Http;
 using System.Threading.Tasks;
 using MulletaFlix.Data;
 using MulletaFlix.Database.Implementations.Enums;
-using MediaBrowser.Controller.Entities;
-using MediaBrowser.Controller.Entities.Movies;
+using MediaBrowser.Controller.Entities.Audio;
 using MediaBrowser.Controller.Library;
 using Microsoft.Extensions.DependencyInjection;
 using Xunit;
 
 namespace MulletaFlix.Server.Integration.Tests.Controllers;
 
-public sealed class VideosControllerTests : IClassFixture<MulletaFlixApplicationFactory>
+public sealed class AudioControllerTests : IClassFixture<MulletaFlixApplicationFactory>
 {
     private readonly MulletaFlixApplicationFactory _factory;
     private static string? _accessToken;
 
-    public VideosControllerTests(MulletaFlixApplicationFactory factory)
+    public AudioControllerTests(MulletaFlixApplicationFactory factory)
     {
         _factory = factory;
     }
 
-    [Fact]
-    public async Task DeleteAlternateSources_NonexistentItemId_NotFound()
-    {
-        var client = _factory.CreateClient();
-        client.DefaultRequestHeaders.AddAuthHeader(_accessToken ??= await AuthHelper.CompleteStartupAsync(client));
-
-        var response = await client.DeleteAsync($"Videos/{Guid.NewGuid()}", TestContext.Current.CancellationToken);
-        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
-    }
-
     [Theory]
-    [InlineData("Videos/{0}/stream")]
-    [InlineData("Videos/{0}/stream.mkv")]
-    public async Task GetVideoStream_NoToken_Unauthorized(string route)
+    [InlineData("Audio/{0}/stream")]
+    [InlineData("Audio/{0}/stream.mp3")]
+    public async Task GetAudioStream_NoToken_Unauthorized(string route)
     {
         var client = _factory.CreateClient();
 
-        var response = await client.GetAsync(string.Format(System.Globalization.CultureInfo.InvariantCulture, route, Guid.NewGuid()), TestContext.Current.CancellationToken);
+        var response = await client.GetAsync(string.Format(CultureInfo.InvariantCulture, route, Guid.NewGuid()), TestContext.Current.CancellationToken);
 
         Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
     }
 
     [Theory]
-    [InlineData("Videos/{0}/stream")]
-    [InlineData("Videos/{0}/stream.mkv")]
-    public async Task HeadVideoStream_NoToken_Unauthorized(string route)
+    [InlineData("Audio/{0}/stream")]
+    [InlineData("Audio/{0}/stream.mp3")]
+    public async Task HeadAudioStream_NoToken_Unauthorized(string route)
     {
         var client = _factory.CreateClient();
-        using var request = new HttpRequestMessage(HttpMethod.Head, string.Format(System.Globalization.CultureInfo.InvariantCulture, route, Guid.NewGuid()));
+        using var request = new HttpRequestMessage(HttpMethod.Head, string.Format(CultureInfo.InvariantCulture, route, Guid.NewGuid()));
 
         using var response = await client.SendAsync(request, TestContext.Current.CancellationToken);
 
@@ -59,39 +49,39 @@ public sealed class VideosControllerTests : IClassFixture<MulletaFlixApplication
     }
 
     [Theory]
-    [InlineData("Videos/{0}/stream")]
-    [InlineData("Videos/{0}/stream.mkv")]
-    public async Task GetVideoStream_InvalidToken_Unauthorized(string route)
+    [InlineData("Audio/{0}/stream")]
+    [InlineData("Audio/{0}/stream.mp3")]
+    public async Task GetAudioStream_InvalidToken_Unauthorized(string route)
     {
         var client = _factory.CreateClient();
         client.DefaultRequestHeaders.AddAuthHeader("invalid-token");
 
-        var response = await client.GetAsync(string.Format(System.Globalization.CultureInfo.InvariantCulture, route, Guid.NewGuid()), TestContext.Current.CancellationToken);
+        var response = await client.GetAsync(string.Format(CultureInfo.InvariantCulture, route, Guid.NewGuid()), TestContext.Current.CancellationToken);
 
         Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
     }
 
     [Theory]
-    [InlineData("Videos/{0}/stream")]
-    [InlineData("Videos/{0}/stream.mkv")]
-    public async Task GetVideoStream_ValidToken_NonexistentItem_NotFound(string route)
+    [InlineData("Audio/{0}/stream")]
+    [InlineData("Audio/{0}/stream.mp3")]
+    public async Task GetAudioStream_ValidToken_NonexistentItem_NotFound(string route)
     {
         var client = _factory.CreateClient();
         client.DefaultRequestHeaders.AddAuthHeader(_accessToken ??= await AuthHelper.CompleteStartupAsync(client));
 
-        var response = await client.GetAsync(string.Format(System.Globalization.CultureInfo.InvariantCulture, route, Guid.NewGuid()), TestContext.Current.CancellationToken);
+        var response = await client.GetAsync(string.Format(CultureInfo.InvariantCulture, route, Guid.NewGuid()), TestContext.Current.CancellationToken);
 
         Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
     }
 
     [Theory]
-    [InlineData("Videos/{0}/stream")]
-    [InlineData("Videos/{0}/stream.mkv")]
-    public async Task GetVideoStream_ValidQueryToken_NonexistentItem_NotFound(string route)
+    [InlineData("Audio/{0}/stream")]
+    [InlineData("Audio/{0}/stream.mp3")]
+    public async Task GetAudioStream_ValidQueryToken_NonexistentItem_NotFound(string route)
     {
         var client = _factory.CreateClient();
         var token = _accessToken ??= await AuthHelper.CompleteStartupAsync(client);
-        var path = string.Format(System.Globalization.CultureInfo.InvariantCulture, route, Guid.NewGuid());
+        var path = string.Format(CultureInfo.InvariantCulture, route, Guid.NewGuid());
 
         var response = await client.GetAsync($"{path}?api_key={Uri.EscapeDataString(token)}", TestContext.Current.CancellationToken);
 
@@ -99,9 +89,9 @@ public sealed class VideosControllerTests : IClassFixture<MulletaFlixApplication
     }
 
     [Theory]
-    [InlineData("Videos/{0}/stream?static=true")]
-    [InlineData("Videos/{0}/stream.mkv?static=true")]
-    public async Task GetVideoStream_HiddenByUserTag_NotFound(string route)
+    [InlineData("Audio/{0}/stream?static=true")]
+    [InlineData("Audio/{0}/stream.m4a?static=true")]
+    public async Task GetAudioStream_HiddenByUserTag_NotFound(string route)
     {
         var client = _factory.CreateClient();
         var token = _accessToken ??= await AuthHelper.CompleteStartupAsync(client);
@@ -113,11 +103,11 @@ public sealed class VideosControllerTests : IClassFixture<MulletaFlixApplication
         Assert.NotNull(user);
         var originalBlockedTags = user.GetPreference(PreferenceKind.BlockedTags);
 
-        var path = Path.Combine(Path.GetTempPath(), $"mflx-hidden-stream-{Guid.NewGuid():N}.mkv");
-        var item = new Movie
+        var path = Path.Combine(Path.GetTempPath(), $"mflx-hidden-audio-{Guid.NewGuid():N}.m4a");
+        var item = new Audio
         {
             Id = Guid.NewGuid(),
-            Name = "Hidden stream authorization test",
+            Name = "Hidden audio authorization test",
             Path = path,
             Tags = ["private-stream-test"]
         };
@@ -127,7 +117,7 @@ public sealed class VideosControllerTests : IClassFixture<MulletaFlixApplication
             await File.WriteAllBytesAsync(path, [0x4D, 0x46, 0x4C, 0x58], TestContext.Current.CancellationToken);
             _factory.Services.GetRequiredService<ILibraryManager>().CreateItem(item, null);
 
-            var streamRoute = string.Format(System.Globalization.CultureInfo.InvariantCulture, route, item.Id);
+            var streamRoute = string.Format(CultureInfo.InvariantCulture, route, item.Id);
             using var visibleResponse = await client.GetAsync(streamRoute, TestContext.Current.CancellationToken);
             Assert.Equal(HttpStatusCode.OK, visibleResponse.StatusCode);
 

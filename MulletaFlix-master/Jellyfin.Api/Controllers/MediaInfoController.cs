@@ -87,6 +87,7 @@ public class MediaInfoController : BaseMulletaFlixApiController
     /// <returns>A <see cref="Task"/> containing a <see cref="PlaybackInfoResponse"/> with the playback information.</returns>
     [HttpGet("Items/{itemId}/PlaybackInfo")]
     [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<ActionResult<PlaybackInfoResponse>> GetPlaybackInfo([FromRoute, Required] Guid itemId, [FromQuery] Guid? userId)
     {
@@ -94,6 +95,11 @@ public class MediaInfoController : BaseMulletaFlixApiController
         var user = userId.IsNullOrEmpty()
             ? null
             : _userManager.GetUserById(userId.Value);
+        if (!userId.IsNullOrEmpty() && user is null)
+        {
+            return Unauthorized();
+        }
+
         var item = _libraryManager.GetItemById<BaseItem>(itemId, user);
         if (item is null)
         {
@@ -140,6 +146,7 @@ public class MediaInfoController : BaseMulletaFlixApiController
     /// <returns>A <see cref="Task"/> containing a <see cref="PlaybackInfoResponse"/> with the playback info.</returns>
     [HttpPost("Items/{itemId}/PlaybackInfo")]
     [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<ActionResult<PlaybackInfoResponse>> GetPostedPlaybackInfo(
         [FromRoute, Required] Guid itemId,
@@ -193,6 +200,11 @@ public class MediaInfoController : BaseMulletaFlixApiController
         var user = userId.IsNullOrEmpty()
             ? null
             : _userManager.GetUserById(userId.Value);
+        if (!userId.IsNullOrEmpty() && user is null)
+        {
+            return Unauthorized();
+        }
+
         var item = _libraryManager.GetItemById<BaseItem>(itemId, user);
         if (item is null)
         {
@@ -313,6 +325,8 @@ public class MediaInfoController : BaseMulletaFlixApiController
     /// <returns>A <see cref="Task"/> containing a <see cref="LiveStreamResponse"/>.</returns>
     [HttpPost("LiveStreams/Open")]
     [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<ActionResult<LiveStreamResponse>> OpenLiveStream(
         [FromQuery] string? openToken,
         [FromQuery] Guid? userId,
@@ -330,6 +344,27 @@ public class MediaInfoController : BaseMulletaFlixApiController
     {
         userId ??= openLiveStreamDto?.UserId;
         userId = RequestHelpers.GetUserId(User, userId);
+        var user = userId.Value == Guid.Empty ? null : _userManager.GetUserById(userId.Value);
+        if (userId.Value != Guid.Empty && user is null)
+        {
+            return Unauthorized();
+        }
+
+        var requestedItemId = itemId ?? openLiveStreamDto?.ItemId ?? Guid.Empty;
+        if (requestedItemId != Guid.Empty)
+        {
+            var item = _libraryManager.GetItemById<BaseItem>(requestedItemId, user);
+            if (item is null)
+            {
+                _transientMediaItemRegistry.TryGet(requestedItemId, out item);
+            }
+
+            if (item is null)
+            {
+                return NotFound();
+            }
+        }
+
         var request = new LiveStreamRequest
         {
             OpenToken = openToken ?? openLiveStreamDto?.OpenToken,
@@ -340,7 +375,7 @@ public class MediaInfoController : BaseMulletaFlixApiController
             AudioStreamIndex = audioStreamIndex ?? openLiveStreamDto?.AudioStreamIndex,
             SubtitleStreamIndex = subtitleStreamIndex ?? openLiveStreamDto?.SubtitleStreamIndex,
             MaxAudioChannels = maxAudioChannels ?? openLiveStreamDto?.MaxAudioChannels,
-            ItemId = itemId ?? openLiveStreamDto?.ItemId ?? Guid.Empty,
+            ItemId = requestedItemId,
             DeviceProfile = openLiveStreamDto?.DeviceProfile,
             EnableDirectPlay = enableDirectPlay ?? openLiveStreamDto?.EnableDirectPlay ?? true,
             EnableDirectStream = enableDirectStream ?? openLiveStreamDto?.EnableDirectStream ?? true,

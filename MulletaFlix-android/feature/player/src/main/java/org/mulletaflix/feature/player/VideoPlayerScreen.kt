@@ -243,10 +243,12 @@ fun VideoPlayerScreen(
         activity?.window?.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         activity?.requestedOrientation = playerOrientationForEntry(previousOrientation)
         PlayerPictureInPictureController.register {
-            if (shouldEnterPictureInPictureOnUserLeaveHint(
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
+                shouldEnterPictureInPictureOnUserLeaveHint(
                     enabled = latestPipEnabled,
                     isPlaying = latestPlaying,
                     sdkInt = Build.VERSION.SDK_INT,
+                    isTelevision = isTelevision,
                 )
             ) {
                 activity?.enterPictureInPictureMode(
@@ -300,6 +302,7 @@ fun VideoPlayerScreen(
                             enabled = state.pictureInPictureEnabled,
                             isPlaying = state.isPlaying,
                             sdkInt = Build.VERSION.SDK_INT,
+                            isTelevision = isTelevision,
                         ),
                     )
                 }
@@ -318,7 +321,12 @@ fun VideoPlayerScreen(
     // PiP on back when playing
     BackHandler(enabled = state.isPlaying && !isInPictureInPictureMode) {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
-            shouldEnterPictureInPicture(state.pictureInPictureEnabled, state.isPlaying, Build.VERSION.SDK_INT)
+            shouldEnterPictureInPicture(
+                enabled = state.pictureInPictureEnabled,
+                isPlaying = state.isPlaying,
+                sdkInt = Build.VERSION.SDK_INT,
+                isTelevision = isTelevision,
+            )
         ) {
             activity?.enterPictureInPictureMode(
                 android.app.PictureInPictureParams.Builder().apply {
@@ -471,6 +479,7 @@ fun VideoPlayerScreen(
                                                     enabled = latestPipEnabled,
                                                     isPlaying = latestPlaying,
                                                     sdkInt = Build.VERSION.SDK_INT,
+                                                    isTelevision = isTelevision,
                                                 ),
                                             )
                                         }
