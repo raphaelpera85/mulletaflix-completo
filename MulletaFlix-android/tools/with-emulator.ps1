@@ -8,6 +8,9 @@ param(
     [ValidateSet('host', 'auto', 'software', 'swiftshader', 'lavapipe', 'swangle')]
     [string] $GpuMode = 'host',
 
+    [ValidateRange(4, 20)]
+    [int] $BootTimeoutMinutes = 4,
+
     [Parameter(Mandatory = $true, Position = 0)]
     [string] $Command,
 
@@ -171,7 +174,7 @@ try {
         $startedHere = $true
     }
 
-    $deadline = (Get-Date).AddMinutes(4)
+    $deadline = (Get-Date).AddMinutes($BootTimeoutMinutes)
     $bootCompleted = $false
     $packageManagerReady = $false
     do {

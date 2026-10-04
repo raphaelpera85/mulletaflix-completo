@@ -2,6 +2,15 @@
 
 Este documento rastreia o status de implementação de todas as funcionalidades, módulos, telas e componentes do aplicativo oficial **MulletaFlix Android**.
 
+## PiP móvel e pausa ao minimizar na Android TV (APK local; sem release)
+
+- [x] Restringir PiP manual, automático e pelo evento de saída do app a celular/tablet; Android TV deixa o player pausar quando Activity chega a `ON_STOP`.
+- [x] Adicionar teste instrumentado TV que reproduz WAV silencioso, envia `KEYCODE_HOME` via `UiAutomation`, confirma Activity em `CREATED` e mídia pausada.
+- [x] Preservar teste real de janela PiP em telefone e tablet: mídia continua enquanto PiP está visível e pausa ao encerrar Activity.
+- [x] `:feature:player:testDebugUnitTest`, `:feature:player:lintDebug` e `:feature:player:compileDebugAndroidTestKotlin`: `BUILD SUCCESSFUL`.
+- [x] AVD TV API 34: `PlayerBackgroundPlaybackTest` 3/3; telefone API 35 e tablet API 35: `PlayerPictureInPictureLifecycleTest` 1/1 em cada; todos sem falhas/erros/skips. Wrapper verificou QEMU na NVIDIA RTX 3050 e encerrou cada AVD.
+- [x] Sem bump, pacote ou publicação. Integração com mídia remota e toque no botão visual para fechar PiP não são cobertos por estes testes.
+
 ## Leitura de quadrinhos CBZ no APK (sem release)
 
 - [x] Detectar `application/x-cbz` e abrir arquivos CBZ sem extraí-los; ignorar metadados e ordenar páginas naturalmente.
@@ -144,7 +153,7 @@ Este documento rastreia o status de implementação de todas as funcionalidades,
 - [x] AVD Android TV API 34: Home instrumentada, 29 testes, 0 falhas/erros/ignorados; perfil `TV` confirmado. `:feature:home:testDebugUnitTest` e `:feature:home:compileDebugAndroidTestKotlin`: `BUILD SUCCESSFUL`.
 - [x] AVD tablet API 35: `HomeAdaptiveUsageTest`, 1/1, perfil `TABLET` confirmado; wrapper encerrou o AVD.
 - [x] AVD telefone API 35: `HomeAdaptiveUsageTest`, 1/1, perfil `PHONE` confirmado; wrapper encerrou o AVD.
-- [ ] Android 17 API 37: não validado. No AVD novo de 4 GB, imagem Google APIs rev. 6 e Emulator 37.2.12, a instalação instrumentada falhou com NPE em `StorageManagerService.allocateBytes` (`PackageManagerInternal.freeStorage` nulo); o wrapper rejeitou o relatório com zero testes. Não afirmar compatibilidade até o AVD executar os testes.
+- [ ] Android 17 API 37: não validado. A imagem Google APIs 37.0 rev. 6 segue falhando na instalação instrumentada com NPE em `StorageManagerService.allocateBytes`; a imagem oficial Google APIs 37.2 16 KB rev. 5 também não completou boot com GPU host: `system_server` reiniciou e `surfaceflinger` abortou (`hasReadColorBufferDma`). Nenhum teste instrumentado executou; não afirmar compatibilidade até um AVD API 37 concluir boot e teste real.
 - [ ] Sem bump ou release; alterações desta seção são de teste, não de APK de produção. Keystore configurada ainda diverge do certificado oficial; verificar release APK anterior e assinatura antes de qualquer release.
 
 ## Detalhes adaptativos para tablets (APK local; sem release)

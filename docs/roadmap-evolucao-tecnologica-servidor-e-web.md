@@ -2330,6 +2330,14 @@ Este documento é backlog em execução; não autoriza publicar uma release ante
 - TWINS: busca de `GetUserById(userId.Value)` e `GetItemById<BaseItem>(...)` em `Jellyfin.Api/Controllers` e `Jellyfin.Api/Helpers` encontrou diversos endpoints com consultas próprias e um lookup global em `MediaInfoHelper.OpenMediaSource`. O helper é alcançado pelo POST de PlaybackInfo, que já resolve/valida o item, e pelo Open direto, agora validado neste controller; o lookup adicional em Search/UnifiedSearch usa `ChannelId` (entidade de canal, não o item solicitado). Nenhuma cópia exata deste fluxo de abertura ficou sem gate. A auditoria ampla de autorização de ações segue pendente em T6.1.
 - Não houve uso da instância de produção, pacote, release, commit, push ou publicação. T6.1 continua parcial e a trava de release do roadmap permanece ativa.
 
+### 04/10/2026 — Escopo de usuário em partes adicionais de vídeo (T6.1 parcial)
+
+- INTENT: `VideosController.GetAdditionalPart` aceitava uma identidade autenticada cujo usuário não podia ser resolvido e prosseguia como consulta sem usuário; também resolvia globalmente partes adicionais, podendo expor metadados de um vídeo não visível ao usuário. T6.1 e `ILibraryManager.GetItemById(id, user)` exigem falhar fechado e filtrar cada objeto pelo usuário.
+- A rota agora retorna 401 para identidade inválida e resolve cada parte via `GetItemById<Video>(id, user)`, omitindo partes ocultas e mantendo partes autorizadas. Os testes provaram primeiro o comportamento incorreto e agora cobrem identidade inexistente, parte oculta e parte visível.
+- Gauntlet: testes focais passaram **3/3**; `Jellyfin.Api.Tests` passou **366/366**; build da solução Release terminou com **0 erros e 3 avisos**. O teste completo de solução terminou com uma falha no teste live `DramaBoxLiveIntegrationTests.RebuildIndex_FindsTheRealCatalogueAndMatchesRealLibraryTitles`; ao repetir esse teste isoladamente, passou **1/1**, então o resultado do full suite permanece não verde/inconclusivo. `dotnet format ... --verify-no-changes` e `git diff --check` passaram.
+- TWINS: busca por `GetAdditionalParts()` encontrou somente o helper em `Video.cs`; o endpoint era o único consumidor que usava a resolução global. A implementação da rota deixou de chamar esse helper.
+- Limite: T6.1 permanece parcial; faltam auditoria das demais rotas e validações com matriz de permissões/servidor integrado. Nenhuma produção, release, pacote, commit, push ou publicação foi acessada; a trava de release continua ativa.
+
 ## Referências técnicas
 
 Fontes oficiais consultadas em 28/09/2026. Disponibilidade, suporte e requisitos de hardware devem ser revalidados antes de qualquer implementação.

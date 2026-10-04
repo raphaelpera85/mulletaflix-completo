@@ -99,12 +99,17 @@ public class VideosController : BaseMulletaFlixApiController
     [HttpGet("{itemId}/AdditionalParts")]
     [Authorize]
     [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<ActionResult<QueryResult<BaseItemDto>>> GetAdditionalPart([FromRoute, Required] Guid itemId, [FromQuery] Guid? userId)
     {
         userId = RequestHelpers.GetUserId(User, userId);
         var user = userId.IsNullOrEmpty()
             ? null
             : _userManager.GetUserById(userId.Value);
+        if (!userId.IsNullOrEmpty() && user is null)
+        {
+            return Unauthorized();
+        }
 
         var item = itemId.IsEmpty()
             ? (userId.IsNullOrEmpty()
@@ -121,7 +126,11 @@ public class VideosController : BaseMulletaFlixApiController
         BaseItemDto[] items;
         if (item is Video video)
         {
-            items = await Task.WhenAll(video.GetAdditionalParts()
+            items = await Task.WhenAll((video.AdditionalParts ?? Array.Empty<string>())
+                .Select(path => _libraryManager.GetNewItemId(path, typeof(Video)))
+                .Select(partId => _libraryManager.GetItemById<Video>(partId, user))
+                .OfType<Video>()
+                .OrderBy(part => part.SortName)
                 .Select(i => _dtoService.GetBaseItemDtoAsync(i, dtoOptions, user, video))).ConfigureAwait(false);
         }
         else
