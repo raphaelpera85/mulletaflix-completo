@@ -101,3 +101,5 @@ Use `PHONE`, `TABLET` ou `TV` conforme o perfil esperado.
 ```
 
 Testes de TV devem validar foco remoto, grade compacta e atualização em primeiro plano. Testes de tablet devem validar conteúdo centralizado, rolagem e capas retangulares sem aplicar a política de foco da TV.
+
+`PlayerSeekControlsTest` cobre os saltos configuráveis de 5/10/15/30 segundos e seus rótulos acessíveis. `ChoiceDialogOptionsTest` cobre seleção do intervalo nos Ajustes. Execute ambos em PHONE, TABLET e TV com `tools\with-emulator.ps1`; a configuração fica local no DataStore e não exige servidor.

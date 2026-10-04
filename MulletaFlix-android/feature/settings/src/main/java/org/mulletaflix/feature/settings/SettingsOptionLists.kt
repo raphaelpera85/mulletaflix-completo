@@ -7,6 +7,7 @@ import org.mulletaflix.domain.model.MediaLanguage
 import org.mulletaflix.domain.model.SUBTITLE_COLOR_WHITE
 import org.mulletaflix.domain.model.SUBTITLE_COLOR_YELLOW
 import org.mulletaflix.domain.model.SUBTITLE_COLOR_CYAN
+import org.mulletaflix.domain.model.SEEK_JUMP_SECONDS_CHOICES
 
 /**
  * The option lists the settings dialogs offer, derived from the same catalogues
@@ -90,6 +91,9 @@ internal const val LIBRARY_SORT_ORDER_DESCENDING = "Descending"
 /** Playback speeds the dialog offers, in display order. */
 internal val playbackSpeedChoices: List<Float> = listOf(0.5f, 0.75f, 1.0f, 1.25f, 1.5f, 2.0f)
 
+/** Fixed seek jumps offered in playback settings, in seconds. */
+internal val seekJumpSecondsChoices: List<Int> = SEEK_JUMP_SECONDS_CHOICES
+
 /**
  * Subtitle font sizes the dialog offers, in display order.
  *
@@ -102,6 +106,9 @@ internal val subtitleFontSizeChoices: List<Int> =
 
 /** How a speed is written in the dialog and in the settings row. */
 internal fun playbackSpeedLabel(speed: Float): String = speed.toString()
+
+/** How a seek interval is written in settings and the player controls. */
+internal fun seekJumpSecondsLabel(seconds: Int): String = "${seconds}s"
 
 /** How a font size is written in the dialog and in the settings row. */
 internal fun subtitleFontSizeLabel(size: Int): String = size.toString()

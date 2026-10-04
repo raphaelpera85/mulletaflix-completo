@@ -148,6 +148,15 @@ class SettingsOptionListsTest {
     }
 
     @Test
+    fun `seek interval dialog offers every supported value with matching labels`() {
+        assertEquals(listOf(5, 10, 15, 30), seekJumpSecondsChoices)
+        assertEquals(
+            listOf("5s", "10s", "15s", "30s"),
+            seekJumpSecondsChoices.map(::seekJumpSecondsLabel),
+        )
+    }
+
+    @Test
     fun `every font size the dialog offers survives the repository clamp`() {
         subtitleFontSizeChoices.forEach { size ->
             assertEquals(

@@ -69,9 +69,14 @@ public class UserFeedbackController : BaseMulletaFlixApiController
     [ProducesResponseType(typeof(MediaRequestQueryResultDto), StatusCodes.Status200OK)]
     public async Task<IActionResult> GetMyMediaRequests([FromQuery] int limit = 100, [FromQuery] int startIndex = 0)
     {
+        if (!TryGetCallerUserId(out var userId))
+        {
+            return Unauthorized();
+        }
+
         var result = await _activityManager.GetPagedResultAsync(new MulletaFlix.Data.Queries.ActivityLogQuery
         {
-            UserId = User.GetUserId(),
+            UserId = userId,
             Type = "MediaRequest",
             Limit = Math.Clamp(limit, 1, 500),
             Skip = Math.Max(startIndex, 0),
@@ -152,6 +157,11 @@ public class UserFeedbackController : BaseMulletaFlixApiController
     [ProducesResponseType(StatusCodes.Status204NoContent)]
     public async Task<IActionResult> CreateMediaRequest([FromBody] MediaRequestDto request)
     {
+        if (!TryGetCallerUserId(out var userId))
+        {
+            return Unauthorized();
+        }
+
         var title = request.Title.Trim();
         var mediaType = request.MediaType.Trim();
         if (title.Length == 0 || mediaType.Length == 0)
@@ -163,7 +173,7 @@ public class UserFeedbackController : BaseMulletaFlixApiController
         await _activityManager.CreateAsync(new ActivityLog(
             string.Format(CultureInfo.InvariantCulture, "Solicitação de mídia: {0}", title),
             "MediaRequest",
-            User.GetUserId())
+            userId)
         {
             Overview = request.Year.HasValue
                 ? string.Format(CultureInfo.InvariantCulture, "{0} · {1}", mediaType, request.Year.Value)
@@ -185,7 +195,11 @@ public class UserFeedbackController : BaseMulletaFlixApiController
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> CreatePlaybackIssue([FromBody] PlaybackIssueDto request)
     {
-        var userId = User.GetUserId();
+        if (!TryGetCallerUserId(out var userId))
+        {
+            return Unauthorized();
+        }
+
         var item = _libraryManager.GetItemById<MediaBrowser.Controller.Entities.BaseItem>(request.ItemId, userId);
         if (item is null)
         {
@@ -210,5 +224,11 @@ public class UserFeedbackController : BaseMulletaFlixApiController
         }).ConfigureAwait(false);
 
         return NoContent();
+    }
+
+    private bool TryGetCallerUserId(out Guid userId)
+    {
+        userId = User.GetUserId();
+        return userId != Guid.Empty;
     }
 }

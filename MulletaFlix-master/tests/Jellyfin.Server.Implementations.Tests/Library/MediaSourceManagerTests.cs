@@ -3,11 +3,13 @@ using System.Linq;
 using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Collections.Generic;
 using AutoFixture;
 using AutoFixture.AutoMoq;
 using Castle.Components.DictionaryAdapter;
 using Emby.Server.Implementations.IO;
 using Emby.Server.Implementations.Library;
+using MediaBrowser.Common.Extensions;
 using MulletaFlix.Database.Implementations.Entities;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Library;
@@ -27,6 +29,8 @@ namespace MulletaFlix.Server.Implementations.Tests.Library
         private readonly MediaSourceManager _mediaSourceManager;
         private readonly Mock<IMediaEncoder> _mockMediaEncoder;
         private readonly Mock<IUserDataManager> _mockUserDataManager;
+        private readonly Mock<IUserManager> _mockUserManager;
+        private readonly Mock<ILibraryManager> _mockLibraryManager;
         private readonly Mock<ILocalizationManager> _mockLocalizationManager;
         private Video _item;
         private User _user;
@@ -41,6 +45,8 @@ namespace MulletaFlix.Server.Implementations.Tests.Library
 
             _mockMediaEncoder = fixture.Freeze<Mock<IMediaEncoder>>();
             _mockUserDataManager = fixture.Freeze<Mock<IUserDataManager>>();
+            _mockUserManager = fixture.Freeze<Mock<IUserManager>>();
+            _mockLibraryManager = fixture.Freeze<Mock<ILibraryManager>>();
             _mockUserDataManager.Setup(m => m.GetUserData(It.IsAny<User>(), It.IsAny<BaseItem>())).Returns(new UserItemData() { Key = "key" });
 
             _mockLocalizationManager = fixture.Create<Mock<ILocalizationManager>>();
@@ -55,6 +61,7 @@ namespace MulletaFlix.Server.Implementations.Tests.Library
             {
                 Id = Guid.NewGuid()
             };
+            _mockUserManager.Setup(manager => manager.GetUserById(_user.Id)).Returns(_user);
         }
 
         [Theory]
@@ -198,6 +205,56 @@ namespace MulletaFlix.Server.Implementations.Tests.Library
             Assert.Same(mediaSource, result);
             Assert.Null(result.Container);
             Assert.Null(result.DefaultAudioStreamIndex);
+        }
+
+        [Fact]
+        public async Task OpenLiveStream_ResolvesPlaybackItemWithinRequestUsersLibrary()
+        {
+            var provider = new Mock<IMediaSourceProvider>();
+            _mediaSourceManager.AddParts([provider.Object]);
+
+            var mediaSource = new MediaSourceInfo
+            {
+                LiveStreamId = "live-1",
+                SupportsProbing = false,
+                MediaStreams =
+                [
+                    new MediaStream { Index = 0, Type = MediaStreamType.Video },
+                    new MediaStream { Index = 1, Type = MediaStreamType.Audio }
+                ]
+            };
+            var liveStream = new Mock<ILiveStream>();
+            liveStream.SetupGet(stream => stream.MediaSource).Returns(mediaSource);
+            provider.Setup(source => source.OpenMediaSource(
+                    It.IsAny<string>(),
+                    It.IsAny<List<ILiveStream>>(),
+                    It.IsAny<CancellationToken>()))
+                .ReturnsAsync(liveStream.Object);
+
+            var globallyResolvedItem = new Video { Id = _item.Id };
+            _mockLibraryManager
+                .Setup(library => library.GetItemById<BaseItem>(_item.Id, _user))
+                .Returns(_item);
+            _mockLibraryManager
+                .Setup(library => library.GetItemById(_item.Id))
+                .Returns(globallyResolvedItem);
+
+            var providerHash = provider.Object.GetType().FullName!.GetMD5().ToString("N", System.Globalization.CultureInfo.InvariantCulture);
+            await _mediaSourceManager.OpenLiveStreamInternal(
+                new LiveStreamRequest
+                {
+                    OpenToken = $"{providerHash}_open-token",
+                    UserId = _user.Id,
+                    ItemId = _item.Id
+                },
+                TestContext.Current.CancellationToken);
+
+            _mockLibraryManager.Verify(
+                library => library.GetItemById<BaseItem>(_item.Id, _user),
+                Times.Once);
+            _mockLibraryManager.Verify(
+                library => library.GetItemById(_item.Id),
+                Times.Never);
         }
     }
 }

@@ -17,6 +17,8 @@ import kotlinx.coroutines.flow.onEach
 import org.mulletaflix.core.api.SessionRepository
 import org.mulletaflix.domain.model.normalizeSubtitleColor
 import org.mulletaflix.domain.model.normalizeSubtitleSizePercent
+import org.mulletaflix.domain.model.DEFAULT_SEEK_JUMP_SECONDS
+import org.mulletaflix.domain.model.normalizeSeekJumpSeconds
 import org.mulletaflix.domain.model.UserMediaPreferenceScope
 import org.mulletaflix.domain.repository.AppThemeSetting
 import org.mulletaflix.domain.repository.SettingsRepository
@@ -44,6 +46,7 @@ class SettingsRepositoryImpl @Inject constructor(
         val AUTOMATIC_INTRO_SKIP_ENABLED = booleanPreferencesKey("automatic_intro_skip_enabled")
         val DEFAULT_QUALITY = stringPreferencesKey("default_quality")
         val DEFAULT_PLAYBACK_SPEED = floatPreferencesKey("default_playback_speed")
+        val SEEK_JUMP_SECONDS = intPreferencesKey("seek_jump_interval_seconds")
         val SUBTITLE_FONT_SIZE = intPreferencesKey("subtitle_font_size")
         val SUBTITLE_COLOR = stringPreferencesKey("subtitle_color")
         val DEFAULT_ASPECT_RATIO = stringPreferencesKey("default_aspect_ratio")
@@ -338,6 +341,17 @@ class SettingsRepositoryImpl @Inject constructor(
 
     override suspend fun setDefaultPlaybackSpeed(speed: Float) {
         context.settingsDataStore.edit { it[Keys.DEFAULT_PLAYBACK_SPEED] = speed.coerceIn(0.5f, 2f) }
+    }
+
+    override fun getSeekJumpSeconds(): Flow<Int> =
+        context.settingsDataStore.data.map {
+            normalizeSeekJumpSeconds(it[Keys.SEEK_JUMP_SECONDS] ?: DEFAULT_SEEK_JUMP_SECONDS)
+        }
+
+    override suspend fun setSeekJumpSeconds(seconds: Int) {
+        context.settingsDataStore.edit {
+            it[Keys.SEEK_JUMP_SECONDS] = normalizeSeekJumpSeconds(seconds)
+        }
     }
 
     override suspend fun clearLocalPreferences() {

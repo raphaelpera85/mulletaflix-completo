@@ -11,6 +11,7 @@ import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.performClick
 import org.junit.Assert.assertEquals
 import org.junit.Rule
 import org.junit.Test
@@ -70,6 +71,32 @@ class PlayerSeekControlsTest {
 
         compose.onNodeWithContentDescription("Avançar 10 segundos").assertIsNotEnabled()
         assertEquals(emptyList<Long>(), seekDeltas)
+    }
+
+    @Test
+    fun seek_controls_apply_each_selected_interval_and_update_accessibility_labels() {
+        val seekDeltas = mutableListOf<Long>()
+        var interval by mutableStateOf(10)
+        compose.setContent {
+            MaterialTheme {
+                PlayerTransportControls(
+                    seekJumpSeconds = interval,
+                    onSeekBy = seekDeltas::add,
+                )
+            }
+        }
+
+        listOf(5, 10, 15, 30).forEach { seconds ->
+            compose.runOnIdle { interval = seconds }
+            compose.waitForIdle()
+            compose.onNodeWithContentDescription("Voltar $seconds segundos").performClick()
+            compose.onNodeWithContentDescription("Avançar $seconds segundos").performClick()
+        }
+
+        assertEquals(
+            listOf(-5_000L, 5_000L, -10_000L, 10_000L, -15_000L, 15_000L, -30_000L, 30_000L),
+            seekDeltas,
+        )
     }
 
     @Test

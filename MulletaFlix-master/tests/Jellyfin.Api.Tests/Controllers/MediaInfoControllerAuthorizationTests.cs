@@ -5,6 +5,7 @@ using System.Threading.Tasks;
 using MediaBrowser.Controller.Devices;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Library;
+using MediaBrowser.Controller.Session;
 using MediaBrowser.Model.Dlna;
 using MediaBrowser.Model.Dto;
 using MediaBrowser.Model.MediaInfo;
@@ -25,6 +26,65 @@ namespace MulletaFlix.Api.Tests.Controllers;
 
 public sealed class MediaInfoControllerAuthorizationTests
 {
+    [Fact]
+    public async Task CloseLiveStream_ForbidsStreamOutsideRequestUsersSessions()
+    {
+        var fixture = CreateFixture();
+        fixture.SessionManager.Setup(manager => manager.GetSessions(fixture.User.Id, string.Empty, null, null, false))
+            .Returns(Array.Empty<SessionInfoDto>());
+
+        var result = await fixture.Controller.CloseLiveStream("another-users-stream");
+
+        Assert.IsType<ForbidResult>(result);
+        fixture.MediaSourceManager.Verify(manager => manager.CloseLiveStream(It.IsAny<string>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task CloseLiveStream_AllowsStreamInRequestUsersSession()
+    {
+        var fixture = CreateFixture();
+        fixture.SessionManager.Setup(manager => manager.GetSessions(fixture.User.Id, string.Empty, null, null, false))
+            .Returns([new SessionInfoDto { PlayState = new MediaBrowser.Model.Session.PlayerStateInfo { LiveStreamId = "owned-stream" } }]);
+
+        var result = await fixture.Controller.CloseLiveStream("owned-stream");
+
+        Assert.IsType<NoContentResult>(result);
+        fixture.MediaSourceManager.Verify(manager => manager.CloseLiveStream("owned-stream"), Times.Once);
+    }
+
+    [Fact]
+    public async Task GetLiveStreamMediaInfo_ForbidsStreamOutsideRequestUsersSessions()
+    {
+        var fixture = CreateFixture();
+        fixture.SessionManager.Setup(manager => manager.GetSessions(fixture.User.Id, string.Empty, null, null, false))
+            .Returns(Array.Empty<SessionInfoDto>());
+
+        var result = await fixture.Controller.GetLiveStreamMediaInfo("another-users-stream", null, null);
+
+        Assert.IsType<ForbidResult>(result.Result);
+        fixture.MediaSourceManager.Verify(
+            manager => manager.GetLiveStreamMediaInfo(It.IsAny<string>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    [Fact]
+    public async Task GetLiveStreamMediaInfo_AllowsStreamInRequestUsersSession()
+    {
+        var fixture = CreateFixture();
+        var mediaSource = new MediaSourceInfo();
+        fixture.SessionManager.Setup(manager => manager.GetSessions(fixture.User.Id, string.Empty, null, null, false))
+            .Returns([new SessionInfoDto { PlayState = new MediaBrowser.Model.Session.PlayerStateInfo { LiveStreamId = "owned-stream" } }]);
+        fixture.MediaSourceManager.Setup(manager => manager.GetLiveStreamMediaInfo("owned-stream", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(mediaSource);
+
+        var result = await fixture.Controller.GetLiveStreamMediaInfo("owned-stream", null, null);
+
+        Assert.Same(mediaSource, result.Value);
+        fixture.MediaSourceManager.Verify(
+            manager => manager.GetLiveStreamMediaInfo("owned-stream", It.IsAny<CancellationToken>()),
+            Times.Once);
+    }
+
     [Fact]
     public async Task GetPlaybackInfo_AuthenticatedUserCannotBeResolved_ReturnsUnauthorized()
     {
@@ -297,6 +357,7 @@ public sealed class MediaInfoControllerAuthorizationTests
             .Setup(manager => manager.OpenLiveStream(It.IsAny<LiveStreamRequest>(), It.IsAny<CancellationToken>()))
             .ThrowsAsync(new OpenMediaSourceReachedException());
         var deviceManager = new Mock<IDeviceManager>();
+        var sessionManager = new Mock<ISessionManager>();
 
         var transientItems = new TransientMediaItemRegistry();
         var mediaInfoHelper = new MediaInfoHelper(
@@ -317,7 +378,8 @@ public sealed class MediaInfoControllerAuthorizationTests
             mediaInfoHelper,
             userManager.Object,
             transientItems,
-            null!);
+            null!,
+            sessionManager.Object);
 
         var claims = isApiKey
             ? new[]
@@ -339,7 +401,7 @@ public sealed class MediaInfoControllerAuthorizationTests
             HttpContext = new DefaultHttpContext { User = new ClaimsPrincipal(identity) }
         };
 
-        return new ControllerFixture(controller, user, itemId, libraryManager, mediaSourceManager, transientItems, deviceManager);
+        return new ControllerFixture(controller, user, itemId, libraryManager, mediaSourceManager, transientItems, deviceManager, sessionManager);
     }
 
     private sealed record ControllerFixture(
@@ -349,7 +411,8 @@ public sealed class MediaInfoControllerAuthorizationTests
         Mock<ILibraryManager> LibraryManager,
         Mock<IMediaSourceManager> MediaSourceManager,
         TransientMediaItemRegistry TransientItems,
-        Mock<IDeviceManager> DeviceManager);
+        Mock<IDeviceManager> DeviceManager,
+        Mock<ISessionManager> SessionManager);
 
     private sealed class OpenMediaSourceReachedException : Exception
     {

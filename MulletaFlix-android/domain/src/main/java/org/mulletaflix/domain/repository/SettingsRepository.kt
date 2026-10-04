@@ -2,6 +2,7 @@ package org.mulletaflix.domain.repository
 
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
+import org.mulletaflix.domain.model.DEFAULT_SEEK_JUMP_SECONDS
 import org.mulletaflix.domain.model.UserMediaPreferenceScope
 
 enum class AppThemeSetting {
@@ -52,6 +53,10 @@ interface SettingsRepository {
 
     fun getDefaultPlaybackSpeed(): Flow<Float>
     suspend fun setDefaultPlaybackSpeed(speed: Float)
+
+    /** Fixed skip interval used by the local player's transport buttons and double-tap gesture. */
+    fun getSeekJumpSeconds(): Flow<Int> = flowOf(DEFAULT_SEEK_JUMP_SECONDS)
+    suspend fun setSeekJumpSeconds(seconds: Int) = Unit
 
     suspend fun clearLocalPreferences()
 

@@ -8,10 +8,12 @@ import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.hasScrollAction
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.unit.dp
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import org.junit.Assert.assertTrue
+import org.junit.Assert.assertEquals
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -81,5 +83,24 @@ class ChoiceDialogOptionsTest {
         librarySortLabels.take(3).forEach { label ->
             composeRule.onNodeWithText(label).assertIsDisplayed()
         }
+    }
+
+    @Test
+    fun selectingSeekIntervalReportsTheChosenValue() {
+        var selected: String? = null
+        val options = seekJumpSecondsChoices.map(::seekJumpSecondsLabel)
+        composeRule.setContent {
+            MaterialTheme {
+                ChoiceDialogOptions(
+                    options = options,
+                    selected = seekJumpSecondsLabel(10),
+                    onSelect = { selected = it },
+                )
+            }
+        }
+
+        composeRule.onNodeWithText("30s").performClick()
+
+        assertEquals("30s", selected)
     }
 }

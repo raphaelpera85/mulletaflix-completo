@@ -110,14 +110,14 @@ public class UserFeedbackControllerTests
     }
 
     [Fact]
-    public async Task CreatePlaybackIssue_ReturnsNotFoundForItemOutsideAccessibleLibrary()
+    public async Task CreatePlaybackIssue_RejectsApiKeyWithoutUserBeforeLibraryLookup()
     {
         var libraryManager = new Mock<ILibraryManager>();
         libraryManager.Setup(manager => manager.GetItemById<BaseItem>(It.IsAny<Guid>(), It.IsAny<Guid>()))
             .Returns((BaseItem?)null);
         var activityManager = new Mock<IActivityManager>();
         var controller = new UserFeedbackController(activityManager.Object, libraryManager.Object, Mock.Of<INebulaFtpManager>());
-        controller.ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() };
+        SetApiKeyWithoutUser(controller);
 
         var result = await controller.CreatePlaybackIssue(new PlaybackIssueDto
         {
@@ -126,8 +126,39 @@ public class UserFeedbackControllerTests
             Description = "The video stops."
         });
 
-        Assert.IsType<NotFoundResult>(result);
+        Assert.IsType<UnauthorizedResult>(result);
+        libraryManager.Verify(manager => manager.GetItemById<BaseItem>(It.IsAny<Guid>(), It.IsAny<Guid>()), Times.Never);
         activityManager.Verify(manager => manager.CreateAsync(It.IsAny<ActivityLog>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task CreateMediaRequest_RejectsApiKeyWithoutUserWithoutPrioritizingOrPersisting()
+    {
+        var activityManager = new Mock<IActivityManager>();
+        var nebulaManager = new Mock<INebulaFtpManager>();
+        var controller = new UserFeedbackController(activityManager.Object, Mock.Of<ILibraryManager>(), nebulaManager.Object);
+        SetApiKeyWithoutUser(controller);
+
+        var result = await controller.CreateMediaRequest(new MediaRequestDto { Title = "The Example", MediaType = "Series" });
+
+        Assert.IsType<UnauthorizedResult>(result);
+        activityManager.Verify(manager => manager.CreateAsync(It.IsAny<ActivityLog>()), Times.Never);
+        nebulaManager.Verify(manager => manager.PrioritizeMedia(It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<string?>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task GetMyMediaRequests_RejectsApiKeyWithoutUserBeforeQueryingActivityLog()
+    {
+        var activityManager = new Mock<IActivityManager>();
+        var nebulaManager = new Mock<INebulaFtpManager>();
+        var controller = new UserFeedbackController(activityManager.Object, Mock.Of<ILibraryManager>(), nebulaManager.Object);
+        SetApiKeyWithoutUser(controller);
+
+        var result = await controller.GetMyMediaRequests();
+
+        Assert.IsType<UnauthorizedResult>(result);
+        activityManager.Verify(manager => manager.GetPagedResultAsync(It.IsAny<MulletaFlix.Data.Queries.ActivityLogQuery>()), Times.Never);
+        nebulaManager.Verify(manager => manager.GetMediaSuggestionCatalog(), Times.Never);
     }
 
     [Fact]
@@ -231,7 +262,7 @@ public class UserFeedbackControllerTests
             .Callback<IReadOnlyList<NebulaMediaRequestQueueQueryDto>>(queries => capturedQueueQueries = queries)
             .Returns(new[] { expectedStatus });
         var controller = new UserFeedbackController(activityManager.Object, Mock.Of<ILibraryManager>(), nebulaManager.Object);
-        controller.ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() };
+        SetCallerUser(controller);
 
         var result = Assert.IsType<OkObjectResult>(await controller.GetMyMediaRequests());
         var response = Assert.IsType<MediaRequestQueryResultDto>(result.Value);
@@ -261,7 +292,7 @@ public class UserFeedbackControllerTests
             new NebulaMediaSuggestionDto { Title = "Unrequested title", MediaType = "Series" }
         });
         var controller = new UserFeedbackController(activityManager.Object, Mock.Of<ILibraryManager>(), nebulaManager.Object);
-        controller.ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() };
+        SetCallerUser(controller);
 
         var result = Assert.IsType<OkObjectResult>(await controller.GetMyMediaRequests());
         var response = Assert.IsType<MediaRequestQueryResultDto>(result.Value);
@@ -281,7 +312,7 @@ public class UserFeedbackControllerTests
             .Callback<MulletaFlix.Data.Queries.ActivityLogQuery>(query => capturedQuery = query)
             .ReturnsAsync(new MediaBrowser.Model.Querying.QueryResult<ActivityLogEntry>(0, 0, Array.Empty<ActivityLogEntry>()));
         var controller = new UserFeedbackController(activityManager.Object, Mock.Of<ILibraryManager>(), Mock.Of<INebulaFtpManager>());
-        controller.ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() };
+        SetCallerUser(controller);
 
         await controller.GetMyMediaRequests(limit: 10_000, startIndex: startIndex);
 
@@ -289,5 +320,31 @@ public class UserFeedbackControllerTests
         Assert.Equal(500, capturedQuery!.Limit);
         Assert.Equal(expectedIndex, capturedQuery.Skip);
         Assert.Equal("MediaRequest", capturedQuery.Type);
+    }
+
+    private static void SetCallerUser(UserFeedbackController controller)
+    {
+        controller.ControllerContext = new ControllerContext
+        {
+            HttpContext = new DefaultHttpContext
+            {
+                User = new ClaimsPrincipal(new ClaimsIdentity(
+                    [new Claim(InternalClaimTypes.UserId, Guid.NewGuid().ToString("D"))],
+                    "test"))
+            }
+        };
+    }
+
+    private static void SetApiKeyWithoutUser(UserFeedbackController controller)
+    {
+        controller.ControllerContext = new ControllerContext
+        {
+            HttpContext = new DefaultHttpContext
+            {
+                User = new ClaimsPrincipal(new ClaimsIdentity(
+                    [new Claim(InternalClaimTypes.IsApiKey, bool.TrueString)],
+                    "ApiKey"))
+            }
+        };
     }
 }

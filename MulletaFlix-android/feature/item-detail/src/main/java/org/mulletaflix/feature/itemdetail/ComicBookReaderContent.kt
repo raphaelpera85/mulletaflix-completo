@@ -3,6 +3,7 @@ package org.mulletaflix.feature.itemdetail
 import android.graphics.Bitmap
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -14,6 +15,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.ZoomIn
+import androidx.compose.material.icons.filled.ZoomOut
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -23,24 +26,35 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.foundation.gestures.rememberTransformableState
+import androidx.compose.foundation.gestures.transformable
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import kotlin.math.roundToInt
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 @Composable
+@OptIn(ExperimentalFoundationApi::class)
 internal fun ComicBookReaderContent(
     archive: ComicBookArchive,
     currentPage: Int,
+    zoom: Float = 1f,
+    onZoomChange: (Float) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     BoxWithConstraints(
@@ -55,13 +69,42 @@ internal fun ComicBookReaderContent(
         var bitmap by remember(archive, currentPage) { mutableStateOf<Bitmap?>(null) }
         var loadError by remember(archive, currentPage) { mutableStateOf<String?>(null) }
         var retryGeneration by remember(archive, currentPage) { mutableIntStateOf(0) }
+        var panOffset by remember(archive, currentPage) { mutableStateOf(Offset.Zero) }
+        val transformState = rememberTransformableState { centroid, zoomChange, panChange, _ ->
+            val nextZoom = normalizeComicPageZoom(zoom * zoomChange)
+            onZoomChange(nextZoom)
+            val viewportWidth = with(density) { maxWidth.toPx() }
+            val viewportHeight = with(density) { maxHeight.toPx() }
+            val imageBounds = bitmap?.let {
+                comicPagePanBounds(viewportWidth, viewportHeight, it.width.toFloat(), it.height.toFloat(), nextZoom)
+            } ?: Offset.Zero
+            val centroidFromCenter = Offset(
+                x = centroid.x - viewportWidth / 2f,
+                y = centroid.y - viewportHeight / 2f,
+            )
+            val zoomOffset = centroidFromCenter - (centroidFromCenter - panOffset) * zoomChange
+            panOffset = Offset(
+                x = (zoomOffset.x + panChange.x).coerceIn(-imageBounds.x, imageBounds.x),
+                y = (zoomOffset.y + panChange.y).coerceIn(-imageBounds.y, imageBounds.y),
+            )
+            if (nextZoom == 1f) panOffset = Offset.Zero
+        }
+        LaunchedEffect(zoom) {
+            if (zoom == 1f) panOffset = Offset.Zero
+        }
 
         LaunchedEffect(archive, currentPage, targetWidth, targetHeight, retryGeneration) {
             bitmap = null
             loadError = null
             try {
                 bitmap = withContext(Dispatchers.IO) {
-                    archive.decodePage(currentPage, targetWidth, targetHeight)
+                    archive.decodePage(
+                        currentPage,
+                        maxWidth = (targetWidth.toLong() * MAX_COMIC_PAGE_ZOOM.toInt())
+                            .coerceAtMost(Int.MAX_VALUE.toLong()).toInt(),
+                        maxHeight = (targetHeight.toLong() * MAX_COMIC_PAGE_ZOOM.toInt())
+                            .coerceAtMost(Int.MAX_VALUE.toLong()).toInt(),
+                    )
                 }
             } catch (cancelled: CancellationException) {
                 throw cancelled
@@ -73,9 +116,18 @@ internal fun ComicBookReaderContent(
         when {
             bitmap != null -> Image(
                 bitmap = requireNotNull(bitmap).asImageBitmap(),
-                contentDescription = "Página ${currentPage + 1} de ${archive.pageCount}",
+                contentDescription = "Página ${currentPage + 1} de ${archive.pageCount}, ampliação ${(zoom * 100).roundToInt()}%",
                 contentScale = ContentScale.Fit,
-                modifier = Modifier.fillMaxSize(),
+                modifier = Modifier
+                    .fillMaxSize()
+                    .graphicsLayer {
+                        scaleX = zoom
+                        scaleY = zoom
+                        translationX = panOffset.x
+                        translationY = panOffset.y
+                        clip = true
+                    }
+                    .transformable(transformState),
             )
             loadError != null -> Row(
                 modifier = Modifier.fillMaxWidth().padding(24.dp),
@@ -91,6 +143,36 @@ internal fun ComicBookReaderContent(
         }
     }
 }
+
+@Composable
+internal fun ComicBookZoomControls(
+    zoom: Float,
+    onZoomChange: (Float) -> Unit,
+) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        IconButton(
+            onClick = { onZoomChange(normalizeComicPageZoom(zoom - COMIC_PAGE_ZOOM_STEP)) },
+            enabled = zoom > 1f,
+            modifier = Modifier.semantics(mergeDescendants = true) {
+                contentDescription = "Reduzir ampliação"
+            },
+        ) {
+            Icon(Icons.Default.ZoomOut, contentDescription = null)
+        }
+        Text("${(zoom * 100).roundToInt()}%", style = MaterialTheme.typography.labelMedium)
+        IconButton(
+            onClick = { onZoomChange(normalizeComicPageZoom(zoom + COMIC_PAGE_ZOOM_STEP)) },
+            enabled = zoom < MAX_COMIC_PAGE_ZOOM,
+            modifier = Modifier.semantics(mergeDescendants = true) {
+                contentDescription = "Ampliar página"
+            },
+        ) {
+            Icon(Icons.Default.ZoomIn, contentDescription = null)
+        }
+    }
+}
+
+private const val COMIC_PAGE_ZOOM_STEP = 0.5f
 
 @Composable
 internal fun ComicBookPageControls(

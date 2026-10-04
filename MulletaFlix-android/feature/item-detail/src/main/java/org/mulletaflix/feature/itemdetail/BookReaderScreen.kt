@@ -33,6 +33,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -70,6 +71,7 @@ fun BookReaderScreen(
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
     var currentComicPage by rememberSaveable(itemId) { mutableIntStateOf(0) }
+    var comicZoom by rememberSaveable(itemId) { mutableFloatStateOf(1f) }
     var renditionState by remember(itemId) { mutableStateOf<ReflowableWebRenditionState?>(null) }
     var renditionError by remember(itemId) { mutableStateOf<String?>(null) }
 
@@ -110,6 +112,7 @@ fun BookReaderScreen(
         val archive = state.comicArchive ?: return@LaunchedEffect
         currentComicPage = ComicBookArchive.pageIndexFromLocator(state.initialLocator, archive.pageCount) ?: 0
     }
+    LaunchedEffect(currentComicPage) { comicZoom = 1f }
     LaunchedEffect(itemId, state.comicArchive) {
         val archive = state.comicArchive ?: return@LaunchedEffect
                 snapshotFlow { currentComicPage }
@@ -132,6 +135,12 @@ fun BookReaderScreen(
                     }
                 },
                 actions = {
+                    if (comicArchive != null && !state.isLoading) {
+                        ComicBookZoomControls(
+                            zoom = comicZoom,
+                            onZoomChange = { comicZoom = normalizeComicPageZoom(it) },
+                        )
+                    }
                     key(itemId) {
                         BookReaderProgressActions(
                             enabled = (state.publication != null || state.comicArchive != null) && !state.isLoading,
@@ -200,6 +209,8 @@ fun BookReaderScreen(
                 comicArchive != null -> ComicBookReaderContent(
                     archive = comicArchive,
                     currentPage = currentComicPage,
+                    zoom = comicZoom,
+                    onZoomChange = { comicZoom = it },
                     modifier = Modifier.fillMaxSize(),
                 )
                 renditionState != null -> ReflowableWebRendition(

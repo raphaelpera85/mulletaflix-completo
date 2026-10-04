@@ -52,6 +52,7 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable, IAsyncDis
     private long _serverLogSeq;
     private long _downloaderLogSeq;
     private const int MaxLogLines = 600;
+    private static readonly TimeSpan CompletedMediaRefreshInterval = TimeSpan.FromMinutes(15);
 
     private NebulaMongoContext? _mongoContext;
     private NebulaTelegramPool? _telegramPool;
@@ -68,6 +69,7 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable, IAsyncDis
     private Task? _rcloneStderrTask;
     private CancellationTokenSource? _cleanupCts;
     private Task? _cleanupTask;
+    private Task? _completedMediaRefreshTask;
     private Task _automaticMountTask = Task.CompletedTask;
     private Task _disposeTask = Task.CompletedTask;
 
@@ -2939,7 +2941,10 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable, IAsyncDis
         EmitCleanupLog("===========================================");
         EmitCleanupLog(string.Empty);
 
-        _cleanupTask = Task.Run(() => RunContinuousCleanupLoopAsync(sources, cleanupToken), cleanupToken);
+        var cleanupTask = Task.Run(() => RunContinuousCleanupLoopAsync(sources, cleanupToken), cleanupToken);
+        var completedMediaRefreshTask = Task.Run(() => RunCompletedMediaRefreshLoopAsync(cleanupToken), cleanupToken);
+        _completedMediaRefreshTask = completedMediaRefreshTask;
+        _cleanupTask = Task.WhenAll(cleanupTask, completedMediaRefreshTask);
     }
 
     private async Task RunContinuousCleanupLoopAsync(List<string> sources, CancellationToken cancellationToken)
@@ -3030,6 +3035,76 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable, IAsyncDis
                 _logger.LogDebug(ex, "Erro no ciclo contínuo de monitoramento do Nebula.");
             }
         }
+    }
+
+    private async Task RunCompletedMediaRefreshLoopAsync(CancellationToken cancellationToken)
+    {
+        using var timer = new PeriodicTimer(CompletedMediaRefreshInterval);
+        try
+        {
+            await NebulaCompletedMediaRefresh.RunImmediatelyThenPeriodicallyAsync(
+                RefreshRecentlyCompletedMediaIfMountedAsync,
+                timer.WaitForNextTickAsync,
+                cancellationToken).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            // O ciclo periódico compartilha o cancelamento do runtime Nebula.
+        }
+    }
+
+    private async Task RefreshRecentlyCompletedMediaIfMountedAsync(CancellationToken cancellationToken)
+    {
+        var config = NormalizeRuntimeConfiguration(Config);
+        if (!config.UseMappedDrive || !IsDriveNAccessible())
+        {
+            return;
+        }
+
+        try
+        {
+            await RefreshRecentlyCompletedMediaAsync(cancellationToken).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "[NEBULA-MOUNT] Falha no refresh periódico das mídias concluídas no disco N:. O próximo ciclo tentará novamente.");
+        }
+    }
+
+    private async Task RefreshRecentlyCompletedMediaAsync(CancellationToken cancellationToken)
+    {
+        var mongo = _mongoContext;
+        if (mongo == null)
+        {
+            return;
+        }
+
+        var completedSince = DateTimeOffset.UtcNow.AddMinutes(-15);
+        var completedFiles = await mongo.GetRecentlyCompletedFilesAsync(completedSince, cancellationToken).ConfigureAwait(false);
+        var mediaFiles = completedFiles
+            .Where(NebulaMongoContext.IsCompletedTelegramMedia)
+            .ToList();
+        if (mediaFiles.Count == 0)
+        {
+            _logger.LogDebug("[NEBULA-MOUNT] Nenhuma mídia concluída nos últimos 15 minutos para atualizar no disco N:.");
+            return;
+        }
+
+        var directoryPathMap = await mongo.BuildDirectoryPathMapAsync(cancellationToken).ConfigureAwait(false);
+        var directories = NebulaCompletedMediaRefresh.GetVirtualDirectories(mediaFiles, directoryPathMap);
+        foreach (var directory in directories)
+        {
+            _directoryRefreshQueue.Enqueue(directory);
+        }
+
+        _logger.LogInformation(
+            "[NEBULA-MOUNT] Refresh periódico do disco N: enfileirado para {DirectoryCount} diretórios com {MediaCount} mídias concluídas nos últimos 15 minutos.",
+            directories.Count,
+            mediaFiles.Count);
     }
 
     private async Task RunCleanupCycleAsync(List<string> sources, CancellationToken cancellationToken)
@@ -4445,6 +4520,18 @@ CREATE POLICY nebula_bot_tokens_service_role_all
                 }
             }
 
+            var completedMediaRefresh = _completedMediaRefreshTask;
+            if (completedMediaRefresh != null)
+            {
+                try
+                {
+                    await completedMediaRefresh.ConfigureAwait(false);
+                }
+                catch (OperationCanceledException) when (_cleanupCts?.IsCancellationRequested == true)
+                {
+                }
+            }
+
             await callbacks.ConfigureAwait(false);
             await _mountRetry.WaitForIdleAsync().ConfigureAwait(false);
             // Cleanup is drained before capturing its last watchdog attempt.
@@ -4519,6 +4606,7 @@ CREATE POLICY nebula_bot_tokens_service_role_all
             _cleanupCts?.Dispose();
             _cleanupCts = null;
             _cleanupTask = null;
+            _completedMediaRefreshTask = null;
             _playbackCache?.Dispose();
             _playbackCache = null;
             _playbackCacheAccessor.Set(null);

@@ -412,6 +412,7 @@ public class NebulaStreamEngineTests
         var expectations = new (string Operation, Func<Task> Invoke)[]
         {
             ("mongodb.get_all_completed_files", () => context.GetAllCompletedFilesAsync(cancellation.Token)),
+            ("mongodb.get_recently_completed_files", () => context.GetRecentlyCompletedFilesAsync(DateTimeOffset.UtcNow, cancellation.Token)),
             ("mongodb.get_completed_or_active_files", () => context.GetCompletedOrActiveFilesAsync(cancellation.Token)),
             ("mongodb.get_all_files_for_sync", () => context.GetAllFilesForSyncAsync(cancellation.Token)),
             ("mongodb.build_directory_path_map", () => context.BuildDirectoryPathMapAsync(cancellation.Token)),

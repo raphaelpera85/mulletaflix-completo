@@ -47,6 +47,8 @@ import org.mulletaflix.domain.model.Chapter
 import org.mulletaflix.domain.model.MediaStream
 import org.mulletaflix.domain.model.MediaSegment
 import org.mulletaflix.domain.model.UserMediaPreferenceScope
+import org.mulletaflix.domain.model.DEFAULT_SEEK_JUMP_SECONDS
+import org.mulletaflix.domain.model.normalizeSeekJumpSeconds
 import org.mulletaflix.domain.usecase.GetItemDetailUseCase
 import org.mulletaflix.domain.usecase.GetNextEpisodeUseCase
 import org.mulletaflix.domain.usecase.ManageSyncPlayUseCase
@@ -109,6 +111,7 @@ data class PlayerState(
     val currentPosition: Long = 0L,   // ms
     val duration: Long = 0L,          // ms
     val isSeekable: Boolean = false,
+    val seekJumpSeconds: Int = DEFAULT_SEEK_JUMP_SECONDS,
     val playbackSpeed: Float = 1f,
     val selectedQuality: String? = "Auto",
     val availableQualities: List<String> = emptyList(),
@@ -745,6 +748,11 @@ class PlayerViewModel @Inject constructor(
         }
         viewModelScope.launch {
             settingsRepository.getDefaultPlaybackSpeed().collect { defaultPlaybackSpeed = it }
+        }
+        viewModelScope.launch {
+            settingsRepository.getSeekJumpSeconds().collect { seconds ->
+                _state.update { it.copy(seekJumpSeconds = normalizeSeekJumpSeconds(seconds)) }
+            }
         }
         viewModelScope.launch {
             settingsRepository.getDefaultAspectRatio().collect { value ->

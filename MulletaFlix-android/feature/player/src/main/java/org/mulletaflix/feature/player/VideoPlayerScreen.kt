@@ -58,10 +58,12 @@ import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.media3.common.Player
@@ -78,6 +80,9 @@ import org.mulletaflix.designsystem.components.remoteFocusRing
 import org.mulletaflix.designsystem.subtitle.SUBTITLE_OUTLINE_COLOR
 import org.mulletaflix.designsystem.subtitle.subtitleForegroundColor
 import org.mulletaflix.domain.model.subtitleFractionalTextSize
+import org.mulletaflix.domain.model.DEFAULT_SEEK_JUMP_SECONDS
+import org.mulletaflix.domain.model.normalizeSeekJumpSeconds
+import org.mulletaflix.domain.model.seekJumpDeltaMillis
 
 internal const val CAST_ACTION_CONTENT_DESCRIPTION = "Transmitir para dispositivo compatível"
 internal const val PLAYER_TOP_BAR_ACTIONS_CONTENT_DESCRIPTION = "Ações do player; deslize horizontalmente para ver mais"
@@ -196,6 +201,7 @@ fun VideoPlayerScreen(
     val latestPosition by rememberUpdatedState(state.currentPosition)
     val latestDuration by rememberUpdatedState(state.duration)
     val latestSeekable by rememberUpdatedState(state.isSeekable)
+    val latestSeekJumpSeconds by rememberUpdatedState(state.seekJumpSeconds)
     val latestPlaying by rememberUpdatedState(state.isPlaying)
     val latestPipEnabled by rememberUpdatedState(state.pictureInPictureEnabled)
     val latestIsInPictureInPictureMode by rememberUpdatedState(isInPictureInPictureMode)
@@ -447,13 +453,13 @@ fun VideoPlayerScreen(
                     },
                     onDoubleTap = { offset ->
                         if (latestIsInPictureInPictureMode || state.isControlsLocked || !latestSeekable || latestDuration <= 0L) return@detectTapGestures
-                        val seekDelta = if (offset.x < size.width / 2f) -10_000L else 10_000L
-                        val target = (latestPosition + seekDelta).coerceIn(
-                            0L,
-                            latestDuration.coerceAtLeast(0L),
-                        )
+                        val forward = offset.x >= size.width / 2f
+                        val seekDelta = seekJumpDeltaMillis(latestSeekJumpSeconds, forward)
+                        val target = seekPositionByDelta(latestPosition, seekDelta, latestDuration)
+                            ?: return@detectTapGestures
                         viewModel.seekTo(target)
-                        gestureHint = if (seekDelta < 0) "−10 segundos" else "+10 segundos"
+                        val interval = normalizeSeekJumpSeconds(latestSeekJumpSeconds)
+                        gestureHint = if (forward) "+$interval segundos" else "−$interval segundos"
                     },
                 )
             }
@@ -1109,6 +1115,7 @@ internal fun PlayerOsd(
             modifier = Modifier.align(Alignment.Center),
             isPlaying = state.isPlaying,
             canSeek = state.isSeekable,
+            seekJumpSeconds = state.seekJumpSeconds,
             hasChapters = state.chapters.isNotEmpty(),
             playPauseFocusRequester = playPauseFocusRequester,
             upFocusRequester = audioFocusRequester,
@@ -1333,6 +1340,7 @@ internal fun PlayerTransportControls(
     modifier: Modifier = Modifier,
     isPlaying: Boolean = false,
     canSeek: Boolean = true,
+    seekJumpSeconds: Int = DEFAULT_SEEK_JUMP_SECONDS,
     hasChapters: Boolean = false,
     playPauseFocusRequester: FocusRequester? = null,
     upFocusRequester: FocusRequester? = null,
@@ -1344,6 +1352,8 @@ internal fun PlayerTransportControls(
     onPreviousChapter: () -> Unit = {},
     onNextChapter: () -> Unit = {},
 ) {
+    val normalizedSeekJumpSeconds = normalizeSeekJumpSeconds(seekJumpSeconds)
+    val seekJumpMillis = seekJumpDeltaMillis(normalizedSeekJumpSeconds, forward = true)
     val transportModifier = Modifier
         .focusProperties {
             upFocusRequester?.let { up = it }
@@ -1355,12 +1365,11 @@ internal fun PlayerTransportControls(
         horizontalArrangement = Arrangement.spacedBy(20.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        IconButton(onClick = { onSeekBy(-10_000L) }, enabled = canSeek, modifier = transportModifier) {
-            Icon(
-                Icons.Default.Replay10,
-                contentDescription = "Voltar 10 segundos",
-                tint = Color.White,
-                modifier = Modifier.size(34.dp),
+        IconButton(onClick = { onSeekBy(-seekJumpMillis) }, enabled = canSeek, modifier = transportModifier) {
+            SeekIntervalIcon(
+                seconds = normalizedSeekJumpSeconds,
+                forward = false,
+                contentDescription = "Voltar $normalizedSeekJumpSeconds segundos",
             )
         }
         if (hasChapters) {
@@ -1407,14 +1416,36 @@ internal fun PlayerTransportControls(
                 Icon(Icons.Default.FastForward, contentDescription = "Próximo Capítulo", tint = Color.White, modifier = Modifier.size(30.dp))
             }
         }
-        IconButton(onClick = { onSeekBy(10_000L) }, enabled = canSeek, modifier = transportModifier) {
-            Icon(
-                Icons.Default.Forward10,
-                contentDescription = "Avançar 10 segundos",
-                tint = Color.White,
-                modifier = Modifier.size(34.dp),
+        IconButton(onClick = { onSeekBy(seekJumpMillis) }, enabled = canSeek, modifier = transportModifier) {
+            SeekIntervalIcon(
+                seconds = normalizedSeekJumpSeconds,
+                forward = true,
+                contentDescription = "Avançar $normalizedSeekJumpSeconds segundos",
             )
         }
+    }
+}
+
+@Composable
+private fun SeekIntervalIcon(
+    seconds: Int,
+    forward: Boolean,
+    contentDescription: String,
+) {
+    Box(contentAlignment = Alignment.Center, modifier = Modifier.size(40.dp)) {
+        Icon(
+            if (forward) Icons.Default.Forward else Icons.Default.Replay,
+            contentDescription = contentDescription,
+            tint = Color.White,
+            modifier = Modifier.size(34.dp),
+        )
+        Text(
+            text = seconds.toString(),
+            color = Color.White,
+            fontSize = 9.sp,
+            fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
+            modifier = Modifier.clearAndSetSemantics { },
+        )
     }
 }
 

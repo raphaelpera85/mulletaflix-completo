@@ -691,7 +691,7 @@ namespace Emby.Server.Implementations.Library
                 var user = _userManager.GetUserById(request.UserId);
                 var item = request.ItemId.IsEmpty()
                     ? null
-                    : _libraryManager.GetItemById(request.ItemId);
+                    : _libraryManager.GetItemById<BaseItem>(request.ItemId, user);
                 SetDefaultAudioAndSubtitleStreamIndices(item, clone, user);
             }
 

@@ -3028,5 +3028,13 @@ Pendências relacionadas:
 - [x] Corrigir locators CBZ com `href` relativo e MIME obrigatório; migrar progresso antigo `mulletaflix:cbz:page:N` mantendo a página.
 - [x] `:feature:item-detail:testDebugUnitTest`: 80/80; controles UI em telefone: 5/5; tablet: 5/5; integração Readium/DataStore/CBZ no tablet: 8/8.
 - [x] `:feature:item-detail:lintDebug`, `:app:lintDebug`, `:app:assembleDebug` e `:app:compileDebugAndroidTestKotlin`: `BUILD SUCCESSFUL`.
-- [x] Emuladores testados via `tools/with-emulator.ps1`, abrindo e fechando ao fim. Windows `GpuPreference=2` para Emulator/QEMU; `-gpu host`; wrapper confirmou QEMU na NVIDIA RTX 3050 durante execuções.
+- [x] Emuladores testados via `tools/with-emulator.ps1`, abrindo e fechando ao fim. Windows `GpuPreference=2` para Emulator/QEMU; `-gpu host`; wrapper confirmou QEMU na NVIDIA RTX 3050 durante execuções. Revalidação em 2026-10-04: `BookReaderFontSizeControlsTest` no telefone, 5/5; QEMU PID 15624 detectado pela NVIDIA, AVD fechado.
 - [ ] Sem bump, APK de produção ou publicação. Antes de release futura, seguir a validação de assinatura e verificar a versão/artefato anterior; manter notas sincronizadas somente com mudanças incluídas no APK.
+
+## Player — intervalo configurável de avanço e retrocesso (sem release)
+- [x] Preferência local persistida no DataStore, opções de 5/10/15/30 s, padrão 10 s; inválidos normalizados para 10 s.
+- [x] Configuração adicionada em Ajustes > Reprodução; botões e toque duplo aplicam o intervalo selecionado e exibem rótulos acessíveis atualizados.
+- [x] `testDebugUnitTest`: 1.374 testes, 0 falhas/erros/skips. Módulos `domain`, `data`, `feature:settings` e `feature:player` também passaram separadamente.
+- [x] Testes instrumentados via wrapper com GPU NVIDIA e AVD encerrado ao fim: `SettingsRepositoryAccountScopeTest` no PHONE, 9/9; `ChoiceDialogOptionsTest` no PHONE e TV, 4/4 por perfil; `PlayerSeekControlsTest` no PHONE, TABLET e TV, 8/8 por perfil.
+- [x] `:feature:settings:lintDebug`, `:feature:player:lintDebug`, `:app:lintDebug`, `:app:assembleDebug` e `:app:compileDebugAndroidTestKotlin`: `BUILD SUCCESSFUL`.
+- [ ] Sem bump, APK de produção ou publicação; a mudança é exclusivamente do APK.

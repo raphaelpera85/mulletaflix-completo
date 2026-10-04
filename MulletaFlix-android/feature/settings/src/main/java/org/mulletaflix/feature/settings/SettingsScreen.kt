@@ -195,6 +195,7 @@ fun SettingsScreen(
                 var showQualityDialog by remember { mutableStateOf(false) }
                 var showAspectRatioDialog by remember { mutableStateOf(false) }
                 var showSpeedDialog by remember { mutableStateOf(false) }
+                var showSeekJumpDialog by remember { mutableStateOf(false) }
                 SettingsItem(icon = Icons.Default.Hd, title = "Qualidade Padrão", subtitle = qualityLabel(state.defaultQuality), onClick = { showQualityDialog = true })
                 SettingsItem(
                     icon = Icons.Default.AspectRatio,
@@ -203,6 +204,12 @@ fun SettingsScreen(
                     onClick = { showAspectRatioDialog = true },
                 )
                 SettingsItem(icon = Icons.Default.Speed, title = "Velocidade Padrão", subtitle = "${state.defaultSpeed}x", onClick = { showSpeedDialog = true })
+                SettingsItem(
+                    icon = Icons.Default.Replay,
+                    title = "Avanço e retrocesso",
+                    subtitle = seekJumpSecondsLabel(state.seekJumpSeconds),
+                    onClick = { showSeekJumpDialog = true },
+                )
                 if (showQualityDialog) {
                     ChoiceDialog(
                         title = "Qualidade padrão",
@@ -231,6 +238,19 @@ fun SettingsScreen(
                         selected = playbackSpeedLabel(state.defaultSpeed),
                         onSelect = { viewModel.setDefaultPlaybackSpeed(it.toFloat()); showSpeedDialog = false },
                         onDismiss = { showSpeedDialog = false },
+                    )
+                }
+                if (showSeekJumpDialog) {
+                    ChoiceDialog(
+                        title = "Intervalo de avanço e retrocesso",
+                        options = seekJumpSecondsChoices.map(::seekJumpSecondsLabel),
+                        selected = seekJumpSecondsLabel(state.seekJumpSeconds),
+                        onSelect = { selected ->
+                            seekJumpSecondsChoices.firstOrNull { seekJumpSecondsLabel(it) == selected }
+                                ?.let(viewModel::setSeekJumpSeconds)
+                            showSeekJumpDialog = false
+                        },
+                        onDismiss = { showSeekJumpDialog = false },
                     )
                 }
                 SettingsToggle(

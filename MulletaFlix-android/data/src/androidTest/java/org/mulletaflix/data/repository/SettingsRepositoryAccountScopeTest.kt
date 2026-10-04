@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.ContextWrapper
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
+import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.test.platform.app.InstrumentationRegistry
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -49,6 +50,23 @@ class SettingsRepositoryAccountScopeTest {
         sessionRepository.setServerId(null)
         isolatedFilesDir.deleteRecursively()
         Unit
+    }
+
+    @Test
+    fun seekJumpIntervalDefaultsToTenAndNormalizesStoredValues() = runBlocking {
+        assertEquals(10, settingsRepository.getSeekJumpSeconds().first())
+
+        settingsRepository.setSeekJumpSeconds(15)
+        assertEquals(15, settingsRepository.getSeekJumpSeconds().first())
+
+        settingsRepository.setSeekJumpSeconds(11)
+        assertEquals(10, settingsRepository.getSeekJumpSeconds().first())
+
+        context.settingsDataStore.edit { it[intPreferencesKey("seek_jump_interval_seconds")] = 30 }
+        assertEquals(30, settingsRepository.getSeekJumpSeconds().first())
+
+        context.settingsDataStore.edit { it[intPreferencesKey("seek_jump_interval_seconds")] = 11 }
+        assertEquals(10, settingsRepository.getSeekJumpSeconds().first())
     }
 
     @Test

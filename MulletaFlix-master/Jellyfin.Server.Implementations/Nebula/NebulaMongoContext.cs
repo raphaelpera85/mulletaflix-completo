@@ -1771,6 +1771,45 @@ public sealed class NebulaMongoContext : IDisposable
         }
     }
 
+    /// <summary>
+    /// Obtém mídias cujo upload foi concluído a partir do instante informado.
+    /// </summary>
+    /// <param name="completedSince">Limite inferior inclusivo da data de conclusão.</param>
+    /// <param name="cancellationToken">Token de cancelamento.</param>
+    /// <returns>Documentos concluídos, sem conteúdo protegido.</returns>
+    public async Task<List<BsonDocument>> GetRecentlyCompletedFilesAsync(
+        DateTimeOffset completedSince,
+        CancellationToken cancellationToken = default)
+    {
+        using var activity = StartMongoActivity("mongodb.get_recently_completed_files");
+        try
+        {
+            var filter = Builders<BsonDocument>.Filter.And(
+                Builders<BsonDocument>.Filter.Ne("type", "dir"),
+                Builders<BsonDocument>.Filter.Eq("status", "completed"),
+                Builders<BsonDocument>.Filter.Gte("completed_at", completedSince.ToUnixTimeSeconds()),
+                NebulaProtectedContent.NotProtected());
+
+            using var cursor = await _filesCollection.FindAsync(filter, cancellationToken: cancellationToken).ConfigureAwait(false);
+            var documents = await cursor.ToListAsync(cancellationToken).ConfigureAwait(false);
+            activity?.SetTag("mongodb.result", "success");
+            activity?.SetTag("mongodb.count", documents.Count);
+            return documents;
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            activity?.SetTag("mongodb.result", "cancelled");
+            throw;
+        }
+        catch (Exception ex)
+        {
+            activity?.SetStatus(ActivityStatusCode.Error, "MongoDB recently completed files query failed");
+            activity?.SetTag("error.type", ex.GetType().FullName);
+            activity?.SetTag("mongodb.result", "failure");
+            throw;
+        }
+    }
+
     private async Task<NebulaUploadQueueSummaryDto> GetUploadQueueSummaryCoreAsync(CancellationToken cancellationToken)
     {
         var now = DateTimeOffset.UtcNow;

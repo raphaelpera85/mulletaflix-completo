@@ -112,6 +112,21 @@ class SettingsViewModelTest {
     }
 
     @Test
+    fun `seek interval restores and persists supported values`() = runTest {
+        val settingsRepo = FakeSettingsRepository().apply { seekJumpSeconds = 15 }
+        val authRepo = FakeAuthRepository()
+        val viewModel = SettingsViewModel(context, settingsRepo, authRepo, LogoutUseCase(authRepo))
+        advanceUntilIdle()
+
+        assertEquals(15, viewModel.state.value.seekJumpSeconds)
+        viewModel.setSeekJumpSeconds(30)
+        advanceUntilIdle()
+
+        assertEquals(30, viewModel.state.value.seekJumpSeconds)
+        assertEquals(30, settingsRepo.seekJumpSeconds)
+    }
+
+    @Test
     fun `aspect ratio preference is restored and persisted`() = runTest {
         val settingsRepo = FakeSettingsRepository().apply { aspectRatio = "ZOOM" }
         val authRepo = FakeAuthRepository()
@@ -715,6 +730,10 @@ class SettingsViewModelTest {
         var pip: Boolean = true
         var quality: String = "Auto"
         var speed: Float = 1.0f
+        var seekJumpSecondsFlow = MutableStateFlow(10)
+        var seekJumpSeconds: Int
+            get() = seekJumpSecondsFlow.value
+            set(value) { seekJumpSecondsFlow.value = value }
         var aspectRatio: String = "FIT"
         var subtitleSize: Int = 100
         var audioLanguage: String? = "eng"
@@ -748,6 +767,8 @@ class SettingsViewModelTest {
 
         override fun getDefaultPlaybackSpeed(): Flow<Float> = MutableStateFlow(speed)
         override suspend fun setDefaultPlaybackSpeed(speed: Float) { this.speed = speed }
+        override fun getSeekJumpSeconds(): Flow<Int> = seekJumpSecondsFlow
+        override suspend fun setSeekJumpSeconds(seconds: Int) { seekJumpSeconds = seconds }
 
         override suspend fun clearLocalPreferences() {
             localPreferencesCleared = true

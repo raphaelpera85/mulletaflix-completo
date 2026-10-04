@@ -26,6 +26,8 @@ import org.mulletaflix.domain.repository.AuthRepository
 import org.mulletaflix.domain.repository.SearchHistoryRepository
 import org.mulletaflix.domain.repository.SettingsRepository
 import org.mulletaflix.domain.model.normalizeSubtitleSizePercent
+import org.mulletaflix.domain.model.DEFAULT_SEEK_JUMP_SECONDS
+import org.mulletaflix.domain.model.normalizeSeekJumpSeconds
 import org.mulletaflix.domain.usecase.CheckAppUpdateUseCase
 import org.mulletaflix.domain.usecase.LogoutUseCase
 import org.mulletaflix.domain.usecase.VerifyServerUseCase
@@ -38,6 +40,7 @@ data class SettingsState(
     val defaultQuality: String = "Auto",
     val aspectRatio: String = DEFAULT_ASPECT_RATIO,
     val defaultSpeed: Float = 1.0f,
+    val seekJumpSeconds: Int = DEFAULT_SEEK_JUMP_SECONDS,
     val autoPlay: Boolean = true,
     val skipIntro: Boolean = true,
     val automaticIntroSkip: Boolean = false,
@@ -155,6 +158,11 @@ class SettingsViewModel @Inject constructor(
             }
         }
         viewModelScope.launch {
+            settingsRepository.getSeekJumpSeconds().collect { seconds ->
+                _state.update { it.copy(seekJumpSeconds = normalizeSeekJumpSeconds(seconds)) }
+            }
+        }
+        viewModelScope.launch {
             settingsRepository.getSubtitleFontSize().collect { size ->
                 _state.update { it.copy(subtitleFontSize = normalizeSubtitleSizePercent(size)) }
             }
@@ -267,6 +275,12 @@ class SettingsViewModel @Inject constructor(
         val normalized = speed.coerceIn(0.5f, 2f)
         _state.update { it.copy(defaultSpeed = normalized) }
         viewModelScope.launch { settingsRepository.setDefaultPlaybackSpeed(normalized) }
+    }
+
+    fun setSeekJumpSeconds(seconds: Int) {
+        val normalized = normalizeSeekJumpSeconds(seconds)
+        _state.update { it.copy(seekJumpSeconds = normalized) }
+        viewModelScope.launch { settingsRepository.setSeekJumpSeconds(normalized) }
     }
 
     fun setSubtitleFontSize(size: Int) {

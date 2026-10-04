@@ -10,6 +10,7 @@ using MediaBrowser.Controller.Devices;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.Nebula;
+using MediaBrowser.Controller.Session;
 using MediaBrowser.Model.Dto;
 using MediaBrowser.Model.IO;
 using MediaBrowser.Model.MediaInfo;
@@ -43,6 +44,7 @@ public class MediaInfoController : BaseMulletaFlixApiController
     private readonly IUserManager _userManager;
     private readonly TransientMediaItemRegistry _transientMediaItemRegistry;
     private readonly INebulaFtpManager _nebulaFtpManager;
+    private readonly ISessionManager _sessionManager;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="MediaInfoController"/> class.
@@ -56,6 +58,7 @@ public class MediaInfoController : BaseMulletaFlixApiController
     /// <param name="userManager">Instance of the <see cref="IUserManager"/> interface..</param>
     /// <param name="transientMediaItemRegistry">Registry for path-resolved items during playback.</param>
     /// <param name="nebulaFtpManager">Nebula priority and cache manager.</param>
+    /// <param name="sessionManager">Manager used to validate live-stream ownership.</param>
     public MediaInfoController(
         IMediaSourceManager mediaSourceManager,
         IDeviceManager deviceManager,
@@ -65,7 +68,8 @@ public class MediaInfoController : BaseMulletaFlixApiController
         MediaInfoHelper mediaInfoHelper,
         IUserManager userManager,
         TransientMediaItemRegistry transientMediaItemRegistry,
-        INebulaFtpManager nebulaFtpManager)
+        INebulaFtpManager nebulaFtpManager,
+        ISessionManager sessionManager)
     {
         _mediaSourceManager = mediaSourceManager;
         _deviceManager = deviceManager;
@@ -76,6 +80,7 @@ public class MediaInfoController : BaseMulletaFlixApiController
         _userManager = userManager;
         _transientMediaItemRegistry = transientMediaItemRegistry;
         _nebulaFtpManager = nebulaFtpManager;
+        _sessionManager = sessionManager;
     }
 
     /// <summary>
@@ -401,6 +406,11 @@ public class MediaInfoController : BaseMulletaFlixApiController
     [ProducesResponseType(StatusCodes.Status204NoContent)]
     public async Task<ActionResult> CloseLiveStream([FromQuery, Required] string liveStreamId)
     {
+        if (!CanAccessLiveStream(liveStreamId))
+        {
+            return Forbid();
+        }
+
         await _mediaSourceManager.CloseLiveStream(liveStreamId).ConfigureAwait(false);
         return NoContent();
     }
@@ -454,8 +464,26 @@ public class MediaInfoController : BaseMulletaFlixApiController
             return BadRequest("Missing liveStreamId.");
         }
 
+        if (!CanAccessLiveStream(liveStreamId))
+        {
+            return Forbid();
+        }
+
         var mediaSource = await _mediaSourceManager.GetLiveStreamMediaInfo(liveStreamId, HttpContext.RequestAborted).ConfigureAwait(false);
         return mediaSource;
+    }
+
+    private bool CanAccessLiveStream(string liveStreamId)
+    {
+        var userId = User.GetUserId();
+        var isApiKey = User.GetIsApiKey();
+        if (!isApiKey && (userId == Guid.Empty || _userManager.GetUserById(userId) is null))
+        {
+            return false;
+        }
+
+        return _sessionManager.GetSessions(userId, string.Empty, null, null, isApiKey)
+            .Any(session => string.Equals(session.PlayState?.LiveStreamId, liveStreamId, StringComparison.Ordinal));
     }
 
     /// <summary>

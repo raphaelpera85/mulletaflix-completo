@@ -3,12 +3,16 @@ package org.mulletaflix.feature.itemdetail
 import android.graphics.Bitmap
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithContentDescription
@@ -73,19 +77,64 @@ class ComicBookReaderIntegrationTest {
             composeRule.onNodeWithContentDescription("Página anterior").assertIsNotEnabled()
             composeRule.onNodeWithText("Página 1 de 2").assertIsDisplayed()
             composeRule.waitUntil(timeoutMillis = 10_000) {
-                composeRule.onAllNodesWithContentDescription("Página 1 de 2").fetchSemanticsNodes().isNotEmpty()
+                composeRule.onAllNodesWithContentDescription("Página 1 de 2", substring = true)
+                    .fetchSemanticsNodes().isNotEmpty()
             }
 
             composeRule.onNodeWithContentDescription("Próxima página").performClick()
             composeRule.onNodeWithText("Página 2 de 2").assertIsDisplayed()
             composeRule.waitUntil(timeoutMillis = 10_000) {
-                composeRule.onAllNodesWithContentDescription("Página 2 de 2").fetchSemanticsNodes().isNotEmpty()
+                composeRule.onAllNodesWithContentDescription("Página 2 de 2", substring = true)
+                    .fetchSemanticsNodes().isNotEmpty()
             }
             composeRule.onNodeWithContentDescription("Próxima página").assertIsNotEnabled()
 
             composeRule.onNodeWithContentDescription("Página anterior").performClick()
             composeRule.onNodeWithText("Página 1 de 2").assertIsDisplayed()
             composeRule.onNodeWithContentDescription("Página anterior").assertIsNotEnabled()
+        } finally {
+            file.delete()
+        }
+    }
+
+    @Test
+    fun comicPagesCanBeMagnifiedWithAccessibleControls() {
+        val file = createComicArchive()
+        try {
+            val archive = ComicBookArchive.open(file)
+            var zoom by mutableFloatStateOf(1f)
+
+            composeRule.setContent {
+                MaterialTheme {
+                    Scaffold(
+                        topBar = {
+                            ComicBookZoomControls(zoom = zoom, onZoomChange = { zoom = it })
+                        },
+                    ) { padding ->
+                        ComicBookReaderContent(
+                            archive = archive,
+                            currentPage = 0,
+                            zoom = zoom,
+                            onZoomChange = { zoom = it },
+                            modifier = Modifier.fillMaxSize().padding(padding),
+                        )
+                    }
+                }
+            }
+
+            composeRule.onNodeWithContentDescription("Reduzir ampliação").assertIsNotEnabled()
+            composeRule.waitUntil(timeoutMillis = 10_000) {
+                composeRule.onAllNodesWithContentDescription("Página 1 de 2, ampliação 100%")
+                    .fetchSemanticsNodes().isNotEmpty()
+            }
+            composeRule.onNodeWithContentDescription("Ampliar página").performClick()
+            composeRule.onNodeWithText("150%").assertIsDisplayed()
+            composeRule.onNodeWithContentDescription("Página 1 de 2, ampliação 150%").assertIsDisplayed()
+            composeRule.onNodeWithContentDescription("Reduzir ampliação").assertIsEnabled()
+            composeRule.onNodeWithContentDescription("Reduzir ampliação").performClick()
+            composeRule.runOnIdle { assertEquals(1f, zoom) }
+            composeRule.onNodeWithText("100%").assertIsDisplayed()
+            composeRule.onNodeWithContentDescription("Página 1 de 2, ampliação 100%").assertIsDisplayed()
         } finally {
             file.delete()
         }
