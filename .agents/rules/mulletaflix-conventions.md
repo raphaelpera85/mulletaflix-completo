@@ -95,6 +95,11 @@ Cada card deve apresentar claramente:
 - A regra vale para todos os agentes, subagentes e automações que criem ou publiquem releases.
 - Toda nova página pública criada em `portal-site` deve possuir URL canônica e ser adicionada ao `portal-site/sitemap.xml` na mesma alteração. Validar com `.\tools\Validate-PortalSitemap.ps1` antes de concluir.
 
+### 4.5 Registro de progresso, homologação e deploy
+- No início, durante e no fim de cada tarefa, atualizar `portal-site/homologacao-status.json` com local, status, evidência e porcentagem real de desenvolvimento/testes coberta.
+- Publicar o JSON no Git e sincronizar `portal-site/` para `raphaelpera85/Mulletaflix-Portal` na branch `main`, que é a origem do projeto Vercel.
+- Validar pela skill de deployments do Vercel o commit, o estado `READY` e HTTP 200 das rotas públicas, incluindo `/homologacao` e `/sitemap.xml`.
+
 ---
 
 ## 5. Resiliência de Persistência no MySQL (.NET & Entity Framework)

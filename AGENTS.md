@@ -42,3 +42,11 @@ Este projeto e todas as suas sessões de desenvolvimento são governados estrita
    - Sempre que uma nova página pública for criada no `portal-site`, ela deve conter uma URL canônica e ser adicionada imediatamente ao `portal-site/sitemap.xml`.
    - Antes de finalizar a tarefa, execute `.\tools\Validate-PortalSitemap.ps1` e corrija qualquer página pública ausente do mapa enviado ao Google Search.
    - A regra vale para todos os agentes, subagentes e automações que criarem páginas no portal.
+
+7. **Premissa obrigatória de homologação, progresso e publicação**:
+   - Ao iniciar qualquer tarefa, registre um evento em `portal-site/homologacao-status.json` com `status: "in_progress"`, local, escopo, evidência inicial e a porcentagem real de desenvolvimento/testes coberta.
+   - Durante a execução, atualize o mesmo evento com a porcentagem real, status, `updatedAt` e evidência dos comandos executados. Ao terminar, use `completed`, `blocked` ou `failed` e registre a evidência final.
+   - Faça commit e push do JSON no repositório principal `raphaelpera85/mulletaflix-completo`.
+   - Sincronize o conteúdo de `portal-site/` para a raiz do repositório conectado ao Vercel `raphaelpera85/Mulletaflix-Portal`, faça commit e push em `main` e aguarde o deploy automático.
+   - Usando a skill de deployments do Vercel, confirme a implantação `READY` vinculada ao commit enviado e valide `/`, `/docs`, `/downloads`, `/updates`, `/homologacao` e `/sitemap.xml` com HTTP 200. Registre URL, commit e estado no campo `evidence`.
+   - Se houver erro de autorização ou deploy, não declare a tarefa publicada: registre a falha no JSON e informe o bloqueio.
