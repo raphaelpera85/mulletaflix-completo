@@ -12,8 +12,8 @@
     "definition": "Itens marcados como concluídos ou pendentes no roadmap versionado."
   },
   "tracks": [
-    { "id": "server", "name": "Servidor Windows/Linux", "kind": "server", "status": "monitoring", "source": "GitHub Actions e releases" },
-    { "id": "android", "name": "Aplicativo Android (APK)", "kind": "apk", "status": "monitoring", "progressPercent": 100, "source": "GitHub Actions, testes instrumentados e releases" },
+    { "id": "server", "name": "Servidor Windows/Linux", "kind": "server", "status": "in_progress", "source": "GitHub Actions e testes de integração", "homologation": { "completed": 140, "total": 143, "percent": 98, "unit": "testes", "label": "Integração: 140 aprovados, 3 ignorados, suíte integral ainda em execução." } },
+    { "id": "android", "name": "Aplicativo Android (APK)", "kind": "apk", "status": "completed", "progressPercent": 100, "source": "GitHub Actions, testes instrumentados e releases", "homologation": { "completed": 1, "total": 1, "percent": 100, "unit": "teste instrumentado", "label": "HomeAdaptiveUsageTest: 1 aprovado, 0 falhas, AVD encerrado após a execução." } },
     { "id": "web", "name": "Frontend Web", "kind": "web", "status": "monitoring", "source": "GitHub Actions e roadmap" }
   ],
   "features": [
@@ -225,11 +225,25 @@
       "local": "D:\\Users\\Raphael\\Documents\\Projetos\\mulletaflix\\MulletaFlix-android",
       "location": "MulletaFlix-android (local; sem AVD)",
       "scope": ".\\gradlew.bat :feature:item-detail:testDebugUnitTest --no-daemon --console=plain; regressão CBZ e tamanho de fonte",
+      "status": "completed",
+      "progressPercent": 100,
+      "startedAt": "2026-10-04T13:56:50-03:00",
+      "updatedAt": "2026-10-04T13:58:26-03:00",
+      "evidence": "BUILD SUCCESSFUL, exit code 0. :feature:item-detail:testDebugUnitTest executou 80 testes, todos aprovados, sem falha/erro/skip."
+    },
+    {
+      "id": "android-reader-font-cbz-tablet-2026-10-04",
+      "title": "Regressão de fonte e localizador CBZ no tablet",
+      "agent": "Codex",
+      "front": "APK / leitor EPUB e quadrinhos",
+      "local": "D:\\Users\\Raphael\\Documents\\Projetos\\mulletaflix\\MulletaFlix-android",
+      "location": "MulletaFlix-android (local; AVD iniciado e encerrado pelo wrapper)",
+      "scope": ".\\tools\\with-emulator.ps1 com MulletaflixTabletApi35; BookReaderReadiumIntegrationTest; perfil TABLET",
       "status": "in_progress",
       "progressPercent": 0,
-      "startedAt": "2026-10-04T13:56:50-03:00",
-      "updatedAt": "2026-10-04T13:56:50-03:00",
-      "evidence": "Execução registrada antes do teste. O localizador CBZ agora declara MIME de imagem; revalidando compilação e unidade antes do teste instrumentado."
+      "startedAt": "2026-10-04T13:58:26-03:00",
+      "updatedAt": "2026-10-04T13:58:26-03:00",
+      "evidence": "Teste instrumentado registrado antes da execução. O localizador CBZ agora contém MIME válido; integração valida progresso, escopo e preferência Readium."
     }
   ]
 }

@@ -41,7 +41,11 @@
       const detail = run ? `Último workflow: ${date(run.updated_at)}` : release ? `Release estável: ${escapeHtml(release.tag_name)}` : 'Aguardando evidência pública.';
       const progress = Number.isFinite(Number(track.progressPercent)) ? Math.max(0, Math.min(100, Number(track.progressPercent))) : null;
       const progressLine = progress === null ? 'Percentual: aguardando registro do agente' : `Percentual: ${progress}%`;
-      return `<article class="track-card"><div class="track-top"><span class="status-chip ${statusClass(state)}"><i></i>${escapeHtml(label)}</span><span class="track-kind">${escapeHtml(track.kind)}</span></div><h3>${escapeHtml(track.name)}</h3><p>${escapeHtml(detail)}</p><div class="track-progress"><strong>${progressLine}</strong></div><div class="track-source">Fonte: ${escapeHtml(track.source)}</div></article>`;
+      const homologation = track.homologation || {};
+      const homologationPercent = Number.isFinite(Number(homologation.percent)) ? Math.max(0, Math.min(100, Number(homologation.percent))) : null;
+      const homologationLabel = homologationPercent === null ? 'Homologação: aguardando dados' : `Homologação: ${homologationPercent}%`;
+      const homologationCount = homologation.total ? `${Number(homologation.completed) || 0}/${Number(homologation.total)}` : '—';
+      return `<article class="track-card"><div class="track-top"><span class="status-chip ${statusClass(state)}"><i></i>${escapeHtml(label)}</span><span class="track-kind">${escapeHtml(track.kind)}</span></div><h3>${escapeHtml(track.name)}</h3><p>${escapeHtml(detail)}</p><div class="track-progress"><strong>${homologationLabel}</strong><span> · ${homologationCount} ${escapeHtml(homologation.unit || 'verificações')}</span>${homologationPercent === null ? '' : `<div class="track-progress-bar"><i style="width:${homologationPercent}%"></i></div>`}</div><div class="track-evidence">${escapeHtml(homologation.label || 'Evidência ainda não registrada.')}</div><div class="track-source">Fonte: ${escapeHtml(track.source)}</div></article>`;
     }).join('');
     const lastRun = (runs || []).slice().sort((a, b) => new Date(b.updated_at) - new Date(a.updated_at))[0];
     byId('live-updated').textContent = `Última leitura pública: ${date(lastRun?.updated_at || new Date())}`;
