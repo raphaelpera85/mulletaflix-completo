@@ -46,6 +46,7 @@ Este projeto e todas as suas sessões de desenvolvimento são governados estrita
 7. **Premissa obrigatória de homologação, progresso e publicação**:
    - Ao iniciar qualquer tarefa, registre um evento em `portal-site/homologacao-status.json` com `status: "in_progress"`, local, escopo, evidência inicial e a porcentagem real de desenvolvimento/testes coberta.
    - Servidor e APK são trilhas independentes: o agente do servidor deve registrar o evento da frente `server`, e o agente Android deve registrar um evento próprio da frente `android`/`apk`, incluindo build, testes, percentual e artefato APK quando houver.
+   - Nunca derive percentual de homologação a partir de uma suíte parcial, de um único teste ou de testes ignorados. Se a cobertura formal ainda não estiver consolidada, use `progressPercent: null`, status `in_progress` ou `blocked` e explique os bloqueios em `evidence`.
    - Durante a execução, atualize o mesmo evento com a porcentagem real, status, `updatedAt` e evidência dos comandos executados. Ao terminar, use `completed`, `blocked` ou `failed` e registre a evidência final.
    - Faça commit e push do JSON no repositório principal `raphaelpera85/mulletaflix-completo`.
    - Sincronize o conteúdo de `portal-site/` para a raiz do repositório conectado ao Vercel `raphaelpera85/Mulletaflix-Portal`, faça commit e push em `main` e aguarde o deploy automático.

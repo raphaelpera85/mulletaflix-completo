@@ -12,8 +12,8 @@
     "definition": "Itens marcados como concluídos ou pendentes no roadmap versionado."
   },
   "tracks": [
-    { "id": "server", "name": "Servidor Windows/Linux", "kind": "server", "status": "in_progress", "source": "GitHub Actions e testes de integração", "homologation": { "completed": 140, "total": 143, "percent": 98, "unit": "testes", "label": "Integração: 140 aprovados, 3 ignorados, suíte integral ainda em execução." } },
-    { "id": "android", "name": "Aplicativo Android (APK)", "kind": "apk", "status": "completed", "progressPercent": 100, "source": "GitHub Actions, testes instrumentados e releases", "homologation": { "completed": 1, "total": 1, "percent": 100, "unit": "teste instrumentado", "label": "HomeAdaptiveUsageTest: 1 aprovado, 0 falhas, AVD encerrado após a execução." } },
+    { "id": "server", "name": "Servidor Windows/Linux", "kind": "server", "status": "in_progress", "progressPercent": null, "source": "GitHub Actions e testes de integração", "homologation": { "completed": null, "total": null, "percent": null, "unit": "escopo formal", "label": "Não consolidado: testes parciais em execução e bloqueios ainda sendo investigados." } },
+    { "id": "android", "name": "Aplicativo Android (APK)", "kind": "apk", "status": "in_progress", "progressPercent": null, "source": "GitHub Actions, testes instrumentados e releases", "homologation": { "completed": null, "total": null, "percent": null, "unit": "escopo formal", "label": "Não consolidado: novos testes em execução e bloqueios ainda pendentes." } },
     { "id": "web", "name": "Frontend Web", "kind": "web", "status": "monitoring", "source": "GitHub Actions e roadmap" }
   ],
   "features": [
@@ -29,6 +29,20 @@
     { "id": "T9.5", "name": "Validação e QA da tela", "area": "Web/QA", "status": "pending", "source": "roadmap" }
   ],
   "events": [
+    {
+      "id": "portal-correct-platform-percentages-2026-10-04",
+      "title": "Correção dos percentuais de homologação",
+      "agent": "Codex",
+      "front": "Portal / Servidor / APK",
+      "local": "D:\\Users\\Raphael\\Documents\\Projetos\\mulletaflix",
+      "location": "portal-site/homologacao-status.json e dashboard",
+      "scope": "Remover percentuais inferidos de testes parciais e explicitar bloqueios",
+      "progressPercent": 0,
+      "status": "in_progress",
+      "startedAt": "2026-10-04T13:55:00-03:00",
+      "updatedAt": "2026-10-04T13:55:00-03:00",
+      "evidence": "Revisão iniciada após identificar que os valores 98% e 100% não representavam homologação formal consolidada."
+    },
     {
       "id": "portal-platform-table-2026-10-04",
       "title": "Resumo de homologação por plataforma na tabela funcional",
@@ -267,11 +281,25 @@
       "local": "D:\\Users\\Raphael\\Documents\\Projetos\\mulletaflix\\MulletaFlix-android",
       "location": "MulletaFlix-android (local; AVD iniciado e encerrado pelo wrapper)",
       "scope": ".\\tools\\with-emulator.ps1 com MulletaflixTabletApi35; BookReaderReadiumIntegrationTest; perfil TABLET",
+      "status": "completed",
+      "progressPercent": 100,
+      "startedAt": "2026-10-04T14:02:08-03:00",
+      "updatedAt": "2026-10-04T14:05:05-03:00",
+      "evidence": "BUILD SUCCESSFUL, exit code 0; wrapper confirmou PID QEMU 15028 usando NVIDIA RTX 3050. TEST-MulletaflixTabletApi35(AVD) - 15.xml: 7/7 testes passaram, 0 falhas/erros/skips. Incluiu persistência e isolamento de fontSize, aplicação dinâmica no Readium sem perder capítulo e regressão CBZ com MIME real e HREF relativo. AVD fechado; adb devices sem emuladores."
+    },
+    {
+      "id": "android-reader-font-quality-2026-10-04",
+      "title": "Quality Bar do leitor APK",
+      "agent": "Codex",
+      "front": "APK / leitor EPUB",
+      "local": "D:\\Users\\Raphael\\Documents\\Projetos\\mulletaflix\\MulletaFlix-android",
+      "location": "MulletaFlix-android (local; sem AVD; sem pacote de produção)",
+      "scope": ":feature:item-detail:lintDebug, :app:lintDebug, :app:assembleDebug e :app:compileDebugAndroidTestKotlin",
       "status": "in_progress",
       "progressPercent": 0,
-      "startedAt": "2026-10-04T14:02:08-03:00",
-      "updatedAt": "2026-10-04T14:02:08-03:00",
-      "evidence": "Execução seguinte registrada antes do teste. O href CBZ será caminho relativo válido segundo migração Readium 3.4; manter tipo MIME e posição."
+      "startedAt": "2026-10-04T14:05:05-03:00",
+      "updatedAt": "2026-10-04T14:05:05-03:00",
+      "evidence": "Quality Bar Android registrado antes da execução. Não publicará APK; assembleDebug é somente validação local."
     }
   ]
 }
