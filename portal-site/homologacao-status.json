@@ -37,11 +37,11 @@
       "local": "D:\\Users\\Raphael\\Documents\\Projetos\\mulletaflix",
       "location": "portal-site/homologacao.html e homologacao.js",
       "scope": "Exibir percentual, concluídos, total e evidência separados para Servidor e APK Android",
-      "progressPercent": 0,
-      "status": "in_progress",
+      "progressPercent": 100,
+      "status": "completed",
       "startedAt": "2026-10-04T13:45:00-03:00",
-      "updatedAt": "2026-10-04T13:45:00-03:00",
-      "evidence": "Implementação iniciada; dados de homologação por plataforma adicionados ao contrato JSON."
+      "updatedAt": "2026-10-04T13:49:00-03:00",
+      "evidence": "Tabela funcional agora exibe Servidor: 140/143 testes, 98%, e APK Android: 1/1 teste instrumentado, 100%, com evidência individual. Git principal: 02f2986e; portal: f2be812; Vercel READY: dpl_CBUKXXEX2j5Svns8CiZyaZ65xAc5; /homologacao HTTP 200 com os marcadores publicados."
     },
     {
       "id": "portal-agent-route-2026-10-04",
@@ -253,11 +253,25 @@
       "local": "D:\\Users\\Raphael\\Documents\\Projetos\\mulletaflix\\MulletaFlix-android",
       "location": "MulletaFlix-android (local; AVD iniciado e encerrado pelo wrapper)",
       "scope": ".\\tools\\with-emulator.ps1 com MulletaflixTabletApi35; BookReaderReadiumIntegrationTest; perfil TABLET",
+      "status": "failed",
+      "progressPercent": 100,
+      "startedAt": "2026-10-04T13:58:26-03:00",
+      "updatedAt": "2026-10-04T14:02:08-03:00",
+      "evidence": "BUILD FAILED no comando :feature:item-detail:connectedDebugAndroidTest (exit code 1). TEST-MulletaflixTabletApi35(AVD) - 15.xml: 7 testes, 6 passaram; 1 falha no teste CBZ já mencionado. O campo type agora está presente, mas o parser Readium ainda retorna null para o href opaco mulletaflix:cbz:page:1. Testes de fonte Readium/DataStore passaram. AVD encerrou pelo wrapper. Próximo passo: substituir href por URL relativa válida e executar novamente."
+    },
+    {
+      "id": "android-reader-font-cbz-tablet-url-2026-10-04",
+      "title": "Regressão CBZ com HREF relativo Readium",
+      "agent": "Codex",
+      "front": "APK / leitor EPUB e quadrinhos",
+      "local": "D:\\Users\\Raphael\\Documents\\Projetos\\mulletaflix\\MulletaFlix-android",
+      "location": "MulletaFlix-android (local; AVD iniciado e encerrado pelo wrapper)",
+      "scope": ".\\tools\\with-emulator.ps1 com MulletaflixTabletApi35; BookReaderReadiumIntegrationTest; perfil TABLET",
       "status": "in_progress",
       "progressPercent": 0,
-      "startedAt": "2026-10-04T13:58:26-03:00",
-      "updatedAt": "2026-10-04T13:58:26-03:00",
-      "evidence": "Teste instrumentado registrado antes da execução. O localizador CBZ agora contém MIME válido; integração valida progresso, escopo e preferência Readium."
+      "startedAt": "2026-10-04T14:02:08-03:00",
+      "updatedAt": "2026-10-04T14:02:08-03:00",
+      "evidence": "Execução seguinte registrada antes do teste. O href CBZ será caminho relativo válido segundo migração Readium 3.4; manter tipo MIME e posição."
     }
   ]
 }
