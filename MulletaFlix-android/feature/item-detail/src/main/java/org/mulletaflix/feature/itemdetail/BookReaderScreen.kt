@@ -12,6 +12,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.CircularProgressIndicator
@@ -80,13 +82,22 @@ fun BookReaderScreen(
                 publication = publication,
                 configuration = ReflowableWebConfiguration(),
             )?.createRenditionState(
-                initialPreferences = ReflowableWebPreferences(),
+                initialPreferences = ReflowableWebPreferences(
+                    fontSize = state.fontSizePercent / 100.0,
+                ),
                 initialLocation = state.initialLocator?.let(::ReflowableWebGoLocation),
             )?.getOrNull() ?: error("Não foi possível preparar a leitura.")
         }.onSuccess { renditionState = it }
             .onFailure { renditionError = "Não foi possível renderizar este livro." }
     }
     val renditionController = renditionState?.controller
+    LaunchedEffect(renditionController, state.fontSizePercent) {
+        val controller = renditionController ?: return@LaunchedEffect
+        val fontSize = state.fontSizePercent / 100.0
+        if (controller.preferences.fontSize != fontSize) {
+            controller.preferences = controller.preferences.copy(fontSize = fontSize)
+        }
+    }
     LaunchedEffect(itemId, renditionController) {
         val controller = renditionController ?: return@LaunchedEffect
         snapshotFlow { controller.location.toLocator() }
@@ -99,12 +110,12 @@ fun BookReaderScreen(
     }
     LaunchedEffect(itemId, state.comicArchive) {
         val archive = state.comicArchive ?: return@LaunchedEffect
-        snapshotFlow { currentComicPage }
+                snapshotFlow { currentComicPage }
             .distinctUntilChanged()
             .collect { page ->
                 viewModel.saveReadingProgression(
                     itemId,
-                    ComicBookArchive.locatorForPage(page, archive.pageCount),
+                    archive.locatorForPage(page),
                 )
             }
     }
@@ -139,14 +150,29 @@ fun BookReaderScreen(
             } else {
                 val controller = renditionState?.controller
                 Row(
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 8.dp),
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 8.dp),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     IconButton(onClick = { controller?.let { nav -> coroutineScope.launch { nav.moveBackward() } } }, enabled = controller != null) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Página anterior")
                     }
-                    Text("Toque nas setas para navegar", style = MaterialTheme.typography.labelMedium)
+                    BookReaderFontSizeControls(
+                        fontSizePercent = state.fontSizePercent,
+                        enabled = controller != null,
+                        onDecrease = {
+                            viewModel.setFontSizePercent(
+                                itemId,
+                                BookReaderFontSize.decrease(state.fontSizePercent),
+                            )
+                        },
+                        onIncrease = {
+                            viewModel.setFontSizePercent(
+                                itemId,
+                                BookReaderFontSize.increase(state.fontSizePercent),
+                            )
+                        },
+                    )
                     IconButton(onClick = { controller?.let { nav -> coroutineScope.launch { nav.moveForward() } } }, enabled = controller != null) {
                         Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = "Próxima página")
                     }
@@ -180,6 +206,34 @@ fun BookReaderScreen(
                 )
                 else -> CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
             }
+        }
+    }
+}
+
+@Composable
+internal fun BookReaderFontSizeControls(
+    fontSizePercent: Int,
+    enabled: Boolean,
+    onDecrease: () -> Unit,
+    onIncrease: () -> Unit,
+) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        IconButton(
+            onClick = onDecrease,
+            enabled = enabled && fontSizePercent > BookReaderFontSize.MIN_PERCENT,
+        ) {
+            Icon(Icons.Default.Remove, contentDescription = "Diminuir tamanho do texto")
+        }
+        Text(
+            text = "${BookReaderFontSize.normalize(fontSizePercent)}%",
+            style = MaterialTheme.typography.labelLarge,
+            modifier = Modifier.padding(horizontal = 4.dp),
+        )
+        IconButton(
+            onClick = onIncrease,
+            enabled = enabled && fontSizePercent < BookReaderFontSize.MAX_PERCENT,
+        ) {
+            Icon(Icons.Default.Add, contentDescription = "Aumentar tamanho do texto")
         }
     }
 }

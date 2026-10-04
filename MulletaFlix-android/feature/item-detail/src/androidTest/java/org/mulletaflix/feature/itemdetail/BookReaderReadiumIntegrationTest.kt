@@ -114,6 +114,35 @@ class BookReaderReadiumIntegrationTest {
     }
 
     @Test
+    fun fontSizePreferencePersistsAndIsIsolatedByAccountAndServer() = runBlocking {
+        val store = BookReaderProgressStore(context)
+        val reloadedStore = BookReaderProgressStore(context)
+        val scope = HomeFeedCacheScope(
+            "font-size-server-${System.nanoTime()}",
+            "https://font-size.example",
+            "font-size-user-${System.nanoTime()}",
+        )
+        val sameServerLanEndpoint = scope.copy(serverUrl = "http://192.168.1.30:8096")
+        val differentAccount = scope.copy(userId = "another-font-size-user")
+        val differentServer = scope.copy(serverId = "another-font-size-server")
+
+        try {
+            store.writeFontSizePercent(scope, 170)
+
+            assertEquals(170, reloadedStore.readFontSizePercent(scope))
+            assertEquals(170, reloadedStore.readFontSizePercent(sameServerLanEndpoint))
+            assertEquals(BookReaderFontSize.DEFAULT_PERCENT, reloadedStore.readFontSizePercent(differentAccount))
+            assertEquals(BookReaderFontSize.DEFAULT_PERCENT, reloadedStore.readFontSizePercent(differentServer))
+            store.writeFontSizePercent(scope, 500)
+            assertEquals(BookReaderFontSize.MAX_PERCENT, reloadedStore.readFontSizePercent(scope))
+        } finally {
+            store.removeFontSize(scope)
+            store.removeFontSize(differentAccount)
+            store.removeFontSize(differentServer)
+        }
+    }
+
+    @Test
     fun comicPageProgressPersistsAndRemainsScopedToItsAccountAndServer() = runBlocking {
         val store = BookReaderProgressStore(context)
         val reloadedStore = BookReaderProgressStore(context)
@@ -121,17 +150,21 @@ class BookReaderReadiumIntegrationTest {
         val otherAccount = scope.copy(userId = "other-comic-user")
         val otherServer = scope.copy(serverId = "other-comic-server")
         val itemId = "comic-progress-${System.nanoTime()}"
-        val locator = ComicBookArchive.locatorForPage(index = 4, pageCount = 12)
+        val comicFile = createComicArchive("pages/1.PNG", "pages/2.jpg")
+        val archive = ComicBookArchive.open(comicFile)
+        val locator = archive.locatorForPage(index = 1)
 
         try {
             store.write(scope, itemId, locator)
 
             val restored = reloadedStore.read(scope, itemId)
-            assertEquals(4, ComicBookArchive.pageIndexFromLocator(restored, pageCount = 12))
+            assertEquals("image/jpeg", locator.toJSON().getString("type"))
+            assertEquals(1, ComicBookArchive.pageIndexFromLocator(restored, pageCount = archive.pageCount))
             assertEquals(null, reloadedStore.read(otherAccount, itemId))
             assertEquals(null, reloadedStore.read(otherServer, itemId))
         } finally {
             reloadedStore.remove(scope, itemId)
+            comicFile.delete()
         }
     }
 
@@ -160,6 +193,43 @@ class BookReaderReadiumIntegrationTest {
                 validRenditionState.controller?.location?.href?.toString() == "OPS/chapter-2.xhtml"
             }
             assertEquals("OPS/chapter-2.xhtml", validRenditionState.controller?.location?.href?.toString())
+        } finally {
+            epub.delete()
+        }
+    }
+
+    @Test
+    fun reflowableRenditionAppliesFontSizeDynamicallyWithoutLosingLocation() {
+        val epub = createEpub()
+        try {
+            val publication = open(epub)
+            val savedLocator = locator("OPS/chapter-2.xhtml", 0.42)
+            val renditionState = runBlocking(Dispatchers.IO) {
+                ReflowableWebRenditionFactory(
+                    application = context.applicationContext as Application,
+                    publication = publication,
+                    configuration = ReflowableWebConfiguration(),
+                )?.createRenditionState(
+                    initialPreferences = ReflowableWebPreferences(fontSize = 1.0),
+                    initialLocation = ReflowableWebGoLocation(savedLocator),
+                )?.getOrNull()
+            }
+            val validRenditionState = requireNotNull(renditionState)
+            composeRule.setContent {
+                ReflowableWebRendition(state = validRenditionState, modifier = Modifier.fillMaxSize())
+            }
+            composeRule.waitUntil(timeoutMillis = 10_000) {
+                validRenditionState.controller?.location?.href?.toString() == "OPS/chapter-2.xhtml"
+            }
+            val controller = requireNotNull(validRenditionState.controller)
+
+            composeRule.runOnIdle {
+                controller.preferences = controller.preferences.copy(fontSize = 1.5)
+            }
+            composeRule.waitUntil(timeoutMillis = 10_000) { controller.settings.fontSize == 1.5 }
+
+            assertEquals(1.5, controller.settings.fontSize, 0.0)
+            assertEquals("OPS/chapter-2.xhtml", controller.location.href.toString())
         } finally {
             epub.delete()
         }
@@ -222,6 +292,14 @@ class BookReaderReadiumIntegrationTest {
                       <body><h1>Retomada funcionando</h1><p>Posição salva restaurada.</p></body>
                     </html>""".trimIndent(),
             )
+        }
+        return file
+    }
+
+    private fun createComicArchive(vararg pageNames: String): File {
+        val file = File.createTempFile("comic-progress-test-", ".cbz", context.cacheDir)
+        ZipOutputStream(file.outputStream()).use { zip ->
+            pageNames.forEach { name -> zip.writeEntry(name, "comic page fixture") }
         }
         return file
     }

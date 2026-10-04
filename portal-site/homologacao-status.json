@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-10-04T13:26:00-03:00",
+  "generatedAt": "2026-10-04T13:54:00-03:00",
   "source": {
     "roadmap": "https://github.com/raphaelpera85/mulletaflix-completo/blob/main/docs/roadmap-evolucao-tecnologica-servidor-e-web.md",
     "repository": "https://github.com/raphaelpera85/mulletaflix-completo"
@@ -44,57 +44,94 @@
       "evidence": "AGENTS.md e .agents/rules atualizados com a rota obrigatória. Servidor e APK agora têm trilhas independentes, com percentual e evidência. Git principal: 63fe5897; portal conectado: a231176. Deploy Vercel READY: dpl_4A3feFZiTbW1cbBiLNWYk4ZrWMvz. Rotas /homologacao, /docs e /sitemap.xml verificadas com HTTP 200."
     },
     {
+      "id": "tests-dotnet-full-20261004",
       "title": "Suíte .NET Release — testes da solução",
       "agent": "Codex",
+      "front": "server",
       "location": "MulletaFlix-master (local, instância de produção fechada)",
       "scope": "dotnet test MulletaFlix.sln --no-restore -c Release -m:1 --verbosity quiet",
       "status": "failure",
+      "startedAt": "2026-10-04T13:22:33-03:00",
+      "progressPercent": 66,
       "updatedAt": "2026-10-04T13:36:00-03:00",
       "evidence": "Primeira execução interrompida manualmente após vários minutos sem saída por estar em console quiet; nenhum erro de teste foi reportado até a interrupção. A repetição integral será registrada separadamente."
     },
     {
+      "id": "tests-integration-20261004",
       "title": "Testes de integração do servidor",
       "agent": "Codex",
+      "front": "server",
       "location": "MulletaFlix-master (local; harness de integração isolado)",
       "scope": "dotnet test tests/Jellyfin.Server.Integration.Tests/Jellyfin.Server.Integration.Tests.csproj --no-restore -c Release -m:1 --blame-hang-timeout 2m --blame-hang-dump-type none --logger console;verbosity=normal",
       "status": "completed",
+      "startedAt": "2026-10-04T13:28:00-03:00",
+      "progressPercent": 100,
       "updatedAt": "2026-10-04T13:36:00-03:00",
       "evidence": "Execução de Teste Bem-sucedida; 143 testes, 140 aprovados, 3 ignorados, 0 falhas; exit code 0; 5m46s."
     },
     {
+      "id": "tests-dotnet-rerun-20261004",
       "title": "Reexecução integral da suíte .NET Release",
       "agent": "Codex",
+      "front": "server",
       "location": "MulletaFlix-master (local, instância de produção fechada)",
-      "scope": "dotnet test MulletaFlix.sln --no-restore -c Release -m:1 --verbosity quiet",
-      "status": "in_progress",
-      "updatedAt": "2026-10-04T13:36:00-03:00",
-      "evidence": "Execução integral iniciada após a assembly de integração passar isoladamente."
+      "scope": "dotnet test MulletaFlix.sln --no-restore -c Release -m:1 --verbosity minimal",
+      "status": "completed",
+      "startedAt": "2026-10-04T13:37:00-03:00",
+      "progressPercent": 100,
+      "updatedAt": "2026-10-04T13:51:00-03:00",
+      "evidence": "Exit code 0. 17 projetos: 4.674 aprovados, 59 ignorados e 0 falhas. Inclui Server.Integration.Tests 140/143 e IntroSkipper.Integration.Tests 28/29."
     },
     {
+      "id": "tests-web-ts-20261004",
       "title": "Verificação de build TypeScript Web",
       "agent": "Codex",
+      "front": "server/web",
       "location": "MulletaFlix-web-master (local)",
       "scope": "npm run build:check",
       "status": "completed",
-      "updatedAt": "2026-10-04T13:26:00-03:00",
+      "startedAt": "2026-10-04T13:22:33-03:00",
+      "progressPercent": 100,
+      "updatedAt": "2026-10-04T13:51:00-03:00",
       "evidence": "npm run build:check terminou com exit code 0 (tsc --noEmit)."
     },
     {
+      "id": "tests-android-unit-20261004",
       "title": "Testes unitários Android",
       "agent": "Codex",
+      "front": "android/apk",
       "location": "MulletaFlix-android (local; somente teste, sem artefato de release)",
       "scope": ".\\gradlew.bat testDebugUnitTest",
       "status": "completed",
-      "updatedAt": "2026-10-04T13:26:00-03:00",
+      "startedAt": "2026-10-04T13:22:33-03:00",
+      "progressPercent": 100,
+      "updatedAt": "2026-10-04T13:51:00-03:00",
       "evidence": "BUILD SUCCESSFUL; 456 actionable tasks, 456 up-to-date."
     },
     {
+      "id": "tests-android-unit-rerun-20261004",
+      "title": "Reexecução dos testes unitários Android após diff paralelo EPUB",
+      "agent": "Codex",
+      "front": "android/apk",
+      "location": "MulletaFlix-android (local; teste apenas, sem pacote/release)",
+      "scope": ".\\gradlew.bat testDebugUnitTest",
+      "status": "completed",
+      "startedAt": "2026-10-04T13:51:00-03:00",
+      "progressPercent": 100,
+      "updatedAt": "2026-10-04T13:54:00-03:00",
+      "evidence": "BUILD SUCCESSFUL, exit code 0; 456 actionable tasks, 8 executadas e 448 up-to-date. Incluiu recompilação da feature/app após o diff EPUB paralelo; sem gerar APK."
+    },
+    {
+      "id": "tests-format-20261004",
       "title": "Format verification e diff check",
       "agent": "Codex",
+      "front": "server",
       "location": "MulletaFlix-master (local)",
       "scope": "dotnet format whitespace --verify-no-changes nos quatro controllers alterados; git diff --check",
       "status": "completed",
-      "updatedAt": "2026-10-04T13:26:00-03:00",
+      "startedAt": "2026-10-04T13:22:33-03:00",
+      "progressPercent": 100,
+      "updatedAt": "2026-10-04T13:51:00-03:00",
       "evidence": "Verificação terminou sem erros; diff check limpo. Busca contextual encontrou cinco ocorrências do padrão em outros controllers para revisão futura."
     },
     {
@@ -102,8 +139,10 @@
       "agent": "Codex",
       "front": "iOS",
       "local": "D:\\Users\\Raphael\\Documents\\Projetos\\mulletaflix",
+      "location": "D:\\Users\\Raphael\\Documents\\Projetos\\mulletaflix (Windows; sem macOS/Xcode)",
       "scope": "Validação estrutural, testes declarados e análise de produção do aplicativo iOS",
       "status": "completed",
+      "progressPercent": 100,
       "startedAt": "2026-10-04T00:00:00-03:00",
       "updatedAt": "2026-10-04T00:00:00-03:00",
       "evidence": "validate-structure.ps1 terminou com código 0: IOS_DIFF_CHECK=PASS, IOS_PLIST_XML=PASS, IOS_PRIVACY_XML=PASS, IOS_EXPORT_OPTIONS_XML=PASS, IOS_VERSION_ALIGNMENT=PASS (1.0.0), IOS_RELEASE_GUARDS=PASS, IOS_DECLARED_TESTS=135, IOS_RAW_UI_ERRORS=0 e IOS_ASYNC_NIL_COALESCING=PASS. Avaliador adversarial confirmou IOS_AUTOMATIC_INTRO_INVARIANTS=PASS e IOS_EVALUATOR_DIFF_CHECK=PASS. Swift nativo e xcodebuild foram identificados como indisponíveis no Windows."
@@ -121,6 +160,76 @@
       "startedAt": "2026-10-04T13:30:15-03:00",
       "updatedAt": "2026-10-04T13:33:20-03:00",
       "evidence": "BUILD SUCCESSFUL (1m16s; exit code 0). Relatório TEST-MulletaflixTvApi34(AVD) - 14.xml: 1 teste, 0 falhas, 0 erros, 0 ignorados. O wrapper confirmou: AVD MulletaflixTvApi34 QEMU PID 25572 está usando NVIDIA GPU antes de Gradle; GPU identificada como RTX 3050 Laptop 6 GB. AVD encerrou (adb devices sem emuladores); NVIDIA reportou 0 MiB usados após o teste. Nenhum arquivo de produção/release foi gerado."
+    },
+    {
+      "id": "android-reader-font-unit-2026-10-04",
+      "title": "Teste unitário do tamanho de fonte EPUB",
+      "agent": "Codex",
+      "front": "APK / leitor EPUB",
+      "local": "D:\\Users\\Raphael\\Documents\\Projetos\\mulletaflix\\MulletaFlix-android",
+      "location": "MulletaFlix-android (local; sem AVD)",
+      "scope": ".\\gradlew.bat :feature:item-detail:testDebugUnitTest --no-daemon --console=plain; limites 80–200%, passo de 10% e normalização",
+      "status": "completed",
+      "progressPercent": 100,
+      "startedAt": "2026-10-04T13:42:15-03:00",
+      "updatedAt": "2026-10-04T13:44:29-03:00",
+      "evidence": "BUILD SUCCESSFUL, exit code 0. :feature:item-detail:testDebugUnitTest executou 80 testes: 80 aprovados, 0 falhas, 0 erros, 0 ignorados; inclui 3 testes novos de faixa/normalização de fonte."
+    },
+    {
+      "id": "android-reader-font-phone-2026-10-04",
+      "title": "Controles de fonte EPUB no telefone",
+      "agent": "Codex",
+      "front": "APK / leitor EPUB",
+      "local": "D:\\Users\\Raphael\\Documents\\Projetos\\mulletaflix\\MulletaFlix-android",
+      "location": "MulletaFlix-android (local; AVD iniciado e encerrado pelo wrapper)",
+      "scope": ".\\tools\\with-emulator.ps1 com MulletaflixApi35; BookReaderFontSizeControlsTest; perfil PHONE",
+      "status": "completed",
+      "progressPercent": 100,
+      "startedAt": "2026-10-04T13:44:29-03:00",
+      "updatedAt": "2026-10-04T13:48:17-03:00",
+      "evidence": "BUILD SUCCESSFUL, exit code 0; wrapper confirmou PID QEMU 30032 usando NVIDIA RTX 3050 antes do Gradle. TEST-MulletaflixApi35(AVD) - 15.xml: 3 testes de Compose/touch, 0 falhas, 0 erros, 0 ignorados. Emulador fechado pelo wrapper."
+    },
+    {
+      "id": "android-reader-font-tablet-2026-10-04",
+      "title": "Leitor EPUB e controles no tablet",
+      "agent": "Codex",
+      "front": "APK / leitor EPUB",
+      "local": "D:\\Users\\Raphael\\Documents\\Projetos\\mulletaflix\\MulletaFlix-android",
+      "location": "MulletaFlix-android (local; AVD iniciado e encerrado pelo wrapper)",
+      "scope": ".\\tools\\with-emulator.ps1 com MulletaflixTabletApi35; BookReaderFontSizeControlsTest; perfil TABLET",
+      "status": "completed",
+      "progressPercent": 100,
+      "startedAt": "2026-10-04T13:48:17-03:00",
+      "updatedAt": "2026-10-04T13:50:35-03:00",
+      "evidence": "BUILD SUCCESSFUL, exit code 0; wrapper confirmou PID QEMU 20436 na NVIDIA RTX 3050. TEST-MulletaflixTabletApi35(AVD) - 15.xml: 3 testes de controle Compose, 0 falhas/erros/skips. O runner executou somente a primeira classe do argumento; integração Readium/DataStore foi separada em evento próprio. AVD encerrou pelo wrapper."
+    },
+    {
+      "id": "android-reader-font-readium-tablet-2026-10-04",
+      "title": "Preferência EPUB e DataStore no tablet",
+      "agent": "Codex",
+      "front": "APK / leitor EPUB",
+      "local": "D:\\Users\\Raphael\\Documents\\Projetos\\mulletaflix\\MulletaFlix-android",
+      "location": "MulletaFlix-android (local; AVD iniciado e encerrado pelo wrapper)",
+      "scope": ".\\tools\\with-emulator.ps1 com MulletaflixTabletApi35; BookReaderReadiumIntegrationTest; perfil TABLET",
+      "status": "failed",
+      "progressPercent": 100,
+      "startedAt": "2026-10-04T13:50:35-03:00",
+      "updatedAt": "2026-10-04T13:55:01-03:00",
+      "evidence": "BUILD FAILED no comando :feature:item-detail:connectedDebugAndroidTest (exit code 1). Relatório TEST-MulletaflixTabletApi35(AVD) - 15.xml: 7 testes, 6 aprovados e 1 falha. Os dois novos testes de fontSize Readium/DataStore passaram; falhou o teste pré-existente comicPageProgressPersistsAndRemainsScopedToItsAccountAndServer em ComicBookArchive.locatorForPage por ausência do campo obrigatório Readium Locator.type. AVD fechado pelo wrapper; correção e nova execução serão registradas separadamente."
+    },
+    {
+      "id": "android-reader-font-cbz-unit-2026-10-04",
+      "title": "Testes unitários após corrigir locator CBZ",
+      "agent": "Codex",
+      "front": "APK / leitor EPUB e quadrinhos",
+      "local": "D:\\Users\\Raphael\\Documents\\Projetos\\mulletaflix\\MulletaFlix-android",
+      "location": "MulletaFlix-android (local; sem AVD)",
+      "scope": ".\\gradlew.bat :feature:item-detail:testDebugUnitTest --no-daemon --console=plain; regressão CBZ e tamanho de fonte",
+      "status": "in_progress",
+      "progressPercent": 0,
+      "startedAt": "2026-10-04T13:56:50-03:00",
+      "updatedAt": "2026-10-04T13:56:50-03:00",
+      "evidence": "Execução registrada antes do teste. O localizador CBZ agora declara MIME de imagem; revalidando compilação e unidade antes do teste instrumentado."
     }
   ]
 }

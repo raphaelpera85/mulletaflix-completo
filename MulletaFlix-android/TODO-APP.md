@@ -2,6 +2,15 @@
 
 Este documento rastreia o status de implementação de todas as funcionalidades, módulos, telas e componentes do aplicativo oficial **MulletaFlix Android**.
 
+## Índice alfabético progressivo da biblioteca (APK local; sem release)
+
+- [x] Exibir letras ainda não carregadas durante a paginação e buscar páginas até encontrar a letra solicitada (ou a próxima disponível), respeitando a grade e cabeçalhos.
+- [x] Preservar a letra escolhida após falha de rede; permitir retry por toque no tablet e por foco/OK no controle da Android TV, sem rolar incorretamente para o fim da lista.
+- [x] Separar falha da navegação alfabética de erro geral da biblioteca; instrução acessível da TV diz “Pressione OK”.
+- [x] Testes unitários globais: `testDebugUnitTest` (1.370 testes, 0 falhas/erros/skips); testes de interface do índice passaram em tablet API 35 e Android TV API 34 (2/2 em cada perfil). Os AVDs foram confirmados usando a GPU NVIDIA e fechados pelo wrapper.
+- [x] `:feature:library:lintDebug`, `:app:lintDebug`, `:feature:library:compileDebugAndroidTestKotlin` e `:app:assembleDebug`: `BUILD SUCCESSFUL`.
+- [ ] Sem bump de versão, pacote de produção ou publicação; validar certificado e release anterior antes de eventual publicação autorizada.
+
 ## Navegação dos cards de biblioteca na Home (APK local; sem release)
 
 - [x] Centralizar o despacho do card: biblioteca comum envia seu ID à rota paginada; biblioteca `livetv` abre a tela dedicada de TV ao vivo.

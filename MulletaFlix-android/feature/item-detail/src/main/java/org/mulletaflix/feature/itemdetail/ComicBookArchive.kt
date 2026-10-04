@@ -20,6 +20,11 @@ internal class ComicBookArchive private constructor(
 
     fun pageName(index: Int): String = pageEntries[index]
 
+    fun locatorForPage(index: Int): Locator {
+        require(index in pageEntries.indices)
+        return locatorForPage(index, pageCount, pageMediaType(pageEntries[index]))
+    }
+
     fun decodePage(index: Int, maxWidth: Int, maxHeight: Int): Bitmap {
         require(index in pageEntries.indices) { "Comic page is out of range." }
         require(maxWidth > 0 && maxHeight > 0) { "Comic page target size is invalid." }
@@ -104,12 +109,16 @@ internal class ComicBookArchive private constructor(
         }
 
         fun locatorForPage(index: Int, pageCount: Int): Locator {
+            return locatorForPage(index, pageCount, "application/octet-stream")
+        }
+
+        private fun locatorForPage(index: Int, pageCount: Int, mediaType: String): Locator {
             require(pageCount > 0 && index in 0 until pageCount)
             val progression = if (pageCount == 1) 0.0 else index.toDouble() / (pageCount - 1)
             return requireNotNull(
                 Locator.fromJSON(
                     JSONObject(
-                        """{"href":"$PAGE_HREF_PREFIX$index","locations":{"position":${index + 1},"totalProgression":$progression}}""",
+                        """{"href":"$PAGE_HREF_PREFIX$index","type":"$mediaType","locations":{"position":${index + 1},"totalProgression":$progression}}""",
                     ),
                 ),
             )
@@ -122,6 +131,15 @@ internal class ComicBookArchive private constructor(
                 .takeIf { it != href }
                 ?.toIntOrNull()
             return index?.takeIf { it in 0 until pageCount }
+        }
+
+        private fun pageMediaType(pageName: String): String = when (pageName.substringAfterLast('.', "").lowercase()) {
+            "jpg", "jpeg" -> "image/jpeg"
+            "png" -> "image/png"
+            "webp" -> "image/webp"
+            "gif" -> "image/gif"
+            "bmp" -> "image/bmp"
+            else -> "application/octet-stream"
         }
 
         private fun validatePageEntry(entry: ZipEntry) {

@@ -34,6 +34,7 @@ internal data class BookReaderState(
     val publication: Publication? = null,
     val comicArchive: ComicBookArchive? = null,
     val initialLocator: Locator? = null,
+    val fontSizePercent: Int = BookReaderFontSize.DEFAULT_PERCENT,
     val error: String? = null,
 )
 
@@ -60,6 +61,8 @@ class BookReaderViewModel @Inject constructor(
     private val progressSaveGeneration = BookReaderRequestGeneration()
     private var progressSaveJob: Job? = null
     private val progressSaveMutex = Mutex()
+    private val fontSizeSaveGeneration = BookReaderRequestGeneration()
+    private var fontSizeSaveJob: Job? = null
 
     init {
         viewModelScope.launch {
@@ -77,6 +80,8 @@ class BookReaderViewModel @Inject constructor(
                     _state.value = BookReaderState(isLoading = true)
                     progressSaveGeneration.begin()
                     progressSaveJob?.cancel()
+                    fontSizeSaveGeneration.begin()
+                    fontSizeSaveJob?.cancel()
                     load(activeItemId)
                 }
             }
@@ -99,6 +104,8 @@ class BookReaderViewModel @Inject constructor(
             if (!loadGeneration.isCurrent(generation)) return@launch
             loadedProgressScope = progressScope
             val initialLocator = progressScope?.let { progressStore.read(it, itemId) }
+            val fontSizePercent = progressScope?.let { progressStore.readFontSizePercent(it) }
+                ?: BookReaderFontSize.DEFAULT_PERCENT
             try {
                 val content = withContext(Dispatchers.IO) {
                     val body = try {
@@ -162,6 +169,7 @@ class BookReaderViewModel @Inject constructor(
                     publication = content.publication,
                     comicArchive = content.comicArchive,
                     initialLocator = restorableLocator,
+                    fontSizePercent = fontSizePercent,
                 )
             } catch (cancelled: CancellationException) {
                 throw cancelled
@@ -196,6 +204,31 @@ class BookReaderViewModel @Inject constructor(
         }
     }
 
+    fun setFontSizePercent(itemId: String, percent: Int) {
+        val expectedScope = loadedProgressScope ?: return
+        val currentState = _state.value
+        if (loadedItemId != itemId || currentState.publication == null) return
+
+        val normalizedPercent = BookReaderFontSize.normalize(percent)
+        if (currentState.fontSizePercent == normalizedPercent) return
+        _state.value = currentState.copy(fontSizePercent = normalizedPercent)
+
+        val generation = fontSizeSaveGeneration.begin()
+        fontSizeSaveJob?.cancel()
+        fontSizeSaveJob = viewModelScope.launch {
+            val currentScope = recoverBookReaderStorageFailure {
+                sessionRepository.getHomeFeedCacheScope().first()
+            } ?: return@launch
+            if (progressStore.entryKey(currentScope, FONT_SIZE_SCOPE_ITEM_ID) !=
+                progressStore.entryKey(expectedScope, FONT_SIZE_SCOPE_ITEM_ID)
+            ) {
+                return@launch
+            }
+            if (!fontSizeSaveGeneration.isCurrent(generation)) return@launch
+            progressStore.writeFontSizePercent(expectedScope, normalizedPercent)
+        }
+    }
+
     fun restartReadingFromBeginning(itemId: String) {
         val scope = loadedProgressScope ?: return
         if (loadedItemId != itemId) return
@@ -226,7 +259,13 @@ class BookReaderViewModel @Inject constructor(
     }
 
     override fun onCleared() {
+        fontSizeSaveGeneration.begin()
+        fontSizeSaveJob?.cancel()
         bookCacheFiles.deleteAfter(loadJob)
         super.onCleared()
+    }
+
+    private companion object {
+        const val FONT_SIZE_SCOPE_ITEM_ID = "__reader_font_size_preference__"
     }
 }

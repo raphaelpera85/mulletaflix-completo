@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Linq;
 using MulletaFlix.Api.Extensions;
 using MulletaFlix.Api.Helpers;
