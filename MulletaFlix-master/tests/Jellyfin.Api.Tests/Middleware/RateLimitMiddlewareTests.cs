@@ -63,6 +63,13 @@ public sealed class RateLimitMiddlewareTests
     [Theory]
     [InlineData("/Search/Hints", "search")]
     [InlineData("/Items/RemoteSearch", "search")]
+    [InlineData("/Catalog/Audit", "administration")]
+    [InlineData("/Catalog/Audit/Fix", "administration")]
+    [InlineData("/Items/00000000-0000-0000-0000-000000000001/Refresh", "administration")]
+    [InlineData("/Items/Refresh", null)]
+    [InlineData("/Items/not-a-guid/Refresh", null)]
+    [InlineData("/Items/00000000-0000-0000-0000-000000000000/Refresh", null)]
+    [InlineData("/Items/00000000-0000-0000-0000-000000000001/stream", null)]
     [InlineData("/NebulaFtp/Download", "nebula")]
     [InlineData("/ClientLog/Document", "client-log")]
     [InlineData("/ClientLog/Document/Extra", "client-log")]
@@ -74,6 +81,65 @@ public sealed class RateLimitMiddlewareTests
     public void SelectiveRateLimitCategory_RequiresRouteBoundary(string path, string? expected)
     {
         Assert.Equal(expected, RateLimitMiddleware.GetSelectiveRateLimitCategory(path));
+    }
+
+    [Theory]
+    [InlineData("GET", "/Audio/00000000-0000-0000-0000-000000000001/RemoteSearch/Lyrics", "search")]
+    [InlineData("POST", "/Audio/00000000-0000-0000-0000-000000000001/RemoteSearch/Lyrics/provider-id", "search")]
+    [InlineData("GET", "/Items/00000000-0000-0000-0000-000000000001/RemoteSearch/Subtitles/pt-BR", "search")]
+    [InlineData("POST", "/Items/00000000-0000-0000-0000-000000000001/RemoteSearch/Subtitles/subtitle-id", "search")]
+    [InlineData("POST", "/Items/00000000-0000-0000-0000-000000000001/Refresh", "administration")]
+    [InlineData("POST", "/Items/00000000-0000-0000-0000-000000000001", "administration")]
+    [InlineData("POST", "/Audio/00000000-0000-0000-0000-000000000001/Lyrics", "administration")]
+    [InlineData("DELETE", "/Audio/00000000-0000-0000-0000-000000000001/Lyrics", "administration")]
+    [InlineData("POST", "/Videos/00000000-0000-0000-0000-000000000001/Subtitles", "administration")]
+    [InlineData("GET", "/Audio/00000000-0000-0000-0000-000000000001/Lyrics", null)]
+    [InlineData("GET", "/Videos/00000000-0000-0000-0000-000000000001/source/Subtitles/0/Stream", null)]
+    [InlineData("POST", "/Audio/not-a-guid/RemoteSearch/Lyrics/provider-id", null)]
+    [InlineData("POST", "/Items/00000000-0000-0000-0000-000000000001/Refresh/extra", null)]
+    public void SelectiveRateLimitCategory_UsesMethodWithoutThrottlingPlayback(string method, string path, string? expected)
+    {
+        Assert.Equal(expected, RateLimitMiddleware.GetSelectiveRateLimitCategory(method, path));
+    }
+
+    [Fact]
+    public async Task CatalogAudit_UsesAdministrativeQuotaAndReturnsRetryAfter()
+    {
+        var middleware = new RateLimitMiddleware(
+            context =>
+            {
+                context.Response.StatusCode = StatusCodes.Status200OK;
+                return Task.CompletedTask;
+            },
+            NullLogger<RateLimitMiddleware>.Instance);
+        var userId = Guid.NewGuid();
+
+        DefaultHttpContext CreateContext()
+        {
+            var context = new DefaultHttpContext
+            {
+                User = new ClaimsPrincipal(new ClaimsIdentity(
+                    [new Claim(InternalClaimTypes.UserId, userId.ToString("N"))],
+                    "test"))
+            };
+            context.Connection.RemoteIpAddress = IPAddress.Parse("198.51.100.161");
+            context.Request.Path = "/Catalog/Audit";
+            return context;
+        }
+
+        for (var request = 0; request < 20; request++)
+        {
+            var allowed = CreateContext();
+            await middleware.Invoke(allowed);
+            Assert.Equal(StatusCodes.Status200OK, allowed.Response.StatusCode);
+        }
+
+        var blocked = CreateContext();
+        await middleware.Invoke(blocked);
+
+        Assert.Equal(StatusCodes.Status429TooManyRequests, blocked.Response.StatusCode);
+        Assert.True(int.TryParse(blocked.Response.Headers.RetryAfter, out var retryAfter));
+        Assert.InRange(retryAfter, 1, 10);
     }
 
     [Fact]

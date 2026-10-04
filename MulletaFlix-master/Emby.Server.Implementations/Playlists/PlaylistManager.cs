@@ -1,4 +1,4 @@
-﻿#nullable disable
+#nullable disable
 
 #pragma warning disable CS1591
 
@@ -67,14 +67,7 @@ namespace Emby.Server.Implementations.Playlists
         public IEnumerable<Playlist> GetPlaylists(Guid userId)
         {
             var user = _userManager.GetUserById(userId);
-            return _libraryManager.GetItemList(new InternalItemsQuery
-            {
-                IncludeItemTypes = [BaseItemKind.Playlist],
-                Recursive = true,
-                DtoOptions = new DtoOptions(false)
-            })
-            .Cast<Playlist>()
-            .Where(p => p.IsVisible(user));
+            return GetUserPlaylists(userId).Where(playlist => playlist.IsVisible(user));
         }
 
         public async Task<PlaylistCreationResult> CreatePlaylist(PlaylistCreationRequest request)
@@ -686,4 +679,3 @@ namespace Emby.Server.Implementations.Playlists
         }
     }
 }
-

@@ -2,12 +2,16 @@ package org.mulletaflix.feature.syncplay
 
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
+import kotlinx.coroutines.withContext
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -15,8 +19,11 @@ import org.junit.Assert.assertNotNull
 import org.junit.Before
 import org.junit.Test
 import org.mulletaflix.domain.repository.RemotePlaybackCommand
+import org.mulletaflix.domain.repository.RemotePlaybackIdentity
 import org.mulletaflix.domain.repository.RemotePlaybackRepository
 import org.mulletaflix.domain.repository.RemotePlaybackSession
+import org.mulletaflix.core.api.SessionRepository
+import org.mulletaflix.core.common.session.FeedbackRequestSession
 
 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 class RemotePlaybackViewModelTest {
@@ -28,7 +35,7 @@ class RemotePlaybackViewModelTest {
     @Test
     fun `refresh publishes only sessions provided by repository`() = runTest {
         val expected = listOf(session())
-        val viewModel = RemotePlaybackViewModel(FakeRemotePlaybackRepository(sessions = expected))
+        val viewModel = viewModel(FakeRemotePlaybackRepository(sessions = expected))
 
         viewModel.refresh()
         advanceUntilIdle()
@@ -41,7 +48,7 @@ class RemotePlaybackViewModelTest {
     @Test
     fun `failed refresh clears stale sessions and exposes retryable error`() = runTest {
         val repository = FakeRemotePlaybackRepository(sessions = listOf(session()))
-        val viewModel = RemotePlaybackViewModel(repository)
+        val viewModel = viewModel(repository)
         viewModel.refresh()
         advanceUntilIdle()
         repository.sessionsResult = Result.failure(IllegalStateException("Servidor indisponível"))
@@ -57,11 +64,11 @@ class RemotePlaybackViewModelTest {
     @Test
     fun `command failure leaves sessions visible and exposes actionable error`() = runTest {
         val repository = FakeRemotePlaybackRepository(sessions = listOf(session()), commandResult = Result.failure(IllegalStateException("Dispositivo desconectado")))
-        val viewModel = RemotePlaybackViewModel(repository)
+        val viewModel = viewModel(repository)
         viewModel.refresh()
         advanceUntilIdle()
 
-        viewModel.sendCommand("session-1", RemotePlaybackCommand.PLAY_PAUSE)
+        viewModel.sendCommand(identity("user-a", "server-a"), "session-1", RemotePlaybackCommand.PLAY_PAUSE)
         advanceUntilIdle()
 
         assertEquals(1, viewModel.state.value.sessions.size)
@@ -72,12 +79,15 @@ class RemotePlaybackViewModelTest {
     @Test
     fun `duplicate command is ignored while the first command is pending`() = runTest {
         val gate = CompletableDeferred<Result<Unit>>()
-        val repository = FakeRemotePlaybackRepository(commandGate = gate)
-        val viewModel = RemotePlaybackViewModel(repository)
+        val repository = FakeRemotePlaybackRepository(sessions = listOf(session()), commandGate = gate)
+        val viewModel = viewModel(repository)
 
-        viewModel.sendCommand("session-1", RemotePlaybackCommand.PLAY_PAUSE)
         runCurrent()
-        viewModel.sendCommand("session-2", RemotePlaybackCommand.STOP)
+        viewModel.refresh()
+        advanceUntilIdle()
+        viewModel.sendCommand(identity("user-a", "server-a"), "session-1", RemotePlaybackCommand.PLAY_PAUSE)
+        runCurrent()
+        viewModel.sendCommand(identity("user-a", "server-a"), "session-2", RemotePlaybackCommand.STOP)
         assertEquals("session-1", viewModel.state.value.busySessionId)
         assertEquals(listOf("session-1" to RemotePlaybackCommand.PLAY_PAUSE), repository.commands)
 
@@ -88,46 +98,136 @@ class RemotePlaybackViewModelTest {
 
     @Test
     fun `refresh requested during in-flight refresh runs after current response`() = runTest {
-        val firstFetch = CompletableDeferred<Result<List<RemotePlaybackSession>>>()
+        val slowFetch = CompletableDeferred<Result<List<RemotePlaybackSession>>>()
         var fetchCount = 0
         val repository = object : RemotePlaybackRepository {
-            override suspend fun getActiveSessions(): Result<List<RemotePlaybackSession>> {
+            override suspend fun getActiveSessions(identity: RemotePlaybackIdentity): Result<List<RemotePlaybackSession>> {
                 fetchCount += 1
-                return if (fetchCount == 1) {
-                    firstFetch.await()
-                } else {
-                    Result.success(listOf(session().copy(itemName = "Atualizado")))
+                return when (fetchCount) {
+                    1 -> Result.success(listOf(session()))
+                    2 -> slowFetch.await()
+                    else -> Result.success(listOf(session().copy(itemName = "Atualizado")))
                 }
             }
 
             override suspend fun sendCommand(
+                identity: RemotePlaybackIdentity,
                 sessionId: String,
                 command: RemotePlaybackCommand,
                 seekPositionTicks: Long?,
             ): Result<Unit> = Result.success(Unit)
         }
-        val viewModel = RemotePlaybackViewModel(repository)
+        val viewModel = viewModel(repository)
 
         viewModel.refresh()
-        runCurrent()
+        advanceUntilIdle()
         assertEquals(1, fetchCount)
 
         viewModel.refresh() // A periodic poll during a slow request must not queue more network work.
-        assertEquals(1, fetchCount)
-        viewModel.sendCommand("session-1", RemotePlaybackCommand.PLAY_PAUSE)
+        runCurrent()
+        assertEquals(2, fetchCount)
+        viewModel.refresh()
+        assertEquals(2, fetchCount)
+        viewModel.sendCommand(identity("user-a", "server-a"), "session-1", RemotePlaybackCommand.PLAY_PAUSE)
         runCurrent()
         assertNotNull(viewModel.state.value.notice)
-        assertEquals(1, fetchCount)
+        assertEquals(2, fetchCount)
 
-        firstFetch.complete(Result.success(listOf(session())))
+        slowFetch.complete(Result.success(listOf(session())))
         advanceUntilIdle()
 
-        assertEquals(2, fetchCount)
+        assertEquals(3, fetchCount)
         assertEquals("Atualizado", viewModel.state.value.sessions.single().itemName)
         assertFalse(viewModel.state.value.isLoading)
     }
 
+    @Test
+    fun `late response from previous account cannot replace current sessions`() = runTest {
+        val oldResponse = CompletableDeferred<Result<List<RemotePlaybackSession>>>()
+        val repository = object : RemotePlaybackRepository {
+            val requestedUsers = mutableListOf<String>()
+            override suspend fun getActiveSessions(identity: RemotePlaybackIdentity): Result<List<RemotePlaybackSession>> {
+                requestedUsers += identity.userId
+                return if (identity.userId == "user-a") {
+                    withContext(NonCancellable) { oldResponse.await() }
+                } else {
+                    Result.success(listOf(session().copy(itemName = "Conta B")))
+                }
+            }
+
+            override suspend fun sendCommand(
+                identity: RemotePlaybackIdentity,
+                sessionId: String,
+                command: RemotePlaybackCommand,
+                seekPositionTicks: Long?,
+            ): Result<Unit> = Result.success(Unit)
+        }
+        val sessions = FakeSessionRepository(feedbackSession("user-a", "server-a"))
+        val viewModel = RemotePlaybackViewModel(repository, sessions)
+
+        runCurrent()
+        viewModel.refresh()
+        runCurrent()
+        sessions.current.value = feedbackSession("user-b", "server-a")
+        runCurrent()
+        oldResponse.complete(Result.success(listOf(session().copy(itemName = "Resposta antiga A"))))
+        advanceUntilIdle()
+
+        assertEquals(listOf("user-a", "user-b"), repository.requestedUsers)
+        assertEquals("Conta B", viewModel.state.value.sessions.single().itemName)
+        assertFalse(viewModel.state.value.isLoading)
+    }
+
+    @Test
+    fun `changing lan and public endpoint for same server preserves current state`() = runTest {
+        val repository = FakeRemotePlaybackRepository(sessions = listOf(session()))
+        val sessions = FakeSessionRepository(feedbackSession("user-a", "server-a"))
+        val viewModel = RemotePlaybackViewModel(repository, sessions)
+
+        runCurrent()
+        viewModel.refresh()
+        advanceUntilIdle()
+        sessions.current.value = feedbackSession("user-a", "server-a", "http://192.168.1.20:8096")
+        runCurrent()
+
+        assertEquals(listOf(session()), viewModel.state.value.sessions)
+        assertEquals(1, repository.fetchCount)
+        assertEquals(null, viewModel.state.value.error)
+    }
+
+    @Test
+    fun `late command result from previous account cannot publish success notice`() = runTest {
+        val commandGate = CompletableDeferred<Result<Unit>>()
+        val repository = FakeRemotePlaybackRepository(
+            sessions = listOf(session()),
+            commandGate = commandGate,
+        )
+        val sessions = FakeSessionRepository(feedbackSession("user-a", "server-a"))
+        val viewModel = RemotePlaybackViewModel(repository, sessions)
+
+        runCurrent()
+        viewModel.refresh()
+        advanceUntilIdle()
+        viewModel.sendCommand(identity("user-a", "server-a"), "session-1", RemotePlaybackCommand.PLAY_PAUSE)
+        runCurrent()
+        sessions.current.value = feedbackSession("user-b", "server-b")
+        runCurrent()
+        commandGate.complete(Result.success(Unit))
+        advanceUntilIdle()
+
+        assertEquals(null, viewModel.state.value.notice)
+        assertEquals(null, viewModel.state.value.busySessionId)
+        assertEquals("user-b", repository.requestedIdentities.last().userId)
+        val callCount = repository.commands.size
+        viewModel.sendCommand(identity("user-a", "server-a"), "session-1", RemotePlaybackCommand.STOP)
+        runCurrent()
+        assertEquals(callCount, repository.commands.size)
+    }
+
     private fun session() = RemotePlaybackSession("session-1", "TV", "Android TV", "Filme", false, true, 0L)
+
+    private fun viewModel(repository: RemotePlaybackRepository) =
+        RemotePlaybackViewModel(repository, FakeSessionRepository(feedbackSession("user-a", "server-a")))
 
     private class FakeRemotePlaybackRepository(
         private val sessions: List<RemotePlaybackSession> = emptyList(),
@@ -135,15 +235,44 @@ class RemotePlaybackViewModelTest {
         private val commandGate: CompletableDeferred<Result<Unit>>? = null,
     ) : RemotePlaybackRepository {
         var sessionsResult: Result<List<RemotePlaybackSession>> = Result.success(sessions)
+        var fetchCount = 0
+        val requestedIdentities = mutableListOf<RemotePlaybackIdentity>()
         val commands = mutableListOf<Pair<String, RemotePlaybackCommand>>()
-        override suspend fun getActiveSessions() = sessionsResult
+        override suspend fun getActiveSessions(identity: RemotePlaybackIdentity): Result<List<RemotePlaybackSession>> {
+            fetchCount++
+            requestedIdentities += identity
+            return sessionsResult
+        }
         override suspend fun sendCommand(
+            identity: RemotePlaybackIdentity,
             sessionId: String,
             command: RemotePlaybackCommand,
             seekPositionTicks: Long?,
         ): Result<Unit> {
+            requestedIdentities += identity
             commands += sessionId to command
-            return commandGate?.await() ?: commandResult
+            return commandGate?.let { withContext(NonCancellable) { it.await() } } ?: commandResult
         }
+    }
+
+    private fun feedbackSession(
+        userId: String,
+        serverId: String,
+        serverUrl: String = "https://mulletaflix.example",
+    ) = FeedbackRequestSession(serverUrl, "token-$userId", userId, "device-$userId", serverId)
+
+    private fun identity(userId: String, serverId: String) =
+        RemotePlaybackIdentity(serverId, "https://mulletaflix.example", userId)
+
+    private class FakeSessionRepository(initialSession: FeedbackRequestSession?) : SessionRepository {
+        val current = MutableStateFlow(initialSession)
+        override fun getFeedbackRequestSession(): Flow<FeedbackRequestSession?> = current
+        override fun getAccessToken() = kotlinx.coroutines.flow.flowOf(current.value?.accessToken)
+        override fun getDeviceId() = kotlinx.coroutines.flow.flowOf(current.value?.deviceId.orEmpty())
+        override fun getBaseUrl() = kotlinx.coroutines.flow.flowOf(current.value?.serverUrl.orEmpty())
+        override fun getCurrentUserId() = kotlinx.coroutines.flow.flowOf(current.value?.userId)
+        override suspend fun saveSession(serverUrl: String, token: String, userId: String, deviceId: String) = Unit
+        override suspend fun setBaseUrl(url: String) = Unit
+        override suspend fun clearSession() { current.value = null }
     }
 }

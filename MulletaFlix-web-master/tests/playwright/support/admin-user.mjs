@@ -64,16 +64,42 @@ export async function loginWithManualForm(page, username, password) {
     await seedStageConnection(page);
     await openLogin(page);
     await waitForStageBridge(page);
-    const loginPage = page.locator('#loginPage:not(.hide)').first();
+    const visibleCandidate = async locator => {
+        for (let index = 0; index < await locator.count(); index++) {
+            const candidate = locator.nth(index);
+            if (await candidate.isVisible().catch(() => false)) {
+                return candidate;
+            }
+        }
 
-    if (!(await loginPage.locator('.manualLoginForm').isVisible().catch(() => false))) {
-        await loginPage.locator('.btnManual').click({ force: true });
+        return null;
+    };
+    const usernameCandidates = page.locator('#txtManualName, input[autocomplete="username"]');
+    let usernameInput = await visibleCandidate(usernameCandidates);
+
+    if (!usernameInput) {
+        const manualLoginButton = page.locator('#loginPage:visible .btnManual:visible').last();
+        if (!(await manualLoginButton.isVisible().catch(() => false))) {
+            throw new Error('Login page exposes neither the username/password form nor a visible manual-login button.');
+        }
+
+        await manualLoginButton.click();
+        usernameInput = await visibleCandidate(usernameCandidates);
     }
 
-    await loginPage.locator('#txtManualName').waitFor({ state: 'visible', timeout: 30_000 });
-    await loginPage.locator('#txtManualName').fill(username);
-    await loginPage.locator('#txtManualPassword').fill(password);
-    await loginPage.locator('.manualLoginForm button[type="submit"]').click();
+    if (!usernameInput) {
+        throw new Error('Login form did not expose a visible username field after selecting manual login.');
+    }
+
+    await usernameInput.fill(username);
+    const passwordInput = await visibleCandidate(page.locator('#txtManualPassword, input[autocomplete="current-password"]'));
+    const submitButton = await visibleCandidate(page.locator('#loginPage button[type="submit"]'));
+    if (!passwordInput || !submitButton) {
+        throw new Error('Login form did not expose visible password and submit controls.');
+    }
+
+    await passwordInput.fill(password);
+    await submitButton.click();
 
     await page.locator('#indexPage').waitFor({ state: 'visible', timeout: 30_000 });
     await expect(page.locator('.headerUserButton')).toHaveAttribute('title', username, { timeout: 30_000 });

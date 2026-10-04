@@ -56,6 +56,7 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import org.mulletaflix.designsystem.components.MulletaFlixTopBarAction
 import org.mulletaflix.designsystem.components.remoteFocusRing
 import org.mulletaflix.domain.repository.RemotePlaybackCommand
+import org.mulletaflix.domain.repository.RemotePlaybackIdentity
 import org.mulletaflix.domain.repository.RemotePlaybackSession
 import org.mulletaflix.core.common.util.FormatUtils
 import kotlinx.coroutines.delay
@@ -69,11 +70,12 @@ fun RemotePlaybackScreen(
     viewModel: RemotePlaybackViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
-    var stopTarget by remember { mutableStateOf<String?>(null) }
+    var stopTarget by remember { mutableStateOf<RemotePlaybackStopTarget?>(null) }
     val lifecycleOwner = LocalLifecycleOwner.current
     LaunchedEffect(Unit) { viewModel.refresh() }
-    LaunchedEffect(stopTarget, state.sessions) {
-        if (stopTarget != null && state.sessions.none { it.id == stopTarget }) {
+    LaunchedEffect(stopTarget, state.sessions, state.identity) {
+        val target = stopTarget ?: return@LaunchedEffect
+        if (state.identity?.matches(target.identity) != true || state.sessions.none { it.id == target.sessionId }) {
             stopTarget = null
         }
     }
@@ -136,12 +138,17 @@ fun RemotePlaybackScreen(
                 }
             }
             items(state.sessions, key = { it.id }) { session ->
+                val identity = state.identity
                 RemotePlaybackSessionCard(
                     session = session,
                     busy = state.busySessionId != null,
-                    onToggle = { viewModel.sendCommand(session.id, RemotePlaybackCommand.PLAY_PAUSE) },
-                    onSeek = { ticks -> viewModel.sendCommand(session.id, RemotePlaybackCommand.SEEK, ticks) },
-                    onStop = { stopTarget = session.id },
+                    onToggle = {
+                        identity?.let { viewModel.sendCommand(it, session.id, RemotePlaybackCommand.PLAY_PAUSE) }
+                    },
+                    onSeek = { ticks ->
+                        identity?.let { viewModel.sendCommand(it, session.id, RemotePlaybackCommand.SEEK, ticks) }
+                    },
+                    onStop = { identity?.let { stopTarget = RemotePlaybackStopTarget(session.id, it) } },
                 )
             }
             state.notice?.let { notice -> item { Text(notice, color = MaterialTheme.colorScheme.primary) } }
@@ -156,8 +163,10 @@ fun RemotePlaybackScreen(
             confirmButton = {
                 Button(onClick = {
                     val target = stopTarget
-                    if (target != null && state.sessions.any { it.id == target }) {
-                        viewModel.sendCommand(target, RemotePlaybackCommand.STOP)
+                    if (target != null && state.identity?.matches(target.identity) == true &&
+                        state.sessions.any { it.id == target.sessionId }
+                    ) {
+                        viewModel.sendCommand(target.identity, target.sessionId, RemotePlaybackCommand.STOP)
                     }
                     stopTarget = null
                 }) { Text("Parar") }
@@ -166,6 +175,11 @@ fun RemotePlaybackScreen(
         )
     }
 }
+
+private data class RemotePlaybackStopTarget(
+    val sessionId: String,
+    val identity: RemotePlaybackIdentity,
+)
 
 @Composable
 internal fun RemotePlaybackSessionCard(

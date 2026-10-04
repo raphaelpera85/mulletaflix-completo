@@ -706,6 +706,29 @@ public sealed class NamedConfigurationConcurrencyTests : IDisposable
     }
 
     [Fact]
+    public async Task CachePathSetting_PersistsAcrossConfigurationReload()
+    {
+        var configuration = CreateManager(_serializer);
+        var root = Path.Combine(_directory, "persistent-playback-cache");
+        await using (var manager = new NebulaFtpManager(configuration, NullLogger<NebulaFtpManager>.Instance, NullLoggerFactory.Instance))
+        {
+            Assert.True(await manager.UpdatePlaybackCachePathAsync(root, 7, 1));
+
+            var status = manager.GetPlaybackCacheStatus();
+            Assert.Equal(root, status.ConfiguredPath);
+            Assert.Equal(Path.Combine(root, "nebula-playback"), status.EffectivePath);
+        }
+
+        Assert.True(File.Exists(ConfigurationPath));
+        var reloadedConfiguration = CreateManager(_serializer);
+        var reloaded = reloadedConfiguration.GetConfiguration<NebulaFtpConfiguration>("nebulaftp");
+
+        Assert.Equal(root, reloaded.PlaybackCachePath);
+        Assert.Equal(7, reloaded.PlaybackCacheMaxSizeGb);
+        Assert.Equal(1, reloaded.PlaybackCacheMinimumFreeSpaceGb);
+    }
+
+    [Fact]
     public async Task CacheSettingsWaitsForLifecycleGateAndCancellationDoesNotCreateDirectories()
     {
         var configuration = CreateManager(_serializer);

@@ -146,16 +146,6 @@ const UserViewNav = () => {
 
             <Button
                 variant='text'
-                color={location.pathname === '/playlists' ? 'primary' : 'inherit'}
-                startIcon={<QueueMusic />}
-                component={Link}
-                to='/playlists'
-            >
-                {globalize.translate('Playlists')}
-            </Button>
-
-            <Button
-                variant='text'
                 color='inherit'
                 startIcon={<AddCircle />}
                 onClick={onMediaRequestClick}
@@ -171,6 +161,16 @@ const UserViewNav = () => {
                 to='/myrequests'
             >
                 {globalize.translate('MyMediaRequestsTitle')}
+            </Button>
+
+            <Button
+                variant='text'
+                color={location.pathname === '/playlists' ? 'primary' : 'inherit'}
+                startIcon={<QueueMusic />}
+                component={Link}
+                to='/playlists'
+            >
+                {globalize.translate('Playlists')}
             </Button>
 
             {primaryNavItems?.map(navItem => {

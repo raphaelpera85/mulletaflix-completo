@@ -8,9 +8,15 @@ import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.flowOf
 import org.junit.Assert.assertEquals
 import org.junit.Rule
 import org.junit.Test
+import org.mulletaflix.core.api.SessionRepository
+import org.mulletaflix.core.common.session.FeedbackRequestSession
+import org.mulletaflix.domain.repository.RemotePlaybackIdentity
 import org.mulletaflix.domain.repository.RemotePlaybackSession
 import org.mulletaflix.domain.repository.RemotePlaybackCommand
 import org.mulletaflix.domain.repository.RemotePlaybackRepository
@@ -139,7 +145,7 @@ class RemotePlaybackSessionCardTest {
         val repository = FakeRemotePlaybackRepository(listOf(
             RemotePlaybackSession("tv", "Sala", "Android TV", "Filme na TV", false, false, 0L),
         ))
-        val viewModel = RemotePlaybackViewModel(repository)
+        val viewModel = RemotePlaybackViewModel(repository, authenticatedSessionRepository())
         compose.setContent { RemotePlaybackScreen(onBack = {}, viewModel = viewModel) }
 
         compose.waitUntil(5_000) { repository.loadCount > 0 }
@@ -155,7 +161,7 @@ class RemotePlaybackSessionCardTest {
         val repository = FakeRemotePlaybackRepository(listOf(
             RemotePlaybackSession("tv", "Sala", "Android TV", "Filme na TV", false, false, 0L),
         ))
-        val viewModel = RemotePlaybackViewModel(repository)
+        val viewModel = RemotePlaybackViewModel(repository, authenticatedSessionRepository())
         compose.setContent { RemotePlaybackScreen(onBack = {}, viewModel = viewModel) }
 
         compose.waitUntil(5_000) { repository.loadCount > 0 }
@@ -170,17 +176,42 @@ class RemotePlaybackSessionCardTest {
         compose.runOnIdle { assertEquals(emptyList<Pair<String, RemotePlaybackCommand>>(), repository.commands) }
     }
 
+    @Test
+    fun account_change_dismisses_stop_confirmation_without_sending_stale_stop() {
+        val repository = FakeRemotePlaybackRepository(listOf(
+            RemotePlaybackSession("tv", "Sala", "Android TV", "Filme na TV", false, false, 0L),
+        ))
+        val sessionRepository = authenticatedSessionRepository()
+        val viewModel = RemotePlaybackViewModel(repository, sessionRepository)
+        compose.setContent { RemotePlaybackScreen(onBack = {}, viewModel = viewModel) }
+
+        compose.waitUntil(5_000) { repository.loadCount > 0 }
+        compose.onNodeWithContentDescription("Parar reprodução").performClick()
+        compose.onNodeWithText("Parar reprodução?").assertIsDisplayed()
+
+        sessionRepository.current.value = sessionRepository.current.value?.copy(
+            accessToken = "new-account-token",
+            userId = "new-account",
+        )
+
+        compose.waitUntil(5_000) { viewModel.state.value.identity?.userId == "new-account" }
+        compose.waitForIdle()
+        compose.onAllNodes(hasText("Parar reprodução?")).assertCountEquals(0)
+        compose.runOnIdle { assertEquals(emptyList<Pair<String, RemotePlaybackCommand>>(), repository.commands) }
+    }
+
     private class FakeRemotePlaybackRepository(
         private val sessions: List<RemotePlaybackSession>,
     ) : RemotePlaybackRepository {
         var loadCount = 0
         var sessionsResult: Result<List<RemotePlaybackSession>> = Result.success(sessions)
         val commands = mutableListOf<Pair<String, RemotePlaybackCommand>>()
-        override suspend fun getActiveSessions(): Result<List<RemotePlaybackSession>> {
+        override suspend fun getActiveSessions(identity: RemotePlaybackIdentity): Result<List<RemotePlaybackSession>> {
             loadCount++
             return sessionsResult
         }
         override suspend fun sendCommand(
+            identity: RemotePlaybackIdentity,
             sessionId: String,
             command: RemotePlaybackCommand,
             seekPositionTicks: Long?,
@@ -188,5 +219,27 @@ class RemotePlaybackSessionCardTest {
             commands += sessionId to command
             return Result.success(Unit)
         }
+    }
+
+    private fun authenticatedSessionRepository(): FakeSessionRepository = FakeSessionRepository(
+        FeedbackRequestSession(
+            serverUrl = "https://mulletaflix.example",
+            accessToken = "test-token",
+            userId = "test-user",
+            deviceId = "test-device",
+            serverId = "test-server",
+        )
+    )
+
+    private class FakeSessionRepository(initialSession: FeedbackRequestSession) : SessionRepository {
+        val current = MutableStateFlow<FeedbackRequestSession?>(initialSession)
+        override fun getFeedbackRequestSession(): Flow<FeedbackRequestSession?> = current
+        override fun getAccessToken() = flowOf(current.value?.accessToken)
+        override fun getDeviceId() = flowOf(current.value?.deviceId.orEmpty())
+        override fun getBaseUrl() = flowOf(current.value?.serverUrl.orEmpty())
+        override fun getCurrentUserId() = flowOf(current.value?.userId)
+        override suspend fun saveSession(serverUrl: String, token: String, userId: String, deviceId: String) = Unit
+        override suspend fun setBaseUrl(url: String) = Unit
+        override suspend fun clearSession() { current.value = null }
     }
 }

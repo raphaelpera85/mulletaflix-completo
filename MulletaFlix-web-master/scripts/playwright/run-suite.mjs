@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { spawn, spawnSync } from 'node:child_process';
 import crypto from 'node:crypto';
 import net from 'node:net';
+import os from 'node:os';
 import fg from 'fast-glob';
 import {
     DEFAULT_STAGE_BASE_URL,
@@ -32,7 +33,16 @@ const specDir = path.join(repoRoot, 'tests', 'playwright', 'specs');
 const playwrightCli = path.join(repoRoot, 'node_modules', '@playwright', 'test', 'cli.js');
 const workspaceRoot = path.resolve(repoRoot, '..');
 const stageDll = path.join(workspaceRoot, 'stage', 'MulletaFlix.dll');
-const stageDataDir = path.join(workspaceRoot, 'stage-data');
+const defaultStageDataDir = path.join(workspaceRoot, 'stage-data');
+const configuredStageDataDir = process.env.PW_ISOLATED_STAGE_DATA_DIR;
+const stageDataDir = configuredStageDataDir ? path.resolve(configuredStageDataDir) : defaultStageDataDir;
+if (configuredStageDataDir) {
+    const relativeToTemp = path.relative(path.resolve(os.tmpdir()), stageDataDir);
+    if (!relativeToTemp || relativeToTemp.startsWith('..') || path.isAbsolute(relativeToTemp)
+        || !path.basename(stageDataDir).startsWith('mflx-playwright-stage-')) {
+        throw new Error('PW_ISOLATED_STAGE_DATA_DIR must be a dedicated mflx-playwright-stage-* directory inside the system temp folder.');
+    }
+}
 const legacyStageDataDir = path.join(workspaceRoot, 'stage', 'data', 'jellyfin-test');
 const stagePidFile = path.join(stageDataDir, 'stage.pid');
 const taskkillExecutable = path.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'taskkill.exe');
@@ -41,7 +51,7 @@ const allowedStageRoots = [
     path.join(workspaceRoot, 'stage'),
     stageDataDir
 ];
-const stageRemovalTargets = buildStageRemovalTargets({
+const stageRemovalTargets = configuredStageDataDir ? [ stageDataDir ] : buildStageRemovalTargets({
     workspaceRoot,
     stageDataDir,
     legacyStageDataDir
@@ -101,6 +111,16 @@ async function selectStageBaseUrl(requestedBaseUrl) {
     }
 
     throw new Error(`No isolated stage port is available near ${port}. Set PW_BASE_URL explicitly.`);
+}
+
+async function selectStageDatabasePort() {
+    for (let candidate = 33100; candidate <= 33200; candidate++) {
+        if (await isPortAvailable(candidate)) {
+            return candidate;
+        }
+    }
+
+    throw new Error('No isolated MariaDB port is available in the Playwright stage range 33100-33200.');
 }
 
 async function writeStageNetworkConfiguration(baseUrl) {
@@ -221,7 +241,7 @@ async function resetStageWorkspace() {
     await mkdir(stageDataDir, { recursive: true });
 }
 
-async function startStageAndWaitClean(baseUrl) {
+async function startStageAndWaitClean(baseUrl, databasePort) {
     console.error('[playwright] starting clean stage');
     const child = spawn(dotnetExecutable, [ stageDll, `--datadir=${stageDataDir}` ], {
         windowsHide: true,
@@ -229,6 +249,9 @@ async function startStageAndWaitClean(baseUrl) {
             ...process.env,
             // Keep EF data out of the developer's production database.
             MulletaFlix_DATABASE_NAME: 'mulletaflix_e2e',
+            // Start the bundled MariaDB under this stage's own data directory,
+            // never against the installed server's default port 3306.
+            MULLETAFLIX_DB_PORT: String(databasePort),
             // Keep the startup smoke test hermetic: no online avatar catalog,
             // Telegram, FTP or other external bootstrap side effects.
             MFLX_DISABLE_EXTERNAL_BOOTSTRAP: 'true',
@@ -334,8 +357,9 @@ async function prepareStage(args) {
 
     await resetStageWorkspace();
     args.baseUrl = await selectStageBaseUrl(args.baseUrl || DEFAULT_STAGE_BASE_URL);
+    args.databasePort = await selectStageDatabasePort();
     await writeStageNetworkConfiguration(args.baseUrl);
-    return startStageAndWaitClean(args.baseUrl);
+    return startStageAndWaitClean(args.baseUrl, args.databasePort);
 }
 
 function buildPlaywrightArgs(args) {
@@ -374,7 +398,12 @@ async function main() {
         // executable out of the box while allowing CI/users to override the
         // credentials explicitly when exercising an existing account flow.
         MFLX_ADMIN_USER: process.env.MFLX_ADMIN_USER || 'mflx-admin-e2e',
-        MFLX_ADMIN_PASSWORD: process.env.MFLX_ADMIN_PASSWORD || crypto.randomBytes(24).toString('base64url')
+        MFLX_ADMIN_PASSWORD: process.env.MFLX_ADMIN_PASSWORD || crypto.randomBytes(24).toString('base64url'),
+        PW_STAGE_DLL: stageDll,
+        PW_STAGE_DATA_DIR: stageDataDir,
+        PW_STAGE_PID_FILE: stagePidFile,
+        PW_STAGE_DOTNET: dotnetExecutable,
+        PW_STAGE_DB_PORT: String(args.databasePort)
     };
 
     const result = spawnSync(process.execPath, buildPlaywrightArgs(args), {

@@ -33,7 +33,7 @@ class LocalNetworkPermissionDialogTest {
 
         composeRule.runOnIdle {
             assertEquals(DEFAULT_MULLETAFLIX_SERVER_URL, fallbackUrl)
-            assertTrue(fallbackUrl?.startsWith("http://") == true)
+            assertTrue(fallbackUrl?.startsWith("https://") == true)
         }
     }
 }

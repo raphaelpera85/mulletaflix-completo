@@ -2,6 +2,27 @@
 
 Este documento rastreia o status de implementação de todas as funcionalidades, módulos, telas e componentes do aplicativo oficial **MulletaFlix Android**.
 
+## Leitura de livros aceita respostas binárias genéricas (APK local; sem release)
+
+- [x] Continuar tentando interpretar a resposta EPUB quando o servidor omitir `Content-Type` ou responder `application/octet-stream`; deixar o parser Readium validar o conteúdo real.
+- [x] Recusar tipos claramente incompatíveis (HTML/texto, imagem, áudio, vídeo, PDF/JSON/XML) com mensagem de leitura, sem tratar um MIME genérico como erro.
+- [x] Isolar arquivos temporários por instância do leitor: limpar um livro não remove EPUB nem cache pertencentes a outro leitor; aguardar a coroutine ativa de parse finalizar antes de excluir; apagar arquivos parciais após falha/cancelamento e propagar `CancellationException`.
+- [x] Cobrir MIME aceito/rejeitado, mensagem de conversão HTTP 415, erro HTTP genérico, isolamento de cache e exclusão adiada até conclusão do parse em testes unitários.
+- [x] Quality Bar final: `:feature:item-detail:testDebugUnitTest` (69 testes) e suíte global sem cache (1.352 testes), sem falhas/erros/skips; `:feature:item-detail:lintDebug`, `:app:lintDebug`, `:app:assembleDebug` e `:app:compileDebugAndroidTestKotlin`: `BUILD SUCCESSFUL`.
+- [x] Revisão adversarial: isolamento por instância, cancelamento e limpeza após fim do parse conferidos; sem achados remanescentes.
+- [ ] Sem bump ou publicação; não alterar servidor nem portal. Conferir assinatura oficial e release anterior somente antes de futura release autorizada.
+
+## Isolamento de Dispositivos em reprodução (APK local; sem release)
+
+- [x] Vincular listagem e comandos de reprodução remota à identidade capturada de conta/servidor e ao snapshot de autenticação usado pela requisição.
+- [x] Descartar respostas e comandos obsoletos ao trocar conta/servidor; limpar controles antigos e preservar estado ao alternar LAN/Internet do mesmo servidor.
+- [x] Impedir comandos para identidade antiga e sessões que não pertencem à lista atualmente exibida; vincular token e dispositivo via tag Retrofit.
+- [x] Adicionar regressões unitárias de identidade, contratos HTTP, repositório e ViewModel; revisão independente não encontrou problemas.
+- [x] `testDebugUnitTest`: 1.345 testes, 0 falhas/erros/skips; `:app:lintDebug`, `:app:assembleDebug` e `:app:compileDebugAndroidTestKotlin`: `BUILD SUCCESSFUL`.
+- [x] Teste Compose instrumentado de reprodução remota passou nos AVDs telefone API 35, tablet API 35 e Android TV API 34; wrappers encerraram os emuladores.
+- [ ] Android 17/API 37 continua sem validação: AVD expandido falhou antes da instrumentação ao consultar `adb shell wm size`; uma tentativa anterior falhou durante instalação do APK. Não declarar cobertura API 37.
+- [ ] Sem bump, APK de produção ou publicação nesta rodada. Para release futura, conferir artefato anterior e assinatura oficial; atualizar somente release e portal do APK, nunca release do servidor.
+
 ## Consulta offline de bibliotecas (APK local; sem release)
 
 - [x] Salvar snapshots de até oito bibliotecas recentes por servidor/conta, com até 200 cards por biblioteca; preservar nome, ordenação, filtros e contagem total para identificar snapshots parciais.
@@ -15,10 +36,11 @@ Este documento rastreia o status de implementação de todas as funcionalidades,
 
 ## Preferências de faixas por série (APK local; sem release)
 
-- [ ] Salvar áudio/legenda escolhidos em episódios como override escopado por série; manter preferência da conta como fallback e preservar comportamento de filmes.
-- [ ] Isolar chaves por usuário/servidor+série, limitar armazenamento às 32 séries usadas mais recentemente e permitir limpar overrides sem apagar padrões globais.
-- [ ] Explicar o escopo no app e confirmar a limpeza; cobrir DataStore, fallback, isolamento, limite, ViewModel e semântica Compose.
-- [ ] Validar testes unitários, DataStore e Configurações instrumentados em TV, lint, compilação instrumentada e assembleDebug; sem bump, release, alteração do servidor ou portal.
+- [x] Salvar áudio/legenda escolhidos em episódios como override escopado por série; manter preferência da conta como fallback e preservar comportamento de filmes.
+- [x] Isolar chaves por usuário/servidor+série, limitar armazenamento às 32 séries usadas mais recentemente e atualizar o LRU ao ler overrides durante o uso; permitir limpar overrides sem apagar padrões globais.
+- [x] Explicar o escopo no app e confirmar a limpeza; cobrir DataStore, fallback, isolamento, limite, ViewModel e semântica Compose.
+- [x] Validar testes unitários, DataStore instrumentado na TV (8/8), Configurações instrumentadas em telefone, tablet (7/7) e TV, lint e `assembleDebug`; `testDebugUnitTest :app:lintDebug :app:assembleDebug` terminou em `BUILD SUCCESSFUL`.
+- [ ] Sem bump, APK de produção ou publicação nesta rodada. Na próxima release autorizada, conferir a versão/APK anterior e o certificado oficial, atualizar notas, versão e link do APK no portal; não alterar release do servidor.
 
 ## Corridas de rede ao restaurar catálogo offline (APK local; sem release)
 
@@ -82,7 +104,7 @@ Este documento rastreia o status de implementação de todas as funcionalidades,
 - [x] AVD Android TV API 34: Home instrumentada, 29 testes, 0 falhas/erros/ignorados; perfil `TV` confirmado. `:feature:home:testDebugUnitTest` e `:feature:home:compileDebugAndroidTestKotlin`: `BUILD SUCCESSFUL`.
 - [x] AVD tablet API 35: `HomeAdaptiveUsageTest`, 1/1, perfil `TABLET` confirmado; wrapper encerrou o AVD.
 - [x] AVD telefone API 35: `HomeAdaptiveUsageTest`, 1/1, perfil `PHONE` confirmado; wrapper encerrou o AVD.
-- [ ] Android 17 API 37: testes de permissão LAN seguem sem validação; os AVDs existentes e recriado falham nos serviços `package/settings` durante instalação do APK. Uma tentativa com o runner travado foi interrompida; não contar como teste executado. Investigar imagem/AVD/API 37 antes de afirmar compatibilidade.
+- [ ] Android 17 API 37: não validado. No AVD novo de 4 GB, imagem Google APIs rev. 6 e Emulator 37.2.12, a instalação instrumentada falhou com NPE em `StorageManagerService.allocateBytes` (`PackageManagerInternal.freeStorage` nulo); o wrapper rejeitou o relatório com zero testes. Não afirmar compatibilidade até o AVD executar os testes.
 - [ ] Sem bump ou release; alterações desta seção são de teste, não de APK de produção. Keystore configurada ainda diverge do certificado oficial; verificar release APK anterior e assinatura antes de qualquer release.
 
 ## Detalhes adaptativos para tablets (APK local; sem release)
@@ -2917,7 +2939,8 @@ Pendências relacionadas:
 - [x] Depois de dispensar “Agora não”, nova busca manual reabre a justificativa de `ACCESS_LOCAL_NETWORK`; negar a permissão continua oferecendo Configurações ou conexão pela Internet.
 - [x] Adicionar teste Compose da sequência dispensar → buscar novamente → solicitar permissão; AVD Android TV API 34 passou 1/1.
 - [x] `testDebugUnitTest`: 1.334 testes, 0 falhas/erros/skips; `:app:compileDebugAndroidTestKotlin`, `:app:lintDebug`, `:app:assembleDebug`, `:feature:auth:lintDebug` e `:feature:auth:assembleDebugAndroidTest`: `BUILD SUCCESSFUL`.
-- [ ] API 37 não validada: AVD `MulletaflixApi37Clean` gerou relatório instrumentado com 0 testes; runner falhou ao restaurar animações/remover pacotes porque os serviços `settings`/`package` não estavam disponíveis. Não contar como execução aprovada.
+- [x] Corrigir teste de fallback que exigia HTTP após a URL pública padrão migrar para HTTPS; execução anterior falhou especificamente nessa asserção. Suíte instrumentada `:feature:auth:connectedDebugAndroidTest` no telefone API 35 passou 12/12; suíte atual `testDebugUnitTest :app:lintDebug :app:assembleDebug` passou.
+- [ ] API 37 não validada: nova tentativa no AVD separado `MulletaflixApi37Gauntlet` confirmou SDK 37, mas falhou ao instalar o APK com NPE em `StorageManagerService.allocateBytes` (`PackageManagerInternal.freeStorage` nulo); o wrapper rejeitou o relatório com zero testes. Não contar como execução aprovada.
 - [ ] Sem bump, APK de produção ou publicação. Antes de próxima release, conferir release anterior, usar certificado oficial e atualizar notas, versão e link APK do portal; não alterar release do servidor.
 - [x] Keystore substituída após rotação de certificado; `:app:verifyProductionSigningCertificate` passou em 2026-10-02 para o certificado registrado `4890D80B…C5A0A24C`.
 - [x] Proprietário informou que a chave antiga foi perdida e optou por reinstalar. Nova assinatura mantém o mesmo `applicationId`; para receber o APK novo, remover a instalação antiga antes de instalar. Aviso incluído nas notas e documentação do portal.

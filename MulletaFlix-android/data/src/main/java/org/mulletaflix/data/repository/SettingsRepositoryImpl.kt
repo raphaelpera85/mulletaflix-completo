@@ -13,6 +13,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.onEach
 import org.mulletaflix.core.api.SessionRepository
 import org.mulletaflix.domain.model.normalizeSubtitleColor
 import org.mulletaflix.domain.model.normalizeSubtitleSizePercent
@@ -137,13 +138,25 @@ class SettingsRepositoryImpl @Inject constructor(
     } else {
         flow {
             migrateLegacyLanguagePreferences(scope)
-            emitAll(context.settingsDataStore.data.map { preferences ->
-                seriesId
-                    ?.takeIf(::isSafeSeriesId)
-                    ?.let { preferences[seriesLanguageKey(key, scope, it)] }
-                    ?: preferences[scopedLanguageKey(key, scope)]
-                    ?: "por"
-            })
+            val safeSeriesId = seriesId?.takeIf(::isSafeSeriesId)
+            var recordedSeriesUse = false
+            emitAll(
+                context.settingsDataStore.data
+                    .map { preferences ->
+                        val seriesOverride = safeSeriesId?.let {
+                            preferences[seriesLanguageKey(key, scope, it)]
+                        }
+                        (seriesOverride ?: preferences[scopedLanguageKey(key, scope)] ?: "por") to
+                            (seriesOverride != null)
+                    }
+                    .onEach { (_, hasSeriesOverride) ->
+                        if (hasSeriesOverride && !recordedSeriesUse) {
+                            recordedSeriesUse = true
+                            safeSeriesId?.let { recordSeriesTrackPreferenceUse(scope, it) }
+                        }
+                    }
+                    .map { (language, _) -> language },
+            )
         }
     }
 
@@ -216,6 +229,15 @@ class SettingsRepositoryImpl @Inject constructor(
             seriesTrackKeys(scope, token).forEach(preferences::remove)
         }
         preferences[orderKey] = retained.joinToString(",")
+    }
+
+    private suspend fun recordSeriesTrackPreferenceUse(scope: PreferenceScope, seriesId: String) {
+        val token = seriesToken(seriesId)
+        context.settingsDataStore.edit { preferences ->
+            if (seriesTrackKeys(scope, token).any { it in preferences }) {
+                rememberSeriesTrackPreference(preferences, scope, token)
+            }
+        }
     }
 
     private fun seriesTrackKeys(

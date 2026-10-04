@@ -102,8 +102,13 @@ function createPlaylist(dlg: DialogElement) {
         .then(result => {
             dlg.submitted = true;
             dialogHelper.close(dlg);
+            window.dispatchEvent(new Event('mflx:playlists-updated'));
 
-            redirectToPlaylist(result.data.Id);
+            if (itemIds) {
+                redirectToPlaylist(result.data.Id);
+            } else {
+                void appRouter.show('playlists');
+            }
         });
 }
 

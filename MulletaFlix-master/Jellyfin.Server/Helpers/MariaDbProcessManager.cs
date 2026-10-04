@@ -33,7 +33,8 @@ namespace MulletaFlix.Server.Helpers
                 var binDir = Path.Combine(appDir, "mariadb", "bin");
                 var exePath = Path.Combine(binDir, "mysqld.exe");
                 var installDbPath = Path.Combine(binDir, "mysql_install_db.exe");
-                var masterConnString = "Server=127.0.0.1;Port=3306;User ID=root;Password=;CharSet=utf8mb4;SslMode=None;Connection Timeout=2;";
+                var port = ResolveDatabasePort(Environment.GetEnvironmentVariable("MULLETAFLIX_DB_PORT"));
+                var masterConnString = $"Server=127.0.0.1;Port={port};User ID=root;Password=;CharSet=utf8mb4;SslMode=None;Connection Timeout=2;";
 
                 if (!File.Exists(exePath))
                 {
@@ -45,9 +46,9 @@ namespace MulletaFlix.Server.Helpers
                 var databaseAvailable = await WaitForDatabaseAsync(masterConnString, TimeSpan.FromSeconds(2), logger, cancellationToken).ConfigureAwait(false);
                 if (!databaseAvailable)
                 {
-                    if (await IsPortOpenAsync(3306, cancellationToken).ConfigureAwait(false))
+                    if (await IsPortOpenAsync(port, cancellationToken).ConfigureAwait(false))
                     {
-                        logger.LogWarning("MariaDB port 3306 is occupied but SQL connections are not ready. Waiting for the existing process instead of starting a second instance.");
+                        logger.LogWarning("MariaDB port {Port} is occupied but SQL connections are not ready. Waiting for the existing process instead of starting a second instance.", port);
                     }
                     else
                     {
@@ -90,6 +91,7 @@ namespace MulletaFlix.Server.Helpers
                             CreateNoWindow = true
                         };
                         startInfo.ArgumentList.Add($"--datadir={dataDir}");
+                        startInfo.ArgumentList.Add($"--port={port}");
                         startInfo.ArgumentList.Add("--console");
                         startInfo.ArgumentList.Add("--skip-log-bin");
                         startInfo.ArgumentList.Add("--bind-address=127.0.0.1");
@@ -139,11 +141,11 @@ namespace MulletaFlix.Server.Helpers
 
                 if (_mariaDbProcess is null)
                 {
-                    logger.LogInformation("Existing MariaDB is accepting connections on port 3306");
+                    logger.LogInformation("Existing MariaDB is accepting connections on port {Port}", port);
                 }
                 else
                 {
-                    logger.LogInformation("MariaDB embedded process started with PID {PID} and is accepting connections on port 3306", _mariaDbProcess.Id);
+                    logger.LogInformation("MariaDB embedded process started with PID {PID} and is accepting connections on port {Port}", _mariaDbProcess.Id, port);
                 }
                 logger.LogWarning("Embedded MariaDB is running without a root password. This is acceptable for localhost-only access, but set a password if the port is exposed.");
                 await InitializeDatabaseAsync(logger, masterConnString, cancellationToken).ConfigureAwait(false);
@@ -317,6 +319,22 @@ namespace MulletaFlix.Server.Helpers
             }
         }
 
+        internal static int ResolveDatabasePort(string? configuredPort)
+        {
+            if (string.IsNullOrWhiteSpace(configuredPort))
+            {
+                return 3306;
+            }
+
+            if (!int.TryParse(configuredPort, System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out var port)
+                || port is < 1 or > 65535)
+            {
+                throw new ArgumentOutOfRangeException(nameof(configuredPort), configuredPort, "MariaDB port must be an integer between 1 and 65535.");
+            }
+
+            return port;
+        }
+
         private static async Task InitializeDatabaseAsync(ILogger logger, string masterConnString, CancellationToken cancellationToken)
         {
             for (int i = 0; i < 5; i++)
@@ -372,7 +390,7 @@ namespace MulletaFlix.Server.Helpers
                             using var shutdown = Process.Start(new ProcessStartInfo
                             {
                                 FileName = mysqlAdminPath,
-                                Arguments = "--protocol=tcp --host=127.0.0.1 --port=3306 --user=root shutdown",
+                                Arguments = $"--protocol=tcp --host=127.0.0.1 --port={ResolveDatabasePort(Environment.GetEnvironmentVariable("MULLETAFLIX_DB_PORT"))} --user=root shutdown",
                                 UseShellExecute = false,
                                 CreateNoWindow = true,
                                 RedirectStandardOutput = true,

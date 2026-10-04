@@ -9,6 +9,8 @@ import { LibraryTabContent, LibraryTabMapping } from 'types/libraryTabContent';
 
 const playlistsTabContent: LibraryTabContent = {
     viewType: LibraryTab.Playlists,
+    collectionType: CollectionType.Playlists,
+    itemType: [BaseItemKind.Playlist],
     isBtnNewPlaylistEnabled: true
 };
 
@@ -42,4 +44,3 @@ const Playlists: FC = () => {
 };
 
 export default Playlists;
-

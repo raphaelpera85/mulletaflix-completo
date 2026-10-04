@@ -2,15 +2,6 @@ import { expect } from '@playwright/test';
 
 import { fetchStagePublicInfo, openStage, seedStageConnection, STAGE_ROUTES } from './stage.mjs';
 
-async function setInputValue(locator, value) {
-    await locator.evaluate((element, nextValue) => {
-        const input = element;
-        input.value = nextValue;
-        input.dispatchEvent(new Event('input', { bubbles: true }));
-        input.dispatchEvent(new Event('change', { bubbles: true }));
-    }, value);
-}
-
 export async function completeWizard(page, { adminUser, adminPassword, serverName = 'Mulletaflix' } = {}) {
     await seedStageConnection(page);
     await openStage(page, STAGE_ROUTES.wizardStart);
@@ -35,15 +26,23 @@ export async function completeWizard(page, { adminUser, adminPassword, serverNam
         await languageSelect.selectOption(languageOptions[0].value);
     }
 
+    const startupUserLoad = page.waitForResponse(response =>
+        response.request().method() === 'GET'
+        && new URL(response.url()).pathname.endsWith('/Startup/User')
+    );
     await wizardStartPage.locator('.wizardStartForm .button-submit').click();
     await page.waitForURL(/\/wizard\/user$/i, { timeout: 30_000 });
     await expect(wizardUserPage).toBeVisible({ timeout: 30_000 });
+    const startupUserResponse = await startupUserLoad;
+    expect(startupUserResponse.ok()).toBeTruthy();
     const usernameInput = wizardUserPage.locator('#txtUsername');
-    await setInputValue(usernameInput, adminUser);
+    await usernameInput.fill(adminUser);
     await expect(usernameInput).toHaveValue(adminUser, { timeout: 30_000 });
 
-    await setInputValue(wizardUserPage.locator('#txtManualPassword'), adminPassword);
-    await setInputValue(wizardUserPage.locator('#txtPasswordConfirm'), adminPassword);
+    await wizardUserPage.locator('#txtManualPassword').fill(adminPassword);
+    await wizardUserPage.locator('#txtPasswordConfirm').fill(adminPassword);
+    await expect(wizardUserPage.locator('#txtManualPassword')).toHaveValue(adminPassword);
+    await expect(wizardUserPage.locator('#txtPasswordConfirm')).toHaveValue(adminPassword);
     await wizardUserPage.locator('.wizardUserForm .button-submit').click();
 
     await expect(wizardLibraryPage).toBeVisible({ timeout: 60_000 });

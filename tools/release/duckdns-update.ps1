@@ -4,7 +4,6 @@ param(
 
     [string]$Subdomain,
 
-    [Parameter(Mandatory = $true)]
     [string]$Token
 )
 
@@ -15,6 +14,9 @@ if (-not [string]::IsNullOrWhiteSpace($ConfigPath)) {
     $config = Get-Content -LiteralPath $ConfigPath -Raw | ConvertFrom-Json
     $Subdomain = [string]$config.subdomain
     $Token = [string]$config.token
+}
+elseif ([string]::IsNullOrWhiteSpace($Token)) {
+    throw 'DuckDNS token is required when no protected configuration file is provided.'
 }
 
 if ($Subdomain -notmatch '^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$') {

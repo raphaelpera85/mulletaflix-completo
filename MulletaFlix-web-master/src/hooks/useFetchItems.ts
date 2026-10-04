@@ -20,7 +20,8 @@ import { getUserLibraryApi } from '@jellyfin/sdk/lib/utils/api/user-library-api'
 import { getPlaylistsApi } from '@jellyfin/sdk/lib/utils/api/playlists-api';
 import { getLiveTvApi } from '@jellyfin/sdk/lib/utils/api/live-tv-api';
 import { getPlaystateApi } from '@jellyfin/sdk/lib/utils/api/playstate-api';
-import { keepPreviousData, useMutation, useQuery } from '@tanstack/react-query';
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useEffect } from 'react';
 import datetime from 'scripts/datetime';
 import globalize from 'lib/globalize';
 
@@ -237,6 +238,19 @@ const fetchGetItemsViewByType = async (
         const isFavorite = libraryViewSettings.Filters?.Status?.includes(ItemFilter.IsFavorite) || undefined;
         let response;
         switch (viewType) {
+            case LibraryTab.Playlists: {
+                const playlistResponse = await api.axiosInstance.get<ItemDtoQueryResult>(
+                    '/Playlists',
+                    {
+                        params: {
+                            startIndex: libraryViewSettings.StartIndex,
+                            ...getLimitQuery()
+                        },
+                        signal: options?.signal
+                    }
+                );
+                return playlistResponse.data;
+            }
             case LibraryTab.AlbumArtists: {
                 response = await getArtistsApi(api).getAlbumArtists(
                     {
@@ -403,6 +417,21 @@ export const useGetItemsViewByType = (
     libraryViewSettings: LibraryViewSettings
 ) => {
     const currentApi = useApi();
+    const queryClient = useQueryClient();
+
+    useEffect(() => {
+        if (viewType !== LibraryTab.Playlists) {
+            return;
+        }
+
+        const refreshPlaylists = () => {
+            void queryClient.invalidateQueries({ queryKey: ['ItemsViewByType'] });
+        };
+
+        window.addEventListener('mflx:playlists-updated', refreshPlaylists);
+        return () => window.removeEventListener('mflx:playlists-updated', refreshPlaylists);
+    }, [queryClient, viewType]);
+
     return useQuery({
         queryKey: [
             'ItemsViewByType',
@@ -965,4 +994,3 @@ export const useGetProgramsSectionsWithItems = (
         enabled: !!currentApi.api && !!currentApi.user?.Id
     });
 };
-

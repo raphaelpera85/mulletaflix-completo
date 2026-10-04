@@ -6,6 +6,7 @@ import kotlinx.coroutines.runBlocking
 import okhttp3.OkHttpClient
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
+import org.mulletaflix.core.common.session.FeedbackRequestSession
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -52,6 +53,14 @@ class RemotePlaybackHttpContractTest {
             .create(MulletaFlixApiService::class.java)
     }
 
+    private fun requestSession() = FeedbackRequestSession(
+        serverUrl = server.url("/").toString().trimEnd('/'),
+        accessToken = "remote-playback-token",
+        userId = "user-1",
+        deviceId = "remote-playback-device",
+        serverId = "server-1",
+    )
+
     @Test
     fun `session request sends user filters and decodes active playback`() = runBlocking {
         server.enqueue(
@@ -60,7 +69,7 @@ class RemotePlaybackHttpContractTest {
             ),
         )
 
-        val sessions = api().getSessions(controllableByUserId = "user-1")
+        val sessions = api().getSessions(controllableByUserId = "user-1", session = requestSession())
         val request = server.takeRequest()
         val url = requireNotNull(request.requestUrl)
 
@@ -68,6 +77,8 @@ class RemotePlaybackHttpContractTest {
         assertEquals("/Sessions", url.encodedPath)
         assertEquals("user-1", url.queryParameter("controllableByUserId"))
         assertEquals("300", url.queryParameter("activeWithinSeconds"))
+        assertTrue(request.getHeader("Authorization").orEmpty().contains("remote-playback-token"))
+        assertTrue(request.getHeader("Authorization").orEmpty().contains("remote-playback-device"))
         assertEquals("tv-session", sessions.single().id)
         assertEquals("Filme", sessions.single().nowPlayingItem?.name)
         assertEquals(1_200_000_000L, sessions.single().playState?.positionTicks)
@@ -84,6 +95,7 @@ class RemotePlaybackHttpContractTest {
             command = "Seek",
             seekPositionTicks = 12_300L,
             controllingUserId = "user-1",
+            session = requestSession(),
         )
         val request = server.takeRequest()
         val url = requireNotNull(request.requestUrl)
@@ -92,6 +104,7 @@ class RemotePlaybackHttpContractTest {
         assertEquals("/Sessions/tv-session/Playing/Seek", url.encodedPath)
         assertEquals("12300", url.queryParameter("seekPositionTicks"))
         assertEquals("user-1", url.queryParameter("controllingUserId"))
+        assertTrue(request.getHeader("Authorization").orEmpty().contains("remote-playback-token"))
     }
 
     @Test
@@ -102,6 +115,7 @@ class RemotePlaybackHttpContractTest {
             sessionId = "tv-session",
             command = "PlayPause",
             controllingUserId = "user-1",
+            session = requestSession(),
         )
         val request = server.takeRequest()
         val url = requireNotNull(request.requestUrl)

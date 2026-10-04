@@ -37,6 +37,7 @@ Unicode True
     Var _HTTPSSETUP_
     Var _DUCKDNSSUBDOMAIN_
     Var _DUCKDNSTOKEN_
+    Var _DUCKDNSTOKENFILE_
     Var hCtl_https
     Var hCtl_https_Enable
     Var hCtl_https_Host
@@ -475,22 +476,82 @@ SectionEnd
 Section "-configure HTTPS" ConfigureHttps
     ${If} $_TESTMODE_ == "Yes"
         DetailPrint "Skipping HTTPS setup in TESTMODE."
+        StrCpy $_DUCKDNSSUBDOMAIN_ ""
+        StrCpy $_DUCKDNSTOKEN_ ""
         Goto ConfigureHttpsDone
     ${EndIf}
     ${If} $_HTTPSSETUP_ != "Yes"
         DetailPrint "HTTPS setup disabled by user."
+        ${If} ${FileExists} "$INSTDIR\configure-https.ps1"
+            ExecWait 'powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$INSTDIR\configure-https.ps1" -InstallRoot "$INSTDIR" -DisableDuckDns' $0
+            ${If} $0 != 0
+                MessageBox MB_OK|MB_ICONEXCLAMATION "HTTPS was not configured and DuckDNS could not be disabled. Its scheduled updater may still be active."
+            ${EndIf}
+        ${EndIf}
         Goto ConfigureHttpsDone
     ${EndIf}
     ${If} ${FileExists} "$INSTDIR\configure-https.ps1"
         DetailPrint "Installing and configuring Nginx HTTPS proxy..."
-        ExecWait 'powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$INSTDIR\configure-https.ps1" -InstallRoot "$INSTDIR" -HostName "$_HTTPSHOST_" -EmailAddress "$_HTTPEMAIL_" -DuckDnsSubdomain "$_DUCKDNSSUBDOMAIN_" -DuckDnsToken "$_DUCKDNSTOKEN_"' $0
+        StrCpy $_DUCKDNSTOKENFILE_ ""
+        StrCpy $R8 "No"
+        ${If} $_DUCKDNSSUBDOMAIN_ != ""
+        StrCpy $_DUCKDNSTOKENFILE_ "$COMMONPROGRAMDATA\MulletaFlix-DuckDNS\installer-token.txt"
+            ExecWait 'powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$INSTDIR\configure-https.ps1" -InstallRoot "$INSTDIR" -PrepareDuckDnsTokenFile' $0
+            ${If} $0 != 0
+                StrCpy $_DUCKDNSTOKEN_ ""
+                StrCpy $_DUCKDNSTOKENFILE_ ""
+                MessageBox MB_OK|MB_ICONEXCLAMATION "Could not securely prepare DuckDNS credential storage. HTTPS was not configured."
+                Goto ConfigureHttpsDone
+            ${EndIf}
+            StrCpy $R8 "Yes"
+            ClearErrors
+            FileOpen $R9 "$_DUCKDNSTOKENFILE_" w
+            IfErrors ConfigureHttpsTokenFileFailed
+            ClearErrors
+            FileWriteUTF16LE /BOM $R9 $_DUCKDNSTOKEN_
+            IfErrors ConfigureHttpsTokenWriteFailed
+            FileClose $R9
+            IfErrors ConfigureHttpsTokenWriteFailed
+        ${EndIf}
+        ExecWait 'powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$INSTDIR\configure-https.ps1" -InstallRoot "$INSTDIR" -HostName "$_HTTPSHOST_" -EmailAddress "$_HTTPEMAIL_" -DuckDnsSubdomain "$_DUCKDNSSUBDOMAIN_" -DuckDnsTokenFile "$_DUCKDNSTOKENFILE_"' $0
+        ${If} $R8 == "Yes"
+            ClearErrors
+            Delete "$_DUCKDNSTOKENFILE_"
+            IfErrors ConfigureHttpsTokenCleanupFailed
+        ${EndIf}
+        StrCpy $R8 "No"
+        StrCpy $_DUCKDNSTOKEN_ ""
+        StrCpy $_DUCKDNSTOKENFILE_ ""
         ${If} $0 <> 0
             MessageBox MB_OK|MB_ICONEXCLAMATION "MulletaFlix was installed, but HTTPS could not be configured. Verify DNS and that ports 80/443 reach this computer, then run configure-https.ps1 as Administrator."
         ${EndIf}
+        Goto ConfigureHttpsSectionEnd
     ${Else}
         MessageBox MB_OK|MB_ICONEXCLAMATION "The installer does not contain the HTTPS configurator. Rebuild the installer with the current packaging stage."
+        StrCpy $_DUCKDNSSUBDOMAIN_ ""
+        StrCpy $_DUCKDNSTOKEN_ ""
     ${EndIf}
     ConfigureHttpsDone:
+    Goto ConfigureHttpsSectionEnd
+    ConfigureHttpsTokenCleanupFailed:
+    StrCpy $_DUCKDNSTOKEN_ ""
+    StrCpy $_DUCKDNSTOKENFILE_ ""
+    MessageBox MB_OK|MB_ICONEXCLAMATION "Windows could not remove the temporary DuckDNS credential file. It remains in the protected ProgramData folder; rerun the installer to replace it."
+    Goto ConfigureHttpsSectionEnd
+    ConfigureHttpsTokenWriteFailed:
+    FileClose $R9
+    ConfigureHttpsTokenFileFailed:
+    ${If} $R8 == "Yes"
+        ClearErrors
+        Delete "$_DUCKDNSTOKENFILE_"
+        IfErrors ConfigureHttpsTokenCleanupFailed
+    ${EndIf}
+    StrCpy $R8 "No"
+    StrCpy $_DUCKDNSTOKEN_ ""
+    StrCpy $_DUCKDNSTOKENFILE_ ""
+    MessageBox MB_OK|MB_ICONEXCLAMATION "Could not create the protected temporary DuckDNS credential file. HTTPS was not configured."
+    Goto ConfigureHttpsSectionEnd
+    ConfigureHttpsSectionEnd:
 SectionEnd
 
 Section "Create Shortcuts" CreateWinShortcuts
@@ -798,6 +859,8 @@ Function LeaveHttpsPage
         ${EndIf}
     ${Else}
         StrCpy $_HTTPSSETUP_ "No"
+        StrCpy $_DUCKDNSSUBDOMAIN_ ""
+        StrCpy $_DUCKDNSTOKEN_ ""
     ${EndIf}
 FunctionEnd
 

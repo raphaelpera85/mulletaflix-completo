@@ -86,6 +86,7 @@ public class RateLimitMiddleware
     [
         "/ActivityLog",
         "/Backup",
+        "/Catalog/Audit",
         "/Configuration",
         "/Dashboard",
         "/Environment",
@@ -155,7 +156,9 @@ public class RateLimitMiddleware
         var isLoginAttempt = path is not null && (
             IsPathOrDescendant(path, "/Users/Authenticate")
             || IsPathOrDescendant(path, "/Users/Register"));
-        var selectiveCategory = path is not null ? GetSelectiveRateLimitCategory(path) : null;
+        var selectiveCategory = path is not null
+            ? GetSelectiveRateLimitCategory(context.Request.Method, path)
+            : null;
         RateLimitEntry? loginEntry = null;
 
         if (isLoginAttempt)
@@ -284,6 +287,9 @@ public class RateLimitMiddleware
     }
 
     internal static string? GetSelectiveRateLimitCategory(string path)
+        => GetSelectiveRateLimitCategory("POST", path);
+
+    internal static string? GetSelectiveRateLimitCategory(string method, string path)
     {
         if (IsPublicBootstrapPath(path))
         {
@@ -294,6 +300,28 @@ public class RateLimitMiddleware
             || IsPathOrDescendant(path, "/Items/RemoteSearch"))
         {
             return "search";
+        }
+
+        if ((string.Equals(method, "GET", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(method, "POST", StringComparison.OrdinalIgnoreCase))
+            && IsPerItemRemoteProviderPath(path))
+        {
+            return "search";
+        }
+
+        if (string.Equals(method, "POST", StringComparison.OrdinalIgnoreCase)
+            && (IsItemMetadataRefreshPath(path)
+                || IsItemUpdatePath(path)
+                || IsAudioLyricsMutationPath(path)
+                || IsVideoSubtitleUploadPath(path)))
+        {
+            return "administration";
+        }
+
+        if (string.Equals(method, "DELETE", StringComparison.OrdinalIgnoreCase)
+            && IsAudioLyricsMutationPath(path))
+        {
+            return "administration";
         }
 
         if (IsPathOrDescendant(path, "/NebulaFtp"))
@@ -315,6 +343,71 @@ public class RateLimitMiddleware
         }
 
         return null;
+    }
+
+    private static bool IsItemMetadataRefreshPath(string path)
+    {
+        return IsGuidRoutedPath(path, "/Items/", "/Refresh", allowDescendants: false);
+    }
+
+    private static bool IsItemUpdatePath(string path)
+        => IsGuidOnlyRoute(path, "/Items/");
+
+    private static bool IsAudioLyricsMutationPath(string path)
+        => IsGuidRoutedPath(path, "/Audio/", "/Lyrics", allowDescendants: false);
+
+    private static bool IsVideoSubtitleUploadPath(string path)
+        => IsGuidRoutedPath(path, "/Videos/", "/Subtitles", allowDescendants: false);
+
+    private static bool IsPerItemRemoteProviderPath(string path)
+        => IsGuidRoutedPath(path, "/Items/", "/RemoteSearch/Subtitles", allowDescendants: true)
+            || IsGuidRoutedPath(path, "/Audio/", "/RemoteSearch/Lyrics", allowDescendants: true);
+
+    private static bool IsGuidOnlyRoute(string path, string prefix)
+    {
+        var pathSpan = path.AsSpan();
+        var prefixSpan = prefix.AsSpan();
+        if (!pathSpan.StartsWith(prefixSpan, StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        var id = pathSpan[prefixSpan.Length..];
+        return !id.IsEmpty
+            && id.IndexOf('/') < 0
+            && Guid.TryParse(id, out var parsedId)
+            && parsedId != Guid.Empty;
+    }
+
+    private static bool IsGuidRoutedPath(string path, string prefix, string suffix, bool allowDescendants)
+    {
+        var pathSpan = path.AsSpan();
+        var prefixSpan = prefix.AsSpan();
+        if (!pathSpan.StartsWith(prefixSpan, StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        var remainder = pathSpan[prefixSpan.Length..];
+        var separator = remainder.IndexOf('/');
+        if (separator <= 0
+            || !Guid.TryParse(remainder[..separator], out var itemId)
+            || itemId == Guid.Empty)
+        {
+            return false;
+        }
+
+        var route = remainder[separator..];
+        var suffixSpan = suffix.AsSpan();
+        if (route.Equals(suffixSpan, StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        return allowDescendants
+            && route.Length > suffixSpan.Length
+            && route[suffixSpan.Length] == '/'
+            && route[..suffixSpan.Length].Equals(suffixSpan, StringComparison.OrdinalIgnoreCase);
     }
 
     internal static bool IsPathOrDescendant(string path, string route)

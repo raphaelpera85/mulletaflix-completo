@@ -294,6 +294,7 @@ interface MulletaFlixApiService {
     suspend fun getSessions(
         @Query("controllableByUserId") controllableByUserId: String,
         @Query("activeWithinSeconds") activeWithinSeconds: Int = 300,
+        @Tag session: FeedbackRequestSession,
     ): List<SessionInfoDto>
 
     @POST("Sessions/{sessionId}/Playing/{command}")
@@ -302,6 +303,7 @@ interface MulletaFlixApiService {
         @Path("command") command: String,
         @Query("seekPositionTicks") seekPositionTicks: Long? = null,
         @Query("controllingUserId") controllingUserId: String? = null,
+        @Tag session: FeedbackRequestSession,
     )
 
     // ── Media Info ───────────────────────────────────────────────────────────

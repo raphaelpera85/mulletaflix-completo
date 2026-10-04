@@ -660,7 +660,7 @@ public sealed class NebulaHttpStreamServer : IAsyncDisposable, IDisposable
         response.Close();
     }
 
-    private static (List<NebulaStreamPart> Parts, long TotalSize) BuildStreamParts(BsonDocument doc)
+    internal static (List<NebulaStreamPart> Parts, long TotalSize) BuildStreamParts(BsonDocument doc)
     {
         var localPath = doc.TryGetValue("local_path", out var pathValue) && pathValue.IsString ? pathValue.AsString : null;
         var parts = new List<NebulaStreamPart>();

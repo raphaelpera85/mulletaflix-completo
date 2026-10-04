@@ -3,7 +3,9 @@ package org.mulletaflix.data.repository
 import kotlinx.coroutines.flow.first
 import org.mulletaflix.core.api.MulletaFlixApiService
 import org.mulletaflix.core.api.SessionRepository
+import org.mulletaflix.core.common.session.FeedbackRequestSession
 import org.mulletaflix.domain.repository.RemotePlaybackCommand
+import org.mulletaflix.domain.repository.RemotePlaybackIdentity
 import org.mulletaflix.domain.repository.RemotePlaybackRepository
 import org.mulletaflix.domain.repository.RemotePlaybackSession
 import javax.inject.Inject
@@ -15,13 +17,11 @@ class RemotePlaybackRepositoryImpl @Inject constructor(
     private val sessionRepository: SessionRepository,
 ) : RemotePlaybackRepository {
 
-    override suspend fun getActiveSessions(): Result<List<RemotePlaybackSession>> = suspendRunCatching {
-        val userId = sessionRepository.getCurrentUserId().first().orEmpty()
-        require(userId.isNotBlank()) { "Sessão expirada. Entre novamente." }
-        val currentDeviceId = sessionRepository.getDeviceId().first()
-        api.getSessions(controllableByUserId = userId)
+    override suspend fun getActiveSessions(identity: RemotePlaybackIdentity): Result<List<RemotePlaybackSession>> = suspendRunCatching {
+        val requestSession = requireCurrentSession(identity)
+        api.getSessions(controllableByUserId = requestSession.userId, session = requestSession)
             .asSequence()
-            .filter { !it.id.isNullOrBlank() && it.deviceId != currentDeviceId }
+            .filter { !it.id.isNullOrBlank() && it.deviceId != requestSession.deviceId }
             .mapNotNull { session ->
                 val playingItem = session.nowPlayingItem ?: return@mapNotNull null
                 val id = session.id ?: return@mapNotNull null
@@ -40,13 +40,13 @@ class RemotePlaybackRepositoryImpl @Inject constructor(
     }
 
     override suspend fun sendCommand(
+        identity: RemotePlaybackIdentity,
         sessionId: String,
         command: RemotePlaybackCommand,
         seekPositionTicks: Long?,
     ): Result<Unit> = suspendRunCatching {
         require(sessionId.isNotBlank()) { "Sessão remota inválida." }
-        val userId = sessionRepository.getCurrentUserId().first().orEmpty()
-        require(userId.isNotBlank()) { "Sessão expirada. Entre novamente." }
+        val requestSession = requireCurrentSession(identity)
         val apiCommand = when (command) {
             RemotePlaybackCommand.PLAY_PAUSE -> "PlayPause"
             RemotePlaybackCommand.STOP -> "Stop"
@@ -60,7 +60,16 @@ class RemotePlaybackRepositoryImpl @Inject constructor(
             sessionId = sessionId,
             command = apiCommand,
             seekPositionTicks = seekPositionTicks,
-            controllingUserId = userId,
+            controllingUserId = requestSession.userId,
+            session = requestSession,
         )
+    }
+
+    private suspend fun requireCurrentSession(identity: RemotePlaybackIdentity): FeedbackRequestSession {
+        val current = sessionRepository.getFeedbackRequestSession().first()
+            ?: throw IllegalStateException("Sessão expirada. Entre novamente.")
+        val currentIdentity = RemotePlaybackIdentity(current.serverId, current.serverUrl, current.userId)
+        require(identity.matches(currentIdentity)) { "A sessão mudou. Atualize os dispositivos em reprodução." }
+        return current
     }
 }

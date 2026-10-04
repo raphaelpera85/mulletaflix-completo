@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.ComponentModel.DataAnnotations;
 using System.Globalization;
@@ -54,6 +54,39 @@ public class PlaylistsController : BaseMulletaFlixApiController
         _playlistManager = playlistManager;
         _userManager = userManager;
         _libraryManager = libraryManager;
+    }
+
+    /// <summary>
+    /// Gets playlists visible to the authenticated user.
+    /// </summary>
+    /// <param name="startIndex">Optional zero-based index of the first playlist to return.</param>
+    /// <param name="limit">Optional maximum number of playlists to return.</param>
+    /// <returns>A paged list of visible playlists.</returns>
+    [HttpGet]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    public async Task<ActionResult<QueryResult<BaseItemDto>>> GetPlaylists(
+        [FromQuery] int? startIndex,
+        [FromQuery] int? limit)
+    {
+        var userId = User.GetUserId();
+        var user = _userManager.GetUserById(userId);
+        var playlists = _playlistManager.GetPlaylists(userId)
+            .OrderBy(playlist => playlist.SortName, StringComparer.CurrentCultureIgnoreCase)
+            .ToArray();
+        var offset = Math.Max(0, startIndex ?? 0);
+        var selectedPlaylists = playlists.Skip(offset);
+        if (limit is > 0)
+        {
+            selectedPlaylists = selectedPlaylists.Take(limit.Value);
+        }
+
+        var items = await _dtoService.GetBaseItemDtosAsync(
+            selectedPlaylists.ToArray(),
+            new DtoOptions(),
+            user,
+            skipVisibilityCheck: true).ConfigureAwait(false);
+
+        return new QueryResult<BaseItemDto>(offset, playlists.Length, items);
     }
 
     /// <summary>
@@ -567,4 +600,3 @@ public class PlaylistsController : BaseMulletaFlixApiController
         return result;
     }
 }
-

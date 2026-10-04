@@ -87,6 +87,43 @@ jobs:
           --filter "FullyQualifiedName~NebulaHealthCheckTests|FullyQualifiedName~MulletaFlixDatabaseHealthCheckTests"
           --verbosity minimal
 
+  nebula-mongo-playback-recovery:
+    name: Nebula playback recovery with disposable MongoDB
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    services:
+      mongodb:
+        image: mongo:7.0
+        ports:
+          - 27099:27017
+        options: >-
+          --health-cmd "mongosh --quiet --eval 'db.adminCommand({ ping: 1 }).ok'"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      MULLETAFLIX_TEST_MONGODB_CONNECTION_STRING: mongodb://127.0.0.1:27099/?directConnection=true
+    defaults:
+      run:
+        working-directory: MulletaFlix-master
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ env.SDK_VERSION }}
+
+      - name: Restore server solution
+        run: dotnet restore MulletaFlix.sln
+
+      - name: Test Mongo persistence and Telegram fetch recovery
+        run: >
+          dotnet test tests/Jellyfin.Server.Implementations.Tests/Jellyfin.Server.Implementations.Tests.csproj
+          --configuration Release
+          --no-restore
+          --filter "FullyQualifiedName~NebulaPlaybackRecoveryMongoTests"
+          --verbosity minimal
+
   web-build:
     name: Web client typecheck & lint
     runs-on: ubuntu-latest
@@ -181,8 +218,8 @@ jobs:
       - name: Install Playwright browser
         run: npx playwright install --with-deps chromium
 
-      - name: Run isolated wizard smoke test
-        run: npm run playwright -- --grep=Wizard
+      - name: Run isolated wizard and playlist persistence UX tests
+        run: "npm run playwright -- --grep=Wizard|playlist"
 
       - name: Run Playwright carousel navigation tests
         run: npm run test:playwright:scrollbuttons

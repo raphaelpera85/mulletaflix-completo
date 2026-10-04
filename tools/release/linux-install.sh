@@ -1,15 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-if [[ "${EUID}" -ne 0 ]]; then
-  echo "Run as root: sudo ./install.sh" >&2
-  exit 1
-fi
-if ! command -v apt-get >/dev/null 2>&1 || ! command -v systemctl >/dev/null 2>&1; then
-  echo "Supported installer target: Debian/Ubuntu with systemd." >&2
-  exit 1
-fi
-
 package_root="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 if [[ ! -x "$package_root/server/MulletaFlix" && ! -f "$package_root/server/MulletaFlix" ]]; then
   echo "Server payload missing: $package_root/server/MulletaFlix" >&2
@@ -38,11 +29,75 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
+if [[ -n "$duckdns_subdomain" && ! "$duckdns_subdomain" =~ ^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$ ]]; then
+  echo "Invalid DuckDNS subdomain." >&2
+  exit 1
+fi
 if [[ -n "$duckdns_subdomain" ]]; then
-  if [[ ! "$duckdns_subdomain" =~ ^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$ ]]; then
-    echo "Invalid DuckDNS subdomain." >&2
+  public_host="${duckdns_subdomain}.duckdns.org"
+fi
+if [[ -n "$public_host" && ! "$public_host" =~ ^[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?(\.[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?)*$ ]]; then
+  echo "Invalid public hostname." >&2
+  exit 1
+fi
+if [[ "$skip_https" != "1" && -n "$public_host" ]]; then
+  if [[ -z "$acme_email" ]]; then
+    echo "HTTPS requested but --https-email or MULLETAFLIX_ACME_EMAIL was not provided." >&2
     exit 1
   fi
+  if [[ ! "$acme_email" =~ ^[^[:space:]@]+@[^[:space:]@]+[.][^[:space:]@]+$ ]]; then
+    echo "Invalid ACME notification email." >&2
+    exit 1
+  fi
+fi
+if [[ -n "$duckdns_token_file" && -z "$duckdns_subdomain" ]]; then
+  echo "--duckdns-token-file requires --duckdns-subdomain." >&2
+  exit 1
+fi
+
+if [[ "${EUID}" -ne 0 ]]; then
+  echo "Run as root: sudo ./install.sh" >&2
+  exit 1
+fi
+if ! command -v apt-get >/dev/null 2>&1 || ! command -v systemctl >/dev/null 2>&1; then
+  echo "Supported installer target: Debian/Ubuntu with systemd." >&2
+  exit 1
+fi
+if [[ -L /etc/mulletaflix || -L /etc/mulletaflix/server.env ]]; then
+  echo "Refusing to install through a symlink at /etc/mulletaflix or server.env." >&2
+  exit 1
+fi
+
+atomic_write_file() {
+  local target mode owner_group directory temporary_file
+  target="$1"
+  mode="$2"
+  owner_group="${3:-}"
+  directory="${target%/*}"
+  if [[ "$directory" == "$target" ]]; then
+    directory="."
+  fi
+
+  temporary_file="$(mktemp -- "$directory/.${target##*/}.XXXXXX")"
+  if ! cat > "$temporary_file"; then
+    rm -f -- "$temporary_file"
+    return 1
+  fi
+  if [[ -n "$owner_group" ]] && ! chown -- "$owner_group" "$temporary_file"; then
+    rm -f -- "$temporary_file"
+    return 1
+  fi
+  if ! chmod "$mode" "$temporary_file"; then
+    rm -f -- "$temporary_file"
+    return 1
+  fi
+  if ! mv -fT -- "$temporary_file" "$target"; then
+    rm -f -- "$temporary_file"
+    return 1
+  fi
+}
+
+if [[ -n "$duckdns_subdomain" ]]; then
   if [[ -n "$duckdns_token_file" ]]; then
     if [[ ! -f "$duckdns_token_file" || -L "$duckdns_token_file" || ! -r "$duckdns_token_file" ]]; then
       echo "DuckDNS token file must be a readable regular file, not a symlink." >&2
@@ -65,7 +120,6 @@ if [[ -n "$duckdns_subdomain" ]]; then
     echo "DuckDNS token is missing or contains a line break." >&2
     exit 1
   fi
-  public_host="${duckdns_subdomain}.duckdns.org"
 elif [[ -n "$duckdns_token_file" ]]; then
   echo "--duckdns-token-file requires --duckdns-subdomain." >&2
   exit 1
@@ -123,9 +177,12 @@ GRANT ALL PRIVILEGES ON mulletaflix_introskipper.* TO 'mulletaflix'@'127.0.0.1';
 FLUSH PRIVILEGES;
 SQL
 
-printf 'MULLETAFLIX_DB_SERVER=127.0.0.1\nMULLETAFLIX_DB_PORT=3306\nMULLETAFLIX_DB_USER=mulletaflix\nMULLETAFLIX_DB_PASSWORD=%s\n' "$db_password" > /etc/mulletaflix/server.env
-chmod 0640 /etc/mulletaflix/server.env
-chown root:mulletaflix /etc/mulletaflix/server.env
+atomic_write_file /etc/mulletaflix/server.env 0640 root:mulletaflix <<EOF
+MULLETAFLIX_DB_SERVER=127.0.0.1
+MULLETAFLIX_DB_PORT=3306
+MULLETAFLIX_DB_USER=mulletaflix
+MULLETAFLIX_DB_PASSWORD=$db_password
+EOF
 
 install -d -m 0755 /opt/mulletaflix/server
 cp -a "$package_root/server/." /opt/mulletaflix/server/
@@ -136,11 +193,13 @@ systemctl daemon-reload
 systemctl enable --now mulletaflix.service
 
 if [[ -n "$duckdns_subdomain" ]]; then
-  install -m 0600 /dev/null /etc/mulletaflix/duckdns.env
-  printf 'DUCKDNS_SUBDOMAIN=%s\nDUCKDNS_TOKEN=%s\n' "$duckdns_subdomain" "$duckdns_token" > /etc/mulletaflix/duckdns.env
+  atomic_write_file /etc/mulletaflix/duckdns.env 0600 root:root <<EOF
+DUCKDNS_SUBDOMAIN=$duckdns_subdomain
+DUCKDNS_TOKEN=$duckdns_token
+EOF
   unset duckdns_token
   install -m 0750 "$package_root/duckdns-update.sh" /usr/local/sbin/mulletaflix-duckdns-update
-  cat > /etc/systemd/system/mulletaflix-duckdns.service <<'EOF'
+  atomic_write_file /etc/systemd/system/mulletaflix-duckdns.service 0644 root:root <<'EOF'
 [Unit]
 Description=MulletaFlix DuckDNS updater
 
@@ -148,7 +207,7 @@ Description=MulletaFlix DuckDNS updater
 Type=oneshot
 ExecStart=/usr/local/sbin/mulletaflix-duckdns-update /etc/mulletaflix/duckdns.env
 EOF
-  cat > /etc/systemd/system/mulletaflix-duckdns.timer <<'EOF'
+  atomic_write_file /etc/systemd/system/mulletaflix-duckdns.timer 0644 root:root <<'EOF'
 [Unit]
 Description=Update MulletaFlix DuckDNS address
 
@@ -166,16 +225,11 @@ EOF
 fi
 
 if [[ "$skip_https" != "1" && -n "$public_host" ]]; then
-  if [[ -z "$acme_email" ]]; then
-    echo "HTTPS requested but --https-email or MULLETAFLIX_ACME_EMAIL was not provided." >&2
-    exit 1
-  fi
-
   nginx_root=/etc/nginx
   acme_root=/var/www/mulletaflix-acme
   site_path="$nginx_root/sites-available/mulletaflix"
   install -d -m 0755 "$acme_root/.well-known/acme-challenge"
-  cat > "$site_path" <<EOF
+  atomic_write_file "$site_path" 0644 root:root <<EOF
 map \$http_upgrade \$connection_upgrade {
     default upgrade;
     '' close;
@@ -209,7 +263,7 @@ EOF
   systemctl enable --now nginx
   certbot certonly --webroot -w "$acme_root" -d "$public_host" --email "$acme_email" --agree-tos --non-interactive --no-eff-email
 
-  cat > "$site_path" <<EOF
+  atomic_write_file "$site_path" 0644 root:root <<EOF
 map \$http_upgrade \$connection_upgrade {
     default upgrade;
     '' close;
@@ -246,12 +300,11 @@ server {
 }
 EOF
   install -d -m 0755 /etc/letsencrypt/renewal-hooks/deploy
-  cat > /etc/letsencrypt/renewal-hooks/deploy/mulletaflix-nginx-reload <<'EOF'
+  atomic_write_file /etc/letsencrypt/renewal-hooks/deploy/mulletaflix-nginx-reload 0755 root:root <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
 systemctl reload nginx
 EOF
-  chmod 0755 /etc/letsencrypt/renewal-hooks/deploy/mulletaflix-nginx-reload
   nginx -t
   systemctl reload nginx
   echo "MulletaFlix HTTPS configured for https://$public_host"

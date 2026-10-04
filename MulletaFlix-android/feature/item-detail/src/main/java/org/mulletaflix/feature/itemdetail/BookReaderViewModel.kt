@@ -8,6 +8,9 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import java.io.File
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -36,7 +39,7 @@ class BookReaderViewModel @Inject constructor(
     private val _state = MutableStateFlow(BookReaderState())
     val state: StateFlow<BookReaderState> = _state.asStateFlow()
     private var loadJob: Job? = null
-    private var bookFile: File? = null
+    private val bookCacheFiles = BookReaderCacheFiles(File(context.cacheDir, "book-reader"))
 
     fun load(itemId: String) {
         if (loadJob?.isActive == true) return
@@ -47,23 +50,23 @@ class BookReaderViewModel @Inject constructor(
                     val body = try {
                         api.getBookReaderEpub(itemId)
                     } catch (failure: HttpException) {
-                        if (failure.code() == 415) {
-                            error("Este formato não pode ser lido pelo aplicativo.")
-                        } else {
-                            error("Não foi possível carregar o livro (HTTP ${failure.code()}).")
-                        }
+                        error(bookReaderHttpFailureMessage(failure.code()))
                     }
                     val contentType = body.contentType()?.let { "${it.type}/${it.subtype}" }.orEmpty()
-                    if (!contentType.contains("epub", ignoreCase = true)) {
+                    if (isClearlyNotEpubContentType(contentType)) {
                         body.close()
-                        error("Este arquivo não é EPUB. O leitor móvel ainda não oferece este formato.")
+                        error("O servidor não enviou um arquivo de livro compatível para leitura.")
                     }
 
-                    val directory = File(context.cacheDir, "book-reader").apply { mkdirs() }
-                    directory.listFiles().orEmpty().forEach(File::delete)
-                    val target = File(directory, "$itemId.epub")
-                    body.byteStream().use { input -> target.outputStream().use(input::copyTo) }
-                    bookFile = target
+                    val target = bookCacheFiles.create()
+                    var copyCompleted = false
+                    try {
+                        body.byteStream().use { input -> target.outputStream().use(input::copyTo) }
+                        currentCoroutineContext().ensureActive()
+                        copyCompleted = true
+                    } finally {
+                        if (!copyCompleted) bookCacheFiles.delete(target)
+                    }
 
                     val httpClient = DefaultHttpClient()
                     val retriever = AssetRetriever(context.contentResolver, httpClient)
@@ -79,6 +82,8 @@ class BookReaderViewModel @Inject constructor(
                         .getOrNull() ?: throw IllegalArgumentException("Não foi possível interpretar este livro.")
                 }
                 _state.value = BookReaderState(isLoading = false, publication = publication)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
             } catch (error: Exception) {
                 _state.value = BookReaderState(
                     isLoading = false,
@@ -89,9 +94,7 @@ class BookReaderViewModel @Inject constructor(
     }
 
     override fun onCleared() {
-        bookFile?.delete()
-        File(context.cacheDir, "book-reader").takeIf { it.isDirectory }
-            ?.listFiles().orEmpty().filter { it.length() == 0L }.forEach(File::delete)
+        bookCacheFiles.deleteAfter(loadJob)
         super.onCleared()
     }
 }

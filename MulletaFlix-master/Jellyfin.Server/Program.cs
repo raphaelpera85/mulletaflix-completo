@@ -107,7 +107,9 @@ namespace MulletaFlix.Server
             // Create an instance of the application configuration to use for application startup
             IConfiguration startupConfig = CreateAppConfiguration(options, appPaths);
             StartupHelpers.InitializeLoggingFramework(startupConfig, appPaths);
-            using var instanceMutex = new Mutex(true, "Global\\MulletaFlix.Server", out var isFirstInstance);
+            using var instanceMutex = new Mutex(true, GetInstanceMutexName(
+                string.Equals(Environment.GetEnvironmentVariable("MFLX_E2E_TEST_MODE"), "true", StringComparison.OrdinalIgnoreCase),
+                Environment.ProcessId), out var isFirstInstance);
             if (!isFirstInstance)
             {
                 _loggerFactory.CreateLogger("Main").LogWarning(
@@ -434,6 +436,13 @@ namespace MulletaFlix.Server
             return new ConfigurationBuilder()
                 .ConfigureAppConfiguration(commandLineOpts, appPaths)
                 .Build();
+        }
+
+        internal static string GetInstanceMutexName(bool isE2eTestMode, int processId)
+        {
+            return isE2eTestMode
+                ? $"Local\\MulletaFlix.Server.E2E.{processId}"
+                : "Global\\MulletaFlix.Server";
         }
 
         private static IConfigurationBuilder ConfigureAppConfiguration(
