@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Security.Claims;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Library;
@@ -19,6 +20,66 @@ namespace MulletaFlix.Api.Tests.Controllers;
 
 public class FilterControllerAuthorizationTests
 {
+    [Theory]
+    [InlineData("legacy", false)]
+    [InlineData("legacy", true)]
+    [InlineData("current", false)]
+    [InlineData("current", true)]
+    public void ReadEndpoints_RejectMissingOrUnresolvedUserBeforeReadingLibrary(string endpoint, bool includeUserIdClaim)
+    {
+        var fixture = CreateController(
+            userExists: !includeUserIdClaim,
+            includeUserIdClaim: includeUserIdClaim);
+
+        var result = endpoint == "legacy"
+            ? fixture.Controller.GetQueryFiltersLegacy(null, fixture.ParentId, [], []).Result
+            : fixture.Controller.GetQueryFilters(
+                null,
+                fixture.ParentId,
+                [],
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null).Result;
+
+        Assert.IsType<UnauthorizedResult>(result);
+        Assert.Empty(fixture.LibraryManager.Invocations);
+    }
+
+    [Theory]
+    [InlineData("legacy")]
+    [InlineData("current")]
+    public void ReadEndpoints_ApiKeyWithoutUserRemainsSupported(string endpoint)
+    {
+        var fixture = CreateController(includeUserIdClaim: false, isApiKey: true);
+
+        if (endpoint == "legacy")
+        {
+            var result = fixture.Controller.GetQueryFiltersLegacy(null, fixture.ParentId, [], []);
+            Assert.IsType<QueryFiltersLegacy>(result.Value);
+        }
+        else
+        {
+            var result = fixture.Controller.GetQueryFilters(
+                null,
+                fixture.ParentId,
+                [],
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null);
+            Assert.IsType<QueryFilters>(result.Value);
+        }
+
+        Assert.Single(fixture.LibraryManager.Invocations);
+    }
+
     [Fact]
     public void GetQueryFiltersLegacy_DoesNotExposeFiltersForParentOutsideRequestUsersLibrary()
     {
@@ -103,7 +164,10 @@ public class FilterControllerAuthorizationTests
             Times.Never);
     }
 
-    private static ControllerFixture CreateController(bool userExists = true)
+    private static ControllerFixture CreateController(
+        bool userExists = true,
+        bool includeUserIdClaim = true,
+        bool isApiKey = false)
     {
         var user = new User(
             "reader",
@@ -123,9 +187,18 @@ public class FilterControllerAuthorizationTests
             libraryManager.Object,
             userManager.Object,
             Mock.Of<ILocalizationManager>());
-        var identity = new ClaimsIdentity(
-            [new Claim(InternalClaimTypes.UserId, user.Id.ToString("N"))],
-            "TestAuth");
+        var claims = new List<Claim>();
+        if (includeUserIdClaim)
+        {
+            claims.Add(new Claim(InternalClaimTypes.UserId, user.Id.ToString("N")));
+        }
+
+        if (isApiKey)
+        {
+            claims.Add(new Claim(InternalClaimTypes.IsApiKey, bool.TrueString));
+        }
+
+        var identity = new ClaimsIdentity(claims, "TestAuth");
         controller.ControllerContext = new ControllerContext
         {
             HttpContext = new DefaultHttpContext { User = new ClaimsPrincipal(identity) }

@@ -1,8 +1,10 @@
 ﻿using System;
 using System.Linq;
+using MulletaFlix.Api.Extensions;
 using MulletaFlix.Api.Helpers;
 using MulletaFlix.Api.ModelBinders;
 using MulletaFlix.Data.Enums;
+using MulletaFlix.Database.Implementations.Entities;
 using MulletaFlix.Extensions;
 using MediaBrowser.Controller.Dto;
 using MediaBrowser.Controller.Entities;
@@ -52,6 +54,7 @@ public class FilterController : BaseMulletaFlixApiController
     /// <returns>Legacy query filters.</returns>
     [HttpGet("Items/Filters")]
     [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public ActionResult<QueryFiltersLegacy> GetQueryFiltersLegacy(
         [FromQuery] Guid? userId,
         [FromQuery] Guid? parentId,
@@ -59,10 +62,7 @@ public class FilterController : BaseMulletaFlixApiController
         [FromQuery, ModelBinder(typeof(CommaDelimitedCollectionModelBinder))] MediaType[] mediaTypes)
     {
         userId = RequestHelpers.GetUserId(User, userId);
-        var user = userId.IsNullOrEmpty()
-            ? null
-            : _userManager.GetUserById(userId.Value);
-        if (!userId.IsNullOrEmpty() && user is null)
+        if (!TryResolveFilterUser(userId, out var user))
         {
             return Unauthorized();
         }
@@ -122,6 +122,7 @@ public class FilterController : BaseMulletaFlixApiController
     /// <returns>Query filters.</returns>
     [HttpGet("Items/Filters2")]
     [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public ActionResult<QueryFilters> GetQueryFilters(
         [FromQuery] Guid? userId,
         [FromQuery] Guid? parentId,
@@ -135,10 +136,7 @@ public class FilterController : BaseMulletaFlixApiController
         [FromQuery] bool? recursive)
     {
         userId = RequestHelpers.GetUserId(User, userId);
-        var user = userId.IsNullOrEmpty()
-            ? null
-            : _userManager.GetUserById(userId.Value);
-        if (!userId.IsNullOrEmpty() && user is null)
+        if (!TryResolveFilterUser(userId, out var user))
         {
             return Unauthorized();
         }
@@ -238,5 +236,17 @@ public class FilterController : BaseMulletaFlixApiController
         }
 
         return filters;
+    }
+
+    private bool TryResolveFilterUser(Guid? userId, out User? user)
+    {
+        user = null;
+        if (userId.IsNullOrEmpty())
+        {
+            return User.GetIsApiKey();
+        }
+
+        user = _userManager.GetUserById(userId.Value);
+        return user is not null;
     }
 }

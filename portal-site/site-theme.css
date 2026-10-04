@@ -14,6 +14,7 @@ header.site-header,header.wrap{position:sticky;top:0;z-index:50;background:#0a0b
 .navlinks{display:flex;align-items:center;gap:25px;flex-wrap:wrap}
 .navlinks a,.nav>span a{color:var(--muted)!important;text-decoration:none;font-size:.88rem}
 .navlinks a:hover,.nav>span a:hover{color:var(--text)!important}
+.nav-menu{position:relative;display:inline-flex;align-items:center;height:42px}.nav-menu>a:after{content:'⌄';margin-left:6px;font-size:.72em}.nav-submenu{position:absolute;top:calc(100% + 7px);left:-12px;display:none;min-width:190px;padding:7px;border:1px solid var(--line);background:#11131bf7;box-shadow:0 16px 35px #0008;backdrop-filter:blur(18px)}.nav-menu:hover .nav-submenu,.nav-menu:focus-within .nav-submenu{display:grid}.nav-submenu a{display:block!important;padding:9px 11px;color:var(--muted)!important}.nav-submenu a:hover,.nav-submenu a:focus-visible{background:#ffffff0b;color:var(--text)!important}
 .navlinks .nav-cta{color:#fff!important;background:var(--red);padding:9px 14px;border-radius:8px;font-weight:750}
 .hero{padding:72px 0 70px}
 .eyebrow{color:var(--red-soft);font-size:.72rem;font-weight:800;letter-spacing:.18em;text-transform:uppercase}
