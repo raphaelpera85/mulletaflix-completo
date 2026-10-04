@@ -40,8 +40,8 @@
       "progressPercent": 100,
       "status": "completed",
       "startedAt": "2026-10-04T13:37:50-03:00",
-      "updatedAt": "2026-10-04T13:37:50-03:00",
-      "evidence": "AGENTS.md e .agents/rules atualizados com a rota obrigatória. JSON publicado no Git; portal sincronizado em raphaelpera85/Mulletaflix-Portal; deploy Vercel READY no commit 96ccfb5 e rotas públicas verificadas com HTTP 200."
+      "updatedAt": "2026-10-04T13:41:00-03:00",
+      "evidence": "AGENTS.md e .agents/rules atualizados com a rota obrigatória. Servidor e APK agora têm trilhas independentes, com percentual e evidência. Git principal: 63fe5897; portal conectado: a231176. Deploy Vercel READY: dpl_4A3feFZiTbW1cbBiLNWYk4ZrWMvz. Rotas /homologacao, /docs e /sitemap.xml verificadas com HTTP 200."
     },
     {
       "title": "Suíte .NET Release — testes da solução",
