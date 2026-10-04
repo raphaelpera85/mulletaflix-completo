@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-10-04T16:04:48-03:00",
+  "generatedAt": "2026-10-04T16:21:33-03:00",
   "source": {
     "roadmap": "https://github.com/raphaelpera85/mulletaflix-completo/blob/main/docs/roadmap-evolucao-tecnologica-servidor-e-web.md",
     "repository": "https://github.com/raphaelpera85/mulletaflix-completo"
@@ -12,8 +12,8 @@
     "definition": "Itens marcados como concluídos ou pendentes no roadmap versionado."
   },
   "tracks": [
-    { "id": "server", "name": "Servidor Windows/Linux", "kind": "server", "status": "in_progress", "progressPercent": null, "source": "GitHub Actions e testes de integração", "homologation": { "completed": null, "total": null, "percent": null, "unit": "escopo formal", "label": "Não consolidado: testes parciais em execução e bloqueios ainda sendo investigados." } },
-    { "id": "android", "name": "Aplicativo Android (APK)", "kind": "apk", "status": "in_progress", "progressPercent": null, "source": "GitHub Actions, testes instrumentados e releases", "homologation": { "completed": null, "total": null, "percent": null, "unit": "escopo formal", "label": "Não consolidado: novos testes em execução e bloqueios ainda pendentes." } },
+    { "id": "server", "name": "Servidor Windows/Linux", "kind": "server", "status": "in_progress", "progressPercent": null, "source": "GitHub Actions e testes de integração", "homologation": { "completed": null, "total": null, "percent": null, "unit": "escopo formal", "label": "Homologação formal não consolidada; testes parciais e bloqueios continuam em investigação." }, "testAudit": { "passed": 1165, "total": 1215, "skipped": 50, "failed": 0, "percent": 95.9, "label": "TRX auditável: 1.165 aprovados, 50 ignorados, 0 falhas." } },
+    { "id": "android", "name": "Aplicativo Android (APK)", "kind": "apk", "status": "in_progress", "progressPercent": null, "source": "GitHub Actions, testes instrumentados e releases", "homologation": { "completed": null, "total": null, "percent": null, "unit": "escopo formal", "label": "Homologação formal não consolidada; novos testes e bloqueios continuam pendentes." }, "testAudit": { "passed": 1382, "total": 1382, "skipped": 0, "failed": 0, "percent": 100, "label": "JUnit auditável: 1.382 aprovados, 0 ignorados, 0 falhas." } },
     { "id": "web", "name": "Frontend Web", "kind": "web", "status": "monitoring", "source": "GitHub Actions e roadmap" }
   ],
   "features": [
@@ -29,6 +29,34 @@
     { "id": "T9.5", "name": "Validação e QA da tela", "area": "Web/QA", "status": "pending", "source": "roadmap" }
   ],
   "events": [
+    {
+      "id": "media-info-live-stream-session-ownership-2026-10-04",
+      "title": "Ownership de live streams em MediaInfo",
+      "agent": "Codex",
+      "front": "Servidor / API de playback",
+      "local": "D:\\Users\\Raphael\\Documents\\Projetos\\mulletaflix\\MulletaFlix-master",
+      "location": "Jellyfin.Api local; sem release",
+      "scope": "Validar ownership da sessão antes de fechar live stream ou retornar seus metadados; manter controles de administrador e API key",
+      "status": "in_progress",
+      "progressPercent": 90,
+      "startedAt": "2026-10-04T16:08:00-03:00",
+      "updatedAt": "2026-10-04T16:21:33-03:00",
+      "evidence": "Regressão red reproduzida: uma sessão sem dono com liveStreamId correspondente retornava NoContent. Correção exige sessão do usuário ou participação AdditionalUsers; admin e API key preservados. Testes focados 20/20, Jellyfin.Api.Tests 466/466; build Release Jellyfin.Api 0 avisos/erros; formato, diff e JSON verificados. Revisão adversarial final ainda em andamento. AudioHelper/VideosController e contrato público de GetUserImage ficaram registrados como pendências da auditoria T6.1."
+    },
+    {
+      "id": "test-report-denominator-2026-10-04",
+      "title": "Cálculo do denominador dos relatórios de testes",
+      "agent": "Codex",
+      "front": "Servidor / APK",
+      "local": "D:\\Users\\Raphael\\Documents\\Projetos\\mulletaflix",
+      "location": "MulletaFlix-master/TestResults e MulletaFlix-android/**/build/test-results",
+      "scope": "Contar casos reportados e separar auditoria de testes da homologação formal",
+      "progressPercent": 0,
+      "status": "in_progress",
+      "startedAt": "2026-10-04T14:20:00-03:00",
+      "updatedAt": "2026-10-04T14:20:00-03:00",
+      "evidence": "Inventário iniciado: Servidor 1.215 casos TRX; Android 1.382 casos JUnit. Os percentuais serão exibidos como auditoria dos relatórios, não como homologação final."
+    },
     {
       "id": "nebula-initial-completed-media-refresh-2026-10-04",
       "title": "Refresh inicial de mídias concluídas no disco N:",
