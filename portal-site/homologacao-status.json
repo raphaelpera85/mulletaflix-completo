@@ -30,6 +30,20 @@
   ],
   "events": [
     {
+      "id": "portal-platform-table-2026-10-04",
+      "title": "Resumo de homologação por plataforma na tabela funcional",
+      "agent": "Codex",
+      "front": "Portal / Servidor / APK",
+      "local": "D:\\Users\\Raphael\\Documents\\Projetos\\mulletaflix",
+      "location": "portal-site/homologacao.html e homologacao.js",
+      "scope": "Exibir percentual, concluídos, total e evidência separados para Servidor e APK Android",
+      "progressPercent": 0,
+      "status": "in_progress",
+      "startedAt": "2026-10-04T13:45:00-03:00",
+      "updatedAt": "2026-10-04T13:45:00-03:00",
+      "evidence": "Implementação iniciada; dados de homologação por plataforma adicionados ao contrato JSON."
+    },
+    {
       "id": "portal-agent-route-2026-10-04",
       "title": "Orientação obrigatória de registro, progresso e publicação do portal",
       "agent": "Codex",

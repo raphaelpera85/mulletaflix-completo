@@ -22,6 +22,8 @@
   const renderFeatures = data => {
     const features = Array.isArray(data.features) ? data.features : [];
     byId('feature-count').textContent = `${features.length} itens acompanhados`;
+    const tracks = (data.tracks || []).filter(track => track.homologation);
+    byId('track-summary-table').innerHTML = tracks.length ? tracks.map(track => { const h = track.homologation; const percent = Number.isFinite(Number(h.percent)) ? `${Number(h.percent)}%` : '—'; return `<tr><td><strong>${escapeHtml(track.name)}</strong></td><td>${Number(h.completed) || 0}</td><td>${Number(h.total) || 0}</td><td><span class="status-chip ${statusClass(track.status)}"><i></i>${escapeHtml(percent)}</span></td><td>${escapeHtml(h.label || 'Evidência não informada')}</td></tr>`; }).join('') : '<tr><td colspan="5" class="empty-cell">Nenhum resumo por plataforma foi publicado.</td></tr>';
     byId('feature-table').innerHTML = features.length ? features.map(feature => `<tr><td><strong>${escapeHtml(feature.id)}</strong></td><td>${escapeHtml(feature.name)}</td><td>${escapeHtml(feature.area)}</td><td><span class="status-chip ${statusClass(feature.status)}"><i></i>${escapeHtml(statusText[feature.status] || feature.status)}</span></td></tr>`).join('') : '<tr><td colspan="4" class="empty-cell">Nenhuma funcionalidade foi publicada no contrato de homologação.</td></tr>';
   };
   const renderTracks = (data, runs, releases) => {
