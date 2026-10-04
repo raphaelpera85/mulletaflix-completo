@@ -23,7 +23,7 @@
     const androidVersion = android.tag_name.slice(5);
     document.querySelectorAll('a[href*="/releases/download/"]').forEach(link => {
       if (link.href.includes('/app-v')) {
-        link.href = link.href.replace(/\/app-v\d+\.\d+\.\d+\//, `/${android.tag_name}/`).replace(/mulletaflix-app-v\d+\.\d+\.\d+/, `mulletaflix-app-v${androidVersion}`);
+        link.href = link.href.replace(/app-v\d+\.\d+\.\d+/g, android.tag_name).replace(/mulletaflix-app-v\d+\.\d+\.\d+/, `mulletaflix-app-v${androidVersion}`);
       } else if (link.href.includes('/releases/download/v')) {
         link.href = link.href.replace(/\/v\d+\.\d+\.\d+\//, `/${server.tag_name}/`).replace(/mulletaflix_\d+\.\d+\.\d+/, `mulletaflix_${serverVersion}`);
       }
