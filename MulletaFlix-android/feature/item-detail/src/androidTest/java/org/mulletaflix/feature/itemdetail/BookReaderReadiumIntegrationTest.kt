@@ -103,6 +103,10 @@ class BookReaderReadiumIntegrationTest {
             assertEquals(null, reloadedStore.read(differentServer, itemId))
             store.write(urlOnlyScope, urlItemId, locator)
             assertEquals(locator.toJSON().toString(), reloadedStore.read(normalizedUrlScope, urlItemId)?.toJSON().toString())
+            store.write(differentAccount, itemId, locator)
+            reloadedStore.remove(scope, itemId)
+            assertEquals(null, store.read(scope, itemId))
+            assertEquals(locator.toJSON().toString(), store.read(differentAccount, itemId)?.toJSON().toString())
         } finally {
             reloadedStore.remove(scope, itemId)
             reloadedStore.remove(urlOnlyScope, urlItemId)

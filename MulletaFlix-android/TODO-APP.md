@@ -10,6 +10,15 @@ Este documento rastreia o status de implementação de todas as funcionalidades,
 - [x] Testes instrumentados no telefone API 35 cobrem persistência/isolamento, retomada real na rendition Readium, EPUB válido e malformado; AVD usou GPU NVIDIA e foi fechado ao terminar.
 - [ ] Revalidar após revisão adversarial; sem bump, pacote de produção ou publicação nesta rodada.
 
+## Reiniciar leitura EPUB sob controle do usuário (APK local; sem release)
+
+- [x] Adicionar ação no menu do leitor com confirmação antes de apagar posição salva.
+- [x] Remover Locator e marca temporal do mesmo livro/conta/servidor; preservar progresso de outras contas.
+- [x] Invalidar renderização e gravações pendentes antes de recarregar no início; mostrar erro se a exclusão falhar.
+- [x] Cobrir cancelar/confirmar pelo Compose e navegação por D-pad, além de remoção e isolamento no DataStore instrumentado.
+- [ ] Executar unit tests, lint e testes instrumentados em telefone e Android TV; registrar resultado antes da revisão final.
+- [ ] Sem bump, pacote de produção ou publicação nesta rodada.
+
 ## Parser de EPUB inválido tratado sem derrubar o leitor (APK local; sem release)
 
 - [x] Abrir arquivos EPUB válidos com Readium 3.4 e conferir metadados e ordem de leitura por teste instrumentado.

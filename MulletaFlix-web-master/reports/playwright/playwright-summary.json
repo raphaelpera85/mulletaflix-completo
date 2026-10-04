@@ -1,6 +1,6 @@
 {
   "title": "MulletaFlix Playwright Summary",
-  "generatedAt": "2026-10-04T08:19:44.601Z",
+  "generatedAt": "2026-10-04T09:34:49.084Z",
   "baseUrl": "http://127.0.0.1:18096",
   "status": "success",
   "specCount": 17,
@@ -10,12 +10,12 @@
     "failed": 0,
     "flaky": 0,
     "skipped": 0,
-    "durationMs": 43716.502
+    "durationMs": 53931.032
   },
   "stageProbe": {
     "reachable": true,
     "startupWizardCompleted": true,
-    "systemId": "cffe1742c36e48f48099fcfaccb0c80b",
+    "systemId": "d6a1f5c76616458aa0a80d9cc9612d88",
     "error": null
   },
   "stageChecks": {

@@ -278,9 +278,21 @@ async function startStageAndWaitClean(baseUrl, databasePort) {
                 throw new Error(`Stage is not clean after reset. StartupWizardCompleted=${String(stageProbe.startupWizardCompleted)}`);
             }
 
-            console.error('[playwright] stage is clean');
-            await sleep(10000);
-            return stageProbe;
+            try {
+                // The temporary startup host serves /System/Info/Public before
+                // the application API is ready. Do not let browser tests race
+                // that host and fail their first authenticated/setup request.
+                const response = await fetch(`${baseUrl}/System/Info`, {
+                    cache: 'no-cache',
+                    signal: AbortSignal.timeout(1000)
+                });
+                if (response.ok) {
+                    console.error('[playwright] stage is clean and the application API is ready');
+                    return stageProbe;
+                }
+            } catch {
+                // The primary API is not ready yet; keep polling the owned stage.
+            }
         }
 
         await sleep(2000);

@@ -13,7 +13,11 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -21,9 +25,11 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -61,6 +67,8 @@ fun BookReaderScreen(
 
     LaunchedEffect(itemId) { viewModel.load(itemId) }
     LaunchedEffect(state.publication) {
+        renditionState = null
+        renditionError = null
         val publication = state.publication ?: return@LaunchedEffect
         runCatching {
             ReflowableWebRenditionFactory(
@@ -89,6 +97,14 @@ fun BookReaderScreen(
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Voltar")
+                    }
+                },
+                actions = {
+                    key(itemId) {
+                        BookReaderProgressActions(
+                            enabled = state.publication != null && !state.isLoading,
+                            onRestart = { viewModel.restartReadingFromBeginning(itemId) },
+                        )
                     }
                 },
             )
@@ -132,6 +148,53 @@ fun BookReaderScreen(
                 else -> CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
             }
         }
+    }
+}
+
+@Composable
+internal fun BookReaderProgressActions(
+    enabled: Boolean,
+    onRestart: () -> Unit,
+) {
+    var menuExpanded by remember { mutableStateOf(false) }
+    var confirmationVisible by remember { mutableStateOf(false) }
+
+    Box {
+        IconButton(
+            onClick = { menuExpanded = true },
+            enabled = enabled,
+        ) {
+            Icon(Icons.Default.MoreVert, contentDescription = "Mais opções de leitura")
+        }
+        DropdownMenu(
+            expanded = menuExpanded,
+            onDismissRequest = { menuExpanded = false },
+        ) {
+            DropdownMenuItem(
+                text = { Text("Reiniciar do começo") },
+                onClick = {
+                    menuExpanded = false
+                    confirmationVisible = true
+                },
+            )
+        }
+    }
+
+    if (confirmationVisible) {
+        AlertDialog(
+            onDismissRequest = { confirmationVisible = false },
+            title = { Text("Reiniciar leitura?") },
+            text = { Text("A posição salva deste livro será apagada e a leitura voltará ao começo.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    confirmationVisible = false
+                    onRestart()
+                }) { Text("Reiniciar") }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmationVisible = false }) { Text("Cancelar") }
+            },
+        )
     }
 }
 

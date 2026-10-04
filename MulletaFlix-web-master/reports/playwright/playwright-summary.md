@@ -1,5 +1,5 @@
 # MulletaFlix Playwright Summary
-- Gerado em: 2026-10-04T08:19:44.601Z
+- Gerado em: 2026-10-04T09:34:49.084Z
 - Base URL: http://127.0.0.1:18096
 - Status: success
 - Especificações encontradas: 17
@@ -8,7 +8,7 @@
 - Falhou: 0
 - Instáveis: 0
 - Ignorados: 0
-- Duração: 43716.502 ms
+- Duração: 53931.032 ms
 ## Probe do Stage
 - Acessível: sim
 - StartupWizardCompleted: true

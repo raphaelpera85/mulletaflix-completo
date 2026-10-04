@@ -167,6 +167,35 @@ class BookReaderViewModel @Inject constructor(
         }
     }
 
+    fun restartReadingFromBeginning(itemId: String) {
+        val scope = loadedProgressScope ?: return
+        if (loadedItemId != itemId) return
+
+        val generation = loadGeneration.begin()
+        loadJob?.cancel()
+        loadedItemId = null
+        loadedProgressScope = null
+        progressSaveGeneration.begin()
+        progressSaveJob?.cancel()
+        _state.value = BookReaderState(isLoading = true)
+        loadJob = viewModelScope.launch {
+            try {
+                progressStore.remove(scope, itemId)
+                if (!loadGeneration.isCurrent(generation)) return@launch
+                // Reload after the durable delete so the reader cannot restore the old locator.
+                load(itemId)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                if (!loadGeneration.isCurrent(generation)) return@launch
+                _state.value = BookReaderState(
+                    isLoading = false,
+                    error = "Não foi possível reiniciar a leitura. Tente novamente.",
+                )
+            }
+        }
+    }
+
     override fun onCleared() {
         bookCacheFiles.deleteAfter(loadJob)
         super.onCleared()

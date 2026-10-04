@@ -27,6 +27,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
+import org.junit.Assert.assertTrue
 import org.mulletaflix.domain.model.MediaItem
 import org.mulletaflix.domain.model.MediaItemType
 import org.mulletaflix.domain.model.MediaStream
@@ -166,7 +167,11 @@ class DetailActionRowTest {
         val posterBounds = composeRule.onNodeWithTag("item-detail-hero-poster")
             .fetchSemanticsNode().boundsInRoot
         val actualPosterWidth = posterBounds.width
-        assert(kotlin.math.abs(actualPosterWidth - expectedPosterWidth) < 1f)
+        assertTrue(
+            "Poster width: actual=${actualPosterWidth}px expected=${expectedPosterWidth}px " +
+                "rootDensity=${composeRule.density} fontScale=2.0",
+            kotlin.math.abs(actualPosterWidth - expectedPosterWidth) < 1f,
+        )
         assert(kotlin.math.abs(posterBounds.height / posterBounds.width - 1.5f) < 0.01f)
         composeRule.onNodeWithContentDescription("Compartilhar título").assertIsNotDisplayed()
         composeRule.onNodeWithTag("item-detail-hero-scroll-pane").performTouchInput {

@@ -36,12 +36,10 @@ internal class BookReaderProgressStore(context: Context) {
     }
 
     suspend fun remove(scope: HomeFeedCacheScope, itemId: String) {
-        recoverBookReaderStorageFailure {
-            val key = entryKey(scope, itemId)
-            store.edit { preferences ->
-                preferences.remove(stringPreferencesKey(key))
-                preferences.remove(longPreferencesKey(timestampKey(key)))
-            }
+        val key = entryKey(scope, itemId)
+        store.edit { preferences ->
+            preferences.remove(stringPreferencesKey(key))
+            preferences.remove(longPreferencesKey(timestampKey(key)))
         }
     }
 
