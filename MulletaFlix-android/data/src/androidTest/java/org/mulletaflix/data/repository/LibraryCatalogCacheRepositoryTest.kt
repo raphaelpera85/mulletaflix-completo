@@ -31,10 +31,21 @@ class LibraryCatalogCacheRepositoryTest {
             name = "Título salvo",
             type = MediaItemType.Movie,
             overview = "Resumo do título",
+            year = 2024,
+            officialRating = "14",
+            genres = listOf("Drama", "Ficção"),
             imageTags = mapOf(ImageType.Primary to "abc123"),
             mediaSources = listOf(MediaSource(id = "source", path = "D:/private/movie.mkv", transcodeUrl = "http://secret/stream")),
             mediaStreams = listOf(MediaStream(index = 0, type = MediaStreamType.Video, deliveryUrl = "http://secret/track")),
             canDownload = true,
+        )
+        val series = MediaItem(
+            id = "series-456",
+            name = "Série salva",
+            type = MediaItemType.Series,
+            year = 2022,
+            premiereDate = "2022-09-01T00:00:00Z",
+            endDate = "2025-05-01T00:00:00Z",
         )
 
         repeat(9) { index ->
@@ -46,7 +57,7 @@ class LibraryCatalogCacheRepositoryTest {
                 sortBy = "SortName",
                 sortOrder = "Descending",
                 activeFilters = emptyList(),
-                items = listOf(media),
+                items = listOf(media, series),
                 totalItemCount = 12,
             )
         }
@@ -55,11 +66,19 @@ class LibraryCatalogCacheRepositoryTest {
         val restored = checkNotNull(cache.read("user-1", "library-8"))
         assertEquals("Biblioteca 8", restored.libraryName)
         assertEquals(12, restored.totalItemCount)
-        assertEquals("Título salvo", restored.items.single().name)
-        assertEquals(mapOf(ImageType.Primary to "abc123"), restored.items.single().imageTags)
-        assertTrue(restored.items.single().mediaSources.isEmpty())
-        assertTrue(restored.items.single().mediaStreams.isEmpty())
-        assertFalse(restored.items.single().canDownload)
+        assertEquals(2, restored.items.size)
+        val restoredMovie = restored.items.first { it.id == media.id }
+        val restoredSeries = restored.items.first { it.id == series.id }
+        assertEquals("Título salvo", restoredMovie.name)
+        assertEquals(2024, restoredMovie.year)
+        assertEquals("14", restoredMovie.officialRating)
+        assertEquals(listOf("Drama", "Ficção"), restoredMovie.genres)
+        assertEquals(mapOf(ImageType.Primary to "abc123"), restoredMovie.imageTags)
+        assertTrue(restoredMovie.mediaSources.isEmpty())
+        assertTrue(restoredMovie.mediaStreams.isEmpty())
+        assertFalse(restoredMovie.canDownload)
+        assertEquals("2022-09-01T00:00:00Z", restoredSeries.premiereDate)
+        assertEquals("2025-05-01T00:00:00Z", restoredSeries.endDate)
 
         session.scope.value = HomeFeedCacheScope("server-1", "http://mulletaflix.duckdns.org:8096", "user-2")
         assertNull(cache.read("user-2", "library-8"))

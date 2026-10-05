@@ -2,6 +2,8 @@ package org.mulletaflix.feature.library
 
 import androidx.compose.foundation.*
 import androidx.compose.foundation.lazy.grid.LazyGridState
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.*
 import androidx.compose.material.icons.Icons
@@ -11,6 +13,8 @@ import androidx.compose.material.icons.automirrored.filled.ViewList
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.mapSaver
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Alignment
@@ -61,14 +65,15 @@ fun LibraryScreen(
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val loadError = state.error
-    val snackbarHostState = remember { SnackbarHostState() }
-    val coroutineScope = rememberCoroutineScope()
+    var offlinePreview by rememberSaveable(stateSaver = LibraryOfflineMediaPreviewSaver) {
+        mutableStateOf(LibraryOfflineMediaPreview.None)
+    }
     val openLibraryItem: (String) -> Unit = { itemId ->
         when (libraryItemTapAction(state.isOffline)) {
             LibraryItemTapAction.OpenDetails -> onItemClick(itemId)
-            LibraryItemTapAction.ExplainOffline -> coroutineScope.launch {
-                snackbarHostState.showSnackbar("Detalhes indisponíveis sem conexão. Conecte-se para abrir este título.")
-            }
+            LibraryItemTapAction.ShowOfflinePreview -> state.items
+                .firstOrNull { it.id == itemId }
+                ?.let { offlinePreview = LibraryOfflineMediaPreview.from(it) }
         }
     }
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -91,7 +96,6 @@ fun LibraryScreen(
     )
 
     Scaffold(
-        snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             TopAppBar(
                 title = { Text(state.libraryName) },
@@ -311,10 +315,119 @@ fun LibraryScreen(
                     onDismiss = viewModel::hideFilterMenu,
                 )
             }
+            offlinePreview.takeIf { it.id.isNotBlank() }?.let { preview ->
+                OfflineMediaPreviewDialog(
+                    preview = preview,
+                    isOffline = state.isOffline,
+                    onDismiss = { offlinePreview = LibraryOfflineMediaPreview.None },
+                    onOpenDetails = {
+                        offlinePreview = LibraryOfflineMediaPreview.None
+                        onItemClick(preview.id)
+                    },
+                )
+            }
         }
         }
         }
     }
+}
+
+internal data class LibraryOfflineMediaPreview(
+    val id: String,
+    val title: String,
+    val overview: String?,
+    val metadata: List<String>,
+) {
+    companion object {
+        val None = LibraryOfflineMediaPreview("", "", null, emptyList())
+        private const val MAX_TITLE_LENGTH = 300
+        private const val MAX_OVERVIEW_LENGTH = 600
+        private const val MAX_RATING_LENGTH = 24
+        private const val MAX_GENRES = 12
+
+        fun from(item: MediaItem) = LibraryOfflineMediaPreview(
+            id = item.id,
+            title = item.name.take(MAX_TITLE_LENGTH),
+            overview = item.overview?.take(MAX_OVERVIEW_LENGTH),
+            metadata = buildList {
+                item.displayYearRange()?.let { add("Ano: $it") }
+                item.officialRating?.take(MAX_RATING_LENGTH)?.takeIf(String::isNotBlank)
+                    ?.let { add("Classificação indicativa: $it") }
+                item.cardMetadata()?.let { value ->
+                    add(if (item.type == MediaItemType.Episode) "Episódio: $value" else value)
+                }
+                item.genres.take(MAX_GENRES).map { it.take(MAX_TITLE_LENGTH) }
+                    .takeIf { it.isNotEmpty() }?.joinToString(" • ")?.let { add("Gêneros: $it") }
+            },
+        )
+    }
+
+}
+
+internal val LibraryOfflineMediaPreviewSaver = mapSaver<LibraryOfflineMediaPreview>(
+    save = { preview ->
+        mapOf(
+            "id" to preview.id,
+            "title" to preview.title,
+            "overview" to preview.overview.orEmpty(),
+            "metadata" to ArrayList(preview.metadata),
+        )
+    },
+    restore = { values ->
+        LibraryOfflineMediaPreview(
+            id = values["id"] as? String ?: "",
+            title = values["title"] as? String ?: "",
+            overview = (values["overview"] as? String)?.takeIf(String::isNotBlank),
+            metadata = (values["metadata"] as? ArrayList<*>)?.filterIsInstance<String>().orEmpty(),
+        )
+    },
+)
+
+@Composable
+internal fun OfflineMediaPreviewDialog(
+    preview: LibraryOfflineMediaPreview,
+    isOffline: Boolean,
+    onDismiss: () -> Unit,
+    onOpenDetails: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(preview.title) },
+        text = {
+            Column(
+                modifier = Modifier
+                    .heightIn(max = (LocalConfiguration.current.screenHeightDp.dp * 0.30f).coerceAtLeast(72.dp))
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                preview.metadata.forEach { line ->
+                    Text(line, style = MaterialTheme.typography.labelLarge)
+                }
+                preview.overview?.takeIf(String::isNotBlank)?.let { overview ->
+                    Text(overview, style = MaterialTheme.typography.bodyMedium)
+                }
+                Text(
+                    text = if (isOffline) {
+                        "Prévia do catálogo salvo neste dispositivo. Os detalhes completos e a reprodução por streaming precisam de conexão."
+                    } else {
+                        "Conexão disponível. Abra os detalhes para buscar informações completas; a reprodução por streaming depende do servidor."
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        },
+        confirmButton = {
+            if (isOffline) {
+                TextButton(onClick = onDismiss) { Text("Fechar") }
+            } else {
+                TextButton(onClick = onOpenDetails) { Text("Abrir detalhes") }
+            }
+        },
+        dismissButton = {
+            if (!isOffline) TextButton(onClick = onDismiss) { Text("Fechar") }
+        },
+    )
 }
 
 @Composable

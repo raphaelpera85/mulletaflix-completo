@@ -39,6 +39,9 @@ class LibraryCatalogCacheTest {
             name = "Filme",
             type = "Movie",
             overview = "Sinopse",
+            year = 2024,
+            officialRating = "14",
+            genres = listOf("Drama", "Ficção científica"),
             imageTags = mapOf(ImageType.Primary.name to "abc123"),
             hasHD = true,
         )
@@ -47,6 +50,7 @@ class LibraryCatalogCacheTest {
         val restored = adapter.fromJson(json)
 
         assertEquals(card, restored)
+        assertEquals(listOf("Drama", "Ficção científica"), restored?.genres)
         listOf("mediaSources", "mediaStreams", "transcodeUrl", "directStreamUrl", "path", "accessToken", "api_key")
             .forEach { forbidden -> assertFalse("DTO leaked $forbidden", json.contains(forbidden, ignoreCase = true)) }
         assertFalse(json.contains("http://", ignoreCase = true))

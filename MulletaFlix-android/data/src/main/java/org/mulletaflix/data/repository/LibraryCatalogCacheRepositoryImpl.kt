@@ -53,6 +53,9 @@ internal data class LibraryCardSnapshotDto(
     val overview: String? = null,
     val year: Int? = null,
     val premiereDate: String? = null,
+    val endDate: String? = null,
+    val officialRating: String? = null,
+    val genres: List<String> = emptyList(),
     val imageTags: Map<String, String> = emptyMap(),
     val backdropImageTags: List<String> = emptyList(),
     val seriesId: String? = null,
@@ -161,6 +164,9 @@ class LibraryCatalogCacheRepositoryImpl @Inject constructor(
         overview = overview?.safeText(MAX_OVERVIEW_LENGTH),
         year = year,
         premiereDate = premiereDate?.take(MAX_TITLE_LENGTH),
+        endDate = endDate?.take(MAX_TITLE_LENGTH),
+        officialRating = officialRating?.safeText(MAX_RATING_LENGTH),
+        genres = genres.take(MAX_GENRES).map { it.safeText(MAX_TITLE_LENGTH) },
         imageTags = imageTags.entries.take(MAX_IMAGE_TAGS).mapNotNull { (type, tag) ->
             if (tag.isSafeCacheIdentifier()) type.name to tag else null
         }.toMap(),
@@ -192,6 +198,9 @@ class LibraryCatalogCacheRepositoryImpl @Inject constructor(
         overview = overview,
         year = year,
         premiereDate = premiereDate,
+        endDate = endDate,
+        officialRating = officialRating,
+        genres = genres,
         imageTags = imageTags.mapNotNull { (name, tag) ->
             runCatching { ImageType.valueOf(name) to tag }.getOrNull()
         }.toMap(),
@@ -222,6 +231,8 @@ class LibraryCatalogCacheRepositoryImpl @Inject constructor(
         const val MAX_OVERVIEW_LENGTH = 600
         const val MAX_ID_LENGTH = 128
         const val MAX_IMAGE_TAGS = 8
+        const val MAX_GENRES = 12
+        const val MAX_RATING_LENGTH = 24
         const val MAX_FILTERS = 12
         const val MAX_CACHED_LIBRARIES = 8
     }

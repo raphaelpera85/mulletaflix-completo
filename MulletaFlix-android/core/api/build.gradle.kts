@@ -32,6 +32,7 @@ dependencies {
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.datastore.preferences)
     implementation(libs.media3.exoplayer)
+    implementation(libs.media3.datasource.okhttp)
     implementation(libs.hilt.android)
     ksp(libs.hilt.android.compiler)
     testImplementation(libs.junit)

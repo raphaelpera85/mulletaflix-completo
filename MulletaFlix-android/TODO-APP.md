@@ -2,6 +2,23 @@
 
 Este documento rastreia o status de implementação de todas as funcionalidades, módulos, telas e componentes do aplicativo oficial **MulletaFlix Android**.
 
+## P1 — Restringir HTTP sem quebrar a descoberta LAN (pendente)
+
+- [ ] A configuração Android ainda permite cleartext de forma ampla (`base-config` e `usesCleartextTraffic`), enquanto o cliente API anexa o token de sessão ao `Authorization`. Restringir tráfego HTTP público/não local antes da inclusão de credenciais.
+- [ ] Preservar HTTP de servidores realmente locais descobertos/configurados na LAN e HTTPS para a URL pública padrão; abranger Retrofit, Coil, streaming Media3, downloads e legendas — uma regra apenas em OkHttp não cobre o player.
+- [ ] Testar HTTP público bloqueado sem token, HTTPS remoto permitido e HTTP LAN permitido em cada caminho de rede; não publicar APK até fechar a cobertura.
+
+## Prévia local de títulos da biblioteca offline (APK local; sem release)
+
+- [x] Ao selecionar um título já carregado sem conexão, mostrar uma prévia com nome, período/ano, classificação, dados de episódio, gêneros e sinopse disponíveis no snapshot/cache em memória; manter o snapshot restrito a metadados de exibição sem URL, caminho, stream ou credencial.
+- [x] Explicar na própria prévia que detalhes completos e streaming precisam de rede; ao retornar a conexão, permitir abrir os detalhes completos sem perder o título selecionado.
+- [x] Testes instrumentados cobrem metadados rotulados, períodos de série, aviso de limitação offline, abertura quando online e ação Fechar por D-pad na TV; altura do conteúdo é limitada conforme a janela.
+- [x] Snapshot/Moshi/DataStore mantém ano, classificação, gêneros e datas de início/fim da série; teste instrumentado real grava e restaura filme e série (1/1, sem falhas/erros/ignorados), preservando a garantia de que não persiste stream, URL, caminho ou credencial.
+- [x] Após os últimos ajustes, `testDebugUnitTest`, `:data:testDebugUnitTest`, lints de Library e app, compilação instrumentada de Library/Data e `:app:assembleDebug`: `BUILD SUCCESSFUL`.
+- [x] UI focada passou no telefone API 35 (4/4), tablet API 35 (4/4) e TV API 34 (1/1); restauração de estado salva o resumo sanitizado sem depender da página carregada, e o D-pad fecha a prévia na TV. O wrapper confirmou NVIDIA RTX 3050 e encerrou cada AVD.
+- [ ] Ainda falta o teste end-to-end da tela real da biblioteca conectando NetworkMonitor + DataStore após reinicialização real do processo e transição real de offline para online; os testes atuais exercitam separadamente round-trip do repositório e restauração Compose.
+- [ ] Sem bump, pacote de produção ou publicação; esta alteração é somente do APK.
+
 ## Ajuste rápido da aparência das legendas no player (APK local; sem release)
 
 - [x] Incluir no menu de faixas de legenda um atalho para ajustar tamanho, cor e fundo sem sair da reprodução; persistir pelos setters de preferências existentes.

@@ -109,8 +109,6 @@ class SettingsToActivePlayerSubtitleIntegrationTest {
                 else -> MockResponse().setResponseCode(404)
             }
         }
-        server.start()
-        try {
         val appContext = ApplicationProvider.getApplicationContext<Context>()
         val isolatedFilesDir = File(appContext.cacheDir, "settings-player-${UUID.randomUUID()}")
         val isolatedContext = object : ContextWrapper(appContext) {
@@ -122,12 +120,15 @@ class SettingsToActivePlayerSubtitleIntegrationTest {
         val authRepository = EmptyAuthRepository()
         val teardownScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
         val viewModelStore = ViewModelStore()
+        try {
+        server.start()
         val settingsViewModel = SettingsViewModel(
             context = appContext,
             settingsRepository = settingsRepository,
             authRepository = authRepository,
             logoutUseCase = LogoutUseCase(authRepository),
         )
+        viewModelStore.put("settings", settingsViewModel)
         val mediaRepository = unusedDependency<MediaRepository>()
         lateinit var playerViewModel: PlayerViewModel
         composeRule.runOnUiThread {
@@ -158,7 +159,6 @@ class SettingsToActivePlayerSubtitleIntegrationTest {
                 teardownScope = teardownScope,
             )
         }
-        viewModelStore.put("settings", settingsViewModel)
         viewModelStore.put("player", playerViewModel)
 
         val subtitleViewRef = AtomicReference<SubtitleView?>()
@@ -278,17 +278,17 @@ class SettingsToActivePlayerSubtitleIntegrationTest {
             composeRule.runOnUiThread {
                 subtitleStyleListener.getAndSet(null)?.let(playerViewModel.player::removeListener)
                 playerViewModel.player.removeListener(cueObserver)
-                viewModelStore.clear()
             }
+        }
+        } finally {
+            composeRule.runOnUiThread { viewModelStore.clear() }
             teardownScope.cancel()
             runBlocking {
                 settingsRepository.clearLocalPreferences()
                 sessionRepository.clearSession()
             }
             isolatedFilesDir.deleteRecursively()
-        }
-        } finally {
-        server.shutdown()
+            server.shutdown()
         }
     }
 

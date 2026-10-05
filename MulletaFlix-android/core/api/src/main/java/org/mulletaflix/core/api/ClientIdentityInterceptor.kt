@@ -3,6 +3,7 @@ package org.mulletaflix.core.api
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import org.mulletaflix.core.common.session.FeedbackRequestSession
+import org.mulletaflix.core.common.network.CleartextTrafficPolicy
 import okhttp3.Interceptor
 import okhttp3.Response
 import javax.inject.Inject
@@ -57,6 +58,8 @@ class ClientIdentityInterceptor @Inject constructor(
 
     override fun intercept(chain: Interceptor.Chain): Response {
         val request = chain.request()
+        // This check must precede all session reads and credential construction.
+        CleartextTrafficPolicy.requireAllowed(request.url)
         val requestSession = request.tag(FeedbackRequestSession::class.java)
         val isPublicServerVerification =
             request.tag(PublicServerVerificationRequest::class.java) != null
@@ -98,7 +101,9 @@ fun buildAuthenticatedImageClient(
     clientIdentityInterceptor: Interceptor,
 ): okhttp3.OkHttpClient = okhttp3.OkHttpClient.Builder()
     .addInterceptor(serverUrlInterceptor)
+    .addInterceptor(org.mulletaflix.core.common.network.LocalNetworkCleartextInterceptor)
     .addInterceptor(clientIdentityInterceptor)
+    .addNetworkInterceptor(org.mulletaflix.core.common.network.LocalNetworkCleartextInterceptor)
     .connectTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
     .readTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
     .build()

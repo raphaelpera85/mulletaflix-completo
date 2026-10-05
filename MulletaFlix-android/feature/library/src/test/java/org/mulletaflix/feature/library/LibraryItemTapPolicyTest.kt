@@ -5,8 +5,8 @@ import org.junit.Test
 
 class LibraryItemTapPolicyTest {
     @Test
-    fun `offline cards do not navigate into a network-only details screen`() {
-        assertEquals(LibraryItemTapAction.ExplainOffline, libraryItemTapAction(isOffline = true))
+    fun `offline cards show a local preview instead of a network-only details screen`() {
+        assertEquals(LibraryItemTapAction.ShowOfflinePreview, libraryItemTapAction(isOffline = true))
     }
 
     @Test

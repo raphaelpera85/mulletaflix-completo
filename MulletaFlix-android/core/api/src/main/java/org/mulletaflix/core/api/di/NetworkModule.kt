@@ -12,6 +12,7 @@ import org.mulletaflix.core.api.ApiRetryInterceptor
 import org.mulletaflix.core.api.ClientIdentityInterceptor
 import org.mulletaflix.core.api.MulletaFlixApiService
 import org.mulletaflix.core.api.ServerUrlInterceptor
+import org.mulletaflix.core.common.network.LocalNetworkCleartextInterceptor
 import retrofit2.Retrofit
 import retrofit2.converter.moshi.MoshiConverterFactory
 import java.util.concurrent.TimeUnit
@@ -35,7 +36,9 @@ object NetworkModule {
         serverUrlInterceptor: ServerUrlInterceptor,
     ): OkHttpClient = OkHttpClient.Builder()
         .addInterceptor(serverUrlInterceptor)     // replaces base URL dynamically
+        .addInterceptor(LocalNetworkCleartextInterceptor) // blocks public HTTP before session credentials
         .addInterceptor(clientIdentityInterceptor) // names the client/device and adds the token
+        .addNetworkInterceptor(LocalNetworkCleartextInterceptor) // also checks every redirect destination
         .addInterceptor(apiRetryInterceptor)       // recovers safe transient API failures
         // Do not log bodies, Authorization headers, or playback URLs. Media
         // URLs may contain api_key tokens even when the app is a debug build.

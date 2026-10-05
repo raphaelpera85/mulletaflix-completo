@@ -19,6 +19,7 @@ android {
 
 dependencies {
     // Only for the non-Compose subtitle policy (codes, size range, size maths).
+    implementation(project(":core:common"))
     implementation(project(":domain"))
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.ui)

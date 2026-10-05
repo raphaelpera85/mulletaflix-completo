@@ -1,6 +1,7 @@
 package org.mulletaflix.designsystem.media
 
 import java.net.URI
+import org.mulletaflix.core.common.network.CleartextTrafficPolicy
 
 /**
  * Hosts that resolve only inside a local network or on the device itself.
@@ -20,7 +21,7 @@ const val PUBLIC_SERVER_URL = "https://mulletaflix.duckdns.org"
 fun isLocalServerUrl(url: String): Boolean {
     val host = normalizedHost(url) ?: return false
     if (host in LOOPBACK_HOSTS) return true
-    return isPrivateIpv4(host) || isPrivateIpv6(host)
+    return CleartextTrafficPolicy.isLocalNetworkHost(host)
 }
 
 /** Returns true only for the loopback addresses of this device. */
@@ -48,23 +49,3 @@ fun isDialableServerUrl(url: String): Boolean {
 private fun normalizedHost(url: String): String? = runCatching {
     URI(url.trim()).host?.trim()?.trim('[', ']')?.lowercase()
 }.getOrNull()
-
-private fun isPrivateIpv4(host: String): Boolean {
-    val octets = host.split('.')
-    if (octets.size != 4 || octets.any { it.toIntOrNull() == null }) return false
-    val first = octets[0].toInt()
-    val second = octets[1].toInt()
-    return first == 10 ||
-        (first == 172 && second in 16..31) ||
-        (first == 192 && second == 168) ||
-        (first == 169 && second == 254)
-}
-
-/** RFC 1918-equivalent IPv6 ranges usable for a local server. */
-private fun isPrivateIpv6(host: String): Boolean {
-    if (!host.contains(':')) return false
-    val firstHextet = host.substringBefore(':').toIntOrNull(16) ?: return false
-    return firstHextet in 0xfc00..0xfdff ||
-        firstHextet in 0xfe80..0xfebf ||
-        firstHextet in 0xfec0..0xfeff
-}
