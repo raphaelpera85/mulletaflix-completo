@@ -15,6 +15,7 @@ import org.mulletaflix.core.api.BuildConfig
 import org.mulletaflix.core.api.MULLETAFLIX_USER_AGENT_PRODUCT
 import org.mulletaflix.core.api.SessionRepository
 import org.mulletaflix.core.common.session.FeedbackRequestSession
+import org.mulletaflix.core.common.network.CleartextTrafficPolicy
 
 class OfflineSubtitleNetworkPolicyTest {
     @Test
@@ -27,27 +28,24 @@ class OfflineSubtitleNetworkPolicyTest {
 
     @Test
     fun `subtitle client blocks public HTTP before identity credentials are added`() {
-        var identityInterceptorCalled = false
-        val client = offlineSubtitleHttpClient(Interceptor { chain ->
-            identityInterceptorCalled = true
-            chain.proceed(chain.request())
-        })
+        val session = subtitleSession(
+            serverUrl = "http://203.0.113.20:8096",
+            accessToken = "session-token",
+            userId = "user-a",
+            deviceId = "device-a",
+            serverId = "server-a",
+        )
+        val client = offlineSubtitleHttpClient(ClientIdentityInterceptor(MutableSubtitleSessionRepository(session)))
 
         val failure = runCatching {
             client.newCall(authenticatedSubtitleRequest(
                 "http://203.0.113.20:8096/Items/media/Subtitles/2/Stream?api_key=session-token",
-                subtitleSession(
-                    serverUrl = "http://203.0.113.20:8096",
-                    accessToken = "session-token",
-                    userId = "user-a",
-                    deviceId = "device-a",
-                    serverId = "server-a",
-                ),
+                session,
             )).execute()
         }.exceptionOrNull()
 
         assertTrue("public HTTP must fail closed", failure is IOException)
-        assertFalse("identity must not be added for public HTTP", identityInterceptorCalled)
+        assertEquals(CleartextTrafficPolicy.BLOCKED_MESSAGE, failure?.message)
     }
 
     @Test

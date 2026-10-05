@@ -105,6 +105,35 @@ class CleartextRequestProtectionTest {
     }
 
     @Test
+    fun `cross origin local redirect strips session headers and token query parameters`() {
+        val initialHost = server.url("/").host
+        val redirectedHost = "${if (initialHost == "localhost") "127.0.0.1" else "localhost"}:${server.port}"
+        server.enqueue(
+            MockResponse().setResponseCode(302).addHeader(
+                "Location",
+                "http://$redirectedHost/next?api_key=redirect-token&monkey=private&keep=value",
+            ),
+        )
+        server.enqueue(MockResponse().setBody("{}"))
+        val sessions = CountingSessionRepository(baseUrl = server.url("/").toString())
+        val client = NetworkModule.provideOkHttpClient(
+            clientIdentityInterceptor = ClientIdentityInterceptor(sessions),
+            apiRetryInterceptor = ApiRetryInterceptor(),
+            serverUrlInterceptor = ServerUrlInterceptor(sessions),
+        )
+
+        val response = client.newCall(Request.Builder().url("https://placeholder.example/Users").build()).execute()
+
+        assertEquals(200, response.code)
+        response.close()
+        assertEquals(2, server.requestCount)
+        server.takeRequest()
+        val redirectedRequest = server.takeRequest()
+        assertEquals("/next?keep=value", redirectedRequest.path)
+        assertEquals(null, redirectedRequest.getHeader("Authorization"))
+    }
+
+    @Test
     fun `Coil client blocks a public HTTP redirect instead of forwarding artwork credentials`() {
         server.enqueue(
             MockResponse()

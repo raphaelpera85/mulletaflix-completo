@@ -57,7 +57,7 @@ class CleartextTrafficPolicyTest {
             .build()
 
         assertTrue(client.interceptors.contains(LocalNetworkCleartextInterceptor))
-        assertTrue(client.networkInterceptors.contains(LocalNetworkCleartextInterceptor))
+        assertTrue(client.networkInterceptors.contains(LocalNetworkCleartextNetworkInterceptor))
         assertFalse(client.followRedirects)
         assertFalse(client.followSslRedirects)
     }

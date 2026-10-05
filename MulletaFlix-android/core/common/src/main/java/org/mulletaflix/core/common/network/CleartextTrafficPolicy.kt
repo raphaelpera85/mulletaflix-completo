@@ -103,7 +103,18 @@ object LocalNetworkCleartextInterceptor : Interceptor {
 
             val sameOrigin = request.url.scheme == redirectUrl.scheme &&
                 request.url.host == redirectUrl.host && request.url.port == redirectUrl.port
-            val builder = request.newBuilder().url(redirectUrl)
+            val safeRedirectUrl = if (sameOrigin) {
+                redirectUrl
+            } else {
+                val redirectBuilder = redirectUrl.newBuilder()
+                    .username("")
+                    .password("")
+                redirectUrl.queryParameterNames
+                    .filter { it.contains("key", ignoreCase = true) || it.contains("token", ignoreCase = true) }
+                    .forEach(redirectBuilder::removeAllQueryParameters)
+                redirectBuilder.build()
+            }
+            val builder = request.newBuilder().url(safeRedirectUrl)
             if (!sameOrigin) {
                 builder.removeHeader("Authorization")
                     .removeHeader("Cookie")
@@ -124,9 +135,17 @@ object LocalNetworkCleartextInterceptor : Interceptor {
 
 }
 
+/** Last-resort guard for each physical exchange; network interceptors proceed once. */
+object LocalNetworkCleartextNetworkInterceptor : Interceptor {
+    override fun intercept(chain: Interceptor.Chain): Response {
+        CleartextTrafficPolicy.requireAllowed(chain.request().url)
+        return chain.proceed(chain.request())
+    }
+}
+
 /** Controls redirects in-app, then checks every request again at the network boundary. */
 fun OkHttpClient.Builder.enforceLocalNetworkCleartextPolicy(): OkHttpClient.Builder =
     followRedirects(false)
         .followSslRedirects(false)
         .addInterceptor(LocalNetworkCleartextInterceptor)
-        .addNetworkInterceptor(LocalNetworkCleartextInterceptor)
+        .addNetworkInterceptor(LocalNetworkCleartextNetworkInterceptor)
