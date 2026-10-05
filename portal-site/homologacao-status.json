@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-10-05T01:27:28-03:00",
+  "generatedAt": "2026-10-05T01:33:16-03:00",
   "source": {
     "roadmap": "https://github.com/raphaelpera85/mulletaflix-completo/blob/main/docs/roadmap-evolucao-tecnologica-servidor-e-web.md",
     "repository": "https://github.com/raphaelpera85/mulletaflix-completo"
@@ -30,6 +30,21 @@
   ],
   "events": [
     {
+      "id": "nebula-python-playback-migration-2026-10-05",
+      "title": "Migração do plano de dados de playback Nebula para Python",
+      "agent": "Codex",
+      "front": "Servidor / Nebula, playback e catálogo N:",
+      "local": "D:\\Users\\Raphael\\Documents\\Projetos\\mulletaflix",
+      "location": "Código local; sem iniciar serviços Nebula ou acessar dados de produção",
+      "scope": "Migrar o fluxo HTTP de playback para Python, preservar integração Jellyfin e garantir resolução de pastas para parent textual e ObjectId no catálogo visível em N:",
+      "status": "in_progress",
+      "progressPercent": null,
+      "startedAt": "2026-10-05T01:33:21-03:00",
+      "updatedAt": "2026-10-05T01:33:21-03:00",
+      "evidence": "Quality Bar definida: testes Python focados para streaming e hierarquia Mongo, testes Nebula .NET focados e build Release do servidor, format/diff check e revisão adversarial. Escopo e integração ainda em inspeção; nenhum progresso percentual formal até critérios e cobertura serem medidos. Nenhuma release intermediária conforme gate ativo do roadmap."
+    },
+
+    {
       "id": "aspnet-hosting-request-log-redaction-2026-10-05",
       "title": "Redação dos logs de request do ASP.NET Hosting (T6.1 parcial)",
       "agent": "Codex",
@@ -40,8 +55,8 @@
       "status": "completed",
       "progressPercent": null,
       "startedAt": "2026-10-05T01:10:00-03:00",
-      "updatedAt": "2026-10-05T01:27:28-03:00",
-      "evidence": "Gauntlet: o teste middleware-only reproduziu vazamento no evento de início. Refeito com Serilog enricher configurado pelo helper comum do startup: mascara capability no Path e remove QueryString apenas para Microsoft.AspNetCore.Hosting.Diagnostics; handler recebe request original e eventos de outras categorias permanecem intactos. HostingRequestLogRedactionTests 2/2; Jellyfin.Server.Tests Release 66 aprovados, 1 ignorado, 0 falhas; Jellyfin.Api.Tests Release 519/519; dotnet build Jellyfin.Server/Jellyfin.Server.csproj --no-restore -c Release -m:1 --verbosity minimal exit 0 (0 avisos/erros); dotnet format whitespace --verify-no-changes nos arquivos escopados e git diff --check passaram. Revisão Cavecrew encontrou e motivou remoção da mutação tardia do request e teste diretamente ligado à configuração de startup. progressPercent null pois homologação formal T6.1 não está consolidada. Ainda sem collector/proxy/instalação real; nenhuma release ou pacote foi criado por haver melhorias ativas no roadmap. Curadoria IA segue backlog futuro."
+      "updatedAt": "2026-10-05T01:33:16-03:00",
+      "evidence": "Gauntlet: o teste middleware-only reproduziu vazamento no evento de início. Refeito com Serilog enricher configurado pelo helper comum do startup: mascara capability no Path e remove QueryString apenas para Microsoft.AspNetCore.Hosting.Diagnostics; handler recebe request original e eventos de outras categorias permanecem intactos. HostingRequestLogRedactionTests 2/2; Jellyfin.Server.Tests Release 66 aprovados, 1 ignorado, 0 falhas; Jellyfin.Api.Tests Release 519/519; dotnet build Jellyfin.Server/Jellyfin.Server.csproj --no-restore -c Release -m:1 --verbosity minimal exit 0 (0 avisos/erros); dotnet format whitespace --verify-no-changes nos arquivos escopados e git diff --check passaram. Revisão Cavecrew encontrou e motivou remoção da mutação tardia do request e teste diretamente ligado à configuração de startup. Revalidação adicional: NebulaCompletedMediaRefreshTests 15/15 (intervalo periódico 15 min com janela de busca sobreposta); PlaylistsControllerTests 2/2; PlaylistManagerTests 3/3. Portal commit 64247984853314229966ade45c5b26e83b78ac2f gerou Vercel deployment dpl_2iXEf6mXxgGt82HbD67KLxxQZUNf em READY; https://mulletaflix-portal.vercel.app/, /docs, /downloads, /updates, /homologacao, /sitemap.xml e /homologacao-status.json retornaram HTTP 200. progressPercent null pois homologação formal T6.1 não está consolidada. Ainda sem collector/proxy/instalação real nem execução com N:/MongoDB/Telegram de produção; nenhuma release ou pacote foi criado por haver melhorias ativas no roadmap. Curadoria IA segue backlog futuro."
     },
     {
       "id": "nebula-local-playback-performance-2026-10-05",
