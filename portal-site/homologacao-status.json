@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-10-05T00:57:00-03:00",
+  "generatedAt": "2026-10-05T01:04:44-03:00",
   "source": {
     "roadmap": "https://github.com/raphaelpera85/mulletaflix-completo/blob/main/docs/roadmap-evolucao-tecnologica-servidor-e-web.md",
     "repository": "https://github.com/raphaelpera85/mulletaflix-completo"
@@ -40,8 +40,8 @@
       "status": "completed",
       "progressPercent": null,
       "startedAt": "2026-10-05T00:41:00-03:00",
-      "updatedAt": "2026-10-05T00:57:00-03:00",
-      "evidence": "Refresh continua imediato na inicialização e periódico a cada 15 minutos. A janela Mongo agora sobrepõe 30 minutos para cobrir atraso do timer/refresh sem criar lacunas; fila coalesce diretórios repetidos. dotnet test tests/Jellyfin.Server.Implementations.Tests/Jellyfin.Server.Implementations.Tests.csproj --no-restore -c Release -m:1 --filter FullyQualifiedName~NebulaCompletedMediaRefreshTests: 15/15 aprovados. dotnet build Jellyfin.Server.Implementations/Jellyfin.Server.Implementations.csproj --no-restore -c Release -m:1 --verbosity minimal exit 0. git diff --check exit 0. Homologação formal do roadmap não consolidada, portanto progressPercent permanece null. Nenhum teste executou contra a montagem N:, MongoDB ou Telegram reais; sem release/pacote/deploy de aplicação por gate de melhorias ativas do roadmap."
+      "updatedAt": "2026-10-05T01:04:44-03:00",
+      "evidence": "Refresh continua imediato na inicialização e periódico a cada 15 minutos. A janela Mongo agora sobrepõe 30 minutos para cobrir atraso do timer/refresh sem criar lacunas; fila coalesce diretórios repetidos. dotnet test tests/Jellyfin.Server.Implementations.Tests/Jellyfin.Server.Implementations.Tests.csproj --no-restore -c Release -m:1 --filter FullyQualifiedName~NebulaCompletedMediaRefreshTests: 15/15 aprovados. dotnet build Jellyfin.Server.Implementations/Jellyfin.Server.Implementations.csproj --no-restore -c Release -m:1 --verbosity minimal exit 0; dotnet format whitespace --verify-no-changes nos arquivos escopados, JSON válido e git diff --check passaram. Registro enviado ao repositório principal em commit edc7bf30. Portal Mulletaflix-Portal recebeu o status via commit 3bacaed2; Vercel deployment dpl_AEPzZ7VWHMuUn2ZZ3My5VtiMUdYA para esse commit ficou READY. https://mulletaflix-portal.vercel.app/, /docs, /downloads, /updates, /homologacao e /sitemap.xml responderam HTTP 200; /homologacao-status.json HTTP 200 contém este evento. Homologação formal do roadmap não consolidada, portanto progressPercent permanece null. Nenhum teste executou contra a montagem N:, MongoDB ou Telegram reais; sem release/pacote de aplicação por gate de melhorias ativas do roadmap."
     },
     {
       "id": "live-recording-stream-capability-2026-10-04",
