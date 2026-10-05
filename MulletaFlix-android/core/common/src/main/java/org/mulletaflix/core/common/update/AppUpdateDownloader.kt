@@ -9,6 +9,7 @@ import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import org.mulletaflix.core.common.network.enforceLocalNetworkCleartextPolicy
 import java.io.File
 import java.io.FileOutputStream
 import java.util.concurrent.TimeUnit
@@ -31,6 +32,7 @@ class AppUpdateDownloader @Inject constructor(
     @ApplicationContext private val context: Context,
 ) {
     private val httpClient = OkHttpClient.Builder()
+        .enforceLocalNetworkCleartextPolicy()
         .connectTimeout(30, TimeUnit.SECONDS)
         .readTimeout(180, TimeUnit.SECONDS)
         .build()

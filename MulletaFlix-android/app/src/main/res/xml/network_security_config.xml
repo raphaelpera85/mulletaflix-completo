@@ -2,15 +2,13 @@
 <!--
     Network security config for MulletaFlix Android.
 
-    Allows cleartext HTTP traffic because MulletaFlix servers may be exposed
-    over HTTP (including the configured DuckDNS endpoint and LAN addresses).
-
-    HTTPS is ALWAYS preferred when available and required for external servers.
-    This mirrors the Jellyfin Android approach.
+    Android's XML cannot express dynamic LAN CIDRs, so cleartext remains enabled
+    at the platform layer for local servers. App HTTP clients enforce the local
+    host policy before credentials and on every redirected request.
 -->
 <network-security-config>
-    <!-- Public HTTP endpoint configured for this installation. -->
-    <domain-config cleartextTrafficPermitted="true">
+    <!-- The public server must always use HTTPS; LAN discovery uses local IPs. -->
+    <domain-config cleartextTrafficPermitted="false">
         <domain includeSubdomains="true">mulletaflix.duckdns.org</domain>
     </domain-config>
 

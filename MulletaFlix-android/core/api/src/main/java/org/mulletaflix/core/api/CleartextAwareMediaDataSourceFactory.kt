@@ -5,7 +5,7 @@ import androidx.media3.datasource.DataSource
 import androidx.media3.datasource.okhttp.OkHttpDataSource
 import java.util.concurrent.TimeUnit
 import okhttp3.OkHttpClient
-import org.mulletaflix.core.common.network.LocalNetworkCleartextInterceptor
+import org.mulletaflix.core.common.network.enforceLocalNetworkCleartextPolicy
 
 /** Creates Media3 HTTP sources that enforce the local-only cleartext policy on every exchange. */
 @UnstableApi
@@ -19,7 +19,7 @@ fun cleartextAwareMediaDataSourceFactory(
     val client = OkHttpClient.Builder()
         .connectTimeout(connectTimeoutMs.toLong(), TimeUnit.MILLISECONDS)
         .readTimeout(readTimeoutMs.toLong(), TimeUnit.MILLISECONDS)
-        .addNetworkInterceptor(LocalNetworkCleartextInterceptor)
+        .enforceLocalNetworkCleartextPolicy()
         .build()
 
     return OkHttpDataSource.Factory(client)

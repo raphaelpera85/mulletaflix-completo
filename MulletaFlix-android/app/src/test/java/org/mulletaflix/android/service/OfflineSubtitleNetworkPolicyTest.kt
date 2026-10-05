@@ -5,8 +5,10 @@ import okhttp3.Interceptor
 import okhttp3.Protocol
 import okhttp3.Response
 import okhttp3.ResponseBody.Companion.toResponseBody
+import java.io.IOException
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.mulletaflix.core.api.ClientIdentityInterceptor
 import org.mulletaflix.core.api.BuildConfig
@@ -21,6 +23,31 @@ class OfflineSubtitleNetworkPolicyTest {
 
         assertFalse(client.followRedirects)
         assertFalse(client.followSslRedirects)
+    }
+
+    @Test
+    fun `subtitle client blocks public HTTP before identity credentials are added`() {
+        var identityInterceptorCalled = false
+        val client = offlineSubtitleHttpClient(Interceptor { chain ->
+            identityInterceptorCalled = true
+            chain.proceed(chain.request())
+        })
+
+        val failure = runCatching {
+            client.newCall(authenticatedSubtitleRequest(
+                "http://203.0.113.20:8096/Items/media/Subtitles/2/Stream?api_key=session-token",
+                subtitleSession(
+                    serverUrl = "http://203.0.113.20:8096",
+                    accessToken = "session-token",
+                    userId = "user-a",
+                    deviceId = "device-a",
+                    serverId = "server-a",
+                ),
+            )).execute()
+        }.exceptionOrNull()
+
+        assertTrue("public HTTP must fail closed", failure is IOException)
+        assertFalse("identity must not be added for public HTTP", identityInterceptorCalled)
     }
 
     @Test

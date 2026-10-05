@@ -21,6 +21,7 @@ import okhttp3.Response
 import okhttp3.WebSocket
 import okhttp3.WebSocketListener
 import org.mulletaflix.core.common.dispatcher.ApplicationScope
+import org.mulletaflix.core.common.network.CleartextTrafficPolicy
 import kotlin.jvm.JvmName
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -101,12 +102,16 @@ class SyncPlayRealtimeClient @Inject constructor(
     private fun connect(generation: Long) {
         if (generation != connectionGeneration || activeGroupId == null) return
         val serverUrl = runBlocking { sessionRepository.getBaseUrl().first() }
-        val token = runBlocking { sessionRepository.getAccessToken().first() }
-        val deviceId = runBlocking { sessionRepository.getDeviceId().first() }
         val base = serverUrl.toHttpUrlOrNull() ?: run {
             scheduleReconnect(generation)
             return
         }
+        // A rejected remote HTTP endpoint must not cause credentials to be read
+        // or embedded in a WebSocket URL before the shared OkHttp guard runs.
+        if (!CleartextTrafficPolicy.isAllowed(base)) return
+
+        val token = runBlocking { sessionRepository.getAccessToken().first() }
+        val deviceId = runBlocking { sessionRepository.getDeviceId().first() }
         val websocketUrl = base.newBuilder()
             .scheme(if (base.scheme == "https") "wss" else "ws")
             .addPathSegment("socket")

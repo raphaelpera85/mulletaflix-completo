@@ -9,32 +9,43 @@ class MediaImageUrlTest {
     @Test
     fun `resolves relative image path against selected server`() {
         assertEquals(
-            "http://lan-server:8096/Items/item-1/Images/Primary?tag=abc&api_key=token",
-            resolveMediaUrl("http://lan-server:8096/", "/Items/item-1/Images/Primary?tag=abc", "token"),
+            "http://lan-server.local:8096/Items/item-1/Images/Primary?tag=abc&api_key=token",
+            resolveMediaUrl("http://lan-server.local:8096/", "/Items/item-1/Images/Primary?tag=abc", "token"),
         )
     }
 
     @Test
     fun `encodes authentication token in image query`() {
         assertEquals(
-            "http://server/Users/user/Images/Primary?api_key=token%2Bwith%2Fslash",
-            resolveMediaUrl("http://server", "Users/user/Images/Primary", "token+with/slash"),
+            "http://server.local/Users/user/Images/Primary?api_key=token%2Bwith%2Fslash",
+            resolveMediaUrl("http://server.local", "Users/user/Images/Primary", "token+with/slash"),
         )
     }
 
     @Test
     fun `does not modify absolute image URLs or blank paths`() {
-        assertEquals("https://cdn.example/image.jpg", resolveMediaUrl("http://server", "https://cdn.example/image.jpg", "token"))
+        assertEquals("https://cdn.example/image.jpg", resolveMediaUrl("http://server.local", "https://cdn.example/image.jpg", "token"))
         assertNull(resolveMediaUrl("http://server", "", "token"))
+    }
+
+    @Test
+    fun `public cleartext media URL is rejected before attaching the session token`() {
+        assertNull(
+            resolveMediaUrl(
+                "https://mulletaflix.duckdns.org",
+                "http://203.0.113.19/Items/movie/Images/Primary",
+                "session-token",
+            ),
+        )
     }
 
     @Test
     fun `authenticates absolute image URLs from the selected server`() {
         assertEquals(
-            "http://server:8096/Items/item-1/Images/Primary?tag=abc&api_key=token",
+            "http://server.local:8096/Items/item-1/Images/Primary?tag=abc&api_key=token",
             resolveMediaUrl(
-                "http://server:8096",
-                "http://server:8096/Items/item-1/Images/Primary?tag=abc",
+                "http://server.local:8096",
+                "http://server.local:8096/Items/item-1/Images/Primary?tag=abc",
                 "token",
             ),
         )
@@ -44,13 +55,13 @@ class MediaImageUrlTest {
     fun `does not leak token to external image hosts or duplicate an existing token`() {
         assertEquals(
             "https://cdn.example/image.jpg",
-            resolveMediaUrl("http://server:8096", "https://cdn.example/image.jpg", "token"),
+            resolveMediaUrl("http://server.local:8096", "https://cdn.example/image.jpg", "token"),
         )
         assertEquals(
-            "http://server:8096/image.jpg?api_key=existing",
+            "http://server.local:8096/image.jpg?api_key=existing",
             resolveMediaUrl(
-                "http://server:8096",
-                "http://server:8096/image.jpg?api_key=existing",
+                "http://server.local:8096",
+                "http://server.local:8096/image.jpg?api_key=existing",
                 "token",
             ),
         )
@@ -63,8 +74,8 @@ class MediaImageUrlTest {
             userAvatarPath("user-1", "tag-1"),
         )
         assertEquals(
-            "http://server/Users/user-1/Images/Primary?tag=tag-1&api_key=token",
-            resolveMediaUrl("http://server", userAvatarPath("user-1", "tag-1"), "token"),
+            "http://server.local/Users/user-1/Images/Primary?tag=tag-1&api_key=token",
+            resolveMediaUrl("http://server.local", userAvatarPath("user-1", "tag-1"), "token"),
         )
     }
 
@@ -269,12 +280,12 @@ class MediaImageUrlTest {
         // credential — with the same single-definition rule as the redaction.
         listOf("api_key", "ApiKey", "X-Emby-Token").forEach { parameter ->
             val url = resolveMediaUrl(
-                baseUrl = "http://server:8096",
-                path = "http://server:8096/image.jpg?$parameter=existing",
+                baseUrl = "http://server.local:8096",
+                path = "http://server.local:8096/image.jpg?$parameter=existing",
                 accessToken = "session-token",
             )
             assertEquals(
-                "http://server:8096/image.jpg?$parameter=existing",
+                "http://server.local:8096/image.jpg?$parameter=existing",
                 url,
             )
         }

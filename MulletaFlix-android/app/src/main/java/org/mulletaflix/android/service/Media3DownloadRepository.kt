@@ -32,6 +32,7 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.mulletaflix.core.api.ClientIdentityInterceptor
 import org.mulletaflix.core.api.SessionRepository
+import org.mulletaflix.core.common.network.enforceLocalNetworkCleartextPolicy
 import org.mulletaflix.core.common.session.FeedbackRequestSession
 import org.mulletaflix.designsystem.media.resolveMediaUrl
 import org.mulletaflix.designsystem.media.retargetMediaUrl
@@ -68,6 +69,7 @@ class Media3DownloadRepository @Inject constructor(
     private val artworkStore = OfflineArtworkStore(File(appContext.filesDir, "offline_artwork"))
     private val subtitleStore = OfflineSubtitleStore(File(appContext.filesDir, "offline_subtitles"))
     private val artworkClient = OkHttpClient.Builder()
+        .enforceLocalNetworkCleartextPolicy()
         .addInterceptor(clientIdentityInterceptor)
         .connectTimeout(30, TimeUnit.SECONDS)
         .readTimeout(30, TimeUnit.SECONDS)
@@ -765,6 +767,7 @@ private fun encodeSubtitleComponent(value: String): String =
 
 internal fun offlineSubtitleHttpClient(identityInterceptor: Interceptor): OkHttpClient =
     OkHttpClient.Builder()
+        .enforceLocalNetworkCleartextPolicy()
         .addInterceptor(identityInterceptor)
         .connectTimeout(30, TimeUnit.SECONDS)
         .readTimeout(30, TimeUnit.SECONDS)

@@ -6,6 +6,7 @@ import androidx.media3.common.MediaItem
 import org.mulletaflix.designsystem.media.resolveMediaUrl
 import org.mulletaflix.designsystem.media.retargetMediaUrl
 import java.net.URI
+import org.mulletaflix.core.common.network.CleartextTrafficPolicy
 import java.net.URLDecoder
 import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
@@ -95,12 +96,15 @@ internal fun resolveExternalSubtitleUrl(
     ) {
         val serverUrl = resolveMediaUrl(baseUrl, normalizedUrl, accessToken = null) ?: return null
         return retargetMediaUrl(serverUrl, baseUrl, accessToken)
+            .takeIf(CleartextTrafficPolicy::isAllowed)
     }
     return if (sameOrigin(baseUrl, normalizedUrl)) {
         retargetMediaUrl(normalizedUrl, baseUrl, accessToken)
+            .takeIf(CleartextTrafficPolicy::isAllowed)
     } else {
         val uri = runCatching { URI(normalizedUrl) }.getOrNull() ?: return null
-        if (uri.rawUserInfo != null || hasCredentialQueryParameter(uri.rawQuery)) null else normalizedUrl
+        if (uri.rawUserInfo != null || hasCredentialQueryParameter(uri.rawQuery)) return null
+        normalizedUrl.takeIf(CleartextTrafficPolicy::isAllowed)
     }
 }
 

@@ -4,6 +4,7 @@ import java.io.IOException
 import java.net.InetAddress
 import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
+import okhttp3.OkHttpClient
 import okhttp3.Interceptor
 import okhttp3.Response
 
@@ -27,7 +28,7 @@ object CleartextTrafficPolicy {
     fun isLocalNetworkHost(host: String): Boolean {
         val normalized = host.trim().trim('[', ']').substringBefore('%').lowercase()
         if (normalized == "localhost" || normalized.endsWith(".local") ||
-            normalized.endsWith(".lan") || normalized.endsWith(".home.arpa")
+            normalized.endsWith(".home.arpa")
         ) return true
 
         return isLocalIpv4(normalized) || isLocalIpv6(normalized)
@@ -61,7 +62,7 @@ object CleartextTrafficPolicy {
         if (loopback || uniqueLocal || linkLocal || deprecatedSiteLocal) return true
 
         val ipv4Mapped = address.take(10).all { it.toInt() == 0 } &&
-            address[10].toInt() == 0xff.toByte() && address[11].toInt() == 0xff.toByte()
+            address[10] == 0xff.toByte() && address[11] == 0xff.toByte()
         if (!ipv4Mapped) return false
         return isLocalIpv4(address.takeLast(4).joinToString(".") { (it.toInt() and 0xff).toString() })
     }
@@ -74,3 +75,8 @@ object LocalNetworkCleartextInterceptor : Interceptor {
         return chain.proceed(chain.request())
     }
 }
+
+/** Installs the policy before app interceptors and again for each network exchange/redirect. */
+fun OkHttpClient.Builder.enforceLocalNetworkCleartextPolicy(): OkHttpClient.Builder =
+    addInterceptor(LocalNetworkCleartextInterceptor)
+        .addNetworkInterceptor(LocalNetworkCleartextInterceptor)

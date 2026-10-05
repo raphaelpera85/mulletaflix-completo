@@ -1,6 +1,7 @@
 package org.mulletaflix.core.common.network
 
 import okhttp3.HttpUrl.Companion.toHttpUrl
+import okhttp3.OkHttpClient
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -24,10 +25,10 @@ class CleartextTrafficPolicyTest {
             "fd12:3456::8",
             "fe80::8",
             "mulletaflix.local",
-            "media.lan",
             "mulletaflix.home.arpa",
         ).forEach { host ->
-            assertTrue("expected local host: $host", CleartextTrafficPolicy.isAllowed("http://$host"))
+            val urlHost = if (host.contains(':')) "[$host]" else host
+            assertTrue("expected local host: $host", CleartextTrafficPolicy.isAllowed("http://$urlHost"))
         }
     }
 
@@ -39,12 +40,23 @@ class CleartextTrafficPolicyTest {
             "http://203.0.113.8:8096",
             "http://0.0.0.0:8096",
             "http://[::]:8096",
+            "http://media.lan:8096",
         ).forEach { url -> assertFalse("expected cleartext denial: $url", CleartextTrafficPolicy.isAllowed(url)) }
     }
 
     @Test
-    fun `network interceptor permits an explicitly local request`() {
+    fun `policy permits an explicitly local request`() {
         val localUrl = "http://192.168.1.20:8096/Items".toHttpUrl()
         CleartextTrafficPolicy.requireAllowed(localUrl)
+    }
+
+    @Test
+    fun `shared client builder installs policy before app code and on network exchanges`() {
+        val client = OkHttpClient.Builder()
+            .enforceLocalNetworkCleartextPolicy()
+            .build()
+
+        assertTrue(client.interceptors.contains(LocalNetworkCleartextInterceptor))
+        assertTrue(client.networkInterceptors.contains(LocalNetworkCleartextInterceptor))
     }
 }

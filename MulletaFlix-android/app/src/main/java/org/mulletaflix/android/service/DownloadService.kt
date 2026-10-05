@@ -8,6 +8,7 @@ import androidx.media3.exoplayer.offline.DownloadManager
 import androidx.media3.exoplayer.offline.DownloadNotificationHelper
 import androidx.media3.exoplayer.offline.DownloadService as Media3DownloadService
 import org.mulletaflix.core.api.OfflineDownloadCache
+import org.mulletaflix.core.api.cleartextAwareMediaDataSourceFactory
 import org.mulletaflix.android.R
 import org.mulletaflix.feature.player.MEDIA_CONNECT_TIMEOUT_MS
 import org.mulletaflix.feature.player.MEDIA_READ_TIMEOUT_MS
@@ -57,10 +58,10 @@ object DownloadManagerSingleton {
             val applicationContext = context.applicationContext
             val databaseProvider = androidx.media3.database.StandaloneDatabaseProvider(applicationContext)
             val downloadCache = OfflineDownloadCache.get(applicationContext)
-            val upstreamFactory = androidx.media3.datasource.DefaultHttpDataSource.Factory()
-                .setConnectTimeoutMs(MEDIA_CONNECT_TIMEOUT_MS)
-                .setReadTimeoutMs(MEDIA_READ_TIMEOUT_MS)
-                .setAllowCrossProtocolRedirects(true)
+            val upstreamFactory = cleartextAwareMediaDataSourceFactory(
+                connectTimeoutMs = MEDIA_CONNECT_TIMEOUT_MS,
+                readTimeoutMs = MEDIA_READ_TIMEOUT_MS,
+            )
             DownloadManager(applicationContext, databaseProvider, downloadCache, upstreamFactory, executor).also { manager ->
                 val failurePreferences = applicationContext.getSharedPreferences(
                     "offline_downloads",

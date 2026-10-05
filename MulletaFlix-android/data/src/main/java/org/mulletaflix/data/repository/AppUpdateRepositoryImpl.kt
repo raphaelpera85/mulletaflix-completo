@@ -5,6 +5,7 @@ import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
+import org.mulletaflix.core.common.network.enforceLocalNetworkCleartextPolicy
 import org.json.JSONArray
 import org.mulletaflix.domain.model.AppUpdateInfo
 import org.mulletaflix.domain.repository.AppUpdateRepository
@@ -16,6 +17,7 @@ import javax.inject.Singleton
 class AppUpdateRepositoryImpl @Inject constructor() : AppUpdateRepository {
 
     private val httpClient = OkHttpClient.Builder()
+        .enforceLocalNetworkCleartextPolicy()
         .connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(20, TimeUnit.SECONDS)
         .build()

@@ -43,17 +43,17 @@ class ExternalSubtitlePolicyTest {
     @Test
     fun `authenticates relative and same-origin URLs without duplicating token`() {
         assertEquals(
-            "http://server:8096/Items/movie/Subtitles/2/Stream?api_key=NEW+TOKEN",
+            "http://server.local:8096/Items/movie/Subtitles/2/Stream?api_key=NEW+TOKEN",
             resolveExternalSubtitleUrl(
-                "http://server:8096",
+                "http://server.local:8096",
                 "/Items/movie/Subtitles/2/Stream?api_key=OLD",
                 "NEW TOKEN",
             ),
         )
         assertEquals(
-            "http://server:8096/Items/movie/Subtitles/2/Stream?MediaSourceId=source&api_key=NEW+TOKEN",
+            "http://server.local:8096/Items/movie/Subtitles/2/Stream?MediaSourceId=source&api_key=NEW+TOKEN",
             resolveExternalSubtitleUrl(
-                "http://server:8096",
+                "http://server.local:8096",
                 "Items/movie/Subtitles/2/Stream?MediaSourceId=source",
                 "NEW TOKEN",
             ),
@@ -63,7 +63,7 @@ class ExternalSubtitlePolicyTest {
     @Test
     fun `does not send server token to another origin`() {
         val resolved = resolveExternalSubtitleUrl(
-            "http://server:8096",
+            "http://server.local:8096",
             "https://cdn.example/subtitles/movie.srt?sig=public",
             "session-token",
         )
@@ -71,36 +71,41 @@ class ExternalSubtitlePolicyTest {
         assertEquals("https://cdn.example/subtitles/movie.srt?sig=public", resolved)
         assertFalse(resolved.orEmpty().contains("session-token"))
         assertNull(resolveExternalSubtitleUrl(
-            "http://server:8096",
+            "https://server.example",
+            "http://cdn.example/subtitles/movie.srt?sig=public",
+            "session-token",
+        ))
+        assertNull(resolveExternalSubtitleUrl(
+            "http://server.local:8096",
             "https://cdn.example/subtitles/movie.srt?api_key=embedded-secret",
             "session-token",
         ))
         assertNull(resolveExternalSubtitleUrl(
-            "http://server:8096",
+            "http://server.local:8096",
             "https://cdn.example/subtitles/movie.vtt?ApiKey=embedded-secret",
             "session-token",
         ))
         assertNull(resolveExternalSubtitleUrl(
-            "http://server:8096",
+            "http://server.local:8096",
             "https://cdn.example/subtitles/movie.vtt?X-MediaBrowser-Token=embedded-secret",
             "session-token",
         ))
         assertNull(resolveExternalSubtitleUrl(
-            "http://server:8096",
+            "http://server.local:8096",
             "https://cdn.example/subtitles/movie.vtt?%61uth%6Frization=embedded-secret",
             "session-token",
         ))
         assertEquals(
             "https://cdn.example/subtitles/movie.vtt?signature=public&expires=1000",
             resolveExternalSubtitleUrl(
-                "http://server:8096",
+            "http://server.local:8096",
                 "https://cdn.example/subtitles/movie.vtt?signature=public&expires=1000",
                 "session-token",
             ),
         )
         assertEquals(
-            "http://server:8096/subtitles/movie.srt",
-            resolveExternalSubtitleUrl("http://server:8096", "//server:8096/subtitles/movie.srt", null),
+            "http://server.local:8096/subtitles/movie.srt",
+            resolveExternalSubtitleUrl("http://server.local:8096", "//server.local:8096/subtitles/movie.srt", null),
         )
     }
 

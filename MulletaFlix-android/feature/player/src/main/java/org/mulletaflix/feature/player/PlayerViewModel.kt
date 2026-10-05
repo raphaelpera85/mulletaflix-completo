@@ -25,7 +25,6 @@ import androidx.media3.exoplayer.analytics.AnalyticsListener
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
 import androidx.media3.datasource.DefaultDataSource
-import androidx.media3.datasource.DefaultHttpDataSource
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import android.content.Context
@@ -56,6 +55,7 @@ import org.mulletaflix.domain.usecase.ManageDownloadsUseCase
 import org.mulletaflix.domain.repository.SyncPlayPlaybackStatus
 import org.mulletaflix.core.api.SessionRepository
 import org.mulletaflix.core.api.OfflineDownloadCache
+import org.mulletaflix.core.api.cleartextAwareMediaDataSourceFactory
 import org.mulletaflix.core.api.SyncPlayRealtimeClient
 import org.mulletaflix.core.api.SyncPlayRealtimeEvent
 import org.mulletaflix.core.common.dispatcher.ApplicationScope
@@ -65,6 +65,7 @@ import org.mulletaflix.domain.model.SUBTITLE_BACKGROUND_NONE
 import org.mulletaflix.domain.model.normalizeSubtitleBackground
 import org.mulletaflix.domain.model.normalizeSubtitleSizePercent
 import org.mulletaflix.core.common.network.NetworkMonitor
+import org.mulletaflix.core.common.network.CleartextTrafficPolicy
 import org.mulletaflix.designsystem.media.resolveMediaUrl
 import org.mulletaflix.domain.model.primaryImageUrl
 import javax.inject.Inject
@@ -257,10 +258,10 @@ class PlayerViewModel @Inject constructor(
             DefaultMediaSourceFactory(
                 playbackCacheDataSourceFactory(
                     cache = OfflineDownloadCache.get(context),
-                    upstreamFactory = DefaultHttpDataSource.Factory()
-                        .setConnectTimeoutMs(MEDIA_CONNECT_TIMEOUT_MS)
-                        .setReadTimeoutMs(MEDIA_READ_TIMEOUT_MS)
-                        .setAllowCrossProtocolRedirects(true),
+                    upstreamFactory = cleartextAwareMediaDataSourceFactory(
+                        connectTimeoutMs = MEDIA_CONNECT_TIMEOUT_MS,
+                        readTimeoutMs = MEDIA_READ_TIMEOUT_MS,
+                    ),
                 ),
             )
         )
@@ -949,6 +950,10 @@ class PlayerViewModel @Inject constructor(
                     showLoadError("O servidor não forneceu uma URL de reprodução.", loadGeneration)
                     return@launch
                 }
+            if (!CleartextTrafficPolicy.isAllowed(streamUrl)) {
+                showLoadError(CleartextTrafficPolicy.BLOCKED_MESSAGE, loadGeneration)
+                return@launch
+            }
             if (!isCurrentPlaybackLoad(loadGeneration, playbackLoadGeneration, itemId, currentItemId, sessionAtLoad, sessionGeneration)) return@launch
             currentPlaySessionId = playbackInfo.playSessionId
             currentMediaSourceId = mediaSource.id

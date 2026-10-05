@@ -5,6 +5,7 @@ import androidx.compose.runtime.compositionLocalOf
 import java.net.URI
 import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
+import org.mulletaflix.core.common.network.CleartextTrafficPolicy
 
 /** Base address of the currently selected MulletaFlix server. */
 val LocalMulletaFlixServerUrl = compositionLocalOf { "" }
@@ -22,13 +23,16 @@ val LocalMulletaFlixServerId = compositionLocalOf<String?> { null }
 /** Converts API-relative image paths to authenticated-server-relative paths. */
 fun resolveMediaUrl(baseUrl: String, path: String?, accessToken: String? = null): String? {
     if (path.isNullOrBlank()) return null
-    if (path.startsWith("http://") || path.startsWith("https://")) {
+    if (path.startsWith("http://", ignoreCase = true) || path.startsWith("https://", ignoreCase = true)) {
+        if (!CleartextTrafficPolicy.isAllowed(path)) return null
         return path.withServerToken(baseUrl, accessToken)
             .also { logResolvedMediaUrl(it) }
     }
     val normalizedBase = baseUrl.trimEnd('/')
     if (normalizedBase.isBlank()) return null
     val url = "$normalizedBase/${path.trimStart('/')}"
+    // Reject public cleartext before appending the session token to media URLs.
+    if (!CleartextTrafficPolicy.isAllowed(url)) return null
     return accessToken?.takeIf { it.isNotBlank() }?.let {
         val encodedToken = URLEncoder.encode(it, StandardCharsets.UTF_8.name())
         url + if (url.contains('?')) "&api_key=$encodedToken" else "?api_key=$encodedToken"

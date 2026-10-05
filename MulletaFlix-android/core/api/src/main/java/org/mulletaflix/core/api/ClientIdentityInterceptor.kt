@@ -4,6 +4,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import org.mulletaflix.core.common.session.FeedbackRequestSession
 import org.mulletaflix.core.common.network.CleartextTrafficPolicy
+import org.mulletaflix.core.common.network.enforceLocalNetworkCleartextPolicy
 import okhttp3.Interceptor
 import okhttp3.Response
 import javax.inject.Inject
@@ -101,9 +102,8 @@ fun buildAuthenticatedImageClient(
     clientIdentityInterceptor: Interceptor,
 ): okhttp3.OkHttpClient = okhttp3.OkHttpClient.Builder()
     .addInterceptor(serverUrlInterceptor)
-    .addInterceptor(org.mulletaflix.core.common.network.LocalNetworkCleartextInterceptor)
+    .enforceLocalNetworkCleartextPolicy()
     .addInterceptor(clientIdentityInterceptor)
-    .addNetworkInterceptor(org.mulletaflix.core.common.network.LocalNetworkCleartextInterceptor)
     .connectTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
     .readTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
     .build()
