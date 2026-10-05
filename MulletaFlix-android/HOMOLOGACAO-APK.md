@@ -6,7 +6,7 @@
 
 ## Decisão de homologação
 
-O APK ainda **não está homologado para aceite final**. Há evidências de validações técnicas locais em 12 das 21 áreas listadas no contrato público `portal-site/homologacao-status.json`. Nove gates dependem de servidor/conteúdo reais, dispositivos físicos, receiver ou assinatura/instalação de produção. Os estados “validado localmente” não significam compatibilidade universal nem aprovação da release.
+O APK ainda **não está homologado para aceite final**. Há 11 áreas concluídas com evidência técnica local, 1 em validação e 9 pendentes entre as 21 áreas do contrato público `portal-site/homologacao-status.json`. Nove gates dependem de servidor/conteúdo reais, dispositivos físicos, receiver ou assinatura/instalação de produção. Os estados “validado localmente” não significam compatibilidade universal nem aprovação da release.
 
 ## Evidência automatizada desta rodada
 
@@ -49,7 +49,7 @@ O HTTP em cleartext necessário à LAN permanece uma exceção arquitetural que 
 
 ## Inventário do backlog
 
-`TODO-APP.md` permanece a fonte linha a linha para implementação e histórico de releases. Nos blocos atuais do arquivo anteriores à linha de base de funcionalidades, a contagem literal é 570 checkboxes marcadas e 66 abertas (636 no total). Isso mede o backlog de engenharia, não a cobertura formal nem o percentual de aceite.
+`TODO-APP.md` permanece a fonte linha a linha para implementação e histórico de releases. Do início do arquivo até imediatamente antes do cabeçalho “Funcionalidades APK validadas localmente, ainda não publicadas”, há 219 checkboxes marcadas e 47 abertas (266 no total). A contagem exclui as checklists históricas/arquivadas depois desse ponto e mede backlog de engenharia, não a cobertura formal nem o percentual de aceite.
 
 ## Fechamento
 

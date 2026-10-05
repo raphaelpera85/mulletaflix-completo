@@ -79,10 +79,10 @@
     "sourceUrl": "https://github.com/raphaelpera85/mulletaflix-completo/blob/main/MulletaFlix-android/TODO-APP.md",
     "scopeNote": "Status concluído significa evidência técnica local registrada para a área; não substitui aceite com servidor/conteúdo real nem certifica uma release de produção. O backlog integral permanece no TODO-APP.md.",
     "taskChecklist": {
-      "checked": 570,
-      "unchecked": 66,
-      "total": 636,
-      "definition": "Contagem literal de checkboxes nos blocos de trabalho atuais do TODO-APP.md antes da linha de base histórica de funcionalidades; não equivale a percentual de homologação."
+      "checked": 219,
+      "unchecked": 47,
+      "total": 266,
+      "definition": "Contagem literal de checkboxes desde o início do TODO-APP.md até antes do cabeçalho 'Funcionalidades APK validadas localmente, ainda não publicadas'; exclui o histórico arquivado e não equivale a percentual de homologação."
     },
     "formalSignoff": "pending",
     "areas": [
