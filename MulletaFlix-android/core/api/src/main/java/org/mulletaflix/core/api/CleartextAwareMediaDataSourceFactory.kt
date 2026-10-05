@@ -22,5 +22,10 @@ fun cleartextAwareMediaDataSourceFactory(
         .enforceLocalNetworkCleartextPolicy()
         .build()
 
-    return OkHttpDataSource.Factory(client)
+    return cleartextAwareMediaDataSourceFactory(client)
 }
+
+/** Internal seam for tests that need a trusted local TLS fixture. */
+@UnstableApi
+internal fun cleartextAwareMediaDataSourceFactory(client: OkHttpClient): DataSource.Factory =
+    OkHttpDataSource.Factory(client)

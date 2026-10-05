@@ -79,6 +79,21 @@
     const lastRun = (runs || []).slice().sort((a, b) => new Date(b.updated_at) - new Date(a.updated_at))[0];
     byId('live-updated').textContent = `Última leitura pública: ${date(lastRun?.updated_at || new Date())}`;
   };
+  const renderAndroidHomologation = data => {
+    const homologation = data.androidHomologation || {};
+    const areas = Array.isArray(homologation.areas) ? homologation.areas : [];
+    const counts = areas.reduce((result, area) => {
+      result[area.status] = (result[area.status] || 0) + 1;
+      return result;
+    }, {});
+    const labels = { completed: 'Validado localmente', in_progress: 'Em homologação', pending: 'Pendente' };
+    byId('android-homologation-state').textContent = `${counts.completed || 0} validadas localmente · ${counts.in_progress || 0} em homologação · ${counts.pending || 0} pendentes · aceite geral ${homologation.formalSignoff === 'approved' ? 'aprovado' : 'pendente'}`;
+    const checklist = homologation.taskChecklist || {};
+    byId('android-task-checklist').textContent = checklist.total
+      ? ` Checklist TODO-APP.md: ${checklist.checked}/${checklist.total} marcados e ${checklist.unchecked} abertos; isso é progresso do backlog, não percentual de homologação.`
+      : '';
+    byId('android-homologation-table').innerHTML = areas.length ? areas.map(area => `<tr><td><strong>${escapeHtml(area.name)}</strong><br><small>${escapeHtml(area.id)}</small></td><td><span class="status-chip ${statusClass(area.status)}"><i></i>${escapeHtml(labels[area.status] || area.status)}</span></td><td>${escapeHtml(area.evidence)}</td></tr>`).join('') : '<tr><td colspan="3" class="empty-cell">Nenhuma área Android registrada.</td></tr>';
+  };
   const renderEvents = data => {
     const events = Array.isArray(data.events) ? data.events : [];
     byId('event-list').innerHTML = events.length ? events.slice(0, 12).map(event => { const progress = Number.isFinite(Number(event.progressPercent)) ? ` · ${Number(event.progressPercent)}%` : ''; return `<li><span class="event-dot ${statusClass(event.status)}"></span><div><strong>${escapeHtml(event.title)}</strong><p>${escapeHtml(event.location || 'Local não informado')} · ${escapeHtml(statusText[event.status] || event.status)}${progress} · ${date(event.updatedAt)}</p></div></li>`; }).join('') : '<li class="empty-event"><strong>Nenhum evento de homologação publicado</strong><p>Quando um agente iniciar um teste, registre-o em <code>portal-site/homologacao-status.json</code> com local, status, percentual e evidência.</p></li>';
@@ -90,7 +105,7 @@
       fetch(`${apiRoot}/releases?per_page=20`, { headers: { Accept: 'application/vnd.github+json' } }).then(response => response.ok ? response.json() : []).catch(() => [])
     ]);
     latestData = data;
-    renderCoverage(data); renderFeatures(data); renderTracks(data, runs.workflow_runs, releases); renderEvents(data);
+    renderCoverage(data); renderFeatures(data); renderTracks(data, runs.workflow_runs, releases); renderAndroidHomologation(data); renderEvents(data);
     byId('dashboard-state').textContent = 'Atualizado'; byId('dashboard-state').className = 'status-chip is-good';
   };
   byId('feature-search').addEventListener('input', () => { featurePage = 1; if (latestData) renderFeatures(latestData); });
