@@ -36,7 +36,7 @@ Essas classificações agregam evidências locais preexistentes registradas em `
 
 | ID | Área | Evidência atual | Saída exigida |
 |---|---|---|---|
-| APK-H12 | Transporte seguro: HTTPS remoto e HTTP restrito à LAN | Media3 HTTPS exercitado em servidor TLS de teste; proteção e redirects ainda precisam fechar em todos os transportes. | Bloquear HTTP público antes de enviar credenciais; manter HTTP LAN; cobrir Retrofit, Coil, Media3, downloads e legendas com testes de redirect. |
+| APK-H12 | Transporte seguro: HTTPS remoto e HTTP restrito à LAN | Reexecução seletiva: 552 testes JVM aprovados nos módulos `core:common`, `core:api`, `app` e `feature:player`; Media3/player instrumentado 5/5 e Media3 HTTPS com TLS 1/1 registrados. Retrofit bloqueia HTTP público antes de consultar token; testes de redirecionamento LAN/público existem. | Faltam Coil com HTTP público direto e HTTPS remoto, transferência real do DownloadManager em LAN/HTTPS, HTTPS/redirecionamentos de legenda e sanitização/testes de credenciais adicionais (`password`, `auth`, userinfo, `Cookie`, `Proxy-Authorization`). A configuração Android-base ainda permite cleartext para LAN dinâmica; a proteção depende dos guards em cada cliente, não é bloqueio global do SO. |
 
 ## Pendente — 9/21
 
