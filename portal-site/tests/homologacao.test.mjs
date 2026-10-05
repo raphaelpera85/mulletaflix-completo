@@ -117,3 +117,18 @@ test('formal Android matrix separates local evidence from pending product accept
     assert.match(dashboard.getElement('android-homologation-table').innerHTML, /Leitura de EPUB\/CBZ servidos pela instância real/);
     assert.match(dashboard.getElement('android-task-checklist').textContent, /219\/266 marcados e 47 abertos/);
 });
+
+test('portal renders every formal Android area and preserves its status evidence', async () => {
+    const areas = statusData.androidHomologation.areas;
+    const dashboard = createDashboard();
+    await settleDashboard();
+    const rendered = dashboard.getElement('android-homologation-table').innerHTML;
+
+    assert.equal(new Set(areas.map(area => area.id)).size, 21);
+    for (const area of areas) {
+        assert.match(rendered, new RegExp(area.id));
+        assert.ok(rendered.includes(area.name), `portal must show ${area.id} name`);
+        assert.ok(rendered.includes(area.evidence), `portal must show ${area.id} evidence`);
+    }
+    assert.equal((rendered.match(/<tr>/g) || []).length, 21);
+});

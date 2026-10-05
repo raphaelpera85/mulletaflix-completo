@@ -77,7 +77,7 @@
   "androidHomologation": {
     "source": "MulletaFlix-android/TODO-APP.md e relatórios Gradle/JUnit locais",
     "sourceUrl": "https://github.com/raphaelpera85/mulletaflix-completo/blob/main/MulletaFlix-android/TODO-APP.md",
-    "scopeNote": "Status concluído significa evidência técnica local registrada para a área; não substitui aceite com servidor/conteúdo real nem certifica uma release de produção. O backlog integral permanece no TODO-APP.md.",
+    "scopeNote": "A matriz formal tem 21 áreas: 11 com evidência técnica local, 1 em validação e 9 pendentes. Testes automatizados e checkboxes do TODO não equivalem a aceite funcional. Nenhuma release de produção é certificada por esta matriz; o backlog integral permanece em TODO-APP.md.",
     "taskChecklist": {
       "checked": 219,
       "unchecked": 47,
@@ -2639,6 +2639,20 @@
     }
   ],
   "events": [
+    {
+      "id": "android-formal-homologation-reconciliation-2026-10-05",
+      "title": "Reconciliação da homologação formal do APK",
+      "agent": "Codex",
+      "front": "android",
+      "local": "D:\\Users\\Raphael\\Documents\\Projetos\\mulletaflix\\MulletaFlix-android",
+      "location": "Matriz Android local e portal; sem alteração do servidor ou release do APK",
+      "scope": "Reconciliar evidências e estados das 21 áreas APK, separar testes automatizados de aceite funcional e publicar a matriz completa no portal.",
+      "status": "in_progress",
+      "progressPercent": null,
+      "startedAt": "2026-10-05T05:08:00-03:00",
+      "updatedAt": "2026-10-05T05:08:00-03:00",
+      "evidence": "Início registrado. Fonte existente indica 11 áreas com evidência técnica local, APK-H12 em validação e 9 gates pendentes; aceite formal pending. Auditoria adversarial e validação de portal ainda em execução; percentual formal não consolidado."
+    },
     {
       "id": "android-formal-homologation-2026-10-05",
       "title": "Homologação formal do APK — consolidação de matriz e evidências",

@@ -13,25 +13,46 @@ O APK ainda **não está homologado para aceite final**. Há 11 áreas concluíd
 - `./gradlew testDebugUnitTest --no-daemon --no-parallel --console=plain`: BUILD SUCCESSFUL; relatórios Gradle atuais totalizam 1.399 testes aprovados, 0 falhas/erros e 0 ignorados.
 - `:core:api:connectedDebugAndroidTest` — `CleartextAwareMediaDataSourceHttpsTest`: 1/1 aprovado no AVD `MulletaflixApi35` (API 35). Exercitou leitura real via Media3/OkHttp sobre HTTPS com servidor TLS de teste e certificado confiável. O wrapper confirmou QEMU na GPU NVIDIA e encerrou o AVD.
 - `:core:api:lintDebug`, `:feature:player:lintDebug`, `:app:lintDebug`, `:core:api:compileDebugAndroidTestKotlin`, `:feature:player:compileDebugAndroidTestKotlin`, `:app:compileDebugAndroidTestKotlin` e `:app:assembleDebug`: BUILD SUCCESSFUL (740 tarefas; warnings de depreciação preexistentes nos testes de player).
-- `node --test portal-site/tests/homologacao.test.mjs`: 3/3 aprovados.
+- `node --test portal-site/tests/homologacao.test.mjs`: 4/4 aprovados.
 - `.\tools\Validate-PortalSitemap.ps1`: 7 URLs públicas cobertas; nenhuma página nova foi criada.
 
-## Áreas com evidência técnica local registrada
+## Áreas com evidência técnica local registrada — 11/21
 
-1. Arquitetura modular e infraestrutura do cliente.
-2. Autenticação, sessão e troca/isolamento de conta e servidor.
-3. Home, navegação e recuperação de conteúdo.
-4. Bibliotecas, paginação, capas, filtros e ordenação.
-5. Detalhes de mídia, temporadas e episódios.
-6. Player, faixas, legendas e controles.
-7. Downloads e reprodução offline.
-8. Leitura EPUB/CBZ.
-9. TV ao vivo e EPG.
-10. SyncPlay e continuidade de sessão.
-11. UX adaptativa, tablet, Android TV e controle remoto.
-12. Transporte de rede, sujeito ao gate específico abaixo.
+- **APK-H01** — Arquitetura modular e infraestrutura do cliente.
+- **APK-H02** — Autenticação, sessão e troca/isolamento de conta e servidor.
+- **APK-H03** — Home, navegação e recuperação de conteúdo.
+- **APK-H04** — Bibliotecas, paginação, capas, filtros e ordenação.
+- **APK-H05** — Detalhes de mídia, temporadas e episódios.
+- **APK-H06** — Player, faixas, legendas e controles.
+- **APK-H07** — Downloads e reprodução offline.
+- **APK-H08** — Leitura EPUB/CBZ.
+- **APK-H09** — TV ao vivo e EPG.
+- **APK-H10** — SyncPlay e continuidade de sessão.
+- **APK-H11** — UX adaptativa, tablet, Android TV e controle remoto.
 
-Essas classificações agregam evidências locais preexistentes registradas em `TODO-APP.md`, mais os testes executados nesta rodada. Cada limite (p.ex., falta de servidor, receiver ou aparelho físico) está explicitado na matriz pública; não inferir aceite manual de uma caixa marcada.
+Essas classificações agregam evidências locais preexistentes registradas em `TODO-APP.md`, mais os testes executados nesta rodada. São validações técnicas locais; não significam aceite integrado, validação física ou certificação de produção.
+
+## Em homologação — 1/21
+
+| ID | Área | Evidência atual | Saída exigida |
+|---|---|---|---|
+| APK-H12 | Transporte seguro: HTTPS remoto e HTTP restrito à LAN | Media3 HTTPS exercitado em servidor TLS de teste; proteção e redirects ainda precisam fechar em todos os transportes. | Bloquear HTTP público antes de enviar credenciais; manter HTTP LAN; cobrir Retrofit, Coil, Media3, downloads e legendas com testes de redirect. |
+
+## Pendente — 9/21
+
+| ID | Área | Saída exigida |
+|---|---|---|
+| APK-H13 | Conexão à instância e cenários de servidor real | Executar E2E autenticado com catálogo e mídia reais. |
+| APK-H14 | Descoberta e troca automática entre LAN e internet | Validar descoberta na mesma LAN física e transição entre redes/endereços. |
+| APK-H15 | Streaming real, retomada e seleção de idioma/legenda | Testar mídia real, seeks, retries, codecs, faixas e legendas servidas pelo servidor. |
+| APK-H16 | Cast para receiver compatível | Testar receiver Chromecast/Web real, sessão e legendas externas. |
+| APK-H17 | Downloads com falha, espaço e recuperação em aparelho | Testar espaço limitado, interrupção/reinício e limpeza de cache em dispositivos-alvo. |
+| APK-H18 | Instalação, atualização e assinatura de produção | Conferir certificado oficial, instalação e atualização sobre o APK anterior; nenhum APK de produção foi gerado nesta homologação. |
+| APK-H19 | Aceite em dispositivos físicos e matriz final | Validar celulares, tablets e TVs físicas, fabricantes, Wi-Fi e controle remoto. |
+| APK-H20 | Aceite formal do responsável pelo produto | Fechar a matriz e registrar aprovação explícita do responsável. |
+| APK-H21 | Leitura de EPUB/CBZ servidos pela instância real | Validar API autenticada, MIME/respostas, arquivos reais e retomada nos dispositivos-alvo. |
+
+A matriz completa, com evidência por área e estado renderizado no portal, está em `portal-site/homologacao-status.json` e na página pública `/homologacao`. Os 21 IDs são a unidade de homologação funcional. Os 266 checkboxes do backlog (`TODO-APP.md`) são tarefas de engenharia distintas e não devem ser convertidos em percentual de aceite.
 
 ## Gates ainda abertos
 
