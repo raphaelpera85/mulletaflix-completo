@@ -41,9 +41,33 @@ function Assert-ValidAuthenticodeSignature {
     }
 }
 
+function Install-NebulaRuntimeDependencies {
+    param([Parameter(Mandatory = $true)][string] $Python)
+
+    $requirements = Join-Path $PSScriptRoot 'Tools\NebulaPython\requirements.txt'
+    if (-not (Test-Path -LiteralPath $requirements -PathType Leaf)) {
+        throw "Dependências Python do Nebula não encontradas: $requirements"
+    }
+
+    Write-Host '[INFO] Preparando dependências Python do Nebula para inicialização sem instalação tardia...' -ForegroundColor Yellow
+    & $Python -m pip install --disable-pip-version-check --quiet -r $requirements
+    if ($LASTEXITCODE -ne 0) {
+        throw "A instalação das dependências Python do Nebula falhou (código $LASTEXITCODE)."
+    }
+
+    $runtimeDirectory = Join-Path $PSScriptRoot 'Tools\NebulaPython'
+    New-Item -ItemType Directory -Force -Path $runtimeDirectory | Out-Null
+    [System.IO.File]::WriteAllText(
+        (Join-Path $runtimeDirectory 'python.path'),
+        $Python,
+        [System.Text.UTF8Encoding]::new($false))
+    Write-Host '[OK] Dependências Python do Nebula instaladas.' -ForegroundColor Green
+}
+
 $python = Get-PythonPath
 if ($python) {
     Write-Host "[OK] Python encontrado em $python." -ForegroundColor Green
+    Install-NebulaRuntimeDependencies -Python $python
     exit 0
 }
 
@@ -78,6 +102,7 @@ try {
         throw 'Python foi instalado, mas o executável não foi localizado.'
     }
 
+    Install-NebulaRuntimeDependencies -Python $python
     Write-Host "[OK] Python disponível em $python." -ForegroundColor Green
     exit 0
 }

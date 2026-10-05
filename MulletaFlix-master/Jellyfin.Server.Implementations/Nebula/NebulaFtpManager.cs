@@ -67,6 +67,10 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable, IAsyncDis
     private Process? _rcloneProcess;
     private Task? _rcloneStdoutTask;
     private Task? _rcloneStderrTask;
+    private Process? _pythonStreamProcess;
+    private Task? _pythonStreamStdoutTask;
+    private Task? _pythonStreamStderrTask;
+    private NebulaPythonCacheLeaseHost? _pythonCacheLeaseHost;
     private CancellationTokenSource? _cleanupCts;
     private Task? _cleanupTask;
     private Task? _completedMediaRefreshTask;
@@ -1025,7 +1029,7 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable, IAsyncDis
                 && !string.IsNullOrWhiteSpace(config.ApiHash)
                 && !string.IsNullOrWhiteSpace(config.BotTokens),
             FtpListenerRunning = _isEnvioRunning && _ftpServerHost?.IsRunning == true,
-            HttpListenerRunning = _isEnvioRunning && _httpStreamServer?.IsRunning == true,
+            HttpListenerRunning = _isEnvioRunning && _pythonStreamProcess is { HasExited: false },
             TelegramReady = _telegramPool?.IsInitialized == true && _telegramPool.AvailableBotCount > 0,
             TelegramAvailableBots = _telegramPool?.AvailableBotCount ?? 0
         };
@@ -1447,7 +1451,10 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable, IAsyncDis
             return false;
         }
 
-        if (_isEnvioRunning && _ftpServerHost != null && _ftpServerHost.IsRunning)
+        if (_isEnvioRunning
+            && _ftpServerHost != null
+            && _ftpServerHost.IsRunning
+            && _pythonStreamProcess is { HasExited: false })
         {
             return true;
         }
@@ -1481,6 +1488,23 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable, IAsyncDis
 
             if (_isEnvioRunning && _ftpServerHost != null && _ftpServerHost.IsRunning)
             {
+                if (_pythonStreamProcess is not { HasExited: false })
+                {
+                    try
+                    {
+                        var recoveryConfig = EnsureRuntimeConfigurationNormalizedAndImported();
+                        var recoveryTokens = await LoadBotTokensAsync(recoveryConfig, cancellationToken).ConfigureAwait(false);
+                        AddServerLog("[NEBULA-PYTHON] Worker de playback indisponível; reiniciando serviço Python.");
+                        await StartPythonStreamServiceAsync(recoveryConfig, recoveryTokens, cancellationToken).ConfigureAwait(false);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex, "Falha ao recuperar worker Python de playback.");
+                        AddServerLog($"[ERRO] Falha ao recuperar stream Python: {ex.Message}");
+                        return false;
+                    }
+                }
+
                 return true;
             }
 
@@ -1665,11 +1689,15 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable, IAsyncDis
                 config.HttpStreamToken,
                 config.MaxActiveConnections,
                 _playbackCacheAccessor);
-            _httpStreamServer.Start();
-
+            var streamBotTokens = await LoadBotTokensAsync(config, cancellationToken).ConfigureAwait(false);
+            var pythonStreamStartTask = StartPythonStreamServiceAsync(config, streamBotTokens, cancellationToken);
             if (poolInitTask != null)
             {
-                await poolInitTask.ConfigureAwait(false);
+                await Task.WhenAll(poolInitTask, pythonStreamStartTask).ConfigureAwait(false);
+            }
+            else
+            {
+                await pythonStreamStartTask.ConfigureAwait(false);
             }
 
             // 5. Watcher de diretórios de Staging
@@ -1754,6 +1782,7 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable, IAsyncDis
             // estar sendo compartilhados pelo Downloader STRM.
             try
             {
+                await StopPythonStreamServiceAsync().ConfigureAwait(false);
                 if (!_isDownloaderRunning)
                 {
                     await DisposeSharedRuntimeResourcesAsync().ConfigureAwait(false);
@@ -1868,6 +1897,8 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable, IAsyncDis
                 await _stagingWatcher.DisposeAsync().ConfigureAwait(false);
                 _stagingWatcher = null;
             }
+
+            await StopPythonStreamServiceAsync().ConfigureAwait(false);
 
             if (_ftpServerHost != null)
             {
@@ -5232,6 +5263,20 @@ CREATE POLICY nebula_bot_tokens_service_role_all
 
     private string? FindPythonExe()
     {
+        var runtimePathMarker = Path.Combine(
+            AppDomain.CurrentDomain.BaseDirectory,
+            "Tools",
+            "NebulaPython",
+            "python.path");
+        if (File.Exists(runtimePathMarker))
+        {
+            var installedRuntime = File.ReadAllText(runtimePathMarker).Trim();
+            if (File.Exists(installedRuntime))
+            {
+                return installedRuntime;
+            }
+        }
+
         var pathEnv = Environment.GetEnvironmentVariable("PATH") ?? string.Empty;
         var candidates = new List<string>();
         foreach (var entry in pathEnv.Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries))
@@ -5276,6 +5321,174 @@ CREATE POLICY nebula_bot_tokens_service_role_all
             Path.Combine(_configManager.CommonApplicationPaths.DataPath, "mount_drive_n.py")
         };
         return candidates.FirstOrDefault(File.Exists);
+    }
+
+    private string? FindPythonStreamScript()
+    {
+        var candidates = new[]
+        {
+            Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Tools", "NebulaPython", "stream_service.py"),
+            Path.Combine(_configManager.CommonApplicationPaths.DataPath, "Tools", "NebulaPython", "stream_service.py"),
+            Path.GetFullPath(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "..", "..", "..", "..", "..", "nebula", "stream_service.py"))
+        };
+        return candidates.FirstOrDefault(File.Exists);
+    }
+
+    private async Task StartPythonStreamServiceAsync(
+        NebulaFtpConfiguration config,
+        IReadOnlyCollection<string> botTokens,
+        CancellationToken cancellationToken)
+    {
+        var python = FindPythonExe();
+        var script = FindPythonStreamScript();
+        if (python == null || script == null)
+        {
+            throw new FileNotFoundException("Runtime Python do Nebula de playback não foi encontrado.");
+        }
+
+        await StopPythonStreamServiceAsync().ConfigureAwait(false);
+        _pythonCacheLeaseHost = new NebulaPythonCacheLeaseHost(
+            _playbackCacheAccessor,
+            _loggerFactory.CreateLogger<NebulaPythonCacheLeaseHost>());
+        _pythonCacheLeaseHost.Start();
+        var scriptDirectory = Path.GetDirectoryName(script)!;
+        var processInfo = new ProcessStartInfo
+        {
+            FileName = python,
+            WorkingDirectory = scriptDirectory,
+            UseShellExecute = false,
+            CreateNoWindow = true,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true
+        };
+        processInfo.ArgumentList.Add("-u");
+        processInfo.ArgumentList.Add(script);
+        processInfo.Environment["NEBULA_STREAM_SERVICE"] = "1";
+        processInfo.Environment["NEBULA_ENV_FILE"] = Path.Combine(scriptDirectory, ".env");
+        processInfo.Environment["API_ID"] = config.ApiId;
+        processInfo.Environment["API_HASH"] = config.ApiHash;
+        processInfo.Environment["BOT_TOKENS"] = string.Join(',', botTokens);
+        processInfo.Environment["CHAT_ID"] = config.ChatId;
+        processInfo.Environment["MONGODB"] = config.MongoDbConnectionString;
+        processInfo.Environment["MONGO_DATABASE"] = "ftp";
+        processInfo.Environment["STREAM_HOST"] = string.IsNullOrWhiteSpace(config.ServerHost) ? "127.0.0.1" : config.ServerHost;
+        processInfo.Environment["STREAM_PORT"] = (config.HttpStreamPort > 0 ? config.HttpStreamPort : 2123).ToString(CultureInfo.InvariantCulture);
+        processInfo.Environment["STREAM_TOKEN"] = config.HttpStreamToken ?? string.Empty;
+        processInfo.Environment["SESSIONS_DIR"] = Path.Combine(_configManager.CommonApplicationPaths.DataPath, "NebulaPythonStreamSessions");
+        processInfo.Environment["STREAM_ONLY"] = "1";
+        processInfo.Environment["PYTHONUTF8"] = "1";
+        var existingPath = processInfo.Environment["PATH"] ?? string.Empty;
+        processInfo.Environment["PATH"] = string.Join(Path.PathSeparator, new[]
+        {
+            AppContext.BaseDirectory,
+            Path.Combine(AppContext.BaseDirectory, "Tools"),
+            existingPath
+        }.Where(path => !string.IsNullOrWhiteSpace(path)));
+        var cachePath = !string.IsNullOrWhiteSpace(config.PlaybackCachePath)
+            ? config.PlaybackCachePath
+            : _configManager.CommonApplicationPaths.CachePath;
+        processInfo.Environment["NEBULA_PLAYBACK_CACHE_ROOT"] = Path.Combine(cachePath, "nebula-playback");
+        processInfo.Environment["NEBULA_CACHE_LEASE_PORT"] = _pythonCacheLeaseHost.Port.ToString(CultureInfo.InvariantCulture);
+        processInfo.Environment["NEBULA_CACHE_LEASE_TOKEN"] = _pythonCacheLeaseHost.Token;
+
+        var process = new Process { StartInfo = processInfo, EnableRaisingEvents = true };
+        if (!process.Start())
+        {
+            process.Dispose();
+            throw new InvalidOperationException("Não foi possível iniciar o worker Python de playback.");
+        }
+
+        _pythonStreamProcess = process;
+        _pythonStreamStdoutTask = DrainMountOutputAsync(process.StandardOutput, line => EmitRawLog($"[NEBULA-PYTHON] {line}"));
+        _pythonStreamStderrTask = DrainMountOutputAsync(process.StandardError, line => EmitRawLog($"[NEBULA-PYTHON] {line}"));
+
+        var port = config.HttpStreamPort > 0 ? config.HttpStreamPort : 2123;
+        var probeHost = IsLoopbackHost(config.ServerHost)
+            || string.IsNullOrWhiteSpace(config.ServerHost)
+            || string.Equals(config.ServerHost, "0.0.0.0", StringComparison.Ordinal)
+            || string.Equals(config.ServerHost, "::", StringComparison.Ordinal)
+            ? "127.0.0.1"
+            : config.ServerHost;
+        using var client = new HttpClient { Timeout = TimeSpan.FromMilliseconds(800) };
+        if (!string.IsNullOrWhiteSpace(config.HttpStreamToken))
+        {
+            client.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", config.HttpStreamToken);
+        }
+        var healthUrl = $"http://{probeHost}:{port}/health";
+        var startedAt = Stopwatch.StartNew();
+        while (startedAt.Elapsed < TimeSpan.FromSeconds(45))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (process.HasExited)
+            {
+                throw new InvalidOperationException($"Worker Python de playback encerrou na inicialização (código {process.ExitCode}).");
+            }
+
+            try
+            {
+                using var response = await client.GetAsync(healthUrl, cancellationToken).ConfigureAwait(false);
+                if (response.IsSuccessStatusCode)
+                {
+                    AddServerLog($"[NEBULA-PYTHON] Stream de playback pronto na porta {port}.");
+                    return;
+                }
+            }
+            catch (HttpRequestException)
+            {
+                // O worker ainda está conectando aos bots ou ao MongoDB.
+            }
+            catch (TaskCanceledException) when (!cancellationToken.IsCancellationRequested)
+            {
+                // A sonda local tem timeout curto para não atrasar o início.
+            }
+
+            await Task.Delay(250, cancellationToken).ConfigureAwait(false);
+        }
+
+        throw new TimeoutException("Worker Python de playback não ficou pronto em 45 segundos.");
+    }
+
+    private async Task StopPythonStreamServiceAsync()
+    {
+        var process = _pythonStreamProcess;
+        _pythonStreamProcess = null;
+        if (process == null)
+        {
+            return;
+        }
+
+        try
+        {
+            if (!process.HasExited)
+            {
+                process.Kill(entireProcessTree: true);
+                await process.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(10)).ConfigureAwait(false);
+            }
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or System.ComponentModel.Win32Exception or TimeoutException)
+        {
+            _logger.LogWarning(ex, "Falha ao encerrar worker Python de playback.");
+        }
+        finally
+        {
+            var drainTasks = new[] { _pythonStreamStdoutTask, _pythonStreamStderrTask }.Where(task => task != null).Cast<Task>();
+            try
+            {
+                await Task.WhenAll(drainTasks).WaitAsync(TimeSpan.FromSeconds(2)).ConfigureAwait(false);
+            }
+            catch (TimeoutException)
+            {
+                // Process streams are disposed below after the bounded drain window.
+            }
+            _pythonStreamStdoutTask = null;
+            _pythonStreamStderrTask = null;
+            process.Dispose();
+            if (_pythonCacheLeaseHost != null)
+            {
+                await _pythonCacheLeaseHost.DisposeAsync().ConfigureAwait(false);
+                _pythonCacheLeaseHost = null;
+            }
+        }
     }
 
     private static async Task DrainMountOutputAsync(StreamReader reader, Action<string> logAction)

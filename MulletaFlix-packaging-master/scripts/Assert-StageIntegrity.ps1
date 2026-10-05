@@ -47,6 +47,10 @@ function Assert-StageIntegrity {
         'MulletaFlix-web\index.html',
         'MulletaFlix-web\serviceworker.js',
         'Tools\mount_drive_n.py',
+        'Tools\NebulaPython\main.py',
+        'Tools\NebulaPython\stream_service.py',
+        'Tools\NebulaPython\ftp\pathio.py',
+        'Tools\NebulaPython\requirements.txt',
         'nssm.exe',
         'mulletaflix-windows-tray\MulletaFlix.Windows.Tray.exe'
     )

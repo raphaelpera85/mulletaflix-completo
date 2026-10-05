@@ -305,6 +305,32 @@ function Build-Tray {
 function Copy-RuntimeExtras {
     Write-Step 'Copying runtime extras'
 
+    $nebulaPythonSource = Join-Path $serverRoot 'Tools\NebulaPython'
+    $nebulaPythonStage = Join-Path $stageDir 'Tools\NebulaPython'
+    if (-not (Test-Path -LiteralPath (Join-Path $nebulaPythonSource 'stream_service.py') -PathType Leaf)) {
+        throw "Python Nebula playback worker not found under $nebulaPythonSource"
+    }
+    if (Test-Path -LiteralPath $nebulaPythonStage) {
+        Remove-Item -LiteralPath $nebulaPythonStage -Recurse -Force
+    }
+    New-Item -ItemType Directory -Force -Path $nebulaPythonStage | Out-Null
+    foreach ($runtimeFile in @('main.py', 'stream_service.py', 'control_plane.py', 'requirements.txt')) {
+        Copy-Item -LiteralPath (Join-Path $nebulaPythonSource $runtimeFile) -Destination $nebulaPythonStage -Force
+    }
+    $stagePythonFtp = Join-Path $nebulaPythonStage 'ftp'
+    New-Item -ItemType Directory -Force -Path $stagePythonFtp | Out-Null
+    Get-ChildItem -LiteralPath (Join-Path $nebulaPythonSource 'ftp') -File -Filter '*.py' |
+        Copy-Item -Destination $stagePythonFtp -Force
+    $stagePythonTools = Join-Path $nebulaPythonStage 'tools'
+    New-Item -ItemType Directory -Force -Path $stagePythonTools | Out-Null
+    foreach ($runtimeTool in @('__init__.py', 'check_deps.py')) {
+        $runtimeToolPath = Join-Path $nebulaPythonSource (Join-Path 'tools' $runtimeTool)
+        if (Test-Path -LiteralPath $runtimeToolPath -PathType Leaf) {
+            Copy-Item -LiteralPath $runtimeToolPath -Destination $stagePythonTools -Force
+        }
+    }
+    Write-Host 'Copied Python playback worker and runtime modules to stage.' -ForegroundColor Green
+
     $mountScript = Join-Path $serverRoot 'Tools\mount_drive_n.py'
     if (Test-Path -LiteralPath $mountScript -PathType Leaf) {
         $stageTools = Join-Path $stageDir 'Tools'

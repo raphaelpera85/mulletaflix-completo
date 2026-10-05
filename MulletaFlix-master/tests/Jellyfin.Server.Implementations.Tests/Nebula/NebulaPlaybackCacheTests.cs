@@ -3,7 +3,9 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Net.Sockets;
 using System.Reflection;
+using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Jellyfin.Server.Implementations.Nebula;
@@ -19,6 +21,51 @@ namespace Jellyfin.Server.Implementations.Tests.Nebula;
 
 public sealed class NebulaPlaybackCacheTests
 {
+    [Fact]
+    public async Task PythonCacheLeaseProtectsPlaybackCacheUntilReleased()
+    {
+        var root = CreateTempDirectory();
+        try
+        {
+            using var cache = new NebulaPlaybackCache(root, NullLogger<NebulaPlaybackCache>.Instance);
+            var accessor = new NebulaPlaybackCacheAccessor();
+            accessor.Set(cache);
+            await using var host = new NebulaPythonCacheLeaseHost(accessor, NullLogger<NebulaPythonCacheLeaseHost>.Instance);
+            host.Start();
+
+            using var client = new TcpClient();
+            await client.ConnectAsync(System.Net.IPAddress.Loopback, host.Port);
+            await using var stream = client.GetStream();
+            using var reader = new StreamReader(stream);
+            await using var writer = new StreamWriter(stream) { AutoFlush = true };
+            await writer.WriteLineAsync(JsonSerializer.Serialize(new
+            {
+                action = "acquire",
+                mediaId = "0123456789abcdef01234567",
+                token = host.Token
+            }));
+            using var acquired = JsonDocument.Parse(await reader.ReadLineAsync());
+            var leaseId = acquired.RootElement.GetProperty("leaseId").GetString();
+
+            Assert.True(acquired.RootElement.GetProperty("ok").GetBoolean());
+            Assert.Equal(1, cache.ActiveLeasesCount);
+            await writer.WriteLineAsync(JsonSerializer.Serialize(new
+            {
+                action = "release",
+                leaseId,
+                token = host.Token
+            }));
+            using var released = JsonDocument.Parse(await reader.ReadLineAsync());
+
+            Assert.True(released.RootElement.GetProperty("ok").GetBoolean());
+            Assert.Equal(0, cache.ActiveLeasesCount);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
     [Fact]
     public async Task IntroPrefetchKeepsChunkedStreamAliveUntilCacheCompletes()
     {
