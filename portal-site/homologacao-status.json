@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-10-05T01:54:04-03:00",
+  "generatedAt": "2026-10-05T01:55:33-03:00",
   "source": {
     "roadmap": "https://github.com/raphaelpera85/mulletaflix-completo/blob/main/docs/roadmap-evolucao-tecnologica-servidor-e-web.md",
     "repository": "https://github.com/raphaelpera85/mulletaflix-completo"
@@ -2597,6 +2597,20 @@
     }
   ],
   "events": [
+    {
+      "id": "spider-man-ac3-playback-diagnosis-2026-10-05",
+      "title": "Diagnóstico de áudio na reprodução de Spider-Man - Brand New Day",
+      "agent": "Codex",
+      "front": "Servidor / Reprodução de mídia",
+      "local": "D:\\Users\\Raphael\\Documents\\Projetos\\mulletaflix",
+      "location": "Leitura dos logs locais e inspeção do arquivo; sem modificar mídia ou reiniciar produção",
+      "scope": "Investigar diferença entre reprodução local em N: e ausência de áudio no player MulletaFlix usando logs de transcodificação, disponibilidade da origem e codecs.",
+      "status": "completed",
+      "progressPercent": 100,
+      "startedAt": "2026-10-05T01:52:00-03:00",
+      "updatedAt": "2026-10-05T01:53:00-03:00",
+      "evidence": "Logs FFmpeg.Transcode de 2026-10-05 00:42–00:43 mostram o servidor solicitando HLS para N:\\Filmes\\Spider-Man - Brand New Day (2026)\\Spider-Man - Brand New Day (2026).m4v; as execuções falham antes de identificar/mapear streams com 'Error opening input: No such file or directory'. Neste ambiente, Test-Path N:\\ retorna falso, evidência de que a letra de unidade não está disponível ao processo/sessão atual. Inspeção ffprobe previamente registrada: vídeo H.264, áudio AC-3 estéreo 48 kHz, legenda mov_text pt-BR, duração 8678 s. O AC-3 pode exigir transcodificação para AAC quando o browser não o suporta, mas não há execução bem-sucedida para provar a causa exata do silêncio. Diagnóstico limita-se a evidências; nenhum arquivo/configuração foi alterado e reprodução não foi tentada de novo porque N: está indisponível. Próxima verificação operacional: garantir que a identidade do serviço do servidor tenha acesso consistente ao volume/caminho e capturar playback bem-sucedido com codec/stream de saída; se áudio continuar ausente após corrigir acesso, forçar/conferir transcodificação AC-3 para AAC."
+    },
     {
       "id": "portal-roadmap-dashboard-publication-2026-10-05",
       "title": "Publicação do estado atual do roadmap no portal",
