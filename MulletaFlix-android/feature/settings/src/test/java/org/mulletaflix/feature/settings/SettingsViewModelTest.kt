@@ -88,6 +88,20 @@ class SettingsViewModelTest {
     }
 
     @Test
+    fun `subtitle background selection is normalized shown and persisted`() = runTest {
+        val settingsRepo = FakeSettingsRepository()
+        val authRepo = FakeAuthRepository()
+        val viewModel = SettingsViewModel(context, settingsRepo, authRepo, LogoutUseCase(authRepo))
+        advanceUntilIdle()
+
+        viewModel.setSubtitleBackground("Preto 80%")
+        advanceUntilIdle()
+
+        assertEquals("Preto 80%", viewModel.state.value.subtitleBackground)
+        assertEquals("BLACK_80", settingsRepo.subtitleBackground)
+    }
+
+    @Test
     fun `toggle playback options updates state and repository`() = runTest {
         val settingsRepo = FakeSettingsRepository()
         val authRepo = FakeAuthRepository()
@@ -736,6 +750,7 @@ class SettingsViewModelTest {
             set(value) { seekJumpSecondsFlow.value = value }
         var aspectRatio: String = "FIT"
         var subtitleSize: Int = 100
+        var subtitleBackground: String = "NONE"
         var audioLanguage: String? = "eng"
         var gridDensity: String = "COMFORTABLE"
         var librarySort: String = "SortName"
@@ -780,6 +795,8 @@ class SettingsViewModelTest {
 
         override fun getSubtitleFontSize(): Flow<Int> = MutableStateFlow(subtitleSize)
         override suspend fun setSubtitleFontSize(size: Int) { subtitleSize = size }
+        override fun getSubtitleBackground(): Flow<String> = MutableStateFlow(subtitleBackground)
+        override suspend fun setSubtitleBackground(background: String) { subtitleBackground = background }
         override fun getDefaultAspectRatio(): Flow<String> = MutableStateFlow(aspectRatio)
         override suspend fun setDefaultAspectRatio(aspectRatio: String) { this.aspectRatio = aspectRatio }
         override fun isLibraryGridViewEnabled(): Flow<Boolean> = MutableStateFlow(true)

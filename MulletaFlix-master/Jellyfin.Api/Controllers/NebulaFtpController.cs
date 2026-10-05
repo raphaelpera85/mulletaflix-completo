@@ -595,7 +595,11 @@ public sealed class NebulaFtpController : BaseMulletaFlixApiController
             SupabaseLastUsersBackupFailed = config.SupabaseLastUsersBackupFailed,
             SupabaseLastRestoreTime = config.SupabaseLastRestoreTime,
             SupabaseLastRestoreStatus = config.SupabaseLastRestoreStatus,
-            SupabaseLastRestoreFailed = config.SupabaseLastRestoreFailed
+            SupabaseLastRestoreFailed = config.SupabaseLastRestoreFailed,
+            SupabaseLastRestoreFilesRestored = config.SupabaseLastRestoreFilesRestored,
+            SupabaseLastRestoreUsersRestored = config.SupabaseLastRestoreUsersRestored,
+            SupabaseLastRestoreFtpUsersRestored = config.SupabaseLastRestoreFtpUsersRestored,
+            SupabaseLastRestoreAppUsersRestored = config.SupabaseLastRestoreAppUsersRestored
         };
     }
 

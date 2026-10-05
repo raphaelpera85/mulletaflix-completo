@@ -5,6 +5,7 @@ using System.Linq;
 using System.Reflection;
 using MediaBrowser.Common.Configuration;
 using MediaBrowser.Controller.Configuration;
+using Jellyfin.Server.Implementations.Database;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -136,6 +137,8 @@ public static class ServiceCollectionExtensions
         }
 
         serviceCollection.AddSingleton<IMulletaFlixDatabaseProvider>(providerFactory!);
+        serviceCollection.AddSingleton<DatabaseCommandTelemetryInterceptor>();
+        serviceCollection.AddSingleton<DatabaseConnectionTelemetryInterceptor>();
 
         switch (efCoreConfiguration.LockingBehavior)
         {
@@ -156,44 +159,58 @@ public static class ServiceCollectionExtensions
             provider.Initialise(opt, efCoreConfiguration);
             var lockingBehavior = serviceProvider.GetRequiredService<IEntityFrameworkCoreLockingBehavior>();
             lockingBehavior.Initialise(opt);
+            AddDatabaseTelemetryInterceptors(serviceProvider, opt);
         });
 
         serviceCollection.AddPooledDbContextFactory<UsersDbContext>((serviceProvider, opt) =>
         {
             var provider = serviceProvider.GetRequiredService<IMulletaFlixDatabaseProvider>();
             provider.Initialise(opt, efCoreConfiguration);
+            AddDatabaseTelemetryInterceptors(serviceProvider, opt);
         });
 
         serviceCollection.AddPooledDbContextFactory<MoviesDbContext>((serviceProvider, opt) =>
         {
             var provider = serviceProvider.GetRequiredService<IMulletaFlixDatabaseProvider>();
             provider.Initialise(opt, efCoreConfiguration);
+            AddDatabaseTelemetryInterceptors(serviceProvider, opt);
         });
 
         serviceCollection.AddPooledDbContextFactory<SeriesDbContext>((serviceProvider, opt) =>
         {
             var provider = serviceProvider.GetRequiredService<IMulletaFlixDatabaseProvider>();
             provider.Initialise(opt, efCoreConfiguration);
+            AddDatabaseTelemetryInterceptors(serviceProvider, opt);
         });
 
         serviceCollection.AddPooledDbContextFactory<ChannelsDbContext>((serviceProvider, opt) =>
         {
             var provider = serviceProvider.GetRequiredService<IMulletaFlixDatabaseProvider>();
             provider.Initialise(opt, efCoreConfiguration);
+            AddDatabaseTelemetryInterceptors(serviceProvider, opt);
         });
 
         serviceCollection.AddPooledDbContextFactory<BooksDbContext>((serviceProvider, opt) =>
         {
             var provider = serviceProvider.GetRequiredService<IMulletaFlixDatabaseProvider>();
             provider.Initialise(opt, efCoreConfiguration);
+            AddDatabaseTelemetryInterceptors(serviceProvider, opt);
         });
 
         serviceCollection.AddPooledDbContextFactory<SystemDbContext>((serviceProvider, opt) =>
         {
             var provider = serviceProvider.GetRequiredService<IMulletaFlixDatabaseProvider>();
             provider.Initialise(opt, efCoreConfiguration);
+            AddDatabaseTelemetryInterceptors(serviceProvider, opt);
         });
 
         return serviceCollection;
+    }
+
+    private static void AddDatabaseTelemetryInterceptors(IServiceProvider serviceProvider, DbContextOptionsBuilder options)
+    {
+        options.AddInterceptors(
+            serviceProvider.GetRequiredService<DatabaseCommandTelemetryInterceptor>(),
+            serviceProvider.GetRequiredService<DatabaseConnectionTelemetryInterceptor>());
     }
 }

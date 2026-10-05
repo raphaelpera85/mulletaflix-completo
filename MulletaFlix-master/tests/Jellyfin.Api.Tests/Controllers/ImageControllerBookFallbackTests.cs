@@ -35,7 +35,9 @@ public class ImageControllerBookFallbackTests
             Mock.Of<IFileSystem>(),
             Mock.Of<ILogger<ImageController>>(),
             Mock.Of<IServerConfigurationManager>(),
-            Mock.Of<IApplicationPaths>());
+            Mock.Of<IApplicationPaths>(),
+            Mock.Of<MediaBrowser.Common.Net.INetworkManager>(),
+            Mock.Of<MediaBrowser.Controller.Devices.IDeviceManager>());
     }
 
     [Fact]

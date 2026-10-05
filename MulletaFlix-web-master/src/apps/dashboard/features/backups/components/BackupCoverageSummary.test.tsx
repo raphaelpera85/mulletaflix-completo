@@ -38,4 +38,38 @@ describe('backup coverage', () => {
         expect(markup).toContain('Tentar novamente');
         expect(markup).toContain('Ainda não há registro de exercício isolado');
     });
+
+    it('shows typed Mongo restore counts without treating an operational restore as a full exercise', () => {
+        const markup = render({
+            IsConfigured: true,
+            IsConnected: true,
+            LastRestoreTime: '2026-10-04T10:00:00Z',
+            LastRestoreFailed: false,
+            LastRestoreFilesRestored: 240,
+            LastRestoreUsersRestored: 8,
+            LastRestoreFtpUsersRestored: 5,
+            LastRestoreAppUsersRestored: 3,
+            LastRestoreStatus: 'Restauração do MongoDB realizada com sucesso'
+        });
+
+        expect(markup).toContain('240 arquivos do catálogo; total de usuários: 8');
+        expect(markup).toContain('FTP: 5 e aplicativo: 3');
+        expect(markup).toContain('não representa, por si só, um exercício isolado');
+    });
+
+    it('does not fabricate zero restore counts when the server cannot report them', () => {
+        const markup = render({
+            IsConfigured: true,
+            IsConnected: true,
+            LastRestoreTime: '2026-10-04T10:00:00Z',
+            LastRestoreFailed: true,
+            LastRestoreFilesRestored: null,
+            LastRestoreUsersRestored: null,
+            LastRestoreFtpUsersRestored: 0,
+            LastRestoreAppUsersRestored: null
+        });
+
+        expect(markup).toContain('não informada arquivos do catálogo; total de usuários: não informado; FTP: 0 e aplicativo: não informado');
+        expect(markup).not.toContain('0 arquivos do catálogo');
+    });
 });

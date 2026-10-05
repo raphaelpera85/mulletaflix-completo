@@ -1,4 +1,4 @@
-﻿#nullable disable
+#nullable disable
 
 #pragma warning disable CA1002, CS1591
 
@@ -119,13 +119,6 @@ namespace MediaBrowser.Controller.Library
         bool IsLiveStreamOwnedByUser(string id, Guid userId);
 
         /// <summary>
-        /// Releases one live-stream ownership reference for the specified user.
-        /// </summary>
-        /// <param name="id">The live stream identifier.</param>
-        /// <param name="userId">The user identifier.</param>
-        void ReleaseLiveStreamOwnership(string id, Guid userId);
-
-        /// <summary>
         /// Gets the live stream info using the stream's unique id.
         /// </summary>
         /// <param name="uniqueId">The unique identifier.</param>
@@ -146,6 +139,14 @@ namespace MediaBrowser.Controller.Library
         /// <param name="id">The live stream identifier.</param>
         /// <returns>Task.</returns>
         Task CloseLiveStream(string id);
+
+        /// <summary>
+        /// Closes one consumer of a live stream for a user.
+        /// </summary>
+        /// <param name="id">The live stream identifier.</param>
+        /// <param name="userId">The user whose consumer is being closed.</param>
+        /// <returns>Task.</returns>
+        Task CloseLiveStream(string id, Guid userId);
 
         Task<MediaSourceInfo> GetLiveStreamMediaInfo(string id, CancellationToken cancellationToken);
 

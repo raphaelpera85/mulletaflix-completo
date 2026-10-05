@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Linq;
 using System.Reflection;
 using System.Threading;
@@ -208,7 +208,7 @@ namespace MulletaFlix.Server.Implementations.Tests.Library
         }
 
         [Fact]
-        public async Task OpenLiveStream_ResolvesPlaybackItemWithinRequestUsersLibrary()
+        public async Task OpenLiveStream_ResolvesPlaybackItemAndTracksOwnershipPerConsumer()
         {
             var provider = new Mock<IMediaSourceProvider>();
             _mediaSourceManager.AddParts([provider.Object]);
@@ -224,12 +224,24 @@ namespace MulletaFlix.Server.Implementations.Tests.Library
                 ]
             };
             var liveStream = new Mock<ILiveStream>();
+            liveStream.SetupProperty(stream => stream.ConsumerCount);
+            liveStream.Setup(stream => stream.Close()).Returns(Task.CompletedTask);
             liveStream.SetupGet(stream => stream.MediaSource).Returns(mediaSource);
             provider.Setup(source => source.OpenMediaSource(
                     It.IsAny<string>(),
                     It.IsAny<List<ILiveStream>>(),
                     It.IsAny<CancellationToken>()))
-                .ReturnsAsync(liveStream.Object);
+                .Returns(() =>
+                {
+                    liveStream.Object.ConsumerCount++;
+                    return Task.FromResult(liveStream.Object);
+                });
+
+            var secondUser = new User("stream-second-consumer", "test", "test")
+            {
+                Id = Guid.NewGuid()
+            };
+            _mockUserManager.Setup(manager => manager.GetUserById(secondUser.Id)).Returns(secondUser);
 
             var globallyResolvedItem = new Video { Id = _item.Id };
             _mockLibraryManager
@@ -249,15 +261,76 @@ namespace MulletaFlix.Server.Implementations.Tests.Library
                 },
                 TestContext.Current.CancellationToken);
 
+            await _mediaSourceManager.OpenLiveStreamInternal(
+                new LiveStreamRequest
+                {
+                    OpenToken = $"{providerHash}_open-token",
+                    UserId = secondUser.Id,
+                    ItemId = _item.Id
+                },
+                TestContext.Current.CancellationToken);
+
+            await _mediaSourceManager.OpenLiveStreamInternal(
+                new LiveStreamRequest
+                {
+                    OpenToken = $"{providerHash}_open-token",
+                    UserId = _user.Id,
+                    ItemId = _item.Id
+                },
+                TestContext.Current.CancellationToken);
+
+            await _mediaSourceManager.OpenLiveStreamInternal(
+                new LiveStreamRequest
+                {
+                    OpenToken = $"{providerHash}_open-token",
+                    ItemId = _item.Id
+                },
+                TestContext.Current.CancellationToken);
+
             var liveStreamId = openedStream.Item1.MediaSource.LiveStreamId;
             Assert.True(_mediaSourceManager.IsLiveStreamOwnedByUser(liveStreamId, _user.Id));
-            Assert.False(_mediaSourceManager.IsLiveStreamOwnedByUser(liveStreamId, Guid.NewGuid()));
-            _mediaSourceManager.ReleaseLiveStreamOwnership(liveStreamId, _user.Id);
-            Assert.False(_mediaSourceManager.IsLiveStreamOwnedByUser(liveStreamId, _user.Id));
+            Assert.True(_mediaSourceManager.IsLiveStreamOwnedByUser(liveStreamId, secondUser.Id));
+            Assert.Equal(4, liveStream.Object.ConsumerCount);
+
+            await _mediaSourceManager.CloseLiveStream(liveStreamId, Guid.NewGuid());
+            Assert.Equal(4, liveStream.Object.ConsumerCount);
+            Assert.True(_mediaSourceManager.IsLiveStreamOwnedByUser(liveStreamId, _user.Id));
+
+            await _mediaSourceManager.CloseLiveStream(liveStreamId, _user.Id);
+            Assert.Equal(3, liveStream.Object.ConsumerCount);
+            Assert.True(_mediaSourceManager.IsLiveStreamOwnedByUser(liveStreamId, _user.Id));
+            Assert.True(_mediaSourceManager.IsLiveStreamOwnedByUser(liveStreamId, secondUser.Id));
+
+            await _mediaSourceManager.CloseLiveStream(liveStreamId);
+            Assert.Equal(2, liveStream.Object.ConsumerCount);
+            Assert.True(_mediaSourceManager.IsLiveStreamOwnedByUser(liveStreamId, _user.Id));
+            Assert.True(_mediaSourceManager.IsLiveStreamOwnedByUser(liveStreamId, secondUser.Id));
+
+            await _mediaSourceManager.CloseLiveStream(liveStreamId);
+            Assert.Equal(2, liveStream.Object.ConsumerCount);
+
+            await _mediaSourceManager.CloseLiveStream(liveStreamId, _user.Id);
+            Assert.Equal(1, liveStream.Object.ConsumerCount);
+            await _mediaSourceManager.CloseLiveStream(liveStreamId, secondUser.Id);
+            Assert.Equal(0, liveStream.Object.ConsumerCount);
+            Assert.Null(_mediaSourceManager.GetLiveStreamInfo(liveStreamId));
+
+            await _mediaSourceManager.OpenLiveStreamInternal(
+                new LiveStreamRequest
+                {
+                    OpenToken = $"{providerHash}_open-token",
+                    UserId = _user.Id,
+                    ItemId = _item.Id
+                },
+                TestContext.Current.CancellationToken);
+            _mediaSourceManager.Dispose();
+            Assert.Equal(0, liveStream.Object.ConsumerCount);
+            Assert.Null(_mediaSourceManager.GetLiveStreamInfo(liveStreamId));
+            liveStream.Verify(stream => stream.Close(), Times.Exactly(2));
 
             _mockLibraryManager.Verify(
                 library => library.GetItemById<BaseItem>(_item.Id, _user),
-                Times.Once);
+                Times.Exactly(3));
             _mockLibraryManager.Verify(
                 library => library.GetItemById(_item.Id),
                 Times.Never);

@@ -49,6 +49,7 @@ data class SettingsState(
     val subtitleLanguage: String = "Português (Brasil)",
     val subtitleFontSize: Int = 100,
     val subtitleColor: String = "Branco",
+    val subtitleBackground: String = "Sem fundo",
     val libraryGridDensity: String = "Confortável",
     val librarySort: String = "Nome",
     val librarySortOrder: String = "Ascendente",
@@ -173,6 +174,11 @@ class SettingsViewModel @Inject constructor(
             }
         }
         viewModelScope.launch {
+            settingsRepository.getSubtitleBackground().collect { background ->
+                _state.update { it.copy(subtitleBackground = subtitleBackgroundLabel(background)) }
+            }
+        }
+        viewModelScope.launch {
             settingsRepository.getLibraryGridDensity().collect { density ->
                 _state.update { it.copy(libraryGridDensity = libraryGridDensityLabel(density)) }
             }
@@ -293,6 +299,12 @@ class SettingsViewModel @Inject constructor(
         val normalized = subtitleColorCode(color)
         _state.update { it.copy(subtitleColor = subtitleColorLabel(normalized)) }
         viewModelScope.launch { settingsRepository.setSubtitleColor(normalized) }
+    }
+
+    fun setSubtitleBackground(background: String) {
+        val normalized = subtitleBackgroundCode(background)
+        _state.update { it.copy(subtitleBackground = subtitleBackgroundLabel(normalized)) }
+        viewModelScope.launch { settingsRepository.setSubtitleBackground(normalized) }
     }
 
     fun setLibraryGridDensity(density: String) {

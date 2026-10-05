@@ -104,4 +104,67 @@ public sealed class LibraryStructureControllerPathTests
             Directory.Delete(outside, recursive: true);
         }
     }
+
+    [Fact]
+    public void IsPathWithinRoot_RejectsRootThatIsASymbolicLink()
+    {
+        var outside = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(outside);
+        var rootLink = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
+
+        try
+        {
+            try
+            {
+                Directory.CreateSymbolicLink(rootLink, outside);
+            }
+            catch (Exception ex) when (ex is UnauthorizedAccessException or IOException or PlatformNotSupportedException)
+            {
+                Assert.Skip($"Creating a symbolic link is unavailable in this environment: {ex.GetType().Name}.");
+            }
+
+            Assert.False(LibraryStructureController.IsPathWithinRoot(rootLink, Path.Combine(rootLink, "media")));
+        }
+        finally
+        {
+            if (Directory.Exists(rootLink))
+            {
+                Directory.Delete(rootLink);
+            }
+
+            Directory.Delete(outside, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void IsPathWithinRoot_RejectsRootBelowSymbolicLinkAncestor()
+    {
+        var outside = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
+        var link = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(outside);
+
+        try
+        {
+            try
+            {
+                Directory.CreateSymbolicLink(link, outside);
+            }
+            catch (Exception ex) when (ex is UnauthorizedAccessException or IOException or PlatformNotSupportedException)
+            {
+                Assert.Skip($"Creating a symbolic link is unavailable in this environment: {ex.GetType().Name}.");
+            }
+
+            var root = Path.Combine(link, "library");
+            Assert.False(LibraryStructureController.IsPathWithinRoot(root, Path.Combine(root, "media")));
+        }
+        finally
+        {
+            if (Directory.Exists(link))
+            {
+                Directory.Delete(link);
+            }
+
+            Directory.Delete(outside, recursive: true);
+        }
+    }
 }

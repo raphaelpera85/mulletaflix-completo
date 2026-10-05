@@ -19,6 +19,13 @@ public interface IRecordingsManager
     string? GetActiveRecordingPath(string id);
 
     /// <summary>
+    /// Gets the path for an active recording by its opaque stream capability.
+    /// </summary>
+    /// <param name="streamId">The unguessable, recording-scoped stream identifier.</param>
+    /// <returns>The recording path, or <c>null</c> if the capability is invalid or no longer active.</returns>
+    string? GetActiveRecordingStreamPath(string streamId);
+
+    /// <summary>
     /// Gets the information for an active recording.
     /// </summary>
     /// <param name="path">The recording path.</param>

@@ -408,13 +408,12 @@ public class MediaInfoController : BaseMulletaFlixApiController
     [ProducesResponseType(StatusCodes.Status204NoContent)]
     public async Task<ActionResult> CloseLiveStream([FromQuery, Required] string liveStreamId)
     {
-        if (!CanAccessLiveStream(liveStreamId))
+        if (!CanAccessLiveStream(liveStreamId, out var consumerUserId))
         {
             return Forbid();
         }
 
-        await _mediaSourceManager.CloseLiveStream(liveStreamId).ConfigureAwait(false);
-        _mediaSourceManager.ReleaseLiveStreamOwnership(liveStreamId, User.GetUserId());
+        await _mediaSourceManager.CloseLiveStream(liveStreamId, consumerUserId).ConfigureAwait(false);
         return NoContent();
     }
 
@@ -467,7 +466,7 @@ public class MediaInfoController : BaseMulletaFlixApiController
             return BadRequest("Missing liveStreamId.");
         }
 
-        if (!CanAccessLiveStream(liveStreamId))
+        if (!CanAccessLiveStream(liveStreamId, out _))
         {
             return Forbid();
         }
@@ -476,9 +475,64 @@ public class MediaInfoController : BaseMulletaFlixApiController
         return mediaSource;
     }
 
-    private bool CanAccessLiveStream(string liveStreamId)
+    private bool CanAccessLiveStream(string liveStreamId, out Guid consumerUserId)
     {
-        return StreamingHelpers.CanAccessLiveStream(User, _userManager, _sessionManager, _mediaSourceManager, liveStreamId);
+        consumerUserId = User.GetUserId();
+        var isApiKey = User.GetIsApiKey();
+        if (isApiKey)
+        {
+            consumerUserId = Guid.Empty;
+            if (_mediaSourceManager.GetLiveStreamInfo(liveStreamId) is not null)
+            {
+                return true;
+            }
+
+            return _sessionManager.GetSessions(Guid.Empty, string.Empty, null, null, true)
+                .Any(candidate => string.Equals(candidate.PlayState?.LiveStreamId, liveStreamId, StringComparison.Ordinal));
+        }
+
+        if (consumerUserId.IsEmpty())
+        {
+            return false;
+        }
+
+        var caller = _userManager.GetUserById(consumerUserId);
+        if (caller is null)
+        {
+            return false;
+        }
+
+        var canManageAllSessions = caller.HasPermission(PermissionKind.IsAdministrator);
+        if (canManageAllSessions && _mediaSourceManager.GetLiveStreamInfo(liveStreamId) is not null)
+        {
+            consumerUserId = Guid.Empty;
+            return true;
+        }
+
+        if (_mediaSourceManager.IsLiveStreamOwnedByUser(liveStreamId, consumerUserId))
+        {
+            return true;
+        }
+
+        var callerUserId = consumerUserId;
+        var session = _sessionManager.GetSessions(callerUserId, string.Empty, null, null, false)
+            .FirstOrDefault(candidate => string.Equals(candidate.PlayState?.LiveStreamId, liveStreamId, StringComparison.Ordinal)
+                && (canManageAllSessions
+                    || candidate.UserId == callerUserId
+                    || candidate.AdditionalUsers?.Any(additionalUser => additionalUser.UserId == callerUserId) == true));
+        if (session is null)
+        {
+            return false;
+        }
+
+        if (canManageAllSessions)
+        {
+            consumerUserId = Guid.Empty;
+            return true;
+        }
+
+        consumerUserId = session.UserId;
+        return !consumerUserId.IsEmpty();
     }
 
     /// <summary>

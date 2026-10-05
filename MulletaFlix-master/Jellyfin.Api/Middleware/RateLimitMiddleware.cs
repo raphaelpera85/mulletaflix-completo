@@ -124,7 +124,9 @@ public class RateLimitMiddleware
         if (heavyOperationLimiter is not null && !heavyOperationLimiter.Wait(0))
         {
             RecordRejection("heavy_operation");
-            _logger.LogWarning("Concurrent heavy operation rejected for path {Path}", context.Request.Path);
+            _logger.LogWarning(
+                "Concurrent heavy operation rejected for path {Path}",
+                RequestPathLogRedactor.RedactSensitiveSegments(context.Request.Path.Value));
             context.Response.StatusCode = (int)HttpStatusCode.TooManyRequests;
             context.Response.Headers.RetryAfter = "1";
             return;
@@ -309,6 +311,13 @@ public class RateLimitMiddleware
             return "search";
         }
 
+        if (string.Equals(method, "GET", StringComparison.OrdinalIgnoreCase)
+            && (IsRemoteProviderResultPath(path, "/Providers/Lyrics")
+                || IsRemoteProviderResultPath(path, "/Providers/Subtitles/Subtitles")))
+        {
+            return "search";
+        }
+
         if (string.Equals(method, "POST", StringComparison.OrdinalIgnoreCase)
             && (IsItemMetadataRefreshPath(path)
                 || IsItemUpdatePath(path)
@@ -362,6 +371,29 @@ public class RateLimitMiddleware
     private static bool IsPerItemRemoteProviderPath(string path)
         => IsGuidRoutedPath(path, "/Items/", "/RemoteSearch/Subtitles", allowDescendants: true)
             || IsGuidRoutedPath(path, "/Audio/", "/RemoteSearch/Lyrics", allowDescendants: true);
+
+    private static bool IsRemoteProviderResultPath(string path, string route)
+    {
+        var pathSpan = path.AsSpan();
+        if (pathSpan.Length > 0 && pathSpan[^1] == '/')
+        {
+            pathSpan = pathSpan[..^1];
+        }
+
+        var routeSpan = route.AsSpan();
+        if (pathSpan.Length <= routeSpan.Length + 1
+            || !pathSpan[..routeSpan.Length].Equals(routeSpan, StringComparison.OrdinalIgnoreCase)
+            || pathSpan[routeSpan.Length] != '/')
+        {
+            return false;
+        }
+
+        var providerId = pathSpan[(routeSpan.Length + 1)..];
+        return providerId.IndexOf('/') < 0
+            && !providerId.IsEmpty
+            && !providerId.Equals(".", StringComparison.Ordinal)
+            && !providerId.Equals("..", StringComparison.Ordinal);
+    }
 
     private static bool IsGuidOnlyRoute(string path, string prefix)
     {

@@ -50,10 +50,11 @@ public sealed class NebulaQueueConcurrencyMongoTests : IDisposable
             _client.GetDatabase("admin").RunCommand<BsonDocument>(new BsonDocument("ping", 1));
             _available = true;
         }
-        catch (Exception)
+        catch (Exception ex)
         {
-            _available = false;
-            _skipReason = "MongoDB de teste indisponível no destino local opt-in.";
+            throw new InvalidOperationException(
+                "Falha ao validar a conexão Mongo de teste configurada em 127.0.0.1:27099.",
+                ex);
         }
     }
 
@@ -487,14 +488,7 @@ public sealed class NebulaQueueConcurrencyMongoTests : IDisposable
     {
         if (_available && _client is not null)
         {
-            try
-            {
-                _client.DropDatabase(_databaseName);
-            }
-            catch (Exception)
-            {
-                // Banco de teste descartável; falha na limpeza não invalida o resultado.
-            }
+            _client.DropDatabase(_databaseName);
         }
     }
 }

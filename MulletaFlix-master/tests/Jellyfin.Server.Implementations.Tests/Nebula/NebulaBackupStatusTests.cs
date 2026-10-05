@@ -91,6 +91,50 @@ public sealed class NebulaBackupStatusTests
     }
 
     [Fact]
+    public async Task RestoreStatus_PersistsTypedFileAndUserCounts()
+    {
+        object config = new NebulaFtpConfiguration();
+        var configManager = new Mock<IServerConfigurationManager>();
+        configManager.Setup(manager => manager.GetConfiguration("nebulaftp")).Returns(() => config);
+        configManager.Setup(manager => manager.UpdateConfiguration("nebulaftp", It.IsAny<Func<object, object>>()))
+            .Returns<string, Func<object, object>>((_, update) => config = update(config));
+        await using var manager = new NebulaFtpManager(configManager.Object, NullLogger<NebulaFtpManager>.Instance, NullLoggerFactory.Instance);
+
+        manager.RecordMongoRestoreResult(true, "restored", 12, 3, 2, 1);
+
+        var status = await manager.GetSupabaseStatusAsync();
+        Assert.Equal(12, status.LastRestoreFilesRestored);
+        Assert.Equal(3, status.LastRestoreUsersRestored);
+        Assert.Equal(2, status.LastRestoreFtpUsersRestored);
+        Assert.Equal(1, status.LastRestoreAppUsersRestored);
+        Assert.False(status.LastRestoreFailed);
+        Assert.Equal(12, ((NebulaFtpConfiguration)config).SupabaseLastRestoreFilesRestored);
+        Assert.Equal(3, ((NebulaFtpConfiguration)config).SupabaseLastRestoreUsersRestored);
+        Assert.Equal(2, ((NebulaFtpConfiguration)config).SupabaseLastRestoreFtpUsersRestored);
+        Assert.Equal(1, ((NebulaFtpConfiguration)config).SupabaseLastRestoreAppUsersRestored);
+    }
+
+    [Fact]
+    public async Task RestoreStatus_KeepsCountsUnknownWhenRestoreThrowsBeforeResult()
+    {
+        object config = new NebulaFtpConfiguration();
+        var configManager = new Mock<IServerConfigurationManager>();
+        configManager.Setup(manager => manager.GetConfiguration("nebulaftp")).Returns(() => config);
+        configManager.Setup(manager => manager.UpdateConfiguration("nebulaftp", It.IsAny<Func<object, object>>()))
+            .Returns<string, Func<object, object>>((_, update) => config = update(config));
+        await using var manager = new NebulaFtpManager(configManager.Object, NullLogger<NebulaFtpManager>.Instance, NullLoggerFactory.Instance);
+
+        manager.RecordMongoRestoreResult(false, "failed before counters", null, null, null, null);
+
+        var status = await manager.GetSupabaseStatusAsync();
+        Assert.Null(status.LastRestoreFilesRestored);
+        Assert.Null(status.LastRestoreUsersRestored);
+        Assert.Null(status.LastRestoreFtpUsersRestored);
+        Assert.Null(status.LastRestoreAppUsersRestored);
+        Assert.True(status.LastRestoreFailed);
+    }
+
+    [Fact]
     public async Task UsersBackupWithUnavailableService_RecordsFailureInsteadOfKeepingPreviousSuccess()
     {
         var config = new NebulaFtpConfiguration { SupabaseLastUsersBackupFailed = false, SupabaseLastUsersBackupCount = 5 };

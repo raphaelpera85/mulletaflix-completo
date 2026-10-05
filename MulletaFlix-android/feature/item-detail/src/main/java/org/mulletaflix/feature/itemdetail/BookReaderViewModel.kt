@@ -35,6 +35,8 @@ internal data class BookReaderState(
     val comicArchive: ComicBookArchive? = null,
     val initialLocator: Locator? = null,
     val fontSizePercent: Int = BookReaderFontSize.DEFAULT_PERCENT,
+    val bookmarks: List<BookReaderBookmark> = emptyList(),
+    val bookmarkMessage: String? = null,
     val error: String? = null,
 )
 
@@ -104,6 +106,7 @@ class BookReaderViewModel @Inject constructor(
             if (!loadGeneration.isCurrent(generation)) return@launch
             loadedProgressScope = progressScope
             val initialLocator = progressScope?.let { progressStore.read(it, itemId) }
+            val bookmarks = progressScope?.let { progressStore.readBookmarks(it, itemId) }.orEmpty()
             val fontSizePercent = progressScope?.let { progressStore.readFontSizePercent(it) }
                 ?: BookReaderFontSize.DEFAULT_PERCENT
             try {
@@ -170,6 +173,7 @@ class BookReaderViewModel @Inject constructor(
                     comicArchive = content.comicArchive,
                     initialLocator = restorableLocator,
                     fontSizePercent = fontSizePercent,
+                    bookmarks = bookmarks,
                 )
             } catch (cancelled: CancellationException) {
                 throw cancelled
@@ -227,6 +231,90 @@ class BookReaderViewModel @Inject constructor(
             if (!fontSizeSaveGeneration.isCurrent(generation)) return@launch
             progressStore.writeFontSizePercent(expectedScope, normalizedPercent)
         }
+    }
+
+    fun saveBookmark(itemId: String, locator: Locator, label: String) {
+        val expectedScope = loadedProgressScope ?: return
+        if (loadedItemId != itemId || (_state.value.publication == null && _state.value.comicArchive == null)) return
+        viewModelScope.launch {
+            val currentScope = recoverBookReaderStorageFailure {
+                sessionRepository.getHomeFeedCacheScope().first()
+            } ?: return@launch
+            if (progressStore.entryKey(currentScope, itemId) != progressStore.entryKey(expectedScope, itemId)) return@launch
+
+            val result = progressStore.addBookmark(expectedScope, itemId, label, locator)
+            val latestScope = recoverBookReaderStorageFailure {
+                sessionRepository.getHomeFeedCacheScope().first()
+            } ?: return@launch
+            if (loadedItemId != itemId ||
+                progressStore.entryKey(latestScope, itemId) != progressStore.entryKey(expectedScope, itemId)
+            ) return@launch
+
+            val message = when {
+                result == null -> "Não foi possível salvar o marcador."
+                result.limitReached -> "Limite de ${BookReaderProgressStore.MAX_BOOKMARKS_PER_BOOK} marcadores por livro atingido."
+                result.added -> "Marcador salvo."
+                else -> "Esta posição já tem um marcador."
+            }
+            _state.value = _state.value.copy(
+                bookmarks = result?.bookmarks ?: _state.value.bookmarks,
+                bookmarkMessage = message,
+            )
+        }
+    }
+
+    fun deleteBookmark(itemId: String, bookmarkId: String) {
+        val expectedScope = loadedProgressScope ?: return
+        if (loadedItemId != itemId) return
+        viewModelScope.launch {
+            val currentScope = recoverBookReaderStorageFailure {
+                sessionRepository.getHomeFeedCacheScope().first()
+            } ?: return@launch
+            if (progressStore.entryKey(currentScope, itemId) != progressStore.entryKey(expectedScope, itemId)) return@launch
+            val removed = progressStore.removeBookmark(expectedScope, itemId, bookmarkId)
+            val latestScope = recoverBookReaderStorageFailure {
+                sessionRepository.getHomeFeedCacheScope().first()
+            } ?: return@launch
+            if (loadedItemId != itemId ||
+                progressStore.entryKey(latestScope, itemId) != progressStore.entryKey(expectedScope, itemId)
+            ) return@launch
+            val currentState = _state.value
+            _state.value = currentState.copy(
+                bookmarks = if (removed) progressStore.readBookmarks(expectedScope, itemId).orEmpty() else currentState.bookmarks,
+                bookmarkMessage = if (removed) "Marcador removido." else "Não foi possível remover o marcador.",
+            )
+        }
+    }
+
+    fun renameBookmark(itemId: String, bookmarkId: String, label: String) {
+        val expectedScope = loadedProgressScope ?: return
+        if (loadedItemId != itemId) return
+        viewModelScope.launch {
+            val currentScope = recoverBookReaderStorageFailure {
+                sessionRepository.getHomeFeedCacheScope().first()
+            } ?: return@launch
+            if (progressStore.entryKey(currentScope, itemId) != progressStore.entryKey(expectedScope, itemId)) return@launch
+            val renamed = progressStore.renameBookmark(expectedScope, itemId, bookmarkId, label)
+            val latestScope = recoverBookReaderStorageFailure {
+                sessionRepository.getHomeFeedCacheScope().first()
+            } ?: return@launch
+            if (loadedItemId != itemId ||
+                progressStore.entryKey(latestScope, itemId) != progressStore.entryKey(expectedScope, itemId)
+            ) return@launch
+            val currentState = _state.value
+            _state.value = currentState.copy(
+                bookmarks = if (renamed) progressStore.readBookmarks(expectedScope, itemId).orEmpty() else currentState.bookmarks,
+                bookmarkMessage = if (renamed) "Marcador renomeado." else "Não foi possível renomear o marcador.",
+            )
+        }
+    }
+
+    fun clearBookmarkMessage() {
+        _state.value = _state.value.copy(bookmarkMessage = null)
+    }
+
+    fun showBookmarkMessage(message: String) {
+        _state.value = _state.value.copy(bookmarkMessage = message)
     }
 
     fun restartReadingFromBeginning(itemId: String) {

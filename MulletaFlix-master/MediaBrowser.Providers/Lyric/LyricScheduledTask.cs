@@ -1,5 +1,6 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -68,93 +69,140 @@ public class LyricScheduledTask : IScheduledTask
     /// <inheritdoc />
     public async Task ExecuteAsync(IProgress<double> progress, CancellationToken cancellationToken)
     {
-        var totalCount = _libraryManager.GetCount(new InternalItemsQuery
-        {
-            Recursive = true,
-            IsVirtualItem = false,
-            IncludeItemTypes = _itemKinds,
-            DtoOptions = _dtoOptions,
-            MediaTypes = _mediaTypes,
-            SourceTypes = _sourceTypes
-        });
+        var startedAt = Stopwatch.GetTimestamp();
+        var result = "success";
+        var scannedItems = 0L;
+        var searchCandidates = 0L;
+        var searches = 0L;
+        var downloadAttempts = 0L;
+        var failures = 0L;
+        LyricScheduledTaskMetrics.RecordActive(1);
 
-        var completed = 0;
-
-        foreach (var library in _libraryManager.RootFolder.Children.ToList())
+        try
         {
-            var libraryOptions = _libraryManager.GetLibraryOptions(library);
-            var itemQuery = new InternalItemsQuery
+            var totalCount = _libraryManager.GetCount(new InternalItemsQuery
             {
                 Recursive = true,
                 IsVirtualItem = false,
                 IncludeItemTypes = _itemKinds,
                 DtoOptions = _dtoOptions,
                 MediaTypes = _mediaTypes,
-                SourceTypes = _sourceTypes,
-                Limit = QueryPageLimit,
-                Parent = library
-            };
+                SourceTypes = _sourceTypes
+            });
 
-            int previousCount;
-            var startIndex = 0;
-            do
+            var completed = 0;
+
+            foreach (var library in _libraryManager.RootFolder.Children.ToList())
             {
-                itemQuery.StartIndex = startIndex;
-                var audioItems = _libraryManager.GetItemList(itemQuery);
-
-                foreach (var audioItem in audioItems.OfType<Audio>())
+                var libraryOptions = _libraryManager.GetLibraryOptions(library);
+                var itemQuery = new InternalItemsQuery
                 {
-                    cancellationToken.ThrowIfCancellationRequested();
+                    Recursive = true,
+                    IsVirtualItem = false,
+                    IncludeItemTypes = _itemKinds,
+                    DtoOptions = _dtoOptions,
+                    MediaTypes = _mediaTypes,
+                    SourceTypes = _sourceTypes,
+                    Limit = QueryPageLimit,
+                    Parent = library
+                };
 
-                    try
+                int previousCount;
+                var startIndex = 0;
+                do
+                {
+                    itemQuery.StartIndex = startIndex;
+                    var audioItems = _libraryManager.GetItemList(itemQuery);
+
+                    foreach (var audioItem in audioItems.OfType<Audio>())
                     {
-                        if (audioItem.GetMediaStreams().All(s => s.Type != MediaStreamType.Lyric))
-                        {
-                            _logger.LogDebug("Searching for lyrics for {Path}", audioItem.Path);
-                            var lyricResults = await _lyricManager.SearchLyricsAsync(
-                                    new LyricSearchRequest
-                                    {
-                                        MediaPath = audioItem.Path,
-                                        SongName = audioItem.Name,
-                                        AlbumName = audioItem.Album,
-                                        AlbumArtistsNames = audioItem.AlbumArtists,
-                                        ArtistNames = audioItem.Artists,
-                                        Duration = audioItem.RunTimeTicks,
-                                        IsAutomated = true,
-                                        DisabledLyricFetchers = libraryOptions.DisabledLyricFetchers,
-                                        LyricFetcherOrder = libraryOptions.LyricFetcherOrder
-                                    },
-                                    cancellationToken)
-                                .ConfigureAwait(false);
+                        cancellationToken.ThrowIfCancellationRequested();
+                        scannedItems++;
 
-                            if (lyricResults.Count != 0)
+                        try
+                        {
+                            if (audioItem.GetMediaStreams().All(s => s.Type != MediaStreamType.Lyric))
                             {
-                                _logger.LogDebug("Saving lyrics for {Path}", audioItem.Path);
-                                await _lyricManager.DownloadLyricsAsync(
-                                        audioItem,
-                                        libraryOptions,
-                                        lyricResults[0].Id,
+                                searchCandidates++;
+                                searches++;
+                                _logger.LogDebug("Searching for lyrics for {Path}", audioItem.Path);
+                                var lyricResults = await _lyricManager.SearchLyricsAsync(
+                                        new LyricSearchRequest
+                                        {
+                                            MediaPath = audioItem.Path,
+                                            SongName = audioItem.Name,
+                                            AlbumName = audioItem.Album,
+                                            AlbumArtistsNames = audioItem.AlbumArtists,
+                                            ArtistNames = audioItem.Artists,
+                                            Duration = audioItem.RunTimeTicks,
+                                            IsAutomated = true,
+                                            DisabledLyricFetchers = libraryOptions.DisabledLyricFetchers,
+                                            LyricFetcherOrder = libraryOptions.LyricFetcherOrder
+                                        },
                                         cancellationToken)
                                     .ConfigureAwait(false);
+
+                                if (lyricResults.Count != 0)
+                                {
+                                    downloadAttempts++;
+                                    _logger.LogDebug("Saving lyrics for {Path}", audioItem.Path);
+                                    await _lyricManager.DownloadLyricsAsync(
+                                            audioItem,
+                                            libraryOptions,
+                                            lyricResults[0].Id,
+                                            cancellationToken)
+                                        .ConfigureAwait(false);
+                                }
                             }
                         }
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.LogError(ex, "Error downloading lyrics for {Path}", audioItem.Path);
+                        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                        {
+                            throw;
+                        }
+                        catch (Exception ex)
+                        {
+                            failures++;
+                            _logger.LogError(ex, "Error downloading lyrics for {Path}", audioItem.Path);
+                        }
+
+                        completed++;
+                        progress.Report(totalCount > 0 ? 100d * completed / totalCount : 0d);
                     }
 
-                    completed++;
-                    progress.Report(100d * completed / totalCount);
+                    startIndex += QueryPageLimit;
+                    previousCount = audioItems.Count;
                 }
-
-                startIndex += QueryPageLimit;
-                previousCount = audioItems.Count;
+                while (previousCount > 0);
             }
-            while (previousCount > 0);
-        }
 
-        progress.Report(100);
+            progress.Report(100);
+            result = failures > 0
+                ? "partial_failure"
+                : scannedItems == 0 ? "no_items" : "success";
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            result = "cancelled";
+            throw;
+        }
+        catch
+        {
+            result = "failure";
+            failures++;
+            throw;
+        }
+        finally
+        {
+            LyricScheduledTaskMetrics.RecordActive(-1);
+            LyricScheduledTaskMetrics.RecordRun(
+                result,
+                Stopwatch.GetElapsedTime(startedAt).TotalSeconds,
+                scannedItems,
+                searchCandidates,
+                searches,
+                downloadAttempts,
+                failures);
+        }
     }
 
     /// <inheritdoc />

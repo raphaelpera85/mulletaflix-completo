@@ -87,8 +87,8 @@ jobs:
           --filter "FullyQualifiedName~NebulaHealthCheckTests|FullyQualifiedName~MulletaFlixDatabaseHealthCheckTests"
           --verbosity minimal
 
-  nebula-mongo-playback-recovery:
-    name: Nebula playback recovery with disposable MongoDB
+  nebula-mongo-integration-tests:
+    name: Nebula Mongo persistence, recovery, and restore tests
     runs-on: ubuntu-latest
     timeout-minutes: 5
     services:
@@ -116,12 +116,12 @@ jobs:
       - name: Restore server solution
         run: dotnet restore MulletaFlix.sln
 
-      - name: Test Mongo persistence and Telegram fetch recovery
+      - name: Test Mongo queue persistence, playback recovery, and Supabase restore
         run: >
           dotnet test tests/Jellyfin.Server.Implementations.Tests/Jellyfin.Server.Implementations.Tests.csproj
           --configuration Release
           --no-restore
-          --filter "FullyQualifiedName~NebulaPlaybackRecoveryMongoTests"
+          --filter "FullyQualifiedName~NebulaQueueConcurrencyMongoTests|FullyQualifiedName~NebulaPlaybackRecoveryMongoTests|FullyQualifiedName~NebulaSupabaseRestoreMongoTests"
           --verbosity minimal
 
   web-build:

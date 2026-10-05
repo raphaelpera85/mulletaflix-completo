@@ -39,6 +39,29 @@ public sealed class ExceptionMiddlewareTests
         Assert.DoesNotContain("do-not-log", string.Join(Environment.NewLine, logger.Messages), StringComparison.Ordinal);
     }
 
+    [Fact]
+    public async Task Invoke_RedactsLiveRecordingCapabilityFromFailureLog()
+    {
+        const string capability = "capability-secret";
+        var context = new DefaultHttpContext();
+        context.Request.Path = $"/LiveTv/LiveRecordings/{capability}/stream";
+        var logger = new CapturingLogger<ExceptionMiddleware>();
+        var configuration = new Mock<IServerConfigurationManager>();
+        var environment = new Mock<IWebHostEnvironment>();
+        environment.SetupGet(value => value.EnvironmentName).Returns(Environments.Production);
+        var middleware = new ExceptionMiddleware(
+            _ => throw new IOException("simulated stream failure"),
+            logger,
+            configuration.Object,
+            environment.Object);
+
+        await middleware.Invoke(context);
+
+        var log = string.Join(Environment.NewLine, logger.Messages);
+        Assert.Contains("[REDACTED]", log, StringComparison.Ordinal);
+        Assert.DoesNotContain(capability, log, StringComparison.Ordinal);
+    }
+
     private sealed class CapturingLogger<T> : ILogger<T>
     {
         public List<string> Messages { get; } = new();

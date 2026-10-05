@@ -339,10 +339,27 @@ fun SettingsScreen(
                         onDismiss = { showSubtitleColorDialog = false },
                     )
                 }
-                // Neither setting had any feedback until a video was playing.
+                var showSubtitleBackgroundDialog by remember { mutableStateOf(false) }
+                SettingsItem(
+                    icon = Icons.Default.FormatColorFill,
+                    title = "Fundo da Legenda",
+                    subtitle = state.subtitleBackground,
+                    onClick = { showSubtitleBackgroundDialog = true },
+                )
+                if (showSubtitleBackgroundDialog) {
+                    ChoiceDialog(
+                        title = "Fundo da legenda",
+                        options = subtitleBackgroundChoices.map { it.label },
+                        selected = state.subtitleBackground,
+                        onSelect = { viewModel.setSubtitleBackground(it); showSubtitleBackgroundDialog = false },
+                        onDismiss = { showSubtitleBackgroundDialog = false },
+                    )
+                }
+                // Show the combined style without requiring playback.
                 SubtitlePreview(
                     sizePercent = state.subtitleFontSize,
                     colorCode = subtitleColorCode(state.subtitleColor),
+                    backgroundCode = subtitleBackgroundCode(state.subtitleBackground),
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
                 )
             }

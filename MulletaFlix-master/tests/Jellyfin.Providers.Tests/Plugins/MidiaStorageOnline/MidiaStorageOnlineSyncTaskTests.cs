@@ -26,6 +26,24 @@ namespace MulletaFlix.Providers.Tests.Plugins.MidiaStorageOnline;
 public class MidiaStorageOnlineSyncTaskTests
 {
     [Fact]
+    public void IsRequestedCancellation_RecognizesOnlyOperationCancellationRequestedByCaller()
+    {
+        using var cancelledSource = new CancellationTokenSource();
+        cancelledSource.Cancel();
+        using var activeSource = new CancellationTokenSource();
+
+        Assert.True(MidiaStorageOnlineCancellation.IsRequested(
+            new OperationCanceledException(),
+            cancelledSource.Token));
+        Assert.False(MidiaStorageOnlineCancellation.IsRequested(
+            new OperationCanceledException(),
+            activeSource.Token));
+        Assert.False(MidiaStorageOnlineCancellation.IsRequested(
+            new IOException("temporary file error"),
+            cancelledSource.Token));
+    }
+
+    [Fact]
     public async Task ExecuteAsync_WithoutPlaylistSourceReportsSkippedAndReleasesActiveGauge()
     {
         var measurements = new List<(string Name, object Value, KeyValuePair<string, object?>[] Tags)>();

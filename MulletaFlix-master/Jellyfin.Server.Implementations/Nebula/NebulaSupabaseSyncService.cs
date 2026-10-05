@@ -793,6 +793,7 @@ public sealed class NebulaSupabaseSyncService : IDisposable
                 },
                 progressAction,
                 cancellationToken).ConfigureAwait(false);
+            result.FilesRestored = restoredFiles;
 
             // Restaura usuários
             var restoredUsers = 0;
@@ -847,7 +848,10 @@ public sealed class NebulaSupabaseSyncService : IDisposable
                 throw;
             }
 
+            result.FtpUsersRestored = restoredUsers;
             var restoredAppUsers = await RestoreMulletaFlixUsersAsync(supabaseUrl, supabaseKey, cancellationToken).ConfigureAwait(false);
+            result.AppUsersRestored = restoredAppUsers;
+            result.UsersRestored = restoredUsers + restoredAppUsers;
 
             // 3. Restaura tokens de bot
             var restoredTokens = 0;
@@ -1199,6 +1203,7 @@ public sealed class NebulaSupabaseSyncService : IDisposable
             var count = await RestoreMulletaFlixUsersAsync(supabaseUrl, supabaseKey, cancellationToken).ConfigureAwait(false);
             result.Success = true;
             result.UsersRestored = count;
+            result.AppUsersRestored = count;
             result.ElapsedSeconds = (DateTime.UtcNow - started).TotalSeconds;
             result.Message = $"Restauração de usuários concluída! ({count} usuários; mídia não alterada)";
             progressAction?.Invoke($"[SUPABASE-USERS] {result.Message}");

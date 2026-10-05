@@ -15,11 +15,15 @@ using System.Threading.Tasks;
 using MulletaFlix.Api.Attributes;
 using MulletaFlix.Api.Extensions;
 using MulletaFlix.Api.Helpers;
+using MulletaFlix.Data;
+using MulletaFlix.Database.Implementations.Enums;
 using MulletaFlix.Extensions;
 using MediaBrowser.Common.Api;
 using MediaBrowser.Common.Extensions;
 using MediaBrowser.Common.Configuration;
+using MediaBrowser.Common.Net;
 using MediaBrowser.Controller.Configuration;
+using MediaBrowser.Controller.Devices;
 using MediaBrowser.Controller.Drawing;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Library;
@@ -31,6 +35,8 @@ using MediaBrowser.Model.Entities;
 using MediaBrowser.Model.IO;
 using MediaBrowser.Model.Net;
 using MediaBrowser.Model.Providers;
+using MediaBrowser.Model.Users;
+using User = MulletaFlix.Database.Implementations.Entities.User;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
@@ -56,6 +62,8 @@ public class ImageController : BaseMulletaFlixApiController
     private readonly ILogger<ImageController> _logger;
     private readonly IServerConfigurationManager _serverConfigurationManager;
     private readonly IApplicationPaths _appPaths;
+    private readonly INetworkManager _networkManager;
+    private readonly IDeviceManager _deviceManager;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="ImageController"/> class.
@@ -68,6 +76,8 @@ public class ImageController : BaseMulletaFlixApiController
     /// <param name="logger">Instance of the <see cref="ILogger{ImageController}"/> interface.</param>
     /// <param name="serverConfigurationManager">Instance of the <see cref="IServerConfigurationManager"/> interface.</param>
     /// <param name="appPaths">Instance of the <see cref="IApplicationPaths"/> interface.</param>
+    /// <param name="networkManager">Instance of the <see cref="INetworkManager"/> interface.</param>
+    /// <param name="deviceManager">Instance of the <see cref="IDeviceManager"/> interface.</param>
     public ImageController(
         IUserManager userManager,
         ILibraryManager libraryManager,
@@ -76,7 +86,9 @@ public class ImageController : BaseMulletaFlixApiController
         IFileSystem fileSystem,
         ILogger<ImageController> logger,
         IServerConfigurationManager serverConfigurationManager,
-        IApplicationPaths appPaths)
+        IApplicationPaths appPaths,
+        INetworkManager networkManager,
+        IDeviceManager deviceManager)
     {
         _userManager = userManager;
         _libraryManager = libraryManager;
@@ -86,6 +98,8 @@ public class ImageController : BaseMulletaFlixApiController
         _logger = logger;
         _serverConfigurationManager = serverConfigurationManager;
         _appPaths = appPaths;
+        _networkManager = networkManager;
+        _deviceManager = deviceManager;
     }
 
     private static CryptoStream GetFromBase64Stream(Stream inputStream)
@@ -1474,6 +1488,7 @@ public class ImageController : BaseMulletaFlixApiController
     /// </returns>
     [HttpGet("UserImage")]
     [HttpHead("UserImage", Name = "HeadUserImage")]
+    [AllowAnonymous]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
@@ -1491,6 +1506,11 @@ public class ImageController : BaseMulletaFlixApiController
 
         var user = _userManager.GetUserById(requestUserId);
         if (user?.ProfileImage is null)
+        {
+            return NotFound();
+        }
+
+        if (!CanViewUserImage(user))
         {
             return NotFound();
         }
@@ -1521,8 +1541,57 @@ public class ImageController : BaseMulletaFlixApiController
                 null,
                 null,
                 null,
-                info)
+                info,
+                disableCaching: true)
             .ConfigureAwait(false);
+    }
+
+    private bool IsPubliclyVisibleUser(User user)
+    {
+        if (user.HasPermission(PermissionKind.IsHidden) || user.HasPermission(PermissionKind.IsDisabled))
+        {
+            return false;
+        }
+
+        if (!_serverConfigurationManager.Configuration.IsStartupWizardCompleted)
+        {
+            return true;
+        }
+
+        var deviceId = User.GetDeviceId();
+        if (!string.IsNullOrWhiteSpace(deviceId) && !_deviceManager.CanAccessDevice(user, deviceId))
+        {
+            return false;
+        }
+
+        return _networkManager.IsInLocalNetwork(HttpContext.GetNormalizedRemoteIP())
+            || user.HasPermission(PermissionKind.EnableRemoteAccess);
+    }
+
+    private bool CanViewUserImage(User targetUser)
+    {
+        if (User.Identity?.IsAuthenticated != true)
+        {
+            return IsPubliclyVisibleUser(targetUser);
+        }
+
+        if (User.GetIsApiKey())
+        {
+            // API keys are privileged server credentials and retain their existing access.
+            return true;
+        }
+
+        var callerUserId = User.GetUserId();
+        if (callerUserId.IsEmpty())
+        {
+            return false;
+        }
+
+        var caller = _userManager.GetUserById(callerUserId);
+        return caller is not null
+            && (caller.HasPermission(PermissionKind.IsAdministrator)
+            || callerUserId == targetUser.Id
+            || IsPubliclyVisibleUser(targetUser));
     }
 
     /// <summary>
@@ -1553,6 +1622,7 @@ public class ImageController : BaseMulletaFlixApiController
     /// </returns>
     [HttpGet("Users/{userId}/Images/{imageType}")]
     [HttpHead("Users/{userId}/Images/{imageType}", Name = "HeadUserImageLegacy")]
+    [AllowAnonymous]
     [Obsolete("Kept for backwards compatibility")]
     [ApiExplorerSettings(IgnoreApi = true)]
     [ProducesResponseType(StatusCodes.Status200OK)]
@@ -1609,6 +1679,7 @@ public class ImageController : BaseMulletaFlixApiController
     /// </returns>
     [HttpGet("Users/{userId}/Images/{imageType}/{imageIndex}")]
     [HttpHead("Users/{userId}/Images/{imageType}/{imageIndex}", Name = "HeadUserImageByIndexLegacy")]
+    [AllowAnonymous]
     [Obsolete("Kept for backwards compatibility")]
     [ApiExplorerSettings(IgnoreApi = true)]
     [ProducesResponseType(StatusCodes.Status200OK)]
@@ -2026,7 +2097,8 @@ public class ImageController : BaseMulletaFlixApiController
         string? backgroundColor,
         string? foregroundLayer,
         BaseItem? item,
-        ItemImageInfo? imageInfo = null)
+        ItemImageInfo? imageInfo = null,
+        bool disableCaching = false)
     {
         var cancellationToken = HttpContext.RequestAborted;
 
@@ -2132,7 +2204,8 @@ public class ImageController : BaseMulletaFlixApiController
                     options,
                     cacheDuration,
                     responseHeaders,
-                    tag).ConfigureAwait(false);
+                    tag,
+                    disableCaching).ConfigureAwait(false);
             }
             catch (FileNotFoundException ex)
             {
@@ -2303,9 +2376,10 @@ public class ImageController : BaseMulletaFlixApiController
         ImageProcessingOptions imageProcessingOptions,
         TimeSpan? cacheDuration,
         IDictionary<string, string> headers,
-        string? tag)
+        string? tag,
+        bool forceDisableCaching = false)
     {
-        var disableCaching = Request.Headers[HeaderNames.CacheControl].Contains("no-cache");
+        var disableCaching = forceDisableCaching || Request.Headers[HeaderNames.CacheControl].Contains("no-cache");
         var hasTag = !string.IsNullOrEmpty(tag);
 
         // Answer conditional requests BEFORE doing any work. The tag is a strong validator the

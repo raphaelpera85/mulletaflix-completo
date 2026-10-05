@@ -1,9 +1,10 @@
-﻿#nullable disable
+#nullable disable
 
 #pragma warning disable CS1591
 
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -63,6 +64,41 @@ namespace MediaBrowser.Providers.MediaInfo
 
         /// <inheritdoc />
         public async Task ExecuteAsync(IProgress<double> progress, CancellationToken cancellationToken)
+        {
+            var startedAt = Stopwatch.GetTimestamp();
+            var metrics = new ExecutionMetrics();
+            SubtitleScheduledTaskMetrics.RecordActive(1);
+
+            try
+            {
+                await ExecuteCoreAsync(progress, cancellationToken, metrics).ConfigureAwait(false);
+                metrics.Result = metrics.Failures > 0
+                    ? "partial_failure"
+                    : metrics.ScannedItems == 0 ? "no_items" : "success";
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                metrics.Result = "cancelled";
+                throw;
+            }
+            catch
+            {
+                metrics.Result = "failure";
+                metrics.Failures++;
+                throw;
+            }
+            finally
+            {
+                SubtitleScheduledTaskMetrics.RecordActive(-1);
+                SubtitleScheduledTaskMetrics.RecordRun(
+                    metrics.Result,
+                    Stopwatch.GetElapsedTime(startedAt).TotalSeconds,
+                    metrics.ScannedItems,
+                    metrics.Failures);
+            }
+        }
+
+        private async Task ExecuteCoreAsync(IProgress<double> progress, CancellationToken cancellationToken, ExecutionMetrics metrics)
         {
             var types = new[] { BaseItemKind.Episode, BaseItemKind.Movie };
 
@@ -141,13 +177,19 @@ namespace MediaBrowser.Providers.MediaInfo
             foreach (var video in videos)
             {
                 cancellationToken.ThrowIfCancellationRequested();
+                metrics.ScannedItems++;
 
                 try
                 {
-                    await DownloadSubtitles(video as Video, cancellationToken).ConfigureAwait(false);
+                    await DownloadSubtitles(video as Video, cancellationToken, () => metrics.Failures++).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                {
+                    throw;
                 }
                 catch (Exception ex)
                 {
+                    metrics.Failures++;
                     _logger.LogError(ex, "Error downloading subtitles for {Path}", video.Path);
                 }
 
@@ -160,7 +202,16 @@ namespace MediaBrowser.Providers.MediaInfo
             }
         }
 
-        private async Task<bool> DownloadSubtitles(Video video, CancellationToken cancellationToken)
+        private sealed class ExecutionMetrics
+        {
+            public string Result { get; set; } = "failure";
+
+            public long ScannedItems { get; set; }
+
+            public long Failures { get; set; }
+        }
+
+        private async Task<bool> DownloadSubtitles(Video video, CancellationToken cancellationToken, Action onFailure)
         {
             var mediaStreams = video.GetMediaStreams();
 
@@ -184,7 +235,8 @@ namespace MediaBrowser.Providers.MediaInfo
 
             var downloadedLanguages = await new SubtitleDownloader(
                 _logger,
-                _subtitleManager).DownloadSubtitles(
+                _subtitleManager,
+                onFailure).DownloadSubtitles(
                     video,
                     mediaStreams,
                     skipIfEmbeddedSubtitlesPresent,
@@ -217,4 +269,3 @@ namespace MediaBrowser.Providers.MediaInfo
         }
     }
 }
-

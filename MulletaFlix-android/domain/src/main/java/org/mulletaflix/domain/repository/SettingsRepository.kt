@@ -66,6 +66,9 @@ interface SettingsRepository {
     fun getSubtitleColor(): Flow<String> = flowOf("WHITE")
     suspend fun setSubtitleColor(color: String) = Unit
 
+    fun getSubtitleBackground(): Flow<String> = flowOf("NONE")
+    suspend fun setSubtitleBackground(background: String) = Unit
+
     fun getDefaultAspectRatio(): Flow<String>
     suspend fun setDefaultAspectRatio(aspectRatio: String)
 

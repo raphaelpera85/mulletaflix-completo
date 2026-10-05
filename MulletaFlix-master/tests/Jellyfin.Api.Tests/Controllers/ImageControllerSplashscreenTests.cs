@@ -236,7 +236,9 @@ public sealed class ImageControllerSplashscreenTests
                 Mock.Of<IFileSystem>(),
                 NullLogger<ImageController>.Instance,
                 configuration.Object,
-                appPaths.Object)
+                appPaths.Object,
+                Mock.Of<MediaBrowser.Common.Net.INetworkManager>(),
+                Mock.Of<MediaBrowser.Controller.Devices.IDeviceManager>())
             {
                 ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() }
             };
@@ -390,7 +392,9 @@ public sealed class ImageControllerSplashscreenTests
             Mock.Of<IFileSystem>(),
             NullLogger<ImageController>.Instance,
             configuration.Object,
-            appPaths.Object)
+            appPaths.Object,
+            Mock.Of<MediaBrowser.Common.Net.INetworkManager>(),
+            Mock.Of<MediaBrowser.Controller.Devices.IDeviceManager>())
         {
             ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() }
         };

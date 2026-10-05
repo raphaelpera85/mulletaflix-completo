@@ -1,5 +1,9 @@
-import { expect, test } from '@playwright/test';
+import { expect, test, type Locator } from '@playwright/test';
 import { resolve } from 'node:path';
+
+const readScrollPosition = (scroller: Locator) => scroller.evaluate(element => (element as HTMLElement & {
+    getScrollPosition: () => number;
+}).getScrollPosition());
 
 test('real search results render cards with visible navigation controls', async ({ page }) => {
     await page.addInitScript(() => {
@@ -10,9 +14,14 @@ test('real search results render cards with visible navigation controls', async 
     await page.route('**/apps/stable/features/search/api/useSearchItems.ts*', route => route.fulfill({
         contentType: 'application/javascript',
         body: `export const useSearchItems = () => ({
-            data: [{ title: 'Movies', items: Array.from({ length: 18 }, (_, index) => ({
-                Id: 'search-card-' + index, Name: 'Search result ' + index, Type: 'Movie'
-            })) }], isPending: false, isError: false, refetch: async () => {}
+            data: [
+                { title: 'Movies', items: Array.from({ length: 18 }, (_, index) => ({
+                    Id: 'search-card-' + index, Name: 'Search result ' + index, Type: 'Movie'
+                })) },
+                { title: 'People', items: Array.from({ length: 18 }, (_, index) => ({
+                    Id: 'search-person-' + index, Name: 'Actor ' + index, Type: 'Person'
+                })) }
+            ], isPending: false, isError: false, refetch: async () => {}
         });`
     }));
     await page.route('**/components/cardbuilder/cardBuilder.ts*', route => route.fulfill({
@@ -57,47 +66,67 @@ test('real search results render cards with visible navigation controls', async 
     page.on('pageerror', error => pageErrors.push(error.message));
     await page.goto(fixtureUrl);
 
-    const cards = page.locator('.searchResults .itemsContainer .card');
-    const previous = page.locator('.searchResults .emby-scrollbuttons-button[data-direction="left"]');
-    const next = page.locator('.searchResults .emby-scrollbuttons-button[data-direction="right"]');
+    const movieRow = page.locator('.searchResults .verticalSection').filter({
+        has: page.getByRole('heading', { name: 'Movies' })
+    });
+    const peopleRow = page.locator('.searchResults .verticalSection').filter({
+        has: page.getByRole('heading', { name: 'People' })
+    });
+    const cards = movieRow.locator('.itemsContainer .card');
+    const previous = movieRow.locator('.emby-scrollbuttons-button[data-direction="left"]');
+    const next = movieRow.locator('.emby-scrollbuttons-button[data-direction="right"]');
     await expect(page.getByRole('heading', { name: 'Movies' })).toBeVisible();
     await expect(cards).toHaveCount(18);
-    await expect(page.locator('.searchResults [is="emby-scroller"][class~="padded-top-focusscale"]')).toHaveCount(1);
-    await expect(page.locator('.searchResults .itemsContainer.scrollSlider')).toHaveCount(1);
+    await expect(page.locator('.searchResults [is="emby-scroller"][class~="padded-top-focusscale"]')).toHaveCount(2);
+    await expect(page.locator('.searchResults .itemsContainer.scrollSlider')).toHaveCount(2);
     await expect(previous).toBeVisible({ timeout: 10_000 });
     await expect(previous).toBeDisabled();
     await expect(next).toBeEnabled();
     await expect(next).toHaveAttribute('aria-disabled', 'false');
 
-    const scroller = page.locator('.searchResults [is="emby-scroller"]');
-    const getScrollPosition = () => scroller.evaluate(element => (element as HTMLElement & {
-        getScrollPosition: () => number;
-    }).getScrollPosition());
-
+    const scroller = movieRow.locator('[is="emby-scroller"]');
     await page.keyboard.press('Tab');
     await expect(next).toBeFocused();
     expect(await next.evaluate(button => button.matches(':focus-visible'))).toBe(true);
     await page.keyboard.press('Enter');
-    await expect.poll(getScrollPosition).toBeGreaterThan(0);
+    await expect.poll(() => readScrollPosition(scroller)).toBeGreaterThan(0);
     await expect(previous).toBeEnabled();
 
     for (let attempt = 0; attempt < 20 && await next.isEnabled(); attempt++) {
-        const previousPosition = await getScrollPosition();
+        const previousPosition = await readScrollPosition(scroller);
         await page.keyboard.press('Enter');
-        await expect.poll(getScrollPosition).not.toBe(previousPosition);
+        await expect.poll(() => readScrollPosition(scroller)).not.toBe(previousPosition);
     }
     await expect(next).toBeDisabled();
     await expect(next).toHaveAttribute('aria-disabled', 'true');
 
     await previous.focus();
     for (let attempt = 0; attempt < 20 && await previous.isEnabled(); attempt++) {
-        const previousPosition = await getScrollPosition();
+        const previousPosition = await readScrollPosition(scroller);
         await page.keyboard.press('Enter');
-        await expect.poll(getScrollPosition).not.toBe(previousPosition);
+        await expect.poll(() => readScrollPosition(scroller)).not.toBe(previousPosition);
     }
-    await expect.poll(getScrollPosition).toBe(0);
+    await expect.poll(() => readScrollPosition(scroller)).toBe(0);
     await expect(previous).toBeDisabled();
     await expect(previous).toHaveAttribute('aria-disabled', 'true');
+
+    const peoplePrevious = peopleRow.locator('.emby-scrollbuttons-button[data-direction="left"]');
+    const peopleNext = peopleRow.locator('.emby-scrollbuttons-button[data-direction="right"]');
+    const peopleScroller = peopleRow.locator('[is="emby-scroller"]');
+    await expect(peopleRow.getByRole('heading', { name: 'People' })).toBeVisible();
+    await expect(peopleRow.locator('.itemsContainer .card')).toHaveCount(18);
+    await expect(peoplePrevious).toBeVisible();
+    await expect(peoplePrevious).toBeDisabled();
+    await expect(peopleNext).toBeVisible();
+    await expect(peopleNext).toBeEnabled();
+    await peopleNext.focus();
+    await page.keyboard.press('Enter');
+    await expect.poll(() => readScrollPosition(peopleScroller)).toBeGreaterThan(0);
+    await expect(peoplePrevious).toBeEnabled();
+    await peoplePrevious.focus();
+    await page.keyboard.press('Enter');
+    await expect.poll(() => readScrollPosition(peopleScroller)).toBe(0);
+    await expect(peoplePrevious).toBeDisabled();
 
     // The real search row must remain navigable after a narrow viewport resize.
     await page.setViewportSize({ width: 390, height: 800 });
@@ -105,44 +134,44 @@ test('real search results render cards with visible navigation controls', async 
     await expect(next).toBeEnabled();
     await next.focus();
     await page.keyboard.press('Enter');
-    await expect.poll(getScrollPosition).toBeGreaterThan(0);
+    await expect.poll(() => readScrollPosition(scroller)).toBeGreaterThan(0);
     await expect(previous).toBeEnabled();
     await previous.focus();
     await page.keyboard.press('Enter');
-    await expect.poll(getScrollPosition).toBe(0);
+    await expect.poll(() => readScrollPosition(scroller)).toBe(0);
 
     // Reload with RTL set before SearchResults initializes its scroller.
     const rtlUrl = new URL(fixtureUrl);
     rtlUrl.searchParams.set('dir', 'rtl');
     await page.goto(rtlUrl.toString());
-    const rtlScroller = page.locator('.searchResults [is="emby-scroller"]');
-    const rtlPrevious = page.locator('.searchResults .emby-scrollbuttons-button[data-direction="left"]');
-    const rtlNext = page.locator('.searchResults .emby-scrollbuttons-button[data-direction="right"]');
-    const getRtlScrollPosition = () => rtlScroller.evaluate(element => (element as HTMLElement & {
-        getScrollPosition: () => number;
-    }).getScrollPosition());
-    await expect(page.locator('.searchResults .itemsContainer .card')).toHaveCount(18);
+    const rtlPeopleRow = page.locator('.searchResults .verticalSection').filter({
+        has: page.getByRole('heading', { name: 'People' })
+    });
+    const rtlScroller = rtlPeopleRow.locator('[is="emby-scroller"]');
+    const rtlPrevious = rtlPeopleRow.locator('.emby-scrollbuttons-button[data-direction="left"]');
+    const rtlNext = rtlPeopleRow.locator('.emby-scrollbuttons-button[data-direction="right"]');
+    await expect(rtlPeopleRow.locator('.itemsContainer .card')).toHaveCount(18);
     await expect(rtlPrevious).toBeVisible({ timeout: 10_000 });
     await expect(rtlPrevious).toBeDisabled();
     await expect(rtlNext).toBeEnabled();
     await rtlNext.focus();
     await page.keyboard.press('Enter');
-    await expect.poll(getRtlScrollPosition).toBeLessThan(0);
+    await expect.poll(() => readScrollPosition(rtlScroller)).toBeLessThan(0);
     await expect(rtlPrevious).toBeEnabled();
 
     for (let attempt = 0; attempt < 20 && await rtlNext.isEnabled(); attempt++) {
-        const previousPosition = await getRtlScrollPosition();
+        const previousPosition = await readScrollPosition(rtlScroller);
         await page.keyboard.press('Enter');
-        await expect.poll(getRtlScrollPosition).not.toBe(previousPosition);
+        await expect.poll(() => readScrollPosition(rtlScroller)).not.toBe(previousPosition);
     }
     await expect(rtlNext).toBeDisabled();
     await rtlPrevious.focus();
     for (let attempt = 0; attempt < 20 && await rtlPrevious.isEnabled(); attempt++) {
-        const previousPosition = await getRtlScrollPosition();
+        const previousPosition = await readScrollPosition(rtlScroller);
         await page.keyboard.press('Enter');
-        await expect.poll(getRtlScrollPosition).not.toBe(previousPosition);
+        await expect.poll(() => readScrollPosition(rtlScroller)).not.toBe(previousPosition);
     }
-    await expect.poll(async () => Math.abs(await getRtlScrollPosition())).toBe(0);
+    await expect.poll(async () => Math.abs(await readScrollPosition(rtlScroller))).toBe(0);
     await expect(rtlPrevious).toBeDisabled();
     expect(pageErrors).toEqual([]);
 });
@@ -215,22 +244,18 @@ test('search-style scroller reveals and updates navigation after cards mount', a
     await expect(next).toBeVisible();
     await expect(next).toBeEnabled();
 
-    const getScrollPosition = () => scroller.evaluate(element => (element as HTMLElement & {
-        getScrollPosition: () => number;
-    }).getScrollPosition());
-
     await page.keyboard.press('Tab');
     await expect(next).toBeFocused();
     expect(await next.evaluate(button => button.matches(':focus-visible'))).toBe(true);
     await page.keyboard.press('Enter');
-    await expect.poll(getScrollPosition).toBeGreaterThan(0);
+    await expect.poll(() => readScrollPosition(scroller)).toBeGreaterThan(0);
     await expect(previous).toBeEnabled();
 
     for (let attempt = 0; attempt < 10 && await next.isEnabled(); attempt++) {
-        const previousPosition = await getScrollPosition();
+        const previousPosition = await readScrollPosition(scroller);
         await page.keyboard.press('Enter');
         await page.waitForTimeout(300);
-        if (await getScrollPosition() === previousPosition) break;
+        if (await readScrollPosition(scroller) === previousPosition) break;
     }
     const endState = await scroller.evaluate(element => {
         const frame = element as HTMLElement & { scroller?: { _pos?: { end: number }; getScrollSize: () => number } };
@@ -242,11 +267,11 @@ test('search-style scroller reveals and updates navigation after cards mount', a
 
     await previous.focus();
     for (let attempt = 0; attempt < 10 && await previous.isEnabled(); attempt++) {
-        const previousPosition = await getScrollPosition();
+        const previousPosition = await readScrollPosition(scroller);
         await page.keyboard.press('Enter');
-        await expect.poll(getScrollPosition).not.toBe(previousPosition);
+        await expect.poll(() => readScrollPosition(scroller)).not.toBe(previousPosition);
     }
-    await expect.poll(getScrollPosition).toBe(0);
+    await expect.poll(() => readScrollPosition(scroller)).toBe(0);
     await expect(previous).toBeDisabled();
     await expect(previous).toHaveAttribute('aria-disabled', 'true');
 });

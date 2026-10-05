@@ -37,15 +37,36 @@ public class SecurityAuthorizationTests
     public void SensitiveDiagnosticsAndPluginConfigurationEndpoints_RequireElevation()
     {
         AssertClassHasPolicy(typeof(ActivityLogController), Policies.RequiresElevation);
+        AssertClassHasPolicy(typeof(BackupController), Policies.RequiresElevation);
         AssertClassHasPolicy(typeof(PlaybackReportsController), Policies.RequiresElevation);
         AssertClassHasPolicy(typeof(ServerHealthController), Policies.RequiresElevation);
         AssertClassHasPolicy(typeof(NebulaFtpController), Policies.RequiresElevation);
+        AssertControllerRouteMethodsDoNotAllowAnonymous(typeof(BackupController));
         AssertMethodHasPolicy(typeof(DashboardController), nameof(DashboardController.GetConfigurationPages), Policies.RequiresElevation);
         AssertMethodHasPolicy(typeof(DashboardController), nameof(DashboardController.GetDashboardConfigurationPage), Policies.RequiresElevation);
         AssertMethodHasPolicy(typeof(SystemController), nameof(SystemController.GetSystemStorage), Policies.RequiresElevation);
         AssertMethodHasPolicy(typeof(SystemController), nameof(SystemController.GetServerLogs), Policies.RequiresElevation);
         AssertMethodHasPolicy(typeof(SystemController), nameof(SystemController.GetLogFile), Policies.RequiresElevation);
         AssertClassHasPolicy(typeof(EnvironmentController), Policies.FirstTimeSetupOrElevated);
+    }
+
+    [Fact]
+    public void PluginManagementRoutesRequireElevationExceptPublicPluginImage()
+    {
+        var controllerType = typeof(PluginsController);
+        var routeMethods = controllerType
+            .GetMethods(BindingFlags.Instance | BindingFlags.Public)
+            .Where(method => method.GetCustomAttributes<HttpMethodAttribute>(inherit: true).Any())
+            .ToArray();
+        var anonymousRoutes = routeMethods
+            .Where(method => method.GetCustomAttributes<AllowAnonymousAttribute>(inherit: true).Any())
+            .ToArray();
+
+        Assert.NotEmpty(routeMethods);
+        Assert.Equal(new[] { nameof(PluginsController.GetPluginImage) }, anonymousRoutes.Select(method => method.Name));
+        Assert.Contains(
+            controllerType.GetCustomAttributes<AuthorizeAttribute>(inherit: true),
+            attribute => attribute.Policy == Policies.RequiresElevation);
     }
 
     [Fact]
@@ -80,6 +101,20 @@ public class SecurityAuthorizationTests
         foreach (var method in routeMethods)
         {
             Assert.Contains(method.GetCustomAttributes<AuthorizeAttribute>(inherit: true), _ => true);
+        }
+    }
+
+    private static void AssertControllerRouteMethodsDoNotAllowAnonymous(Type controllerType)
+    {
+        var routeMethods = controllerType
+            .GetMethods(BindingFlags.Instance | BindingFlags.Public)
+            .Where(method => method.GetCustomAttributes<HttpMethodAttribute>(inherit: true).Any())
+            .ToArray();
+
+        Assert.NotEmpty(routeMethods);
+        foreach (var method in routeMethods)
+        {
+            Assert.Empty(method.GetCustomAttributes<AllowAnonymousAttribute>(inherit: true));
         }
     }
 

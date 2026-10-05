@@ -321,7 +321,7 @@ public sealed class TranscodeManager : ITranscodeManager, IDisposable
 
         if (closeLiveStream && !string.IsNullOrWhiteSpace(job.LiveStreamId))
         {
-            await _sessionManager.CloseLiveStreamIfNeededAsync(job.LiveStreamId, job.PlaySessionId).ConfigureAwait(false);
+            await _sessionManager.CloseLiveStreamIfNeededAsync(job.LiveStreamId, job.PlaySessionId, job.UserId).ConfigureAwait(false);
         }
     }
 
@@ -695,6 +695,7 @@ public sealed class TranscodeManager : ITranscodeManager, IDisposable
             Id = transcodingJobId,
             PlaySessionId = playSessionId,
             LiveStreamId = liveStreamId,
+            UserId = state.User?.Id ?? Guid.Empty,
             MediaSource = state.MediaSource
         };
 
@@ -756,7 +757,7 @@ public sealed class TranscodeManager : ITranscodeManager, IDisposable
         if (state.MediaSource.RequiresOpening && string.IsNullOrWhiteSpace(state.Request.LiveStreamId))
         {
             var liveStreamResponse = await _mediaSourceManager.OpenLiveStream(
-                    new LiveStreamRequest { OpenToken = state.MediaSource.OpenToken },
+                    CreateLiveStreamRequest(state),
                     cancellationTokenSource.Token)
                 .ConfigureAwait(false);
             var encodingOptions = _serverConfigurationManager.GetEncodingOptions();
@@ -774,6 +775,13 @@ public sealed class TranscodeManager : ITranscodeManager, IDisposable
             await Task.Delay(state.MediaSource.BufferMs.Value, cancellationTokenSource.Token).ConfigureAwait(false);
         }
     }
+
+    private static LiveStreamRequest CreateLiveStreamRequest(StreamState state)
+        => new()
+        {
+            OpenToken = state.MediaSource.OpenToken,
+            UserId = state.User?.Id ?? Guid.Empty
+        };
 
     /// <inheritdoc />
     public TranscodingJob? OnTranscodeBeginRequest(string path, TranscodingJobType type)

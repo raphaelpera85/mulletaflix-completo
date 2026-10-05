@@ -16,6 +16,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onEach
 import org.mulletaflix.core.api.SessionRepository
 import org.mulletaflix.domain.model.normalizeSubtitleColor
+import org.mulletaflix.domain.model.normalizeSubtitleBackground
 import org.mulletaflix.domain.model.normalizeSubtitleSizePercent
 import org.mulletaflix.domain.model.DEFAULT_SEEK_JUMP_SECONDS
 import org.mulletaflix.domain.model.normalizeSeekJumpSeconds
@@ -49,6 +50,7 @@ class SettingsRepositoryImpl @Inject constructor(
         val SEEK_JUMP_SECONDS = intPreferencesKey("seek_jump_interval_seconds")
         val SUBTITLE_FONT_SIZE = intPreferencesKey("subtitle_font_size")
         val SUBTITLE_COLOR = stringPreferencesKey("subtitle_color")
+        val SUBTITLE_BACKGROUND = stringPreferencesKey("subtitle_background")
         val DEFAULT_ASPECT_RATIO = stringPreferencesKey("default_aspect_ratio")
         val LIBRARY_GRID_VIEW_ENABLED = booleanPreferencesKey("library_grid_view_enabled")
         val LIBRARY_GRID_DENSITY = stringPreferencesKey("library_grid_density")
@@ -378,6 +380,17 @@ class SettingsRepositoryImpl @Inject constructor(
     override suspend fun setSubtitleColor(color: String) {
         // Same reason: the accepted set is defined once, in `:domain`.
         context.settingsDataStore.edit { it[Keys.SUBTITLE_COLOR] = normalizeSubtitleColor(color) }
+    }
+
+    override fun getSubtitleBackground(): Flow<String> =
+        context.settingsDataStore.data.map {
+            normalizeSubtitleBackground(it[Keys.SUBTITLE_BACKGROUND])
+        }
+
+    override suspend fun setSubtitleBackground(background: String) {
+        context.settingsDataStore.edit {
+            it[Keys.SUBTITLE_BACKGROUND] = normalizeSubtitleBackground(background)
+        }
     }
 
     override fun getDefaultAspectRatio(): Flow<String> =

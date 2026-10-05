@@ -27,6 +27,7 @@ using MediaBrowser.Model.LiveTv;
 using MediaBrowser.Model.Tasks;
 using MulletaFlix.Database.Implementations;
 using MulletaFlix.Database.Implementations.Entities;
+using MediaBrowser.Providers.Plugins.MidiaStorageOnline;
 using MediaBrowser.Providers.Plugins.MidiaStorageOnline.Configuration;
 using Microsoft.EntityFrameworkCore;
 
@@ -540,6 +541,10 @@ namespace MediaBrowser.Providers.Plugins.MidiaStorageOnline.ScheduledTasks
                                 Interlocked.Increment(ref seriesCount);
                             }
                         }
+                        catch (OperationCanceledException ex) when (MidiaStorageOnlineCancellation.IsRequested(ex, token))
+                        {
+                            throw;
+                        }
                         catch (Exception entryEx)
                         {
                             Log($"Falha ao processar entrada '{entry.Name}': {entryEx}");
@@ -567,17 +572,24 @@ namespace MediaBrowser.Providers.Plugins.MidiaStorageOnline.ScheduledTasks
                 finally
                 {
                     _libraryMonitor.ReportFileSystemChangeComplete(strmPath, true);
-                    try
+                    if (!ct.IsCancellationRequested)
                     {
-                        await UpdateLiveTvChannelItemsAsync(channelEntries, ct).ConfigureAwait(false);
-                    }
-                    catch (Exception refreshEx)
-                    {
-                        Log($"Falha ao atualizar canais Live TV após o sync: {refreshEx.Message}");
+                        try
+                        {
+                            await UpdateLiveTvChannelItemsAsync(channelEntries, ct).ConfigureAwait(false);
+                        }
+                        catch (OperationCanceledException ex) when (MidiaStorageOnlineCancellation.IsRequested(ex, ct))
+                        {
+                            throw;
+                        }
+                        catch (Exception refreshEx)
+                        {
+                            Log($"Falha ao atualizar canais Live TV após o sync: {refreshEx.Message}");
+                        }
                     }
                 }
             }
-            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+            catch (OperationCanceledException ex) when (MidiaStorageOnlineCancellation.IsRequested(ex, ct))
             {
                 throw;
             }
@@ -605,7 +617,7 @@ namespace MediaBrowser.Providers.Plugins.MidiaStorageOnline.ScheduledTasks
                     var bytes = await resp.Content.ReadAsByteArrayAsync(ct).ConfigureAwait(false);
                     return Encoding.UTF8.GetString(bytes);
                 }
-                catch (Exception ex) when (attempt < 2)
+                catch (Exception ex) when (attempt < 2 && !ct.IsCancellationRequested)
                 {
                     Log($"Download M3U falhou (tentativa {attempt + 1}/3): {ex.Message}. Retentando...");
                     await Task.Delay(2000 * (attempt + 1), ct).ConfigureAwait(false);

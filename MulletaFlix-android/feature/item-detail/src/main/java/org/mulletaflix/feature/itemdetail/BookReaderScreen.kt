@@ -2,17 +2,22 @@ package org.mulletaflix.feature.itemdetail
 
 import android.app.Application
 import androidx.compose.foundation.background
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.MoreVert
@@ -24,7 +29,10 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TextButton
@@ -44,6 +52,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -57,7 +66,9 @@ import org.readium.navigator.web.reflowable.preferences.ReflowableWebPreferences
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.CancellationException
 import org.readium.navigator.web.reflowable.ReflowableWebGoLocation
+import kotlin.math.roundToInt
 
 @Composable
 @OptIn(ExperimentalMaterial3Api::class)
@@ -70,6 +81,7 @@ fun BookReaderScreen(
     val comicArchive = state.comicArchive
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
+    val snackbarHostState = remember { SnackbarHostState() }
     var currentComicPage by rememberSaveable(itemId) { mutableIntStateOf(0) }
     var comicZoom by rememberSaveable(itemId) { mutableFloatStateOf(1f) }
     var renditionState by remember(itemId) { mutableStateOf<ReflowableWebRenditionState?>(null) }
@@ -95,6 +107,11 @@ fun BookReaderScreen(
             .onFailure { renditionError = "Não foi possível renderizar este livro." }
     }
     val renditionController = renditionState?.controller
+    LaunchedEffect(state.bookmarkMessage) {
+        val message = state.bookmarkMessage ?: return@LaunchedEffect
+        snackbarHostState.showSnackbar(message)
+        viewModel.clearBookmarkMessage()
+    }
     LaunchedEffect(renditionController, state.fontSizePercent) {
         val controller = renditionController ?: return@LaunchedEffect
         val fontSize = state.fontSizePercent / 100.0
@@ -126,6 +143,7 @@ fun BookReaderScreen(
     }
 
     Scaffold(
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             TopAppBar(
                 title = { Text("Leitor de livros", maxLines = 1) },
@@ -144,6 +162,40 @@ fun BookReaderScreen(
                     key(itemId) {
                         BookReaderProgressActions(
                             enabled = (state.publication != null || state.comicArchive != null) && !state.isLoading,
+                            bookmarks = state.bookmarks,
+                            bookmarkLabelSuggestion = comicArchive?.let { "Página ${currentComicPage + 1}" }
+                                ?: renditionController?.location?.toLocator()?.locations?.totalProgression?.let { progression ->
+                                    "Leitura ${(progression * 100).roundToInt()}%"
+                                }
+                                ?: "Posição salva",
+                            onSaveBookmark = { label ->
+                                val locator = comicArchive?.locatorForPage(currentComicPage)
+                                    ?: renditionController?.location?.toLocator()
+                                if (locator != null) {
+                                    viewModel.saveBookmark(itemId, locator, label)
+                                }
+                            },
+                            onOpenBookmark = { bookmark ->
+                                if (comicArchive != null) {
+                                    ComicBookArchive.pageIndexFromLocator(bookmark.locator, comicArchive.pageCount)
+                                        ?.let { currentComicPage = it }
+                                        ?: viewModel.showBookmarkMessage("Este marcador não existe mais neste livro.")
+                                } else {
+                                    renditionController?.let { controller ->
+                                        coroutineScope.launch {
+                                            try {
+                                                controller.goTo(ReflowableWebGoLocation(bookmark.locator))
+                                            } catch (cancelled: CancellationException) {
+                                                throw cancelled
+                                            } catch (_: Exception) {
+                                                viewModel.showBookmarkMessage("Não foi possível abrir este marcador.")
+                                            }
+                                        }
+                                    }
+                                }
+                            },
+                            onDeleteBookmark = { bookmarkId -> viewModel.deleteBookmark(itemId, bookmarkId) },
+                            onRenameBookmark = { bookmarkId, label -> viewModel.renameBookmark(itemId, bookmarkId, label) },
                             onRestart = { viewModel.restartReadingFromBeginning(itemId) },
                         )
                     }
@@ -261,10 +313,20 @@ internal fun BookReaderFontSizeControls(
 @OptIn(ExperimentalMaterial3Api::class)
 internal fun BookReaderProgressActions(
     enabled: Boolean,
+    bookmarks: List<BookReaderBookmark>,
+    bookmarkLabelSuggestion: String,
+    onSaveBookmark: (String) -> Unit,
+    onOpenBookmark: (BookReaderBookmark) -> Unit,
+    onDeleteBookmark: (String) -> Unit,
+    onRenameBookmark: (String, String) -> Unit,
     onRestart: () -> Unit,
 ) {
     var menuExpanded by remember { mutableStateOf(false) }
     var confirmationVisible by remember { mutableStateOf(false) }
+    var bookmarksVisible by remember { mutableStateOf(false) }
+    var bookmarkNameDialogVisible by remember { mutableStateOf(false) }
+    var bookmarkName by rememberSaveable { mutableStateOf("") }
+    var bookmarkBeingRenamed by remember { mutableStateOf<BookReaderBookmark?>(null) }
 
     Box {
         IconButton(
@@ -278,6 +340,22 @@ internal fun BookReaderProgressActions(
             onDismissRequest = { menuExpanded = false },
         ) {
             DropdownMenuItem(
+                text = { Text("Salvar posição atual") },
+                enabled = bookmarks.size < BookReaderProgressStore.MAX_BOOKMARKS_PER_BOOK,
+                onClick = {
+                    menuExpanded = false
+                    bookmarkName = ""
+                    bookmarkNameDialogVisible = true
+                },
+            )
+            DropdownMenuItem(
+                text = { Text("Marcadores salvos (${bookmarks.size})") },
+                onClick = {
+                    menuExpanded = false
+                    bookmarksVisible = true
+                },
+            )
+            DropdownMenuItem(
                 text = { Text("Reiniciar do começo") },
                 onClick = {
                     menuExpanded = false
@@ -285,6 +363,85 @@ internal fun BookReaderProgressActions(
                 },
             )
         }
+    }
+
+    if (bookmarkNameDialogVisible) {
+        BookmarkNameDialog(
+            title = if (bookmarkBeingRenamed == null) "Nome do marcador" else "Renomear marcador",
+            fieldLabel = if (bookmarkBeingRenamed == null) "Nome personalizado (opcional)" else "Novo nome",
+            name = bookmarkName,
+            suggestion = bookmarkLabelSuggestion,
+            onNameChange = { bookmarkName = it.take(BookReaderProgressStore.MAX_BOOKMARK_LABEL_LENGTH) },
+            onDismiss = {
+                bookmarkNameDialogVisible = false
+                if (bookmarkBeingRenamed != null) bookmarksVisible = true
+                bookmarkBeingRenamed = null
+            },
+            onSave = {
+                val bookmark = bookmarkBeingRenamed
+                if (bookmark == null) {
+                    onSaveBookmark(bookmarkName.trim().ifBlank { bookmarkLabelSuggestion })
+                } else {
+                    onRenameBookmark(bookmark.id, bookmarkName)
+                    bookmarksVisible = true
+                }
+                bookmarkNameDialogVisible = false
+                bookmarkBeingRenamed = null
+            },
+            allowBlank = bookmarkBeingRenamed == null,
+        )
+    }
+
+    if (bookmarksVisible) {
+        AlertDialog(
+            onDismissRequest = { bookmarksVisible = false },
+            title = { Text("Marcadores de leitura") },
+            text = {
+                if (bookmarks.isEmpty()) {
+                    Text("Nenhum marcador salvo neste livro.")
+                } else {
+                    LazyColumn(modifier = Modifier.heightIn(max = 360.dp)) {
+                        items(bookmarks, key = BookReaderBookmark::id) { bookmark ->
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                TextButton(
+                                    onClick = {
+                                        bookmarksVisible = false
+                                        onOpenBookmark(bookmark)
+                                    },
+                                    modifier = Modifier.weight(1f),
+                                ) {
+                                    Text(bookmark.label, maxLines = 2)
+                                }
+                                IconButton(
+                                    onClick = {
+                                        bookmarkBeingRenamed = bookmark
+                                        bookmarkName = bookmark.label
+                                        bookmarksVisible = false
+                                        bookmarkNameDialogVisible = true
+                                    },
+                                    modifier = Modifier.semantics(mergeDescendants = true) {
+                                        contentDescription = "Renomear marcador ${bookmark.label}"
+                                    },
+                                ) {
+                                    Icon(Icons.Default.Edit, contentDescription = null)
+                                }
+                                IconButton(
+                                    onClick = { onDeleteBookmark(bookmark.id) },
+                                    modifier = Modifier.semantics(mergeDescendants = true) {
+                                        contentDescription = "Excluir marcador ${bookmark.label}"
+                                    },
+                                ) {
+                                    Icon(Icons.Default.Delete, contentDescription = null)
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { bookmarksVisible = false }) { Text("Fechar") }
+            },
+        )
     }
 
     if (confirmationVisible) {
@@ -304,6 +461,45 @@ internal fun BookReaderProgressActions(
         )
     }
 }
+
+@Composable
+private fun BookmarkNameDialog(
+    title: String,
+    fieldLabel: String,
+    name: String,
+    suggestion: String,
+    onNameChange: (String) -> Unit,
+    onDismiss: () -> Unit,
+    onSave: () -> Unit,
+    allowBlank: Boolean,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(title) },
+        text = {
+            OutlinedTextField(
+                value = name,
+                onValueChange = onNameChange,
+                modifier = Modifier.fillMaxWidth().testTag(BOOK_READER_BOOKMARK_NAME_TEST_TAG),
+                singleLine = true,
+                label = { Text(fieldLabel) },
+                placeholder = { Text(suggestion) },
+                supportingText = {
+                    Text(
+                        if (name.isBlank()) "Vazio usa: $suggestion"
+                        else "${name.length}/${BookReaderProgressStore.MAX_BOOKMARK_LABEL_LENGTH}",
+                    )
+                },
+            )
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancelar") } },
+        confirmButton = {
+            TextButton(onClick = onSave, enabled = allowBlank || name.isNotBlank()) { Text("Salvar") }
+        },
+    )
+}
+
+internal const val BOOK_READER_BOOKMARK_NAME_TEST_TAG = "book-reader-bookmark-name"
 
 @Composable
 private fun ReaderMessage(message: String, onRetry: () -> Unit) {

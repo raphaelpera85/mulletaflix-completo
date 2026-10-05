@@ -392,7 +392,11 @@ public sealed class NebulaFtpControllerTests
         SupabaseLastUsersBackupFailed = true,
         SupabaseLastRestoreTime = DateTime.UnixEpoch.AddHours(4),
         SupabaseLastRestoreStatus = "Restore failed",
-        SupabaseLastRestoreFailed = true
+        SupabaseLastRestoreFailed = true,
+        SupabaseLastRestoreFilesRestored = 14,
+        SupabaseLastRestoreUsersRestored = 5,
+        SupabaseLastRestoreFtpUsersRestored = 3,
+        SupabaseLastRestoreAppUsersRestored = 2
     };
 
     [Fact]
@@ -415,7 +419,11 @@ public sealed class NebulaFtpControllerTests
                 // Non-secret fields should still round-trip unchanged.
                 ServerHost = "nebula.example.com",
                 ServerPort = 2121,
-                Username = "nebula-ftp-user"
+                Username = "nebula-ftp-user",
+                SupabaseLastRestoreFilesRestored = 12,
+                SupabaseLastRestoreUsersRestored = 3,
+                SupabaseLastRestoreFtpUsersRestored = 2,
+                SupabaseLastRestoreAppUsersRestored = 1
             });
         var controller = new NebulaFtpController(manager.Object, configuration.Object);
 
@@ -432,6 +440,10 @@ public sealed class NebulaFtpControllerTests
         Assert.Equal("nebula.example.com", config.ServerHost);
         Assert.Equal(2121, config.ServerPort);
         Assert.Equal("nebula-ftp-user", config.Username);
+        Assert.Equal(12, config.SupabaseLastRestoreFilesRestored);
+        Assert.Equal(3, config.SupabaseLastRestoreUsersRestored);
+        Assert.Equal(2, config.SupabaseLastRestoreFtpUsersRestored);
+        Assert.Equal(1, config.SupabaseLastRestoreAppUsersRestored);
     }
 
     [Fact]

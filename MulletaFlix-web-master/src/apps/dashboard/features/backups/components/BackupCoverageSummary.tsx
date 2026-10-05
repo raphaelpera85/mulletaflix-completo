@@ -65,7 +65,14 @@ const BackupCoverageSummary = ({ latestBackup, status, loading, error, onRetry }
                 <Typography variant='body2'>Última execução registrada: {formatDate(status?.LastBackupAttemptTime ?? status?.LastBackupTime)}</Typography>
                 {status?.LastBackupFailed === false && <Typography variant='body2'>Processados nesta execução: {status.LastBackupProcessedFilesCount ?? 'não informado'} documentos e {status.LastBackupProcessedUsersCount ?? 'não informado'} usuários FTP. Essa contagem pode representar apenas as alterações desde o backup anterior.</Typography>}
                 {status?.LastBackupStatus && <Typography variant='body2' color='text.secondary'>{status.LastBackupStatus}</Typography>}
-                {status?.LastRestoreTime && <Alert severity={status.LastRestoreFailed ? 'error' : 'info'}>Última restauração operacional: {formatDate(status.LastRestoreTime)}. {status.LastRestoreStatus}</Alert>}
+                {status?.LastRestoreTime && <Alert severity={status.LastRestoreFailed ? 'error' : 'info'}>
+                    <Stack spacing={0.5}>
+                        <Typography variant='body2'>Última restauração operacional Supabase → MongoDB: {formatDate(status.LastRestoreTime)} — {status.LastRestoreFailed ? 'falhou' : 'concluída'}.</Typography>
+                        <Typography variant='body2'>Contagens relatadas pelo processo: {status.LastRestoreFilesRestored ?? 'não informada'} arquivos do catálogo; total de usuários: {status.LastRestoreUsersRestored ?? 'não informado'}; FTP: {status.LastRestoreFtpUsersRestored ?? 'não informado'} e aplicativo: {status.LastRestoreAppUsersRestored ?? 'não informado'}.</Typography>
+                        {status.LastRestoreStatus && <Typography variant='body2'>{status.LastRestoreStatus}</Typography>}
+                        <Typography variant='body2'>Este registro operacional não representa, por si só, um exercício isolado de recuperação ponta a ponta.</Typography>
+                    </Stack>
+                </Alert>}
             </CoverageCard>
             <CoverageCard title='Usuários do aplicativo no Supabase'>
                 <Typography variant='body2'>Contas e dados de usuários do MulletaFlix. Este backup tem execução independente do catálogo Nebula.</Typography>

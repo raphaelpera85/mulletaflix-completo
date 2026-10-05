@@ -70,6 +70,20 @@ class SettingsRepositoryAccountScopeTest {
     }
 
     @Test
+    fun subtitleBackgroundDefaultsAndNormalizesStoredValues() = runBlocking {
+        assertEquals("NONE", settingsRepository.getSubtitleBackground().first())
+
+        settingsRepository.setSubtitleBackground("black_80")
+        assertEquals("BLACK_80", settingsRepository.getSubtitleBackground().first())
+
+        settingsRepository.setSubtitleBackground("unsupported")
+        assertEquals("NONE", settingsRepository.getSubtitleBackground().first())
+
+        context.settingsDataStore.edit { it[stringPreferencesKey("subtitle_background")] = "BLACK_50" }
+        assertEquals("BLACK_50", settingsRepository.getSubtitleBackground().first())
+    }
+
+    @Test
     fun audioAndSubtitleChoicesAreIsolatedAcrossUsersAndServers() = runBlocking {
         signIn(userId = "user-a", serverId = "server-one")
         assertEquals("por", settingsRepository.getPreferredAudioLanguage().first())

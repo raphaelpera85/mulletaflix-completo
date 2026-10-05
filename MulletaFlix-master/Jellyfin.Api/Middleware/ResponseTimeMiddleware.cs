@@ -94,7 +94,11 @@ public class ResponseTimeMiddleware
         // so an install configured with EnableSlowResponseWarning=true and a 500 ms threshold
         // produced no output whatsoever under the production log level and the setting looked like
         // it was working. The suppression below is what keeps that fix from flooding the log.
-        var path = context.Request.Path.Value ?? "/";
+        var path = RequestPathLogRedactor.RedactSensitiveSegments(context.Request.Path.Value);
+        if (string.IsNullOrEmpty(path))
+        {
+            path = "/";
+        }
         var now = Stopwatch.GetTimestamp();
 
         if (_lastWarningTimestamps.TryGetValue(path, out var previous)

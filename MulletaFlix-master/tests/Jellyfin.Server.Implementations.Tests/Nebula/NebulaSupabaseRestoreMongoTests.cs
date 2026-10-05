@@ -49,10 +49,11 @@ public sealed class NebulaSupabaseRestoreMongoTests : IDisposable
             _mongoClient.GetDatabase("admin").RunCommand<BsonDocument>(new BsonDocument("ping", 1));
             _mongoAvailable = true;
         }
-        catch (Exception)
+        catch (Exception ex)
         {
-            _mongoAvailable = false;
-            _skipReason = "MongoDB de teste indisponível no destino local opt-in.";
+            throw new InvalidOperationException(
+                "Falha ao validar a conexão Mongo de teste configurada em 127.0.0.1:27099.",
+                ex);
         }
     }
 
@@ -120,6 +121,8 @@ public sealed class NebulaSupabaseRestoreMongoTests : IDisposable
         Assert.True(result.Success, result.Message);
         Assert.Equal(1, result.FilesRestored);
         Assert.Equal(2, result.UsersRestored);
+        Assert.Equal(1, result.FtpUsersRestored);
+        Assert.Equal(1, result.AppUsersRestored);
         Assert.True(double.IsFinite(result.ElapsedSeconds));
         _output.WriteLine(
             "Restore Supabase→Mongo isolado: restoredFiles={0}; restoredUsers={1}; elapsedSeconds={2:F3}",
@@ -175,14 +178,7 @@ public sealed class NebulaSupabaseRestoreMongoTests : IDisposable
     {
         if (_mongoAvailable && _mongoClient is not null)
         {
-            try
-            {
-                _mongoClient.DropDatabase(_databaseName);
-            }
-            catch (Exception)
-            {
-                // This test owns only its unique database; cleanup failure must not mask test results.
-            }
+            _mongoClient.DropDatabase(_databaseName);
         }
     }
 

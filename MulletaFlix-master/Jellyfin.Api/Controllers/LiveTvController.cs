@@ -1149,26 +1149,27 @@ public class LiveTvController : BaseMulletaFlixApiController
     /// <summary>
     /// Gets a live tv recording stream.
     /// </summary>
-    /// <param name="recordingId">Recording id.</param>
+    /// <param name="streamId">Opaque capability for the active recording stream.</param>
     /// <response code="200">Recording stream returned.</response>
     /// <response code="404">Recording not found.</response>
     /// <returns>
     /// An <see cref="OkResult"/> containing the recording stream on success,
     /// or a <see cref="NotFoundResult"/> if recording not found.
     /// </returns>
-    [HttpGet("LiveRecordings/{recordingId}/stream")]
+    [HttpGet("LiveRecordings/{streamId}/stream")]
     [AllowAnonymous]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     [ProducesVideoFile]
-    public ActionResult GetLiveRecordingFile([FromRoute, Required] string recordingId)
+    public ActionResult GetLiveRecordingFile([FromRoute, Required] string streamId)
     {
-        var path = _recordingsManager.GetActiveRecordingPath(recordingId);
+        var path = _recordingsManager.GetActiveRecordingStreamPath(streamId);
         if (string.IsNullOrWhiteSpace(path))
         {
             return NotFound();
         }
 
+        Response.Headers["Cache-Control"] = "no-store";
         var stream = new ProgressiveFileStream(path, null, _transcodeManager);
         return new FileStreamResult(stream, MimeTypes.GetMimeType(path));
     }

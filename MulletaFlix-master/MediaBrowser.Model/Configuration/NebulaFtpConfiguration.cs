@@ -26,6 +26,10 @@ public class NebulaFtpConfiguration
         SupabaseLastRestoreTime = existing.SupabaseLastRestoreTime;
         SupabaseLastRestoreStatus = existing.SupabaseLastRestoreStatus;
         SupabaseLastRestoreFailed = existing.SupabaseLastRestoreFailed;
+        SupabaseLastRestoreFilesRestored = existing.SupabaseLastRestoreFilesRestored;
+        SupabaseLastRestoreUsersRestored = existing.SupabaseLastRestoreUsersRestored;
+        SupabaseLastRestoreFtpUsersRestored = existing.SupabaseLastRestoreFtpUsersRestored;
+        SupabaseLastRestoreAppUsersRestored = existing.SupabaseLastRestoreAppUsersRestored;
     }
 
     public const int DefaultSupabaseAutoBackupIntervalHours = 1;
@@ -190,4 +194,16 @@ public class NebulaFtpConfiguration
 
     /// <summary>Whether the last Supabase-to-MongoDB restore attempt failed; drives the restore-failure alert.</summary>
     public bool SupabaseLastRestoreFailed { get; set; }
+
+    /// <summary>Number of Nebula catalog files restored by the last Supabase-to-MongoDB restore attempt; null when unknown.</summary>
+    public int? SupabaseLastRestoreFilesRestored { get; set; }
+
+    /// <summary>Number of Nebula FTP and MulletaFlix users restored by the last Supabase restore attempt; null when unknown.</summary>
+    public int? SupabaseLastRestoreUsersRestored { get; set; }
+
+    /// <summary>Number of FTP users restored by the last Supabase restore attempt; null when unknown.</summary>
+    public int? SupabaseLastRestoreFtpUsersRestored { get; set; }
+
+    /// <summary>Number of MulletaFlix application users restored by the last Supabase restore attempt; null when unknown.</summary>
+    public int? SupabaseLastRestoreAppUsersRestored { get; set; }
 }

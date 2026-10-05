@@ -107,6 +107,7 @@ class SettingsOptionListsTest {
         val catalogues = mapOf(
             "grid density" to libraryGridDensityChoices,
             "subtitle colour" to subtitleColorChoices,
+            "subtitle background" to subtitleBackgroundChoices,
             "sort direction" to librarySortOrderChoices,
         )
         catalogues.forEach { (name, choices) ->
@@ -256,12 +257,14 @@ class SettingsOptionListsTest {
     private fun labelFor(catalogue: String, code: String): String = when (catalogue) {
         "grid density" -> libraryGridDensityLabel(code)
         "subtitle colour" -> subtitleColorLabel(code)
+        "subtitle background" -> subtitleBackgroundLabel(code)
         else -> librarySortOrderLabel(code)
     }
 
     private fun codeFor(catalogue: String, label: String): String = when (catalogue) {
         "grid density" -> libraryGridDensityCode(label)
         "subtitle colour" -> subtitleColorCode(label)
+        "subtitle background" -> subtitleBackgroundCode(label)
         else -> librarySortOrderCode(label)
     }
 }

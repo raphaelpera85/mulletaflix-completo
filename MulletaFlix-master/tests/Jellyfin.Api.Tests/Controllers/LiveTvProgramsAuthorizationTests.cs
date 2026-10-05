@@ -108,6 +108,25 @@ public class LiveTvProgramsAuthorizationTests
         Assert.Null(capturedQuery.User);
     }
 
+    [Theory]
+    [InlineData("channels")]
+    [InlineData("channel")]
+    [InlineData("recordings")]
+    [InlineData("recording-folders")]
+    [InlineData("recording")]
+    [InlineData("programs")]
+    [InlineData("programs-post")]
+    [InlineData("programs-recommended")]
+    [InlineData("program")]
+    public async Task ReadEndpoints_PreserveApiKeyAccessWithoutUserId(string endpoint)
+    {
+        var fixture = CreateFixture(isApiKey: true, includeUserIdClaim: false);
+
+        var result = await InvokeReadEndpoint(fixture, endpoint);
+
+        Assert.False(result is UnauthorizedResult, $"API key was rejected by {endpoint}.");
+    }
+
     [Fact]
     public async Task GetLiveTvPrograms_ReturnsNotFoundForSeriesOutsideUsersLibrary()
     {
@@ -342,7 +361,25 @@ public class LiveTvProgramsAuthorizationTests
 
         var liveTvManager = new Mock<ILiveTvManager>();
         liveTvManager
+            .Setup(manager => manager.GetInternalChannels(
+                It.IsAny<LiveTvChannelQuery>(),
+                It.IsAny<DtoOptions>(),
+                It.IsAny<CancellationToken>()))
+            .Returns(new QueryResult<BaseItem>());
+        liveTvManager
+            .Setup(manager => manager.GetRecordingsAsync(It.IsAny<RecordingQuery>(), It.IsAny<DtoOptions>()))
+            .ReturnsAsync(new QueryResult<BaseItemDto>());
+        liveTvManager
+            .Setup(manager => manager.GetRecordingFoldersAsync(It.IsAny<User>()))
+            .ReturnsAsync(Array.Empty<BaseItem>());
+        liveTvManager
             .Setup(manager => manager.GetPrograms(
+                It.IsAny<InternalItemsQuery>(),
+                It.IsAny<DtoOptions>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new QueryResult<BaseItemDto>());
+        liveTvManager
+            .Setup(manager => manager.GetRecommendedProgramsAsync(
                 It.IsAny<InternalItemsQuery>(),
                 It.IsAny<DtoOptions>(),
                 It.IsAny<CancellationToken>()))
@@ -350,6 +387,13 @@ public class LiveTvProgramsAuthorizationTests
         var libraryManager = new Mock<ILibraryManager>();
         var userManager = new Mock<IUserManager>();
         userManager.Setup(manager => manager.GetUserById(user.Id)).Returns(userExists ? user : null);
+        var dtoService = new Mock<IDtoService>();
+        dtoService
+            .Setup(service => service.GetBaseItemDtosAsync(
+                It.IsAny<IReadOnlyList<BaseItem>>(),
+                It.IsAny<DtoOptions>(),
+                It.IsAny<User>()))
+            .ReturnsAsync(Array.Empty<BaseItemDto>());
         var controller = new LiveTvController(
             liveTvManager.Object,
             Mock.Of<IGuideManager>(),
@@ -358,7 +402,7 @@ public class LiveTvProgramsAuthorizationTests
             Mock.Of<IRecordingsManager>(),
             userManager.Object,
             libraryManager.Object,
-            Mock.Of<IDtoService>(),
+            dtoService.Object,
             Mock.Of<IMediaSourceManager>(),
             Mock.Of<ITranscodeManager>(),
             Mock.Of<ISchedulesDirectService>());

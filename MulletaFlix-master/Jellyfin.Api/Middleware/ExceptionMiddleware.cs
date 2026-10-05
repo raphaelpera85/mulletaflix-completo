@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.IO;
 using System.Net.Mime;
 using System.Net.Sockets;
@@ -81,7 +81,7 @@ public class ExceptionMiddleware
                     context.TraceIdentifier,
                     ex.Message.TrimEnd('.'),
                     context.Request.Method,
-                    context.Request.Path);
+                    RequestPathLogRedactor.RedactSensitiveSegments(context.Request.Path.Value));
             }
             else
             {
@@ -90,7 +90,7 @@ public class ExceptionMiddleware
                     "Error processing request {CorrelationId}. URL {Method} {Url}.",
                     context.TraceIdentifier,
                     context.Request.Method,
-                    context.Request.Path);
+                    RequestPathLogRedactor.RedactSensitiveSegments(context.Request.Path.Value));
             }
 
             context.Response.StatusCode = GetStatusCode(ex);

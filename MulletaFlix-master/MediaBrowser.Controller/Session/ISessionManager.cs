@@ -1,4 +1,4 @@
-﻿#nullable disable
+#nullable disable
 
 #pragma warning disable CS1591
 
@@ -352,6 +352,15 @@ namespace MediaBrowser.Controller.Session
         Task CloseLiveStreamIfNeededAsync(string liveStreamId, string sessionIdOrPlaySessionId);
 
         /// <summary>
+        /// Used to close one user's live-stream consumer if needed.
+        /// </summary>
+        /// <param name="liveStreamId">The live stream id.</param>
+        /// <param name="sessionIdOrPlaySessionId">The session id or playsession id.</param>
+        /// <param name="userId">The user whose live-stream consumer is being closed.</param>
+        /// <returns>Task.</returns>
+        Task CloseLiveStreamIfNeededAsync(string liveStreamId, string sessionIdOrPlaySessionId, Guid userId);
+
+        /// <summary>
         /// Gets the dto for session info.
         /// </summary>
         /// <param name="sessionInfo">The session info.</param>
@@ -359,4 +368,3 @@ namespace MediaBrowser.Controller.Session
         SessionInfoDto ToSessionInfoDto(SessionInfo sessionInfo);
     }
 }
-

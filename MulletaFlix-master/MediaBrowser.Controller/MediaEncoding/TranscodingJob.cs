@@ -32,6 +32,11 @@ public sealed class TranscodingJob : IDisposable
     public string? PlaySessionId { get; set; }
 
     /// <summary>
+    /// Gets or sets the owner of the playback session associated with this job.
+    /// </summary>
+    public Guid UserId { get; set; }
+
+    /// <summary>
     /// Gets or sets the live stream identifier.
     /// </summary>
     public string? LiveStreamId { get; set; }

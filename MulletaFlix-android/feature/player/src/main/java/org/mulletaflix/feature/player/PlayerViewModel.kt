@@ -61,6 +61,9 @@ import org.mulletaflix.core.api.SyncPlayRealtimeEvent
 import org.mulletaflix.core.common.dispatcher.ApplicationScope
 import org.mulletaflix.domain.model.SUBTITLE_COLOR_WHITE
 import org.mulletaflix.domain.model.normalizeSubtitleColor
+import org.mulletaflix.domain.model.SUBTITLE_BACKGROUND_NONE
+import org.mulletaflix.domain.model.normalizeSubtitleBackground
+import org.mulletaflix.domain.model.normalizeSubtitleSizePercent
 import org.mulletaflix.core.common.network.NetworkMonitor
 import org.mulletaflix.designsystem.media.resolveMediaUrl
 import org.mulletaflix.domain.model.primaryImageUrl
@@ -121,6 +124,7 @@ data class PlayerState(
     val selectedAudioIndex: Int = -1,
     val subtitleFontSize: Int = 100,
     val subtitleColor: String = SUBTITLE_COLOR_WHITE,
+    val subtitleBackground: String = SUBTITLE_BACKGROUND_NONE,
     val pictureInPictureEnabled: Boolean = true,
     val showSkipIntro: Boolean = false,
     val showSkipCredits: Boolean = false,
@@ -162,8 +166,8 @@ data class PlayerState(
  * Built as a named factory so the settings the session must keep honouring are
  * spelled out. Constructing `PlayerState(...)` inline reset each of them to its
  * data-class default, so a downloaded item entered Picture-in-Picture even with
- * the setting switched off, lost the subtitle font size, and forgot that the
- * network was metered.
+ * the setting switched off, lost subtitle styling, and forgot that the network
+ * was metered.
  */
 internal fun offlinePlaybackState(
     title: String,
@@ -171,6 +175,7 @@ internal fun offlinePlaybackState(
     error: String?,
     aspectRatio: VideoAspectRatio,
     subtitleColor: String,
+    subtitleBackground: String = SUBTITLE_BACKGROUND_NONE,
     subtitleFontSize: Int,
     pictureInPictureEnabled: Boolean,
     isNetworkMetered: Boolean,
@@ -182,6 +187,7 @@ internal fun offlinePlaybackState(
     isNetworkOffline = false,
     aspectRatio = aspectRatio,
     subtitleColor = subtitleColor,
+    subtitleBackground = normalizeSubtitleBackground(subtitleBackground),
     subtitleFontSize = subtitleFontSize,
     pictureInPictureEnabled = pictureInPictureEnabled,
     isNetworkMetered = isNetworkMetered,
@@ -773,6 +779,11 @@ class PlayerViewModel @Inject constructor(
             }
         }
         viewModelScope.launch {
+            settingsRepository.getSubtitleBackground().collect { background ->
+                _state.update { it.copy(subtitleBackground = normalizeSubtitleBackground(background)) }
+            }
+        }
+        viewModelScope.launch {
             settingsRepository.isPiPEnabled().collect { enabled ->
                 _state.update { it.copy(pictureInPictureEnabled = enabled) }
             }
@@ -1195,6 +1206,7 @@ class PlayerViewModel @Inject constructor(
                     error = "Faça login para reproduzir este download.",
                     aspectRatio = defaultAspectRatio,
                     subtitleColor = subtitleColor,
+                    subtitleBackground = _state.value.subtitleBackground,
                     subtitleFontSize = _state.value.subtitleFontSize,
                     pictureInPictureEnabled = _state.value.pictureInPictureEnabled,
                     isNetworkMetered = _state.value.isNetworkMetered,
@@ -1269,6 +1281,7 @@ class PlayerViewModel @Inject constructor(
                 error = null,
                 aspectRatio = defaultAspectRatio,
                 subtitleColor = subtitleColor,
+                subtitleBackground = _state.value.subtitleBackground,
                 subtitleFontSize = _state.value.subtitleFontSize,
                 pictureInPictureEnabled = _state.value.pictureInPictureEnabled,
                 isNetworkMetered = _state.value.isNetworkMetered,
@@ -1727,6 +1740,26 @@ class PlayerViewModel @Inject constructor(
         viewModelScope.launch {
             settingsRepository.setDefaultPlaybackSpeed(normalizedSpeed)
         }
+    }
+
+    fun setSubtitleFontSize(sizePercent: Int) {
+        val normalizedSize = normalizeSubtitleSizePercent(sizePercent)
+        subtitleFontSize = normalizedSize
+        _state.update { it.copy(subtitleFontSize = normalizedSize) }
+        viewModelScope.launch { settingsRepository.setSubtitleFontSize(normalizedSize) }
+    }
+
+    fun setSubtitleColor(color: String) {
+        val normalizedColor = normalizeSubtitleColor(color)
+        subtitleColor = normalizedColor
+        _state.update { it.copy(subtitleColor = normalizedColor) }
+        viewModelScope.launch { settingsRepository.setSubtitleColor(normalizedColor) }
+    }
+
+    fun setSubtitleBackground(background: String) {
+        val normalizedBackground = normalizeSubtitleBackground(background)
+        _state.update { it.copy(subtitleBackground = normalizedBackground) }
+        viewModelScope.launch { settingsRepository.setSubtitleBackground(normalizedBackground) }
     }
 
     fun setAspectRatio(ratio: VideoAspectRatio) {

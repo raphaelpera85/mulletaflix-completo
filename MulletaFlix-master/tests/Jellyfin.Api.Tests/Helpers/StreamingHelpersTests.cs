@@ -105,6 +105,28 @@ public static class StreamingHelpersTests
     }
 
     [Fact]
+    public static async Task StreamStateDispose_ReleasesLiveStreamForItsUser()
+    {
+        var user = CreateUser("stream-state-owner");
+        var mediaSourceManager = new Mock<IMediaSourceManager>();
+        mediaSourceManager.Setup(manager => manager.CloseLiveStream("owned-stream", user.Id)).Returns(Task.CompletedTask);
+        var streamState = new StreamState(mediaSourceManager.Object, TranscodingJobType.Progressive, new Mock<ITranscodeManager>().Object)
+        {
+            User = user,
+            Request = new StreamingRequestDto(),
+            MediaSource = new MediaSourceInfo
+            {
+                LiveStreamId = "owned-stream",
+                RequiresClosing = true
+            }
+        };
+
+        await streamState.DisposeAsync();
+
+        mediaSourceManager.Verify(manager => manager.CloseLiveStream("owned-stream", user.Id), Times.Once);
+    }
+
+    [Fact]
     public static void GetOutputFilePath_IsUniquePerUser()
     {
         var state = CreateState();

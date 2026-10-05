@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
@@ -102,6 +102,10 @@ public class TrickplayImagesTask : IScheduledTask
                     var libraryOptions = _libraryManager.GetLibraryOptions(video);
                     await _trickplayManager.RefreshTrickplayDataAsync(video, false, libraryOptions, cancellationToken).ConfigureAwait(false);
                 }
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                {
+                    throw;
+                }
                 catch (Exception ex)
                 {
                     _logger.LogError(ex, "Error creating trickplay files for {ItemName}", video.Name);
@@ -117,4 +121,3 @@ public class TrickplayImagesTask : IScheduledTask
         progress.Report(100);
     }
 }
-

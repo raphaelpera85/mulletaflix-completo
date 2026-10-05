@@ -1,4 +1,4 @@
-﻿using System.Net;
+using System.Net;
 using System.Threading.Tasks;
 using System.Web;
 using MediaBrowser.Common.Extensions;
@@ -51,7 +51,7 @@ public class IPBasedAccessValidationMiddleware
             _logger.LogWarning(
                 "Blocking request to {Path} by {RemoteIP} due to IP filtering rule, reason: {Reason}",
                 // url-encode to block log injection
-                HttpUtility.UrlEncode(httpContext.Request.Path),
+                HttpUtility.UrlEncode(RequestPathLogRedactor.RedactSensitiveSegments(httpContext.Request.Path.Value)),
                 remoteIP,
                 result);
             httpContext.Response.StatusCode = StatusCodes.Status503ServiceUnavailable;
@@ -61,4 +61,3 @@ public class IPBasedAccessValidationMiddleware
         await _next(httpContext).ConfigureAwait(false);
     }
 }
-

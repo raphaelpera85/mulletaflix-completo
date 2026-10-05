@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Net.Http;
 using System.Diagnostics.Metrics;
 using System.Threading;
 using System.Threading.Tasks;
@@ -8,6 +9,7 @@ using MediaBrowser.Controller;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.Nebula;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Logging;
 using MongoDB.Bson;
 using Moq;
 using Xunit;
@@ -16,6 +18,31 @@ namespace MulletaFlix.Server.Implementations.Tests.Nebula;
 
 public class NebulaTelegramNotifierTests
 {
+    [Fact]
+    public async Task SendMessageAsync_DoesNotLogExceptionContainingBotToken()
+    {
+        const string botToken = "123456:secret-token-value";
+        var exceptionText = $"Request failed for https://api.telegram.org/bot{botToken}/sendMessage";
+        var logger = new CapturingExceptionLogger<NebulaTelegramPool>();
+        using var client = new HttpClient(new ThrowingHttpMessageHandler(exceptionText));
+        await using var pool = new NebulaTelegramPool(
+            12345,
+            "test_hash",
+            new[] { botToken },
+            -100123456789,
+            string.Empty,
+            logger,
+            client);
+
+        Assert.False(await pool.SendMessageAsync("test message"));
+        Assert.NotEmpty(logger.Entries);
+        Assert.All(logger.Entries, entry =>
+        {
+            Assert.DoesNotContain(botToken, entry.Message, StringComparison.Ordinal);
+            Assert.DoesNotContain(botToken, entry.Exception?.ToString() ?? string.Empty, StringComparison.Ordinal);
+        });
+    }
+
     [Fact]
     public void QueueMetrics_ReportDepthAndBoundedOutcomesWithoutSensitiveDimensions()
     {
@@ -286,4 +313,33 @@ public class NebulaTelegramNotifierTests
             Mock.Of<INebulaFtpManager>(),
             Mock.Of<IServerApplicationHost>(),
             NullLogger<NotificationsLibraryNotifier>.Instance);
+
+    private sealed class ThrowingHttpMessageHandler : HttpMessageHandler
+    {
+        private readonly string _exceptionMessage;
+
+        public ThrowingHttpMessageHandler(string exceptionMessage)
+        {
+            _exceptionMessage = exceptionMessage;
+        }
+
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+            => Task.FromException<HttpResponseMessage>(new HttpRequestException(_exceptionMessage));
+    }
+
+    private sealed class CapturingExceptionLogger<T> : ILogger<T>
+    {
+        public List<(string Message, Exception? Exception)> Entries { get; } = new();
+
+        public IDisposable? BeginScope<TState>(TState state)
+            where TState : notnull
+            => null;
+
+        public bool IsEnabled(LogLevel logLevel) => true;
+
+        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter)
+        {
+            Entries.Add((formatter(state, exception), exception));
+        }
+    }
 }

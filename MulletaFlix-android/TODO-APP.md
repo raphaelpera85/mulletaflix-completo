@@ -2,6 +2,38 @@
 
 Este documento rastreia o status de implementação de todas as funcionalidades, módulos, telas e componentes do aplicativo oficial **MulletaFlix Android**.
 
+## Ajuste rápido da aparência das legendas no player (APK local; sem release)
+
+- [x] Incluir no menu de faixas de legenda um atalho para ajustar tamanho, cor e fundo sem sair da reprodução; persistir pelos setters de preferências existentes.
+- [x] Reutilizar as mesmas escolhas do DataStore e manter as alterações visíveis no estado atual do player; ocultar o atalho durante transmissão Cast, quando o estilo local não se aplica ao receptor.
+- [x] Adaptar o painel: grupos empilhados e roláveis em celular; três colunas em tablet/TV; seleções acessíveis por toque e D-pad.
+- [x] Testar callbacks e layout adaptável executando a classe comum separadamente em telefone API 35, tablet API 35 e Android TV API 34. A classe exclusiva de D-pad na TV API 34: relatório instrumentado de 1 teste, 0 falhas/erros/ignorados; foco validado sem casos vazios.
+- [x] Quality Bar: `testDebugUnitTest` (1.383 testes, 0 falhas/erros/skips), `:feature:player:lintDebug`, `:app:lintDebug`, compilações dos testes Android e `:app:assembleDebug`: `BUILD SUCCESSFUL`.
+- [x] Validar o menu durante reprodução ativa: teste instrumentado serve áudio WAV e legenda SRT por MockWebServer local, abre o menu, muda tamanho/cor/fundo e confirma o cue renderizado pelo `SubtitleView` enquanto o player continua reproduzindo; PHONE API 35: 1/1, sem falhas/erros/skips. O QEMU foi confirmado na NVIDIA RTX 3050 e o AVD fechou ao terminar.
+- [ ] Validar com stream de mídia real do servidor Mulletaflix; fixture local não comprova autenticação, transporte ou mídia remota.
+- [ ] Sem bump, APK de produção ou publicação; conferir release anterior e certificado antes de eventual publicação autorizada.
+
+## Marcadores locais de leitura EPUB/CBZ (APK local; sem release)
+
+- [x] Salvar, restaurar e excluir marcadores de posição no leitor EPUB e CBZ; estado persiste offline em DataStore, isolado por servidor/conta/mídia e sem armazenar URL de streaming ou credenciais.
+- [x] Permitir nome personalizado opcional ao salvar e renomear marcadores existentes (até 80 caracteres); em branco, usar sugestão automática apenas ao criar. Limitar a 20 marcadores por título, deduplicar posições EPUB, limitar tamanho do localizador e manter no máximo 100 escopos recentes; mostrar confirmação/erro por Snackbar.
+- [x] EPUB usa o Locator Readium salvo para navegar na rendition ativa; CBZ converte o localizador em página. Menu e lista funcionam por toque e D-pad, com rótulos acessíveis e controles Android de toque.
+- [x] Testes instrumentados dos controles de salvar/restaurar/excluir, nomes personalizados, renomeação e D-pad: telefone API 35 (4/4), tablet API 35 (4/4), Android TV API 34 (4/4); persistência da renomeação, isolamento, limite, deduplicação, exclusão e navegação Readium: 10/10 no telefone. AVDs encerrados pelo wrapper e QEMU confirmado na GPU NVIDIA RTX 3050.
+- [x] Quality Bar: `testDebugUnitTest` (1.383 testes, 0 falhas/erros/skips), `:app:lintDebug`, `:feature:item-detail:lintDebug`, `:app:compileDebugAndroidTestKotlin` e `:app:assembleDebug`: `BUILD SUCCESSFUL`.
+- [x] Revisão final (Fable Judge): limites e validação dos dados persistidos, cancelamento de coroutines, identidade de conta/servidor em operações assíncronas e navegação inacessível tratados; sem achados pendentes.
+- [ ] Sem bump de versão, pacote de produção ou publicação; escopo desta alteração é somente APK.
+
+## Fundo personalizável das legendas (APK local; sem release)
+
+- [x] Oferecer “Sem fundo”, “Preto 50%” e “Preto 80%” nos Ajustes; prévia e Media3 usam a mesma política de cor/transparência.
+- [x] Persistir a escolha localmente no DataStore; aplicar durante reprodução online e offline.
+- [x] Remover dos cues as cores de texto/fundo, tamanho e cor da janela definidos no arquivo; preservar ênfase, família tipográfica, bitmap e layout, priorizando as escolhas do usuário.
+- [x] Testes instrumentados: renderização Media3 2/2 em telefone, tablet e TV; estilo/cues Media3 3/3 no telefone (inclui preservação de ênfase); opções dos Ajustes 5/5 nos três perfis; persistência DataStore 10/10 em telefone. AVDs encerrados pelo wrapper, QEMU confirmado na GPU NVIDIA.
+- [x] Quality Bar: `testDebugUnitTest` (1.383 testes, 0 falhas/erros/skips), `:app:lintDebug`, `:app:compileDebugAndroidTestKotlin`, `:feature:player:compileDebugAndroidTestKotlin` e `:app:assembleDebug` passaram.
+- [x] Aplicar cores/fundo definidos pelo usuário sem apagar negrito, itálico, sublinhado ou família tipográfica; teste Media3 confirma spans preservados e cores/tamanho embutidos removidos.
+- [x] Cobrir o elo Ajustes → repositório DataStore compartilhado → `PlayerViewModel` → `SubtitleView` em reprodução ativa. Teste instrumentado usa a tela e ViewModels reais de Ajustes, WAV/SRT local e os mesmos helpers de estilo usados pelo player; verifica mudança visual do tamanho/cor/fundo e continuidade da reprodução. Não instancia `VideoPlayerScreen` completa nem valida servidor remoto. PHONE API 35: 1/1, sem falhas/erros/skips; QEMU confirmado na NVIDIA RTX 3050 e AVD encerrado ao terminar.
+- [ ] Sem bump de versão, pacote de produção ou publicação; validar release anterior e certificado oficial antes de eventual publicação autorizada.
+
 ## Índice alfabético progressivo da biblioteca (APK local; sem release)
 
 - [x] Exibir letras ainda não carregadas durante a paginação e buscar páginas até encontrar a letra solicitada (ou a próxima disponível), respeitando a grade e cabeçalhos.
@@ -24,10 +56,11 @@ Este documento rastreia o status de implementação de todas as funcionalidades,
 
 - [x] Restringir PiP manual, automático e pelo evento de saída do app a celular/tablet; Android TV deixa o player pausar quando Activity chega a `ON_STOP`.
 - [x] Adicionar teste instrumentado TV que reproduz WAV silencioso, envia `KEYCODE_HOME` via `UiAutomation`, confirma Activity em `CREATED` e mídia pausada.
-- [x] Preservar teste real de janela PiP em telefone e tablet: mídia continua enquanto PiP está visível e pausa ao encerrar Activity.
+- [x] Preservar teste real de janela PiP em telefone e tablet: mídia continua enquanto PiP está visível e pausa quando a janela do sistema é fechada.
+- [x] Validar o controle visual Fechar do PiP usando `UiAutomation`: revelar controles, localizar os limites reais da janela, acionar a ação acessível do System UI somente quando os limites do botão intersectam os do PiP, restaurar flags no `finally` e confirmar Activity destruída + player pausado + janela PiP removida. PHONE API 35 e TABLET API 35: 1/1 em cada; QEMU validado na NVIDIA RTX 3050 e AVD encerrado pelo wrapper.
 - [x] `:feature:player:testDebugUnitTest`, `:feature:player:lintDebug` e `:feature:player:compileDebugAndroidTestKotlin`: `BUILD SUCCESSFUL`.
 - [x] AVD TV API 34: `PlayerBackgroundPlaybackTest` 3/3; telefone API 35 e tablet API 35: `PlayerPictureInPictureLifecycleTest` 1/1 em cada; todos sem falhas/erros/skips. Wrapper verificou QEMU na NVIDIA RTX 3050 e encerrou cada AVD.
-- [x] Sem bump, pacote ou publicação. Integração com mídia remota e toque no botão visual para fechar PiP não são cobertos por estes testes.
+- [x] Sem bump, pacote ou publicação. O WAV de teste não é stream remoto; o botão visual é ativado por `ACTION_CLICK` na acessibilidade, não por toque físico.
 
 ## Leitura de quadrinhos CBZ no APK (sem release)
 

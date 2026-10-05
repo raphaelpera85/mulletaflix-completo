@@ -21,6 +21,17 @@ const val SUBTITLE_COLOR_WHITE = "WHITE"
 const val SUBTITLE_COLOR_YELLOW = "YELLOW"
 const val SUBTITLE_COLOR_CYAN = "CYAN"
 
+/** Supported subtitle background modes, stored as stable preference codes. */
+const val SUBTITLE_BACKGROUND_NONE = "NONE"
+const val SUBTITLE_BACKGROUND_BLACK_50 = "BLACK_50"
+const val SUBTITLE_BACKGROUND_BLACK_80 = "BLACK_80"
+
+val subtitleBackgroundCodes: List<String> = listOf(
+    SUBTITLE_BACKGROUND_NONE,
+    SUBTITLE_BACKGROUND_BLACK_50,
+    SUBTITLE_BACKGROUND_BLACK_80,
+)
+
 /** Every colour the app offers, in display order. */
 val subtitleColorCodes: List<String> = listOf(
     SUBTITLE_COLOR_WHITE,
@@ -47,6 +58,20 @@ fun normalizeSubtitleColor(value: String?): String = when (value?.trim()?.upperc
     SUBTITLE_COLOR_YELLOW -> SUBTITLE_COLOR_YELLOW
     SUBTITLE_COLOR_CYAN -> SUBTITLE_COLOR_CYAN
     else -> SUBTITLE_COLOR_WHITE
+}
+
+/** Falls back safely when a stored background mode is missing or invalid. */
+fun normalizeSubtitleBackground(value: String?): String = when (value?.trim()?.uppercase()) {
+    SUBTITLE_BACKGROUND_BLACK_50 -> SUBTITLE_BACKGROUND_BLACK_50
+    SUBTITLE_BACKGROUND_BLACK_80 -> SUBTITLE_BACKGROUND_BLACK_80
+    else -> SUBTITLE_BACKGROUND_NONE
+}
+
+/** ARGB used by Media3 for the background behind each subtitle cue. */
+fun subtitleBackgroundArgb(value: String?): Int = when (normalizeSubtitleBackground(value)) {
+    SUBTITLE_BACKGROUND_BLACK_50 -> 0x80000000.toInt()
+    SUBTITLE_BACKGROUND_BLACK_80 -> 0xCC000000.toInt()
+    else -> 0x00000000
 }
 
 /** Clamps a stored subtitle size into the range the app supports. */

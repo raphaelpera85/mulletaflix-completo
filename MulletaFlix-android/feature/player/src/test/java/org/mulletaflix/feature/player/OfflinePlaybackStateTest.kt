@@ -25,6 +25,7 @@ class OfflinePlaybackStateTest {
         error = null,
         aspectRatio = VideoAspectRatio.ZOOM,
         subtitleColor = "YELLOW",
+        subtitleBackground = "BLACK_80",
         subtitleFontSize = subtitleFontSize,
         pictureInPictureEnabled = pictureInPictureEnabled,
         isNetworkMetered = isNetworkMetered,
@@ -45,6 +46,7 @@ class OfflinePlaybackStateTest {
 
         assertEquals(150, built.subtitleFontSize)
         assertEquals("YELLOW", built.subtitleColor)
+        assertEquals("BLACK_80", built.subtitleBackground)
         assertEquals(VideoAspectRatio.ZOOM, built.aspectRatio)
     }
 

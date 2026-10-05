@@ -120,6 +120,10 @@ public sealed class RecordingsManager : IRecordingsManager, IDisposable
         => _activeRecordings.GetValueOrDefault(id)?.Path;
 
     /// <inheritdoc />
+    public string? GetActiveRecordingStreamPath(string streamId)
+        => ActiveRecordingStreamPathResolver.Resolve(_activeRecordings.Values, streamId);
+
+    /// <inheritdoc />
     public ActiveRecordingInfo? GetActiveRecordingInfo(string path)
     {
         if (string.IsNullOrWhiteSpace(path) || _activeRecordings.IsEmpty)

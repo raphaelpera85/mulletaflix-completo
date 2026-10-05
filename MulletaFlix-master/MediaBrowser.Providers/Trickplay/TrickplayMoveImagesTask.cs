@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
@@ -106,6 +106,10 @@ public class TrickplayMoveImagesTask : IScheduledTask
                 {
                     var libraryOptions = _libraryManager.GetLibraryOptions(video);
                     await _trickplayManager.MoveGeneratedTrickplayDataAsync(video, libraryOptions, cancellationToken).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                {
+                    throw;
                 }
                 catch (Exception ex)
                 {

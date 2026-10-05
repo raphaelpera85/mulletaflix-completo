@@ -166,7 +166,7 @@ public sealed class NamedConfigurationConcurrencyTests : IDisposable
         }
 
         var backup = Run(() => manager.RecordMongoBackupResult(new NebulaSupabaseBackupResultDto { Success = true, FilesBackedUp = 42, UsersBackedUp = 7 }));
-        var restore = Run(() => manager.RecordMongoRestoreResult(false, "test restore failure", 0, 0));
+        var restore = Run(() => manager.RecordMongoRestoreResult(false, "test restore failure", null, null, null, null));
         var users = Task.Run(async () =>
         {
             await start.Task;
@@ -290,7 +290,10 @@ public sealed class NamedConfigurationConcurrencyTests : IDisposable
                 notificationsStarted.SetResult();
                 return manager.SaveNotificationsSettings(new NebulaNotificationsSettingsRequest
                 {
-                    Enabled = true, IntervalSeconds = 100, ChannelIds = "-1001, -1001, invalid, -1002", PublicServerUrl = null
+                    Enabled = true,
+                    IntervalSeconds = 100,
+                    ChannelIds = "-1001, -1001, invalid, -1002",
+                    PublicServerUrl = null
                 });
             });
             telegram = Task.Run(() =>
@@ -298,7 +301,9 @@ public sealed class NamedConfigurationConcurrencyTests : IDisposable
                 telegramStarted.SetResult();
                 return manager.SaveTelegramNotificationSettings(new NebulaTelegramNotificationSettingsRequest
                 {
-                    Enabled = true, IntervalSeconds = 0, ChatIds = "-2001, -2002"
+                    Enabled = true,
+                    IntervalSeconds = 0,
+                    ChatIds = "-2001, -2002"
                 });
             });
             backup = Task.Run(() => manager.RecordMongoBackupResult(new NebulaSupabaseBackupResultDto { Success = true, FilesBackedUp = 42 }));

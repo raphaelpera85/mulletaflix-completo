@@ -21,6 +21,10 @@ export interface SupabaseBackupStatus {
     LastRestoreTime?: string | null;
     LastRestoreStatus?: string;
     LastRestoreFailed?: boolean;
+    LastRestoreFilesRestored?: number | null;
+    LastRestoreUsersRestored?: number | null;
+    LastRestoreFtpUsersRestored?: number | null;
+    LastRestoreAppUsersRestored?: number | null;
     Message?: string;
 }
 

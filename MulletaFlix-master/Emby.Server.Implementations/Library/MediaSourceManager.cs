@@ -61,6 +61,7 @@ namespace Emby.Server.Implementations.Library
         private readonly IStrmPrebufferManager _prebufferManager;
         private readonly ConcurrentDictionary<string, ILiveStream> _openStreams = new ConcurrentDictionary<string, ILiveStream>(StringComparer.OrdinalIgnoreCase);
         private readonly ConcurrentDictionary<string, ConcurrentDictionary<Guid, int>> _liveStreamOwners = new ConcurrentDictionary<string, ConcurrentDictionary<Guid, int>>(StringComparer.OrdinalIgnoreCase);
+        private readonly ConcurrentDictionary<string, int> _unownedLiveStreamConsumers = new ConcurrentDictionary<string, int>(StringComparer.OrdinalIgnoreCase);
         private readonly AsyncNonKeyedLocker _liveStreamLocker = new(1);
         private readonly JsonSerializerOptions _jsonOptions = JsonDefaults.Options;
 
@@ -664,6 +665,10 @@ namespace Emby.Server.Implementations.Library
                         .GetOrAdd(mediaSource.LiveStreamId, _ => new ConcurrentDictionary<Guid, int>())
                         .AddOrUpdate(request.UserId, 1, (_, count) => count + 1);
                 }
+                else
+                {
+                    _unownedLiveStreamConsumers.AddOrUpdate(mediaSource.LiveStreamId, 1, (_, count) => count + 1);
+                }
             }
 
             try
@@ -982,7 +987,7 @@ namespace Emby.Server.Implementations.Library
                 && owners.ContainsKey(userId);
         }
 
-        public void ReleaseLiveStreamOwnership(string id, Guid userId)
+        private void ReleaseLiveStreamOwnership(string id, Guid userId)
         {
             ArgumentException.ThrowIfNullOrEmpty(id);
             if (userId.IsEmpty() || !_liveStreamOwners.TryGetValue(id, out var owners))
@@ -1002,6 +1007,22 @@ namespace Emby.Server.Implementations.Library
             }
         }
 
+        private bool ReleaseUnownedLiveStreamConsumer(string id)
+        {
+            while (_unownedLiveStreamConsumers.TryGetValue(id, out var count))
+            {
+                var removed = count <= 1
+                    ? ((ICollection<KeyValuePair<string, int>>)_unownedLiveStreamConsumers).Remove(new KeyValuePair<string, int>(id, count))
+                    : _unownedLiveStreamConsumers.TryUpdate(id, count - 1, count);
+                if (removed)
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
         /// <inheritdoc />
         public ILiveStream GetLiveStreamInfoByUniqueId(string uniqueId)
         {
@@ -1018,7 +1039,7 @@ namespace Emby.Server.Implementations.Library
         {
             var stream = new MediaSourceInfo
             {
-                EncoderPath = _appHost.GetApiUrlForLocalAccess() + "/LiveTv/LiveRecordings/" + info.Id + "/stream",
+                EncoderPath = _appHost.GetApiUrlForLocalAccess() + "/LiveTv/LiveRecordings/" + info.StreamId + "/stream",
                 EncoderProtocol = MediaProtocol.Http,
                 Path = info.Path,
                 Protocol = MediaProtocol.File,
@@ -1040,7 +1061,10 @@ namespace Emby.Server.Implementations.Library
             return [stream];
         }
 
-        public async Task CloseLiveStream(string id)
+        public Task CloseLiveStream(string id)
+            => CloseLiveStream(id, Guid.Empty);
+
+        public async Task CloseLiveStream(string id, Guid userId)
         {
             ArgumentException.ThrowIfNullOrEmpty(id);
 
@@ -1048,6 +1072,23 @@ namespace Emby.Server.Implementations.Library
             {
                 if (_openStreams.TryGetValue(id, out ILiveStream liveStream))
                 {
+                    if (!userId.IsEmpty())
+                    {
+                        if (!IsLiveStreamOwnedByUser(id, userId))
+                        {
+                            return;
+                        }
+
+                        ReleaseLiveStreamOwnership(id, userId);
+                    }
+                    else
+                    {
+                        if (!ReleaseUnownedLiveStreamConsumer(id))
+                        {
+                            return;
+                        }
+                    }
+
                     liveStream.ConsumerCount--;
 
                     _logger.LogInformation("Live stream {0} consumer count is now {1}", liveStream.OriginalStreamId, liveStream.ConsumerCount);
@@ -1056,6 +1097,7 @@ namespace Emby.Server.Implementations.Library
                     {
                         _openStreams.TryRemove(id, out _);
                         _liveStreamOwners.TryRemove(id, out _);
+                        _unownedLiveStreamConsumers.TryRemove(id, out _);
 
                         _logger.LogInformation("Closing live stream {0}", id);
 
@@ -1097,10 +1139,24 @@ namespace Emby.Server.Implementations.Library
             {
                 foreach (var key in _openStreams.Keys.ToList())
                 {
-                    CloseLiveStream(key).GetAwaiter().GetResult();
+                    CloseLiveStreamForShutdownAsync(key).GetAwaiter().GetResult();
                 }
 
                 _liveStreamLocker.Dispose();
+            }
+        }
+
+        private async Task CloseLiveStreamForShutdownAsync(string id)
+        {
+            using (await _liveStreamLocker.LockAsync().ConfigureAwait(false))
+            {
+                if (_openStreams.TryRemove(id, out var liveStream))
+                {
+                    _liveStreamOwners.TryRemove(id, out _);
+                    _unownedLiveStreamConsumers.TryRemove(id, out _);
+                    liveStream.ConsumerCount = 0;
+                    await liveStream.Close().ConfigureAwait(false);
+                }
             }
         }
     }

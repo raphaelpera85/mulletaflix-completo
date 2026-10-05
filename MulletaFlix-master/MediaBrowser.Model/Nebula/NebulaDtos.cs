@@ -363,6 +363,14 @@ public class NebulaSupabaseStatusDto
     public string LastRestoreStatus { get; set; } = string.Empty;
 
     public bool LastRestoreFailed { get; set; }
+
+    public int? LastRestoreFilesRestored { get; set; }
+
+    public int? LastRestoreUsersRestored { get; set; }
+
+    public int? LastRestoreFtpUsersRestored { get; set; }
+
+    public int? LastRestoreAppUsersRestored { get; set; }
 }
 
 public class NebulaSupabaseTestRequest
@@ -422,9 +430,13 @@ public class NebulaSupabaseRestoreResultDto
 
     public string Message { get; set; } = string.Empty;
 
-    public int FilesRestored { get; set; }
+    public int? FilesRestored { get; set; }
 
-    public int UsersRestored { get; set; }
+    public int? UsersRestored { get; set; }
+
+    public int? FtpUsersRestored { get; set; }
+
+    public int? AppUsersRestored { get; set; }
 
     public double ElapsedSeconds { get; set; }
 

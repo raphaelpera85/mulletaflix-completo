@@ -26,6 +26,8 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.mulletaflix.domain.model.SUBTITLE_COLOR_WHITE
 import org.mulletaflix.domain.model.SUBTITLE_COLOR_YELLOW
+import org.mulletaflix.domain.model.SUBTITLE_BACKGROUND_NONE
+import org.mulletaflix.domain.model.SUBTITLE_BACKGROUND_BLACK_80
 
 /**
  * The settings preview has to actually reflect the settings.
@@ -169,6 +171,33 @@ class SubtitlePreviewTest {
             "the preview must repaint when the colour changes",
             0,
             differingPixels(white, yellow),
+        )
+    }
+
+    @Test
+    fun changingTheBackgroundChangesWhatIsDrawn() {
+        var background by mutableStateOf(SUBTITLE_BACKGROUND_NONE)
+        composeRule.setContent {
+            MaterialTheme {
+                Box(Modifier.fillMaxSize().background(Color.Black)) {
+                    SubtitlePreview(
+                        sizePercent = 100,
+                        colorCode = SUBTITLE_COLOR_WHITE,
+                        backgroundCode = background,
+                    )
+                }
+            }
+        }
+
+        composeRule.waitForIdle()
+        val transparent = capture()
+        composeRule.runOnIdle { background = SUBTITLE_BACKGROUND_BLACK_80 }
+        composeRule.waitForIdle()
+
+        assertNotEquals(
+            "the preview must repaint when the subtitle background changes",
+            0,
+            differingPixels(transparent, capture()),
         )
     }
 

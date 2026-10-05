@@ -12,6 +12,7 @@ using MediaBrowser.Controller.Session;
 using MediaBrowser.MediaEncoding.Transcoding;
 using MediaBrowser.Model.Configuration;
 using MediaBrowser.Model.IO;
+using MulletaFlix.Database.Implementations.Entities;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
@@ -105,6 +106,44 @@ public class TranscodeManagerTests
         Assert.Equal(1, manager.ActiveTranscodingJobsCount);
         Assert.Null(manager.GetTranscodingJob("device-1", "session-shared"));
         Assert.NotNull(manager.GetTranscodingJob("device-2", "session-shared"));
+    }
+
+    [Fact]
+    public async Task KillTranscodingJob_PassesOwnerToLiveStreamClose()
+    {
+        using var manager = CreateManager(maxConcurrentJobs: 4);
+        var userId = Guid.NewGuid();
+        var job = AddJob(manager, "device-1", "play-session", @"C:\transcode\owned.m3u8");
+        job.LiveStreamId = "owned-live-stream";
+        job.UserId = userId;
+
+        var killMethod = typeof(TranscodeManager).GetMethod("KillTranscodingJob", BindingFlags.Instance | BindingFlags.NonPublic)!;
+        var task = (Task)killMethod.Invoke(manager, [job, true, (Func<string, bool>)(_ => false)])!;
+        await task;
+
+        _sessionManager.Verify(
+            sessionManager => sessionManager.CloseLiveStreamIfNeededAsync("owned-live-stream", "play-session", userId),
+            Times.Once);
+    }
+
+    [Fact]
+    public void CreateLiveStreamRequest_PreservesStreamStateUser()
+    {
+        var user = new User("test", "test", "test") { Id = Guid.NewGuid() };
+        using var state = new MediaBrowser.Controller.Streaming.StreamState(
+            _mediaSourceManager.Object,
+            TranscodingJobType.Hls,
+            Mock.Of<ITranscodeManager>())
+        {
+            User = user,
+            MediaSource = new MediaBrowser.Model.Dto.MediaSourceInfo { OpenToken = "open-token" }
+        };
+
+        var createRequest = typeof(TranscodeManager).GetMethod("CreateLiveStreamRequest", BindingFlags.Static | BindingFlags.NonPublic)!;
+        var request = (MediaBrowser.Model.MediaInfo.LiveStreamRequest)createRequest.Invoke(null, [state])!;
+
+        Assert.Equal(user.Id, request.UserId);
+        Assert.Equal("open-token", request.OpenToken);
     }
 
     [Fact]

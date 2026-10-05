@@ -2,6 +2,7 @@
 
 #pragma warning disable CS1591
 
+using System;
 using System.Threading;
 
 namespace MediaBrowser.Controller.LiveTv
@@ -9,6 +10,8 @@ namespace MediaBrowser.Controller.LiveTv
     public class ActiveRecordingInfo
     {
         public string Id { get; set; }
+
+        public string StreamId { get; set; } = Guid.NewGuid().ToString("N");
 
         public string Path { get; set; }
 

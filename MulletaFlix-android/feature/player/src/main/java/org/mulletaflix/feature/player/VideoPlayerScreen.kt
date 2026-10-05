@@ -70,7 +70,7 @@ import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.cast.MediaRouteButton
 import androidx.media3.ui.PlayerView
-import androidx.media3.ui.CaptionStyleCompat
+import androidx.media3.ui.SubtitleView
 import kotlinx.coroutines.delay
 import kotlin.math.abs
 import kotlin.math.roundToInt
@@ -193,6 +193,9 @@ fun VideoPlayerScreen(
     val isTelevision = (configuration.uiMode and Configuration.UI_MODE_TYPE_MASK) ==
         Configuration.UI_MODE_TYPE_TELEVISION
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val subtitleCueStyleListeners = remember(viewModel.player) {
+        mutableMapOf<SubtitleView, Player.Listener>()
+    }
     val isInPictureInPictureMode by PlayerPictureInPictureController.isInPictureInPictureMode.collectAsStateWithLifecycle()
     val notificationPreferences = remember(context) {
         context.getSharedPreferences(NOTIFICATION_PROMPT_PREFERENCES, Context.MODE_PRIVATE)
@@ -471,6 +474,12 @@ fun VideoPlayerScreen(
                 PlayerView(ctx).apply {
                     useController = false  // We use our own OSD
                     player = viewModel.player
+                    subtitleView?.let { subtitleView ->
+                        val listener = userSubtitleCueStyleListener(subtitleView)
+                        viewModel.player.addListener(listener)
+                        subtitleCueStyleListeners[subtitleView] = listener
+                        listener.onCues(viewModel.player.currentCues)
+                    }
                     addOnLayoutChangeListener { view, _, _, _, _, _, _, _, _ ->
                         val visibleRect = Rect()
                         if (view.getGlobalVisibleRect(visibleRect) && !visibleRect.isEmpty) {
@@ -497,21 +506,25 @@ fun VideoPlayerScreen(
                     }
                 }
             },
+            onRelease = { playerView ->
+                playerView.subtitleView?.let { subtitleView ->
+                    subtitleCueStyleListeners.remove(subtitleView)?.let(viewModel.player::removeListener)
+                }
+                playerView.player = null
+            },
             update = { playerView ->
                 playerView.resizeMode = state.aspectRatio.resizeMode
-                playerView.subtitleView?.setFractionalTextSize(
-                    subtitleFractionalTextSize(state.subtitleFontSize),
-                )
-                playerView.subtitleView?.setStyle(
-                    CaptionStyleCompat(
-                        subtitleForegroundColor(state.subtitleColor).toArgb(),
-                        android.graphics.Color.TRANSPARENT,
-                        android.graphics.Color.TRANSPARENT,
-                        CaptionStyleCompat.EDGE_TYPE_OUTLINE,
-                        SUBTITLE_OUTLINE_COLOR.toArgb(),
-                        null,
+                playerView.subtitleView?.let { subtitleView ->
+                    applyUserSubtitlePreferences(
+                        subtitleView = subtitleView,
+                        fontSizePercent = state.subtitleFontSize,
+                        style = subtitleCaptionStyle(
+                            subtitleForegroundColor(state.subtitleColor).toArgb(),
+                            SUBTITLE_OUTLINE_COLOR.toArgb(),
+                            state.subtitleBackground,
+                        ),
                     )
-                )
+                }
             },
             modifier = Modifier.fillMaxSize()
         )
@@ -706,6 +719,9 @@ fun VideoPlayerScreen(
                 onPreviousChapter = { viewModel.skipToPreviousChapter() },
                 onNextChapter = { viewModel.skipToNextChapter() },
                 onSubtitleSelect = { index -> viewModel.selectSubtitle(index) },
+                onSubtitleFontSizeSelect = viewModel::setSubtitleFontSize,
+                onSubtitleColorSelect = viewModel::setSubtitleColor,
+                onSubtitleBackgroundSelect = viewModel::setSubtitleBackground,
                 onAudioSelect = { index -> viewModel.selectAudio(index) },
                 onQualitySelect = { quality -> viewModel.selectQuality(quality) },
                 onSpeedSelect = { speed -> viewModel.setPlaybackSpeed(speed) },
@@ -891,6 +907,9 @@ internal fun PlayerOsd(
     onPreviousChapter: () -> Unit,
     onNextChapter: () -> Unit,
     onSubtitleSelect: (Int) -> Unit,
+    onSubtitleFontSizeSelect: (Int) -> Unit = {},
+    onSubtitleColorSelect: (String) -> Unit = {},
+    onSubtitleBackgroundSelect: (String) -> Unit = {},
     onAudioSelect: (Int) -> Unit,
     onQualitySelect: (String) -> Unit,
     onSpeedSelect: (Float) -> Unit,
@@ -909,6 +928,7 @@ internal fun PlayerOsd(
     onReportIssue: (String, String?) -> Unit = { _, _ -> },
 ) {
     var showSubtitleMenu by remember { mutableStateOf(false) }
+    var showSubtitleAppearanceMenu by remember { mutableStateOf(false) }
     var showAudioMenu by remember { mutableStateOf(false) }
     var showQualityMenu by remember { mutableStateOf(false) }
     var showSpeedMenu by remember { mutableStateOf(false) }
@@ -1175,7 +1195,23 @@ internal fun PlayerOsd(
                     onSubtitleSelect(originalIndex)
                     showSubtitleMenu = false
                 },
-                onDismiss = { showSubtitleMenu = false }
+                onDismiss = { showSubtitleMenu = false },
+                onAppearanceClick = if (state.isCasting) null else {
+                    {
+                        showSubtitleMenu = false
+                        showSubtitleAppearanceMenu = true
+                    }
+                },
+            )
+        }
+
+        if (showSubtitleAppearanceMenu && !state.isCasting) {
+            PlayerSubtitleAppearanceMenu(
+                state = state,
+                onSubtitleFontSizeSelect = onSubtitleFontSizeSelect,
+                onSubtitleColorSelect = onSubtitleColorSelect,
+                onSubtitleBackgroundSelect = onSubtitleBackgroundSelect,
+                onDismiss = { showSubtitleAppearanceMenu = false },
             )
         }
 
@@ -1545,7 +1581,7 @@ internal fun PlayerCastControl(
 // Helpers
 /** A radio row with a visible D-pad focus target on Android TV. */
 @Composable
-private fun PlayerOptionRow(
+internal fun PlayerOptionRow(
     selected: Boolean,
     onClick: () -> Unit,
     verticalAlignment: Alignment.Vertical,
@@ -1587,6 +1623,7 @@ internal fun PlayerTrackMenu(
     allowNone: Boolean = true,
     onSelect: (Int) -> Unit,
     onDismiss: () -> Unit,
+    onAppearanceClick: (() -> Unit)? = null,
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -1631,7 +1668,11 @@ internal fun PlayerTrackMenu(
                 }
             }
         },
-        confirmButton = {}
+        confirmButton = {
+            onAppearanceClick?.let { onClick ->
+                TextButton(onClick = onClick) { Text("Personalizar aparência") }
+            }
+        }
     )
 }
 

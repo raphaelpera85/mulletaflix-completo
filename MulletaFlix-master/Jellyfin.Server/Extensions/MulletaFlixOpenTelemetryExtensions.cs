@@ -6,7 +6,10 @@ using Emby.Server.Implementations.ScheduledTasks;
 using MulletaFlix.Server.Implementations.Nebula;
 using MulletaFlix.Server.Implementations.FullSystemBackup;
 using Jellyfin.Server.Implementations.Nebula;
+using Jellyfin.Server.Implementations.Database;
 using MediaBrowser.Providers.Plugins.MidiaStorageOnline.ScheduledTasks;
+using MediaBrowser.Providers.Lyric;
+using MediaBrowser.Providers.MediaInfo;
 using Microsoft.Extensions.DependencyInjection;
 using OpenTelemetry.Metrics;
 using OpenTelemetry.Resources;
@@ -67,6 +70,8 @@ internal static class MulletaFlixOpenTelemetryExtensions
                 .AddMeter(UnidentifiedMediaCleanupMetrics.MeterName)
                 .AddMeter(MediaSegmentExtractionMetrics.MeterName)
                 .AddMeter(MidiaStorageOnlineSyncMetrics.MeterName)
+                .AddMeter(LyricScheduledTaskMetrics.MeterName)
+                .AddMeter(SubtitleScheduledTaskMetrics.MeterName)
                 .AddMeter(DramaFindsMatchMetrics.MeterName)
                 .AddMeter(GoodShortMatchMetrics.MeterName)
                 .AddMeter(ShortMaxMatchMetrics.MeterName)
@@ -79,7 +84,8 @@ internal static class MulletaFlixOpenTelemetryExtensions
                 .AddMeter(LicenseExpirationMetrics.MeterName)
                 .AddMeter(LogCleanupMetrics.MeterName)
             .AddMeter(ChapterImagesMetrics.MeterName)
-            .AddMeter(OptimizeDatabaseMetrics.MeterName)
+                .AddMeter(OptimizeDatabaseMetrics.MeterName)
+                .AddMeter(DatabaseTelemetryMetrics.MeterName)
             .AddMeter(PluginUpdateMetrics.MeterName)
                 .AddMeter(MulletaFlix.Api.Jobs.MulletaFlixJobQueue.MeterName)
                 .AddOtlpExporter());

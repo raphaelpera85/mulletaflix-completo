@@ -217,7 +217,7 @@ public class StreamState : EncodingJobInfo, IDisposable, IAsyncDisposable
     {
         try
         {
-            await _mediaSourceManager.CloseLiveStream(liveStreamId).ConfigureAwait(false);
+            await _mediaSourceManager.CloseLiveStream(liveStreamId, User?.Id ?? Guid.Empty).ConfigureAwait(false);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {

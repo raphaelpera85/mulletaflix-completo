@@ -7,6 +7,9 @@ import org.mulletaflix.domain.model.MediaLanguage
 import org.mulletaflix.domain.model.SUBTITLE_COLOR_WHITE
 import org.mulletaflix.domain.model.SUBTITLE_COLOR_YELLOW
 import org.mulletaflix.domain.model.SUBTITLE_COLOR_CYAN
+import org.mulletaflix.domain.model.SUBTITLE_BACKGROUND_NONE
+import org.mulletaflix.domain.model.SUBTITLE_BACKGROUND_BLACK_50
+import org.mulletaflix.domain.model.SUBTITLE_BACKGROUND_BLACK_80
 import org.mulletaflix.domain.model.SEEK_JUMP_SECONDS_CHOICES
 
 /**
@@ -77,6 +80,13 @@ internal val subtitleColorChoices: List<LabeledChoice> = listOf(
     LabeledChoice(label = "Ciano", code = SUBTITLE_COLOR_CYAN),
 )
 
+/** Subtitle background choices, from no backing to highest contrast. */
+internal val subtitleBackgroundChoices: List<LabeledChoice> = listOf(
+    LabeledChoice(label = "Sem fundo", code = SUBTITLE_BACKGROUND_NONE),
+    LabeledChoice(label = "Preto 50%", code = SUBTITLE_BACKGROUND_BLACK_50),
+    LabeledChoice(label = "Preto 80%", code = SUBTITLE_BACKGROUND_BLACK_80),
+)
+
 /** Sort directions, in display order. */
 internal val librarySortOrderChoices: List<LabeledChoice> = listOf(
     LabeledChoice(label = "Ascendente", code = LIBRARY_SORT_ORDER_ASCENDING),
@@ -131,6 +141,15 @@ internal fun libraryGridDensityLabel(code: String?): String =
 internal fun subtitleColorLabel(code: String?): String =
     subtitleColorChoices.firstOrNull { it.code.equals(code?.trim(), ignoreCase = true) }?.label
         ?: subtitleColorChoices.first().label
+
+/** Resolves a stored background code to the settings label. */
+internal fun subtitleBackgroundLabel(code: String?): String =
+    subtitleBackgroundChoices.firstOrNull { it.code.equals(code?.trim(), ignoreCase = true) }?.label
+        ?: subtitleBackgroundChoices.first().label
+
+/** Resolves a settings label to a stored subtitle background code. */
+internal fun subtitleBackgroundCode(label: String?): String =
+    subtitleBackgroundChoices.firstOrNull { it.label == label }?.code ?: SUBTITLE_BACKGROUND_NONE
 
 /** Resolves a displayed sort direction to the stored code. */
 internal fun librarySortOrderCode(label: String?): String =

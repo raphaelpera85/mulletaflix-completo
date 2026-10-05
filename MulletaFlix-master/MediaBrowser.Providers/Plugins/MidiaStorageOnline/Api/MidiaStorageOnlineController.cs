@@ -32,6 +32,7 @@ using MulletaFlix.Database.Implementations.Entities;
 using MediaBrowser.Model.Configuration;
 using MediaBrowser.Model.Entities;
 using MediaBrowser.Model.LiveTv;
+using MediaBrowser.Providers.Plugins.MidiaStorageOnline;
 using MediaBrowser.Providers.Plugins.MidiaStorageOnline.Configuration;
 
 namespace MediaBrowser.Providers.Plugins.MidiaStorageOnline.Api
@@ -961,12 +962,12 @@ namespace MediaBrowser.Providers.Plugins.MidiaStorageOnline.Api
                                 }
                                 return BadRequest(new { error = $"Falha ao baixar M3U: HTTP {resp.StatusCode}" });
                             }
-                            var bytes = await resp.Content.ReadAsByteArrayAsync().ConfigureAwait(false);
+                            var bytes = await resp.Content.ReadAsByteArrayAsync(ct).ConfigureAwait(false);
                             m3uRaw = Encoding.UTF8.GetString(bytes);
                             Log($"M3U baixado: {m3uRaw.Length / 1024}KB");
                             break;
                         }
-                        catch (Exception ex) when (attempt < 2)
+                        catch (Exception ex) when (attempt < 2 && !ct.IsCancellationRequested)
                         {
                             Log($"Download M3U falhou (tentativa {attempt + 1}/3): {ex.Message}. Retentando...");
                             await Task.Delay(2000 * (attempt + 1)).ConfigureAwait(false);
@@ -1244,6 +1245,10 @@ namespace MediaBrowser.Providers.Plugins.MidiaStorageOnline.Api
                             Interlocked.Increment(ref seriesCount);
                         }
                     }
+                    catch (OperationCanceledException ex) when (MidiaStorageOnlineCancellation.IsRequested(ex, ct))
+                    {
+                        throw;
+                    }
                     catch (Exception entryEx)
                     {
                         Log($"Falha ao processar entrada '{entry.Name}' no sync do controller: {entryEx}");
@@ -1310,15 +1315,26 @@ namespace MediaBrowser.Providers.Plugins.MidiaStorageOnline.Api
                 finally
                 {
                     _libraryMonitor.ReportFileSystemChangeComplete(strmPath, true);
-                    try
+                    if (!ct.IsCancellationRequested)
                     {
-                        await UpdateLiveTvChannelItemsAsync(channelEntries, ct).ConfigureAwait(false);
-                    }
-                    catch (Exception refreshEx)
-                    {
-                        Log($"Falha ao atualizar canais Live TV após o sync: {refreshEx.Message}");
+                        try
+                        {
+                            await UpdateLiveTvChannelItemsAsync(channelEntries, ct).ConfigureAwait(false);
+                        }
+                        catch (OperationCanceledException ex) when (MidiaStorageOnlineCancellation.IsRequested(ex, ct))
+                        {
+                            throw;
+                        }
+                        catch (Exception refreshEx)
+                        {
+                            Log($"Falha ao atualizar canais Live TV após o sync: {refreshEx.Message}");
+                        }
                     }
                 }
+            }
+            catch (OperationCanceledException ex) when (MidiaStorageOnlineCancellation.IsRequested(ex, ct))
+            {
+                throw;
             }
             catch (Exception ex)
             {

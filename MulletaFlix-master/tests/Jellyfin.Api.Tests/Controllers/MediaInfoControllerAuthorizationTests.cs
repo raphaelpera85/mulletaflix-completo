@@ -38,7 +38,7 @@ public sealed class MediaInfoControllerAuthorizationTests
         var result = await fixture.Controller.CloseLiveStream("another-users-stream");
 
         Assert.IsType<ForbidResult>(result);
-        fixture.MediaSourceManager.Verify(manager => manager.CloseLiveStream(It.IsAny<string>()), Times.Never);
+        fixture.MediaSourceManager.Verify(manager => manager.CloseLiveStream(It.IsAny<string>(), It.IsAny<Guid>()), Times.Never);
     }
 
     [Fact]
@@ -51,7 +51,7 @@ public sealed class MediaInfoControllerAuthorizationTests
         var result = await fixture.Controller.CloseLiveStream("owned-stream");
 
         Assert.IsType<NoContentResult>(result);
-        fixture.MediaSourceManager.Verify(manager => manager.CloseLiveStream("owned-stream"), Times.Once);
+        fixture.MediaSourceManager.Verify(manager => manager.CloseLiveStream("owned-stream", fixture.User.Id), Times.Once);
     }
 
     [Fact]
@@ -64,7 +64,7 @@ public sealed class MediaInfoControllerAuthorizationTests
         var result = await fixture.Controller.CloseLiveStream("unowned-stream");
 
         Assert.IsType<ForbidResult>(result);
-        fixture.MediaSourceManager.Verify(manager => manager.CloseLiveStream(It.IsAny<string>()), Times.Never);
+        fixture.MediaSourceManager.Verify(manager => manager.CloseLiveStream(It.IsAny<string>(), It.IsAny<Guid>()), Times.Never);
     }
 
     [Fact]
@@ -77,7 +77,7 @@ public sealed class MediaInfoControllerAuthorizationTests
         var result = await fixture.Controller.CloseLiveStream("admin-visible-stream");
 
         Assert.IsType<NoContentResult>(result);
-        fixture.MediaSourceManager.Verify(manager => manager.CloseLiveStream("admin-visible-stream"), Times.Once);
+        fixture.MediaSourceManager.Verify(manager => manager.CloseLiveStream("admin-visible-stream", Guid.Empty), Times.Once);
     }
 
     [Fact]
@@ -91,17 +91,18 @@ public sealed class MediaInfoControllerAuthorizationTests
         var result = await fixture.Controller.CloseLiveStream("admin-visible-stream");
 
         Assert.IsType<NoContentResult>(result);
-        fixture.MediaSourceManager.Verify(manager => manager.CloseLiveStream("admin-visible-stream"), Times.Once);
+        fixture.MediaSourceManager.Verify(manager => manager.CloseLiveStream("admin-visible-stream", Guid.Empty), Times.Once);
     }
 
     [Fact]
     public async Task CloseLiveStream_AllowsStreamSharedWithRequestUser()
     {
         var fixture = CreateFixture();
+        var streamOwnerId = Guid.NewGuid();
         fixture.SessionManager.Setup(manager => manager.GetSessions(fixture.User.Id, string.Empty, null, null, false))
             .Returns([new SessionInfoDto
             {
-                UserId = Guid.NewGuid(),
+                UserId = streamOwnerId,
                 AdditionalUsers = [new MediaBrowser.Model.Session.SessionUserInfo { UserId = fixture.User.Id }],
                 PlayState = new MediaBrowser.Model.Session.PlayerStateInfo { LiveStreamId = "shared-stream" }
             }]);
@@ -109,7 +110,7 @@ public sealed class MediaInfoControllerAuthorizationTests
         var result = await fixture.Controller.CloseLiveStream("shared-stream");
 
         Assert.IsType<NoContentResult>(result);
-        fixture.MediaSourceManager.Verify(manager => manager.CloseLiveStream("shared-stream"), Times.Once);
+        fixture.MediaSourceManager.Verify(manager => manager.CloseLiveStream("shared-stream", streamOwnerId), Times.Once);
     }
 
     [Fact]

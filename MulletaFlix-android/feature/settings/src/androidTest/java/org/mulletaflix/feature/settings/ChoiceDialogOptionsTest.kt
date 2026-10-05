@@ -103,4 +103,23 @@ class ChoiceDialogOptionsTest {
 
         assertEquals("30s", selected)
     }
+
+    @Test
+    fun selectingSubtitleBackgroundReportsTheCorrespondingChoice() {
+        var selected: String? = null
+        composeRule.setContent {
+            MaterialTheme {
+                ChoiceDialogOptions(
+                    options = subtitleBackgroundChoices.map { it.label },
+                    selected = subtitleBackgroundChoices.first().label,
+                    onSelect = { selected = it },
+                )
+            }
+        }
+
+        composeRule.onNodeWithText("Preto 80%").performClick()
+
+        assertEquals("Preto 80%", selected)
+        assertEquals("BLACK_80", subtitleBackgroundCode(selected))
+    }
 }

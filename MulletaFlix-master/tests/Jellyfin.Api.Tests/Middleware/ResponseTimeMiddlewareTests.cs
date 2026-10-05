@@ -68,6 +68,20 @@ public sealed class ResponseTimeMiddlewareTests
     }
 
     [Fact]
+    public async Task SlowResponse_RedactsLiveRecordingCapabilityFromLog()
+    {
+        const string capability = "capability-secret";
+        var logger = CreateProductionLogger();
+        var sut = CreateMiddleware(logger, TimeSpan.FromMilliseconds(5));
+
+        await InvokeAsync(sut, $"/LiveTv/LiveRecordings/{capability}/stream");
+
+        var logState = Assert.Single(logger.Invocations).Arguments[2]!.ToString();
+        Assert.Contains("[REDACTED]", logState, StringComparison.Ordinal);
+        Assert.DoesNotContain(capability, logState, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task WhenTheWarningIsDisabled_NothingIsLogged()
     {
         var logger = CreateProductionLogger();

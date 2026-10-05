@@ -87,7 +87,14 @@ function Set-HighPerformanceGpuPreference {
 }
 
 function Assert-EmulatorUsesHighPerformanceNvidiaGpu {
-    param([string] $AvdName, [System.Diagnostics.Process] $RootProcess)
+    param([string] $AvdName, [int] $Port, [System.Diagnostics.Process] $RootProcess)
+
+    $reportedAvd = @(& $adb -s $serial emu avd name 2>$null) |
+        Where-Object { $_ -and $_.Trim() -notin @('OK') } |
+        Select-Object -Last 1
+    if ($LASTEXITCODE -ne 0 -or $reportedAvd.Trim() -ne $AvdName) {
+        throw "ADB serial $serial is not confirmed as AVD $AvdName (reported '$reportedAvd')."
+    }
 
     $nvidiaSmi = Get-Command 'nvidia-smi' -ErrorAction SilentlyContinue
     if (-not $nvidiaSmi) {
@@ -114,13 +121,17 @@ function Assert-EmulatorUsesHighPerformanceNvidiaGpu {
         } while ($expectedProcessIds.Count -gt $before)
     }
 
-    $qemuProcesses = @($allProcesses | Where-Object { $_.Name -eq 'qemu-system-x86_64.exe' })
+    $avdArgumentPattern = '(?:^|\s)-avd\s+"?' + [regex]::Escape($AvdName) + '"?(?:\s|$)'
+    $portArgumentPattern = '(?:^|\s)-port\s+"?' + [regex]::Escape([string]$Port) + '"?(?:\s|$)'
+    $qemuProcesses = @($allProcesses | Where-Object {
+        $_.Name -eq 'qemu-system-x86_64.exe' -and
+        $_.CommandLine -match $avdArgumentPattern -and
+        $_.CommandLine -match $portArgumentPattern
+    })
     if ($RootProcess) {
         $targetQemuProcesses = @($qemuProcesses | Where-Object { $expectedProcessIds.Contains([int]$_.ProcessId) })
-    } elseif ($qemuProcesses.Count -eq 1) {
-        $targetQemuProcesses = $qemuProcesses
     } else {
-        $targetQemuProcesses = @($qemuProcesses | Where-Object { $_.CommandLine -match [regex]::Escape($AvdName) })
+        $targetQemuProcesses = $qemuProcesses
     }
     if ($targetQemuProcesses.Count -ne 1) {
         throw "Could not uniquely identify the QEMU process for AVD $AvdName; close other emulators and run this test through the wrapper."
@@ -196,7 +207,7 @@ try {
         throw "Emulator $AvdName booted, but Package Manager did not become ready on $serial."
     }
     if ($GpuMode -eq 'host') {
-        Assert-EmulatorUsesHighPerformanceNvidiaGpu -AvdName $AvdName -RootProcess $emulatorProcess
+        Assert-EmulatorUsesHighPerformanceNvidiaGpu -AvdName $AvdName -Port $Port -RootProcess $emulatorProcess
     }
 
     $instrumentedTestRequested = $instrumentedTasks.Count -gt 0

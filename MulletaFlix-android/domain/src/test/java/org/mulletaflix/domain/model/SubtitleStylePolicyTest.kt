@@ -36,6 +36,24 @@ class SubtitleStylePolicyTest {
     }
 
     @Test
+    fun `subtitle backgrounds normalize to supported ARGB values`() {
+        assertEquals(SUBTITLE_BACKGROUND_NONE, normalizeSubtitleBackground(null))
+        assertEquals(SUBTITLE_BACKGROUND_NONE, normalizeSubtitleBackground("invalid"))
+        assertEquals(SUBTITLE_BACKGROUND_BLACK_50, normalizeSubtitleBackground(" black_50 "))
+        assertEquals(SUBTITLE_BACKGROUND_BLACK_80, normalizeSubtitleBackground("BLACK_80"))
+        assertEquals(0x00000000, subtitleBackgroundArgb(SUBTITLE_BACKGROUND_NONE))
+        assertEquals(0x80000000.toInt(), subtitleBackgroundArgb(SUBTITLE_BACKGROUND_BLACK_50))
+        assertEquals(0xCC000000.toInt(), subtitleBackgroundArgb(SUBTITLE_BACKGROUND_BLACK_80))
+    }
+
+    @Test
+    fun `every offered subtitle background maps to itself and remains selectable`() {
+        subtitleBackgroundCodes.forEach { code ->
+            assertEquals(code, normalizeSubtitleBackground(code))
+        }
+    }
+
+    @Test
     fun `size is clamped to the range the app supports`() {
         assertEquals(MIN_SUBTITLE_SIZE_PERCENT, normalizeSubtitleSizePercent(10))
         assertEquals(100, normalizeSubtitleSizePercent(100))

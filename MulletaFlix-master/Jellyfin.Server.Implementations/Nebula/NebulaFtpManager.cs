@@ -1496,8 +1496,6 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable, IAsyncDis
             _activeUploads.Clear();
             EmitRawLog(streamOnly ? "Iniciando NebulaFTP Server (Modo Somente Streaming)." : "Iniciando NebulaFTP Server (Modo Envio de Mídias).");
 
-            StartContinuousCleanup(config);
-
             // 1. Contexto do MongoDB
             if (_mongoContext == null)
             {
@@ -1546,6 +1544,11 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable, IAsyncDis
             }
 
             await EnsureDatabaseRestoredIfEmptyAsync(config, AddServerLog, cancellationToken).ConfigureAwait(false);
+
+            // Start the periodic refresh only after MongoDB has been connected and any
+            // configured restore has completed. Otherwise its immediate first pass can
+            // observe a null context, then wait a full 15 minutes before retrying.
+            StartContinuousCleanup(config);
 
             // O provedor FTP autentica no MongoDB assim que o socket abre.
             // Portanto, a conta usada pelo rclone precisa existir antes de
@@ -3083,14 +3086,14 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable, IAsyncDis
             return;
         }
 
-        var completedSince = DateTimeOffset.UtcNow.AddMinutes(-15);
+        var completedSince = NebulaCompletedMediaRefresh.GetCompletedSince(DateTimeOffset.UtcNow);
         var completedFiles = await mongo.GetRecentlyCompletedFilesAsync(completedSince, cancellationToken).ConfigureAwait(false);
         var mediaFiles = completedFiles
             .Where(NebulaMongoContext.IsCompletedTelegramMedia)
             .ToList();
         if (mediaFiles.Count == 0)
         {
-            _logger.LogDebug("[NEBULA-MOUNT] Nenhuma mídia concluída nos últimos 15 minutos para atualizar no disco N:.");
+            _logger.LogDebug("[NEBULA-MOUNT] Nenhuma mídia concluída na janela de recuperação para atualizar no disco N:.");
             return;
         }
 
@@ -3102,7 +3105,7 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable, IAsyncDis
         }
 
         _logger.LogInformation(
-            "[NEBULA-MOUNT] Refresh periódico do disco N: enfileirado para {DirectoryCount} diretórios com {MediaCount} mídias concluídas nos últimos 15 minutos.",
+            "[NEBULA-MOUNT] Refresh periódico do disco N: enfileirado para {DirectoryCount} diretórios com {MediaCount} mídias concluídas na janela de recuperação de 30 minutos.",
             directories.Count,
             mediaFiles.Count);
     }
@@ -3796,6 +3799,10 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable, IAsyncDis
             LastRestoreTime = config.SupabaseLastRestoreTime,
             LastRestoreStatus = config.SupabaseLastRestoreStatus,
             LastRestoreFailed = config.SupabaseLastRestoreFailed,
+            LastRestoreFilesRestored = config.SupabaseLastRestoreFilesRestored,
+            LastRestoreUsersRestored = config.SupabaseLastRestoreUsersRestored,
+            LastRestoreFtpUsersRestored = config.SupabaseLastRestoreFtpUsersRestored,
+            LastRestoreAppUsersRestored = config.SupabaseLastRestoreAppUsersRestored,
             TotalLocalFiles = 0,
             TotalRemoteFiles = config.SupabaseLastBackupFilesCount,
             Message = hasUrl ? "Configurado" : "Supabase não configurado"
@@ -4140,7 +4147,13 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable, IAsyncDis
                 CompleteMaintenanceOperation("failed", result.Message);
             }
 
-            RecordMongoRestoreResult(result.Success, result.Message, result.FilesRestored, result.UsersRestored);
+            RecordMongoRestoreResult(
+                result.Success,
+                result.Message,
+                result.FilesRestored,
+                result.UsersRestored,
+                result.FtpUsersRestored,
+                result.AppUsersRestored);
             await CacheOperationReplayAsync("supabase-restore", idempotencyKey, result, CancellationToken.None).ConfigureAwait(false);
             return result;
         }
@@ -4155,7 +4168,7 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable, IAsyncDis
             AddServerLog($"[SUPABASE-RESTORE-ERRO] Exceção durante a restauração nativa: {ex.Message}");
             _logger.LogError(ex, "Erro durante a restauração nativa do Supabase.");
             CompleteMaintenanceOperation("failed", ex.Message);
-            RecordMongoRestoreResult(false, ex.Message, 0, 0);
+            RecordMongoRestoreResult(false, ex.Message, null, null, null, null);
             var failedResult = new NebulaSupabaseRestoreResultDto
             {
                 Success = false,
@@ -4181,13 +4194,23 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable, IAsyncDis
         }
     }
 
-    internal void RecordMongoRestoreResult(bool success, string message, int filesRestored, int usersRestored)
+    internal void RecordMongoRestoreResult(
+        bool success,
+        string message,
+        int? filesRestored,
+        int? usersRestored,
+        int? ftpUsersRestored,
+        int? appUsersRestored)
     {
         _configManager.UpdateConfiguration("nebulaftp", current =>
         {
             var config = ((NebulaFtpConfiguration)current).CreateSnapshot();
             config.SupabaseLastRestoreTime = DateTime.UtcNow;
             config.SupabaseLastRestoreFailed = !success;
+            config.SupabaseLastRestoreFilesRestored = filesRestored;
+            config.SupabaseLastRestoreUsersRestored = usersRestored;
+            config.SupabaseLastRestoreFtpUsersRestored = ftpUsersRestored;
+            config.SupabaseLastRestoreAppUsersRestored = appUsersRestored;
             config.SupabaseLastRestoreStatus = success
                 ? $"Restauração do MongoDB realizada com sucesso ({filesRestored} arquivos, {usersRestored} usuários) em {DateTime.Now:dd/MM/yyyy HH:mm:ss}"
                 : $"Falha na restauração às {DateTime.Now:dd/MM/yyyy HH:mm:ss}: {message}";
@@ -4821,7 +4844,7 @@ CREATE POLICY nebula_bot_tokens_service_role_all
                 _supabaseSyncService ??= new NebulaSupabaseSyncService(_mongoContext, _loggerFactory.CreateLogger<NebulaSupabaseSyncService>(), _usersDbProvider);
                 var restoreResult = await _supabaseSyncService.PerformRestoreAsync(config.SupabaseUrl, config.SupabaseKey, cancellationToken).ConfigureAwait(false);
 
-                if (restoreResult.Success && (restoreResult.FilesRestored > 0 || restoreResult.UsersRestored > 0))
+                if (restoreResult.Success && (restoreResult.FilesRestored.GetValueOrDefault() > 0 || restoreResult.UsersRestored.GetValueOrDefault() > 0))
                 {
                     logAction?.Invoke($"[DATABASE-INIT] Auto-restauração de usuários concluída! {restoreResult.UsersRestored} usuários recuperados do Supabase.");
                     _logger.LogInformation("[DATABASE-INIT] Auto-restauração de usuários concluída: {Users} usuários restaurados.", restoreResult.UsersRestored);
@@ -5409,21 +5432,37 @@ idle_timeout = 15s
 
         try
         {
-            using var request = new HttpRequestMessage(HttpMethod.Post, $"http://127.0.0.1:{port}/vfs/refresh");
-            var credentials = Convert.ToBase64String(Encoding.UTF8.GetBytes($"{username}:{password}"));
-            request.Headers.Authorization = new AuthenticationHeaderValue("Basic", credentials);
-            request.Content = new StringContent(
-                JsonSerializer.Serialize(new { dir = directory }),
-                Encoding.UTF8,
-                "application/json");
-
-            using var response = await RcloneRemoteControlClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
-            response.EnsureSuccessStatusCode();
-            await using var responseStream = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
-            using var json = await JsonDocument.ParseAsync(responseStream, cancellationToken: cancellationToken).ConfigureAwait(false);
-            if (json.RootElement.TryGetProperty("error", out var error) && !string.IsNullOrWhiteSpace(error.GetString()))
+            var refreshError = await SendRcloneVfsRefreshAsync(
+                port,
+                username,
+                password,
+                directory,
+                cancellationToken).ConfigureAwait(false);
+            if (refreshError is not null)
             {
-                throw new InvalidOperationException($"rclone recusou o refresh da pasta virtual: {error.GetString()}");
+                var ancestors = NebulaCompletedMediaRefresh.GetRefreshAncestors(directory);
+                if (ancestors.Count == 0)
+                {
+                    throw new InvalidOperationException($"rclone recusou o refresh da pasta virtual {directory}: {refreshError}");
+                }
+
+                _logger.LogWarning(
+                    "[NEBULA-MOUNT] O diretório {Directory} não existe no cache VFS ({RefreshError}); atualizando seus ancestrais para descobrir novas pastas.",
+                    directory,
+                    refreshError);
+                foreach (var ancestor in ancestors)
+                {
+                    var fallbackError = await SendRcloneVfsRefreshAsync(
+                        port,
+                        username,
+                        password,
+                        ancestor,
+                        cancellationToken).ConfigureAwait(false);
+                    if (fallbackError is not null)
+                    {
+                        throw new InvalidOperationException($"rclone recusou o refresh do diretório ancestral {ancestor}: {fallbackError}");
+                    }
+                }
             }
 
             _logger.LogDebug("[NEBULA-MOUNT] Cache da pasta virtual atualizado: {Directory}", directory);
@@ -5437,6 +5476,28 @@ idle_timeout = 15s
             // MongoDB já confirmou o upload. Uma falha de cache nunca reverte nem falha a mídia.
             _logger.LogWarning(ex, "[NEBULA-MOUNT] Refresh da pasta virtual falhou após upload concluído: {Directory}", directory);
         }
+    }
+
+    private static async Task<string?> SendRcloneVfsRefreshAsync(
+        int port,
+        string username,
+        string password,
+        string directory,
+        CancellationToken cancellationToken)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Post, $"http://127.0.0.1:{port}/vfs/refresh");
+        var credentials = Convert.ToBase64String(Encoding.UTF8.GetBytes($"{username}:{password}"));
+        request.Headers.Authorization = new AuthenticationHeaderValue("Basic", credentials);
+        request.Content = new StringContent(
+            JsonSerializer.Serialize(new { dir = directory }),
+            Encoding.UTF8,
+            "application/json");
+
+        using var response = await RcloneRemoteControlClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
+        response.EnsureSuccessStatusCode();
+        await using var responseStream = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
+        using var json = await JsonDocument.ParseAsync(responseStream, cancellationToken: cancellationToken).ConfigureAwait(false);
+        return NebulaCompletedMediaRefresh.GetRcloneRefreshError(json.RootElement, directory);
     }
 
     private static int FindAvailableLoopbackPort()

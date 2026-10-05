@@ -453,6 +453,12 @@ public class LibraryStructureController : BaseMulletaFlixApiController
             var fullRootPath = Path.TrimEndingDirectorySeparator(Path.GetFullPath(rootPath));
             var fullCandidatePath = Path.GetFullPath(candidatePath);
             var comparison = OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
+            var volumeRoot = Path.GetPathRoot(fullRootPath);
+            if (volumeRoot is null || ContainsReparsePoint(volumeRoot, fullRootPath))
+            {
+                return false;
+            }
+
             var relativePath = Path.GetRelativePath(fullRootPath, fullCandidatePath);
             if (relativePath == "."
                 || Path.IsPathRooted(relativePath)
@@ -463,37 +469,42 @@ public class LibraryStructureController : BaseMulletaFlixApiController
                 return false;
             }
 
-            var currentPath = fullRootPath;
-            foreach (var segment in relativePath.Split(
-                new[] { Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar },
-                StringSplitOptions.RemoveEmptyEntries))
-            {
-                currentPath = Path.Combine(currentPath, segment);
-                try
-                {
-                    if ((System.IO.File.GetAttributes(currentPath) & FileAttributes.ReparsePoint) != 0)
-                    {
-                        return false;
-                    }
-                }
-                catch (FileNotFoundException)
-                {
-                    // A not-yet-created destination is valid; no later component can exist beneath it.
-                    break;
-                }
-                catch (DirectoryNotFoundException)
-                {
-                    // A not-yet-created destination is valid; no later component can exist beneath it.
-                    break;
-                }
-            }
-
-            return true;
+            return !ContainsReparsePoint(fullRootPath, fullCandidatePath);
         }
         catch (Exception ex) when (ex is ArgumentException or NotSupportedException or IOException or UnauthorizedAccessException)
         {
             return false;
         }
+    }
+
+    private static bool ContainsReparsePoint(string rootPath, string candidatePath)
+    {
+        var currentPath = rootPath;
+        foreach (var segment in Path.GetRelativePath(rootPath, candidatePath).Split(
+            new[] { Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar },
+            StringSplitOptions.RemoveEmptyEntries))
+        {
+            currentPath = Path.Combine(currentPath, segment);
+            try
+            {
+                if ((System.IO.File.GetAttributes(currentPath) & FileAttributes.ReparsePoint) != 0)
+                {
+                    return true;
+                }
+            }
+            catch (FileNotFoundException)
+            {
+                // A not-yet-created destination is valid; no later component can exist beneath it.
+                return false;
+            }
+            catch (DirectoryNotFoundException)
+            {
+                // A not-yet-created destination is valid; no later component can exist beneath it.
+                return false;
+            }
+        }
+
+        return false;
     }
 
     internal static bool IsSinglePathSegment(string? name)

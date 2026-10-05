@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-10-05T01:04:44-03:00",
+  "generatedAt": "2026-10-05T01:16:01-03:00",
   "source": {
     "roadmap": "https://github.com/raphaelpera85/mulletaflix-completo/blob/main/docs/roadmap-evolucao-tecnologica-servidor-e-web.md",
     "repository": "https://github.com/raphaelpera85/mulletaflix-completo"
@@ -29,6 +29,20 @@
     { "id": "T9.5", "name": "Validação e QA da tela", "area": "Web/QA", "status": "pending", "source": "roadmap" }
   ],
   "events": [
+    {
+      "id": "aspnet-hosting-request-log-redaction-2026-10-05",
+      "title": "Redação de logs de caminho e query do ASP.NET Hosting (T6.1 parcial)",
+      "agent": "Codex",
+      "front": "Servidor / Segurança de API e observabilidade",
+      "local": "D:\\Users\\Raphael\\Documents\\Projetos\\mulletaflix\\MulletaFlix-master",
+      "location": "Código e TestServer locais; sem instância de produção",
+      "scope": "Impedir que Hosting.Diagnostics grave capabilities bearer ou query strings sem alterar o request recebido pelo handler",
+      "status": "completed",
+      "progressPercent": null,
+      "startedAt": "2026-10-05T01:08:00-03:00",
+      "updatedAt": "2026-10-05T01:16:01-03:00",
+      "evidence": "O teste middleware-only reproduziu vazamento no evento de início do request. Serilog agora exclui apenas eventos Microsoft.AspNetCore.Hosting.Diagnostics com propriedades Path/QueryString; o request continua intacto no handler. HostingRequestLogRedactionTests 2/2; Jellyfin.Server.Tests Release 66 aprovados/1 ignorado/0 falhas; Jellyfin.Api.Tests Release 519/519; build Jellyfin.Server Release exit 0; dotnet format whitespace --verify-no-changes nos arquivos escopados e git diff --check passaram. Busca de Request.Path/Request.QueryString/GetDisplayUrl/GetEncodedPathAndQuery revisada; usos restantes são para roteamento/playlists/telemetria, e logs app usam RequestPathLogRedactor. Homologação formal T6.1 não consolidada (progressPercent null). Sem validação de proxy/collector/instalação real, sem pacote ou release devido ao gate do roadmap; curadoria IA permanece backlog futuro."
+    },
     {
       "id": "nebula-completed-media-refresh-overlap-2026-10-05",
       "title": "Janela sobreposta para refresh das mídias concluídas no N:",

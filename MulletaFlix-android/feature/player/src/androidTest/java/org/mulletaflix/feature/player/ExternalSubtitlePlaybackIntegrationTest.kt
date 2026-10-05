@@ -6,6 +6,7 @@ import androidx.activity.ComponentActivity
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.viewinterop.AndroidView
@@ -30,10 +31,11 @@ import org.junit.runner.RunWith
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
-import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicReference
 import android.content.Context
 import android.net.Uri
+import org.mulletaflix.domain.model.SUBTITLE_BACKGROUND_BLACK_50
+import org.mulletaflix.domain.model.SUBTITLE_BACKGROUND_BLACK_80
 
 @RunWith(AndroidJUnit4::class)
 class ExternalSubtitlePlaybackIntegrationTest {
@@ -60,7 +62,9 @@ class ExternalSubtitlePlaybackIntegrationTest {
         val playbackFailed = AtomicReference<androidx.media3.common.PlaybackException?>()
         val subtitleRequested = AtomicBoolean(false)
         val playerRef = AtomicReference<ExoPlayer?>()
+        val cueStyleListenerRef = AtomicReference<Player.Listener?>()
         val subtitleViewRef = AtomicReference<androidx.media3.ui.SubtitleView?>()
+        val subtitleBackground = mutableStateOf(SUBTITLE_BACKGROUND_BLACK_50)
         val context = ApplicationProvider.getApplicationContext<Context>()
 
         try {
@@ -102,8 +106,36 @@ class ExternalSubtitlePlaybackIntegrationTest {
                         factory = { context ->
                             PlayerView(context).apply {
                                 useController = false
-                                player = playerRef.get()
+                                val playbackPlayer = checkNotNull(playerRef.get())
+                                player = playbackPlayer
                                 subtitleViewRef.set(subtitleView)
+                                val activeSubtitleView = checkNotNull(subtitleView)
+                                applyUserSubtitlePreferences(
+                                    subtitleView = activeSubtitleView,
+                                    fontSizePercent = 100,
+                                    style = subtitleCaptionStyle(
+                                        android.graphics.Color.WHITE,
+                                        android.graphics.Color.BLACK,
+                                        subtitleBackground.value,
+                                    ),
+                                )
+                                val cueStyleListener = userSubtitleCueStyleListener(activeSubtitleView)
+                                cueStyleListenerRef.set(cueStyleListener)
+                                playbackPlayer.addListener(cueStyleListener)
+                                cueStyleListener.onCues(playbackPlayer.currentCues)
+                            }
+                        },
+                        update = { playerView ->
+                            playerView.subtitleView?.let { subtitleView ->
+                                applyUserSubtitlePreferences(
+                                    subtitleView = subtitleView,
+                                    fontSizePercent = 100,
+                                    style = subtitleCaptionStyle(
+                                        android.graphics.Color.WHITE,
+                                        android.graphics.Color.BLACK,
+                                        subtitleBackground.value,
+                                    ),
+                                )
                             }
                         },
                     )
@@ -135,24 +167,45 @@ class ExternalSubtitlePlaybackIntegrationTest {
                 cueDecoded.await(10, TimeUnit.SECONDS),
             )
             composeRule.waitForIdle()
-            val renderedPixels = AtomicInteger(0)
-            InstrumentationRegistry.getInstrumentation().runOnMainSync {
-                val subtitleView = checkNotNull(subtitleViewRef.get())
-                val bitmap = Bitmap.createBitmap(subtitleView.width, subtitleView.height, Bitmap.Config.ARGB_8888)
-                subtitleView.draw(Canvas(bitmap))
-                val pixels = IntArray(bitmap.width * bitmap.height)
-                bitmap.getPixels(pixels, 0, bitmap.width, 0, 0, bitmap.width, bitmap.height)
-                renderedPixels.set(pixels.count { android.graphics.Color.alpha(it) > 0 })
-                bitmap.recycle()
+            fun captureSubtitlePixels(): IntArray {
+                val captured = AtomicReference<IntArray>()
+                InstrumentationRegistry.getInstrumentation().runOnMainSync {
+                    val subtitleView = checkNotNull(subtitleViewRef.get())
+                    val bitmap = Bitmap.createBitmap(subtitleView.width, subtitleView.height, Bitmap.Config.ARGB_8888)
+                    subtitleView.draw(Canvas(bitmap))
+                    val pixels = IntArray(bitmap.width * bitmap.height)
+                    bitmap.getPixels(pixels, 0, bitmap.width, 0, 0, bitmap.width, bitmap.height)
+                    captured.set(pixels)
+                    bitmap.recycle()
+                }
+                return checkNotNull(captured.get())
             }
+            fun countBlackBacking(pixels: IntArray, alpha: Int): Int = pixels.count {
+                android.graphics.Color.alpha(it) == alpha &&
+                    android.graphics.Color.red(it) == 0 &&
+                    android.graphics.Color.green(it) == 0 &&
+                    android.graphics.Color.blue(it) == 0
+            }
+
+            val halfOpacityBacking = captureSubtitlePixels()
             assertTrue(
-                "PlayerView SubtitleView did not render the decoded cue",
-                renderedPixels.get() > 0,
+                "the active cue should use the selected 50% backing",
+                countBlackBacking(halfOpacityBacking, 0x80) > 0,
+            )
+            composeRule.runOnIdle { subtitleBackground.value = SUBTITLE_BACKGROUND_BLACK_80 }
+            composeRule.waitForIdle()
+            val highOpacityBacking = captureSubtitlePixels()
+            assertTrue(
+                "changing the selected style should update the active cue to 80% backing",
+                countBlackBacking(highOpacityBacking, 0xCC) > 0,
             )
             assertEquals(null, playbackFailed.get())
         } finally {
             InstrumentationRegistry.getInstrumentation().runOnMainSync {
-                playerRef.getAndSet(null)?.release()
+                playerRef.getAndSet(null)?.let { player ->
+                    cueStyleListenerRef.getAndSet(null)?.let(player::removeListener)
+                    player.release()
+                }
             }
             server.shutdown()
         }
@@ -220,7 +273,7 @@ class ExternalSubtitlePlaybackIntegrationTest {
 
     private fun wavSilence(): ByteArray {
         val sampleRate = 8_000
-        val sampleCount = sampleRate * 6
+        val sampleCount = sampleRate * 20
         val dataSize = sampleCount * 2
         val output = java.io.ByteArrayOutputStream(44 + dataSize)
         val header = java.nio.ByteBuffer.allocate(44).order(java.nio.ByteOrder.LITTLE_ENDIAN)
@@ -246,8 +299,8 @@ class ExternalSubtitlePlaybackIntegrationTest {
         const val EXPECTED_CUE = "Legenda externa real"
         val SRT_CUE = """
             1
-            00:00:00,500 --> 00:00:04,500
-            $EXPECTED_CUE
+            00:00:00,500 --> 00:00:15,500
+            <i><font color="#ff0000">$EXPECTED_CUE</font></i>
 
         """.trimIndent()
     }

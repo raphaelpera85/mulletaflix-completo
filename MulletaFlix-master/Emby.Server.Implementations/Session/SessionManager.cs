@@ -314,7 +314,7 @@ namespace Emby.Server.Implementations.Session
                 _activeConnections.TryRemove(key, out _);
                 if (!string.IsNullOrEmpty(session.PlayState?.LiveStreamId))
                 {
-                    await CloseLiveStreamIfNeededAsync(session.PlayState.LiveStreamId, session.Id).ConfigureAwait(false);
+                    await CloseLiveStreamIfNeededAsync(session.PlayState.LiveStreamId, session.Id, session.UserId).ConfigureAwait(false);
                 }
 
                 await OnSessionEnded(session).ConfigureAwait(false);
@@ -322,7 +322,10 @@ namespace Emby.Server.Implementations.Session
         }
 
         /// <inheritdoc />
-        public async Task CloseLiveStreamIfNeededAsync(string liveStreamId, string sessionIdOrPlaySessionId)
+        public Task CloseLiveStreamIfNeededAsync(string liveStreamId, string sessionIdOrPlaySessionId)
+            => CloseLiveStreamIfNeededAsync(liveStreamId, sessionIdOrPlaySessionId, Guid.Empty);
+
+        public async Task CloseLiveStreamIfNeededAsync(string liveStreamId, string sessionIdOrPlaySessionId, Guid userId)
         {
             bool liveStreamNeedsToBeClosed = false;
 
@@ -348,7 +351,7 @@ namespace Emby.Server.Implementations.Session
             {
                 try
                 {
-                    await _mediaSourceManager.CloseLiveStream(liveStreamId).ConfigureAwait(false);
+                    await _mediaSourceManager.CloseLiveStream(liveStreamId, userId).ConfigureAwait(false);
                 }
                 catch (Exception ex)
                 {
@@ -1037,7 +1040,7 @@ namespace Emby.Server.Implementations.Session
                 // resource leaks when stalled clients report a negative PositionTicks.
                 if (!string.IsNullOrEmpty(info.LiveStreamId))
                 {
-                    await CloseLiveStreamIfNeededAsync(info.LiveStreamId, session.Id).ConfigureAwait(false);
+                    await CloseLiveStreamIfNeededAsync(info.LiveStreamId, session.Id, session.UserId).ConfigureAwait(false);
                 }
 
                 throw new ArgumentOutOfRangeException(nameof(info), "The PlaybackStopInfo's PositionTicks was negative.");
@@ -1109,7 +1112,7 @@ namespace Emby.Server.Implementations.Session
 
             if (!string.IsNullOrEmpty(info.LiveStreamId))
             {
-                await CloseLiveStreamIfNeededAsync(info.LiveStreamId, session.Id).ConfigureAwait(false);
+                await CloseLiveStreamIfNeededAsync(info.LiveStreamId, session.Id, session.UserId).ConfigureAwait(false);
             }
 
             var eventArgs = new PlaybackStopEventArgs

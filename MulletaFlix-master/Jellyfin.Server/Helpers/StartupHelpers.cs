@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
@@ -12,6 +12,7 @@ using MulletaFlix.Server.ServerSetupApp;
 using MediaBrowser.Common.Configuration;
 using MediaBrowser.Controller.Extensions;
 using MediaBrowser.Model.IO;
+using MulletaFlix.Api.Middleware;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using Serilog;
@@ -261,8 +262,8 @@ public static class StartupHelpers
             var startupLogger = new LoggerProviderCollection();
             startupLogger.AddProvider(new SetupServer.SetupLoggerFactory());
             // Serilog.Log is used by SerilogLoggerFactory when no logger is specified
-            Log.Logger = new LoggerConfiguration()
-                .ReadFrom.Configuration(configuration)
+            Log.Logger = AddHostingRequestLogRedaction(
+                new LoggerConfiguration().ReadFrom.Configuration(configuration))
                 .Enrich.FromLogContext()
                 .Enrich.WithThreadId()
                 .WriteTo.Async(e => e.Providers(startupLogger))
@@ -270,7 +271,7 @@ public static class StartupHelpers
         }
         catch (Exception ex)
         {
-            Log.Logger = new LoggerConfiguration()
+            Log.Logger = AddHostingRequestLogRedaction(new LoggerConfiguration())
                 .WriteTo.Console(
                     outputTemplate: "[{Timestamp:HH:mm:ss}] [{Level:u3}] [{ThreadId}] {SourceContext}: {Message:lj}{NewLine}{Exception}",
                     formatProvider: CultureInfo.InvariantCulture)
@@ -288,6 +289,9 @@ public static class StartupHelpers
         }
     }
 
+    internal static LoggerConfiguration AddHostingRequestLogRedaction(LoggerConfiguration loggerConfiguration)
+        => loggerConfiguration.Enrich.With(new HostingRequestLogRedactionEnricher());
+
     /// <summary>
     /// Call static initialization methods for the application.
     /// </summary>
@@ -298,4 +302,3 @@ public static class StartupHelpers
         Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
     }
 }
-

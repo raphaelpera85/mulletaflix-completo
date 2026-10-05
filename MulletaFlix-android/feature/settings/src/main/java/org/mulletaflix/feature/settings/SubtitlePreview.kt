@@ -20,6 +20,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import org.mulletaflix.designsystem.subtitle.subtitleForegroundColor
 import org.mulletaflix.domain.model.subtitleFractionalTextSize
+import org.mulletaflix.domain.model.subtitleBackgroundArgb
+import org.mulletaflix.domain.model.SUBTITLE_BACKGROUND_NONE
 
 /**
  * Height of the video area the preview stands in for, in dp.
@@ -63,6 +65,7 @@ internal fun subtitlePreviewFontSizeSp(
 internal fun SubtitlePreview(
     sizePercent: Int,
     colorCode: String,
+    backgroundCode: String = SUBTITLE_BACKGROUND_NONE,
     modifier: Modifier = Modifier,
 ) {
     Box(
@@ -82,6 +85,7 @@ internal fun SubtitlePreview(
                 fontSize = subtitlePreviewFontSizeSp(sizePercent).sp,
                 fontWeight = FontWeight.Medium,
                 shadow = Shadow(color = Color.Black, offset = Offset(0f, 2f), blurRadius = 4f),
+                background = Color(subtitleBackgroundArgb(backgroundCode)),
             ),
         )
     }

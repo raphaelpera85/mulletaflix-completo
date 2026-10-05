@@ -22,11 +22,13 @@ namespace MediaBrowser.Providers.MediaInfo
     {
         private readonly ILogger _logger;
         private readonly ISubtitleManager _subtitleManager;
+        private readonly Action? _onFailure;
 
-        public SubtitleDownloader(ILogger logger, ISubtitleManager subtitleManager)
+        public SubtitleDownloader(ILogger logger, ISubtitleManager subtitleManager, Action? onFailure = null)
         {
             _logger = logger;
             _subtitleManager = subtitleManager;
+            _onFailure = onFailure;
         }
 
         public async Task<List<string>> DownloadSubtitles(
@@ -201,9 +203,15 @@ namespace MediaBrowser.Providers.MediaInfo
             }
             catch (RateLimitExceededException)
             {
+                _onFailure?.Invoke();
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
             }
             catch (Exception ex)
             {
+                _onFailure?.Invoke();
                 _logger.LogError(ex, "Error downloading subtitles");
             }
 

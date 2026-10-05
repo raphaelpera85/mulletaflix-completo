@@ -60,7 +60,7 @@ public sealed class NebulaTelegramPool : IAsyncDisposable, IDisposable
     /// </summary>
     private const int MaxDocumentCacheEntries = 4096;
 
-    private readonly HttpClient _httpClient = new() { Timeout = TimeSpan.FromMinutes(10) };
+    private readonly HttpClient _httpClient;
     private readonly SemaphoreSlim _initLock = new(1, 1);
     private readonly Mutex _processLock;
     private bool _processLockHeld;
@@ -83,6 +83,18 @@ public sealed class NebulaTelegramPool : IAsyncDisposable, IDisposable
     /// Inicializa uma nova instância de <see cref="NebulaTelegramPool"/>.
     /// </summary>
     public NebulaTelegramPool(int apiId, string apiHash, IEnumerable<string> botTokens, long chatId, string sessionsDirectory, ILogger<NebulaTelegramPool> logger)
+        : this(apiId, apiHash, botTokens, chatId, sessionsDirectory, logger, new HttpClient { Timeout = TimeSpan.FromMinutes(10) })
+    {
+    }
+
+    internal NebulaTelegramPool(
+        int apiId,
+        string apiHash,
+        IEnumerable<string> botTokens,
+        long chatId,
+        string sessionsDirectory,
+        ILogger<NebulaTelegramPool> logger,
+        HttpClient httpClient)
     {
         _apiId = apiId;
         _apiHash = apiHash;
@@ -92,6 +104,7 @@ public sealed class NebulaTelegramPool : IAsyncDisposable, IDisposable
             ? Path.Combine(AppContext.BaseDirectory, "nebula_sessions")
             : sessionsDirectory;
         _logger = logger;
+        _httpClient = httpClient;
         _processLock = new Mutex(false, "MulletaFlix.NebulaTelegramPool");
 
         if (!Directory.Exists(_sessionsDirectory))
@@ -531,7 +544,7 @@ public sealed class NebulaTelegramPool : IAsyncDisposable, IDisposable
                     catch (Exception ex)
                     {
                         RewindOutputToPosition(output, attemptPosition);
-                        _logger.LogDebug(ex, "[NEBULA-TG] Falha ao baixar via MTProto FileId no Bot [{BotIndex}].", activeBotIndex);
+                        _logger.LogDebug("[NEBULA-TG] Falha ao baixar via MTProto FileId no Bot [{BotIndex}] (tipo {ErrorType}).", activeBotIndex, GetSafeExceptionType(ex));
                     }
                 }
             }
@@ -723,7 +736,7 @@ public sealed class NebulaTelegramPool : IAsyncDisposable, IDisposable
                     }
                     catch (Exception ex)
                     {
-                        _logger.LogDebug(ex, "[NEBULA-TG] Falha ao obter chunk via MTProto FileId no Bot [{BotIndex}].", activeBotIndex);
+                        _logger.LogDebug("[NEBULA-TG] Falha ao obter chunk via MTProto FileId no Bot [{BotIndex}] (tipo {ErrorType}).", activeBotIndex, GetSafeExceptionType(ex));
                     }
                 }
             }
@@ -844,7 +857,7 @@ public sealed class NebulaTelegramPool : IAsyncDisposable, IDisposable
             }
             catch (Exception ex)
             {
-                _logger.LogDebug(ex, "[NEBULA-TG] Falha ao usar Document cacheado da mensagem {MessageId} no Bot [{BotIndex}].", messageId, botIndex);
+                _logger.LogDebug("[NEBULA-TG] Falha ao usar Document cacheado da mensagem {MessageId} no Bot [{BotIndex}] (tipo {ErrorType}).", messageId, botIndex, GetSafeExceptionType(ex));
             }
         }
 
@@ -935,7 +948,7 @@ public sealed class NebulaTelegramPool : IAsyncDisposable, IDisposable
             catch (Exception ex)
             {
                 RewindOutputToPosition(output, attemptPosition);
-                _logger.LogDebug(ex, "[NEBULA-TG] Falha ao usar Document cacheado da mensagem {MessageId} no Bot [{BotIndex}].", messageId, botIndex);
+                _logger.LogDebug("[NEBULA-TG] Falha ao usar Document cacheado da mensagem {MessageId} no Bot [{BotIndex}] (tipo {ErrorType}).", messageId, botIndex, GetSafeExceptionType(ex));
             }
         }
 
@@ -1027,7 +1040,7 @@ public sealed class NebulaTelegramPool : IAsyncDisposable, IDisposable
         }
         catch (Exception ex)
         {
-            _logger.LogDebug(ex, "[NEBULA-TG] Falha ao resolver chats via Messages_GetAllChats no Bot [{BotIndex}].", botIndex);
+            _logger.LogDebug("[NEBULA-TG] Falha ao resolver chats via Messages_GetAllChats no Bot [{BotIndex}] (tipo {ErrorType}).", botIndex, GetSafeExceptionType(ex));
         }
 
         if (_dynamicChannelAccessHashes.TryGetValue(botIndex, out var map2) && map2.TryGetValue(bareChannelId, out var resolvedHash) && resolvedHash != 0)
@@ -1058,7 +1071,7 @@ public sealed class NebulaTelegramPool : IAsyncDisposable, IDisposable
         }
         catch (Exception ex)
         {
-            _logger.LogDebug(ex, "[NEBULA-TG] Falha ao resolver chats via Messages_GetDialogs no Bot [{BotIndex}].", botIndex);
+            _logger.LogDebug("[NEBULA-TG] Falha ao resolver chats via Messages_GetDialogs no Bot [{BotIndex}] (tipo {ErrorType}).", botIndex, GetSafeExceptionType(ex));
         }
 
         if (_dynamicChannelAccessHashes.TryGetValue(botIndex, out var map3) && map3.TryGetValue(bareChannelId, out var resolvedHash2) && resolvedHash2 != 0)
@@ -1294,7 +1307,7 @@ public sealed class NebulaTelegramPool : IAsyncDisposable, IDisposable
             }
             catch (Exception ex)
             {
-                _logger.LogDebug(ex, "[NEBULA-TG] Falha ao baixar chunk via Bot [{BotIndex}].", botIndex);
+                _logger.LogDebug("[NEBULA-TG] Falha ao baixar chunk via Bot [{BotIndex}] (tipo {ErrorType}).", botIndex, GetSafeExceptionType(ex));
                 return null;
             }
         }
@@ -1319,6 +1332,9 @@ public sealed class NebulaTelegramPool : IAsyncDisposable, IDisposable
 
         return chatId;
     }
+
+    internal static string GetSafeExceptionType(Exception exception)
+        => exception.GetType().Name;
 
     /// <summary>
     /// Sanitiza uma mensagem removendo tokens de bots para evitar vazamento em logs.
@@ -1412,12 +1428,12 @@ public sealed class NebulaTelegramPool : IAsyncDisposable, IDisposable
                     }
                     catch (Exception ex)
                     {
-                        _logger.LogDebug(ex, "[NEBULA-TG] Bot [{Index}] falha ao buscar chats na inicialização.", index);
+                        _logger.LogDebug("[NEBULA-TG] Bot [{Index}] falha ao buscar chats na inicialização (tipo {ErrorType}).", index, GetSafeExceptionType(ex));
                     }
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogError(ex, "[NEBULA-TG] Falha ao autenticar Bot [{Index}].", index);
+                    _logger.LogError("[NEBULA-TG] Falha ao autenticar Bot [{Index}] (tipo {ErrorType}).", index, GetSafeExceptionType(ex));
                 }
             });
 
@@ -1457,7 +1473,7 @@ public sealed class NebulaTelegramPool : IAsyncDisposable, IDisposable
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogDebug(ex, "[NEBULA-TG] Falha ao consultar título do canal via Bot API.");
+                    _logger.LogDebug("[NEBULA-TG] Falha ao consultar título do canal via Bot API (tipo {ErrorType}).", GetSafeExceptionType(ex));
                 }
 
                 emitLog?.Invoke("INFO", $"✅ Canal Confirmado: {channelTitle} (ID: {reportedChatId})");
@@ -1750,7 +1766,7 @@ public sealed class NebulaTelegramPool : IAsyncDisposable, IDisposable
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
-                _logger.LogWarning(ex, "[NEBULA-TG] Exceção ao enviar capa da notificação.");
+                _logger.LogWarning("[NEBULA-TG] Exceção ao enviar capa da notificação (tipo {ErrorType}).", GetSafeExceptionType(ex));
                 activity?.SetTag("error.type", ex.GetType().FullName);
             }
         }
@@ -1817,7 +1833,7 @@ public sealed class NebulaTelegramPool : IAsyncDisposable, IDisposable
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
-                _logger.LogWarning(ex, "[NEBULA-TG] Exceção ao enviar mensagem Telegram via Bot API.");
+                _logger.LogWarning("[NEBULA-TG] Exceção ao enviar mensagem Telegram via Bot API (tipo {ErrorType}).", GetSafeExceptionType(ex));
                 activity?.SetTag("error.type", ex.GetType().FullName);
             }
         }

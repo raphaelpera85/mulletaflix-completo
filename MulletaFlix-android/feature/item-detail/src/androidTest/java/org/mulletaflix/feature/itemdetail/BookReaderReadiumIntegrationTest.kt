@@ -11,6 +11,8 @@ import java.util.zip.CRC32
 import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import org.json.JSONObject
 import org.mulletaflix.core.api.HomeFeedCacheScope
@@ -21,6 +23,7 @@ import org.readium.navigator.web.reflowable.ReflowableWebRenditionFactory
 import org.readium.navigator.web.reflowable.preferences.ReflowableWebPreferences
 import org.readium.r2.shared.publication.Locator
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Rule
@@ -169,6 +172,67 @@ class BookReaderReadiumIntegrationTest {
     }
 
     @Test
+    fun bookmarksPersistPerAccountAndServerCanBeRemovedAndStayBounded() = runBlocking {
+        val store = BookReaderProgressStore(context)
+        val reloadedStore = BookReaderProgressStore(context)
+        val scope = HomeFeedCacheScope(
+            "bookmark-server-${System.nanoTime()}",
+            "https://bookmark.example",
+            "bookmark-user-${System.nanoTime()}",
+        )
+        val sameServerLanEndpoint = scope.copy(serverUrl = "http://192.168.1.40:8096")
+        val differentAccount = scope.copy(userId = "another-bookmark-user")
+        val itemId = "bookmark-book-${System.nanoTime()}"
+
+        try {
+            val first = requireNotNull(
+                store.addBookmark(scope, itemId, "Capítulo 1", locator("OPS/chapter-1.xhtml", 0.1)),
+            )
+            assertTrue(first.added)
+            assertEquals(1, first.bookmarks.size)
+            assertEquals("Capítulo 1", first.bookmarks.single().label)
+            val originalBookmark = first.bookmarks.single()
+            assertTrue(store.renameBookmark(scope, itemId, originalBookmark.id, "  Nota   pessoal  "))
+            val renamedBookmark = requireNotNull(reloadedStore.readBookmarks(sameServerLanEndpoint, itemId)).single()
+            assertEquals(originalBookmark.id, renamedBookmark.id)
+            assertEquals("Nota pessoal", renamedBookmark.label)
+            assertEquals(originalBookmark.locator, renamedBookmark.locator)
+            assertFalse(store.renameBookmark(scope, itemId, originalBookmark.id, "   "))
+            assertFalse(store.renameBookmark(scope, itemId, "missing-bookmark", "Outra nota"))
+            assertEquals(emptyList<BookReaderBookmark>(), reloadedStore.readBookmarks(differentAccount, itemId))
+
+            val duplicate = requireNotNull(
+                store.addBookmark(scope, itemId, "Mesmo ponto", locator("OPS/chapter-1.xhtml", 0.1)),
+            )
+            assertTrue(!duplicate.added)
+            assertEquals(1, duplicate.bookmarks.size)
+
+            repeat(BookReaderProgressStore.MAX_BOOKMARKS_PER_BOOK - 1) { index ->
+                val result = requireNotNull(
+                    store.addBookmark(
+                        scope,
+                        itemId,
+                        "Capítulo ${index + 2}",
+                        locator("OPS/chapter-${index + 2}.xhtml", (index + 2) / 25.0),
+                    ),
+                )
+                assertTrue(result.added)
+            }
+            val full = requireNotNull(
+                store.addBookmark(scope, itemId, "Além do limite", locator("OPS/extra.xhtml", 0.99)),
+            )
+            assertTrue(full.limitReached)
+            assertEquals(BookReaderProgressStore.MAX_BOOKMARKS_PER_BOOK, full.bookmarks.size)
+
+            store.removeBookmark(scope, itemId, full.bookmarks.first().id)
+            assertEquals(BookReaderProgressStore.MAX_BOOKMARKS_PER_BOOK - 1, reloadedStore.readBookmarks(scope, itemId)?.size)
+            assertEquals(0, reloadedStore.readBookmarks(differentAccount, itemId)?.size ?: 0)
+        } finally {
+            store.removeBookmarks(scope, itemId)
+        }
+    }
+
+    @Test
     fun legacyComicLocatorIsMigratedToAValidReadiumUrlAndKeepsPageIndex() {
         val oldLocatorJson = JSONObject(
             """{"href":"mulletaflix:cbz:page:3","locations":{"position":4,"totalProgression":0.5}}""",
@@ -207,6 +271,46 @@ class BookReaderReadiumIntegrationTest {
                 validRenditionState.controller?.location?.href?.toString() == "OPS/chapter-2.xhtml"
             }
             assertEquals("OPS/chapter-2.xhtml", validRenditionState.controller?.location?.href?.toString())
+        } finally {
+            epub.delete()
+        }
+    }
+
+    @Test
+    fun activeRenditionNavigatesToSavedBookmark() {
+        val epub = createEpub()
+        try {
+            val publication = open(epub)
+            val renditionState = runBlocking(Dispatchers.IO) {
+                ReflowableWebRenditionFactory(
+                    application = context.applicationContext as Application,
+                    publication = publication,
+                    configuration = ReflowableWebConfiguration(),
+                )?.createRenditionState(
+                    initialPreferences = ReflowableWebPreferences(),
+                    initialLocation = ReflowableWebGoLocation(locator("OPS/chapter-1.xhtml", 0.0)),
+                )?.getOrNull()
+            }
+            val validRenditionState = requireNotNull(renditionState)
+            composeRule.setContent {
+                ReflowableWebRendition(state = validRenditionState, modifier = Modifier.fillMaxSize())
+            }
+            composeRule.waitUntil(timeoutMillis = 10_000) {
+                validRenditionState.controller != null
+            }
+            val controller = requireNotNull(validRenditionState.controller)
+            val bookmark = locator("OPS/chapter-2.xhtml", 0.42)
+
+            composeRule.runOnIdle {
+                CoroutineScope(Dispatchers.Main).launch {
+                    controller.goTo(ReflowableWebGoLocation(bookmark))
+                }
+            }
+            composeRule.waitUntil(timeoutMillis = 10_000) {
+                controller.location.href.toString() == "OPS/chapter-2.xhtml"
+            }
+
+            assertEquals("OPS/chapter-2.xhtml", controller.location.href.toString())
         } finally {
             epub.delete()
         }
