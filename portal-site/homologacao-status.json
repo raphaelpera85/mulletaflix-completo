@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-10-05T01:55:33-03:00",
+  "generatedAt": "2026-10-05T02:29:03-03:00",
   "source": {
     "roadmap": "https://github.com/raphaelpera85/mulletaflix-completo/blob/main/docs/roadmap-evolucao-tecnologica-servidor-e-web.md",
     "repository": "https://github.com/raphaelpera85/mulletaflix-completo"
@@ -2609,8 +2609,8 @@
       "status": "completed",
       "progressPercent": null,
       "startedAt": "2026-10-05T01:55:00-03:00",
-      "updatedAt": "2026-10-05T02:17:35-03:00",
-      "evidence": "Subitem de hardening do updater Windows concluído localmente: exige -ConfigPath, rejeita -Token/-Subdomain, bloqueia redirects, força -Verbose:$false no request e sanitiza erro/conteúdo. Teste mock com transporte que tenta emitir URI via verbose e exceção comprovou que token/URL não aparecem; rejeição de Token e Subdomain executada em runtime. Provas: antes da alteração o teste falhou (10 pass/1 fail); após, node --test tools/release/tests/windows-duckdns-token-transport.test.mjs 13/13; configure-https-credential.tests.ps1 exit 0; git diff --check exit 0; busca de callsites produtivos de -Token: nenhum. Revisão adversarial independente detectou três pontos e todos foram corrigidos/documentados; a ACL é protegida pelo configurador de produção, mas não revalidada pelo updater para caminhos arbitrários. Sem acesso a DNS/rede/serviço/host privilegiado/release. progressPercent nulo (sem métrica formal); T9.1 permanece parcial devido a validação privilegiada/VM, rollback e demais auditorias pendentes; release bloqueada pelo gate do roadmap."
+      "updatedAt": "2026-10-05T02:22:27-03:00",
+      "evidence": "Subitem de hardening do updater Windows concluído localmente: exige -ConfigPath, rejeita -Token/-Subdomain, configura máximo de redirects zero, força -Verbose:$false e sanitiza erro/conteúdo. Testes de args usam transporte mockado (sem requests reais); mock verbose e 302 simulada confirmam ausência de token/URL/corpo na saída, uma invocação e falha genérica. Isso confirma a opção passada e o tratamento da resposta mockada, não o comportamento real do cmdlet em redirect, que segue pendente para validação isolada. Rejeição de Token e Subdomain executada em runtime. Provas: antes da alteração o teste falhou (10 pass/1 fail); após, node --test tools/release/tests/windows-duckdns-token-transport.test.mjs 14/14; configure-https-credential.tests.ps1 exit 0; git diff --check exit 0; busca de callsites produtivos de -Token: nenhum. Revisões adversariais independentes detectaram e levaram à correção de verbose, validação runtime de Subdomain, risco de request real no teste e alegação ACL excessiva; ACL continua fornecida pelo configurador e não revalidada pelo updater para caminhos arbitrários. Sem acesso a DNS/rede/serviço/host privilegiado/release. progressPercent nulo (sem métrica formal); T9.1 permanece parcial devido a validação privilegiada/VM, rollback e demais auditorias pendentes; release bloqueada pelo gate do roadmap."
     },
     {
       "id": "spider-man-ac3-playback-diagnosis-2026-10-05",
@@ -2651,8 +2651,8 @@
       "status": "completed",
       "progressPercent": null,
       "startedAt": "2026-10-05T01:33:21-03:00",
-      "updatedAt": "2026-10-05T02:19:37-03:00",
-      "evidence": "Implementação concluída no código-fonte do servidor: plano HTTP de playback encaminhado ao worker Python supervisionado; worker sobe em paralelo com o pool C#, usa a lease .NET para ler com segurança o cache compartilhado e reinicia quando o processo cai. Compatibilidade mantida com IDs e caminhos virtuais nos .strm, token legado de query e hierarquias Mongo com parent textual, BSON ObjectId ou mistura dos formatos; operações de sobrescrita não duplicam arquivos. Evidências: testes Python do runtime empacotado 11/11; suíte Python original 161 aprovados, 1 skip preexistente; dotnet build Release 0 avisos/erros; dotnet test NebulaStreamEngineTests + lease 65/65; scripts PowerShell parseados e git diff --check sem erro. Não foi feito ensaio com Mongo/Telegram/N: de produção nem benchmark comparativo de throughput; a melhoria de latência real permanece sem medição. O pacote e releases não foram gerados por causa do gate ativo do roadmap."
+      "updatedAt": "2026-10-05T02:29:03-03:00",
+      "evidence": "Implementação concluída no código-fonte do servidor: plano HTTP de playback encaminhado ao worker Python supervisionado; worker sobe em paralelo com o pool C#, usa a lease .NET para ler com segurança o cache compartilhado e reinicia quando o processo cai. Compatibilidade mantida com IDs e caminhos virtuais nos .strm, token legado de query e hierarquias Mongo com parent textual, BSON ObjectId ou mistura dos formatos; operações de sobrescrita não duplicam arquivos. Evidências: testes Python do runtime empacotado 11/11; suíte Python original 161 aprovados, 1 skip preexistente; dotnet build Release 0 avisos/erros; dotnet test NebulaStreamEngineTests + lease 65/65; scripts PowerShell parseados e git diff --check sem erro. Vercel: deployment READY/success para https://mulletaflix-portal.vercel.app, commit 5931c7649b02559bd50697db683537623310b09f; /, /docs, /downloads, /updates, /homologacao e /sitemap.xml retornaram HTTP 200, e o JSON público exibiu este evento como completed. Não foi feito ensaio com Mongo/Telegram/N: de produção nem benchmark comparativo de throughput; a melhoria de latência real permanece sem medição. O pacote e releases não foram gerados por causa do gate ativo do roadmap."
     },
     {
       "id": "aspnet-hosting-request-log-redaction-2026-10-05",
