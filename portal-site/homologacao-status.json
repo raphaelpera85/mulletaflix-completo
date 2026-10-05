@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-10-05T04:52:07-03:00",
+  "generatedAt": "2026-10-05T04:59:27-03:00",
   "source": {
     "roadmap": "https://github.com/raphaelpera85/mulletaflix-completo/blob/main/docs/roadmap-evolucao-tecnologica-servidor-e-web.md",
     "repository": "https://github.com/raphaelpera85/mulletaflix-completo"
@@ -2650,8 +2650,8 @@
       "status": "completed",
       "progressPercent": null,
       "startedAt": "2026-10-05T00:00:00-03:00",
-      "updatedAt": "2026-10-05T04:52:07-03:00",
-      "evidence": "Matriz APK consolidada e testes desta rodada aprovados: testDebugUnitTest BUILD SUCCESSFUL com 1.399/1.399 testes nos 220 relatórios atuais; CleartextAwareMediaDataSourceHttpsTest 1/1 no AVD API 35 (Media3 sobre HTTPS, certificado TLS confiável, GPU NVIDIA confirmada e AVD encerrado); lintDebug de :core:api, :feature:player e :app, compilação instrumentada de :core:api/:feature:player/:app e :app:assembleDebug BUILD SUCCESSFUL (740 tarefas). Portal: node --test portal-site/tests/homologacao.test.mjs 3/3; Validate-PortalSitemap.ps1 cobre 7 URLs. A matriz tem 11/21 áreas validadas localmente, 1 em validação, 9 pendentes; aceite geral permanece pending e progressPercent do evento null para não confundir conclusão desta tarefa com homologação integral. Nenhuma alteração de servidor, APK de produção, release ou publicação de release."
+      "updatedAt": "2026-10-05T04:59:27-03:00",
+      "evidence": "Matriz APK consolidada e testes desta rodada aprovados: testDebugUnitTest BUILD SUCCESSFUL com 1.399/1.399 testes nos 220 relatórios atuais; CleartextAwareMediaDataSourceHttpsTest 1/1 no AVD API 35 (Media3 sobre HTTPS, certificado TLS confiável, GPU NVIDIA confirmada e AVD encerrado); lintDebug de :core:api, :feature:player e :app, compilação instrumentada de :core:api/:feature:player/:app e :app:assembleDebug BUILD SUCCESSFUL (740 tarefas). Portal: node --test 3/3; Validate-PortalSitemap.ps1 cobre 7 URLs. Deploy verificado após push ao repositório Mulletaflix-Portal: commit daf9319 recebeu GitHub status Vercel=success (https://vercel.com/raphaelpera85s-projects/mulletaflix-portal/9hrNQM213cJ1YZSChWHoSvcWUzGK); /, /docs, /downloads, /updates, /homologacao, /sitemap.xml e /homologacao-status.json retornaram HTTP 200, com JSON público 219/266 checkboxes e matriz Android 11/21. A matriz tem 1 área em validação e 9 pendentes; aceite geral permanece pending e progressPercent do evento null para não confundir conclusão desta tarefa com homologação integral. Nenhuma alteração de servidor, APK de produção, release ou publicação de release."
     },
     {
       "id": "t9-1-windows-updater-credential-hardening-2026-10-05",
