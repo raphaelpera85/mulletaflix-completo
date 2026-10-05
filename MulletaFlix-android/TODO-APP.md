@@ -7,6 +7,11 @@ Este documento rastreia o status de implementação de todas as funcionalidades,
 - [ ] A configuração Android ainda permite cleartext de forma ampla (`base-config` e `usesCleartextTraffic`), enquanto o cliente API anexa o token de sessão ao `Authorization`. Restringir tráfego HTTP público/não local antes da inclusão de credenciais.
 - [ ] Preservar HTTP de servidores realmente locais descobertos/configurados na LAN e HTTPS para a URL pública padrão; abranger Retrofit, Coil, streaming Media3, downloads e legendas — uma regra apenas em OkHttp não cobre o player.
 - [ ] Testar HTTP público bloqueado sem token, HTTPS remoto permitido e HTTP LAN permitido em cada caminho de rede; não publicar APK até fechar a cobertura.
+- [x] Adicionado teste de contrato do cliente usado pelo Coil: URL de imagem HTTP público direto é negada antes de ler token/identidade ou enviar tráfego; HTTP LAN continua coberto pelo round-trip do cliente de artwork. Suíte focada `CleartextRequestProtectionTest` + `ArtworkClientIdentityTest` passou.
+- [x] Teste instrumentado com o `DownloadManager` Media3 real: transferência HTTP LAN de 64 KiB termina e persiste no cache temporário; redirect para HTTP público falha e não acrescenta bytes ao cache. SQLite e cache são exclusivos por execução; AVD API 35 isolado usou a NVIDIA e foi fechado ao terminar.
+- [x] Teste instrumentado com o `DownloadManager` Media3 real: transferência HTTPS remota com TLS de teste confiável conclui, valida 64 KiB e persiste no `SimpleCache` isolado; AVD API 35 usou a NVIDIA e foi fechado ao terminar.
+- [x] Teste integrado do ExoPlayer: baixa e decodifica uma legenda SRT externa servida por HTTPS com certificado confiável, usando a fábrica Media3 protegida entregue ao player; AVD API 35 usou a NVIDIA e foi fechado ao terminar.
+- [ ] Ainda faltam redirects de legendas externas e cobertura integrada de Coil HTTPS; esta verificação parcial não fecha a restrição HTTP em todos os clientes nem libera APK.
 
 ## Prévia local de títulos da biblioteca offline (APK local; sem release)
 

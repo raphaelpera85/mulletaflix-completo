@@ -10,8 +10,11 @@ O APK ainda **não está homologado para aceite final**. Há 11 áreas concluíd
 
 ## Evidência automatizada desta rodada
 
-- `./gradlew testDebugUnitTest --no-daemon --no-parallel --console=plain`: BUILD SUCCESSFUL; relatórios Gradle atuais totalizam 1.399 testes aprovados, 0 falhas/erros e 0 ignorados.
+- `./gradlew testDebugUnitTest --no-daemon --no-parallel --console=plain`: BUILD SUCCESSFUL; relatórios Gradle atuais totalizam 1.400 testes aprovados, 0 falhas/erros e 0 ignorados.
 - `:core:api:connectedDebugAndroidTest` — `CleartextAwareMediaDataSourceHttpsTest`: 1/1 aprovado no AVD `MulletaflixApi35` (API 35). Exercitou leitura real via Media3/OkHttp sobre HTTPS com servidor TLS de teste e certificado confiável. O wrapper confirmou QEMU na GPU NVIDIA e encerrou o AVD.
+- `:app:assembleDebugAndroidTest`: BUILD SUCCESSFUL. `DownloadManagerCleartextIntegrationTest`: 1/1 via `adb shell am instrument` no AVD PHONE API 35 dedicado, serial `emulator-5560`; download LAN de 64 KiB concluído e presente em cache temporário, redirect público terminou em falha sem aumento do cache. Banco SQLite e cache têm nomes temporários únicos; o wrapper validou o processo QEMU na NVIDIA RTX 3050 e encerrou apenas esse AVD. O emulador preexistente foi preservado.
+- `:core:api:assembleDebugAndroidTest :core:api:lintDebug`: BUILD SUCCESSFUL. `DownloadManagerHttpsIntegrationTest`: 1/1 via `adb shell am instrument`; download remoto HTTPS com certificado TLS de teste confiável completou, confirmou 64 KiB e persistência no `SimpleCache` isolado. AVD PHONE API 35 dedicado usou GPU NVIDIA e foi encerrado pelo wrapper.
+- `:core:api:assembleDebugAndroidTest :feature:player:lintDebug`: BUILD SUCCESSFUL. `ExternalSubtitleHttpsPlaybackIntegrationTest`: 1/1; ExoPlayer requisitou mídia e legenda num servidor TLS de teste, decodificou o cue SRT e não registrou erro. O teste usa a fábrica Media3 com a política de transporte de produção e certificado confiável de teste. AVD PHONE API 35 usou a NVIDIA RTX 3050 e foi encerrado pelo wrapper.
 - `:core:api:lintDebug`, `:feature:player:lintDebug`, `:app:lintDebug`, `:core:api:compileDebugAndroidTestKotlin`, `:feature:player:compileDebugAndroidTestKotlin`, `:app:compileDebugAndroidTestKotlin` e `:app:assembleDebug`: BUILD SUCCESSFUL (740 tarefas; warnings de depreciação preexistentes nos testes de player).
 - `node --test portal-site/tests/homologacao.test.mjs`: 4/4 aprovados.
 - `.\tools\Validate-PortalSitemap.ps1`: 7 URLs públicas cobertas; nenhuma página nova foi criada.
@@ -36,7 +39,7 @@ Essas classificações agregam evidências locais preexistentes registradas em `
 
 | ID | Área | Evidência atual | Saída exigida |
 |---|---|---|---|
-| APK-H12 | Transporte seguro: HTTPS remoto e HTTP restrito à LAN | Reexecução seletiva: 552 testes JVM aprovados nos módulos `core:common`, `core:api`, `app` e `feature:player`; Media3/player instrumentado 5/5 e Media3 HTTPS com TLS 1/1 registrados. Retrofit bloqueia HTTP público antes de consultar token; testes de redirecionamento LAN/público existem. | Faltam Coil com HTTP público direto e HTTPS remoto, transferência real do DownloadManager em LAN/HTTPS, HTTPS/redirecionamentos de legenda e sanitização/testes de credenciais adicionais (`password`, `auth`, userinfo, `Cookie`, `Proxy-Authorization`). A configuração Android-base ainda permite cleartext para LAN dinâmica; a proteção depende dos guards em cada cliente, não é bloqueio global do SO. |
+| APK-H12 | Transporte seguro: HTTPS remoto e HTTP restrito à LAN | Suíte JVM completa: 1.400 testes aprovados; Media3/player instrumentado 5/5, leitura Media3 HTTPS via TLS de teste 1/1, DownloadManager HTTP LAN 1/1 e HTTPS remoto 1/1, ExoPlayer com legenda externa HTTPS decodificada 1/1. Downloads validam 64 KiB no cache isolado e redirect público HTTP falho sem bytes extras. Retrofit bloqueia HTTP público antes do token; Coil nega URL HTTP público direto antes de ler credenciais; artwork HTTP LAN tem round-trip testado. Redirects cross-origin removem credenciais reconhecidas e preservam cursores/assinaturas de destino. | Faltam redirects de legenda externa e Coil HTTPS remoto. Android-base ainda permite cleartext para LAN dinâmica; guards protegem os clientes, sem bloqueio global do SO. Aceite formal continua aberto. |
 
 ## Pendente — 9/21
 

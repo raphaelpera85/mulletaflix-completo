@@ -105,13 +105,41 @@ class CleartextRequestProtectionTest {
     }
 
     @Test
-    fun `cross origin local redirect strips session headers and token query parameters`() {
+    fun `cross origin local redirect removes credentials but preserves benign query parameters`() {
         val initialHost = server.url("/").host
         val redirectedHost = "${if (initialHost == "localhost") "127.0.0.1" else "localhost"}:${server.port}"
+        val redirectQuery = listOf(
+            "api_key=redirect-token",
+            "access_key=access-key-secret",
+            "aws_access_key_id=aws-key-secret",
+            "consumer_key=consumer-key-secret",
+            "access_token=access-secret",
+            "password=query-secret",
+            "auth=bearer-secret",
+            "client_secret=client-secret",
+            "client_assertion=assertion-secret",
+            "code=oauth-code",
+            "code_verifier=oauth-verifier",
+            "sid=session-id",
+            "PHPSESSID=php-session",
+            "JSESSIONID=java-session",
+            "session=session-secret",
+            "secret=secret-value",
+            "pagination_token=page-cursor",
+            "continuationToken=next-cursor",
+            "next_page_token=following-cursor",
+            "signature=signed-target",
+            "X-Goog-Signature=google-signature",
+            "X-Amz-Credential=aws-credential",
+            "X-Amz-Signature=aws-signature",
+            "X-Amz-Security-Token=aws-session",
+            "monkey=kept",
+            "keep=value",
+        ).joinToString("&")
         server.enqueue(
             MockResponse().setResponseCode(302).addHeader(
                 "Location",
-                "http://$redirectedHost/next?api_key=redirect-token&monkey=private&keep=value",
+                "http://redirect-user:redirect-password@$redirectedHost/next?$redirectQuery",
             ),
         )
         server.enqueue(MockResponse().setBody("{}"))
@@ -122,15 +150,31 @@ class CleartextRequestProtectionTest {
             serverUrlInterceptor = ServerUrlInterceptor(sessions),
         )
 
-        val response = client.newCall(Request.Builder().url("https://placeholder.example/Users").build()).execute()
+        val response = client.newCall(
+            Request.Builder()
+                .url("https://placeholder.example/Users")
+                .header("Cookie", "session=session-secret")
+                .header("Proxy-Authorization", "Basic proxy-secret")
+                .build(),
+        ).execute()
 
         assertEquals(200, response.code)
         response.close()
         assertEquals(2, server.requestCount)
         server.takeRequest()
         val redirectedRequest = server.takeRequest()
-        assertEquals("/next?keep=value", redirectedRequest.path)
+        assertEquals(
+            "/next?pagination_token=page-cursor&continuationToken=next-cursor&next_page_token=following-cursor" +
+                "&signature=signed-target" +
+                "&X-Goog-Signature=google-signature&X-Amz-Credential=aws-credential&X-Amz-Signature=aws-signature" +
+                "&X-Amz-Security-Token=aws-session&monkey=kept&keep=value",
+            redirectedRequest.path,
+        )
+        assertEquals("", redirectedRequest.requestUrl?.encodedUsername)
+        assertEquals("", redirectedRequest.requestUrl?.encodedPassword)
         assertEquals(null, redirectedRequest.getHeader("Authorization"))
+        assertEquals(null, redirectedRequest.getHeader("Cookie"))
+        assertEquals(null, redirectedRequest.getHeader("Proxy-Authorization"))
     }
 
     @Test
@@ -153,6 +197,28 @@ class CleartextRequestProtectionTest {
         assertTrue("the redirect destination must be denied", failure is IOException)
         assertEquals("only the initial LAN request may reach the server", 1, server.requestCount)
         assertTrue(server.takeRequest().getHeader("Authorization").orEmpty().contains("Token=\"session-token\""))
+    }
+
+    @Test
+    fun `Coil client blocks direct public HTTP before reading artwork credentials`() {
+        val sessions = CountingSessionRepository(baseUrl = "https://media.example")
+        val client = buildAuthenticatedImageClient(
+            serverUrlInterceptor = Interceptor { chain -> chain.proceed(chain.request()) },
+            clientIdentityInterceptor = ClientIdentityInterceptor(sessions),
+        )
+
+        val failure = runCatching {
+            client.newCall(
+                Request.Builder()
+                    .url("http://203.0.113.13:8096/Items/movie/Images/Primary?api_key=session-token")
+                    .build(),
+            ).execute()
+        }.exceptionOrNull()
+
+        assertTrue("direct artwork URL must be rejected", failure is IOException)
+        assertEquals("image request must not read the session token", 0, sessions.tokenReads.get())
+        assertEquals("image request must not read the device identity", 0, sessions.deviceReads.get())
+        assertEquals("no cleartext image request may reach the network", 0, server.requestCount)
     }
 
     @Test

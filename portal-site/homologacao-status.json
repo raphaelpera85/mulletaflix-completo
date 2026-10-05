@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-10-05T04:59:27-03:00",
+  "generatedAt": "2026-10-05T07:23:49-03:00",
   "source": {
     "roadmap": "https://github.com/raphaelpera85/mulletaflix-completo/blob/main/docs/roadmap-evolucao-tecnologica-servidor-e-web.md",
     "repository": "https://github.com/raphaelpera85/mulletaflix-completo"
@@ -51,19 +51,19 @@
         "label": "11 de 21 áreas com evidência técnica local; 1 em validação e 9 pendentes. Aceite formal continua aberto."
       },
       "testAudit": {
-        "passed": 1399,
-        "total": 1399,
+        "passed": 1400,
+        "total": 1400,
         "skipped": 0,
         "failed": 0,
         "percent": 100,
-        "label": "JUnit auditável local: 1.399 aprovados, 0 ignorados, 0 falhas/erros; agregação dos 220 relatórios Gradle."
+        "label": "JUnit auditável local: 1.400 aprovados, 0 ignorados, 0 falhas/erros; agregação dos 220 relatórios Gradle."
       },
       "instrumentationAudit": {
-        "passed": 1,
-        "total": 1,
+        "passed": 9,
+        "total": 9,
         "skipped": 0,
         "failed": 0,
-        "label": "Novo teste instrumentado HTTPS real do Media3: 1/1 no AVD API 35; gates de lint, compilação instrumentada e assembleDebug passaram."
+        "label": "Media3/player 5/5; leitura HTTPS 1/1; DownloadManager HTTP LAN 1/1, HTTPS remoto 1/1; ExoPlayer legenda HTTPS 1/1. AVD API 35 isolado; GPU NVIDIA verificada."
       }
     },
     {
@@ -97,7 +97,7 @@
       { "id": "APK-H09", "name": "TV ao vivo e EPG", "status": "completed", "evidence": "Cobertura local de navegação, EPG, atualização e foco remoto registrada; programação/streams reais não homologados nesta rodada." },
       { "id": "APK-H10", "name": "SyncPlay e continuidade de sessão", "status": "completed", "evidence": "Testes unitários/instrumentados e histórico de releases registram sincronização e ciclo de sessão; sincronização entre aparelhos de produção não foi verificada aqui." },
       { "id": "APK-H11", "name": "UX adaptativa, tablet, Android TV e controle remoto", "status": "completed", "evidence": "TODO-APP.md registra testes por perfil e AVDs em telefone/tablet/TV; validação física em modelos comerciais continua pendente." },
-      { "id": "APK-H12", "name": "Transporte seguro: HTTPS remoto e HTTP restrito à LAN", "status": "in_progress", "evidence": "Auditoria de cobertura: reexecução seletiva de testes JVM dos módulos core:common, core:api, app e feature:player aprovou 552/552; instrumentados existentes registram Media3/player 5/5 (HTTP LAN, bloqueio HTTP público e redirects) e Media3 HTTPS com TLS 1/1. Retrofit bloqueia HTTP público antes de ler o token e há teste de redirect LAN/público. Pendências: Coil sem prova direta de bloqueio HTTP público/HTTPS remoto; transferência real DownloadManager LAN/HTTPS; HTTPS e redirects de legendas; ampliar sanitização/testes de credenciais em redirects para password, auth, userinfo, Cookie e Proxy-Authorization. Android base-config ainda permite cleartext para LAN dinâmica; não é bloqueio global do SO e depende de guard em cada cliente." },
+      { "id": "APK-H12", "name": "Transporte seguro: HTTPS remoto e HTTP restrito à LAN", "status": "in_progress", "evidence": "Suíte JVM completa: 1.400/1.400 aprovados, 0 falhas/erros/ignorados em 220 relatórios Gradle; Coil tem teste direto da URL HTTP pública bloqueada antes de ler token/ID do dispositivo ou acessar rede, e artwork HTTP local segue coberto por round-trip. Instrumentados: Media3/player HTTP LAN, bloqueio HTTP público e redirects 5/5; leitura Media3 HTTPS TLS 1/1; DownloadManager HTTP LAN 1/1 e HTTPS remoto 1/1, ambos com 64 KiB persistidos em cache isolado; ExoPlayer reproduziu mídia e baixou/decodificou legenda SRT externa HTTPS 1/1 pela fábrica protegida. Redirect HTTP público falha sem aumento do cache. Retrofit testa bloqueio HTTP público antes do token e sanitização de credenciais em redirects. Pendências: redirects de legenda externa e Coil HTTPS remoto; Android base-config ainda permite cleartext para LAN dinâmica, sem bloqueio global do SO." },
       { "id": "APK-H13", "name": "Conexão à instância e cenários de servidor real", "status": "pending", "evidence": "Faltam cenários E2E autenticados contra servidor acessível com catálogo e mídia reais; sem assumir disponibilidade de credenciais/dispositivo." },
       { "id": "APK-H14", "name": "Descoberta e troca automática entre LAN e internet", "status": "pending", "evidence": "Testes locais de política/repository não substituem prova na mesma LAN física, mudança de rede e identificação do servidor real." },
       { "id": "APK-H15", "name": "Streaming real, retomada e seleção de idioma/legenda", "status": "pending", "evidence": "Falta matriz com filmes/séries reais, seeks, retry e faixas entregues pelo servidor; os testes HTTP mock não certificam compatibilidade de codecs/conteúdo." },
@@ -2639,6 +2639,76 @@
     }
   ],
   "events": [
+    {
+      "id": "android-external-subtitle-https-integration-2026-10-05",
+      "title": "Legenda externa HTTPS decodificada pelo Media3 (APK-H12)",
+      "agent": "Codex",
+      "front": "android/apk",
+      "local": "D:\\Users\\Raphael\\Documents\\Projetos\\mulletaflix\\MulletaFlix-android",
+      "location": "Homologação instrumentada em AVD Android 15 PHONE; sem servidor de produção",
+      "scope": "Construir e executar teste de reprodução real de legenda externa HTTPS pela fábrica Media3 protegida usada no APK",
+      "status": "completed",
+      "progressPercent": null,
+      "startedAt": "2026-10-05T10:17:31Z",
+      "updatedAt": "2026-10-05T10:23:49Z",
+      "evidence": "`:core:api:assembleDebugAndroidTest :feature:player:lintDebug` BUILD SUCCESSFUL. `ExternalSubtitleHttpsPlaybackIntegrationTest` passou 1/1 via `adb shell am instrument`: ExoPlayer requisitou stream e sidecar SRT, decodificou o cue esperado e não registrou erro, com HTTPS e certificado de teste confiável através da fábrica Media3 protegida. AVD MulletaflixApi35/emulator-5560 PHONE API 35 teve QEMU confirmado na GPU NVIDIA RTX 3050 e foi encerrado pelo wrapper. `node --test portal-site/tests/homologacao.test.mjs` 4/4, JSON válido e sitemap 7 URLs; nenhum APK de produção, servidor ou release alterado. Restam redirect integrado de legenda e Coil HTTPS. progressPercent null: validação focalizada, não percentual formal de homologação."
+    },
+    {
+      "id": "android-downloadmanager-transport-integration-2026-10-05",
+      "title": "Transferência física Media3 sob política HTTP LAN/HTTPS",
+      "agent": "Codex",
+      "front": "android/apk",
+      "local": "D:\\Users\\Raphael\\Documents\\Projetos\\mulletaflix\\MulletaFlix-android",
+      "location": "Teste instrumentado local em AVD dedicado; sem tocar no AVD preexistente e sem publicar APK",
+      "scope": "Validar DownloadManager real com cache temporário: download HTTP LAN completa e persiste bytes; redirect para HTTP público falha e não deixa bytes parciais no cache.",
+      "status": "completed",
+      "progressPercent": null,
+      "startedAt": "2026-10-05T08:57:56Z",
+      "updatedAt": "2026-10-05T06:52:52-03:00",
+      "evidence": "Teste instrumentado DownloadManagerCleartextIntegrationTest 1/1 aprovado após :app:assembleDebugAndroidTest BUILD SUCCESSFUL. Download HTTP LAN de 64 KiB completou e persistiu no Media3 SimpleCache; redirect para HTTP público terminou FAILED e não aumentou bytes cacheados. O teste usa SQLite com nome aleatório e cache sob diretório temporário exclusivo, removidos no finally; não usa OfflineDownloadCache nem DB persistente do app. Rodado por adb shell am instrument no AVD MulletaflixApi35 PHONE API 35 serial emulator-5560; wrapper confirmou PID QEMU na NVIDIA RTX 3050 e encerrou o AVD temporário. AVD preexistente SmartMeasureApi35Play/emulator-5580 foi reconectado e ficou online. Nenhum código de produção, servidor ou release alterado. progressPercent null: execução focalizada, sem percentual formal de homologação."
+    },
+    {
+      "id": "android-downloadmanager-https-integration-2026-10-05",
+      "title": "DownloadManager real por HTTPS remoto (APK-H12 parcial)",
+      "agent": "Codex",
+      "front": "android/apk",
+      "local": "D:\\Users\\Raphael\\Documents\\Projetos\\mulletaflix\\MulletaFlix-android",
+      "location": "Teste instrumentado em AVD Android 15 API 35 PHONE; servidor TLS local de teste, sem servidor de produção",
+      "scope": "Provar transferência HTTPS remota pelo DownloadManager Media3, validar certificado, 64 KiB recebidos e bytes persistidos no cache isolado",
+      "status": "completed",
+      "progressPercent": null,
+      "startedAt": "2026-10-05T09:55:00Z",
+      "updatedAt": "2026-10-05T10:10:30Z",
+      "evidence": "`:core:api:assembleDebugAndroidTest :core:api:lintDebug` BUILD SUCCESSFUL. `DownloadManagerHttpsIntegrationTest` passou 1/1 via `adb shell am instrument`; o DownloadManager completou HTTPS com certificado de teste confiável, bytesDownloaded=65.536 e cacheSpace >=65.536. AVD MulletaflixApi35/emulator-5560 usou QEMU na GPU NVIDIA RTX 3050; wrapper encerrou o emulador temporário ao concluir. Banco SQLite/cache são exclusivos por execução e removidos após o teste. Nenhuma alteração de produção, servidor ou release; pendem testes HTTPS/redirecionamentos de legenda e Coil HTTPS. progressPercent null: teste pontual, não percentual formal de homologação."
+    },
+    {
+      "id": "android-cleartext-client-path-tests-2026-10-05",
+      "title": "Cobertura dos caminhos de rede do APK: imagens, downloads e legendas",
+      "agent": "Codex",
+      "front": "android/apk",
+      "local": "D:\\Users\\Raphael\\Documents\\Projetos\\mulletaflix\\MulletaFlix-android",
+      "location": "Testes locais Android; sem alterar servidor ou publicar APK",
+      "scope": "Fechar lacuna comprovada de HTTP público direto no cliente de imagens; avaliar regressões adicionais nos caminhos Media3 DownloadManager e legendas com evidência de teste de rede real.",
+      "status": "completed",
+      "progressPercent": null,
+      "startedAt": "2026-10-05T06:15:00-03:00",
+      "updatedAt": "2026-10-05T06:24:00-03:00",
+      "evidence": "HOMOLOGACAO-APK.md APK-H12/CleartextRequestProtectionTest estabelece o contrato: cliente Coil deve negar HTTP público direto antes de buscar credenciais; HTTP LAN permanece permitido. Novo teste executado pela mesma buildAuthenticatedImageClient entregue ao Coil: falha IOException esperada, tokenReads=0, deviceReads=0, MockWebServer requestCount=0. `gradlew testDebugUnitTest :core:api:lintDebug :app:lintDebug :app:assembleDebug --no-daemon --no-parallel --console=plain`: BUILD SUCCESSFUL; 1.400/1.400 testes, 0 falhas/erros/ignorados em 220 relatórios; lints e assembleDebug passaram. `git diff --check` sem erros. APK-H12 segue in_progress: transferência física DownloadManager e HTTPS/redirecionamentos de legendas ainda sem teste integrado; não foi feita release. progressPercent null porque número de verificações pontuais não é percentual de cobertura formal."
+    },
+    {
+      "id": "android-redirect-credential-redaction-2026-10-05",
+      "title": "Sanitização de credenciais em redirects entre origens (APK)",
+      "agent": "Codex",
+      "front": "android",
+      "local": "D:\\Users\\Raphael\\Documents\\Projetos\\mulletaflix\\MulletaFlix-android",
+      "location": "Código e testes Android locais; sem alterar servidor ou publicar APK",
+      "scope": "Remover credenciais reconhecidas de query/userinfo/headers em redirects entre origens sem descartar parâmetros benignos; testar regressões e manter HTTPS/LAN.",
+      "status": "completed",
+      "progressPercent": null,
+      "startedAt": "2026-10-05T05:29:00-03:00",
+      "updatedAt": "2026-10-05T06:02:00-03:00",
+      "evidence": "Reprodução confirmada por testes falhando antes das correções (creds removidas de headers/query; monkey e cursores preservados). CleartextTrafficPolicy agora remove userinfo, Authorization/Cookie/Proxy-Authorization e nomes reconhecidos de credenciais em redirects cross-origin, preservando parâmetros benignos, cursores de paginação (`pagination_token`, `continuationToken`, `next_page_token`) e assinaturas de URLs de destino Google/AWS. Revisão independente encontrou next_page_token; exceção e regressão adicionadas e revalidadas. `gradlew testDebugUnitTest :core:common:lintDebug :core:api:lintDebug :app:lintDebug :app:assembleDebug --no-daemon --no-parallel --console=plain`: BUILD SUCCESSFUL; 1.399/1.399 testes, 0 falhas/erros/ignorados em 220 XML; lint concluído; APK debug compilado. Classe CleartextRequestProtectionTest reexecutada com sucesso; `git diff --check` sem erros. Evidência local apenas; homologação ampla APK-H12 continua in_progress por faltar teste de Coil/DownloadManager/legendas e validação no aparelho, sem release do APK. progressPercent null: representa apenas esta tarefa, não percentual de homologação global."
+    },
     {
       "id": "android-formal-homologation-reconciliation-2026-10-05",
       "title": "Reconciliação da homologação formal do APK",

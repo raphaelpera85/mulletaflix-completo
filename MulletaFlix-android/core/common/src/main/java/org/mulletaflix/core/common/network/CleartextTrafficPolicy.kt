@@ -2,6 +2,7 @@ package org.mulletaflix.core.common.network
 
 import java.io.IOException
 import java.net.InetAddress
+import java.util.Locale
 import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.OkHttpClient
@@ -72,6 +73,66 @@ object CleartextTrafficPolicy {
 object LocalNetworkCleartextInterceptor : Interceptor {
     private const val MAX_REDIRECTS = 20
     private val REDIRECT_CODES = setOf(300, 301, 302, 303, 307, 308)
+    private val CREDENTIAL_QUERY_PARAMETER_NAMES = setOf(
+        "apikey",
+        "xapikey",
+        "key",
+        "accesskey",
+        "awsaccesskeyid",
+        "consumerkey",
+        "token",
+        "accesstoken",
+        "refreshtoken",
+        "idtoken",
+        "auth",
+        "authorization",
+        "password",
+        "passwd",
+        "passphrase",
+        "pwd",
+        "secret",
+        "clientsecret",
+        "clientassertion",
+        "code",
+        "codeverifier",
+        "credential",
+        "credentials",
+        "session",
+        "sessionid",
+        "sid",
+        "phpsessid",
+        "jsessionid",
+        "oauthverifier",
+        "jwt",
+        "bearer",
+    )
+    private val REDIRECT_TARGET_QUERY_PARAMETER_NAMES = setOf(
+        "paginationtoken",
+        "continuationtoken",
+        "nextpagetoken",
+        "nexttoken",
+        "pagetoken",
+        "cursor",
+        "signature",
+        "sig",
+        "xgoogcredential",
+        "xgoogsignature",
+        "xamzcredential",
+        "xamzsignature",
+        "xamzsecuritytoken",
+    )
+
+    private fun isCredentialQueryParameter(name: String): Boolean {
+        val normalized = name.lowercase(Locale.ROOT).filter(Char::isLetterOrDigit)
+        // Keep pagination cursors and destination-issued signed URLs working across redirects.
+        if (normalized in REDIRECT_TARGET_QUERY_PARAMETER_NAMES) return false
+        return normalized in CREDENTIAL_QUERY_PARAMETER_NAMES ||
+            normalized.endsWith("token") ||
+            normalized.endsWith("password") ||
+            normalized.endsWith("passwd") ||
+            normalized.endsWith("secret") ||
+            normalized.endsWith("credential")
+    }
 
     override fun intercept(chain: Interceptor.Chain): Response {
         var request = chain.request()
@@ -110,7 +171,7 @@ object LocalNetworkCleartextInterceptor : Interceptor {
                     .username("")
                     .password("")
                 redirectUrl.queryParameterNames
-                    .filter { it.contains("key", ignoreCase = true) || it.contains("token", ignoreCase = true) }
+                    .filter(::isCredentialQueryParameter)
                     .forEach(redirectBuilder::removeAllQueryParameters)
                 redirectBuilder.build()
             }
