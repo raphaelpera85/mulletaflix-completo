@@ -85,6 +85,26 @@ class CleartextRequestProtectionTest {
     }
 
     @Test
+    fun `Retrofit follows redirects that remain on the configured LAN server`() {
+        server.enqueue(MockResponse().setResponseCode(302).addHeader("Location", "/Users/next"))
+        server.enqueue(MockResponse().setBody("{}"))
+        val sessions = CountingSessionRepository(baseUrl = server.url("/").toString())
+        val client = NetworkModule.provideOkHttpClient(
+            clientIdentityInterceptor = ClientIdentityInterceptor(sessions),
+            apiRetryInterceptor = ApiRetryInterceptor(),
+            serverUrlInterceptor = ServerUrlInterceptor(sessions),
+        )
+
+        val response = client.newCall(Request.Builder().url("https://placeholder.example/Users").build()).execute()
+
+        assertEquals(200, response.code)
+        response.close()
+        assertEquals(2, server.requestCount)
+        assertEquals("/Users", server.takeRequest().path)
+        assertEquals("/Users/next", server.takeRequest().path)
+    }
+
+    @Test
     fun `Coil client blocks a public HTTP redirect instead of forwarding artwork credentials`() {
         server.enqueue(
             MockResponse()

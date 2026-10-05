@@ -41,7 +41,7 @@ class CleartextAwareMediaDataSourceTest {
         }.exceptionOrNull()
 
         assertTrue("expected cleartext denial, received $failure", failure is IOException)
-        assertTrue(hasPolicyFailure(failure))
+        assertTrue("expected cleartext policy failure, received $failure", hasPolicyFailure(failure))
     }
 
     @Test
@@ -62,6 +62,26 @@ class CleartextAwareMediaDataSourceTest {
     }
 
     @Test
+    fun media3FollowsRedirectToAnotherLocalLanPath() {
+        server.enqueue(MockResponse().setResponseCode(302).addHeader("Location", "/Videos/item/final"))
+        server.enqueue(MockResponse().setBody("movie"))
+        val source = factory().createDataSource()
+        val output = ByteArray(5)
+
+        try {
+            assertEquals(5L, source.open(dataSpec(server.url("/Videos/item/stream").toString())))
+            assertEquals(5, source.read(output, 0, output.size))
+        } finally {
+            source.close()
+        }
+
+        assertEquals("movie", output.decodeToString())
+        assertEquals(2, server.requestCount)
+        assertEquals("/Videos/item/stream", server.takeRequest().requestUrl?.encodedPath)
+        assertEquals("/Videos/item/final", server.takeRequest().requestUrl?.encodedPath)
+    }
+
+    @Test
     fun media3BlocksPublicHttpRedirectFromLanStream() {
         server.enqueue(
             MockResponse()
@@ -76,7 +96,7 @@ class CleartextAwareMediaDataSourceTest {
         }
 
         assertTrue("expected redirected cleartext denial, received $failure", failure is IOException)
-        assertTrue(hasPolicyFailure(failure))
+        assertTrue("expected redirect policy failure, received $failure", hasPolicyFailure(failure))
         assertEquals("only the initial LAN request reaches the server", 1, server.requestCount)
     }
 

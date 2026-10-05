@@ -30,8 +30,10 @@ import okhttp3.Call
 import okhttp3.Interceptor
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import org.mulletaflix.core.api.ClientIdentityInterceptor
 import org.mulletaflix.core.api.SessionRepository
+import org.mulletaflix.core.common.network.CleartextTrafficPolicy
 import org.mulletaflix.core.common.network.enforceLocalNetworkCleartextPolicy
 import org.mulletaflix.core.common.session.FeedbackRequestSession
 import org.mulletaflix.designsystem.media.resolveMediaUrl
@@ -69,8 +71,8 @@ class Media3DownloadRepository @Inject constructor(
     private val artworkStore = OfflineArtworkStore(File(appContext.filesDir, "offline_artwork"))
     private val subtitleStore = OfflineSubtitleStore(File(appContext.filesDir, "offline_subtitles"))
     private val artworkClient = OkHttpClient.Builder()
-        .enforceLocalNetworkCleartextPolicy()
         .addInterceptor(clientIdentityInterceptor)
+        .enforceLocalNetworkCleartextPolicy()
         .connectTimeout(30, TimeUnit.SECONDS)
         .readTimeout(30, TimeUnit.SECONDS)
         .build()
@@ -751,8 +753,16 @@ internal fun downloadRequestFor(
     mediaMetadata: DownloadMediaMetadata? = null,
 ): DownloadRequest = DownloadRequest.Builder(
     requestId,
-    Uri.parse(retargetMediaUrl(storedUri, baseUrl, accessToken)),
+    Uri.parse(cleartextSafeDownloadUrl(storedUri, baseUrl, accessToken)),
 ).setData(encodeDownloadRequestMetadata(episodeMetadata, mediaMetadata)).build()
+
+internal fun cleartextSafeDownloadUrl(storedUri: String, baseUrl: String, accessToken: String?): String {
+    val credentialFreeUrl = retargetMediaUrl(storedUri, baseUrl, accessToken = null)
+    val parsedUrl = credentialFreeUrl.toHttpUrlOrNull()
+        ?: error("A URL do download não é válida.")
+    CleartextTrafficPolicy.requireAllowed(parsedUrl)
+    return retargetMediaUrl(storedUri, baseUrl, accessToken)
+}
 
 internal fun offlineSubtitleStreamPath(itemId: String, streamIndex: Int, mediaSourceId: String?): String? {
     if (itemId.isBlank() || streamIndex !in 0..100_000) return null
@@ -767,8 +777,8 @@ private fun encodeSubtitleComponent(value: String): String =
 
 internal fun offlineSubtitleHttpClient(identityInterceptor: Interceptor): OkHttpClient =
     OkHttpClient.Builder()
-        .enforceLocalNetworkCleartextPolicy()
         .addInterceptor(identityInterceptor)
+        .enforceLocalNetworkCleartextPolicy()
         .connectTimeout(30, TimeUnit.SECONDS)
         .readTimeout(30, TimeUnit.SECONDS)
         .followRedirects(false)

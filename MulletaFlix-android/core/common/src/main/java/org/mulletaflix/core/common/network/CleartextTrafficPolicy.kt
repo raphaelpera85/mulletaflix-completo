@@ -70,13 +70,63 @@ object CleartextTrafficPolicy {
 
 /** Checks every exchange, including redirect destinations, before it reaches the wire. */
 object LocalNetworkCleartextInterceptor : Interceptor {
+    private const val MAX_REDIRECTS = 20
+    private val REDIRECT_CODES = setOf(300, 301, 302, 303, 307, 308)
+
     override fun intercept(chain: Interceptor.Chain): Response {
-        CleartextTrafficPolicy.requireAllowed(chain.request().url)
-        return chain.proceed(chain.request())
+        var request = chain.request()
+        var redirects = 0
+
+        while (true) {
+            CleartextTrafficPolicy.requireAllowed(request.url)
+            val response = chain.proceed(request)
+            val location = response.header("Location") ?: return response
+            val redirectCode = response.code in REDIRECT_CODES
+            val redirectUrl = if (redirectCode) request.url.resolve(location) else null
+            if (redirectUrl == null) return response
+
+            val method = request.method
+            val redirectToGet = (response.code == 303 && method != "HEAD") ||
+                (response.code in setOf(301, 302) && method == "POST")
+            if (!redirectToGet && method !in setOf("GET", "HEAD")) return response
+            if (redirects == MAX_REDIRECTS) {
+                response.close()
+                throw IOException("Too many redirects: $MAX_REDIRECTS")
+            }
+
+            try {
+                CleartextTrafficPolicy.requireAllowed(redirectUrl)
+            } catch (failure: IOException) {
+                response.close()
+                throw failure
+            }
+
+            val sameOrigin = request.url.scheme == redirectUrl.scheme &&
+                request.url.host == redirectUrl.host && request.url.port == redirectUrl.port
+            val builder = request.newBuilder().url(redirectUrl)
+            if (!sameOrigin) {
+                builder.removeHeader("Authorization")
+                    .removeHeader("Cookie")
+                    .removeHeader("Proxy-Authorization")
+            }
+            if (redirectToGet) {
+                builder.method("GET", null)
+                    .removeHeader("Transfer-Encoding")
+                    .removeHeader("Content-Length")
+                    .removeHeader("Content-Type")
+            }
+
+            response.close()
+            request = builder.build()
+            redirects++
+        }
     }
+
 }
 
-/** Installs the policy before app interceptors and again for each network exchange/redirect. */
+/** Controls redirects in-app, then checks every request again at the network boundary. */
 fun OkHttpClient.Builder.enforceLocalNetworkCleartextPolicy(): OkHttpClient.Builder =
-    addInterceptor(LocalNetworkCleartextInterceptor)
+    followRedirects(false)
+        .followSslRedirects(false)
+        .addInterceptor(LocalNetworkCleartextInterceptor)
         .addNetworkInterceptor(LocalNetworkCleartextInterceptor)

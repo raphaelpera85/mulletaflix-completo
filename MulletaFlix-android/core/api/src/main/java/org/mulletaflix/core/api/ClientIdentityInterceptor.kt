@@ -102,8 +102,8 @@ fun buildAuthenticatedImageClient(
     clientIdentityInterceptor: Interceptor,
 ): okhttp3.OkHttpClient = okhttp3.OkHttpClient.Builder()
     .addInterceptor(serverUrlInterceptor)
-    .enforceLocalNetworkCleartextPolicy()
     .addInterceptor(clientIdentityInterceptor)
+    .enforceLocalNetworkCleartextPolicy()
     .connectTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
     .readTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
     .build()
