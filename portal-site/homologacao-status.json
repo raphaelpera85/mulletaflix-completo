@@ -2647,11 +2647,11 @@
       "local": "D:\\Users\\Raphael\\Documents\\Projetos\\mulletaflix\\MulletaFlix-android",
       "location": "Matriz Android local e portal; sem alteração do servidor ou release do APK",
       "scope": "Reconciliar evidências e estados das 21 áreas APK, separar testes automatizados de aceite funcional e publicar a matriz completa no portal.",
-      "status": "in_progress",
+      "status": "completed",
       "progressPercent": null,
       "startedAt": "2026-10-05T05:08:00-03:00",
-      "updatedAt": "2026-10-05T05:08:00-03:00",
-      "evidence": "Início registrado. Fonte existente indica 11 áreas com evidência técnica local, APK-H12 em validação e 9 gates pendentes; aceite formal pending. Auditoria adversarial e validação de portal ainda em execução; percentual formal não consolidado."
+      "updatedAt": "2026-10-05T05:16:00-03:00",
+      "evidence": "Matriz reconciliada: 21 IDs únicos (11 completed, APK-H12 in_progress, 9 pending); aceite formal pending e progressPercent null. Auditoria Cavecrew sem achados. Portal: node --test tests/homologacao.test.mjs 4/4; node --check; Validate-PortalSitemap.ps1 cobriu 7 URLs; git diff --check passou. Repositório principal commit 673f377a enviado a main. Deploy Vercel Production para commit bedbeab3cebf3a1083042e4d4b916215c0bcf94a concluído com status success em https://mulletaflix-portal-l4781zfja-raphaelpera85s-projects.vercel.app; alias público /, /docs, /downloads, /updates, /homologacao, /sitemap.xml e /homologacao-status.json retornaram HTTP 200. JSON público exibiu 21 áreas, 11/1/9 e aceite pending. Nenhuma mudança de servidor, APK de produção ou release."
     },
     {
       "id": "android-formal-homologation-2026-10-05",
