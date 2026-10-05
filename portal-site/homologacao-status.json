@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-10-05T02:29:03-03:00",
+  "generatedAt": "2026-10-05T04:52:07-03:00",
   "source": {
     "roadmap": "https://github.com/raphaelpera85/mulletaflix-completo/blob/main/docs/roadmap-evolucao-tecnologica-servidor-e-web.md",
     "repository": "https://github.com/raphaelpera85/mulletaflix-completo"
@@ -44,19 +44,26 @@
       "progressPercent": null,
       "source": "GitHub Actions, testes instrumentados e releases",
       "homologation": {
-        "completed": null,
-        "total": null,
-        "percent": null,
-        "unit": "escopo formal",
-        "label": "Homologação formal não consolidada; novos testes e bloqueios continuam pendentes."
+        "completed": 11,
+        "total": 21,
+        "percent": 52.4,
+        "unit": "áreas do gate Android",
+        "label": "11 de 21 áreas com evidência técnica local; 1 em validação e 9 pendentes. Aceite formal continua aberto."
       },
       "testAudit": {
-        "passed": 1382,
-        "total": 1382,
+        "passed": 1399,
+        "total": 1399,
         "skipped": 0,
         "failed": 0,
         "percent": 100,
-        "label": "JUnit auditável: 1.382 aprovados, 0 ignorados, 0 falhas."
+        "label": "JUnit auditável local: 1.399 aprovados, 0 ignorados, 0 falhas/erros; agregação dos 220 relatórios Gradle."
+      },
+      "instrumentationAudit": {
+        "passed": 1,
+        "total": 1,
+        "skipped": 0,
+        "failed": 0,
+        "label": "Novo teste instrumentado HTTPS real do Media3: 1/1 no AVD API 35; gates de lint, compilação instrumentada e assembleDebug passaram."
       }
     },
     {
@@ -69,12 +76,13 @@
   ],
   "androidHomologation": {
     "source": "MulletaFlix-android/TODO-APP.md e relatórios Gradle/JUnit locais",
+    "sourceUrl": "https://github.com/raphaelpera85/mulletaflix-completo/blob/main/MulletaFlix-android/TODO-APP.md",
     "scopeNote": "Status concluído significa evidência técnica local registrada para a área; não substitui aceite com servidor/conteúdo real nem certifica uma release de produção. O backlog integral permanece no TODO-APP.md.",
     "taskChecklist": {
       "checked": 570,
       "unchecked": 66,
       "total": 636,
-      "definition": "Contagem literal de checkboxes do TODO-APP.md (inclui histórico e itens de release); não equivale a percentual de homologação."
+      "definition": "Contagem literal de checkboxes nos blocos de trabalho atuais do TODO-APP.md antes da linha de base histórica de funcionalidades; não equivale a percentual de homologação."
     },
     "formalSignoff": "pending",
     "areas": [
@@ -97,7 +105,8 @@
       { "id": "APK-H17", "name": "Downloads com falha, espaço e recuperação em aparelho", "status": "pending", "evidence": "Falta homologação manual em armazenamento limitado, interrupção/reinício e limpeza de cache nos dispositivos-alvo." },
       { "id": "APK-H18", "name": "Instalação, atualização e assinatura de produção", "status": "pending", "evidence": "Não foi gerado nem instalado APK de produção nesta tarefa; validar keystore vigente, compatibilidade de atualização e versão antes de futura release." },
       { "id": "APK-H19", "name": "Aceite em dispositivos físicos e matriz final", "status": "pending", "evidence": "AVDs fornecem cobertura repetível, mas não substituem TVs, celulares e tablets físicos, diferentes fabricantes, rede Wi-Fi e controle remoto real." },
-      { "id": "APK-H20", "name": "Aceite formal do responsável pelo produto", "status": "pending", "evidence": "Pendente execução da matriz contra serviço/conteúdo reais e aprovação final registrada; por isso a homologação geral permanece aberta." }
+      { "id": "APK-H20", "name": "Aceite formal do responsável pelo produto", "status": "pending", "evidence": "Pendente execução da matriz contra serviço/conteúdo reais e aprovação final registrada; por isso a homologação geral permanece aberta." },
+      { "id": "APK-H21", "name": "Leitura de EPUB/CBZ servidos pela instância real", "status": "pending", "evidence": "A leitura local/parsers possui evidência de teste; falta validar livros reais via API autenticada, MIME/respostas do servidor e retomada nos dispositivos-alvo." }
     ]
   },
   "features": [
@@ -2638,11 +2647,11 @@
       "local": "D:\\Users\\Raphael\\Documents\\Projetos\\mulletaflix\\MulletaFlix-android",
       "location": "Código e emulador Android locais; sem alterar servidor ou publicar release",
       "scope": "Inventariar tarefas Android concluídas, em validação e pendentes; executar os gates disponíveis e publicar no portal a distinção entre evidência automatizada e aceite funcional",
-      "status": "in_progress",
+      "status": "completed",
       "progressPercent": null,
       "startedAt": "2026-10-05T00:00:00-03:00",
-      "updatedAt": "2026-10-05T00:00:00-03:00",
-      "evidence": "Início: TODO-APP.md identifica múltiplas áreas concluídas e tarefas abertas; os números antigos 1.382/1.382 não são aceitos como auditoria atual sem novos relatórios. Baseline e cobertura formal ainda serão consolidados; progressPercent permanece null."
+      "updatedAt": "2026-10-05T04:52:07-03:00",
+      "evidence": "Matriz APK consolidada e testes desta rodada aprovados: testDebugUnitTest BUILD SUCCESSFUL com 1.399/1.399 testes nos 220 relatórios atuais; CleartextAwareMediaDataSourceHttpsTest 1/1 no AVD API 35 (Media3 sobre HTTPS, certificado TLS confiável, GPU NVIDIA confirmada e AVD encerrado); lintDebug de :core:api, :feature:player e :app, compilação instrumentada de :core:api/:feature:player/:app e :app:assembleDebug BUILD SUCCESSFUL (740 tarefas). Portal: node --test portal-site/tests/homologacao.test.mjs 3/3; Validate-PortalSitemap.ps1 cobre 7 URLs. A matriz tem 11/21 áreas validadas localmente, 1 em validação, 9 pendentes; aceite geral permanece pending e progressPercent do evento null para não confundir conclusão desta tarefa com homologação integral. Nenhuma alteração de servidor, APK de produção, release ou publicação de release."
     },
     {
       "id": "t9-1-windows-updater-credential-hardening-2026-10-05",
