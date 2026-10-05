@@ -1,8 +1,9 @@
 using System;
+using MulletaFlix.Api.Middleware;
 using Serilog.Core;
 using Serilog.Events;
 
-namespace MulletaFlix.Api.Middleware;
+namespace MulletaFlix.Server.Helpers;
 
 /// <summary>
 /// Redacts sensitive request data from ASP.NET hosting diagnostic events without mutating the request.

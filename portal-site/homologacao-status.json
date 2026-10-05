@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-10-05T01:16:01-03:00",
+  "generatedAt": "2026-10-05T01:27:28-03:00",
   "source": {
     "roadmap": "https://github.com/raphaelpera85/mulletaflix-completo/blob/main/docs/roadmap-evolucao-tecnologica-servidor-e-web.md",
     "repository": "https://github.com/raphaelpera85/mulletaflix-completo"
@@ -29,6 +29,20 @@
     { "id": "T9.5", "name": "Validação e QA da tela", "area": "Web/QA", "status": "pending", "source": "roadmap" }
   ],
   "events": [
+    {
+      "id": "aspnet-hosting-request-log-redaction-2026-10-05",
+      "title": "Redação dos logs de request do ASP.NET Hosting (T6.1 parcial)",
+      "agent": "Codex",
+      "front": "Servidor / Segurança de API",
+      "local": "D:\\Users\\Raphael\\Documents\\Projetos\\mulletaflix\\MulletaFlix-master",
+      "location": "Código local e TestServer; sem acessar produção",
+      "scope": "Evitar exposição de capability e query string nos eventos de início/fim do ASP.NET Hosting sem mutar requests",
+      "status": "completed",
+      "progressPercent": null,
+      "startedAt": "2026-10-05T01:10:00-03:00",
+      "updatedAt": "2026-10-05T01:27:28-03:00",
+      "evidence": "Gauntlet: o teste middleware-only reproduziu vazamento no evento de início. Refeito com Serilog enricher configurado pelo helper comum do startup: mascara capability no Path e remove QueryString apenas para Microsoft.AspNetCore.Hosting.Diagnostics; handler recebe request original e eventos de outras categorias permanecem intactos. HostingRequestLogRedactionTests 2/2; Jellyfin.Server.Tests Release 66 aprovados, 1 ignorado, 0 falhas; Jellyfin.Api.Tests Release 519/519; dotnet build Jellyfin.Server/Jellyfin.Server.csproj --no-restore -c Release -m:1 --verbosity minimal exit 0 (0 avisos/erros); dotnet format whitespace --verify-no-changes nos arquivos escopados e git diff --check passaram. Revisão Cavecrew encontrou e motivou remoção da mutação tardia do request e teste diretamente ligado à configuração de startup. progressPercent null pois homologação formal T6.1 não está consolidada. Ainda sem collector/proxy/instalação real; nenhuma release ou pacote foi criado por haver melhorias ativas no roadmap. Curadoria IA segue backlog futuro."
+    },
     {
       "id": "nebula-local-playback-performance-2026-10-05",
       "title": "Investigação de desempenho do playback local Nebula",

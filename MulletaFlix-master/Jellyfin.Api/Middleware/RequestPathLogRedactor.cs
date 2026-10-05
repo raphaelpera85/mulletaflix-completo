@@ -5,7 +5,7 @@ namespace MulletaFlix.Api.Middleware;
 /// <summary>
 /// Removes bearer capabilities from request paths before the paths are written to logs.
 /// </summary>
-internal static class RequestPathLogRedactor
+public static class RequestPathLogRedactor
 {
     private const string RedactedValue = "[REDACTED]";
 
