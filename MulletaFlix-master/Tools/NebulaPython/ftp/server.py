@@ -328,7 +328,7 @@ class Server:
     async def parse_command(self, stream):
         line = await stream.readline()
         if not line: raise ConnectionResetError
-        
+
         # Tenta decodificar UTF-8 (Padrão Rclone/RaiDrive)
         try:
             s = line.decode('utf-8').rstrip()
@@ -342,10 +342,10 @@ class Server:
                 s = line.decode('latin-1').rstrip()
             except Exception:
                 s = line.decode('utf-8', errors='ignore').rstrip()
-        
+
         # Normalização Unicode (Crucial para acentos)
         s = unicodedata.normalize('NFC', s)
-        
+
         cmd, _, rest = s.partition(" ")
         return cmd.lower(), rest
 
@@ -459,7 +459,7 @@ class Server:
         conn.response(code, info); return True
 
     async def quit(self, conn, rest): conn.response("221", "bye"); return False
-    
+
     @ConnectionConditions(ConnectionConditions.login_required)
     async def pwd(self, conn, rest): conn.response("257", f"\"{conn.current_directory}\""); return True
 
@@ -664,7 +664,7 @@ class Server:
     async def syst(self, c, r): c.response("215", "UNIX Type: L8"); return True
     async def pasv(self, c, r): return await self._pasv_common(c, False)
     async def epsv(self, c, r): return await self._pasv_common(c, True)
-    
+
     async def _pasv_common(self, conn, epsv):
         async def h(r, w):
             if conn.future.data_connection.done(): w.close()
@@ -676,17 +676,17 @@ class Server:
                 conn.response("421", "no ports")
                 return False
             conn.passive_server = passive_server
-        
+
         for s in conn.passive_server.sockets:
             if s.family == AF_INET: host, port = s.getsockname(); break
         else: host, port = "127.0.0.1", 0
-        
+
         if epsv: msg = f"entering epsv (|||{port}|)"
         else:
             p1, p2 = port >> 8, port & 0xff
             h = host.replace(".", ",")
             msg = f"entering pasv ({h},{p1},{p2})"
-        
+
         if conn.future.data_connection.done(): conn.data_connection.close(); del conn.data_connection
         conn.response("229" if epsv else "227", msg)
         return True

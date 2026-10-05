@@ -116,7 +116,7 @@ def get_cache_dir(required_bytes: int = 0) -> str:
     """Retorna o diretorio de staging por ordem de prioridade/velocidade com espaco livre suficiente."""
     if not CACHE_DIRS:
         return os.path.abspath("staging")
-    
+
     # 1. Tenta o disco mais rapido na ordem configurada (ex: E: SSD -> F: USB3 -> I:) que tenha espaco livre seguro
     for d in CACHE_DIRS:
         try:
@@ -134,7 +134,7 @@ def get_cache_dir(required_bytes: int = 0) -> str:
                 return d
         except Exception:
             continue
-            
+
     # 2. Fallback: Se os discos mais rapidos estiverem cheios, usa o de maior espaco livre absoluto
     return max(CACHE_DIRS, key=get_free_bytes)
 
@@ -629,7 +629,7 @@ class MongoDBPathIO(AbstractPathIO):
             virtual_node = {**node, "parent": parent}
             async with self._cache_lock: self._memory_cache[cache_key] = virtual_node
             return Node(**virtual_node)
-            
+
         return None
 
     @universal_exception
@@ -751,7 +751,7 @@ class MongoDBPathIO(AbstractPathIO):
                 await self._files.replace_one({"_id": existing["_id"]}, doc, upsert=True)
             else:
                 await self._files.replace_one({"name": name, "parent": parent}, doc, upsert=True)
-        
+
         node = await self.get_node(path)
         if not node and mode == "rb": raise FileNotFoundError
         return MongoDBMemoryIO(node, mode, self.tg, self.db)
@@ -763,7 +763,7 @@ class MongoDBPathIO(AbstractPathIO):
 
         src_p, src_n = self._split_path(source)
         dst_p, dst_n = self._split_path(destination)
-        
+
         # 1. BUSCA ORIGEM NO CACHE PRIMEIRO
         old_key = f"{src_p}::{src_n}"
         new_key = f"{dst_p}::{dst_n}"
@@ -771,13 +771,13 @@ class MongoDBPathIO(AbstractPathIO):
 
         async with self._cache_lock:
             src_doc = self._memory_cache.get(old_key)
-        
+
         if not src_doc:
             src_doc = await self._find_child(src_n, src_p)
-        
+
         if not src_doc:
             logger.warning(f"⚠️ [RENAME] Origem não encontrada: {source}")
-            return 
+            return
 
         existing_dst = await self._find_child(dst_n, dst_p)
         if existing_dst and existing_dst.get("_id") != src_doc.get("_id"):
@@ -797,16 +797,16 @@ class MongoDBPathIO(AbstractPathIO):
         async with self._cache_lock:
             self._memory_cache.pop(old_key, None)
             self._memory_cache.pop(new_key, None)
-            
+
             src_doc["name"] = dst_n
             src_doc["parent"] = dst_p
             src_doc["mtime"] = int(time())
-            
+
             self._memory_cache[new_key] = src_doc
 
         # 3. Atualiza DB
         await self._files.update_one(
-            {"_id": src_doc["_id"]}, 
+            {"_id": src_doc["_id"]},
             {"$set": {"name": dst_n, "parent": dst_p, "mtime": int(time())}}
         )
 
@@ -825,7 +825,7 @@ class MongoDBPathIO(AbstractPathIO):
                         logger.debug("ignored renamed file cleanup skipped (%s): %s", dst_n, exc)
                 logger.debug("[RENAME] Ignorado sem upload: %s", dst_n)
                 return
-            
+
             if local_p and os.path.exists(local_p):
                 await UPLOAD_QUEUE.put({
                     "path": local_p,
