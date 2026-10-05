@@ -11,7 +11,9 @@ Este documento rastreia o status de implementação de todas as funcionalidades,
 - [x] Teste instrumentado com o `DownloadManager` Media3 real: transferência HTTP LAN de 64 KiB termina e persiste no cache temporário; redirect para HTTP público falha e não acrescenta bytes ao cache. SQLite e cache são exclusivos por execução; AVD API 35 isolado usou a NVIDIA e foi fechado ao terminar.
 - [x] Teste instrumentado com o `DownloadManager` Media3 real: transferência HTTPS remota com TLS de teste confiável conclui, valida 64 KiB e persiste no `SimpleCache` isolado; AVD API 35 usou a NVIDIA e foi fechado ao terminar.
 - [x] Teste integrado do ExoPlayer: baixa e decodifica uma legenda SRT externa servida por HTTPS com certificado confiável, usando a fábrica Media3 protegida entregue ao player; AVD API 35 usou a NVIDIA e foi fechado ao terminar.
-- [ ] Ainda faltam redirects de legendas externas e cobertura integrada de Coil HTTPS; esta verificação parcial não fecha a restrição HTTP em todos os clientes nem libera APK.
+- [x] Teste instrumentado da legenda externa: redirect HTTPS para HTTP público é rejeitado pelo DataSource Media3, e somente o pedido HTTPS original chega ao servidor fixture.
+- [x] Coil integrado à fábrica autenticada de produção: teste instrumentado baixa e decodifica imagem HTTPS com certificado de teste confiável, confirma cabeçalho de sessão; redirect HTTPS→HTTP público é bloqueado antes de uma segunda requisição. AVD API 35 usou GPU NVIDIA e foi encerrado pelo wrapper.
+- [ ] A configuração Android ainda permite cleartext para LAN dinâmica; guards nos clientes não substituem bloqueio global do SO. APK-H12 segue em validação e não libera release até política e cobertura ampla estarem fechadas.
 
 ## Prévia local de títulos da biblioteca offline (APK local; sem release)
 
@@ -21,7 +23,8 @@ Este documento rastreia o status de implementação de todas as funcionalidades,
 - [x] Snapshot/Moshi/DataStore mantém ano, classificação, gêneros e datas de início/fim da série; teste instrumentado real grava e restaura filme e série (1/1, sem falhas/erros/ignorados), preservando a garantia de que não persiste stream, URL, caminho ou credencial.
 - [x] Após os últimos ajustes, `testDebugUnitTest`, `:data:testDebugUnitTest`, lints de Library e app, compilação instrumentada de Library/Data e `:app:assembleDebug`: `BUILD SUCCESSFUL`.
 - [x] UI focada passou no telefone API 35 (4/4), tablet API 35 (4/4) e TV API 34 (1/1); restauração de estado salva o resumo sanitizado sem depender da página carregada, e o D-pad fecha a prévia na TV. O wrapper confirmou NVIDIA RTX 3050 e encerrou cada AVD.
-- [ ] Ainda falta o teste end-to-end da tela real da biblioteca conectando NetworkMonitor + DataStore após reinicialização real do processo e transição real de offline para online; os testes atuais exercitam separadamente round-trip do repositório e restauração Compose.
+- [x] Teste instrumentado integra `LibraryScreen` + `LibraryViewModel` + repositório DataStore real + `NetworkMonitor`: carrega online, recria composição/ViewModel, restaura card offline, abre prévia e atualiza catálogo após reconexão; 1/1 aprovado no AVD PHONE API 35 com NVIDIA RTX 3050.
+- [ ] Ainda falta validar após encerramento/reinício real do processo Android e contra servidor/catálogo reais; este teste usa servidor simulado e recria composição/ViewModel, não mata o processo.
 - [ ] Sem bump, pacote de produção ou publicação; esta alteração é somente do APK.
 
 ## Ajuste rápido da aparência das legendas no player (APK local; sem release)

@@ -9,11 +9,13 @@ import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.text.CueGroup
 import androidx.media3.common.util.UnstableApi
+import androidx.media3.datasource.DataSpec
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import java.io.ByteArrayOutputStream
+import java.io.IOException
 import java.net.InetAddress
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
@@ -34,10 +36,65 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.mulletaflix.core.common.network.enforceLocalNetworkCleartextPolicy
+import org.mulletaflix.core.common.network.CleartextTrafficPolicy
 
 @UnstableApi
 @RunWith(AndroidJUnit4::class)
 class ExternalSubtitleHttpsPlaybackIntegrationTest {
+    @Test
+    fun externalSubtitleRedirectToPublicHttpIsBlockedBeforeTheSecondRequest() {
+        val certificate = HeldCertificate.Builder()
+            .addSubjectAlternativeName(HOST)
+            .build()
+        val serverTls = HandshakeCertificates.Builder()
+            .heldCertificate(certificate)
+            .build()
+        val clientTls = HandshakeCertificates.Builder()
+            .addTrustedCertificate(certificate.certificate)
+            .build()
+        val server = MockWebServer().apply {
+            useHttps(serverTls.sslSocketFactory(), false)
+            enqueue(
+                MockResponse()
+                    .setResponseCode(302)
+                    .setHeader("Location", "http://203.0.113.77:8096/subtitles/public.srt"),
+            )
+            start(InetAddress.getByName("127.0.0.1"), 0)
+        }
+        val client = OkHttpClient.Builder()
+            .sslSocketFactory(clientTls.sslSocketFactory(), clientTls.trustManager)
+            .dns(object : Dns {
+                override fun lookup(hostname: String): List<InetAddress> =
+                    if (hostname == HOST) listOf(InetAddress.getByName("127.0.0.1"))
+                    else Dns.SYSTEM.lookup(hostname)
+            })
+            .enforceLocalNetworkCleartextPolicy()
+            .build()
+        val source = cleartextAwareMediaDataSourceFactory(client).createDataSource()
+
+        try {
+            val failure = runCatching {
+                source.open(
+                    DataSpec.Builder()
+                        .setUri(server.url("/subtitles/redirect.srt").newBuilder().host(HOST).build().toString())
+                        .build(),
+                )
+            }.exceptionOrNull()
+
+            assertTrue("Expected cleartext redirect rejection, got $failure", failure is IOException)
+            assertTrue(
+                "Expected policy rejection in the cause chain, got $failure",
+                generateSequence(failure) { it.cause }
+                    .any { it.message == CleartextTrafficPolicy.BLOCKED_MESSAGE },
+            )
+            assertEquals("Only the original HTTPS sidecar request may reach the server", 1, server.requestCount)
+            assertEquals("/subtitles/redirect.srt", server.takeRequest(1, TimeUnit.SECONDS)?.path)
+        } finally {
+            source.close()
+            server.shutdown()
+        }
+    }
+
     @Test
     fun externalSubtitleIsFetchedAndDecodedOverRemoteHttpsThroughMedia3PolicyFactory() {
         val certificate = HeldCertificate.Builder()

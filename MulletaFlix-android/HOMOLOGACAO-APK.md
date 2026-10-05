@@ -12,6 +12,7 @@ O APK ainda **não está homologado para aceite final**. Há 11 áreas concluíd
 
 - `./gradlew testDebugUnitTest --no-daemon --no-parallel --console=plain`: BUILD SUCCESSFUL; relatórios Gradle atuais totalizam 1.400 testes aprovados, 0 falhas/erros e 0 ignorados.
 - `:core:api:connectedDebugAndroidTest` — `CleartextAwareMediaDataSourceHttpsTest`: 1/1 aprovado no AVD `MulletaflixApi35` (API 35). Exercitou leitura real via Media3/OkHttp sobre HTTPS com servidor TLS de teste e certificado confiável. O wrapper confirmou QEMU na GPU NVIDIA e encerrou o AVD.
+- `:app:connectedDebugAndroidTest` — `CoilHttpsArtworkIntegrationTest`: 2/2 aprovados no AVD PHONE API 35. Coil baixou e decodificou PNG HTTPS com certificado de teste confiável pelo `buildAuthenticatedImageClient`, conferiu o token de sessão e bloqueou redirect HTTPS→HTTP público sem emitir segunda requisição. QEMU confirmado na GPU NVIDIA RTX 3050; wrapper encerrou o AVD.
 - `:app:assembleDebugAndroidTest`: BUILD SUCCESSFUL. `DownloadManagerCleartextIntegrationTest`: 1/1 via `adb shell am instrument` no AVD PHONE API 35 dedicado, serial `emulator-5560`; download LAN de 64 KiB concluído e presente em cache temporário, redirect público terminou em falha sem aumento do cache. Banco SQLite e cache têm nomes temporários únicos; o wrapper validou o processo QEMU na NVIDIA RTX 3050 e encerrou apenas esse AVD. O emulador preexistente foi preservado.
 - `:core:api:assembleDebugAndroidTest :core:api:lintDebug`: BUILD SUCCESSFUL. `DownloadManagerHttpsIntegrationTest`: 1/1 via `adb shell am instrument`; download remoto HTTPS com certificado TLS de teste confiável completou, confirmou 64 KiB e persistência no `SimpleCache` isolado. AVD PHONE API 35 dedicado usou GPU NVIDIA e foi encerrado pelo wrapper.
 - `:core:api:assembleDebugAndroidTest :feature:player:lintDebug`: BUILD SUCCESSFUL. `ExternalSubtitleHttpsPlaybackIntegrationTest`: 1/1; ExoPlayer requisitou mídia e legenda num servidor TLS de teste, decodificou o cue SRT e não registrou erro. O teste usa a fábrica Media3 com a política de transporte de produção e certificado confiável de teste. AVD PHONE API 35 usou a NVIDIA RTX 3050 e foi encerrado pelo wrapper.
@@ -39,7 +40,7 @@ Essas classificações agregam evidências locais preexistentes registradas em `
 
 | ID | Área | Evidência atual | Saída exigida |
 |---|---|---|---|
-| APK-H12 | Transporte seguro: HTTPS remoto e HTTP restrito à LAN | Suíte JVM completa: 1.400 testes aprovados; Media3/player instrumentado 5/5, leitura Media3 HTTPS via TLS de teste 1/1, DownloadManager HTTP LAN 1/1 e HTTPS remoto 1/1, ExoPlayer com legenda externa HTTPS decodificada 1/1. Downloads validam 64 KiB no cache isolado e redirect público HTTP falho sem bytes extras. Retrofit bloqueia HTTP público antes do token; Coil nega URL HTTP público direto antes de ler credenciais; artwork HTTP LAN tem round-trip testado. Redirects cross-origin removem credenciais reconhecidas e preservam cursores/assinaturas de destino. | Faltam redirects de legenda externa e Coil HTTPS remoto. Android-base ainda permite cleartext para LAN dinâmica; guards protegem os clientes, sem bloqueio global do SO. Aceite formal continua aberto. |
+| APK-H12 | Transporte seguro: HTTPS remoto e HTTP restrito à LAN | Suíte JVM registrada: 1.400 testes aprovados; Media3/player instrumentado 5/5, leitura Media3 HTTPS via TLS de teste 1/1, DownloadManager HTTP LAN 1/1 e HTTPS remoto 1/1, ExoPlayer com legenda externa HTTPS decodificada 1/1 e redirect de legenda HTTPS→HTTP público bloqueado 1/1; Coil HTTPS instrumentado 1/1 e redirect Coil HTTPS→HTTP público bloqueado 1/1. Downloads validam 64 KiB no cache isolado e redirect público HTTP falho sem bytes extras. Retrofit bloqueia HTTP público antes do token; Coil nega URL HTTP público direto antes de ler credenciais; artwork HTTP LAN tem round-trip testado. Redirects cross-origin removem credenciais reconhecidas e preservam cursores/assinaturas de destino. | Android-base ainda permite cleartext para LAN dinâmica; guards protegem os clientes, sem bloqueio global do SO. É necessário fechar a política do sistema e restante da matriz antes do aceite formal. |
 
 ## Pendente — 9/21
 
@@ -55,7 +56,7 @@ Essas classificações agregam evidências locais preexistentes registradas em `
 | APK-H20 | Aceite formal do responsável pelo produto | Fechar a matriz e registrar aprovação explícita do responsável. |
 | APK-H21 | Leitura de EPUB/CBZ servidos pela instância real | Validar API autenticada, MIME/respostas, arquivos reais e retomada nos dispositivos-alvo. |
 
-A matriz completa, com evidência por área e estado renderizado no portal, está em `portal-site/homologacao-status.json` e na página pública `/homologacao`. Os 21 IDs são a unidade de homologação funcional. Os 266 checkboxes do backlog (`TODO-APP.md`) são tarefas de engenharia distintas e não devem ser convertidos em percentual de aceite.
+A matriz completa, com evidência por área e estado renderizado no portal, está em `portal-site/homologacao-status.json` e na página pública `/homologacao`. Os 21 IDs são a unidade de homologação funcional. Os checkboxes do backlog (`TODO-APP.md`) são tarefas de engenharia distintas e não devem ser convertidos em percentual de aceite.
 
 ## Gates ainda abertos
 
@@ -73,7 +74,12 @@ O HTTP em cleartext necessário à LAN permanece uma exceção arquitetural que 
 
 ## Inventário do backlog
 
-`TODO-APP.md` permanece a fonte linha a linha para implementação e histórico de releases. Do início do arquivo até imediatamente antes do cabeçalho “Funcionalidades APK validadas localmente, ainda não publicadas”, há 219 checkboxes marcadas e 47 abertas (266 no total). A contagem exclui as checklists históricas/arquivadas depois desse ponto e mede backlog de engenharia, não a cobertura formal nem o percentual de aceite.
+`TODO-APP.md` permanece a fonte linha a linha para implementação e histórico de releases. Do início do arquivo até imediatamente antes do cabeçalho “Funcionalidades APK validadas localmente, ainda não publicadas”, há 226 checkboxes marcadas e 48 abertas (274 no total). A contagem exclui as checklists históricas/arquivadas depois desse ponto e mede backlog de engenharia, não a cobertura formal nem o percentual de aceite.
+
+## Evidência adicionada nesta rodada
+
+- Integração instrumentada da Biblioteca: catálogo salvo pelo `LibraryCatalogCacheRepositoryImpl` no DataStore, restauração pela tela real após recriação de composição/ViewModel sem rede, prévia offline e atualização após retorno da conectividade. O servidor e a mídia são fakes; não houve encerramento do processo Android. APK-H04 continua com evidência técnica local, sem mudar seu aceite formal ou a contagem de áreas.
+- Verificação local: `:feature:library:connectedDebugAndroidTest` (teste focal 1/1 aprovado); `:feature:library:testDebugUnitTest :feature:library:lintDebug` (`BUILD SUCCESSFUL`). AVD PHONE API 35 executado via wrapper, QEMU na NVIDIA RTX 3050, emulador encerrado ao final.
 
 ## Fechamento
 
