@@ -1,34 +1,2616 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-10-05T01:33:16-03:00",
+  "generatedAt": "2026-10-05T01:51:54-03:00",
   "source": {
     "roadmap": "https://github.com/raphaelpera85/mulletaflix-completo/blob/main/docs/roadmap-evolucao-tecnologica-servidor-e-web.md",
     "repository": "https://github.com/raphaelpera85/mulletaflix-completo"
   },
   "coverage": {
-    "completed": 290,
+    "completed": 293,
     "pending": 68,
-    "total": 358,
-    "definition": "Itens marcados como concluídos ou pendentes no roadmap versionado."
+    "total": 361,
+    "definition": "Checklists de funcionalidades do roadmap (cada checkbox conta como um item); tarefas com evento ativo identificado aparecem como em execução.",
+    "inProgress": 0
   },
   "tracks": [
-    { "id": "server", "name": "Servidor Windows/Linux", "kind": "server", "status": "in_progress", "progressPercent": null, "source": "GitHub Actions e testes de integração", "homologation": { "completed": null, "total": null, "percent": null, "unit": "escopo formal", "label": "Homologação formal não consolidada; testes parciais e bloqueios continuam em investigação." }, "testAudit": { "passed": 1165, "total": 1215, "skipped": 50, "failed": 0, "percent": 95.9, "label": "TRX auditável: 1.165 aprovados, 50 ignorados, 0 falhas." } },
-    { "id": "android", "name": "Aplicativo Android (APK)", "kind": "apk", "status": "in_progress", "progressPercent": null, "source": "GitHub Actions, testes instrumentados e releases", "homologation": { "completed": null, "total": null, "percent": null, "unit": "escopo formal", "label": "Homologação formal não consolidada; novos testes e bloqueios continuam pendentes." }, "testAudit": { "passed": 1382, "total": 1382, "skipped": 0, "failed": 0, "percent": 100, "label": "JUnit auditável: 1.382 aprovados, 0 ignorados, 0 falhas." } },
-    { "id": "web", "name": "Frontend Web", "kind": "web", "status": "monitoring", "source": "GitHub Actions e roadmap" }
+    {
+      "id": "server",
+      "name": "Servidor Windows/Linux",
+      "kind": "server",
+      "status": "in_progress",
+      "progressPercent": null,
+      "source": "GitHub Actions e testes de integração",
+      "homologation": {
+        "completed": null,
+        "total": null,
+        "percent": null,
+        "unit": "escopo formal",
+        "label": "Homologação formal não consolidada; testes parciais e bloqueios continuam em investigação."
+      },
+      "testAudit": {
+        "passed": 1165,
+        "total": 1215,
+        "skipped": 50,
+        "failed": 0,
+        "percent": 95.9,
+        "label": "TRX auditável: 1.165 aprovados, 50 ignorados, 0 falhas."
+      }
+    },
+    {
+      "id": "android",
+      "name": "Aplicativo Android (APK)",
+      "kind": "apk",
+      "status": "in_progress",
+      "progressPercent": null,
+      "source": "GitHub Actions, testes instrumentados e releases",
+      "homologation": {
+        "completed": null,
+        "total": null,
+        "percent": null,
+        "unit": "escopo formal",
+        "label": "Homologação formal não consolidada; novos testes e bloqueios continuam pendentes."
+      },
+      "testAudit": {
+        "passed": 1382,
+        "total": 1382,
+        "skipped": 0,
+        "failed": 0,
+        "percent": 100,
+        "label": "JUnit auditável: 1.382 aprovados, 0 ignorados, 0 falhas."
+      }
+    },
+    {
+      "id": "web",
+      "name": "Frontend Web",
+      "kind": "web",
+      "status": "monitoring",
+      "source": "GitHub Actions e roadmap"
+    }
   ],
   "features": [
-    { "id": "T0.1", "name": "Baseline de produção", "area": "Servidor", "status": "pending", "source": "roadmap" },
-    { "id": "T0.2", "name": "Mapa de fluxos e dependências", "area": "Servidor", "status": "completed", "source": "roadmap" },
-    { "id": "T1.1", "name": "Instrumentação OpenTelemetry", "area": "Servidor", "status": "completed", "source": "roadmap" },
-    { "id": "W1.1", "name": "Estados de página e recuperação", "area": "Web", "status": "pending", "source": "roadmap" },
-    { "id": "W4.1", "name": "Cobertura Playwright dos fluxos críticos", "area": "Web", "status": "pending", "source": "roadmap" },
-    { "id": "T9.1", "name": "Auditoria do provisionamento HTTPS/DuckDNS", "area": "Servidor", "status": "pending", "source": "roadmap" },
-    { "id": "T9.2", "name": "API administrativa e estado seguro", "area": "Servidor", "status": "pending", "source": "roadmap" },
-    { "id": "T9.3", "name": "Provisionamento cross-platform", "area": "Windows/Linux", "status": "pending", "source": "roadmap" },
-    { "id": "T9.4", "name": "Tela de gestão de domínio", "area": "Web", "status": "pending", "source": "roadmap" },
-    { "id": "T9.5", "name": "Validação e QA da tela", "area": "Web/QA", "status": "pending", "source": "roadmap" }
+    {
+      "id": "T0.1",
+      "name": "Definir baseline de produção",
+      "area": "Servidor",
+      "status": "pending",
+      "source": "roadmap"
+    },
+    {
+      "id": "T0.1.1",
+      "name": "Capturar amostra inicial read-only da instância instalada: versão/ambiente, startup aproximado, memória/CPU, espaço livre e latência local de endpoints públicos",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T0.1.2",
+      "name": "Repetir sob carga representativa e incluir métricas autenticadas de duração/volume Nebula, footprint dos dados, Linux e amostra temporal suficiente",
+      "area": "Servidor",
+      "status": "pending",
+      "source": "roadmap"
+    },
+    {
+      "id": "T0.2",
+      "name": "Mapear fluxos e dependências",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T0.3",
+      "name": "Criar conjunto de cenários representativo",
+      "area": "Servidor",
+      "status": "pending",
+      "source": "roadmap"
+    },
+    {
+      "id": "T0.3.1",
+      "name": "Cobrir catálogo STRM de 10 e 2.000 títulos; falha de fetch seguida de retry/cache hit; fetch de rede com erro; cache cheio com lease; stream local e primeiro bloco sem esperar o…",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T0.3.2",
+      "name": "Adicionar job CI focado em cenários Nebula e health checks de dependências para `ubuntu-latest` e `windows-latest`; lock de arquivo com `FileShare.None` fica explicitamente rest…",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T0.3.3",
+      "name": "Cobrir a transição do health check Mongo indisponível (`Unhealthy`) para disponível (`Healthy`) em verificações sucessivas, sem reiniciar o servidor",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T0.3.4",
+      "name": "Corrigir a validação condicional do keystore no workflow: steps passam a consultar flag de ambiente, sem referenciar `secrets` diretamente em `if`",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T0.3.5",
+      "name": "Criar recuperação integrada de metadados persistidos no Mongo com falha/retorno de fetch simulado, cache em disco e Mongo descartável provisionado por workflow",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T0.3.6",
+      "name": "Executar localmente o cenário Mongo integrado em serviço descartável, incluindo recuperação após falha e reutilização do cache em disco; ver evidências de 04/10/2026 no Registro…",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T0.3.7",
+      "name": "Serializar na suíte Providers as classes de teste que compartilham `Video.RecordingsManager`: as regressões que restauram estado estático global não podem executar em paralelo c…",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T0.3.8",
+      "name": "Confirmar execução remota dos jobs representativos Windows/Linux e do job Mongo Linux; exige CI acionado por push, ainda não autorizado",
+      "area": "Servidor",
+      "status": "pending",
+      "source": "roadmap"
+    },
+    {
+      "id": "T0.4",
+      "name": "Definir limites de regressão",
+      "area": "Servidor",
+      "status": "pending",
+      "source": "roadmap"
+    },
+    {
+      "id": "T0.4.1",
+      "name": "Medir o artefato web de produção e conferir o gate existente de 1.536 KiB por arquivo JS/CSS",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T0.4.2",
+      "name": "Criar relatório local reproduzível para tamanhos brutos, gzip e Brotli do HTML inicial, assets referenciados e conjunto JS/CSS completo",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T0.4.3",
+      "name": "Completar séries representativas de boot, busca, recursos, tráfego comprimido e uso do cache antes de definir budgets globais",
+      "area": "Servidor",
+      "status": "pending",
+      "source": "roadmap"
+    },
+    {
+      "id": "T1.1",
+      "name": "Adicionar instrumentação OpenTelemetry",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T1.1.1",
+      "name": "Parcial: listener HTTP Nebula cria spans `ActivitySource`, aceita `traceparent` W3C sem preservar `tracestate`, registra método/rota/status e tipo de erro sem incluir caminho, t…",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T1.1.2",
+      "name": "Parcial: o listener HTTP Nebula agora também propaga `tracestate` válido ao criar o `ActivityContext` pai; entradas inválidas continuam sem contexto pai. Teste de regressão conf…",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T1.1.3",
+      "name": "Parcial: exportação OTLP opt-in por variáveis padrão OpenTelemetry para traces ASP.NET Core/Nebula e métricas de requisições ASP.NET Core; endpoint compartilhado ou endpoint esp…",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T1.1.4",
+      "name": "Parcial: ciclo de upload Nebula emite span filho (quando há contexto pai) e métricas de total/duração com resultado de baixa cardinalidade; títulos, nomes, caminhos e IDs não sã…",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T1.1.5",
+      "name": "Parcial: operações de download de chunks via Telegram agora emitem spans `Client` com operação, índice do bot e resultado (`success`, `empty`, `cancelled` ou `failure`), sem fil…",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T1.1.6",
+      "name": "Parcial: downloads multipart STRM/arquivos físicos emitem span e métricas de total/duração; URL, query, nome e caminho não são atributos. Cancelamento só é classificado como can…",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T1.1.7",
+      "name": "Parcial: o `NebulaMongoContext` instrumenta as consultas MongoDB como spans `Client` com nome de operação de baixa cardinalidade e resultado `success`, `cancelled` ou `failure`,…",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T1.1.8",
+      "name": "Parcial: as transições da fila de upload no MongoDB emitem spans `Client` com estado canônico da máquina de estados em `nebula.queue.state`: `mongodb.claim_file_for_upload`, `mo…",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T1.1.9",
+      "name": "Parcial: as operações de envio Telegram passaram a emitir spans `Client` `telegram.upload_document`, `telegram.send_photo` e `telegram.send_message` com resultado de baixa cardi…",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T1.1.10",
+      "name": "Parcial: a varredura de staging (`SyncStagingDirectoryAsync`) emite span `Client` `mongodb.sync_staging_directory` com `nebula.staging.root_count` e resultado `success`, `skippe…",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T1.1.11",
+      "name": "Parcial: a sessão de reprodução passou a ser instrumentada pelo `NebulaPlaybackSessionMonitor` com spans `Internal` `nebula.playback.session_start` e `nebula.playback.session_st…",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T1.1.12",
+      "name": "Parcial: o pipeline de exportação OTLP passou a ter validação de integração real em `MulletaFlixOpenTelemetryExportTests` (`Jellyfin.Server.Tests`). O teste constrói o SDK OpenT…",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T1.2",
+      "name": "Criar indicadores de operação no painel",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T1.2.1",
+      "name": "Parcial: painel Nebula exibe health do MariaDB usando o check nomeado do contexto principal e atualiza a cada 30 s; não expõe detalhes de conexão. O MongoDB já era consultado pe…",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T1.2.2",
+      "name": "Parcial: painel mostra tamanho/arquivos do cache, leases de reprodução, pré-cache e espaço no volume; cache não inicializado aparece como indisponível, em vez de zeros falsos. B…",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T1.2.3",
+      "name": "Parcial: endpoint leve conta itens `staging/queued` e falhas com `retry_after`; busca somente o item pendente mais antigo por projeção/limite 1. A tela atualiza esse resumo a ca…",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T1.2.4",
+      "name": "Parcial: resumo Mongo agrega arquivos concluídos e bytes enviados nos últimos 60 minutos, além de mídias com falha recente agrupadas por etapa; painel exibe estes dados sem nome…",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T1.2.5",
+      "name": "Parcial: falhas por exceção inesperada deixaram de ficar invisíveis. Antes, uma exceção não encaminhada pelos ramos explícitos (`telegram_availability`, `telegram_transfer`, `up…",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T1.2.6",
+      "name": "Pendente: validar agregações e índices contra MongoDB de produção/volume representativo, além de confirmar completude do histórico",
+      "area": "Servidor",
+      "status": "pending",
+      "source": "roadmap"
+    },
+    {
+      "id": "T1.3",
+      "name": "Separar logs operacionais de auditoria",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T1.3.1",
+      "name": "Parcial: eventos de exceção HTTP registram o `TraceIdentifier`/`X-Correlation-ID` seguro para correlacionar resposta e log; não adicionam query string ou URL completa",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T1.3.2",
+      "name": "Parcial: limpeza diária agora inclui logs Serilog e aplica `LogFileRetentionDays`; sink padrão não limita mais arquivos por contagem. A configuração padrão legada é normalizada…",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T1.3.3",
+      "name": "Parcial: corrigido vazamento de credencial em log de produção. `SchedulesDirect.GetToken` registrava o token de sessão da API integralmente em nível `Information` (`\"Authenticat…",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T1.3.4",
+      "name": "Parcial: URLs de provedores Live TV/IPTV deixaram de ser gravadas integralmente nos logs. Essas URLs carregam credenciais rotineiramente — em `userinfo` (`http://usuario:senha@h…",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T1.3.5",
+      "name": "Parcial: retenção de logs validada com configurações personalizadas e dois defeitos corrigidos em `DeleteLogFileTask`. (1) `LogFileRetentionDays` é um `int` sem validação; com `…",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T1.3.6",
+      "name": "Parcial: auditado o risco de vazamento da connection string do MongoDB em logs de exceção. Sonda descartável confirmou empiricamente que o driver já substitui as credenciais por…",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T1.3.7",
+      "name": "Auditoria de logs concluída para esta fase: os vazamentos de credencial encontrados (token Schedules Direct e URLs IPTV/EPG) foram corrigidos e o risco da connection string do M…",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T1.4",
+      "name": "Expor health checks úteis",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T1.4.1",
+      "name": "O `/ready` do Nebula usa `GetComponentHealthAsync` e verifica MongoDB + listeners FTP/HTTP; não materializa listas completas de uploads para responder readiness",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T1.4.2",
+      "name": "Parcial: implementado o **estado degradado** que o item exigia e que faltava. `status.TelegramReady` era coletado e exposto em `data`, mas nunca influenciava o status: uma insta…",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T1.4.3",
+      "name": "Códigos HTTP validados contra o servidor em execução: `/health`, `/ready` e `/metrics` responderam 200 com corpo `Healthy` (ver validação do aceite ao fim da fase). O comportame…",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T1.4.4",
+      "name": "Parcial: **corrigido vazamento de configuração sensível no `/metrics`**, encontrado ao validar o aceite da Fase 1 contra o servidor em execução. O `MeterAdapter` do prometheus-n…",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T1.5",
+      "name": "Definir alertas e diagnósticos",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T2.1",
+      "name": "Especificar máquina de estados durável",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T2.2",
+      "name": "Fortalecer idempotência e deduplicação",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T2.2.1",
+      "name": "Decisões de deduplicação de mídia exigem `completed` e conjunto de partes contíguo, com IDs Telegram e soma de tamanhos igual ao arquivo; compatibilidade de documentos legados s…",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T2.2.2",
+      "name": "Falha com partes parciais mantém arquivo local para retomada; parte isolada deixa de ser prova de conclusão",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T2.2.3",
+      "name": "Parcial: **fencing de posse implementado** — era a lacuna registrada em T2.1 como \"heartbeat/lease explícito e fencing permanecem pendentes\". `BuildWorkerOwnershipFilter` aceita…",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T2.2.4",
+      "name": "Parcial: **lease explícito com heartbeat** implementado, fechando a outra metade da lacuna de T2.1. Antes, a única proteção de um upload ativo era `modified_at` com janela fixa…",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T2.2.5",
+      "name": "Concorrência real validada contra MongoDB descartável",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T2.2.6",
+      "name": "Limitação declarada (fora do alcance do ambiente de build):",
+      "area": "Servidor",
+      "status": "pending",
+      "source": "roadmap"
+    },
+    {
+      "id": "T2.3",
+      "name": "Tornar prioridade observável e consistente",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T2.3.1",
+      "name": "Parcial: dashboard Nebula expõe posição planejada na varredura do downloader, justificativa (solicitação ou categoria/A–Z) e próximo título; a posição é explicitamente do plano…",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T2.3.2",
+      "name": "Parcial: o dashboard também exibe posição, razão e próximo dequeue do snapshot atual da fila fairness dos workers; identifica que títulos pendentes no Mongo ainda não admitidos…",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T2.3.3",
+      "name": "Ordem de categorias unificada em fonte única",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T2.3.4",
+      "name": "Prioridade durável e reconciliável na fila Mongo",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T2.4",
+      "name": "Implementar backpressure e fairness",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T2.4.1",
+      "name": "Parcial: fila de upload usa fairness FIFO ponderada; após quatro seleções prioritárias, escolhe um item normal se houver item normal aguardando. Sem fila normal, prioritários co…",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T2.4.2",
+      "name": "Parcial: **limites independentes por operação** centralizados em `NebulaTransferLimits`. Antes, upload e download resolviam concorrência cada um por conta própria e sem teto coe…",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T2.4.3",
+      "name": "Controle de rajadas por janela de tempo",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T2.4.4",
+      "name": "Fairness sob concorrência real validada em `NebulaQueueConcurrencyMongoTests` contra MongoDB dedicado: 16 workers disputando o mesmo documento resultam em exatamente um claim ve…",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T2.5",
+      "name": "Adicionar recuperação operacional",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T2.5.1",
+      "name": "Parcial: backoff/jitter, limite de 8 tentativas, reprocessamento de falhas/cancelamentos e cancelamento persistido com checkpoint entre partes; dashboard administrativo lista e…",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T2.5.2",
+      "name": "Cancelamento, falha e restart exercitados com MongoDB isolado",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T2.5.3",
+      "name": "Limitação declarada (fora do alcance do ambiente de build):",
+      "area": "Servidor",
+      "status": "pending",
+      "source": "roadmap"
+    },
+    {
+      "id": "T2.6",
+      "name": "Revisar limpeza e startup",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T2.6.1",
+      "name": "Parcial: manager oferece `DisposeAsync` e aguarda cleanup, retry e última montagem automática antes de liberar recursos; bloqueia nova limpeza depois de solicitar descarte. Regr…",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T2.6.2",
+      "name": "O `NebulaUploadEngine` registra operações admitidas, recusa novas após descarte, propaga cancelamento às ativas e espera todas saírem antes de descartar semáforo/CTS. Teste bloq…",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T2.6.3",
+      "name": "Retry da montagem solicitado durante uma tentativa ativa é coalescido numa única execução posterior. O aguardo de idle inclui essa execução; parada/descarte remove o retry pende…",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T2.6.4",
+      "name": "Complemento de encerramento: descarte aguarda as travas de manutenção e runtime compartilhado na ordem usada por backup/restauração; falha ao parar o processo próprio interrompe…",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T2.6.5",
+      "name": "Os readers de stdout/stderr do rclone agora são acompanhados e drenados antes de descartar o processo; reader ativo além do prazo mantém o handle para retry, e reader faulted ma…",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T2.6.6",
+      "name": "Parcial: limpeza de staging sai do loop principal, executa em segundo plano e impede sobreposição; verifica cancelamento entre entradas e informa início, raízes concluídas e dur…",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T2.6.7",
+      "name": "Travessia incremental com checkpoint reiniciável",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T2.7",
+      "name": "Atualizar a listagem virtual após upload Nebula",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T2.7.1",
+      "name": "Implementado em `NebulaFtpManager`: o servidor sobe o rclone com `--rc` em porta de loopback livre e credenciais aleatórias por montagem, persiste `completed` e as partes no Mon…",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T3.1",
+      "name": "Formalizar o contrato do cache de reprodução",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T3.1.1",
+      "name": "Canonizar IDs MongoDB sem diferenciar caixa e caminhos absolutos com segmentos equivalentes; separar namespaces de ID, caminho e chave opaca, preservando sensibilidade a caixa e…",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T3.1.2",
+      "name": "Expirar entradas após 1 hora sem atividade; manter limpeza periódica a cada 5 minutos e proteger leases ativos",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T3.1.3",
+      "name": "Configurar cota máxima e reserva de espaço livre; evictar mídias inativas por LRU e aplicar limites na gravação e limpeza periódica",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T3.1.4",
+      "name": "Quando cache/capacidade falhar, entregar os bytes ao fluxo de reprodução sem persistir o bloco",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T3.2",
+      "name": "Validar leitura em partes e prefetch",
+      "area": "Servidor",
+      "status": "pending",
+      "source": "roadmap"
+    },
+    {
+      "id": "T3.2.1",
+      "name": "Limitar a duas mídias com pré-cache integral ativo e quatro aguardando; não enfileirar prefetch-ahead além de dois chunks concorrentes. Os chunks antecipados usam o cache persis…",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T3.2.2",
+      "name": "Provar por teste do `NebulaChunkedStream` que o primeiro bloco é entregue e persistido enquanto o prefetch do próximo chunk continua bloqueado",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T3.2.3",
+      "name": "Monitorar eventos `PlaybackStart`/`PlaybackStopped` por sessão; trocar/encerrar uma reprodução cancela o pré-cache da mídia anterior apenas quando nenhum outro cliente permanece…",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T3.2.4",
+      "name": "Tornar `StartAsync` idempotente e serializar transições de estado com inscrição/remoção dos eventos. Callbacks já capturados antes de `StopAsync` verificam o estado dentro do me…",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T3.2.5",
+      "name": "Um lease novo revoga uma intenção de cancelamento antes de ela sinalizar o token. Cancel callbacks usam `CancellationTokenSource.CancelAsync`; o descarte da origem espera esses…",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T3.2.6",
+      "name": "Manter o `NebulaChunkedStream` auxiliar vivo até a conclusão do pré-cache integral. Antes, `StartPlaybackPrefetchAsync` o descartava imediatamente após iniciar a tarefa, cancela…",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T3.2.7",
+      "name": "Bloqueado por decisão operacional:",
+      "area": "Servidor",
+      "status": "pending",
+      "source": "roadmap"
+    },
+    {
+      "id": "T3.3",
+      "name": "Preservar leases ativos",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T3.3.1",
+      "name": "Limpeza manual e por cota ignoram mídias com lease, prefetch ou fetch de chunk em andamento; mudança de configuração não interrompe sessões ativas",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T3.3.2",
+      "name": "Lease é liberado mesmo quando a operação sob `using` lança exceção, quando o fetch subjacente é cancelado (a leitura cancela, mas o lease permanece com o chamador até ele descar…",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T3.4",
+      "name": "Prevenir duplicação de downloads concorrentes",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T3.5",
+      "name": "Exibir diagnóstico de cache",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T3.5.1",
+      "name": "Painel usa os nomes atuais do DTO e mostra ocupação da cota, limite configurado, espaço livre/reserva e leases ativos",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T3.5.2",
+      "name": "DTO e painel exibem contadores desde a inicialização para hits/misses, tentativas/falhas de fetch, latência média, pré-cache ativo/em fila e erros de persistência",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T3.5.3",
+      "name": "Expandir telemetria para falhas/tempo de limpeza, downloads cancelados e limpezas ignoradas por contenção; testar o DTO/API serializado com valores ativos e testar a contenção d…",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T3.6",
+      "name": "Fazer testes de falha e recuperação",
+      "area": "Servidor",
+      "status": "pending",
+      "source": "roadmap"
+    },
+    {
+      "id": "T3.6.1",
+      "name": "Provar a inscrição e a remoção independente dos handlers de início/parada; callbacks capturados antes de `StopAsync` não podem alterar sessões nem acionar cancelamento após a pa…",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T3.6.2",
+      "name": "Cobrir cancelamento do último leitor, cancelamento de um leitor com outros aguardando e rejeição/cancelamento de operações no descarte do cache",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T3.6.3",
+      "name": "Cobrir cota cheia, reserva mínima, evicção inativa, redução de cota existente e limpeza manual durante fetch",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T3.6.4",
+      "name": "Parte declarada mas indisponível/truncada agora gera `IOException` em vez de fim normal antecipado; cobrir leitores síncronos e assíncronos",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T3.6.5",
+      "name": "Recriar o componente de cache sobre o mesmo diretório e validar reuso do chunk persistido sem nova chamada à origem; isso simula a recuperação do cache, não substitui teste de r…",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T3.6.6",
+      "name": "Simular `.partial` truncado após interrupção; validar que é contado no uso de disco, preservado durante lease ativo e removido quando o diretório da mídia expira",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T3.6.7",
+      "name": "Trocar o cache no accessor com streams reais: stream aberta conclui no cache/lease original e stream criada após a troca lê e persiste no novo cache. Isso não substitui a verifi…",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T3.6.8",
+      "name": "Rede interrompida e mudança de caminho cobertas",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T3.6.9",
+      "name": "Simular falha de gravação depois de criar arquivo `.partial`: a reprodução ainda recebe todos os bytes da origem, o temporário é removido, e um retry grava e reutiliza o bloco c…",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T3.6.10",
+      "name": "Exercitar a recuperação através do `NebulaChunkedStream` com prefetch integral concorrente: uma resposta curta é rejeitada pelo cache, a reprodução busca o chunk novamente e só…",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T3.6.11",
+      "name": "Configuração do cache usa snapshot e gate de lifecycle: falha nos ramos de troca de caminho/redução de cota preserva XML, configuração vigente, cache/accessor e lease. Pedido se…",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T3.6.12",
+      "name": "Auditoria de startup e limpeza de cache implementadas",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T4.1",
+      "name": "Inventariar dados recuperáveis",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T4.2",
+      "name": "Garantir consistência do backup",
+      "area": "Servidor",
+      "status": "pending",
+      "source": "roadmap"
+    },
+    {
+      "id": "T4.2.1",
+      "name": "Rotação local usa a política segura após promoção do ZIP. Datas futuras, anteriores à época Unix ou desconhecidas não deslocam cópias recentes no limite por contagem; a cópia da…",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T4.2.2",
+      "name": "Resposta HTTP ao gravar histórico `nebula_backups` agora é validada; rejeição/erro faz o ciclo reportar falha em vez de declarar sucesso",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T4.2.3",
+      "name": "Backup geral é montado em `.partial`, reaberto e lido integralmente antes de ser promovido atomicamente; nome final tem sufixo único para evitar colisão e truncamento por timestamp",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T4.2.4",
+      "name": "Opção `Database=false` agora omite exportação do banco e otimização, grava lista de tabelas vazia no manifesto e foi exercitada pelo fluxo real de criação do ZIP",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T4.2.5",
+      "name": "Corrigida a resolução do caminho de backup em Windows: preserva raiz da unidade/volume ao calcular espaço livre; antes, o caminho `C:\\...` era reconstruído como `\\C:...`, result…",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T4.2.6",
+      "name": "Integridade verificada",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T4.2.7",
+      "name": "Retenção e rotação implementadas",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T4.2.8",
+      "name": "Requer decisão do operador:",
+      "area": "Servidor",
+      "status": "pending",
+      "source": "roadmap"
+    },
+    {
+      "id": "T4.2.9",
+      "name": "Backup/restauração exclusiva de usuários não informa sucesso com zero registros quando a origem relacional está ausente ou a tabela/consulta Supabase falha; erro fica explícito…",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T4.2.10",
+      "name": "Falhas HTTP/JSON ao listar usuários remotos ou excluir registros antigos agora invalidam o backup. Lista local vazia continua protegida contra exclusão em massa",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T4.2.11",
+      "name": "Rejeição HTTP no envio de usuários FTP do MongoDB agora encerra a sincronização com erro, sem informar sucesso com contagem zero; respostas 2xx e 503 cobertas em testes",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T4.2.12",
+      "name": "Leituras HTTP ou respostas JSON inválidas de usuários FTP e tokens de bot durante restauração MongoDB agora invalidam a operação e propagam erro; sucesso com tabelas vazias segu…",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T4.3",
+      "name": "Criar teste automático de restauração isolada",
+      "area": "Servidor",
+      "status": "pending",
+      "source": "roadmap"
+    },
+    {
+      "id": "T4.3.1",
+      "name": "Teste opt-in de ciclo completo MariaDB em schema aleatório: backup, remoção do registro de fixture, restore e consulta do registro restaurado; usa apenas `MULLETAFLIX_TEST_MARIA…",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T4.3.2",
+      "name": "Ciclo de dados MongoDB validado contra banco real",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T4.3.3",
+      "name": "`PerformRestoreAsync` restaura agora `nebula_files` do Supabase em páginas ordenadas, avançando pelo número realmente retornado (inclusive quando `max_rows` limita resposta abai…",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T4.3.4",
+      "name": "Teste de integração opt-in atualizado para persistir `nebula_files` em banco Mongo aleatório, consultar campos/partes restaurados e provar que metadado local exclusivo permanece…",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T4.3.5",
+      "name": "O job CI que já provisiona Mongo descartável na porta `27099` agora executa `NebulaQueueConcurrencyMongoTests`, `NebulaPlaybackRecoveryMongoTests` e `NebulaSupabaseRestoreMongoT…",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T4.3.6",
+      "name": "Pendente: executar o teste de integração Mongo recém-ampliado (foi ignorado neste host: não há Mongo descartável/variável opt-in), validar o ciclo com Supabase real e recuperar…",
+      "area": "Servidor",
+      "status": "pending",
+      "source": "roadmap"
+    },
+    {
+      "id": "T4.3.7",
+      "name": "Exercitar `RestoreBackupAsync` com ZIP fixture e destinos temporários isolados; validar contagem de arquivos, conteúdo consultável de usuário/configuração, coleção e NFO, e dura…",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T4.3.8",
+      "name": "Criar/restaurar banco MariaDB descartável com schema aleatório, validar linha crítica e tipo recuperado; executar somente quando `MULLETAFLIX_TEST_MARIADB_CONNECTION_STRING` apo…",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T4.3.9",
+      "name": "Exercitar restauração relacional em banco EF InMemory exclusivo por teste; validar resultado, contagem, duração reportada, campos restaurados e consulta por ID. Isto não substit…",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T4.3.10",
+      "name": "Pendente: recuperação integral de anexos/metadados remotos ainda não tem E2E contra Supabase real; contagens finais e RTO/RPO permanecem sem medição",
+      "area": "Servidor",
+      "status": "pending",
+      "source": "roadmap"
+    },
+    {
+      "id": "T4.4",
+      "name": "Expor status acionável no painel",
+      "area": "Servidor",
+      "status": "pending",
+      "source": "roadmap"
+    },
+    {
+      "id": "T4.4.1",
+      "name": "Parcial: painel web resume última execução/erro e exibe data, destino e opções do backup mais recente. Próximo disparo para triggers de calendário é calculado pelo servidor e en…",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T4.4.2",
+      "name": "Corrigido contrato da ação de validação: cliente agora usa `GET /System/Backup/Validate?path=...`, conforme endpoint, e oferece resultado válido/inválido/erro no diálogo do backup",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T4.4.3",
+      "name": "Manifesto da API informa o tamanho real do ZIP em bytes; painel formata o tamanho e permanece compatível com versões do servidor que ainda não enviam esse campo",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T4.4.4",
+      "name": "Validação percorre as entradas em streaming e compara CRC-32 e tamanho descompactado; payload corrompido é rejeitado mesmo quando o manifesto segue legível",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T4.4.5",
+      "name": "A restauração existente mantém confirmação explícita na web e controller protegido por `RequiresElevation`; isso não substitui teste de restauração isolado",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T4.4.6",
+      "name": "A checagem de espaço do backup agora resolve caminho absoluto corretamente em Windows e Unix; teste usa diretório temporário e confirma volume/espaço identificados",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T4.4.7",
+      "name": "Parcial: exercício MariaDB isolado e verificação de conteúdo/relatório local comprovados; validação CRC continua distinta de restore",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T4.4.8",
+      "name": "Parcial: painel consolida cobertura do ZIP local, catálogo MongoDB/identificadores Telegram/usuários FTP no Supabase e usuários do aplicativo no Supabase. Resultados estruturado…",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T4.4.9",
+      "name": "Persistência de histórico protegida: salvamentos comuns preservam os 18 campos operacionais sob a mesma trava; escritores de resultados usam atualização atômica sobre cópia da c…",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T4.4.10",
+      "name": "Parcial: rotação de segredos, sincronização de credenciais do administrador e as duas gravações de notificações usam atualização atômica sobre snapshot. Testes preservam a instâ…",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T4.4.11",
+      "name": "Parcial: inclusão/exclusão de bots calculam a lista dentro do gate; provisionamento FTP local consulta as credenciais vigentes e gera senha somente quando ausente. Operações sem…",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T4.4.12",
+      "name": "Parcial: prioridades de solicitações substituem o array sobre snapshot vigente e duplicados são no-op. Atualizações de caminho/cotas do cache usam snapshot sem alterar configura…",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T4.4.13",
+      "name": "Migração total de escritores de configuração para snapshots atômicos concluída",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T4.4.14",
+      "name": "Parcial: o painel mostra contagens tipadas de arquivos, total de usuários e subtotais de FTP/app da última restauração Supabase→Mongo. A contagem FTP concluída permanece visível…",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T4.4.15",
+      "name": "Pendente: apresentar o estado do último exercício completo incluindo MongoDB/arquivos. A interface informa explicitamente que restauração operacional não comprova exercício isol…",
+      "area": "Servidor",
+      "status": "pending",
+      "source": "roadmap"
+    },
+    {
+      "id": "T4.5",
+      "name": "Testar recuperação completa",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T4.5.1",
+      "name": "Plano de recuperação formalizado",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T4.5.2",
+      "name": "Roteiro de exercícios operacionais documentado",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T4.5.3",
+      "name": "Validação automatizada contínua por suítes de teste: integridade de arquivos e compatibilidade em `BackupServiceTests.cs` (16 aprovados), e alerta de falhas de restauração em `S…",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T5.1",
+      "name": "Medir consultas caras e pool de conexões",
+      "area": "Servidor",
+      "status": "pending",
+      "source": "roadmap"
+    },
+    {
+      "id": "T5.1.1",
+      "name": "Instrumentação inicial adicionada (parcial):",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T5.1.2",
+      "name": "Evidência operacional ainda pendente:",
+      "area": "Servidor",
+      "status": "pending",
+      "source": "roadmap"
+    },
+    {
+      "id": "T5.2",
+      "name": "Otimizar consultas por evidência",
+      "area": "Servidor",
+      "status": "pending",
+      "source": "roadmap"
+    },
+    {
+      "id": "T5.3",
+      "name": "Revisar consistência entre MongoDB/MariaDB",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T5.3.1",
+      "name": "Arquitetura poliglota formalizada e documentada",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T5.3.2",
+      "name": "Fluxo de ponte via arquivos `.strm` documentado: a geração de STRM mapeia o ID do MongoDB para URLs canônicas, e a varredura do `LibraryManager` indexa no MariaDB sem colisão. R…",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T5.3.3",
+      "name": "Comportamento em falha parcial documentado: indisponibilidade do MongoDB mantém o servidor Jellyfin 100% operacional para mídias locais e operações relacionais; tolerância a loc…",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T5.4",
+      "name": "Avaliar HybridCache para metadados",
+      "area": "Servidor",
+      "status": "pending",
+      "source": "roadmap"
+    },
+    {
+      "id": "T5.5",
+      "name": "Avaliar Change Streams somente se cabível",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T5.5.1",
+      "name": "Topologia verificada empiricamente, não presumida",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T5.5.2",
+      "name": "Decisão:",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T5.6",
+      "name": "Testar carga e degradação",
+      "area": "Servidor",
+      "status": "pending",
+      "source": "roadmap"
+    },
+    {
+      "id": "T6.1",
+      "name": "Revisar autenticação/autorização por endpoint",
+      "area": "Servidor",
+      "status": "pending",
+      "source": "roadmap"
+    },
+    {
+      "id": "T6.1.1",
+      "name": "Teste HTTP isolado do endpoint real `GET /NebulaFtp/Status` valida a aplicação da política de elevação no pipeline: requisição anônima recebe 401 e usuário autenticado sem papel…",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T6.1.2",
+      "name": "Auditoria por leitura de código concluída nas áreas nomeadas: `UserFeedbackController` (solicitações/reports, auditado em etapa anterior desta sessão), `NebulaFtpController` (op…",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T6.1.3",
+      "name": "Regressão da autorização de backups adicionada:",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T6.1.4",
+      "name": "Verificado por amostragem ampla (~50 controllers, incluindo os herdados do Jellyfin) que todo endpoint que aceita `userId` como parâmetro opcional passa por `RequestHelpers.GetU…",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T6.1.5",
+      "name": "Auditoria de endpoints de sessão/streaming (`SessionController`, `DynamicHlsController`, `MediaInfoController`) concluída: `SessionController` teve todos os métodos roteados ver…",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T6.1.6",
+      "name": "Cobertura de regressão adicionada para `ApiKeyController`: as ações `GetKeys`, `CreateKey` e `RevokeKey` devem manter `Policies.RequiresElevation`; teste focado passou em Releas…",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T6.1.7",
+      "name": "Cobertura de `UserFeedbackController` verifica autenticação sem `AllowAnonymous` no controller ou rotas, elevação do `MediaRequestCatalog`, ID da claim na criação/listagem de so…",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T6.1.8",
+      "name": "`BookReaderController` agora resolve o usuário autenticado com `RequestHelpers.GetUserId`/`IUserManager` e consulta o livro via `ILibraryManager.GetItemById(id, user)`, em vez d…",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T6.1.9",
+      "name": "`TvShowsController.GetEpisodes` valida a temporada pelo usuário nas três ramificações (`seasonId`, número da temporada e série completa), evitando obter temporadas/séries por ID…",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T6.1.10",
+      "name": "`FilterController` (`Items/Filters` e `Items/Filters2`) agora resolve `parentId` com `GetItemById(id, user)`. Pai invisível não produz filtros; o comportamento de raiz sem `pare…",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T6.1.11",
+      "name": "`RequestHelpers.GetParentItem` centraliza a resolução de IDs explícitos com `GetItemById(id, user)`, preserva a raiz selecionada por usuário e falha fechado quando `userId` não…",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T6.1.12",
+      "name": "`SessionController` valida os IDs de sessão em comandos remotos, compartilhamento, capabilities e relatórios contra as sessões autorizadas ao principal. `Sessions/Viewing` valid…",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T6.1.13",
+      "name": "`LiveTvController` alinha `POST /LiveTv/Programs` ao guard de identidade já aplicado no GET, impedindo que principal não administrador solicite dados de outro `userId`. As duas…",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T6.1.14",
+      "name": "Complemento de autorização em `LiveTvController`: nove consultas ativas de canais, gravações e programas agora exigem usuário identificável/resolvido para principals comuns, ret…",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T6.1.15",
+      "name": "A matriz de compatibilidade da API key sem claim de usuário foi ampliada para as nove consultas Live TV protegidas pela guarda (`channels`, `channel`, `recordings`, `recording-f…",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T6.1.16",
+      "name": "O contrato crítico de API key foi validado pelo pipeline HTTP isolado: `GET /LiveTv/Programs` retorna 401 sem credencial; com autenticação sintética que emite apenas a claim int…",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T6.1.17",
+      "name": "`MediaInfoController` agora verifica ownership do `liveStreamId` em `LiveStreams/Close` e nos aliases `LiveStreams/MediaInfo` antes de fechar stream ou retornar metadados. Usuár…",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T6.1.18",
+      "name": "`StreamingHelpers.GetStreamingState` valida ownership antes de buscar o provider em todos os fluxos de áudio, vídeo e HLS; o `MediaSourceManager` associa consumidores ao usuário…",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T6.1.19",
+      "name": "`ImageController.GetUserImage` e aliases GET/HEAD declaram contrato anônimo explícito e só expõem usuários públicos conforme `Users/Public`; usuários autenticados podem ver a pr…",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T6.1.20",
+      "name": "Regressão das rotas de plugins adicionada: `PluginsController` exige `RequiresElevation` no controller e o teste enumera todas as ações roteadas para assegurar que `GetPluginIma…",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T6.1.21",
+      "name": "A rota anônima `GET /LiveTv/LiveRecordings/{streamId}/stream` agora resolve uma capability GUID gerada separadamente do timer ID. O resolver só devolve o arquivo se a capability…",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T6.1.22",
+      "name": "Pendente: execução de fuzzing/teste HTTP de autorização cruzada em ambiente isolado e revisão individual de todas as ações elevadas fora das áreas auditadas. A rota continua anô…",
+      "area": "Servidor",
+      "status": "pending",
+      "source": "roadmap"
+    },
+    {
+      "id": "T6.1.23",
+      "name": "Pendente: validar a autorização HTTP contra a instalação real em ambiente isolado; testes atuais são unitários",
+      "area": "Servidor",
+      "status": "pending",
+      "source": "roadmap"
+    },
+    {
+      "id": "T6.2",
+      "name": "Aplicar rate limits e limites concorrentes seletivos",
+      "area": "Servidor",
+      "status": "pending",
+      "source": "roadmap"
+    },
+    {
+      "id": "T6.2.1",
+      "name": "A auditoria de rotas encontrou a auditoria do catálogo (`/Catalog/Audit`) e o refresh administrativo de metadados (`/Items/{id}/Refresh`) fora das categorias seletivas. Ambos ag…",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T6.2.2",
+      "name": "Uploads autenticados de log de cliente (`POST /ClientLog/Document`, até 1 MB) agora têm cota seletiva própria de **5 uploads por usuário/API key por minuto**, com `429` e `Retry…",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T6.2.3",
+      "name": "`RateLimitMiddleware` já diferenciava tentativas de login (`/Users/Authenticate`, `/Users/Register`) de tráfego anônimo geral, isentando ativos estáticos, bootstrap público e lo…",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T6.2.4",
+      "name": "Rate limits seletivos adicionados para rotas autenticadas e anônimas: busca (`/Search`, `/Items/RemoteSearch`) usa janela de 10 s/60 requisições; administração (`/ActivityLog`,…",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T6.2.5",
+      "name": "Cotas seletivas agora usam o ID canônico do usuário autenticado, ou o hash SHA-256 do token de API key autenticada; principal sem identidade válida usa IP. Verificação e reserva…",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T6.2.6",
+      "name": "Login limita atomicamente por IP o total de falhas na janela mais autenticações em andamento. Apenas resposta 401 entra na janela de 15 minutos; sucesso libera a reserva temporá…",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T6.2.7",
+      "name": "Operações HTTP pesadas que permanecem ativas até concluir passaram a ter admissão global não bloqueante: uma operação por vez no grupo de criação de backup completo/restauração…",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T6.2.8",
+      "name": "O backup Mongo→Supabase, que responde antes de a tarefa terminar, agora adquire um gate atômico no gerenciador e mantém a admissão ocupada durante toda a operação; concorrentes…",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T6.2.9",
+      "name": "`BackupService` exporta contagem e duração por resultado (`success`, `failure`, `scheduled`, `rejected`) e um contador de operações ativas, com dimensões limitadas a operação (`…",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T6.2.10",
+      "name": "Renomeação de biblioteca e inclusão/remoção de caminho (`LibraryStructureController`) agora adquirem admissão antes de alterar a biblioteca, mantêm o slot até a varredura/reiníc…",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T6.2.11",
+      "name": "`BackupService` agora limita criação e restauração a uma operação por vez no próprio serviço singleton, cobrindo chamadas manuais, agendadas e de migração. Operações concorrente…",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T6.2.12",
+      "name": "Recusas de rate limit e de admissão HTTP pesada emitem `mulletaflix.http.admission.rejected` via meter `MulletaFlix.Server.HttpAdmission`, com a dimensão limitada a `category` (…",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T6.2.13",
+      "name": "O ciclo contínuo de limpeza do Nebula agora exporta contagem, duração e ciclos ativos, com `result` limitado a `success`, `partial_failure`, `cancelled`, `failure` ou `skipped`;…",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T6.2.14",
+      "name": "`StrmProbeScheduledTask` agora exporta execuções, duração, execuções ativas e contadores de itens varridos, candidatos e falhas. Resultado usa enum de baixa cardinalidade (`succ…",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T6.2.15",
+      "name": "A fila interna de trabalhos exporta contadores agregados de jobs enfileirados, iniciados, concluídos, falhos e cancelados. Nenhum título, ID, correlação, tipo fornecido pelo cha…",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T6.2.16",
+      "name": "`UnidentifiedMediaCleanupTask` agora mede duração, execuções ativas, itens varridos, refreshes enfileirados e refreshes falhos; resultados são valores fixos (`success`, `no_item…",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T6.2.17",
+      "name": "`MediaSegmentExtractionTask` mede duração, execuções ativas, itens varridos, processados e ignorados por não serem arquivos locais disponíveis. Resultado usa valores fixos; cami…",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T6.2.18",
+      "name": "`LyricScheduledTask` mede resultado e duração por execução, execuções ativas, itens varridos, candidatos sem letra, buscas, downloads e falhas. Resultado usa valores fixos; títu…",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T6.2.19",
+      "name": "`SubtitleScheduledTask` mede resultado e duração por execução, execuções ativas, vídeos varridos e falhas; valores de resultado são limitados e títulos, caminhos, IDs e usuários…",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T6.2.20",
+      "name": "`TrickplayImagesTask` e `TrickplayMoveImagesTask` propagam `OperationCanceledException` quando o token da execução é cancelado, em vez de absorver o cancelamento como erro de mí…",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T6.2.21",
+      "name": "`MidiaStorageOnlineSyncTask` exporta resultado agregado (`success`, `failure`, `cancelled`, `skipped`), duração, execuções ativas e contadores de entradas/canais/mídias analisad…",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T6.2.22",
+      "name": "`DramaFindsMatchTask` agora exporta execuções, duração, execuções ativas e contadores agregados de séries varridas, candidatas, identificadas e falhas. Resultado usa valores fix…",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T6.2.23",
+      "name": "`GoodShortMatchTask` agora exporta execuções, duração, execuções ativas e contadores agregados de séries varridas, candidatas, identificadas e falhas. Resultado usa valores fixo…",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T6.2.24",
+      "name": "`ShortMaxMatchTask` agora exporta execuções, duração, execuções ativas e contadores agregados de séries varridas, candidatas e identificadas. Resultado usa valores fixos (`succe…",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T6.2.25",
+      "name": "`DramaBoxMatchTask` agora exporta duração separada para reconstrução do catálogo e correspondência da biblioteca, quantidade de títulos indexados, séries varridas/candidatas/ide…",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T6.2.26",
+      "name": "`DeviceCleanupTask` agora exporta resultado e duração por execução, execuções ativas e contadores agregados de sessões/dispositivos ativos, dispositivos examinados, mantidos e e…",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T6.2.27",
+      "name": "Auditoria seletiva de `ItemUpdateController`, `LyricsController` e `SubtitleController`: `POST /Items/{guid}`, upload/download de letras e upload/download de legendas remotas pa…",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T6.2.28",
+      "name": "Cancelamento pedido pelo chamador agora se propaga também ao processar entradas em paralelo no sync agendado e manual de mídia online. A rotina não repete download M3U depois de…",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T6.2.29",
+      "name": "T6.2 ainda requer auditoria dos outros trabalhos assíncronos e operações caras, medição/calibração sob carga representativa e validação do collector remoto de produção",
+      "area": "Servidor",
+      "status": "pending",
+      "source": "roadmap"
+    },
+    {
+      "id": "T6.2.30",
+      "name": "Refresh de cache rclone após uploads agora usa um despachante único sequencial. A fila preserva uma invalidação por pasta, renova o debounce em uploads repetidos e aguarda o can…",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T6.2.31",
+      "name": "A tela legada de NebulaFTP consulta `UploadQueueSummary` a cada 30 s e diferencia o total pendente persistido no MongoDB dos itens carregados no limite em memória. O limite de a…",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T6.2.32",
+      "name": "Pendente: medir por usuário/worker sem dados sensíveis, calibrar janelas e capacidades com carga real, adicionar telemetria às demais operações e continuar a auditoria de trabal…",
+      "area": "Servidor",
+      "status": "pending",
+      "source": "roadmap"
+    },
+    {
+      "id": "T6.3",
+      "name": "Validar entrada e caminhos de arquivo",
+      "area": "Servidor",
+      "status": "pending",
+      "source": "roadmap"
+    },
+    {
+      "id": "T6.3.1",
+      "name": "`LibraryStructureController.RenameVirtualFolder` agora canonicaliza os caminhos derivados dos nomes de biblioteca e rejeita com `400 Bad Request` nomes que escapem de `DefaultUs…",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T6.3.2",
+      "name": "Complemento: `IsPathWithinRoot` agora compara o caminho relativo canonicalizado e examina os componentes existentes abaixo da raiz, recusando `ReparsePoint` (symlink/junction) a…",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T6.3.3",
+      "name": "Raiz e ancestrais também protegidos contra symlink/junction:",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T6.3.4",
+      "name": "`BackupController` agora restringe manifest, validação e restauração a arquivos regulares dentro de `BackupPath`: continua usando apenas o nome do arquivo, canonicaliza a raiz e…",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T6.3.5",
+      "name": "Auditoria dos endpoints que aceitam caminhos físicos concluída",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T6.3.6",
+      "name": "Contrato travado por teste (`FirstTimeSetupPolicyTests`, 4 casos): usuário comum é **recusado** após o setup, administrador é aceito, principal anônimo é recusado, e a janela de…",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T6.3.7",
+      "name": "Upload da imagem de abertura não altera mais a configuração antes de terminar a cópia: usa caminho novo não publicado, limite de 20 MiB decodificados/28 MiB no corpo codificado,…",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T6.3.8",
+      "name": "Desativar a imagem de abertura não exclui mais um arquivo escolhido pelo operador: o endpoint limpa o caminho por atualização atômica e apaga somente arquivo cujo nome gerenciad…",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T6.3.9",
+      "name": "Pendente: auditoria de extensões/tipos de arquivo aceitos em upload permanece aberta; exige definir a lista permitida com o operador em vez de inferir do código atual",
+      "area": "Servidor",
+      "status": "pending",
+      "source": "roadmap"
+    },
+    {
+      "id": "T6.4",
+      "name": "Revisar segredos, logs e transporte",
+      "area": "Servidor",
+      "status": "pending",
+      "source": "roadmap"
+    },
+    {
+      "id": "T6.4.1",
+      "name": "Corrigida a resolução runtime vulnerável `Newtonsoft.Json 9.0.1` proveniente de FubarDev FTP e do MVC legado no plugin GetAvatar, com referência direta à versão central `13.0.3`…",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T6.4.2",
+      "name": "Auditoria de redação de credenciais no Nebula: `NebulaFtpController.GetConfig()` (endpoint que a UI de administração usa para popular o formulário) já redigia `Password`, `HttpS…",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T6.4.3",
+      "name": "Exceções de chamadas Bot API não podem vazar tokens:",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T6.4.4",
+      "name": "Permissões de arquivo em repouso: `BaseConfigurationManager.SaveConfiguration()`/`SaveConfiguration(key, config)` (usado por todos os arquivos de configuração, incluindo `nebula…",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T6.4.5",
+      "name": "Revisão ampla de dependências concluída e verificada por ferramenta",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T6.4.6",
+      "name": "Requer decisão do operador:",
+      "area": "Servidor",
+      "status": "pending",
+      "source": "roadmap"
+    },
+    {
+      "id": "T6.5",
+      "name": "Validar configurações seguras por padrão",
+      "area": "Servidor",
+      "status": "pending",
+      "source": "roadmap"
+    },
+    {
+      "id": "T6.5.1",
+      "name": "`CorsPolicyProvider` (CORS restrito a same-origin quando `CorsHosts` vazio/curinga, sem `AllowCredentials`), TLS mínimo 1.2 (`WebHostBuilderExtensions`) e CSP restrita sem orige…",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T6.5.2",
+      "name": "Política de lockout de contas administrativas validada no fluxo real `UserManager.AuthenticateUser` → `UserAuthenticationService` → `IncrementInvalidLoginAttemptCount`: o contad…",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T6.5.3",
+      "name": "Política de acesso anônimo restrito à LAN validada e corrigida: `AnonymousLanAccessHandler` agora trata explicitamente endereços loopback como locais antes de consultar `INetwor…",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T6.5.4",
+      "name": "Exposição de configuração de plugins corrigida: `DashboardController.GetDashboardConfigurationPage` agora exige `Policies.RequiresElevation`, impedindo que a rota que serve pági…",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T6.5.5",
+      "name": "Binding do servidor de setup inicial agora é protegido por middleware que aceita apenas loopback ou endereços classificados como LAN por `INetworkManager`; requisições remotas r…",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T6.5.6",
+      "name": "Endpoints internos de observabilidade do servidor principal (`/metrics`, `/health`, `/ready`) agora exigem `Policies.LocalAccessOrRequiresElevation` via metadata de endpoint; an…",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T6.5.7",
+      "name": "Parcial: auditoria das superfícies de diagnóstico identificou `/metrics`, `/health` e `/ready` protegidos por `LocalAccessOrRequiresElevation`; `ServerHealthController`, `Nebula…",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T6.5.8",
+      "name": "Parcial: pipeline OTLP real foi testado contra coletor local que rejeita ausência de `X-API-Key`; configuração de headers autenticados, HTTPS e mTLS foi documentada em `docs/obs…",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T6.5.9",
+      "name": "Pendente: comprovar TLS, credencial/rotação, amostragem, retenção e consulta em collector autenticado de produção; não há endpoint/credencial de produção neste ciclo",
+      "area": "Servidor",
+      "status": "pending",
+      "source": "roadmap"
+    },
+    {
+      "id": "T7.1",
+      "name": "Criar diagnóstico do FFmpeg/FFprobe",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T7.1.1",
+      "name": "Endpoint `GET /ServerHealth/Encoding` implementado em `ServerHealthController.cs` (e integrado em `summary.Encoding` via `GET /ServerHealth/Summary`)",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T7.1.2",
+      "name": "Reporta caminhos do `ffmpeg` e `ffprobe`, versão do encoder (`IMediaEncoder.EncoderVersion`), aceleração de hardware configurada vs suportada, decoders, encoders e filtros compi…",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T7.1.3",
+      "name": "Suporta parâmetro `?test=true` que realiza execução rápida (`-version`) medindo tempo de resposta e capturando saída do binário",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T7.1.4",
+      "name": "Cobertura de teste automatizado em `ServerHealthControllerTests` (229 aprovados)",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T7.2",
+      "name": "Detectar capacidades por host",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T7.2.1",
+      "name": "Método `DetectHostHardwareCapabilities()` implementado em `ServerHealthController.cs` com detecção por plataforma (`OSPlatform.Windows`, `Linux`, `OSX`) e arquitetura de CPU (`R…",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T7.2.2",
+      "name": "Detecta suporte de hardware para D3D11VA, DXVA2, Intel QuickSync (QSV), NVIDIA NVENC (`h264_nvenc`, `hevc_nvenc`), AMD AMF (`h264_amf`, `hevc_amf`), VAAPI (`/dev/dri/renderD128`…",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T7.2.3",
+      "name": "Validado em testes unitários em `ServerHealthControllerTests.cs`",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T7.3",
+      "name": "Implementar seleção com fallback",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T7.3.1",
+      "name": "Serviço `HardwareDetectionService` (executado no startup da aplicação em `ApplicationHost.cs`) valida se o hardware configurado possui suporte operacional; caso contrário, rebai…",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T7.3.2",
+      "name": "Cobertura e idempotência comprovadas por testes automatizados em `HardwareDetectionServiceTests.cs` (2 aprovados)",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T7.4",
+      "name": "Limitar concorrência de transcodes",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T7.4.1",
+      "name": "`ITranscodeManager` e `TranscodeManager` estendidos com propriedade `ActiveTranscodingJobsCount`, rastreando em tempo real todos os jobs de transcodificação em andamento",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T7.4.2",
+      "name": "Injetado em `ServerHealthController` e exposto em `EncodingHealthDto.ActiveTranscodingJobsCount` e `MaxConcurrentTranscodingJobs` (proveniente de `EncodingOptions.MaxConcurrentT…",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T7.4.3",
+      "name": "Cancelamento de jobs mata a árvore de processos com `Process.Kill(entireProcessTree: true)` e remove da lista de ativos; coberto por testes em `TranscodeManagerTests.cs` (67 apr…",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T7.5",
+      "name": "Validar compatibilidade por codec/container",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T7.5.1",
+      "name": "Matriz técnica de compatibilidade documentada formalmente em `docs/matriz-compatibilidade-codecs-transcode.md`",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T7.5.2",
+      "name": "Regras de stream copy de vídeo (`CanStreamCopyVideo`) validadas por testes: suporte de cópia direta H.264, bloqueio por queima forçada de legendas (`SubtitleDeliveryMethod.Encod…",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T7.5.3",
+      "name": "Regras de stream copy de áudio (`CanStreamCopyAudio`) validadas por testes: cópia de codecs suportados (AAC), recusa de codecs não suportados e downmix quando canais excedem a c…",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T7.5.4",
+      "name": "Regras de busca rápida (`GetFastSeekCommandLineParameter`) validadas por testes: busca com tempo zero retorna vazio, transcode progressivo gera `-ss hh:mm:ss.fff`, remux HLS adi…",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T7.5.5",
+      "name": "Suíte `Jellyfin.Controller.Tests` aprovada com 62 testes (0 falhas)",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T8.1",
+      "name": "Criar relatório determinístico de inconsistências",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T8.1.1",
+      "name": "Implementado em `CatalogAuditService.cs` (`AnalyzeItem`) com regras determinísticas para divergência de ano (`YearMismatch`), ausência de provedores obrigatórios (`MissingProvid…",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T8.1.2",
+      "name": "Evidências e pontuação de confiança geradas para cada inconsistência. Coberto por testes em `CatalogAuditServiceTests.cs`",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T8.2",
+      "name": "Validar fontes por tipo de catálogo",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T8.2.1",
+      "name": "Fontes validadas por tipo de mídia: `OpenLibraryProvider` (livros via OLID de edição, obra e ISBN), `Tmdb`/`Imdb` (filmes) e `Tvdb`/`Tmdb` (séries)",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T8.2.2",
+      "name": "Regras de não-varredura em massa incorporadas: requisições pontuais, caching mandatário de capas e metadados. Testes em `OpenLibraryProviderTests.cs` e `CatalogAuditServiceTests…",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T8.3",
+      "name": "Preservar proveniência e campos travados",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T8.3.1",
+      "name": "Preservação de proveniência integrada: detecção de `LockedFields` e `IsLocked` gera inconsistência informativa (`LockedFieldConflict`) para alertar o operador da existência de b…",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T8.3.2",
+      "name": "Regras de remediação (`ApplyFixAsync`) com `PreserveLockedFields = true` bloqueiam categoricamente a substituição de qualquer campo travado, impedindo que scripts ou scrapes sob…",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T8.4",
+      "name": "Implementar modo de auditoria sem escrita",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T8.4.1",
+      "name": "Modo de auditoria 100% read-only (`CatalogAuditService.AuditCatalogAsync` e endpoint `GET /Catalog/Audit`) com filtragem por coleção/categoria, severidade de erro e limite de co…",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T8.4.2",
+      "name": "Detalhes completos do erro, evidências textuais e recomendação de remediação gerados para cada candidato sem realizar qualquer mutação em disco ou banco. Testes em `CatalogAudit…",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T8.5",
+      "name": "Aplicar correções determinísticas com segurança",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T8.5.1",
+      "name": "Remediação segura (`ApplyFixAsync` / `POST /Catalog/Audit/Fix`) exigindo aprovação explícita com proteção inviolável de campos travados (`PreserveLockedFields = true`)",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T8.5.2",
+      "name": "Snapshot atômico do estado anterior em memória e histórico persistente (`CatalogAuditHistoryEntry`)",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T8.5.3",
+      "name": "Reversão completa implementada (`RollbackFixAsync` / `POST /Catalog/Audit/Rollback`) restaurando metadados e provedores ao estado original. Testes em `CatalogAuditServiceTests`…",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T8.6",
+      "name": "Revisar direitos e termos de provedores",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T8.6.1",
+      "name": "Dicionário determinístico de termos de uso de provedores (`GetProviderTerms` / `GET /Catalog/Audit/ProviderTerms`) mapeando Open Library (licenças CC0/Open Library, caching obri…",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T8.6.2",
+      "name": "Documentação formal e diretrizes operacionais registradas em `docs/validacao-deterministica-catalogo-e-termos.md`. Testes em `CatalogAuditServiceTests` e `CatalogAuditController…",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "W1.1",
+      "name": "Padronizar estados de página",
+      "area": "Web",
+      "status": "pending",
+      "source": "roadmap"
+    },
+    {
+      "id": "W1.1.1",
+      "name": "Página de detalhes (`controllers/itemDetails`): quando o carregamento do item (ou do `SeriesTimer`) falha, exibe `#itemDetailLoadError` com `ErrorDefault` e botão \"Retry\" que re…",
+      "area": "Web",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "W1.1.2",
+      "name": "Home tab (`controllers/hometab`): exibe `#homeTabLoadError` com botão de retry `.btnHomeTabRetry` e oculta `.homeTabContent` em caso de erro, restaurando o conteúdo ao clicar em…",
+      "area": "Web",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "W1.1.3",
+      "name": "Favoritos (`controllers/favorites`): exibe `#favoritesLoadError` com retry `.btnFavoritesRetry` em caso de falha de conexão/carregamento, e `#favoritesEmptyState` exibindo `Mess…",
+      "area": "Web",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "W1.1.4",
+      "name": "Busca e sugestões (`SearchSuggestions`, `SearchResults`): exibe estado vazio explícito quando 0 sugestões ou itens são retornados (`MessageNoMovieSuggestionsAvailable` ou `Searc…",
+      "area": "Web",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "W1.1.5",
+      "name": "Painel administrativo de solicitações/reports (`UserFeedbackListPage`): grids mostram vazio acessível (`role=status`) somente depois de confirmação sem loading; queries pendente…",
+      "area": "Web",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "W1.1.6",
+      "name": "Biblioteca experimental (`ItemsView`): uma consulta de itens com erro não é mais convertida em estado vazio; mostra erro com retry, não informa contagem zero desconhecida e pres…",
+      "area": "Web",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "W1.1.7",
+      "name": "Detalhes legados e grades por nome (`controllers/itemDetails/index.ts`, `scripts/itemsByName.ts`): consultas de “A seguir”, temporadas, episódios, itens de álbum/playlist, espec…",
+      "area": "Web",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "W1.1.8",
+      "name": "Guardião de conexão (`ConnectionRequired`/`ConnectionErrorPage`): indisponibilidade do servidor oferece retry manual localizado e também tenta novamente uma vez quando o navegad…",
+      "area": "Web",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "W1.2",
+      "name": "Cobrir solicitação de mídia de ponta a ponta",
+      "area": "Web",
+      "status": "pending",
+      "source": "roadmap"
+    },
+    {
+      "id": "W1.2.1",
+      "name": "Solicitações do usuário são paginadas por `startIndex`, com “Mostrar mais”, retry da página que falhou e preservação dos títulos carregados. A classificação recebe candidatos de…",
+      "area": "Web",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "W1.2.2",
+      "name": "Grids responsivos de pendentes/incluídos e selos em fluxo normal, sem posicionamento absoluto sobre o título; Playwright isolado verifica layout a 390/1280 px, ausência de overf…",
+      "area": "Web",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "W1.2.3",
+      "name": "Exibir nas solicitações pendentes quando o título está registrado na lista persistida de prioridade do Nebula; o texto explicativo deixa claro que posição só aparece quando um a…",
+      "area": "Web",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "W1.2.4",
+      "name": "A indexação STRM ocorre em segundo plano após o host ficar pronto, independentemente de o pipeline de transferência Nebula estar habilitado. Consultas recebem o snapshot atual s…",
+      "area": "Web",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "W1.2.5",
+      "name": "Quando a busca não encontra resultados durante a indexação, o autocomplete anuncia progresso, consulta o estado e refaz a busca ao concluir; falhas oferecem retry, e raízes não…",
+      "area": "Web",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "W1.2.6",
+      "name": "Playwright comprova debounce e proteção contra resposta obsoleta: entrada substituída antes do debounce não dispara consulta e uma resposta lenta da busca antiga, mesmo chegando…",
+      "area": "Web",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "W1.2.7",
+      "name": "Teste de interação da toolbar monta `UserViewNav`: usuário autenticado recebe o botão de solicitação imediatamente ao lado de Favoritos e o clique abre o diálogo usando o client…",
+      "area": "Web",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "W1.3",
+      "name": "Corrigir navegação de carrosséis e resultados",
+      "area": "Web",
+      "status": "pending",
+      "source": "roadmap"
+    },
+    {
+      "id": "W1.3.1",
+      "name": "Corrigir atualização tardia das setas: observer de resize recarrega primeiro as dimensões em cache do scroller e então recalcula visibilidade/disabled dos controles quando viewp…",
+      "area": "Web",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "W1.3.2",
+      "name": "A integração de busca real tem teste Playwright de interação com dados controlados montados por `SearchResultsRow`: setas corretas, foco visível, Enter percorre até o fim, estad…",
+      "area": "Web",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "W1.3.3",
+      "name": "A regressão inclui uma segunda seção `People` com 18 atores: confirma controles visíveis, estado inicial, avanço/retorno por teclado e layout de busca sem depender do tipo Movie…",
+      "area": "Web",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "W1.4",
+      "name": "Tratar falhas de API sem tela vazia",
+      "area": "Web",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "W1.4.1",
+      "name": "`LoadErrorMessage` parametrizável com mensagem contextual mantendo fallback seguro de `ErrorDefault` e botão de retry. Estados de erro tratados em Home, Favoritos, Detalhes, Sol…",
+      "area": "Web",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "W1.5",
+      "name": "Consolidar componentes e tokens de UI",
+      "area": "Web",
+      "status": "pending",
+      "source": "roadmap"
+    },
+    {
+      "id": "W2.1",
+      "name": "Auditoria WCAG 2.2 AA",
+      "area": "Web",
+      "status": "pending",
+      "source": "roadmap"
+    },
+    {
+      "id": "W2.2",
+      "name": "Navegação por teclado e controle remoto",
+      "area": "Web",
+      "status": "pending",
+      "source": "roadmap"
+    },
+    {
+      "id": "W2.3",
+      "name": "Automatizar axe com Playwright",
+      "area": "Web",
+      "status": "pending",
+      "source": "roadmap"
+    },
+    {
+      "id": "W2.3.1",
+      "name": "Parcial: auditoria axe-core automatizada da página real `Minhas solicitações` em sucesso, loading, erro e vazio, e do componente real de cobertura de backups, com dados determin…",
+      "area": "Web",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "W2.4",
+      "name": "Melhorar formulários e erros",
+      "area": "Web",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "W3.1",
+      "name": "Medir Web Vitals por rota",
+      "area": "Web",
+      "status": "pending",
+      "source": "roadmap"
+    },
+    {
+      "id": "W3.2",
+      "name": "Definir budgets de bundle e recursos",
+      "area": "Web",
+      "status": "pending",
+      "source": "roadmap"
+    },
+    {
+      "id": "W3.3",
+      "name": "Otimizar posters/backdrops",
+      "area": "Web",
+      "status": "pending",
+      "source": "roadmap"
+    },
+    {
+      "id": "W3.4",
+      "name": "Ajustar cache de dados TanStack Query",
+      "area": "Web",
+      "status": "pending",
+      "source": "roadmap"
+    },
+    {
+      "id": "W3.5",
+      "name": "Avaliar virtualização",
+      "area": "Web",
+      "status": "pending",
+      "source": "roadmap"
+    },
+    {
+      "id": "W3.6",
+      "name": "Testar redes e dispositivos lentos",
+      "area": "Web",
+      "status": "pending",
+      "source": "roadmap"
+    },
+    {
+      "id": "W4.1",
+      "name": "Completar cobertura Playwright dos fluxos críticos",
+      "area": "Web",
+      "status": "pending",
+      "source": "roadmap"
+    },
+    {
+      "id": "W4.2",
+      "name": "Adicionar snapshots visuais estáveis",
+      "area": "Web",
+      "status": "pending",
+      "source": "roadmap"
+    },
+    {
+      "id": "W4.3",
+      "name": "Validar interações e paginação",
+      "area": "Web",
+      "status": "pending",
+      "source": "roadmap"
+    },
+    {
+      "id": "W4.4",
+      "name": "Integrar quality gate do frontend",
+      "area": "Web",
+      "status": "pending",
+      "source": "roadmap"
+    },
+    {
+      "id": "W4.4.1",
+      "name": "Etapa anterior: a rota de operações Nebula passou `npm run lint:changed`, `npm run build:check`, `npm test -- --run` (208 testes) e `npm run build:production`; os Playwright de…",
+      "area": "Web",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "W4.4.2",
+      "name": "Isolar os testes de `viewContainer` do módulo global `Dashboard` não usado nesses cenários e aguardar as Promises de `loadView`, evitando callbacks do polyfill após o teardown d…",
+      "area": "Web",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "W4.4.3",
+      "name": "O workflow executa `npm run stylelint` no job web e o Playwright de carrossel no job de stage isolado, além do smoke test do wizard; o upload de falha inclui relatórios e `test-…",
+      "area": "Web",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "W4.4.4",
+      "name": "Confirmar uma execução hospedada do GitHub Actions com todos os jobs verdes e artefatos de falha disponíveis. A validação local de YAML/steps e dos comandos frontend passou; iss…",
+      "area": "Web",
+      "status": "pending",
+      "source": "roadmap"
+    },
+    {
+      "id": "W4.5",
+      "name": "Definir política para flaky tests",
+      "area": "Web",
+      "status": "pending",
+      "source": "roadmap"
+    },
+    {
+      "id": "W4.5.1",
+      "name": "Classificar `stats.flaky` separadamente, reprovar o gate mesmo quando o Playwright sai com código 0, reprovar ausência de relatório ou execução só com testes ignorados e publica…",
+      "area": "Web",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "W4.5.2",
+      "name": "Eliminar o `ReferenceError: window is not defined` do teste de Home/Favoritos isolando o polyfill de Web Components e o fetch de configuração que não fazem parte dos estados sob…",
+      "area": "Web",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "W4.5.3",
+      "name": "Isolar `useApi` no teste puro de `buildUnifiedSearchParams`; a suíte completa deixou de emitir o erro de fetch de `config.json` sem alteração no código da busca",
+      "area": "Web",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "W4.5.4",
+      "name": "Confirmar em execução remota do job Ubuntu que um teste instável anexa o trace/screenshot da primeira tentativa e que o workflow reprova; investigar os avisos restantes de React…",
+      "area": "Web",
+      "status": "pending",
+      "source": "roadmap"
+    },
+    {
+      "id": "T9.1",
+      "name": "Revisar os scripts/plano já presentes no branch antes de reutilizar",
+      "area": "Servidor",
+      "status": "pending",
+      "source": "roadmap"
+    },
+    {
+      "id": "T9.1.1",
+      "name": "Fluxo Linux — entrada, preflight e transporte do token",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T9.1.2",
+      "name": "Fluxo Windows — parcial; validação privilegiada pendente",
+      "area": "Servidor",
+      "status": "pending",
+      "source": "roadmap"
+    },
+    {
+      "id": "T9.2",
+      "name": "API administrativa e estado seguro",
+      "area": "Servidor",
+      "status": "pending",
+      "source": "roadmap"
+    },
+    {
+      "id": "T9.3",
+      "name": "Provisionamento e renovação cross-platform",
+      "area": "Windows/Linux",
+      "status": "pending",
+      "source": "roadmap"
+    },
+    {
+      "id": "T9.4",
+      "name": "Tela de gestão",
+      "area": "Web",
+      "status": "pending",
+      "source": "roadmap"
+    },
+    {
+      "id": "T9.5",
+      "name": "Validação e QA",
+      "area": "Web/QA",
+      "status": "pending",
+      "source": "roadmap"
+    },
+    {
+      "id": "T9.5.1",
+      "name": "Diff revisado; testes relevantes e Quality Bar aprovados em configuração de produção",
+      "area": "Web/QA",
+      "status": "pending",
+      "source": "roadmap"
+    },
+    {
+      "id": "T9.5.2",
+      "name": "Notas de release descrevem apenas mudanças realmente incluídas e validadas",
+      "area": "Web/QA",
+      "status": "pending",
+      "source": "roadmap"
+    },
+    {
+      "id": "T9.5.3",
+      "name": "Só iniciar a release depois que **todas as melhorias ativas deste roadmap** estiverem implementadas e validadas; não publicar releases intermediárias deste ciclo",
+      "area": "Web/QA",
+      "status": "pending",
+      "source": "roadmap"
+    },
+    {
+      "id": "T9.5.4",
+      "name": "Na release final, incluir assets de produção do servidor para Windows (ZIP + EXE) e Linux quando a versão/build for aplicável",
+      "area": "Web/QA",
+      "status": "pending",
+      "source": "roadmap"
+    },
+    {
+      "id": "T9.5.5",
+      "name": "Atualizar e publicar o portal com a mesma versão/notas e validar a versão pública",
+      "area": "Web/QA",
+      "status": "pending",
+      "source": "roadmap"
+    },
+    {
+      "id": "T9.5.6",
+      "name": "Consultar API de releases e confirmar assets/versão publicados",
+      "area": "Web/QA",
+      "status": "pending",
+      "source": "roadmap"
+    }
   ],
   "events": [
+    {
+      "id": "portal-roadmap-dashboard-publication-2026-10-05",
+      "title": "Publicação do estado atual do roadmap no portal",
+      "agent": "Codex",
+      "front": "Web / Portal de homologação",
+      "local": "D:\\Users\\Raphael\\Documents\\Projetos\\mulletaflix",
+      "location": "Código do portal e validação pública; sem criar release de servidor",
+      "scope": "Exibir as 361 tarefas do roadmap com filtros, paginação e contadores, sincronizadas com o estado versionado; validar testes, sitemap e deploy do portal.",
+      "status": "in_progress",
+      "progressPercent": null,
+      "startedAt": "2026-10-05T02:00:00-03:00",
+      "updatedAt": "2026-10-05T02:00:00-03:00",
+      "evidence": "Implementação local em validação. Testes Node do dashboard, sitemap e publicação ainda pendentes; progresso formal nulo até concluir Quality Bar e deploy."
+    },
     {
       "id": "nebula-python-playback-migration-2026-10-05",
       "title": "Migração do plano de dados de playback Nebula para Python",
@@ -43,7 +2625,6 @@
       "updatedAt": "2026-10-05T01:33:21-03:00",
       "evidence": "Quality Bar definida: testes Python focados para streaming e hierarquia Mongo, testes Nebula .NET focados e build Release do servidor, format/diff check e revisão adversarial. Escopo e integração ainda em inspeção; nenhum progresso percentual formal até critérios e cobertura serem medidos. Nenhuma release intermediária conforme gate ativo do roadmap."
     },
-
     {
       "id": "aspnet-hosting-request-log-redaction-2026-10-05",
       "title": "Redação dos logs de request do ASP.NET Hosting (T6.1 parcial)",

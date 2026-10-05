@@ -6,15 +6,20 @@
   const escapeHtml = value => String(value ?? '').replace(/[&<>'"]/g, character => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[character]));
   const numericValue = value => value === null || value === undefined || value === '' ? null : Number(value);
   const date = value => value ? new Intl.DateTimeFormat('pt-BR', { dateStyle: 'short', timeStyle: 'short' }).format(new Date(value)) : '—';
+  const pageSize = 25;
+  let featurePage = 1;
+  let latestData = null;
   const statusText = { completed: 'Concluído', success: 'Aprovado', pending: 'Pendente', queued: 'Na fila', in_progress: 'Em execução', failure: 'Falhou', monitoring: 'Monitorando', unknown: 'Sem evidência' };
   const statusClass = value => ({ completed: 'is-good', success: 'is-good', pending: 'is-warn', queued: 'is-warn', in_progress: 'is-live', failure: 'is-bad', monitoring: 'is-live', unknown: 'is-muted' }[value] || 'is-muted');
   const renderCoverage = data => {
     const coverage = data.coverage || {};
     const total = Number(coverage.total) || 0;
     const completed = Number(coverage.completed) || 0;
+    const inProgress = Number(coverage.inProgress) || 0;
     const percent = total ? Math.round((completed / total) * 100) : 0;
     byId('coverage-completed').textContent = completed;
     byId('coverage-pending').textContent = Number(coverage.pending) || 0;
+    byId('coverage-in-progress').textContent = inProgress;
     byId('coverage-total').textContent = total;
     document.querySelectorAll('[data-coverage-percent]').forEach(element => { element.textContent = `${percent}%`; });
     byId('coverage-bar').style.width = `${Math.min(100, percent)}%`;
@@ -22,10 +27,27 @@
   };
   const renderFeatures = data => {
     const features = Array.isArray(data.features) ? data.features : [];
-    byId('feature-count').textContent = `${features.length} itens acompanhados`;
+    const completed = features.filter(feature => feature.status === 'completed').length;
+    const pending = features.filter(feature => feature.status === 'pending').length;
+    const inProgress = features.filter(feature => feature.status === 'in_progress').length;
+    const search = byId('feature-search').value.trim().toLocaleLowerCase('pt-BR').normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+    const status = byId('feature-status').value;
+    const filtered = features.filter(feature => {
+      const haystack = `${feature.id} ${feature.name} ${feature.area}`.toLocaleLowerCase('pt-BR').normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+      return (!search || haystack.includes(search)) && (status === 'all' || feature.status === status);
+    });
+    const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
+    featurePage = Math.min(featurePage, pageCount);
+    const first = (featurePage - 1) * pageSize;
+    const visible = filtered.slice(first, first + pageSize);
+    byId('feature-count').textContent = `${features.length} tarefas · ${completed} concluídas · ${inProgress} em execução · ${pending} pendentes`;
     const tracks = (data.tracks || []).filter(track => track.homologation);
     byId('track-summary-table').innerHTML = tracks.length ? tracks.map(track => { const h = track.homologation; const audit = track.testAudit || {}; const auditValue = numericValue(audit.percent); const auditText = Number.isFinite(auditValue) ? `${audit.passed}/${audit.total} · ${auditValue}%` : 'Sem relatório'; const hValue = numericValue(h.percent); const formalText = Number.isFinite(hValue) ? `${hValue}%` : 'Não consolidado'; return `<tr><td><strong>${escapeHtml(track.name)}</strong></td><td><span class="status-chip ${auditValue === null ? 'is-muted' : 'is-good'}"><i></i>${escapeHtml(auditText)}</span></td><td><span class="status-chip ${statusClass(track.status)}"><i></i>${escapeHtml(formalText)}</span></td><td>${escapeHtml(audit.label || h.label || 'Evidência não informada')}</td></tr>`; }).join('') : '<tr><td colspan="4" class="empty-cell">Nenhum resumo por plataforma foi publicado.</td></tr>';
-    byId('feature-table').innerHTML = features.length ? features.map(feature => `<tr><td><strong>${escapeHtml(feature.id)}</strong></td><td>${escapeHtml(feature.name)}</td><td>${escapeHtml(feature.area)}</td><td><span class="status-chip ${statusClass(feature.status)}"><i></i>${escapeHtml(statusText[feature.status] || feature.status)}</span></td></tr>`).join('') : '<tr><td colspan="4" class="empty-cell">Nenhuma funcionalidade foi publicada no contrato de homologação.</td></tr>';
+    byId('feature-table').innerHTML = visible.length ? visible.map(feature => `<tr><td><strong>${escapeHtml(feature.id)}</strong></td><td>${escapeHtml(feature.name)}</td><td>${escapeHtml(feature.area)}</td><td><span class="status-chip ${statusClass(feature.status)}"><i></i>${escapeHtml(statusText[feature.status] || feature.status)}</span></td></tr>`).join('') : '<tr><td colspan="4" class="empty-cell">Nenhum item corresponde aos filtros selecionados.</td></tr>';
+    byId('feature-page-status').textContent = filtered.length ? `Itens ${first + 1}–${Math.min(first + pageSize, filtered.length)} de ${filtered.length}` : '0 itens';
+    byId('feature-page-number').textContent = `Página ${featurePage} de ${pageCount}`;
+    byId('feature-prev').disabled = featurePage <= 1;
+    byId('feature-next').disabled = featurePage >= pageCount;
   };
   const renderTracks = (data, runs, releases) => {
     const latest = {};
@@ -67,9 +89,14 @@
       fetch(`${apiRoot}/actions/runs?per_page=20`, { headers: { Accept: 'application/vnd.github+json' } }).then(response => response.ok ? response.json() : { workflow_runs: [] }).catch(() => ({ workflow_runs: [] })),
       fetch(`${apiRoot}/releases?per_page=20`, { headers: { Accept: 'application/vnd.github+json' } }).then(response => response.ok ? response.json() : []).catch(() => [])
     ]);
+    latestData = data;
     renderCoverage(data); renderFeatures(data); renderTracks(data, runs.workflow_runs, releases); renderEvents(data);
     byId('dashboard-state').textContent = 'Atualizado'; byId('dashboard-state').className = 'status-chip is-good';
   };
+  byId('feature-search').addEventListener('input', () => { featurePage = 1; if (latestData) renderFeatures(latestData); });
+  byId('feature-status').addEventListener('change', () => { featurePage = 1; if (latestData) renderFeatures(latestData); });
+  byId('feature-prev').addEventListener('click', () => { featurePage = Math.max(1, featurePage - 1); if (latestData) renderFeatures(latestData); });
+  byId('feature-next').addEventListener('click', () => { featurePage++; if (latestData) renderFeatures(latestData); });
   byId('refresh-dashboard').addEventListener('click', () => { byId('dashboard-state').textContent = 'Atualizando…'; load().catch(() => { byId('dashboard-state').textContent = 'Falha ao atualizar'; byId('dashboard-state').className = 'status-chip is-bad'; }); });
   load().catch(() => { byId('dashboard-state').textContent = 'Fonte indisponível'; byId('dashboard-state').className = 'status-chip is-bad'; });
   window.setInterval(() => load().catch(() => {}), refreshMs);
