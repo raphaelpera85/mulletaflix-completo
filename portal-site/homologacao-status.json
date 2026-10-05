@@ -30,18 +30,18 @@
   ],
   "events": [
     {
-      "id": "aspnet-hosting-request-log-redaction-2026-10-05",
-      "title": "Redação de logs de caminho e query do ASP.NET Hosting (T6.1 parcial)",
+      "id": "nebula-local-playback-performance-2026-10-05",
+      "title": "Investigação de desempenho do playback local Nebula",
       "agent": "Codex",
-      "front": "Servidor / Segurança de API e observabilidade",
+      "front": "Servidor / Nebula e reprodução",
       "local": "D:\\Users\\Raphael\\Documents\\Projetos\\mulletaflix\\MulletaFlix-master",
-      "location": "Código e TestServer locais; sem instância de produção",
-      "scope": "Impedir que Hosting.Diagnostics grave capabilities bearer ou query strings sem alterar o request recebido pelo handler",
+      "location": "Inspeção estática do código Python e .NET; sem iniciar Nebula nem acessar produção",
+      "scope": "Comparar os caminhos de reprodução local e remota no Nebula MulletaFlix versus o Nebula Python e avaliar migração tecnológica",
       "status": "completed",
       "progressPercent": null,
-      "startedAt": "2026-10-05T01:08:00-03:00",
-      "updatedAt": "2026-10-05T01:16:01-03:00",
-      "evidence": "O teste middleware-only reproduziu vazamento no evento de início do request. Serilog agora exclui apenas eventos Microsoft.AspNetCore.Hosting.Diagnostics com propriedades Path/QueryString; o request continua intacto no handler. HostingRequestLogRedactionTests 2/2; Jellyfin.Server.Tests Release 66 aprovados/1 ignorado/0 falhas; Jellyfin.Api.Tests Release 519/519; build Jellyfin.Server Release exit 0; dotnet format whitespace --verify-no-changes nos arquivos escopados e git diff --check passaram. Busca de Request.Path/Request.QueryString/GetDisplayUrl/GetEncodedPathAndQuery revisada; usos restantes são para roteamento/playlists/telemetria, e logs app usam RequestPathLogRedactor. Homologação formal T6.1 não consolidada (progressPercent null). Sem validação de proxy/collector/instalação real, sem pacote ou release devido ao gate do roadmap; curadoria IA permanece backlog futuro."
+      "startedAt": "2026-10-05T01:23:33-03:00",
+      "updatedAt": "2026-10-05T01:24:00-03:00",
+      "evidence": "Inspeção estática: no Python, MongoDBMemoryIO.iter_by_block usa aiofiles para local_path; no remoto, usa Pyrogram File.stream em blocos de 1 MiB e escreve cada bloco direto no asyncio StreamWriter. No C#, .strm é servido por HttpListener, consulta MongoDB a cada request, usa NebulaChunkedStream sob lock serial, lê blocos de até 1 MiB e copia por buffer HTTP de 128 KiB. Para local_path, abre FileStream novo por bloco e chama ReadAsync uma vez; falta repetir leituras curtas. Esses custos podem explicar diferenças conforme a origem. Não há benchmark nem captura da sessão comparada, portanto a causa desse caso não foi provada. Uma troca total para Python não se justifica pela linguagem: recomenda-se medir e otimizar o hot path C# integrado antes de avaliar migração. Nenhum serviço foi iniciado nem configuração de produção acessada. progressPercent permanece null por falta de homologação dinâmica."
     },
     {
       "id": "nebula-completed-media-refresh-overlap-2026-10-05",
