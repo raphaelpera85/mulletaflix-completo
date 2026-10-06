@@ -1,13 +1,9 @@
 import { LegacyRoute } from '../../../../components/router/LegacyRoute';
 
 export const LEGACY_USER_ROUTES: LegacyRoute[] = [
+    // Note: 'details' route is now handled by ItemDetailsModern async route
+    // See asyncRoutes/user.ts for the modern React wrapper with PageStateContainer
     {
-        path: 'details',
-        pageProps: {
-            controller: 'itemDetails/index',
-            view: 'itemDetails/index.html'
-        }
-    }, {
         path: 'list',
         pageProps: {
             controller: 'list',

@@ -1,7 +1,5 @@
 import React, { type FC, useCallback } from 'react';
 import { CollectionType } from '@jellyfin/sdk/lib/generated-client/models/collection-type';
-import Loading from 'components/loading/LoadingComponent';
-import LoadErrorMessage from 'components/common/LoadErrorMessage';
 import { CardShape } from 'components/cardbuilder/utils/shape';
 import SearchResultsRow from './SearchResultsRow';
 import globalize from 'lib/globalize';
@@ -9,6 +7,7 @@ import { Link } from 'react-router-dom';
 import { useSearchItems } from '../api/useSearchItems';
 import { Section } from '../types';
 import { getSearchScopeLabel, buildSearchGlobalHref } from '../utils/search';
+import { PageStateContainer } from 'components/common';
 
 interface SearchResultsProps {
     parentId?: string;
@@ -30,29 +29,6 @@ const SearchResults: FC<SearchResultsProps> = ({
         refetch().catch(() => undefined);
     }, [refetch]);
 
-    if (isError) return <LoadErrorMessage onRetry={handleRetry} />;
-
-    if (isPending) return <Loading />;
-
-    if (!data?.length) {
-        return (
-            <div className='noItemsMessage centerMessage'>
-                <div className='secondary padded-left padded-right' style={{ marginBottom: '0.75rem' }}>
-                    {scopeLabel ? `Scoped to ${scopeLabel}` : 'Global search'}
-                </div>
-                {globalize.translate('SearchResultsEmpty', query ?? '')}
-                {collectionType && (
-                    <div>
-                        <Link
-                            className='emby-button'
-                            to={buildSearchGlobalHref(query)}
-                        >{globalize.translate('RetryWithGlobalSearch')}</Link>
-                    </div>
-                )}
-            </div>
-        );
-    }
-
     const renderSection = (section: Section, index: number) => {
         return (
             <SearchResultsRow
@@ -72,15 +48,34 @@ const SearchResults: FC<SearchResultsProps> = ({
         );
     };
 
-    return (
+    const successContent = (
         <div className={'searchResults padded-top padded-bottom-page'}>
             {scopeLabel && (
                 <div className='secondary padded-left padded-right' style={{ marginBottom: '0.75rem' }}>
                     {`Scoped to ${scopeLabel}`}
                 </div>
             )}
-            {data.map((section, index) => renderSection(section, index))}
+            {data?.map((section, index) => renderSection(section, index))}
         </div>
+    );
+
+    return (
+        <PageStateContainer
+            state={isError ? 'error' : isPending ? 'loading' : !data?.length ? 'empty' : 'success'}
+            onRetry={handleRetry}
+            emptyState={{
+                title: globalize.translate('SearchResultsEmpty', query ?? ''),
+                description: scopeLabel ? `Scoped to ${scopeLabel}` : 'Global search',
+                action: collectionType ? (
+                    <Link
+                        className='emby-button'
+                        to={buildSearchGlobalHref(query)}
+                    >{globalize.translate('RetryWithGlobalSearch')}</Link>
+                ) : undefined
+            }}
+        >
+            {successContent}
+        </PageStateContainer>
     );
 };
 

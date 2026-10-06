@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
+import Box from '@mui/material/Box';
 
 import globalize from '../../../lib/globalize';
 import { clearBackdrop } from '../../../components/backdrop/backdrop';
@@ -8,6 +9,8 @@ import Page from '../../../components/Page';
 import { EventType } from 'constants/eventType';
 import Events from 'utils/events';
 import type { TabChangeDetail } from '../../../components/maintabsmanager';
+import { PageStateContainer } from 'components/common';
+import ListPageSkeleton from 'components/common/ListPageSkeleton';
 
 import '../../../elements/emby-tabs/emby-tabs';
 import '../../../elements/emby-button/emby-button';
@@ -43,6 +46,7 @@ const Home = () => {
     const tabControllers = useMemo<ControllerProps[]>(() => [], []);
     // ponytail: HEADER_RENDERED and the mount effect can race; only start the first tab load once.
     const homeTabLoadPending = useRef(false);
+    const [pageState, setPageState] = React.useState<'loading' | 'error' | 'success'>('loading');
 
     const documentRef = useRef<Document>(document);
     const element = useRef<HTMLDivElement>(null);
@@ -106,26 +110,34 @@ const Home = () => {
     }, [ tabControllers ]);
 
     const loadTab = useCallback((index: number, previousIndex: number | null, retryCount = 0) => {
-        getTabController(index).then((controller: ControllerProps) => {
-            const refresh = !controller.refreshed;
+        getTabController(index)
+            .then((controller: ControllerProps) => {
+                const refresh = !controller.refreshed;
 
-            controller.onResume({
-                autoFocus: previousIndex == null && layoutManager.tv,
-                refresh: refresh
+                return (controller.onResume({
+                    autoFocus: previousIndex == null && layoutManager.tv,
+                    refresh: refresh
+                }) as unknown as Promise<void>).then(() => {
+                    controller.refreshed = true;
+                    tabController.current = controller;
+                    homeTabLoadPending.current = false;
+                    setPageState('success');
+                }).catch((err: unknown) => {
+                    console.error('[Home] failed to resume tab', err);
+                    setPageState('error');
+                    homeTabLoadPending.current = false;
+                });
+            })
+            .catch((err: unknown) => {
+                if (err instanceof Error && err.message.startsWith('Home tab content not ready') && retryCount < 10) {
+                    window.requestAnimationFrame(() => loadTab(index, previousIndex, retryCount + 1));
+                    return;
+                }
+
+                homeTabLoadPending.current = false;
+                console.error('[Home] failed to get tab controller', err);
+                setPageState('error');
             });
-
-            controller.refreshed = true;
-            tabController.current = controller;
-            homeTabLoadPending.current = false;
-        }).catch((err: unknown) => {
-            if (err instanceof Error && err.message.startsWith('Home tab content not ready') && retryCount < 10) {
-                window.requestAnimationFrame(() => loadTab(index, previousIndex, retryCount + 1));
-                return;
-            }
-
-            homeTabLoadPending.current = false;
-            console.error('[Home] failed to get tab controller', err);
-        });
     }, [ getTabController ]);
 
     const onTabChange = useCallback((e: CustomEvent<TabChangeDetail>) => {
@@ -183,6 +195,11 @@ const Home = () => {
         await onResume();
     }, [ onResume, onSetTabs ]);
 
+    const handleRetry = useCallback(() => {
+        setPageState('loading');
+        void renderHome();
+    }, [renderHome]);
+
     useEffect(() => {
         void renderHome();
 
@@ -208,12 +225,21 @@ const Home = () => {
                 isBackButtonEnabled={false}
                 backDropType='movie,series,book'
             >
-                <div className='tabContent pageTabContent' id='homeTab' data-index='0'>
-                    <div className='sections'></div>
-                </div>
-                <div className='tabContent pageTabContent' id='favoritesTab' data-index='1'>
-                    <div className='sections'></div>
-                </div>
+                <Box sx={{ display: 'flex', flexDirection: 'column', minHeight: '100%' }}>
+                    <PageStateContainer
+                        state={pageState}
+                        onRetry={handleRetry}
+                        loadingComponent={<ListPageSkeleton rows={2} itemsPerRow={4} />}
+                        errorMessage={globalize.translate('ErrorDefault')}
+                    >
+                        <div className='tabContent pageTabContent' id='homeTab' data-index='0'>
+                            <div className='sections'></div>
+                        </div>
+                        <div className='tabContent pageTabContent' id='favoritesTab' data-index='1'>
+                            <div className='sections'></div>
+                        </div>
+                    </PageStateContainer>
+                </Box>
             </Page>
         </div>
     );

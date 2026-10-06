@@ -11,9 +11,9 @@ import React, { type FC, useCallback } from 'react';
 import type { ActivityLogEntry } from '@jellyfin/sdk/lib/generated-client/models/activity-log-entry';
 
 import { useMyClassifiedMediaRequests, type MediaRequestQueuePosition, type MediaRequestQueueStatus } from 'hooks/api/useMediaRequests';
-import Loading from 'components/loading/LoadingComponent';
 import Page from 'components/Page';
 import globalize from 'lib/globalize';
+import { PageStateContainer } from 'components/common';
 
 const requestTitlePrefix = /^Solicitação de mídia:\s*/i;
 
@@ -132,62 +132,44 @@ const MyMediaRequestsPage: FC = () => {
         fetchNextPage().catch(() => undefined);
     }, [ fetchNextPage ]);
 
-    let content;
-    if (isError) {
-        content = (
-            <Alert
-                severity='error'
-                action={(
-                    <Button color='inherit' size='small' onClick={handleRetry}>
-                        {globalize.translate('Retry')}
-                    </Button>
-                )}
-            >
-                {globalize.translate('ErrorDefault')}
-            </Alert>
-        );
-    } else if (isPending) {
-        content = <Loading />;
-    } else if (pending.length === 0 && included.length === 0) {
-        content = (
-            <Typography variant='body1' color='text.secondary'>
-                {globalize.translate('MyMediaRequestsEmpty')}
-            </Typography>
-        );
-    } else {
-        content = (
-            <Stack spacing={4}>
-                <RequestGroup
-                    titleKey='MediaRequestsPendingTitle'
-                    entries={pending}
-                    emptyKey='MyMediaRequestsPendingEmpty'
-                    chipColor='default'
-                    priorityRequestIds={priorityRequestIds}
-                    queueStatuses={queueStatuses}
-                    showQueueStatus
-                />
-                <RequestGroup
-                    titleKey='MediaRequestsIncludedTitle'
-                    entries={included}
-                    emptyKey='MyMediaRequestsIncludedEmpty'
-                    chipColor='success'
-                    priorityRequestIds={priorityRequestIds}
-                    queueStatuses={queueStatuses}
-                />
-                {isFetchNextPageError && <Alert severity='error'>{globalize.translate('ErrorDefault')}</Alert>}
-                {hasNextPage && (
-                    <Button
-                        onClick={handleLoadMore}
-                        disabled={isFetchingNextPage}
-                        aria-busy={isFetchingNextPage}
-                        sx={{ alignSelf: 'flex-start' }}
-                    >
-                        {globalize.translate(isFetchNextPageError ? 'Retry' : 'ShowMore')}
-                    </Button>
-                )}
-            </Stack>
-        );
-    }
+    const successContent = (
+        <Stack spacing={4}>
+            <RequestGroup
+                titleKey='MediaRequestsPendingTitle'
+                entries={pending}
+                emptyKey='MyMediaRequestsPendingEmpty'
+                chipColor='default'
+                priorityRequestIds={priorityRequestIds}
+                queueStatuses={queueStatuses}
+                showQueueStatus
+            />
+            <RequestGroup
+                titleKey='MediaRequestsIncludedTitle'
+                entries={included}
+                emptyKey='MyMediaRequestsIncludedEmpty'
+                chipColor='success'
+                priorityRequestIds={priorityRequestIds}
+                queueStatuses={queueStatuses}
+            />
+            {isFetchNextPageError && <Alert severity='error'>{globalize.translate('ErrorDefault')}</Alert>}
+            {hasNextPage && (
+                <Button
+                    onClick={handleLoadMore}
+                    disabled={isFetchingNextPage}
+                    aria-busy={isFetchingNextPage}
+                    sx={{ alignSelf: 'flex-start' }}
+                >
+                    {globalize.translate(isFetchNextPageError ? 'Retry' : 'ShowMore')}
+                </Button>
+            )}
+        </Stack>
+    );
+
+    const emptyContent = (
+        <Typography variant='body1' color='text.secondary'>
+            {globalize.translate('MyMediaRequestsEmpty')}
+        </Typography>
+    );
 
     return (
         <Page
@@ -197,7 +179,15 @@ const MyMediaRequestsPage: FC = () => {
         >
             <Box className='padded-left padded-right padded-bottom-page' sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
                 <Typography variant='h1'>{globalize.translate('MyMediaRequestsTitle')}</Typography>
-                {content}
+                <PageStateContainer
+                    state={isError ? 'error' : isPending ? 'loading' : pending.length === 0 && included.length === 0 ? 'empty' : 'success'}
+                    onRetry={handleRetry}
+                    emptyState={{
+                        title: globalize.translate('MyMediaRequestsEmpty')
+                    }}
+                >
+                    {successContent}
+                </PageStateContainer>
             </Box>
         </Page>
     );

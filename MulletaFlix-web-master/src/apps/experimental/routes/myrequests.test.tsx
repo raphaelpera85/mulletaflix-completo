@@ -11,6 +11,19 @@ vi.mock('hooks/api/useMediaRequests', () => ({
 }));
 vi.mock('components/loading/LoadingComponent', () => ({ default: () => <div>loading</div> }));
 vi.mock('components/Page', () => ({ default: ({ children }: React.PropsWithChildren) => <main>{children}</main> }));
+vi.mock('components/common/PageStateContainer', () => ({
+    default: ({ state, children, emptyState, onRetry }: { state: string; children: any; emptyState?: { title?: string }; onRetry?: () => void }) => (
+        state === 'empty' ? (
+            <div>{emptyState?.title}</div>
+        ) : state === 'error' ? (
+            <div>ErrorDefault<button onClick={onRetry}>Retry</button></div>
+        ) : state === 'loading' ? (
+            <div>loading</div>
+        ) : (
+            children
+        )
+    )
+}));
 vi.mock('lib/globalize', () => ({
     default: {
         translate: (key: string) => ({
