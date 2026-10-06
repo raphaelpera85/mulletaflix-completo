@@ -2,6 +2,7 @@ import Article from '@mui/icons-material/Article';
 import Backup from '@mui/icons-material/Backup';
 import Cloud from '@mui/icons-material/Cloud';
 import Lan from '@mui/icons-material/Lan';
+import Lock from '@mui/icons-material/Lock';
 import Schedule from '@mui/icons-material/Schedule';
 import VpnKey from '@mui/icons-material/VpnKey';
 import List from '@mui/material/List';
@@ -30,6 +31,14 @@ const AdvancedDrawerSection = () => {
                         <Lan />
                     </ListItemIcon>
                     <ListItemText primary={globalize.translate('TabNetworking')} />
+                </ListItemLink>
+            </ListItem>
+            <ListItem disablePadding>
+                <ListItemLink to='/dashboard/https-domain'>
+                    <ListItemIcon>
+                        <Lock />
+                    </ListItemIcon>
+                    <ListItemText primary='Domínio e HTTPS' />
                 </ListItemLink>
             </ListItem>
             <ListItem disablePadding>
