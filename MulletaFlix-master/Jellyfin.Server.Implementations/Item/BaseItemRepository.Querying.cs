@@ -58,7 +58,7 @@ public sealed partial class BaseItemRepository
         dbQuery = ApplyQueryPaging(dbQuery, filter);
         dbQuery = ApplyNavigations(dbQuery, filter);
 
-        result.Items = dbQuery.AsEnumerable().Where(e => e != null).Select(w => DeserializeBaseItem(w, filter.SkipDeserialization)).Where(dto => dto != null).ToArray()!;
+        result.Items = dbQuery.Where(e => e != null).AsEnumerable().Select(w => DeserializeBaseItem(w, filter.SkipDeserialization)).Where(dto => dto != null).ToArray()!;
         result.StartIndex = filter.StartIndex ?? 0;
         return result;
     }
@@ -80,7 +80,8 @@ public sealed partial class BaseItemRepository
         var hasRandomSort = filter.OrderBy.Any(e => e.OrderBy == ItemSortBy.Random);
         if (hasRandomSort)
         {
-            var orderedIds = dbQuery.AsNoTracking().Select(e => e.Id).ToList();
+            // Get only the IDs after pagination is applied
+            var orderedIds = dbQuery.Select(e => e.Id).ToList();
             if (orderedIds.Count == 0)
             {
                 return Array.Empty<BaseItemDto>();
@@ -98,7 +99,7 @@ public sealed partial class BaseItemRepository
 
         dbQuery = ApplyNavigations(dbQuery, filter);
 
-        return dbQuery.AsEnumerable().Where(e => e != null).Select(w => DeserializeBaseItem(w, filter.SkipDeserialization)).Where(dto => dto != null).ToArray()!;
+        return dbQuery.Where(e => e != null).AsEnumerable().Select(w => DeserializeBaseItem(w, filter.SkipDeserialization)).Where(dto => dto != null).ToArray()!;
     }
 
     /// <inheritdoc/>
@@ -128,6 +129,11 @@ public sealed partial class BaseItemRepository
         {
             // MariaDB can struggle with LIMIT inside grouped subqueries produced by First().
             // Stream the already ordered rows and pick the first item per presentation key in-memory.
+            // NOTE: do not pre-limit this query with an arbitrary buffer (e.g. Limit * 2) before
+            // deduplicating by PresentationUniqueKey — libraries with many duplicate presentation
+            // keys (multiple cuts/qualities of the same movie) can exceed any fixed buffer and would
+            // silently return fewer items than requested. Stream unlimited and stop once enough
+            // distinct items are found below.
             var orderedMovieCandidates = baseQuery
                 .Where(e => e.PresentationUniqueKey != null)
                 .OrderByDescending(e => e.DateCreated)
@@ -322,18 +328,19 @@ public sealed partial class BaseItemRepository
         // ancestor/library joins repeatedly and could exceed MySQL's timeout.
         var matchingItemIds = baseQuery.Select(e => e.Id);
 
-        var matchingItems = context.BaseItems
+        // Query only needed fields instead of loading entire BaseItem entities
+        var years = context.BaseItems
             .AsNoTracking()
-            .Where(e => matchingItemIds.Contains(e.Id));
-
-        var years = matchingItems
+            .Where(e => matchingItemIds.Contains(e.Id))
             .Where(e => e.ProductionYear != null && e.ProductionYear > 0)
             .Select(e => e.ProductionYear!.Value)
             .Distinct()
             .OrderBy(y => y)
             .ToArray();
 
-        var officialRatings = matchingItems
+        var officialRatings = context.BaseItems
+            .AsNoTracking()
+            .Where(e => matchingItemIds.Contains(e.Id))
             .Where(e => e.OfficialRating != null && e.OfficialRating != string.Empty)
             .Select(e => e.OfficialRating!)
             .Distinct()
