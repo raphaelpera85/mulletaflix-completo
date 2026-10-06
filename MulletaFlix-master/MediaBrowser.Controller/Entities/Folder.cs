@@ -439,11 +439,17 @@ namespace MediaBrowser.Controller.Entities
                 }
                 catch (IOException ex)
                 {
+                    // Must abort here (not just log) for the same reason the generic catch below
+                    // does: falling through with nonCachedChildren still empty makes every existing
+                    // child appear "removed" a few lines down, deleting real catalog entries because
+                    // of a transient I/O hiccup (e.g. Nebula's rclone/virtual drive reconnecting).
                     Logger.LogError(ex, "Error retrieving children from file system");
+                    return;
                 }
                 catch (SecurityException ex)
                 {
                     Logger.LogError(ex, "Error retrieving children from file system");
+                    return;
                 }
                 catch (Exception ex)
                 {

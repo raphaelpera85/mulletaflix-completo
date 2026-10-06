@@ -95,6 +95,7 @@ namespace MulletaFlix.Server
             serviceCollection.AddSingleton<IDeviceManager, DeviceManager>();
             serviceCollection.AddSingleton<ITrickplayManager, TrickplayManager>();
             serviceCollection.AddSingleton<INebulaFtpManager, NebulaFtpManager>();
+            serviceCollection.AddSingleton<MediaBrowser.Controller.HttpsDomain.IHttpsCertificateInspector, Jellyfin.Server.Implementations.HttpsDomain.FileSystemHttpsCertificateInspector>();
 
             // TODO search the assemblies instead of adding them manually?
             serviceCollection.AddSingleton<IWebSocketListener, SessionWebSocketListener>();

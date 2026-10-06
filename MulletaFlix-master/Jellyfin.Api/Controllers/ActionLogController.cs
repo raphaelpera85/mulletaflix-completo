@@ -3,6 +3,8 @@ using System.Collections.Generic;
 using System.ComponentModel.DataAnnotations;
 using System.Linq;
 using System.Threading.Tasks;
+using MulletaFlix.Api.Constants;
+using MulletaFlix.Api.Extensions;
 using MulletaFlix.Data.Queries;
 using MulletaFlix.Database.Implementations;
 using MulletaFlix.Database.Implementations.Contexts;
@@ -71,7 +73,16 @@ public class ActionLogController : BaseMulletaFlixApiController
     {
         await using var context = await _dbContextFactory.CreateDbContextAsync().ConfigureAwait(false);
 
+        var currentUserId = User.GetUserId();
+        var isAdmin = User.IsInRole(UserRoles.Administrator);
+
         var query = context.ActionLogs.AsQueryable();
+
+        // Non-admin users can only see their own action logs
+        if (!isAdmin)
+        {
+            query = query.Where(a => a.UserId == currentUserId);
+        }
 
         if (minDate.HasValue)
             query = query.Where(a => a.DateCreated >= minDate.Value);

@@ -121,7 +121,9 @@ public sealed class NebulaSupabaseBackupBotTokensMongoTests : IDisposable
             new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("[]") }, // mulletaflix_users
             new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(tokenRequest.Body!) }); // nebula_bot_tokens
 
-        var restoreDatabaseName = "nebula_t43_backup_tokens_restore_" + Guid.NewGuid().ToString("N");
+        // MongoDB enforces a 63-byte database name limit; keep the prefix short
+        // enough that a full 32-char GUID suffix still fits.
+        var restoreDatabaseName = "nebula_t43_bkp_tok_restore_" + Guid.NewGuid().ToString("N");
         using var restoreMongoContext = new NebulaMongoContext(
             _testConnectionString,
             restoreDatabaseName,

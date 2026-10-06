@@ -85,6 +85,22 @@ public class SecurityAuthorizationTests
         AssertClassHasAuthorize(typeof(DynamicHlsController));
     }
 
+    [Fact]
+    public void PackageController_RequiresElevation()
+    {
+        AssertClassHasPolicy(typeof(PackageController), Policies.RequiresElevation);
+        AssertControllerRouteMethodsDoNotAllowAnonymous(typeof(PackageController));
+    }
+
+    [Fact]
+    public void JobQueueController_RequiresAuthorizationAndElevationForMutatingOperations()
+    {
+        AssertClassHasAuthorize(typeof(JobQueueController));
+        AssertMethodHasPolicy(typeof(JobQueueController), nameof(JobQueueController.Cancel), Policies.RequiresElevation);
+        AssertMethodHasPolicy(typeof(JobQueueController), nameof(JobQueueController.CancelAll), Policies.RequiresElevation);
+        AssertMethodHasPolicy(typeof(JobQueueController), nameof(JobQueueController.PrewarmImages), Policies.RequiresElevation);
+    }
+
     private static void AssertClassHasAuthorize(Type controllerType)
     {
         Assert.Contains(controllerType.GetCustomAttributes<AuthorizeAttribute>(inherit: true), _ => true);

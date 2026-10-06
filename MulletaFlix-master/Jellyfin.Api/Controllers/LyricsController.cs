@@ -121,6 +121,19 @@ public class LyricsController : BaseMulletaFlixApiController
             return StatusCode(StatusCodes.Status413RequestEntityTooLarge, "Lyric file exceeds maximum allowed size (1 MB)");
         }
 
+        // Reject directory separators and traversal sequences in the client-supplied filename
+        // outright. The filename is only ever used below to derive an extension (the actual
+        // on-disk name/location is controlled server-side by ILyricManager), but silently
+        // stripping a malicious "../../etc/evil.lrc" down to its extension would hide the
+        // attack attempt instead of surfacing it (Medium finding: file upload validation in
+        // the lyrics endpoint).
+        if (fileName.Contains('/', StringComparison.Ordinal)
+            || fileName.Contains('\\', StringComparison.Ordinal)
+            || fileName.Contains("..", StringComparison.Ordinal))
+        {
+            return BadRequest("Filename must not contain path separators or traversal sequences.");
+        }
+
         // Utilize Path.GetExtension as it provides extra path validation.
         var format = Path.GetExtension(fileName.AsSpan()).RightPart('.').ToString();
         if (string.IsNullOrEmpty(format))

@@ -1263,6 +1263,17 @@ namespace Emby.Server.Implementations.Library
                 {
                     result = ResolvePath(file, directoryService, resolvers, parent, collectionType, libraryOptions);
                 }
+                catch (IOException ex)
+                {
+                    // A transient I/O error (mounted/virtual drives like Nebula's rclone mount can
+                    // hiccup mid-scan) must NOT be treated the same as "this path no longer exists".
+                    // Swallowing it here and simply omitting the item from the resolved list makes the
+                    // caller's missing-item diff treat it as deleted, wiping its metadata/images and
+                    // forcing re-identification. Propagate it instead so the folder-level validation
+                    // (Folder.ValidateChildrenInternal2) aborts this pass without touching existing items.
+                    _logger.LogWarning(ex, "Transient I/O error resolving path {Path}; aborting this validation pass without removing items", file.FullName);
+                    throw;
+                }
                 catch (Exception ex)
                 {
                     _logger.LogError(ex, "Error resolving path {Path}", file.FullName);

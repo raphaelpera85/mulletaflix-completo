@@ -1783,10 +1783,6 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable, IAsyncDis
             try
             {
                 await StopPythonStreamServiceAsync().ConfigureAwait(false);
-                if (!_isDownloaderRunning)
-                {
-                    await DisposeSharedRuntimeResourcesAsync().ConfigureAwait(false);
-                }
 
                 _supabaseSyncService?.Dispose();
                 _supabaseSyncService = null;
@@ -1833,6 +1829,17 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable, IAsyncDis
                 {
                     _mongoContext.Dispose();
                     _mongoContext = null;
+                }
+
+                // Só libere os recursos compartilhados (pool/Mongo) depois que TODOS os
+                // componentes individuais desta tentativa já foram zerados acima — o
+                // próprio DisposeSharedRuntimeResourcesAsync lança InvalidOperationException
+                // se qualquer um deles ainda estiver não-nulo, então chamá-lo antes dessa
+                // limpeza individual faz essa checagem falhar sempre e aborta o restante
+                // da limpeza (vazando ftpServerHost/httpStreamServer/uploadEngine/etc.).
+                if (!_isDownloaderRunning)
+                {
+                    await DisposeSharedRuntimeResourcesAsync().ConfigureAwait(false);
                 }
             }
             catch (Exception cleanupException)

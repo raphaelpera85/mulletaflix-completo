@@ -27,7 +27,6 @@ namespace MulletaFlix.Api.Controllers;
 /// <summary>
 /// Unified Search Controller - provides comprehensive search across all content types.
 /// </summary>
-[Authorize(Policy = Policies.RequiresElevation)]
 [ApiController]
 [Route("Search")]
 public class UnifiedSearchController : BaseMulletaFlixApiController
@@ -72,8 +71,13 @@ public class UnifiedSearchController : BaseMulletaFlixApiController
     /// <param name="sortBy">Sort fields.</param>
     /// <param name="sortOrder">Sort order.</param>
     /// <response code="200">Unified search results returned.</response>
+    /// <response code="401">Unauthorized.</response>
+    /// <response code="403">Forbidden - attempting to search another user's content without admin privileges.</response>
     [HttpGet("Unified")]
+    [Authorize]
     [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
     public ActionResult<UnifiedSearchResult> GetUnifiedSearch(
         [FromQuery, Required] string searchTerm,
         [FromQuery] Guid? userId,
@@ -184,8 +188,13 @@ public class UnifiedSearchController : BaseMulletaFlixApiController
     /// </summary>
     /// <param name="userId">User ID to scope stats.</param>
     /// <response code="200">Search statistics returned.</response>
+    /// <response code="401">Unauthorized.</response>
+    /// <response code="403">Forbidden - attempting to get stats for another user without admin privileges.</response>
     [HttpGet("Stats")]
+    [Authorize]
     [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
     public ActionResult<SearchStatsDto> GetSearchStats(
         [FromQuery, Required] Guid userId)
     {

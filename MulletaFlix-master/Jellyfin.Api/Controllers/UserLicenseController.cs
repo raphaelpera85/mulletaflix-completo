@@ -1,8 +1,10 @@
 ﻿using System;
 using System.ComponentModel.DataAnnotations;
+using System.Security;
 using System.Threading.Tasks;
 using MulletaFlix.Api.Constants;
 using MulletaFlix.Api.Extensions;
+using MulletaFlix.Api.Helpers;
 using MulletaFlix.Api.Models.UserDtos;
 using MediaBrowser.Common.Api;
 using MediaBrowser.Controller.Library;
@@ -46,14 +48,26 @@ public class UserLicenseController : BaseMulletaFlixApiController
     /// </summary>
     /// <param name="userId">The user id.</param>
     /// <response code="200">License returned.</response>
+    /// <response code="403">User is not authorized to access this license.</response>
     /// <response code="404">User or license not found.</response>
     /// <returns>A <see cref="UserLicenseDto"/> with information about the license.</returns>
     [HttpGet]
     [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<ActionResult<UserLicenseDto>> GetUserLicense(
         [FromRoute, Required] Guid userId)
     {
+        // Check if user can access this license (non-admins can only access their own)
+        try
+        {
+            RequestHelpers.GetUserId(User, userId);
+        }
+        catch (SecurityException)
+        {
+            return Forbid();
+        }
+
         var user = _userManager.GetUserById(userId);
         if (user is null)
         {
@@ -75,10 +89,13 @@ public class UserLicenseController : BaseMulletaFlixApiController
     /// <param name="userId">The user id.</param>
     /// <param name="request">The license request.</param>
     /// <response code="200">License created or updated.</response>
+    /// <response code="403">User is not authorized to set licenses.</response>
     /// <response code="404">User not found.</response>
     /// <returns>A <see cref="UserLicenseDto"/> with the created/updated license.</returns>
     [HttpPost]
+    [Authorize(Policy = Policies.RequiresElevation)]
     [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<ActionResult<UserLicenseDto>> SetUserLicense(
         [FromRoute, Required] Guid userId,
@@ -113,10 +130,13 @@ public class UserLicenseController : BaseMulletaFlixApiController
     /// </summary>
     /// <param name="userId">The user id.</param>
     /// <response code="204">License revoked.</response>
+    /// <response code="403">User is not authorized to revoke licenses.</response>
     /// <response code="404">User not found.</response>
     /// <returns>A <see cref="NoContentResult"/> indicating success.</returns>
     [HttpDelete]
+    [Authorize(Policy = Policies.RequiresElevation)]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<ActionResult> RevokeUserLicense(
         [FromRoute, Required] Guid userId)

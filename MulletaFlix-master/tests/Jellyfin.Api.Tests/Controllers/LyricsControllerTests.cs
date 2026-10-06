@@ -100,6 +100,36 @@ public sealed class LyricsControllerTests
         _lyricManager.Verify(m => m.SaveLyricAsync(It.IsAny<Audio>(), It.IsAny<string>(), It.IsAny<Stream>()), Times.Never);
     }
 
+    [Theory]
+    [InlineData("../../etc/evil.lrc")]
+    [InlineData("..\\..\\evil.lrc")]
+    [InlineData("sub/dir/evil.lrc")]
+    [InlineData("sub\\dir\\evil.lrc")]
+    public async Task UploadLyrics_RejectsPathTraversalOrSeparatorsInFilename(string maliciousFileName)
+    {
+        var controller = CreateController("[00:01.00]Hello world\n");
+
+        var result = await controller.UploadLyrics(_itemId, maliciousFileName);
+
+        var badRequest = Assert.IsType<BadRequestObjectResult>(result.Result);
+        Assert.Contains("path separators", (string)badRequest.Value!, StringComparison.Ordinal);
+        _lyricManager.Verify(m => m.SaveLyricAsync(It.IsAny<Audio>(), It.IsAny<string>(), It.IsAny<Stream>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task UploadLyrics_RejectsDisallowedContentType()
+    {
+        // ".exe" is neither a recognized lyric format nor backed by any ILyricParser; it must be
+        // rejected on the format allow-list before the body is ever read.
+        var controller = CreateController("[00:01.00]Hello world\n");
+
+        var result = await controller.UploadLyrics(_itemId, "lyrics.exe");
+
+        var badRequest = Assert.IsType<BadRequestObjectResult>(result.Result);
+        Assert.Contains("Unsupported lyric format", (string)badRequest.Value!, StringComparison.Ordinal);
+        _lyricManager.Verify(m => m.SaveLyricAsync(It.IsAny<Audio>(), It.IsAny<string>(), It.IsAny<Stream>()), Times.Never);
+    }
+
     private LyricsController CreateController(string body, bool setContentLength = true)
         => CreateController(Encoding.UTF8.GetBytes(body), setContentLength);
 

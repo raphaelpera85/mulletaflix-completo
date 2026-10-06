@@ -15,18 +15,13 @@
 
 ---
 
-## 1. Badge "atualização disponível" no dashboard
+## 1. Badge "atualização disponível" no dashboard — ✅ IMPLEMENTADO
 
-**Estado:** backend pronto (`UpdateInfoController.GetUpdateInfo`); falta o frontend.
+**Estado (reconciliado em 05/10):** já implementado e commitado. `UpdateAvailableIndicator.tsx` (ícone com `Badge` "dot" + tooltip + link) está conectado via `UpdateAvailableIndicatorContainer.tsx` (reusa `useServerUpdateInfo`, sem polling duplicado) tanto na toolbar do header (`AppLayout.tsx`) quanto no item "Centro de atualizações" do `ServerDrawerSection.tsx`.
 
-**Objetivo:** mostrar um badge/aviso no dashboard quando `UpdateAvailable=true`, sem exigir entrar na página "Centro de atualizações".
+**Verificação (evidência real, 05/10):** `npx tsc --noEmit -p tsconfig.json` → exit 0; `npx vitest run UpdateAvailableIndicator.test.tsx` → 4/4 passando.
 
-**Tarefas:**
-1. Criar hook `useServerUpdateInfo` já existente (reusar `apps/dashboard/features/updates/api/useServerUpdateInfo.ts`).
-2. Adicionar badge no drawer (ServerDrawerSection) ou header do dashboard.
-3. Exibir "nova versão X disponível" com link para `/dashboard/updates`.
-
-**Verificação:** `npm run build:check` exit 0.
+**Limitação:** sem validação visual manual com servidor real rodando nesta sessão.
 
 ---
 
@@ -50,18 +45,15 @@
 
 ---
 
-## 3. Webhook de eventos
+## 3. Webhook de eventos — PARCIAL (pedido original atendido; versão rica incompleta)
 
-**Estado:** `IEventManager` + `EventManager` já publicam eventos (playback, licença, etc.).
+**Estado (reconciliado em 05/10):** o pedido original ("notificar Discord/Telegram") **já está implementado**: `PlaybackWebhookNotifier.cs` (`Jellyfin.Server.Implementations/Events/Consumers/Session/`) consome `PlaybackStartEventArgs`/`PlaybackStopEventArgs` via `IEventConsumer` e faz POST JSON para URLs configuradas por `MulletaFlix_WEBHOOK_URL`/`MulletaFlix_WEBHOOK_EVENTS` (env vars), com teste em `PlaybackWebhookNotifierTests.cs`.
 
-**Objetivo:** notificar Discord/Telegram em eventos configuráveis (playback iniciado, item adicionado, erro de transcoding).
+**Gap real restante:** existe uma versão mais rica, só como scaffolding nunca finalizado — `WebhookConfiguration`/`WebhookEndpointConfiguration`/`WebhookEventTypes` (`MediaBrowser.Model/Configuration/WebhookConfiguration.cs`, com suporte a múltiplos endpoints nomeados + `ItemAdded` além de playback), `WebhookConfigurationStore`/`WebhookConfigurationFactory` (`Jellyfin.Server/Configuration/Webhook/`) e a interface `IWebhookDispatcher` (`MediaBrowser.Controller/Webhooks/`) — **sem nenhuma implementação concreta do dispatcher, sem controller de API admin e sem UI no frontend**. `ItemAdded` nunca é disparado por ninguém.
 
-**Tarefas:**
-1. Modelo `WebhookConfig` + endpoint de configuração (admin).
-2. Consumidor de eventos `WebhookNotifier` (padrão `UserLicenseChangedLogger`).
-3. HTTP POST com payload JSON, com retry básico.
+**Próximo passo se quiser a versão rica:** implementar `IWebhookDispatcher`, um controller `WebhooksController` (CRUD de `WebhookEndpointConfiguration`) e a tela admin equivalente; migrar `PlaybackWebhookNotifier` para usar a config em vez de env vars.
 
-**Verificação:** build 0 erros + testes unitários do serializador/config.
+**Verificação:** nenhuma mudança de código nesta reconciliação, apenas leitura/confirmação do estado real via busca no repositório.
 
 ---
 
