@@ -225,20 +225,42 @@ const Home = () => {
                 isBackButtonEnabled={false}
                 backDropType='movie,series,book'
             >
-                <Box sx={{ display: 'flex', flexDirection: 'column', minHeight: '100%' }}>
-                    <PageStateContainer
-                        state={pageState}
-                        onRetry={handleRetry}
-                        loadingComponent={<ListPageSkeleton rows={2} itemsPerRow={4} />}
-                        errorMessage={globalize.translate('ErrorDefault')}
+                <Box sx={{ display: 'flex', flexDirection: 'column', minHeight: '100%', position: 'relative' }}>
+                    {/*
+                        Home uses an imperative, DOM-query-based tab controller system
+                        (getTabController above queries '.tabContent[data-index=...]' directly).
+                        Those divs must always be mounted -- PageStateContainer's 'loading'/'error'
+                        cases normally REPLACE children instead of rendering them, which previously
+                        hid these divs until pageState became 'success'. But pageState only becomes
+                        'success' AFTER getTabController finds the div, so it could never find it:
+                        infinite "Home tab content not ready" retries, then a permanent error state.
+                        Render the structural tabContent divs unconditionally and only overlay the
+                        loading/error UI on top, instead of letting PageStateContainer swap them out.
+                    */}
+                    {pageState !== 'success' && (
+                        <PageStateContainer
+                            state={pageState}
+                            onRetry={handleRetry}
+                            loadingComponent={<ListPageSkeleton rows={2} itemsPerRow={4} />}
+                            errorMessage={globalize.translate('ErrorDefault')}
+                        />
+                    )}
+                    <div
+                        className='tabContent pageTabContent'
+                        id='homeTab'
+                        data-index='0'
+                        style={pageState === 'success' ? undefined : { display: 'none' }}
                     >
-                        <div className='tabContent pageTabContent' id='homeTab' data-index='0'>
-                            <div className='sections'></div>
-                        </div>
-                        <div className='tabContent pageTabContent' id='favoritesTab' data-index='1'>
-                            <div className='sections'></div>
-                        </div>
-                    </PageStateContainer>
+                        <div className='sections'></div>
+                    </div>
+                    <div
+                        className='tabContent pageTabContent'
+                        id='favoritesTab'
+                        data-index='1'
+                        style={pageState === 'success' ? undefined : { display: 'none' }}
+                    >
+                        <div className='sections'></div>
+                    </div>
                 </Box>
             </Page>
         </div>
