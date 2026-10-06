@@ -506,6 +506,8 @@ Não alterei o poll de 500 ms que segura um slot de tarefa pelo tempo do job. É
 arriscada de trocar por sinalização via `TaskCompletionSource`, mas exige mexer no contrato da fila
 de jobs, e não caberia nesta rodada com a verificação adequada.
 
+**Atualização (Rodada 22): corrigido.** Ver abaixo — o poll de 500 ms foi removido.
+
 ### Rodada 21 — S-6: última tarefa com carga total removida
 
 | Item | Arquivo | O que mudou | Verificação |
@@ -517,6 +519,21 @@ identificados, a tarefa ainda enfileira um `QueueRefresh` por item numa única r
 muda *quais* itens são atualizados por execução, então precisa de decisão de produto (processar por
 lote com continuidade entre execuções) — não é uma correção mecânica. Também não iça o
 `DirectoryService`, que ainda é alocado por item.
+
+**Atualização (Rodada 22): corrigido.** Ver abaixo.
+
+### Rodada 22 — S-6: throttle do burst de refreshes + S-11: fila sem poll
+
+| Item | Arquivo | O que mudou | Verificação |
+| --- | --- | --- | --- |
+| **S-6 (burst + DirectoryService)** | `UnidentifiedMediaCleanupTask.cs` | O `DirectoryService` passou a ser criado **uma única vez por execução** (antes: um por item). O enfileiramento de `QueueRefresh` agora passa por um `SemaphoreSlim` de `MaxConcurrentQueuedRefreshes` (padrão 50) slots: cada slot só é liberado `RefreshBatchWindow` (padrão 200 ms) depois do `QueueRefresh`, paceando o burst em lotes de 50 a cada ~200 ms em vez de despejar as 77.909 chamadas de uma vez. Limite e janela são propriedades `internal` (settable) para permitir teste determinístico sem esperar relógio real; o delegate de delay (`DelayAsync`) também é substituível em teste. | Build 0 erros; `dotnet test Jellyfin.Server.Implementations.Tests.csproj --filter FullyQualifiedName~UnidentifiedMediaCleanupTaskTests` → 3/3 verde, incluindo o novo teste de throttle `ExecuteAsync_ThrottlesRefreshBurstAndReusesDirectoryService` |
+| **S-11 (fila sem poll)** | `StrmProbeScheduledTask.cs`, `MulletaFlixJobQueue.cs`, `IJobQueue.cs` | O `while` com `Task.Delay(500, token)` segurando o slot da tarefa agendada foi removido. `IJobQueue` ganhou `WaitForCompletionAsync(id, onProgress, cancellationToken)`: internamente cada job guarda um `TaskCompletionSource<bool>` que é sinalizado exatamente uma vez (em `RunJobAsync`'s `finally` e em `MarkCancelled`, para o caminho cancelado-antes-de-iniciar); progresso é entregue via callback (`Action<JobQueueItemDto>? onProgress`) chamado a cada atualização, em vez de reconsultar `GetJob` periodicamente. A tarefa agendada agora só faz `await _jobQueue.WaitForCompletionAsync(...)` uma vez — nenhuma thread/slot fica presa num timer. | Build 0 erros; `dotnet test Jellyfin.Server.Implementations.Tests.csproj --filter FullyQualifiedName~StrmProbeScheduledTaskTests` → 4/4 verde, incluindo o novo teste `ExecuteAsync_WaitsForJobCompletionWithoutFixedIntervalPolling` (usa um mock **estrito** de `IJobQueue` sem setup para `GetJob`, então qualquer chamada ao poll antigo faria o teste falhar); `Jellyfin.Api.Tests.csproj` → 551/551 verde (cobre `MulletaFlixJobQueue`/`IJobQueue` indiretamente); `Jellyfin.Server.Tests.csproj` → 68/68 verde (mocks de `IJobQueue` continuam válidos) |
+
+Arquivos alterados nesta rodada: `Jellyfin.Api/Jobs/IJobQueue.cs`, `Jellyfin.Api/Jobs/MulletaFlixJobQueue.cs`,
+`Emby.Server.Implementations/ScheduledTasks/Tasks/StrmProbeScheduledTask.cs`,
+`Emby.Server.Implementations/ScheduledTasks/Tasks/UnidentifiedMediaCleanupTask.cs`,
+`tests/Jellyfin.Server.Implementations.Tests/ScheduledTasks/UnidentifiedMediaCleanupTaskTests.cs`,
+`tests/Jellyfin.Server.Implementations.Tests/ScheduledTasks/StrmProbeScheduledTaskTests.cs`.
 
 ### As quatro tarefas que carregavam a biblioteca inteira
 

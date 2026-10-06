@@ -49,23 +49,37 @@ with credentials allowed.
 
 ## Medium Findings
 
-### 4. Rate Limiting Implementation Concerns
-**Location:** `Api贼PreventOpenBruteForceAuthenticationMiddleware`  
+### 4. ~~Rate Limiting Implementation Concerns~~ — FIXED ✅
+**Location:** `Jellyfin.Api/Middleware/RateLimitMiddleware.cs`  
 **Severity:** Medium  
 **CVSS:** 5.3 (Medium)
 
 **Description:**  
 Rate limiting exists for authentication attempts, but implementation details should be reviewed to ensure it effectively prevents brute force attacks. The middleware should track failed attempts per IP and implement exponential backoff.
 
-**Mitigation:**  
-- Verify rate limiting thresholds are appropriate (e.g., 5 attempts per minute per IP)
-- Ensure rate limiting is applied before authentication processing
-- Consider implementing account lockout after multiple failed attempts
+**Status:** FIXED/VERIFIED — `RateLimitMiddleware` already tracked failed logins per IP in a
+15-minute sliding window (`LoginWindow` / `MaxFailedLogins = 10`) with a `429 Too Many Requests`
++ `Retry-After` response, applied before the request reaches authentication, and `UserManager`
+independently disables the account once `InvalidLoginAttemptCount` reaches
+`LoginAttemptsBeforeLockout` (account lockout layered on top of the per-IP window). This review
+added deterministic regression tests for the three properties the finding asked to verify
+(threshold enforcement, time-window reset instead of a permanent lock, and quota not being
+consumed by a successful login), plus the account-lockout path, which previously had zero test
+coverage:
+- `tests/Jellyfin.Api.Tests/Middleware/RateLimitMiddlewareTests.cs`:
+  `RateLimitEntry_BlocksTheAttemptImmediatelyAfterTheConfiguredThreshold`,
+  `RateLimitEntry_ResetsOnceTheLoginWindowFullyElapses`,
+  `RateLimitEntry_SuccessfulLoginDoesNotConsumeFailureQuota` (added 05/10/2026), plus the
+  pre-existing `LoginAttempts_BlockedResponse_IncludesRetryAfterHeader`,
+  `ConcurrentFailedLogins_RecordOnlyAdmittedFailures`, `InFlightLogin_ReservesRemainingFailureWindowCapacity`.
+- `tests/Jellyfin.Server.Implementations.Tests/Users/UserManagerAuthenticationLockTests.cs`:
+  `AuthenticateUser_ExceedingLoginAttemptsBeforeLockout_DisablesTheAccount`,
+  `AuthenticateUser_SuccessfulLogin_ResetsInvalidLoginAttemptCount`.
 
 ---
 
-### 5. File Upload Validation in Lyrics Endpoint
-**Location:** `Jellyfin.Api/Controllers/LyricsController.cs:103-143`  
+### 5. ~~File Upload Validation in Lyrics Endpoint~~ — FIXED ✅
+**Location:** `Jellyfin.Api/Controllers/LyricsController.cs`, `Jellyfin.Api/Validation/LyricUploadValidator.cs`  
 **Severity:** Medium  
 **CVSS:** 4.3 (Medium)
 
@@ -79,16 +93,26 @@ var format = Path.GetExtension(fileName.AsSpan()).RightPart('.').ToString();
 // But no file size validation beyond ContentLength check
 ```
 
-**Mitigation:**  
-- Implement server-side file size limits independent of ContentLength header
-- Validate content type matches expected lyric formats
-- Consider scanning uploaded content for malicious patterns
+**Status:** FIXED — The 1 MB cap was already enforced both via `[RequestSizeLimit]`/`ContentLength`
+and again on the actually-read body (so a chunked request without `Content-Length` can't bypass
+it). This review added the two previously-missing checks: (1) a format allow-list restricted to
+the extensions the registered `ILyricParser`s actually understand (`lrc`, `elrc`, `txt` — not an
+arbitrary attacker-chosen extension), and (2) content sniffing that rejects known binary magic
+bytes (PE/ELF/ZIP/PNG/JPEG/GIF/PDF/GZIP), embedded NUL bytes, and obviously malicious embedded
+payloads (`<script>`, `javascript:`, `<?php`, inline event handlers, `<iframe>`, etc.), all
+before the body is handed to `ILyricManager.SaveLyricAsync`. Covered by:
+- `tests/Jellyfin.Api.Tests/Validation/LyricUploadValidatorTests.cs` (13 tests covering allowed
+  formats, binary signatures, malicious patterns, and the combined `Validate` entry point).
+- `tests/Jellyfin.Api.Tests/Controllers/LyricsControllerTests.cs`:
+  `UploadLyrics_AcceptsWellFormedLrcFile`, `UploadLyrics_RejectsUnsupportedExtension`,
+  `UploadLyrics_RejectsEmbeddedScriptPayload`, `UploadLyrics_RejectsBinaryPayloadMasqueradingAsLrc`,
+  `UploadLyrics_RejectsBodyLargerThanOneMegabyte`.
 
 ---
 
 ## Low Findings
 
-### 6. Insecure Deserialization Risk
+### 6. ~~Insecure Deserialization Risk~~ — FIXED ✅
 **Location:** Multiple locations using JSON serialization  
 **Severity:** Low  
 **CVSS:** 3.7 (Low)
@@ -96,10 +120,22 @@ var format = Path.GetExtension(fileName.AsSpan()).RightPart('.').ToString();
 **Description:**  
 The codebase uses JSON serialization extensively. While no dangerous deserialization patterns were found, ensure all JSON deserialization uses safe settings (e.g., `TypeNameHandling.None`).
 
-**Mitigation:**  
-- Audit all `JsonConvert.DeserializeObject` calls for type safety
-- Avoid `TypeNameHandling.All` or similar dangerous settings
-- Use explicit type parameters for deserialization
+**Status:** FIXED/VERIFIED — Audited every deserialization call site in the repository: the
+codebase deserializes exclusively through `System.Text.Json.JsonSerializer.Deserialize`, which
+has no `TypeNameHandling` concept and cannot reproduce the Newtonsoft.Json
+`TypeNameHandling.All`/`Auto` polymorphic-deserialization RCE gadget chain. There are zero calls
+to `JsonConvert.DeserializeObject` anywhere in the codebase; the only `Newtonsoft.Json` usage is
+building a `JObject` programmatically in `MulletaFlix.Plugin.IntroSkipper/Services/Entrypoint.cs`
+(not parsing untrusted input), and a regression test already guarded against the vulnerable
+Newtonsoft.Json 9.x line reappearing as a transitive dependency
+(`DeprecatedDependencyResolutionTests.NoAssemblyFromTheAbandonedNewtonsoftLineIsPresent`). Added
+a static-analysis regression test so this can't regress silently in the future:
+- `tests/Jellyfin.Server.Tests/Dependencies/InsecureDeserializationAuditTests.cs`:
+  `NoSourceFileUsesUnsafeNewtonsoftTypeNameHandling` (fails the build if
+  `TypeNameHandling.All`/`.Auto` is ever introduced anywhere in the source tree) and
+  `NoSourceFileCallsJsonConvertDeserializeObjectWithoutExplicitSafeSettings` (fails as soon as
+  `JsonConvert.DeserializeObject` is reintroduced, forcing a deliberate audit instead of a
+  silent merge).
 
 ---
 
@@ -219,12 +255,12 @@ await dbContext.Database.ExecuteSqlRawAsync(sql, parameters).ConfigureAwait(fals
 | **Medium** | TLS enforcement (1.2+ only) | ✅ FIXED |
 | **Medium** | CSP tightening | ✅ FIXED |
 | **Medium** | XSS via innerHTML | ✅ MITIGATED (all 7 instances) |
-| **Medium** | File upload validation | ✅ FIXED (1 MB max enforced) |
+| **Medium** | File upload validation | ✅ FIXED (1 MB max + format allow-list + content/magic-byte sniffing) |
 | **Low** | console.log info leak | ✅ FIXED |
 | **Low** | Path traversal in dev plugin | ✅ MITIGATED |
 | **Low** | SEO misconfigurations | ✅ FIXED |
-| **Low** | Audit JSON deserialization | Ongoing |
-| **Informational** | Brute-force rate limiting | Existing middleware in place |
+| **Low** | Audit JSON deserialization | ✅ FIXED (verified System.Text.Json-only; regression test added) |
+| **Medium** | Brute-force rate limiting | ✅ FIXED/VERIFIED (sliding window + account lockout; regression tests added) |
 
 ---
 

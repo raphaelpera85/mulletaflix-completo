@@ -570,6 +570,7 @@ public sealed class NebulaFtpController : BaseMulletaFlixApiController
             NebulaFolderPath = config.NebulaFolderPath,
             MonitorPaths = config.MonitorPaths,
             StagePaths = config.StagePaths,
+            CategoryDownloadOrder = config.CategoryDownloadOrder,
             TurboEnabled = config.TurboEnabled,
             TurboIdleMinutes = config.TurboIdleMinutes,
             DownloadParts = config.DownloadParts,
@@ -714,5 +715,30 @@ public sealed class NebulaFtpController : BaseMulletaFlixApiController
         }
 
         return NoContent();
+    }
+
+    [HttpGet("CategoryOrder")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    public ActionResult<System.Collections.Generic.List<NebulaCategoryOrderEntryDto>> GetCategoryOrder()
+    {
+        return Ok(_nebulaManager.GetCategoryOrder());
+    }
+
+    [HttpPost("CategoryOrder")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    public ActionResult<System.Collections.Generic.List<NebulaCategoryOrderEntryDto>> UpdateCategoryOrder([FromBody] NebulaCategoryOrderUpdateRequest? request)
+    {
+        if (request is null || request.MediaTypeOrder is null || request.MediaTypeOrder.Count == 0)
+        {
+            return BadRequest("Informe a ordem completa das categorias.");
+        }
+
+        if (!_nebulaManager.UpdateCategoryOrder(request.MediaTypeOrder))
+        {
+            return BadRequest("A ordem informada contém categorias desconhecidas ou duplicadas.");
+        }
+
+        return Ok(_nebulaManager.GetCategoryOrder());
     }
 }

@@ -15,6 +15,7 @@ interface CardContentProps {
     imgUrl: string | undefined;
     blurhash: string | undefined;
     forceName: boolean;
+    priority?: boolean;
 }
 
 const CardContent: FC<CardContentProps> = ({
@@ -24,7 +25,8 @@ const CardContent: FC<CardContentProps> = ({
     overlayText,
     imgUrl,
     blurhash,
-    forceName
+    forceName,
+    priority
 }) => {
     const { api } = useApi();
 
@@ -48,6 +50,7 @@ const CardContent: FC<CardContentProps> = ({
                 imgUrl={imgUrl}
                 blurhash={blurhash}
                 forceName={forceName}
+                priority={priority}
             />
         </div>
     );

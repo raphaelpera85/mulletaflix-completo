@@ -107,9 +107,9 @@ namespace MulletaFlix.Server
             // Create an instance of the application configuration to use for application startup
             IConfiguration startupConfig = CreateAppConfiguration(options, appPaths);
             StartupHelpers.InitializeLoggingFramework(startupConfig, appPaths);
-            using var instanceMutex = new Mutex(true, GetInstanceMutexName(
-                string.Equals(Environment.GetEnvironmentVariable("MFLX_E2E_TEST_MODE"), "true", StringComparison.OrdinalIgnoreCase),
-                Environment.ProcessId), out var isFirstInstance);
+            var isE2eMode = string.Equals(Environment.GetEnvironmentVariable("MFLX_E2E_TEST_MODE"), "true", StringComparison.OrdinalIgnoreCase);
+            var mutexName = GetInstanceMutexName(isE2eMode, Environment.ProcessId);
+            using var instanceMutex = new Mutex(true, mutexName, out var isFirstInstance);
             if (!isFirstInstance)
             {
                 _loggerFactory.CreateLogger("Main").LogWarning(
@@ -197,6 +197,9 @@ namespace MulletaFlix.Server
             // Iniciar o MariaDB Embutido
             await MariaDbProcessManager.StartMariaDbAsync(appPaths, _logger).ConfigureAwait(false);
 
+            // Iniciar o Proxy Reverso HTTPS e conexão segura (Nginx, certificados, DuckDNS)
+            await SecureConnectionProcessManager.EnsureSecureConnectionStartedAsync(appPaths, _logger).ConfigureAwait(false);
+
             await ApplyStartupMigrationAsync(appPaths, startupConfig, options).ConfigureAwait(false);
 
             do
@@ -216,6 +219,9 @@ namespace MulletaFlix.Server
 
             // Parar o MariaDB Embutido
             await MariaDbProcessManager.StopMariaDbAsync(_logger).ConfigureAwait(false);
+
+            // Parar o Proxy Reverso Nginx se gerenciado
+            await SecureConnectionProcessManager.StopSecureConnectionAsync(_logger).ConfigureAwait(false);
         }
 
         private static void ConfigureThreadPool()

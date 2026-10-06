@@ -17,15 +17,24 @@ interface ImageProps {
     imgUrl: string;
     blurhash?: string;
     containImage: boolean;
+    /**
+     * Marks this image as above-the-fold / the primary visible image
+     * (e.g. the first cards in a grid, or a page's hero image). When true,
+     * the image is rendered immediately at a high fetch priority instead of
+     * waiting for the IntersectionObserver-based lazy loader, so it doesn't
+     * compete with itself for LCP.
+     */
+    priority?: boolean;
 }
 
 const Image: FC<ImageProps> = ({
     imgUrl,
     blurhash,
-    containImage
+    containImage,
+    priority = false
 }) => {
     const [isLoaded, setIsLoaded] = useState(false);
-    const [isLoadStarted, setIsLoadStarted] = useState(false);
+    const [isLoadStarted, setIsLoadStarted] = useState(priority);
     const handleLoad = useCallback(() => {
         setIsLoaded(true);
     }, []);
@@ -55,6 +64,9 @@ const Image: FC<ImageProps> = ({
                 threshold={1200}
                 delayMethod='debounce'
                 delayTime={40}
+                visibleByDefault={priority}
+                loading={priority ? 'eager' : 'lazy'}
+                fetchPriority={priority ? 'high' : 'auto'}
                 wrapperProps={{
                     style: imageStyle
                 }}

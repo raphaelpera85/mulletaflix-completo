@@ -136,6 +136,46 @@ public sealed class MulletaFlixJobQueue : BackgroundService, IJobQueue
         return _jobs.TryGetValue(id, out var job) ? ToDto(job) : null;
     }
 
+    public async Task<JobQueueItemDto?> WaitForCompletionAsync(string id, Action<JobQueueItemDto>? onProgress, CancellationToken cancellationToken)
+    {
+        if (!_jobs.TryGetValue(id, out var job))
+        {
+            return null;
+        }
+
+        if (onProgress is not null)
+        {
+            job.OnProgress = onProgress;
+        }
+
+        if (!IsActiveStatus(job.Status))
+        {
+            return ToDto(job);
+        }
+
+        // Signalled by RunJobAsync/MarkCancelled via TaskCompletionSource instead of polling:
+        // the awaiting thread/slot is released back to the pool while the job runs and only
+        // resumes once completion is actually signalled, no fixed-interval wake-ups involved.
+        if (cancellationToken.CanBeCanceled)
+        {
+            var cancellationTcs = new TaskCompletionSource();
+            using (cancellationToken.Register(static state => ((TaskCompletionSource)state!).TrySetCanceled(), cancellationTcs))
+            {
+                var completed = await Task.WhenAny(job.Completion.Task, cancellationTcs.Task).ConfigureAwait(false);
+                if (completed == cancellationTcs.Task)
+                {
+                    await cancellationTcs.Task.ConfigureAwait(false);
+                }
+            }
+        }
+        else
+        {
+            await job.Completion.Task.ConfigureAwait(false);
+        }
+
+        return ToDto(job);
+    }
+
     public bool Cancel(string id)
     {
         if (!_jobs.TryGetValue(id, out var job))
@@ -282,6 +322,7 @@ public sealed class MulletaFlixJobQueue : BackgroundService, IJobQueue
             job.Summary = update.Summary;
             AddLog(job, $"{update.Phase}: {update.Summary}");
             QueuePersistence(job);
+            job.OnProgress?.Invoke(ToDto(job));
         });
 
         job.Status = "Running";
@@ -322,6 +363,10 @@ public sealed class MulletaFlixJobQueue : BackgroundService, IJobQueue
         finally
         {
             QueuePersistence(job);
+            // Always signal completion exactly once, no matter which branch above ran, so any
+            // WaitForCompletionAsync caller unblocks (MarkCancelled already signals the
+            // cancel-before-start path; TrySetResult here is a harmless no-op in that case).
+            job.Completion.TrySetResult(true);
         }
     }
 
@@ -404,6 +449,7 @@ public sealed class MulletaFlixJobQueue : BackgroundService, IJobQueue
         job.Summary = summary;
         job.FinishedAt = DateTimeOffset.UtcNow;
         AddLog(job, summary);
+        job.Completion.TrySetResult(true);
     }
 
     private static void AddLog(JobQueueWorkItem job, string message)
@@ -641,6 +687,10 @@ public sealed class MulletaFlixJobQueue : BackgroundService, IJobQueue
         public bool Cancellable { get; init; } = true;
 
         public CancellationTokenSource Cancellation { get; } = new();
+
+        public TaskCompletionSource<bool> Completion { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public Action<JobQueueItemDto>? OnProgress { get; set; }
 
         public ConcurrentQueue<string> Logs { get; } = new();
 

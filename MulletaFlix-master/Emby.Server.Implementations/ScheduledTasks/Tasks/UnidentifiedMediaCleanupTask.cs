@@ -23,6 +23,25 @@ namespace Emby.Server.Implementations.ScheduledTasks.Tasks;
 
 public class UnidentifiedMediaCleanupTask : IScheduledTask
 {
+    /// <summary>
+    /// Maximum number of QueueRefresh calls allowed to be "in flight" (queued but not yet
+    /// paced through) at once. Keeps a run that finds tens of thousands of unidentified items
+    /// from dumping them all into the provider manager's refresh queue in a single burst.
+    /// </summary>
+    internal int MaxConcurrentQueuedRefreshes { get; set; } = 50;
+
+    /// <summary>
+    /// How long a slot stays reserved after a refresh is queued before it is released back to
+    /// the throttle, pacing enqueue bursts into batches of <see cref="MaxConcurrentQueuedRefreshes"/>
+    /// roughly every window instead of all at once.
+    /// </summary>
+    internal TimeSpan RefreshBatchWindow { get; set; } = TimeSpan.FromMilliseconds(200);
+
+    /// <summary>
+    /// Delay primitive used to pace batches; swappable in tests to avoid real wall-clock waits.
+    /// </summary>
+    internal Func<TimeSpan, CancellationToken, Task> DelayAsync { get; set; } = Task.Delay;
+
     private readonly ILibraryManager _libraryManager;
     private readonly IProviderManager _providerManager;
     private readonly ILocalizationManager _localization;
@@ -131,9 +150,23 @@ public class UnidentifiedMediaCleanupTask : IScheduledTask
             }
 
             var index = 0;
+            // One DirectoryService for the whole run instead of one per item: the filesystem
+            // listing cache it holds is only useful if it is actually reused across lookups, and
+            // allocating a fresh instance per item (up to tens of thousands per run) threw that
+            // benefit away and added needless per-item allocation pressure.
+            var directoryService = new DirectoryService(_fileSystem);
+
+            // Pace QueueRefresh calls instead of enqueueing the whole unidentified set in one
+            // uninterrupted burst: a throttle slot is held for RefreshBatchWindow after each
+            // enqueue, so at most MaxConcurrentQueuedRefreshes refreshes get queued per window.
+            using var refreshThrottle = new SemaphoreSlim(MaxConcurrentQueuedRefreshes, MaxConcurrentQueuedRefreshes);
+            var pendingReleases = new List<Task>();
+
             foreach (var item in unidentified)
             {
                 cancellationToken.ThrowIfCancellationRequested();
+
+                await refreshThrottle.WaitAsync(cancellationToken).ConfigureAwait(false);
 
                 try
                 {
@@ -159,7 +192,7 @@ public class UnidentifiedMediaCleanupTask : IScheduledTask
 
                     _providerManager.QueueRefresh(
                         item.Id,
-                        new MetadataRefreshOptions(new DirectoryService(_fileSystem))
+                        new MetadataRefreshOptions(directoryService)
                         {
                             MetadataRefreshMode = MetadataRefreshMode.Default,
                             IsAutomated = true
@@ -173,10 +206,19 @@ public class UnidentifiedMediaCleanupTask : IScheduledTask
                     failureCount++;
                     _logger.LogError(ex, "Error queueing refresh for item {ItemId} {ItemName}", item.Id, item.Name);
                 }
+                finally
+                {
+                    pendingReleases.Add(ReleaseThrottleAfterDelayAsync(refreshThrottle, cancellationToken));
+                }
 
                 index++;
                 progress.Report((double)index / unidentified.Count * 100);
             }
+
+            // Make sure every outstanding batch window has elapsed and every slot has been
+            // released before the task reports completion, so no release callback outlives the
+            // SemaphoreSlim it is about to dispose.
+            await Task.WhenAll(pendingReleases).ConfigureAwait(false);
 
             _logger.LogInformation(
                 "UnidentifiedMediaCleanup: Queued refresh for {Count} items.",
@@ -204,6 +246,29 @@ public class UnidentifiedMediaCleanupTask : IScheduledTask
                 queuedCount,
                 failureCount);
             UnidentifiedMediaCleanupMetrics.RecordActive(-1);
+        }
+    }
+
+    private async Task ReleaseThrottleAfterDelayAsync(SemaphoreSlim throttle, CancellationToken cancellationToken)
+    {
+        try
+        {
+            await DelayAsync(RefreshBatchWindow, cancellationToken).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            // Still release below so a cancelled run doesn't leak the slot; the outer loop
+            // will observe the cancellation on its own next iteration (or has already exited).
+        }
+
+        try
+        {
+            throttle.Release();
+        }
+        catch (ObjectDisposedException)
+        {
+            // The task finished (or was cancelled) and disposed the throttle before this
+            // deferred release fired; nothing left to release into.
         }
     }
 

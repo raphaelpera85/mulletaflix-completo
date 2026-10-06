@@ -141,6 +141,13 @@ public class NebulaFtpConfiguration
 
     public string[] StagePaths { get; set; } = ["E:\\NebulaStage", "F:\\NebulaStage", "I:\\NebulaStage"];
 
+    /// <summary>
+    /// Gets or sets a ordem de download preferida das categorias de mídia (ex: ANIMACAO, FILME,
+    /// SERIE, DORAMA, NOVELA, PORNO), definida pelo operador arrastando cartões na interface.
+    /// Vazio usa a ordem padrão de fábrica. Ver <see cref="Jellyfin.Server.Implementations.Nebula.NebulaCategoryOrder"/>.
+    /// </summary>
+    public string[] CategoryDownloadOrder { get; set; } = Array.Empty<string>();
+
     public bool TurboEnabled { get; set; } = true;
 
     public int TurboIdleMinutes { get; set; } = 10;

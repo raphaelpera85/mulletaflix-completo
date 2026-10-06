@@ -113,6 +113,8 @@ public class TrayApplicationContext : ApplicationContext
             _firstRunDone = true;
         }
 
+        TryStartNginxService();
+
         if (_runType == RunType.Executable)
         {
             if (Process.GetProcessesByName(ProcessName).Length == 0)
@@ -122,6 +124,22 @@ public class TrayApplicationContext : ApplicationContext
         }
 
         return true;
+    }
+
+    private static void TryStartNginxService()
+    {
+        try
+        {
+            using var nginxService = ServiceController.GetServices().FirstOrDefault(s => s.ServiceName == "MulletaFlixNginx");
+            if (nginxService != null && nginxService.Status == ServiceControllerStatus.Stopped)
+            {
+                nginxService.Start();
+            }
+        }
+        catch
+        {
+            // Ignora se não houver privilégio de elevação para controle do serviço
+        }
     }
 
     private void CreateTrayIcon()
@@ -291,6 +309,8 @@ public class TrayApplicationContext : ApplicationContext
         {
             return;
         }
+
+        TryStartNginxService();
 
         Process jellyfinServerProcess = null;
         if (_runType == RunType.Service)

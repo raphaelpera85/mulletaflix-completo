@@ -67,6 +67,8 @@ mockk = "1.14.7"
 coroutinesTest = "1.11.0"
 readium = "3.4.0"
 desugarJdkLibs = "2.1.5"
+robolectric = "4.15.1"
+androidxTestCore = "1.6.1"
 
 [libraries]
 # Core
@@ -145,6 +147,8 @@ androidx-espresso-core = { group = "androidx.test.espresso", name = "espresso-co
 androidx-test-runner = { group = "androidx.test", name = "runner", version.ref = "testRunner" }
 mockk = { group = "io.mockk", name = "mockk", version.ref = "mockk" }
 kotlinx-coroutines-test = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-test", version.ref = "coroutinesTest" }
+robolectric = { group = "org.robolectric", name = "robolectric", version.ref = "robolectric" }
+androidx-test-core = { group = "androidx.test", name = "core", version.ref = "androidxTestCore" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

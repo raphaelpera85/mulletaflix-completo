@@ -30,18 +30,23 @@
 
 ---
 
-## 2. Persistência de preferências do leitor
+## 2. Persistência de preferências do leitor — ✅ IMPLEMENTADO
 
-**Estado:** o `BookPlayer` tem `theme` (dark/sepia/light) e `fontSize`, mas são resetados a cada abertura.
+**Estado:** `BookPlayer.theme`/`fontSize` já eram persistidos via `userSettings.bookPlayerTheme()`/`bookPlayerFontSize()` (localStorage com fallback para `DisplayPreferences` do servidor), restaurados no construtor do plugin. Esta rodada endureceu a implementação existente: extraiu a lógica de resolução para funções puras testáveis (`resolveBookPlayerTheme`/`resolveBookPlayerFontSize` em `src/plugins/bookPlayer/plugin.ts`) e blindou `appSettings.get`/`set` (`src/scripts/settings/appSettings.ts`) com try/catch para que um `localStorage` corrompido/indisponível nunca quebre o leitor (fallback seguro para o valor padrão).
 
-**Objetivo:** salvar tema e fonte por usuário e restaurar ao abrir o livro.
+**Mecanismo de persistência:** `localStorage` via `appSettings`/`userSettings` (padrão já estabelecido no projeto para preferências de usuário; mesma store usada por `enableCinemaMode`, `customCss`, etc.), com sincronização best-effort para `DisplayPreferences` do servidor (`CustomPrefs`) quando a sessão do usuário está carregada.
 
-**Tarefas:**
-1. Identificar o mecanismo de preferências por usuário já existente (ex.: `userSettings` ou `DisplayPreferences`).
-2. Persistir `theme`/`fontSize` ao alternar.
-3. Restaurar no `play()` / construtor.
+**Arquivos alterados:**
+- `MulletaFlix-web-master/src/scripts/settings/appSettings.ts` — `get`/`set` agora toleram exceções de `localStorage` (storage corrompido/indisponível/quota), retornando `null`/no-op em vez de propagar o erro.
+- `MulletaFlix-web-master/src/plugins/bookPlayer/plugin.ts` — lógica de restauração de tema/fonte extraída para `resolveBookPlayerTheme`/`resolveBookPlayerFontSize`, com fallback seguro para valores ausentes ou inválidos/corrompidos.
+- `MulletaFlix-web-master/src/plugins/bookPlayer/plugin.test.ts` (novo) — 12 testes Vitest cobrindo: preferência salva e recarregada corretamente, fallback para padrão quando nada foi salvo, e fallback seguro quando o valor salvo (ou o próprio `localStorage`) está inválido/corrompido.
 
-**Verificação:** `npm run build:check` exit 0.
+**Verificação (evidência real, executada nesta rodada):**
+- `npx tsc --noEmit -p tsconfig.json` → exit 0.
+- `npx eslint src/plugins/bookPlayer/plugin.ts src/plugins/bookPlayer/plugin.test.ts src/scripts/settings/appSettings.ts` → exit 0 (1 warning pré-existente, não relacionado, em linha fora do diff).
+- `npx vitest run --config vite.config.ts src/plugins/bookPlayer src/scripts/settings` → 1 test file, 12 tests, todos passando.
+
+**Limitação:** sem servidor rodando nesta sessão, não houve validação visual manual no leitor real; a cobertura é via testes automatizados (unitário/integração com `localStorage` real do jsdom) exercitando exatamente o contrato usado pelo construtor do `BookPlayer`.
 
 ---
 
@@ -60,17 +65,28 @@
 
 ---
 
-## 4. Gráficos no relatório de playback
+## 4. Gráficos no relatório de playback — ✅ IMPLEMENTADO
 
-**Estado:** `playback-reports` tem tabela + estatísticas agregadas; sem visualização.
+**Estado:** `playback-reports` já tinha tabela + estatísticas agregadas (contadores e tabelas de Top Users/Top Items), mas nenhuma visualização gráfica. A página já importava `BarChart`/`LineChart` de um componente `PlaybackCharts` e os renderizava dentro do painel "📊 Stats" (toggle já existente ao lado dos filtros), mas esse componente não tinha nenhum teste cobrindo render com dados mock nem o caso de dados vazios.
 
-**Objetivo:** adicionar gráficos leves (linha de horas por dia, top mídias).
+**Decisão de biblioteca:** nenhuma lib de gráficos (recharts, chart.js, @mui/x-charts, victory, nivo) está no `package.json` do projeto. Em vez de adicionar uma dependência nova, mantive a implementação já existente: **SVG manual** (`BarChart`/`LineChart` em `src/apps/dashboard/features/playback/components/PlaybackCharts.tsx`), que usa `useTheme()` do MUI para cores e não requer bundle adicional — consistente com a tarefa 1 do plano original ("Escolher lib leve de chart (ou SVG manual para evitar dependência)").
 
-**Tarefas:**
-1. Escolher lib leve de chart (ou SVG manual para evitar dependência).
-2. Gráfico de linha (horas/dia) e barra (top itens) na página.
+**Gráficos exibidos (dentro do toggle "📊 Stats" da página, acima da tabela de Top Items/Top Users, mantendo a tabela principal intacta):**
+- `LineChart` com `stats.PlaysByDate` — série temporal de volume de reproduções por dia.
+- `BarChart` com `stats.PlaysByItemType` — distribuição de reproduções por tipo de mídia (Movie/Episode/Audio/etc.).
+- Ambos retornam `null` (sem renderizar `<svg>`) quando o dicionário de dados está vazio, em vez de quebrar.
 
-**Verificação:** `npm run build:check` exit 0.
+**Arquivos criados nesta rodada:**
+- `MulletaFlix-web-master/src/apps/dashboard/features/playback/components/PlaybackCharts.test.tsx` (novo) — 5 testes Vitest: `BarChart` renderiza uma barra por entrada com dados mock de distribuição por tipo de mídia; `BarChart` não quebra e não renderiza nada com dados vazios; `LineChart` renderiza a polyline/pontos da série temporal com dados mock; `LineChart` ordena as entradas cronologicamente independente da ordem de entrada; `LineChart` não quebra e não renderiza nada com dados vazios.
+
+**Arquivos não modificados (já implementados em rodada anterior, fora do escopo de alteração desta sessão):** `src/apps/dashboard/routes/playback-reports/index.tsx` e `src/apps/dashboard/features/playback/components/PlaybackCharts.tsx` — apenas lidos/verificados, sem necessidade de alteração.
+
+**Verificação (evidência real, executada nesta rodada):**
+- `npx tsc --noEmit -p tsconfig.json` → exit 0.
+- `npx eslint src/apps/dashboard/features/playback/components/PlaybackCharts.tsx src/apps/dashboard/features/playback/components/PlaybackCharts.test.tsx src/apps/dashboard/routes/playback-reports/index.tsx` → exit 0 (0 erros, 0 warnings).
+- `npx vitest run --config vite.config.ts src/apps/dashboard/features/playback/components/PlaybackCharts.test.tsx` → 1 test file, 5 tests, todos passando, exit 0.
+
+**Limitação:** sem servidor rodando nesta sessão, não houve validação visual manual no dashboard real; a cobertura é via teste automatizado que renderiza os componentes de gráfico com `renderToStaticMarkup` (padrão já usado em outros testes de componente do projeto, ex. `BackupCoverageSummary.test.tsx`) e inspeciona o SVG/markup gerado.
 
 ---
 

@@ -646,6 +646,11 @@ public sealed class NebulaSupabaseSyncService : IDisposable
             // O backup é espelho dos usuários FTP atuais. Usuários do app têm outro fluxo.
             var deletedFtpUsers = await RemoveDeletedNebulaUsersAsync(supabaseUrl, supabaseKey, allUsers, cancellationToken).ConfigureAwait(false);
 
+            // Tokens de bot do Telegram (ftp.bot_tokens no MongoDB) também fazem parte do
+            // backup do Nebula: sem isso, uma restauração nunca recupera os tokens configurados.
+            var botTokenDocs = await _mongoContext.GetAllBotTokenDocsAsync(cancellationToken).ConfigureAwait(false);
+            var syncedTokens = await BackupNebulaBotTokensAsync(supabaseUrl, supabaseKey, botTokenDocs, cancellationToken).ConfigureAwait(false);
+
             // 5. Registra log na tabela nebula_backups
             var syncModeName = forceFullSync ? "mongo_full_sync" : "mongo_delta_sync";
             var backupLog = new
@@ -654,7 +659,7 @@ public sealed class NebulaSupabaseSyncService : IDisposable
                 status = "success",
                 total_files = 0,
                 total_users = syncedUsers,
-                details = $"Backup do MongoDB concluído com {syncedFiles} arquivos e {syncedUsers} usuários FTP; {deletedFtpUsers} usuários removidos do backup. Usuários do aplicativo não incluídos."
+                details = $"Backup do MongoDB concluído com {syncedFiles} arquivos, {syncedUsers} usuários FTP e {syncedTokens} tokens de bot; {deletedFtpUsers} usuários removidos do backup. Usuários do aplicativo não incluídos."
             };
 
             await RecordBackupHistoryAsync(supabaseUrl, supabaseKey, backupLog, cancellationToken).ConfigureAwait(false);
@@ -663,8 +668,9 @@ public sealed class NebulaSupabaseSyncService : IDisposable
             result.Success = true;
             result.FilesBackedUp = syncedFiles;
             result.UsersBackedUp = syncedUsers;
+            result.BotTokensBackedUp = syncedTokens;
             result.ElapsedSeconds = (DateTime.UtcNow - startTime).TotalSeconds;
-            result.Message = $"Backup do MongoDB concluído! ({syncedFiles} arquivos e {syncedUsers} usuários FTP em {result.ElapsedSeconds:F1}s; usuários do aplicativo não incluídos)";
+            result.Message = $"Backup do MongoDB concluído! ({syncedFiles} arquivos, {syncedUsers} usuários FTP e {syncedTokens} tokens de bot em {result.ElapsedSeconds:F1}s; usuários do aplicativo não incluídos)";
             _logger.LogInformation("[SUPABASE-SYNC] {Message}", result.Message);
             progressAction?.Invoke($"[SUPABASE] {result.Message}");
             return result;
@@ -901,12 +907,14 @@ public sealed class NebulaSupabaseSyncService : IDisposable
                 throw;
             }
 
+            result.BotTokensRestored = restoredTokens;
+
             _lastSuccessfulRestoreTime = DateTime.UtcNow;
             result.Success = true;
             result.FilesRestored = restoredFiles;
             result.UsersRestored = restoredUsers + restoredAppUsers;
             result.ElapsedSeconds = (DateTime.UtcNow - startTime).TotalSeconds;
-            result.Message = $"Restauração finalizada com sucesso! {restoredFiles} arquivos Nebula, {restoredUsers} usuários FTP e {restoredAppUsers} usuários do MulletaFlix recuperados em {result.ElapsedSeconds:F1}s. Arquivos locais não foram removidos.";
+            result.Message = $"Restauração finalizada com sucesso! {restoredFiles} arquivos Nebula, {restoredUsers} usuários FTP, {restoredAppUsers} usuários do MulletaFlix e {restoredTokens} tokens de bot recuperados em {result.ElapsedSeconds:F1}s. Arquivos locais não foram removidos.";
             _logger.LogInformation("[SUPABASE-RESTORE] {Message}", result.Message);
             progressAction?.Invoke($"[SUPABASE-RESTORE] {result.Message}");
             return result;
@@ -1267,6 +1275,63 @@ public sealed class NebulaSupabaseSyncService : IDisposable
         }
 
         throw new InvalidOperationException("Não foi possível enviar o lote ao Supabase após 3 tentativas.");
+    }
+
+    /// <summary>
+    /// Sincroniza os tokens de bot do Telegram armazenados no MongoDB (ftp.bot_tokens)
+    /// com a tabela <c>nebula_bot_tokens</c> do Supabase. Sem isso, uma restauração nunca
+    /// recupera os tokens: a tabela remota permanece vazia mesmo com tokens configurados
+    /// localmente.
+    /// </summary>
+    /// <param name="supabaseUrl">URL do projeto Supabase.</param>
+    /// <param name="supabaseKey">Chave de serviço do Supabase.</param>
+    /// <param name="tokenDocs">Documentos BSON brutos da coleção de tokens de bot.</param>
+    /// <param name="cancellationToken">Token de cancelamento.</param>
+    /// <returns>Quantidade de tokens enviados ao Supabase.</returns>
+    internal async Task<int> BackupNebulaBotTokensAsync(
+        string supabaseUrl,
+        string supabaseKey,
+        IReadOnlyCollection<BsonDocument> tokenDocs,
+        CancellationToken cancellationToken = default)
+    {
+        if (tokenDocs.Count == 0)
+        {
+            return 0;
+        }
+
+        var tokenRecords = tokenDocs
+            .Select((doc, position) => ConvertBsonDocToSupabaseBotToken(doc, position + 1))
+            .Where(record => !string.IsNullOrWhiteSpace(record.Token))
+            .ToList();
+        if (tokenRecords.Count == 0)
+        {
+            return 0;
+        }
+
+        await SendSupabaseBatchWithRetryAsync(supabaseUrl, supabaseKey, "nebula_bot_tokens?on_conflict=index", tokenRecords, cancellationToken).ConfigureAwait(false);
+        return tokenRecords.Count;
+    }
+
+    private static SupabaseBotTokenRecord ConvertBsonDocToSupabaseBotToken(BsonDocument doc, int fallbackIndex)
+    {
+        var index = doc.TryGetValue("index", out var indexValue) && indexValue.IsNumeric
+            ? indexValue.ToInt32()
+            : fallbackIndex;
+
+        var token = doc.TryGetValue("token", out var tokenValue) && tokenValue.IsString
+            ? tokenValue.AsString
+            : doc.TryGetValue("bot_token", out var altTokenValue) && altTokenValue.IsString
+                ? altTokenValue.AsString
+                : string.Empty;
+
+        var enabled = !doc.TryGetValue("enabled", out var enabledValue) || !enabledValue.IsBoolean || enabledValue.AsBoolean;
+
+        return new SupabaseBotTokenRecord
+        {
+            Index = index,
+            Token = token.Trim(),
+            Enabled = enabled
+        };
     }
 
     internal async Task<int> BackupNebulaUsersAsync(
@@ -1806,5 +1871,17 @@ public sealed class NebulaSupabaseSyncService : IDisposable
 
         [JsonPropertyName("doc_data")]
         public object? DocData { get; set; }
+    }
+
+    private sealed class SupabaseBotTokenRecord
+    {
+        [JsonPropertyName("index")]
+        public int Index { get; set; }
+
+        [JsonPropertyName("token")]
+        public string Token { get; set; } = string.Empty;
+
+        [JsonPropertyName("enabled")]
+        public bool Enabled { get; set; }
     }
 }

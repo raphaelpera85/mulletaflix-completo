@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Diagnostics.Metrics;
 using System.Linq;
 using System.Net;
+using System.Reflection;
 using System.Security.Claims;
 using System.Threading.Tasks;
 using MulletaFlix.Api.Constants;
@@ -882,5 +883,107 @@ public sealed class RateLimitMiddlewareTests
             await middleware.Invoke(context);
             Assert.Equal(StatusCodes.Status200OK, context.Response.StatusCode);
         }
+    }
+
+    // The three tests below exercise the private RateLimitMiddleware.RateLimitEntry sliding
+    // window directly (via reflection, enabled by its methods already taking an explicit `now`
+    // instead of reading the wall clock). This proves the brute-force lockout's time-based
+    // behavior deterministically instead of sleeping real wall-clock time in a unit test:
+    // (1) the Nth failed attempt is blocked, (2) blocking is lifted once the login window has
+    // fully elapsed, and (3) a successful login does not itself consume failure quota.
+    private static (Func<DateTime, TimeSpan, int, (bool Admitted, int RetryAfterSeconds)> TryEnterLogin, Action<DateTime, TimeSpan, bool> CompleteLogin)
+        CreateRateLimitEntryAccessors()
+    {
+        var entryType = typeof(RateLimitMiddleware).GetNestedType("RateLimitEntry", BindingFlags.NonPublic)
+            ?? throw new InvalidOperationException("RateLimitMiddleware.RateLimitEntry was not found; the brute-force window implementation moved.");
+        var entry = Activator.CreateInstance(entryType, nonPublic: true)
+            ?? throw new InvalidOperationException("Unable to construct RateLimitEntry via reflection.");
+        var tryEnterLogin = entryType.GetMethod("TryEnterLogin")
+            ?? throw new InvalidOperationException("RateLimitEntry.TryEnterLogin was not found.");
+        var completeLogin = entryType.GetMethod("CompleteLogin")
+            ?? throw new InvalidOperationException("RateLimitEntry.CompleteLogin was not found.");
+
+        (bool, int) InvokeTryEnterLogin(DateTime now, TimeSpan window, int max)
+        {
+            var args = new object?[] { now, window, max, null };
+            var admitted = (bool)tryEnterLogin.Invoke(entry, args)!;
+            return (admitted, (int)args[3]!);
+        }
+
+        void InvokeCompleteLogin(DateTime now, TimeSpan window, bool failed)
+        {
+            completeLogin.Invoke(entry, [now, window, failed]);
+        }
+
+        return (InvokeTryEnterLogin, InvokeCompleteLogin);
+    }
+
+    [Fact]
+    public void RateLimitEntry_BlocksTheAttemptImmediatelyAfterTheConfiguredThreshold()
+    {
+        var (tryEnterLogin, completeLogin) = CreateRateLimitEntryAccessors();
+        var window = TimeSpan.FromMinutes(15);
+        const int max = 10;
+        var now = DateTime.UtcNow;
+
+        for (var attempt = 0; attempt < max; attempt++)
+        {
+            var (admitted, _) = tryEnterLogin(now, window, max);
+            Assert.True(admitted, $"attempt {attempt + 1} should have been admitted");
+            completeLogin(now, window, true);
+        }
+
+        var (blocked, retryAfterSeconds) = tryEnterLogin(now, window, max);
+        Assert.False(blocked);
+        Assert.InRange(retryAfterSeconds, 1, (int)window.TotalSeconds);
+    }
+
+    [Fact]
+    public void RateLimitEntry_ResetsOnceTheLoginWindowFullyElapses()
+    {
+        var (tryEnterLogin, completeLogin) = CreateRateLimitEntryAccessors();
+        var window = TimeSpan.FromMinutes(15);
+        const int max = 10;
+        var now = DateTime.UtcNow;
+
+        for (var attempt = 0; attempt < max; attempt++)
+        {
+            Assert.True(tryEnterLogin(now, window, max).Admitted);
+            completeLogin(now, window, true);
+        }
+
+        Assert.False(tryEnterLogin(now, window, max).Admitted);
+
+        // Just before the window elapses the lockout must still hold...
+        var almostElapsed = now + window - TimeSpan.FromSeconds(1);
+        Assert.False(tryEnterLogin(almostElapsed, window, max).Admitted);
+
+        // ...and once it fully elapses, every stale failure is pruned and the client is
+        // admitted again without any manual reset.
+        var fullyElapsed = now + window + TimeSpan.FromSeconds(1);
+        Assert.True(tryEnterLogin(fullyElapsed, window, max).Admitted);
+    }
+
+    [Fact]
+    public void RateLimitEntry_SuccessfulLoginDoesNotConsumeFailureQuota()
+    {
+        var (tryEnterLogin, completeLogin) = CreateRateLimitEntryAccessors();
+        var window = TimeSpan.FromMinutes(15);
+        const int max = 10;
+        var now = DateTime.UtcNow;
+
+        for (var attempt = 0; attempt < max - 1; attempt++)
+        {
+            Assert.True(tryEnterLogin(now, window, max).Admitted);
+            completeLogin(now, window, true);
+        }
+
+        // The 10th slot is used by a successful login instead of a failure.
+        Assert.True(tryEnterLogin(now, window, max).Admitted);
+        completeLogin(now, window, false);
+
+        // Because the successful attempt was never recorded as a failure, the window still has
+        // room for another attempt instead of being stuck at the threshold.
+        Assert.True(tryEnterLogin(now, window, max).Admitted);
     }
 }

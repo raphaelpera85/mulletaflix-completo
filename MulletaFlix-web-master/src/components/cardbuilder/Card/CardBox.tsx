@@ -23,6 +23,7 @@ interface CardBoxProps {
     forceName: boolean;
     coveredImage: boolean;
     overlayText: boolean | undefined;
+    priority?: boolean;
 }
 
 const CardBox: FC<CardBoxProps> = ({
@@ -35,7 +36,8 @@ const CardBox: FC<CardBoxProps> = ({
     blurhash,
     forceName,
     coveredImage,
-    overlayText
+    overlayText,
+    priority
 }) => {
     return (
         <div className={className}>
@@ -50,6 +52,7 @@ const CardBox: FC<CardBoxProps> = ({
                     imgUrl={imgUrl}
                     blurhash={blurhash}
                     forceName={forceName}
+                    priority={priority}
                 />
                 {layoutManager.mobile && (
                     <CardOverlayButtons

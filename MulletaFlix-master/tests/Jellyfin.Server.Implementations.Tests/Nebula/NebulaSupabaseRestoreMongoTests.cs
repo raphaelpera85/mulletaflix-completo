@@ -123,6 +123,7 @@ public sealed class NebulaSupabaseRestoreMongoTests : IDisposable
         Assert.Equal(2, result.UsersRestored);
         Assert.Equal(1, result.FtpUsersRestored);
         Assert.Equal(1, result.AppUsersRestored);
+        Assert.Equal(1, result.BotTokensRestored);
         Assert.True(double.IsFinite(result.ElapsedSeconds));
         _output.WriteLine(
             "Restore Supabase→Mongo isolado: restoredFiles={0}; restoredUsers={1}; elapsedSeconds={2:F3}",

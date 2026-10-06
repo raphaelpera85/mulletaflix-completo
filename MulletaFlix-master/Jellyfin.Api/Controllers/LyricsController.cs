@@ -3,10 +3,12 @@ using System.Collections.Generic;
 using System.ComponentModel.DataAnnotations;
 using System.IO;
 using System.Net.Mime;
+using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using MulletaFlix.Api.Attributes;
 using MulletaFlix.Api.Extensions;
+using MulletaFlix.Api.Validation;
 using MulletaFlix.Extensions;
 using MediaBrowser.Common.Api;
 using MediaBrowser.Controller.Entities.Audio;
@@ -126,6 +128,14 @@ public class LyricsController : BaseMulletaFlixApiController
             return BadRequest("Extension is required on filename");
         }
 
+        // Reject formats the server's lyric parsers don't understand before touching the body,
+        // instead of silently accepting an arbitrary extension (Medium finding: file upload
+        // validation in the lyrics endpoint).
+        if (!LyricUploadValidator.IsAllowedFormat(format))
+        {
+            return BadRequest($"Unsupported lyric format '{format}'. Allowed formats: lrc, elrc, txt.");
+        }
+
         var stream = new MemoryStream();
         await using (stream.ConfigureAwait(false))
         {
@@ -140,6 +150,24 @@ public class LyricsController : BaseMulletaFlixApiController
             if (stream.Length > MaxLyricFileSize)
             {
                 return StatusCode(StatusCodes.Status413RequestEntityTooLarge, "Lyric file exceeds maximum allowed size (1 MB)");
+            }
+
+            // Content/magic-byte sniffing + malicious-pattern rejection: the extension alone
+            // does not prove the body is actually text, let alone a lyric file.
+            if (!stream.TryGetBuffer(out var buffer))
+            {
+                buffer = new ArraySegment<byte>(stream.ToArray());
+            }
+
+            var content = buffer.AsSpan(0, (int)stream.Length);
+            if (LyricUploadValidator.LooksLikeBinaryContent(content))
+            {
+                return BadRequest("Lyric file content does not appear to be valid text.");
+            }
+
+            if (LyricUploadValidator.ContainsMaliciousPattern(Encoding.UTF8.GetString(content)))
+            {
+                return BadRequest("Lyric file contains disallowed content.");
             }
 
             var uploadedLyric = await _lyricManager.SaveLyricAsync(

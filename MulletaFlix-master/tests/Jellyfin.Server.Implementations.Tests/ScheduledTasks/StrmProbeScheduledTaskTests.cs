@@ -129,4 +129,82 @@ public sealed class StrmProbeScheduledTaskTests
             .Select(item => item.Value)
             .ToArray());
     }
+
+    [Fact]
+    public async Task ExecuteAsync_WaitsForJobCompletionWithoutFixedIntervalPolling()
+    {
+        // S-11: the task used to poll GetJob(id) every 500 ms in a loop. It must now await a
+        // single event-driven WaitForCompletionAsync call signalled via TaskCompletionSource, so
+        // GetJob is never called at all and progress only arrives through the onProgress callback.
+        BaseItem.MediaSourceManager ??= Mock.Of<MediaBrowser.Controller.Library.IMediaSourceManager>(
+            manager => manager.GetMediaStreams(It.IsAny<MediaBrowser.Controller.Persistence.MediaStreamQuery>()) == Array.Empty<MediaBrowser.Model.Entities.MediaStream>());
+
+        var item = new MediaBrowser.Controller.Entities.Movies.Movie
+        {
+            Id = Guid.NewGuid(),
+            Name = "Strm item",
+            Path = "strm/item.strm",
+            IsShortcut = true
+        };
+
+        var repository = new Mock<IItemRepository>();
+        repository.Setup(itemRepository => itemRepository.GetItemList(It.IsAny<InternalItemsQuery>()))
+            .Returns((InternalItemsQuery query) => query.StartIndex == 0 ? new BaseItem[] { item } : Array.Empty<BaseItem>());
+
+        var reportedProgress = new List<int>();
+        var jobQueue = new Mock<MulletaFlix.Api.Jobs.IJobQueue>(MockBehavior.Strict);
+        jobQueue.Setup(queue => queue.CancelByCorrelationId(It.IsAny<string>())).Returns(false);
+
+        var enqueuedJob = new MulletaFlix.Api.Jobs.JobQueueItemDto { Id = "job-1", Status = "Queued" };
+        jobQueue.Setup(queue => queue.Enqueue(
+                It.IsAny<string>(),
+                It.IsAny<string>(),
+                It.IsAny<Func<CancellationToken, IProgress<MulletaFlix.Api.Jobs.JobQueueProgress>, Task>>(),
+                It.IsAny<string>()))
+            .Returns(enqueuedJob);
+
+        jobQueue.Setup(queue => queue.WaitForCompletionAsync(
+                "job-1",
+                It.IsAny<Action<MulletaFlix.Api.Jobs.JobQueueItemDto>?>(),
+                It.IsAny<CancellationToken>()))
+            .Returns((string _, Action<MulletaFlix.Api.Jobs.JobQueueItemDto>? onProgress, CancellationToken _) =>
+            {
+                onProgress?.Invoke(new MulletaFlix.Api.Jobs.JobQueueItemDto { Id = "job-1", Status = "Running", Progress = 42 });
+                return Task.FromResult<MulletaFlix.Api.Jobs.JobQueueItemDto?>(
+                    new MulletaFlix.Api.Jobs.JobQueueItemDto { Id = "job-1", Status = "Completed", Progress = 100 });
+            });
+
+        var task = new StrmProbeScheduledTask(
+            repository.Object,
+            Mock.Of<IFileSystem>(),
+            jobQueue.Object,
+            NullLogger<StrmProbeScheduledTask>.Instance);
+
+        // A plain synchronous IProgress<double> instead of System.Progress<T>: the latter posts
+        // reports through a captured SynchronizationContext/ThreadPool, which races with the
+        // rest of this single-threaded test and makes ordering assertions flaky.
+        var progress = new SynchronousProgress<double>(value => reportedProgress.Add((int)value));
+
+        await task.ExecuteAsync(progress, CancellationToken.None);
+
+        // GetJob was never set up on the strict mock, so any call to it (the old polling path)
+        // would throw before this assertion is reached; reaching here already proves no polling.
+        jobQueue.Verify(
+            queue => queue.WaitForCompletionAsync("job-1", It.IsAny<Action<MulletaFlix.Api.Jobs.JobQueueItemDto>?>(), It.IsAny<CancellationToken>()),
+            Times.Once);
+        Assert.Contains(42, reportedProgress);
+        Assert.Contains(100, reportedProgress);
+    }
+
+    private sealed class SynchronousProgress<T> : IProgress<T>
+    {
+        private readonly Action<T> _handler;
+
+        public SynchronousProgress(Action<T> handler)
+        {
+            _handler = handler;
+        }
+
+        public void Report(T value) => _handler(value);
+    }
 }

@@ -419,6 +419,8 @@ public class NebulaSupabaseBackupResultDto
 
     public int UsersBackedUp { get; set; }
 
+    public int BotTokensBackedUp { get; set; }
+
     public double ElapsedSeconds { get; set; }
 
     public DateTime Timestamp { get; set; } = DateTime.UtcNow;
@@ -437,6 +439,8 @@ public class NebulaSupabaseRestoreResultDto
     public int? FtpUsersRestored { get; set; }
 
     public int? AppUsersRestored { get; set; }
+
+    public int? BotTokensRestored { get; set; }
 
     public double ElapsedSeconds { get; set; }
 
@@ -551,4 +555,27 @@ public sealed class NebulaUpdatePlaybackCachePathRequest
     public int? MaxCacheSizeGb { get; set; }
 
     public int? MinimumFreeSpaceGb { get; set; }
+}
+
+/// <summary>Uma categoria de mídia e sua posição na ordem de download ativa.</summary>
+public sealed class NebulaCategoryOrderEntryDto
+{
+    /// <summary>Identificador interno da categoria (ex: ANIMACAO, FILME, SERIE).</summary>
+    public string MediaType { get; set; } = string.Empty;
+
+    /// <summary>Nome exibido na interface (ex: ANIMAÇÕES, FILMES).</summary>
+    public string DisplayName { get; set; } = string.Empty;
+
+    /// <summary>Posição a partir de 1; menor valor é baixado primeiro.</summary>
+    public int Rank { get; set; }
+}
+
+/// <summary>Requisição para substituir a ordem de download das categorias.</summary>
+public sealed class NebulaCategoryOrderUpdateRequest
+{
+    /// <summary>
+    /// Sequência de tipos de mídia na ordem desejada de download. Deve conter
+    /// exatamente as categorias conhecidas, sem duplicatas.
+    /// </summary>
+    public List<string> MediaTypeOrder { get; set; } = new();
 }

@@ -14,6 +14,7 @@ namespace MulletaFlix.Server.Implementations.Tests.Nebula;
 /// uma sequência diferente da que o downloader executa, que é exatamente o
 /// desalinhamento que T2.3 exige eliminar.
 /// </remarks>
+[Collection("NebulaCategoryOrder")]
 public class NebulaCategoryOrderTests
 {
     [Theory]
@@ -118,5 +119,78 @@ public class NebulaCategoryOrderTests
                 NebulaUploadEngine.ClassifyMediaType(
                     System.IO.Path.GetDirectoryName(moviePath),
                     System.IO.Path.GetFileName(moviePath))));
+    }
+
+    [Fact]
+    public void ApplyCustomOrder_ReordersRanksAndDisplayNames()
+    {
+        try
+        {
+            NebulaCategoryOrder.ApplyCustomOrder(new[] { "PORNO", "ANIMACAO", "FILME", "SERIE", "DORAMA", "NOVELA" });
+
+            Assert.Equal(1, NebulaCategoryOrder.GetRank("PORNO"));
+            Assert.Equal(2, NebulaCategoryOrder.GetRank("ANIMACAO"));
+            Assert.Equal("PORNO", NebulaCategoryOrder.GetDisplayName(1));
+            Assert.Equal("ANIMAÇÕES", NebulaCategoryOrder.GetDisplayName(2));
+            Assert.Equal(
+                new[] { "PORNO", "ANIMACAO", "FILME", "SERIE", "DORAMA", "NOVELA" },
+                NebulaCategoryOrder.OrderedMediaTypes);
+        }
+        finally
+        {
+            NebulaCategoryOrder.ApplyCustomOrder(null);
+        }
+    }
+
+    [Fact]
+    public void ApplyCustomOrder_IgnoresUnknownAndDuplicateEntries()
+    {
+        try
+        {
+            NebulaCategoryOrder.ApplyCustomOrder(new[] { "FILME", "QUALQUER_OUTRA", "FILME", "SERIE" });
+
+            // FILME fica na frente (primeira menção válida); entradas desconhecidas
+            // ou repetidas são descartadas; categorias ausentes são acrescentadas ao
+            // final na ordem padrão, então o resultado continua sendo uma permutação
+            // completa das 6 categorias conhecidas.
+            Assert.Equal(
+                new[] { "FILME", "SERIE", "ANIMACAO", "DORAMA", "NOVELA", "PORNO" },
+                NebulaCategoryOrder.OrderedMediaTypes);
+        }
+        finally
+        {
+            NebulaCategoryOrder.ApplyCustomOrder(null);
+        }
+    }
+
+    [Fact]
+    public void ApplyCustomOrder_WithNullOrEmpty_RestoresFactoryDefault()
+    {
+        NebulaCategoryOrder.ApplyCustomOrder(new[] { "PORNO", "ANIMACAO" });
+        NebulaCategoryOrder.ApplyCustomOrder(null);
+
+        Assert.Equal(NebulaCategoryOrder.DefaultMediaTypeOrder, NebulaCategoryOrder.OrderedMediaTypes);
+
+        NebulaCategoryOrder.ApplyCustomOrder(new[] { "PORNO", "ANIMACAO" });
+        NebulaCategoryOrder.ApplyCustomOrder(System.Array.Empty<string>());
+
+        Assert.Equal(NebulaCategoryOrder.DefaultMediaTypeOrder, NebulaCategoryOrder.OrderedMediaTypes);
+    }
+
+    [Theory]
+    [InlineData(new[] { "ANIMACAO", "FILME", "SERIE", "DORAMA", "NOVELA", "PORNO" }, true)]
+    [InlineData(new[] { "FILME", "SERIE" }, true)]
+    [InlineData(new string[0], true)]
+    [InlineData(new[] { "FILME", "FILME" }, false)]
+    [InlineData(new[] { "FILME", "NAO_EXISTE" }, false)]
+    public void IsValidCustomOrder_RejectsDuplicatesAndUnknownCategories(string[] order, bool expected)
+    {
+        Assert.Equal(expected, NebulaCategoryOrder.IsValidCustomOrder(order));
+    }
+
+    [Fact]
+    public void IsValidCustomOrder_RejectsNullEntry()
+    {
+        Assert.False(NebulaCategoryOrder.IsValidCustomOrder(new[] { "FILME", null! }));
     }
 }

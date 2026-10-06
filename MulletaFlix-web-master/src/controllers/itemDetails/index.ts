@@ -85,7 +85,10 @@ function renderPoster(view: HTMLElement, item: any, apiClient: any): void {
         container.style.aspectRatio = String(aspectRatio);
 
         if (imgUrl) {
-            container.innerHTML = `<img class="itemDetailImage" src="${escapeHtml(imgUrl)}" alt="${escapeHtml(item.Name || '')}" />`;
+            // W3.3: this is the page's main/hero image, always above the
+            // fold — load it eagerly at high fetch priority instead of
+            // leaving it to the browser's default (lazy-ish) heuristics.
+            container.innerHTML = `<img class="itemDetailImage" src="${escapeHtml(imgUrl)}" alt="${escapeHtml(item.Name || '')}" loading="eager" decoding="async" fetchpriority="high" />`;
             container.classList.remove('hide');
         } else {
             container.innerHTML = '';

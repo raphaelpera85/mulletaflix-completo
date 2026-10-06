@@ -105,4 +105,37 @@ class OfflineTrackPolicyTest {
         assertEquals(null, offlineSubtitleTrackIndex(-1))
         assertEquals(null, offlineSubtitleTrackIndex(100_001))
     }
+
+    @Test
+    fun `unlabeled external tracks get sequential fallback numbers among themselves`() {
+        val firstExternalIndex = checkNotNull(offlineSubtitleTrackIndex(5))
+        val secondExternalIndex = checkNotNull(offlineSubtitleTrackIndex(9))
+        val tracks = offlineTrackInfos(
+            listOf(
+                OfflineTrack(formatId = "mullet-external:$firstExternalIndex"),
+                OfflineTrack(codec = "text/vtt"),
+                OfflineTrack(formatId = "mullet-external:$secondExternalIndex"),
+            ),
+            "Legenda",
+        )
+
+        // Both the embedded and the external tracks must count only within their own
+        // type, so neither sequence skips a number because of the other type's position.
+        assertEquals("Legenda 1", tracks[0].displayName)
+        assertEquals("Legenda 1", tracks[1].displayName)
+        assertEquals("Legenda 2", tracks[2].displayName)
+    }
+
+    @Test
+    fun `selection is reported correctly when an external track is the active one`() {
+        val externalIndex = checkNotNull(offlineSubtitleTrackIndex(3))
+        val mixed = listOf(
+            OfflineTrack(codec = "text/vtt"),
+            OfflineTrack(formatId = "mullet-external:$externalIndex", isSelected = true),
+        )
+
+        assertEquals(1, selectedOfflineTrackIndex(mixed))
+        val tracks = offlineTrackInfos(mixed, "Legenda")
+        assertEquals(externalIndex, tracks[1].index)
+    }
 }

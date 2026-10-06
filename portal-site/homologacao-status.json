@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-10-05T08:50:13-03:00",
+  "generatedAt": "2026-10-05T22:06:33-03:00",
   "source": {
     "roadmap": "https://github.com/raphaelpera85/mulletaflix-completo/blob/main/docs/roadmap-evolucao-tecnologica-servidor-e-web.md",
     "repository": "https://github.com/raphaelpera85/mulletaflix-completo"
@@ -59,11 +59,11 @@
         "label": "JUnit auditável local: 1.400 aprovados, 0 ignorados, 0 falhas/erros; agregação dos 220 relatórios Gradle."
       },
       "instrumentationAudit": {
-        "passed": 13,
-        "total": 13,
+        "passed": 14,
+        "total": 14,
         "skipped": 0,
         "failed": 0,
-        "label": "Media3/player 5/5; leitura HTTPS 1/1; DownloadManager HTTP LAN 1/1, HTTPS remoto 1/1; ExoPlayer legenda HTTPS 1/1 e redirect HTTPS→HTTP público bloqueado 1/1; Coil imagem HTTPS decodificada 1/1 e redirect HTTPS→HTTP público bloqueado 1/1; biblioteca offline/reconexão 1/1. AVD API 35 isolado; GPU NVIDIA verificada."
+        "label": "Media3/player 5/5; leitura HTTPS 1/1; DownloadManager HTTP LAN 1/1, HTTPS remoto 1/1; ExoPlayer legenda HTTPS 1/1 e redirect HTTPS→HTTP público bloqueado 1/1; Coil imagem HTTPS decodificada 1/1 e redirect HTTPS→HTTP público bloqueado 1/1; biblioteca offline/reconexão 1/1; contrato NetworkSecurityPolicy + guard cleartext 1/1. AVD API 35 isolado; GPU NVIDIA verificada."
       }
     },
     {
@@ -79,34 +79,139 @@
     "sourceUrl": "https://github.com/raphaelpera85/mulletaflix-completo/blob/main/MulletaFlix-android/TODO-APP.md",
     "scopeNote": "A matriz formal tem 21 áreas: 11 com evidência técnica local, 1 em validação e 9 pendentes. Testes automatizados e checkboxes do TODO não equivalem a aceite funcional. Nenhuma release de produção é certificada por esta matriz; o backlog integral permanece em TODO-APP.md.",
     "taskChecklist": {
-      "checked": 226,
+      "checked": 227,
       "unchecked": 48,
-      "total": 274,
+      "total": 275,
       "definition": "Contagem literal de checkboxes desde o início do TODO-APP.md até antes do cabeçalho 'Funcionalidades APK validadas localmente, ainda não publicadas'; exclui o histórico arquivado e não equivale a percentual de homologação."
     },
     "formalSignoff": "pending",
     "areas": [
-      { "id": "APK-H01", "name": "Arquitetura modular e infraestrutura do cliente", "status": "completed", "evidence": "Checklist de arquitetura marcado; testes unitários e lint por módulos registrados no TODO-APP.md. Validado localmente, sem certificação de produção." },
-      { "id": "APK-H02", "name": "Autenticação, sessão e troca de conta/servidor", "status": "completed", "evidence": "Testes unitários e instrumentados de autenticação, sessão e isolamento constam no TODO-APP.md; falta aceite integrado com a instância final." },
-      { "id": "APK-H03", "name": "Home, navegação e recuperação de conteúdo", "status": "completed", "evidence": "Coberturas locais da Home, refresh, navegação por bibliotecas e estados de falha/rede documentadas no TODO-APP.md." },
-      { "id": "APK-H04", "name": "Bibliotecas, paginação, capas, filtros e ordenação", "status": "completed", "evidence": "Testes locais de biblioteca, scroll/paginação, ordenação e perfis de tela registrados. Integração instrumentada adicional passou 1/1: tela real + ViewModel + repositório DataStore + NetworkMonitor, restauração offline após recriação de composição/ViewModel e atualização após reconexão; serviço simulado, não inclui morte real do processo. Aceite visual em aparelhos físicos continua separado." },
-      { "id": "APK-H05", "name": "Detalhes de mídia, temporadas e episódios", "status": "completed", "evidence": "Testes unitários/Compose registrados para detalhes adaptativos e navegação de episódios; ainda sem catálogo de produção nesta homologação." },
-      { "id": "APK-H06", "name": "Player, faixas de áudio/legenda e controles", "status": "completed", "evidence": "Testes unitários e instrumentados de player, OSD, faixas, PiP e ciclo de vida registrados para PHONE/TABLET/TV em execuções anteriores." },
-      { "id": "APK-H07", "name": "Downloads e reprodução offline", "status": "completed", "evidence": "Testes locais da fila/download, isolamento de conta, cache e reprodução offline registrados; mídia real, rede instável e storage de aparelhos finais não aceitos ainda." },
-      { "id": "APK-H08", "name": "Leitura EPUB/CBZ", "status": "completed", "evidence": "Checklist e testes instrumentados de EPUB/CBZ, parser, retomada e controles registrados; validação com arquivos reais servidos pela instância segue pendente." },
-      { "id": "APK-H09", "name": "TV ao vivo e EPG", "status": "completed", "evidence": "Cobertura local de navegação, EPG, atualização e foco remoto registrada; programação/streams reais não homologados nesta rodada." },
-      { "id": "APK-H10", "name": "SyncPlay e continuidade de sessão", "status": "completed", "evidence": "Testes unitários/instrumentados e histórico de releases registram sincronização e ciclo de sessão; sincronização entre aparelhos de produção não foi verificada aqui." },
-      { "id": "APK-H11", "name": "UX adaptativa, tablet, Android TV e controle remoto", "status": "completed", "evidence": "TODO-APP.md registra testes por perfil e AVDs em telefone/tablet/TV; validação física em modelos comerciais continua pendente." },
-      { "id": "APK-H12", "name": "Transporte seguro: HTTPS remoto e HTTP restrito à LAN", "status": "in_progress", "evidence": "Suíte JVM registrada: 1.400/1.400 aprovados, 0 falhas/erros/ignorados em 220 relatórios Gradle; Coil tem teste direto da URL HTTP pública bloqueada antes de ler token/ID do dispositivo ou acessar rede, e artwork HTTP local segue coberto por round-trip. Instrumentados: Media3/player HTTP LAN, bloqueio HTTP público e redirects 5/5; leitura Media3 HTTPS TLS 1/1; DownloadManager HTTP LAN 1/1 e HTTPS remoto 1/1, ambos com 64 KiB persistidos em cache isolado; ExoPlayer reproduziu mídia e baixou/decodificou legenda SRT externa HTTPS 1/1 pela fábrica protegida; redirect da legenda HTTPS para HTTP público bloqueado 1/1; Coil baixou/decodificou imagem HTTPS 1/1 com certificado confiável de teste, confirmou Authorization com token e bloqueou redirect HTTPS→HTTP público 1/1 antes de segunda requisição. Retrofit testa bloqueio HTTP público antes do token e sanitização de credenciais em redirects. Pendente: Android base-config ainda permite cleartext para LAN dinâmica, sem bloqueio global do SO." },
-      { "id": "APK-H13", "name": "Conexão à instância e cenários de servidor real", "status": "pending", "evidence": "Faltam cenários E2E autenticados contra servidor acessível com catálogo e mídia reais; sem assumir disponibilidade de credenciais/dispositivo." },
-      { "id": "APK-H14", "name": "Descoberta e troca automática entre LAN e internet", "status": "pending", "evidence": "Testes locais de política/repository não substituem prova na mesma LAN física, mudança de rede e identificação do servidor real." },
-      { "id": "APK-H15", "name": "Streaming real, retomada e seleção de idioma/legenda", "status": "pending", "evidence": "Falta matriz com filmes/séries reais, seeks, retry e faixas entregues pelo servidor; os testes HTTP mock não certificam compatibilidade de codecs/conteúdo." },
-      { "id": "APK-H16", "name": "Cast para receiver compatível", "status": "pending", "evidence": "A lógica cliente possui testes, mas falta teste de ponta a ponta com receiver Chromecast/Web real, sessão e legendas externas." },
-      { "id": "APK-H17", "name": "Downloads com falha, espaço e recuperação em aparelho", "status": "pending", "evidence": "Falta homologação manual em armazenamento limitado, interrupção/reinício e limpeza de cache nos dispositivos-alvo." },
-      { "id": "APK-H18", "name": "Instalação, atualização e assinatura de produção", "status": "pending", "evidence": "Não foi gerado nem instalado APK de produção nesta tarefa; validar keystore vigente, compatibilidade de atualização e versão antes de futura release." },
-      { "id": "APK-H19", "name": "Aceite em dispositivos físicos e matriz final", "status": "pending", "evidence": "AVDs fornecem cobertura repetível, mas não substituem TVs, celulares e tablets físicos, diferentes fabricantes, rede Wi-Fi e controle remoto real." },
-      { "id": "APK-H20", "name": "Aceite formal do responsável pelo produto", "status": "pending", "evidence": "Pendente execução da matriz contra serviço/conteúdo reais e aprovação final registrada; por isso a homologação geral permanece aberta." },
-      { "id": "APK-H21", "name": "Leitura de EPUB/CBZ servidos pela instância real", "status": "pending", "evidence": "A leitura local/parsers possui evidência de teste; falta validar livros reais via API autenticada, MIME/respostas do servidor e retomada nos dispositivos-alvo." }
+      {
+        "id": "APK-H01",
+        "name": "Arquitetura modular e infraestrutura do cliente",
+        "status": "completed",
+        "evidence": "Checklist de arquitetura marcado; testes unitários e lint por módulos registrados no TODO-APP.md. Validado localmente, sem certificação de produção."
+      },
+      {
+        "id": "APK-H02",
+        "name": "Autenticação, sessão e troca de conta/servidor",
+        "status": "completed",
+        "evidence": "Testes unitários e instrumentados de autenticação, sessão e isolamento constam no TODO-APP.md; falta aceite integrado com a instância final."
+      },
+      {
+        "id": "APK-H03",
+        "name": "Home, navegação e recuperação de conteúdo",
+        "status": "completed",
+        "evidence": "Coberturas locais da Home, refresh, navegação por bibliotecas e estados de falha/rede documentadas no TODO-APP.md."
+      },
+      {
+        "id": "APK-H04",
+        "name": "Bibliotecas, paginação, capas, filtros e ordenação",
+        "status": "completed",
+        "evidence": "Testes locais de biblioteca, scroll/paginação, ordenação e perfis de tela registrados. Integração instrumentada adicional passou 1/1: tela real + ViewModel + repositório DataStore + NetworkMonitor, restauração offline após recriação de composição/ViewModel e atualização após reconexão; serviço simulado, não inclui morte real do processo. Aceite visual em aparelhos físicos continua separado."
+      },
+      {
+        "id": "APK-H05",
+        "name": "Detalhes de mídia, temporadas e episódios",
+        "status": "completed",
+        "evidence": "Testes unitários/Compose registrados para detalhes adaptativos e navegação de episódios; ainda sem catálogo de produção nesta homologação."
+      },
+      {
+        "id": "APK-H06",
+        "name": "Player, faixas de áudio/legenda e controles",
+        "status": "completed",
+        "evidence": "Testes unitários e instrumentados de player, OSD, faixas, PiP e ciclo de vida registrados para PHONE/TABLET/TV em execuções anteriores."
+      },
+      {
+        "id": "APK-H07",
+        "name": "Downloads e reprodução offline",
+        "status": "completed",
+        "evidence": "Testes locais da fila/download, isolamento de conta, cache e reprodução offline registrados; mídia real, rede instável e storage de aparelhos finais não aceitos ainda."
+      },
+      {
+        "id": "APK-H08",
+        "name": "Leitura EPUB/CBZ",
+        "status": "completed",
+        "evidence": "Checklist e testes instrumentados de EPUB/CBZ, parser, retomada e controles registrados; validação com arquivos reais servidos pela instância segue pendente."
+      },
+      {
+        "id": "APK-H09",
+        "name": "TV ao vivo e EPG",
+        "status": "completed",
+        "evidence": "Cobertura local de navegação, EPG, atualização e foco remoto registrada; programação/streams reais não homologados nesta rodada."
+      },
+      {
+        "id": "APK-H10",
+        "name": "SyncPlay e continuidade de sessão",
+        "status": "completed",
+        "evidence": "Testes unitários/instrumentados e histórico de releases registram sincronização e ciclo de sessão; sincronização entre aparelhos de produção não foi verificada aqui."
+      },
+      {
+        "id": "APK-H11",
+        "name": "UX adaptativa, tablet, Android TV e controle remoto",
+        "status": "completed",
+        "evidence": "TODO-APP.md registra testes por perfil e AVDs em telefone/tablet/TV; validação física em modelos comerciais continua pendente."
+      },
+      {
+        "id": "APK-H12",
+        "name": "Transporte seguro: HTTPS remoto e HTTP restrito à LAN",
+        "status": "in_progress",
+        "evidence": "Suíte JVM registrada: 1.400/1.400 aprovados, 0 falhas/erros/ignorados em 220 relatórios Gradle; Coil tem teste direto da URL HTTP pública bloqueada antes de ler token/ID do dispositivo ou acessar rede, e artwork HTTP local segue coberto por round-trip. Instrumentados: Media3/player HTTP LAN, bloqueio HTTP público e redirects 5/5; leitura Media3 HTTPS TLS 1/1; DownloadManager HTTP LAN 1/1 e HTTPS remoto 1/1, ambos com 64 KiB persistidos em cache isolado; ExoPlayer reproduziu mídia e baixou/decodificou legenda SRT externa HTTPS 1/1 pela fábrica protegida; redirect da legenda HTTPS para HTTP público bloqueado 1/1; Coil baixou/decodificou imagem HTTPS 1/1 com certificado confiável de teste, confirmou Authorization com token e bloqueou redirect HTTPS→HTTP público 1/1 antes de segunda requisição. Retrofit testa bloqueio HTTP público antes do token e sanitização de credenciais em redirects. Pendente: Android base-config ainda permite cleartext para LAN dinâmica, sem bloqueio global do SO."
+      },
+      {
+        "id": "APK-H13",
+        "name": "Conexão à instância e cenários de servidor real",
+        "status": "pending",
+        "evidence": "Faltam cenários E2E autenticados contra servidor acessível com catálogo e mídia reais; sem assumir disponibilidade de credenciais/dispositivo."
+      },
+      {
+        "id": "APK-H14",
+        "name": "Descoberta e troca automática entre LAN e internet",
+        "status": "pending",
+        "evidence": "Testes locais de política/repository não substituem prova na mesma LAN física, mudança de rede e identificação do servidor real."
+      },
+      {
+        "id": "APK-H15",
+        "name": "Streaming real, retomada e seleção de idioma/legenda",
+        "status": "pending",
+        "evidence": "Falta matriz com filmes/séries reais, seeks, retry e faixas entregues pelo servidor; os testes HTTP mock não certificam compatibilidade de codecs/conteúdo."
+      },
+      {
+        "id": "APK-H16",
+        "name": "Cast para receiver compatível",
+        "status": "pending",
+        "evidence": "A lógica cliente possui testes, mas falta teste de ponta a ponta com receiver Chromecast/Web real, sessão e legendas externas."
+      },
+      {
+        "id": "APK-H17",
+        "name": "Downloads com falha, espaço e recuperação em aparelho",
+        "status": "pending",
+        "evidence": "Falta homologação manual em armazenamento limitado, interrupção/reinício e limpeza de cache nos dispositivos-alvo."
+      },
+      {
+        "id": "APK-H18",
+        "name": "Instalação, atualização e assinatura de produção",
+        "status": "pending",
+        "evidence": "Não foi gerado nem instalado APK de produção nesta tarefa; validar keystore vigente, compatibilidade de atualização e versão antes de futura release."
+      },
+      {
+        "id": "APK-H19",
+        "name": "Aceite em dispositivos físicos e matriz final",
+        "status": "pending",
+        "evidence": "AVDs fornecem cobertura repetível, mas não substituem TVs, celulares e tablets físicos, diferentes fabricantes, rede Wi-Fi e controle remoto real."
+      },
+      {
+        "id": "APK-H20",
+        "name": "Aceite formal do responsável pelo produto",
+        "status": "pending",
+        "evidence": "Pendente execução da matriz contra serviço/conteúdo reais e aprovação final registrada; por isso a homologação geral permanece aberta."
+      },
+      {
+        "id": "APK-H21",
+        "name": "Leitura de EPUB/CBZ servidos pela instância real",
+        "status": "pending",
+        "evidence": "A leitura local/parsers possui evidência de teste; falta validar livros reais via API autenticada, MIME/respostas do servidor e retomada nos dispositivos-alvo."
+      }
     ]
   },
   "features": [
@@ -2758,7 +2863,9 @@
       "local": "D:\\Users\\Raphael\\Documents\\Projetos\\mulletaflix",
       "location": "Alterações locais e testes com caminhos temporários; sem executar configuração HTTPS no host",
       "scope": "Retirar suporte a token DuckDNS em argumentos de processo, evitar vazamento por verbose/redirect/erros e testar chamadas sem tocar DNS ou serviço.",
-      "featureIds": ["T9.1"],
+      "featureIds": [
+        "T9.1"
+      ],
       "status": "completed",
       "progressPercent": null,
       "startedAt": "2026-10-05T01:55:00-03:00",
@@ -3688,11 +3795,25 @@
       "local": "D:\\Users\\Raphael\\Documents\\Projetos\\mulletaflix\\MulletaFlix-android",
       "location": "Teste instrumentado AVD API 35; valida política do APK e guard local, sem tráfego externo",
       "scope": "Verificar no dispositivo a Network Security Config empacotada para domínio público/subdomínio e LAN dinâmica, em conjunto com o guard Kotlin",
-      "status": "in_progress",
+      "status": "completed",
       "progressPercent": null,
       "startedAt": "2026-10-05T08:50:13-03:00",
-      "updatedAt": "2026-10-05T08:50:13-03:00",
-      "evidence": "Inspeção do manifesto/configuração confirma HTTPS obrigatório para mulletaflix.duckdns.org e base-config cleartext permitido para suportar IPs LAN dinâmicos. Guards app-level existem para Retrofit, Coil, Media3 e SyncPlay, mas faltava observação instrumentada da política Android efetiva. Próximo: executar AndroidCleartextPolicyIntegrationTest em AVD API 35, que contrasta NetworkSecurityPolicy com CleartextTrafficPolicy sem acessar rede externa. progressPercent null por ser teste focal. Sem mudança de runtime, produção, release ou servidor."
+      "updatedAt": "2026-10-05T08:55:27-03:00",
+      "evidence": "`:app:connectedDebugAndroidTest` passou no AVD PHONE API 35; XML: AndroidCleartextPolicyIntegrationTest 1/1, 0 falhas/erros/skips. NetworkSecurityPolicy confirmou HTTP negado para mulletaflix.duckdns.org e api.mulletaflix.duckdns.org, e permitido para 192.168.1.20; CleartextTrafficPolicy confirmou HTTPS e HTTP LAN permitidos e HTTP público (domínio e 8.8.8.8) negado. `testDebugUnitTest :app:lintDebug` terminou BUILD SUCCESSFUL. Wrapper confirmou QEMU na GPU NVIDIA RTX 3050 e encerrou o AVD. Sem tráfego externo nem mudança runtime. O base-config ainda precisa permitir cleartext para IPs LAN dinâmicos, portanto SDKs futuros sem o guard não têm bloqueio global; APK-H12 permanece em validação. progressPercent null: teste focal, não percentual formal. Sem APK produção, release, servidor, commit ou push."
+    },
+    {
+      "id": "server-release-12.1.11-2026-10-05",
+      "title": "Publicação oficial do Servidor MulletaFlix v12.1.11",
+      "agent": "Antigravity",
+      "front": "server",
+      "local": "D:\\Users\\Raphael\\Documents\\Projetos\\mulletaflix",
+      "location": "Host de produção Windows x64; suíte .NET 10",
+      "scope": "Build de produção, empacotamento do instalador executável e zip de atualização, publicação no GitHub Releases e sincronização do portal para v12.1.11",
+      "status": "completed",
+      "progressPercent": 100,
+      "startedAt": "2026-10-05T22:06:33-03:00",
+      "updatedAt": "2026-10-05T22:16:00-03:00",
+      "evidence": "Release v12.1.11 gerada e publicada com sucesso no GitHub Releases (https://github.com/raphaelpera85/mulletaflix-completo/releases/tag/v12.1.11). Testes unitários SecureConnectionProcessManagerTests 5/5 aprovados; suíte Jellyfin.Server.Tests 73/73 aprovados (0 falhas). Teste ao vivo em https://mulletaflix.duckdns.org/System/Info/Public retornou 200 OK via nginx/1.30.5. Artefatos de produção gerados e verificados: mulletaflix-update-win-x64.zip (468.51 MB, SHA256: 6EA815712CB583F1F221712CE30EB22664BC92C00E70A9046495B917510B45F5) e mulletaflix_12.1.11_windows-x64.exe (547.42 MB, SHA256: D5237635CC1AA1FEE8864D68E8A179A2A47C2855F597C8A2DAB4F626C945B201). Ambos os assets validados anexados via GitHub API."
     }
   ]
 }

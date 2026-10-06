@@ -115,7 +115,7 @@ test('formal Android matrix separates local evidence from pending product accept
     assert.match(dashboard.getElement('android-homologation-table').innerHTML, /Descoberta e troca automática entre LAN e internet/);
     assert.match(dashboard.getElement('android-homologation-table').innerHTML, /receiver Chromecast\/Web real/);
     assert.match(dashboard.getElement('android-homologation-table').innerHTML, /Leitura de EPUB\/CBZ servidos pela instância real/);
-    assert.match(dashboard.getElement('android-task-checklist').textContent, /226\/274 marcados e 48 abertos/);
+    assert.match(dashboard.getElement('android-task-checklist').textContent, /227\/275 marcados e 48 abertos/);
 });
 
 test('portal renders every formal Android area and preserves its status evidence', async () => {

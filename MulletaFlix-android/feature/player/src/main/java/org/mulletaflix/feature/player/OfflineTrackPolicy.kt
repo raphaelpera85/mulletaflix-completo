@@ -53,10 +53,14 @@ internal fun offlineTrackInfos(
     fallbackPrefix: String,
 ): List<TrackInfo> {
     var embeddedPosition = 0
-    return offlineTracks.mapIndexed { position, track ->
+    var externalPosition = 0
+    return offlineTracks.map { track ->
         val externalIndex = externalSubtitleServerIndex(track.formatId)
+        // Each type gets its own sequential fallback count, so an unlabeled external
+        // track never skips a number because of where an embedded track sits in the
+        // combined list (and vice versa).
         val trackIndex = externalIndex ?: embeddedPosition++
-        val fallbackNumber = if (externalIndex == null) trackIndex + 1 else position + 1
+        val fallbackNumber = if (externalIndex == null) trackIndex + 1 else ++externalPosition
         TrackInfo(
             index = trackIndex,
             displayName = track.label?.takeIf(String::isNotBlank) ?: friendlyTrackName(

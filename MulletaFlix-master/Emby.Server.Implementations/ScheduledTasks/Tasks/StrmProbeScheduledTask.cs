@@ -239,27 +239,22 @@ namespace Emby.Server.Implementations.ScheduledTasks.Tasks
                 },
                 correlationId);
 
-            // Wait for the enqueued job to complete and report its progress to the Scheduled Task UI.
-            while (!cancellationToken.IsCancellationRequested)
+            // Wait for the enqueued job to complete without polling: WaitForCompletionAsync is
+            // signalled by a TaskCompletionSource inside the job queue the instant the job
+            // reaches a terminal state, so this scheduled task's slot/thread is released while
+            // the job runs instead of waking up on a fixed 500 ms timer for however long the
+            // probe takes (minutes to hours for a large library).
+            var finalJob = await _jobQueue.WaitForCompletionAsync(
+                job.Id,
+                onProgress: currentJob => progress.Report(currentJob.Progress),
+                cancellationToken).ConfigureAwait(false);
+
+            if (finalJob is not null)
             {
-                await Task.Delay(500, cancellationToken).ConfigureAwait(false);
-                var currentJob = _jobQueue.GetJob(job.Id);
-                if (currentJob == null)
+                if (string.Equals(finalJob.Status, "Failed", StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(finalJob.Status, "Cancelled", StringComparison.OrdinalIgnoreCase))
                 {
-                    break;
-                }
-
-                progress.Report(currentJob.Progress);
-
-                if (string.Equals(currentJob.Status, "Completed", StringComparison.OrdinalIgnoreCase))
-                {
-                    break;
-                }
-
-                if (string.Equals(currentJob.Status, "Failed", StringComparison.OrdinalIgnoreCase)
-                    || string.Equals(currentJob.Status, "Cancelled", StringComparison.OrdinalIgnoreCase))
-                {
-                    throw new InvalidOperationException($"O trabalho na fila falhou ou foi cancelado: {currentJob.ErrorMessage}");
+                    throw new InvalidOperationException($"O trabalho na fila falhou ou foi cancelado: {finalJob.ErrorMessage}");
                 }
             }
 

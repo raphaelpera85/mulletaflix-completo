@@ -39,6 +39,38 @@ const THEMES: Record<ThemeName, ThemeStyles> = {
 const THEME_ORDER: ThemeName[] = ['dark', 'sepia', 'light'];
 const FONT_SIZES = ['x-small', 'small', 'medium', 'large', 'x-large'] as const;
 type FontSize = typeof FONT_SIZES[number];
+
+/**
+ * Resolve the book reader theme to use on open, preferring the user's
+ * persisted preference and falling back safely when there is nothing saved
+ * or the saved value is invalid/corrupted (e.g. a leftover/garbled
+ * localStorage entry), in which case it mirrors the app-wide theme.
+ * @param savedTheme - The raw value read from persisted settings, if any.
+ * @param appTheme - The app-wide theme setting, used only as a fallback.
+ * @return A valid ThemeName, never the raw unvalidated input.
+ */
+export function resolveBookPlayerTheme(savedTheme: string | null | undefined, appTheme: string | null | undefined): ThemeName {
+    if (savedTheme && THEME_ORDER.includes(savedTheme as ThemeName)) {
+        return savedTheme as ThemeName;
+    }
+
+    return (!appTheme || appTheme === 'dark') ? 'dark' : 'light';
+}
+
+/**
+ * Resolve the book reader font size to use on open, preferring the user's
+ * persisted preference and falling back to the default when there is
+ * nothing saved or the saved value is invalid/corrupted.
+ * @param savedFontSize - The raw value read from persisted settings, if any.
+ * @return A valid FontSize, never the raw unvalidated input.
+ */
+export function resolveBookPlayerFontSize(savedFontSize: string | null | undefined): FontSize {
+    if (savedFontSize && FONT_SIZES.includes(savedFontSize as FontSize)) {
+        return savedFontSize as FontSize;
+    }
+
+    return 'medium';
+}
 const BOOK_EXTENSIONS = new Set(['.epub', '.mobi', '.azw', '.azw3', '.txt', '.html', '.htm']);
 let autoChapterId = 0;
 const CHAPTER_HEADING_SELECTORS = [
@@ -230,20 +262,8 @@ export class BookPlayer {
         this.id = 'bookplayer';
         this.priority = 1;
         this.THEMES = THEMES;
-        const savedTheme = userSettings.bookPlayerTheme();
-        if (savedTheme && THEME_ORDER.includes(savedTheme as ThemeName)) {
-            this.theme = savedTheme as ThemeName;
-        } else if (!userSettings.theme() || userSettings.theme() === 'dark') {
-            this.theme = 'dark';
-        } else {
-            this.theme = 'light';
-        }
-        const savedFontSize = userSettings.bookPlayerFontSize();
-        if (savedFontSize && FONT_SIZES.includes(savedFontSize as FontSize)) {
-            this.fontSize = savedFontSize as FontSize;
-        } else {
-            this.fontSize = 'medium';
-        }
+        this.theme = resolveBookPlayerTheme(userSettings.bookPlayerTheme(), userSettings.theme());
+        this.fontSize = resolveBookPlayerFontSize(userSettings.bookPlayerFontSize());
         this.ttsActive = false;
         this.ttsUtterance = null;
         this.ttsPaused = false;

@@ -276,7 +276,16 @@ class AppSettings {
 
     set(name: string, value: string, userId?: string | null): void {
         const currentValue = this.get(name, userId);
-        localStorage.setItem(this.#getKey(name, userId), value);
+
+        try {
+            localStorage.setItem(this.#getKey(name, userId), value);
+        } catch (err) {
+            // localStorage can be unavailable or full (private browsing, quota
+            // exceeded, corrupted storage, etc.). Never let a persistence
+            // failure crash the caller (e.g. the book reader).
+            console.warn('[appSettings] failed to persist setting', name, err);
+            return;
+        }
 
         if (currentValue !== value) {
             Events.trigger(this, 'change', [name]);
@@ -284,7 +293,14 @@ class AppSettings {
     }
 
     get(name: string, userId?: string | null): string | null {
-        return localStorage.getItem(this.#getKey(name, userId));
+        try {
+            return localStorage.getItem(this.#getKey(name, userId));
+        } catch (err) {
+            // A corrupted or inaccessible localStorage must fall back to
+            // "no saved value" instead of throwing and breaking callers.
+            console.warn('[appSettings] failed to read setting', name, err);
+            return null;
+        }
     }
 }
 

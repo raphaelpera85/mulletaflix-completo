@@ -154,6 +154,72 @@ tasks.configureEach {
     }
 }
 
+// Regressão: prova, com um processo Gradle real e código de saída real, que um build de
+// variante release sem as credenciais de produção FALHA de forma explícita em vez de cair
+// silenciosamente para a assinatura de debug. Não entra no grafo de build padrão (é lento,
+// pois sobe um sub-build Gradle completo) — execute manualmente ou em um gate de CI dedicado:
+//   ./gradlew :app:verifySigningGuardFailsWithoutCredentials
+val verifySigningGuardFailsWithoutCredentials = tasks.register("verifySigningGuardFailsWithoutCredentials") {
+    group = "verification"
+    description = "Regression check: assembling/bundling a release variant without the " +
+        "production KEYSTORE_PATH/KEYSTORE_PASSWORD/KEY_ALIAS/KEY_PASSWORD env vars must fail " +
+        "loudly (non-zero exit, clear message) instead of silently falling back to debug signing."
+
+    doLast {
+        val isWindows = System.getProperty("os.name").lowercase().contains("windows")
+        val wrapperName = if (isWindows) "gradlew.bat" else "gradlew"
+        val wrapper = File(rootDir, wrapperName)
+        if (!wrapper.isFile) {
+            throw GradleException("Gradle wrapper não encontrado em ${wrapper.absolutePath}.")
+        }
+
+        val command = if (isWindows) {
+            listOf(
+                "cmd", "/c", wrapper.absolutePath,
+                ":app:verifyProductionSigningCertificate", "--console=plain", "--no-daemon",
+            )
+        } else {
+            listOf(
+                wrapper.absolutePath,
+                ":app:verifyProductionSigningCertificate", "--console=plain", "--no-daemon",
+            )
+        }
+
+        val processBuilder = ProcessBuilder(command)
+            .directory(rootDir)
+            .redirectErrorStream(true)
+        val environment = processBuilder.environment()
+        // Força a ausência das credenciais de release, independentemente do ambiente do
+        // chamador, para que este teste seja determinístico.
+        listOf("KEYSTORE_PATH", "KEYSTORE_PASSWORD", "KEY_ALIAS", "KEY_PASSWORD").forEach {
+            environment.remove(it)
+        }
+
+        val process = processBuilder.start()
+        val output = process.inputStream.bufferedReader().readText()
+        val exitCode = process.waitFor()
+
+        if (exitCode == 0) {
+            throw GradleException(
+                "REGRESSÃO DE SEGURANÇA: ':app:verifyProductionSigningCertificate' concluiu com " +
+                    "sucesso (exit 0) mesmo sem nenhuma credencial de release configurada. Isso " +
+                    "significa que um build de release pode estar caindo silenciosamente para a " +
+                    "assinatura de debug. Saída do sub-build:\n$output"
+            )
+        }
+        // Fragmento puramente ASCII: a saída do sub-processo pode chegar em um charset da
+        // console nativa do SO (ex.: cp1252 no Windows) que corrompe acentos, então evitamos
+        // comparar com texto acentuado aqui.
+        val expectedMessageFragment = "Ausentes: KEYSTORE_PATH, KEYSTORE_PASSWORD, KEY_ALIAS, KEY_PASSWORD"
+        if (!output.contains(expectedMessageFragment)) {
+            throw GradleException(
+                "O build de release sem credenciais falhou (exit $exitCode) mas não com a " +
+                    "mensagem esperada ('$expectedMessageFragment'). Saída do sub-build:\n$output"
+            )
+        }
+    }
+}
+
 dependencies {
     coreLibraryDesugaring(libs.android.desugar.jdk.libs)
     implementation(project(":core:common"))

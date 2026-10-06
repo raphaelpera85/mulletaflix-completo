@@ -136,4 +136,14 @@ public interface INebulaFtpManager
     NebulaNotificationsSettingsDto GetNotificationsSettings();
 
     bool SaveNotificationsSettings(NebulaNotificationsSettingsRequest request);
+
+    /// <summary>Gets a ordem de download ativa das categorias de mídia (padrão ou personalizada pelo operador).</summary>
+    System.Collections.Generic.List<NebulaCategoryOrderEntryDto> GetCategoryOrder();
+
+    /// <summary>
+    /// Persiste e aplica imediatamente uma nova ordem de download de categorias de mídia.
+    /// </summary>
+    /// <param name="mediaTypeOrder">Sequência de tipos de mídia na ordem desejada.</param>
+    /// <returns>Falso se a ordem fornecida contiver categorias desconhecidas ou duplicadas.</returns>
+    bool UpdateCategoryOrder(System.Collections.Generic.IReadOnlyList<string> mediaTypeOrder);
 }

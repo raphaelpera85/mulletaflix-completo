@@ -18,6 +18,7 @@ interface CardImageContainerProps {
     imgUrl: string | undefined;
     blurhash: string | undefined;
     forceName: boolean;
+    priority?: boolean;
 }
 
 const CardImageContainer: FC<CardImageContainerProps> = ({
@@ -27,7 +28,8 @@ const CardImageContainer: FC<CardImageContainerProps> = ({
     overlayText,
     imgUrl,
     blurhash,
-    forceName
+    forceName,
+    priority
 }) => {
     const indicator = useIndicator(item);
     const cardImageClass = classNames(
@@ -61,7 +63,7 @@ const CardImageContainer: FC<CardImageContainerProps> = ({
                 </Box>
             )}
 
-            <Media item={item} imgUrl={imgUrl} blurhash={blurhash} imageType={cardOptions.imageType} />
+            <Media item={item} imgUrl={imgUrl} blurhash={blurhash} imageType={cardOptions.imageType} priority={priority} />
 
             {overlayText && (
                 <CardInnerFooter

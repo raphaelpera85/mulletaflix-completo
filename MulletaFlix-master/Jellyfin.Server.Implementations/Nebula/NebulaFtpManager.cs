@@ -2609,6 +2609,11 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable, IAsyncDis
                 _currentDownload.NextItemName = queueProgress.NextItemName;
             };
 
+            // Aplica a preferência de ordem de categorias persistida antes do primeiro
+            // ciclo de escaneamento, para que um downloader recém-iniciado já respeite
+            // a personalização do operador sem depender de um WakeUp() externo.
+            NebulaCategoryOrder.ApplyCustomOrder(config.CategoryDownloadOrder);
+
             _downloaderEngine.Start(config);
             _isDownloaderRunning = true;
             AddDownloaderLog("Iniciando STRM Downloader (1 mídia por vez)...");
@@ -4494,6 +4499,49 @@ CREATE POLICY nebula_bot_tokens_service_role_all
             config.PublicServerUrl = NormalizePublicServerUrl(request.PublicServerUrl ?? config.PublicServerUrl);
             return config;
         });
+        return true;
+    }
+
+    public List<NebulaCategoryOrderEntryDto> GetCategoryOrder()
+    {
+        // Aplica a preferência persistida antes de ler, para refletir mudanças
+        // feitas por outro processo/restart desde a última chamada.
+        NebulaCategoryOrder.ApplyCustomOrder(Config.CategoryDownloadOrder);
+
+        var mediaTypes = NebulaCategoryOrder.OrderedMediaTypes;
+        var displayNames = NebulaCategoryOrder.OrderedDisplayNames;
+        var result = new List<NebulaCategoryOrderEntryDto>(mediaTypes.Count);
+        for (var index = 0; index < mediaTypes.Count; index++)
+        {
+            result.Add(new NebulaCategoryOrderEntryDto
+            {
+                MediaType = mediaTypes[index],
+                DisplayName = displayNames[index],
+                Rank = index + 1
+            });
+        }
+
+        return result;
+    }
+
+    public bool UpdateCategoryOrder(IReadOnlyList<string> mediaTypeOrder)
+    {
+        if (!NebulaCategoryOrder.IsValidCustomOrder(mediaTypeOrder))
+        {
+            return false;
+        }
+
+        _configManager.UpdateConfiguration("nebulaftp", current =>
+        {
+            var config = ((NebulaFtpConfiguration)current).CreateSnapshot();
+            config.CategoryDownloadOrder = mediaTypeOrder.ToArray();
+            return config;
+        });
+
+        // Troca imediata em processo: o próximo ciclo (ou o atual, via WakeUp)
+        // do downloader já baixa seguindo a nova ordem, sem esperar reinício.
+        NebulaCategoryOrder.ApplyCustomOrder(mediaTypeOrder);
+        _downloaderEngine?.WakeUp();
         return true;
     }
 

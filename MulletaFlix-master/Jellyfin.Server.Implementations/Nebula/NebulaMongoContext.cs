@@ -2408,6 +2408,39 @@ public sealed class NebulaMongoContext : IDisposable
     }
 
     /// <summary>
+    /// Carrega todos os documentos de token de bot (habilitados e desabilitados) para backup
+    /// completo no Supabase. Diferente de <see cref="GetBotTokensAsync"/>, não filtra por
+    /// <c>enabled</c> nem reduz o resultado a apenas a string do token: preserva índice e
+    /// estado para que o backup/restore seja fiel ao conteúdo local.
+    /// </summary>
+    /// <param name="cancellationToken">Token de cancelamento.</param>
+    /// <returns>Lista de documentos BSON brutos da coleção de tokens de bot.</returns>
+    public async Task<List<BsonDocument>> GetAllBotTokenDocsAsync(CancellationToken cancellationToken = default)
+    {
+        using var activity = StartMongoActivity("mongodb.get_all_bot_token_docs");
+        try
+        {
+            using var cursor = await _botTokensCollection.FindAsync(Builders<BsonDocument>.Filter.Empty, cancellationToken: cancellationToken).ConfigureAwait(false);
+            var docs = await cursor.ToListAsync(cancellationToken).ConfigureAwait(false);
+            activity?.SetTag("mongodb.result", "success");
+            return docs;
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            activity?.SetTag("mongodb.result", "cancelled");
+            throw;
+        }
+        catch (Exception ex)
+        {
+            activity?.SetStatus(ActivityStatusCode.Error, "MongoDB bot token docs query failed");
+            activity?.SetTag("error.type", ex.GetType().FullName);
+            activity?.SetTag("mongodb.result", "failure");
+            _logger.LogWarning(ex, "[NEBULA-MONGO] Não foi possível carregar documentos brutos de tokens de bot para backup.");
+            throw;
+        }
+    }
+
+    /// <summary>
     /// Faz upsert de um documento de token de bot no MongoDB.
     /// </summary>
     /// <param name="doc">Documento BSON do token de bot.</param>

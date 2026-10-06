@@ -5,6 +5,7 @@ import CloudUpload from '@mui/icons-material/CloudUpload';
 import DeleteSweep from '@mui/icons-material/DeleteSweep';
 import Delete from '@mui/icons-material/Delete';
 import Download from '@mui/icons-material/Download';
+import DragIndicator from '@mui/icons-material/DragIndicator';
 import PlayArrow from '@mui/icons-material/PlayArrow';
 import Restore from '@mui/icons-material/Restore';
 import Replay from '@mui/icons-material/Replay';
@@ -25,7 +26,8 @@ import Tabs from '@mui/material/Tabs';
 import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
 import { useMutation, useQuery } from '@tanstack/react-query';
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import Sortable from 'sortablejs';
 
 import ConfirmDialog from 'components/ConfirmDialog';
 import Page from 'components/Page';
@@ -181,6 +183,12 @@ type NebulaUploadCancellationResult = {
     message: string;
 };
 
+type NebulaCategoryOrderEntry = {
+    MediaType: string;
+    DisplayName: string;
+    Rank: number;
+};
+
 const STATUS_QUERY_KEY = [ 'NebulaStatus' ];
 const LOGS_QUERY_KEY = [ 'NebulaLogs' ];
 const BOTS_QUERY_KEY = [ 'NebulaBots' ];
@@ -190,6 +198,7 @@ const PLAYBACK_CACHE_QUERY_KEY = [ 'NebulaPlaybackCacheStatus' ];
 const UPLOAD_QUEUE_SUMMARY_QUERY_KEY = [ 'NebulaUploadQueueSummary' ];
 const TERMINAL_FAILED_UPLOADS_QUERY_KEY = [ 'NebulaTerminalFailedUploads' ];
 const CANCELLABLE_UPLOADS_QUERY_KEY = [ 'NebulaCancellableUploads' ];
+const CATEGORY_ORDER_QUERY_KEY = [ 'NebulaCategoryOrder' ];
 
 const getApiClient = (): ApiClient => {
     const apiClient = ServerConnections.currentApiClient();
@@ -771,6 +780,119 @@ const LogsContent = ({
     );
 };
 
+const CategoryOrderCard = ({
+    entries,
+    isError,
+    error,
+    isSaving,
+    onReorder,
+    onRetry
+}: {
+    entries?: NebulaCategoryOrderEntry[];
+    isError: boolean;
+    error: unknown;
+    isSaving: boolean;
+    onReorder: (mediaTypeOrder: string[]) => void;
+    onRetry: () => void;
+}) => {
+    const listRef = useRef<HTMLDivElement>(null);
+    const sortableRef = useRef<Sortable | null>(null);
+    const [ localEntries, setLocalEntries ] = useState<NebulaCategoryOrderEntry[]>([]);
+
+    useEffect(() => {
+        if (entries) {
+            setLocalEntries(entries);
+        }
+    }, [ entries ]);
+
+    const handleDragEnd = useCallback(() => {
+        const container = listRef.current;
+        if (!container) return;
+
+        const mediaTypeOrder = Array.from(container.querySelectorAll<HTMLElement>('[data-media-type]'))
+            .map(el => el.dataset.mediaType)
+            .filter((value): value is string => Boolean(value));
+
+        if (mediaTypeOrder.length === 0) return;
+
+        setLocalEntries(prev => {
+            const byType = new Map(prev.map(entry => [ entry.MediaType, entry ]));
+            return mediaTypeOrder
+                .map((mediaType, index) => {
+                    const existing = byType.get(mediaType);
+                    return existing ? { ...existing, Rank: index + 1 } : null;
+                })
+                .filter((entry): entry is NebulaCategoryOrderEntry => entry !== null);
+        });
+
+        onReorder(mediaTypeOrder);
+    }, [ onReorder ]);
+
+    useEffect(() => {
+        const container = listRef.current;
+        if (!container) return undefined;
+
+        sortableRef.current = Sortable.create(container, {
+            animation: 150,
+            handle: '.category-drag-handle',
+            draggable: '.category-order-card',
+            onEnd: handleDragEnd
+        });
+
+        return () => {
+            sortableRef.current?.destroy();
+            sortableRef.current = null;
+        };
+    }, [ handleDragEnd ]);
+
+    if (isError) {
+        return (
+            <Alert severity='warning' action={<Button color='inherit' size='small' onClick={onRetry}>Tentar novamente</Button>}>
+                Não foi possível carregar a ordem de categorias: {getErrorMessage(error)}
+            </Alert>
+        );
+    }
+
+    if (localEntries.length === 0) {
+        return <Typography color='text.secondary'>Carregando ordem de categorias...</Typography>;
+    }
+
+    return (
+        <Stack spacing={1}>
+            <Typography variant='body2' color='text.secondary'>
+                Arraste os cartões para reordenar a prioridade de download entre categorias. A nova ordem é aplicada
+                imediatamente, mesmo com o downloader em execução.
+            </Typography>
+            <Box ref={listRef} sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+                {localEntries.map(entry => (
+                    <Paper
+                        key={entry.MediaType}
+                        data-media-type={entry.MediaType}
+                        variant='outlined'
+                        className='category-order-card'
+                        sx={{
+                            p: 1.25,
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 1.5,
+                            bgcolor: '#252525 !important',
+                            opacity: isSaving ? 0.6 : 1,
+                            transition: 'opacity 0.15s ease'
+                        }}
+                    >
+                        <DragIndicator
+                            className='category-drag-handle'
+                            sx={{ color: '#888', cursor: isSaving ? 'default' : 'grab' }}
+                        />
+                        <Chip size='small' label={`#${entry.Rank}`} sx={{ fontWeight: 600, minWidth: 40 }} />
+                        <Typography sx={{ flex: 1 }}>{entry.DisplayName}</Typography>
+                    </Paper>
+                ))}
+            </Box>
+        </Stack>
+    );
+};
+
 const NebulaPage = () => {
     const statusQuery = useQuery({
         queryKey: STATUS_QUERY_KEY,
@@ -845,6 +967,16 @@ const NebulaPage = () => {
         },
         refetchInterval: 10000
     });
+
+    const categoryOrderQuery = useQuery({
+        queryKey: CATEGORY_ORDER_QUERY_KEY,
+        queryFn: () => {
+            const apiClient = getApiClient();
+            return apiClient.getJSON(apiClient.getUrl('NebulaFtp/CategoryOrder')) as Promise<NebulaCategoryOrderEntry[]>;
+        },
+        refetchInterval: 30000
+    });
+
     const retryTerminalUploadMutation = useMutation({
         mutationFn: (id: string) => postAction<NebulaFailedUploadRetryResult>(`NebulaFtp/FailedUploads/${encodeURIComponent(id)}/Retry`),
         onSuccess: async result => {
@@ -868,6 +1000,18 @@ const NebulaPage = () => {
         onError: error => toast(`Erro ao cancelar upload: ${getErrorMessage(error)}`)
     });
 
+    const categoryOrderMutation = useMutation({
+        mutationFn: (mediaTypeOrder: string[]) => postAction<NebulaCategoryOrderEntry[]>('NebulaFtp/CategoryOrder', { MediaTypeOrder: mediaTypeOrder }),
+        onSuccess: async entries => {
+            queryClient.setQueryData(CATEGORY_ORDER_QUERY_KEY, entries);
+            toast('Ordem de download das categorias atualizada.');
+        },
+        onError: async error => {
+            toast(`Erro ao salvar ordem de categorias: ${getErrorMessage(error)}`);
+            await queryClient.invalidateQueries({ queryKey: CATEGORY_ORDER_QUERY_KEY });
+        }
+    });
+
     const retryStatus = useCallback(() => {
         void statusQuery.refetch();
     }, [ statusQuery ]);
@@ -889,6 +1033,9 @@ const NebulaPage = () => {
     const retryLogs = useCallback(() => {
         void logsQuery.refetch();
     }, [ logsQuery ]);
+    const retryCategoryOrder = useCallback(() => {
+        void categoryOrderQuery.refetch();
+    }, [ categoryOrderQuery ]);
 
     const [ activeTab, setActiveTab ] = useState(0);
     const [ isRestoreDialogOpen, setIsRestoreDialogOpen ] = useState(false);
@@ -1007,6 +1154,9 @@ const NebulaPage = () => {
         const uploadId = event.currentTarget.dataset.uploadId;
         if (uploadId) retryTerminalUploadMutation.mutate(uploadId);
     }, [ retryTerminalUploadMutation ]);
+    const handleCategoryReorder = useCallback((mediaTypeOrder: string[]) => {
+        categoryOrderMutation.mutate(mediaTypeOrder);
+    }, [ categoryOrderMutation ]);
 
     if (statusQuery.isLoading && !statusQuery.isError) {
         return <Loading />;
@@ -1241,6 +1391,23 @@ const NebulaPage = () => {
                                 </Stack>
                             </Paper>
                         ) : null}
+
+                        <Paper variant='outlined' sx={{ p: 2 }}>
+                            <Stack spacing={1.5}>
+                                <Box>
+                                    <Typography variant='h2' component='h2' sx={{ fontSize: '1.2rem' }}>Ordem de download por categoria</Typography>
+                                    <Typography variant='body2' color='text.secondary'>Arraste os cartões para priorizar/despriorizar categorias inteiras de mídia.</Typography>
+                                </Box>
+                                <CategoryOrderCard
+                                    entries={categoryOrderQuery.data}
+                                    isError={categoryOrderQuery.isError}
+                                    error={categoryOrderQuery.error}
+                                    isSaving={categoryOrderMutation.isPending}
+                                    onReorder={handleCategoryReorder}
+                                    onRetry={retryCategoryOrder}
+                                />
+                            </Stack>
+                        </Paper>
 
                         <Paper variant='outlined' sx={{ p: 2 }}>
                             <Stack spacing={1.5}>

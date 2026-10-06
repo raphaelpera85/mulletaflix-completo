@@ -671,6 +671,116 @@ public class NebulaSupabaseSyncTests
         Assert.Equal(new[] { HttpMethod.Post, HttpMethod.Get, HttpMethod.Delete }, handler.Methods);
     }
 
+    [Fact]
+    public async Task BackupNebulaBotTokensAsync_SendsTokensWithIndexAndEnabledFlagToSupabase()
+    {
+        var handler = new StaticResponseHandler(new HttpResponseMessage(HttpStatusCode.OK));
+        using var service = new NebulaSupabaseSyncService(
+            null!,
+            NullLogger<NebulaSupabaseSyncService>.Instance,
+            usersDbProvider: null!,
+            handler);
+
+        var tokenDocs = new List<BsonDocument>
+        {
+            new() { { "index", 1 }, { "token", "bot-token-one" }, { "enabled", true } },
+            new() { { "index", 2 }, { "token", "bot-token-two" }, { "enabled", false } }
+        };
+
+        var synced = await service.BackupNebulaBotTokensAsync(
+            "https://supabase.invalid",
+            "sb_secret_test",
+            tokenDocs,
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(2, synced);
+        Assert.Equal(1, handler.RequestCount);
+        Assert.Equal(HttpMethod.Post, handler.LastMethod);
+        Assert.Contains("/rest/v1/nebula_bot_tokens?on_conflict=index", handler.LastUri, StringComparison.Ordinal);
+        Assert.Equal("resolution=merge-duplicates,return=minimal", handler.LastHeaders["Prefer"]);
+        var body = handler.LastRequestBody!;
+        Assert.Contains("\"index\":1", body, StringComparison.Ordinal);
+        Assert.Contains("\"token\":\"bot-token-one\"", body, StringComparison.Ordinal);
+        Assert.Contains("\"enabled\":true", body, StringComparison.Ordinal);
+        Assert.Contains("\"index\":2", body, StringComparison.Ordinal);
+        Assert.Contains("\"token\":\"bot-token-two\"", body, StringComparison.Ordinal);
+        Assert.Contains("\"enabled\":false", body, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task BackupNebulaBotTokensAsync_AcceptsLegacyBotTokenFieldAndFallsBackToPositionalIndex()
+    {
+        var handler = new StaticResponseHandler(new HttpResponseMessage(HttpStatusCode.OK));
+        using var service = new NebulaSupabaseSyncService(
+            null!,
+            NullLogger<NebulaSupabaseSyncService>.Instance,
+            usersDbProvider: null!,
+            handler);
+
+        var tokenDocs = new List<BsonDocument>
+        {
+            new() { { "bot_token", "legacy-token" } },
+            new() { { "token", "   " } },
+            new() { { "index", 5 }, { "token", "real-token" } }
+        };
+
+        var synced = await service.BackupNebulaBotTokensAsync(
+            "https://supabase.invalid",
+            "sb_secret_test",
+            tokenDocs,
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(2, synced);
+        var body = handler.LastRequestBody!;
+        Assert.Contains("\"token\":\"legacy-token\"", body, StringComparison.Ordinal);
+        Assert.Contains("\"index\":1", body, StringComparison.Ordinal);
+        Assert.Contains("\"token\":\"real-token\"", body, StringComparison.Ordinal);
+        Assert.Contains("\"index\":5", body, StringComparison.Ordinal);
+        Assert.DoesNotContain("\"token\":\"   \"", body, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task BackupNebulaBotTokensAsync_ReturnsZeroWithoutHttpCallWhenNoTokensExist()
+    {
+        var handler = new StaticResponseHandler(new HttpResponseMessage(HttpStatusCode.OK));
+        using var service = new NebulaSupabaseSyncService(
+            null!,
+            NullLogger<NebulaSupabaseSyncService>.Instance,
+            usersDbProvider: null!,
+            handler);
+
+        var synced = await service.BackupNebulaBotTokensAsync(
+            "https://supabase.invalid",
+            "sb_secret_test",
+            [],
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(0, synced);
+        Assert.Equal(0, handler.RequestCount);
+    }
+
+    [Fact]
+    public async Task BackupNebulaBotTokensAsync_ThrowsWhenRemoteTableRejectsTheBatch()
+    {
+        // Forbidden is not retried by SendSupabaseBatchWithRetryAsync (only 429/5xx are),
+        // so a single StaticResponseHandler response can be reused safely here.
+        var handler = new StaticResponseHandler(new HttpResponseMessage(HttpStatusCode.Forbidden)
+        {
+            Content = new StringContent("nebula_bot_tokens unavailable")
+        });
+        using var service = new NebulaSupabaseSyncService(
+            null!,
+            NullLogger<NebulaSupabaseSyncService>.Instance,
+            usersDbProvider: null!,
+            handler);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => service.BackupNebulaBotTokensAsync(
+            "https://supabase.invalid",
+            "sb_secret_test",
+            [new BsonDocument { { "index", 1 }, { "token", "will-fail" } }],
+            TestContext.Current.CancellationToken));
+    }
+
     private static IDbContextFactory<UsersDbContext> CreateUsersContextFactory(DbContextOptions<UsersDbContext> options)
     {
         var factory = new Mock<IDbContextFactory<UsersDbContext>>();
@@ -685,10 +795,33 @@ public class NebulaSupabaseSyncTests
 
         public HttpMethod? LastMethod { get; private set; }
 
+        public string? LastUri { get; private set; }
+
+        public string? LastRequestBody { get; private set; }
+
+        public IReadOnlyDictionary<string, string> LastHeaders { get; private set; } = new Dictionary<string, string>();
+
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
             RequestCount++;
             LastMethod = request.Method;
+            LastUri = request.RequestUri?.PathAndQuery;
+            LastRequestBody = request.Content?.ReadAsStringAsync(cancellationToken).GetAwaiter().GetResult();
+            var headers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var header in request.Headers)
+            {
+                headers[header.Key] = string.Join(",", header.Value);
+            }
+
+            if (request.Content is not null)
+            {
+                foreach (var header in request.Content.Headers)
+                {
+                    headers[header.Key] = string.Join(",", header.Value);
+                }
+            }
+
+            LastHeaders = headers;
             return Task.FromResult(response);
         }
     }

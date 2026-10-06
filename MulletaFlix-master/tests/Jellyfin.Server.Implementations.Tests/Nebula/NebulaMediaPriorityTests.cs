@@ -11,6 +11,7 @@ using Xunit;
 
 namespace MulletaFlix.Server.Implementations.Tests.Nebula;
 
+[Collection("NebulaCategoryOrder")]
 public class NebulaMediaPriorityTests
 {
     private static NebulaDownloaderEngine CreateDownloaderEngine()
