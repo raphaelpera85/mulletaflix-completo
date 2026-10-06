@@ -96,52 +96,66 @@ const htmlPlugin = () => ({
     }
 });
 
-export default defineConfig({
-    resolve: {
-        alias: [
-            { find: /^~/, replacement: '' },
-            // Keep the legacy player imports stable while bundling the smaller
-            // official HLS light build (the player only uses the core API).
-            { find: 'hls.js/dist/hls.js', replacement: 'hls.js/light' }
-        ]
-    },
-    base: './',
-    root: 'src',
-    plugins: [ tsconfigPaths(), htmlPlugin(), serviceWorkerOutputPlugin() ],
-    define: {
-        __COMMIT_SHA__: JSON.stringify('release'),
-        __JF_BUILD_VERSION__: JSON.stringify('Release'),
-        __PACKAGE_JSON_NAME__: JSON.stringify('MulletaFlix-web'),
-        __PACKAGE_JSON_VERSION__: JSON.stringify('12.0.0'),
-        __USE_SYSTEM_FONTS__: 'false',
-        __WEBPACK_SERVE__: 'false'
-    },
-    optimizeDeps: {
-        // The legacy HTML templates are loaded through htmlPlugin and are not
-        // JavaScript entry points. Restrict the dev scan to the real shell so
-        // Vite does not try to parse every controller template as a module.
-        entries: [ 'index.html' ]
-    },
-    build: {
-        outDir: '../dist',
-        emptyOutDir: true,
-        rollupOptions: {
-            output: {
-                manualChunks(id) {
-                    if (!id.includes('node_modules')) {
-                        return undefined;
+export default defineConfig(async (config) => {
+    const plugins = [tsconfigPaths(), htmlPlugin(), serviceWorkerOutputPlugin()];
+    
+    // Add visualizer plugin only for production builds (async import to avoid ESM-only issues)
+    if (config.command === 'build') {
+        try {
+            const { default: visualizer } = await import('rollup-plugin-visualizer');
+            plugins.push(visualizer({ open: false }));
+        } catch (err) {
+            console.warn('rollup-plugin-visualizer not available, skipping bundle analysis');
+        }
+    }
+    
+    return {
+        resolve: {
+            alias: [
+                { find: /^~/, replacement: '' },
+                // Keep the legacy player imports stable while bundling the smaller
+                // official HLS light build (the player only uses the core API).
+                { find: 'hls.js/dist/hls.js', replacement: 'hls.js/light' }
+            ]
+        },
+        base: './',
+        root: 'src',
+        plugins,
+        define: {
+            __COMMIT_SHA__: JSON.stringify('release'),
+            __JF_BUILD_VERSION__: JSON.stringify('Release'),
+            __PACKAGE_JSON_NAME__: JSON.stringify('MulletaFlix-web'),
+            __PACKAGE_JSON_VERSION__: JSON.stringify('12.0.0'),
+            __USE_SYSTEM_FONTS__: 'false',
+            __WEBPACK_SERVE__: 'false'
+        },
+        optimizeDeps: {
+            // The legacy HTML templates are loaded through htmlPlugin and are not
+            // JavaScript entry points. Restrict the dev scan to the real shell so
+            // Vite does not try to parse every controller template as a module.
+            entries: [ 'index.html' ]
+        },
+        build: {
+            outDir: '../dist',
+            emptyOutDir: true,
+            rollupOptions: {
+                output: {
+                    manualChunks(id) {
+                        if (!id.includes('node_modules')) {
+                            return undefined;
+                        }
+                        return getVendorChunk(id);
                     }
-                    return getVendorChunk(id);
                 }
             }
-        }
-    },
-    test: {
-        coverage: {
-            include: [ '**/*.{ts,tsx,js,jsx}' ],
-            exclude: [ '**/*.spec.*', '**/*.test.*', '**/tests/**', '**/*.d.ts' ]
         },
-        environment: 'jsdom',
-        restoreMocks: true
-    }
+        test: {
+            coverage: {
+                include: [ '**/*.{ts,tsx,js,jsx}' ],
+                exclude: [ '**/*.spec.*', '**/*.test.*', '**/tests/**', '**/*.d.ts' ]
+            },
+            environment: 'jsdom',
+            restoreMocks: true
+        }
+    };
 });

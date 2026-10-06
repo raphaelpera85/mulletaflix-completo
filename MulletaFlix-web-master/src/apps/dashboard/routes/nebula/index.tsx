@@ -27,7 +27,7 @@ import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import Sortable from 'sortablejs';
+import type Sortable from 'sortablejs';
 
 import ConfirmDialog from 'components/ConfirmDialog';
 import Page from 'components/Page';
@@ -832,14 +832,24 @@ const CategoryOrderCard = ({
         const container = listRef.current;
         if (!container) return undefined;
 
-        sortableRef.current = Sortable.create(container, {
-            animation: 150,
-            handle: '.category-drag-handle',
-            draggable: '.category-order-card',
-            onEnd: handleDragEnd
+        let mounted = true;
+
+        // Lazy-load Sortable only when needed (admin Nebula route)
+        import('sortablejs').then(({ default: SortableLib }) => {
+            if (!mounted) return;
+            
+            sortableRef.current = SortableLib.create(container, {
+                animation: 150,
+                handle: '.category-drag-handle',
+                draggable: '.category-order-card',
+                onEnd: handleDragEnd
+            });
+        }).catch(err => {
+            console.error('Failed to load Sortable library', err);
         });
 
         return () => {
+            mounted = false;
             sortableRef.current?.destroy();
             sortableRef.current = null;
         };

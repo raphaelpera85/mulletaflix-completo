@@ -52,6 +52,7 @@
     "sortablejs": "1.15.7",
     "swiper": "12.1.2",
     "usehooks-ts": "3.1.1",
+    "web-vitals": "6.2.3",
     "webcomponents.js": "0.7.24"
   },
   "devDependencies": {
@@ -95,6 +96,7 @@
     "postcss": "8.5.28",
     "postcss-preset-env": "10.6.1",
     "postcss-scss": "4.0.9",
+    "rollup-plugin-visualizer": "7.1.1",
     "sass": "1.104.0",
     "stylelint": "16.26.1",
     "stylelint-no-browser-hacks": "2.0.0",
