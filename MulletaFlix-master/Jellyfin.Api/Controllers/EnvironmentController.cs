@@ -58,8 +58,19 @@ public class EnvironmentController : BaseMulletaFlixApiController
             return Array.Empty<FileSystemEntryInfo>();
         }
 
+        // Canonicalize and validate path to prevent traversal attacks
+        string fullPath;
+        try
+        {
+            fullPath = Path.GetFullPath(path);
+        }
+        catch (ArgumentException)
+        {
+            return Array.Empty<FileSystemEntryInfo>();
+        }
+
         var entries =
-            _fileSystem.GetFileSystemEntries(path)
+            _fileSystem.GetFileSystemEntries(fullPath)
                 .Where(i => (i.IsDirectory && includeDirectories) || (!i.IsDirectory && includeFiles))
                 .OrderBy(i => i.FullName);
 
@@ -78,18 +89,34 @@ public class EnvironmentController : BaseMulletaFlixApiController
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public ActionResult ValidatePath([FromBody, Required] ValidatePathDto validatePathDto)
     {
+        if (validatePathDto.Path is null)
+        {
+            throw new ResourceNotFoundException(nameof(validatePathDto.Path));
+        }
+
+        // Canonicalize and validate path to prevent traversal attacks
+        string fullPath;
+        try
+        {
+            fullPath = Path.GetFullPath(validatePathDto.Path);
+        }
+        catch (ArgumentException)
+        {
+            return NotFound();
+        }
+
         if (validatePathDto.IsFile.HasValue)
         {
             if (validatePathDto.IsFile.Value)
             {
-                if (!System.IO.File.Exists(validatePathDto.Path))
+                if (!System.IO.File.Exists(fullPath))
                 {
                     return NotFound();
                 }
             }
             else
             {
-                if (!Directory.Exists(validatePathDto.Path))
+                if (!Directory.Exists(fullPath))
                 {
                     return NotFound();
                 }
@@ -97,19 +124,14 @@ public class EnvironmentController : BaseMulletaFlixApiController
         }
         else
         {
-            if (!System.IO.File.Exists(validatePathDto.Path) && !Directory.Exists(validatePathDto.Path))
+            if (!System.IO.File.Exists(fullPath) && !Directory.Exists(fullPath))
             {
                 return NotFound();
             }
 
             if (validatePathDto.ValidateWritable)
             {
-                if (validatePathDto.Path is null)
-                {
-                    throw new ResourceNotFoundException(nameof(validatePathDto.Path));
-                }
-
-                var file = Path.Combine(validatePathDto.Path, Guid.NewGuid().ToString());
+                var file = Path.Combine(fullPath, Guid.NewGuid().ToString());
                 try
                 {
                     System.IO.File.WriteAllText(file, string.Empty);

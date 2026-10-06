@@ -3,6 +3,7 @@ using System.ComponentModel.DataAnnotations;
 using System.Globalization;
 using System.Threading.Tasks;
 using MulletaFlix.Api.Models.StartupDtos;
+using MulletaFlix.Server.Implementations.Users;
 using MediaBrowser.Common.Api;
 using MediaBrowser.Common.Net;
 using MediaBrowser.Controller.Configuration;
@@ -184,6 +185,7 @@ public class StartupController : BaseMulletaFlixApiController
     [HttpPost("User")]
     [Authorize(Policy = Policies.AnonymousLanAccessPolicy)]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
     public async Task<ActionResult> UpdateStartupUser([FromBody] StartupUserDto startupUserDto)
     {
         try
@@ -199,6 +201,12 @@ public class StartupController : BaseMulletaFlixApiController
             if (string.IsNullOrWhiteSpace(startupUserDto.Password))
             {
                 return BadRequest("Password must not be empty");
+            }
+
+            // Validate password policy for initial admin user setup
+            if (!PasswordPolicyValidator.ValidatePassword(startupUserDto.Password, out var passwordError))
+            {
+                return BadRequest(passwordError);
             }
 
 #pragma warning disable CA1309 // Use ordinal string comparison

@@ -362,6 +362,7 @@ namespace MulletaFlix.Server
                 // legitimate authenticated clients and amplifying thread-pool churn.
                 mainApp.UseMiddleware<RateLimitMiddleware>();
 
+                mainApp.UseMiddleware<AuthorizeSwaggerMiddleware>();
                 mainApp.UseMulletaFlixApiSwagger(_serverConfigurationManager);
                 mainApp.UseQueryStringDecoding();
                 mainApp.UseRouting();
