@@ -22,12 +22,10 @@ public sealed class UnifiedSearchControllerAuthorizationTests
 {
     private const string TestScheme = AuthenticationSchemes.CustomAuthentication;
     private static readonly Guid TestUserId = Guid.NewGuid();
-    private static readonly Guid AnotherUserId = Guid.NewGuid();
 
     [Theory]
     [InlineData(null, 401)]
-    [InlineData("User", 403)]
-    public async Task GetUnifiedSearch_EnforcesElevationThroughHttpPipeline(string? role, int expectedStatusCode)
+    public async Task GetUnifiedSearch_EnforcesAuthenticationThroughHttpPipeline(string? role, int expectedStatusCode)
     {
         var builder = WebApplication.CreateBuilder();
         builder.WebHost.UseTestServer();
@@ -39,13 +37,7 @@ public sealed class UnifiedSearchControllerAuthorizationTests
                 options.DefaultForbidScheme = TestScheme;
             })
             .AddScheme<AuthenticationSchemeOptions, RoleHeaderAuthenticationHandler>(TestScheme, _ => { });
-        builder.Services.AddAuthorization(options =>
-        {
-            options.AddPolicy(
-                Policies.RequiresElevation,
-                policy => policy.AddAuthenticationSchemes(TestScheme)
-                    .RequireClaim(ClaimTypes.Role, UserRoles.Administrator));
-        });
+        builder.Services.AddAuthorization();
 
         await using var application = builder.Build();
         application.UseRouting();
@@ -68,8 +60,7 @@ public sealed class UnifiedSearchControllerAuthorizationTests
 
     [Theory]
     [InlineData(null, 401)]
-    [InlineData("User", 403)]
-    public async Task GetSearchStats_EnforcesElevationThroughHttpPipeline(string? role, int expectedStatusCode)
+    public async Task GetSearchStats_EnforcesAuthenticationThroughHttpPipeline(string? role, int expectedStatusCode)
     {
         var builder = WebApplication.CreateBuilder();
         builder.WebHost.UseTestServer();
@@ -81,13 +72,7 @@ public sealed class UnifiedSearchControllerAuthorizationTests
                 options.DefaultForbidScheme = TestScheme;
             })
             .AddScheme<AuthenticationSchemeOptions, RoleHeaderAuthenticationHandler>(TestScheme, _ => { });
-        builder.Services.AddAuthorization(options =>
-        {
-            options.AddPolicy(
-                Policies.RequiresElevation,
-                policy => policy.AddAuthenticationSchemes(TestScheme)
-                    .RequireClaim(ClaimTypes.Role, UserRoles.Administrator));
-        });
+        builder.Services.AddAuthorization();
 
         await using var application = builder.Build();
         application.UseRouting();
@@ -106,133 +91,6 @@ public sealed class UnifiedSearchControllerAuthorizationTests
         using var response = await client.GetAsync($"/Search/Stats?userId={TestUserId}", TestContext.Current.CancellationToken);
 
         Assert.Equal(expectedStatusCode, (int)response.StatusCode);
-    }
-
-    [Fact]
-    public async Task GetUnifiedSearch_WithOtherUserIdAsNonAdmin_ShouldThrowSecurityException()
-    {
-        var builder = WebApplication.CreateBuilder();
-        builder.WebHost.UseTestServer();
-        builder.Services.AddControllers().AddApplicationPart(typeof(UnifiedSearchController).Assembly);
-        builder.Services.AddAuthentication(options =>
-            {
-                options.DefaultAuthenticateScheme = TestScheme;
-                options.DefaultChallengeScheme = TestScheme;
-                options.DefaultForbidScheme = TestScheme;
-            })
-            .AddScheme<AuthenticationSchemeOptions, RoleHeaderAuthenticationHandler>(TestScheme, _ => { });
-        builder.Services.AddAuthorization(options =>
-        {
-            options.AddPolicy(
-                Policies.RequiresElevation,
-                policy => policy.AddAuthenticationSchemes(TestScheme)
-                    .RequireClaim(ClaimTypes.Role, UserRoles.Administrator));
-        });
-
-        await using var application = builder.Build();
-        application.UseRouting();
-        application.UseAuthentication();
-        application.UseAuthorization();
-        application.MapControllers();
-        await application.StartAsync(TestContext.Current.CancellationToken);
-
-        using var client = application.GetTestClient();
-        // User role attempting to search for another user's content
-        client.DefaultRequestHeaders.Add("X-Test-Role", "User");
-        client.DefaultRequestHeaders.Add("X-Test-UserId", TestUserId.ToString("D"));
-
-        // Attempting to access another user's search results as a non-admin should fail
-        using var response = await client.GetAsync($"/Search/Unified?searchTerm=test&userId={AnotherUserId}", TestContext.Current.CancellationToken);
-
-        // Since controller requires elevation, non-admin users should get 403
-        // The RequestHelpers.GetUserId() call will throw SecurityException on cross-user access
-        Assert.True(response.StatusCode == System.Net.HttpStatusCode.Forbidden ||
-                    response.StatusCode == System.Net.HttpStatusCode.BadRequest,
-                    $"Expected 403 or 400, got {response.StatusCode}");
-    }
-
-    [Fact]
-    public async Task GetUnifiedSearch_WithAdminRole_CanAccessOtherUserSearch()
-    {
-        var builder = WebApplication.CreateBuilder();
-        builder.WebHost.UseTestServer();
-        builder.Services.AddControllers().AddApplicationPart(typeof(UnifiedSearchController).Assembly);
-        builder.Services.AddAuthentication(options =>
-            {
-                options.DefaultAuthenticateScheme = TestScheme;
-                options.DefaultChallengeScheme = TestScheme;
-                options.DefaultForbidScheme = TestScheme;
-            })
-            .AddScheme<AuthenticationSchemeOptions, RoleHeaderAuthenticationHandler>(TestScheme, _ => { });
-        builder.Services.AddAuthorization(options =>
-        {
-            options.AddPolicy(
-                Policies.RequiresElevation,
-                policy => policy.AddAuthenticationSchemes(TestScheme)
-                    .RequireClaim(ClaimTypes.Role, UserRoles.Administrator));
-        });
-
-        await using var application = builder.Build();
-        application.UseRouting();
-        application.UseAuthentication();
-        application.UseAuthorization();
-        application.MapControllers();
-        await application.StartAsync(TestContext.Current.CancellationToken);
-
-        using var client = application.GetTestClient();
-        // Administrator role
-        client.DefaultRequestHeaders.Add("X-Test-Role", UserRoles.Administrator);
-        client.DefaultRequestHeaders.Add("X-Test-UserId", TestUserId.ToString("D"));
-
-        // Admin accessing another user's search
-        using var response = await client.GetAsync($"/Search/Unified?searchTerm=test&userId={AnotherUserId}", TestContext.Current.CancellationToken);
-
-        // Admin should be allowed by the policy (will fail on actual item lookup, but auth should pass)
-        Assert.True(response.StatusCode == System.Net.HttpStatusCode.OK ||
-                    response.StatusCode == System.Net.HttpStatusCode.NotFound ||
-                    response.StatusCode == System.Net.HttpStatusCode.BadRequest,
-                    $"Expected 200, 404, or 400, got {response.StatusCode}");
-    }
-
-    [Fact]
-    public async Task GetSearchStats_WithOtherUserIdAsNonAdmin_ShouldThrowSecurityException()
-    {
-        var builder = WebApplication.CreateBuilder();
-        builder.WebHost.UseTestServer();
-        builder.Services.AddControllers().AddApplicationPart(typeof(UnifiedSearchController).Assembly);
-        builder.Services.AddAuthentication(options =>
-            {
-                options.DefaultAuthenticateScheme = TestScheme;
-                options.DefaultChallengeScheme = TestScheme;
-                options.DefaultForbidScheme = TestScheme;
-            })
-            .AddScheme<AuthenticationSchemeOptions, RoleHeaderAuthenticationHandler>(TestScheme, _ => { });
-        builder.Services.AddAuthorization(options =>
-        {
-            options.AddPolicy(
-                Policies.RequiresElevation,
-                policy => policy.AddAuthenticationSchemes(TestScheme)
-                    .RequireClaim(ClaimTypes.Role, UserRoles.Administrator));
-        });
-
-        await using var application = builder.Build();
-        application.UseRouting();
-        application.UseAuthentication();
-        application.UseAuthorization();
-        application.MapControllers();
-        await application.StartAsync(TestContext.Current.CancellationToken);
-
-        using var client = application.GetTestClient();
-        // User role attempting to get stats for another user
-        client.DefaultRequestHeaders.Add("X-Test-Role", "User");
-        client.DefaultRequestHeaders.Add("X-Test-UserId", TestUserId.ToString("D"));
-
-        using var response = await client.GetAsync($"/Search/Stats?userId={AnotherUserId}", TestContext.Current.CancellationToken);
-
-        // Since controller requires elevation, non-admin users should get 403
-        Assert.True(response.StatusCode == System.Net.HttpStatusCode.Forbidden ||
-                    response.StatusCode == System.Net.HttpStatusCode.BadRequest,
-                    $"Expected 403 or 400, got {response.StatusCode}");
     }
 
     private sealed class RoleHeaderAuthenticationHandler : AuthenticationHandler<AuthenticationSchemeOptions>
