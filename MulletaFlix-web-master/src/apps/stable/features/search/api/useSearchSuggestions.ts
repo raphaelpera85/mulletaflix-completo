@@ -71,14 +71,14 @@ export const useSearchSuggestions = (
 ) => {
     const { api, user, __legacyApiClient__: legacyApiClient } = useApi();
     const userId = user?.Id;
-    const normalizedSearchTerm = searchTerm?.trim();
+    const normalizedSearchTerm = searchTerm?.trim() || '';
     const useHints = !!normalizedSearchTerm;
 
     return useQuery<SearchSuggestionItem[]>({
-        queryKey: ['SearchSuggestions', api?.basePath, userId, parentId, collectionType, normalizedSearchTerm ?? ''],
+        queryKey: ['SearchSuggestions', api?.basePath, userId, parentId, collectionType, normalizedSearchTerm],
         queryFn: ({ signal }) => {
             if (useHints) {
-                return fetchSearchHints(legacyApiClient!, userId!, normalizedSearchTerm!, parentId, collectionType, { signal });
+                return fetchSearchHints(legacyApiClient!, userId!, normalizedSearchTerm, parentId, collectionType, { signal });
             }
 
             return fetchGetItems(api!, userId!, parentId, { signal });

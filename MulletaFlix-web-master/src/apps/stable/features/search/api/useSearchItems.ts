@@ -39,7 +39,9 @@ export const useSearchItems = (
     collectionType?: CollectionType,
     searchTerm?: string
 ) => {
-    const normalizedSearchTerm = searchTerm?.trim();
+    const normalizedSearchTerm = searchTerm?.trim() || '';
+    // Dependent queries below will be disabled when enabled=false
+    // TanStack Query v5 automatically cancels their requests
     const { data: artists, isPending: isArtistsPending } = useArtistsSearch(parentId, collectionType, searchTerm);
     const { data: people, isPending: isPeoplePending } = usePeopleSearch(parentId, collectionType, searchTerm);
     const { data: studios, isPending: isStudiosPending } = useStudiosSearch(parentId, collectionType, searchTerm);
@@ -56,6 +58,8 @@ export const useSearchItems = (
     const isProgramsEnabled = !isProgramsPending || collectionType;
     const isLiveTvEnabled = !isLiveTvPending || !collectionType || !isLivetv(collectionType);
 
+    // Stable queryKey: ensures cache hits with same parameters
+    // When parentId/collectionType/searchTerm changes, all dependent queries auto-cancel
     return useQuery({
         queryKey: ['Search', 'Items', api?.basePath, userId, collectionType, parentId, normalizedSearchTerm],
         staleTime: 60_000,

@@ -124,14 +124,6 @@ const SearchPage = () => {
         includeItemTypes: selectedFilter?.itemTypes
     });
 
-    useEffect(() => {
-        if (searchTerm) {
-            void refetch().catch((refetchError: unknown) => {
-                console.error('Failed to refresh search results', refetchError);
-            });
-        }
-    }, [searchTerm, refetch]);
-
     const handleRetry = useCallback(() => {
         void refetch().catch((refetchError: unknown) => {
             console.error('Failed to retry search', refetchError);

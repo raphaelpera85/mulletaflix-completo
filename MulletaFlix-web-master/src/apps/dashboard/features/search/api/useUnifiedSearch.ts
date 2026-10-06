@@ -125,13 +125,35 @@ const fetchSearchStats = async (
     return response.data as SearchStatsDto;
 };
 
+// Helper para gerar chave de query determinística
+const getUnifiedSearchKey = (query?: UnifiedSearchQuery) => [
+    'Search',
+    'Unified',
+    query?.userId,
+    query?.searchTerm?.toLowerCase().trim() || '',
+    query?.parentId,
+    query?.collectionType,
+    query?.includeItemTypes?.join(','),
+    query?.excludeItemTypes?.join(','),
+    query?.mediaTypes?.join(','),
+    query?.limit,
+    query?.startIndex,
+    query?.includePeople,
+    query?.includeMedia,
+    query?.includeGenres,
+    query?.includeStudios,
+    query?.includeArtists,
+    query?.sortBy?.join(','),
+    query?.sortOrder
+];
+
 export const getUnifiedSearchQuery = (
     api?: Api,
     query?: UnifiedSearchQuery
 ) => queryOptions({
-    queryKey: ['Search', 'Unified', api?.basePath, JSON.stringify(query ?? {})],
+    queryKey: getUnifiedSearchKey(query),
     queryFn: ({ signal }) => fetchUnifiedSearch(api!, query ?? {}, { signal, headers: { 'Cache-Control': 'no-cache' } }),
-    staleTime: 30000,
+    staleTime: 30_000,
     enabled: !!api && !!query?.searchTerm
 });
 

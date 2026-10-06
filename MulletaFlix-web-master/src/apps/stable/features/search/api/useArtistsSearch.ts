@@ -32,7 +32,7 @@ export const useArtistsSearch = (
 ) => {
     const { api, user } = useApi();
     const userId = user?.Id;
-    const normalizedSearchTerm = searchTerm?.trim();
+    const normalizedSearchTerm = searchTerm?.trim() || '';
 
     return useQuery({
         queryKey: ['Search', 'Artists', api?.basePath, userId, collectionType, parentId, normalizedSearchTerm],
@@ -46,6 +46,7 @@ export const useArtistsSearch = (
             },
             { signal }
         ),
+        // Auto-cancels when searchTerm changes due to queryKey dependency
         enabled: !!api && !!userId && (!collectionType || isMusic(collectionType))
     });
 };
