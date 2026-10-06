@@ -558,7 +558,9 @@ Limite de evidência atual: `ClaimFileForUploadAsync` realiza claim atômico, ma
 
 - [ ] **W3.1 — Medir Web Vitals por rota.** LCP, INP, CLS e TTFB, com dados de laboratório e medição real opt-in/anônima se aprovada.
 - [ ] **W3.2 — Definir budgets de bundle e recursos.** Inspecionar chunks e dependências grandes; carregar rotas administrativas, PDF/EPUB e ferramentas pesadas sob demanda.
-- [ ] **W3.3 — Otimizar posters/backdrops.** Dimensões adequadas, lazy loading fora do viewport, prioridade para imagem principal, placeholders BlurHash e reserva de espaço.
+- [x] **W3.3 — Otimizar posters/backdrops.** Dimensões adequadas, lazy loading fora do viewport, prioridade para imagem principal, placeholders BlurHash e reserva de espaço.
+  - [x] `components/common/Image.tsx` usa `LazyLoadImage` (fora do viewport) e `BlurhashCanvas` como placeholder enquanto a imagem real carrega; prop `priority` permite marcar a imagem principal acima da dobra para pular o lazy loading. `components/Image.tsx` (variante mais simples) usa `loading='lazy'`/`decoding='async'` nativos. Vitest cobre `src/utils/image.test.ts`.
+  - [ ] Pendente: medir ganho real (CLS/LCP) com e sem essas otimizações em dispositivo/rede de referência — ver W3.1.
 - [ ] **W3.4 — Ajustar cache de dados TanStack Query.** `staleTime`, chaves, invalidação, cancelamento e retry conforme semântica; evitar refetches duplicados e respostas de busca fora de ordem.
 - [ ] **W3.5 — Avaliar virtualização.** Só adotar em grids/listas após benchmark demonstrar custo; preservar navegação por teclado, acessibilidade e medição de rolagem.
 - [ ] **W3.6 — Testar redes e dispositivos lentos.** Throttling, CPU lenta, telas pequenas, TV e navegação por controle remoto.
