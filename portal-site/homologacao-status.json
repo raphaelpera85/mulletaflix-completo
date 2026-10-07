@@ -1,6 +1,6 @@
 {
     "schemaVersion":  1,
-    "generatedAt":  "2026-10-07T03:38:24-03:00",
+    "generatedAt":  "2026-10-07T03:39:36-03:00",
     "source":  {
                    "roadmap":  "https://github.com/raphaelpera85/mulletaflix-completo/blob/main/docs/roadmap-evolucao-tecnologica-servidor-e-web.md",
                    "repository":  "https://github.com/raphaelpera85/mulletaflix-completo"
@@ -3979,7 +3979,7 @@
                        "progressPercent":  null,
                        "startedAt":  "2026-10-07T03:36:00-03:00",
                        "updatedAt":  "2026-10-07T03:37:00-03:00",
-                       "evidence":  "Verificação RTL concluída no SearchResults real com cards/API simulados: Playwright comprova que o card DOM inicial está à direita do segundo e que ArrowLeft move foco para o vizinho visual à esquerda no modo TV. LTR também cobre ArrowRight/Left, NavigationRight e GamepadDPadLeft. O comportamento atual passou; nenhuma mudança de lógica de produção foi necessária. Validação final: npm run test:playwright:scrollbuttons 2/2 (inclui geometria e setas RTL); npm test -- --run 58 arquivos/366 testes; npm run build:check exit 0; ESLint focal exit 0; portal homologacao.test.mjs 4/4; Validate-PortalSitemap.ps1 cobre 7 canônicas; git diff --check exit 0. Revisão independente Cavecrew observou corretamente que dispositivos físicos e cards do builder sem mock não são simulados. W1.3 continua aberta para controle remoto físico, nativo e busca autenticada. progressPercent null. Sem alteração na lógica de produção, APK ou release."
+                       "evidence":  "Verificação RTL concluída no SearchResults real com cards/API simulados: Playwright comprova que o card DOM inicial está à direita do segundo e que ArrowLeft move foco para o vizinho visual à esquerda no modo TV. LTR também cobre ArrowRight/Left, NavigationRight e GamepadDPadLeft. O comportamento atual passou; nenhuma mudança de lógica de produção foi necessária. Validação final: npm run test:playwright:scrollbuttons 2/2 (inclui geometria e setas RTL); npm test -- --run 58 arquivos/366 testes; npm run build:check exit 0; ESLint focal exit 0; portal homologacao.test.mjs 4/4; Validate-PortalSitemap.ps1 cobre 7 canônicas; git diff --check exit 0. Revisão independente Cavecrew observou corretamente que dispositivos físicos e cards do builder sem mock não são simulados. W1.3 continua aberta para controle remoto físico, nativo e busca autenticada. progressPercent null. Sem alteração na lógica de produção, APK ou release. Portal commit 20353a16b1a2ea4afa432d1f3f2dbdd359ee3b52 foi READY em produção via deployment dpl_9bbFRCwhvYmin3KqYk3cKhnXb83D; /, /docs, /downloads, /updates, /homologacao, /sitemap.xml e /homologacao-status.json retornaram HTTP 200; cobertura pública 369/301/68."
                    }
                ]
 }
