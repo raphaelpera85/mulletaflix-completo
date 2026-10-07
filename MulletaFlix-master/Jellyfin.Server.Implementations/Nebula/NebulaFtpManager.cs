@@ -70,6 +70,18 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable, IAsyncDis
     private Process? _pythonStreamProcess;
     private Task? _pythonStreamStdoutTask;
     private Task? _pythonStreamStderrTask;
+    private Process? _pythonDownloaderProcess;
+    private Task? _pythonDownloaderStdoutTask;
+    private Task? _pythonDownloaderStderrTask;
+    private static readonly Regex DownloaderProgressRegex = new(
+        @"Baixando\s+(?<name>.+?):\s+(?<done>[\d\.,]+)\s+MB\s+/\s+(?<total>[\d\.,]+)\s+MB\s+\((?<pct>\d+)%\)\s+-\s+Vel:\s+(?<speed>[\d\.,]+)\s+MB/s",
+        RegexOptions.Compiled);
+    private static readonly Regex DownloaderStartingRegex = new(
+        @"\[1 MÍDIA POR VEZ\]\s+Iniciando download:\s+(?<name>.+?)\s+\[",
+        RegexOptions.Compiled);
+    private static readonly Regex DownloaderMergingRegex = new(
+        @"Unindo partes do arquivo:\s+(?<name>.+)",
+        RegexOptions.Compiled);
     private NebulaPythonCacheLeaseHost? _pythonCacheLeaseHost;
     private CancellationTokenSource? _cleanupCts;
     private Task? _cleanupTask;
@@ -910,9 +922,9 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable, IAsyncDis
 
         var status = new NebulaStatusDto
         {
-            IsEnvioRunning = _isEnvioRunning && _ftpServerHost != null && _ftpServerHost.IsRunning,
+            IsEnvioRunning = _isEnvioRunning && ((_ftpServerHost != null && _ftpServerHost.IsRunning) || (_pythonStreamProcess is { HasExited: false })),
             StreamOnly = _streamOnly,
-            IsDownloaderRunning = _isDownloaderRunning && _downloaderEngine != null && _downloaderEngine.IsRunning,
+            IsDownloaderRunning = _isDownloaderRunning && ((_downloaderEngine != null && _downloaderEngine.IsRunning) || (_pythonDownloaderProcess is { HasExited: false })),
             TurboActive = config.TurboEnabled,
             IsDriveNMounted = isDriveNMounted,
             DriveNStatus = isDriveNMounted ? "Unidade N: Montada" : "Unidade N: Desconectada"
@@ -1452,9 +1464,7 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable, IAsyncDis
         }
 
         if (_isEnvioRunning
-            && _ftpServerHost != null
-            && _ftpServerHost.IsRunning
-            && _pythonStreamProcess is { HasExited: false })
+            && ((_ftpServerHost?.IsRunning == true) || (_pythonStreamProcess is { HasExited: false })))
         {
             return true;
         }
@@ -1467,7 +1477,7 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable, IAsyncDis
             await _envioLock.WaitAsync(cancellationToken).ConfigureAwait(false);
             try
             {
-                return _isEnvioRunning && _ftpServerHost?.IsRunning == true;
+                return _isEnvioRunning && ((_ftpServerHost?.IsRunning == true) || (_pythonStreamProcess is { HasExited: false }));
             }
             finally
             {
@@ -1486,7 +1496,7 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable, IAsyncDis
                 return false;
             }
 
-            if (_isEnvioRunning && _ftpServerHost != null && _ftpServerHost.IsRunning)
+            if (_isEnvioRunning && ((_ftpServerHost != null && _ftpServerHost.IsRunning) || (_pythonStreamProcess is { HasExited: false })))
             {
                 if (_pythonStreamProcess is not { HasExited: false })
                 {
@@ -1495,7 +1505,7 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable, IAsyncDis
                         var recoveryConfig = EnsureRuntimeConfigurationNormalizedAndImported();
                         var recoveryTokens = await LoadBotTokensAsync(recoveryConfig, cancellationToken).ConfigureAwait(false);
                         AddServerLog("[NEBULA-PYTHON] Worker de playback indisponível; reiniciando serviço Python.");
-                        await StartPythonStreamServiceAsync(recoveryConfig, recoveryTokens, cancellationToken).ConfigureAwait(false);
+                        await StartPythonStreamServiceAsync(recoveryConfig, recoveryTokens, streamOnly: false, cancellationToken).ConfigureAwait(false);
                     }
                     catch (Exception ex)
                     {
@@ -1581,6 +1591,65 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable, IAsyncDis
             var ftpPasswordHash = BCrypt.Net.BCrypt.HashPassword(ftpPassword);
             await _mongoContext.UpsertUserAsync(ftpUsername, ftpPasswordHash, "elradfmwM", cancellationToken).ConfigureAwait(false);
 
+            var effectiveCachePath = !string.IsNullOrWhiteSpace(config.PlaybackCachePath)
+                ? config.PlaybackCachePath
+                : _configManager.CommonApplicationPaths.CachePath;
+
+            if (_playbackCache == null)
+            {
+                _playbackCache = new NebulaPlaybackCache(
+                    effectiveCachePath,
+                    _loggerFactory.CreateLogger<NebulaPlaybackCache>(),
+                    maxCacheBytes: (long)config.PlaybackCacheMaxSizeGb * 1024 * 1024 * 1024,
+                    minimumFreeSpaceBytes: (long)config.PlaybackCacheMinimumFreeSpaceGb * 1024 * 1024 * 1024);
+                _playbackCacheAccessor.Set(_playbackCache);
+                createdPlaybackCache = true;
+            }
+
+            if (config.UsePythonEngine)
+            {
+                var pyBotTokens = await LoadBotTokensAsync(config, cancellationToken).ConfigureAwait(false);
+                EmitServerLog("INFO", $"[NEBULA-PYTHON] Motor Python ativo (aioftp porta {config.ServerPort}, Stream {config.HttpStreamPort}, Upload Pyrogram multi-bot)...");
+                await StartPythonStreamServiceAsync(config, pyBotTokens, streamOnly, cancellationToken).ConfigureAwait(false);
+
+                // Inicia sincronização contínua de background para manter o Supabase sempre atualizado
+                if (_supabaseSyncService != null && !string.IsNullOrWhiteSpace(config.SupabaseUrl) && !string.IsNullOrWhiteSpace(config.SupabaseKey))
+                {
+                    if (config.SupabaseAutoBackup)
+                    {
+                        var intervalMinutes = NebulaFtpConfiguration.DefaultSupabaseAutoBackupIntervalHours * 60;
+                        _supabaseSyncService.StartContinuousSync(
+                            config.SupabaseUrl,
+                            config.SupabaseKey,
+                            intervalMinutes: intervalMinutes,
+                            progressAction: AddServerLog,
+                            usersBackupCompleted: RecordUsersBackupResult);
+                        config.SupabaseAutoBackupIntervalHours = NebulaFtpConfiguration.DefaultSupabaseAutoBackupIntervalHours;
+                        AddServerLog("[SUPABASE] Serviço de sincronização contínua e backup automático ativado (Intervalo: 1 hora).");
+                    }
+                    else
+                    {
+                        AddServerLog("[SUPABASE] Backup automático em segundo plano desativado na configuração (sincronização de novos nós em tempo real permanece ativa).");
+                    }
+                }
+
+                _isEnvioRunning = true;
+                _streamOnly = streamOnly;
+
+                if (config.UseMappedDrive && !streamOnly)
+                {
+                    AddServerLog("[NEBULA-MOUNT] Montagem N: será coordenada pelo serviço de startup após o FTP ficar pronto.");
+                }
+                else
+                {
+                    AddServerLog(config.UseMappedDrive
+                        ? "[NEBULA-MOUNT] Modo Somente Streaming: montagem N: será concluída pelo fluxo que solicitou o mount."
+                        : "[NEBULA-MOUNT] UseMappedDrive=false: pulando montagem automática da unidade N:. Streaming via HTTP/FTP direto.");
+                }
+
+                return true;
+            }
+
             // 2. Telegram MTProto Pool C#
             Task? poolInitTask = null;
             if (_telegramPool == null)
@@ -1653,17 +1722,16 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable, IAsyncDis
             }
 
             // 4. Servidor FTP C# nativo
-            var effectiveCachePath = !string.IsNullOrWhiteSpace(config.PlaybackCachePath)
-                ? config.PlaybackCachePath
-                : _configManager.CommonApplicationPaths.CachePath;
-
-            _playbackCache = new NebulaPlaybackCache(
-                effectiveCachePath,
-                _loggerFactory.CreateLogger<NebulaPlaybackCache>(),
-                maxCacheBytes: (long)config.PlaybackCacheMaxSizeGb * 1024 * 1024 * 1024,
-                minimumFreeSpaceBytes: (long)config.PlaybackCacheMinimumFreeSpaceGb * 1024 * 1024 * 1024);
-            _playbackCacheAccessor.Set(_playbackCache);
-            createdPlaybackCache = true;
+            if (_playbackCache == null)
+            {
+                _playbackCache = new NebulaPlaybackCache(
+                    effectiveCachePath,
+                    _loggerFactory.CreateLogger<NebulaPlaybackCache>(),
+                    maxCacheBytes: (long)config.PlaybackCacheMaxSizeGb * 1024 * 1024 * 1024,
+                    minimumFreeSpaceBytes: (long)config.PlaybackCacheMinimumFreeSpaceGb * 1024 * 1024 * 1024);
+                _playbackCacheAccessor.Set(_playbackCache);
+                createdPlaybackCache = true;
+            }
 
             _ftpServerHost = new NebulaFtpServerHost(
                 _mongoContext,
@@ -1690,7 +1758,7 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable, IAsyncDis
                 config.MaxActiveConnections,
                 _playbackCacheAccessor);
             var streamBotTokens = await LoadBotTokensAsync(config, cancellationToken).ConfigureAwait(false);
-            var pythonStreamStartTask = StartPythonStreamServiceAsync(config, streamBotTokens, cancellationToken);
+            var pythonStreamStartTask = StartPythonStreamServiceAsync(config, streamBotTokens, streamOnly, cancellationToken);
             if (poolInitTask != null)
             {
                 await Task.WhenAll(poolInitTask, pythonStreamStartTask).ConfigureAwait(false);
@@ -2504,7 +2572,7 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable, IAsyncDis
             return false;
         }
 
-        if (_isDownloaderRunning && _downloaderEngine != null && _downloaderEngine.IsRunning)
+        if (_isDownloaderRunning && ((_downloaderEngine != null && _downloaderEngine.IsRunning) || (_pythonDownloaderProcess is { HasExited: false })))
         {
             return true;
         }
@@ -2516,7 +2584,7 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable, IAsyncDis
             await _downloaderLock.WaitAsync(cancellationToken).ConfigureAwait(false);
             try
             {
-                return _isDownloaderRunning && _downloaderEngine?.IsRunning == true;
+                return _isDownloaderRunning && ((_downloaderEngine?.IsRunning == true) || (_pythonDownloaderProcess is { HasExited: false }));
             }
             finally
             {
@@ -2565,7 +2633,7 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable, IAsyncDis
                 return false;
             }
 
-            if (_isDownloaderRunning && _downloaderEngine != null && _downloaderEngine.IsRunning)
+            if (_isDownloaderRunning && ((_downloaderEngine != null && _downloaderEngine.IsRunning) || (_pythonDownloaderProcess is { HasExited: false })))
             {
                 return true;
             }
@@ -2576,6 +2644,32 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable, IAsyncDis
 
             // Verifica se MongoDB está vazio para restaurar do Supabase antes de iniciar o downloader
             await EnsureDatabaseRestoredIfEmptyAsync(config, AddDownloaderLog, cancellationToken).ConfigureAwait(false);
+
+            if (config.UsePythonEngine)
+            {
+                var started = await StartPythonDownloaderAsync(config, cancellationToken).ConfigureAwait(false);
+                if (started)
+                {
+                    _isDownloaderRunning = true;
+                    if (_cleanupTask == null)
+                    {
+                        StartContinuousCleanup(config);
+                    }
+
+                    if (!IsDriveNAccessible() && config.UseMappedDrive)
+                    {
+                        _mountRetry.Schedule(TimeSpan.Zero);
+                    }
+                    else if (!config.UseMappedDrive)
+                    {
+                        AddDownloaderLog("[NEBULA-MOUNT] UseMappedDrive=false: pulando montagem automática da unidade N:. Downloader opera via caminhos locais.");
+                    }
+
+                    return true;
+                }
+
+                return false;
+            }
 
             if (_telegramPool == null)
             {
@@ -2664,6 +2758,7 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable, IAsyncDis
         try
         {
             _isDownloaderRunning = false;
+            await StopPythonDownloaderAsync().ConfigureAwait(false);
             if (_downloaderEngine != null)
             {
                 await _downloaderEngine.StopAsync().ConfigureAwait(false);
@@ -4694,6 +4789,9 @@ CREATE POLICY nebula_bot_tokens_service_role_all
                 _uploadEngine = null;
             }
 
+            await StopPythonDownloaderAsync().ConfigureAwait(false);
+            await StopPythonStreamServiceAsync().ConfigureAwait(false);
+
             if (_downloaderEngine != null)
             {
                 _downloaderEngine.Dispose();
@@ -5378,13 +5476,38 @@ CREATE POLICY nebula_bot_tokens_service_role_all
         return candidates.FirstOrDefault(File.Exists);
     }
 
-    private string? FindPythonStreamScript()
+    private string? FindPythonStreamScript(bool preferMain = false)
+    {
+        var candidates = preferMain
+            ? new[]
+            {
+                Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Tools", "NebulaPython", "main.py"),
+                Path.Combine(_configManager.CommonApplicationPaths.DataPath, "Tools", "NebulaPython", "main.py"),
+                Path.GetFullPath(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "..", "..", "..", "..", "..", "MulletaFlix-master", "Tools", "NebulaPython", "main.py")),
+                Path.GetFullPath(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "..", "..", "..", "..", "..", "nebula", "NebulaFTP-master", "main.py")),
+                Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Tools", "NebulaPython", "stream_service.py"),
+                Path.Combine(_configManager.CommonApplicationPaths.DataPath, "Tools", "NebulaPython", "stream_service.py")
+            }
+            : new[]
+            {
+                Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Tools", "NebulaPython", "stream_service.py"),
+                Path.Combine(_configManager.CommonApplicationPaths.DataPath, "Tools", "NebulaPython", "stream_service.py"),
+                Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Tools", "NebulaPython", "main.py"),
+                Path.Combine(_configManager.CommonApplicationPaths.DataPath, "Tools", "NebulaPython", "main.py"),
+                Path.GetFullPath(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "..", "..", "..", "..", "..", "MulletaFlix-master", "Tools", "NebulaPython", "main.py")),
+                Path.GetFullPath(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "..", "..", "..", "..", "..", "nebula", "NebulaFTP-master", "main.py"))
+            };
+        return candidates.FirstOrDefault(File.Exists);
+    }
+
+    private string? FindPythonDownloaderScript()
     {
         var candidates = new[]
         {
-            Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Tools", "NebulaPython", "stream_service.py"),
-            Path.Combine(_configManager.CommonApplicationPaths.DataPath, "Tools", "NebulaPython", "stream_service.py"),
-            Path.GetFullPath(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "..", "..", "..", "..", "..", "nebula", "stream_service.py"))
+            Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Tools", "NebulaPython", "tools", "strm_downloader.py"),
+            Path.Combine(_configManager.CommonApplicationPaths.DataPath, "Tools", "NebulaPython", "tools", "strm_downloader.py"),
+            Path.GetFullPath(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "..", "..", "..", "..", "..", "MulletaFlix-master", "Tools", "NebulaPython", "tools", "strm_downloader.py")),
+            Path.GetFullPath(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "..", "..", "..", "..", "..", "nebula", "NebulaFTP-master", "tools", "strm_downloader.py"))
         };
         return candidates.FirstOrDefault(File.Exists);
     }
@@ -5392,13 +5515,14 @@ CREATE POLICY nebula_bot_tokens_service_role_all
     private async Task StartPythonStreamServiceAsync(
         NebulaFtpConfiguration config,
         IReadOnlyCollection<string> botTokens,
-        CancellationToken cancellationToken)
+        bool streamOnly = false,
+        CancellationToken cancellationToken = default)
     {
         var python = FindPythonExe();
-        var script = FindPythonStreamScript();
+        var script = FindPythonStreamScript(preferMain: config.UsePythonEngine);
         if (python == null || script == null)
         {
-            throw new FileNotFoundException("Runtime Python do Nebula de playback não foi encontrado.");
+            throw new FileNotFoundException("Runtime Python do Nebula não foi encontrado.");
         }
 
         await StopPythonStreamServiceAsync().ConfigureAwait(false);
@@ -5430,7 +5554,17 @@ CREATE POLICY nebula_bot_tokens_service_role_all
         processInfo.Environment["STREAM_PORT"] = (config.HttpStreamPort > 0 ? config.HttpStreamPort : 2123).ToString(CultureInfo.InvariantCulture);
         processInfo.Environment["STREAM_TOKEN"] = config.HttpStreamToken ?? string.Empty;
         processInfo.Environment["SESSIONS_DIR"] = Path.Combine(_configManager.CommonApplicationPaths.DataPath, "NebulaPythonStreamSessions");
-        processInfo.Environment["STREAM_ONLY"] = "1";
+        processInfo.Environment["STREAM_ONLY"] = streamOnly ? "1" : "0";
+        processInfo.Environment["HOST"] = string.IsNullOrWhiteSpace(config.ServerHost) ? "127.0.0.1" : config.ServerHost;
+        processInfo.Environment["PORT"] = (config.ServerPort > 0 ? config.ServerPort : 2121).ToString(CultureInfo.InvariantCulture);
+        processInfo.Environment["FTP_PORT"] = (config.ServerPort > 0 ? config.ServerPort : 2121).ToString(CultureInfo.InvariantCulture);
+        processInfo.Environment["NEBULA_PAUSE_ON_EXIT"] = "0";
+        if (config.StagePaths != null && config.StagePaths.Length > 0)
+        {
+            processInfo.Environment["STAGING_DIRS"] = string.Join(';', config.StagePaths.Where(p => !string.IsNullOrWhiteSpace(p)));
+        }
+        processInfo.Environment["MAX_WORKERS"] = Math.Max(1, config.MaxWorkers).ToString(CultureInfo.InvariantCulture);
+        processInfo.Environment["CHUNK_SIZE_MB"] = Math.Max(1, config.ChunkSizeMb).ToString(CultureInfo.InvariantCulture);
         processInfo.Environment["PYTHONUTF8"] = "1";
         var existingPath = processInfo.Environment["PATH"] ?? string.Empty;
         processInfo.Environment["PATH"] = string.Join(Path.PathSeparator, new[]
@@ -5450,7 +5584,7 @@ CREATE POLICY nebula_bot_tokens_service_role_all
         if (!process.Start())
         {
             process.Dispose();
-            throw new InvalidOperationException("Não foi possível iniciar o worker Python de playback.");
+            throw new InvalidOperationException("Não foi possível iniciar o worker Python do Nebula.");
         }
 
         _pythonStreamProcess = process;
@@ -5476,7 +5610,7 @@ CREATE POLICY nebula_bot_tokens_service_role_all
             cancellationToken.ThrowIfCancellationRequested();
             if (process.HasExited)
             {
-                throw new InvalidOperationException($"Worker Python de playback encerrou na inicialização (código {process.ExitCode}).");
+                throw new InvalidOperationException($"Worker Python do Nebula encerrou na inicialização (código {process.ExitCode}).");
             }
 
             try
@@ -5484,7 +5618,7 @@ CREATE POLICY nebula_bot_tokens_service_role_all
                 using var response = await client.GetAsync(healthUrl, cancellationToken).ConfigureAwait(false);
                 if (response.IsSuccessStatusCode)
                 {
-                    AddServerLog($"[NEBULA-PYTHON] Stream de playback pronto na porta {port}.");
+                    AddServerLog($"[NEBULA-PYTHON] Runtime Python pronto na porta {port}.");
                     return;
                 }
             }
@@ -5500,7 +5634,7 @@ CREATE POLICY nebula_bot_tokens_service_role_all
             await Task.Delay(250, cancellationToken).ConfigureAwait(false);
         }
 
-        throw new TimeoutException("Worker Python de playback não ficou pronto em 45 segundos.");
+        throw new TimeoutException("Worker Python do Nebula não ficou pronto em 45 segundos.");
     }
 
     private async Task StopPythonStreamServiceAsync()
@@ -5522,7 +5656,7 @@ CREATE POLICY nebula_bot_tokens_service_role_all
         }
         catch (Exception ex) when (ex is InvalidOperationException or System.ComponentModel.Win32Exception or TimeoutException)
         {
-            _logger.LogWarning(ex, "Falha ao encerrar worker Python de playback.");
+            _logger.LogWarning(ex, "Falha ao encerrar worker Python do Nebula.");
         }
         finally
         {
@@ -5543,6 +5677,175 @@ CREATE POLICY nebula_bot_tokens_service_role_all
                 await _pythonCacheLeaseHost.DisposeAsync().ConfigureAwait(false);
                 _pythonCacheLeaseHost = null;
             }
+        }
+    }
+
+    private async Task<bool> StartPythonDownloaderAsync(NebulaFtpConfiguration config, CancellationToken cancellationToken = default)
+    {
+        var python = FindPythonExe();
+        var script = FindPythonDownloaderScript();
+        if (python == null || script == null)
+        {
+            throw new FileNotFoundException("Script do STRM Downloader Python não foi encontrado.");
+        }
+
+        await StopPythonDownloaderAsync().ConfigureAwait(false);
+
+        var monitorSources = (config.MonitorPaths ?? Array.Empty<string>()).Where(s => !string.IsNullOrWhiteSpace(s)).ToList();
+        if (monitorSources.Count == 0)
+        {
+            AddDownloaderLog("[ERRO] Nenhuma pasta de monitoramento configurada.");
+            return false;
+        }
+
+        var (ftpUsername, _) = EnsureLocalFtpCredentials();
+        var scriptDirectory = Path.GetDirectoryName(script)!;
+        var processInfo = new ProcessStartInfo
+        {
+            FileName = python,
+            WorkingDirectory = scriptDirectory,
+            UseShellExecute = false,
+            CreateNoWindow = true,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true
+        };
+        processInfo.ArgumentList.Add("-u");
+        processInfo.ArgumentList.Add(script);
+        processInfo.ArgumentList.Add("--sources");
+        foreach (var src in monitorSources)
+        {
+            processInfo.ArgumentList.Add(src);
+        }
+        processInfo.ArgumentList.Add("--dest");
+        processInfo.ArgumentList.Add(monitorSources[0]);
+        processInfo.ArgumentList.Add("--mongo");
+        processInfo.ArgumentList.Add(config.MongoDbConnectionString);
+        processInfo.ArgumentList.Add("--db-name");
+        processInfo.ArgumentList.Add("ftp");
+        processInfo.ArgumentList.Add("--user");
+        processInfo.ArgumentList.Add(ftpUsername);
+        processInfo.ArgumentList.Add("--parts");
+        processInfo.ArgumentList.Add(Math.Max(1, config.DownloadParts).ToString(CultureInfo.InvariantCulture));
+        processInfo.ArgumentList.Add("--watch");
+        processInfo.ArgumentList.Add("--interval");
+        processInfo.ArgumentList.Add("60");
+
+        processInfo.Environment["PYTHONUTF8"] = "1";
+        processInfo.Environment["MONGODB"] = config.MongoDbConnectionString;
+        if (config.StagePaths != null && config.StagePaths.Length > 0)
+        {
+            processInfo.Environment["STAGING_DIRS"] = string.Join(';', config.StagePaths.Where(p => !string.IsNullOrWhiteSpace(p)));
+        }
+
+        var process = new Process { StartInfo = processInfo, EnableRaisingEvents = true };
+        if (!process.Start())
+        {
+            process.Dispose();
+            throw new InvalidOperationException("Não foi possível iniciar o STRM Downloader Python.");
+        }
+
+        _pythonDownloaderProcess = process;
+        _pythonDownloaderStdoutTask = DrainMountOutputAsync(process.StandardOutput, line =>
+        {
+            AddDownloaderLog(line);
+            HandlePythonDownloaderOutput(line);
+        });
+        _pythonDownloaderStderrTask = DrainMountOutputAsync(process.StandardError, line =>
+        {
+            AddDownloaderLog($"[ERRO-STRM] {line}");
+        });
+
+        _isDownloaderRunning = true;
+        AddDownloaderLog($"[NEBULA-STRM] STRM Downloader Python ativo (PID {process.Id}, {config.DownloadParts} partes multipart).");
+        return true;
+    }
+
+    private void HandlePythonDownloaderOutput(string line)
+    {
+        if (string.IsNullOrWhiteSpace(line))
+        {
+            return;
+        }
+
+        var matchProg = DownloaderProgressRegex.Match(line);
+        if (matchProg.Success)
+        {
+            var name = matchProg.Groups["name"].Value.Trim();
+            _ = double.TryParse(matchProg.Groups["done"].Value.Replace(',', '.'), NumberStyles.Any, CultureInfo.InvariantCulture, out var done);
+            _ = double.TryParse(matchProg.Groups["total"].Value.Replace(',', '.'), NumberStyles.Any, CultureInfo.InvariantCulture, out var total);
+            _ = double.TryParse(matchProg.Groups["pct"].Value, NumberStyles.Any, CultureInfo.InvariantCulture, out var pct);
+            var speed = matchProg.Groups["speed"].Value.Trim();
+
+            _currentDownload.Name = name;
+            _currentDownload.DoneMb = done;
+            _currentDownload.TotalMb = total;
+            _currentDownload.Percentage = pct;
+            _currentDownload.Speed = $"{speed} MB/s";
+            _currentDownload.StageStep = "Baixando mídia...";
+            _currentDownload.DetailText = $"{pct:F0}% ({done:F1} MB / {total:F1} MB) - {speed} MB/s";
+            return;
+        }
+
+        var matchStart = DownloaderStartingRegex.Match(line);
+        if (matchStart.Success)
+        {
+            _currentDownload.Name = matchStart.Groups["name"].Value.Trim();
+            _currentDownload.StageStep = "Iniciando download...";
+            _currentDownload.Percentage = 0;
+            _currentDownload.DetailText = "0%";
+            return;
+        }
+
+        var matchMerge = DownloaderMergingRegex.Match(line);
+        if (matchMerge.Success)
+        {
+            _currentDownload.Name = matchMerge.Groups["name"].Value.Trim();
+            _currentDownload.StageStep = "Unindo partes...";
+            _currentDownload.Percentage = 100;
+            _currentDownload.DetailText = "Processando arquivo final...";
+            return;
+        }
+
+        if (line.Contains("HTTP Error 406", StringComparison.OrdinalIgnoreCase))
+        {
+            EmitServerLog("WARNING", $"[NEBULA-STRM] {line}");
+        }
+    }
+
+    private async Task StopPythonDownloaderAsync()
+    {
+        var process = _pythonDownloaderProcess;
+        _pythonDownloaderProcess = null;
+        if (process == null)
+        {
+            return;
+        }
+
+        try
+        {
+            if (!process.HasExited)
+            {
+                process.Kill(entireProcessTree: true);
+                await process.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(10)).ConfigureAwait(false);
+            }
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or System.ComponentModel.Win32Exception or TimeoutException)
+        {
+            _logger.LogWarning(ex, "Falha ao encerrar STRM Downloader Python.");
+        }
+        finally
+        {
+            var drainTasks = new[] { _pythonDownloaderStdoutTask, _pythonDownloaderStderrTask }.Where(task => task != null).Cast<Task>();
+            try
+            {
+                await Task.WhenAll(drainTasks).WaitAsync(TimeSpan.FromSeconds(2)).ConfigureAwait(false);
+            }
+            catch (TimeoutException)
+            {
+            }
+            _pythonDownloaderStdoutTask = null;
+            _pythonDownloaderStderrTask = null;
+            process.Dispose();
         }
     }
 

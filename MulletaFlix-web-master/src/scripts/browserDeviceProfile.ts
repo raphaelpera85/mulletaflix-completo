@@ -413,16 +413,18 @@ function supportsAnamorphicVideo(): boolean {
         || browser.android;
 }
 
-function getDirectPlayProfileForVideoContainer(container: string, videoAudioCodecs: string[], videoTestElement: HTMLVideoElement, options: ProfileOptions): DirectPlayProfile | null {
+function getDirectPlayProfileForVideoContainer(container: string, sharedVideoAudioCodecs: string[], videoTestElement: HTMLVideoElement, options: ProfileOptions): DirectPlayProfile | null {
     let supported = false;
     let profileContainer = container;
     const videoCodecs: string[] = [];
+    // Work on a copy: the array is shared across all containers and must never be mutated here.
+    let videoAudioCodecs = sharedVideoAudioCodecs;
 
     switch (container) {
         case 'asf':
         case 'wmv':
             supported = browser.tizen || browser.web0s || browser.edgeUwp;
-            videoAudioCodecs.length = 0;
+            videoAudioCodecs = [];
             break;
         case 'avi':
             supported = browser.tizen || browser.web0s || browser.edgeUwp;

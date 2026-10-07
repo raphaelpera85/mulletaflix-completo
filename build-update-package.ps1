@@ -105,10 +105,37 @@ if (Test-Path -LiteralPath (Join-Path $webRoot 'package.json')) {
             throw "Could not stage web source for production build (robocopy exit code $LASTEXITCODE)."
         }
 
-        foreach ($npmCommand in @('npm ci', 'npm run build:check', 'npm run build:production')) {
-            $webBuildExitCode = (Start-Process -FilePath 'cmd.exe' -ArgumentList "/c $npmCommand" -WorkingDirectory $webBuildRoot -Wait -PassThru).ExitCode
+        # Start-Process -FilePath cmd.exe spawns a process tree that does not reliably inherit a
+        # user-session PATH modification (e.g. a Node version manager or a per-session tool shim) --
+        # it found neither 'npm' nor even the machine-wide 'C:\Program Files\nodejs\npm.cmd' in
+        # practice. Resolve an absolute path to npm.cmd up front instead of trusting PATH inside the
+        # spawned shell. npm.cmd itself then shells out to a bare 'node' for postinstall scripts
+        # (core-js, es5-ext, esbuild), so the resolved Node directory must also be prepended to
+        # $env:PATH for this process -- Start-Process inherits the calling process's environment
+        # block, so this reaches the spawned npm.cmd and its node children too.
+        $npmCmd = (Get-Command 'npm.cmd' -ErrorAction SilentlyContinue | Select-Object -First 1 -ExpandProperty Source)
+        if (-not $npmCmd) {
+            foreach ($candidate in @('C:\Program Files\nodejs\npm.cmd', 'C:\Program Files (x86)\nodejs\npm.cmd')) {
+                if (Test-Path -LiteralPath $candidate) {
+                    $npmCmd = $candidate
+                    break
+                }
+            }
+        }
+
+        if (-not $npmCmd) {
+            throw "Could not locate npm.cmd (checked PATH and well-known Node.js install locations)."
+        }
+
+        $nodeDir = Split-Path -Parent $npmCmd
+        if ($env:PATH -notlike "*$nodeDir*") {
+            $env:PATH = "$nodeDir;$env:PATH"
+        }
+
+        foreach ($npmArgs in @('ci', 'run build:check', 'run build:production')) {
+            $webBuildExitCode = (Start-Process -FilePath $npmCmd -ArgumentList $npmArgs -WorkingDirectory $webBuildRoot -Wait -PassThru -NoNewWindow).ExitCode
             if ($webBuildExitCode -ne 0) {
-                throw "Web production command '$npmCommand' failed with exit code $webBuildExitCode"
+                throw "Web production command 'npm $npmArgs' failed with exit code $webBuildExitCode"
             }
         }
 
@@ -145,6 +172,29 @@ if (Test-Path -LiteralPath $toolsSource) {
         New-Item -ItemType Directory -Path $toolsDest -Force | Out-Null
     }
     Copy-Item -LiteralPath (Join-Path $toolsSource 'mount_drive_n.py') -Destination $toolsDest -Force
+
+    # The Python playback stream worker (Tools/NebulaPython) was never part of this sync, so every
+    # fresh/updated install was missing it entirely -- NebulaFtpManager.StartPythonStreamServiceAsync
+    # throws FileNotFoundException("Runtime Python do Nebula de playback nao foi encontrado.") the
+    # first time an operator starts Envio, with no earlier warning. Bundle the script sources (not
+    # __pycache__/.pytest_cache/tests/staging scratch dirs) so FindPythonStreamScript's
+    # Tools/NebulaPython/stream_service.py candidate resolves on a clean install. The Python
+    # interpreter itself is still resolved at runtime via python.path marker / PATH / well-known
+    # paths (FindPythonExe) -- this script does not install Python or pip dependencies.
+    $nebulaPythonSource = Join-Path $toolsSource 'NebulaPython'
+    if (Test-Path -LiteralPath $nebulaPythonSource) {
+        $nebulaPythonDest = Join-Path $toolsDest 'NebulaPython'
+        & robocopy.exe $nebulaPythonSource $nebulaPythonDest /E /XD '__pycache__' '.pytest_cache' 'tests' 'staging' /XF '*.pyc' 'nebula.log' /NFL /NDL /NJH /NJS /NP | Out-Null
+        if ($LASTEXITCODE -ge 8) {
+            throw "Could not stage Tools/NebulaPython (robocopy exit code $LASTEXITCODE)."
+        }
+
+        Write-Host "Synced Tools/NebulaPython to stage." -ForegroundColor Green
+    }
+    else {
+        Write-Host "WARNING: Tools/NebulaPython source not found; the update package will be missing the Nebula playback Python worker." -ForegroundColor Yellow
+    }
+
     Write-Host "Synced Tools to stage." -ForegroundColor Green
 }
 

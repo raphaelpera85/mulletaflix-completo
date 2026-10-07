@@ -39,6 +39,12 @@ public class NebulaFtpConfiguration
     // the operator explicitly configures and enables its external services.
     public bool Enabled { get; set; }
 
+    /// <summary>
+    /// Gets or sets a value indicating whether the full Python runtime (aioftp, Pyrogram multi-bot, strm_downloader)
+    /// should be used as the primary engine for high performance transfers.
+    /// </summary>
+    public bool UsePythonEngine { get; set; } = true;
+
     public string RaiDriveDownloadUrl { get; set; } = "https://www.raidrive.com/download";
 
     // Bind locally by default. Remote access must be an explicit operator decision.

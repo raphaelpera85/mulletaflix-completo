@@ -49,8 +49,8 @@ public sealed class NebulaSupabaseFileRestoreTests
         Assert.Equal(count, restored.Count);
         Assert.Equal(3, handler.Requests.Count);
         Assert.Contains("offset=0", handler.Requests[0].Uri, StringComparison.Ordinal);
-        Assert.Contains("offset=500", handler.Requests[1].Uri, StringComparison.Ordinal);
-        Assert.Contains("offset=501", handler.Requests[2].Uri, StringComparison.Ordinal);
+        Assert.Contains($"offset={NebulaSupabaseSyncService.SupabaseRestorePageSize}", handler.Requests[1].Uri, StringComparison.Ordinal);
+        Assert.Contains($"offset={NebulaSupabaseSyncService.SupabaseRestorePageSize + 1}", handler.Requests[2].Uri, StringComparison.Ordinal);
         Assert.All(handler.Requests, request =>
         {
             Assert.Equal(HttpMethod.Get, request.Method);

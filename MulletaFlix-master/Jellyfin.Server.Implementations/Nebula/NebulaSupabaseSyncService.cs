@@ -35,7 +35,7 @@ namespace Jellyfin.Server.Implementations.Nebula;
 public sealed class NebulaSupabaseSyncService : IDisposable
 {
     public const string MeterName = "MulletaFlix.Nebula.SupabaseSync";
-    internal const int SupabaseRestorePageSize = 500;
+    internal const int SupabaseRestorePageSize = 100;
 
     private static readonly Meter SyncMeter = new(MeterName);
     private static readonly Counter<long> OperationCounter = SyncMeter.CreateCounter<long>("mulletaflix.supabase.operations");

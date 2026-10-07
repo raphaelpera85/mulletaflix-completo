@@ -60,13 +60,13 @@ public class PlaybackReportLogger : IEventConsumer<PlaybackStartEventArgs>, IEve
         var report = new PlaybackReport(
             user.Id,
             eventArgs.Item?.Id ?? Guid.Empty,
-            eventArgs.MediaInfo.Name,
+            OrDefault(eventArgs.MediaInfo.Name, "Unknown"),
             eventArgs.MediaInfo.MediaType.ToString(),
-            eventArgs.DeviceId,
-            eventArgs.DeviceName ?? "Unknown",
-            eventArgs.ClientName ?? "Unknown",
-            eventArgs.PlaySessionId ?? Guid.NewGuid().ToString("N"),
-            eventArgs.Session?.Id ?? Guid.NewGuid().ToString("N"))
+            OrDefault(eventArgs.DeviceId, "Unknown"),
+            OrDefault(eventArgs.DeviceName, "Unknown"),
+            OrDefault(eventArgs.ClientName, "Unknown"),
+            OrDefault(eventArgs.PlaySessionId, Guid.NewGuid().ToString("N")),
+            OrDefault(eventArgs.Session?.Id, Guid.NewGuid().ToString("N")))
         {
             SeriesName = eventArgs.MediaInfo.SeriesName,
             SeasonNumber = eventArgs.MediaInfo.ParentIndexNumber,
@@ -76,7 +76,6 @@ public class PlaybackReportLogger : IEventConsumer<PlaybackStartEventArgs>, IEve
             StartTimeUtc = DateTime.UtcNow,
             StartPositionTicks = eventArgs.PlaybackPositionTicks,
             ItemRuntimeTicks = eventArgs.MediaInfo.RunTimeTicks,
-            SessionId = eventArgs.Session?.Id ?? "",
             RemoteEndPoint = eventArgs.Session?.RemoteEndPoint,
             IsLocal = IsLocalPlayback(eventArgs.Session),
             LibraryId = eventArgs.Item?.ParentId
@@ -172,13 +171,13 @@ public class PlaybackReportLogger : IEventConsumer<PlaybackStartEventArgs>, IEve
             var newReport = new PlaybackReport(
                 user.Id,
                 eventArgs.Item?.Id ?? Guid.Empty,
-                item.Name,
+                OrDefault(item.Name, "Unknown"),
                 item.MediaType.ToString(),
-                eventArgs.DeviceId,
-                eventArgs.DeviceName ?? "Unknown",
-                eventArgs.ClientName ?? "Unknown",
-                eventArgs.PlaySessionId ?? Guid.NewGuid().ToString("N"),
-                eventArgs.Session?.Id ?? Guid.NewGuid().ToString("N"))
+                OrDefault(eventArgs.DeviceId, "Unknown"),
+                OrDefault(eventArgs.DeviceName, "Unknown"),
+                OrDefault(eventArgs.ClientName, "Unknown"),
+                OrDefault(eventArgs.PlaySessionId, Guid.NewGuid().ToString("N")),
+                OrDefault(eventArgs.Session?.Id, Guid.NewGuid().ToString("N")))
             {
                 SeriesName = item.SeriesName,
                 SeasonNumber = item.ParentIndexNumber,
@@ -190,7 +189,6 @@ public class PlaybackReportLogger : IEventConsumer<PlaybackStartEventArgs>, IEve
                 ItemRuntimeTicks = item.RunTimeTicks,
                 EndPositionTicks = eventArgs.PlaybackPositionTicks,
                 PlayedToCompletion = eventArgs.PlayedToCompletion,
-                SessionId = eventArgs.Session?.Id ?? "",
                 RemoteEndPoint = eventArgs.Session?.RemoteEndPoint,
                 IsLocal = IsLocalPlayback(eventArgs.Session),
                 LibraryId = eventArgs.Item?.ParentId
@@ -203,6 +201,11 @@ public class PlaybackReportLogger : IEventConsumer<PlaybackStartEventArgs>, IEve
 
             await _playbackReportManager.CreateAsync(newReport).ConfigureAwait(false);
         }
+    }
+
+    private static string OrDefault(string? value, string fallback)
+    {
+        return string.IsNullOrEmpty(value) ? fallback : value;
     }
 
     private static string GetSessionKey(PlaybackProgressEventArgs eventArgs)

@@ -3814,6 +3814,20 @@
       "startedAt": "2026-10-05T22:06:33-03:00",
       "updatedAt": "2026-10-05T22:16:00-03:00",
       "evidence": "Release v12.1.11 gerada e publicada com sucesso no GitHub Releases (https://github.com/raphaelpera85/mulletaflix-completo/releases/tag/v12.1.11). Testes unitários SecureConnectionProcessManagerTests 5/5 aprovados; suíte Jellyfin.Server.Tests 73/73 aprovados (0 falhas). Teste ao vivo em https://mulletaflix.duckdns.org/System/Info/Public retornou 200 OK via nginx/1.30.5. Artefatos de produção gerados e verificados: mulletaflix-update-win-x64.zip (468.51 MB, SHA256: 6EA815712CB583F1F221712CE30EB22664BC92C00E70A9046495B917510B45F5) e mulletaflix_12.1.11_windows-x64.exe (547.42 MB, SHA256: D5237635CC1AA1FEE8864D68E8A179A2A47C2855F597C8A2DAB4F626C945B201). Ambos os assets validados anexados via GitHub API."
+    },
+    {
+      "id": "server-nebula-python-migration-2026-10-06",
+      "title": "Migração do Nebula no MulletaFlix para runtime Python supervisionado",
+      "agent": "Antigravity",
+      "front": "server",
+      "local": "D:\\Users\\Raphael\\Documents\\Projetos\\mulletaflix",
+      "location": "MulletaFlix-master, Tools/NebulaPython",
+      "scope": "Migrar o Nebula completo para Python supervisionado: FTP (aioftp), Upload (Pyrogram), Downloader (strm_downloader), integrados e supervisionados pelo MulletaFlix",
+      "status": "completed",
+      "progressPercent": 100,
+      "startedAt": "06/10/2026 23:51:00",
+      "updatedAt": "07/10/2026 00:14:00",
+      "evidence": "Migração concluída com sucesso: (1) strm_downloader.py, feed_ftp.py e supabase_sync.py empacotados em Tools/NebulaPython/tools; (2) NebulaFtpManager gerencia main.py (aioftp na 2121, Pyrogram multi-bot uploads, stream HTTP na 2123) e strm_downloader.py (multipart 32 partes); (3) Parse e sincronização de progresso e logs em tempo real para Web UI; (4) Fix de timeout do Supabase com paginação 100; (5) Testes da suíte Jellyfin.Server.Implementations.Tests aprovados com 1.371 testes verdes (exit code 0); (6) Build da Web aprovado com tsc --noEmit (exit code 0)."
     }
   ]
 }
