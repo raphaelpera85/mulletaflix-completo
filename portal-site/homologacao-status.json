@@ -1,14 +1,14 @@
 {
     "schemaVersion":  1,
-    "generatedAt":  "2026-10-07T03:08:26-03:00",
+    "generatedAt":  "2026-10-07T03:32:29-03:00",
     "source":  {
                    "roadmap":  "https://github.com/raphaelpera85/mulletaflix-completo/blob/main/docs/roadmap-evolucao-tecnologica-servidor-e-web.md",
                    "repository":  "https://github.com/raphaelpera85/mulletaflix-completo"
                },
     "coverage":  {
-                     "completed":  299,
+                     "completed":  300,
                      "pending":  68,
-                     "total":  367,
+                     "total":  368,
                      "definition":  "Checklists de funcionalidades do roadmap (cada checkbox conta como um item); tarefas com evento ativo identificado aparecem como em execução.",
                      "inProgress":  0
                  },
@@ -2477,6 +2477,13 @@
                          "source":  "roadmap"
                      },
                      {
+                         "id":  "W1.3.4",
+                         "name":  "O fixture Playwright da busca real inicializa o modo TV e o roteador global de comandos; setas padrão e eventos `NavigationRight`/`GamepadDPadLeft` movem o foco entre cards da l…",
+                         "area":  "Web",
+                         "status":  "completed",
+                         "source":  "roadmap"
+                     },
+                     {
                          "id":  "W1.4",
                          "name":  "Tratar falhas de API sem tela vazia",
                          "area":  "Web",
@@ -3932,6 +3939,23 @@
                        "startedAt":  "2026-10-07T02:58:00-03:00",
                        "updatedAt":  "2026-10-07T03:12:00-03:00",
                        "evidence":  "Subentrega W1.1 de detalhes concluída localmente. Removido sucesso artificial por timer; controller e wrapper React sincronizam loading/success/error/degraded por ID, descartam resultado de requisição obsoleta, preservam conteúdo carregado em falha de refresh e expõem retry. Validação observada: testes focais 6/6; suíte Vitest 58 arquivos/366 testes aprovados; npm run build:check exit 0; ESLint focal nos arquivos novos/alterados da rota e eventos exit 0; npm run build:production exit 0 (avisos existentes de dependências use-client e divisão de chunks); npm run verify:build exit 0 com 1.911 artefatos, limite de 1.536 KiB e payload inicial 294,3 KiB gzip dentro do orçamento de 420 KiB. Status publicado no repositório servidor commit a79d4f48. Portal Mulletaflix-Portal publicado pelo Git no commit 6d54b5a467d6669fd7395350b366c4cde574b56c; Vercel production deployment https://mulletaflix-portal-gdkgtxya6-raphaelpera85s-projects.vercel.app READY; HTTP 200 em /, /docs, /downloads, /updates, /homologacao, /sitemap.xml e /homologacao-status.json; cobertura exibida 367 total/299 concluídos/68 pendentes. Não foi feita validação visual/browser autenticado; demais estados/rotas W1.1 continuam pendentes. Sem alteração Android/produção e sem release intermediária por causa do gate ativo do roadmap. progressPercent null por ausência de métrica formal consolidada."
+                   },
+                   {
+                       "id":  "w1-3-directional-keyboard-search-2026-10-07",
+                       "title":  "Cobrir navegação direcional nos resultados/carrosséis (W1.3)",
+                       "agent":  "Codex",
+                       "front":  "server",
+                       "featureIds":  [
+                                          "W1.3"
+                                      ],
+                       "local":  "D:\\Users\\Raphael\\Documents\\Projetos\\mulletaflix",
+                       "location":  "MulletaFlix-web-master/tests/playwright e fixture SearchResults",
+                       "scope":  "Inicializar o roteamento de teclado no fixture real de busca e validar navegação horizontal por setas em cards focáveis; sem alterar produção, APK ou release.",
+                       "status":  "completed",
+                       "progressPercent":  null,
+                       "startedAt":  "2026-10-07T03:20:00-03:00",
+                       "updatedAt":  "2026-10-07T03:34:00-03:00",
+                       "evidence":  "Subentrega de navegação direcional validada localmente: fixture SearchResults agora inicializa keyboardNavigation no modo TV apenas quando solicitado; Playwright confirma foco avançando/retornando em cards da linha com ArrowRight/ArrowLeft e com aliases de controle NavigationRight/GamepadDPadLeft. Validação: npm run test:playwright:scrollbuttons 2/2; npm test -- --run 58 arquivos/366 testes; npm run build:check exit 0; ESLint focal exit 0; git diff --check sem erros (avisos CRLF de arquivos preexistentes). A revisão independente Cavecrew confirmou o caminho do handler e apontou que os eventos são simulados e a fixture usa cards/API controlados. W1.3 permanece aberta: controle físico, device nativo, RTL por setas e busca autenticada não foram validados. Sem alteração no comportamento de produção, APK ou release. progressPercent null, sem métrica formal de cobertura consolidada."
                    }
                ]
 }
