@@ -1,6 +1,6 @@
 {
     "schemaVersion":  1,
-    "generatedAt":  "2026-10-07T04:34:23-03:00",
+    "generatedAt":  "2026-10-07T04:37:25-03:00",
     "source":  {
                    "roadmap":  "https://github.com/raphaelpera85/mulletaflix-completo/blob/main/docs/roadmap-evolucao-tecnologica-servidor-e-web.md",
                    "repository":  "https://github.com/raphaelpera85/mulletaflix-completo"
@@ -4082,8 +4082,8 @@
                        "status":  "completed",
                        "progressPercent":  null,
                        "startedAt":  "2026-10-07T04:28:51-03:00",
-                       "updatedAt":  "2026-10-07T04:34:23-03:00",
-                       "evidence":  "Vitest comprova os dois estados com QueryClient e ApiProvider reais: sem conexão, aviso acessível e sem formulário; após o evento localusersignedin, o provider real atualiza o contexto, converte o cliente de conexão e a UI conclui as queries de configuração/tarefas/status, sai do aviso/loading e renderiza o formulário. As fronteiras ServerConnections SDK/HTTP foram controladas por spies/mocks, sem afirmar sessão ou servidor real. Teste focal 2/2; npm test -- --run 62 arquivos/381 testes passou; npm run build:check exit 0; ESLint focal nos arquivos de rota/teste exit 0; npm run build:production exit 0 (avisos existentes do Vite sobre use-client e divisão de chunks); npm run verify:build exit 0, 1.915 artefatos, nenhum chunk >1.536 KiB, payload inicial 294,3 KB gzip/420 KB; git diff --check exit 0 (somente avisos CRLF em outros arquivos já modificados). W1.1 continua parcial para validação com servidor/sessão reais e demais estados visuais/assistivos. progressPercent null por não haver métrica formal; nenhuma release intermediária pelo gate ativo do roadmap."
+                       "updatedAt":  "2026-10-07T04:37:25-03:00",
+                       "evidence":  "Vitest comprova os dois estados com QueryClient e ApiProvider reais: sem conexão, aviso acessível e sem formulário; após o evento localusersignedin, o provider real atualiza o contexto, converte o cliente de conexão e a UI conclui as queries de configuração/tarefas/status, sai do aviso/loading e renderiza o formulário. As fronteiras ServerConnections SDK/HTTP foram controladas por spies/mocks, sem afirmar sessão ou servidor real. Teste focal 2/2; npm test -- --run 62 arquivos/381 testes passou; npm run build:check exit 0; ESLint focal nos arquivos de rota/teste exit 0; npm run build:production exit 0 (avisos existentes do Vite sobre use-client e divisão de chunks); npm run verify:build exit 0, 1.915 artefatos, nenhum chunk >1.536 KiB, payload inicial 294,3 KB gzip/420 KB; git diff --check exit 0 (somente avisos CRLF em outros arquivos já modificados). W1.1 continua parcial para validação com servidor/sessão reais e demais estados visuais/assistivos. progressPercent null por não haver métrica formal; nenhuma release intermediária pelo gate ativo do roadmap. Portal: commit `5e7619e04f8eeac70472ba5cf434e9316ce72f70` ligado ao deployment de produção Vercel `dpl_32ymnAbNQafgbgeUpFgrNjGaCs8f` (`mulletaflix-portal-p5a5cojgd-raphaelpera85s-projects.vercel.app`), estado READY; alias público `/`, `/docs`, `/downloads`, `/updates`, `/homologacao`, `/sitemap.xml` e `/homologacao-status.json` retornaram HTTP 200 e o JSON público mostrou este evento como completed. Nenhuma release intermediária pelo gate ativo do roadmap."
                    }
                ]
 }
