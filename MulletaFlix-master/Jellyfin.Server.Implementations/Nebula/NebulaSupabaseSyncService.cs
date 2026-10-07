@@ -633,15 +633,31 @@ public sealed class NebulaSupabaseSyncService : IDisposable
                 ? await _mongoContext.GetSyncDeltaAsync(remoteCutoff.Value, cancellationToken).ConfigureAwait(false)
                 : await _mongoContext.GetAllFilesForSyncAsync(cancellationToken).ConfigureAwait(false);
             var fileRecords = fileDocs.Select(ConvertBsonDocToSupabaseRecord).ToList();
+            var syncedFiles = fileRecords.Count;
+            var totalBatches = (int)Math.Ceiling(syncedFiles / 100.0);
+            var batchIndex = 0;
+            if (syncedFiles == 0)
+            {
+                const string NoFilesMsg = "[SUPABASE-SYNC] Nenhum arquivo pendente para sincronização.";
+                _logger.LogInformation("{Message}", NoFilesMsg);
+                progressAction?.Invoke(NoFilesMsg);
+            }
+
             foreach (var batch in fileRecords.Chunk(100))
             {
+                batchIndex++;
                 await SendSupabaseBatchWithRetryAsync(supabaseUrl, supabaseKey, "nebula_files?on_conflict=id", batch, cancellationToken).ConfigureAwait(false);
+                var progressMessage = $"[SUPABASE-SYNC] Lote {batchIndex}/{totalBatches} enviado com sucesso ({Math.Min(batchIndex * 100, syncedFiles)}/{syncedFiles} arquivos).";
+                _logger.LogInformation("{Message}", progressMessage);
+                progressAction?.Invoke(progressMessage);
             }
-            var syncedFiles = fileRecords.Count;
 
             // Usuários FTP do MongoDB
             var allUsers = await _mongoContext.GetAllUsersForSyncAsync(cancellationToken).ConfigureAwait(false);
             var syncedUsers = await BackupNebulaUsersAsync(supabaseUrl, supabaseKey, allUsers, cancellationToken).ConfigureAwait(false);
+            var usersProgressMsg = $"[SUPABASE-SYNC] Lote de usuários FTP enviado com sucesso ({syncedUsers} usuários).";
+            _logger.LogInformation("{Message}", usersProgressMsg);
+            progressAction?.Invoke(usersProgressMsg);
 
             // O backup é espelho dos usuários FTP atuais. Usuários do app têm outro fluxo.
             var deletedFtpUsers = await RemoveDeletedNebulaUsersAsync(supabaseUrl, supabaseKey, allUsers, cancellationToken).ConfigureAwait(false);
@@ -650,6 +666,9 @@ public sealed class NebulaSupabaseSyncService : IDisposable
             // backup do Nebula: sem isso, uma restauração nunca recupera os tokens configurados.
             var botTokenDocs = await _mongoContext.GetAllBotTokenDocsAsync(cancellationToken).ConfigureAwait(false);
             var syncedTokens = await BackupNebulaBotTokensAsync(supabaseUrl, supabaseKey, botTokenDocs, cancellationToken).ConfigureAwait(false);
+            var tokensProgressMsg = $"[SUPABASE-SYNC] Lote de tokens de bot enviado com sucesso ({syncedTokens} tokens).";
+            _logger.LogInformation("{Message}", tokensProgressMsg);
+            progressAction?.Invoke(tokensProgressMsg);
 
             // 5. Registra log na tabela nebula_backups
             var syncModeName = forceFullSync ? "mongo_full_sync" : "mongo_delta_sync";
@@ -999,7 +1018,9 @@ public sealed class NebulaSupabaseSyncService : IDisposable
             }
 
             restored += await persistBatch(batch, cancellationToken).ConfigureAwait(false);
-            progressAction?.Invoke($"[SUPABASE-RESTORE] Catálogo Nebula: {restored} registros mesclados.");
+            var restoreBatchMsg = $"[SUPABASE-RESTORE] Catálogo Nebula: {restored} registros mesclados.";
+            _logger.LogInformation("{Message}", restoreBatchMsg);
+            progressAction?.Invoke(restoreBatchMsg);
 
             // PostgREST may enforce a server-side max_rows lower than the
             // requested limit. Advance by what it actually returned instead
@@ -1139,13 +1160,18 @@ public sealed class NebulaSupabaseSyncService : IDisposable
         try
         {
             progressAction?.Invoke("[SUPABASE-USERS] Backup de usuários iniciado; MongoDB e mídia ignorados.");
+            _logger.LogInformation("[SUPABASE-USERS] Backup de usuários iniciado; MongoDB e mídia ignorados.");
             var count = await BackupMulletaFlixUsersAsync(supabaseUrl, supabaseKey, cancellationToken).ConfigureAwait(false);
+            var usersBatchMsg = $"[SUPABASE-USERS] Lote de usuários do MulletaFlix ({count} usuários) enviado com sucesso.";
+            _logger.LogInformation("{Message}", usersBatchMsg);
+            progressAction?.Invoke(usersBatchMsg);
             var removed = await RemoveDeletedMulletaFlixUsersAsync(supabaseUrl, supabaseKey, cancellationToken).ConfigureAwait(false);
             result.Success = true;
             result.UsersBackedUp = count;
             result.ElapsedSeconds = (DateTime.UtcNow - started).TotalSeconds;
             result.Message = $"Backup de usuários concluído! ({count} usuários; {removed} removidos do backup; mídia não incluída)";
             progressAction?.Invoke($"[SUPABASE-USERS] {result.Message}");
+            _logger.LogInformation("[SUPABASE-USERS] {Message}", result.Message);
             return result;
         }
         catch (Exception ex)

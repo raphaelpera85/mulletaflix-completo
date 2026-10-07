@@ -781,6 +781,42 @@ public class NebulaSupabaseSyncTests
             TestContext.Current.CancellationToken));
     }
 
+    [Fact]
+    public async Task PerformUsersBackupAsync_InvokesProgressActionWithBatchMessage()
+    {
+        var options = new DbContextOptionsBuilder<UsersDbContext>()
+            .UseInMemoryDatabase(Guid.NewGuid().ToString("N"))
+            .Options;
+        var factory = new Mock<IDbContextFactory<UsersDbContext>>();
+        await using (var seedDb = new UsersDbContext(options, NullLogger<UsersDbContext>.Instance))
+        {
+            seedDb.Users.Add(new User("batch-user", "default", "default") { NormalizedUsername = "BATCH-USER", Password = "pwd" });
+            await seedDb.SaveChangesAsync(TestContext.Current.CancellationToken);
+        }
+
+        factory.Setup(value => value.CreateDbContextAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(() => new UsersDbContext(options, NullLogger<UsersDbContext>.Instance));
+
+        var handler = new SequenceResponseHandler(
+            new HttpResponseMessage(HttpStatusCode.OK),
+            new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("[]") });
+        using var service = new NebulaSupabaseSyncService(
+            null!,
+            NullLogger<NebulaSupabaseSyncService>.Instance,
+            factory.Object,
+            handler);
+
+        var progressMessages = new List<string>();
+        var result = await service.PerformUsersBackupAsync(
+            "https://supabase.invalid",
+            "sb_secret_test",
+            progressAction: progressMessages.Add,
+            TestContext.Current.CancellationToken);
+
+        Assert.True(result.Success);
+        Assert.Contains(progressMessages, msg => msg.Contains("Lote de usuários do MulletaFlix (1 usuários) enviado com sucesso", StringComparison.Ordinal));
+    }
+
     private static IDbContextFactory<UsersDbContext> CreateUsersContextFactory(DbContextOptions<UsersDbContext> options)
     {
         var factory = new Mock<IDbContextFactory<UsersDbContext>>();

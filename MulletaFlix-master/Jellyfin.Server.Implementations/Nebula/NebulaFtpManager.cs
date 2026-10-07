@@ -5020,13 +5020,13 @@ CREATE POLICY nebula_bot_tokens_service_role_all
             var appUserBackupCount = _supabaseSyncService == null
                 ? 0
                 : await _supabaseSyncService.GetMulletaFlixUserBackupCountAsync(config.SupabaseUrl, config.SupabaseKey, cancellationToken).ConfigureAwait(false);
-            if (userCount == 0 || appUserCount == 0 || appUserBackupCount > appUserCount)
+            if (userCount == 0 || (appUserBackupCount > 0 && (appUserCount == 0 || appUserBackupCount > appUserCount)))
             {
                 logAction?.Invoke($"[DATABASE-INIT] Usuários locais incompletos detectados (usuários FTP: {userCount}, usuários MulletaFlix: {appUserCount}/{appUserBackupCount} no backup). Verificando Supabase...");
                 _logger.LogInformation("[DATABASE-INIT] Usuários locais incompletos detectados (FTP: {FtpUsers}, MulletaFlix: {AppUsers}/{BackupUsers}). Iniciando auto-restauração de usuários a partir do Supabase...", userCount, appUserCount, appUserBackupCount);
 
                 _supabaseSyncService ??= new NebulaSupabaseSyncService(_mongoContext, _loggerFactory.CreateLogger<NebulaSupabaseSyncService>(), _usersDbProvider);
-                var restoreResult = await _supabaseSyncService.PerformRestoreAsync(config.SupabaseUrl, config.SupabaseKey, cancellationToken).ConfigureAwait(false);
+                var restoreResult = await _supabaseSyncService.PerformRestoreAsync(config.SupabaseUrl, config.SupabaseKey, logAction, forceFullRestore: false, cancellationToken).ConfigureAwait(false);
 
                 if (restoreResult.Success && (restoreResult.FilesRestored.GetValueOrDefault() > 0 || restoreResult.UsersRestored.GetValueOrDefault() > 0))
                 {

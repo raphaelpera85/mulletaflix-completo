@@ -3828,6 +3828,20 @@
       "startedAt": "06/10/2026 23:51:00",
       "updatedAt": "07/10/2026 00:39:00",
       "evidence": "Migração e release concluídas com sucesso: (1) strm_downloader.py, feed_ftp.py e supabase_sync.py empacotados em Tools/NebulaPython/tools; (2) NebulaFtpManager gerencia main.py (aioftp na 2121, Pyrogram multi-bot uploads, stream HTTP na 2123) e strm_downloader.py (multipart 32 partes) com cache de reprodução local integrado (NEBULA_PLAYBACK_CACHE_ROOT e leases IPC); (3) Parse e sincronização de progresso e logs em tempo real para Web UI; (4) Fix de timeout do Supabase com paginação 100; (5) Testes da suíte Jellyfin.Server.Implementations.Tests aprovados com 1.371 testes verdes (exit code 0); (6) Build da Web aprovado com tsc --noEmit (exit code 0); (7) Pacote de atualização e instalador Windows v12.1.15 gerados e publicados no GitHub Releases com 2 assets verificados (mulletaflix-update-win-x64.zip 370.45MB e mulletaflix_12.1.15_windows-x64.exe 403.72MB); (8) Portal sincronizado para MulletaFlix-Portal (commit 952a62e), deploy Vercel READY e rotas públicas /, /docs, /downloads, /updates, /homologacao e /sitemap.xml validadas com HTTP 200."
+    },
+    {
+      "id": "server-supabase-batch-progress-2026-10-07",
+      "title": "Mensagens de progresso por lote no envio do backup para o Supabase",
+      "agent": "Antigravity",
+      "front": "server",
+      "local": "D:\\Users\\Raphael\\Documents\\Projetos\\mulletaflix",
+      "location": "MulletaFlix-master/Jellyfin.Server.Implementations/Nebula",
+      "scope": "Adicionar emissão de log e notificação de progresso a cada lote enviado para o Supabase no serviço de sincronização nativo, além de logging em lotes de usuários e restauração",
+      "status": "completed",
+      "progressPercent": 100,
+      "startedAt": "2026-10-07T01:21:00-03:00",
+      "updatedAt": "2026-10-07T01:30:00-03:00",
+      "evidence": "Implementação concluída com sucesso: (1) Adicionada notificação a cada lote Chunk(100) enviado para nebula_files via _logger e progressAction com formato '[SUPABASE-SYNC] Lote X/Y enviado com sucesso (Z/Total arquivos)'; (2) Adicionadas mensagens de progresso para lotes de usuários FTP, bot tokens e usuários do MulletaFlix; (3) Adicionado log de progresso por lote na restauração; (4) Corrigida condição em EnsureDatabaseRestoredIfEmptyAsync para não disparar auto-restauração quando appUserBackupCount for 0; (5) Testes unitários do Supabase Sync validados: 32/32 aprovados em NebulaSupabaseSyncTests; suíte completa do Nebula validada com 580 aprovados, 0 falhas (exit code 0); (6) Backup em execução em tempo real concluído com sucesso às 01:23:47 com 43.704 arquivos, 7 usuários e 28 tokens em 637,9s."
     }
   ]
 }
