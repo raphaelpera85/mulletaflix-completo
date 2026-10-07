@@ -1,14 +1,14 @@
 {
     "schemaVersion":  1,
-    "generatedAt":  "2026-10-07T03:39:36-03:00",
+    "generatedAt":  "2026-10-07T03:52:06-03:00",
     "source":  {
                    "roadmap":  "https://github.com/raphaelpera85/mulletaflix-completo/blob/main/docs/roadmap-evolucao-tecnologica-servidor-e-web.md",
                    "repository":  "https://github.com/raphaelpera85/mulletaflix-completo"
                },
     "coverage":  {
-                     "completed":  301,
+                     "completed":  302,
                      "pending":  68,
-                     "total":  369,
+                     "total":  370,
                      "definition":  "Checklists de funcionalidades do roadmap (cada checkbox conta como um item); tarefas com evento ativo identificado aparecem como em execução.",
                      "inProgress":  0
                  },
@@ -2393,6 +2393,13 @@
                          "source":  "roadmap"
                      },
                      {
+                         "id":  "W1.1.11",
+                         "name":  "Log de ações — query pendente, snapshot e falha de atualização:",
+                         "area":  "Web",
+                         "status":  "completed",
+                         "source":  "roadmap"
+                     },
+                     {
                          "id":  "W1.2",
                          "name":  "Cobrir solicitação de mídia de ponta a ponta",
                          "area":  "Web",
@@ -3980,6 +3987,23 @@
                        "startedAt":  "2026-10-07T03:36:00-03:00",
                        "updatedAt":  "2026-10-07T03:37:00-03:00",
                        "evidence":  "Verificação RTL concluída no SearchResults real com cards/API simulados: Playwright comprova que o card DOM inicial está à direita do segundo e que ArrowLeft move foco para o vizinho visual à esquerda no modo TV. LTR também cobre ArrowRight/Left, NavigationRight e GamepadDPadLeft. O comportamento atual passou; nenhuma mudança de lógica de produção foi necessária. Validação final: npm run test:playwright:scrollbuttons 2/2 (inclui geometria e setas RTL); npm test -- --run 58 arquivos/366 testes; npm run build:check exit 0; ESLint focal exit 0; portal homologacao.test.mjs 4/4; Validate-PortalSitemap.ps1 cobre 7 canônicas; git diff --check exit 0. Revisão independente Cavecrew observou corretamente que dispositivos físicos e cards do builder sem mock não são simulados. W1.3 continua aberta para controle remoto físico, nativo e busca autenticada. progressPercent null. Sem alteração na lógica de produção, APK ou release. Portal commit 20353a16b1a2ea4afa432d1f3f2dbdd359ee3b52 foi READY em produção via deployment dpl_9bbFRCwhvYmin3KqYk3cKhnXb83D; /, /docs, /downloads, /updates, /homologacao, /sitemap.xml e /homologacao-status.json retornaram HTTP 200; cobertura pública 369/301/68."
+                   },
+                   {
+                       "id":  "w1-1-action-log-query-states-2026-10-07",
+                       "title":  "Corrigir loading/empty/degraded do log de ações (W1.1)",
+                       "agent":  "Codex",
+                       "front":  "web",
+                       "featureIds":  [
+                                          "W1.1"
+                                      ],
+                       "local":  "D:\\Users\\Raphael\\Documents\\Projetos\\mulletaflix",
+                       "location":  "MulletaFlix-web-master/src/apps/dashboard/routes/action-log.tsx",
+                       "scope":  "Evitar vazio prematuro com placeholder de query e preservar registros com aviso/retry se uma atualização do log falhar; sem mudar API ou dados de produção.",
+                       "status":  "completed",
+                       "progressPercent":  null,
+                       "startedAt":  "2026-10-07T03:40:00-03:00",
+                       "updatedAt":  "2026-10-07T03:52:00-03:00",
+                       "evidence":  "Bug reproduzido: placeholder vazio podia aparecer como estado vazio durante fetch; além disso, erro de refresh escondia a tabela com snapshot, e API ausente oferecia retry ineficaz. Correção: keepPreviousData, estado loading durante troca de chave, preservação da tabela em falha e erro sem retry quando API não existe. Vitest focal 4/4; suíte web 59 arquivos/370 testes aprovados; npm run build:check exit 0; ESLint focal exit 0; npm run build:production + npm run verify:build exit 0 (1.912 artefatos verificados, budget inicial 294,3 KB gzip/420 KB); git diff --check exit 0. Revisão independente Cavecrew confirmou o caso de API ausente e registrou que a cobertura não simula cache/query React Query real nem validações visuais/authenticated server; limitações refletidas no roadmap. W1.1 segue parcial. progressPercent null por não haver métrica consolidada. Release não criada; gate do roadmap continua ativo."
                    }
                ]
 }
