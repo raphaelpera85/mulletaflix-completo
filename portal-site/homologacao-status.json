@@ -3826,8 +3826,8 @@
       "status": "completed",
       "progressPercent": 100,
       "startedAt": "06/10/2026 23:51:00",
-      "updatedAt": "07/10/2026 00:14:00",
-      "evidence": "Migração concluída com sucesso: (1) strm_downloader.py, feed_ftp.py e supabase_sync.py empacotados em Tools/NebulaPython/tools; (2) NebulaFtpManager gerencia main.py (aioftp na 2121, Pyrogram multi-bot uploads, stream HTTP na 2123) e strm_downloader.py (multipart 32 partes); (3) Parse e sincronização de progresso e logs em tempo real para Web UI; (4) Fix de timeout do Supabase com paginação 100; (5) Testes da suíte Jellyfin.Server.Implementations.Tests aprovados com 1.371 testes verdes (exit code 0); (6) Build da Web aprovado com tsc --noEmit (exit code 0)."
+      "updatedAt": "07/10/2026 00:39:00",
+      "evidence": "Migração e release concluídas com sucesso: (1) strm_downloader.py, feed_ftp.py e supabase_sync.py empacotados em Tools/NebulaPython/tools; (2) NebulaFtpManager gerencia main.py (aioftp na 2121, Pyrogram multi-bot uploads, stream HTTP na 2123) e strm_downloader.py (multipart 32 partes) com cache de reprodução local integrado (NEBULA_PLAYBACK_CACHE_ROOT e leases IPC); (3) Parse e sincronização de progresso e logs em tempo real para Web UI; (4) Fix de timeout do Supabase com paginação 100; (5) Testes da suíte Jellyfin.Server.Implementations.Tests aprovados com 1.371 testes verdes (exit code 0); (6) Build da Web aprovado com tsc --noEmit (exit code 0); (7) Pacote de atualização e instalador Windows v12.1.15 gerados e publicados no GitHub Releases com 2 assets verificados (mulletaflix-update-win-x64.zip 370.45MB e mulletaflix_12.1.15_windows-x64.exe 403.72MB); (8) Portal sincronizado para MulletaFlix-Portal (commit 952a62e), deploy Vercel READY e rotas públicas /, /docs, /downloads, /updates, /homologacao e /sitemap.xml validadas com HTTP 200."
     }
   ]
 }
