@@ -1,6 +1,6 @@
 {
     "schemaVersion":  1,
-    "generatedAt":  "2026-10-07T03:54:03-03:00",
+    "generatedAt":  "2026-10-07T03:59:52-03:00",
     "source":  {
                    "roadmap":  "https://github.com/raphaelpera85/mulletaflix-completo/blob/main/docs/roadmap-evolucao-tecnologica-servidor-e-web.md",
                    "repository":  "https://github.com/raphaelpera85/mulletaflix-completo"
@@ -4004,6 +4004,23 @@
                        "startedAt":  "2026-10-07T03:40:00-03:00",
                        "updatedAt":  "2026-10-07T03:52:00-03:00",
                        "evidence":  "Bug reproduzido: placeholder vazio podia aparecer como estado vazio durante fetch; além disso, erro de refresh escondia a tabela com snapshot, e API ausente oferecia retry ineficaz. Correção: keepPreviousData, estado loading durante troca de chave, preservação da tabela em falha e erro sem retry quando API não existe. Vitest focal 4/4; suíte web 59 arquivos/370 testes aprovados; npm run build:check exit 0; ESLint focal exit 0; npm run build:production + npm run verify:build exit 0 (1.912 artefatos verificados, budget inicial 294,3 KB gzip/420 KB); git diff --check exit 0. Revisão independente Cavecrew confirmou o caso de API ausente e registrou que a cobertura não simula cache/query React Query real nem validações visuais/authenticated server; limitações refletidas no roadmap. W1.1 segue parcial. Portal clone commit 58cbced51e920e597122f61bf95dd9fb35f7d0e7 implantado por Vercel deployment dpl_4SFk85Npujkh2ZmP715jg9L5xqRZ em READY/produção; /, /docs, /downloads, /updates, /homologacao, /sitemap.xml e /homologacao-status.json retornaram HTTP 200; JSON público confirma 302 concluídos, 68 pendentes, 370 total. progressPercent null por não haver métrica consolidada. Release não criada; gate do roadmap continua ativo."
+                   },
+                   {
+                       "id":  "w1-1-action-log-real-query-integration-2026-10-07",
+                       "title":  "Exercitar transições reais de query do log de ações (W1.1)",
+                       "agent":  "Codex",
+                       "front":  "web",
+                       "featureIds":  [
+                                          "W1.1"
+                                      ],
+                       "local":  "D:\\Users\\Raphael\\Documents\\Projetos\\mulletaflix",
+                       "location":  "MulletaFlix-web-master/src/apps/dashboard/routes/action-log.integration.test.tsx",
+                       "scope":  "Complementar testes mockados com TanStack Query real: carga inicial pendente, troca de chave com keepPreviousData, falha de atualização preservando snapshot e retry bem-sucedido; sem alteração da API ou dados de produção.",
+                       "status":  "completed",
+                       "progressPercent":  null,
+                       "startedAt":  "2026-10-07T04:00:00-03:00",
+                       "updatedAt":  "2026-10-07T04:00:00-03:00",
+                       "evidence":  "Integração exercitada com QueryClient/QueryClientProvider reais: carga inicial mantém loading até resposta vazia confirmada; mudança do input altera a query key, envia username=filtered-user à API mockada, preserva linha anterior durante fetch e troca pelos resultados novos; invalidação real gera falha de refresh, mantém snapshot e permite retry bem-sucedido; erro inicial também recupera após retry. Vitest de integração 4/4, suíte web 60 arquivos/374 testes aprovados, build:check exit 0, ESLint focal exit 0, build:production + verify:build exit 0 (1.913 artefatos; 294,3 KB gzip/420 KB), git diff --check exit 0. Revisão Cavecrew apontou ausência de assert do parâmetro e a lacuna foi fechada. Limite: useApi/HTTP, Widget/dashboard permanecem mocks; sem ambiente autenticado ou visual validado. W1.1 continua parcialmente pendente. progressPercent null; sem métrica consolidada. Nenhuma release intermediária criada."
                    }
                ]
 }
