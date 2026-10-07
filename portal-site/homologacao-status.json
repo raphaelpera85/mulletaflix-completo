@@ -1,14 +1,14 @@
 {
     "schemaVersion":  1,
-    "generatedAt":  "2026-10-07T03:32:29-03:00",
+    "generatedAt":  "2026-10-07T03:38:24-03:00",
     "source":  {
                    "roadmap":  "https://github.com/raphaelpera85/mulletaflix-completo/blob/main/docs/roadmap-evolucao-tecnologica-servidor-e-web.md",
                    "repository":  "https://github.com/raphaelpera85/mulletaflix-completo"
                },
     "coverage":  {
-                     "completed":  300,
+                     "completed":  301,
                      "pending":  68,
-                     "total":  368,
+                     "total":  369,
                      "definition":  "Checklists de funcionalidades do roadmap (cada checkbox conta como um item); tarefas com evento ativo identificado aparecem como em execução.",
                      "inProgress":  0
                  },
@@ -2484,6 +2484,13 @@
                          "source":  "roadmap"
                      },
                      {
+                         "id":  "W1.3.5",
+                         "name":  "RTL por setas foi verificado no `SearchResults` real com cards controlados: o teste confirma que a ordem visual está invertida e que `ArrowLeft` move o foco do card à direita pa…",
+                         "area":  "Web",
+                         "status":  "completed",
+                         "source":  "roadmap"
+                     },
+                     {
                          "id":  "W1.4",
                          "name":  "Tratar falhas de API sem tela vazia",
                          "area":  "Web",
@@ -3956,6 +3963,23 @@
                        "startedAt":  "2026-10-07T03:20:00-03:00",
                        "updatedAt":  "2026-10-07T03:34:00-03:00",
                        "evidence":  "Subentrega de navegação direcional validada localmente: fixture SearchResults agora inicializa keyboardNavigation no modo TV apenas quando solicitado; Playwright confirma foco avançando/retornando em cards da linha com ArrowRight/ArrowLeft e com aliases de controle NavigationRight/GamepadDPadLeft. Validação: npm run test:playwright:scrollbuttons 2/2; npm test -- --run 58 arquivos/366 testes; npm run build:check exit 0; ESLint focal exit 0; git diff --check sem erros (avisos CRLF de arquivos preexistentes). A revisão independente Cavecrew confirmou o caminho do handler e apontou que os eventos são simulados e a fixture usa cards/API controlados. W1.3 permanece aberta: controle físico, device nativo, RTL por setas e busca autenticada não foram validados. Sem alteração no comportamento de produção, APK ou release. progressPercent null, sem métrica formal de cobertura consolidada. Portal commit bb855424271ded048d94b6cfab549b13b90f70e3, deployment Vercel dpl_FUpSrgXUxS7EBFcKwWJNxNyjLYRF em READY/produção; verificados HTTP 200 em /, /docs, /downloads, /updates, /homologacao, /sitemap.xml e /homologacao-status.json; cobertura pública 368/300/68."
+                   },
+                   {
+                       "id":  "w1-3-rtl-directional-search-2026-10-07",
+                       "title":  "Validar orientação RTL das teclas direcionais em busca (W1.3)",
+                       "agent":  "Codex",
+                       "front":  "server",
+                       "featureIds":  [
+                                          "W1.3"
+                                      ],
+                       "local":  "D:\\Users\\Raphael\\Documents\\Projetos\\mulletaflix",
+                       "location":  "MulletaFlix-web-master/tests/playwright e keyboardNavigation",
+                       "scope":  "Verificar se setas físicas e aliases de controle movem o foco na direção visual correta em uma linha RTL; corrigir somente se a regressão comprovar defeito.",
+                       "status":  "completed",
+                       "progressPercent":  null,
+                       "startedAt":  "2026-10-07T03:36:00-03:00",
+                       "updatedAt":  "2026-10-07T03:37:00-03:00",
+                       "evidence":  "Verificação RTL concluída no SearchResults real com cards/API simulados: Playwright comprova que o card DOM inicial está à direita do segundo e que ArrowLeft move foco para o vizinho visual à esquerda no modo TV. LTR também cobre ArrowRight/Left, NavigationRight e GamepadDPadLeft. O comportamento atual passou; nenhuma mudança de lógica de produção foi necessária. Validação final: npm run test:playwright:scrollbuttons 2/2 (inclui geometria e setas RTL); npm test -- --run 58 arquivos/366 testes; npm run build:check exit 0; ESLint focal exit 0; portal homologacao.test.mjs 4/4; Validate-PortalSitemap.ps1 cobre 7 canônicas; git diff --check exit 0. Revisão independente Cavecrew observou corretamente que dispositivos físicos e cards do builder sem mock não são simulados. W1.3 continua aberta para controle remoto físico, nativo e busca autenticada. progressPercent null. Sem alteração na lógica de produção, APK ou release."
                    }
                ]
 }
