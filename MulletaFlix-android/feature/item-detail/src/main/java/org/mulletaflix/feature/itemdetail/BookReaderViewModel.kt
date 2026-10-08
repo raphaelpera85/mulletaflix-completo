@@ -44,6 +44,7 @@ internal data class BookReaderState(
     val textBook: PlainTextBookDocument? = null,
     val initialLocator: Locator? = null,
     val fontSizePercent: Int = BookReaderFontSize.DEFAULT_PERCENT,
+    val speechRatePercent: Int = BookSpeechRate.DEFAULT_PERCENT,
     val bookmarks: List<BookReaderBookmark> = emptyList(),
     val bookmarkMessage: String? = null,
     val error: String? = null,
@@ -78,6 +79,8 @@ class BookReaderViewModel @Inject constructor(
     private val progressSaveMutex = Mutex()
     private val fontSizeSaveGeneration = BookReaderRequestGeneration()
     private var fontSizeSaveJob: Job? = null
+    private val speechRateSaveGeneration = BookReaderRequestGeneration()
+    private var speechRateSaveJob: Job? = null
 
     init {
         viewModelScope.launch {
@@ -100,6 +103,8 @@ class BookReaderViewModel @Inject constructor(
                     progressSaveJob?.cancel()
                     fontSizeSaveGeneration.begin()
                     fontSizeSaveJob?.cancel()
+                    speechRateSaveGeneration.begin()
+                    speechRateSaveJob?.cancel()
                     load(activeItemId)
                 }
             }
@@ -129,6 +134,8 @@ class BookReaderViewModel @Inject constructor(
             val bookmarks = progressScope?.let { progressStore.readBookmarks(it, itemId) }.orEmpty()
             val fontSizePercent = progressScope?.let { progressStore.readFontSizePercent(it) }
                 ?: BookReaderFontSize.DEFAULT_PERCENT
+            val speechRatePercent = progressScope?.let { progressStore.readSpeechRatePercent(it) }
+                ?: BookSpeechRate.DEFAULT_PERCENT
             var unownedPageBook: BookPageSource? = null
             val pageBookCreatedOnIo = AtomicReference<BookPageSource?>()
             try {
@@ -241,6 +248,7 @@ class BookReaderViewModel @Inject constructor(
                     textBook = content.textBook,
                     initialLocator = restorableLocator,
                     fontSizePercent = fontSizePercent,
+                    speechRatePercent = speechRatePercent,
                     bookmarks = bookmarks,
                 )
             } catch (cancelled: CancellationException) {
@@ -316,6 +324,33 @@ class BookReaderViewModel @Inject constructor(
             }
             if (!fontSizeSaveGeneration.isCurrent(generation)) return@launch
             progressStore.writeFontSizePercent(expectedScope, normalizedPercent)
+        }
+    }
+
+    fun setSpeechRatePercent(itemId: String, percent: Int) {
+        val expectedScope = loadedProgressScope ?: return
+        val currentState = _state.value
+        if (loadedItemId != itemId ||
+            (currentState.publication == null && currentState.pageBook == null && currentState.textBook == null)
+        ) return
+
+        val normalizedPercent = BookSpeechRate.normalize(percent)
+        if (currentState.speechRatePercent == normalizedPercent) return
+        _state.value = currentState.copy(speechRatePercent = normalizedPercent)
+
+        val generation = speechRateSaveGeneration.begin()
+        speechRateSaveJob?.cancel()
+        speechRateSaveJob = viewModelScope.launch {
+            val currentScope = recoverBookReaderStorageFailure {
+                sessionRepository.getHomeFeedCacheScope().first()
+            } ?: return@launch
+            if (progressStore.entryKey(currentScope, BookReaderProgressStore.SPEECH_RATE_SCOPE_ITEM_ID) !=
+                progressStore.entryKey(expectedScope, BookReaderProgressStore.SPEECH_RATE_SCOPE_ITEM_ID)
+            ) {
+                return@launch
+            }
+            if (!speechRateSaveGeneration.isCurrent(generation)) return@launch
+            progressStore.writeSpeechRatePercent(expectedScope, normalizedPercent)
         }
     }
 
@@ -443,6 +478,8 @@ class BookReaderViewModel @Inject constructor(
     override fun onCleared() {
         fontSizeSaveGeneration.begin()
         fontSizeSaveJob?.cancel()
+        speechRateSaveGeneration.begin()
+        speechRateSaveJob?.cancel()
         val pageBookToClose = activePageBook
         activePageBook = null
         applicationScope.launch {

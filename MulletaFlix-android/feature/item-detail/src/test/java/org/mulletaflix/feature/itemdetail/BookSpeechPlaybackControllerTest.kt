@@ -26,12 +26,13 @@ class BookSpeechPlaybackControllerTest {
         val engine = FakeBookSpeechEngine()
         val controller = BookSpeechPlaybackController(engine)
 
-        controller.setSpeechRatePercent(125)
         controller.play(listOf("first", "second"))
+        controller.setSpeechRatePercent(125)
+        assertTrue("Rate changes during engine initialization must be deferred", engine.speechRates.isEmpty())
         engine.listener.onReady()
         engine.listener.onUtteranceFinished(engine.utteranceIds.last())
 
-        assertEquals(listOf(1.25f, 1.25f, 1.25f), engine.speechRates)
+        assertEquals(listOf(1.25f, 1.25f), engine.speechRates)
         assertEquals(listOf("first", "second"), engine.spokenChunks)
     }
 

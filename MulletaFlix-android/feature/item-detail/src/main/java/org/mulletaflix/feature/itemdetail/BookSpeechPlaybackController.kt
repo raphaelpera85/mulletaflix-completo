@@ -110,6 +110,7 @@ internal class BookSpeechPlaybackController(
         val normalized = BookSpeechRate.normalize(percent)
         if (speechRatePercent == normalized) return
         speechRatePercent = normalized
+        if (!initialized) return
         if (!engine.setSpeechRate(normalized / 100f)) {
             fail("Não foi possível ajustar a velocidade da narração.")
         }

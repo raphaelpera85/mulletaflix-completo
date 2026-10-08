@@ -1,5 +1,14 @@
 # MulletaFlix Android - Plano de Desenvolvimento & Checklist de Funcionalidades (TODO)
 
+## Velocidade ajustável da narração de livros (APK local; sem release)
+
+- [x] Controles acessíveis para ajustar a narração em EPUB (Readium), PDF com texto selecionável e formatos de texto paginado (TextToSpeech Android): 75%–175%, passos de 25%, padrão 100%.
+- [x] Aplicar velocidade antes de iniciar cada trecho e nas falas seguintes; guardar a escolha durante restauração do estado da tela. Mudanças durante a inicialização assíncrona do TTS são aplicadas quando o mecanismo fica pronto.
+- [x] TDD: testes de taxa e de inicialização diferida observados falhando antes da implementação/correção e aprovados depois; integração Compose cobre EPUB, PDF e texto paginado.
+- [x] `testDebugUnitTest`: 1.514 testes JVM, 0 falhas/erros/ignorados; instrumentação `BookReaderScreenIntegrationTest` aprovada em Phone e Tablet API 35; `compileDebugAndroidTestKotlin`, `:feature:item-detail:lintDebug`, `:app:lintDebug` e `:app:assembleDebug` concluídos com `BUILD SUCCESSFUL` em 2026-10-08.
+- [ ] Velocidade não é uma preferência permanente entre sessões completas; validar seleção de idiomas/motores TTS em dispositivos físicos.
+- [ ] Sem bump de versão, APK de produção, portal ou publicação.
+
 ## Narração no leitor EPUB + formatos paginados (APK local; sem release)
 
 - [x] Integrar TextToSpeech Android ao leitor de texto paginado, com controle acessível de iniciar/parar e avanço automático entre trechos.

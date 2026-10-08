@@ -228,6 +228,42 @@ internal class BookReaderProgressStore(context: Context) {
         }
     }
 
+    suspend fun readSpeechRatePercent(scope: HomeFeedCacheScope): Int =
+        recoverBookReaderStorageFailure {
+            val key = speechRateKey(scope)
+            val saved = store.data.first()[key]
+                ?.toIntOrNull()
+                ?.let(BookSpeechRate::normalize)
+            if (saved != null) {
+                store.edit { preferences ->
+                    preferences[longPreferencesKey(timestampKey(key.name))] = System.currentTimeMillis()
+                    trimOldEntries(preferences)
+                }
+            }
+            saved
+        } ?: BookSpeechRate.DEFAULT_PERCENT
+
+    suspend fun writeSpeechRatePercent(scope: HomeFeedCacheScope, percent: Int) {
+        recoverBookReaderStorageFailure {
+            store.edit { preferences ->
+                val key = speechRateKey(scope)
+                preferences[key] = BookSpeechRate.normalize(percent).toString()
+                preferences[longPreferencesKey(timestampKey(key.name))] = System.currentTimeMillis()
+                trimOldEntries(preferences)
+            }
+        }
+    }
+
+    suspend fun removeSpeechRatePercent(scope: HomeFeedCacheScope) {
+        recoverBookReaderStorageFailure {
+            store.edit { preferences ->
+                val key = speechRateKey(scope)
+                preferences.remove(key)
+                preferences.remove(longPreferencesKey(timestampKey(key.name)))
+            }
+        }
+    }
+
     internal fun entryKey(scope: HomeFeedCacheScope, itemId: String): String {
         val serverIdentity = scope.serverId?.takeIf(String::isNotBlank)
             ?.let { "id:$it" }
@@ -241,6 +277,10 @@ internal class BookReaderProgressStore(context: Context) {
 
     private fun fontSizeKey(scope: HomeFeedCacheScope) = stringPreferencesKey(
         "book_reader_font_size_${entryKey(scope, FONT_SIZE_SCOPE_ITEM_ID).removePrefix(ENTRY_PREFIX)}",
+    )
+
+    private fun speechRateKey(scope: HomeFeedCacheScope) = stringPreferencesKey(
+        "${SPEECH_RATE_PREFIX}${entryKey(scope, SPEECH_RATE_SCOPE_ITEM_ID).removePrefix(ENTRY_PREFIX)}",
     )
 
     private fun bookmarksKey(scope: HomeFeedCacheScope, itemId: String) = stringPreferencesKey(
@@ -277,6 +317,7 @@ internal class BookReaderProgressStore(context: Context) {
     private fun trimOldEntries(preferences: MutablePreferences) {
         trimEntries(preferences, ENTRY_PREFIX, MAX_ENTRIES)
         trimEntries(preferences, FONT_SIZE_PREFIX, MAX_FONT_SIZE_SCOPES)
+        trimEntries(preferences, SPEECH_RATE_PREFIX, MAX_FONT_SIZE_SCOPES)
         trimEntries(preferences, BOOKMARKS_PREFIX, MAX_ENTRIES)
     }
 
@@ -292,8 +333,10 @@ internal class BookReaderProgressStore(context: Context) {
 
     internal companion object {
         const val FONT_SIZE_SCOPE_ITEM_ID = "__reader_font_size_preference__"
+        const val SPEECH_RATE_SCOPE_ITEM_ID = "__reader_speech_rate_preference__"
         const val ENTRY_PREFIX = "book_reader_progress_"
         const val FONT_SIZE_PREFIX = "book_reader_font_size_"
+        const val SPEECH_RATE_PREFIX = "book_reader_speech_rate_"
         const val BOOKMARKS_PREFIX = "book_reader_bookmarks_"
         const val UPDATED_SUFFIX = "_updated"
         const val MAX_ENTRIES = 100

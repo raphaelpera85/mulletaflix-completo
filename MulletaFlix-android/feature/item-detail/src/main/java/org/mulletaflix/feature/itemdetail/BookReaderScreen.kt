@@ -115,9 +115,7 @@ fun BookReaderScreen(
     var pdfSpeechLoading by remember(itemId) { mutableStateOf(false) }
     var pdfSpeechJob by remember(itemId) { mutableStateOf<Job?>(null) }
     var currentTextChunk by rememberSaveable(itemId) { mutableIntStateOf(0) }
-    var speechRatePercent by rememberSaveable(itemId) {
-        mutableIntStateOf(BookSpeechRate.DEFAULT_PERCENT)
-    }
+    val speechRatePercent = state.speechRatePercent
     var pageZoom by rememberSaveable(itemId) { mutableFloatStateOf(1f) }
     var renditionState by remember(itemId) { mutableStateOf<ReflowableWebRenditionState?>(null) }
     var renditionError by remember(itemId) { mutableStateOf<String?>(null) }
@@ -463,10 +461,10 @@ fun BookReaderScreen(
                     speechActive = pdfSpeechActive,
                     speechRatePercent = speechRatePercent,
                     onDecreaseSpeechRate = {
-                        speechRatePercent = BookSpeechRate.decrease(speechRatePercent)
+                        viewModel.setSpeechRatePercent(itemId, BookSpeechRate.decrease(speechRatePercent))
                     },
                     onIncreaseSpeechRate = {
-                        speechRatePercent = BookSpeechRate.increase(speechRatePercent)
+                        viewModel.setSpeechRatePercent(itemId, BookSpeechRate.increase(speechRatePercent))
                     },
                     onToggleSpeech = {
                         if (pdfSpeechActive || speechController.isSpeaking) stopPdfSpeech()
@@ -505,10 +503,10 @@ fun BookReaderScreen(
                         viewModel.setFontSizePercent(itemId, BookReaderFontSize.increase(state.fontSizePercent))
                     },
                     onDecreaseSpeechRate = {
-                        speechRatePercent = BookSpeechRate.decrease(speechRatePercent)
+                        viewModel.setSpeechRatePercent(itemId, BookSpeechRate.decrease(speechRatePercent))
                     },
                     onIncreaseSpeechRate = {
-                        speechRatePercent = BookSpeechRate.increase(speechRatePercent)
+                        viewModel.setSpeechRatePercent(itemId, BookSpeechRate.increase(speechRatePercent))
                     },
                 )
             } else {
@@ -580,10 +578,10 @@ fun BookReaderScreen(
                             speechRatePercent = speechRatePercent,
                             enabled = controller != null,
                             onDecrease = {
-                                speechRatePercent = BookSpeechRate.decrease(speechRatePercent)
+                                viewModel.setSpeechRatePercent(itemId, BookSpeechRate.decrease(speechRatePercent))
                             },
                             onIncrease = {
-                                speechRatePercent = BookSpeechRate.increase(speechRatePercent)
+                                viewModel.setSpeechRatePercent(itemId, BookSpeechRate.increase(speechRatePercent))
                             },
                         )
                     }

@@ -11,6 +11,7 @@ import android.webkit.WebView
 import androidx.activity.ComponentActivity
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertHasNoClickAction
@@ -20,6 +21,7 @@ import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onAllNodesWithContentDescription
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.SemanticsMatcher
@@ -148,7 +150,7 @@ class BookReaderScreenIntegrationTest {
                     .assert(SemanticsMatcher.expectValue(SemanticsProperties.StateDescription, "Em reprodução"))
             }.isSuccess
         }
-        composeRule.onNodeWithText("100%").assertIsDisplayed()
+        assertEquals(2, composeRule.onAllNodesWithText("100%").fetchSemanticsNodes().size)
         composeRule.onNodeWithContentDescription("Aumentar velocidade da narração")
             .assertIsDisplayed()
             .performClick()
@@ -312,6 +314,7 @@ class BookReaderScreenIntegrationTest {
     @Test
     fun textBookSpeechAdvancesChunksAndStopsWhenReaderGoesToBackground() {
         val itemId = "reader-speech-${System.nanoTime()}"
+        val scopedSession = sessionScope.copy(serverId = "reader-speech-server-${System.nanoTime()}")
         server.enqueue(
             MockResponse()
                 .setResponseCode(200)
@@ -328,10 +331,11 @@ class BookReaderScreenIntegrationTest {
             object : ViewModelProvider.Factory {
                 @Suppress("UNCHECKED_CAST")
                 override fun <T : ViewModel> create(modelClass: Class<T>): T =
-                    BookReaderViewModel(api, TestSessionRepository(sessionScope), context) as T
+                    BookReaderViewModel(api, TestSessionRepository(scopedSession), context) as T
             },
         )[BookReaderViewModel::class.java]
         val speechEngine = FakeBookSpeechEngine()
+        val readerItemId = mutableStateOf(itemId)
         val lifecycleOwner = SpeechTestLifecycleOwner()
         composeRule.runOnUiThread {
             lifecycleOwner.registry.handleLifecycleEvent(Lifecycle.Event.ON_CREATE)
@@ -345,7 +349,7 @@ class BookReaderScreenIntegrationTest {
                 LocalBookSpeechEngineFactory provides { speechEngine },
             ) {
                 MaterialTheme {
-                    BookReaderScreen(itemId = itemId, onBack = {}, viewModel = viewModel)
+                    BookReaderScreen(itemId = readerItemId.value, onBack = {}, viewModel = viewModel)
                 }
             }
         }
@@ -384,6 +388,22 @@ class BookReaderScreenIntegrationTest {
         composeRule.waitUntil(timeoutMillis = 5_000) { speechEngine.stopCount == 1 }
         composeRule.onNodeWithContentDescription("Ler trecho em voz alta").assertIsDisplayed()
         assertEquals(0, speechEngine.shutdownCount)
+
+        server.enqueue(
+            MockResponse()
+                .setResponseCode(200)
+                .addHeader("Content-Type", "text/plain; charset=utf-8")
+                .setBody("Conteúdo após reabrir o leitor."),
+        )
+        composeRule.runOnUiThread {
+            lifecycleOwner.registry.handleLifecycleEvent(Lifecycle.Event.ON_START)
+            lifecycleOwner.registry.handleLifecycleEvent(Lifecycle.Event.ON_RESUME)
+            readerItemId.value = "${itemId}-next-book"
+        }
+        composeRule.waitUntil(timeoutMillis = 15_000) {
+            runCatching { composeRule.onNodeWithText("Trecho 1 de 1").assertIsDisplayed() }.isSuccess
+        }
+        composeRule.onNodeWithText("125%").assertIsDisplayed()
 
         composeRule.runOnUiThread {
             lifecycleOwner.registry.handleLifecycleEvent(Lifecycle.Event.ON_DESTROY)
@@ -495,6 +515,13 @@ class BookReaderScreenIntegrationTest {
         composeRule.runOnUiThread { speechEngine.listener.onReady() }
         composeRule.waitUntil(timeoutMillis = 5_000) { speechEngine.spokenChunks.size == 1 }
         assertEquals(listOf("PDF page 1"), speechEngine.spokenChunks)
+        composeRule.onNodeWithContentDescription("Aumentar velocidade da narração")
+            .assertIsDisplayed()
+            .performClick()
+        composeRule.onNodeWithText("125%").assertIsDisplayed()
+        composeRule.waitUntil(timeoutMillis = 5_000) {
+            speechEngine.speechRates.lastOrNull() == 1.25f
+        }
 
         composeRule.runOnUiThread {
             speechEngine.listener.onUtteranceFinished(speechEngine.utteranceIds.last())

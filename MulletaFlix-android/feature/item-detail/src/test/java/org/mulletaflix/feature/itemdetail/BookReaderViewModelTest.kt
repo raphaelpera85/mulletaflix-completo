@@ -368,6 +368,52 @@ class BookReaderViewModelTest {
         }
 
     @Test
+    fun `speech rate persists across books and reader instances but stays isolated by account and server`() =
+        runTest(dispatcher) {
+            val suffix = System.nanoTime()
+            val scopeA = HomeFeedCacheScope("speech-server-a-$suffix", "https://speech-a.example", "speech-user-a")
+            val scopeB = HomeFeedCacheScope("speech-server-b-$suffix", "https://speech-b.example", "speech-user-b")
+            val progressStore = BookReaderProgressStore(context)
+            progressStore.removeSpeechRatePercent(scopeA)
+            progressStore.removeSpeechRatePercent(scopeB)
+
+            val api = mockk<MulletaFlixApiService>(relaxed = true)
+            coEvery { api.getBookReaderEpub(any()) } answers { epubResponseBody() }
+            coEvery { api.getBookReaderStatus(any()) } returns BookReaderStatusDto("Ready")
+            val scopeFlow = MutableStateFlow<HomeFeedCacheScope?>(scopeA)
+            val sessionRepository = FakeSessionRepository { scopeFlow }
+            val firstReader = BookReaderViewModel(api, sessionRepository, context)
+
+            firstReader.load("speech-book-one-$suffix")
+            awaitLoadFinished(firstReader)
+            assertEquals(BookSpeechRate.DEFAULT_PERCENT, firstReader.state.value.speechRatePercent)
+
+            firstReader.setSpeechRatePercent("speech-book-one-$suffix", 155)
+            assertEquals(150, firstReader.state.value.speechRatePercent)
+            settle {
+                runBlocking { progressStore.readSpeechRatePercent(scopeA) } == 150
+            }
+
+            firstReader.load("speech-book-two-$suffix")
+            awaitLoadFinished(firstReader)
+            assertEquals(150, firstReader.state.value.speechRatePercent)
+
+            val reopenedReader = BookReaderViewModel(api, FakeSessionRepository(scopeA), context)
+            reopenedReader.load("speech-book-three-$suffix")
+            awaitLoadFinished(reopenedReader)
+            assertEquals(150, reopenedReader.state.value.speechRatePercent)
+
+            scopeFlow.value = scopeB
+            awaitLoadFinished(firstReader)
+            assertEquals(BookSpeechRate.DEFAULT_PERCENT, firstReader.state.value.speechRatePercent)
+            assertEquals(150, progressStore.readSpeechRatePercent(scopeA))
+
+            progressStore.writeSpeechRatePercent(scopeB, 500)
+            assertEquals(BookSpeechRate.MAX_PERCENT, progressStore.readSpeechRatePercent(scopeB))
+            assertEquals(150, progressStore.readSpeechRatePercent(scopeA))
+        }
+
+    @Test
     fun `server conversion status is shown while the book stream waits and cleared after it arrives`() =
         runTest(dispatcher) {
             val api = mockk<MulletaFlixApiService>(relaxed = true)
