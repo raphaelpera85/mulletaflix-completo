@@ -198,9 +198,11 @@ private object LocalNetworkSubnetProvider {
 /** Checks every exchange, including redirect destinations, before it reaches the wire. */
 class LocalNetworkCleartextInterceptor(
     internal val requireHttpsRedirects: Boolean = false,
+    private val allowedHttpsRedirectHosts: Set<String>? = null,
 ) : Interceptor {
     private companion object {
         const val HTTPS_REDIRECT_BLOCKED_MESSAGE = "HTTPS requests must not redirect to HTTP."
+        const val UNTRUSTED_HTTPS_REDIRECT_BLOCKED_MESSAGE = "HTTPS redirect host is not trusted."
         const val MAX_REDIRECTS = 20
         val REDIRECT_CODES = setOf(300, 301, 302, 303, 307, 308)
         val CREDENTIAL_QUERY_PARAMETER_NAMES = setOf(
@@ -290,6 +292,12 @@ class LocalNetworkCleartextInterceptor(
                 if (requireHttpsRedirects && !redirectUrl.isHttps) {
                     throw IOException(HTTPS_REDIRECT_BLOCKED_MESSAGE)
                 }
+                if (requireHttpsRedirects &&
+                    allowedHttpsRedirectHosts != null &&
+                    redirectUrl.host !in allowedHttpsRedirectHosts
+                ) {
+                    throw IOException(UNTRUSTED_HTTPS_REDIRECT_BLOCKED_MESSAGE)
+                }
                 CleartextTrafficPolicy.requireAllowed(redirectUrl)
             } catch (failure: IOException) {
                 response.close()
@@ -359,8 +367,9 @@ object LocalNetworkCleartextNetworkInterceptor : Interceptor {
 /** Controls redirects in-app, then checks every request again at the network boundary. */
 fun OkHttpClient.Builder.enforceLocalNetworkCleartextPolicy(
     requireHttpsRedirects: Boolean = false,
+    allowedHttpsRedirectHosts: Set<String>? = null,
 ): OkHttpClient.Builder =
     followRedirects(false)
         .followSslRedirects(false)
-        .addInterceptor(LocalNetworkCleartextInterceptor(requireHttpsRedirects))
+        .addInterceptor(LocalNetworkCleartextInterceptor(requireHttpsRedirects, allowedHttpsRedirectHosts))
         .addNetworkInterceptor(LocalNetworkCleartextNetworkInterceptor)

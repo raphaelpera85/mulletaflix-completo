@@ -32,7 +32,10 @@ class AppUpdateDownloader @Inject constructor(
     @ApplicationContext private val context: Context,
 ) {
     private val httpClient = OkHttpClient.Builder()
-        .enforceLocalNetworkCleartextPolicy(requireHttpsRedirects = true)
+        .enforceLocalNetworkCleartextPolicy(
+            requireHttpsRedirects = true,
+            allowedHttpsRedirectHosts = setOf("github.com", "release-assets.githubusercontent.com"),
+        )
         .connectTimeout(30, TimeUnit.SECONDS)
         .readTimeout(180, TimeUnit.SECONDS)
         .build()

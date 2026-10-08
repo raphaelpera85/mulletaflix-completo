@@ -1,8 +1,17 @@
 # MulletaFlix Android - Plano de Desenvolvimento & Checklist de Funcionalidades (TODO)
 
+## Endurecer origem do download do APK (APK local; sem release)
+
+- [x] Aceitar apenas URLs HTTPS do endpoint oficial de assets do GitHub, sem user-info e usando somente porta padrão ou 443 explícita.
+- [x] TDD: teste RED provou aceitação incorreta de `https://attacker:secret@github.com/...`; GREEN passou rejeitando credenciais e porta 8443 e aceitando 443.
+- [x] Validação em 2026-10-08: `ApkIntegrityTest` passou; suíte JVM completa 1.516 testes, 0 falhas/erros/ignorados; `:core:common:lintDebug`, `:app:lintDebug` e `:app:assembleDebug` passaram.
+- [ ] Fluxos completos do downloader (sucesso/progresso, HTTP, corpo vazio, checksum, cancelamento e limpeza) continuam pendentes conforme `TDD-PLAN.md`.
+- [ ] Sem bump de versão, APK de produção, portal ou publicação.
+
 ## Velocidade ajustável da narração de livros (APK local; sem release)
 
 - [x] Controles acessíveis para ajustar a narração em EPUB (Readium), PDF com texto selecionável e formatos de texto paginado (TextToSpeech Android): 75%–175%, passos de 25%, padrão 100%.
+- [x] Desabilitar os controles de velocidade do PDF durante a inicialização assíncrona do TTS, sem bloqueá-los durante a extração da página nem durante a narração; teste de regressão confirmou o estado Preparing antes de onReady.
 - [x] Aplicar velocidade antes de iniciar cada trecho e nas falas seguintes; persistir a escolha entre livros e sessões, isolada por conta/servidor, e restaurá-la antes da narração. Mudanças durante a inicialização assíncrona do TTS são aplicadas quando o mecanismo fica pronto.
 - [x] TDD: testes de taxa e de inicialização diferida observados falhando antes da implementação/correção e aprovados depois; integração Compose cobre EPUB, PDF e texto paginado.
 - [x] `testDebugUnitTest`: 1.515 testes JVM, 0 falhas/erros; instrumentação `BookReaderScreenIntegrationTest` aprovada 8/8 em Phone e 8/8 em Tablet API 35; `compileDebugAndroidTestKotlin`, `:feature:item-detail:lintDebug`, `:app:lintDebug` e `:app:assembleDebug` concluídos com `BUILD SUCCESSFUL` em 2026-10-08.

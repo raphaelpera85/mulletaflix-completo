@@ -19,6 +19,37 @@ import org.mulletaflix.core.common.network.enforceLocalNetworkCleartextPolicy
 @RunWith(AndroidJUnit4::class)
 class AppUpdateHttpsRedirectIntegrationTest {
     @Test
+    fun httpsUpdateRedirectToUntrustedHttpsHostIsBlockedBeforeTheTargetRequest() {
+        val fixtures = tlsFixtures()
+        val untrustedServer = httpsServer(fixtures.serverCertificates).apply {
+            enqueue(MockResponse().setBody("not-an-official-apk"))
+            start(InetAddress.getByName("127.0.0.1"), 0)
+        }
+        val updateServer = httpsServer(fixtures.serverCertificates).apply {
+            enqueue(
+                MockResponse().setResponseCode(302)
+                    .setHeader("Location", untrustedServer.url("/apk").newBuilder().host(UNTRUSTED_HOST).build()),
+            )
+            start(InetAddress.getByName("127.0.0.1"), 0)
+        }
+        val client = updateClient(fixtures.clientCertificates)
+
+        try {
+            val failure = runCatching {
+                client.newCall(Request.Builder().url(updateUrl(updateServer, UPDATE_HOST)).build())
+                    .execute().use { }
+            }.exceptionOrNull()
+
+            assertTrue("Expected untrusted HTTPS redirect rejection, got $failure", failure is IOException)
+            assertEquals("Only the original HTTPS request may reach its server", 1, updateServer.requestCount)
+            assertEquals("Untrusted HTTPS target must receive no request", 0, untrustedServer.requestCount)
+        } finally {
+            updateServer.shutdown()
+            untrustedServer.shutdown()
+        }
+    }
+
+    @Test
     fun httpsUpdateRedirectToLocalHttpIsBlockedBeforeTheTargetRequest() {
         val fixtures = tlsFixtures()
         val localHttpTarget = MockWebServer().apply { start(InetAddress.getByName("127.0.0.1"), 0) }
@@ -173,6 +204,7 @@ class AppUpdateHttpsRedirectIntegrationTest {
         val certificate = HeldCertificate.Builder()
             .addSubjectAlternativeName(UPDATE_HOST)
             .addSubjectAlternativeName(CDN_HOST)
+            .addSubjectAlternativeName(UNTRUSTED_HOST)
             .build()
         return TlsFixtures(
             serverCertificates = HandshakeCertificates.Builder().heldCertificate(certificate).build(),
@@ -190,10 +222,13 @@ class AppUpdateHttpsRedirectIntegrationTest {
         .sslSocketFactory(certificates.sslSocketFactory(), certificates.trustManager)
         .dns(object : Dns {
             override fun lookup(hostname: String): List<InetAddress> =
-                if (hostname in setOf(UPDATE_HOST, CDN_HOST)) listOf(InetAddress.getByName("127.0.0.1"))
+                if (hostname in setOf(UPDATE_HOST, CDN_HOST, UNTRUSTED_HOST)) listOf(InetAddress.getByName("127.0.0.1"))
                 else Dns.SYSTEM.lookup(hostname)
         })
-        .enforceLocalNetworkCleartextPolicy(requireHttpsRedirects = true)
+        .enforceLocalNetworkCleartextPolicy(
+            requireHttpsRedirects = true,
+            allowedHttpsRedirectHosts = setOf("github.com", UPDATE_HOST, CDN_HOST),
+        )
         .build()
 
     private fun updateUrl(server: MockWebServer, host: String) =
@@ -206,6 +241,7 @@ class AppUpdateHttpsRedirectIntegrationTest {
 
     private companion object {
         const val UPDATE_HOST = "updates.example.test"
-        const val CDN_HOST = "cdn.example.test"
+        const val CDN_HOST = "release-assets.githubusercontent.com"
+        const val UNTRUSTED_HOST = "untrusted.example.test"
     }
 }

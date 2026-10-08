@@ -41,6 +41,24 @@ class ApkIntegrityTest {
     }
 
     @Test
+    fun `official release urls reject embedded credentials and nonstandard ports`() {
+        val releasePath = "/raphaelpera85/mulletaflix-completo/releases/download/app-v1.0.66/app.apk"
+
+        assertTrue(isTrustedApkDownloadUrl("https://github.com:443$releasePath"))
+        assertFalse(isTrustedApkDownloadUrl("https://attacker:secret@github.com$releasePath"))
+        assertFalse(isTrustedApkDownloadUrl("https://github.com:8443$releasePath"))
+    }
+
+    @Test
+    fun `official release urls reject dot segments that escape the asset path`() {
+        val traversal = "https://github.com/raphaelpera85/mulletaflix-completo/releases/download/app-v1.0.66/../../../../other.apk"
+        val encodedTraversal = "https://github.com/raphaelpera85/mulletaflix-completo/releases/download/app-v1.0.66/%2e%2e/%2e%2e/other.apk"
+
+        assertFalse(isTrustedApkDownloadUrl(traversal))
+        assertFalse(isTrustedApkDownloadUrl(encodedTraversal))
+    }
+
+    @Test
     fun `partial apk cleanup is idempotent`() {
         val file = temporaryApk("partial-update")
 

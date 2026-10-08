@@ -31,10 +31,16 @@ internal fun sha256Matches(file: File, expectedDigest: String?): Boolean {
 /** Accepts only the official GitHub release asset endpoint used by the APK channel. */
 internal fun isTrustedApkDownloadUrl(downloadUrl: String): Boolean = runCatching {
     val uri = URI(downloadUrl.trim())
+    val path = uri.path
     uri.scheme.equals("https", ignoreCase = true) &&
         uri.host.equals("github.com", ignoreCase = true) &&
-        uri.path.startsWith("/raphaelpera85/mulletaflix-completo/releases/download/app-v") &&
-        uri.path.endsWith(".apk", ignoreCase = true)
+        uri.rawUserInfo == null &&
+        (uri.port == -1 || uri.port == 443) &&
+        path != null &&
+        uri.rawPath == path &&
+        uri.normalize().path == path &&
+        path.startsWith("/raphaelpera85/mulletaflix-completo/releases/download/app-v") &&
+        path.endsWith(".apk", ignoreCase = true)
 }.getOrDefault(false)
 
 /** Removes an incomplete update artifact without failing cleanup itself. */

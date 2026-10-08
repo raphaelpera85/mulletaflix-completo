@@ -51,7 +51,7 @@ Prioridades abaixo resultam de auditoria estática dos módulos e são tarefas d
 
 ### P1 — segurança, sessão e fluxos críticos
 
-1. **Atualização do APK:** `core/common/.../AppUpdateDownloader.kt` — sucesso, progresso, HTTP inválido, corpo vazio, checksum incorreto, cancelamento e remoção do parcial. Depois, `AppUpdateInstaller.kt` — permissão, intent de configurações, URI FileProvider e abertura do instalador.
+1. **Atualização do APK:** `core/common/.../AppUpdateDownloader.kt` — sucesso, progresso, HTTP inválido, corpo vazio, checksum incorreto, cancelamento e remoção do parcial. Depois, `AppUpdateInstaller.kt` — permissão, intent de configurações, URI FileProvider e abertura do instalador. Evidência parcial em 2026-10-08: RED-GREEN comprovado para rejeitar user-info, porta diferente de 443, caminhos com segmentos `.`/`..` literais ou percent-encoded e redirects HTTPS para hosts fora da allowlist; redirect para `release-assets.githubusercontent.com` preservado. Teste instrumentado `AppUpdateHttpsRedirectIntegrationTest` passou 5/5 no AVD PHONE API 35 usando NVIDIA. Fluxo completo do downloader e instalador continuam pendentes.
 2. **Sessão persistida:** `data/.../SessionRepositoryImpl.kt` — salvar/reabrir/limpar sessão, troca de servidor/conta, servidores salvos e isolamento no DataStore.
 3. **SyncPlay realtime:** `core/api/.../SyncPlayRealtimeClient.kt` — start/stop, troca de grupo, eventos, falha, cancelamento e reconexão obsoleta com WebSocket controlado.
 4. **Navegação de produção:** `app/.../MulletaFlixNavHost.kt` — sessão ausente/válida/incompleta, restauração, logout, deep link frio e `onNewIntent` no grafo real. Os testes de rota simplificados continuam úteis, mas não substituem esta integração.

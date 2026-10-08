@@ -47,6 +47,10 @@ O backup automático do Nebula para Supabase vem habilitado por padrão e tem in
 | `tools/` | Ferramentas auxiliares, incluindo utilitários de migração. |
 | `docs/` | Runbooks e documentação do projeto. |
 
+## Desenvolvimento e testes
+
+O fluxo TDD e os quality gates de Android, iOS, Web, servidor, Nebula, portal e ferramentas estão documentados em [`docs/TDD-PROJECT.md`](docs/TDD-PROJECT.md). Consulte também o guia específico de cada plataforma antes de alterar comportamento.
+
 ## Instalação rápida no Windows
 
 1. Abra [Releases](https://github.com/raphaelpera85/mulletaflix-completo/releases) e baixe os arquivos da versão desejada.
