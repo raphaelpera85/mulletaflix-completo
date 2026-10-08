@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-10-08T03:49:06-03:00",
+  "generatedAt": "2026-10-08T03:55:10-03:00",
   "source": {
     "roadmap": "https://github.com/raphaelpera85/mulletaflix-completo/blob/main/docs/roadmap-evolucao-tecnologica-servidor-e-web.md",
     "repository": "https://github.com/raphaelpera85/mulletaflix-completo"
@@ -4475,6 +4475,7 @@
       "location": "MulletaFlix-master/tests e Tools/NebulaPython/tests",
       "scope": "Inventariar e executar testes do servidor .NET, Nebula Python e interface web; mapear funcionalidades/contratos sem cobertura; criar testes não destrutivos para lacunas de alto risco (incluindo ciclo de vida das conexões Mongo na fila e no cache de validação do downloader); registrar limites de cobertura comprovados.",
       "status": "in_progress",
+      "publicationCheck": "Portal commit 63ebc7b5e85f893c75e58ef66bcb40a288f602a4 enviado a main; rotas públicas verificadas HTTP 200. Falha de autorização Vercel API 403 no escopo raphaelpera85s-projects; fallback CLI indisponível (vercel não instalado). Estado READY vinculado ao commit não confirmado; não declarar publicação confirmada.",
       "progressPercent": null,
       "startedAt": "2026-10-07T16:21:51-03:00",
       "updatedAt": "2026-10-08T03:47:52-03:00",
