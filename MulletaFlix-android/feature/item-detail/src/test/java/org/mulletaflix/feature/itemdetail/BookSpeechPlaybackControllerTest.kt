@@ -22,6 +22,20 @@ class BookSpeechPlaybackControllerTest {
     }
 
     @Test
+    fun `selected speech rate is applied before speech and retained for following chunks`() {
+        val engine = FakeBookSpeechEngine()
+        val controller = BookSpeechPlaybackController(engine)
+
+        controller.setSpeechRatePercent(125)
+        controller.play(listOf("first", "second"))
+        engine.listener.onReady()
+        engine.listener.onUtteranceFinished(engine.utteranceIds.last())
+
+        assertEquals(listOf(1.25f, 1.25f, 1.25f), engine.speechRates)
+        assertEquals(listOf("first", "second"), engine.spokenChunks)
+    }
+
+    @Test
     fun `advances through chunks and completes after final utterance`() {
         val engine = FakeBookSpeechEngine()
         val states = mutableListOf<BookSpeechState>()
@@ -145,6 +159,7 @@ class BookSpeechPlaybackControllerTest {
         var initializeRequested = false
         var initializeCount = 0
         var stopCount = 0
+        val speechRates = mutableListOf<Float>()
         val spokenChunks = mutableListOf<String>()
         val utteranceIds = mutableListOf<String>()
 
@@ -152,6 +167,11 @@ class BookSpeechPlaybackControllerTest {
             initializeRequested = true
             initializeCount++
             this.listener = listener
+        }
+
+        override fun setSpeechRate(rate: Float): Boolean {
+            speechRates += rate
+            return true
         }
 
         override fun speak(text: String, utteranceId: String): Boolean {

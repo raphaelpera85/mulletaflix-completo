@@ -149,6 +149,10 @@ class BookReaderScreenIntegrationTest {
             }.isSuccess
         }
         composeRule.onNodeWithText("100%").assertIsDisplayed()
+        composeRule.onNodeWithContentDescription("Aumentar velocidade da narração")
+            .assertIsDisplayed()
+            .performClick()
+        composeRule.onNodeWithText("125%").assertIsDisplayed()
         composeRule.onNodeWithContentDescription("Página anterior").assertIsEnabled()
         composeRule.onNodeWithContentDescription("Próxima página").assertIsEnabled()
         assertTrue(
@@ -361,6 +365,9 @@ class BookReaderScreenIntegrationTest {
             .assertIsDisplayed()
             .performClick()
         composeRule.onNodeWithText("125%").assertIsDisplayed()
+        composeRule.waitUntil(timeoutMillis = 5_000) {
+            speechEngine.speechRates.lastOrNull() == 1.25f
+        }
 
         composeRule.runOnUiThread {
             speechEngine.listener.onUtteranceFinished(speechEngine.utteranceIds.first())
@@ -613,12 +620,18 @@ class BookReaderScreenIntegrationTest {
         var initializeRequested = false
         var stopCount = 0
         var shutdownCount = 0
+        val speechRates = mutableListOf<Float>()
         val spokenChunks = mutableListOf<String>()
         val utteranceIds = mutableListOf<String>()
 
         override fun initialize(listener: BookSpeechEngine.Listener) {
             initializeRequested = true
             this.listener = listener
+        }
+
+        override fun setSpeechRate(rate: Float): Boolean {
+            speechRates += rate
+            return true
         }
 
         override fun speak(text: String, utteranceId: String): Boolean {

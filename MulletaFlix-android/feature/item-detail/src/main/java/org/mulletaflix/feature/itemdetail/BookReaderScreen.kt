@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
@@ -114,6 +115,9 @@ fun BookReaderScreen(
     var pdfSpeechLoading by remember(itemId) { mutableStateOf(false) }
     var pdfSpeechJob by remember(itemId) { mutableStateOf<Job?>(null) }
     var currentTextChunk by rememberSaveable(itemId) { mutableIntStateOf(0) }
+    var speechRatePercent by rememberSaveable(itemId) {
+        mutableIntStateOf(BookSpeechRate.DEFAULT_PERCENT)
+    }
     var pageZoom by rememberSaveable(itemId) { mutableFloatStateOf(1f) }
     var renditionState by remember(itemId) { mutableStateOf<ReflowableWebRenditionState?>(null) }
     var renditionError by remember(itemId) { mutableStateOf<String?>(null) }
@@ -127,6 +131,14 @@ fun BookReaderScreen(
         BookSpeechPlaybackController(
             engine = speechEngineFactory(context.applicationContext),
             onChunkChanged = { currentTextChunk = it },
+        )
+    }
+    LaunchedEffect(speechController, speechRatePercent) {
+        speechController.setSpeechRatePercent(speechRatePercent)
+    }
+    LaunchedEffect(epubSpeechNavigator, speechRatePercent) {
+        epubSpeechNavigator?.submitPreferences(
+            AndroidTtsPreferences(speed = BookSpeechRate.multiplier(speechRatePercent)),
         )
     }
     val pdfBook = pageBook as? PdfBookDocument
@@ -257,6 +269,9 @@ fun BookReaderScreen(
                         ).getOrNull() ?: throw IllegalStateException("Não foi possível iniciar a narração.")
                         epubSpeechNavigator?.close()
                         epubSpeechNavigator = navigator
+                        navigator.submitPreferences(
+                            AndroidTtsPreferences(speed = BookSpeechRate.multiplier(speechRatePercent)),
+                        )
                         navigator.play()
                         epubSpeechStarting = false
                         epubSpeechActive = true
@@ -446,6 +461,13 @@ fun BookReaderScreen(
                     speechEnabled = pdfSpeechSupported,
                     speechLoading = pdfSpeechLoading,
                     speechActive = pdfSpeechActive,
+                    speechRatePercent = speechRatePercent,
+                    onDecreaseSpeechRate = {
+                        speechRatePercent = BookSpeechRate.decrease(speechRatePercent)
+                    },
+                    onIncreaseSpeechRate = {
+                        speechRatePercent = BookSpeechRate.increase(speechRatePercent)
+                    },
                     onToggleSpeech = {
                         if (pdfSpeechActive || speechController.isSpeaking) stopPdfSpeech()
                         else {
@@ -463,6 +485,7 @@ fun BookReaderScreen(
                     currentChunk = currentTextChunk,
                     chunkCount = textBook.chunkCount,
                     fontSizePercent = state.fontSizePercent,
+                    speechRatePercent = speechRatePercent,
                     speechState = speechController.state,
                     onToggleSpeech = {
                         if (speechController.isSpeaking) speechController.stop()
@@ -481,39 +504,61 @@ fun BookReaderScreen(
                     onIncreaseFontSize = {
                         viewModel.setFontSizePercent(itemId, BookReaderFontSize.increase(state.fontSizePercent))
                     },
+                    onDecreaseSpeechRate = {
+                        speechRatePercent = BookSpeechRate.decrease(speechRatePercent)
+                    },
+                    onIncreaseSpeechRate = {
+                        speechRatePercent = BookSpeechRate.increase(speechRatePercent)
+                    },
                 )
             } else {
                 val controller = renditionState?.controller
-                Row(
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 8.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically,
+                Column(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp),
                 ) {
-                    if (publication != null) {
-                        IconButton(
-                            onClick = toggleEpubSpeech,
-                            enabled = controller != null,
-                            modifier = Modifier.semantics {
-                                contentDescription = if (epubSpeechActive || epubSpeechStarting) "Parar narração" else "Ouvir livro"
-                                stateDescription = when {
-                                    epubSpeechStarting -> "Iniciando"
-                                    epubSpeechActive -> "Em reprodução"
-                                    else -> "Parado"
-                                }
-                            },
-                        ) {
-                            Icon(
-                                if (epubSpeechActive || epubSpeechStarting) Icons.Filled.Stop else Icons.Filled.RecordVoiceOver,
-                                contentDescription = null,
-                            )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        if (publication != null) {
+                            IconButton(
+                                onClick = toggleEpubSpeech,
+                                enabled = controller != null,
+                                modifier = Modifier.semantics {
+                                    contentDescription = if (epubSpeechActive || epubSpeechStarting) "Parar narração" else "Ouvir livro"
+                                    stateDescription = when {
+                                        epubSpeechStarting -> "Iniciando"
+                                        epubSpeechActive -> "Em reprodução"
+                                        else -> "Parado"
+                                    }
+                                },
+                            ) {
+                                Icon(
+                                    if (epubSpeechActive || epubSpeechStarting) Icons.Filled.Stop else Icons.Filled.RecordVoiceOver,
+                                    contentDescription = null,
+                                )
+                            }
+                        }
+                        IconButton(onClick = {
+                            stopEpubSpeech()
+                            controller?.let { nav -> coroutineScope.launch { nav.moveBackward() } }
+                        }, enabled = controller != null) {
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Página anterior")
+                        }
+                        Spacer(Modifier.weight(1f))
+                        IconButton(onClick = {
+                            stopEpubSpeech()
+                            controller?.let { nav -> coroutineScope.launch { nav.moveForward() } }
+                        }, enabled = controller != null) {
+                            Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = "Próxima página")
                         }
                     }
-                    IconButton(onClick = {
-                        stopEpubSpeech()
-                        controller?.let { nav -> coroutineScope.launch { nav.moveBackward() } }
-                    }, enabled = controller != null) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Página anterior")
-                    }
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.Center,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
                     BookReaderFontSizeControls(
                         fontSizePercent = state.fontSizePercent,
                         enabled = controller != null,
@@ -530,11 +575,18 @@ fun BookReaderScreen(
                             )
                         },
                     )
-                    IconButton(onClick = {
-                        stopEpubSpeech()
-                        controller?.let { nav -> coroutineScope.launch { nav.moveForward() } }
-                    }, enabled = controller != null) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = "Próxima página")
+                    if (publication != null) {
+                        BookSpeechRateControls(
+                            speechRatePercent = speechRatePercent,
+                            enabled = controller != null,
+                            onDecrease = {
+                                speechRatePercent = BookSpeechRate.decrease(speechRatePercent)
+                            },
+                            onIncrease = {
+                                speechRatePercent = BookSpeechRate.increase(speechRatePercent)
+                            },
+                        )
+                    }
                     }
                 }
             }
@@ -651,11 +703,14 @@ private fun PlainTextBookChunkControls(
     currentChunk: Int,
     chunkCount: Int,
     fontSizePercent: Int,
+    speechRatePercent: Int,
     speechState: BookSpeechState,
     onToggleSpeech: () -> Unit,
     onChunkSelected: (Int) -> Unit,
     onDecreaseFontSize: () -> Unit,
     onIncreaseFontSize: () -> Unit,
+    onDecreaseSpeechRate: () -> Unit,
+    onIncreaseSpeechRate: () -> Unit,
 ) {
     Row(
         modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 8.dp),
@@ -680,6 +735,12 @@ private fun PlainTextBookChunkControls(
                     )
                 }
             }
+            BookSpeechRateControls(
+                speechRatePercent = speechRatePercent,
+                enabled = speechState != BookSpeechState.Preparing,
+                onDecrease = onDecreaseSpeechRate,
+                onIncrease = onIncreaseSpeechRate,
+            )
             BookReaderFontSizeControls(
                 fontSizePercent = fontSizePercent,
                 enabled = true,
@@ -810,6 +871,46 @@ internal fun BookReaderFontSizeControls(
             enabled = enabled && fontSizePercent < BookReaderFontSize.MAX_PERCENT,
             modifier = Modifier.semantics(mergeDescendants = true) {
                 contentDescription = "Aumentar tamanho do texto"
+            },
+        ) {
+            Icon(Icons.Default.Add, contentDescription = null)
+        }
+    }
+}
+
+@Composable
+internal fun BookSpeechRateControls(
+    speechRatePercent: Int,
+    enabled: Boolean,
+    onDecrease: () -> Unit,
+    onIncrease: () -> Unit,
+) {
+    val normalizedRate = BookSpeechRate.normalize(speechRatePercent)
+    val decreaseLabel = stringResource(R.string.book_reader_speech_rate_decrease)
+    val increaseLabel = stringResource(R.string.book_reader_speech_rate_increase)
+    val rateValueLabel = stringResource(R.string.book_reader_speech_rate_value, normalizedRate)
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        IconButton(
+            onClick = onDecrease,
+            enabled = enabled && BookSpeechRate.canDecrease(normalizedRate),
+            modifier = Modifier.semantics {
+                contentDescription = decreaseLabel
+            },
+        ) {
+            Icon(Icons.Default.Remove, contentDescription = null)
+        }
+        Text(
+            text = stringResource(R.string.book_reader_speech_rate_percent, normalizedRate),
+            modifier = Modifier.semantics {
+                stateDescription = rateValueLabel
+            },
+            maxLines = 1,
+        )
+        IconButton(
+            onClick = onIncrease,
+            enabled = enabled && BookSpeechRate.canIncrease(normalizedRate),
+            modifier = Modifier.semantics {
+                contentDescription = increaseLabel
             },
         ) {
             Icon(Icons.Default.Add, contentDescription = null)

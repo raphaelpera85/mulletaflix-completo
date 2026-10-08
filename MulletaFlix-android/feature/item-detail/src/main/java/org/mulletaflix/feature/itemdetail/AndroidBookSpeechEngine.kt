@@ -14,6 +14,7 @@ internal class AndroidBookSpeechEngine(context: Context) : BookSpeechEngine {
     private var listener: BookSpeechEngine.Listener? = null
     private var initializationPending = false
     private var initializationGeneration = 0
+    private var speechRate = 1f
     private val mainHandler = Handler(Looper.getMainLooper())
 
     override fun initialize(listener: BookSpeechEngine.Listener) {
@@ -62,6 +63,13 @@ internal class AndroidBookSpeechEngine(context: Context) : BookSpeechEngine {
     override fun speak(text: String, utteranceId: String): Boolean {
         val params = Bundle().apply { putFloat(TextToSpeech.Engine.KEY_PARAM_VOLUME, 1f) }
         return textToSpeech?.speak(text, TextToSpeech.QUEUE_FLUSH, params, utteranceId) == TextToSpeech.SUCCESS
+    }
+
+    override fun setSpeechRate(rate: Float): Boolean {
+        if (!rate.isFinite() || rate <= 0f) return false
+        speechRate = rate
+        val engine = textToSpeech ?: return true
+        return engine.setSpeechRate(rate) == TextToSpeech.SUCCESS
     }
 
     override fun stop() { textToSpeech?.stop() }

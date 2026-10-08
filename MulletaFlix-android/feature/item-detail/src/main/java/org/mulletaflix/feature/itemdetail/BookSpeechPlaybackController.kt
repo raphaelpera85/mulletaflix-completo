@@ -22,6 +22,7 @@ internal interface BookSpeechEngine {
     }
 
     fun initialize(listener: Listener)
+    fun setSpeechRate(rate: Float): Boolean
     fun speak(text: String, utteranceId: String): Boolean
     fun stop()
     fun shutdown()
@@ -38,6 +39,8 @@ internal class BookSpeechPlaybackController(
     var state: BookSpeechState by mutableStateOf(BookSpeechState.Idle)
         private set
     var currentChunkIndex: Int = 0
+        private set
+    var speechRatePercent: Int = BookSpeechRate.DEFAULT_PERCENT
         private set
     val isSpeaking: Boolean get() = state == BookSpeechState.Preparing || state == BookSpeechState.Speaking
 
@@ -103,6 +106,15 @@ internal class BookSpeechPlaybackController(
         updateState(BookSpeechState.Idle)
     }
 
+    fun setSpeechRatePercent(percent: Int) {
+        val normalized = BookSpeechRate.normalize(percent)
+        if (speechRatePercent == normalized) return
+        speechRatePercent = normalized
+        if (!engine.setSpeechRate(normalized / 100f)) {
+            fail("Não foi possível ajustar a velocidade da narração.")
+        }
+    }
+
     fun shutdown() {
         stop()
         engine.shutdown()
@@ -114,7 +126,9 @@ internal class BookSpeechPlaybackController(
         val utteranceId = "$generation:$currentChunkIndex"
         activeUtteranceId = utteranceId
         updateState(BookSpeechState.Speaking)
-        if (!engine.speak(chunks[currentChunkIndex], utteranceId)) {
+        if (!engine.setSpeechRate(speechRatePercent / 100f) ||
+            !engine.speak(chunks[currentChunkIndex], utteranceId)
+        ) {
             fail("Não foi possível iniciar a leitura em voz alta.")
         }
     }

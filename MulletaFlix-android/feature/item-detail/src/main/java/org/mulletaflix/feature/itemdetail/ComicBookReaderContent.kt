@@ -264,6 +264,9 @@ internal fun ComicBookPageControls(
     speechEnabled: Boolean = false,
     speechLoading: Boolean = false,
     speechActive: Boolean = false,
+    speechRatePercent: Int = BookSpeechRate.DEFAULT_PERCENT,
+    onDecreaseSpeechRate: () -> Unit = {},
+    onIncreaseSpeechRate: () -> Unit = {},
     onToggleSpeech: () -> Unit = {},
     onPageSelected: (Int) -> Unit,
 ) {
@@ -305,6 +308,12 @@ internal fun ComicBookPageControls(
                         Icon(Icons.Default.RecordVoiceOver, contentDescription = null)
                     }
                 }
+                BookSpeechRateControls(
+                    speechRatePercent = speechRatePercent,
+                    enabled = !speechLoading,
+                    onDecrease = onDecreaseSpeechRate,
+                    onIncrease = onIncreaseSpeechRate,
+                )
             }
         }
         IconButton(

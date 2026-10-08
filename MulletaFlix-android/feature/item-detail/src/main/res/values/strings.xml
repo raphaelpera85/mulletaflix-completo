@@ -3,4 +3,8 @@
     <string name="book_reader_conversion_in_progress">O servidor está convertendo este livro para leitura. Aguarde um momento.</string>
     <string name="book_reader_speech_read">Ler trecho em voz alta</string>
     <string name="book_reader_speech_stop">Parar leitura em voz alta</string>
+    <string name="book_reader_speech_rate_decrease">Diminuir velocidade da narração</string>
+    <string name="book_reader_speech_rate_increase">Aumentar velocidade da narração</string>
+    <string name="book_reader_speech_rate_percent">%1$d%%</string>
+    <string name="book_reader_speech_rate_value">Velocidade da narração: %1$d%%</string>
 </resources>
