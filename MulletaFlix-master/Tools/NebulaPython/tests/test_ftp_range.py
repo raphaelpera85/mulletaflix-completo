@@ -23,8 +23,10 @@ from ftp.range import parse_range
         ("bytes=0-1,4-5", 10, (0, 9, 416)),
         ("bytes=invalid", 10, (0, 9, 200)),
         ("bytes=-0", 10, (0, 9, 200)),
+        ("bytes=-invalid", 10, (0, 9, 200)),
+        ("bytes=invalid-5", 10, (0, 9, 200)),
+        ("bytes=0-invalid", 10, (0, 9, 200)),
     ],
 )
 def test_parse_range_contract(header: str | None, size: int, expected: tuple[int, int, int]) -> None:
     assert parse_range(header, size) == expected
-

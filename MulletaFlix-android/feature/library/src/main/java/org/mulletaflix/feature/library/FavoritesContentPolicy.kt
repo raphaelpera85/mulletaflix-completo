@@ -1,10 +1,13 @@
 package org.mulletaflix.feature.library
 
 import org.mulletaflix.domain.model.MediaItem
-import org.mulletaflix.domain.model.MediaItemType
+import org.mulletaflix.domain.model.isBookContent
+
+internal fun libraryItemsForDevice(items: List<MediaItem>, isTelevision: Boolean): List<MediaItem> =
+    if (isTelevision) items.filterNot { it.type.isBookContent() } else items
 
 internal fun favoritesItemsForDevice(items: List<MediaItem>, isTelevision: Boolean): List<MediaItem> =
-    if (isTelevision) items.filterNot { it.type == MediaItemType.Book } else items
+    libraryItemsForDevice(items, isTelevision)
 
 internal fun isBooksLibrary(item: MediaItem?): Boolean =
     item?.collectionType?.trim().equals("books", ignoreCase = true) ||

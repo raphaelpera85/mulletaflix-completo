@@ -274,6 +274,18 @@ public sealed class NebulaStrmGenerator
 
         onLog?.Invoke($"[STRM] {files.Count} arquivos encontrados no banco de dados.");
 
+        return await GenerateFilesAsync(config, dirPathMap, files, _logger, onLog, cancellationToken).ConfigureAwait(false);
+    }
+
+    internal static async Task<int> GenerateFilesAsync(
+        NebulaFtpConfiguration config,
+        IReadOnlyDictionary<string, string> dirPathMap,
+        IReadOnlyList<BsonDocument> files,
+        ILogger<NebulaStrmGenerator> logger,
+        Action<string>? onLog = null,
+        CancellationToken cancellationToken = default)
+    {
+
         var targetRoots = (config.MonitorPaths ?? Array.Empty<string>())
             .Where(p => !string.IsNullOrWhiteSpace(p))
             .ToList();
@@ -289,13 +301,13 @@ public sealed class NebulaStrmGenerator
         onLog?.Invoke($"[STRM] Endereço de streaming configurado: http://{resolvedHost}:{httpPort}/stream?id=... (streaming HTTP nativo via Nebula)");
 
         var generatedCount = 0;
+        var attemptedWriteCount = 0;
+        var failedWriteCount = 0;
+        Exception? firstWriteException = null;
 
         foreach (var fileDoc in files)
         {
-            if (cancellationToken.IsCancellationRequested)
-            {
-                break;
-            }
+            cancellationToken.ThrowIfCancellationRequested();
 
             var name = fileDoc.GetValue("name", string.Empty).AsString;
             if (string.IsNullOrWhiteSpace(name))
@@ -315,6 +327,8 @@ public sealed class NebulaStrmGenerator
 
             foreach (var root in targetRoots)
             {
+                cancellationToken.ThrowIfCancellationRequested();
+                attemptedWriteCount++;
                 try
                 {
                     var destDir = Path.Combine(root, strmRelDir);
@@ -324,15 +338,31 @@ public sealed class NebulaStrmGenerator
                     await File.WriteAllTextAsync(strmFilePath, strmTarget, cancellationToken).ConfigureAwait(false);
                     generatedCount++;
                 }
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                {
+                    throw;
+                }
                 catch (Exception ex)
                 {
-                    _logger.LogWarning(ex, "[NEBULA-STRM] Erro ao criar arquivo STRM para {Name}", name);
+                    failedWriteCount++;
+                    firstWriteException ??= ex;
+                    logger.LogWarning(ex, "[NEBULA-STRM] Erro ao criar arquivo STRM para {Name}", name);
                 }
             }
         }
 
+        cancellationToken.ThrowIfCancellationRequested();
+
+        if (failedWriteCount > 0)
+        {
+            var message = $"STRM generation partially failed: {generatedCount} generated/updated; {failedWriteCount} failed destination writes (of {attemptedWriteCount}).";
+            onLog?.Invoke($"[STRM] Geração incompleta: {generatedCount} arquivos gerados/atualizados; {failedWriteCount} gravações falharam.");
+            logger.LogError(firstWriteException, "[NEBULA-STRM] Geração incompleta: {GeneratedCount} arquivos gerados/atualizados; {FailedWriteCount} gravações falharam.", generatedCount, failedWriteCount);
+            throw new IOException(message, firstWriteException);
+        }
+
         onLog?.Invoke($"[STRM] Geração concluída com sucesso! Total de {generatedCount} arquivos .strm gerados/atualizados.");
-        _logger.LogInformation("[NEBULA-STRM] Geração de STRM finalizada: {Count} arquivos.", generatedCount);
+        logger.LogInformation("[NEBULA-STRM] Geração de STRM finalizada: {Count} arquivos.", generatedCount);
 
         return generatedCount;
     }

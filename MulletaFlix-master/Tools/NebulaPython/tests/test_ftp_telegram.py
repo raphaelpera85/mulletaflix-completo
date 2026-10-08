@@ -251,6 +251,59 @@ async def test_file_with_unusable_reference_returns_empty_when_no_message_contex
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("message", [None, SimpleNamespace(document=None)])
+async def test_file_returns_empty_when_unusable_reference_cannot_be_refreshed(message):
+    async def get_messages(_chat_id, _message_id):
+        return message
+
+    client = SimpleNamespace(get_messages=get_messages)
+    file = tg.File("unusable", client, chat_id="-100", message_id=42)
+
+    assert await file.getChunkAt(0) == b""
+    assert file.reference_refreshed is False
+
+
+@pytest.mark.asyncio
+async def test_file_logs_and_returns_empty_when_unusable_reference_lookup_fails(caplog):
+    async def get_messages(_chat_id, _message_id):
+        raise OSError("Telegram unavailable")
+
+    file = tg.File(
+        "unusable",
+        SimpleNamespace(get_messages=get_messages),
+        chat_id="-100",
+        message_id=42,
+    )
+
+    assert await file.getChunkAt(0) == b""
+    assert "Erro ao auto-recuperar mensagem 42" in caplog.text
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("message", [None, SimpleNamespace(document=None)])
+async def test_file_returns_empty_when_expired_reference_message_is_missing(monkeypatch, message):
+    async def get_messages(_chat_id, _message_id):
+        return message
+
+    class Session:
+        async def send(self, _request):
+            raise tg.FileReferenceExpired(400, "FILE_REFERENCE_EXPIRED")
+
+    client = SimpleNamespace(get_messages=get_messages)
+    file = tg.File("valid", client, chat_id="-100", message_id=42)
+    file.id = SimpleNamespace(dc_id=4)
+    file.loc = "old-location"
+
+    async def get_session(_client, _file_id):
+        return Session()
+
+    monkeypatch.setattr(tg, "get_media_session", get_session)
+
+    assert await file.getChunkAt(0) == b""
+    assert file.reference_refreshed is False
+
+
+@pytest.mark.asyncio
 async def test_file_recovers_unusable_reference_from_message_context(monkeypatch):
     calls = []
     client = SimpleNamespace(
@@ -422,6 +475,57 @@ async def test_get_media_session_creates_and_authenticates_cross_dc_session(monk
         "start",
         ("import", 8, b"authorization"),
     ]
+
+
+@pytest.mark.asyncio
+async def test_get_media_session_stops_uncached_session_after_auth_retries_are_exhausted(monkeypatch):
+    attempts = {"export": 0, "import": 0}
+    session_state = {"started": False, "stopped": False}
+
+    class Auth:
+        def __init__(self, *_args):
+            pass
+
+        async def create(self):
+            return b"temporary-auth"
+
+    class Session:
+        def __init__(self, *_args, **_kwargs):
+            pass
+
+        async def start(self):
+            session_state["started"] = True
+
+        async def invoke(self, _request):
+            attempts["import"] += 1
+            raise tg.AuthBytesInvalid(400, "AUTH_BYTES_INVALID")
+
+        async def stop(self):
+            session_state["stopped"] = True
+
+    async def export_authorization(_request):
+        attempts["export"] += 1
+        return SimpleNamespace(id=8, bytes=b"authorization")
+
+    client = SimpleNamespace(
+        media_sessions={},
+        media_sessions_lock=AsyncLock(),
+        storage=SimpleNamespace(
+            dc_id=_async_value(1),
+            auth_key=_async_value(b"local-auth"),
+            test_mode=_async_value(False),
+        ),
+        invoke=export_authorization,
+    )
+    monkeypatch.setattr(tg, "Auth", Auth)
+    monkeypatch.setattr(tg, "Session", Session)
+
+    with pytest.raises(tg.AuthBytesInvalid):
+        await tg.get_media_session(client, SimpleNamespace(dc_id=4))
+
+    assert attempts == {"export": 6, "import": 6}
+    assert session_state == {"started": True, "stopped": True}
+    assert client.media_sessions == {}
 
 
 @pytest.mark.asyncio

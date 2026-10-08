@@ -84,6 +84,7 @@ class LibraryViewModel @Inject constructor(
      * one, and a page made only of duplicates would leave the offset standing still.
      */
     private var fetchedItemCount = 0
+    private var fetchedLibraryItems = emptyList<MediaItem>()
     private var requestGeneration: Long = 0L
     private var sortPreferenceReady = false
     private var sortOrderPreferenceReady = false
@@ -125,6 +126,7 @@ class LibraryViewModel @Inject constructor(
                     ++requestGeneration
                     currentLibraryId = null
                     fetchedItemCount = 0
+                    fetchedLibraryItems = emptyList()
                     invalidateFilterOptions()
                     _state.update {
                         it.copy(
@@ -191,6 +193,8 @@ class LibraryViewModel @Inject constructor(
         loadJob?.cancel()
         invalidateFilterOptions()
         val requestGeneration = ++this.requestGeneration
+        fetchedItemCount = 0
+        fetchedLibraryItems = emptyList()
         val switchedLibrary = currentLibraryId != null && currentLibraryId != libraryId
         currentLibraryId = libraryId
         currentIsTelevision = isTelevision
@@ -272,6 +276,8 @@ class LibraryViewModel @Inject constructor(
             currentLibraryName = libName
             currentLibraryCollectionType = library?.collectionType
             if (isTelevision && isBooksLibrary(library)) {
+                fetchedItemCount = 0
+                fetchedLibraryItems = emptyList()
                 _state.update {
                     it.copy(
                         libraryName = libName,
@@ -345,12 +351,14 @@ class LibraryViewModel @Inject constructor(
                 }
                 if (!isCurrentLibraryRequest(requestGeneration, userId, libraryId)) return@onSuccess
                 fetchedItemCount = items.size
+                fetchedLibraryItems = items
+                val visibleItems = libraryItemsForDevice(items, isTelevision)
                 _state.update {
                     it.copy(
                         libraryName = libName,
-                        items = items,
+                        items = visibleItems,
                         hasMore = supportsOffsetPaging(it.sortBy.apiValue) &&
-                            hasMorePages(items.size, items.size, total),
+                            hasMorePages(fetchedItemCount, items.size, total),
                         isLoading = false,
                         isRefreshing = false,
                         isShowingCachedCatalog = false,
@@ -407,13 +415,14 @@ class LibraryViewModel @Inject constructor(
         val cachedOrder = SortOrder.values().firstOrNull { it.apiValue.equals(snapshot?.sortOrder, ignoreCase = true) }
         if (snapshot != null) {
             fetchedItemCount = snapshot.items.size
+            fetchedLibraryItems = snapshot.items
             currentLibraryCollectionType = snapshot.collectionType
             currentLibraryName = snapshot.libraryName
         }
         _state.update {
             it.copy(
                 libraryName = snapshot?.libraryName ?: it.libraryName,
-                items = snapshot?.items ?: it.items,
+                items = snapshot?.let { libraryItemsForDevice(it.items, isTelevision) } ?: it.items,
                 activeFilters = snapshot?.activeFilters?.let(::orderedFilters) ?: it.activeFilters,
                 sortBy = cachedSort ?: it.sortBy,
                 sortOrder = cachedOrder ?: it.sortOrder,
@@ -574,7 +583,9 @@ class LibraryViewModel @Inject constructor(
             ).onSuccess { (newItems, total) ->
                 if (!isCurrentLibraryRequest(requestGeneration, userId, libId)) return@onSuccess
                 fetchedItemCount += newItems.size
-                val combined = appendDistinctBy(_state.value.items, newItems) { it.id }
+                fetchedLibraryItems = appendDistinctBy(fetchedLibraryItems, newItems) { it.id }
+                val visibleItems = libraryItemsForDevice(newItems, currentIsTelevision)
+                val combined = appendDistinctBy(_state.value.items, visibleItems) { it.id }
                 _state.update {
                     it.copy(
                         items = combined,
@@ -587,7 +598,7 @@ class LibraryViewModel @Inject constructor(
                         error = null,
                     )
                 }
-                persistLibrarySnapshot(userId, libId, currentLibraryName, currentLibraryCollectionType, combined, total)
+                persistLibrarySnapshot(userId, libId, currentLibraryName, currentLibraryCollectionType, fetchedLibraryItems, total)
             }.onFailure { error ->
                 if (!isCurrentLibraryRequest(requestGeneration, userId, libId)) return@onFailure
                 _state.update {

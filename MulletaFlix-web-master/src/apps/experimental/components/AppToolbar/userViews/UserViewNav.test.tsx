@@ -25,6 +25,7 @@ vi.mock('lib/globalize', () => ({
     default: {
         translate: (key: string) => ({
             Favorites: 'Favoritos',
+            MediaRequestsMenuTitle: 'Solicitações',
             MediaRequestTitle: 'Solicitar inclusão de mídia',
             MyMediaRequestsTitle: 'Minhas solicitações',
             ButtonMore: 'Mais'
@@ -71,19 +72,34 @@ describe('UserViewNav media request entry point', () => {
         mocks.currentApiClient.mockReset();
     });
 
-    it('shows the request action next to Favorites for an authenticated user and opens the dialog', async () => {
+    it('groups both media request actions in one popup next to Favorites', async () => {
         const { container, root } = await renderNav({ Id: 'user-1' });
 
         const favoritesButton = findNavItem(container, 'Favoritos');
-        const requestButton = findNavItem(container, 'Solicitar inclusão de mídia');
+        const requestsButton = findNavItem(container, 'Solicitações');
 
         expect(favoritesButton).toBeDefined();
-        expect(requestButton).toBeDefined();
-        expect(favoritesButton?.nextElementSibling).toBe(requestButton);
+        expect(requestsButton).toBeDefined();
+        expect(favoritesButton?.nextElementSibling).toBe(requestsButton);
+        expect(requestsButton?.getAttribute('aria-haspopup')).toBe('menu');
+        expect(findNavItem(container, 'Solicitar inclusão de mídia')).toBeUndefined();
+        expect(findNavItem(container, 'Minhas solicitações')).toBeUndefined();
 
-        await act(async () => requestButton?.click());
+        await act(async () => requestsButton?.click());
+        expect(requestsButton?.getAttribute('aria-expanded')).toBe('true');
+        const requestAction = [...document.body.querySelectorAll<HTMLElement>('[role="menuitem"]')]
+            .find(item => item.textContent?.trim() === 'Solicitar inclusão de mídia');
+        const myRequestsAction = [...document.body.querySelectorAll<HTMLElement>('[role="menuitem"]')]
+            .find(item => item.textContent?.includes('Minhas solicitações'));
+
+        expect(requestAction).toBeDefined();
+        expect(myRequestsAction).toBeDefined();
+        expect(myRequestsAction?.getAttribute('href')).toBe('/myrequests');
+
+        await act(async () => requestAction?.click());
         expect(mocks.showMediaRequestDialog).toHaveBeenCalledOnce();
         expect(mocks.showMediaRequestDialog).toHaveBeenCalledWith(apiClient);
+        expect(requestsButton?.getAttribute('aria-expanded')).toBeNull();
 
         await act(async () => root.unmount());
     });
@@ -92,6 +108,7 @@ describe('UserViewNav media request entry point', () => {
         const { container, root } = await renderNav(undefined);
 
         expect(findNavItem(container, 'Favoritos')).toBeUndefined();
+        expect(findNavItem(container, 'Solicitações')).toBeUndefined();
         expect(findNavItem(container, 'Solicitar inclusão de mídia')).toBeUndefined();
         expect(findNavItem(container, 'Minhas solicitações')).toBeUndefined();
 

@@ -382,11 +382,13 @@ async def test_dispatcher_flushes_greeting_and_quit_then_releases_connection():
 @pytest.mark.asyncio
 async def test_loopback_control_channel_handles_noop_and_quit_over_real_tcp():
     """Exercise the FTP control protocol through asyncio's real TCP listeners."""
+    created_directories = []
+
     class PathIO:
         def __init__(self, connection=None, *, state=None):
             self.connection = connection
             self.state = state
-            self.created_directories = []
+            self.created_directories = created_directories
 
         async def mkdir(self, path, exist_ok=False):
             self.created_directories.append((path, exist_ok))
@@ -417,9 +419,17 @@ async def test_loopback_control_channel_handles_noop_and_quit_over_real_tcp():
         greeting = await asyncio.wait_for(reader.readline(), timeout=2)
         assert greeting == b"220 Nebula FTP\r\n"
 
+        writer.write(b"NOTACOMMAND\r\n")
+        await writer.drain()
+        assert await asyncio.wait_for(reader.readline(), timeout=2) == b"502 not implemented\r\n"
+
         writer.write(b"USER raphael\r\n")
         await writer.drain()
         assert await asyncio.wait_for(reader.readline(), timeout=2) == b"331 password required\r\n"
+
+        writer.write(b"PASS incorrect\r\n")
+        await writer.drain()
+        assert await asyncio.wait_for(reader.readline(), timeout=2) == b"530 wrong pass\r\n"
 
         writer.write(b"PASS secret\r\n")
         await writer.drain()
@@ -444,6 +454,7 @@ async def test_loopback_control_channel_handles_noop_and_quit_over_real_tcp():
         await server.close()
 
     assert server.connections == {}
+    assert len(created_directories) == 1
     assert server.available_connections.value == 256
 
 

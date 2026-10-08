@@ -73,12 +73,14 @@ As skills abaixo existem no catálogo local. São complementos de domínio; a me
   - [x] Cobrir catálogo STRM de 10 e 2.000 títulos; falha de fetch seguida de retry/cache hit; fetch de rede com erro; cache cheio com lease; stream local e primeiro bloco sem esperar o próximo fetch.
   - [x] Adicionar job CI focado em cenários Nebula e health checks de dependências para `ubuntu-latest` e `windows-latest`; lock de arquivo com `FileShare.None` fica explicitamente restrito ao Windows.
   - [x] Cobrir a transição do health check Mongo indisponível (`Unhealthy`) para disponível (`Healthy`) em verificações sucessivas, sem reiniciar o servidor.
+  - [x] Cobrir falha do subprocesso feeder durante shutdown: o runner HTTP do control plane é fechado mesmo com erro, e `main.py` registra o tipo da falha sem interromper a limpeza da fila, streams, FTP e bots.
   - [x] Corrigir a validação condicional do keystore no workflow: steps passam a consultar flag de ambiente, sem referenciar `secrets` diretamente em `if`.
   - [x] Criar recuperação integrada de metadados persistidos no Mongo com falha/retorno de fetch simulado, cache em disco e Mongo descartável provisionado por workflow.
   - [x] Executar localmente o cenário Mongo integrado em serviço descartável, incluindo recuperação após falha e reutilização do cache em disco; ver evidências de 04/10/2026 no Registro de execução.
+  - [x] Cobrir geração STRM com falha parcial de escrita entre destinos e cancelamento: a geração tenta os demais destinos, retorna erro explícito em vez de sucesso falso e propaga `OperationCanceledException`.
   - [x] Serializar na suíte Providers as classes de teste que compartilham `Video.RecordingsManager`: as regressões que restauram estado estático global não podem executar em paralelo com testes consumidores desse mesmo estado.
   - [x] Declarar dependências de teste do Nebula Python (`pytest`, `pytest-asyncio`, `pytest-cov`), adicionar matriz Python Linux/Windows ao CI e cobrir permissões FTP legadas, segurança HTTP, hierarquia STRM, validação e rotas HTTP do control plane, ranges HTTP, autenticação FTP, filas de upload, ciclo de vida do worker de streaming, contratos de ingestão, backup/configuração Supabase e sincronização de usuários; execução local Windows: 115/115 aprovados.
-  - [ ] Aguardar execução remota do job Python e ampliar cenários de negócio/erro em `feed_ftp`, `strm_downloader`, `supabase_sync`, `main.py`, `control_plane.py`, FTP e Mongo; suíte local Windows **514/514**, 6.606 statements instrumentados em **77,75% calculados** (pytest arredonda para 78%); `pathio.py` atingiu 80%, `server.py` 88%, `control_plane.py` 92%, `feed_ftp.py` 71%, `strm_downloader.py` 75%, `main.py` 73%, `supabase_sync.py` 83%. Casos recentes cobrem leases de reprodução, reserva/seleção de bots, limpeza periódica, resolução STRM, transcodificação HTTP, listagem FTP e persistência/rename. Integrações externas, falha física, concorrência/carga e E2E continuam simulados ou pendentes.
+  - [ ] Aguardar execução remota do job Python e ampliar cenários de negócio/erro em `feed_ftp`, `strm_downloader`, `supabase_sync`, `main.py`, `control_plane.py`, FTP e Mongo; suíte local Windows **547/547**, 6.626 statements instrumentados em **76% com branches**; `range.py` 100%, `pathio.py` 80%, `server.py` 86%, `ftp/tg.py` 83%, `control_plane.py` 93%, `ftp/auth.py` 100%, `feed_ftp.py` 68%, `strm_downloader.py` 72%, `main.py` 72%, `supabase_sync.py` 82%. Casos recentes cobrem deduplicação/retomada no `stats_reporter`, referências Telegram inválidas/expiradas e falha de autorização cross-DC, fallbacks de staging, entradas inválidas do parser Range, fallback bcrypt fail-closed e shutdown do control plane após falha do feeder, além de leases de reprodução, reserva/seleção de bots, limpeza periódica, resolução STRM, transcodificação HTTP, listagem FTP e persistência/rename. Integrações externas, falha física, concorrência/carga e E2E continuam simulados ou pendentes.
   - [ ] Confirmar execução remota dos jobs representativos Windows/Linux e do job Mongo Linux; exige CI acionado por push, ainda não autorizado.
 - [ ] **T0.4 — Definir limites de regressão.** Fixar budgets iniciais para tempo de boot, tamanho do bundle web, latência de busca, espaço temporário e memória; calibrar com medições reais, não valores arbitrários.
   - [x] Medir o artefato web de produção e conferir o gate existente de 1.536 KiB por arquivo JS/CSS.
@@ -695,6 +697,26 @@ Este documento é backlog em execução; não autoriza publicar uma release ante
 - Adicionado `tests/test_stream_service.py` com cenários isolados para configuração inválida, nenhum bot autenticado, falha de ping no Mongo e cancelamento do servidor HTTP, verificando limpeza de sessão, bots, servidor e cliente Mongo. Todas dependências externas são falsas; nenhum Telegram, Mongo ou mídia real é acessado.
 - Quality bar local: o arquivo focal passou 4/4; a suíte Nebula Python completa em Python 3.10.11 passou **69/69**, exit 0. Cobertura agregada Python subiu de 24% para **26%**; `stream_service.py` atingiu **91%**. `feed_ftp.py`, `strm_downloader.py` e `supabase_sync.py` permanecem em 0%; `main.py` em 18%, `control_plane.py` em 45%, `ftp/server.py` em 34% e `ftp/pathio.py` em 45%.
 - Limite: cobertura do worker não comprova início real de bots/Mongo/stream nem substitui integração entre processos; a matriz CI Windows/Linux e Mongo ainda precisa ser executada remotamente. T0.3 segue parcial; sem release, package, commit, push, deploy ou acesso a produção.
+
+### 08/10/2026 — Relato de falhas e cancelamento na geração de STRM (T0.3 parcial)
+
+- INTENT: o gerador captura falhas de escrita por destino e retorna como sucesso; os testes esperam erro acionável em falha parcial e cancelamento propagado; a documentação XML promete gerar arquivos STRM nos destinos configurados.
+- O gerador agora tenta escrever nos destinos restantes após uma falha, registra a falha parcial e lança `IOException` ao fim em vez de concluir como sucesso. Cancelamento é verificado entre arquivos/destinos e propagado, sem ser contado como falha de escrita. `NebulaFtpManager.GenerateStrmAsync` recebe a exceção, finaliza a operação como `failed` (ou `cancelled`) e retorna erro ao cliente.
+- TDD: antes da mudança, os dois novos testes falharam reproduzindo sucesso falso para escrita inválida e cancelamento engolido. Após a correção, `NebulaStrmGeneratorTests` passou **2/2**; suíte `Jellyfin.Server.Implementations.Tests` passou **1.374**, com **55 ignorados** e **0 falhas**; `Jellyfin.Server.Implementations.csproj` Release compilou com **0 avisos e 0 erros**.
+- Limites: testes exercitam filesystem temporário e token cancelado, sem Mongo/produção; 55 testes opt-in/ambiente permanecem ignorados e T0.3 continua parcial. CI remota Windows/Linux e homologação instalada ainda não validadas. Sem pacote, release, commit, push ou deploy; curadoria IA permanece fora do escopo ativo.
+
+### 08/10/2026 — Encerramento resiliente do control plane Nebula (T0.3 parcial)
+
+- INTENT: `ControlPlane.close()` para antes de limpar o runner HTTP quando a parada do feeder falha; a regressão deve provar que o runner fecha e que o erro continua visível; `main.py` chama `close()` dentro do `finally` do servidor, portanto a limpeza de recursos próprios não pode depender do sucesso do feeder.
+- A limpeza de `AppRunner` agora acontece em `finally`, preservando a propagação do erro original após fechar o endpoint. O shutdown de `main.py` captura a falha do control plane, registra apenas o tipo da exceção e continua o descarte dos demais serviços.
+- TDD: o teste HTTP local falhou antes da correção porque `_runner` continuava ativo; depois passou e confirma `runner._server is None`, com o erro do feeder ainda observável. Suíte Nebula Python: **531/531**, Python 3.10.11; `control_plane.py` subiu de **92% para 96%** e o pacote instrumentado ficou em **79%** (6.626 statements); `compileall` passou.
+- Limites: ciclo validado por listener loopback local, sem processos de produção. T0.3 continua parcial; CI remota Windows/Linux e homologação instalada pendentes. Sem pacote, release, commit, push ou deploy; curadoria IA permanece fora do escopo ativo.
+
+### 08/10/2026 — Fallback seguro de autenticação FTP sem bcrypt (T0.3/T6.1 parcial)
+
+- As linhas sem teste no módulo `ftp.auth` eram o fallback de dependência opcional `bcrypt`. Novo teste recarrega o módulo com import de `bcrypt` bloqueado e verifica que o hash de senha exige a dependência e que hash armazenado não é aceito sem ela; o log de erro também é verificado. O módulo `ftp/auth.py` atingiu **100%** de cobertura.
+- Quality bar: `test_ftp_auth.py` **7/7**; suíte Nebula Python **532/532**, Python 3.10.11; cobertura total instrumentada **79%** (6.626 statements). Sem serviços externos ou dados de usuário.
+- Limites: T0.3/T6.1 permanecem parciais; cobertura de outros módulos e execução remota Windows/Linux pendentes. Sem pacote, release, commit, push ou deploy; curadoria IA permanece fora do escopo ativo.
 
 ### 07/10/2026 — Expansão e auditoria de cobertura do servidor (T0.3 parcial)
 
@@ -2990,6 +3012,50 @@ Este documento é backlog em execução; não autoriza publicar uma release ante
 - Gauntlet .NET Release da solução, com `FullyQualifiedName!~Integration`, terminou com exit 0: **4.816 aprovados, 56 ignorados, 0 falhas**. O filtro exclui conscientemente testes de integração e acesso à internet. A execução sem filtro abortou o host em `DramaBoxLiveIntegrationTests` após 736 aprovados; o teste vivo permanece fora do gate. .NET build emite avisos de analisadores preexistentes.
 - Web: `npm test -- --run` **74 arquivos/405 testes** e `npm run build:check` passaram com exit 0. Nebula: `py -3.10 -m pytest -q --cov=. --cov-branch --cov-report=term-missing` **526/526**, exit 0; `py -3.10 -m compileall -q .` e `git diff --check` também passaram. `ftp.common.py` subiu de 77% para **90%**.
 - Limites: sem MongoDB/MariaDB descartável, Telegram, Vercel, produção, carga, falha física ou E2E instalado; CI Linux/Windows não executada. Testes Mongo/Telegram usam doubles; integrações externas e projetos `*.Integration.Tests` não compõem o total .NET filtrado. T0.3 permanece parcial, `progressPercent` null; sem pacote/release. Curadoria IA fica fora do escopo ativo.
+
+### 08/10/2026 — Expansão do contrato TCP FTP e rodada completa de testes unitários (T0.3 parcial)
+
+- Adicionado teste de integração local com socket TCP real para o canal de controle FTP: saudação, comando desconhecido, autenticação recusada e aceita, `PWD`, `NOOP`, `QUIT`, EOF e limpeza de conexões. Nesta rodada também foi adicionado teste para rejeitar valor numérico inválido no CLI STRM antes de iniciar o downloader. Os testes de parser/defaults e encaminhamento de flags já existiam e foram reexecutados, não são novidade desta rodada. São testes não destrutivos; usuário, rede externa, Mongo e Telegram permanecem simulados.
+- Nebula Python: **530/530** aprovados; cobertura calculada somente sobre código de produção (`ftp`, `tools`, `main`, `control_plane`, `stream_service`) com branches: **6.621 statements, 1.415 não executados, 76%**. Módulos com lacunas prioritárias: `main.py` 71%, `tools/feed_ftp.py` 68%, `tools/strm_downloader.py` 72%, `ftp/pathio.py` 79% e `ftp/tg.py` 78%. `compileall` e `git diff --check` passaram.
+- .NET Release: os **15 projetos unitários** executados individualmente com binaries Release — **4.816 aprovados, 56 ignorados, 0 falhas**. `IntroSkipper.Integration.Tests`: **28 aprovados, 1 ignorado**. `Jellyfin.Server.Integration.Tests`: recorte Startup/OpenAPI **6/6 aprovado**. A tentativa da suíte inteira de integração do servidor não concluiu após vários minutos sem novos resultados e foi cancelada; isso não é registrado como falha de teste nem como aprovação.
+- Limites: sem execução integral concluída de `Jellyfin.Server.Integration.Tests`, sem cobertura de código .NET agregada, MongoDB/Supabase/Telegram reais, testes de carga/concorrência, falha física, CI Linux e Windows ou E2E instalado. Os testes opt-in/de serviço continuam ignorados por ambiente. T0.3 continua parcial e o percentual formal permanece `null`; sem build de release, publicação, commit ou push. Curadoria IA fora do escopo ativo.
+
+### 08/10/2026 — Agrupamento dos atalhos de solicitações de mídia na navegação web
+
+- Na barra superior do cliente web, os atalhos separados “Solicitar inclusão de mídia” e “Minhas solicitações” foram agrupados sob um único botão “Solicitações”, junto de Favoritos. O popup mantém as ações atuais: abrir o diálogo de inclusão e navegar para `/myrequests`.
+- O controle usa menu MUI com semântica `aria-haspopup`, `aria-expanded`, rótulo associado, seleção da rota ativa e fechamento ao acionar uma opção. Adicionada a tradução do rótulo do grupo em pt-BR e en-US.
+- Testes focalizados cobrem posição adjacente a Favoritos, ausência dos links duplicados na barra, presença das duas opções, destino `/myrequests`, abertura do diálogo, semântica aria-haspopup/expanded e visibilidade apenas após os dados de autenticação. Validação final: `npm test -- --run` **74 arquivos/405 testes**, `npm run build:check`, ESLint focal, `npm run build:production` e `npm run verify:build` passaram. O build validou 1.927 arquivos e payload inicial de 294,3 KB gzip dentro do limite de 420 KB; avisos conhecidos do Vite/jsdom permanecem não fatais.
+- Sem publicação ou release: o gate do roadmap ativo continua impedindo releases intermediárias.
+
+### 08/10/2026 — Cobertura de entradas inválidas no parser HTTP Range (T0.3 parcial)
+
+- Adicionados três casos parametrizados para sufixo, início e fim não numéricos em `Range: bytes=...`; todos confirmam o fallback existente para resposta completa HTTP 200. Não houve alteração do código de produção.
+- Teste focal: **18/18**; `ftp/range.py` chegou a **100% de linhas e branches**. Suíte Nebula Python completa: **535/535** aprovados, exit 0; cobertura dos módulos de produção instrumentados **6.626 statements, 1.395 ausentes, 76%**. `control_plane.py` 93%, `ftp/server.py` 86%, `ftp/range.py` 100%; permanecem gaps relevantes em `main.py` (71%), `tools/feed_ftp.py` (68%), `tools/strm_downloader.py` (72%) e `ftp/pathio.py` (79%).
+- Limite: testes de parser puro, sem HTTP/socket de produção; não comprovam comportamento de clientes reais. T0.3 permanece parcial; homologação global `progressPercent: null`. Sem pacote, release, commit, push ou deploy; curadoria IA continua fora do escopo ativo.
+
+### 08/10/2026 — Seleção resiliente do diretório staging FTP (T0.3 parcial)
+
+- Adicionados testes para configuração sem volumes de staging e para erro de `disk_usage` em um volume, confirmando fallback para `staging` e tentativa do próximo volume disponível. Sem alteração na implementação de produção.
+- Testes de operações/hierarquia PathIO: **40/40**; cobertura focal `ftp/pathio.py` **80%** com branches (de 78%). Suíte Nebula Python: **537/537** aprovados, exit 0; 6.626 statements de produção instrumentados, 1.389 ausentes, **76%** incluindo branches.
+- Limites: filesystem de teste e probes simulados; sem volume removido/falha física ou Mongo real. T0.3 parcial; homologação global `progressPercent: null`. Sem pacote, release, commit, push ou deploy; curadoria IA permanece fora do escopo ativo.
+
+### 08/10/2026 — Limpeza da sessão cross-DC após falha de autorização Telegram (T0.3/T6.1 parcial)
+
+- Teste determinístico cobre seis rejeições consecutivas da importação de autorização no Telegram cross-DC: erro `AuthBytesInvalid` é propagado, sessão temporária é parada e não é armazenada no cache do cliente. Sem conexão Telegram real ou alteração da produção.
+- Testes focais de `ftp.tg`: **24/24**; cobertura do módulo **80%** com branches (de 78%). Suíte Nebula completa: **538/538** aprovados; 6.626 statements de produção instrumentados, 1.385 ausentes, **76%** incluindo branches.
+- Limites: dependências Telegram simuladas; fluxo real cross-DC, serviço externo, CI Linux e carga continuam pendentes. T0.3/T6.1 parciais; homologação global `progressPercent: null`. Sem pacote, release, commit, push ou deploy; curadoria IA fora do escopo ativo.
+
+### 08/10/2026 — Recuperação de referências Telegram ausentes ou expiradas (T0.3/T6.1 parcial)
+
+- Adicionados cinco cenários parametrizados para `file_id` inválido ou expirado quando a busca da mensagem não encontra mensagem/documento, e para indisponibilidade na busca. O fluxo deve retornar vazio; a exceção da recuperação inválida é registrada, sem propagar falha à leitura.
+- Testes focais de `ftp.tg`: **29/29**; cobertura de linhas/branches **82%** (de 78% antes do conjunto desta rodada). Suíte Nebula Python completa: **543/543** aprovados; 6.626 statements de produção instrumentados, 1.380 ausentes, **76%** incluindo branches.
+- Limites: cliente e sessão Telegram simulados; sem chamadas de rede externas. Cobertura não substitui integração cross-DC real. T0.3/T6.1 parciais; homologação global `progressPercent: null`. Sem pacote, release, commit, push ou deploy; curadoria IA fora do escopo ativo.
+
+### 08/10/2026 — Regressões de ingestão e deduplicação do stats_reporter (T0.3/T2.1 parcial)
+
+- Quatro testes novos cobrem exclusão de `.partial`, NFO e conteúdo STRM; caminho já reservado por upload ativo; re-enfileiramento de documento `failed` sem partes Telegram; remoção segura de cópias locais cujo catálogo já está `completed` ou contém partes Telegram. São casos de scanner com Mongo fake e staging temporário.
+- Testes focais de `stats_reporter`: **7/7**. Suíte Nebula Python: **547/547** aprovados; `main.py` cobertura **72%** (431 instruções ausentes), agregado instrumentado 6.626 statements, 1.367 ausentes, **76%** incluindo branches.
+- Limites: sem serviço Mongo real, reinício concorrente de produtores ou falha física no volume. T0.3/T2.1 parciais; homologação global `progressPercent: null`. Sem pacote, release, commit, push ou deploy; curadoria IA fora do escopo ativo.
 
 ## Referências técnicas
 

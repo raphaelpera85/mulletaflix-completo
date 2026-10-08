@@ -666,6 +666,6 @@ private fun MediaItemType.toGroupLabel() = when (this) {
     MediaItemType.Audio -> "Músicas"
     MediaItemType.MusicAlbum -> "Álbuns"
     MediaItemType.MusicArtist -> "Artistas"
-    MediaItemType.Book -> "Livros"
+    MediaItemType.Book, MediaItemType.AudioBook -> "Livros"
     else -> "Outros"
 }

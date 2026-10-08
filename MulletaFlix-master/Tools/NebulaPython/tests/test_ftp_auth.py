@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+import importlib
+import logging
+import sys
+
 import pytest
 
 from ftp import auth
@@ -29,3 +33,19 @@ def test_verify_password_supports_legacy_plaintext_with_exact_comparison():
     assert not auth.verify_password("Legacy", "legacy")
     assert not auth.verify_password("", "")
 
+
+def test_bcrypt_import_failure_requires_hashing_dependency_and_fails_closed(monkeypatch, caplog):
+    try:
+        with monkeypatch.context() as patch:
+            patch.setitem(sys.modules, "bcrypt", None)
+            importlib.reload(auth)
+
+            assert not auth._HAVE_BCRYPT
+            with pytest.raises(RuntimeError, match="bcrypt is required"):
+                auth.hash_password("secret")
+
+            with caplog.at_level(logging.ERROR, logger="NebulaFTP"):
+                assert not auth.verify_password("secret", "$2b$malformed")
+            assert "bcrypt missing — cannot verify hashed password" in caplog.text
+    finally:
+        importlib.reload(auth)

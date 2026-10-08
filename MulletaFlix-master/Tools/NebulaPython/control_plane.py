@@ -309,12 +309,15 @@ class ControlPlane:
 
     async def close(self) -> None:
         self._ready = False
-        if self._feeder:
-            await self._feeder.stop()
-        if self._runner:
-            await self._runner.cleanup()
+        try:
+            if self._feeder:
+                await self._feeder.stop()
+        finally:
+            runner = self._runner
             self._runner = None
             self._site = None
+            if runner:
+                await runner.cleanup()
 
     async def _json(self, request):
         value = await request.json()

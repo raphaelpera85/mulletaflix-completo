@@ -7,6 +7,10 @@ import Favorite from '@mui/icons-material/Favorite';
 import QueueMusic from '@mui/icons-material/QueueMusic';
 import Button from '@mui/material/Button/Button';
 import Icon from '@mui/material/Icon';
+import ListItemIcon from '@mui/material/ListItemIcon/ListItemIcon';
+import ListItemText from '@mui/material/ListItemText/ListItemText';
+import Menu from '@mui/material/Menu/Menu';
+import MenuItem from '@mui/material/MenuItem/MenuItem';
 import { Theme } from '@mui/material/styles';
 import useMediaQuery from '@mui/material/useMediaQuery';
 import React, { useCallback, useMemo, useState } from 'react';
@@ -117,6 +121,8 @@ const UserViewNav = () => {
 
     const [ overflowAnchorEl, setOverflowAnchorEl ] = useState<null | HTMLElement>(null);
     const isOverflowMenuOpen = Boolean(overflowAnchorEl);
+    const [ requestsAnchorEl, setRequestsAnchorEl ] = useState<null | HTMLElement>(null);
+    const isRequestsMenuOpen = Boolean(requestsAnchorEl);
 
     const onOverflowButtonClick = useCallback((event: React.MouseEvent<HTMLElement>) => {
         setOverflowAnchorEl(event.currentTarget);
@@ -125,6 +131,19 @@ const UserViewNav = () => {
     const onOverflowMenuClose = useCallback(() => {
         setOverflowAnchorEl(null);
     }, []);
+
+    const onRequestsMenuClose = useCallback(() => {
+        setRequestsAnchorEl(null);
+    }, []);
+
+    const onRequestsButtonClick = useCallback((event: React.MouseEvent<HTMLElement>) => {
+        setRequestsAnchorEl(event.currentTarget);
+    }, []);
+
+    const onMediaRequestMenuClick = useCallback(() => {
+        onRequestsMenuClose();
+        onMediaRequestClick();
+    }, [ onMediaRequestClick, onRequestsMenuClose ]);
 
     const currentUserView = useMemo(() => (
         getCurrentUserView(userViews?.Items, location.pathname, libraryId || ancestorLibraryId, collectionType, activeTab)
@@ -144,24 +163,41 @@ const UserViewNav = () => {
                 {globalize.translate(MetaView.Favorites.Name ?? '')}
             </Button>
 
-            <Button
-                variant='text'
-                color='inherit'
-                startIcon={<AddCircle />}
-                onClick={onMediaRequestClick}
-            >
-                {globalize.translate('MediaRequestTitle')}
-            </Button>
-
-            <Button
-                variant='text'
-                color={location.pathname === '/myrequests' ? 'primary' : 'inherit'}
-                startIcon={<Icon>list_alt</Icon>}
-                component={Link}
-                to='/myrequests'
-            >
-                {globalize.translate('MyMediaRequestsTitle')}
-            </Button>
+            <>
+                <Button
+                    id='media-requests-menu-button'
+                    variant='text'
+                    color={location.pathname === '/myrequests' ? 'primary' : 'inherit'}
+                    startIcon={<AddCircle />}
+                    aria-controls={isRequestsMenuOpen ? 'media-requests-menu' : undefined}
+                    aria-haspopup='menu'
+                    aria-expanded={isRequestsMenuOpen ? 'true' : undefined}
+                    onClick={onRequestsButtonClick}
+                >
+                    {globalize.translate('MediaRequestsMenuTitle')}
+                </Button>
+                <Menu
+                    id='media-requests-menu'
+                    anchorEl={requestsAnchorEl}
+                    open={isRequestsMenuOpen}
+                    onClose={onRequestsMenuClose}
+                    slotProps={{ list: { 'aria-labelledby': 'media-requests-menu-button' } }}
+                >
+                    <MenuItem onClick={onMediaRequestMenuClick}>
+                        <ListItemIcon><AddCircle /></ListItemIcon>
+                        <ListItemText>{globalize.translate('MediaRequestTitle')}</ListItemText>
+                    </MenuItem>
+                    <MenuItem
+                        component={Link}
+                        to='/myrequests'
+                        selected={location.pathname === '/myrequests'}
+                        onClick={onRequestsMenuClose}
+                    >
+                        <ListItemIcon><Icon>list_alt</Icon></ListItemIcon>
+                        <ListItemText>{globalize.translate('MyMediaRequestsTitle')}</ListItemText>
+                    </MenuItem>
+                </Menu>
+            </>
 
             <Button
                 variant='text'

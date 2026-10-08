@@ -488,6 +488,29 @@ def test_get_cache_dir_selects_first_disk_with_safe_reserve(monkeypatch, tmp_pat
     assert pathio.get_cache_dir(required_bytes=1) == str(first)
 
 
+def test_get_cache_dir_uses_staging_default_when_no_volumes_are_configured(monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(pathio, "CACHE_DIRS", [])
+
+    assert pathio.get_cache_dir() == str(tmp_path / "staging")
+
+
+def test_get_cache_dir_skips_volume_when_disk_probe_fails(monkeypatch, tmp_path):
+    unavailable, available = tmp_path / "unavailable", tmp_path / "available"
+    unavailable.mkdir()
+    available.mkdir()
+    monkeypatch.setattr(pathio, "CACHE_DIRS", [str(unavailable), str(available)])
+
+    def disk_usage(path):
+        if path == str(unavailable):
+            raise OSError("volume unavailable")
+        return type("Usage", (), {"total": 100 * 1024**3, "free": 90 * 1024**3})()
+
+    monkeypatch.setattr(pathio.shutil, "disk_usage", disk_usage)
+
+    assert pathio.get_cache_dir() == str(available)
+
+
 def test_get_cache_dir_falls_back_to_disk_with_most_free_space(monkeypatch, tmp_path):
     first, second = tmp_path / "first", tmp_path / "second"
     first.mkdir()

@@ -103,6 +103,24 @@ def test_cli_main_returns_downloader_exit_code_and_forwards_parsed_options(monke
     assert received[0].parts == 3
 
 
+def test_cli_main_rejects_invalid_numeric_option_before_starting_downloader(monkeypatch):
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["strm_downloader", "--sources", "D:/Series", "--dest", "N:/", "--parts", "many"],
+    )
+    monkeypatch.setattr(
+        strm_downloader,
+        "run_downloader",
+        lambda _args: pytest.fail("invalid CLI input must not start the downloader"),
+    )
+
+    with pytest.raises(SystemExit) as error:
+        strm_downloader.main()
+
+    assert error.value.code == 2
+
+
 def test_run_downloader_prioritizes_partial_downloads_and_skips_recent_failures(tmp_path, monkeypatch):
     source = tmp_path / "source"
     resume = source / "resume.strm"

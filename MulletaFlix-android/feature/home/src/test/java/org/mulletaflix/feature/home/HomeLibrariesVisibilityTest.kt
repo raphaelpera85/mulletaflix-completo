@@ -32,8 +32,9 @@ class HomeLibrariesVisibilityTest {
         val sameNameBookLibrary = books.copy(id = "same-name-books", name = "Coleção")
         val movie = MediaItem("movie-1", "Filme", MediaItemType.Movie)
         val book = MediaItem("book-1", "Livro", MediaItemType.Book)
+        val audiobook = MediaItem("audiobook-1", "Audiolivro", MediaItemType.AudioBook)
         val libraries = listOf(sameNameMovieLibrary, sameNameBookLibrary)
-        val latestById = mapOf(sameNameMovieLibrary.id to listOf(movie), sameNameBookLibrary.id to listOf(book))
+        val latestById = mapOf(sameNameMovieLibrary.id to listOf(movie), sameNameBookLibrary.id to listOf(book, audiobook))
         val errorsById = mapOf(sameNameBookLibrary.id to "Falha ao carregar livros")
 
         val tvSections = homeRecentLibrarySections(libraries, latestById, errorsById, isTelevision = true)
@@ -55,7 +56,8 @@ class HomeLibrariesVisibilityTest {
     fun `tv hides book entries from home rows while handhelds retain them`() {
         val movie = MediaItem("movie-1", "Filme", MediaItemType.Movie)
         val book = MediaItem("book-1", "Livro", MediaItemType.Book)
-        val items = listOf(movie, book)
+        val audiobook = MediaItem("audiobook-1", "Audiolivro", MediaItemType.AudioBook)
+        val items = listOf(movie, book, audiobook)
 
         assertEquals(listOf(movie), homeMediaItemsForDevice(items, isTelevision = true))
         assertEquals(items, homeMediaItemsForDevice(items, isTelevision = false))
@@ -70,10 +72,11 @@ class HomeLibrariesVisibilityTest {
     fun `tv filters book media even when the containing library is not classified as books`() {
         val unclassifiedLibrary = movies.copy(id = "unclassified", name = "Coleção")
         val book = MediaItem("book-2", "Livro", MediaItemType.Book)
+        val audiobook = MediaItem("audiobook-2", "Audiolivro", MediaItemType.AudioBook)
         val sections = homeRecentLibrarySections(
             libraries = listOf(unclassifiedLibrary),
-            recentItemsByLibraryId = mapOf(unclassifiedLibrary.id to listOf(book)),
-            errorsByLibraryId = emptyMap(),
+            recentItemsByLibraryId = mapOf(unclassifiedLibrary.id to listOf(book, audiobook)),
+            errorsByLibraryId = mapOf(unclassifiedLibrary.id to "Falha ao carregar itens"),
             isTelevision = true,
         )
 

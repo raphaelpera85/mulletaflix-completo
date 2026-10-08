@@ -1,17 +1,18 @@
 package org.mulletaflix.feature.home
 
-import org.mulletaflix.domain.model.MediaItemType
+import org.mulletaflix.domain.model.isBookContent
 
 internal fun shouldShowEmptyHomeState(state: HomeState, isTelevision: Boolean = false): Boolean {
     val hasVisibleLibrary = state.libraries.any { shouldShowLibraryOnDevice(it, isTelevision) }
-    val hasVisibleRecentSection = state.libraries.any { library ->
-        shouldShowLibraryOnDevice(library, isTelevision) &&
-            (homeMediaItemsForDevice(state.recentlyAddedByLibrary[library.id].orEmpty(), isTelevision).isNotEmpty() ||
-                state.recentlyAddedErrorsByLibrary[library.id] != null)
-    }
+    val hasVisibleRecentSection = homeRecentLibrarySections(
+        libraries = state.libraries,
+        recentItemsByLibraryId = state.recentlyAddedByLibrary,
+        errorsByLibraryId = state.recentlyAddedErrorsByLibrary,
+        isTelevision = isTelevision,
+    ).isNotEmpty()
     return !state.isLoading &&
         state.error == null &&
-        (state.heroItem == null || (isTelevision && state.heroItem.type == MediaItemType.Book)) &&
+        (state.heroItem == null || (isTelevision && state.heroItem.type.isBookContent())) &&
         homeMediaItemsForDevice(state.resumeItems, isTelevision).isEmpty() &&
         homeMediaItemsForDevice(state.nextUpItems, isTelevision).isEmpty() &&
         homeMediaItemsForDevice(state.favoriteItems, isTelevision).isEmpty() &&

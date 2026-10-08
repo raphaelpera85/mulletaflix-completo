@@ -1941,6 +1941,7 @@
     "LabelPlayerSizes": "Dimensões do Reprodutor",
     "LabelPlaybackQuality": "Quadros perdidos / corrompidos",
     "MediaRequestTitle": "Solicitar inclusão de mídia",
+    "MediaRequestsMenuTitle": "Solicitações",
     "MediaRequestName": "Nome do filme, série ou outra mídia",
     "MediaRequestTitleRequired": "Informe o título que deseja solicitar.",
     "MediaRequestTypeRequired": "Selecione o tipo de mídia.",

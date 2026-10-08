@@ -83,11 +83,13 @@ fun MediaItem.displayYearRange(): String? {
 enum class MediaItemType {
     Movie, Series, Season, Episode,
     MusicAlbum, Audio, MusicArtist, MusicVideo,
-    Book, Photo, PhotoAlbum,
+    Book, AudioBook, Photo, PhotoAlbum,
     CollectionFolder, Folder, BoxSet,
     LiveTvChannel, LiveTvProgram, Recording,
     Playlist, Trailer, Unknown
 }
+
+fun MediaItemType.isBookContent(): Boolean = this == MediaItemType.Book || this == MediaItemType.AudioBook
 
 /**
  * Identifies item types whose canonical artwork is a vertical title poster.
@@ -97,7 +99,8 @@ fun MediaItemType.usesPosterArtwork(): Boolean = when (this) {
     MediaItemType.Movie,
     MediaItemType.Series,
     MediaItemType.MusicAlbum,
-    MediaItemType.Book -> true
+    MediaItemType.Book,
+    MediaItemType.AudioBook -> true
     else -> false
 }
 

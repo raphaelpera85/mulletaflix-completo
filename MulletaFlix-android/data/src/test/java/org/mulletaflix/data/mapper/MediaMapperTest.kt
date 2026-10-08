@@ -61,6 +61,13 @@ class MediaMapperTest {
     }
 
     @Test
+    fun `maps audiobook as playable audiobook content instead of unknown`() {
+        val item = BaseItemDto(id = "audio-book-1", name = "Duna", type = "Audiobook").toDomain()
+
+        assertEquals(MediaItemType.AudioBook, item.type)
+    }
+
+    @Test
     fun `preserves server-selected audio and subtitle stream indices`() {
         val domain = MediaSourceDto(
             id = "source-1",

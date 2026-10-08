@@ -54,6 +54,15 @@ class DetailPlaybackTargetTest {
     }
 
     @Test
+    fun `audiobooks remain playable media and are not sent to the text reader`() {
+        val audiobook = MediaItem("audio-book-1", "Audiolivro", MediaItemType.AudioBook)
+
+        assertEquals(DetailPrimaryAction.PlayVideo, detailPrimaryAction(audiobook))
+        assertTrue(canPlayItem(audiobook, emptyList()))
+        assertFalse(canReadBookOnDevice(audiobook, isTelevision = false))
+    }
+
+    @Test
     fun `non-book detail actions stay on the video and media player path`() {
         assertEquals(
             DetailPrimaryAction.PlayVideo,

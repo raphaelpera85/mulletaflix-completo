@@ -61,12 +61,13 @@ class HomeEmptyStatePolicyTest {
     @Test
     fun `tv treats home containing only book titles as empty`() {
         val book = MediaItem("book-1", "Livro", MediaItemType.Book)
+        val audiobook = MediaItem("audiobook-1", "Audiolivro", MediaItemType.AudioBook)
         val state = HomeState(
             isLoading = false,
             heroItem = book,
-            resumeItems = listOf(book),
-            nextUpItems = listOf(book),
-            favoriteItems = listOf(book),
+            resumeItems = listOf(book, audiobook),
+            nextUpItems = listOf(book, audiobook),
+            favoriteItems = listOf(book, audiobook),
         )
 
         assertTrue(shouldShowEmptyHomeState(state, isTelevision = true))

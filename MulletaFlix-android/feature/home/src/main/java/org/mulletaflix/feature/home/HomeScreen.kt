@@ -167,7 +167,7 @@ fun HomeScreen(
             }
 
             // ── Hero Banner ─────────────────────────────────────────────────
-            state.heroItem?.takeUnless { isTelevision && it.type == MediaItemType.Book }?.let { hero ->
+            state.heroItem?.takeUnless { isTelevision && it.type.isBookContent() }?.let { hero ->
                 item {
                     HeroBanner(
                         item = hero,
@@ -865,7 +865,7 @@ internal fun homeLibrariesForDevice(libraries: List<MediaItem>, isTelevision: Bo
     libraries.filter { shouldShowLibraryOnDevice(it, isTelevision) }
 
 internal fun homeMediaItemsForDevice(items: List<MediaItem>, isTelevision: Boolean): List<MediaItem> =
-    if (isTelevision) items.filterNot { it.type == MediaItemType.Book } else items
+    if (isTelevision) items.filterNot { it.type.isBookContent() } else items
 
 internal fun shouldShowLibraryOnDevice(library: MediaItem, isTelevision: Boolean): Boolean =
     !isTelevision || !isBooksLibrary(library)
@@ -883,10 +883,14 @@ internal fun homeRecentLibrarySections(
     isTelevision: Boolean,
 ): List<HomeRecentLibrarySection> = homeLibrariesForDevice(libraries, isTelevision)
     .map { library ->
+        val rawItems = recentItemsByLibraryId[library.id].orEmpty()
+        val visibleItems = homeMediaItemsForDevice(rawItems, isTelevision)
         HomeRecentLibrarySection(
             library = library,
-            items = homeMediaItemsForDevice(recentItemsByLibraryId[library.id].orEmpty(), isTelevision),
-            errorMessage = errorsByLibraryId[library.id],
+            items = visibleItems,
+            errorMessage = errorsByLibraryId[library.id].takeUnless {
+                isTelevision && rawItems.isNotEmpty() && visibleItems.isEmpty()
+            },
         )
     }
     .filter { section -> section.items.isNotEmpty() || section.errorMessage != null }

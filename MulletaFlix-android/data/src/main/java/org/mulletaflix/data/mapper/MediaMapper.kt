@@ -17,6 +17,7 @@ fun BaseItemDto.toDomain(): MediaItem {
         "musicartist" -> MediaItemType.MusicArtist
         "musicvideo" -> MediaItemType.MusicVideo
         "book" -> MediaItemType.Book
+        "audiobook" -> MediaItemType.AudioBook
         "photo" -> MediaItemType.Photo
         "photoalbum" -> MediaItemType.PhotoAlbum
         "collectionfolder" -> MediaItemType.CollectionFolder

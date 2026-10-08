@@ -1968,6 +1968,7 @@
     "MessageLicenseTimeRemaining": "Seu acesso expira em {0}.",
     "MessageLicenseExpired": "Seu acesso expirou. Entre em contato com o administrador.",
     "MediaRequestTitle": "Request media",
+    "MediaRequestsMenuTitle": "Requests",
     "MediaRequestName": "Movie, show, or other media title",
     "MediaRequestTitleRequired": "Enter the title you want to request.",
     "MediaRequestTypeRequired": "Select a media type.",

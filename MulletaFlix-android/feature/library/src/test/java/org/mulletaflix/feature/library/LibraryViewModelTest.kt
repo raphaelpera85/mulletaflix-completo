@@ -259,6 +259,41 @@ class LibraryViewModelTest {
     }
 
     @Test
+    fun `tv hides audiobooks online and offline while preserving shared cache for handhelds`() = runTest {
+        val movie = MediaItem("movie-1", "Filme", MediaItemType.Movie)
+        val audiobook = MediaItem("audio-book-1", "Audiolivro", MediaItemType.AudioBook)
+        val nextMovie = MediaItem("movie-2", "Outro filme", MediaItemType.Movie)
+        media.pages[0] = Result.success(listOf(movie, audiobook) to 3)
+        media.pages[2] = Result.success(listOf(nextMovie) to 3)
+        val cache = FakeLibraryCatalogCache()
+
+        val onlineTv = createViewModel(catalogCache = cache)
+        advanceUntilIdle()
+        onlineTv.loadLibrary("library-1", isTelevision = true)
+        advanceUntilIdle()
+        assertEquals(listOf(movie), onlineTv.state.value.items)
+        assertEquals(true, onlineTv.state.value.hasMore)
+        onlineTv.loadMore()
+        advanceUntilIdle()
+
+        assertEquals(listOf(movie, nextMovie), onlineTv.state.value.items)
+        assertEquals(2, media.lastStartIndex)
+        assertEquals(listOf(movie, audiobook, nextMovie), cache.snapshots.getValue("user-1" to "library-1").items)
+
+        val offlineTv = createViewModel(network = FakeNetworkMonitor(initialOnline = false), catalogCache = cache)
+        advanceUntilIdle()
+        offlineTv.loadLibrary("library-1", isTelevision = true)
+        advanceUntilIdle()
+        assertEquals(listOf(movie, nextMovie), offlineTv.state.value.items)
+
+        val offlinePhone = createViewModel(network = FakeNetworkMonitor(initialOnline = false), catalogCache = cache)
+        advanceUntilIdle()
+        offlinePhone.loadLibrary("library-1", isTelevision = false)
+        advanceUntilIdle()
+        assertEquals(listOf(movie, audiobook, nextMovie), offlinePhone.state.value.items)
+    }
+
+    @Test
     fun `offline sort and filters cannot relabel or alter cached query`() = runTest {
         val cache = FakeLibraryCatalogCache().apply {
             snapshots["user-1" to "library-1"] = CachedLibraryCatalog(

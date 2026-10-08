@@ -1,15 +1,26 @@
 package org.mulletaflix.feature.player
 
 import android.net.Uri
+import android.database.sqlite.SQLiteDatabase
+import android.database.sqlite.SQLiteOpenHelper
 import androidx.activity.ComponentActivity
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
+import androidx.media3.common.MimeTypes
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
+import androidx.media3.datasource.cache.NoOpCacheEvictor
+import androidx.media3.datasource.cache.SimpleCache
+import androidx.media3.database.DefaultDatabaseProvider
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.offline.Download
+import androidx.media3.exoplayer.offline.DownloadManager
+import androidx.media3.exoplayer.offline.DownloadRequest
+import androidx.media3.exoplayer.scheduler.Requirements
+import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsFocused
@@ -28,6 +39,9 @@ import androidx.compose.ui.test.SemanticsMatcher
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import okhttp3.mockwebserver.MockResponse
+import okhttp3.mockwebserver.MockWebServer
+import okio.Buffer
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -35,9 +49,12 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import java.io.File
+import java.util.UUID
+import java.util.concurrent.Executors
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicReference
+import org.mulletaflix.core.api.cleartextAwareMediaDataSourceFactory
 
 @RunWith(AndroidJUnit4::class)
 @UnstableApi
@@ -46,16 +63,32 @@ class OfflineContainerTrackIntegrationTest {
     val composeRule = createAndroidComposeRule<ComponentActivity>()
 
     @Test
-    fun realOfflineMatroskaExposesItsAudioAndSubtitleTracksInTheAccessibleMenu() {
+    fun completedDownloadPlaysFromCacheAndSelectsItsAudioAndSubtitleTracks() {
         val context = ApplicationProvider.getApplicationContext<android.content.Context>()
-        val mediaFile = File.createTempFile("offline-multitrack", ".mkv", context.cacheDir)
-        InstrumentationRegistry.getInstrumentation().context.assets
+        val fixture = InstrumentationRegistry.getInstrumentation().context.assets
             .open("offline-multitrack.mkv")
-            .use { input -> mediaFile.outputStream().use(input::copyTo) }
-
-        val player = ExoPlayer.Builder(context)
-            .setTrackSelector(DefaultTrackSelector(context))
-            .build()
+            .use { it.readBytes() }
+        val testId = UUID.randomUUID().toString()
+        val cacheDirectory = File(context.cacheDir, "offline-track-cache/$testId")
+        assertTrue("Unable to create isolated cache directory", cacheDirectory.mkdirs())
+        val databaseName = "offline-track-$testId.db"
+        val databaseHelper = object : SQLiteOpenHelper(context, databaseName, null, 1) {
+            override fun onCreate(database: SQLiteDatabase) = Unit
+            override fun onUpgrade(database: SQLiteDatabase, oldVersion: Int, newVersion: Int) = Unit
+        }
+        val databaseProvider = DefaultDatabaseProvider(databaseHelper)
+        val cache = SimpleCache(cacheDirectory, NoOpCacheEvictor(), databaseProvider)
+        val executor = Executors.newSingleThreadExecutor()
+        val server = MockWebServer()
+        server.enqueue(
+            MockResponse()
+                .setHeader("Content-Type", "video/x-matroska")
+                .setBody(Buffer().write(fixture)),
+        )
+        var downloadManager: DownloadManager? = null
+        var player: ExoPlayer? = null
+        val downloadId = "offline-multitrack-$testId"
+        lateinit var downloadUri: Uri
         val tracksReady = CountDownLatch(1)
         val trackSnapshot = AtomicReference<androidx.media3.common.Tracks?>()
         val playbackError = AtomicReference<androidx.media3.common.PlaybackException?>()
@@ -83,18 +116,54 @@ class OfflineContainerTrackIntegrationTest {
             }
         }
         try {
+            server.start()
+            downloadUri = Uri.parse(server.url("/offline-multitrack.mkv").toString())
+            val activeDownloadManager = DownloadManager(
+                context,
+                databaseProvider,
+                cache,
+                cleartextAwareMediaDataSourceFactory(connectTimeoutMs = 5_000, readTimeoutMs = 5_000),
+                executor,
+            ).apply {
+                setMinRetryCount(0)
+                setMaxParallelDownloads(1)
+                setRequirements(Requirements(Requirements.NETWORK))
+                resumeDownloads()
+            }
+            downloadManager = activeDownloadManager
+            val downloadRequest = DownloadRequest.Builder(downloadId, downloadUri)
+                .setMimeType(MimeTypes.VIDEO_MATROSKA)
+                .build()
+            activeDownloadManager.addDownload(downloadRequest)
+            awaitCompletedDownload(activeDownloadManager, downloadId)
+            assertTrue("Completed download did not populate the playback cache", cache.cacheSpace >= fixture.size)
+            assertEquals("Download should fetch the fixture exactly once", 1, server.requestCount)
+            server.shutdown()
+
+            val activePlayer = ExoPlayer.Builder(context)
+                .setTrackSelector(DefaultTrackSelector(context))
+                .setMediaSourceFactory(
+                    DefaultMediaSourceFactory(
+                        playbackCacheDataSourceFactory(
+                            cache,
+                            cleartextAwareMediaDataSourceFactory(connectTimeoutMs = 5_000, readTimeoutMs = 5_000),
+                        ),
+                    ),
+                )
+                .build()
+            player = activePlayer
             InstrumentationRegistry.getInstrumentation().runOnMainSync {
-                player.addListener(listener)
-                player.trackSelectionParameters = player.trackSelectionParameters
+                activePlayer.addListener(listener)
+                activePlayer.trackSelectionParameters = activePlayer.trackSelectionParameters
                     .buildUpon()
                     .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true)
                     .build()
-                player.setMediaItem(MediaItem.fromUri(Uri.fromFile(mediaFile)))
-                player.prepare()
+                activePlayer.setMediaItem(MediaItem.fromUri(downloadUri))
+                activePlayer.prepare()
             }
-            assertTrue("Media3 did not discover audio and subtitle tracks", tracksReady.await(10, TimeUnit.SECONDS))
+            assertTrue("Media3 did not discover tracks in the completed cached download", tracksReady.await(10, TimeUnit.SECONDS))
             assertNull("Media3 failed to read the local Matroska fixture: ${playbackError.get()}", playbackError.get())
-
+            assertEquals("Playback must use the completed cache without contacting the source again", 1, server.requestCount)
             val tracks = checkNotNull(trackSnapshot.get())
             val audio = containerTracksOfType(tracks, C.TRACK_TYPE_AUDIO)
             val subtitles = containerTracksOfType(tracks, C.TRACK_TYPE_TEXT)
@@ -123,13 +192,13 @@ class OfflineContainerTrackIntegrationTest {
                             onSelect = { menuIndex ->
                                 val serverIndex = serverTrackIndexAt(subtitleOptions, menuIndex) ?: return@PlayerTrackMenu
                                 val parameters = trackSelectionParametersForServerIndex(
-                                    currentParameters = player.trackSelectionParameters,
-                                    tracks = player.currentTracks,
+                                    currentParameters = activePlayer.trackSelectionParameters,
+                                    tracks = activePlayer.currentTracks,
                                     serverIndex = serverIndex,
                                     trackType = C.TRACK_TYPE_TEXT,
                                     orderedServerIndices = offlineStreamIndices(subtitles.size),
                                 )
-                                if (parameters != null) player.trackSelectionParameters = parameters
+                                if (parameters != null) activePlayer.trackSelectionParameters = parameters
                             },
                             onDismiss = {},
                         )
@@ -142,13 +211,13 @@ class OfflineContainerTrackIntegrationTest {
                             onSelect = { menuIndex ->
                                 val serverIndex = serverTrackIndexAt(audioOptions, menuIndex) ?: return@PlayerTrackMenu
                                 val parameters = trackSelectionParametersForServerIndex(
-                                    currentParameters = player.trackSelectionParameters,
-                                    tracks = player.currentTracks,
+                                    currentParameters = activePlayer.trackSelectionParameters,
+                                    tracks = activePlayer.currentTracks,
                                     serverIndex = serverIndex,
                                     trackType = C.TRACK_TYPE_AUDIO,
                                     orderedServerIndices = offlineStreamIndices(audio.size),
                                 )
-                                if (parameters != null) player.trackSelectionParameters = parameters
+                                if (parameters != null) activePlayer.trackSelectionParameters = parameters
                             },
                             onDismiss = {},
                         )
@@ -195,10 +264,30 @@ class OfflineContainerTrackIntegrationTest {
             ).assertIsDisplayed()
         } finally {
             InstrumentationRegistry.getInstrumentation().runOnMainSync {
-                player.removeListener(listener)
-                player.release()
+                player?.removeListener(listener)
+                player?.release()
             }
-            mediaFile.delete()
+            downloadManager?.release()
+            runCatching { server.shutdown() }
+            cache.release()
+            SimpleCache.delete(cacheDirectory, databaseProvider)
+            databaseHelper.close()
+            context.deleteDatabase(databaseName)
+            executor.shutdownNow()
         }
+    }
+
+    private fun awaitCompletedDownload(downloadManager: DownloadManager, downloadId: String) {
+        val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(30)
+        while (System.nanoTime() < deadline) {
+            val download = downloadManager.downloadIndex.getDownload(downloadId)
+            if (download?.state == Download.STATE_COMPLETED) return
+            if (download?.state == Download.STATE_FAILED) {
+                throw AssertionError("Media3 download failed: ${download.failureReason}")
+            }
+            Thread.sleep(50)
+        }
+        val lastState = downloadManager.downloadIndex.getDownload(downloadId)?.state
+        throw AssertionError("Timed out waiting for completed media download; last state=$lastState")
     }
 }

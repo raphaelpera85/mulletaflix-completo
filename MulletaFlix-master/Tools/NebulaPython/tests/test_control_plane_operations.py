@@ -139,6 +139,29 @@ async def test_drain_stop_is_idempotent_and_marks_readiness_false():
 
 
 @pytest.mark.asyncio
+async def test_close_cleans_http_runner_when_feeder_stop_fails():
+    class FailingFeeder:
+        async def stop(self):
+            raise RuntimeError("feeder stop failed")
+
+    control = make_control(feeder=FailingFeeder())
+    await control.start(port=0)
+    runner = control._runner
+    assert runner is not None
+    assert control.bound_port > 0
+
+    try:
+        with pytest.raises(RuntimeError, match="feeder stop failed"):
+            await control.close()
+
+        assert control._runner is None
+        assert runner._server is None
+    finally:
+        if control._runner is not None:
+            await control._runner.cleanup()
+
+
+@pytest.mark.asyncio
 async def test_feeder_http_routes_surface_status_and_start_stop_results():
     class Feeder:
         async def start(self, config):

@@ -2635,7 +2635,10 @@ async def main():
         stop_task.cancel()
         logger.info("⏳ Shutdown...")
         if control_plane:
-            await control_plane.close()
+            try:
+                await control_plane.close()
+            except Exception as exc:
+                logger.warning("control plane shutdown failed (%s)", type(exc).__name__)
         try:
             if not UPLOAD_QUEUE.empty():
                 await asyncio.wait_for(UPLOAD_QUEUE.join(), timeout=30)

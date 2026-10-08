@@ -12,10 +12,12 @@ class SearchContentPolicyTest {
         val results = listOf(
             MediaItem("movie", "Filme", MediaItemType.Movie),
             MediaItem("book", "Livro", MediaItemType.Book),
+            MediaItem("audiobook", "Audiolivro", MediaItemType.AudioBook),
         )
         val hints = listOf(
             SearchHintItem("movie", "Filme", "Movie", 2020, null),
             SearchHintItem("book", "Livro", "Book", 2020, null),
+            SearchHintItem("audiobook", "Audiolivro", "AudioBook", 2020, null),
         )
 
         assertEquals(listOf("movie"), searchItemsForDevice(results, isTelevision = true).map { it.id })

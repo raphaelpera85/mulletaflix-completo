@@ -131,5 +131,124 @@ async def test_stats_reporter_duplicate_insert_result_is_idempotent_without_runt
     assert "Erro registro Movie.mkv" not in caplog.text
 
 
+@pytest.mark.asyncio
+async def test_stats_reporter_skips_partial_metadata_active_and_strm_contents(monkeypatch, tmp_path):
+    stage = tmp_path / "stage"
+    strm_dir = stage / "strm"
+    strm_dir.mkdir(parents=True)
+    active = stage / "active.mp4"
+    active.write_bytes(b"video")
+    (stage / "unfinished.mkv.partial").write_bytes(b"partial")
+    (stage / "cover.nfo").write_text("metadata", encoding="utf-8")
+    (strm_dir / "ignored.mkv").write_bytes(b"video")
+
+    files, queue = Files(), Queue()
+    mongo = _configure(monkeypatch, files, queue, stage)
+    monkeypatch.setattr(main, "ACTIVE_UPLOADS", {str(active)})
+
+    async def stop(_seconds):
+        raise asyncio.CancelledError
+
+    monkeypatch.setattr(main.asyncio, "sleep", stop)
+
+    with pytest.raises(asyncio.CancelledError):
+        await main.stats_reporter(mongo)
+
+    assert files.find_queries == []
+    assert files.updates == []
+    assert queue.items == []
+
+
+@pytest.mark.asyncio
+async def test_stats_reporter_requeues_failed_file_without_telegram_parts(monkeypatch, tmp_path):
+    stage = tmp_path / "stage"
+    stage.mkdir()
+    media = stage / "retry.mkv"
+    media.write_bytes(b"video")
+    files = Files(find_results=[None, None, {"_id": "failed", "status": "failed", "parts": []}])
+    queue = Queue()
+    mongo = _configure(monkeypatch, files, queue, stage)
+    monkeypatch.setattr(main, "log_queue_state", _noop)
+
+    async def stop(_seconds):
+        raise asyncio.CancelledError
+
+    monkeypatch.setattr(main.asyncio, "sleep", stop)
+
+    with pytest.raises(asyncio.CancelledError):
+        await main.stats_reporter(mongo)
+
+    assert files.updates == [
+        (
+            {"_id": "failed"},
+            {"$set": {
+                "name": "retry.mkv",
+                "parent": "/raphael/Filmes",
+                "status": "queued",
+                "local_path": str(media),
+                "size": 5,
+            }},
+            {},
+        )
+    ]
+    assert queue.items == [{
+        "path": str(media), "filename": "retry.mkv", "parent": "/raphael/Filmes", "size": 5,
+    }]
+
+
+@pytest.mark.asyncio
+async def test_stats_reporter_removes_staging_duplicate_when_catalog_is_completed(
+    monkeypatch, tmp_path
+):
+    stage = tmp_path / "stage"
+    stage.mkdir()
+    media = stage / "already-sent.mkv"
+    media.write_bytes(b"video")
+    files = Files(find_results=[None, {"_id": "completed", "status": "completed"}])
+    queue = Queue()
+    mongo = _configure(monkeypatch, files, queue, stage)
+
+    async def stop(_seconds):
+        raise asyncio.CancelledError
+
+    monkeypatch.setattr(main.asyncio, "sleep", stop)
+
+    with pytest.raises(asyncio.CancelledError):
+        await main.stats_reporter(mongo)
+
+    assert not media.exists()
+    assert queue.items == []
+    assert files.updates == []
+
+
+@pytest.mark.asyncio
+async def test_stats_reporter_removes_file_already_partially_sent_to_telegram(
+    monkeypatch, tmp_path
+):
+    stage = tmp_path / "stage"
+    stage.mkdir()
+    media = stage / "partial-duplicate.mkv"
+    media.write_bytes(b"video")
+    files = Files(find_results=[
+        None,
+        None,
+        {"_id": "partial", "status": "failed", "parts": [{"tg_message": 7}]},
+    ])
+    queue = Queue()
+    mongo = _configure(monkeypatch, files, queue, stage)
+
+    async def stop(_seconds):
+        raise asyncio.CancelledError
+
+    monkeypatch.setattr(main.asyncio, "sleep", stop)
+
+    with pytest.raises(asyncio.CancelledError):
+        await main.stats_reporter(mongo)
+
+    assert not media.exists()
+    assert queue.items == []
+    assert files.updates == []
+
+
 async def _noop(*_args):
     return None
