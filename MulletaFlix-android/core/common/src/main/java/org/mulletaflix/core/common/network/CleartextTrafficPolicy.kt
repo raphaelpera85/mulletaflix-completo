@@ -199,10 +199,12 @@ private object LocalNetworkSubnetProvider {
 class LocalNetworkCleartextInterceptor(
     internal val requireHttpsRedirects: Boolean = false,
     private val allowedHttpsRedirectHosts: Set<String>? = null,
+    private val allowedHttpsRedirectPorts: Set<Int> = setOf(443),
 ) : Interceptor {
     private companion object {
         const val HTTPS_REDIRECT_BLOCKED_MESSAGE = "HTTPS requests must not redirect to HTTP."
         const val UNTRUSTED_HTTPS_REDIRECT_BLOCKED_MESSAGE = "HTTPS redirect host is not trusted."
+        const val NON_DEFAULT_HTTPS_REDIRECT_PORT_BLOCKED_MESSAGE = "HTTPS redirects must use the default port."
         const val MAX_REDIRECTS = 20
         val REDIRECT_CODES = setOf(300, 301, 302, 303, 307, 308)
         val CREDENTIAL_QUERY_PARAMETER_NAMES = setOf(
@@ -278,6 +280,8 @@ class LocalNetworkCleartextInterceptor(
             val redirectCode = response.code in REDIRECT_CODES
             val redirectUrl = if (redirectCode) request.url.resolve(location) else null
             if (redirectUrl == null) return response
+            val sameOrigin = request.url.scheme == redirectUrl.scheme &&
+                request.url.host == redirectUrl.host && request.url.port == redirectUrl.port
 
             val method = request.method
             val redirectToGet = (response.code == 303 && method != "HEAD") ||
@@ -298,14 +302,19 @@ class LocalNetworkCleartextInterceptor(
                 ) {
                     throw IOException(UNTRUSTED_HTTPS_REDIRECT_BLOCKED_MESSAGE)
                 }
+                if (requireHttpsRedirects &&
+                    allowedHttpsRedirectHosts != null &&
+                    !sameOrigin &&
+                    redirectUrl.port !in allowedHttpsRedirectPorts
+                ) {
+                    throw IOException(NON_DEFAULT_HTTPS_REDIRECT_PORT_BLOCKED_MESSAGE)
+                }
                 CleartextTrafficPolicy.requireAllowed(redirectUrl)
             } catch (failure: IOException) {
                 response.close()
                 throw failure
             }
 
-            val sameOrigin = request.url.scheme == redirectUrl.scheme &&
-                request.url.host == redirectUrl.host && request.url.port == redirectUrl.port
             val safeRedirectUrl = if (sameOrigin) {
                 redirectUrl
             } else {
@@ -368,8 +377,11 @@ object LocalNetworkCleartextNetworkInterceptor : Interceptor {
 fun OkHttpClient.Builder.enforceLocalNetworkCleartextPolicy(
     requireHttpsRedirects: Boolean = false,
     allowedHttpsRedirectHosts: Set<String>? = null,
+    allowedHttpsRedirectPorts: Set<Int> = setOf(443),
 ): OkHttpClient.Builder =
     followRedirects(false)
         .followSslRedirects(false)
-        .addInterceptor(LocalNetworkCleartextInterceptor(requireHttpsRedirects, allowedHttpsRedirectHosts))
+        .addInterceptor(
+            LocalNetworkCleartextInterceptor(requireHttpsRedirects, allowedHttpsRedirectHosts, allowedHttpsRedirectPorts),
+        )
         .addNetworkInterceptor(LocalNetworkCleartextNetworkInterceptor)

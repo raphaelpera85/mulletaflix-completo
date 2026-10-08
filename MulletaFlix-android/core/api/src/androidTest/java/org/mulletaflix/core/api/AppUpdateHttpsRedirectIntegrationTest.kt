@@ -50,6 +50,74 @@ class AppUpdateHttpsRedirectIntegrationTest {
     }
 
     @Test
+    fun httpsUpdateRedirectToAllowedHostOnNonDefaultPortIsBlocked() {
+        val fixtures = tlsFixtures()
+        val cdnServer = httpsServer(fixtures.serverCertificates).apply {
+            enqueue(MockResponse().setBody("must-not-download"))
+            start(InetAddress.getByName("127.0.0.1"), 0)
+        }
+        val nonDefaultPort = if (cdnServer.port == 8443) 8444 else 8443
+        val updateServer = httpsServer(fixtures.serverCertificates).apply {
+            enqueue(
+                MockResponse().setResponseCode(302)
+                    .setHeader(
+                        "Location",
+                        cdnServer.url("/asset.apk").newBuilder()
+                            .host(CDN_HOST)
+                            .port(nonDefaultPort)
+                            .build(),
+                    ),
+            )
+            start(InetAddress.getByName("127.0.0.1"), 0)
+        }
+        val client = updateClient(fixtures.clientCertificates)
+
+        try {
+            val failure = runCatching {
+                client.newCall(Request.Builder().url(updateUrl(updateServer, UPDATE_HOST)).build())
+                    .execute().use { }
+            }.exceptionOrNull()
+
+            assertTrue("Expected non-default HTTPS port rejection, got $failure", failure is IOException)
+            assertTrue(
+                "Expected the non-default-port policy error, got $failure",
+                generateSequence(failure) { it.cause }
+                    .any { it.message == "HTTPS redirects must use the default port." },
+            )
+            assertEquals("Only the original HTTPS request may reach its server", 1, updateServer.requestCount)
+            assertEquals("Non-default port target must receive no request", 0, cdnServer.requestCount)
+        } finally {
+            updateServer.shutdown()
+            cdnServer.shutdown()
+        }
+    }
+
+    @Test
+    fun sameOriginHttpsRedirectRetainsItsNonDefaultPort() {
+        val fixtures = tlsFixtures()
+        val updateServer = httpsServer(fixtures.serverCertificates).apply {
+            enqueue(MockResponse().setResponseCode(302).setHeader("Location", "/asset.apk"))
+            enqueue(MockResponse().setBody("apk-payload"))
+            start(InetAddress.getByName("127.0.0.1"), 0)
+        }
+        val client = updateClient(fixtures.clientCertificates)
+
+        try {
+            client.newCall(Request.Builder().url(updateUrl(updateServer, UPDATE_HOST)).build())
+                .execute().use { response ->
+                    assertTrue("Same-origin HTTPS redirect should complete", response.isSuccessful)
+                    assertEquals("apk-payload", response.body?.string())
+            }
+
+            assertEquals("Both requests should reach the same HTTPS origin", 2, updateServer.requestCount)
+            assertEquals("/releases/app.apk", updateServer.takeRequest().path)
+            assertEquals("/asset.apk", updateServer.takeRequest().path)
+        } finally {
+            updateServer.shutdown()
+        }
+    }
+
+    @Test
     fun httpsUpdateRedirectToLocalHttpIsBlockedBeforeTheTargetRequest() {
         val fixtures = tlsFixtures()
         val localHttpTarget = MockWebServer().apply { start(InetAddress.getByName("127.0.0.1"), 0) }
@@ -96,7 +164,7 @@ class AppUpdateHttpsRedirectIntegrationTest {
             )
             start(InetAddress.getByName("127.0.0.1"), 0)
         }
-        val client = updateClient(fixtures.clientCertificates)
+        val client = updateClient(fixtures.clientCertificates, allowedHttpsRedirectPorts = setOf(443, cdnServer.port))
 
         try {
             client.newCall(Request.Builder().url(updateUrl(updateServer, UPDATE_HOST)).build())
@@ -134,7 +202,10 @@ class AppUpdateHttpsRedirectIntegrationTest {
             start(InetAddress.getByName("127.0.0.1"), 0)
         }
         val observedUrls = mutableListOf<okhttp3.HttpUrl>()
-        val client = updateClient(fixtures.clientCertificates).newBuilder()
+        val client = updateClient(
+            fixtures.clientCertificates,
+            allowedHttpsRedirectPorts = setOf(443, cdnServer.port),
+        ).newBuilder()
             .addInterceptor { chain ->
                 observedUrls += chain.request().url
                 chain.proceed(chain.request())
@@ -218,7 +289,10 @@ class AppUpdateHttpsRedirectIntegrationTest {
         useHttps(certificates.sslSocketFactory(), false)
     }
 
-    private fun updateClient(certificates: HandshakeCertificates) = OkHttpClient.Builder()
+    private fun updateClient(
+        certificates: HandshakeCertificates,
+        allowedHttpsRedirectPorts: Set<Int> = setOf(443),
+    ) = OkHttpClient.Builder()
         .sslSocketFactory(certificates.sslSocketFactory(), certificates.trustManager)
         .dns(object : Dns {
             override fun lookup(hostname: String): List<InetAddress> =
@@ -228,6 +302,7 @@ class AppUpdateHttpsRedirectIntegrationTest {
         .enforceLocalNetworkCleartextPolicy(
             requireHttpsRedirects = true,
             allowedHttpsRedirectHosts = setOf("github.com", UPDATE_HOST, CDN_HOST),
+            allowedHttpsRedirectPorts = allowedHttpsRedirectPorts,
         )
         .build()
 

@@ -4,15 +4,20 @@ import android.content.Context
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.InternalCoroutinesApi
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
+import okhttp3.Call
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.mulletaflix.core.common.network.enforceLocalNetworkCleartextPolicy
 import java.io.File
 import java.io.FileOutputStream
 import java.util.concurrent.TimeUnit
+import kotlinx.coroutines.DisposableHandle
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -28,21 +33,28 @@ sealed interface DownloadState {
 }
 
 @Singleton
-class AppUpdateDownloader @Inject constructor(
-    @ApplicationContext private val context: Context,
+class AppUpdateDownloader private constructor(
+    private val cacheDirectory: () -> File,
+    private val callFactory: Call.Factory,
+    private val isTrustedDownloadUrl: (String) -> Boolean,
 ) {
-    private val httpClient = OkHttpClient.Builder()
-        .enforceLocalNetworkCleartextPolicy(
-            requireHttpsRedirects = true,
-            allowedHttpsRedirectHosts = setOf("github.com", "release-assets.githubusercontent.com"),
-        )
-        .connectTimeout(30, TimeUnit.SECONDS)
-        .readTimeout(180, TimeUnit.SECONDS)
-        .build()
+    @Inject
+    constructor(@ApplicationContext context: Context) : this(
+        cacheDirectory = { context.cacheDir },
+        callFactory = newHttpClient(),
+        isTrustedDownloadUrl = ::isTrustedApkDownloadUrl,
+    )
+
+    internal constructor(
+        cacheDirectory: File,
+        callFactory: Call.Factory,
+        isTrustedDownloadUrl: (String) -> Boolean,
+    ) : this({ cacheDirectory }, callFactory, isTrustedDownloadUrl)
 
     /**
      * Downloads an APK from [downloadUrl] and streams progress updates.
      */
+    @OptIn(InternalCoroutinesApi::class)
     fun downloadApk(
         downloadUrl: String,
         versionName: String,
@@ -52,13 +64,15 @@ class AppUpdateDownloader @Inject constructor(
 
         var destinationFile: File? = null
         var completed = false
+        var activeCall: Call? = null
+        var cancellationHandle: DisposableHandle? = null
         try {
-            if (!isTrustedApkDownloadUrl(downloadUrl)) {
+            if (!isTrustedDownloadUrl(downloadUrl)) {
                 emit(DownloadState.Error("A origem do APK não é confiável."))
                 return@flow
             }
 
-            val updatesDir = File(context.cacheDir, "updates").apply { mkdirs() }
+            val updatesDir = File(cacheDirectory(), "updates").apply { mkdirs() }
             val safeVersionName = versionName
                 .trim()
                 .replace(Regex("[^0-9A-Za-z._-]"), "_")
@@ -75,7 +89,16 @@ class AppUpdateDownloader @Inject constructor(
                 .get()
                 .build()
 
-            httpClient.newCall(request).execute().use { response ->
+            val call = callFactory.newCall(request)
+            activeCall = call
+            cancellationHandle = currentCoroutineContext()[Job]?.invokeOnCompletion(
+                onCancelling = true,
+                invokeImmediately = true,
+            ) { cause ->
+                if (cause is CancellationException) call.cancel()
+            }
+
+            call.execute().use { response ->
                 if (!response.isSuccessful) {
                     emit(DownloadState.Error("Falha no download do APK: HTTP ${response.code}"))
                     return@flow
@@ -129,9 +152,22 @@ class AppUpdateDownloader @Inject constructor(
         } catch (e: Exception) {
             emit(DownloadState.Error("Erro durante o download: ${e.localizedMessage ?: e.message}"))
         } finally {
+            cancellationHandle?.dispose()
             if (!completed) {
+                activeCall?.cancel()
                 deletePartialApk(destinationFile)
             }
         }
     }.flowOn(Dispatchers.IO)
+
+    private companion object {
+        fun newHttpClient(): OkHttpClient = OkHttpClient.Builder()
+            .enforceLocalNetworkCleartextPolicy(
+                requireHttpsRedirects = true,
+                allowedHttpsRedirectHosts = setOf("github.com", "release-assets.githubusercontent.com"),
+            )
+            .connectTimeout(30, TimeUnit.SECONDS)
+            .readTimeout(180, TimeUnit.SECONDS)
+            .build()
+    }
 }

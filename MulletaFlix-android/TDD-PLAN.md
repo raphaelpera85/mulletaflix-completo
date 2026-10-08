@@ -51,7 +51,7 @@ Prioridades abaixo resultam de auditoria estática dos módulos e são tarefas d
 
 ### P1 — segurança, sessão e fluxos críticos
 
-1. **Atualização do APK:** `core/common/.../AppUpdateDownloader.kt` — sucesso, progresso, HTTP inválido, corpo vazio, checksum incorreto, cancelamento e remoção do parcial. Depois, `AppUpdateInstaller.kt` — permissão, intent de configurações, URI FileProvider e abertura do instalador. Evidência parcial em 2026-10-08: RED-GREEN comprovado para rejeitar user-info, porta diferente de 443, caminhos com segmentos `.`/`..` literais ou percent-encoded e redirects HTTPS para hosts fora da allowlist; redirect para `release-assets.githubusercontent.com` preservado. Teste instrumentado `AppUpdateHttpsRedirectIntegrationTest` passou 5/5 no AVD PHONE API 35 usando NVIDIA. Fluxo completo do downloader e instalador continuam pendentes.
+1. **Atualização do APK:** `core/common/.../AppUpdateDownloader.kt` — sucesso, progresso, HTTP inválido, corpo vazio, checksum incorreto e remoção do parcial continuam pendentes de cobertura unitária abrangente. RED-GREEN confirmado para cancelamento durante leitura HTTP bloqueada: o `Call` é cancelado com o `Job` e o APK parcial removido; o teste MockWebServer passou. RED-GREEN também comprovado para rejeitar user-info, portas iniciais diferentes de 443, caminhos com segmentos `.`/`..` literais ou percent-encoded, redirects HTTPS para hosts externos e redirects cross-origin em portas diferentes de 443. Redirect para `release-assets.githubusercontent.com` e redirects same-origin preservados. `AppUpdateHttpsRedirectIntegrationTest` passou 7/7 no AVD PHONE API 35 usando NVIDIA. `AppUpdateInstaller.kt` ainda precisa de cobertura para permissão, intent de configurações, URI FileProvider e abertura do instalador.
 2. **Sessão persistida:** `data/.../SessionRepositoryImpl.kt` — salvar/reabrir/limpar sessão, troca de servidor/conta, servidores salvos e isolamento no DataStore.
 3. **SyncPlay realtime:** `core/api/.../SyncPlayRealtimeClient.kt` — start/stop, troca de grupo, eventos, falha, cancelamento e reconexão obsoleta com WebSocket controlado.
 4. **Navegação de produção:** `app/.../MulletaFlixNavHost.kt` — sessão ausente/válida/incompleta, restauração, logout, deep link frio e `onNewIntent` no grafo real. Os testes de rota simplificados continuam úteis, mas não substituem esta integração.
@@ -104,7 +104,7 @@ Execute da raiz `MulletaFlix-android`:
 
 Use `tools\with-emulator.ps1` para instrumentação. Informe `expectedDeviceProfile=PHONE`, `TABLET` ou `TV`, execute os casos afetados em cada perfil e confira XML/log para testes executados, ignorados, erros e falhas. Consulte `TESTING.md` para comandos, emuladores e cenários existentes.
 
-Baseline executado em 2026-10-08: `testDebugUnitTest --rerun-tasks` executou 235 suítes, 1.515 testes, 0 falhas, 0 erros e 0 ignorados. Isso não mede cobertura e não comprova RED-GREEN histórico.
+Baseline executado em 2026-10-08: `testDebugUnitTest --rerun-tasks` executou 235 suítes, 1.515 testes, 0 falhas, 0 erros e 0 ignorados. Quality gate completo mais recente: 235 arquivos XML, 1.517 testes JVM, 0 falhas, 0 erros e 0 ignorados; lint de `core:common`, `core:api` e `app` e `assembleDebug` concluídos com sucesso. Isso não mede cobertura e não comprova RED-GREEN histórico.
 
 ## Critério de conclusão do plano
 
