@@ -4,6 +4,7 @@ import android.app.Application
 import androidx.compose.foundation.background
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -21,6 +22,7 @@ import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
@@ -51,7 +53,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
@@ -68,6 +72,7 @@ import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.CancellationException
 import org.readium.navigator.web.reflowable.ReflowableWebGoLocation
+import org.readium.r2.shared.publication.Link
 import kotlin.math.roundToInt
 
 @Composable
@@ -78,12 +83,12 @@ fun BookReaderScreen(
     viewModel: BookReaderViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
-    val comicArchive = state.comicArchive
+    val pageBook = state.pageBook
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
-    var currentComicPage by rememberSaveable(itemId) { mutableIntStateOf(0) }
-    var comicZoom by rememberSaveable(itemId) { mutableFloatStateOf(1f) }
+    var currentPage by rememberSaveable(itemId) { mutableIntStateOf(0) }
+    var pageZoom by rememberSaveable(itemId) { mutableFloatStateOf(1f) }
     var renditionState by remember(itemId) { mutableStateOf<ReflowableWebRenditionState?>(null) }
     var renditionError by remember(itemId) { mutableStateOf<String?>(null) }
 
@@ -107,6 +112,10 @@ fun BookReaderScreen(
             .onFailure { renditionError = "Não foi possível renderizar este livro." }
     }
     val renditionController = renditionState?.controller
+    val publication = state.publication
+    val contentsEntries = remember(publication) {
+        publication?.tableOfContents?.let(::flattenBookReaderContents).orEmpty()
+    }
     LaunchedEffect(state.bookmarkMessage) {
         val message = state.bookmarkMessage ?: return@LaunchedEffect
         snackbarHostState.showSnackbar(message)
@@ -125,19 +134,19 @@ fun BookReaderScreen(
             .distinctUntilChanged()
             .collect { locator -> viewModel.saveReadingProgression(itemId, locator) }
     }
-    LaunchedEffect(itemId, state.comicArchive, state.initialLocator) {
-        val archive = state.comicArchive ?: return@LaunchedEffect
-        currentComicPage = ComicBookArchive.pageIndexFromLocator(state.initialLocator, archive.pageCount) ?: 0
+    LaunchedEffect(itemId, pageBook, state.initialLocator) {
+        val source = pageBook ?: return@LaunchedEffect
+        currentPage = source.pageIndexFromLocator(state.initialLocator) ?: 0
     }
-    LaunchedEffect(currentComicPage) { comicZoom = 1f }
-    LaunchedEffect(itemId, state.comicArchive) {
-        val archive = state.comicArchive ?: return@LaunchedEffect
-                snapshotFlow { currentComicPage }
+    LaunchedEffect(currentPage) { pageZoom = 1f }
+    LaunchedEffect(itemId, pageBook) {
+        val source = pageBook ?: return@LaunchedEffect
+        snapshotFlow { currentPage }
             .distinctUntilChanged()
             .collect { page ->
                 viewModel.saveReadingProgression(
                     itemId,
-                    archive.locatorForPage(page),
+                    source.locatorForPage(page),
                 )
             }
     }
@@ -153,32 +162,51 @@ fun BookReaderScreen(
                     }
                 },
                 actions = {
-                    if (comicArchive != null && !state.isLoading) {
+                    if (pageBook != null && !state.isLoading) {
                         ComicBookZoomControls(
-                            zoom = comicZoom,
-                            onZoomChange = { comicZoom = normalizeComicPageZoom(it) },
+                            zoom = pageZoom,
+                            onZoomChange = { pageZoom = normalizeComicPageZoom(it) },
+                        )
+                    }
+                    if (pageBook == null && contentsEntries.isNotEmpty()) {
+                        BookReaderContentsActions(
+                            entries = contentsEntries,
+                            enabled = renditionController != null,
+                            onOpenEntry = { entry ->
+                                val activePublication = publication ?: return@BookReaderContentsActions
+                                val controller = renditionController ?: return@BookReaderContentsActions
+                                coroutineScope.launch {
+                                    try {
+                                        controller.goTo(activePublication.url(entry.link))
+                                    } catch (cancelled: CancellationException) {
+                                        throw cancelled
+                                    } catch (_: Exception) {
+                                        snackbarHostState.showSnackbar("Não foi possível abrir esta seção.")
+                                    }
+                                }
+                            },
                         )
                     }
                     key(itemId) {
                         BookReaderProgressActions(
-                            enabled = (state.publication != null || state.comicArchive != null) && !state.isLoading,
+                            enabled = (state.publication != null || pageBook != null) && !state.isLoading,
                             bookmarks = state.bookmarks,
-                            bookmarkLabelSuggestion = comicArchive?.let { "Página ${currentComicPage + 1}" }
+                            bookmarkLabelSuggestion = pageBook?.let { "Página ${currentPage + 1}" }
                                 ?: renditionController?.location?.toLocator()?.locations?.totalProgression?.let { progression ->
                                     "Leitura ${(progression * 100).roundToInt()}%"
                                 }
                                 ?: "Posição salva",
                             onSaveBookmark = { label ->
-                                val locator = comicArchive?.locatorForPage(currentComicPage)
+                                val locator = pageBook?.locatorForPage(currentPage)
                                     ?: renditionController?.location?.toLocator()
                                 if (locator != null) {
                                     viewModel.saveBookmark(itemId, locator, label)
                                 }
                             },
                             onOpenBookmark = { bookmark ->
-                                if (comicArchive != null) {
-                                    ComicBookArchive.pageIndexFromLocator(bookmark.locator, comicArchive.pageCount)
-                                        ?.let { currentComicPage = it }
+                                if (pageBook != null) {
+                                    pageBook.pageIndexFromLocator(bookmark.locator)
+                                        ?.let { currentPage = it }
                                         ?: viewModel.showBookmarkMessage("Este marcador não existe mais neste livro.")
                                 } else {
                                     renditionController?.let { controller ->
@@ -203,12 +231,11 @@ fun BookReaderScreen(
             )
         },
         bottomBar = {
-            val archive = state.comicArchive
-            if (archive != null) {
+            if (pageBook != null) {
                 ComicBookPageControls(
-                    currentPage = currentComicPage,
-                    pageCount = archive.pageCount,
-                    onPageSelected = { page -> currentComicPage = page.coerceIn(0, archive.pageCount - 1) },
+                    currentPage = currentPage,
+                    pageCount = pageBook.pageCount,
+                    onPageSelected = { page -> currentPage = page.coerceIn(0, pageBook.pageCount - 1) },
                 )
             } else {
                 val controller = renditionState?.controller
@@ -258,11 +285,11 @@ fun BookReaderScreen(
                     message = renditionError.orEmpty(),
                     onRetry = { viewModel.load(itemId) },
                 )
-                comicArchive != null -> ComicBookReaderContent(
-                    archive = comicArchive,
-                    currentPage = currentComicPage,
-                    zoom = comicZoom,
-                    onZoomChange = { comicZoom = it },
+                pageBook != null -> PagedBookReaderContent(
+                    pageBook = pageBook,
+                    currentPage = currentPage,
+                    zoom = pageZoom,
+                    onZoomChange = { pageZoom = it },
                     modifier = Modifier.fillMaxSize(),
                 )
                 renditionState != null -> ReflowableWebRendition(
@@ -272,6 +299,90 @@ fun BookReaderScreen(
                 else -> CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
             }
         }
+    }
+}
+
+internal data class BookReaderContentsEntry(
+    val link: Link,
+    val title: String,
+    val depth: Int,
+) {
+    val isNavigable: Boolean
+        get() = !(link.href.toString() == "#" && link.children.isNotEmpty())
+}
+
+internal fun flattenBookReaderContents(
+    links: List<Link>,
+): List<BookReaderContentsEntry> {
+    val entries = mutableListOf<BookReaderContentsEntry>()
+    fun append(currentLinks: List<Link>, depth: Int) {
+        currentLinks.forEach { link ->
+            entries += BookReaderContentsEntry(
+                link = link,
+                title = link.title?.takeIf(String::isNotBlank) ?: "Seção ${entries.size + 1}",
+                depth = depth,
+            )
+            append(link.children, depth + 1)
+        }
+    }
+    append(links, 0)
+    return entries
+}
+
+@Composable
+private fun BookReaderContentsActions(
+    entries: List<BookReaderContentsEntry>,
+    enabled: Boolean,
+    onOpenEntry: (BookReaderContentsEntry) -> Unit,
+) {
+    var contentsVisible by remember { mutableStateOf(false) }
+    IconButton(
+        onClick = { contentsVisible = true },
+        enabled = enabled,
+        modifier = Modifier.semantics(mergeDescendants = true) {
+            contentDescription = "Abrir sumário"
+        },
+    ) {
+        Icon(Icons.AutoMirrored.Filled.List, contentDescription = null)
+    }
+    if (contentsVisible) {
+        AlertDialog(
+            onDismissRequest = { contentsVisible = false },
+            title = { Text("Sumário") },
+            text = {
+                LazyColumn(modifier = Modifier.heightIn(max = 480.dp)) {
+                    itemsIndexed(entries, key = { index, _ -> index }) { _, entry ->
+                        if (entry.isNavigable) {
+                            TextButton(
+                                onClick = {
+                                    contentsVisible = false
+                                    onOpenEntry(entry)
+                                },
+                                modifier = Modifier.fillMaxWidth()
+                                    .padding(start = (entry.depth * 16).dp)
+                                    .semantics { stateDescription = "Nível ${entry.depth + 1}" },
+                            ) {
+                                Text(entry.title, modifier = Modifier.fillMaxWidth(), maxLines = 2)
+                            }
+                        } else {
+                            Text(
+                                text = entry.title,
+                                style = MaterialTheme.typography.titleSmall,
+                                modifier = Modifier.fillMaxWidth()
+                                    .padding(start = (entry.depth * 16).dp, top = 12.dp, bottom = 12.dp)
+                                    .semantics {
+                                        heading()
+                                        stateDescription = "Cabeçalho, nível ${entry.depth + 1}"
+                                    },
+                            )
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { contentsVisible = false }) { Text("Fechar") }
+            },
+        )
     }
 }
 

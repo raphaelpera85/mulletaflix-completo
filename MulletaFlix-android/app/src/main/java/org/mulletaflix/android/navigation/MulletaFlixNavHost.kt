@@ -354,10 +354,15 @@ fun MulletaFlixNavHost(
             route = MulletaFlixRoute.BOOK_READER,
             arguments = listOf(navArgument("itemId") { type = NavType.StringType }),
         ) { backStack ->
-            BookReaderScreen(
-                itemId = backStack.arguments?.getString("itemId").orEmpty(),
+            BookReaderDestination(
+                isTelevision = isTelevisionDevice,
                 onBack = { navController.popBackStack() },
-            )
+            ) {
+                BookReaderScreen(
+                    itemId = backStack.arguments?.getString("itemId").orEmpty(),
+                    onBack = { navController.popBackStack() },
+                )
+            }
         }
 
         // Player
@@ -409,6 +414,36 @@ fun MulletaFlixNavHost(
             onOpen = { navController.navigate(MulletaFlixRoute.videoPlayer(castMiniController!!.itemId)) },
         )
     }
+    }
+}
+
+@Composable
+internal fun BookReaderDestination(
+    isTelevision: Boolean,
+    onBack: () -> Unit,
+    readerContent: @Composable () -> Unit,
+) {
+    if (isTelevision) {
+        Column(
+            modifier = Modifier.fillMaxSize().padding(24.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = androidx.compose.foundation.layout.Arrangement.Center,
+        ) {
+            Text(
+                text = "Leitura de livros indisponível na TV",
+                style = MaterialTheme.typography.headlineSmall,
+            )
+            Text(
+                text = "Abra este livro em um celular ou tablet compatível.",
+                modifier = Modifier.padding(top = 8.dp, bottom = 16.dp),
+                style = MaterialTheme.typography.bodyLarge,
+            )
+            androidx.compose.material3.Button(onClick = onBack) {
+                Text("Voltar")
+            }
+        }
+    } else {
+        readerContent()
     }
 }
 

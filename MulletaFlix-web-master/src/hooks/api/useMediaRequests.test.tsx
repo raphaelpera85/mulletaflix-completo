@@ -83,6 +83,7 @@ describe('my media requests pagination', () => {
         });
         await vi.waitFor(() => expect(latest.isFetchNextPageError).toBe(true));
         expect(latest.isError).toBe(false);
+        expect(latest.isDegraded).toBe(false);
         expect(latest.pending).toHaveLength(1);
 
         await act(async () => {

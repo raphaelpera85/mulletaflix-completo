@@ -29,6 +29,7 @@ import { queryClient } from 'utils/query/queryClient';
 import { ActionData } from 'types/actionData';
 import { CODECS, HEVC_REXT_DECODING_TYPES, HEVC_VP9_HW_DECODING_TYPES } from 'apps/dashboard/features/playback/constants/codecs';
 import SimpleAlert from 'components/SimpleAlert';
+import { useApi } from 'hooks/useApi';
 
 const CONFIG_KEY = 'encoding';
 
@@ -51,6 +52,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 };
 
 export const Component = () => {
+    const { api } = useApi();
     const { data: initialConfig, isPending, isError, refetch } = useNamedConfiguration<EncodingOptions>(CONFIG_KEY);
     const [ config, setConfig ] = useState<EncodingOptions | null>(null);
     const navigation = useNavigation();
@@ -157,6 +159,20 @@ export const Component = () => {
     const availableCodecs = useMemo(() => (
         CODECS.filter(codec => codec.types.includes(hardwareAccelType))
     ), [hardwareAccelType]);
+
+    if (!api) {
+        return (
+            <Page
+                id='encodingSettingsPage'
+                className='mainAnimatedPage type-interior'
+                title={globalize.translate('TitlePlayback')}
+            >
+                <Alert severity='info' role='status'>
+                    {globalize.translate('HeaderServerUnavailable')}
+                </Alert>
+            </Page>
+        );
+    }
 
     if (isError && !config) {
         return (

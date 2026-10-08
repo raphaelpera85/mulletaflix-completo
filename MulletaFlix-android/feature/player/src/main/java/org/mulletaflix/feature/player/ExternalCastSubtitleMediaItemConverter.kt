@@ -8,11 +8,13 @@ import androidx.media3.common.util.UnstableApi
 import com.google.android.gms.cast.MediaInfo
 import com.google.android.gms.cast.MediaQueueItem
 import com.google.android.gms.cast.MediaTrack
+import org.mulletaflix.core.common.network.CleartextTrafficPolicy
 
 /** Adds receiver-compatible sidecars while preserving Media3's regular Cast payload. */
 @UnstableApi
 internal class ExternalCastSubtitleMediaItemConverter(
     private val delegate: MediaItemConverter = DefaultMediaItemConverter(),
+    private val isSubtitleUrlAllowed: (String) -> Boolean = CleartextTrafficPolicy::isAllowed,
 ) : MediaItemConverter {
     override fun toMediaItem(mediaQueueItem: MediaQueueItem): MediaItem =
         delegate.toMediaItem(mediaQueueItem)
@@ -28,7 +30,9 @@ internal class ExternalCastSubtitleMediaItemConverter(
         )
         val sidecars = configurations.filter { configuration ->
             val serverIndex = externalSubtitleServerIndex(configuration.id)
-            serverIndex != null && serverIndicesByUrl[configuration.uri.toString()] == serverIndex
+                serverIndex != null &&
+                serverIndicesByUrl[configuration.uri.toString()] == serverIndex &&
+                isSubtitleUrlAllowed(configuration.uri.toString())
         }.mapNotNull(::toCastTrack)
         if (sidecars.isEmpty()) return converted
 

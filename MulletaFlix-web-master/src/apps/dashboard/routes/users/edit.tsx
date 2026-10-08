@@ -16,7 +16,9 @@ import Access from 'apps/dashboard/features/users/components/Access';
 import ParentalControl from 'apps/dashboard/features/users/components/ParentalControl';
 import Password from 'apps/dashboard/features/users/components/Password';
 import Alert from '@mui/material/Alert';
+import { useApi } from 'hooks/useApi';
 export const Component = () => {
+    const { api } = useApi();
     const navigate = useNavigate();
     const navigateSafely = useCallback((to: string) => {
         Promise.resolve(navigate(to)).catch((error: unknown) => console.error('[users-edit] failed to navigate', error));
@@ -31,6 +33,10 @@ export const Component = () => {
     const handleTabChange = useCallback((event: React.SyntheticEvent, newValue: UserTab) => {
         navigateSafely(`/dashboard/users/${userId}/${newValue}`);
     }, [ navigateSafely, userId ]);
+
+    if (!api) {
+        return <Alert severity='info' role='status'>Servidor indisponível</Alert>;
+    }
 
     if (isPending && !isError) return <Loading />;
 

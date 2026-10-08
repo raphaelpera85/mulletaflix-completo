@@ -156,6 +156,58 @@ class ExternalSubtitleMediaItemTest {
     }
 
     @Test
+    fun castConverterKeepsAllowedLanAndHttpsSubtitlesButDropsPublicHttp() {
+        val httpsUrl = "https://media.example/subtitles/14.vtt"
+        val lanHttpUrl = "http://192.168.50.42:8096/subtitles/16.vtt"
+        val publicHttpUrl = "http://203.0.113.24:8096/subtitles/15.vtt"
+        val item = MediaItem.Builder()
+            .setUri("https://media.example/movie.mp4")
+            .setSubtitleConfigurations(
+                listOf(
+                    buildExternalSubtitleConfiguration(
+                        14,
+                        httpsUrl,
+                        MimeTypes.TEXT_VTT,
+                        "pt-BR",
+                        "Português",
+                        false,
+                        false,
+                    ),
+                    buildExternalSubtitleConfiguration(
+                        15,
+                        publicHttpUrl,
+                        MimeTypes.TEXT_VTT,
+                        "en",
+                        "English",
+                        false,
+                        false,
+                    ),
+                    buildExternalSubtitleConfiguration(
+                        16,
+                        lanHttpUrl,
+                        MimeTypes.TEXT_VTT,
+                        "es",
+                        "Español",
+                        false,
+                        false,
+                    ),
+                ),
+            )
+            .build()
+
+        val tracks = checkNotNull(
+            ExternalCastSubtitleMediaItemConverter(
+                isSubtitleUrlAllowed = { url ->
+                    url.startsWith("https://") || url.startsWith("http://192.168.50.")
+                },
+            ).toMediaQueueItem(item).media?.mediaTracks,
+        ).orEmpty()
+
+        assertEquals(2, tracks.size)
+        assertEquals(setOf(httpsUrl, lanHttpUrl), tracks.map { it.contentId }.toSet())
+    }
+
+    @Test
     fun castConverterAdvertisesServerConvertedSrtAsWebVtt() {
         val vttUrl = "https://media.example/Videos/item/source/Subtitles/3/0/Stream.vtt?api_key=token"
         val mimeType = checkNotNull(externalSubtitleMimeType("srt", vttUrl))

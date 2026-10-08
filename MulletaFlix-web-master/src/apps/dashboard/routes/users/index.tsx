@@ -18,6 +18,7 @@ import dom from 'utils/dom';
 import { UserTab } from 'apps/dashboard/features/users/constants/userTab';
 import Alert from '@mui/material/Alert';
 import Button from '@mui/material/Button';
+import { useApi } from 'hooks/useApi';
 
 type MenuEntry = {
     name?: string;
@@ -26,6 +27,7 @@ type MenuEntry = {
 };
 
 const UserProfiles = () => {
+    const { api } = useApi();
     const location = useLocation();
     const [ isSettingsSavedToastOpen, setIsSettingsSavedToastOpen ] = useState(false);
     const element = useRef<HTMLDivElement>(null);
@@ -45,6 +47,8 @@ const UserProfiles = () => {
     }, [ refetch ]);
 
     useEffect(() => {
+        if (!api) return;
+
         const page = element.current;
 
         if (location.state?.openSavedToast) {
@@ -166,7 +170,11 @@ const UserProfiles = () => {
             page.removeEventListener('click', onPageClick);
             (page.querySelector('#btnAddUser') as HTMLButtonElement).removeEventListener('click', onAddUserClick);
         };
-    }, [navigateSafely, deleteUser, location.state?.openSavedToast]);
+    }, [api, navigateSafely, deleteUser, location.state?.openSavedToast]);
+
+    if (!api) {
+        return <Alert severity='info' role='status'>Servidor indisponível</Alert>;
+    }
 
     if (isPending && !isError) {
         return <Loading />;

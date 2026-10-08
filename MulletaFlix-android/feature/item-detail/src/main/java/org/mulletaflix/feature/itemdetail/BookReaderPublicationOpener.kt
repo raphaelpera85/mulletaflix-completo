@@ -4,12 +4,11 @@ import android.content.Context
 import java.io.File
 import org.readium.r2.shared.publication.Publication
 import org.readium.r2.shared.util.asset.AssetRetriever
-import org.readium.r2.shared.util.http.DefaultHttpClient
 import org.readium.r2.streamer.PublicationOpener
 import org.readium.r2.streamer.parser.DefaultPublicationParser
 
 internal suspend fun openBookPublication(context: Context, file: File): Publication {
-    val httpClient = DefaultHttpClient()
+    val httpClient = createBookReaderHttpClient()
     val assetRetriever = AssetRetriever(context.contentResolver, httpClient)
     val parser = DefaultPublicationParser(
         context = context,

@@ -24,6 +24,7 @@ import { ServerConnections } from 'lib/jellyfin-apiclient';
 import { getConfigurationApi } from '@jellyfin/sdk/lib/utils/api/configuration-api';
 import { queryClient } from 'utils/query/queryClient';
 import { ActionData } from 'types/actionData';
+import { useApi } from 'hooks/useApi';
 
 const CONFIG_KEY = 'livetv';
 
@@ -46,6 +47,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 };
 
 export const Component = () => {
+    const { api } = useApi();
     const navigation = useNavigation();
     const actionData = useActionData() as ActionData | undefined;
     const { data: initialConfig, isPending, isError, refetch } = useNamedConfiguration<LiveTvOptions>(CONFIG_KEY);
@@ -181,6 +183,22 @@ export const Component = () => {
             );
         }
     }, [ config, submit ]);
+
+    if (!api) {
+        return (
+            <Page
+                id='liveTvSettingsPage'
+                title={globalize.translate('HeaderDVR')}
+                className='mainAnimatedPage type-interior'
+            >
+                <Box className='content-primary'>
+                    <Alert severity='info' role='status'>
+                        {globalize.translate('HeaderServerUnavailable')}
+                    </Alert>
+                </Box>
+            </Page>
+        );
+    }
 
     if (isPending && !isError) {
         return <Loading />;

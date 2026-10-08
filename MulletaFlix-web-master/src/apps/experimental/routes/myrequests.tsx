@@ -13,7 +13,7 @@ import type { ActivityLogEntry } from '@jellyfin/sdk/lib/generated-client/models
 import { useMyClassifiedMediaRequests, type MediaRequestQueuePosition, type MediaRequestQueueStatus } from 'hooks/api/useMediaRequests';
 import Page from 'components/Page';
 import globalize from 'lib/globalize';
-import { PageStateContainer } from 'components/common';
+import { getRemotePageState, PageStateContainer } from 'components/common';
 
 const requestTitlePrefix = /^Solicitação de mídia:\s*/i;
 
@@ -120,7 +120,7 @@ const RequestGroup: FC<{ titleKey: string; entries: ActivityLogEntry[]; emptyKey
 
 const MyMediaRequestsPage: FC = () => {
     const {
-        pending, included, priorityRequestIds, queueStatuses = new Map(), isPending, isError, refetch,
+        pending, included, priorityRequestIds, queueStatuses = new Map(), isPending, isError, isDegraded, hasData, refetch,
         hasNextPage, fetchNextPage, isFetchingNextPage, isFetchNextPageError
     } = useMyClassifiedMediaRequests();
 
@@ -165,11 +165,16 @@ const MyMediaRequestsPage: FC = () => {
         </Stack>
     );
 
-    const emptyContent = (
-        <Typography variant='body1' color='text.secondary'>
-            {globalize.translate('MyMediaRequestsEmpty')}
-        </Typography>
-    );
+    const remoteState = getRemotePageState({
+        isPending,
+        isError: isError || isDegraded,
+        hasData,
+        isOnline: typeof navigator === 'undefined' || navigator.onLine
+    });
+    const hasNoRequests = pending.length === 0 && included.length === 0;
+    const pageState = remoteState === 'success' && hasNoRequests ?
+        'empty' :
+        remoteState;
 
     return (
         <Page
@@ -180,7 +185,7 @@ const MyMediaRequestsPage: FC = () => {
             <Box className='padded-left padded-right padded-bottom-page' sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
                 <Typography variant='h1'>{globalize.translate('MyMediaRequestsTitle')}</Typography>
                 <PageStateContainer
-                    state={isError ? 'error' : isPending ? 'loading' : pending.length === 0 && included.length === 0 ? 'empty' : 'success'}
+                    state={pageState}
                     onRetry={handleRetry}
                     emptyState={{
                         title: globalize.translate('MyMediaRequestsEmpty')

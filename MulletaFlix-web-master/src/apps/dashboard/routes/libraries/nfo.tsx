@@ -13,6 +13,7 @@ import Typography from '@mui/material/Typography';
 import Loading from 'components/loading/LoadingComponent';
 import Page from 'components/Page';
 import SimpleAlert from 'components/SimpleAlert';
+import { useApi } from 'hooks/useApi';
 import { QUERY_KEY, useNamedConfiguration } from 'hooks/useNamedConfiguration';
 import { useUsers } from 'hooks/useUsers';
 import globalize from 'lib/globalize';
@@ -53,6 +54,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 };
 
 export const Component = () => {
+    const { api } = useApi();
     const {
         data: config,
         isPending: isConfigPending,
@@ -77,6 +79,22 @@ export const Component = () => {
     const onSubmit = useCallback(() => {
         setIsAlertOpen(true);
     }, []);
+
+    if (!api) {
+        return (
+            <Page
+                id='metadataNfoPage'
+                title={globalize.translate('TabNfoSettings')}
+                className='type-interior mainAnimatedPage'
+            >
+                <Box className='content-primary'>
+                    <Alert severity='warning' role='status'>
+                        {globalize.translate('HeaderServerUnavailable')}
+                    </Alert>
+                </Box>
+            </Page>
+        );
+    }
 
     if (isConfigPending && !isConfigError) {
         return <Loading />;

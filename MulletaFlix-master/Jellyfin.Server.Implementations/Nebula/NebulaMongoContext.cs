@@ -876,13 +876,16 @@ public sealed class NebulaMongoContext : IDisposable
     /// <summary>
     /// Cria ou atualiza um usuário.
     /// </summary>
-    public async Task UpsertUserAsync(string login, string passwordHash, string permissions = "elradfmwM", CancellationToken cancellationToken = default)
+    public async Task UpsertUserAsync(string login, string passwordHash, CancellationToken cancellationToken = default)
     {
         var filter = Builders<BsonDocument>.Filter.Eq("_id", login);
         var update = Builders<BsonDocument>.Update
             .Set("login", login)
             .Set("password_hash", passwordHash)
-            .Set("permissions", permissions)
+            // `permissions` is consumed by NebulaPython as path-based ACL objects.
+            // The former pyftpdlib flag string ("elradfmwM") is not that schema
+            // and caused FTP USER to crash while indexing its characters as dicts.
+            .Set("permissions", new BsonArray())
             .SetOnInsert("created_at", DateTimeOffset.UtcNow.ToUnixTimeSeconds());
 
         await _usersCollection.UpdateOneAsync(filter, update, new UpdateOptions { IsUpsert = true }, cancellationToken).ConfigureAwait(false);

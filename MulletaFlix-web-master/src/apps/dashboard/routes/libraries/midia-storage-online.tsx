@@ -232,6 +232,23 @@ export const Component = () => {
         }
     }, [ syncTask?.Id, startTask ]);
 
+    if (!api) {
+        return (
+            <Page
+                id='midiaStorageOnlinePage'
+                title='Midia Storage Online'
+                className='mainAnimatedPage type-interior'
+            >
+                <Box className='content-primary'>
+                    <Typography variant='h1'>Midia Storage Online</Typography>
+                    <Alert severity='warning' role='status' sx={{ mt: 2 }}>
+                        Aguardando conexão com o servidor. As configurações serão carregadas quando a conexão estiver disponível.
+                    </Alert>
+                </Box>
+            </Page>
+        );
+    }
+
     if ((isConfigPending || isTasksPending) && !isConfigError && !isTasksError) {
         return <Loading />;
     }

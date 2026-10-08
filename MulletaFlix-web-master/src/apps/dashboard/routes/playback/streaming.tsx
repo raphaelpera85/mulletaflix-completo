@@ -14,6 +14,7 @@ import { QUERY_KEY, useConfiguration } from 'hooks/useConfiguration';
 import Loading from 'components/loading/LoadingComponent';
 import { ActionData } from 'types/actionData';
 import { queryClient } from 'utils/query/queryClient';
+import { useApi } from 'hooks/useApi';
 
 export const action = async ({ request }: ActionFunctionArgs) => {
     const api = ServerConnections.getCurrentApi();
@@ -38,6 +39,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 };
 
 export const Component = () => {
+    const { api } = useApi();
     const navigation = useNavigation();
     const actionData = useActionData() as ActionData | undefined;
     const isSubmitting = navigation.state === 'submitting';
@@ -46,6 +48,22 @@ export const Component = () => {
     const handleRetry = React.useCallback(() => {
         void refetch();
     }, [ refetch ]);
+
+    if (!api) {
+        return (
+            <Page
+                id='streamingSettingsPage'
+                title={globalize.translate('TabStreaming')}
+                className='mainAnimatedPage type-interior'
+            >
+                <Box className='content-primary'>
+                    <Alert severity='info' role='status'>
+                        {globalize.translate('HeaderServerUnavailable')}
+                    </Alert>
+                </Box>
+            </Page>
+        );
+    }
 
     if (isConfigurationPending && !isConfigurationError) {
         return <Loading />;

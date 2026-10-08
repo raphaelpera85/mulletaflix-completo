@@ -373,6 +373,10 @@ export const Component = () => {
         );
     }, [handleRevoke]);
 
+    if (!api) {
+        return <Alert severity='info' role='status'>Servidor indisponível</Alert>;
+    }
+
     if (isPending && !isError) {
         return <Loading />;
     }

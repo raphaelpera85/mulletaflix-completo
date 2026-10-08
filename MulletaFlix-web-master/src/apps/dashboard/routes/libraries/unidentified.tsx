@@ -46,6 +46,14 @@ async function fetchUnidentifiedItems(mediaType: string): Promise<UnidentifiedIt
     return result as UnidentifiedItem[];
 }
 
+const getErrorMessage = (error: unknown): string | null => {
+    if (error instanceof Error) {
+        return error.message;
+    }
+
+    return error ? 'Failed to fetch items' : null;
+};
+
 export const Component = () => {
     const [tab, setTab] = useState(0);
 
@@ -68,6 +76,7 @@ export const Component = () => {
     const {
         data: items,
         isLoading: loading,
+        isFetching,
         error: queryError,
         dataUpdatedAt,
         refetch
@@ -77,7 +86,7 @@ export const Component = () => {
         refetchInterval: POLL_INTERVAL
     });
 
-    const error = queryError instanceof Error ? queryError.message : (queryError ? 'Failed to fetch items' : null);
+    const error = getErrorMessage(queryError);
     const lastUpdate = dataUpdatedAt ? new Date(dataUpdatedAt).toLocaleTimeString() : null;
 
     const onRefreshClick = useCallback(() => {
@@ -103,7 +112,13 @@ export const Component = () => {
                             sx={{ mr: 1 }}
                         />
                     )}
-                    <IconButton onClick={onRefreshClick} title={globalize.translate('Refresh')} size='large'>
+                    <IconButton
+                        onClick={onRefreshClick}
+                        title={globalize.translate('Refresh')}
+                        aria-label={globalize.translate('Refresh')}
+                        size='large'
+                        disabled={isFetching}
+                    >
                         <RefreshIcon />
                     </IconButton>
                 </Box>
@@ -131,6 +146,7 @@ export const Component = () => {
                                 color='inherit'
                                 size='small'
                                 aria-label={globalize.translate('Retry')}
+                                disabled={isFetching}
                                 onClick={onRefreshClick}
                             >
                                 <RefreshIcon fontSize='small' />
@@ -141,13 +157,19 @@ export const Component = () => {
                     </Alert>
                 )}
 
+                {isFetching && (items?.length ?? 0) > 0 && !error && (
+                    <Alert severity='info' role='status' sx={{ mb: 2 }}>
+                        Atualizando resultados…
+                    </Alert>
+                )}
+
                 {!loading && !error && (items?.length ?? 0) === 0 && (
                     <Alert severity='success'>
                         {globalize.translate('NoUnidentifiedItems', typeLabel)}
                     </Alert>
                 )}
 
-                {!loading && !error && items && items.length > 0 && (
+                {!loading && items && items.length > 0 && (
                     <>
                         <Typography variant='subtitle1' sx={{ mb: 1 }}>
                             {items.length} {globalize.translate('ItemsFound', typeLabel)}

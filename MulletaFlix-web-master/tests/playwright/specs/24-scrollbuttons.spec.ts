@@ -49,7 +49,9 @@ test('real search results render cards with visible navigation controls', async 
         };`
     }));
     const modulePath = resolve('tests/playwright/fixtures/searchresults.tsx').replaceAll('\\', '/');
-    const fixtureUrl = new URL('/__playwright_searchresults_fixture__', baseUrl).toString();
+    const fixture = new URL('/__playwright_searchresults_fixture__', baseUrl);
+    fixture.searchParams.set('keyboard', 'tv');
+    const fixtureUrl = fixture.toString();
     await page.route('**/__playwright_searchresults_fixture__*', route => {
         const direction = new URL(route.request().url()).searchParams.get('dir') === 'rtl' ? 'rtl' : 'ltr';
         return route.fulfill({
@@ -140,9 +142,25 @@ test('real search results render cards with visible navigation controls', async 
     await page.keyboard.press('Enter');
     await expect.poll(() => readScrollPosition(scroller)).toBe(0);
 
+    // TV/remote directional commands must move focus within the real search row.
+    await cards.nth(0).focus();
+    await page.keyboard.press('ArrowRight');
+    await expect(cards.nth(1)).toBeFocused();
+    await page.keyboard.press('ArrowLeft');
+    await expect(cards.nth(0)).toBeFocused();
+    await page.evaluate(() => window.dispatchEvent(new KeyboardEvent('keydown', {
+        key: 'NavigationRight', bubbles: true, cancelable: true
+    })));
+    await expect(cards.nth(1)).toBeFocused();
+    await page.evaluate(() => window.dispatchEvent(new KeyboardEvent('keydown', {
+        key: 'GamepadDPadLeft', bubbles: true, cancelable: true
+    })));
+    await expect(cards.nth(0)).toBeFocused();
+
     // Reload with RTL set before SearchResults initializes its scroller.
     const rtlUrl = new URL(fixtureUrl);
     rtlUrl.searchParams.set('dir', 'rtl');
+    rtlUrl.searchParams.delete('keyboard');
     await page.goto(rtlUrl.toString());
     const rtlPeopleRow = page.locator('.searchResults .verticalSection').filter({
         has: page.getByRole('heading', { name: 'People' })
@@ -173,6 +191,22 @@ test('real search results render cards with visible navigation controls', async 
     }
     await expect.poll(async () => Math.abs(await readScrollPosition(rtlScroller))).toBe(0);
     await expect(rtlPrevious).toBeDisabled();
+
+    const rtlKeyboardUrl = new URL(rtlUrl);
+    rtlKeyboardUrl.searchParams.set('keyboard', 'tv');
+    await page.goto(rtlKeyboardUrl.toString());
+    const rtlMovieCards = page.locator('.searchResults .verticalSection').filter({
+        has: page.getByRole('heading', { name: 'Movies' })
+    }).locator('.itemsContainer .card');
+    await expect(rtlMovieCards).toHaveCount(18);
+    const rtlFirstCard = await rtlMovieCards.nth(0).boundingBox();
+    const rtlSecondCard = await rtlMovieCards.nth(1).boundingBox();
+    if (!rtlFirstCard || !rtlSecondCard) throw new Error('Expected RTL cards to have layout boxes');
+    expect(rtlFirstCard.x).toBeGreaterThan(rtlSecondCard.x);
+    await rtlMovieCards.nth(0).focus();
+    await page.keyboard.press('ArrowLeft');
+    await expect(rtlMovieCards.nth(1)).toBeFocused();
+
     expect(pageErrors).toEqual([]);
 });
 

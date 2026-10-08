@@ -64,8 +64,8 @@ class ComicBookReaderIntegrationTest {
             composeRule.setContent {
                 MaterialTheme {
                     Column(Modifier.fillMaxSize()) {
-                        ComicBookReaderContent(
-                            archive = archive,
+                        PagedBookReaderContent(
+                            pageBook = archive,
                             currentPage = currentPage,
                             modifier = Modifier.weight(1f),
                         )
@@ -124,8 +124,8 @@ class ComicBookReaderIntegrationTest {
                             )
                         },
                     ) { padding ->
-                        ComicBookReaderContent(
-                            archive = archive,
+                        PagedBookReaderContent(
+                            pageBook = archive,
                             currentPage = currentPage,
                             zoom = zoom,
                             onZoomChange = { zoom = it },

@@ -19,6 +19,7 @@ import { PluginCategory } from 'apps/dashboard/features/plugins/constants/plugin
 import { PluginStatusOption } from 'apps/dashboard/features/plugins/constants/pluginStatusOption';
 import Loading from 'components/loading/LoadingComponent';
 import Page from 'components/Page';
+import { useApi } from 'hooks/useApi';
 import useSearchParam from 'hooks/useSearchParam';
 import globalize from 'lib/globalize';
 
@@ -58,7 +59,7 @@ const getCompatibilityColor = (value: string | null): 'primary' | 'success' | 'e
     return undefined;
 };
 
-export const Component = () => {
+const ConnectedPluginsPage = () => {
     const {
         data: pluginDetails,
         isError,
@@ -330,6 +331,25 @@ export const Component = () => {
             </Box>
         </Page>
     );
+};
+
+const ServerUnavailablePage = () => (
+    <Page
+        id='pluginsPage'
+        title={globalize.translate('TabPlugins')}
+        className='type-interior mainAnimatedPage'
+    >
+        <Box className='content-primary'>
+            <Alert severity='info' role='status'>
+                {globalize.translate('HeaderServerUnavailable')}
+            </Alert>
+        </Box>
+    </Page>
+);
+
+export const Component = () => {
+    const { api } = useApi();
+    return api ? <ConnectedPluginsPage /> : <ServerUnavailablePage />;
 };
 
 Component.displayName = 'InstalledPlugins';

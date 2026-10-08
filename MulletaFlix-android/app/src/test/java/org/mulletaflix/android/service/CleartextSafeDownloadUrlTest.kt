@@ -24,8 +24,8 @@ class CleartextSafeDownloadUrlTest {
     @Test
     fun `local HTTP and public HTTPS downloads keep working`() {
         val lanUrl = cleartextSafeDownloadUrl(
-            storedUri = "http://192.168.1.20:8096/Videos/movie/stream",
-            baseUrl = "http://192.168.1.20:8096",
+            storedUri = "http://127.0.0.1:8096/Videos/movie/stream",
+            baseUrl = "http://127.0.0.1:8096",
             accessToken = "private-session-token",
         )
         val publicUrl = cleartextSafeDownloadUrl(

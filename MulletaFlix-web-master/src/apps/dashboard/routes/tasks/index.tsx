@@ -5,12 +5,14 @@ import Box from '@mui/material/Box';
 import Stack from '@mui/material/Stack';
 import Alert from '@mui/material/Alert';
 import Button from '@mui/material/Button';
+import { useApi } from 'hooks/useApi';
 import { getCategories, getTasksByCategory } from '../../features/tasks/utils/tasks';
 import Loading from 'components/loading/LoadingComponent';
 import Tasks from '../../features/tasks/components/Tasks';
 import useLiveTasks from 'apps/dashboard/features/tasks/hooks/useLiveTasks';
 
 export const Component = () => {
+    const { api } = useApi();
     const { data: tasks, isPending, isError, refetch } = useLiveTasks({ isHidden: false });
 
     const handleRetry = useCallback(() => {
@@ -18,6 +20,10 @@ export const Component = () => {
             console.error('[TasksPage] failed to retry tasks', error);
         });
     }, [refetch]);
+
+    if (!api) {
+        return <Alert severity='info' role='status'>{globalize.translate('HeaderServerUnavailable')}</Alert>;
+    }
 
     if (isPending && !isError) {
         return <Loading />;

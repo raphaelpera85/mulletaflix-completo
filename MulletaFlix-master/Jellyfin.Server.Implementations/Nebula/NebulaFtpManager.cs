@@ -1589,7 +1589,7 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable, IAsyncDis
             // iniciar o servidor FTP; criá-la durante o mount é tarde demais.
             var (ftpUsername, ftpPassword) = EnsureLocalFtpCredentials();
             var ftpPasswordHash = BCrypt.Net.BCrypt.HashPassword(ftpPassword);
-            await _mongoContext.UpsertUserAsync(ftpUsername, ftpPasswordHash, "elradfmwM", cancellationToken).ConfigureAwait(false);
+            await _mongoContext.UpsertUserAsync(ftpUsername, ftpPasswordHash, cancellationToken).ConfigureAwait(false);
 
             var effectiveCachePath = !string.IsNullOrWhiteSpace(config.PlaybackCachePath)
                 ? config.PlaybackCachePath
@@ -5175,7 +5175,7 @@ CREATE POLICY nebula_bot_tokens_service_role_all
                 try
                 {
                     var hash = BCrypt.Net.BCrypt.HashPassword(ftpPassword);
-                    await _mongoContext.UpsertUserAsync(ftpUsername, hash, "elradfmwM", cancellationToken).ConfigureAwait(false);
+                    await _mongoContext.UpsertUserAsync(ftpUsername, hash, cancellationToken).ConfigureAwait(false);
                     AddServerLog($"[NEBULA-MOUNT] Credencial FTP local '{ftpUsername}' sincronizada no MongoDB com sucesso.");
                 }
                 catch (Exception ex)

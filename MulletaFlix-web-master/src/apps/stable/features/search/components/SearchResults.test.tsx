@@ -120,4 +120,19 @@ describe('SearchResults', () => {
         expect(markup).toContain('Series');
         expect(markup).toContain('1 items');
     });
+
+    it('keeps cached results visible and shows a degraded warning after refresh fails', () => {
+        mockUseSearchItems.mockReturnValue({
+            data: [{ title: 'Movies', items: [{ Id: 'm1', Name: 'Inception' }] }],
+            isPending: false,
+            isError: true,
+            refetch: vi.fn()
+        });
+
+        const markup = renderToStaticMarkup(<SearchResults query='Inception' />);
+
+        expect(markup).toContain('data-testid="search-row"');
+        expect(markup).toContain('OfflineModeWarning');
+        expect(markup).toContain('1 items');
+    });
 });

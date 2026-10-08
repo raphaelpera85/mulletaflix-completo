@@ -12,6 +12,7 @@ const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../../.
 const installerPath = resolve(repositoryRoot, 'MulletaFlix-packaging-master/MulletaFlix-ux-custom/nsis/mulletaflix.nsi');
 const configuratorPath = resolve(repositoryRoot, 'tools/release/configure-https.ps1');
 const updaterPath = resolve(repositoryRoot, 'tools/release/duckdns-update.ps1');
+const updaterSecurityTestPath = resolve(repositoryRoot, 'tools/release/tests/windows-duckdns-config-security.tests.ps1');
 
 function quotePowerShell(value) {
     return `'${String(value).replaceAll("'", "''")}'`;
@@ -41,13 +42,29 @@ function runPowerShell(command, timeoutMs = 15000) {
     });
 }
 
+function extractUpdaterFunction(functionName) {
+    const command = [
+        '$tokens=$null; $parseErrors=$null',
+        `$ast=[System.Management.Automation.Language.Parser]::ParseFile(${quotePowerShell(updaterPath)},[ref]$tokens,[ref]$parseErrors)`,
+        `if ($parseErrors.Count -gt 0) { exit 31 }; $fn=$ast.Find({ param($node) $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq ${quotePowerShell(functionName)} }, $true)`,
+        'if ($null -eq $fn) { exit 32 }',
+        '[Console]::Out.Write([Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes($fn.Extent.Text)))'
+    ].join('; ');
+    const result = spawnSync('powershell.exe', [
+        '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', command
+    ], { encoding: 'utf8', timeout: 15000 });
+    assert.equal(result.error, undefined, result.error?.message);
+    assert.equal(result.status, 0, result.stderr);
+    return Buffer.from(result.stdout.trim(), 'base64').toString('utf8');
+}
+
 const [installer, configurator, updater] = await Promise.all([
     readFile(installerPath, 'utf8'),
     readFile(configuratorPath, 'utf8'),
     readFile(updaterPath, 'utf8')
 ]);
 
-test('scheduled DuckDNS updater binds ConfigPath and rejects invalid subdomain before request', async () => {
+test('scheduled DuckDNS updater rejects arbitrary config paths before reading or requesting', async () => {
     const tempRoot = await mkdtemp(resolve(tmpdir(), 'mulletaflix-duckdns-bind-'));
     const configPath = resolve(tempRoot, 'config.json');
     try {
@@ -59,8 +76,8 @@ test('scheduled DuckDNS updater binds ConfigPath and rejects invalid subdomain b
 
         assert.equal(result.error, undefined, result.error?.message);
         assert.notEqual(result.status, 0, 'invalid test subdomain must stop before the network request');
-        assert.match(`${result.stdout}\n${result.stderr}`, /subdomain must contain only lowercase/i,
-            'script must bind ConfigPath and reach validation instead of failing on missing Token');
+        assert.match(`${result.stdout}\n${result.stderr}`, /security validation failed/i,
+            'updater must reject a path outside its protected ProgramData location');
         assert.doesNotMatch(`${result.stdout}\n${result.stderr}`, /test-secret/);
     } finally {
         await rm(tempRoot, { recursive: true, force: true });
@@ -111,57 +128,62 @@ test('DuckDNS updater rejects command-line subdomains at runtime', async () => {
     }
 });
 
-test('DuckDNS updater sets redirects to zero, suppresses verbose URL, and sanitizes transport errors', async () => {
-    const tempRoot = await mkdtemp(resolve(tmpdir(), 'mulletaflix-duckdns-verbose-'));
-    const configPath = resolve(tempRoot, 'config.json');
+test('DuckDNS transport helper suppresses verbose URL and sanitizes transport errors', () => {
     const testOnlySentinel = 'test-only-token-sentinel-not-a-credential';
-    try {
-        await writeFile(configPath, JSON.stringify({ subdomain: 'test-domain', token: testOnlySentinel }), 'utf8');
-        const command = [
-            "$VerbosePreference = 'Continue'",
-            'function Invoke-WebRequest { [CmdletBinding()] param([string]$Uri, [switch]$UseBasicParsing, [int]$MaximumRedirection); Write-Verbose (\"mock request URL: $Uri\"); if ($MaximumRedirection -ne 0) { throw \"redirects were not disabled: $Uri\" }; throw \"mock transport failure: $Uri\" }',
-            `. '${updaterPath.replaceAll("'", "''")}' -ConfigPath '${configPath.replaceAll("'", "''")}' -Verbose`
-        ].join('; ');
-        const result = spawnSync('powershell.exe', [
-            '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', command
-        ], { encoding: 'utf8', timeout: 15000 });
-        const output = `${result.stdout}\n${result.stderr}`;
+    const requestFunction = extractUpdaterFunction('Invoke-DuckDnsUpdateRequest');
+    const uri = `https://example.invalid/update?token=${testOnlySentinel}`;
+    const command = [
+        `$functionSource = ${quotePowerShell(requestFunction)}`,
+        'Invoke-Expression $functionSource',
+        "$VerbosePreference = 'Continue'",
+        'function Invoke-WebRequest { [CmdletBinding()] param([string]$Uri, [switch]$UseBasicParsing, [int]$MaximumRedirection); Write-Verbose (\"mock request URL: $Uri\"); if ($MaximumRedirection -ne 0) { throw \"redirects were not disabled: $Uri\" }; throw \"mock transport failure: $Uri\" }',
+        `try { Invoke-DuckDnsUpdateRequest -Uri ${quotePowerShell(uri)} -Verbose; exit 0 } catch { [Console]::Error.WriteLine($_.Exception.Message); exit 24 }`
+    ].join('; ');
+    const result = spawnSync('powershell.exe', [
+        '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', command
+    ], { encoding: 'utf8', timeout: 15000 });
+    const output = `${result.stdout}\n${result.stderr}`;
 
-        assert.equal(result.error, undefined, result.error?.message);
-        assert.notEqual(result.status, 0, 'mock transport failure should fail the updater');
-        assert.match(output, /request details were omitted to protect credentials/i);
-        assert.doesNotMatch(output, new RegExp(testOnlySentinel));
-        assert.doesNotMatch(output, /mock request URL:|mock transport failure:|redirects were not disabled:/i);
-    } finally {
-        await rm(tempRoot, { recursive: true, force: true });
-    }
+    assert.equal(result.error, undefined, result.error?.message);
+    assert.equal(result.status, 24, 'mock transport failure should fail the updater');
+    assert.match(output, /request details were omitted to protect credentials/i);
+    assert.doesNotMatch(output, new RegExp(testOnlySentinel));
+    assert.doesNotMatch(output, /mock request URL:|mock transport failure:|redirects were not disabled:/i);
 });
 
-test('DuckDNS updater rejects a mocked redirect response without exposing its body', async () => {
-    const tempRoot = await mkdtemp(resolve(tmpdir(), 'mulletaflix-duckdns-redirect-'));
-    const configPath = resolve(tempRoot, 'config.json');
+test('DuckDNS transport helper rejects a mocked redirect response without exposing its body', () => {
     const testOnlySentinel = 'test-only-token-sentinel-not-a-credential';
-    try {
-        await writeFile(configPath, JSON.stringify({ subdomain: 'test-domain', token: testOnlySentinel }), 'utf8');
-        const command = [
-            '$global:MockRequestCount = 0',
-            `function Invoke-WebRequest { [CmdletBinding()] param([string]$Uri, [switch]$UseBasicParsing, [int]$MaximumRedirection); $global:MockRequestCount++; Write-Verbose (\"mock request URL: $Uri\"); if ($MaximumRedirection -ne 0) { throw \"redirect limit was not disabled: $Uri\" }; [pscustomobject]@{ StatusCode = 302; Content = ${quotePowerShell(`redirect body leaked ${testOnlySentinel}`)}; Headers = @{ Location = 'https://example.invalid/redirect' } } }`,
-            `try { . ${quotePowerShell(updaterPath)} -ConfigPath ${quotePowerShell(configPath)} -Verbose; exit 0 } catch { [Console]::Error.WriteLine($_.Exception.Message); \"MOCK_REQUESTS=$global:MockRequestCount\"; exit 24 }`
-        ].join('; ');
-        const result = spawnSync('powershell.exe', [
-            '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', command
-        ], { encoding: 'utf8', timeout: 15000 });
-        const output = `${result.stdout}\n${result.stderr}`;
+    const requestFunction = extractUpdaterFunction('Invoke-DuckDnsUpdateRequest');
+    const uri = `https://example.invalid/update?token=${testOnlySentinel}`;
+    const command = [
+        `$functionSource = ${quotePowerShell(requestFunction)}`,
+        'Invoke-Expression $functionSource',
+        '$global:MockRequestCount = 0',
+        `function Invoke-WebRequest { [CmdletBinding()] param([string]$Uri, [switch]$UseBasicParsing, [int]$MaximumRedirection); $global:MockRequestCount++; Write-Verbose (\"mock request URL: $Uri\"); if ($MaximumRedirection -ne 0) { throw \"redirect limit was not disabled: $Uri\" }; [pscustomobject]@{ StatusCode = 302; Content = ${quotePowerShell(`redirect body leaked ${testOnlySentinel}`)}; Headers = @{ Location = 'https://example.invalid/redirect' } } }`,
+        `try { Invoke-DuckDnsUpdateRequest -Uri ${quotePowerShell(uri)} -Verbose; exit 0 } catch { [Console]::Error.WriteLine($_.Exception.Message); \"MOCK_REQUESTS=$global:MockRequestCount\"; exit 24 }`
+    ].join('; ');
+    const result = spawnSync('powershell.exe', [
+        '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', command
+    ], { encoding: 'utf8', timeout: 15000 });
+    const output = `${result.stdout}\n${result.stderr}`;
 
-        assert.equal(result.error, undefined, result.error?.message);
-        assert.equal(result.status, 24, 'redirect response must fail without following it');
-        assert.match(output, /non-success response/i);
-        assert.match(output, /MOCK_REQUESTS=1/);
-        assert.doesNotMatch(output, new RegExp(testOnlySentinel));
-        assert.doesNotMatch(output, /mock request URL:|redirect body leaked|https:\/\/example\.invalid/i);
-    } finally {
-        await rm(tempRoot, { recursive: true, force: true });
-    }
+    assert.equal(result.error, undefined, result.error?.message);
+    assert.equal(result.status, 24, 'redirect response must fail without following it');
+    assert.match(output, /non-success response/i);
+    assert.match(output, /MOCK_REQUESTS=1/);
+    assert.doesNotMatch(output, new RegExp(testOnlySentinel));
+    assert.doesNotMatch(output, /mock request URL:|redirect body leaked|https:\/\/example\.invalid/i);
+});
+
+test('DuckDNS updater validates protected config path, owner, ACL and reparse points before use', () => {
+    const result = spawnSync('powershell.exe', [
+        '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', updaterSecurityTestPath,
+        '-UpdaterPath', updaterPath
+    ], { encoding: 'utf8', timeout: 15000 });
+
+    assert.equal(result.error, undefined, result.error?.message);
+    assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
+    assert.match(result.stdout, /path, reparse-point, owner, and ACL tests passed/i);
 });
 
 test('Windows PowerShell Invoke-WebRequest with MaximumRedirection 0 does not follow a local 302', async () => {

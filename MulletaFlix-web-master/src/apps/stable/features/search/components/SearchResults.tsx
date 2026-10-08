@@ -7,7 +7,7 @@ import { Link } from 'react-router-dom';
 import { useSearchItems } from '../api/useSearchItems';
 import { Section } from '../types';
 import { getSearchScopeLabel, buildSearchGlobalHref } from '../utils/search';
-import { PageStateContainer } from 'components/common';
+import { getRemotePageState, PageStateContainer } from 'components/common';
 
 interface SearchResultsProps {
     parentId?: string;
@@ -59,9 +59,17 @@ const SearchResults: FC<SearchResultsProps> = ({
         </div>
     );
 
+    const remoteState = getRemotePageState({
+        isPending,
+        isError,
+        hasData: data !== undefined,
+        isOnline: typeof navigator === 'undefined' || navigator.onLine
+    });
+    const state = remoteState === 'success' && !data?.length ? 'empty' : remoteState;
+
     return (
         <PageStateContainer
-            state={isError ? 'error' : isPending ? 'loading' : !data?.length ? 'empty' : 'success'}
+            state={state}
             onRetry={handleRetry}
             emptyState={{
                 title: globalize.translate('SearchResultsEmpty', query ?? ''),

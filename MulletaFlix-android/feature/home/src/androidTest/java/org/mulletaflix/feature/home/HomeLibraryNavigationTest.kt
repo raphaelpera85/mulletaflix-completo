@@ -59,6 +59,22 @@ class HomeLibraryNavigationTest {
         assertEquals(1, liveTvCalls.get())
     }
 
+    @Test
+    fun books_libraryIsNotRenderedOnAndroidTv() {
+        val profile = showLibraryTiles(
+            onLibraryClick = {},
+            onLiveTvClick = {},
+        )
+        val expectedProfile = requireNotNull(
+            InstrumentationRegistry.getArguments().getString("expectedDeviceProfile"),
+        ) { "Set expectedDeviceProfile to PHONE, TABLET or TV for this AVD run" }
+        assertEquals("This visibility check must run on the TV profile", "TV", expectedProfile)
+        assertEquals("AVD must be detected as Android TV", HomeDeviceClass.TV, profile)
+
+        composeRule.onNodeWithContentDescription("Abrir Livros").assertDoesNotExist()
+        composeRule.onNodeWithContentDescription("Abrir Filmes").assertIsDisplayed()
+    }
+
     private fun showLibraryTiles(
         onLibraryClick: (MediaItem) -> Unit,
         onLiveTvClick: () -> Unit,
@@ -66,6 +82,7 @@ class HomeLibraryNavigationTest {
         val renderedProfile = AtomicReference<HomeDeviceClass>()
         val libraries = listOf(
             MediaItem("movies-library", "Filmes", MediaItemType.CollectionFolder, collectionType = "movies"),
+            MediaItem("books-library", "Livros", MediaItemType.CollectionFolder, collectionType = "books"),
             MediaItem("live-tv-library", "TV ao vivo", MediaItemType.CollectionFolder, collectionType = "livetv"),
         )
         composeRule.setContent {

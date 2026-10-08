@@ -17,7 +17,7 @@ import javax.inject.Singleton
 class AppUpdateRepositoryImpl @Inject constructor() : AppUpdateRepository {
 
     private val httpClient = OkHttpClient.Builder()
-        .enforceLocalNetworkCleartextPolicy()
+        .enforceLocalNetworkCleartextPolicy(requireHttpsRedirects = true)
         .connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(20, TimeUnit.SECONDS)
         .build()

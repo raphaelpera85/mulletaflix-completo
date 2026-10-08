@@ -24,6 +24,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -55,8 +56,8 @@ import kotlinx.coroutines.withContext
 
 @Composable
 @OptIn(ExperimentalFoundationApi::class)
-internal fun ComicBookReaderContent(
-    archive: ComicBookArchive,
+internal fun PagedBookReaderContent(
+    pageBook: BookPageSource,
     currentPage: Int,
     zoom: Float = 1f,
     onZoomChange: (Float) -> Unit = {},
@@ -71,11 +72,17 @@ internal fun ComicBookReaderContent(
         val density = LocalDensity.current
         val targetWidth = with(density) { maxWidth.roundToPx() }.coerceAtLeast(1)
         val targetHeight = with(density) { maxHeight.roundToPx() }.coerceAtLeast(1)
-        var bitmap by remember(archive, currentPage) { mutableStateOf<Bitmap?>(null) }
-        var decodedZoomTier by remember(archive, currentPage) { mutableIntStateOf(0) }
-        var loadError by remember(archive, currentPage) { mutableStateOf<String?>(null) }
-        var retryGeneration by remember(archive, currentPage) { mutableIntStateOf(0) }
-        var panOffset by remember(archive, currentPage) { mutableStateOf(Offset.Zero) }
+        var bitmap by remember(pageBook, currentPage) { mutableStateOf<Bitmap?>(null) }
+        DisposableEffect(bitmap) {
+            val displayedBitmap = bitmap
+            onDispose {
+                if (displayedBitmap != null && !displayedBitmap.isRecycled) displayedBitmap.recycle()
+            }
+        }
+        var decodedZoomTier by remember(pageBook, currentPage) { mutableIntStateOf(0) }
+        var loadError by remember(pageBook, currentPage) { mutableStateOf<String?>(null) }
+        var retryGeneration by remember(pageBook, currentPage) { mutableIntStateOf(0) }
+        var panOffset by remember(pageBook, currentPage) { mutableStateOf(Offset.Zero) }
         val transformState = rememberTransformableState { centroid, zoomChange, panChange, _ ->
             val currentZoom = normalizeComicPageZoom(zoom)
             val nextZoom = normalizeComicPageZoom(currentZoom * zoomChange)
@@ -106,13 +113,20 @@ internal fun ComicBookReaderContent(
             panOffset = constrainComicPagePan(panOffset, imageBounds)
         }
 
-        LaunchedEffect(archive, currentPage, targetWidth, targetHeight, retryGeneration) {
+        LaunchedEffect(pageBook, currentPage, targetWidth, targetHeight, retryGeneration) {
             bitmap = null
             decodedZoomTier = 0
             loadError = null
             try {
                 bitmap = withContext(Dispatchers.IO) {
-                    archive.decodePage(currentPage, targetWidth, targetHeight)
+                    val decoded = pageBook.decodePage(currentPage, targetWidth, targetHeight)
+                    try {
+                        currentCoroutineContext().ensureActive()
+                        decoded
+                    } catch (cancelled: CancellationException) {
+                        decoded.recycle()
+                        throw cancelled
+                    }
                 }
                 decodedZoomTier = 1
             } catch (cancelled: CancellationException) {
@@ -122,14 +136,14 @@ internal fun ComicBookReaderContent(
             }
         }
 
-        LaunchedEffect(archive, currentPage, targetWidth, targetHeight, zoom, bitmap, decodedZoomTier) {
+        LaunchedEffect(pageBook, currentPage, targetWidth, targetHeight, zoom, bitmap, decodedZoomTier) {
             if (bitmap == null) return@LaunchedEffect
             val targetTier = comicPageRenderTier(zoom)
             if (targetTier == decodedZoomTier) return@LaunchedEffect
             delay(COMIC_PAGE_RENDER_DEBOUNCE_MS)
             try {
                 val replacement = withContext(Dispatchers.IO) {
-                    val decoded = archive.decodePage(
+                    val decoded = pageBook.decodePage(
                         currentPage,
                         maxWidth = (targetWidth.toLong() * targetTier)
                             .coerceAtMost(Int.MAX_VALUE.toLong()).toInt(),
@@ -160,7 +174,7 @@ internal fun ComicBookReaderContent(
             ) {
                 Image(
                     bitmap = requireNotNull(bitmap).asImageBitmap(),
-                    contentDescription = "Página ${currentPage + 1} de ${archive.pageCount}, ampliação ${(zoom * 100).roundToInt()}%",
+                    contentDescription = "Página ${currentPage + 1} de ${pageBook.pageCount}, ampliação ${(zoom * 100).roundToInt()}%",
                     contentScale = ContentScale.Fit,
                     modifier = Modifier
                         .fillMaxSize()

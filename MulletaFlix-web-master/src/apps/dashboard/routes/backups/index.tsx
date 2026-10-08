@@ -189,6 +189,22 @@ export const Component = () => {
         }
     }, [api, restoreInProgress]);
 
+    if (!api) {
+        return (
+            <Page
+                id='backupsPage'
+                title={globalize.translate('HeaderBackups')}
+                className='mainAnimatedPage type-interior'
+            >
+                <Box className='content-primary'>
+                    <Alert severity='warning' role='status'>
+                        {globalize.translate('HeaderServerUnavailable')}
+                    </Alert>
+                </Box>
+            </Page>
+        );
+    }
+
     if (isError || isTasksError) {
         return (
             <Page

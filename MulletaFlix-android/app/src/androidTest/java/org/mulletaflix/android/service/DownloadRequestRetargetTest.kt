@@ -28,19 +28,19 @@ import org.junit.runner.RunWith
 class DownloadRequestRetargetTest {
 
     private val lanUrl =
-        "http://192.168.15.9:8096/Videos/item-1/stream?MediaSourceId=s1&api_key=OLD&Static=true"
+        "http://127.0.0.1:8096/Videos/item-1/stream?MediaSourceId=s1&api_key=OLD&Static=true"
 
     @Test
     fun aRequestQueuedAtHomeIsRetriedAgainstTheAddressInUse() {
         val request = downloadRequestFor(
             requestId = "user-1:item-1",
             storedUri = lanUrl,
-            baseUrl = "http://mulletaflix.duckdns.org:8096",
+            baseUrl = "https://mulletaflix.duckdns.org",
             accessToken = "NEW",
         )
 
         assertEquals("mulletaflix.duckdns.org", request.uri.host)
-        assertEquals(8096, request.uri.port)
+        assertEquals(-1, request.uri.port)
         assertEquals("/Videos/item-1/stream", request.uri.path)
         assertFalse(
             "a URL gravada não pode sobreviver ao endereço atual: ${request.uri}",
@@ -60,11 +60,11 @@ class DownloadRequestRetargetTest {
         val request = downloadRequestFor(
             requestId = "user-1:item-1",
             storedUri = lanUrl,
-            baseUrl = "http://mulletaflix.duckdns.org:8096",
+            baseUrl = "https://mulletaflix.duckdns.org",
             accessToken = "NEW",
         )
         assertEquals(
-            "http://mulletaflix.duckdns.org:8096/Videos/item-1/stream?MediaSourceId=s1&api_key=NEW&Static=true",
+            "https://mulletaflix.duckdns.org/Videos/item-1/stream?MediaSourceId=s1&api_key=NEW&Static=true",
             request.uri.toString(),
         )
     }
@@ -75,11 +75,11 @@ class DownloadRequestRetargetTest {
         val request = downloadRequestFor(
             requestId = "user-1:item-1",
             storedUri = lanUrl,
-            baseUrl = "http://mulletaflix.duckdns.org:8096",
+            baseUrl = "https://mulletaflix.duckdns.org",
             accessToken = "NEW",
         )
         assertEquals("user-1:item-1", request.id)
-        assertEquals("http", request.uri.scheme)
+        assertEquals("https", request.uri.scheme)
     }
 
     @Test
@@ -88,7 +88,7 @@ class DownloadRequestRetargetTest {
         val request = downloadRequestFor(
             requestId = "user-1:episode-1",
             storedUri = lanUrl,
-            baseUrl = "http://mulletaflix.duckdns.org:8096",
+            baseUrl = "https://mulletaflix.duckdns.org",
             accessToken = "NEW",
             episodeMetadata = metadata,
         )

@@ -106,17 +106,12 @@ class SyncPlayRealtimeClient @Inject constructor(
             scheduleReconnect(generation)
             return
         }
-        // A rejected remote HTTP endpoint must not cause credentials to be read
-        // or embedded in a WebSocket URL before the shared OkHttp guard runs.
+        // Reject remote cleartext before the shared identity interceptor reads
+        // credentials. The interceptor sends authentication in the header.
         if (!CleartextTrafficPolicy.isAllowed(base)) return
 
-        val token = runBlocking { sessionRepository.getAccessToken().first() }
-        val deviceId = runBlocking { sessionRepository.getDeviceId().first() }
         val websocketUrl = base.newBuilder()
-            .scheme(if (base.scheme == "https") "wss" else "ws")
             .addPathSegment("socket")
-            .addQueryParameter("api_key", token)
-            .addQueryParameter("deviceId", deviceId)
             .build()
         synchronized(connectionLock) {
             if (generation != connectionGeneration || activeGroupId == null) return

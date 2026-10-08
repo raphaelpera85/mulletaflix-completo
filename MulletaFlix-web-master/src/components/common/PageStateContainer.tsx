@@ -11,7 +11,7 @@ interface PageStateContainerProps {
      * Current state of the page.
      * - loading: show loading spinner
      * - offline: show offline alert
-     * - degraded: show degraded warning
+     * - degraded: show a degraded warning and retain any already-loaded children
      * - error: show error message with retry
      * - empty: show empty state message
      * - success: render children normally
@@ -82,7 +82,7 @@ const PageStateContainer: FC<PageStateContainerProps> = ({
 }) => {
     switch (state) {
         case 'loading':
-            return loadingComponent || <LoadingComponent />;
+            return React.createElement(React.Fragment, null, loadingComponent || <LoadingComponent />);
 
         case 'offline':
             return (
@@ -95,11 +95,14 @@ const PageStateContainer: FC<PageStateContainerProps> = ({
 
         case 'degraded':
             return (
-                <OfflineState
-                    isDegraded
-                    message={offlineMessage}
-                    onRetry={onRetry}
-                />
+                <>
+                    <OfflineState
+                        isDegraded
+                        message={offlineMessage}
+                        onRetry={onRetry}
+                    />
+                    {children}
+                </>
             );
 
         case 'error':
@@ -122,11 +125,12 @@ const PageStateContainer: FC<PageStateContainerProps> = ({
             );
 
         case 'success':
-            return children;
+            return React.createElement(React.Fragment, null, children);
 
-        default:
+        default: {
             const _exhaustive: never = state;
             return _exhaustive;
+        }
     }
 };
 

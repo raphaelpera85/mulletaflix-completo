@@ -2,6 +2,9 @@ package org.mulletaflix.core.common.network
 
 import java.io.IOException
 import java.net.InetAddress
+import java.net.InterfaceAddress
+import java.net.NetworkInterface
+import java.net.Proxy
 import java.util.Locale
 import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
@@ -14,33 +17,96 @@ object CleartextTrafficPolicy {
     const val BLOCKED_MESSAGE = "HTTP sem criptografia só é permitido para servidores locais."
 
     fun isAllowed(url: HttpUrl): Boolean =
-        url.scheme == "https" || (url.scheme == "http" && isLocalNetworkHost(url.host))
+        url.scheme == "https" ||
+            (url.scheme == "http" && isLocalNetworkHost(url.host, LocalNetworkSubnetProvider.activeSubnets()))
 
     fun isAllowed(url: String): Boolean {
         val parsed = url.toHttpUrlOrNull() ?: return false
         return isAllowed(parsed)
     }
 
+    internal fun isAllowed(url: String, localSubnets: List<LocalNetworkSubnet>): Boolean {
+        val parsed = url.toHttpUrlOrNull() ?: return false
+        return parsed.scheme == "https" ||
+            (parsed.scheme == "http" && isLocalNetworkHost(parsed.host, localSubnets))
+    }
+
+    internal fun isAllowedOnConnectedRoute(
+        url: HttpUrl,
+        localAddress: InetAddress,
+        remoteAddress: InetAddress,
+        localSubnets: List<LocalNetworkSubnet>,
+    ): Boolean {
+        if (url.scheme == "https") return true
+        if (url.scheme != "http") return false
+        if (localAddress.isLoopbackAddress && remoteAddress.isLoopbackAddress) return true
+
+        val localBytes = localAddress.address
+        val localIsOnInterface = localSubnets.any { it.contains(localBytes) }
+        return localIsOnInterface && isLocalAddress(remoteAddress, localSubnets)
+    }
+
     fun requireAllowed(url: HttpUrl) {
         if (!isAllowed(url)) throw IOException(BLOCKED_MESSAGE)
     }
 
-    /** Does not resolve hostnames, avoiding DNS work and rebinding-based allow decisions. */
+    /** Classifies private/local endpoints without checking the current connection. */
     fun isLocalNetworkHost(host: String): Boolean {
         val normalized = host.trim().trim('[', ']').substringBefore('%').lowercase()
         if (normalized == "localhost" || normalized.endsWith(".local") ||
             normalized.endsWith(".home.arpa")
         ) return true
 
-        return isLocalIpv4(normalized) || isLocalIpv6(normalized)
+        val address = parseIpLiteral(normalized) ?: return false
+        return address.isLoopbackAddress || when (address.address.size) {
+            4 -> isLocalIpv4(address.address)
+            16 -> isLocalIpv6(address.address)
+            else -> false
+        }
     }
 
-    private fun isLocalIpv4(host: String): Boolean {
+    internal fun isLocalNetworkHost(host: String, localSubnets: List<LocalNetworkSubnet>): Boolean {
+        val normalized = host.trim().trim('[', ']').substringBefore('%').lowercase()
+        if (normalized == "localhost" || normalized.endsWith(".local") ||
+            normalized.endsWith(".home.arpa")
+        ) return true
+
+        return isLocalAddress(normalized, localSubnets)
+    }
+
+    private fun isLocalAddress(host: String, localSubnets: List<LocalNetworkSubnet>): Boolean {
+        val address = parseIpLiteral(host) ?: return false
+        return isLocalAddress(address, localSubnets)
+    }
+
+    private fun isLocalAddress(address: InetAddress, localSubnets: List<LocalNetworkSubnet>): Boolean {
+        if (address.isLoopbackAddress) return true
+
+        val bytes = address.address
+        val isLocalRange = when (bytes.size) {
+            4 -> isLocalIpv4(bytes)
+            16 -> isLocalIpv6(bytes)
+            else -> false
+        }
+        return isLocalRange && localSubnets.any { it.contains(bytes) }
+    }
+
+    private fun parseIpLiteral(host: String): InetAddress? {
+        if (host.contains(':')) {
+            return runCatching { InetAddress.getByName(host) }.getOrNull()
+        }
+
         val octets = host.split('.')
-        if (octets.size != 4) return false
-        val address = octets.map { it.toIntOrNull()?.takeIf { value -> value in 0..255 } ?: return false }
-        val first = address[0]
-        val second = address[1]
+        if (octets.size != 4) return null
+        val bytes = octets.map {
+            it.toIntOrNull()?.takeIf { value -> value in 0..255 }?.toByte() ?: return null
+        }.toByteArray()
+        return runCatching { InetAddress.getByAddress(bytes) }.getOrNull()
+    }
+
+    private fun isLocalIpv4(address: ByteArray): Boolean {
+        val first = address[0].toInt() and 0xff
+        val second = address[1].toInt() and 0xff
         return first == 10 ||
             first == 127 ||
             (first == 169 && second == 254) ||
@@ -48,79 +114,144 @@ object CleartextTrafficPolicy {
             (first == 192 && second == 168)
     }
 
-    private fun isLocalIpv6(host: String): Boolean {
-        if (!host.contains(':')) return false
-        val address = runCatching { InetAddress.getByName(host).address }.getOrNull() ?: return false
-        if (address.size != 16) return false
-
+    private fun isLocalIpv6(address: ByteArray): Boolean {
         val first = address[0].toInt() and 0xff
         val second = address[1].toInt() and 0xff
-        val loopback = address.dropLast(1).all { it.toInt() == 0 } && address.last().toInt() == 1
         val uniqueLocal = (first and 0xfe) == 0xfc
         val linkLocal = first == 0xfe && (second and 0xc0) == 0x80
         val deprecatedSiteLocal = first == 0xfe && (second and 0xc0) == 0xc0
 
-        if (loopback || uniqueLocal || linkLocal || deprecatedSiteLocal) return true
+        if (uniqueLocal || linkLocal || deprecatedSiteLocal) return true
 
         val ipv4Mapped = address.take(10).all { it.toInt() == 0 } &&
             address[10] == 0xff.toByte() && address[11] == 0xff.toByte()
         if (!ipv4Mapped) return false
-        return isLocalIpv4(address.takeLast(4).joinToString(".") { (it.toInt() and 0xff).toString() })
+        return isLocalIpv4(address.takeLast(4).toByteArray())
+    }
+}
+
+internal data class LocalNetworkSubnet(val address: ByteArray, val prefixLength: Int) {
+    fun contains(candidate: ByteArray): Boolean {
+        if (address.size != candidate.size || prefixLength !in 1..(address.size * 8)) return false
+
+        val wholeBytes = prefixLength / 8
+        val remainingBits = prefixLength % 8
+        for (index in 0 until wholeBytes) {
+            if (address[index] != candidate[index]) return false
+        }
+        if (remainingBits == 0) return true
+
+        val mask = (0xff shl (8 - remainingBits)) and 0xff
+        return ((address[wholeBytes].toInt() and 0xff) and mask) ==
+            ((candidate[wholeBytes].toInt() and 0xff) and mask)
+    }
+}
+
+private object LocalNetworkSubnetProvider {
+    fun activeSubnets(): List<LocalNetworkSubnet> = runCatching {
+        val interfaces = NetworkInterface.getNetworkInterfaces() ?: return emptyList()
+        buildList {
+            while (interfaces.hasMoreElements()) {
+                val networkInterface = interfaces.nextElement()
+                val eligible = runCatching {
+                    networkInterface.isUp && !networkInterface.isLoopback && !networkInterface.isPointToPoint
+                }.getOrDefault(false)
+                if (!eligible) continue
+
+                val addresses: List<InterfaceAddress> = runCatching {
+                    networkInterface.interfaceAddresses
+                }.getOrDefault(emptyList())
+                addresses.forEach { interfaceAddress ->
+                    val address = interfaceAddress.address.address
+                    val prefixLength = interfaceAddress.networkPrefixLength.toInt()
+                    if (prefixLength in 1..(address.size * 8)) {
+                        add(LocalNetworkSubnet(address, prefixLength))
+                    }
+                }
+            }
+        }
+    }.getOrDefault(emptyList())
+
+    fun subnetsFor(localAddress: InetAddress): List<LocalNetworkSubnet> {
+        if (localAddress.isLoopbackAddress) return emptyList()
+        val networkInterface = runCatching { NetworkInterface.getByInetAddress(localAddress) }.getOrNull()
+            ?: return emptyList()
+        val eligible = runCatching {
+            networkInterface.isUp && !networkInterface.isLoopback && !networkInterface.isPointToPoint
+        }.getOrDefault(false)
+        if (!eligible) return emptyList()
+
+        return runCatching {
+            networkInterface.interfaceAddresses.mapNotNull { interfaceAddress ->
+                val address = interfaceAddress.address.address
+                val prefixLength = interfaceAddress.networkPrefixLength.toInt()
+                if (prefixLength in 1..(address.size * 8)) {
+                    LocalNetworkSubnet(address, prefixLength)
+                } else {
+                    null
+                }
+            }
+        }.getOrDefault(emptyList())
     }
 }
 
 /** Checks every exchange, including redirect destinations, before it reaches the wire. */
-object LocalNetworkCleartextInterceptor : Interceptor {
-    private const val MAX_REDIRECTS = 20
-    private val REDIRECT_CODES = setOf(300, 301, 302, 303, 307, 308)
-    private val CREDENTIAL_QUERY_PARAMETER_NAMES = setOf(
-        "apikey",
-        "xapikey",
-        "key",
-        "accesskey",
-        "awsaccesskeyid",
-        "consumerkey",
-        "token",
-        "accesstoken",
-        "refreshtoken",
-        "idtoken",
-        "auth",
-        "authorization",
-        "password",
-        "passwd",
-        "passphrase",
-        "pwd",
-        "secret",
-        "clientsecret",
-        "clientassertion",
-        "code",
-        "codeverifier",
-        "credential",
-        "credentials",
-        "session",
-        "sessionid",
-        "sid",
-        "phpsessid",
-        "jsessionid",
-        "oauthverifier",
-        "jwt",
-        "bearer",
-    )
-    private val REDIRECT_TARGET_QUERY_PARAMETER_NAMES = setOf(
-        "paginationtoken",
-        "continuationtoken",
-        "nextpagetoken",
-        "nexttoken",
-        "pagetoken",
-        "cursor",
-        "signature",
-        "sig",
-        "xgoogcredential",
-        "xgoogsignature",
-        "xamzcredential",
-        "xamzsignature",
-        "xamzsecuritytoken",
-    )
+class LocalNetworkCleartextInterceptor(
+    internal val requireHttpsRedirects: Boolean = false,
+) : Interceptor {
+    private companion object {
+        const val HTTPS_REDIRECT_BLOCKED_MESSAGE = "HTTPS requests must not redirect to HTTP."
+        const val MAX_REDIRECTS = 20
+        val REDIRECT_CODES = setOf(300, 301, 302, 303, 307, 308)
+        val CREDENTIAL_QUERY_PARAMETER_NAMES = setOf(
+            "apikey",
+            "xapikey",
+            "key",
+            "accesskey",
+            "awsaccesskeyid",
+            "consumerkey",
+            "token",
+            "accesstoken",
+            "refreshtoken",
+            "idtoken",
+            "auth",
+            "authorization",
+            "password",
+            "passwd",
+            "passphrase",
+            "pwd",
+            "secret",
+            "clientsecret",
+            "clientassertion",
+            "code",
+            "codeverifier",
+            "credential",
+            "credentials",
+            "session",
+            "sessionid",
+            "sid",
+            "phpsessid",
+            "jsessionid",
+            "oauthverifier",
+            "jwt",
+            "bearer",
+        )
+        val REDIRECT_TARGET_QUERY_PARAMETER_NAMES = setOf(
+            "paginationtoken",
+            "continuationtoken",
+            "nextpagetoken",
+            "nexttoken",
+            "pagetoken",
+            "cursor",
+            "signature",
+            "sig",
+            "xgoogcredential",
+            "xgoogsignature",
+            "xamzcredential",
+            "xamzsignature",
+            "xamzsecuritytoken",
+        )
+    }
 
     private fun isCredentialQueryParameter(name: String): Boolean {
         val normalized = name.lowercase(Locale.ROOT).filter(Char::isLetterOrDigit)
@@ -156,6 +287,9 @@ object LocalNetworkCleartextInterceptor : Interceptor {
             }
 
             try {
+                if (requireHttpsRedirects && !redirectUrl.isHttps) {
+                    throw IOException(HTTPS_REDIRECT_BLOCKED_MESSAGE)
+                }
                 CleartextTrafficPolicy.requireAllowed(redirectUrl)
             } catch (failure: IOException) {
                 response.close()
@@ -199,14 +333,34 @@ object LocalNetworkCleartextInterceptor : Interceptor {
 /** Last-resort guard for each physical exchange; network interceptors proceed once. */
 object LocalNetworkCleartextNetworkInterceptor : Interceptor {
     override fun intercept(chain: Interceptor.Chain): Response {
-        CleartextTrafficPolicy.requireAllowed(chain.request().url)
+        val request = chain.request()
+        if (request.url.scheme == "http") {
+            val connection = chain.connection()
+                ?: throw IOException(CleartextTrafficPolicy.BLOCKED_MESSAGE)
+            if (connection.route().proxy.type() != Proxy.Type.DIRECT) {
+                throw IOException(CleartextTrafficPolicy.BLOCKED_MESSAGE)
+            }
+
+            val localAddress = connection.socket().localAddress
+            val remoteAddress = connection.route().socketAddress.address
+                ?: throw IOException(CleartextTrafficPolicy.BLOCKED_MESSAGE)
+            val allowed = CleartextTrafficPolicy.isAllowedOnConnectedRoute(
+                request.url,
+                localAddress,
+                remoteAddress,
+                LocalNetworkSubnetProvider.subnetsFor(localAddress),
+            )
+            if (!allowed) throw IOException(CleartextTrafficPolicy.BLOCKED_MESSAGE)
+        }
         return chain.proceed(chain.request())
     }
 }
 
 /** Controls redirects in-app, then checks every request again at the network boundary. */
-fun OkHttpClient.Builder.enforceLocalNetworkCleartextPolicy(): OkHttpClient.Builder =
+fun OkHttpClient.Builder.enforceLocalNetworkCleartextPolicy(
+    requireHttpsRedirects: Boolean = false,
+): OkHttpClient.Builder =
     followRedirects(false)
         .followSslRedirects(false)
-        .addInterceptor(LocalNetworkCleartextInterceptor)
+        .addInterceptor(LocalNetworkCleartextInterceptor(requireHttpsRedirects))
         .addNetworkInterceptor(LocalNetworkCleartextNetworkInterceptor)

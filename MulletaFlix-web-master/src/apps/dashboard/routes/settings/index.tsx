@@ -24,6 +24,7 @@ import DirectoryBrowser from 'components/directorybrowser/directorybrowser';
 import { getConfigurationApi } from '@jellyfin/sdk/lib/utils/api/configuration-api';
 import { queryClient } from 'utils/query/queryClient';
 import { ActionData } from 'types/actionData';
+import { useApi } from 'hooks/useApi';
 
 export const action = async ({ request }: ActionFunctionArgs) => {
     const api = ServerConnections.getCurrentApi();
@@ -53,6 +54,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 };
 
 export const Component = () => {
+    const { api } = useApi();
     const {
         data: config,
         isPending: isConfigPending,
@@ -125,6 +127,22 @@ export const Component = () => {
             setMetadataPath(config.MetadataPath);
         }
     }, [config, isConfigPending, isConfigError]);
+
+    if (!api) {
+        return (
+            <Page
+                id='dashboardGeneralPage'
+                title={globalize.translate('General')}
+                className='type-interior mainAnimatedPage'
+            >
+                <Box className='content-primary'>
+                    <Alert severity='warning' role='status'>
+                        {globalize.translate('HeaderServerUnavailable')}
+                    </Alert>
+                </Box>
+            </Page>
+        );
+    }
 
     if (isConfigError || isLocalizationOptionsError) {
         return (

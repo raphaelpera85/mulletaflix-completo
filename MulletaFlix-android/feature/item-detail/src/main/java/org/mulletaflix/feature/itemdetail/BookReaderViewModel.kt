@@ -32,7 +32,7 @@ import javax.inject.Inject
 internal data class BookReaderState(
     val isLoading: Boolean = true,
     val publication: Publication? = null,
-    val comicArchive: ComicBookArchive? = null,
+    val pageBook: BookPageSource? = null,
     val initialLocator: Locator? = null,
     val fontSizePercent: Int = BookReaderFontSize.DEFAULT_PERCENT,
     val bookmarks: List<BookReaderBookmark> = emptyList(),
@@ -42,7 +42,7 @@ internal data class BookReaderState(
 
 private data class LoadedBookContent(
     val publication: Publication? = null,
-    val comicArchive: ComicBookArchive? = null,
+    val pageBook: BookPageSource? = null,
     val cacheFile: File,
 )
 
@@ -121,35 +121,51 @@ class BookReaderViewModel @Inject constructor(
                             error("Book file exceeds the supported size limit.")
                         }
                         val contentType = body.contentType()?.let { "${it.type}/${it.subtype}" }.orEmpty()
-                        val isComicArchive = ComicBookArchive.supports(contentType)
-                        if (!isComicArchive && isClearlyNotEpubContentType(contentType)) {
+                        if (isClearlyNotSupportedBookContentType(contentType)) {
                             error("O servidor não enviou um arquivo de livro compatível para leitura.")
                         }
 
-                        val target = bookCacheFiles.create(comicArchive = isComicArchive)
+                        val target = bookCacheFiles.create()
+                        var cacheTarget = target
                         var contentOpened = false
                         try {
                             body.byteStream().use { input ->
                                 target.outputStream().use { output -> copyBookReaderPayload(input, output) }
                             }
                             currentCoroutineContext().ensureActive()
-                            val loadedContent = if (isComicArchive) {
-                                LoadedBookContent(comicArchive = ComicBookArchive.open(target), cacheFile = target)
-                            } else {
-                                LoadedBookContent(publication = openBookPublication(context, target), cacheFile = target)
+                            val payloadFormat = detectBookPayloadFormat(target, contentType)
+                            val extension = when (payloadFormat) {
+                                BookPayloadFormat.EPUB -> ".epub"
+                                BookPayloadFormat.PDF -> ".pdf"
+                                BookPayloadFormat.CBZ -> ".cbz"
+                            }
+                            cacheTarget = bookCacheFiles.withExtension(target, extension)
+                            val loadedContent = when {
+                                payloadFormat == BookPayloadFormat.CBZ -> LoadedBookContent(
+                                    pageBook = ComicBookArchive.open(cacheTarget),
+                                    cacheFile = cacheTarget,
+                                )
+                                payloadFormat == BookPayloadFormat.PDF -> LoadedBookContent(
+                                    pageBook = PdfBookDocument.open(cacheTarget),
+                                    cacheFile = cacheTarget,
+                                )
+                                else -> LoadedBookContent(
+                                    publication = openBookPublication(context, cacheTarget),
+                                    cacheFile = cacheTarget,
+                                )
                             }
                             contentOpened = true
                             loadedContent
                         } finally {
-                            if (!contentOpened) bookCacheFiles.delete(target)
+                            if (!contentOpened) bookCacheFiles.delete(cacheTarget)
                         }
                     } finally {
                         body.close()
                     }
                 }
                 val restorableLocator = initialLocator?.takeIf { locator ->
-                    if (content.comicArchive != null) {
-                        ComicBookArchive.pageIndexFromLocator(locator, content.comicArchive.pageCount) != null
+                    if (content.pageBook != null) {
+                        content.pageBook.pageIndexFromLocator(locator) != null
                     } else {
                         content.publication?.readingOrder?.any { link -> link.href == locator.href } == true
                     }
@@ -170,7 +186,7 @@ class BookReaderViewModel @Inject constructor(
                 _state.value = BookReaderState(
                     isLoading = false,
                     publication = content.publication,
-                    comicArchive = content.comicArchive,
+                    pageBook = content.pageBook,
                     initialLocator = restorableLocator,
                     fontSizePercent = fontSizePercent,
                     bookmarks = bookmarks,
@@ -190,7 +206,7 @@ class BookReaderViewModel @Inject constructor(
 
     fun saveReadingProgression(itemId: String, locator: Locator) {
         val expectedScope = loadedProgressScope ?: return
-        if (loadedItemId != itemId || (_state.value.publication == null && _state.value.comicArchive == null)) return
+        if (loadedItemId != itemId || (_state.value.publication == null && _state.value.pageBook == null)) return
         val generation = progressSaveGeneration.begin()
         progressSaveJob?.cancel()
         progressSaveJob = viewModelScope.launch {
@@ -235,7 +251,7 @@ class BookReaderViewModel @Inject constructor(
 
     fun saveBookmark(itemId: String, locator: Locator, label: String) {
         val expectedScope = loadedProgressScope ?: return
-        if (loadedItemId != itemId || (_state.value.publication == null && _state.value.comicArchive == null)) return
+        if (loadedItemId != itemId || (_state.value.publication == null && _state.value.pageBook == null)) return
         viewModelScope.launch {
             val currentScope = recoverBookReaderStorageFailure {
                 sessionRepository.getHomeFeedCacheScope().first()

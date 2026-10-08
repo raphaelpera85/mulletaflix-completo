@@ -44,7 +44,7 @@ class Permission:
         except ValueError: return False
 
 class User:
-    def __init__(self, login, password, permissions=[]):
+    def __init__(self, login, password, permissions=None):
         # `password` may be a plaintext string (legacy), a bcrypt hash, or both
         # depending on how it was loaded.
         self.login = login
@@ -52,7 +52,7 @@ class User:
         self.password_hash = password if isinstance(password, str) and password.startswith(("$2a$", "$2b$", "$2y$")) else ""
         self.base_path = Path(".")
         self.home_path = PurePosixPath(f"/{login}")
-        self.permissions = [Permission(f"/{login}", readable=True, writable=True)] + permissions
+        self.permissions = [Permission(f"/{login}", readable=True, writable=True)] + list(permissions or [])
         if not [p for p in self.permissions if p.path == PurePosixPath("/")]:
             self.permissions.append(Permission("/", readable=False, writable=False))
 
@@ -72,12 +72,43 @@ class User:
         return self
     @classmethod
     def from_dict(cls, d):
-        login = d["login"]; permissions = []
+        login = d["login"]
+        permissions = []
         # Accept both new schema (password_hash) and legacy (password)
         password_field = d.get("password_hash") or d.get("password") or ""
-        for perm in d.get("permissions", []):
-            if perm["path"] != f"/{login}":
-                perm["path"] = perm["path"].strip(); permissions.append(Permission(**perm))
+        raw_permissions = d.get("permissions", [])
+        if not isinstance(raw_permissions, list):
+            # Older C# builds stored pyftpdlib command flags (e.g. "elradfmwM")
+            # here. They are not path ACLs. Ignore them; __init__ grants only
+            # the user's own home and denies the virtual root by default.
+            logger.debug(
+                "Ignoring non-path FTP permissions for user %s (stored type: %s)",
+                login,
+                type(raw_permissions).__name__,
+            )
+            raw_permissions = []
+
+        for perm in raw_permissions:
+            if not isinstance(perm, dict):
+                logger.debug("Ignoring malformed FTP path permission for user %s", login)
+                continue
+            path = perm.get("path")
+            if not isinstance(path, str) or not path.strip():
+                logger.debug("Ignoring FTP path permission without a valid path for user %s", login)
+                continue
+            normalized_path = PurePosixPath(path.strip())
+            if not normalized_path.is_absolute() or ".." in normalized_path.parts:
+                logger.debug("Ignoring non-canonical FTP path permission for user %s", login)
+                continue
+            if normalized_path == PurePosixPath(f"/{login}"):
+                continue
+            permissions.append(
+                Permission(
+                    normalized_path.as_posix(),
+                    readable=bool(perm.get("readable", False)),
+                    writable=bool(perm.get("writable", False)),
+                )
+            )
         return cls(login, password_field, permissions)
 
 class AbstractUserManager:

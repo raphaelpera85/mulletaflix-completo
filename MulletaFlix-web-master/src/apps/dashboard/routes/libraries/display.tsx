@@ -13,6 +13,7 @@ import Typography from '@mui/material/Typography';
 import Loading from 'components/loading/LoadingComponent';
 import Page from 'components/Page';
 import { getConfigurationApi } from '@jellyfin/sdk/lib/utils/api/configuration-api';
+import { useApi } from 'hooks/useApi';
 import { QUERY_KEY as CONFIG_QUERY_KEY, useConfiguration } from 'hooks/useConfiguration';
 import { QUERY_KEY as NAMED_CONFIG_QUERY_KEY, useNamedConfiguration } from 'hooks/useNamedConfiguration';
 import globalize from 'lib/globalize';
@@ -62,6 +63,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 };
 
 export const Component = () => {
+    const { api } = useApi();
     const {
         data: config,
         isPending: isConfigPending,
@@ -81,6 +83,22 @@ export const Component = () => {
     const retryLoad = React.useCallback(() => {
         void Promise.all([ refetchConfig(), refetchNamedConfig() ]);
     }, [ refetchConfig, refetchNamedConfig ]);
+
+    if (!api) {
+        return (
+            <Page
+                id='libraryDisplayPage'
+                title={globalize.translate('Display')}
+                className='mainAnimatedPage type-interior'
+            >
+                <Box className='content-primary'>
+                    <Alert severity='warning' role='status'>
+                        {globalize.translate('HeaderServerUnavailable')}
+                    </Alert>
+                </Box>
+            </Page>
+        );
+    }
 
     if (isConfigError || isNamedConfigError) {
         return (

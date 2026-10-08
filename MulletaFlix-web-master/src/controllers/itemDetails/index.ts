@@ -18,6 +18,12 @@ import { ServerConnections } from 'lib/jellyfin-apiclient';
 import datetime from 'scripts/datetime';
 import libraryMenu from 'scripts/libraryMenu';
 import { downloadWithResume } from 'scripts/resumableDownloader';
+import {
+    emitItemDetailsPageState,
+    getItemDetailsFailureState,
+    ITEM_DETAILS_PAGE_RETRY_EVENT,
+    type ItemDetailsPageRetryDetail
+} from 'components/itemDetails/itemDetailsPageEvents';
 
 import 'elements/emby-button/emby-button';
 import 'elements/emby-itemscontainer/emby-itemscontainer';
@@ -697,6 +703,9 @@ function loadSections(view: HTMLElement, item: any, apiClient: any): void {
 }
 
 export default function (view: HTMLElement, params: ViewParams): void {
+    let renderedItemId: string | undefined;
+    let requestSequence = 0;
+
     function renderItem(item: any, apiClient: any): void {
         const displayName = itemHelper.getDisplayName(item);
         view.setAttribute('data-title', displayName);
@@ -725,57 +734,61 @@ export default function (view: HTMLElement, params: ViewParams): void {
         autoFocuser.autoFocus(view);
     }
 
-    function showLoadError(): void {
-        const errorContainer = view.querySelector<HTMLElement>('#itemDetailLoadError');
-        const message = errorContainer?.querySelector<HTMLElement>('.itemDetailLoadErrorMessage');
-        const wrapper = view.querySelector<HTMLElement>('.detailPageWrapperContainer');
-        const logo = view.querySelector<HTMLElement>('.detailLogo');
-
-        if (message) {
-            message.textContent = globalize.translate('ErrorDefault');
-        }
-
-        errorContainer?.classList.remove('hide');
-        wrapper?.classList.add('hide');
-        logo?.classList.add('hide');
-    }
-
-    function hideLoadError(): void {
-        view.querySelector<HTMLElement>('#itemDetailLoadError')?.classList.add('hide');
-        view.querySelector<HTMLElement>('.detailPageWrapperContainer')?.classList.remove('hide');
-        view.querySelector<HTMLElement>('.detailLogo')?.classList.remove('hide');
-    }
-
     function loadData(): void {
         const itemId = params.id || params.itemId || params.seriesTimerId;
         if (!itemId) {
             return;
         }
 
-        hideLoadError();
+        const currentRequest = ++requestSequence;
+        if (renderedItemId !== itemId) {
+            emitItemDetailsPageState(itemId, 'loading');
+        }
 
         const apiClient = (params.serverId ? ServerConnections.getApiClient(params.serverId) : null) || ApiClient;
 
         if (params.seriesTimerId) {
             loading.withLoading(() => apiClient.getLiveTvSeriesTimer(params.seriesTimerId)).then((item: any) => {
+                if (currentRequest !== requestSequence) {
+                    return;
+                }
                 renderItem(item, apiClient);
+                renderedItemId = itemId;
+                emitItemDetailsPageState(itemId, 'success');
             }).catch((err: unknown) => {
+                if (currentRequest !== requestSequence) {
+                    return;
+                }
                 console.error('[itemDetails] failed to load series timer', err);
-                showLoadError();
+                emitItemDetailsPageState(itemId, getItemDetailsFailureState(renderedItemId, itemId));
             });
         } else {
             loading.withLoading(() => apiClient.getItem(apiClient.getCurrentUserId(), itemId)).then((item: any) => {
+                if (currentRequest !== requestSequence) {
+                    return;
+                }
                 renderItem(item, apiClient);
+                renderedItemId = itemId;
+                emitItemDetailsPageState(itemId, 'success');
             }).catch((err: unknown) => {
+                if (currentRequest !== requestSequence) {
+                    return;
+                }
                 console.error('[itemDetails] failed to load item', err);
-                showLoadError();
+                emitItemDetailsPageState(itemId, getItemDetailsFailureState(renderedItemId, itemId));
             });
         }
     }
 
-    view.querySelector<HTMLButtonElement>('.btnItemDetailRetry')?.addEventListener('click', () => {
-        loadData();
-    });
+    const handleRetry = (event: Event): void => {
+        const detail = (event as CustomEvent<ItemDetailsPageRetryDetail>).detail;
+        const itemId = params.id || params.itemId || params.seriesTimerId;
+        if (detail?.itemId === itemId) {
+            loadData();
+        }
+    };
+
+    document.addEventListener(ITEM_DETAILS_PAGE_RETRY_EVENT, handleRetry);
 
     view.addEventListener('viewshow', () => {
         loadData();
@@ -786,6 +799,8 @@ export default function (view: HTMLElement, params: ViewParams): void {
     });
 
     view.addEventListener('viewdestroy', () => {
+        requestSequence++;
+        document.removeEventListener(ITEM_DETAILS_PAGE_RETRY_EVENT, handleRetry);
         clearBackdrop();
     });
 }

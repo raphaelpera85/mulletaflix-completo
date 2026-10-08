@@ -23,10 +23,12 @@ import Alert from '@mui/material/Alert';
 import List from '@mui/material/List';
 import Provider from 'apps/dashboard/features/livetv/components/Provider';
 import Grid from '@mui/material/Grid2';
+import { useApi } from 'hooks/useApi';
 
 const CONFIG_KEY = 'livetv';
 
 export const Component = () => {
+    const { api } = useApi();
     const navigate = useNavigate();
     const {
         data: config,
@@ -77,6 +79,22 @@ export const Component = () => {
             });
         }
     }, [ startTask, refreshGuideTask ]);
+
+    if (!api) {
+        return (
+            <Page
+                id='liveTvStatusPage'
+                title={globalize.translate('LiveTV')}
+                className='mainAnimatedPage type-interior'
+            >
+                <Box className='content-primary'>
+                    <Alert severity='info' role='status'>
+                        {globalize.translate('HeaderServerUnavailable')}
+                    </Alert>
+                </Box>
+            </Page>
+        );
+    }
 
     if (isConfigError || isTasksError) {
         return (

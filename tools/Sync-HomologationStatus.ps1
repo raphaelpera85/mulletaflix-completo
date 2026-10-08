@@ -1,4 +1,4 @@
-[CmdletBinding()]
+﻿[CmdletBinding()]
 param(
     [string] $RoadmapPath = (Join-Path $PSScriptRoot '..\docs\roadmap-evolucao-tecnologica-servidor-e-web.md'),
     [string] $StatusPath = (Join-Path $PSScriptRoot '..\portal-site\homologacao-status.json')

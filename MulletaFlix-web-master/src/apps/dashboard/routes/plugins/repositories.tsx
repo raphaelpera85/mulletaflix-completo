@@ -14,8 +14,10 @@ import RepositoryListItem from 'apps/dashboard/features/plugins/components/Repos
 import type { RepositoryInfo } from '@jellyfin/sdk/lib/generated-client/models/repository-info';
 import { useSetRepositories } from 'apps/dashboard/features/plugins/api/useSetRepositories';
 import NewRepositoryForm from 'apps/dashboard/features/plugins/components/NewRepositoryForm';
+import { useApi } from 'hooks/useApi';
 
 export const Component = () => {
+    const { api } = useApi();
     const { data: repositories, isPending, isError, refetch } = useRepositories();
     const [ isRepositoryFormOpen, setIsRepositoryFormOpen ] = useState(false);
     const setRepositories = useSetRepositories();
@@ -54,6 +56,22 @@ export const Component = () => {
     const retryLoad = useCallback(() => {
         void refetch();
     }, [ refetch ]);
+
+    if (!api) {
+        return (
+            <Page
+                id='repositories'
+                title={globalize.translate('TabRepositories')}
+                className='type-interior mainAnimatedPage'
+            >
+                <Box className='content-primary'>
+                    <Alert severity='info' role='status'>
+                        {globalize.translate('HeaderServerUnavailable')}
+                    </Alert>
+                </Box>
+            </Page>
+        );
+    }
 
     if (isPending && !isError) {
         return <Loading />;

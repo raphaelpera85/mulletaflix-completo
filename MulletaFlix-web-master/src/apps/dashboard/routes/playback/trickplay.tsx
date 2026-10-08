@@ -22,6 +22,7 @@ import { TrickplayScanBehavior } from '@jellyfin/sdk/lib/generated-client/models
 import { ProcessPriorityClass } from '@jellyfin/sdk/lib/generated-client/models/process-priority-class';
 import { ActionData } from 'types/actionData';
 import { queryClient } from 'utils/query/queryClient';
+import { useApi } from 'hooks/useApi';
 
 export const action = async ({ request }: ActionFunctionArgs) => {
     const api = ServerConnections.getCurrentApi();
@@ -61,6 +62,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 };
 
 export const Component = () => {
+    const { api } = useApi();
     const navigation = useNavigation();
     const actionData = useActionData() as ActionData | undefined;
     const { data: defaultConfig, isPending, isError, refetch } = useConfiguration();
@@ -68,6 +70,22 @@ export const Component = () => {
     const handleRetry = React.useCallback(() => {
         void refetch();
     }, [ refetch ]);
+
+    if (!api) {
+        return (
+            <Page
+                id='trickplayConfigurationPage'
+                className='mainAnimatedPage type-interior'
+                title={globalize.translate('Trickplay')}
+            >
+                <Box className='content-primary'>
+                    <Alert severity='info' role='status'>
+                        {globalize.translate('HeaderServerUnavailable')}
+                    </Alert>
+                </Box>
+            </Page>
+        );
+    }
 
     if (isPending && !isError) {
         return <Loading />;

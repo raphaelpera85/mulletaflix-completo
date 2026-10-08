@@ -12,17 +12,21 @@ vi.mock('hooks/api/useMediaRequests', () => ({
 vi.mock('components/loading/LoadingComponent', () => ({ default: () => <div>loading</div> }));
 vi.mock('components/Page', () => ({ default: ({ children }: React.PropsWithChildren) => <main>{children}</main> }));
 vi.mock('components/common/PageStateContainer', () => ({
-    default: ({ state, children, emptyState, onRetry }: { state: string; children: any; emptyState?: { title?: string }; onRetry?: () => void }) => (
-        state === 'empty' ? (
-            <div>{emptyState?.title}</div>
-        ) : state === 'error' ? (
-            <div>ErrorDefault<button onClick={onRetry}>Retry</button></div>
-        ) : state === 'loading' ? (
-            <div>loading</div>
-        ) : (
-            children
-        )
-    )
+    default: ({ state, children, emptyState, onRetry }: {
+        state: string;
+        children: React.ReactNode;
+        emptyState?: { title?: string };
+        onRetry?: () => void;
+    }) => {
+        if (state === 'empty') return <div>{emptyState?.title}</div>;
+        if (state === 'error') return <div>ErrorDefault<button onClick={onRetry}>Retry</button></div>;
+        if (state === 'loading') return <div>loading</div>;
+        if (state === 'degraded') {
+            return <><div role='status'>OfflineModeWarning<button onClick={onRetry}>Retry</button></div>{children}</>;
+        }
+        if (state === 'offline') return <div role='alert'>OfflineModeError<button onClick={onRetry}>Retry</button></div>;
+        return React.createElement(React.Fragment, null, children);
+    }
 }));
 vi.mock('lib/globalize', () => ({
     default: {
@@ -149,5 +153,24 @@ describe('MyMediaRequestsPage', () => {
         });
 
         expect(renderToStaticMarkup(<MyMediaRequestsPage />)).toContain('MyMediaRequestsEmpty');
+    });
+
+    it('preserves request grids and exposes a retry warning when refresh fails', () => {
+        useClassifiedRequests.mockReturnValue({
+            pending: [{ Id: 20, Name: 'Solicitação de mídia: Resultado salvo', Overview: 'Series' }],
+            included: [],
+            priorityRequestIds: new Set<number>(),
+            queueStatuses: new Map(),
+            isPending: false,
+            isError: true,
+            hasData: true,
+            refetch: vi.fn()
+        });
+
+        const markup = renderToStaticMarkup(<MyMediaRequestsPage />);
+
+        expect(markup).toContain('Resultado salvo');
+        expect(markup).toContain('OfflineModeWarning');
+        expect(markup).toContain('Retry');
     });
 });

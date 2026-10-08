@@ -1,11 +1,43 @@
 # MulletaFlix Android - Plano de Desenvolvimento & Checklist de Funcionalidades (TODO)
 
+## Leitura direta de PDF e identificação de formato por conteúdo (APK local; sem release)
+
+- [x] Abrir PDF entregue diretamente pelo servidor com `PdfRenderer`, renderização paginada, zoom e retomada da página.
+- [x] Detectar PDF por assinatura e CBZ por estrutura ZIP quando o MIME for genérico/ausente; EPUB mantém validação pelo parser Readium.
+- [x] Liberar bitmaps nativos em cancelamento, troca de página e substituição por resolução de zoom maior.
+- [x] Testes JVM cobrem MIME genérico/assinaturas e identificação CBZ versus EPUB; instrumentação PHONE verifica renderização, navegação, persistência/restauração de página e de marcador.
+- [ ] A validação de arquivo real vindo do servidor e a conversão de MOBI/AZW/TXT/HTML continuam dependendo do serviço de conversão do servidor; CBR e outros formatos não foram adicionados diretamente ao APK.
+- [ ] Sem bump de versão, APK de produção, portal ou publicação.
+
 Este documento rastreia o status de implementação de todas as funcionalidades, módulos, telas e componentes do aplicativo oficial **MulletaFlix Android**.
+
+## Proteção de legendas externas no Cast (APK local; sem release)
+
+- [x] Revalidar as URLs de legendas externas pela `CleartextTrafficPolicy` imediatamente antes de exportá-las em faixas Cast; HTTPS e HTTP autorizado pela sub-rede ativa são mantidos, HTTP público é omitido.
+- [x] `ExternalSubtitleMediaItemTest.castConverterKeepsAllowedLanAndHttpsSubtitlesButDropsPublicHttp`: teste instrumentado comprova a lista serializada ao receiver para HTTPS, sub-rede LAN controlada e HTTP público. Os testes de `CleartextTrafficPolicy` cobrem separadamente a decisão por sub-rede ativa.
+- [ ] Cast real e redirects executados pelo receiver continuam fora do controle deste filtro; APK-H16 permanece pendente até teste ponta a ponta com receiver compatível.
+- [ ] Sem bump de versão, APK de produção ou publicação.
+
+## Redirects HTTPS do atualizador APK (APK local; sem release)
+
+- [x] Exigir que os redirects da consulta e do download do atualizador permaneçam em HTTPS; manter redirects HTTP-LAN permitidos nos clientes de mídia.
+- [x] Testes instrumentados também confirmam que redirects HTTPS entre origens removem headers e credenciais incorporadas, preservam cursor/assinatura emitidos pelo destino, removem `access_token` e encerram cadeias após 20 redirects (4 testes instrumentados no total).
+- [x] Quality Bar: `testDebugUnitTest` (1.426 testes; 0 falhas/erros/ignorados), `:core:common:lintDebug`, `:core:api:lintDebug`, `:feature:item-detail:lintDebug`, `:feature:player:lintDebug`, `:app:lintDebug` e `:app:assembleDebug`: `BUILD SUCCESSFUL`; teste instrumentado PHONE API 35 4/4.
+- [ ] Sem bump de versão, APK de produção, portal ou publicação.
+
+## Sumário navegável para livros EPUB (APK local; sem release)
+
+- [x] Exibir ação explícita de sumário apenas para EPUBs que fornecem navegação; manter quadrinhos CBZ sem ação vazia.
+- [x] Preservar hierarquia de capítulos, oferecer lista rolável acessível por toque e D-pad, e navegar pela URL resolvida pela publicação Readium.
+- [x] `BookReaderContentsTest` verifica ordenação aninhada, título vazio, sumário vazio e cabeçalho EPUB `<span>` sem navegação (3 testes JVM).
+- [x] Fixture instrumentada verifica “Parte I” como heading sem ação e mantém Capítulo 2 navegável; confirma texto no DOM em PHONE e TABLET API 35 (1/1 em cada AVD).
+- [x] AVDs geridos pelo wrapper; QEMU confirmado na NVIDIA RTX 3050 e encerrado ao final dos testes.
+- [ ] Sem bump de versão, APK de produção ou publicação.
 
 ## P1 — Restringir HTTP sem quebrar a descoberta LAN (pendente)
 
 - [ ] A configuração Android ainda permite cleartext de forma ampla (`base-config` e `usesCleartextTraffic`), enquanto o cliente API anexa o token de sessão ao `Authorization`. Restringir tráfego HTTP público/não local antes da inclusão de credenciais.
-- [ ] Preservar HTTP de servidores realmente locais descobertos/configurados na LAN e HTTPS para a URL pública padrão; abranger Retrofit, Coil, streaming Media3, downloads e legendas — uma regra apenas em OkHttp não cobre o player.
+- [ ] Preservar HTTP de servidores na sub-rede ativa descoberta/configurada e HTTPS para a URL pública padrão; abranger Retrofit, Coil, streaming Media3, downloads e legendas — nomes `.local` e `.home.arpa` continuam aceitos sem resolução DNS.
 - [ ] Testar HTTP público bloqueado sem token, HTTPS remoto permitido e HTTP LAN permitido em cada caminho de rede; não publicar APK até fechar a cobertura.
 - [x] Adicionado teste de contrato do cliente usado pelo Coil: URL de imagem HTTP público direto é negada antes de ler token/identidade ou enviar tráfego; HTTP LAN continua coberto pelo round-trip do cliente de artwork. Suíte focada `CleartextRequestProtectionTest` + `ArtworkClientIdentityTest` passou.
 - [x] Teste instrumentado com o `DownloadManager` Media3 real: transferência HTTP LAN de 64 KiB termina e persiste no cache temporário; redirect para HTTP público falha e não acrescenta bytes ao cache. SQLite e cache são exclusivos por execução; AVD API 35 isolado usou a NVIDIA e foi fechado ao terminar.
@@ -13,7 +45,9 @@ Este documento rastreia o status de implementação de todas as funcionalidades,
 - [x] Teste integrado do ExoPlayer: baixa e decodifica uma legenda SRT externa servida por HTTPS com certificado confiável, usando a fábrica Media3 protegida entregue ao player; AVD API 35 usou a NVIDIA e foi fechado ao terminar.
 - [x] Teste instrumentado da legenda externa: redirect HTTPS para HTTP público é rejeitado pelo DataSource Media3, e somente o pedido HTTPS original chega ao servidor fixture.
 - [x] Coil integrado à fábrica autenticada de produção: teste instrumentado baixa e decodifica imagem HTTPS com certificado de teste confiável, confirma cabeçalho de sessão; redirect HTTPS→HTTP público é bloqueado antes de uma segunda requisição. AVD API 35 usou GPU NVIDIA e foi encerrado pelo wrapper.
-- [x] Teste instrumentado valida a Network Security Config empacotada: HTTP do domínio público e subdomínios bloqueado, IP LAN dinâmico permitido; o guard Kotlin permite HTTPS/LAN e rejeita HTTP público. AVD PHONE API 35 via GPU NVIDIA, 1/1 aprovado; nenhum tráfego externo.
+- [x] Teste instrumentado valida a Network Security Config empacotada: HTTP do domínio público e subdomínios bloqueado; a política da plataforma permite cleartext dinâmico, enquanto os guards Kotlin validam os destinos do app. AVD PHONE API 35 via GPU NVIDIA, 1/1 aprovado; nenhum tráfego externo.
+- [x] Guard Kotlin restringe HTTP a loopback e a destinos resolvidos na sub-rede ativa; prefixos IPv4/IPv6, DNS local fora da sub-rede e proxy são cobertos por testes. A integração valida requisição HTTP protegida pela interface LAN do AVD. A Network Security Config ainda permite cleartext global por limitação de CIDR dinâmico no XML.
+- [x] Leitor Readium substituiu `DefaultHttpClient`/`HttpURLConnection` por um adapter OkHttp com a mesma guarda de rota e redirects; cobre stream HTTP local, bloqueio HTTP público direto e por redirect, redirect local seguro e timeouts Readium por requisição. Testes instrumentados e JVM do módulo aprovados; sem release.
 - [ ] A configuração Android ainda permite cleartext para LAN dinâmica; guards nos clientes não substituem bloqueio global do SO. APK-H12 segue em validação e não libera release até política e cobertura ampla estarem fechadas.
 
 ## Prévia local de títulos da biblioteca offline (APK local; sem release)
@@ -58,7 +92,13 @@ Este documento rastreia o status de implementação de todas as funcionalidades,
 - [x] Robolectric adicionado ao módulo `feature:item-detail` (`org.robolectric:robolectric:4.15.1`, `androidx.test:core:1.6.1`, `mockk`; `testOptions.unitTests.isIncludeAndroidResources=true`) para dar suporte real a Context/DataStore em teste JVM, item sugerido pela pendência 6 do handover. Novo `feature/item-detail/src/test/java/org/mulletaflix/feature/itemdetail/BookReaderViewModelTest.kt` (4 testes, `RobolectricTestRunner`, `ApplicationProvider`, EPUB real minimalista construído em memória, `mockk` para `MulletaFlixApiService`): estado inicial de loading seguido de publicação aberta com sucesso; erro HTTP (415) exibindo `bookReaderHttpFailureMessage` e limpando o loading; retry após falha transitória (503) que conclui com sucesso ao repetir `load()`; troca de sessão (conta/servidor) que recarrega o mesmo item e nunca aplica preferência de fonte persistida pela conta anterior (isolamento via `BookReaderProgressStore` real em DataStore).
 - [x] `:feature:item-detail:testDebugUnitTest --tests "org.mulletaflix.feature.itemdetail.BookReaderViewModelTest"`: `BUILD SUCCESSFUL`, 4/4 testes, 0 falhas/erros/ignorados.
 - [x] Quality Bar após a adição: `:feature:item-detail:testDebugUnitTest` (90 testes do módulo) e `:feature:item-detail:lintDebug`: `BUILD SUCCESSFUL`. Suíte JVM global `testDebugUnitTest` (1.411 testes, 0 falhas/erros/ignorados) e `:app:lintDebug`: `BUILD SUCCESSFUL`.
-- [ ] Cobertura de `BookReaderScreen` (Compose) e cache em disco do leitor via instrumentação continuam pendentes; o teste Robolectric cobre apenas o ViewModel. Demais itens amplos da pendência 6 do handover (cobertura instrumentada completa) seguem abertos.
+- [x] Teste instrumentado de `BookReaderScreen` integra Compose, `BookReaderViewModel`, Retrofit real, `MockWebServer` local e Readium: falha HTTP 503, retry, abertura de EPUB válido e habilitação dos controles de navegação/fonte; PHONE API 35, 1/1 aprovado.
+- [x] O mesmo teste confirma que a Activity contém apenas um WebView, inspeciona seu DOM e valida o parágrafo exclusivo da fixture EPUB; não depende apenas da criação do controller/ativação dos controles.
+- [x] Encerramento do teste limpa o `ViewModelStore`, cancelando efeitos assíncronos e acionando a limpeza do cache do leitor.
+- [x] `BookReaderCacheFiles` agora recupera EPUB/CBZ órfãos com prefixo/extensão próprios ao inicializar o leitor; mantém registro de arquivos ativos compartilhado no processo para que abrir outra instância não remova mídia em uso e preserva arquivos fora do padrão.
+- [x] `BookReaderPayloadPolicyTest`: simula cache deixado por processo encerrado, confirma remoção dos EPUB/CBZ órfãos, preservação de arquivos não pertencentes ao leitor e de livro ainda ativo após inicializar outro leitor; exclusão que retorna `false` ou lança `SecurityException` não derruba o leitor e é tentada novamente na inicialização seguinte.
+- [x] Quality Bar após a recuperação do cache: `testDebugUnitTest` (1.416 testes, 0 falhas/erros/ignorados), `:feature:item-detail:lintDebug`, `:app:lintDebug` e `:app:assembleDebug`: `BUILD SUCCESSFUL`.
+- [ ] Validar recuperação após encerramento real do processo Android, falhas de renderização e navegação EPUB por paginação/back/D-pad. O teste de cache atual semeia arquivos órfãos antes de iniciar uma instância nova; não mata/reinicia o processo. Fixture HTTP é local; APK-H21 continua aberto até validar instância real, mídia, MIME/autenticação e dispositivos-alvo.
 
 ## Mapeamento de faixas offline mistas (embutidas + legenda externa) (APK local; sem release)
 
@@ -3109,6 +3149,15 @@ Pendências relacionadas:
 - [x] `:feature:item-detail:lintDebug`, `:app:lintDebug`, `:app:assembleDebug` e `:app:compileDebugAndroidTestKotlin`: `BUILD SUCCESSFUL`.
 - [x] Emuladores testados via `tools/with-emulator.ps1`, abrindo e fechando ao fim. Windows `GpuPreference=2` para Emulator/QEMU; `-gpu host`; wrapper confirmou QEMU na NVIDIA RTX 3050 durante execuções. Revalidação em 2026-10-04: `BookReaderFontSizeControlsTest` no telefone, 5/5; QEMU PID 15624 detectado pela NVIDIA, AVD fechado.
 - [ ] Sem bump, APK de produção ou publicação. Antes de release futura, seguir a validação de assinatura e verificar a versão/artefato anterior; manter notas sincronizadas somente com mudanças incluídas no APK.
+
+## Leitor EPUB — sumário e navegação direta (sem release)
+- [x] Exibir ação de sumário somente para EPUBs com TOC; preservar hierarquia e indicar nível semanticamente.
+- [x] Tratar `<span>` de agrupamento EPUB sem destino como cabeçalho acessível sem ação de navegação; links `<a>` continuam navegáveis inclusive quando possuem filhos.
+- [x] Testes unitários da árvore do sumário: 3 testes focados; cobrem ordem/hierarquia, título vazio, TOC vazio e distinção entre cabeçalho sem destino e link de seção.
+- [x] Teste integrado Compose → ViewModel → Retrofit → Readium: confirmar “Parte I” como heading sem ação e selecionar Capítulo 2 no sumário aninhado, verificando conteúdo no WebView; PHONE API 35 e TABLET API 35, 1/1 em cada perfil.
+- [x] `testDebugUnitTest` global, compilação instrumentada, lint do módulo/tela e app, e `:app:assembleDebug`: `BUILD SUCCESSFUL`.
+- [x] AVDs iniciados/encerrados pelo wrapper; QEMU verificado na NVIDIA RTX 3050. A variável `ANDROID_AVD_HOME` foi ajustada apenas no processo para apontar aos metadados dos AVDs existentes.
+- [ ] Validação manual de TalkBack e aceite do APK-H21 em servidor/dispositivo real permanecem pendentes; sem bump, APK de produção ou publicação.
 
 ## Player — intervalo configurável de avanço e retrocesso (sem release)
 - [x] Preferência local persistida no DataStore, opções de 5/10/15/30 s, padrão 10 s; inválidos normalizados para 10 s.

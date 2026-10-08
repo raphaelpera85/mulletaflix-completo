@@ -6,9 +6,9 @@
  */
 
 export { default as PageStateContainer, type PageState } from './PageStateContainer';
+export { getRemotePageState } from './remotePageState';
 export { default as OfflineState } from './OfflineState';
 export { default as DetailPageSkeleton } from './DetailPageSkeleton';
 export { default as ListPageSkeleton } from './ListPageSkeleton';
 export { default as LoadErrorMessage } from './LoadErrorMessage';
 export { EmptyState } from '../EmptyState';
-

@@ -84,6 +84,7 @@ export const useMyClassifiedMediaRequests = () => {
 
     const isPending = requestsQuery.isPending;
     const isError = requestsQuery.isError && !requestsQuery.data;
+    const isDegraded = requestsQuery.isError && !!requestsQuery.data && !requestsQuery.isFetchNextPageError;
 
     const classified = classifyMediaRequests<ActivityLogEntry & MediaRequestActivity>(
         requestsQuery.data?.pages.flatMap(page => page.Items || []) || [],
@@ -107,6 +108,8 @@ export const useMyClassifiedMediaRequests = () => {
         isFetchNextPageError: requestsQuery.isFetchNextPageError,
         isPending,
         isError,
+        isDegraded,
+        hasData: requestsQuery.data !== undefined,
         refetch
     };
 };

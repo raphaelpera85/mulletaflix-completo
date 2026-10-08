@@ -15,17 +15,17 @@ import org.readium.r2.shared.publication.Locator
 internal class ComicBookArchive private constructor(
     private val file: File,
     private val pageEntries: List<String>,
-) {
-    val pageCount: Int get() = pageEntries.size
+) : BookPageSource {
+    override val pageCount: Int get() = pageEntries.size
 
     fun pageName(index: Int): String = pageEntries[index]
 
-    fun locatorForPage(index: Int): Locator {
+    override fun locatorForPage(index: Int): Locator {
         require(index in pageEntries.indices)
         return locatorForPage(index, pageCount, pageMediaType(pageEntries[index]))
     }
 
-    fun decodePage(index: Int, maxWidth: Int, maxHeight: Int): Bitmap {
+    override fun decodePage(index: Int, maxWidth: Int, maxHeight: Int): Bitmap {
         require(index in pageEntries.indices) { "Comic page is out of range." }
         require(maxWidth > 0 && maxHeight > 0) { "Comic page target size is invalid." }
 
@@ -55,6 +55,8 @@ internal class ComicBookArchive private constructor(
             }
         }
     }
+
+    override fun pageIndexFromLocator(locator: Locator?): Int? = pageIndexFromLocator(locator, pageCount)
 
     companion object {
         const val CONTENT_TYPE = "application/x-cbz"

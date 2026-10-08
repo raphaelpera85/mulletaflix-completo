@@ -70,12 +70,12 @@ test('renders every roadmap item and matching coverage counters', async () => {
     const dashboard = createDashboard();
     await settleDashboard();
 
-    assert.equal(dashboard.getElement('coverage-total').textContent, 361);
-    assert.equal(dashboard.getElement('coverage-completed').textContent, 293);
-    assert.equal(dashboard.getElement('coverage-pending').textContent, 68);
-    assert.match(dashboard.getElement('feature-count').textContent, /^361 tarefas/);
+    assert.equal(dashboard.getElement('coverage-total').textContent, statusData.coverage.total);
+    assert.equal(dashboard.getElement('coverage-completed').textContent, statusData.coverage.completed);
+    assert.equal(dashboard.getElement('coverage-pending').textContent, statusData.coverage.pending);
+    assert.match(dashboard.getElement('feature-count').textContent, new RegExp(`^${statusData.features.length} tarefas`));
     assert.equal((dashboard.getElement('feature-table').innerHTML.match(/<tr>/g) || []).length, 25);
-    assert.equal(dashboard.getElement('feature-page-number').textContent, 'Página 1 de 15');
+    assert.equal(dashboard.getElement('feature-page-number').textContent, `Página 1 de ${Math.ceil(statusData.features.length / 25)}`);
 });
 
 test('search, status filter and pagination expose the matching roadmap rows', async () => {
@@ -92,7 +92,7 @@ test('search, status filter and pagination expose the matching roadmap rows', as
     dashboard.getElement('feature-search').value = '';
     dashboard.getElement('feature-search').listeners.input();
     dashboard.getElement('feature-next').listeners.click();
-    assert.equal(dashboard.getElement('feature-page-number').textContent, 'Página 2 de 15');
+    assert.equal(dashboard.getElement('feature-page-number').textContent, `Página 2 de ${Math.ceil(statusData.features.length / 25)}`);
 
     dashboard.getElement('feature-status').value = 'completed';
     dashboard.getElement('feature-status').listeners.change();

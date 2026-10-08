@@ -32,7 +32,7 @@ class AppUpdateDownloader @Inject constructor(
     @ApplicationContext private val context: Context,
 ) {
     private val httpClient = OkHttpClient.Builder()
-        .enforceLocalNetworkCleartextPolicy()
+        .enforceLocalNetworkCleartextPolicy(requireHttpsRedirects = true)
         .connectTimeout(30, TimeUnit.SECONDS)
         .readTimeout(180, TimeUnit.SECONDS)
         .build()

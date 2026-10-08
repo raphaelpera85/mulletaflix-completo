@@ -18,8 +18,10 @@ import { queryClient } from 'utils/query/queryClient';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import Add from '@mui/icons-material/Add';
 import Alert from '@mui/material/Alert';
+import { useApi } from 'hooks/useApi';
 
 export const Component = () => {
+    const { api } = useApi();
     const {
         data: virtualFolders,
         isPending: isVirtualFoldersPending,
@@ -66,6 +68,22 @@ export const Component = () => {
             });
         }
     }, [ startTask, librariesTask ]);
+
+    if (!api) {
+        return (
+            <Page
+                id='mediaLibraryPage'
+                title={globalize.translate('HeaderLibraries')}
+                className='mainAnimatedPage type-interior'
+            >
+                <Box className='content-primary'>
+                    <Alert severity='warning' role='status'>
+                        {globalize.translate('HeaderServerUnavailable')}
+                    </Alert>
+                </Box>
+            </Page>
+        );
+    }
 
     if ((isVirtualFoldersPending || isLiveTasksPending) && !isVirtualFoldersError && !isLiveTasksError) return <Loading />;
 

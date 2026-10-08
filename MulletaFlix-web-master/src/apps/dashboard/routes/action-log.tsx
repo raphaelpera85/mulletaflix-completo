@@ -2,7 +2,7 @@ import React, { useCallback, useMemo, useState } from 'react';
 import type { Api } from '@jellyfin/sdk';
 import type { AxiosRequestConfig } from 'axios';
 import globalize from 'lib/globalize';
-import { useQuery } from '@tanstack/react-query';
+import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { useApi } from 'hooks/useApi';
 
 import Widget from 'apps/dashboard/components/widgets/Widget';
@@ -83,6 +83,69 @@ interface ActionLogQueryResult {
     totalRecordCount: number;
     startIndex: number;
 }
+
+interface ActionLogPageStateProps {
+    apiAvailable: boolean;
+    data: ActionLogQueryResult | undefined;
+    isLoading: boolean;
+    isFetching: boolean;
+    isPlaceholderData: boolean;
+    isError: boolean;
+    hasItems: boolean;
+    onRetry: () => void;
+}
+
+const renderActionLogPageState = ({
+    apiAvailable,
+    data,
+    isLoading,
+    isFetching,
+    isPlaceholderData,
+    isError,
+    hasItems,
+    onRetry
+}: ActionLogPageStateProps): React.ReactNode => {
+    if (!apiAvailable && data === undefined) {
+        return <Alert severity='error'>{globalize.translate('ErrorLoadingData')}</Alert>;
+    }
+
+    if (isLoading || (isFetching && isPlaceholderData && !hasItems)) {
+        return (
+            <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
+                <Typography>{globalize.translate('Loading')}</Typography>
+            </Box>
+        );
+    }
+
+    if (isError) {
+        return (
+            <Alert
+                severity='error'
+                action={
+                    <Button color='inherit' size='small' onClick={onRetry}>
+                        {globalize.translate('Retry')}
+                    </Button>
+                }
+            >
+                {globalize.translate('ErrorLoadingData')}
+            </Alert>
+        );
+    }
+
+    if (isFetching && hasItems) {
+        return <Alert severity='info' role='status'>{globalize.translate('Loading')}</Alert>;
+    }
+
+    if (!isPlaceholderData && data !== undefined && !hasItems) {
+        return (
+            <Paper sx={{ p: 3, textAlign: 'center' }}>
+                <Typography color='text.secondary'>{globalize.translate('NoActionLogsFound')}</Typography>
+            </Paper>
+        );
+    }
+
+    return null;
+};
 
 interface ActionLogQuery {
     startIndex?: number;
@@ -202,11 +265,11 @@ const ActionLogPage = () => {
         void navigate('/dashboard/action-log/export');
     }, [ navigate ]);
 
-    const { data, isLoading, isError, refetch } = useQuery({
+    const { data, isLoading, isFetching, isPlaceholderData, isError, refetch } = useQuery({
         queryKey: ['ActionLog', 'Entries', api?.basePath, JSON.stringify(query)],
         queryFn: ({ signal }) => fetchActionLogs(api!, query, { signal, headers: { 'Cache-Control': 'no-cache' } }),
         enabled: !!api,
-        placeholderData: { items: [], totalRecordCount: 0, startIndex: 0 }
+        placeholderData: keepPreviousData
     });
 
     const handleRetry = useCallback(() => {
@@ -224,33 +287,16 @@ const ActionLogPage = () => {
         }
     }, [ items, openDetailMenu ]);
 
-    let stateContent: React.ReactNode = null;
-    if (isLoading) {
-        stateContent = (
-            <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
-                <Typography>{globalize.translate('Loading')}</Typography>
-            </Box>
-        );
-    } else if (isError) {
-        stateContent = (
-            <Alert
-                severity='error'
-                action={
-                    <Button color='inherit' size='small' onClick={handleRetry}>
-                        {globalize.translate('Retry')}
-                    </Button>
-                }
-            >
-                {globalize.translate('ErrorLoadingData')}
-            </Alert>
-        );
-    } else if (items.length === 0) {
-        stateContent = (
-            <Paper sx={{ p: 3, textAlign: 'center' }}>
-                <Typography color='text.secondary'>{globalize.translate('NoActionLogsFound')}</Typography>
-            </Paper>
-        );
-    }
+    const stateContent = renderActionLogPageState({
+        apiAvailable: !!api,
+        data,
+        isLoading,
+        isFetching,
+        isPlaceholderData,
+        isError,
+        hasItems: items.length > 0,
+        onRetry: handleRetry
+    });
 
     const getStatusChip = (isSuccess: boolean) => (
         <Chip
@@ -347,7 +393,7 @@ const ActionLogPage = () => {
             </Toolbar>
 
             {stateContent}
-            {!isLoading && !isError && items.length > 0 && (
+            {items.length > 0 && (
                 <>
                     <TableContainer>
                         <Table>

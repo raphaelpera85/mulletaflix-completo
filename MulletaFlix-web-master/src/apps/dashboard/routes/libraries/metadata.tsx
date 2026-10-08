@@ -13,6 +13,7 @@ import { getImageResolutionOptions } from 'apps/dashboard/features/libraries/uti
 import Loading from 'components/loading/LoadingComponent';
 import Page from 'components/Page';
 import { QUERY_KEY, useConfiguration } from 'hooks/useConfiguration';
+import { useApi } from 'hooks/useApi';
 import globalize from 'lib/globalize';
 import { ServerConnections } from 'lib/jellyfin-apiclient';
 import React from 'react';
@@ -47,6 +48,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 };
 
 export const Component = () => {
+    const { api } = useApi();
     const {
         data: config,
         isPending: isConfigPending,
@@ -93,6 +95,22 @@ export const Component = () => {
             setLanguage('pt-BR');
         }
     }, [country, language]);
+
+    if (!api) {
+        return (
+            <Page
+                id='metadataImagesConfigurationPage'
+                title={globalize.translate('LabelMetadata')}
+                className='type-interior mainAnimatedPage'
+            >
+                <Box className='content-primary'>
+                    <Alert severity='warning' role='status'>
+                        {globalize.translate('HeaderServerUnavailable')}
+                    </Alert>
+                </Box>
+            </Page>
+        );
+    }
 
     if (isConfigError || isCulturesError || isCountriesError) {
         return (
