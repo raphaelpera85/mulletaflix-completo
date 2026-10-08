@@ -191,7 +191,7 @@ class FeederSupervisor:
             process.terminate()
             try:
                 await asyncio.wait_for(process.wait(), timeout=self._stop_timeout)
-            except TimeoutError:
+            except asyncio.TimeoutError:
                 process.kill()
                 await process.wait()
             return self.status()
@@ -481,9 +481,8 @@ class ControlPlane:
         raw_users = body.get("users")
         if not isinstance(raw_users, list):
             raise ValueError("users must be an array")
-        changed = []
         seen = set()
-        created = updated = 0
+        validated_users = []
         for raw in raw_users:
             if not isinstance(raw, dict):
                 raise ValueError("user must be an object")
@@ -495,15 +494,22 @@ class ControlPlane:
             password = raw.get("password")
             if not existing and not isinstance(password, str):
                 raise ValueError(f"password is required for new user: {login}")
+            if password is not None and (not isinstance(password, str) or not password):
+                raise ValueError(f"password must be non-empty for user: {login}")
             permissions = raw.get(
                 "permissions",
                 existing.get("permissions", []) if existing else [],
             )
-            update: dict[str, Any] = {"permissions": _normalize_permissions(permissions)}
+            validated_users.append(
+                (login, existing, password, _normalize_permissions(permissions))
+            )
+
+        changed = []
+        created = updated = 0
+        for login, existing, password, permissions in validated_users:
+            update: dict[str, Any] = {"permissions": permissions}
             unset = {}
             if password is not None:
-                if not isinstance(password, str) or not password:
-                    raise ValueError(f"password must be non-empty for user: {login}")
                 update["password_hash"] = await asyncio.to_thread(hash_password, password)
                 unset["password"] = ""
             await self._mongo.users.update_one(

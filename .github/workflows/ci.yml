@@ -125,8 +125,12 @@ jobs:
           --verbosity minimal
 
   nebula-python-tests:
-    name: Nebula Python unit tests
-    runs-on: ubuntu-latest
+    name: Nebula Python unit tests (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
     defaults:
       run:
         working-directory: MulletaFlix-master/Tools/NebulaPython
@@ -148,7 +152,7 @@ jobs:
       - name: Upload Nebula Python coverage
         uses: actions/upload-artifact@v4
         with:
-          name: nebula-python-coverage
+          name: nebula-python-coverage-${{ matrix.os }}
           path: MulletaFlix-master/Tools/NebulaPython/coverage.xml
           if-no-files-found: error
 

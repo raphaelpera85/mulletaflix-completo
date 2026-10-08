@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Net;
 using System.Net.Http;
 using System.Net.Http.Json;
@@ -77,7 +77,7 @@ namespace MulletaFlix.Server.Integration.Tests.Controllers
             var user = new StartupUserDto()
             {
                 Name = "NewName",
-                Password = "NewPassword"
+                Password = "NewPassword1"
             };
 
             var postResponse = await client.PostAsJsonAsync("/Startup/User", user, _jsonOptions, TestContext.Current.CancellationToken);
@@ -114,4 +114,3 @@ namespace MulletaFlix.Server.Integration.Tests.Controllers
         }
     }
 }
-

@@ -1,5 +1,8 @@
 package org.mulletaflix.feature.player
 
+import androidx.media3.common.C
+import androidx.media3.common.Tracks
+
 /**
  * One audio or subtitle track as the container reports it, without any server
  * metadata.
@@ -82,6 +85,30 @@ internal fun offlineSubtitleTrackIndex(streamIndex: Int): Int? =
     streamIndex.takeIf { it in 0..100_000 }?.let { OFFLINE_EXTERNAL_INDEX_BASE + it }
 
 private const val OFFLINE_EXTERNAL_INDEX_BASE = 1_000_000
+
+/** Extract supported tracks from a real Media3 container track snapshot. */
+internal fun containerTracksOfType(tracks: Tracks, trackType: Int): List<OfflineTrack> = buildList {
+    tracks.groups
+        .filter { it.type == trackType }
+        .forEach { group ->
+            for (trackIndex in 0 until group.length) {
+                if (!group.isTrackSupported(trackIndex)) continue
+                val format = group.getTrackFormat(trackIndex)
+                add(
+                    OfflineTrack(
+                        language = format.language,
+                        codec = format.sampleMimeType,
+                        channels = format.channelCount.takeIf { it > 0 },
+                        isDefault = format.selectionFlags and C.SELECTION_FLAG_DEFAULT != 0,
+                        isForced = format.selectionFlags and C.SELECTION_FLAG_FORCED != 0,
+                        isSelected = group.isTrackSelected(trackIndex),
+                        formatId = format.id,
+                        label = format.label,
+                    ),
+                )
+            }
+        }
+}
 
 /**
  * The indices [selectTrackByServerIndex] should look a position up in, offline.

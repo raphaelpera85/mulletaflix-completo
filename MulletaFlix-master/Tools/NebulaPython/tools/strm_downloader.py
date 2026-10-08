@@ -233,6 +233,25 @@ def remote_content_size(url: str, timeout: int = 15) -> int | None:
         return None
 
 
+def _validate_content_range(response: Any, requested_start: int, requested_end: int, total: int) -> None:
+    """Reject explicit partial-response ranges that do not match the request."""
+    if getattr(response, "status", None) != 206:
+        return
+    content_range = response.headers.get("Content-Range")
+    if not content_range:
+        return
+    match = re.fullmatch(r"\s*bytes\s+(\d+)-(\d+)/(\d+|\*)\s*", content_range, re.IGNORECASE)
+    if (
+        match is None
+        or int(match.group(1)) != requested_start
+        or int(match.group(2)) != requested_end
+        or (match.group(3) != "*" and int(match.group(3)) != total)
+    ):
+        raise IOError(
+            f"Content-Range incompatível com bytes {requested_start}-{requested_end} de {total}"
+        )
+
+
 # =====================================================================
 # DESTINOS E ESTRUTURA NO NEBULA / MONGODB
 # =====================================================================
@@ -679,6 +698,7 @@ class MediaValidator:
         if not self.mongo_uri or "mongodb://test" in self.mongo_uri:
             return
 
+        client = None
         try:
             client = MongoClient(self.mongo_uri, serverSelectionTimeoutMS=3000)
             db = client[self.db_name]
@@ -736,13 +756,16 @@ class MediaValidator:
             self.completed_episodes = episodes
             self.active_paths_or_names = active
             self.last_cache_time = now
-            client.close()
             logger.debug(
                 "Índice Mongo atualizado: %d filmes concl., %d eps concl., %d ativos.",
                 len(movies), len(episodes), len(active)
             )
         except Exception as exc:
             logger.warning("Falha ao atualizar índice Mongo: %s", exc)
+        finally:
+            if client is not None:
+                with contextlib.suppress(Exception):
+                    client.close()
 
     def is_already_completed_or_active(
         self,
@@ -865,7 +888,9 @@ def download_strm_multipart(
                         "Arquivo de destino com tamanho divergente (%d != %d). Reiniciando: %s",
                         target_path.stat().st_size, total, target_path.name,
                     )
-                    target_path.unlink(missing_ok=True)
+                    # Keep the last known-good media until the replacement has
+                    # downloaded and passed its size check; tmp_path.replace()
+                    # commits the new file atomically at the end.
 
                 # Checar se o arquivo já foi completamente unido antes de uma parada inesperada
                 if tmp_path.exists() and tmp_path.stat().st_size == total:
@@ -966,6 +991,7 @@ def download_strm_multipart(
                                 status = getattr(part_resp, "status", None)
                                 if status and status not in (200, 206):
                                     raise IOError(f"HTTP status {status} na parte {index + 1}")
+                                _validate_content_range(part_resp, req_start, end, total)
                                 if req_start > 0 and status == 200:
                                     with progress_lock:
                                         progress["downloaded"] = max(0, progress["downloaded"] - existing)
@@ -1070,6 +1096,7 @@ def ensure_mongo_parent_structure(
     if not rel_parts or not mongo_uri or "mongodb://test" in mongo_uri:
         return
 
+    client = None
     try:
         client = MongoClient(mongo_uri, serverSelectionTimeoutMS=3000)
         files = client[db_name].files
@@ -1089,9 +1116,12 @@ def ensure_mongo_parent_structure(
                 with contextlib.suppress(DuplicateKeyError):
                     files.insert_one(doc)
             parent = f"{parent}/{name}" if parent != "/" else f"/{name}"
-        client.close()
     except Exception as exc:
         logger.warning("Falha ao criar diretórios pai no Mongo: %s", exc)
+    finally:
+        if client is not None:
+            with contextlib.suppress(Exception):
+                client.close()
 
 
 def register_in_nebula_queue(
@@ -1115,6 +1145,7 @@ def register_in_nebula_queue(
     ensure_mongo_parent_structure(mongo_uri, db_name, library_user, dest_root, destination.parent)
 
     now = int(time.time())
+    client = None
     try:
         client = MongoClient(mongo_uri, serverSelectionTimeoutMS=3000)
         files = client[db_name].files
@@ -1156,7 +1187,6 @@ def register_in_nebula_queue(
                 upsert=True,
             )
 
-        client.close()
         logger.info(
             "Enfileirado no Nebula com sucesso: %s -> %s (tamanho=%.1f MB, delete_source=%s)",
             downloaded_file.name,
@@ -1168,6 +1198,10 @@ def register_in_nebula_queue(
     except Exception as exc:
         logger.error("Erro ao registrar na fila do MongoDB: %s", exc)
         return False
+    finally:
+        if client is not None:
+            with contextlib.suppress(Exception):
+                client.close()
 
 
 # =====================================================================
@@ -1562,8 +1596,9 @@ def process_strm_item(
             wait_for_disk_capacity(target_stage_file, file_size, min_free_percent)
             target_stage_file.parent.mkdir(parents=True, exist_ok=True)
 
+            moved_to_stage = strm_path.resolve() != target_stage_file.resolve()
             try:
-                if strm_path.resolve() != target_stage_file.resolve():
+                if moved_to_stage:
                     shutil.move(str(strm_path), str(target_stage_file))
                 logger.info("Mídia movida com sucesso para o Stage: %s", target_stage_file)
             except Exception as exc:
@@ -1571,9 +1606,6 @@ def process_strm_item(
                 if failure_tracker:
                     failure_tracker.record_failure(strm_path, str(exc))
                 return False
-
-            # Limpar pastas pai vazias na origem
-            delete_strm_and_empty_parents(strm_path, source_root, dry_run=dry_run)
 
             # 3. Registrar na fila do MongoDB do Nebula
             registered = register_in_nebula_queue(
@@ -1587,10 +1619,27 @@ def process_strm_item(
             )
 
             if registered:
+                # Só remover a origem depois de confirmar que a fila assumiu o staging.
+                delete_strm_and_empty_parents(strm_path, source_root, dry_run=dry_run)
                 if failure_tracker:
                     failure_tracker.record_success(strm_path)
                 logger.info("[1 MÍDIA POR VEZ] Mídia pronta movida para Stage: %s -> %s e enfileirada no Nebula.", destination.name, target_stage_file)
                 logger.info("[1 MÍDIA POR VEZ] Conclusão do processamento de: %s. Pronto para a próxima mídia.", destination.name)
+            else:
+                failure_reason = "Falha ao registrar mídia na fila Mongo"
+                if moved_to_stage:
+                    if strm_path.exists():
+                        failure_reason = f"{failure_reason}; staging preservado porque a origem reapareceu"
+                        logger.warning("Origem reapareceu durante o enfileiramento; staging preservado em %s", target_stage_file)
+                    else:
+                        try:
+                            strm_path.parent.mkdir(parents=True, exist_ok=True)
+                            shutil.move(str(target_stage_file), str(strm_path))
+                        except Exception as exc:
+                            failure_reason = f"{failure_reason}; falha ao restaurar origem: {exc}"
+                            logger.error("Não foi possível restaurar %s após falha no enfileiramento: %s", strm_path, exc)
+                if failure_tracker:
+                    failure_tracker.record_failure(strm_path, failure_reason)
 
             return registered
 

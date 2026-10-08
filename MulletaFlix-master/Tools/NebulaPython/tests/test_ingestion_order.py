@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import threading
 from pathlib import Path
 
 import pytest
@@ -13,9 +14,9 @@ def categorized_library(tmp_path: Path) -> Path:
     titles = {
         "Animações": ["A Anime.mkv", "Z Anime (2026).mkv", "Alpha Anime (2020).mkv"],
         "Filmes": ["Zebra (2020).mkv", "Alpha (1990).mkv"],
-        "Series": ["Show B S01E01.mkv"],
-        "Doramas": ["Drama A S01E01.mkv"],
-        "Novelas": ["Novela A S01E01.mkv"],
+        "Series": ["Show B/S01E01.mkv", "Show A/S01E02.mkv", "Show A/S01E01.mkv"],
+        "Doramas": ["Drama B/S01E01.mkv", "Drama A/S01E02.mkv", "Drama A/S01E01.mkv"],
+        "Novelas": ["Novela B/S01E01.mkv", "Novela A/S01E02.mkv", "Novela A/S01E01.mkv"],
         "Porno": ["Zulu.mkv", "Bravo.mkv"],
     }
     for category, filenames in titles.items():
@@ -26,6 +27,14 @@ def categorized_library(tmp_path: Path) -> Path:
     (library / "Filmes" / "poster.jpg").touch()
     (library / "Filmes" / "unfinished.mkv.part").touch()
     return library
+
+
+def _episode_order(paths: list[Path], library: Path, category: str) -> list[tuple[str, str]]:
+    return [
+        (relative.parts[1], path.name)
+        for path in paths
+        if (relative := path.relative_to(library)).parts[0] == category
+    ]
 
 
 def test_feeder_uses_category_priority_and_alphabetical_titles(categorized_library: Path):
@@ -39,7 +48,13 @@ def test_feeder_uses_category_priority_and_alphabetical_titles(categorized_libra
         "Filmes",
         "Filmes",
         "Series",
+        "Series",
+        "Series",
         "Doramas",
+        "Doramas",
+        "Doramas",
+        "Novelas",
+        "Novelas",
         "Novelas",
         "Porno",
         "Porno",
@@ -54,8 +69,76 @@ def test_feeder_uses_category_priority_and_alphabetical_titles(categorized_libra
         "Alpha Anime (2020).mkv",
         "Z Anime (2026).mkv",
     ]
+    assert _episode_order(paths, categorized_library, "Series") == [
+        ("Show A", "S01E01.mkv"),
+        ("Show A", "S01E02.mkv"),
+        ("Show B", "S01E01.mkv"),
+    ]
+    assert _episode_order(paths, categorized_library, "Doramas") == [
+        ("Drama A", "S01E01.mkv"),
+        ("Drama A", "S01E02.mkv"),
+        ("Drama B", "S01E01.mkv"),
+    ]
+    assert _episode_order(paths, categorized_library, "Novelas") == [
+        ("Novela A", "S01E01.mkv"),
+        ("Novela A", "S01E02.mkv"),
+        ("Novela B", "S01E01.mkv"),
+    ]
     assert all(path.suffix.lower() != ".jpg" for path in paths)
     assert all("unfinished" not in path.name for path in paths)
+
+
+def test_overwrite_copy_failure_preserves_existing_destination(tmp_path, monkeypatch):
+    source = tmp_path / "source.mkv"
+    destination = tmp_path / "library" / "title.mkv"
+    destination.parent.mkdir()
+    source.write_bytes(b"new bytes")
+    destination.write_bytes(b"known good old bytes")
+    monkeypatch.setattr(feed_ftp, "ensure_nebula_metadata", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(feed_ftp, "ensure_directory", lambda *_args, **_kwargs: None)
+
+    def fail_copy(*_args, **_kwargs):
+        raise OSError("simulated copy failure")
+
+    monkeypatch.setattr(feed_ftp.shutil, "copyfile", fail_copy)
+
+    with pytest.raises(OSError, match="simulated copy failure"):
+        feed_ftp.copy_one(
+            source,
+            destination,
+            destination.parent,
+            "mongodb://unused",
+            True,
+            set(),
+            threading.Lock(),
+        )
+
+    assert destination.read_bytes() == b"known good old bytes"
+    assert list(destination.parent.glob("*.copying")) == []
+
+
+def test_overwrite_copy_success_replaces_destination_and_cleans_staging(tmp_path, monkeypatch):
+    source = tmp_path / "source.mkv"
+    destination = tmp_path / "library" / "title.mkv"
+    destination.parent.mkdir()
+    source.write_bytes(b"new bytes")
+    destination.write_bytes(b"old bytes")
+    monkeypatch.setattr(feed_ftp, "ensure_nebula_metadata", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(feed_ftp, "ensure_directory", lambda *_args, **_kwargs: None)
+
+    copied_size = feed_ftp.copy_one(
+        source,
+        destination,
+        destination.parent,
+        "mongodb://unused",
+        True,
+        set(),
+        threading.Lock(),
+    )
+
+    assert copied_size == len(b"new bytes")
+    assert destination.read_bytes() == b"new bytes"
+    assert list(destination.parent.glob("*.copying")) == []
 
 
 def test_strm_downloader_uses_same_category_priority_and_alphabetical_titles(categorized_library: Path):
@@ -69,7 +152,13 @@ def test_strm_downloader_uses_same_category_priority_and_alphabetical_titles(cat
         "Filmes",
         "Filmes",
         "Series",
+        "Series",
+        "Series",
         "Doramas",
+        "Doramas",
+        "Doramas",
+        "Novelas",
+        "Novelas",
         "Novelas",
         "Porno",
         "Porno",
@@ -83,6 +172,21 @@ def test_strm_downloader_uses_same_category_priority_and_alphabetical_titles(cat
         "A Anime.mkv",
         "Alpha Anime (2020).mkv",
         "Z Anime (2026).mkv",
+    ]
+    assert _episode_order(paths, categorized_library, "Series") == [
+        ("Show A", "S01E01.mkv"),
+        ("Show A", "S01E02.mkv"),
+        ("Show B", "S01E01.mkv"),
+    ]
+    assert _episode_order(paths, categorized_library, "Doramas") == [
+        ("Drama A", "S01E01.mkv"),
+        ("Drama A", "S01E02.mkv"),
+        ("Drama B", "S01E01.mkv"),
+    ]
+    assert _episode_order(paths, categorized_library, "Novelas") == [
+        ("Novela A", "S01E01.mkv"),
+        ("Novela A", "S01E02.mkv"),
+        ("Novela B", "S01E01.mkv"),
     ]
 
 

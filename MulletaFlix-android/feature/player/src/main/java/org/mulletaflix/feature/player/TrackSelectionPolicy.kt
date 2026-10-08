@@ -1,5 +1,10 @@
 package org.mulletaflix.feature.player
 
+import androidx.media3.common.TrackSelectionParameters
+import androidx.media3.common.TrackSelectionOverride
+import androidx.media3.common.Tracks
+import androidx.media3.common.util.UnstableApi
+
 /** Converts the server's global stream index to the filtered UI-list position. */
 internal fun uiTrackIndex(tracks: List<TrackInfo>, serverStreamIndex: Int?, fallback: Int): Int =
     serverStreamIndex?.let { index -> tracks.indexOfFirst { it.index == index }.takeIf { it >= 0 } }
@@ -53,3 +58,34 @@ internal fun supportedTrackGroupPosition(
  * server happened to serialise the streams in.
  */
 internal fun orderedStreamIndices(serverIndices: List<Int>): List<Int> = serverIndices.sorted()
+
+/** Build the same Media3 override used by the player for one selected stream. */
+@UnstableApi
+internal fun trackSelectionParametersForServerIndex(
+    currentParameters: TrackSelectionParameters,
+    tracks: Tracks,
+    serverIndex: Int,
+    trackType: Int,
+    orderedServerIndices: List<Int>,
+): TrackSelectionParameters? {
+    val candidateGroups = tracks.groups.filter { it.type == trackType }
+    val supportedTrackIndicesByGroup = candidateGroups.map { group ->
+        (0 until group.length).filter { trackIndex -> group.isTrackSupported(trackIndex) }
+    }
+    val groupPosition = supportedTrackGroupPosition(
+        serverIndex = serverIndex,
+        orderedServerIndices = orderedServerIndices,
+        supportedTrackIndicesByGroup = supportedTrackIndicesByGroup,
+    ) ?: return null
+    val selectedGroup = candidateGroups.getOrNull(groupPosition) ?: return null
+    val selectedTrackIndices = supportedTrackIndicesByGroup.getOrNull(groupPosition)
+        ?.takeIf { it.isNotEmpty() }
+        ?: return null
+
+    return currentParameters.buildUpon()
+        .setTrackTypeDisabled(trackType, false)
+        .setOverrideForType(
+            TrackSelectionOverride(selectedGroup.mediaTrackGroup, selectedTrackIndices),
+        )
+        .build()
+}

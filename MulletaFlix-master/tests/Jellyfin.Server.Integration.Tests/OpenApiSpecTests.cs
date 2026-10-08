@@ -1,6 +1,7 @@
-﻿using System.IO;
+using System.IO;
 using System.Reflection;
 using System.Threading.Tasks;
+using MulletaFlix.Extensions;
 using MediaBrowser.Model.IO;
 using Xunit;
 
@@ -22,6 +23,7 @@ namespace MulletaFlix.Server.Integration.Tests
         {
             // Arrange
             var client = _factory.CreateClient();
+            client.DefaultRequestHeaders.AddAuthHeader(await AuthHelper.CompleteStartupAsync(client));
 
             // Act
             var response = await client.GetAsync("/api-docs/openapi.json", TestContext.Current.CancellationToken);
@@ -38,4 +40,3 @@ namespace MulletaFlix.Server.Integration.Tests
         }
     }
 }
-

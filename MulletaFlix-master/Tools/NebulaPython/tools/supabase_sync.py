@@ -82,6 +82,13 @@ class SupabaseSync:
         except Exception as e:
             logger.error(f"Failed to initialize SupabaseSync: {e}")
             self._sync_enabled = False
+            mongo_client = self._mongo_client
+            self._mongo_client = None
+            if mongo_client:
+                try:
+                    mongo_client.close()
+                except Exception:
+                    logger.debug("Failed to close MongoDB client after initialization failure", exc_info=True)
             return False
 
     async def close(self):
@@ -421,6 +428,15 @@ def fetch_from_supabase(url: str, key: str, table: str, limit: int = 1000, offse
 
 async def backup_mongo_to_supabase(mongo_uri: str, db_name: str, supabase_url: str, supabase_key: str):
     from motor.motor_asyncio import AsyncIOMotorClient
+
+    client = AsyncIOMotorClient(mongo_uri)
+    try:
+        return await _backup_mongo_to_supabase_with_client(client, db_name, mongo_uri, supabase_url, supabase_key)
+    finally:
+        client.close()
+
+
+async def _backup_mongo_to_supabase_with_client(client, db_name: str, mongo_uri: str, supabase_url: str, supabase_key: str):
     
     start_time = time.time()
     print("=" * 60)
@@ -429,7 +445,6 @@ async def backup_mongo_to_supabase(mongo_uri: str, db_name: str, supabase_url: s
     print(f"MongoDB: {mongo_uri} | DB: {db_name}")
     print(f"Supabase: {supabase_url}")
     
-    client = AsyncIOMotorClient(mongo_uri)
     db = client[db_name]
     
     # 1. Backup de Arquivos (files)
@@ -438,6 +453,7 @@ async def backup_mongo_to_supabase(mongo_uri: str, db_name: str, supabase_url: s
     
     files_batch = []
     files_synced = 0
+    backup_failures = []
     BATCH_SIZE = 100
     
     async for doc in db.files.find({}):
@@ -478,7 +494,8 @@ async def backup_mongo_to_supabase(mongo_uri: str, db_name: str, supabase_url: s
                 pct = (files_synced / total_files_cursor * 100) if total_files_cursor else 100
                 print(f"[FILES] Sincronizados {files_synced}/{total_files_cursor} ({pct:.1f}%)")
             except Exception as ex:
-                print(f"[ERRO-LOTE] Falha no envio do lote de arquivos: {ex}")
+                backup_failures.append("files batch")
+                print("[ERRO-LOTE] Falha no envio do lote de arquivos.")
             files_batch = []
     
     if files_batch:
@@ -487,7 +504,8 @@ async def backup_mongo_to_supabase(mongo_uri: str, db_name: str, supabase_url: s
             files_synced += len(files_batch)
             print(f"[FILES] Sincronizados {files_synced}/{total_files_cursor} (100.0%)")
         except Exception as ex:
-            print(f"[ERRO-LOTE-FINAL] Falha no envio do lote final de arquivos: {ex}")
+            backup_failures.append("final files batch")
+            print("[ERRO-LOTE-FINAL] Falha no envio do lote final de arquivos.")
     
     # 2. Backup de Usuários (users)
     total_users_cursor = await db.users.count_documents({})
@@ -519,31 +537,60 @@ async def backup_mongo_to_supabase(mongo_uri: str, db_name: str, supabase_url: s
             users_synced = len(users_batch)
             print(f"[USERS] Sincronizados {users_synced}/{total_users_cursor} usuários.")
         except Exception as ex:
-            print(f"[ERRO-USERS] Falha ao sincronizar usuários: {ex}")
+            backup_failures.append("users batch")
+            print("[ERRO-USERS] Falha ao sincronizar usuários.")
+
+    if files_synced != total_files_cursor:
+        backup_failures.append("files count mismatch")
+    if users_synced != total_users_cursor:
+        backup_failures.append("users count mismatch")
     
     # 3. Registrar Histórico em nebula_backups
     elapsed = time.time() - start_time
     backup_record = [{
         "backup_type": "manual",
-        "status": "success",
+        "status": "failed" if backup_failures else "success",
         "total_files": files_synced,
         "total_users": users_synced,
-        "details": f"Backup concluído em {elapsed:.2f}s com {files_synced} arquivos e {users_synced} usuários."
+        "details": (
+            f"Backup incompleto em {elapsed:.2f}s: {', '.join(backup_failures)}. "
+            f"Sincronizados {files_synced}/{total_files_cursor} arquivos e "
+            f"{users_synced}/{total_users_cursor} usuários."
+            if backup_failures
+            else f"Backup concluído em {elapsed:.2f}s com {files_synced} arquivos e {users_synced} usuários."
+        )
     }]
     try:
         post_batch_to_supabase(supabase_url, supabase_key, "nebula_backups", backup_record)
-    except Exception:
-        pass
+    except Exception as ex:
+        print("[ERRO-HISTORY] Não foi possível registrar o resultado do backup.")
+        raise RuntimeError("Backup não confirmado: falha ao registrar histórico") from ex
     
     print("\n" + "=" * 60)
+    if backup_failures:
+        print(f"BACKUP INCOMPLETO EM {elapsed:.2f}s: {', '.join(backup_failures)}")
+        print(f"Arquivos salvos no Supabase: {files_synced}/{total_files_cursor}")
+        print(f"Usuários salvos no Supabase: {users_synced}/{total_users_cursor}")
+        print("=" * 60)
+        raise RuntimeError(f"Backup incompleto: {', '.join(backup_failures)}")
+
     print(f"BACKUP FINALIZADO COM SUCESSO EM {elapsed:.2f}s!")
     print(f"Arquivos salvos no Supabase: {files_synced}")
     print(f"Usuários salvos no Supabase: {users_synced}")
     print("=" * 60)
-    return {"files": files_synced, "users": users_synced, "elapsed": elapsed}
+    return {"success": True, "files": files_synced, "users": users_synced, "elapsed": elapsed}
 
 async def restore_supabase_to_mongo(mongo_uri: str, db_name: str, supabase_url: str, supabase_key: str):
     from motor.motor_asyncio import AsyncIOMotorClient
+
+    client = AsyncIOMotorClient(mongo_uri)
+    try:
+        return await _restore_supabase_to_mongo_with_client(client, db_name, mongo_uri, supabase_url, supabase_key)
+    finally:
+        client.close()
+
+
+async def _restore_supabase_to_mongo_with_client(client, db_name: str, mongo_uri: str, supabase_url: str, supabase_key: str):
     from bson import ObjectId
     
     start_time = time.time()
@@ -553,14 +600,14 @@ async def restore_supabase_to_mongo(mongo_uri: str, db_name: str, supabase_url: 
     print(f"Supabase: {supabase_url}")
     print(f"MongoDB Destino: {mongo_uri} | DB: {db_name}")
     
-    client = AsyncIOMotorClient(mongo_uri)
     db = client[db_name]
+    restore_failures = []
     
     # 1. Restaurar Usuários
     print("\n[1/2] Restaurando usuários do Supabase...")
+    restored_users = 0
     try:
         users = fetch_from_supabase(supabase_url, supabase_key, "nebula_users", limit=500)
-        restored_users = 0
         for u in users:
             doc = u.get("doc_data", {})
             login = u.get("login") or doc.get("login")
@@ -575,7 +622,7 @@ async def restore_supabase_to_mongo(mongo_uri: str, db_name: str, supabase_url: 
         print(f"[USERS] Restaurados {restored_users} usuários com sucesso.")
     except Exception as ex:
         print(f"[ERRO-RESTORE-USERS] {ex}")
-        restored_users = 0
+        restore_failures.append(("usuários", None, ex))
     
     # 2. Restaurar Arquivos (com paginação)
     print("\n[2/2] Restaurando biblioteca de arquivos do Supabase...")
@@ -611,6 +658,7 @@ async def restore_supabase_to_mongo(mongo_uri: str, db_name: str, supabase_url: 
             offset += limit
         except Exception as ex:
             print(f"[ERRO-RESTORE-FILES] Falha ao restaurar lote no offset {offset}: {ex}")
+            restore_failures.append(("arquivos", offset, ex))
             break
     
     # 3. Recriar índices essenciais
@@ -622,9 +670,26 @@ async def restore_supabase_to_mongo(mongo_uri: str, db_name: str, supabase_url: 
         print("[INDEXES] Índices do MongoDB reconstruídos com sucesso.")
     except Exception as ex:
         print(f"[INDEXES-WARN] {ex}")
+        restore_failures.append(("índices", None, ex))
     
     elapsed = time.time() - start_time
     print("\n" + "=" * 60)
+    if restore_failures:
+        failure_details = []
+        for stage, offset, _error in restore_failures:
+            detail = f"{stage}"
+            if offset is not None:
+                detail += f" no offset {offset}"
+            failure_details.append(detail)
+        summary = "; ".join(failure_details)
+        print(f"RESTAURAÇÃO INCOMPLETA: {summary}")
+        print(f"Arquivos restaurados parcialmente: {restored_files}")
+        print(f"Usuários restaurados: {restored_users}")
+        print("=" * 60)
+        raise RuntimeError(
+            f"Restauração incompleta ({summary}); {restored_files} arquivos restaurados parcialmente"
+        ) from restore_failures[0][2]
+
     print(f"RESTAURAÇÃO CONCLUÍDA EM {elapsed:.2f}s!")
     print(f"Arquivos no MongoDB: {restored_files}")
     print(f"Usuários no MongoDB: {restored_users}")

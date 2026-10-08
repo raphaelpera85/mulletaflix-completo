@@ -1803,36 +1803,13 @@ class PlayerViewModel @Inject constructor(
         player.seekTo(player.currentPosition)
     }
 
-    private fun collectContainerTracks(tracks: androidx.media3.common.Tracks, trackType: Int): List<OfflineTrack> = buildList {
-        tracks.groups
-            .filter { it.type == trackType }
-            .forEach { group ->
-                for (trackIndex in 0 until group.length) {
-                    if (!group.isTrackSupported(trackIndex)) continue
-                    val format = group.getTrackFormat(trackIndex)
-                    add(
-                        OfflineTrack(
-                            language = format.language,
-                            codec = format.sampleMimeType,
-                            channels = format.channelCount.takeIf { it > 0 },
-                            isDefault = format.selectionFlags and C.SELECTION_FLAG_DEFAULT != 0,
-                            isForced = format.selectionFlags and C.SELECTION_FLAG_FORCED != 0,
-                            isSelected = group.isTrackSelected(trackIndex),
-                            formatId = format.id,
-                            label = format.label,
-                        ),
-                    )
-                }
-            }
-    }
-
     /**
      * Rebuilds the audio and subtitle lists from the container while playing a
      * download, and points the position lookup at their own indices.
      */
     private fun refreshOfflineTracks(tracks: androidx.media3.common.Tracks) {
-        val offlineAudio = collectContainerTracks(tracks, C.TRACK_TYPE_AUDIO)
-        val offlineSubtitles = collectContainerTracks(tracks, C.TRACK_TYPE_TEXT)
+        val offlineAudio = containerTracksOfType(tracks, C.TRACK_TYPE_AUDIO)
+        val offlineSubtitles = containerTracksOfType(tracks, C.TRACK_TYPE_TEXT)
         if (offlineAudio.isEmpty() && offlineSubtitles.isEmpty()) return
 
         val audio = offlineTrackInfos(offlineAudio, "Áudio")
@@ -1865,8 +1842,8 @@ class PlayerViewModel @Inject constructor(
         val needSubtitles = currentState.subtitleTracks.isEmpty()
         if (!needAudio && !needSubtitles) return
 
-        val containerAudio = if (needAudio) collectContainerTracks(tracks, C.TRACK_TYPE_AUDIO) else emptyList()
-        val containerSubtitles = if (needSubtitles) collectContainerTracks(tracks, C.TRACK_TYPE_TEXT) else emptyList()
+        val containerAudio = if (needAudio) containerTracksOfType(tracks, C.TRACK_TYPE_AUDIO) else emptyList()
+        val containerSubtitles = if (needSubtitles) containerTracksOfType(tracks, C.TRACK_TYPE_TEXT) else emptyList()
 
         if (containerAudio.isEmpty() && containerSubtitles.isEmpty()) return
 
@@ -1944,25 +1921,14 @@ class PlayerViewModel @Inject constructor(
                 .build()
             return true
         }
-        val supportedTrackIndicesByGroup = candidateGroups.map { group ->
-            (0 until group.length).filter { trackIndex -> group.isTrackSupported(trackIndex) }
-        }
-        val groupPosition = supportedTrackGroupPosition(
+        val selectedParameters = trackSelectionParametersForServerIndex(
+            currentParameters = player.trackSelectionParameters,
+            tracks = player.currentTracks,
             serverIndex = index,
+            trackType = trackType,
             orderedServerIndices = orderedIndices,
-            supportedTrackIndicesByGroup = supportedTrackIndicesByGroup,
         ) ?: return false
-        val selectedGroup = candidateGroups.getOrNull(groupPosition) ?: return false
-        val selectedTrackIndices = supportedTrackIndicesByGroup.getOrNull(groupPosition)
-            ?.takeIf { it.isNotEmpty() }
-            ?: return false
-        player.trackSelectionParameters = player.trackSelectionParameters
-            .buildUpon()
-            .setTrackTypeDisabled(trackType, false)
-            .setOverrideForType(
-                TrackSelectionOverride(selectedGroup.mediaTrackGroup, selectedTrackIndices),
-            )
-            .build()
+        player.trackSelectionParameters = selectedParameters
         return true
     }
 

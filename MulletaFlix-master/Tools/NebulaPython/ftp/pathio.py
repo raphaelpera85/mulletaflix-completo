@@ -281,6 +281,25 @@ class BoundedLRUCache(OrderedDict):
             return super().__getitem__(key)
         return default
 
+    def pop(self, key, default=...):
+        """Remove a cache entry without triggering the LRU read side effect."""
+        if key not in self:
+            if default is ...:
+                raise KeyError(key)
+            return default
+        value = OrderedDict.__getitem__(self, key)
+        OrderedDict.__delitem__(self, key)
+        return value
+
+    def popitem(self, last=True):
+        """Remove the oldest/newest entry without invoking ``__getitem__``."""
+        if not self:
+            raise KeyError("dictionary is empty")
+        key = next(reversed(self)) if last else next(iter(self))
+        value = OrderedDict.__getitem__(self, key)
+        OrderedDict.__delitem__(self, key)
+        return key, value
+
 def universal_exception(coro):
     @wraps(coro)
     async def wrapper(*args, **kwargs):
@@ -326,8 +345,12 @@ class MongoDBMemoryIO:
         self._node = node; self._mode = mode; self._tg = tg; self._db = db
         self.offset = 0
         self.safe_name = f"{uuid4().hex}_{node.name}"
-        cache_dir = get_cache_dir()
-        self.local_path = os.path.join(cache_dir, self.safe_name)
+        staged_path = getattr(node, "local_path", None)
+        if mode == "r+b" and staged_path and os.path.isfile(staged_path):
+            self.local_path = staged_path
+        else:
+            cache_dir = get_cache_dir()
+            self.local_path = os.path.join(cache_dir, self.safe_name)
 
     async def __aenter__(self): return self
     async def __aexit__(self, *args, **kwargs): pass
@@ -335,7 +358,10 @@ class MongoDBMemoryIO:
 
     async def write_stream(self, stream):
         try:
-            async with aiofiles.open(self.local_path, "wb") as f:
+            # A resumed STOR must retain the already staged prefix.  Use wb only
+            # for a new transfer (or when there is no staging file to resume).
+            mode = "r+b" if self.offset > 0 and os.path.isfile(self.local_path) else "wb"
+            async with aiofiles.open(self.local_path, mode) as f:
                 if self.offset > 0: await f.seek(self.offset)
                 async for data in stream.iter_by_block(1024*1024):
                     await f.write(data)

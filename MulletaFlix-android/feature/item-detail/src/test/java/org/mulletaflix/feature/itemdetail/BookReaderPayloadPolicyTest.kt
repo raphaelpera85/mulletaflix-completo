@@ -3,7 +3,10 @@ package org.mulletaflix.feature.itemdetail
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
 import java.io.IOException
+import java.io.InputStream
+import java.io.OutputStream
 import java.nio.file.Files
+import java.util.zip.CRC32
 import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
 import kotlinx.coroutines.Job
@@ -12,7 +15,12 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.Config
 
+@RunWith(RobolectricTestRunner::class)
+@Config(sdk = [35])
 class BookReaderPayloadPolicyTest {
     @Test
     fun `accepts epub pdf cbz and generic binary book content types`() {
@@ -26,6 +34,30 @@ class BookReaderPayloadPolicyTest {
     }
 
     @Test
+    fun `accepts FictionBook XML and detects its root when MIME is generic`() {
+        assertFalse(isClearlyNotSupportedBookContentType("application/x-fictionbook+xml"))
+        assertFalse(isClearlyNotSupportedBookContentType("application/xml; charset=utf-8"))
+        assertEquals(PlainTextBookDocument.MAX_TEXT_BYTES, bookReaderPayloadLimit("application/xml"))
+
+        val directory = Files.createTempDirectory("fictionbook-sniff-test").toFile()
+        try {
+            val fictionBook = directory.resolve("book.bin").apply {
+                writeText("<?xml version=\"1.0\"?><FictionBook><body><p>Texto</p></body></FictionBook>")
+            }
+            assertTrue(PlainTextBookDocument.hasFictionBookRoot(fictionBook))
+            assertEquals(
+                BookPayloadFormat.PLAIN_TEXT,
+                detectBookPayloadFormat(fictionBook, "application/octet-stream"),
+            )
+
+            val otherXml = directory.resolve("other.xml").apply { writeText("<feed><entry/></feed>") }
+            assertFalse(PlainTextBookDocument.hasFictionBookRoot(otherXml))
+        } finally {
+            directory.deleteRecursively()
+        }
+    }
+
+    @Test
     fun `accepts generic or missing content type for parser validation`() {
         assertFalse(isClearlyNotSupportedBookContentType("application/octet-stream"))
         assertFalse(isClearlyNotSupportedBookContentType("application/octet-stream; charset=binary"))
@@ -35,11 +67,202 @@ class BookReaderPayloadPolicyTest {
 
     @Test
     fun `rejects explicitly incompatible response types`() {
-        assertTrue(isClearlyNotSupportedBookContentType("text/html; charset=utf-8"))
+        assertFalse(isClearlyNotSupportedBookContentType("text/html; charset=utf-8"))
         assertTrue(isClearlyNotSupportedBookContentType("image/jpeg"))
         assertTrue(isClearlyNotSupportedBookContentType("application/json"))
         assertTrue(isClearlyNotSupportedBookContentType("application/x-cbr"))
         assertTrue(isClearlyNotSupportedBookContentType("application/x-mobipocket-ebook"))
+    }
+
+    @Test
+    fun `uses a small streaming limit for direct text and general limit for converted books`() {
+        assertEquals(PlainTextBookDocument.MAX_TEXT_BYTES, bookReaderPayloadLimit("text/plain; charset=utf-8"))
+        assertEquals(PlainTextBookDocument.MAX_HTML_BYTES, bookReaderPayloadLimit("text/html; charset=utf-8"))
+        assertEquals(MAX_BOOK_PAYLOAD_BYTES, bookReaderPayloadLimit("application/epub+zip"))
+        assertEquals(MAX_BOOK_PAYLOAD_BYTES, bookReaderPayloadLimit(null))
+    }
+
+    @Test
+    fun `direct text stream stops at its limit without a known content length`() {
+        val textLimit = bookReaderPayloadLimit("text/plain")
+        val output = ByteArrayOutputStream()
+        val oversizedPayload = ByteArray((textLimit + 1L).toInt())
+
+        assertThrows(IOException::class.java) {
+            copyBookReaderPayload(
+                ByteArrayInputStream(oversizedPayload),
+                output,
+                maxBytes = textLimit,
+            )
+        }
+        assertEquals(textLimit, output.size().toLong())
+    }
+
+    @Test
+    fun `generic XML book stream is capped at the direct text limit`() {
+        val payload = ByteArray(PlainTextBookDocument.MAX_TEXT_BYTES.toInt() + 1).apply {
+            "<?xml version=\"1.0\"?><FictionBook>".toByteArray().copyInto(this)
+        }
+        val output = ByteArrayOutputStream()
+
+        assertThrows(IOException::class.java) {
+            copyBookReaderPayload(
+                ByteArrayInputStream(payload),
+                output,
+                maxBytes = MAX_BOOK_PAYLOAD_BYTES,
+                contentType = "application/octet-stream",
+            )
+        }
+        assertEquals(PlainTextBookDocument.MAX_TEXT_BYTES, output.size().toLong())
+    }
+
+    @Test
+    fun `generic XML stream with a long whitespace prologue stays capped`() {
+        val prefix = " ".repeat(64 * 1024) + "<FictionBook>"
+        val payload = ByteArray(PlainTextBookDocument.MAX_TEXT_BYTES.toInt() + 1).apply {
+            prefix.toByteArray().copyInto(this)
+        }
+        val output = ByteArrayOutputStream()
+
+        assertThrows(IOException::class.java) {
+            copyBookReaderPayload(
+                ByteArrayInputStream(payload),
+                output,
+                maxBytes = MAX_BOOK_PAYLOAD_BYTES,
+                contentType = "application/octet-stream",
+            )
+        }
+        assertEquals(PlainTextBookDocument.MAX_TEXT_BYTES, output.size().toLong())
+    }
+
+    @Test
+    fun `generic XML stream with a long processing instruction stays capped`() {
+        val prefix = "<?custom ${"x".repeat(64 * 1024)}?><FictionBook>"
+        val payload = ByteArray(PlainTextBookDocument.MAX_TEXT_BYTES.toInt() + 1).apply {
+            prefix.toByteArray().copyInto(this)
+        }
+        val output = ByteArrayOutputStream()
+
+        assertThrows(IOException::class.java) {
+            copyBookReaderPayload(
+                ByteArrayInputStream(payload),
+                output,
+                maxBytes = MAX_BOOK_PAYLOAD_BYTES,
+                contentType = "application/octet-stream",
+            )
+        }
+        assertEquals(PlainTextBookDocument.MAX_TEXT_BYTES, output.size().toLong())
+    }
+
+    @Test
+    fun `generic XML in UTF-16BE without BOM stays capped`() {
+        val prefix = "<?xml version=\"1.0\"?><FictionBook>".toByteArray(Charsets.UTF_16BE)
+        val payload = ByteArray(PlainTextBookDocument.MAX_TEXT_BYTES.toInt() + 1).apply {
+            prefix.copyInto(this)
+        }
+        val output = ByteArrayOutputStream()
+
+        assertThrows(IOException::class.java) {
+            copyBookReaderPayload(
+                ByteArrayInputStream(payload),
+                output,
+                maxBytes = MAX_BOOK_PAYLOAD_BYTES,
+                contentType = "application/octet-stream",
+            )
+        }
+        assertEquals(PlainTextBookDocument.MAX_TEXT_BYTES, output.size().toLong())
+    }
+
+    @Test
+    fun `generic PDF and ZIP signatures retain the large book limit`() {
+        val headers = listOf(
+            "%PDF-".toByteArray(Charsets.US_ASCII),
+            byteArrayOf('P'.code.toByte(), 'K'.code.toByte(), 0x03, 0x04, 0),
+        )
+
+        headers.forEach { header ->
+            val payload = ByteArray(PlainTextBookDocument.MAX_TEXT_BYTES.toInt() + 1).apply {
+                header.copyInto(this)
+            }
+            val output = ByteArrayOutputStream()
+            val copied = copyBookReaderPayload(
+                ByteArrayInputStream(payload),
+                output,
+                maxBytes = MAX_BOOK_PAYLOAD_BYTES,
+                contentType = "application/octet-stream",
+            )
+
+            assertEquals(payload.size.toLong(), copied)
+            assertEquals(payload.size, output.size())
+        }
+    }
+
+    @Test
+    fun `DOCX MIME and ZIP signature allow payloads larger than plain text limit`() {
+        val payload = ByteArray(PlainTextBookDocument.MAX_TEXT_BYTES.toInt() + 1).apply {
+            this[0] = 'P'.code.toByte()
+            this[1] = 'K'.code.toByte()
+            this[2] = 0x03
+            this[3] = 0x04
+        }
+        val output = ByteArrayOutputStream()
+
+        val copied = copyBookReaderPayload(
+            ByteArrayInputStream(payload),
+            output,
+            maxBytes = bookReaderPayloadLimit(DocxBookTextExtractor.CONTENT_TYPE),
+            contentType = DocxBookTextExtractor.CONTENT_TYPE,
+        )
+
+        assertEquals(payload.size.toLong(), copied)
+        assertEquals(payload.size, output.size())
+    }
+
+    @Test
+    fun `generic ODT ZIP is identified from its package prefix and capped while streaming`() {
+        val prefix = odtPackagePrefix()
+        val totalBytes = OdtBookTextExtractor.MAX_PACKAGE_BYTES + 1L
+        val input = object : InputStream() {
+            private var position = 0L
+
+            override fun read(): Int {
+                if (position >= totalBytes) return -1
+                val value = if (position < prefix.size) prefix[position.toInt()].toInt() and 0xFF else 0
+                position++
+                return value
+            }
+
+            override fun read(buffer: ByteArray, offset: Int, length: Int): Int {
+                if (position >= totalBytes) return -1
+                val count = minOf(length.toLong(), totalBytes - position).toInt()
+                for (index in 0 until count) {
+                    buffer[offset + index] = if (position + index < prefix.size) {
+                        prefix[(position + index).toInt()]
+                    } else {
+                        0
+                    }
+                }
+                position += count
+                return count
+            }
+        }
+        val output = object : OutputStream() {
+            var bytesWritten = 0L
+                private set
+
+            override fun write(value: Int) {
+                bytesWritten++
+            }
+
+            override fun write(buffer: ByteArray, offset: Int, length: Int) {
+                bytesWritten += length
+            }
+        }
+
+        assertThrows(IOException::class.java) {
+            copyBookReaderPayload(input, output, maxBytes = MAX_BOOK_PAYLOAD_BYTES, contentType = "application/octet-stream")
+        }
+        assertEquals(OdtBookTextExtractor.MAX_PACKAGE_BYTES, output.bytesWritten)
     }
 
     @Test
@@ -71,6 +294,25 @@ class BookReaderPayloadPolicyTest {
             directory.deleteRecursively()
         }
     }
+
+    private fun odtPackagePrefix(): ByteArray {
+        val mimeBytes = OdtBookTextExtractor.CONTENT_TYPE.toByteArray(Charsets.US_ASCII)
+        val output = ByteArrayOutputStream()
+        ZipOutputStream(output).use { zip ->
+            zip.putNextEntry(
+                ZipEntry("mimetype").apply {
+                    method = ZipEntry.STORED
+                    size = mimeBytes.size.toLong()
+                    compressedSize = mimeBytes.size.toLong()
+                    crc = CRC32().apply { update(mimeBytes) }.value
+                },
+            )
+            zip.write(mimeBytes)
+            zip.closeEntry()
+        }
+        return output.toByteArray().copyOf(OdtBookTextExtractor.ZIP_MIMETYPE_PREFIX_BYTES)
+    }
+
 
     @Test
     fun `recognizes standard and server comic archive content types`() {

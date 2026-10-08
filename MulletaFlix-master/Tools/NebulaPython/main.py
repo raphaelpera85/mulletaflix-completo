@@ -868,7 +868,6 @@ async def stats_reporter(mongo):
                                     upsert=True,
                                 )
                                 if not result.upserted_id:
-                                    _stagingScanJournal[full_path] = StagingScanEntry(scanStamp, Handled=True)
                                     logger.debug("Já enfileirado por outro produtor: %s", display_name)
                                     continue
                                 await UPLOAD_QUEUE.put({
@@ -1609,6 +1608,7 @@ async def upload_worker_parallel(bots, target_chat_id, mongo, worker_id):
         filename = task["filename"]
         parent = task["parent"]
         ACTIVE_UPLOADS.add(local_path)
+        producer_task = None
         try:
             if filename.endswith(".partial") or not os.path.exists(local_path):
                 continue
@@ -1773,6 +1773,10 @@ async def upload_worker_parallel(bots, target_chat_id, mongo, worker_id):
                 )
             await log_queue_state(mongo, f"falha:{filename}")
         finally:
+            if producer_task is not None and not producer_task.done():
+                producer_task.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await producer_task
             ACTIVE_UPLOADS.discard(local_path)
             UPLOAD_QUEUE.task_done()
 

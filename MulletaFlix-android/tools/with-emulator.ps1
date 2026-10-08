@@ -28,6 +28,17 @@ $emulatorProcess = $null
 $androidProjectRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 . (Join-Path $PSScriptRoot 'Assert-AndroidInstrumentationResults.ps1')
 . (Join-Path $PSScriptRoot 'Assert-AndroidDeviceProfile.ps1')
+. (Join-Path $PSScriptRoot 'Resolve-AndroidAvdHome.ps1')
+
+$avdSearchDirectories = Get-AndroidAvdSearchDirectories `
+    -AndroidAvdHome $env:ANDROID_AVD_HOME `
+    -AndroidUserHome $env:ANDROID_USER_HOME `
+    -UserProfile $env:USERPROFILE `
+    -HomeDirectory $env:HOME `
+    -AndroidSdkHome $env:ANDROID_SDK_HOME
+$env:ANDROID_AVD_HOME = Resolve-AndroidAvdHome `
+    -AvdName $AvdName `
+    -SearchDirectories $avdSearchDirectories
 
 function Stop-StartedEmulatorTree {
     param([System.Diagnostics.Process] $RootProcess)

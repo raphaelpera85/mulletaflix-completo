@@ -186,6 +186,11 @@ interface MulletaFlixApiService {
     @GET("BookReader/Items/{itemId}/BookReader/Epub")
     suspend fun getBookReaderEpub(@Path("itemId") itemId: String): okhttp3.ResponseBody
 
+    /** Authenticated conversion state for a book while the EPUB stream is being prepared. */
+    @GET("BookReader/Items/{itemId}/BookReader/Status")
+    @Headers("Accept: application/json; profile=\"CamelCase\"")
+    suspend fun getBookReaderStatus(@Path("itemId") itemId: String): BookReaderStatusDto
+
     @GET("Items/{itemId}/Similar")
     suspend fun getSimilarItems(
         @Path("itemId") itemId: String,

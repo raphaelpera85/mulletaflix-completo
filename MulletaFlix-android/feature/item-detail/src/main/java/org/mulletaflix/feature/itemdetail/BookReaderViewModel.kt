@@ -6,10 +6,12 @@ import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.io.File
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -26,13 +28,16 @@ import org.mulletaflix.core.api.HomeFeedCacheScope
 import org.mulletaflix.core.api.SessionRepository
 import org.readium.r2.shared.publication.Locator
 import org.readium.r2.shared.publication.Publication
+import okhttp3.ResponseBody
 import retrofit2.HttpException
 import javax.inject.Inject
 
 internal data class BookReaderState(
     val isLoading: Boolean = true,
+    val loadingMessage: String? = null,
     val publication: Publication? = null,
     val pageBook: BookPageSource? = null,
+    val textBook: PlainTextBookDocument? = null,
     val initialLocator: Locator? = null,
     val fontSizePercent: Int = BookReaderFontSize.DEFAULT_PERCENT,
     val bookmarks: List<BookReaderBookmark> = emptyList(),
@@ -43,6 +48,7 @@ internal data class BookReaderState(
 private data class LoadedBookContent(
     val publication: Publication? = null,
     val pageBook: BookPageSource? = null,
+    val textBook: PlainTextBookDocument? = null,
     val cacheFile: File,
 )
 
@@ -60,6 +66,7 @@ class BookReaderViewModel @Inject constructor(
     private var loadedItemId: String? = null
     private var loadedProgressScope: HomeFeedCacheScope? = null
     private val loadGeneration = BookReaderRequestGeneration()
+    private val loadingMessageLock = Any()
     private val progressSaveGeneration = BookReaderRequestGeneration()
     private var progressSaveJob: Job? = null
     private val progressSaveMutex = Mutex()
@@ -77,9 +84,12 @@ class BookReaderViewModel @Inject constructor(
                 val activeItemId = loadedItemId
                 if (changed && activeItemId != null) {
                     // A load for the previous account/server must never render after a session switch.
-                    loadedProgressScope = null
-                    loadedItemId = null
-                    _state.value = BookReaderState(isLoading = true)
+                    synchronized(loadingMessageLock) {
+                        loadGeneration.begin()
+                        loadedProgressScope = null
+                        loadedItemId = null
+                        _state.value = BookReaderState(isLoading = true)
+                    }
                     progressSaveGeneration.begin()
                     progressSaveJob?.cancel()
                     fontSizeSaveGeneration.begin()
@@ -91,14 +101,18 @@ class BookReaderViewModel @Inject constructor(
     }
 
     fun load(itemId: String) {
-        if (loadJob?.isActive == true && loadedItemId == itemId) return
-        val generation = loadGeneration.begin()
-        val previousLoadJob = loadJob
-        previousLoadJob?.cancel()
-        loadedItemId = itemId
-        loadedProgressScope = null
-        loadJob = viewModelScope.launch {
+        val generation: Long
+        val previousLoadJob: Job?
+        synchronized(loadingMessageLock) {
+            if (loadJob?.isActive == true && loadedItemId == itemId) return
+            generation = loadGeneration.begin()
+            previousLoadJob = loadJob
+            previousLoadJob?.cancel()
+            loadedItemId = itemId
+            loadedProgressScope = null
             _state.value = BookReaderState(isLoading = true)
+        }
+        loadJob = viewModelScope.launch {
             previousLoadJob?.join()
             val progressScope = recoverBookReaderStorageFailure {
                 sessionRepository.getHomeFeedCacheScope().first()
@@ -111,26 +125,32 @@ class BookReaderViewModel @Inject constructor(
                 ?: BookReaderFontSize.DEFAULT_PERCENT
             try {
                 val content = withContext(Dispatchers.IO) {
-                    val body = try {
-                        api.getBookReaderEpub(itemId)
-                    } catch (failure: HttpException) {
-                        error(bookReaderHttpFailureMessage(failure.code()))
-                    }
+                    val body = fetchBookReaderBody(itemId, generation)
                     try {
-                        if (body.contentLength() > MAX_BOOK_PAYLOAD_BYTES) {
+                        val contentType = body.contentType()?.toString().orEmpty()
+                        val maxPayloadBytes = bookReaderPayloadLimit(contentType)
+                        if (body.contentLength() > maxPayloadBytes) {
                             error("Book file exceeds the supported size limit.")
                         }
-                        val contentType = body.contentType()?.let { "${it.type}/${it.subtype}" }.orEmpty()
                         if (isClearlyNotSupportedBookContentType(contentType)) {
                             error("O servidor não enviou um arquivo de livro compatível para leitura.")
                         }
 
-                        val target = bookCacheFiles.create()
+                        val target = bookCacheFiles.create(
+                            plainText = PlainTextBookDocument.supports(contentType),
+                        )
                         var cacheTarget = target
                         var contentOpened = false
                         try {
                             body.byteStream().use { input ->
-                                target.outputStream().use { output -> copyBookReaderPayload(input, output) }
+                                target.outputStream().use { output ->
+                                    copyBookReaderPayload(
+                                        input,
+                                        output,
+                                        maxBytes = maxPayloadBytes,
+                                        contentType = contentType,
+                                    )
+                                }
                             }
                             currentCoroutineContext().ensureActive()
                             val payloadFormat = detectBookPayloadFormat(target, contentType)
@@ -138,6 +158,7 @@ class BookReaderViewModel @Inject constructor(
                                 BookPayloadFormat.EPUB -> ".epub"
                                 BookPayloadFormat.PDF -> ".pdf"
                                 BookPayloadFormat.CBZ -> ".cbz"
+                                BookPayloadFormat.PLAIN_TEXT -> ".txt"
                             }
                             cacheTarget = bookCacheFiles.withExtension(target, extension)
                             val loadedContent = when {
@@ -147,6 +168,10 @@ class BookReaderViewModel @Inject constructor(
                                 )
                                 payloadFormat == BookPayloadFormat.PDF -> LoadedBookContent(
                                     pageBook = PdfBookDocument.open(cacheTarget),
+                                    cacheFile = cacheTarget,
+                                )
+                                payloadFormat == BookPayloadFormat.PLAIN_TEXT -> LoadedBookContent(
+                                    textBook = PlainTextBookDocument.open(cacheTarget, contentType),
                                     cacheFile = cacheTarget,
                                 )
                                 else -> LoadedBookContent(
@@ -166,6 +191,8 @@ class BookReaderViewModel @Inject constructor(
                 val restorableLocator = initialLocator?.takeIf { locator ->
                     if (content.pageBook != null) {
                         content.pageBook.pageIndexFromLocator(locator) != null
+                    } else if (content.textBook != null) {
+                        content.textBook.chunkIndexFromLocator(locator) != null
                     } else {
                         content.publication?.readingOrder?.any { link -> link.href == locator.href } == true
                     }
@@ -187,6 +214,7 @@ class BookReaderViewModel @Inject constructor(
                     isLoading = false,
                     publication = content.publication,
                     pageBook = content.pageBook,
+                    textBook = content.textBook,
                     initialLocator = restorableLocator,
                     fontSizePercent = fontSizePercent,
                     bookmarks = bookmarks,
@@ -206,7 +234,12 @@ class BookReaderViewModel @Inject constructor(
 
     fun saveReadingProgression(itemId: String, locator: Locator) {
         val expectedScope = loadedProgressScope ?: return
-        if (loadedItemId != itemId || (_state.value.publication == null && _state.value.pageBook == null)) return
+        if (loadedItemId != itemId || (
+                _state.value.publication == null &&
+                    _state.value.pageBook == null &&
+                    _state.value.textBook == null
+            )
+        ) return
         val generation = progressSaveGeneration.begin()
         progressSaveJob?.cancel()
         progressSaveJob = viewModelScope.launch {
@@ -227,7 +260,9 @@ class BookReaderViewModel @Inject constructor(
     fun setFontSizePercent(itemId: String, percent: Int) {
         val expectedScope = loadedProgressScope ?: return
         val currentState = _state.value
-        if (loadedItemId != itemId || currentState.publication == null) return
+        if (loadedItemId != itemId ||
+            (currentState.publication == null && currentState.textBook == null)
+        ) return
 
         val normalizedPercent = BookReaderFontSize.normalize(percent)
         if (currentState.fontSizePercent == normalizedPercent) return
@@ -251,7 +286,12 @@ class BookReaderViewModel @Inject constructor(
 
     fun saveBookmark(itemId: String, locator: Locator, label: String) {
         val expectedScope = loadedProgressScope ?: return
-        if (loadedItemId != itemId || (_state.value.publication == null && _state.value.pageBook == null)) return
+        if (loadedItemId != itemId || (
+                _state.value.publication == null &&
+                    _state.value.pageBook == null &&
+                    _state.value.textBook == null
+            )
+        ) return
         viewModelScope.launch {
             val currentScope = recoverBookReaderStorageFailure {
                 sessionRepository.getHomeFeedCacheScope().first()
@@ -337,13 +377,16 @@ class BookReaderViewModel @Inject constructor(
         val scope = loadedProgressScope ?: return
         if (loadedItemId != itemId) return
 
-        val generation = loadGeneration.begin()
-        loadJob?.cancel()
-        loadedItemId = null
-        loadedProgressScope = null
+        val generation: Long
+        synchronized(loadingMessageLock) {
+            generation = loadGeneration.begin()
+            loadJob?.cancel()
+            loadedItemId = null
+            loadedProgressScope = null
+            _state.value = BookReaderState(isLoading = true)
+        }
         progressSaveGeneration.begin()
         progressSaveJob?.cancel()
-        _state.value = BookReaderState(isLoading = true)
         loadJob = viewModelScope.launch {
             try {
                 progressStore.remove(scope, itemId)
@@ -370,6 +413,62 @@ class BookReaderViewModel @Inject constructor(
     }
 
     private companion object {
+        const val BOOK_READER_STATUS_POLL_INTERVAL_MILLIS = 1_500L
+        const val BOOK_READER_STATUS_START_DELAY_MILLIS = 1_000L
         const val FONT_SIZE_SCOPE_ITEM_ID = "__reader_font_size_preference__"
+    }
+
+    private suspend fun fetchBookReaderBody(itemId: String, generation: Long): ResponseBody {
+        val requestScope = CoroutineScope(currentCoroutineContext())
+        val requestJob = requireNotNull(requestScope.coroutineContext[Job])
+        var statusMonitorActive = true
+        val conversionStatusMonitor = requestScope.launch {
+            delay(BOOK_READER_STATUS_START_DELAY_MILLIS)
+            while (requestJob.isActive && loadGeneration.isCurrent(generation)) {
+                val status = try {
+                    api.getBookReaderStatus(itemId).status
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (failure: HttpException) {
+                    if (failure.code() in 400..499 && failure.code() !in setOf(408, 429)) {
+                        return@launch
+                    }
+                    null
+                } catch (_: Exception) {
+                    null
+                }
+                when (status?.trim()?.lowercase()) {
+                    "converting" -> {
+                        synchronized(loadingMessageLock) {
+                            if (statusMonitorActive && requestJob.isActive &&
+                                loadGeneration.isCurrent(generation)
+                            ) {
+                                _state.value = _state.value.copy(
+                                    loadingMessage = context.getString(R.string.book_reader_conversion_in_progress),
+                                )
+                            }
+                        }
+                    }
+                    "direct", "ready", "unsupported", "failed" -> break
+                }
+                if (!requestJob.isActive || !loadGeneration.isCurrent(generation)) break
+                delay(BOOK_READER_STATUS_POLL_INTERVAL_MILLIS)
+            }
+        }
+        return try {
+            try {
+                api.getBookReaderEpub(itemId)
+            } catch (failure: HttpException) {
+                error(bookReaderHttpFailureMessage(failure.code()))
+            }
+        } finally {
+            conversionStatusMonitor.cancel()
+            synchronized(loadingMessageLock) {
+                statusMonitorActive = false
+                if (loadGeneration.isCurrent(generation)) {
+                    _state.value = _state.value.copy(loadingMessage = null)
+                }
+            }
+        }
     }
 }

@@ -2,6 +2,7 @@ package org.mulletaflix.feature.itemdetail
 
 import android.app.Application
 import androidx.compose.foundation.background
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -54,12 +55,16 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import org.readium.navigator.web.reflowable.ReflowableWebConfiguration
@@ -84,10 +89,12 @@ fun BookReaderScreen(
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val pageBook = state.pageBook
+    val textBook = state.textBook
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
     var currentPage by rememberSaveable(itemId) { mutableIntStateOf(0) }
+    var currentTextChunk by rememberSaveable(itemId) { mutableIntStateOf(0) }
     var pageZoom by rememberSaveable(itemId) { mutableFloatStateOf(1f) }
     var renditionState by remember(itemId) { mutableStateOf<ReflowableWebRenditionState?>(null) }
     var renditionError by remember(itemId) { mutableStateOf<String?>(null) }
@@ -137,6 +144,10 @@ fun BookReaderScreen(
     LaunchedEffect(itemId, pageBook, state.initialLocator) {
         val source = pageBook ?: return@LaunchedEffect
         currentPage = source.pageIndexFromLocator(state.initialLocator) ?: 0
+    }
+    LaunchedEffect(itemId, textBook, state.initialLocator) {
+        val source = textBook ?: return@LaunchedEffect
+        currentTextChunk = source.chunkIndexFromLocator(state.initialLocator) ?: 0
     }
     LaunchedEffect(currentPage) { pageZoom = 1f }
     LaunchedEffect(itemId, pageBook) {
@@ -189,15 +200,17 @@ fun BookReaderScreen(
                     }
                     key(itemId) {
                         BookReaderProgressActions(
-                            enabled = (state.publication != null || pageBook != null) && !state.isLoading,
+                            enabled = (state.publication != null || pageBook != null || textBook != null) && !state.isLoading,
                             bookmarks = state.bookmarks,
                             bookmarkLabelSuggestion = pageBook?.let { "Página ${currentPage + 1}" }
+                                ?: textBook?.let { "Trecho ${currentTextChunk + 1}" }
                                 ?: renditionController?.location?.toLocator()?.locations?.totalProgression?.let { progression ->
                                     "Leitura ${(progression * 100).roundToInt()}%"
                                 }
                                 ?: "Posição salva",
                             onSaveBookmark = { label ->
                                 val locator = pageBook?.locatorForPage(currentPage)
+                                    ?: textBook?.locatorForChunk(currentTextChunk)
                                     ?: renditionController?.location?.toLocator()
                                 if (locator != null) {
                                     viewModel.saveBookmark(itemId, locator, label)
@@ -207,6 +220,10 @@ fun BookReaderScreen(
                                 if (pageBook != null) {
                                     pageBook.pageIndexFromLocator(bookmark.locator)
                                         ?.let { currentPage = it }
+                                        ?: viewModel.showBookmarkMessage("Este marcador não existe mais neste livro.")
+                                } else if (textBook != null) {
+                                    textBook.chunkIndexFromLocator(bookmark.locator)
+                                        ?.let { currentTextChunk = it }
                                         ?: viewModel.showBookmarkMessage("Este marcador não existe mais neste livro.")
                                 } else {
                                     renditionController?.let { controller ->
@@ -236,6 +253,19 @@ fun BookReaderScreen(
                     currentPage = currentPage,
                     pageCount = pageBook.pageCount,
                     onPageSelected = { page -> currentPage = page.coerceIn(0, pageBook.pageCount - 1) },
+                )
+            } else if (textBook != null) {
+                PlainTextBookChunkControls(
+                    currentChunk = currentTextChunk,
+                    chunkCount = textBook.chunkCount,
+                    fontSizePercent = state.fontSizePercent,
+                    onChunkSelected = { currentTextChunk = it.coerceIn(0, textBook.chunkCount - 1) },
+                    onDecreaseFontSize = {
+                        viewModel.setFontSizePercent(itemId, BookReaderFontSize.decrease(state.fontSizePercent))
+                    },
+                    onIncreaseFontSize = {
+                        viewModel.setFontSizePercent(itemId, BookReaderFontSize.increase(state.fontSizePercent))
+                    },
                 )
             } else {
                 val controller = renditionState?.controller
@@ -276,7 +306,7 @@ fun BookReaderScreen(
             contentAlignment = Alignment.Center,
         ) {
             when {
-                state.isLoading -> CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
+                state.isLoading -> BookReaderLoadingContent(state.loadingMessage)
                 state.error != null -> ReaderMessage(
                     message = state.error.orEmpty(),
                     onRetry = { viewModel.load(itemId) },
@@ -292,6 +322,16 @@ fun BookReaderScreen(
                     onZoomChange = { pageZoom = it },
                     modifier = Modifier.fillMaxSize(),
                 )
+                textBook != null -> PlainTextBookReaderContent(
+                    document = textBook,
+                    currentChunk = currentTextChunk,
+                    fontSizePercent = state.fontSizePercent,
+                    onChunkSelected = { chunk ->
+                        currentTextChunk = chunk
+                        viewModel.saveReadingProgression(itemId, textBook.locatorForChunk(chunk))
+                    },
+                    modifier = Modifier.fillMaxSize(),
+                )
                 renditionState != null -> ReflowableWebRendition(
                     state = renditionState!!,
                     modifier = Modifier.fillMaxSize(),
@@ -301,6 +341,102 @@ fun BookReaderScreen(
         }
     }
 }
+
+@Composable
+internal fun BookReaderLoadingContent(message: String?) {
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(16.dp),
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp),
+    ) {
+        CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
+        Text(
+            text = message ?: stringResource(R.string.book_reader_loading),
+            style = MaterialTheme.typography.bodyLarge,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite }
+                .testTag(BOOK_READER_LOADING_MESSAGE_TEST_TAG),
+        )
+    }
+}
+
+internal const val BOOK_READER_LOADING_MESSAGE_TEST_TAG = "book-reader-loading-message"
+
+@Composable
+internal fun PlainTextBookReaderContent(
+    document: PlainTextBookDocument,
+    currentChunk: Int,
+    fontSizePercent: Int,
+    onChunkSelected: (Int) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val safeChunk = currentChunk.coerceIn(0, document.chunkCount - 1)
+    val listState = rememberLazyListState(initialFirstVisibleItemIndex = safeChunk)
+    LaunchedEffect(document, safeChunk) {
+        if (listState.firstVisibleItemIndex != safeChunk) listState.scrollToItem(safeChunk)
+    }
+    LaunchedEffect(document, listState) {
+        snapshotFlow { listState.firstVisibleItemIndex }
+            .distinctUntilChanged()
+            .collect { index -> onChunkSelected(index.coerceIn(0, document.chunkCount - 1)) }
+    }
+    val fontSize = 18.sp * (BookReaderFontSize.normalize(fontSizePercent) / 100f)
+    LazyColumn(
+        state = listState,
+        modifier = modifier
+            .background(MaterialTheme.colorScheme.background)
+            .testTag(PLAIN_TEXT_BOOK_READER_TEST_TAG),
+    ) {
+        itemsIndexed(document.chunks, key = { index, _ -> index }) { index, chunk ->
+            Text(
+                text = chunk,
+                style = MaterialTheme.typography.bodyLarge.copy(
+                    fontSize = fontSize,
+                    lineHeight = fontSize * 1.5f,
+                ),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 24.dp, vertical = 8.dp)
+                    .testTag("$PLAIN_TEXT_BOOK_CHUNK_TEST_TAG-$index"),
+            )
+        }
+    }
+}
+
+@Composable
+private fun PlainTextBookChunkControls(
+    currentChunk: Int,
+    chunkCount: Int,
+    fontSizePercent: Int,
+    onChunkSelected: (Int) -> Unit,
+    onDecreaseFontSize: () -> Unit,
+    onIncreaseFontSize: () -> Unit,
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 8.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        IconButton(onClick = { onChunkSelected(currentChunk - 1) }, enabled = currentChunk > 0) {
+            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Trecho anterior")
+        }
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Text("Trecho ${currentChunk + 1} de $chunkCount", style = MaterialTheme.typography.labelSmall)
+            BookReaderFontSizeControls(
+                fontSizePercent = fontSizePercent,
+                enabled = true,
+                onDecrease = onDecreaseFontSize,
+                onIncrease = onIncreaseFontSize,
+            )
+        }
+        IconButton(onClick = { onChunkSelected(currentChunk + 1) }, enabled = currentChunk < chunkCount - 1) {
+            Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = "Próximo trecho")
+        }
+    }
+}
+
+internal const val PLAIN_TEXT_BOOK_READER_TEST_TAG = "plain-text-book-reader"
+internal const val PLAIN_TEXT_BOOK_CHUNK_TEST_TAG = "plain-text-book-chunk"
 
 internal data class BookReaderContentsEntry(
     val link: Link,

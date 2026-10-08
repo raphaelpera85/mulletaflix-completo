@@ -3,6 +3,7 @@ package org.mulletaflix.feature.itemdetail
 import java.io.IOException
 import java.io.InputStream
 import java.io.File
+import java.io.ByteArrayOutputStream
 import java.io.OutputStream
 import java.io.RandomAccessFile
 import java.util.zip.ZipFile
@@ -10,23 +11,77 @@ import kotlinx.coroutines.Job
 
 internal const val MAX_BOOK_PAYLOAD_BYTES = 512L * 1024L * 1024L
 
+internal fun bookReaderPayloadLimit(contentType: String?): Long = when {
+    PlainTextBookDocument.isHtml(contentType) -> PlainTextBookDocument.MAX_HTML_BYTES
+    OdtBookTextExtractor.supports(contentType) -> OdtBookTextExtractor.MAX_PACKAGE_BYTES
+    DocxBookTextExtractor.supports(contentType) -> DocxBookTextExtractor.MAX_PACKAGE_BYTES
+    FictionBookZipTextExtractor.supports(contentType) -> FictionBookZipTextExtractor.MAX_PACKAGE_BYTES
+    PlainTextBookDocument.supports(contentType) -> PlainTextBookDocument.MAX_TEXT_BYTES
+    else -> MAX_BOOK_PAYLOAD_BYTES
+}
+
 internal fun copyBookReaderPayload(
     input: InputStream,
     output: OutputStream,
     maxBytes: Long = MAX_BOOK_PAYLOAD_BYTES,
+    contentType: String? = null,
 ): Long {
     require(maxBytes > 0L)
     val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+    val signaturePrefix = ByteArrayOutputStream(OdtBookTextExtractor.ZIP_MIMETYPE_PREFIX_BYTES)
+    val retainGeneralLimit = hasLargeBookContentType(contentType)
+    var effectiveMaxBytes = if (retainGeneralLimit) maxBytes else minOf(
+        maxBytes,
+        PlainTextBookDocument.MAX_TEXT_BYTES,
+    )
+    var signatureResolved = retainGeneralLimit || maxBytes <= PlainTextBookDocument.MAX_TEXT_BYTES
     var copiedBytes = 0L
     while (true) {
         val readBytes = input.read(buffer)
         if (readBytes < 0) return copiedBytes
-        if (readBytes.toLong() > maxBytes - copiedBytes) {
+        if (!signatureResolved) {
+            val prefixBytes = minOf(readBytes, OdtBookTextExtractor.ZIP_MIMETYPE_PREFIX_BYTES - signaturePrefix.size())
+            signaturePrefix.write(buffer, 0, prefixBytes)
+            if (signaturePrefix.size() == OdtBookTextExtractor.ZIP_MIMETYPE_PREFIX_BYTES) {
+                val prefix = signaturePrefix.toByteArray()
+                effectiveMaxBytes = when {
+                    OdtBookTextExtractor.hasOpenDocumentTextZipPrefix(prefix) ->
+                        minOf(maxBytes, OdtBookTextExtractor.MAX_PACKAGE_BYTES)
+                    hasLargeBookPayloadSignature(prefix.copyOfRange(0, PDF_SIGNATURE.size)) -> maxBytes
+                    else -> effectiveMaxBytes
+                }
+                signatureResolved = true
+            }
+        }
+        if (readBytes.toLong() > effectiveMaxBytes - copiedBytes) {
             throw IOException("Book file exceeds the supported size limit.")
         }
         output.write(buffer, 0, readBytes)
         copiedBytes += readBytes
     }
+}
+
+private fun hasLargeBookContentType(contentType: String?): Boolean {
+    val mimeType = contentType
+        ?.substringBefore(';')
+        ?.trim()
+        ?.lowercase()
+        .orEmpty()
+    return PdfBookDocument.supports(mimeType) ||
+        ComicBookArchive.supports(mimeType) ||
+        OdtBookTextExtractor.supports(mimeType) ||
+        FictionBookZipTextExtractor.supports(mimeType) ||
+        mimeType == "application/epub+zip"
+}
+
+private fun hasLargeBookPayloadSignature(prefix: ByteArray): Boolean {
+    if (prefix.size >= PDF_SIGNATURE.size && prefix.copyOfRange(0, PDF_SIGNATURE.size).contentEquals(PDF_SIGNATURE)) {
+        return true
+    }
+    if (prefix.size < 4 || prefix[0] != 'P'.code.toByte() || prefix[1] != 'K'.code.toByte()) return false
+    return (prefix[2] == 0x03.toByte() && prefix[3] == 0x04.toByte()) ||
+        (prefix[2] == 0x05.toByte() && prefix[3] == 0x06.toByte()) ||
+        (prefix[2] == 0x07.toByte() && prefix[3] == 0x08.toByte())
 }
 
 /**
@@ -43,13 +98,12 @@ internal fun isClearlyNotSupportedBookContentType(contentType: String?): Boolean
 
     if (mimeType.isEmpty()) return false
 
-    return mimeType.startsWith("text/") ||
+    return (mimeType.startsWith("text/") && !PlainTextBookDocument.supports(mimeType)) ||
         mimeType.startsWith("image/") ||
         mimeType.startsWith("audio/") ||
         mimeType.startsWith("video/") ||
         mimeType in setOf(
             "application/json",
-            "application/xml",
             "application/x-mobipocket-ebook",
             "application/x-cbr",
             "application/x-cb7",
@@ -79,15 +133,20 @@ internal class BookReaderCacheFiles(
         }
     }
 
-    fun create(comicArchive: Boolean = false, pdfDocument: Boolean = false): File {
+    fun create(
+        comicArchive: Boolean = false,
+        pdfDocument: Boolean = false,
+        plainText: Boolean = false,
+    ): File {
         synchronized(registryLock) {
-            require(!(comicArchive && pdfDocument))
+            require(listOf(comicArchive, pdfDocument, plainText).count { it } <= 1)
             if (!directory.isDirectory && !directory.mkdirs()) {
                 throw IllegalStateException("Não foi possível preparar o cache do leitor.")
             }
             val extension = when {
                 comicArchive -> ".cbz"
                 pdfDocument -> ".pdf"
+                plainText -> ".txt"
                 else -> ".epub"
             }
             return File.createTempFile(FILE_PREFIX, extension, directory).also { file ->
@@ -114,7 +173,7 @@ internal class BookReaderCacheFiles(
 
     fun withExtension(file: File, extension: String): File = synchronized(registryLock) {
         require(file in ownedFiles)
-        require(extension in setOf(".epub", ".cbz", ".pdf"))
+        require(extension in setOf(".epub", ".cbz", ".pdf", ".txt"))
         val renamed = File(file.parentFile, file.nameWithoutExtension + extension)
         if (renamed == file) return@synchronized file
         if (!file.renameTo(renamed)) throw IOException("Não foi possível identificar o formato do livro.")
@@ -173,7 +232,7 @@ internal class BookReaderCacheFiles(
 
     private fun File.isOwnedBookCacheFile(): Boolean =
         name.startsWith(FILE_PREFIX) &&
-            (name.endsWith(".epub") || name.endsWith(".cbz") || name.endsWith(".pdf"))
+            (name.endsWith(".epub") || name.endsWith(".cbz") || name.endsWith(".pdf") || name.endsWith(".txt"))
 
     private companion object {
         const val FILE_PREFIX = "book-reader-"
@@ -182,10 +241,26 @@ internal class BookReaderCacheFiles(
     }
 }
 
-internal enum class BookPayloadFormat { EPUB, PDF, CBZ }
+internal enum class BookPayloadFormat { EPUB, PDF, CBZ, PLAIN_TEXT }
 
 /** MIME is authoritative when specific; inspect signatures/ZIP structure for generic responses. */
 internal fun detectBookPayloadFormat(file: File, contentType: String?): BookPayloadFormat {
+    if (OdtBookTextExtractor.supports(contentType) || OdtBookTextExtractor.hasOpenDocumentTextPackage(file)) {
+        return BookPayloadFormat.PLAIN_TEXT
+    }
+    if (DocxBookTextExtractor.supports(contentType) || DocxBookTextExtractor.isDocxPackage(file)) {
+        return BookPayloadFormat.PLAIN_TEXT
+    }
+    if (FictionBookZipTextExtractor.supports(contentType) ||
+        FictionBookZipTextExtractor.hasFictionBookPackage(file)
+    ) return BookPayloadFormat.PLAIN_TEXT
+    if (PlainTextBookDocument.isFictionBookContentType(contentType) ||
+        PlainTextBookDocument.hasFictionBookRoot(file)
+    ) return BookPayloadFormat.PLAIN_TEXT
+    if (PlainTextBookDocument.isRtfContentType(contentType) || PlainTextBookDocument.hasRtfHeader(file)) {
+        return BookPayloadFormat.PLAIN_TEXT
+    }
+    if (PlainTextBookDocument.supports(contentType)) return BookPayloadFormat.PLAIN_TEXT
     if (PdfBookDocument.supports(contentType)) return BookPayloadFormat.PDF
     if (ComicBookArchive.supports(contentType)) return BookPayloadFormat.CBZ
     if (file.isFile && file.length() >= PDF_SIGNATURE.size) {

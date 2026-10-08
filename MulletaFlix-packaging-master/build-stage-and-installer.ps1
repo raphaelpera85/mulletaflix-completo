@@ -314,7 +314,7 @@ function Copy-RuntimeExtras {
         Remove-Item -LiteralPath $nebulaPythonStage -Recurse -Force
     }
     New-Item -ItemType Directory -Force -Path $nebulaPythonStage | Out-Null
-    foreach ($runtimeFile in @('main.py', 'stream_service.py', 'control_plane.py', 'requirements.txt')) {
+    foreach ($runtimeFile in @('main.py', 'stream_service.py', 'control_plane.py', 'generate_strm.py', 'requirements.txt')) {
         Copy-Item -LiteralPath (Join-Path $nebulaPythonSource $runtimeFile) -Destination $nebulaPythonStage -Force
     }
     $stagePythonFtp = Join-Path $nebulaPythonStage 'ftp'

@@ -59,6 +59,12 @@ class Stats:
     bytes_copied: int = 0
 
 
+@dataclass(frozen=True)
+class RegistrationResult:
+    size: int
+    existing_status: str | None = None
+
+
 def is_monitored(path: Path) -> bool:
     suffix = path.suffix.lower()
     if suffix in {".download", ".partial"}:
@@ -419,6 +425,25 @@ def wait_for_disk_capacity(target: Path, required_bytes: int | None, minimum_fre
         time.sleep(10)
 
 
+def _validate_content_range(response, requested_start: int, requested_end: int, total: int) -> None:
+    """Reject explicit partial-response ranges that do not match the request."""
+    if getattr(response, "status", None) != 206:
+        return
+    content_range = response.headers.get("Content-Range")
+    if not content_range:
+        return
+    match = re.fullmatch(r"\s*bytes\s+(\d+)-(\d+)/(\d+|\*)\s*", content_range, re.IGNORECASE)
+    if (
+        match is None
+        or int(match.group(1)) != requested_start
+        or int(match.group(2)) != requested_end
+        or (match.group(3) != "*" and int(match.group(3)) != total)
+    ):
+        raise IOError(
+            f"Content-Range incompatível com bytes {requested_start}-{requested_end} de {total}"
+        )
+
+
 def materialize_strm(src: Path, overwrite: bool = False, target: Path | None = None) -> Path:
     url = read_strm_url(src)
     parsed = urlsplit(url)
@@ -516,6 +541,7 @@ def materialize_strm(src: Path, overwrite: bool = False, target: Path | None = N
                                 status = getattr(part_response, "status", None)
                                 if status and status not in (200, 206):
                                     raise IOError(f"HTTP status {status} ao baixar parte {index + 1}")
+                                _validate_content_range(part_response, req_start, end, total)
                                 if req_start > 0 and status == 200:
                                     with progress_lock:
                                         progress["downloaded"] = max(0, progress["downloaded"] - existing)
@@ -630,12 +656,17 @@ def enqueue_upload_job(
     src: Path,
     destination: Path | None = None,
     src_key: str | None = None,
+    replace_pending_key: str | None = None,
 ) -> bool:
     if src_key is None:
         src_key = str(src)
     with lock:
-        if src_key in pending:
+        if src_key in pending and src_key != replace_pending_key:
             return False
+        if replace_pending_key is not None and replace_pending_key not in pending:
+            return False
+        if replace_pending_key is not None:
+            pending.discard(replace_pending_key)
         pending.add(src_key)
     jobs.put((src, destination or destination_for(source_root, dest, src)))
     return True
@@ -696,6 +727,8 @@ def strm_worker(
                 and is_completed_destination(mongo_uri, dest_root, destination, url, src)
             ):
                 mark_seen(src, seen, state_file)
+                with lock:
+                    pending.discard(src_key)
                 print(
                     f"[STRM][W{worker_id}] STRM ja concluido no Telegram. Ignorando: {src}",
                     flush=True,
@@ -728,20 +761,30 @@ def strm_worker(
             print(f"[STRM][W{worker_id}] {label}: {src} -> {materialized}", flush=True)
             mark_seen(src, seen, state_file)
             if direct_mongo:
-                enqueue_upload_job(
+                queued = enqueue_upload_job(
                     upload_jobs, pending, lock, source_root, dest_root,
                     materialized, destination,
-                    src_key=str(src),  # Use .strm path as key to match pending
+                    src_key=str(materialized),
+                    replace_pending_key=src_key,
                 )
             else:
-                enqueue_upload_job(
+                queued = enqueue_upload_job(
                     upload_jobs, pending, lock, source_root, dest_root,
                     materialized,
-                    src_key=str(src),  # Use .strm path as key to match pending
+                    destination,
+                    src_key=str(materialized),
+                    replace_pending_key=src_key,
                 )
+            if not queued:
+                with lock:
+                    pending.discard(src_key)
+            else:
+                with lock:
+                    stats.queued += 1
         except Exception as exc:
             with lock:
                 failed_strm.add(src_key)
+                pending.discard(src_key)
             print(f"[STRM][W{worker_id}] Falha ao materializar {src}: {exc}", flush=True)
         finally:
             # Do NOT discard from pending here - let the upload worker handle it
@@ -1135,7 +1178,7 @@ def is_completed_destination(
     return False
 
 
-def register_one(src: Path, dst: Path, dest_root: Path, mongo_uri: str, overwrite: bool, delete_source: bool = False) -> int:
+def register_one(src: Path, dst: Path, dest_root: Path, mongo_uri: str, overwrite: bool, delete_source: bool = False) -> RegistrationResult:
     size = src.stat().st_size
     ensure_nebula_metadata(mongo_uri, dest_root, dst.parent)
     parent = mongo_parent_for(dest_root, dst.parent)
@@ -1153,13 +1196,13 @@ def register_one(src: Path, dst: Path, dest_root: Path, mongo_uri: str, overwrit
                     {"_id": existing_by_path["_id"]},
                     {"$set": {"delete_source": bool(delete_source), "name": dst.name, "parent": parent}},
                 )
-                return 0
+                return RegistrationResult(0, st)
             # Se está em outro status (failed, etc), atualiza para queued com nome correto
             files.update_one(
                 {"_id": existing_by_path["_id"]},
                 {"$set": {"name": dst.name, "parent": parent, "size": size, "status": "queued", "mtime": now, "delete_source": bool(delete_source)}},
             )
-            return size
+            return RegistrationResult(size)
         
         # FALLBACK: Busca por parent+name (compatibilidade com docs antigos)
         existing_by_name = files.find_one({"parent": parent, "name": dst.name}, {"status": 1, "local_path": 1})
@@ -1170,7 +1213,7 @@ def register_one(src: Path, dst: Path, dest_root: Path, mongo_uri: str, overwrit
                     {"parent": parent, "name": dst.name},
                     {"$set": {"delete_source": bool(delete_source)}},
                 )
-                return 0
+                return RegistrationResult(0, st)
         doc = {
             "type": "file",
             "name": dst.name,
@@ -1184,7 +1227,7 @@ def register_one(src: Path, dst: Path, dest_root: Path, mongo_uri: str, overwrit
             "delete_source": bool(delete_source),
         }
         files.update_one({"parent": parent, "name": dst.name}, {"$set": doc}, upsert=True)
-        return size
+        return RegistrationResult(size)
     finally:
         client.close()
 
@@ -1252,12 +1295,25 @@ def copy_one(
     ensure_directory(dst.parent, ensured_dirs, dir_lock)
     if dst.is_file() and not overwrite and dst.stat().st_size == src.stat().st_size:
         return 0
-    if dst.exists() and overwrite:
+    if src.resolve() == dst.resolve():
+        return 0
+
+    # Stage beside the destination so os.replace is atomic on the same volume.
+    # A failed copy must not destroy a previously completed media file.
+    file_descriptor, temporary_name = tempfile.mkstemp(
+        prefix=f".{dst.name}.", suffix=".copying", dir=dst.parent
+    )
+    os.close(file_descriptor)
+    temporary_path = Path(temporary_name)
+    try:
+        shutil.copyfile(src, temporary_path)
+        os.replace(temporary_path, dst)
+    except Exception:
         try:
-            dst.unlink()
+            temporary_path.unlink()
         except FileNotFoundError:
             pass
-    shutil.copyfile(src, dst)
+        raise
     return src.stat().st_size
 
 
@@ -1290,8 +1346,9 @@ def worker(
         for attempt in range(1, retries + 1):
             try:
                 if direct_mongo:
-                    size = register_one(src, dst, dest_root, mongo_uri, overwrite, delete_source)
-                    if not size and delete_source:
+                    registration = register_one(src, dst, dest_root, mongo_uri, overwrite, delete_source)
+                    size = registration.size
+                    if registration.existing_status == "completed" and delete_source:
                         src.unlink(missing_ok=True)
                 else:
                     size = copy_one(src, dst, dest_root, mongo_uri, overwrite, ensured_dirs, dir_lock)

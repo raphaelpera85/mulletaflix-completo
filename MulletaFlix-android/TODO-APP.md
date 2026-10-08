@@ -1,12 +1,29 @@
 # MulletaFlix Android - Plano de Desenvolvimento & Checklist de Funcionalidades (TODO)
 
-## Leitura direta de PDF e identificação de formato por conteúdo (APK local; sem release)
+## Leitura direta de formatos de livro no APK (APK local; sem release)
 
 - [x] Abrir PDF entregue diretamente pelo servidor com `PdfRenderer`, renderização paginada, zoom e retomada da página.
 - [x] Detectar PDF por assinatura e CBZ por estrutura ZIP quando o MIME for genérico/ausente; EPUB mantém validação pelo parser Readium.
 - [x] Liberar bitmaps nativos em cancelamento, troca de página e substituição por resolução de zoom maior.
-- [x] Testes JVM cobrem MIME genérico/assinaturas e identificação CBZ versus EPUB; instrumentação PHONE verifica renderização, navegação, persistência/restauração de página e de marcador.
-- [ ] A validação de arquivo real vindo do servidor e a conversão de MOBI/AZW/TXT/HTML continuam dependendo do serviço de conversão do servidor; CBR e outros formatos não foram adicionados diretamente ao APK.
+- [x] Aceitar TXT direto quando o servidor responder `text/plain`; ler UTF-8, UTF-8 BOM, UTF-16 LE/BE BOM e Windows-1252, dividir texto longo em trechos, restaurar posição e marcadores.
+- [x] Limitar payload TXT direto a 8 MiB durante a transferência, mesmo quando a resposta não informa `Content-Length`; EPUB/PDF/CBZ mantêm limite geral de 512 MiB.
+- [x] Aceitar HTML direto como fallback em texto sem WebView, removendo conteúdo ativo/oculto com varredura linear, respeitando charset declarado; limitar a 2 MiB.
+- [x] Abrir FictionBook 2 (FB2) diretamente como texto paginado; reconhecer MIME e XML genérico, ignorar DTD sem resolver entidades externas, decodificar entidades comuns e codificações UTF-16BE/LE sem BOM.
+- [x] Abrir FictionBook compactado (`.fb2.zip`/`.fbz`) diretamente; detectar exatamente um membro `.fb2` antes da classificação CBZ, ignorar capas ZIP sem extraí-las no disco e limitar pacote a 64 MiB/XML descompactado a 16 MiB. MIME genérico é aceito por inspeção do ZIP.
+- [x] Ler `text/markdown` e `text/x-markdown` como texto paginado sem WebView; converter headings, listas, citações, tabelas, código inline/bloco e links/imagens inline, mantendo HTML bruto como texto inerte. Limite direto de 8 MiB; implementa um subconjunto de leitura, não o parser completo CommonMark.
+- [x] Abrir RTF diretamente como texto seguro; reconhecer `application/rtf`, `application/x-rtf`, `text/rtf` e assinatura genérica, converter controles/Unicode/escapes e ignorar grupos de metadados; limitar o payload a 8 MiB.
+- [x] Abrir DOCX diretamente como texto paginado; ler parágrafos e tabelas sem extrair arquivos no disco, ignorar texto excluído e limitar pacote a 64 MiB/XML descompactado a 16 MiB.
+- [x] Quality Bar DOCX original: suíte JVM `feature:item-detail` com 136 testes, 0 falhas/erros/ignorados; teste ViewModel cobre download HTTP DOCX; integração Compose `DocxBookReaderIntegrationTest` passou 1/1 em PHONE e 1/1 em TABLET API 35; `lintDebug`, `compileDebugAndroidTestKotlin`, `:app:assembleDebug` e `:app:lintDebug` aprovados. Wrapper confirmou GPU NVIDIA e encerrou cada AVD.
+- [x] Testes de regressão RTF cobrem MIME específico e genérico, limite, escapes CP1252, Unicode, controles de parágrafo, metadados, texto oculto, imagens binárias e entrada malformada; integração Compose valida texto legível.
+- [x] Quality Bar atual do `feature:item-detail`: 148 testes JVM, 0 falhas/erros/ignorados; `:feature:item-detail:lintDebug`, `:feature:item-detail:compileDebugAndroidTestKotlin`, `:app:assembleDebug` e `:app:lintDebug` aprovados. `PlainTextBookReaderIntegrationTest` passou 6/6 em PHONE e 6/6 em TABLET API 35; o teste Markdown foi repetido após a otimização do parser e passou 1/1 nos dois perfis. Wrapper confirmou GPU NVIDIA e encerrou os AVDs.
+- [x] Limitar MIME genérico a 8 MiB durante a transferência e só ampliar para PDF/ZIP após assinatura reconhecida; XML UTF-16BE sem BOM não contorna o limite.
+- [x] Testes JVM cobrem MIME genérico/assinaturas, UTF-16BE/LE sem BOM, identificação CBZ versus EPUB/FB2, limites, divisão Unicode, locators e progresso; teste Compose confirma leitura HTML e FB2.
+- [x] Teste Compose `PlainTextBookReaderIntegrationTest` executado em PHONE e TABLET API 35: 5/5 aprovados em cada perfil, incluindo FB2 UTF-16BE sem BOM e `.fb2.zip` com MIME genérico; wrapper confirmou GPU NVIDIA e encerrou os AVDs.
+- [x] Testes instrumentados do leitor TXT passaram em telefone API 35 e tablet API 35; teste Compose HTML cobre texto legível e ausência de script renderizado.
+- [x] Regressões confirmam remoção de elementos HTML aninhados ocultos, `hidden`, `aria-hidden`, `display:none` e `visibility:hidden`; integração TXT salva posição no trecho 2, muda para trecho 1 e reabre o marcador no trecho 2.
+- [x] Durante conversão EPUB iniciada pelo servidor, mostrar estado acessível; se a rota de status não existir, leitura continua; cancelar o monitor junto da requisição e manter propriedade direta do `ResponseBody` para evitar vazamento em cancelamento.
+- [x] Testes do ViewModel cobrem estado de conversão antes do stream, limpeza após sucesso/erro HTTP, resposta atrasada sem ressuscitar mensagem nem contaminar a leitura de outro título e ausência de bloqueio em servidor legado; contrato HTTP confirma autenticação e formato JSON.
+- [ ] Validar mídia real servida pelo Mulletaflix e conversões MOBI/AZW no servidor; APK usa conversão do servidor para formatos ainda não suportados diretamente. CBR permanece sem suporte direto.
 - [ ] Sem bump de versão, APK de produção, portal ou publicação.
 
 Este documento rastreia o status de implementação de todas as funcionalidades, módulos, telas e componentes do aplicativo oficial **MulletaFlix Android**.
@@ -107,7 +124,10 @@ Este documento rastreia o status de implementação de todas as funcionalidades,
 - [x] Dois testes novos em `feature/player/src/test/java/org/mulletaflix/feature/player/OfflineTrackPolicyTest.kt`: fallback sequencial correto por tipo numa lista mista (reproduz a regressão antes da correção e passa depois) e seleção/índice corretos quando a faixa ativa offline é a legenda externa, não a embutida.
 - [x] `:feature:player:testDebugUnitTest --tests "org.mulletaflix.feature.player.OfflineTrackPolicyTest"`: `BUILD SUCCESSFUL`, 13/13 testes (11 preexistentes + 2 novos), 0 falhas/erros/ignorados.
 - [x] Quality Bar: `:feature:player:testDebugUnitTest` e `:feature:player:lintDebug`: `BUILD SUCCESSFUL`. Suíte JVM global `testDebugUnitTest` (1.413 testes, 0 falhas/erros/ignorados) e `:app:lintDebug`: `BUILD SUCCESSFUL`.
-- [ ] Cobertura de ponta a ponta com um download real contendo múltiplas faixas de áudio/legenda sem rótulo (container real, não `OfflineTrack` sintético) e verificação visual do menu de faixas no player offline continuam pendentes; exigem instrumentação/dispositivo.
+- [x] Extrair a leitura de faixas suportadas do snapshot Media3 para `containerTracksOfType`, usada tanto na reprodução offline quanto no fallback online; manter metadados de idioma, codec, canais, padrão, forçada, seleção, ID e rótulo.
+- [x] Adicionar fixture Matroska real (44.865 bytes) com dois áudios (português/inglês) e legenda SubRip; teste instrumentado abre o arquivo local com Media3, verifica extração de faixas, exibe ambas no `PlayerTrackMenu` e confirma o callback da seleção de inglês.
+- [x] `OfflineContainerTrackIntegrationTest`: passou PHONE API 35, TABLET API 35 e Android TV API 34 (1 teste por perfil; sem falhas/erros/ignorados); os wrappers verificaram NVIDIA RTX 3050 e encerraram cada AVD.
+- [ ] Falta cobrir o fluxo do download concluído/cache real ligado ao ViewModel do player, a troca efetiva de faixa no `TrackSelector` e validação de arquivo real servido pelo servidor. O teste atual usa contêiner real local, não sessão de servidor nem download do app.
 
 ## Fundo personalizável das legendas (APK local; sem release)
 

@@ -32,6 +32,7 @@ import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicReference
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.runBlocking
 import okhttp3.OkHttpClient
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
@@ -153,6 +154,66 @@ class BookReaderScreenIntegrationTest {
         val retryRequest = server.takeRequest()
         assertEquals("/BookReader/Items/reader-screen-book/BookReader/Epub", firstRequest.path)
         assertEquals(firstRequest.path, retryRequest.path)
+    }
+
+    @Test
+    fun directTextBookCanSaveAndRestoreBookmarkForCurrentChunk() {
+        val itemId = "reader-screen-text-${System.nanoTime()}"
+        server.enqueue(
+            MockResponse()
+                .setResponseCode(200)
+                .addHeader("Content-Type", "text/plain; charset=utf-8")
+                .setBody("Capítulo inicial. " + "Conteúdo do livro. ".repeat(90)),
+        )
+        server.enqueue(
+            MockResponse()
+                .setResponseCode(200)
+                .addHeader("Content-Type", "application/json")
+                .setBody("""{"status":"direct"}"""),
+        )
+        val api = Retrofit.Builder()
+            .baseUrl(server.url("/"))
+            .client(OkHttpClient())
+            .build()
+            .create(MulletaFlixApiService::class.java)
+        val viewModel = ViewModelProvider(
+            viewModelStore,
+            object : ViewModelProvider.Factory {
+                @Suppress("UNCHECKED_CAST")
+                override fun <T : ViewModel> create(modelClass: Class<T>): T =
+                    BookReaderViewModel(api, TestSessionRepository(sessionScope), context) as T
+            },
+        )[BookReaderViewModel::class.java]
+
+        composeRule.setContent {
+            MaterialTheme {
+                BookReaderScreen(itemId = itemId, onBack = {}, viewModel = viewModel)
+            }
+        }
+
+        composeRule.waitUntil(timeoutMillis = 15_000) {
+            runCatching { composeRule.onNodeWithText("Trecho 1 de 2").assertIsDisplayed() }.isSuccess
+        }
+        composeRule.onNodeWithContentDescription("Próximo trecho").performClick()
+        composeRule.onNodeWithText("Trecho 2 de 2").assertIsDisplayed()
+        composeRule.onNodeWithContentDescription("Mais opções de leitura").performClick()
+        composeRule.onNodeWithText("Salvar posição atual").performClick()
+        composeRule.onNodeWithText("Salvar").performClick()
+        composeRule.waitUntil(timeoutMillis = 10_000) {
+            runCatching { composeRule.onNodeWithText("Marcador salvo.").assertIsDisplayed() }.isSuccess
+        }
+
+        val savedBookmark = runBlocking {
+            BookReaderProgressStore(context).readBookmarks(sessionScope, itemId)?.single()
+        }
+        assertEquals("mulletaflix-text-chunk-1", savedBookmark?.locator?.href?.toString())
+
+        composeRule.onNodeWithContentDescription("Trecho anterior").performClick()
+        composeRule.onNodeWithText("Trecho 1 de 2").assertIsDisplayed()
+        composeRule.onNodeWithContentDescription("Mais opções de leitura").performClick()
+        composeRule.onNodeWithText("Marcadores salvos (1)").performClick()
+        composeRule.onNodeWithText("Trecho 2").assertIsDisplayed().performClick()
+        composeRule.onNodeWithText("Trecho 2 de 2").assertIsDisplayed()
     }
 
     private fun createEpub(): ByteArray {

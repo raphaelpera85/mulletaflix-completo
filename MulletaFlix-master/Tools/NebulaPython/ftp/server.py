@@ -728,7 +728,12 @@ class Server:
         conn.response("226", "abor"); return True
     async def appe(self, c, r): return await self.stor(c, r, "ab")
     async def rest(self, c, r): c.restart_offset = int(r) if r.isdigit() else 0; c.response("350", "restart"); return True
+    @ConnectionConditions(ConnectionConditions.login_required)
+    @PathPermissions(PathPermissions.writable)
+    @PathConditions(PathConditions.path_must_exists)
     async def rnfr(self, c, r): c.rename_from = self.get_paths(c, r)[0]; c.response("350", "pending"); return True
+    @ConnectionConditions(ConnectionConditions.login_required, ConnectionConditions.rename_from_required)
+    @PathPermissions(PathPermissions.writable)
     async def rnto(self, c, r):
         real, virt = self.get_paths(c, r); rename = c.rename_from; del c.rename_from
         try:

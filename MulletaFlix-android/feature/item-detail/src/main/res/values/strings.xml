@@ -1,0 +1,4 @@
+<resources>
+    <string name="book_reader_loading">Carregando livro…</string>
+    <string name="book_reader_conversion_in_progress">O servidor está convertendo este livro para leitura. Aguarde um momento.</string>
+</resources>

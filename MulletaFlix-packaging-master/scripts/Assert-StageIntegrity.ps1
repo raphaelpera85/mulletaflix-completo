@@ -49,6 +49,7 @@ function Assert-StageIntegrity {
         'Tools\mount_drive_n.py',
         'Tools\NebulaPython\main.py',
         'Tools\NebulaPython\stream_service.py',
+        'Tools\NebulaPython\generate_strm.py',
         'Tools\NebulaPython\tools\strm_downloader.py',
         'Tools\NebulaPython\ftp\pathio.py',
         'Tools\NebulaPython\requirements.txt',

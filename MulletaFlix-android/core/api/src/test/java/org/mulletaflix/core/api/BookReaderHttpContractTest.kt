@@ -113,6 +113,26 @@ class BookReaderHttpContractTest {
     }
 
     @Test
+    fun `conversion status uses authenticated camel case contract`() = runBlocking {
+        server.enqueue(
+            MockResponse()
+                .setBody("""{"status":"Converting","itemId":"item-42","itemName":"Livro de teste"}""")
+                .setHeader("Content-Type", "application/json; profile=\"CamelCase\""),
+        )
+
+        val status = api(accessToken = "conversion-token").getBookReaderStatus("item-42")
+
+        assertEquals("Converting", status.status)
+        assertEquals("item-42", status.itemId)
+        assertEquals("Livro de teste", status.itemName)
+        val request = server.takeRequest()
+        assertEquals("GET", request.method)
+        assertEquals("/BookReader/Items/item-42/BookReader/Status", request.requestUrl?.encodedPath)
+        assertEquals("application/json; profile=\"CamelCase\"", request.getHeader("Accept"))
+        assertTrue(request.getHeader("Authorization").orEmpty().contains("Token=\"conversion-token\""))
+    }
+
+    @Test
     fun `response streams the exact server payload and reports its content type and length`() = runBlocking {
         val payload = "fake-epub-container-bytes"
         server.enqueue(
