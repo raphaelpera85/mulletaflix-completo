@@ -69,7 +69,6 @@ internal class ComicBookArchive private constructor(
         private const val PAGE_HREF_PREFIX = "mulletaflix-cbz-page-"
         private const val LEGACY_PAGE_HREF_PREFIX = "mulletaflix:cbz:page:"
         private val imageExtensions = setOf("jpg", "jpeg", "png", "webp", "gif", "bmp")
-        private val naturalSortTokens = Regex("\\d+|\\D+")
 
         fun supports(contentType: String?): Boolean = contentType
             ?.substringBefore(';')
@@ -106,7 +105,7 @@ internal class ComicBookArchive private constructor(
                 }
 
                 if (entries.isEmpty()) throw IOException("Comic archive contains no supported pages.")
-                entries.sortedWith(::comparePageNames)
+                NaturalPageOrder.sort(entries) { it }
             }
             return ComicBookArchive(file, pages)
         }
@@ -176,31 +175,6 @@ internal class ComicBookArchive private constructor(
                 sampleSize *= 2
             }
             return sampleSize
-        }
-
-        private fun comparePageNames(left: String, right: String): Int {
-            val leftTokens = naturalSortTokens.findAll(left).map { it.value }.toList()
-            val rightTokens = naturalSortTokens.findAll(right).map { it.value }.toList()
-            for (index in 0 until minOf(leftTokens.size, rightTokens.size)) {
-                val leftToken = leftTokens[index]
-                val rightToken = rightTokens[index]
-                val comparison = if (leftToken.firstOrNull()?.isDigit() == true && rightToken.firstOrNull()?.isDigit() == true) {
-                    compareDigitTokens(leftToken, rightToken)
-                } else {
-                    leftToken.compareTo(rightToken, ignoreCase = true)
-                }
-                if (comparison != 0) return comparison
-            }
-            if (leftTokens.size != rightTokens.size) return leftTokens.size.compareTo(rightTokens.size)
-            return left.compareTo(right, ignoreCase = true).takeIf { it != 0 } ?: left.compareTo(right)
-        }
-
-        private fun compareDigitTokens(left: String, right: String): Int {
-            val leftSignificant = left.dropWhile { it == '0' }.ifEmpty { "0" }
-            val rightSignificant = right.dropWhile { it == '0' }.ifEmpty { "0" }
-            return leftSignificant.length.compareTo(rightSignificant.length).takeIf { it != 0 }
-                ?: leftSignificant.compareTo(rightSignificant).takeIf { it != 0 }
-                ?: left.length.compareTo(right.length)
         }
 
         private class BoundedPageInputStream(input: InputStream, private val maxBytes: Long) : FilterInputStream(input) {
