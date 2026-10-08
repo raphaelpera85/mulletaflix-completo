@@ -2,7 +2,11 @@ package org.mulletaflix.feature.itemdetail
 
 import android.graphics.Bitmap
 import android.graphics.pdf.PdfRenderer
+import android.graphics.pdf.PdfRendererPreV
+import android.os.Build
 import android.os.ParcelFileDescriptor
+import android.os.ext.SdkExtensions
+import android.annotation.SuppressLint
 import java.io.File
 import java.io.IOException
 import kotlin.math.min
@@ -14,6 +18,9 @@ internal class PdfBookDocument private constructor(
     private val file: File,
     override val pageCount: Int,
 ) : BookPageSource {
+    val supportsTextExtraction: Boolean
+        get() = supportsPdfTextExtraction(Build.VERSION.SDK_INT, pdfSdkExtensionVersion())
+
     override fun locatorForPage(index: Int): Locator {
         require(index in 0 until pageCount)
         val progression = if (pageCount == 1) 0.0 else index.toDouble() / (pageCount - 1)
@@ -32,6 +39,24 @@ internal class PdfBookDocument private constructor(
             .takeIf { locator.href.toString().startsWith(PAGE_HREF_PREFIX) }
             ?.toIntOrNull()
         return pageIndex?.takeIf { it in 0 until pageCount }
+    }
+
+    @SuppressLint("NewApi")
+    fun extractPageText(index: Int): String {
+        require(index in 0 until pageCount) { "PDF page is out of range." }
+        if (!supportsTextExtraction) {
+            throw UnsupportedOperationException("A extração de texto PDF exige Android 11 com extensão 13 ou Android 15.")
+        }
+
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.VANILLA_ICE_CREAM) {
+            openRenderer(file).use { renderer ->
+                renderer.openPage(index).use { page ->
+                    normalizeSpeechSegments(page.textContents.asSequence().map { it.text })
+                }
+            }
+        } else {
+            extractPageTextPreV(index)
+        }
     }
 
     override fun decodePage(index: Int, maxWidth: Int, maxHeight: Int): Bitmap {
@@ -60,13 +85,38 @@ internal class PdfBookDocument private constructor(
 
     companion object {
         const val CONTENT_TYPE = "application/pdf"
+        const val MAX_SPEECH_CHARACTERS_PER_PAGE = 64 * 1024
         private const val PAGE_HREF_PREFIX = "mulletaflix-pdf-page-"
         private const val MAX_DECODED_PIXELS = 16_777_216L
+
+        fun pdfSdkExtensionVersion(): Int = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            SdkExtensions.getExtensionVersion(Build.VERSION_CODES.S)
+        } else {
+            0
+        }
 
         fun supports(contentType: String?): Boolean = contentType
             ?.substringBefore(';')
             ?.trim()
             ?.equals(CONTENT_TYPE, ignoreCase = true) == true
+
+        fun normalizeSpeechSegments(segments: Sequence<String>): String {
+            val text = StringBuilder(MAX_SPEECH_CHARACTERS_PER_PAGE)
+            for (segment in segments) {
+                if (text.length >= MAX_SPEECH_CHARACTERS_PER_PAGE) break
+                var start = 0
+                var end = segment.length
+                while (start < end && segment[start].isWhitespace()) start++
+                while (end > start && segment[end - 1].isWhitespace()) end--
+                if (start == end) continue
+                if (text.isNotEmpty()) text.append('\n')
+                val remaining = MAX_SPEECH_CHARACTERS_PER_PAGE - text.length
+                val appendEnd = (start + remaining).coerceAtMost(end)
+                text.append(segment, start, appendEnd)
+            }
+            if (text.isNotEmpty() && Character.isHighSurrogate(text.last())) text.deleteCharAt(text.lastIndex)
+            return text.toString()
+        }
 
         fun open(file: File): PdfBookDocument {
             if (!file.isFile || file.length() <= 0L) throw IOException("PDF está vazio ou ausente.")
@@ -81,4 +131,18 @@ internal class PdfBookDocument private constructor(
                 PdfRenderer(ParcelFileDescriptor.dup(descriptor.fileDescriptor))
             }
     }
+
+    @androidx.annotation.RequiresExtension(extension = Build.VERSION_CODES.S, version = 13)
+    private fun extractPageTextPreV(index: Int): String =
+        ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY).use { descriptor ->
+            PdfRendererPreV(ParcelFileDescriptor.dup(descriptor.fileDescriptor)).use { renderer ->
+                renderer.openPage(index).use { page ->
+                    normalizeSpeechSegments(page.textContents.asSequence().map { it.text })
+                }
+            }
+        }
 }
+
+internal fun supportsPdfTextExtraction(sdkInt: Int, sExtensionVersion: Int): Boolean =
+    sdkInt >= Build.VERSION_CODES.VANILLA_ICE_CREAM ||
+        (sdkInt >= Build.VERSION_CODES.R && sExtensionVersion >= 13)

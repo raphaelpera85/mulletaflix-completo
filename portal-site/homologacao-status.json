@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-10-08T05:49:28-03:00",
+  "generatedAt": "2026-10-08T11:49:28-03:00",
   "source": {
     "roadmap": "https://github.com/raphaelpera85/mulletaflix-completo/blob/main/docs/roadmap-evolucao-tecnologica-servidor-e-web.md",
     "repository": "https://github.com/raphaelpera85/mulletaflix-completo"
@@ -4609,6 +4609,21 @@
       "startedAt": "2026-10-08T05:33:17-03:00",
       "updatedAt": "2026-10-08T05:34:31-03:00",
       "evidence": "TDD: teste determinístico `test_get_media_session_stops_uncached_session_after_auth_retries_are_exhausted` passou e comprova seis tentativas, propagação de `AuthBytesInvalid`, parada da sessão temporária e ausência de cache. Teste focal `tests/test_ftp_telegram.py`: 24/24; `ftp/tg.py` 80% com branches (78% antes). Suíte Nebula completa passou 538/538, exit 0; produção instrumentada 6.626 statements, 1.385 ausentes, 76%. Transporte/auth Telegram simulado; sem sessão real, pacote, release, commit, push ou deploy. T0.3/T6.1 e homologação global permanecem parciais, progressPercent null; curadoria IA fora do escopo ativo."
+    },
+    {
+      "id": "android-google-play-release-readiness-2026-10-08",
+      "title": "Adequar o aplicativo Android aos bloqueios da Google Play Console",
+      "agent": "Codex",
+      "front": "android",
+      "featureIds": [],
+      "local": "D:\\Users\\Raphael\\Documents\\Projetos\\mulletaflix",
+      "location": "MulletaFlix-android/app/src/main/AndroidManifest.xml e Google Play Console",
+      "scope": "Remover permissões Android sem uso que bloqueiam a publicação, validar o aplicativo e completar as declarações obrigatórias da faixa de teste fechado.",
+      "status": "in_progress",
+      "progressPercent": null,
+      "startedAt": "2026-10-08T11:49:28-03:00",
+      "updatedAt": "2026-10-08T11:49:28-03:00",
+      "evidence": "Diagnóstico da Console: lançamento Alpha em rascunho, sem app bundle e com seis erros. Pendências identificadas: bundle de produção compatível, declaração de REQUEST_INSTALL_PACKAGES, serviços em primeiro plano, saúde e acesso a fotos/vídeos. A matriz formal Android permanece aberta; progressPercent permanece null. Nenhum pacote, release, commit, push ou deploy foi criado. O gate do roadmap servidor/web tem 68 itens pendentes e bloqueia releases oficiais intermediárias."
     },
     {
       "id": "nebula-telegram-stale-reference-fallback-tests-2026-10-08",

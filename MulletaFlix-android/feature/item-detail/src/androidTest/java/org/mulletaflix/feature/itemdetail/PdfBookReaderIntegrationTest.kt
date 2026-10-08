@@ -54,6 +54,26 @@ class PdfBookReaderIntegrationTest {
     }
 
     @Test
+    fun pdfTextExtractionReturnsPageTextForSpeech() = runBlocking(Dispatchers.IO) {
+        val file = createPdf()
+        try {
+            val book = PdfBookDocument.open(file)
+            assertEquals("PDF page 1", book.extractPageText(0))
+        } finally {
+            file.delete()
+        }
+    }
+
+    @Test
+    fun pdfSpeechTextIsBoundedPerPage() {
+        val oversizedSegment = "x".repeat(PdfBookDocument.MAX_SPEECH_CHARACTERS_PER_PAGE + 100)
+
+        val text = PdfBookDocument.normalizeSpeechSegments(sequenceOf(oversizedSegment))
+
+        assertEquals(PdfBookDocument.MAX_SPEECH_CHARACTERS_PER_PAGE, text.length)
+    }
+
+    @Test
     fun pdfPageNavigationRendersEveryPageAndRestoresItsLocator() {
         val file = createPdf()
         try {

@@ -23,6 +23,8 @@ import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.RecordVoiceOver
+import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.AlertDialog
@@ -40,6 +42,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
@@ -67,6 +70,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import org.readium.navigator.web.reflowable.ReflowableWebConfiguration
 import org.readium.navigator.web.reflowable.ReflowableWebRendition
 import org.readium.navigator.web.reflowable.ReflowableWebRenditionFactory
@@ -76,8 +82,16 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import org.readium.navigator.web.reflowable.ReflowableWebGoLocation
 import org.readium.r2.shared.publication.Link
+import org.readium.navigator.media.tts.TtsNavigator
+import org.readium.navigator.media.tts.TtsNavigatorFactory
+import org.readium.navigator.media.tts.android.AndroidTtsSettings
+import org.readium.navigator.media.tts.android.AndroidTtsPreferences
+import org.readium.navigator.media.tts.android.AndroidTtsEngine
 import kotlin.math.roundToInt
 
 @Composable
@@ -91,13 +105,106 @@ fun BookReaderScreen(
     val pageBook = state.pageBook
     val textBook = state.textBook
     val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
+    val speechEngineFactory = LocalBookSpeechEngineFactory.current
     val coroutineScope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
     var currentPage by rememberSaveable(itemId) { mutableIntStateOf(0) }
+    var pdfSpeechActive by remember(itemId) { mutableStateOf(false) }
+    var pdfSpeechLoading by remember(itemId) { mutableStateOf(false) }
+    var pdfSpeechJob by remember(itemId) { mutableStateOf<Job?>(null) }
     var currentTextChunk by rememberSaveable(itemId) { mutableIntStateOf(0) }
     var pageZoom by rememberSaveable(itemId) { mutableFloatStateOf(1f) }
     var renditionState by remember(itemId) { mutableStateOf<ReflowableWebRenditionState?>(null) }
     var renditionError by remember(itemId) { mutableStateOf<String?>(null) }
+    var epubSpeechNavigator by remember(itemId) {
+        mutableStateOf<TtsNavigator<AndroidTtsSettings, AndroidTtsPreferences, AndroidTtsEngine.Error, AndroidTtsEngine.Voice>?>(null)
+    }
+    var epubSpeechActive by remember(itemId) { mutableStateOf(false) }
+    var epubSpeechStarting by remember(itemId) { mutableStateOf(false) }
+    var epubSpeechSyncJob by remember(itemId) { mutableStateOf<Job?>(null) }
+    val speechController = remember(context.applicationContext, itemId, speechEngineFactory) {
+        BookSpeechPlaybackController(
+            engine = speechEngineFactory(context.applicationContext),
+            onChunkChanged = { currentTextChunk = it },
+        )
+    }
+    val pdfBook = pageBook as? PdfBookDocument
+    val pdfSpeechSupported = remember(pdfBook) { pdfBook?.supportsTextExtraction == true }
+    val stopPdfSpeech: () -> Unit = {
+        pdfSpeechJob?.cancel()
+        pdfSpeechJob = null
+        pdfSpeechLoading = false
+        pdfSpeechActive = false
+        speechController.stop()
+    }
+    val startPdfSpeech: (Int) -> Unit = { startAt ->
+        val document = pdfBook
+        if (document != null && pdfSpeechSupported) {
+            pdfSpeechJob?.cancel()
+            pdfSpeechActive = true
+            pdfSpeechLoading = true
+            pdfSpeechJob = coroutineScope.launch {
+                try {
+                    for (pageIndex in startAt.coerceAtLeast(0) until document.pageCount) {
+                        val text = withContext(Dispatchers.IO) { document.extractPageText(pageIndex) }
+                        if (text.isNotBlank()) {
+                            currentPage = pageIndex
+                            speechController.play(PlainTextBookDocument.splitIntoChunks(text))
+                            pdfSpeechLoading = false
+                            return@launch
+                        }
+                    }
+                    pdfSpeechActive = false
+                    pdfSpeechLoading = false
+                    snackbarHostState.showSnackbar(
+                        if (startAt == 0) "Este PDF não contém texto selecionável para narração."
+                        else "Fim da narração do PDF.",
+                    )
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (error: Exception) {
+                    pdfSpeechActive = false
+                    pdfSpeechLoading = false
+                    snackbarHostState.showSnackbar(error.message ?: "Não foi possível narrar este PDF.")
+                }
+            }
+        }
+    }
+    LaunchedEffect(pdfBook, speechController.state, pdfSpeechActive) {
+        if (pdfSpeechActive) {
+            when (speechController.state) {
+                BookSpeechState.Completed -> startPdfSpeech(currentPage + 1)
+                is BookSpeechState.Error -> {
+                    pdfSpeechActive = false
+                    pdfSpeechLoading = false
+                    pdfSpeechJob = null
+                }
+                else -> Unit
+            }
+        }
+    }
+
+    DisposableEffect(lifecycleOwner, speechController) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_STOP) {
+                stopPdfSpeech()
+                epubSpeechNavigator?.pause()
+                epubSpeechActive = false
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+            epubSpeechSyncJob?.cancel()
+            speechController.shutdown()
+            epubSpeechNavigator?.close()
+        }
+    }
+    LaunchedEffect(speechController.state) {
+        val error = (speechController.state as? BookSpeechState.Error)?.message ?: return@LaunchedEffect
+        snackbarHostState.showSnackbar(error)
+    }
 
     LaunchedEffect(itemId) { viewModel.load(itemId) }
     LaunchedEffect(state.publication) {
@@ -120,6 +227,55 @@ fun BookReaderScreen(
     }
     val renditionController = renditionState?.controller
     val publication = state.publication
+    val stopEpubSpeech: () -> Unit = {
+        epubSpeechSyncJob?.cancel()
+        epubSpeechSyncJob = null
+        epubSpeechNavigator?.close()
+        epubSpeechNavigator = null
+        epubSpeechStarting = false
+        epubSpeechActive = false
+    }
+    val toggleEpubSpeech: () -> Unit = {
+        if (epubSpeechActive || epubSpeechStarting) {
+            stopEpubSpeech()
+        } else {
+            val activePublication = publication
+            val visualController = renditionController
+            if (activePublication != null && visualController != null) {
+                epubSpeechStarting = true
+                epubSpeechSyncJob = coroutineScope.launch {
+                    try {
+                        val factory = TtsNavigatorFactory(
+                            context.applicationContext as Application,
+                            activePublication,
+                        ) ?: throw IllegalStateException("Narração indisponível para este livro.")
+                        val navigator = factory.createNavigator(
+                            listener = object : TtsNavigator.Listener {
+                                override fun onStopRequested() { epubSpeechActive = false }
+                            },
+                            initialLocator = visualController.location.toLocator(),
+                        ).getOrNull() ?: throw IllegalStateException("Não foi possível iniciar a narração.")
+                        epubSpeechNavigator?.close()
+                        epubSpeechNavigator = navigator
+                        navigator.play()
+                        epubSpeechStarting = false
+                        epubSpeechActive = true
+                        navigator.location.collect { location ->
+                            visualController.goTo(ReflowableWebGoLocation(location.utteranceLocator))
+                        }
+                    } catch (cancelled: CancellationException) {
+                        throw cancelled
+                    } catch (error: Exception) {
+                        epubSpeechNavigator?.close()
+                        epubSpeechNavigator = null
+                        epubSpeechStarting = false
+                        epubSpeechActive = false
+                        snackbarHostState.showSnackbar(error.message ?: "Não foi possível iniciar a narração.")
+                    }
+                }
+            }
+        }
+    }
     val contentsEntries = remember(publication, textBook) {
         publication?.tableOfContents?.let(::flattenBookReaderContents)
             ?: textBook?.chapters?.map { chapter ->
@@ -129,6 +285,13 @@ fun BookReaderScreen(
                     chapterChunkIndex = chapter.chunkIndex,
                 )
             }.orEmpty()
+    }
+    val navigateToTextChunk: (Int) -> Unit = { index ->
+        textBook?.let { document ->
+            speechController.stop()
+            currentTextChunk = index.coerceIn(0, document.chunkCount - 1)
+            viewModel.saveReadingProgression(itemId, document.locatorForChunk(currentTextChunk))
+        }
     }
     LaunchedEffect(state.bookmarkMessage) {
         val message = state.bookmarkMessage ?: return@LaunchedEffect
@@ -175,7 +338,12 @@ fun BookReaderScreen(
             TopAppBar(
                 title = { Text("Leitor de livros", maxLines = 1) },
                 navigationIcon = {
-                    IconButton(onClick = onBack) {
+                    IconButton(onClick = {
+                        speechController.stop()
+                        stopPdfSpeech()
+                        stopEpubSpeech()
+                        onBack()
+                    }) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Voltar")
                     }
                 },
@@ -194,16 +362,13 @@ fun BookReaderScreen(
                             onOpenEntry = { entry ->
                                 val chapterChunk = entry.chapterChunkIndex
                                 if (chapterChunk != null && textBook != null) {
-                                    currentTextChunk = chapterChunk.coerceIn(0, textBook.chunkCount - 1)
-                                    viewModel.saveReadingProgression(
-                                        itemId,
-                                        textBook.locatorForChunk(currentTextChunk),
-                                    )
+                                    navigateToTextChunk(chapterChunk)
                                     return@BookReaderContentsActions
                                 }
                                 val activePublication = publication ?: return@BookReaderContentsActions
                                 val controller = renditionController ?: return@BookReaderContentsActions
                                 val link = entry.link ?: return@BookReaderContentsActions
+                                stopEpubSpeech()
                                 coroutineScope.launch {
                                     try {
                                         controller.goTo(activePublication.url(link))
@@ -237,14 +402,18 @@ fun BookReaderScreen(
                             onOpenBookmark = { bookmark ->
                                 if (pageBook != null) {
                                     pageBook.pageIndexFromLocator(bookmark.locator)
-                                        ?.let { currentPage = it }
+                                        ?.let {
+                                            stopPdfSpeech()
+                                            currentPage = it
+                                        }
                                         ?: viewModel.showBookmarkMessage("Este marcador não existe mais neste livro.")
                                 } else if (textBook != null) {
                                     textBook.chunkIndexFromLocator(bookmark.locator)
-                                        ?.let { currentTextChunk = it }
+                                        ?.let(navigateToTextChunk)
                                         ?: viewModel.showBookmarkMessage("Este marcador não existe mais neste livro.")
                                 } else {
                                     renditionController?.let { controller ->
+                                        stopEpubSpeech()
                                         coroutineScope.launch {
                                             try {
                                                 controller.goTo(ReflowableWebGoLocation(bookmark.locator))
@@ -259,7 +428,11 @@ fun BookReaderScreen(
                             },
                             onDeleteBookmark = { bookmarkId -> viewModel.deleteBookmark(itemId, bookmarkId) },
                             onRenameBookmark = { bookmarkId, label -> viewModel.renameBookmark(itemId, bookmarkId, label) },
-                            onRestart = { viewModel.restartReadingFromBeginning(itemId) },
+                            onRestart = {
+                                stopPdfSpeech()
+                                stopEpubSpeech()
+                                viewModel.restartReadingFromBeginning(itemId)
+                            },
                         )
                     }
                 },
@@ -270,14 +443,38 @@ fun BookReaderScreen(
                 ComicBookPageControls(
                     currentPage = currentPage,
                     pageCount = pageBook.pageCount,
-                    onPageSelected = { page -> currentPage = page.coerceIn(0, pageBook.pageCount - 1) },
+                    speechEnabled = pdfSpeechSupported,
+                    speechLoading = pdfSpeechLoading,
+                    speechActive = pdfSpeechActive,
+                    onToggleSpeech = {
+                        if (pdfSpeechActive || speechController.isSpeaking) stopPdfSpeech()
+                        else {
+                            if (speechController.state == BookSpeechState.Completed) speechController.stop()
+                            startPdfSpeech(currentPage)
+                        }
+                    },
+                    onPageSelected = { page ->
+                        if (pdfSpeechActive || speechController.isSpeaking) stopPdfSpeech()
+                        currentPage = page.coerceIn(0, pageBook.pageCount - 1)
+                    },
                 )
             } else if (textBook != null) {
                 PlainTextBookChunkControls(
                     currentChunk = currentTextChunk,
                     chunkCount = textBook.chunkCount,
                     fontSizePercent = state.fontSizePercent,
-                    onChunkSelected = { currentTextChunk = it.coerceIn(0, textBook.chunkCount - 1) },
+                    speechState = speechController.state,
+                    onToggleSpeech = {
+                        if (speechController.isSpeaking) speechController.stop()
+                        else speechController.play(textBook.chunks, currentTextChunk)
+                    },
+                    onChunkSelected = {
+                        val selectedChunk = it.coerceIn(0, textBook.chunkCount - 1)
+                        if (selectedChunk != speechController.currentChunkIndex && speechController.isSpeaking) {
+                            speechController.stop()
+                        }
+                        currentTextChunk = selectedChunk
+                    },
                     onDecreaseFontSize = {
                         viewModel.setFontSizePercent(itemId, BookReaderFontSize.decrease(state.fontSizePercent))
                     },
@@ -292,7 +489,29 @@ fun BookReaderScreen(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    IconButton(onClick = { controller?.let { nav -> coroutineScope.launch { nav.moveBackward() } } }, enabled = controller != null) {
+                    if (publication != null) {
+                        IconButton(
+                            onClick = toggleEpubSpeech,
+                            enabled = controller != null,
+                            modifier = Modifier.semantics {
+                                contentDescription = if (epubSpeechActive || epubSpeechStarting) "Parar narração" else "Ouvir livro"
+                                stateDescription = when {
+                                    epubSpeechStarting -> "Iniciando"
+                                    epubSpeechActive -> "Em reprodução"
+                                    else -> "Parado"
+                                }
+                            },
+                        ) {
+                            Icon(
+                                if (epubSpeechActive || epubSpeechStarting) Icons.Filled.Stop else Icons.Filled.RecordVoiceOver,
+                                contentDescription = null,
+                            )
+                        }
+                    }
+                    IconButton(onClick = {
+                        stopEpubSpeech()
+                        controller?.let { nav -> coroutineScope.launch { nav.moveBackward() } }
+                    }, enabled = controller != null) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Página anterior")
                     }
                     BookReaderFontSizeControls(
@@ -311,7 +530,10 @@ fun BookReaderScreen(
                             )
                         },
                     )
-                    IconButton(onClick = { controller?.let { nav -> coroutineScope.launch { nav.moveForward() } } }, enabled = controller != null) {
+                    IconButton(onClick = {
+                        stopEpubSpeech()
+                        controller?.let { nav -> coroutineScope.launch { nav.moveForward() } }
+                    }, enabled = controller != null) {
                         Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = "Próxima página")
                     }
                 }
@@ -345,6 +567,9 @@ fun BookReaderScreen(
                     currentChunk = currentTextChunk,
                     fontSizePercent = state.fontSizePercent,
                     onChunkSelected = { chunk ->
+                        if (chunk != speechController.currentChunkIndex && speechController.isSpeaking) {
+                            speechController.stop()
+                        }
                         currentTextChunk = chunk
                         viewModel.saveReadingProgression(itemId, textBook.locatorForChunk(chunk))
                     },
@@ -426,6 +651,8 @@ private fun PlainTextBookChunkControls(
     currentChunk: Int,
     chunkCount: Int,
     fontSizePercent: Int,
+    speechState: BookSpeechState,
+    onToggleSpeech: () -> Unit,
     onChunkSelected: (Int) -> Unit,
     onDecreaseFontSize: () -> Unit,
     onIncreaseFontSize: () -> Unit,
@@ -440,6 +667,19 @@ private fun PlainTextBookChunkControls(
         }
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Text("Trecho ${currentChunk + 1} de $chunkCount", style = MaterialTheme.typography.labelSmall)
+            IconButton(onClick = onToggleSpeech) {
+                if (speechState == BookSpeechState.Preparing || speechState == BookSpeechState.Speaking) {
+                    Icon(
+                        Icons.Default.Stop,
+                        contentDescription = stringResource(R.string.book_reader_speech_stop),
+                    )
+                } else {
+                    Icon(
+                        Icons.Default.RecordVoiceOver,
+                        contentDescription = stringResource(R.string.book_reader_speech_read),
+                    )
+                }
+            }
             BookReaderFontSizeControls(
                 fontSizePercent = fontSizePercent,
                 enabled = true,

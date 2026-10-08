@@ -8,6 +8,7 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -16,6 +17,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.RecordVoiceOver
+import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.ZoomIn
 import androidx.compose.material.icons.filled.ZoomOut
 import androidx.compose.material3.CircularProgressIndicator
@@ -258,6 +261,10 @@ private const val COMIC_PAGE_RENDER_DEBOUNCE_MS = 250L
 internal fun ComicBookPageControls(
     currentPage: Int,
     pageCount: Int,
+    speechEnabled: Boolean = false,
+    speechLoading: Boolean = false,
+    speechActive: Boolean = false,
+    onToggleSpeech: () -> Unit = {},
     onPageSelected: (Int) -> Unit,
 ) {
     Row(
@@ -271,10 +278,35 @@ internal fun ComicBookPageControls(
         ) {
             Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Página anterior")
         }
-        Text(
-            text = "Página ${currentPage + 1} de $pageCount",
-            style = MaterialTheme.typography.labelMedium,
-        )
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Text(
+                text = "Página ${currentPage + 1} de $pageCount",
+                style = MaterialTheme.typography.labelMedium,
+            )
+            if (speechEnabled) {
+                IconButton(
+                    onClick = onToggleSpeech,
+                    modifier = Modifier.semantics {
+                        contentDescription = when {
+                            speechLoading -> "Cancelar preparação da leitura em voz alta"
+                            speechActive -> "Parar leitura em voz alta"
+                            else -> "Ler PDF em voz alta"
+                        }
+                    },
+                ) {
+                    if (speechLoading) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.padding(12.dp),
+                            strokeWidth = 2.dp,
+                        )
+                    } else if (speechActive) {
+                        Icon(Icons.Default.Stop, contentDescription = null)
+                    } else {
+                        Icon(Icons.Default.RecordVoiceOver, contentDescription = null)
+                    }
+                }
+            }
+        }
         IconButton(
             onClick = { onPageSelected(currentPage + 1) },
             enabled = currentPage < pageCount - 1,

@@ -613,7 +613,7 @@ internal class PlainTextBookDocument private constructor(
                 .toString()
         }.getOrNull()
 
-        private fun splitIntoChunks(text: String): List<String> {
+        internal fun splitIntoChunks(text: String): List<String> {
             val chunks = ArrayList<String>((text.length / MAX_CHUNK_CHARACTERS).coerceAtLeast(1))
             var start = 0
             while (start < text.length) {

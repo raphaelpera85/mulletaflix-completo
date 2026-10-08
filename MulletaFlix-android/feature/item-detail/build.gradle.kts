@@ -43,6 +43,7 @@ dependencies {
     coreLibraryDesugaring(libs.android.desugar.jdk.libs)
     implementation(libs.readium.streamer)
     implementation(libs.readium.navigator.web.reflowable)
+    implementation(libs.readium.navigator.media.tts)
     implementation(libs.junrar)
     implementation(libs.retrofit)
     implementation(libs.okhttp)

@@ -1,5 +1,19 @@
 # MulletaFlix Android - Plano de Desenvolvimento & Checklist de Funcionalidades (TODO)
 
+## Narração no leitor EPUB + formatos paginados (APK local; sem release)
+
+- [x] Integrar TextToSpeech Android ao leitor de texto paginado, com controle acessível de iniciar/parar e avanço automático entre trechos.
+- [x] Interromper fala ao navegar manualmente para outro trecho, selecionar capítulo/marcador, voltar do leitor, sair do app ou descartar a tela; ignorar callbacks obsoletos e permitir nova tentativa após falha de inicialização.
+- [x] Regressões TDD: os testes de rolagem, navegação Voltar e falha tardia de inicialização foram observados falhando antes das correções e passaram depois.
+- [x] `BookReaderScreenIntegrationTest`: inclui cenários de narração EPUB e PDF; o cenário PDF exercita extração de texto, avanço entre páginas, retorno ao fim e parada em navegação manual.
+- [x] Adicionar narração de EPUB com TTS do Readium, iniciar do local visível, seguir a posição falada no leitor, respeitar idioma/segmentação declarados no EPUB, pausar quando o app vai para segundo plano e interromper ao navegar manualmente.
+- [x] `testDebugUnitTest`, `:feature:item-detail:lintDebug`, `:app:lintDebug` e `:app:assembleDebug`: `BUILD SUCCESSFUL` em 2026-10-08.
+- [x] Instrumentação PDF: a suíte `BookReaderScreenIntegrationTest` passou no PHONE API 35; o cenário de PDF passou em TABLET API 35 e TV API 34, onde confirmou o controle oculto sem a extensão de extração. AVDs usaram GPU NVIDIA e foram encerrados pelo wrapper.
+- [x] PDFs com texto selecionável: extrair texto apenas da página falada, narrar em blocos limitados com TextToSpeech, avançar automaticamente entre páginas com texto e interromper ao navegar ou deixar o app; páginas digitalizadas/imagem não têm OCR e não são narradas.
+- [x] Disponibilidade limitada pelas APIs do sistema: Android 15+ ou Android 11+ com extensão S versão 13; em versões sem suporte o controle de narração fica oculto. Android TV API 34 validou o caminho sem suporte; PHONE/TABLET API 35 validaram a narração.
+- [ ] Quadrinhos e PDFs apenas em imagem continuam sem narração/OCR; validar PDFs com documentos reais e saídas TTS/idiomas em dispositivos físicos.
+- [ ] Sem bump de versão, APK de produção, portal ou publicação.
+
 ## Ocultação de livros em toda a experiência Android TV (validação local; sem release)
 
 - [x] Testar a `HomeScreen` real com `HomeViewModel` e feed contendo `Book` em Continuar Assistindo, Próximo Episódio, Minha Lista, adicionados recentes e biblioteca Livros; TV conserva cards de filmes e omite os livros em cada faixa. A seção de recomendações também oculta `Book` e `AudioBook`.
@@ -7,7 +21,7 @@
 - [x] Testar a busca real na TV: resultados e sugestões ocultam `Book`/`AudioBook` e preservam filmes; `SearchScreenDeviceVisibilityTest` passou 2/2 em Android TV API 34 em 2026-10-08.
 - [x] A biblioteca aplica a política de ocultação também no limite da UI: catálogo móvel previamente carregado não revela livros/audiolivros na TV durante atualização nem após falha; prévia offline, navegação alfabética e contagem seguem os itens visíveis. `LibraryOfflineReconnectFlowTest` passou 2/2 no AVD Android TV API 34.
 - [x] Instrumentados Android TV API 34: Home carregada e rolada na `LazyColumn` real 1/1; detalhe/recomendações e compatibilidade handheld 4/4; GPU NVIDIA confirmada e AVD encerrado pelo wrapper após cada execução.
-- [x] Revalidação Android TV API 34 em 2026-10-08: `HomeLibraryNavigationTest` 3/3 e `TvHomeRefreshIntegrationTest` 2/2; confirmou biblioteca Livros ausente e livros filtrados das linhas da Home mesmo após feed carregado/atualizado. AVD executado na GPU NVIDIA e encerrado pelo wrapper.
+- [x] Revalidação Android TV API 34 em 2026-10-08: `HomeLibraryNavigationTest` 3/3 e `TvHomeRefreshIntegrationTest` 2/2; confirmou biblioteca Livros ausente e livros filtrados das linhas da Home mesmo após feed carregado/atualizado. Reexecutado `HomeLibraryNavigationTest` 3/3 agora; AVD executado na GPU NVIDIA e encerrado pelo wrapper.
 - [x] `:feature:item-detail:testDebugUnitTest`: 162 testes, 0 falhas/erros/ignorados; `:feature:item-detail:compileDebugAndroidTestKotlin`, `:feature:item-detail:lintDebug`, `:app:lintDebug` e `:app:assembleDebug`: `BUILD SUCCESSFUL`.
 - [ ] Validar visualmente em uma Android TV física conectada ao servidor real; os instrumentados usam feed controlado.
 - [ ] Sem bump de versão, APK de produção, portal ou publicação.
@@ -85,6 +99,7 @@ Este documento rastreia o status de implementação de todas as funcionalidades,
 ## P1 — Restringir HTTP sem quebrar a descoberta LAN (pendente)
 
 - [ ] A configuração Android ainda permite cleartext de forma ampla (`base-config` e `usesCleartextTraffic`), enquanto o cliente API anexa o token de sessão ao `Authorization`. Restringir tráfego HTTP público/não local antes da inclusão de credenciais.
+- [ ] Cobrir o caso em que um hostname `.local`/`.home.arpa` permitido sem resolução prévia resolve, na rota efetiva, para fora da LAN: o guard de rede impede o envio em HTTP, mas a identidade pode ler/adicionar o token ao request antes dessa rejeição. Não há evidência atual de credencial transmitida; desenvolver a proteção mantendo descoberta local sem exigir DNS prévio.
 - [ ] Preservar HTTP de servidores na sub-rede ativa descoberta/configurada e HTTPS para a URL pública padrão; abranger Retrofit, Coil, streaming Media3, downloads e legendas — nomes `.local` e `.home.arpa` continuam aceitos sem resolução DNS.
 - [ ] Testar HTTP público bloqueado sem token, HTTPS remoto permitido e HTTP LAN permitido em cada caminho de rede; não publicar APK até fechar a cobertura.
 - [x] Adicionado teste de contrato do cliente usado pelo Coil: URL de imagem HTTP público direto é negada antes de ler token/identidade ou enviar tráfego; HTTP LAN continua coberto pelo round-trip do cliente de artwork. Suíte focada `CleartextRequestProtectionTest` + `ArtworkClientIdentityTest` passou.

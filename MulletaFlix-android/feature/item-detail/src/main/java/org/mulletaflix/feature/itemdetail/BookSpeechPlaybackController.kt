@@ -1,7 +1,9 @@
 package org.mulletaflix.feature.itemdetail
 
+import android.content.Context
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.runtime.setValue
 
 internal sealed interface BookSpeechState {
@@ -16,7 +18,7 @@ internal interface BookSpeechEngine {
     interface Listener {
         fun onReady()
         fun onUtteranceFinished(utteranceId: String)
-        fun onError(message: String)
+        fun onError(message: String, utteranceId: String? = null)
     }
 
     fun initialize(listener: Listener)
@@ -25,9 +27,13 @@ internal interface BookSpeechEngine {
     fun shutdown()
 }
 
+internal val LocalBookSpeechEngineFactory =
+    staticCompositionLocalOf<(Context) -> BookSpeechEngine> { { context -> AndroidBookSpeechEngine(context) } }
+
 internal class BookSpeechPlaybackController(
     private val engine: BookSpeechEngine,
     private val onStateChanged: (BookSpeechState) -> Unit = {},
+    private val onChunkChanged: (Int) -> Unit = {},
 ) : BookSpeechEngine.Listener {
     var state: BookSpeechState by mutableStateOf(BookSpeechState.Idle)
         private set
@@ -39,19 +45,27 @@ internal class BookSpeechPlaybackController(
     private var generation = 0
     private var activeUtteranceId: String? = null
     private var initialized = false
+    private var initializationRequested = false
 
     fun play(chunks: List<String>, startIndex: Int = 0) {
         if (chunks.isEmpty()) return fail("Este trecho não contém texto para leitura.")
         generation++
         this.chunks = chunks
         currentChunkIndex = startIndex.coerceIn(chunks.indices)
+        onChunkChanged(currentChunkIndex)
         activeUtteranceId = null
         updateState(BookSpeechState.Preparing)
-        if (initialized) speakCurrentChunk() else engine.initialize(this)
+        if (initialized) {
+            speakCurrentChunk()
+        } else if (!initializationRequested) {
+            initializationRequested = true
+            engine.initialize(this)
+        }
     }
 
     override fun onReady() {
         initialized = true
+        initializationRequested = false
         if (state == BookSpeechState.Preparing) speakCurrentChunk()
     }
 
@@ -62,12 +76,23 @@ internal class BookSpeechPlaybackController(
             updateState(BookSpeechState.Completed)
         } else {
             currentChunkIndex++
+            onChunkChanged(currentChunkIndex)
             speakCurrentChunk()
         }
     }
 
-    override fun onError(message: String) {
-        if (state == BookSpeechState.Preparing || state == BookSpeechState.Speaking) fail(message)
+    override fun onError(message: String, utteranceId: String?) {
+        if (!initialized && initializationRequested && utteranceId == null) {
+            initializationRequested = false
+        }
+        val isActiveError = when (state) {
+            BookSpeechState.Preparing -> utteranceId == null
+            BookSpeechState.Speaking -> utteranceId == null || utteranceId == activeUtteranceId
+            else -> false
+        }
+        if (isActiveError) {
+            fail(message)
+        }
     }
 
     fun stop() {
@@ -82,6 +107,7 @@ internal class BookSpeechPlaybackController(
         stop()
         engine.shutdown()
         initialized = false
+        initializationRequested = false
     }
 
     private fun speakCurrentChunk() {
