@@ -14,6 +14,7 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
+import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertHasNoClickAction
 import androidx.compose.ui.test.assertHasClickAction
 import androidx.compose.ui.test.isHeading
@@ -82,6 +83,7 @@ class BookReaderScreenIntegrationTest {
 
     @Before
     fun setUp() {
+        runBlocking { BookReaderProgressStore(context).removeSpeechRatePercent(sessionScope) }
         server = MockWebServer().apply { start() }
     }
 
@@ -512,11 +514,21 @@ class BookReaderScreenIntegrationTest {
         }
         composeRule.onNodeWithContentDescription("Ler PDF em voz alta").performClick()
         composeRule.waitUntil(timeoutMillis = 5_000) { speechEngine.initializeRequested }
+        composeRule.waitUntil(timeoutMillis = 5_000) {
+            runCatching {
+                composeRule.onNodeWithContentDescription("Parar leitura em voz alta").assertIsDisplayed()
+            }.isSuccess
+        }
+        assertTrue(speechEngine.spokenChunks.isEmpty())
+        composeRule.onNodeWithContentDescription("Aumentar velocidade da narração").assertIsNotEnabled()
+        composeRule.onNodeWithContentDescription("Diminuir velocidade da narração").assertIsNotEnabled()
         composeRule.runOnUiThread { speechEngine.listener.onReady() }
         composeRule.waitUntil(timeoutMillis = 5_000) { speechEngine.spokenChunks.size == 1 }
         assertEquals(listOf("PDF page 1"), speechEngine.spokenChunks)
+        composeRule.onNodeWithContentDescription("Diminuir velocidade da narração").assertIsEnabled()
         composeRule.onNodeWithContentDescription("Aumentar velocidade da narração")
             .assertIsDisplayed()
+            .assertIsEnabled()
             .performClick()
         composeRule.onNodeWithText("125%").assertIsDisplayed()
         composeRule.waitUntil(timeoutMillis = 5_000) {

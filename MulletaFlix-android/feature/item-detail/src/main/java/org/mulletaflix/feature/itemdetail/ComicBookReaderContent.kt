@@ -263,6 +263,7 @@ internal fun ComicBookPageControls(
     pageCount: Int,
     speechEnabled: Boolean = false,
     speechLoading: Boolean = false,
+    speechPreparing: Boolean = false,
     speechActive: Boolean = false,
     speechRatePercent: Int = BookSpeechRate.DEFAULT_PERCENT,
     onDecreaseSpeechRate: () -> Unit = {},
@@ -310,7 +311,7 @@ internal fun ComicBookPageControls(
                 }
                 BookSpeechRateControls(
                     speechRatePercent = speechRatePercent,
-                    enabled = !speechLoading,
+                    enabled = !speechLoading && !speechPreparing,
                     onDecrease = onDecreaseSpeechRate,
                     onIncrease = onIncreaseSpeechRate,
                 )

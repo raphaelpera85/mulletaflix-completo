@@ -73,6 +73,8 @@ cd MulletaFlix-android
 ./gradlew assembleDebug
 ```
 
+Consulte [`TDD-PLAN.md`](TDD-PLAN.md) para o plano TDD do projeto. [`TESTING.md`](TESTING.md) descreve o Quality Gate e os testes por dispositivo.
+
 ## 📡 Configuração
 
 1. Instale o servidor MulletaFlix (veja `MulletaFlix-master/`)

@@ -1,5 +1,46 @@
 # Testes do MulletaFlix Android
 
+## Processo obrigatório: Test-Driven Development (TDD)
+
+O plano de adoção, auditoria de lacunas e ordem de fechamento por prioridade estão em [`TDD-PLAN.md`](TDD-PLAN.md). Este documento mantém os comandos e cenários de teste detalhados.
+
+Aplicar Red-Green-Refactor a toda correção, funcionalidade e mudança de comportamento em qualquer módulo Android. Esta regra cobre `:app`, `:core:api`, `:core:common`, `:data`, `:design-system`, `:domain` e todos os módulos `:feature:*`. `:core:testing` contém suporte a testes; valide-o por meio dos módulos consumidores.
+
+1. **RED:** escreva um teste pequeno para o comportamento esperado. Execute-o antes de alterar código de produção. Confirme que falha pela regressão esperada. Erro de compilação, fixture inválida ou falha de setup não contam como RED.
+2. **GREEN:** implemente a menor mudança possível. Reexecute o mesmo teste e confirme aprovação.
+3. **REFACTOR:** melhore o desenho somente com o teste verde. Reexecute os testes afetados.
+4. **GAUNTLET:** antes de concluir, execute a suíte JVM completa, lint e build Debug; rode testes instrumentados em cada perfil envolvido. Revise os relatórios para confirmar que testes executaram, não foram todos ignorados.
+5. **EVIDÊNCIA:** registre comandos, RED esperado, GREEN, contagens de testes/falhas/erros/ignorados e limitações. Não alegue cobertura percentual sem relatório de cobertura.
+
+Não escreva primeiro código de produção para depois “cobri-lo” com teste. Mudanças somente em documentação ou recursos sem comportamento executável dispensam RED; valide links, sintaxe e diff. Nunca enfraqueça teste para fazer a suíte passar.
+
+### Seleção da camada de teste
+
+| Comportamento | Teste primário | Complemento quando necessário |
+| --- | --- | --- |
+| Regra pura, política, parser, ordenação ou estado | JVM no módulo dono | Property/boundary tests para entrada ampla |
+| Coroutines, Flow, ViewModel, sessão ou persistência | JVM com dispatchers/fakes determinísticos | DataStore/Room instrumentado para integração Android real |
+| HTTP, autenticação, retry ou contrato do cliente | JVM com servidor HTTP local e fixtures | Ambiente de servidor de teste autorizado para E2E |
+| Compose, acessibilidade, navegação, rolagem ou foco | Compose UI test | PHONE/TABLET/TV conforme o comportamento |
+| Activity, ciclo de vida, PiP, TTS, player, codecs ou APIs de plataforma | Instrumentação | Dispositivo físico quando hardware, engine ou saída acústica forem relevantes |
+| Empacotamento e assinatura | Teste dos scripts/configuração e validação do artefato | Regras globais de release/publicação seguem instruções de nível superior; esta matriz define apenas a validação Android |
+
+### Quality Gate completo
+
+Execute na raiz `MulletaFlix-android`. Rode o lint do módulo alterado e do app:
+
+```powershell
+.\gradlew.bat testDebugUnitTest :feature:item-detail:lintDebug :app:lintDebug :app:assembleDebug --no-daemon --console=plain
+```
+
+Troque `:feature:item-detail:lintDebug` pelo módulo afetado. O Quality Gate local comprovou 1.515 testes JVM, zero falhas e erros em 2026-10-08. Esse número é um baseline de execução, não uma métrica de cobertura nem garantia de que todos os comportamentos existentes tenham sido auditados em RED-GREEN.
+
+Para instrumentação, use `tools\with-emulator.ps1`, informe `expectedDeviceProfile` e selecione os testes relevantes. A suíte não depende de instalar uma release no aparelho. Perfis e comandos ficam na seção “Perfis de emulador para UX adaptativa”.
+
+### Adoção nos módulos existentes
+
+O projeto já possui testes JVM e instrumentados em todos os módulos de produto. Isso não prova que todos foram escritos em TDD. A evidência RED-GREEN de testes legados não é presumida. Ao alterar uma área legada, acrescente primeiro a regressão e migre o comportamento tocado para este ciclo. Novos comportamentos devem nascer com teste; auditorias retroativas de cobertura e de histórico de RED permanecem pendentes. O baseline de testes não equivale a percentual de homologação.
+
 ## Comandos
 
 ```powershell
@@ -15,7 +56,7 @@
 | UseCases de Domínio (`:domain`) | Obtenção de perfil, logout, detalhes de mídia, toggle favorito, toggle assistido, descoberta do próximo episódio (`GetNextEpisodeUseCase`) | JVM |
 | Perfil de Usuário (`:feature:user`) | Carregamento de perfil, fallback de sessão offline, alternância rápida de usuário, limpeza de cache e logout | JVM |
 | Detalhes do Item (`:feature:item-detail`) | Filmes, séries, temporadas/episódios, faixas de álbuns, favoritos, assistidos, playlists e erros; uma coluna em 411 dp e tablet retrato 600 dp, painel hero+detalhes rolável em 840 dp, TV preserva coluna única; hero compacta poster para 88 dp abaixo de 360 dp ou em fonte ≥1,5×, mantém capa 2:3 inteira e permite alcançar/acionar última ação após rolagem vertical e horizontal; leitores EPUB/CBZ retêm progresso isolado por servidor/conta/livro; CBZ lista páginas naturalmente e decodifica uma página limitada ao espaço visível | JVM + Compose instrumentado em telefone, tablet API 35 e TV API 34 |
-| Tela do leitor EPUB (`:feature:item-detail`) | Compose + ViewModel + Retrofit + EPUB válido via fixture HTTP local + Readium; erro 503, retry, TOC aninhado, `<span>` de grupo sem ação e com semântica heading, salto para capítulo e texto confirmado no DOM do WebView, controles de navegação/tamanho de fonte e ação acessível para ouvir livro; recuperação de cache órfão EPUB/CBZ e proteção de arquivo ativo/não pertencente ao leitor | JVM + instrumentado PHONE/TABLET API 35; `BookReaderScreenIntegrationTest` 7/7 em cada perfil, 2026-10-08 |
+| Tela do leitor EPUB (`:feature:item-detail`) | Compose + ViewModel + Retrofit + EPUB válido via fixture HTTP local + Readium; erro 503, retry, TOC aninhado, `<span>` de grupo sem ação e com semântica heading, salto para capítulo e texto confirmado no DOM do WebView, controles de navegação/tamanho de fonte e ação acessível para ouvir livro; recuperação de cache órfão EPUB/CBZ e proteção de arquivo ativo/não pertencente ao leitor | JVM + instrumentado PHONE/TABLET API 35; `BookReaderScreenIntegrationTest` 8/8 em cada perfil, 2026-10-08 |
 | Leitura em voz alta (`:feature:item-detail`) | TTS nos trechos de texto paginado; narração Readium em EPUB inicia na posição visível, acompanha posição/locutor, usa idioma declarado no conteúdo, pausa em segundo plano e encerra em navegação manual; PDF extrai e narra somente texto selecionável, uma página por vez, avança páginas com texto e para ao navegar/ir para segundo plano; suporte do PDF depende de Android 15+ ou extensão S 13+ em Android 11–14; sem OCR para páginas digitalizadas | JVM + Compose instrumentado PHONE/TABLET API 35; TV API 34 confirma controle oculto quando extensão não suporta; cenários PDF validam texto, avanço e parada manual; não cobre saída acústica/idiomas instalados em aparelhos físicos nem TalkBack manual |
 | Mapeamento de mídia (`:data`) | Tipo, imagens, 4K, HD, HDR, Dolby Vision, Atmos | JVM |
 | Cache de imagens e playback | Verificar limpeza Coil em memória/disco e intervalo de 1 h; mídia de streaming online não é persistida; cache Media3 de downloads permanece após a limpeza; `TestDriver` simula o período do WorkManager | JVM + WorkManager/Coil/Media3 instrumentados; horário real do sistema não simulado |

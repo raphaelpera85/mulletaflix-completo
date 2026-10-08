@@ -458,6 +458,7 @@ fun BookReaderScreen(
                     pageCount = pageBook.pageCount,
                     speechEnabled = pdfSpeechSupported,
                     speechLoading = pdfSpeechLoading,
+                    speechPreparing = speechController.state == BookSpeechState.Preparing,
                     speechActive = pdfSpeechActive,
                     speechRatePercent = speechRatePercent,
                     onDecreaseSpeechRate = {
