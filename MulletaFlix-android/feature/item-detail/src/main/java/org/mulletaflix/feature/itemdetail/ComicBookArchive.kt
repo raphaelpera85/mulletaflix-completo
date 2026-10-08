@@ -207,30 +207,48 @@ internal class ComicBookArchive private constructor(
             private var bytesRead = 0L
 
             override fun read(): Int {
+                ensurePageDecodeNotInterrupted()
                 if (bytesRead >= maxBytes) {
-                    if (super.read() >= 0) throw IOException("Comic page exceeds the supported size limit.")
+                    val extraByte = super.read()
+                    ensurePageDecodeNotInterrupted()
+                    if (extraByte >= 0) throw IOException("Comic page exceeds the supported size limit.")
                     return -1
                 }
-                return super.read().also { if (it >= 0) bytesRead++ }
+                return super.read().also {
+                    ensurePageDecodeNotInterrupted()
+                    if (it >= 0) bytesRead++
+                }
             }
 
             override fun read(buffer: ByteArray, offset: Int, length: Int): Int {
                 if (length == 0) return 0
+                ensurePageDecodeNotInterrupted()
                 if (bytesRead >= maxBytes) {
-                    if (super.read() >= 0) throw IOException("Comic page exceeds the supported size limit.")
+                    val extraByte = super.read()
+                    ensurePageDecodeNotInterrupted()
+                    if (extraByte >= 0) throw IOException("Comic page exceeds the supported size limit.")
                     return -1
                 }
                 val allowedLength = minOf(length.toLong(), maxBytes - bytesRead).toInt()
-                return super.read(buffer, offset, allowedLength).also { if (it > 0) bytesRead += it }
+                return super.read(buffer, offset, allowedLength).also {
+                    ensurePageDecodeNotInterrupted()
+                    if (it > 0) bytesRead += it
+                }
             }
 
             override fun skip(count: Long): Long {
                 if (count <= 0L) return 0L
+                ensurePageDecodeNotInterrupted()
                 if (bytesRead >= maxBytes) {
-                    if (super.read() >= 0) throw IOException("Comic page exceeds the supported size limit.")
+                    val extraByte = super.read()
+                    ensurePageDecodeNotInterrupted()
+                    if (extraByte >= 0) throw IOException("Comic page exceeds the supported size limit.")
                     return 0L
                 }
-                return super.skip(minOf(count, maxBytes - bytesRead)).also { bytesRead += it }
+                return super.skip(minOf(count, maxBytes - bytesRead)).also {
+                    ensurePageDecodeNotInterrupted()
+                    bytesRead += it
+                }
             }
         }
     }

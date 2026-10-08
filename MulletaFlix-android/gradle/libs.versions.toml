@@ -66,6 +66,7 @@ testRunner = "1.7.0"
 mockk = "1.14.7"
 coroutinesTest = "1.11.0"
 readium = "3.4.0"
+junrar = "8.1.1"
 desugarJdkLibs = "2.1.5"
 robolectric = "4.15.1"
 androidxTestCore = "1.6.1"
@@ -123,6 +124,7 @@ media3-cast = { group = "androidx.media3", name = "media3-cast", version.ref = "
 kotlinx-coroutines-android = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-android", version.ref = "coroutines" }
 readium-streamer = { group = "org.readium.kotlin-toolkit", name = "readium-streamer", version.ref = "readium" }
 readium-navigator-web-reflowable = { group = "org.readium.kotlin-toolkit", name = "readium-navigator-web-reflowable", version.ref = "readium" }
+junrar = { group = "com.github.junrar", name = "junrar", version.ref = "junrar" }
 android-desugar-jdk-libs = { group = "com.android.tools", name = "desugar_jdk_libs", version.ref = "desugarJdkLibs" }
 
 # Serialization

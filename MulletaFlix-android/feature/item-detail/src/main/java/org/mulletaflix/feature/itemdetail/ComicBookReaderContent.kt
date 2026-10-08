@@ -52,6 +52,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.runInterruptible
 import kotlinx.coroutines.withContext
 
 @Composable
@@ -72,6 +73,7 @@ internal fun PagedBookReaderContent(
         val density = LocalDensity.current
         val targetWidth = with(density) { maxWidth.roundToPx() }.coerceAtLeast(1)
         val targetHeight = with(density) { maxHeight.roundToPx() }.coerceAtLeast(1)
+        val decodeGate = remember(pageBook) { BookPageDecodeGate() }
         var bitmap by remember(pageBook, currentPage) { mutableStateOf<Bitmap?>(null) }
         DisposableEffect(bitmap) {
             val displayedBitmap = bitmap
@@ -118,16 +120,13 @@ internal fun PagedBookReaderContent(
             decodedZoomTier = 0
             loadError = null
             try {
-                bitmap = withContext(Dispatchers.IO) {
-                    val decoded = pageBook.decodePage(currentPage, targetWidth, targetHeight)
-                    try {
-                        currentCoroutineContext().ensureActive()
-                        decoded
-                    } catch (cancelled: CancellationException) {
-                        decoded.recycle()
-                        throw cancelled
-                    }
-                }
+                bitmap = decodeBookPage(
+                    gate = decodeGate,
+                    pageBook = pageBook,
+                    index = currentPage,
+                    maxWidth = targetWidth,
+                    maxHeight = targetHeight,
+                )
                 decodedZoomTier = 1
             } catch (cancelled: CancellationException) {
                 throw cancelled
@@ -142,22 +141,15 @@ internal fun PagedBookReaderContent(
             if (targetTier == decodedZoomTier) return@LaunchedEffect
             delay(COMIC_PAGE_RENDER_DEBOUNCE_MS)
             try {
-                val replacement = withContext(Dispatchers.IO) {
-                    val decoded = pageBook.decodePage(
-                        currentPage,
-                        maxWidth = (targetWidth.toLong() * targetTier)
-                            .coerceAtMost(Int.MAX_VALUE.toLong()).toInt(),
-                        maxHeight = (targetHeight.toLong() * targetTier)
-                            .coerceAtMost(Int.MAX_VALUE.toLong()).toInt(),
-                    )
-                    try {
-                        currentCoroutineContext().ensureActive()
-                        decoded
-                    } catch (cancelled: CancellationException) {
-                        decoded.recycle()
-                        throw cancelled
-                    }
-                }
+                val replacement = decodeBookPage(
+                    gate = decodeGate,
+                    pageBook = pageBook,
+                    index = currentPage,
+                    maxWidth = (targetWidth.toLong() * targetTier)
+                        .coerceAtMost(Int.MAX_VALUE.toLong()).toInt(),
+                    maxHeight = (targetHeight.toLong() * targetTier)
+                        .coerceAtMost(Int.MAX_VALUE.toLong()).toInt(),
+                )
                 bitmap = replacement
                 decodedZoomTier = targetTier
             } catch (cancelled: CancellationException) {
@@ -200,6 +192,34 @@ internal fun PagedBookReaderContent(
             }
             else -> CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
         }
+    }
+}
+
+internal suspend fun decodeBookPage(
+    gate: BookPageDecodeGate,
+    pageBook: BookPageSource,
+    index: Int,
+    maxWidth: Int,
+    maxHeight: Int,
+): Bitmap = gate.run {
+    val requestContext = currentCoroutineContext()
+    var decoded: Bitmap? = null
+    try {
+        requestContext.ensureActive()
+        // The decode is synchronous. Keep its bitmap reachable if cancellation wins the
+        // dispatch back to the UI context, so the native allocation can still be recycled.
+        val result = runInterruptible(Dispatchers.IO) {
+            pageBook.decodePage(index, maxWidth, maxHeight).also { decoded = it }
+        }
+        requestContext.ensureActive()
+        decoded = null
+        result
+    } catch (cancelled: CancellationException) {
+        decoded?.let { if (!it.isRecycled) it.recycle() }
+        throw cancelled
+    } catch (failure: Exception) {
+        requestContext.ensureActive()
+        throw failure
     }
 }
 

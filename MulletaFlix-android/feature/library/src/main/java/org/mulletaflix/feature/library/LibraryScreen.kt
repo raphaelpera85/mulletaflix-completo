@@ -68,19 +68,23 @@ fun LibraryScreen(
     var offlinePreview by rememberSaveable(stateSaver = LibraryOfflineMediaPreviewSaver) {
         mutableStateOf(LibraryOfflineMediaPreview.None)
     }
+    val isTelevision = (LocalConfiguration.current.uiMode and Configuration.UI_MODE_TYPE_MASK) ==
+        Configuration.UI_MODE_TYPE_TELEVISION
+    val isTablet = LocalConfiguration.current.smallestScreenWidthDp >= 600 && !isTelevision
+    // State can retain a handheld catalog while a TV refresh is running or
+    // has failed, so enforce the device policy at the rendering boundary.
+    val visibleItems = remember(state.items, isTelevision) {
+        libraryItemsForDevice(state.items, isTelevision)
+    }
     val openLibraryItem: (String) -> Unit = { itemId ->
         when (libraryItemTapAction(state.isOffline)) {
             LibraryItemTapAction.OpenDetails -> onItemClick(itemId)
-            LibraryItemTapAction.ShowOfflinePreview -> state.items
+            LibraryItemTapAction.ShowOfflinePreview -> visibleItems
                 .firstOrNull { it.id == itemId }
                 ?.let { offlinePreview = LibraryOfflineMediaPreview.from(it) }
         }
     }
     val lifecycleOwner = LocalLifecycleOwner.current
-    val isTelevision = (LocalConfiguration.current.uiMode and Configuration.UI_MODE_TYPE_MASK) ==
-        Configuration.UI_MODE_TYPE_TELEVISION
-    val isTablet = LocalConfiguration.current.smallestScreenWidthDp >= 600 && !isTelevision
-
     // A library must be populated as soon as its destination is entered. The
     // TV refresh loop is intentionally periodic, so relying on it for the
     // first request leaves a newly opened screen empty until the first tick.
@@ -137,9 +141,9 @@ fun LibraryScreen(
         BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
         val viewportWidthDp = maxWidth.value.roundToInt()
         Box(modifier = Modifier.fillMaxSize()) {
-            if (state.isLoading && state.items.isEmpty()) {
+            if (state.isLoading && visibleItems.isEmpty()) {
                 CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
-            } else if (loadError != null && state.items.isEmpty()) {
+            } else if (loadError != null && visibleItems.isEmpty()) {
                 Column(
                     modifier = Modifier.align(Alignment.Center).padding(24.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
@@ -153,7 +157,7 @@ fun LibraryScreen(
                         Text("Tentar novamente")
                     }
                 }
-            } else if (state.items.isEmpty()) {
+            } else if (visibleItems.isEmpty()) {
                 EmptyLibraryState(
                     hasFilters = state.activeFilters.isNotEmpty(),
                     onClearFilters = viewModel::clearFilters,
@@ -197,7 +201,7 @@ fun LibraryScreen(
                     }
 
                     items(
-                        items = state.items,
+                        items = visibleItems,
                         key = { item -> item.id },
                     ) { item ->
                         if (state.isGridView) {
@@ -238,17 +242,17 @@ fun LibraryScreen(
                         Spacer(modifier = Modifier.height(80.dp))
                     }
                 }
-                val canShowLetterRail = (isTelevision || isTablet) && state.items.isNotEmpty() &&
+                val canShowLetterRail = (isTelevision || isTablet) && visibleItems.isNotEmpty() &&
                     state.sortBy == SortOption.Name &&
                     state.sortOrder == SortOrder.Ascending
                 val letterTargets = remember(
-                    state.items,
+                    visibleItems,
                     state.hasMore,
                     loadError,
                     state.letterNavigationTarget,
                 ) {
                     libraryLetterTargets(
-                        items = state.items,
+                        items = visibleItems,
                         hasMore = state.hasMore && loadError == null,
                         pendingLetter = state.letterNavigationTarget,
                     )
@@ -256,7 +260,7 @@ fun LibraryScreen(
                 if (canShowLetterRail && letterTargets.isNotEmpty()) {
                     LibraryLetterNavigationEffect(
                         targetLetter = state.letterNavigationTarget,
-                        items = state.items,
+                        items = visibleItems,
                         hasMore = state.hasMore,
                         isLoading = state.isLoading,
                         hasLoadError = loadError != null,
@@ -280,7 +284,7 @@ fun LibraryScreen(
             if (state.isOffline) {
                 LibraryOfflineBanner(
                     message = if (state.isShowingCachedCatalog && state.catalogSavedAtEpochMillis != null) {
-                        val savedCount = state.items.size
+                        val savedCount = visibleItems.size
                         val totalCount = maxOf(savedCount, state.catalogTotalItemCount ?: savedCount)
                         val quantity = if (savedCount < totalCount) "$savedCount de $totalCount títulos" else "$savedCount títulos"
                         "Sem conexão. $quantity no snapshot salvo ${offlineSnapshotTime(checkNotNull(state.catalogSavedAtEpochMillis))}; detalhes precisam de rede."
@@ -315,7 +319,9 @@ fun LibraryScreen(
                     onDismiss = viewModel::hideFilterMenu,
                 )
             }
-            offlinePreview.takeIf { it.id.isNotBlank() }?.let { preview ->
+            offlinePreview.takeIf { preview ->
+                preview.id.isNotBlank() && visibleItems.any { it.id == preview.id }
+            }?.let { preview ->
                 OfflineMediaPreviewDialog(
                     preview = preview,
                     isOffline = state.isOffline,

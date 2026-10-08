@@ -157,6 +157,68 @@ class BookReaderScreenIntegrationTest {
     }
 
     @Test
+    fun invalidCbrResponseShowsPortugueseRetryAndThenOpensEpub() {
+        val itemId = "reader-screen-invalid-cbr-${System.nanoTime()}"
+        val errorMessage = "O arquivo CBR está inválido ou não é compatível."
+        server.enqueue(
+            MockResponse()
+                .setResponseCode(200)
+                .addHeader("Content-Type", "application/vnd.comicbook-rar")
+                .setBody("not a RAR archive"),
+        )
+        server.enqueue(
+            MockResponse()
+                .setResponseCode(200)
+                .addHeader("Content-Type", "application/epub+zip")
+                .setBody(Buffer().write(createEpub())),
+        )
+        val api = Retrofit.Builder()
+            .baseUrl(server.url("/"))
+            .client(OkHttpClient())
+            .build()
+            .create(MulletaFlixApiService::class.java)
+        val viewModel = ViewModelProvider(
+            viewModelStore,
+            object : ViewModelProvider.Factory {
+                @Suppress("UNCHECKED_CAST")
+                override fun <T : ViewModel> create(modelClass: Class<T>): T =
+                    BookReaderViewModel(api, TestSessionRepository(sessionScope), context) as T
+            },
+        )[BookReaderViewModel::class.java]
+
+        composeRule.setContent {
+            MaterialTheme {
+                BookReaderScreen(itemId = itemId, onBack = {}, viewModel = viewModel)
+            }
+        }
+
+        composeRule.waitUntil(timeoutMillis = 15_000) {
+            runCatching { composeRule.onNodeWithText(errorMessage, useUnmergedTree = true).assertIsDisplayed() }
+                .isSuccess
+        }
+        composeRule.onNodeWithContentDescription("Tentar carregar o livro novamente")
+            .assertIsDisplayed()
+            .performClick()
+
+        composeRule.waitUntil(timeoutMillis = 30_000) {
+            runCatching {
+                composeRule.onNodeWithContentDescription("Aumentar tamanho do texto").assertIsEnabled()
+            }.isSuccess
+        }
+        composeRule.onNodeWithText(errorMessage, useUnmergedTree = true).assertDoesNotExist()
+        assertTrue(
+            "O retry não exibiu o EPUB recebido depois do CBR inválido.",
+            awaitWebViewText("Conteúdo EPUB entregue pela fixture HTTP.")
+                .contains("Conteúdo EPUB entregue pela fixture HTTP."),
+        )
+
+        val firstRequest = server.takeRequest()
+        val retryRequest = server.takeRequest()
+        assertEquals("/BookReader/Items/$itemId/BookReader/Epub", firstRequest.path)
+        assertEquals(firstRequest.path, retryRequest.path)
+    }
+
+    @Test
     fun directTextBookCanSaveAndRestoreBookmarkForCurrentChunk() {
         val itemId = "reader-screen-text-${System.nanoTime()}"
         server.enqueue(

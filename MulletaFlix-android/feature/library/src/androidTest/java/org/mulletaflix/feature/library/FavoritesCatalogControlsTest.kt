@@ -19,16 +19,16 @@ class FavoritesCatalogControlsTest {
 
     @Test
     fun searchFieldAcceptsTitleAndShowsAccessibleLabel() {
-        var query = ""
+        val query = mutableStateOf("")
         composeRule.setContent {
             MaterialTheme {
                 FavoritesCatalogControls(
-                    query = query,
+                    query = query.value,
                     sortBy = SortOption.Name,
                     sortOrder = SortOrder.Ascending,
                     showSortMenu = false,
                     isOffline = false,
-                    onQueryChange = { query = it },
+                    onQueryChange = { query.value = it },
                     onToggleSortMenu = {},
                     onDismissSortMenu = {},
                     onApplySort = { _, _ -> },
@@ -39,7 +39,7 @@ class FavoritesCatalogControlsTest {
         composeRule.onNodeWithContentDescription("Buscar títulos em Minha Lista").assertIsDisplayed()
         composeRule.onNodeWithText("Buscar títulos").performTextInput("Matrix")
 
-        composeRule.runOnIdle { assertEquals("Matrix", query) }
+        composeRule.runOnIdle { assertEquals("Matrix", query.value) }
     }
 
     @Test

@@ -17,6 +17,10 @@ android {
     namespace = "org.mulletaflix.android"
     compileSdk = libs.versions.compileSdk.get().toInt()
 
+    sourceSets.getByName("androidTest").assets.srcDir(
+        project(":feature:player").projectDir.resolve("src/androidTest/assets"),
+    )
+
     defaultConfig {
         applicationId = "org.mulletaflix.android"
         minSdk = libs.versions.minSdk.get().toInt()
@@ -281,6 +285,8 @@ dependencies {
     androidTestImplementation(libs.androidx.work.testing)
     androidTestImplementation(libs.androidx.espresso.core)
     androidTestImplementation(libs.mockwebserver)
+    androidTestImplementation(libs.moshi.kotlin)
+    androidTestImplementation(libs.media3.cast)
     androidTestImplementation(libs.okhttp.tls)
     androidTestImplementation(platform(libs.androidx.compose.bom))
     androidTestImplementation(libs.androidx.ui.test.junit4)

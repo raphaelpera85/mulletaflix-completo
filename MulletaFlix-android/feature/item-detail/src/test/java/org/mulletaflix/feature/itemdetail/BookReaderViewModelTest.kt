@@ -1,6 +1,7 @@
 package org.mulletaflix.feature.itemdetail
 
 import android.content.Context
+import androidx.lifecycle.ViewModelStore
 import androidx.test.core.app.ApplicationProvider
 import io.mockk.coEvery
 import io.mockk.mockk
@@ -13,9 +14,11 @@ import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.flowOf
@@ -111,6 +114,44 @@ class BookReaderViewModelTest {
         assertTrue(text.contains("HTML direto"))
         assertTrue(text.contains("Ação café."))
         assertFalse(text.contains("window.bad"))
+    }
+
+    @Test
+    fun `load opens a generic RAR response in the paginated CBR reader`() = runTest(dispatcher) {
+        val api = mockk<MulletaFlixApiService>(relaxed = true)
+        coEvery { api.getBookReaderEpub(any()) } returns
+            CbrTestArchive.bytes().toResponseBody("application/octet-stream".toMediaType())
+        coEvery { api.getBookReaderStatus(any()) } returns BookReaderStatusDto("Ready")
+        val viewModel = BookReaderViewModel(
+            api,
+            FakeSessionRepository(SCOPE_A),
+            context,
+            applicationScope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined),
+        )
+        val viewModelStore = ViewModelStore().apply { put("cbr-reader-test", viewModel) }
+
+        try {
+            viewModel.load("direct-cbr-book")
+            awaitLoadFinished(viewModel)
+
+            val state = viewModel.state.value
+            assertFalse(state.isLoading)
+            assertNull(state.error)
+            assertNull(state.publication)
+            assertNull(state.textBook)
+            assertTrue(state.pageBook is CbrBookArchive)
+            assertEquals(2, state.pageBook?.pageCount)
+            val pageBook = requireNotNull(state.pageBook)
+
+            viewModelStore.clear()
+
+            assertTrue(
+                runCatching { pageBook.decodePage(index = 0, maxWidth = 320, maxHeight = 480) }
+                    .exceptionOrNull() is IllegalStateException,
+            )
+        } finally {
+            viewModelStore.clear()
+        }
     }
 
     @Test

@@ -1,9 +1,12 @@
 package org.mulletaflix.core.api
 
+import com.squareup.moshi.Moshi
 import java.io.IOException
+import java.net.InetAddress
 import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.flow.flowOf
-import org.mulletaflix.core.api.di.NetworkModule
+import kotlinx.coroutines.runBlocking
+import okhttp3.Dns
 import okhttp3.Interceptor
 import okhttp3.Protocol
 import okhttp3.Request
@@ -18,6 +21,7 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
+import org.mulletaflix.core.api.di.NetworkModule
 
 class CleartextRequestProtectionTest {
     private lateinit var server: MockWebServer
@@ -81,6 +85,40 @@ class CleartextRequestProtectionTest {
 
         assertTrue("the redirect destination must be denied", failure is IOException)
         assertEquals("only the initial LAN request may reach the server", 1, server.requestCount)
+        assertTrue(server.takeRequest().getHeader("Authorization").orEmpty().contains("Token=\"session-token\""))
+    }
+
+    @Test
+    fun `real Retrofit call blocks public HTTP redirect before second request`() = runBlocking {
+        server.enqueue(
+            MockResponse()
+                .setResponseCode(302)
+                .addHeader(
+                    "Location",
+                    "http://public-http.test:${server.port}/System/Info?api_key=redirect-token",
+                ),
+        )
+        val sessions = CountingSessionRepository(baseUrl = server.url("/").toString())
+        val client = NetworkModule.provideOkHttpClient(
+            clientIdentityInterceptor = ClientIdentityInterceptor(sessions),
+            apiRetryInterceptor = ApiRetryInterceptor(),
+            serverUrlInterceptor = ServerUrlInterceptor(sessions),
+        ).newBuilder()
+            // Keep this integration test hermetic even if redirect protection regresses.
+            .dns(object : Dns {
+                override fun lookup(hostname: String): List<InetAddress> =
+                    if (hostname == "public-http.test") listOf(InetAddress.getByName("127.0.0.1"))
+                    else Dns.SYSTEM.lookup(hostname)
+            })
+            .build()
+        val api = NetworkModule.provideRetrofit(client, Moshi.Builder().build())
+            .create(MulletaFlixApiService::class.java)
+
+        val failure = runCatching { api.getSystemInfo() }.exceptionOrNull()
+
+        assertTrue("Retrofit must reject the public HTTP redirect", failure is IOException)
+        assertEquals("only the initial LAN request may reach the fixture", 1, server.requestCount)
+        assertEquals("the session is read only for the initial local request", 1, sessions.tokenReads.get())
         assertTrue(server.takeRequest().getHeader("Authorization").orEmpty().contains("Token=\"session-token\""))
     }
 

@@ -113,7 +113,8 @@ fun HomeScreen(
                 modifier = Modifier
                     .fillMaxSize()
                     .background(MaterialTheme.colorScheme.background)
-                    .padding(horizontal = layoutSpec.horizontalPaddingDp.dp),
+                    .padding(horizontal = layoutSpec.horizontalPaddingDp.dp)
+                    .testTag(HOME_FEED_TEST_TAG),
                 verticalArrangement = Arrangement.spacedBy(0.dp),
             ) {
             item {
@@ -808,6 +809,8 @@ internal fun MediaItem.hasResumablePlaybackPosition(): Boolean {
     val durationTicks = runtimeTicks
     return positionTicks > 0L && (durationTicks == null || durationTicks <= 0L || positionTicks < durationTicks)
 }
+
+internal const val HOME_FEED_TEST_TAG = "home-feed"
 
 internal fun defaultMediaSectionShape(item: MediaItem): MediaCardShape =
     if (item.type.usesPosterArtwork()) MediaCardShape.Portrait else MediaCardShape.Landscape

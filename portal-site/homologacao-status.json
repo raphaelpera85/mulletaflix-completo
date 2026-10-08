@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-10-08T05:42:16-03:00",
+  "generatedAt": "2026-10-08T05:49:28-03:00",
   "source": {
     "roadmap": "https://github.com/raphaelpera85/mulletaflix-completo/blob/main/docs/roadmap-evolucao-tecnologica-servidor-e-web.md",
     "repository": "https://github.com/raphaelpera85/mulletaflix-completo"
@@ -4645,6 +4645,24 @@
       "startedAt": "2026-10-08T05:40:21-03:00",
       "updatedAt": "2026-10-08T05:42:16-03:00",
       "evidence": "Quatro novos testes cobrem ignorar `.partial`/NFO/STRM e uploads ativos; reenfileirar documento falho sem partes Telegram; remover cópias locais quando catálogo está `completed` ou possui partes Telegram. `tests/test_stats_reporter.py` passou 7/7. Suíte Nebula completa passou 547/547, exit 0; código de produção instrumentado 6.626 statements, 1.367 ausentes, 76%; `main.py` 72%. Mongo fake e staging temporário; sem integração real, pacote, release, commit, push ou deploy. T0.3/T2.1 e homologação global permanecem parciais, progressPercent null; curadoria IA fora do escopo ativo."
+    },
+    {
+      "id": "nebula-feed-ftp-coverage-2026-10-08-0545",
+      "title": "Ampliar a cobertura de testes do feeder FTP",
+      "agent": "Codex",
+      "front": "server",
+      "featureIds": [
+        "T0.3",
+        "T2.1"
+      ],
+      "local": "D:\\Users\\Raphael\\Documents\\Projetos\\mulletaflix",
+      "location": "MulletaFlix-master/Tools/NebulaPython/tools/feed_ftp.py e tests/test_feed_ftp_strm.py",
+      "scope": "Auditar branches restantes do feeder Nebula e acrescentar testes determinísticos para comportamentos de fila, persistência ou falha; sem serviços externos nem alteração de produção salvo defeito confirmado contra o contrato.",
+      "status": "completed",
+      "progressPercent": null,
+      "startedAt": "2026-10-08T05:45:42-03:00",
+      "updatedAt": "2026-10-08T05:49:28-03:00",
+      "evidence": "11 casos novos em `test_feed_ftp_strm.py` cobrem estado local ausente/corrompido, catálogo materializado, ordenação de round-trip e falha de replace atômico com preservação do estado. Focal: 52/52, `feed_ftp.py` 68%; suíte Nebula completa 558/558, 6.626 statements, 1.354 ausentes, 77% com branches, `feed_ftp.py` 69%. `py -3.10 -m compileall -q .`, portal homologação 4/4, JSON válido e `git diff --check` passaram. Somente testes/docs/status alterados; Mongo/TG/serviços reais e execução Linux não exercitados. Sem pacote, release, commit, push ou deploy; curadoria IA fora do escopo ativo; T0.3/T2.1 e homologação formal permanecem parciais, progresso formal null."
     }
   ]
 }

@@ -10,6 +10,8 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
@@ -23,6 +25,8 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import java.util.concurrent.atomic.AtomicReference
+import org.mulletaflix.core.common.dispatcher.ApplicationScope
 import org.mulletaflix.core.api.MulletaFlixApiService
 import org.mulletaflix.core.api.HomeFeedCacheScope
 import org.mulletaflix.core.api.SessionRepository
@@ -57,10 +61,12 @@ class BookReaderViewModel @Inject constructor(
     private val api: MulletaFlixApiService,
     private val sessionRepository: SessionRepository,
     @ApplicationContext private val context: Context,
+    @ApplicationScope private val applicationScope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO),
 ) : ViewModel() {
     private val _state = MutableStateFlow(BookReaderState())
     internal val state: StateFlow<BookReaderState> = _state.asStateFlow()
     private var loadJob: Job? = null
+    private var activePageBook: BookPageSource? = null
     private val bookCacheFiles = BookReaderCacheFiles(File(context.cacheDir, "book-reader"))
     private val progressStore = BookReaderProgressStore(context)
     private var loadedItemId: String? = null
@@ -123,6 +129,8 @@ class BookReaderViewModel @Inject constructor(
             val bookmarks = progressScope?.let { progressStore.readBookmarks(it, itemId) }.orEmpty()
             val fontSizePercent = progressScope?.let { progressStore.readFontSizePercent(it) }
                 ?: BookReaderFontSize.DEFAULT_PERCENT
+            var unownedPageBook: BookPageSource? = null
+            val pageBookCreatedOnIo = AtomicReference<BookPageSource?>()
             try {
                 val content = withContext(Dispatchers.IO) {
                     val body = fetchBookReaderBody(itemId, generation)
@@ -158,12 +166,17 @@ class BookReaderViewModel @Inject constructor(
                                 BookPayloadFormat.EPUB -> ".epub"
                                 BookPayloadFormat.PDF -> ".pdf"
                                 BookPayloadFormat.CBZ -> ".cbz"
+                                BookPayloadFormat.CBR -> ".cbr"
                                 BookPayloadFormat.PLAIN_TEXT -> ".txt"
                             }
                             cacheTarget = bookCacheFiles.withExtension(target, extension)
                             val loadedContent = when {
                                 payloadFormat == BookPayloadFormat.CBZ -> LoadedBookContent(
                                     pageBook = ComicBookArchive.open(cacheTarget),
+                                    cacheFile = cacheTarget,
+                                )
+                                payloadFormat == BookPayloadFormat.CBR -> LoadedBookContent(
+                                    pageBook = CbrBookArchive.open(cacheTarget),
                                     cacheFile = cacheTarget,
                                 )
                                 payloadFormat == BookPayloadFormat.PDF -> LoadedBookContent(
@@ -179,6 +192,7 @@ class BookReaderViewModel @Inject constructor(
                                     cacheFile = cacheTarget,
                                 )
                             }
+                            pageBookCreatedOnIo.set(loadedContent.pageBook)
                             contentOpened = true
                             loadedContent
                         } finally {
@@ -188,6 +202,8 @@ class BookReaderViewModel @Inject constructor(
                         body.close()
                     }
                 }
+                unownedPageBook = content.pageBook
+                pageBookCreatedOnIo.compareAndSet(content.pageBook, null)
                 val restorableLocator = initialLocator?.takeIf { locator ->
                     if (content.pageBook != null) {
                         content.pageBook.pageIndexFromLocator(locator) != null
@@ -209,6 +225,14 @@ class BookReaderViewModel @Inject constructor(
                     load(itemId)
                     return@launch
                 }
+                val previousPageBook = activePageBook
+                if (previousPageBook !== content.pageBook) {
+                    withContext(Dispatchers.IO) {
+                        runCatching { previousPageBook?.close() }
+                    }
+                }
+                activePageBook = content.pageBook
+                unownedPageBook = null
                 bookCacheFiles.deleteAllOwnedExcept(content.cacheFile)
                 _state.value = BookReaderState(
                     isLoading = false,
@@ -223,11 +247,22 @@ class BookReaderViewModel @Inject constructor(
                 throw cancelled
             } catch (error: Exception) {
                 if (!loadGeneration.isCurrent(generation)) return@launch
+                withContext(Dispatchers.IO) {
+                    runCatching { activePageBook?.close() }
+                }
+                activePageBook = null
                 bookCacheFiles.deleteAllOwned()
                 _state.value = BookReaderState(
                     isLoading = false,
                     error = error.message ?: "Não foi possível abrir este livro.",
                 )
+            } finally {
+                val orphanedPageBook = unownedPageBook ?: pageBookCreatedOnIo.getAndSet(null)
+                if (orphanedPageBook != null) {
+                    withContext(NonCancellable + Dispatchers.IO) {
+                        runCatching { orphanedPageBook.close() }
+                    }
+                }
             }
         }
     }
@@ -408,7 +443,12 @@ class BookReaderViewModel @Inject constructor(
     override fun onCleared() {
         fontSizeSaveGeneration.begin()
         fontSizeSaveJob?.cancel()
-        bookCacheFiles.deleteAfter(loadJob)
+        val pageBookToClose = activePageBook
+        activePageBook = null
+        applicationScope.launch {
+            runCatching { pageBookToClose?.close() }
+            bookCacheFiles.deleteAfter(loadJob)
+        }
         super.onCleared()
     }
 

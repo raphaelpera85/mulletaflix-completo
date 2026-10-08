@@ -1,5 +1,18 @@
 # MulletaFlix Android - Plano de Desenvolvimento & Checklist de Funcionalidades (TODO)
 
+## Trabalho APK sem release — Ocultar livros em rotas secundárias da Android TV
+
+- [x] Bloquear detalhes de `Book`/`AudioBook` abertos por deep link na TV, com aviso e ação de voltar; celular/tablet mantêm detalhes.
+- [x] Filtrar `Book`/`AudioBook` das playlists na TV sem perder paginação do servidor; páginas compostas só por livros continuam permitindo carregar a próxima página.
+- [x] Testes Compose cobrem deep links de livro/audiolivro, ação de voltar, preservação no handheld, playlists mistas e paginação após página só com livros.
+- [x] Na TV, a tela completa de busca não renderiza resultados Book/AudioBook; o painel de sugestões mantém filmes e oculta livros/audiolivros com a política do dispositivo.
+- [x] `:feature:search:connectedDebugAndroidTest` passou 16/16 no AVD Android TV API 34, incluindo os dois testes instrumentados de resultados/sugestões; GPU NVIDIA confirmada e AVD fechado pelo wrapper.
+- [x] Android TV: suíte instrumentada completa de `:feature:item-detail:connectedDebugAndroidTest`, 85 aprovados, 0 falhas/erros/skips; AVD fechado automaticamente.
+- [x] Quality Gate APK: `testDebugUnitTest` (1.484 aprovados, 0 falhas/erros/skips), lint dos módulos afetados e `:app:assembleDebug` — `BUILD SUCCESSFUL`.
+- [ ] Nenhuma versão de produção, APK release, publicação, mudança de servidor ou atualização do portal nesta rodada.
+
+---
+
 ## Trabalho APK sem release — Densidade da biblioteca Android TV
 
 - [x] Calcular colunas pela largura real disponível após padding e espaçamento, com capas menores e mais títulos por linha em TVs.

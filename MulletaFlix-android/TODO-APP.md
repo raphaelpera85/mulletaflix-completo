@@ -1,5 +1,16 @@
 # MulletaFlix Android - Plano de Desenvolvimento & Checklist de Funcionalidades (TODO)
 
+## Ocultação de livros em toda a experiência Android TV (validação local; sem release)
+
+- [x] Testar a `HomeScreen` real com `HomeViewModel` e feed contendo `Book` em Continuar Assistindo, Próximo Episódio, Minha Lista, adicionados recentes e biblioteca Livros; TV conserva cards de filmes e omite os livros em cada faixa. A seção de recomendações também oculta `Book` e `AudioBook`.
+- [x] Filtrar livros e audiolivros da faixa “Mais como Este” no detalhe para Android TV; celulares/tablets mantêm recomendações sem filtro.
+- [x] Testar a busca real na TV: resultados e sugestões ocultam `Book`/`AudioBook` e preservam filmes; `SearchScreenDeviceVisibilityTest` passou 2/2 em Android TV API 34 em 2026-10-08.
+- [x] A biblioteca aplica a política de ocultação também no limite da UI: catálogo móvel previamente carregado não revela livros/audiolivros na TV durante atualização nem após falha; prévia offline, navegação alfabética e contagem seguem os itens visíveis. `LibraryOfflineReconnectFlowTest` passou 2/2 no AVD Android TV API 34.
+- [x] Instrumentados Android TV API 34: Home carregada e rolada na `LazyColumn` real 1/1; detalhe/recomendações e compatibilidade handheld 4/4; GPU NVIDIA confirmada e AVD encerrado pelo wrapper após cada execução.
+- [x] `:feature:item-detail:testDebugUnitTest`: 162 testes, 0 falhas/erros/ignorados; `:feature:item-detail:compileDebugAndroidTestKotlin`, `:feature:item-detail:lintDebug`, `:app:lintDebug` e `:app:assembleDebug`: `BUILD SUCCESSFUL`.
+- [ ] Validar visualmente em uma Android TV física conectada ao servidor real; os instrumentados usam feed controlado.
+- [ ] Sem bump de versão, APK de produção, portal ou publicação.
+
 ## Leitura direta de formatos de livro no APK (APK local; sem release)
 
 - [x] Abrir PDF entregue diretamente pelo servidor com `PdfRenderer`, renderização paginada, zoom e retomada da página.
@@ -24,7 +35,14 @@
 - [x] Regressões confirmam remoção de elementos HTML aninhados ocultos, `hidden`, `aria-hidden`, `display:none` e `visibility:hidden`; integração TXT salva posição no trecho 2, muda para trecho 1 e reabre o marcador no trecho 2.
 - [x] Durante conversão EPUB iniciada pelo servidor, mostrar estado acessível; se a rota de status não existir, leitura continua; cancelar o monitor junto da requisição e manter propriedade direta do `ResponseBody` para evitar vazamento em cancelamento.
 - [x] Testes do ViewModel cobrem estado de conversão antes do stream, limpeza após sucesso/erro HTTP, resposta atrasada sem ressuscitar mensagem nem contaminar a leitura de outro título e ausência de bloqueio em servidor legado; contrato HTTP confirma autenticação e formato JSON.
-- [ ] Validar mídia real servida pelo Mulletaflix e conversões MOBI/AZW no servidor; APK usa conversão do servidor para formatos ainda não suportados diretamente. CBR permanece sem suporte direto.
+- [x] Leitura direta de quadrinhos CBR/RAR no APK, página por página sem extrair o arquivo inteiro; inclui detecção por MIME/assinatura, ordenação natural, limites de tamanho e navegação. Validado com fixture CC0 em testes JVM e instrumentado no AVD Android TV.
+- [x] Navegação resiliente do leitor CBR/CBZ: decodificações de página/zoom são serializadas; pedidos obsoletos em espera não iniciam após cancelamento; `runInterruptible` e streams limitados interrompem leituras de arquivo canceladas; bitmap nativo retornado durante a corrida de cancelamento é reciclado. `BookPageDecodeGateTest` incluído na suíte de 161 testes (0 falhas/erros/ignorados), `lintDebug` aprovado e `CbrBookReaderIntegrationTest` no Android TV: 1/1.
+- [x] Reutilizar a instância `Junrar Archive` e seus `FileHeader` durante toda a sessão CBR, eliminando reabertura e nova varredura a cada página/zoom; serializar decode/close; encerrar a fonte na substituição ou via `ApplicationScope` ao limpar o ViewModel, sem bloquear a UI. Testes cobrem páginas consecutivas, fechamento idempotente, descarte no ViewModel e cancelamento com bitmap pendente; suíte do módulo 161/161, lint do módulo/app e `:app:assembleDebug` aprovados; integração CBR no Android TV 1/1 (AVD na NVIDIA, encerrado pelo wrapper).
+- [x] Indexar os `FileHeader` por `nextFileHeader()` em vez de `archive.fileHeaders`, evitando uma segunda lista completa durante a abertura. `CbrBookArchiveTest` validou a fixture CBR real, ordem natural e locators dentro da suíte do módulo (162/162); `lintDebug` e `:app:assembleDebug` também passaram em 2026-10-08.
+- [x] Verificar cancelamento entre entradas durante a indexação feita pelo app e antes/depois da ordenação; propagar `CancellationException` e fechar o arquivo RAR no caminho de erro. Regressão JVM confirma que a indexação para após o cancelamento.
+- [ ] Limite `MAX_ARCHIVE_ENTRIES` continua sendo conferido depois de o parser Junrar materializar seus cabeçalhos internos; a iteração incremental evita apenas a lista duplicada e não protege o pico interno contra arquivo com muitos cabeçalhos. Antes de tratar como defesa contra flood malicioso, avaliar parser com limite pré-alocação e testes RAR4/RAR5; não substituir por pré-scanner caseiro.
+- [ ] A construção interna do Junrar ainda materializa cabeçalhos sincronamente antes de verificar `MAX_ARCHIVE_ENTRIES`; cancelamento não interrompe esse parser e a troca de livro ainda pode aguardar sua leitura inicial. Reavaliar parser cancelável/com limite pré-alocação; não criar pré-scanner caseiro.
+- [ ] Validar mídia real servida pelo Mulletaflix e conversões MOBI/AZW no servidor; APK usa conversão do servidor para formatos ainda não suportados diretamente.
 - [ ] Sem bump de versão, APK de produção, portal ou publicação.
 
 Este documento rastreia o status de implementação de todas as funcionalidades, módulos, telas e componentes do aplicativo oficial **MulletaFlix Android**.
@@ -66,6 +84,7 @@ Este documento rastreia o status de implementação de todas as funcionalidades,
 - [x] Teste instrumentado valida a Network Security Config empacotada: HTTP do domínio público e subdomínios bloqueado; a política da plataforma permite cleartext dinâmico, enquanto os guards Kotlin validam os destinos do app. AVD PHONE API 35 via GPU NVIDIA, 1/1 aprovado; nenhum tráfego externo.
 - [x] Guard Kotlin restringe HTTP a loopback e a destinos resolvidos na sub-rede ativa; prefixos IPv4/IPv6, DNS local fora da sub-rede e proxy são cobertos por testes. A integração valida requisição HTTP protegida pela interface LAN do AVD. A Network Security Config ainda permite cleartext global por limitação de CIDR dinâmico no XML.
 - [x] Leitor Readium substituiu `DefaultHttpClient`/`HttpURLConnection` por um adapter OkHttp com a mesma guarda de rota e redirects; cobre stream HTTP local, bloqueio HTTP público direto e por redirect, redirect local seguro e timeouts Readium por requisição. Testes instrumentados e JVM do módulo aprovados; sem release.
+- [x] Uma chamada real `MulletaFlixApiService` via Retrofit agora comprova que redirect do servidor LAN para HTTP público é interrompido antes da segunda requisição; DNS do destino público é mapeado somente para a fixture loopback no teste, mantendo-o hermético.
 - [ ] A configuração Android ainda permite cleartext para LAN dinâmica; guards nos clientes não substituem bloqueio global do SO. APK-H12 segue em validação e não libera release até política e cobertura ampla estarem fechadas.
 
 ## Prévia local de títulos da biblioteca offline (APK local; sem release)
@@ -130,7 +149,11 @@ Este documento rastreia o status de implementação de todas as funcionalidades,
 - [x] Aplicar a seleção pelo mesmo mapeamento de índice servidor/faixa suportada e `TrackSelectionOverride` usado pelo ViewModel; o teste observa `Player.currentTracks` após selecionar inglês e legenda, e confirma a opção de rádio selecionada na interface.
 - [x] `OfflineContainerTrackIntegrationTest`: PHONE API 35, TABLET API 35 e Android TV API 34 passaram (1 teste por perfil, 0 falhas/erros/ignorados); reprodução não fez requisição após baixar, e TV selecionou áudio/legenda por D-pad. Wrappers confirmaram NVIDIA RTX 3050 e encerraram cada AVD.
 - [x] Quality Bar: `:feature:player:testDebugUnitTest` (295 testes, 0 falhas/erros/ignorados), `:feature:player:lintDebug` e `:feature:player:compileDebugAndroidTestKotlin`: `BUILD SUCCESSFUL` após a alteração; os testes conectados passaram nos três perfis.
-- [ ] Falta integrar o `PlayerViewModel` e o `OfflineDownloadCache` persistente do app no cenário instrumentado e validar arquivo servido por sessão real do servidor. O teste exercita o `DownloadManager`, `SimpleCache` e player Media3 reais com fixture HTTP local, não sessão do app/servidor.
+- [x] `OfflinePlayerViewModelIntegrationTest`: PHONE API 35 e TABLET API 35 passaram (1/1 em cada perfil, 0 falhas/erros/ignorados). Exercita `PlayerViewModel` real, cache persistente `OfflineDownloadCache` do app, fixture baixada por `DownloadManager` Media3, sessão/ajustes isolados e entrada offline correspondente; desliga o MockWebServer antes de reproduzir, confirma faixas de áudio/legenda, seleção efetiva no Media3, zero requisições adicionais e remoção verificada do download ao final. Wrapper comprovou GPU NVIDIA RTX 3050 e encerrou cada AVD.
+- [x] Quality Bar desta integração: `:feature:player:compileDebugAndroidTestKotlin`, `:feature:player:testDebugUnitTest` e `:feature:player:lintDebug`: `BUILD SUCCESSFUL`; integração conectada passou em telefone e tablet.
+- [x] `OfflinePlayerProductionDownloadFlowTest` em `:app`: PHONE API 35 e TABLET API 35 passaram (1/1 em cada perfil, 0 falhas/erros/ignorados). Integra as implementações reais `Media3DownloadRepository`, `DownloadService`, `DownloadManagerSingleton`, `OfflineDownloadCache` e `PlayerViewModel`; confirma ID escopado por usuário/servidor/mídia, título/tamanho no catálogo, download concluído pela fila do serviço, reprodução READY e seleção de áudio/legenda com a origem desligada, sem nova requisição. Recusa iniciar com downloads ativos preexistentes, limpa somente o ID/metadata temporário, e wrappers comprovaram GPU NVIDIA RTX 3050 e encerraram os AVDs.
+- [x] Quality Bar da integração do app: `:app:compileDebugAndroidTestKotlin`, `:app:testDebugUnitTest` e `:app:lintDebug`: `BUILD SUCCESSFUL`; o teste conectado real passou nos dois perfis.
+- [ ] Validar a mesma jornada com sessão autenticada e uma mídia real do servidor MulletaFlix; a fixture local comprova integração app/cache/player, mas não disponibilidade das rotas, autenticação ou mídia no servidor remoto.
 
 ## Fundo personalizável das legendas (APK local; sem release)
 
@@ -3151,7 +3174,9 @@ Pendências relacionadas:
 - [x] Adicionar teste Compose da sequência dispensar → buscar novamente → solicitar permissão; AVD Android TV API 34 passou 1/1.
 - [x] `testDebugUnitTest`: 1.334 testes, 0 falhas/erros/skips; `:app:compileDebugAndroidTestKotlin`, `:app:lintDebug`, `:app:assembleDebug`, `:feature:auth:lintDebug` e `:feature:auth:assembleDebugAndroidTest`: `BUILD SUCCESSFUL`.
 - [x] Corrigir teste de fallback que exigia HTTP após a URL pública padrão migrar para HTTPS; execução anterior falhou especificamente nessa asserção. Suíte instrumentada `:feature:auth:connectedDebugAndroidTest` no telefone API 35 passou 12/12; suíte atual `testDebugUnitTest :app:lintDebug :app:assembleDebug` passou.
-- [ ] API 37 não validada: nova tentativa no AVD separado `MulletaflixApi37Gauntlet` confirmou SDK 37, mas falhou ao instalar o APK com NPE em `StorageManagerService.allocateBytes` (`PackageManagerInternal.freeStorage` nulo); o wrapper rejeitou o relatório com zero testes. Não contar como execução aprovada.
+- [x] 2026-10-08: teste Compose cobre o aviso de `ACCESS_LOCAL_NETWORK`: “Permitir” aciona o callback do pedido de permissão; “Agora não” fecha o aviso e mantém a busca manual disponível; o teste existente confirma a alternativa HTTPS pela Internet após negação. `LocalNetworkPermissionDialogTest` passou 2/2 no AVD PHONE API 35; wrapper confirmou NVIDIA RTX 3050 e encerrou o emulador.
+- [x] `:feature:auth:testDebugUnitTest --rerun-tasks` aprovou 94 testes, 0 falhas/erros/skips; `:feature:auth:lintDebug` e `:feature:auth:compileDebugAndroidTestKotlin` concluíram com `BUILD SUCCESSFUL`.
+- [ ] API 37 continua sem validação. Tentativa adicional em `SmartMeasureApi37`: ADB conectou, mas `sys.boot_completed` não foi informado e os serviços Package Manager/Window falharam (“Broken pipe”/“Can't find service”); instrumentação não iniciou e não foi contabilizada. O AVD foi encerrado; não declarar cobertura API 37.
 - [ ] Sem bump, APK de produção ou publicação. Antes de próxima release, conferir release anterior, usar certificado oficial e atualizar notas, versão e link APK do portal; não alterar release do servidor.
 - [x] Keystore substituída após rotação de certificado; `:app:verifyProductionSigningCertificate` passou em 2026-10-02 para o certificado registrado `4890D80B…C5A0A24C`.
 - [x] Proprietário informou que a chave antiga foi perdida e optou por reinstalar. Nova assinatura mantém o mesmo `applicationId`; para receber o APK novo, remover a instalação antiga antes de instalar. Aviso incluído nas notas e documentação do portal.
@@ -3199,3 +3224,11 @@ Pendências relacionadas:
 - [x] `:feature:item-detail:lintDebug`, `:app:assembleDebug` e `:app:compileDebugAndroidTestKotlin`: `BUILD SUCCESSFUL`.
 - [x] AVDs iniciados e fechados pelo wrapper; QEMU identificado na NVIDIA RTX 3050 nos testes.
 - [ ] Sem bump, APK de produção ou publicação nesta melhoria local do APK.
+
+## Leitor CBR — erro compreensível e retry após resposta inválida (sem release)
+- [x] Trocar erro técnico em inglês por mensagem clara em português quando Junrar rejeita o arquivo CBR.
+- [x] Cobrir fluxo Compose + HTTP 200: payload CBR inválido exibe erro e ação Retry; a resposta seguinte com EPUB abre e renderiza o conteúdo.
+- [x] `:feature:item-detail:testDebugUnitTest`: 163 testes, 0 falhas/erros/ignorados.
+- [x] `:feature:item-detail:compileDebugAndroidTestKotlin`, `:feature:item-detail:lintDebug`, `:app:lintDebug` e `:app:assembleDebug`: `BUILD SUCCESSFUL`.
+- [x] `BookReaderScreenIntegrationTest` no PHONE API 35: 3/3; wrapper confirmou QEMU na NVIDIA RTX 3050 e fechou o AVD.
+- [ ] Sem bump, APK de produção, portal ou publicação; a melhoria localiza-se apenas no APK.

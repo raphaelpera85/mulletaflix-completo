@@ -1,6 +1,7 @@
 package org.mulletaflix.feature.auth
 
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
@@ -35,5 +36,34 @@ class LocalNetworkPermissionDialogTest {
             assertEquals(DEFAULT_MULLETAFLIX_SERVER_URL, fallbackUrl)
             assertTrue(fallbackUrl?.startsWith("https://") == true)
         }
+    }
+
+    @Test
+    fun discoveryPromptLetsUserGrantOrDismissWithoutHidingInternetFallback() {
+        var permissionRequests = 0
+        val promptDismissed = mutableStateOf(false)
+
+        composeRule.setContent {
+            MaterialTheme {
+                LocalNetworkDiscoveryControl(
+                    isDiscovering = false,
+                    isLoading = false,
+                    permissionRequired = true,
+                    permissionRequestDenied = false,
+                    permissionPromptDismissed = promptDismissed.value,
+                    onPermissionPromptDismissedChange = { promptDismissed.value = it },
+                    onDiscover = {},
+                    onRequestPermission = { permissionRequests += 1 },
+                )
+            }
+        }
+
+        composeRule.onNodeWithText("Encontrar servidor na rede local").assertIsDisplayed()
+        composeRule.onNodeWithText("Permitir").performClick()
+        composeRule.runOnIdle { assertEquals(1, permissionRequests) }
+
+        composeRule.onNodeWithText("Agora não").performClick()
+        composeRule.onNodeWithText("Encontrar servidor na rede local").assertDoesNotExist()
+        composeRule.onNodeWithText("Procurar na rede").assertIsDisplayed()
     }
 }

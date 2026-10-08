@@ -2,6 +2,7 @@ package org.mulletaflix.feature.itemdetail
 
 import org.mulletaflix.domain.model.MediaItem
 import org.mulletaflix.domain.model.MediaItemType
+import org.mulletaflix.domain.model.isBookContent
 
 /**
  * Item id handed to the player when the user presses "Reproduzir" on a detail page.
@@ -23,6 +24,12 @@ internal fun detailPrimaryAction(item: MediaItem): DetailPrimaryAction =
 
 internal fun canReadBookOnDevice(item: MediaItem, isTelevision: Boolean): Boolean =
     item.type == MediaItemType.Book && !isTelevision
+
+internal fun canShowItemDetailsOnDevice(item: MediaItem, isTelevision: Boolean): Boolean =
+    !isTelevision || !item.type.isBookContent()
+
+internal fun similarItemsForDevice(items: List<MediaItem>, isTelevision: Boolean): List<MediaItem> =
+    if (isTelevision) items.filterNot { it.type.isBookContent() } else items
 
 /**
  * Whether the "Reproduzir" action can do anything for [item]: containers without

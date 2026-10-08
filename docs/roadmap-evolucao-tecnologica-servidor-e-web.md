@@ -3057,6 +3057,12 @@ Este documento é backlog em execução; não autoriza publicar uma release ante
 - Testes focais de `stats_reporter`: **7/7**. Suíte Nebula Python: **547/547** aprovados; `main.py` cobertura **72%** (431 instruções ausentes), agregado instrumentado 6.626 statements, 1.367 ausentes, **76%** incluindo branches.
 - Limites: sem serviço Mongo real, reinício concorrente de produtores ou falha física no volume. T0.3/T2.1 parciais; homologação global `progressPercent: null`. Sem pacote, release, commit, push ou deploy; curadoria IA fora do escopo ativo.
 
+### 08/10/2026 — Persistência resiliente do estado do feeder FTP (T0.3/T2.1 parcial)
+
+- Adicionados 11 casos em `test_feed_ftp_strm.py`: arquivo de estado `seen` ausente, inválido ou com tipo inesperado; catálogo de materializações ausente/corrompido/não mapeado; leitura de valores legados não textuais; round-trip com ordenação determinística; e falha ao substituir arquivo JSON, preservando o estado anterior e limpando o temporário.
+- Testes focais: **52/52**; `tools/feed_ftp.py` **68%** na suíte focal (era 67% com os 41 casos anteriores). Suíte Nebula completa: **558/558**, exit 0; 6.626 statements de produção instrumentados, 1.354 ausentes, **77%** incluindo branches; `feed_ftp.py` **69%** na execução global. `compileall`, quatro testes do portal de homologação, parsing do JSON e `git diff --check` passaram.
+- Sem alteração de lógica de produção. Limites: os testes do feeder usam filesystem temporário e falha simulada; não validam atomicidade/recuperação em falha física, processos concorrentes, Mongo real, rede/Telegram, execução Linux ou CI remota. T0.3/T2.1 e homologação formal continuam parciais, `progressPercent: null`; sem pacote, release, commit, push ou deploy; curadoria IA permanece fora do escopo ativo.
+
 ## Referências técnicas
 
 Fontes oficiais consultadas em 28/09/2026. Disponibilidade, suporte e requisitos de hardware devem ser revalidados antes de qualquer implementação.

@@ -371,6 +371,64 @@ def test_cleanup_stale_downloads_removes_old_artifacts_but_keeps_recent_files(tm
     assert recent.read_bytes() == b"12"
 
 
+def test_load_seen_returns_empty_when_state_file_is_missing(tmp_path):
+    assert feed_ftp.load_seen(tmp_path / "missing.json") == set()
+
+
+@pytest.mark.parametrize("payload", ["not-json", "null", "42"])
+def test_load_seen_recovers_from_corrupt_or_non_collection_json(tmp_path, payload):
+    state_file = tmp_path / "state.json"
+    state_file.write_text(payload, encoding="utf-8")
+
+    assert feed_ftp.load_seen(state_file) == set()
+
+
+@pytest.mark.parametrize("payload", ["not-json", "[]", "null", "42"])
+def test_load_materialized_links_returns_empty_for_invalid_state(tmp_path, payload):
+    state_file = tmp_path / "links.json"
+    state_file.write_text(payload, encoding="utf-8")
+
+    assert feed_ftp.load_materialized_links(state_file) == {}
+
+
+def test_materialized_links_round_trip_and_sort_keys(tmp_path):
+    state_file = tmp_path / "nested" / "links.json"
+    links = {"z-url": "z.mp4", "á-url": "a.mp4"}
+
+    feed_ftp.save_materialized_links(state_file, links)
+
+    serialized = state_file.read_text(encoding="utf-8")
+    assert feed_ftp.load_materialized_links(state_file) == links
+    assert serialized.index('"z-url"') < serialized.index('"á-url"')
+
+
+def test_load_materialized_links_converts_legacy_non_string_entries_to_strings(tmp_path):
+    state_file = tmp_path / "links.json"
+    state_file.write_text('{"url": 42}', encoding="utf-8")
+
+    assert feed_ftp.load_materialized_links(state_file) == {"url": "42"}
+
+
+def test_atomic_write_json_preserves_previous_state_and_cleans_temp_after_replace_failure(tmp_path, monkeypatch):
+    state_file = tmp_path / "state.json"
+    state_file.write_text('{"previous": true}', encoding="utf-8")
+    temp_file = state_file.with_name(f".{state_file.name}.{os.getpid()}.tmp")
+    original_replace = Path.replace
+
+    def fail_state_replace(path, target):
+        if path == temp_file:
+            raise PermissionError("simulated atomic replace failure")
+        return original_replace(path, target)
+
+    monkeypatch.setattr(Path, "replace", fail_state_replace)
+
+    with pytest.raises(PermissionError, match="simulated atomic replace failure"):
+        feed_ftp.atomic_write_json(state_file, {"new": True})
+
+    assert state_file.read_text(encoding="utf-8") == '{"previous": true}'
+    assert not temp_file.exists()
+
+
 def test_prune_completed_strm_dry_run_reports_matches_without_deleting(tmp_path, monkeypatch):
     source = tmp_path / "source"
     film_folder = source / "Filmes" / "Film 2020"

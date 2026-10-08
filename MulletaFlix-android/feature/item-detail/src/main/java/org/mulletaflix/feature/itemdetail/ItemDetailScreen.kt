@@ -79,6 +79,11 @@ fun ItemDetailScreen(
 
     LaunchedEffect(itemId) { viewModel.loadItem(itemId) }
 
+    state.item?.takeUnless { canShowItemDetailsOnDevice(it, isTelevision) }?.let { item ->
+        ItemDetailDeviceGate(item = item, isTelevision = isTelevision, onBack = onBack) {}
+        return
+    }
+
     Box(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
 
         state.item?.let { item ->
@@ -180,9 +185,11 @@ fun ItemDetailScreen(
                 }
 
                 // ── Similar Items ────────────────────────────────────────────
-                if (state.similarItems.isNotEmpty()) {
-                    SimilarSection(items = state.similarItems, onItemClick = onItemClick)
-                }
+                SimilarItemsForDevice(
+                    items = state.similarItems,
+                    isTelevision = isTelevision,
+                    onItemClick = onItemClick,
+                )
 
                 // ── Special Features ─────────────────────────────────────────
                 if (state.specialFeatures.isNotEmpty()) {
@@ -290,6 +297,42 @@ fun ItemDetailScreen(
         }
     }
 }
+
+@Composable
+internal fun ItemDetailDeviceGate(
+    item: MediaItem,
+    isTelevision: Boolean,
+    onBack: () -> Unit,
+    content: @Composable () -> Unit,
+) {
+    if (canShowItemDetailsOnDevice(item, isTelevision)) {
+        content()
+        return
+    }
+
+    Surface(
+        modifier = Modifier.fillMaxSize(),
+        color = MaterialTheme.colorScheme.background,
+    ) {
+        Column(
+            modifier = Modifier.fillMaxSize().padding(32.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center,
+        ) {
+            Text(
+                text = "Conteúdo de livros indisponível na Android TV",
+                style = MaterialTheme.typography.headlineSmall,
+                color = MaterialTheme.colorScheme.onBackground,
+            )
+            Spacer(Modifier.height(20.dp))
+            Button(onClick = onBack, modifier = Modifier.testTag(ITEM_DETAIL_TV_BOOK_BACK_TEST_TAG)) {
+                Text("Voltar")
+            }
+        }
+    }
+}
+
+internal const val ITEM_DETAIL_TV_BOOK_BACK_TEST_TAG = "item-detail-tv-book-back"
 
 @Composable
 internal fun DetailHero(
@@ -678,6 +721,16 @@ private fun CastSection(people: List<org.mulletaflix.domain.model.PersonInfo>, o
             }
         }
     }
+}
+
+@Composable
+internal fun SimilarItemsForDevice(
+    items: List<MediaItem>,
+    isTelevision: Boolean,
+    onItemClick: (String) -> Unit,
+) {
+    val visibleItems = similarItemsForDevice(items, isTelevision)
+    if (visibleItems.isNotEmpty()) SimilarSection(visibleItems, onItemClick)
 }
 
 @Composable

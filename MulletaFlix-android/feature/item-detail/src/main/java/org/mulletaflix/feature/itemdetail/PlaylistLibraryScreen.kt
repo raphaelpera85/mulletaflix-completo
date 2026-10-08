@@ -1,5 +1,6 @@
 package org.mulletaflix.feature.itemdetail
 
+import android.content.res.Configuration
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -35,6 +36,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
@@ -60,6 +62,9 @@ fun PlaylistLibraryScreen(
     viewModel: PlaylistLibraryViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val isTelevision = (LocalConfiguration.current.uiMode and Configuration.UI_MODE_TYPE_MASK) ==
+        Configuration.UI_MODE_TYPE_TELEVISION
+    val visibleItems = playlistItemsForDevice(state.items, isTelevision)
     Scaffold(
         topBar = {
             TopAppBar(
@@ -88,10 +93,14 @@ fun PlaylistLibraryScreen(
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
             } else if (state.playlists.isEmpty()) {
                 EmptyState("Nenhuma playlist encontrada", "Crie uma playlist nos detalhes de um título.")
-            } else if (state.items.isEmpty() && itemsError != null) {
+            } else if (visibleItems.isEmpty() && itemsError != null) {
                 PlaylistError(itemsError, onRetry = viewModel::retryItems)
-            } else if (state.items.isEmpty()) {
-                EmptyState("Playlist vazia", "Adicione títulos usando a opção de playlist nos detalhes.")
+            } else if (visibleItems.isEmpty() && !state.isLoadingItems && !state.hasMoreItems) {
+                if (isTelevision && state.items.isNotEmpty()) {
+                    EmptyState("Nenhum título disponível nesta TV", "Livros não são exibidos na Android TV.")
+                } else {
+                    EmptyState("Playlist vazia", "Adicione títulos usando a opção de playlist nos detalhes.")
+                }
             } else {
                 LazyColumn(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     if (playlistError != null) {
@@ -99,14 +108,23 @@ fun PlaylistLibraryScreen(
                             PlaylistError(playlistError, onRetry = viewModel::loadPlaylists)
                         }
                     }
+                    if (visibleItems.isEmpty()) {
+                        item(key = "hidden-book-content") {
+                            Text(
+                                "Livros não são exibidos na Android TV.",
+                                style = MaterialTheme.typography.bodyMedium,
+                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                            )
+                        }
+                    }
                     item {
                         Text(
-                            "${state.selectedPlaylist?.name.orEmpty()} · ${state.totalItems} títulos",
+                            "${state.selectedPlaylist?.name.orEmpty()} · ${playlistVisibleCountLabel(visibleItems.size)}",
                             style = MaterialTheme.typography.titleMedium,
                             modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
                         )
                     }
-                    items(state.items, key = { it.id }) { media ->
+                    items(visibleItems, key = { it.id }) { media ->
                         PlaylistMediaRow(media, onClick = { onItemClick(media.id) }, onPlay = { onPlay(media.id) })
                     }
                     if (itemsError != null) {

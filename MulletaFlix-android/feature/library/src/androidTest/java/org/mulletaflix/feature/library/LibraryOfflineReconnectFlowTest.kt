@@ -1,8 +1,10 @@
 package org.mulletaflix.feature.library
 
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
@@ -10,7 +12,9 @@ import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.test.platform.app.InstrumentationRegistry
+import android.content.res.Configuration
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.flowOf
@@ -18,6 +22,7 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.mulletaflix.core.api.HomeFeedCacheScope
@@ -116,6 +121,94 @@ class LibraryOfflineReconnectFlowTest {
         composeRule.runOnIdle { assertEquals(mediaId, openedItemId) }
     }
 
+    @Test
+    fun televisionNeverRendersHandheldBooksDuringOrAfterFailedRefresh() = runBlocking<Unit> {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val suffix = UUID.randomUUID().toString().replace("-", "")
+        val userId = "tv-library-user-$suffix"
+        val libraryId = "offline-library-$suffix"
+        val session = TestSessionRepository(userId, suffix)
+        val media = TestMediaRepository(libraryId, "movie-$suffix").apply {
+            catalog = listOf(
+                movie("movie-$suffix", "Filme visível na TV"),
+                MediaItem("book-$suffix", "Livro não deve aparecer na TV", MediaItemType.Book),
+                MediaItem("audio-book-$suffix", "Audiolivro não deve aparecer na TV", MediaItemType.AudioBook),
+            )
+        }
+        val configuration = mutableStateOf(
+            Configuration(context.resources.configuration).apply {
+                uiMode = (uiMode and Configuration.UI_MODE_TYPE_MASK.inv()) or Configuration.UI_MODE_TYPE_NORMAL
+            },
+        )
+        val network = MutableTestNetworkMonitor(online = true)
+        val viewModel = newViewModel(
+            media,
+            TestAuthRepository(userId),
+            TestSettingsRepository(),
+            network,
+            LibraryCatalogCacheRepositoryImpl(context, session),
+        )
+
+        composeRule.setContent {
+            CompositionLocalProvider(LocalConfiguration provides configuration.value) {
+                MaterialTheme {
+                    LibraryScreen(libraryId = libraryId, onItemClick = {}, onBack = {}, viewModel = viewModel)
+                }
+            }
+        }
+        composeRule.waitUntil(timeoutMillis = 10_000) {
+            composeRule.onAllNodesWithText("Livro não deve aparecer na TV").fetchSemanticsNodes().isNotEmpty()
+        }
+
+        // Keep the old mixed catalog in ViewModel state and make the ensuing
+        // TV refresh fail; the TV UI must still never expose book cards/actions.
+        media.holdAndFailCatalogRefresh = true
+        composeRule.runOnIdle {
+            configuration.value = Configuration(configuration.value).apply {
+                uiMode = (uiMode and Configuration.UI_MODE_TYPE_MASK.inv()) or Configuration.UI_MODE_TYPE_TELEVISION
+            }
+        }
+        composeRule.onNodeWithContentDescription("Atualizar biblioteca", substring = true).performClick()
+        composeRule.waitUntil(timeoutMillis = 10_000) { media.catalogRefreshStarted.isCompleted }
+        composeRule.onNodeWithText("Livro não deve aparecer na TV").assertDoesNotExist()
+        composeRule.onNodeWithText("Audiolivro não deve aparecer na TV").assertDoesNotExist()
+        composeRule.onNodeWithText("Filme visível na TV").assertIsDisplayed()
+
+        assertTrue(viewModel.state.value.items.any { it.type == MediaItemType.Book })
+        assertTrue(viewModel.state.value.items.any { it.type == MediaItemType.AudioBook })
+        media.catalogRefreshGate.complete(Unit)
+        composeRule.waitUntil(timeoutMillis = 10_000) { !viewModel.state.value.isRefreshing }
+
+        assertTrue(viewModel.state.value.items.any { it.type == MediaItemType.Book })
+        assertTrue(viewModel.state.value.items.any { it.type == MediaItemType.AudioBook })
+        composeRule.onNodeWithText("Livro não deve aparecer na TV").assertDoesNotExist()
+        composeRule.onNodeWithText("Audiolivro não deve aparecer na TV").assertDoesNotExist()
+        composeRule.onNodeWithText("Filme visível na TV").assertIsDisplayed()
+
+        // A previously opened offline book preview must also disappear when
+        // a user switches device profile while the destination stays composed.
+        composeRule.runOnIdle {
+            configuration.value = Configuration(configuration.value).apply {
+                uiMode = (uiMode and Configuration.UI_MODE_TYPE_MASK.inv()) or Configuration.UI_MODE_TYPE_NORMAL
+            }
+        }
+        network.setOnline(false)
+        composeRule.waitUntil(timeoutMillis = 10_000) { viewModel.state.value.isOffline }
+        composeRule.onNodeWithText("Livro não deve aparecer na TV").performClick()
+        composeRule.onNodeWithText(
+            "Prévia do catálogo salvo neste dispositivo. Os detalhes completos e a reprodução por streaming precisam de conexão.",
+        ).assertIsDisplayed()
+        composeRule.runOnIdle {
+            configuration.value = Configuration(configuration.value).apply {
+                uiMode = (uiMode and Configuration.UI_MODE_TYPE_MASK.inv()) or Configuration.UI_MODE_TYPE_TELEVISION
+            }
+        }
+        composeRule.onNodeWithText("Livro não deve aparecer na TV").assertDoesNotExist()
+        composeRule.onNodeWithText(
+            "Prévia do catálogo salvo neste dispositivo. Os detalhes completos e a reprodução por streaming precisam de conexão.",
+        ).assertDoesNotExist()
+    }
+
     private fun newViewModel(
         media: MediaRepository,
         auth: AuthRepository,
@@ -142,6 +235,9 @@ class LibraryOfflineReconnectFlowTest {
     )
 
     private class TestMediaRepository(libraryId: String, mediaId: String) : MediaRepository {
+        @Volatile var holdAndFailCatalogRefresh = false
+        val catalogRefreshStarted = CompletableDeferred<Unit>()
+        val catalogRefreshGate = CompletableDeferred<Unit>()
         @Volatile var catalog: List<MediaItem> = listOf(
             MediaItem(mediaId, "Catálogo online", MediaItemType.Movie),
         )
@@ -150,15 +246,24 @@ class LibraryOfflineReconnectFlowTest {
             userId: String, parentId: String?, includeItemTypes: String?, sortBy: String?, sortOrder: String?,
             filters: String?, searchTerm: String?, startIndex: Int, limit: Int, genres: String?, years: String?,
             officialRatings: String?, isPlayed: Boolean?, isFavorite: Boolean?,
-        ): Result<Pair<List<MediaItem>, Int>> = Result.success(catalog to catalog.size)
+        ): Result<Pair<List<MediaItem>, Int>> {
+            if (holdAndFailCatalogRefresh) {
+                catalogRefreshStarted.complete(Unit)
+                catalogRefreshGate.await()
+                return Result.failure(IllegalStateException("Falha simulada ao atualizar biblioteca"))
+            }
+            return Result.success(catalog to catalog.size)
+        }
 
-        override suspend fun getItem(userId: String, itemId: String): Result<MediaItem> = Result.success(
-            if (itemId.startsWith("offline-library-")) {
-                MediaItem(itemId, "Filmes", MediaItemType.CollectionFolder, collectionType = "movies", isFolder = true)
-            } else {
-                catalog.firstOrNull { it.id == itemId } ?: MediaItem(itemId, "Mídia", MediaItemType.Movie)
-            },
-        )
+        override suspend fun getItem(userId: String, itemId: String): Result<MediaItem> {
+            return Result.success(
+                if (itemId.startsWith("offline-library-")) {
+                    MediaItem(itemId, "Filmes", MediaItemType.CollectionFolder, collectionType = "movies", isFolder = true)
+                } else {
+                    catalog.firstOrNull { it.id == itemId } ?: MediaItem(itemId, "Mídia", MediaItemType.Movie)
+                },
+            )
+        }
 
         override suspend fun getLibraryFilterOptions(userId: String, parentId: String, includeItemTypes: String?) =
             Result.success(LibraryFilterOptions())

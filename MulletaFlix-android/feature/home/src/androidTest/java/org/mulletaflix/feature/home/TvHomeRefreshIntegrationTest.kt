@@ -7,20 +7,26 @@ import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.semantics.getOrNull
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.v2.createComposeRule
+import androidx.compose.ui.test.hasContentDescription
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.SemanticsMatcher
+import androidx.compose.ui.test.onNodeWithContentDescription
+import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.test.performScrollToNode
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.LifecycleRegistry
 import androidx.lifecycle.ViewModelStore
 import androidx.navigation.NavController
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import androidx.test.platform.app.InstrumentationRegistry
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.flowOf
 import org.junit.Assert.assertTrue
+import org.junit.Assert.assertEquals
 import org.junit.Assume.assumeTrue
 import org.junit.Rule
 import org.junit.Test
@@ -47,6 +53,154 @@ import java.util.concurrent.atomic.AtomicInteger
 class TvHomeRefreshIntegrationTest {
     @get:Rule
     val composeRule = createComposeRule()
+
+    @Test
+    fun booksLibraryFromLoadedFeedIsHiddenByRealTvHomeScreen() {
+        val expectedProfile = requireNotNull(
+            InstrumentationRegistry.getArguments().getString("expectedDeviceProfile"),
+        ) { "Set expectedDeviceProfile to PHONE, TABLET or TV for this AVD run" }
+        assertEquals("This visibility check must run on the TV profile", "TV", expectedProfile)
+
+        val owner = TestLifecycleOwner()
+        val booksLibrary = MediaItem(
+            "books-library",
+            "Livros",
+            MediaItemType.CollectionFolder,
+            collectionType = "books",
+        )
+        val moviesLibrary = MediaItem(
+            "movies-library",
+            "Filmes",
+            MediaItemType.CollectionFolder,
+            collectionType = "movies",
+        )
+        val resumeMovie = MediaItem("resume-movie", "Filme em andamento", MediaItemType.Movie)
+        val resumeBook = MediaItem("resume-book", "Livro em andamento", MediaItemType.Book)
+        val nextEpisode = MediaItem("next-episode", "Episódio seguinte", MediaItemType.Episode)
+        val nextBook = MediaItem("next-book", "Livro no próximo episódio", MediaItemType.Book)
+        val favoriteMovie = MediaItem("favorite-movie", "Filme favorito", MediaItemType.Movie)
+        val favoriteBook = MediaItem("favorite-book", "Livro favorito", MediaItemType.Book)
+        val recentMovie = MediaItem("recent-movie", "Filme recém-adicionado", MediaItemType.Movie)
+        val recentBookInMovies = MediaItem("recent-book-mixed", "Livro misturado em filmes", MediaItemType.Book)
+        val recentBook = MediaItem("recent-book", "Livro recentemente adicionado", MediaItemType.Book)
+        val mediaRepository = object : EmptyMediaRepository() {
+            override suspend fun getLibraries(userId: String) =
+                Result.success(listOf(moviesLibrary, booksLibrary))
+
+            override suspend fun getResumeItems(userId: String, limit: Int) =
+                Result.success(listOf(resumeMovie, resumeBook))
+
+            override suspend fun getNextUp(userId: String, limit: Int) =
+                Result.success(listOf(nextEpisode, nextBook))
+
+            override suspend fun getItems(
+                userId: String,
+                parentId: String?,
+                includeItemTypes: String?,
+                sortBy: String?,
+                sortOrder: String?,
+                filters: String?,
+                searchTerm: String?,
+                startIndex: Int,
+                limit: Int,
+                genres: String?,
+                years: String?,
+                officialRatings: String?,
+                isPlayed: Boolean?,
+                isFavorite: Boolean?,
+            ) = Result.success(listOf(favoriteMovie, favoriteBook) to 2)
+
+            override suspend fun getLatestItems(userId: String, parentId: String?, limit: Int) =
+                Result.success(
+                    when (parentId) {
+                        moviesLibrary.id -> listOf(recentMovie, recentBookInMovies)
+                        booksLibrary.id -> listOf(recentBook)
+                        else -> emptyList()
+                    },
+                )
+        }
+        val viewModelStore = ViewModelStore()
+        val viewModel = HomeViewModel(
+            getHomeFeedUseCase = GetHomeFeedUseCase(mediaRepository),
+            sessionRepository = TestSessionRepository(),
+            networkMonitor = object : NetworkMonitor { override val isOnline = flowOf(true) },
+            authRepository = TestAuthRepository(),
+        )
+        val renderedOnTv = AtomicBoolean(false)
+        composeRule.runOnUiThread { viewModelStore.put("tv-home-books-visibility", viewModel) }
+
+        try {
+            composeRule.runOnUiThread {
+                owner.registry.handleLifecycleEvent(Lifecycle.Event.ON_CREATE)
+                owner.registry.handleLifecycleEvent(Lifecycle.Event.ON_START)
+                owner.registry.handleLifecycleEvent(Lifecycle.Event.ON_RESUME)
+            }
+            composeRule.setContent {
+                renderedOnTv.set(isTelevisionDevice())
+                CompositionLocalProvider(androidx.lifecycle.compose.LocalLifecycleOwner provides owner) {
+                    val context = LocalContext.current
+                    val navController = remember(context) { NavController(context) }
+                    MulletaFlixTheme {
+                        HomeScreen(
+                            onItemClick = {},
+                            onPlayItemClick = {},
+                            onLibraryClick = {},
+                            onLiveTvClick = {},
+                            navController = navController,
+                            viewModel = viewModel,
+                        )
+                    }
+                }
+            }
+            composeRule.waitForIdle()
+            assumeTrue("This integration scenario must run on Android TV", renderedOnTv.get())
+            composeRule.waitUntil(timeoutMillis = 10_000) {
+                val state = viewModel.state.value
+                !state.isLoading &&
+                    booksLibrary in state.libraries &&
+                    state.resumeItems == listOf(resumeMovie, resumeBook) &&
+                    state.nextUpItems == listOf(nextEpisode, nextBook) &&
+                    state.favoriteItems == listOf(favoriteMovie, favoriteBook) &&
+                    state.recentlyAddedByLibrary[moviesLibrary.id] == listOf(recentMovie, recentBookInMovies) &&
+                    state.recentlyAddedByLibrary[booksLibrary.id] == listOf(recentBook)
+            }
+
+            assertEquals(listOf(resumeMovie), homeMediaItemsForDevice(viewModel.state.value.resumeItems, true))
+            assertEquals(listOf(nextEpisode), homeMediaItemsForDevice(viewModel.state.value.nextUpItems, true))
+            assertEquals(listOf(favoriteMovie), homeMediaItemsForDevice(viewModel.state.value.favoriteItems, true))
+            assertEquals(
+                listOf(recentMovie),
+                homeRecentLibrarySections(
+                    libraries = viewModel.state.value.libraries,
+                    recentItemsByLibraryId = viewModel.state.value.recentlyAddedByLibrary,
+                    errorsByLibraryId = viewModel.state.value.recentlyAddedErrorsByLibrary,
+                    isTelevision = true,
+                ).first { it.library.id == moviesLibrary.id }.items,
+            )
+
+            val homeFeed = composeRule.onNodeWithTag(HOME_FEED_TEST_TAG)
+            listOf(
+                resumeMovie to resumeBook,
+                nextEpisode to nextBook,
+                favoriteMovie to favoriteBook,
+                recentMovie to recentBookInMovies,
+            ).forEach { (visibleTitle, hiddenBook) ->
+                homeFeed.performScrollToNode(hasContentDescription("Abrir ${visibleTitle.name}"))
+                composeRule.onNodeWithContentDescription("Abrir ${visibleTitle.name}").assertIsDisplayed()
+                composeRule.onNodeWithContentDescription("Abrir ${hiddenBook.name}").assertDoesNotExist()
+            }
+            homeFeed.performScrollToNode(hasContentDescription("Abrir Filmes"))
+            composeRule.onNodeWithContentDescription("Abrir Filmes").assertIsDisplayed()
+            composeRule.onNodeWithContentDescription("Abrir Livros").assertDoesNotExist()
+        } finally {
+            composeRule.runOnUiThread {
+                if (owner.lifecycle.currentState != Lifecycle.State.DESTROYED) {
+                    owner.registry.handleLifecycleEvent(Lifecycle.Event.ON_DESTROY)
+                }
+                viewModelStore.clear()
+            }
+        }
+    }
 
     @Test
     fun returning_to_tv_home_replaces_visible_media_with_refreshed_feed() {

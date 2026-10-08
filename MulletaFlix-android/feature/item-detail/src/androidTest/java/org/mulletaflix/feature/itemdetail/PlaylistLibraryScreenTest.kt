@@ -6,9 +6,11 @@ import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import androidx.test.platform.app.InstrumentationRegistry
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.flow.flowOf
 import org.junit.Assert.assertEquals
+import org.junit.Assume.assumeTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -37,6 +39,63 @@ class PlaylistLibraryScreenTest {
         composeRule.onNodeWithText("Favoritos").assertExists()
         composeRule.onNodeWithText("Meu filme").assertExists()
         composeRule.onNodeWithContentDescription("Reproduzir Meu filme").assertExists()
+    }
+
+    @Test
+    fun hidesBookAndAudiobookTitlesOnAndroidTv() {
+        assumeTelevisionAvd()
+        val playlist = Playlist("p1", "Favoritos")
+        val repository = TestPlaylistRepository(
+            listOf(playlist),
+            listOf(
+                MediaItem("movie", "Filme visível", MediaItemType.Movie),
+                MediaItem("book", "Livro oculto", MediaItemType.Book),
+                MediaItem("audiobook", "Audiolivro oculto", MediaItemType.AudioBook),
+            ),
+        )
+        val viewModel = PlaylistLibraryViewModel(ManagePlaylistUseCase(repository), testAuthRepository())
+
+        composeRule.setContent {
+            MaterialTheme {
+                PlaylistLibraryScreen(onBack = {}, onItemClick = {}, onPlay = {}, viewModel = viewModel)
+            }
+        }
+
+        composeRule.waitUntil(5_000) { viewModel.state.value.items.size == 3 }
+        composeRule.onNodeWithText("Filme visível").assertExists()
+        composeRule.onNodeWithText("Livro oculto").assertDoesNotExist()
+        composeRule.onNodeWithText("Audiolivro oculto").assertDoesNotExist()
+        composeRule.onNodeWithText("Favoritos · 1 título visível").assertExists()
+    }
+
+    @Test
+    fun tvPlaylistOffersPaginationWhenCurrentPageContainsOnlyBooks() {
+        assumeTelevisionAvd()
+        val playlist = Playlist("p1", "Favoritos")
+        val repository = object : PlaylistRepository {
+            override suspend fun getPlaylists(userId: String) = Result.success(listOf(playlist))
+            override suspend fun getPlaylistItems(userId: String, playlistId: String, startIndex: Int, limit: Int): Result<Pair<List<MediaItem>, Int>> =
+                if (startIndex == 0) {
+                    Result.success(listOf(MediaItem("book", "Livro oculto", MediaItemType.Book)) to 2)
+                } else {
+                    Result.success(listOf(MediaItem("movie", "Filme na página seguinte", MediaItemType.Movie)) to 2)
+                }
+            override suspend fun createPlaylist(userId: String, name: String, itemId: String?) = Result.success(playlist)
+            override suspend fun addItem(userId: String, playlistId: String, itemId: String) = Result.success(Unit)
+        }
+        val viewModel = PlaylistLibraryViewModel(ManagePlaylistUseCase(repository), testAuthRepository())
+
+        composeRule.setContent {
+            MaterialTheme {
+                PlaylistLibraryScreen(onBack = {}, onItemClick = {}, onPlay = {}, viewModel = viewModel)
+            }
+        }
+
+        composeRule.waitUntil(5_000) { viewModel.state.value.items.size == 1 }
+        composeRule.onNodeWithText("Livro oculto").assertDoesNotExist()
+        composeRule.onNodeWithText("Carregar mais").assertExists().performClick()
+        composeRule.waitUntil(5_000) { viewModel.state.value.items.any { it.id == "movie" } }
+        composeRule.onNodeWithText("Filme na página seguinte").assertExists()
     }
 
     @Test
@@ -99,6 +158,14 @@ class PlaylistLibraryScreenTest {
         composeRule.onNodeWithText("Título seguinte").assertExists()
         assertEquals(listOf(0, 1, 1), starts)
     }
+}
+
+private fun assumeTelevisionAvd() {
+    val expectedProfile = InstrumentationRegistry.getArguments().getString("expectedDeviceProfile")
+    val configuration = InstrumentationRegistry.getInstrumentation().targetContext.resources.configuration
+    val isTelevision = (configuration.uiMode and android.content.res.Configuration.UI_MODE_TYPE_MASK) ==
+        android.content.res.Configuration.UI_MODE_TYPE_TELEVISION
+    assumeTrue("This test is specific to an Android TV AVD", expectedProfile == "TV" && isTelevision)
 }
 
 private class TestPlaylistRepository(

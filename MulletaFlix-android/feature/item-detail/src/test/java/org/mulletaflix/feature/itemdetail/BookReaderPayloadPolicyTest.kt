@@ -28,6 +28,8 @@ class BookReaderPayloadPolicyTest {
         assertFalse(isClearlyNotSupportedBookContentType("application/pdf"))
         assertFalse(isClearlyNotSupportedBookContentType("application/x-cbz"))
         assertFalse(isClearlyNotSupportedBookContentType("application/vnd.comicbook+zip"))
+        assertFalse(isClearlyNotSupportedBookContentType("application/vnd.comicbook-rar"))
+        assertFalse(isClearlyNotSupportedBookContentType("application/x-cbr"))
         assertFalse(isClearlyNotSupportedBookContentType("application/zip"))
         assertTrue(PdfBookDocument.supports("Application/PDF; charset=binary"))
         assertFalse(PdfBookDocument.supports("application/epub+zip"))
@@ -70,7 +72,7 @@ class BookReaderPayloadPolicyTest {
         assertFalse(isClearlyNotSupportedBookContentType("text/html; charset=utf-8"))
         assertTrue(isClearlyNotSupportedBookContentType("image/jpeg"))
         assertTrue(isClearlyNotSupportedBookContentType("application/json"))
-        assertTrue(isClearlyNotSupportedBookContentType("application/x-cbr"))
+        assertTrue(isClearlyNotSupportedBookContentType("application/x-cb7"))
         assertTrue(isClearlyNotSupportedBookContentType("application/x-mobipocket-ebook"))
     }
 
@@ -79,6 +81,7 @@ class BookReaderPayloadPolicyTest {
         assertEquals(PlainTextBookDocument.MAX_TEXT_BYTES, bookReaderPayloadLimit("text/plain; charset=utf-8"))
         assertEquals(PlainTextBookDocument.MAX_HTML_BYTES, bookReaderPayloadLimit("text/html; charset=utf-8"))
         assertEquals(MAX_BOOK_PAYLOAD_BYTES, bookReaderPayloadLimit("application/epub+zip"))
+        assertEquals(MAX_BOOK_PAYLOAD_BYTES, bookReaderPayloadLimit(CbrBookArchive.CONTENT_TYPE))
         assertEquals(MAX_BOOK_PAYLOAD_BYTES, bookReaderPayloadLimit(null))
     }
 
@@ -280,6 +283,11 @@ class BookReaderPayloadPolicyTest {
             }
             assertEquals(BookPayloadFormat.CBZ, detectBookPayloadFormat(cbz, "application/octet-stream"))
 
+            val cbr = directory.resolve("comic.rar").apply {
+                writeBytes(byteArrayOf(0x52, 0x61, 0x72, 0x21, 0x1a, 0x07, 0x00))
+            }
+            assertEquals(BookPayloadFormat.CBR, detectBookPayloadFormat(cbr, "application/octet-stream"))
+
             val epub = directory.resolve("book.bin")
             ZipOutputStream(epub.outputStream()).use { zip ->
                 zip.putNextEntry(ZipEntry("META-INF/container.xml"))
@@ -293,6 +301,24 @@ class BookReaderPayloadPolicyTest {
         } finally {
             directory.deleteRecursively()
         }
+    }
+
+    @Test
+    fun `generic RAR signatures retain the large book transfer limit`() {
+        val payload = ByteArray(PlainTextBookDocument.MAX_TEXT_BYTES.toInt() + 1).apply {
+            "Rar!\u001a\u0007".toByteArray(Charsets.ISO_8859_1).copyInto(this)
+        }
+        val output = ByteArrayOutputStream()
+
+        assertEquals(
+            payload.size.toLong(),
+            copyBookReaderPayload(
+                ByteArrayInputStream(payload),
+                output,
+                contentType = "application/octet-stream",
+            ),
+        )
+        assertEquals(payload.size, output.size())
     }
 
     private fun odtPackagePrefix(): ByteArray {

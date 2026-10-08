@@ -63,6 +63,30 @@ class DetailPlaybackTargetTest {
     }
 
     @Test
+    fun `book details are unavailable on television but remain available on handhelds`() {
+        val book = MediaItem("book-1", "Livro", MediaItemType.Book)
+        val audiobook = MediaItem("audio-book-1", "Audiolivro", MediaItemType.AudioBook)
+        val movie = MediaItem("movie-1", "Filme", MediaItemType.Movie)
+
+        assertFalse(canShowItemDetailsOnDevice(book, isTelevision = true))
+        assertFalse(canShowItemDetailsOnDevice(audiobook, isTelevision = true))
+        assertTrue(canShowItemDetailsOnDevice(book, isTelevision = false))
+        assertTrue(canShowItemDetailsOnDevice(audiobook, isTelevision = false))
+        assertTrue(canShowItemDetailsOnDevice(movie, isTelevision = true))
+    }
+
+    @Test
+    fun `television hides book recommendations but handhelds keep them`() {
+        val movie = MediaItem("movie-1", "Filme recomendado", MediaItemType.Movie)
+        val book = MediaItem("book-1", "Livro recomendado", MediaItemType.Book)
+        val audiobook = MediaItem("audio-book-1", "Audiolivro recomendado", MediaItemType.AudioBook)
+        val recommendations = listOf(movie, book, audiobook)
+
+        assertEquals(listOf(movie), similarItemsForDevice(recommendations, isTelevision = true))
+        assertEquals(recommendations, similarItemsForDevice(recommendations, isTelevision = false))
+    }
+
+    @Test
     fun `non-book detail actions stay on the video and media player path`() {
         assertEquals(
             DetailPrimaryAction.PlayVideo,
