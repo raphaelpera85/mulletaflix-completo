@@ -1,14 +1,14 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-10-07T21:28:42-03:00",
+  "generatedAt": "2026-10-08T03:49:06-03:00",
   "source": {
     "roadmap": "https://github.com/raphaelpera85/mulletaflix-completo/blob/main/docs/roadmap-evolucao-tecnologica-servidor-e-web.md",
     "repository": "https://github.com/raphaelpera85/mulletaflix-completo"
   },
   "coverage": {
-    "completed": 319,
+    "completed": 320,
     "pending": 68,
-    "total": 388,
+    "total": 389,
     "definition": "Checklists de funcionalidades do roadmap (cada checkbox conta como um item); tarefas com evento ativo identificado aparecem como em execução.",
     "inProgress": 1
   },
@@ -28,12 +28,12 @@
         "label": "Homologação formal não consolidada; testes parciais e bloqueios continuam em investigação."
       },
       "testAudit": {
-        "passed": 1165,
-        "total": 1215,
-        "skipped": 50,
-        "failed": 0,
-        "percent": 95.9,
-        "label": "TRX auditável: 1.165 aprovados, 50 ignorados, 0 falhas."
+        "passed": null,
+        "total": null,
+        "skipped": null,
+        "failed": null,
+        "percent": null,
+        "label": "Resultados das suites da rodada registrados por projeto no evento ativo; relatório TRX agregado e auditável ainda não consolidado."
       }
     },
     {
@@ -301,14 +301,14 @@
     },
     {
       "id": "T0.3.8",
-      "name": "Declarar dependências de teste do Nebula Python (`pytest`, `pytest-asyncio`, `pytest-cov`), adicionar job Linux ao CI e cobrir permissões FTP legadas, segurança HTTP, hierarquia…",
+      "name": "Declarar dependências de teste do Nebula Python (`pytest`, `pytest-asyncio`, `pytest-cov`), adicionar matriz Python Linux/Windows ao CI e cobrir permissões FTP legadas, seguranç…",
       "area": "Servidor",
       "status": "completed",
       "source": "roadmap"
     },
     {
       "id": "T0.3.9",
-      "name": "Aguardar execução remota do job Python e ampliar cenários de negócio/erro em `feed_ftp`, `strm_downloader`, `supabase_sync`, `main.py`, `control_plane.py`, FTP e Mongo; cobertur…",
+      "name": "Aguardar execução remota do job Python e ampliar cenários de negócio/erro em `feed_ftp`, `strm_downloader`, `supabase_sync`, `main.py`, `control_plane.py`, FTP e Mongo; suíte lo…",
       "area": "Servidor",
       "status": "pending",
       "source": "roadmap"
@@ -1183,48 +1183,55 @@
     },
     {
       "id": "T4.3.4",
-      "name": "Teste de integração opt-in atualizado para persistir `nebula_files` em banco Mongo aleatório, consultar campos/partes restaurados e provar que metadado local exclusivo permanece…",
+      "name": "A restauração do utilitário Python legado agora falha explicitamente após erro ao buscar usuários, uma página de arquivos ou índices; preserva contagens parciais, tenta recriar…",
       "area": "Servidor",
       "status": "completed",
       "source": "roadmap"
     },
     {
       "id": "T4.3.5",
-      "name": "O job CI que já provisiona Mongo descartável na porta `27099` agora executa `NebulaQueueConcurrencyMongoTests`, `NebulaPlaybackRecoveryMongoTests` e `NebulaSupabaseRestoreMongoT…",
+      "name": "Teste de integração opt-in atualizado para persistir `nebula_files` em banco Mongo aleatório, consultar campos/partes restaurados e provar que metadado local exclusivo permanece…",
       "area": "Servidor",
       "status": "completed",
       "source": "roadmap"
     },
     {
       "id": "T4.3.6",
+      "name": "O job CI que já provisiona Mongo descartável na porta `27099` agora executa `NebulaQueueConcurrencyMongoTests`, `NebulaPlaybackRecoveryMongoTests` e `NebulaSupabaseRestoreMongoT…",
+      "area": "Servidor",
+      "status": "completed",
+      "source": "roadmap"
+    },
+    {
+      "id": "T4.3.7",
       "name": "Pendente: executar o teste de integração Mongo recém-ampliado (foi ignorado neste host: não há Mongo descartável/variável opt-in), validar o ciclo com Supabase real e recuperar…",
       "area": "Servidor",
       "status": "pending",
       "source": "roadmap"
     },
     {
-      "id": "T4.3.7",
+      "id": "T4.3.8",
       "name": "Exercitar `RestoreBackupAsync` com ZIP fixture e destinos temporários isolados; validar contagem de arquivos, conteúdo consultável de usuário/configuração, coleção e NFO, e dura…",
       "area": "Servidor",
       "status": "completed",
       "source": "roadmap"
     },
     {
-      "id": "T4.3.8",
+      "id": "T4.3.9",
       "name": "Criar/restaurar banco MariaDB descartável com schema aleatório, validar linha crítica e tipo recuperado; executar somente quando `MULLETAFLIX_TEST_MARIADB_CONNECTION_STRING` apo…",
       "area": "Servidor",
       "status": "completed",
       "source": "roadmap"
     },
     {
-      "id": "T4.3.9",
+      "id": "T4.3.10",
       "name": "Exercitar restauração relacional em banco EF InMemory exclusivo por teste; validar resultado, contagem, duração reportada, campos restaurados e consulta por ID. Isto não substit…",
       "area": "Servidor",
       "status": "completed",
       "source": "roadmap"
     },
     {
-      "id": "T4.3.10",
+      "id": "T4.3.11",
       "name": "Pendente: recuperação integral de anexos/metadados remotos ainda não tem E2E contra Supabase real; contagens finais e RTO/RPO permanecem sem medição",
       "area": "Servidor",
       "status": "pending",
@@ -4466,12 +4473,30 @@
       ],
       "local": "D:\\Users\\Raphael\\Documents\\Projetos\\mulletaflix\\MulletaFlix-master",
       "location": "MulletaFlix-master/tests e Tools/NebulaPython/tests",
-      "scope": "Inventariar e executar testes do servidor .NET, Nebula Python e interface web; mapear funcionalidades/contratos sem cobertura; criar testes não destrutivos para lacunas de alto risco; registrar limites de cobertura comprovados.",
+      "scope": "Inventariar e executar testes do servidor .NET, Nebula Python e interface web; mapear funcionalidades/contratos sem cobertura; criar testes não destrutivos para lacunas de alto risco (incluindo ciclo de vida das conexões Mongo na fila e no cache de validação do downloader); registrar limites de cobertura comprovados.",
       "status": "in_progress",
       "progressPercent": null,
       "startedAt": "2026-10-07T16:21:51-03:00",
-      "updatedAt": "2026-10-07T21:28:18-03:00",
-      "evidence": "Auditoria/expansão segue em andamento; progressPercent null porque cobertura global do escopo e matriz formal não estão consolidadas. Inventário anterior: 17 projetos e 444 arquivos C# de teste. Suíte Nebula Python em Python 3.10.11 passou 85/85, exit 0; cobertura agregada 32%. `feed_ftp.py` 13%, `strm_downloader.py` 20%, `stream_service.py` 91%, `control_plane.py` 45%, `ftp/pathio.py` 45%, `ftp/server.py` 34%, `ftp/common.py` 71%, `ftp/auth.py` 83%, `main.py` 18%; `supabase_sync.py` 0%. Testes novos validam ordem de categorias/A–Z, duas notações de episódio, destino sazonal, filtragem `.partN`, parsing de URL STRM e ciclo de vida de startup/cleanup. Corrigidos os três comportamentos discrepantes encontrados pelas asserções. .NET continua baseado na execução anterior: dotnet test excluindo Integration exit 0, com 55 testes de Implementations ignorados e Mongo opt-in desabilitado; 33 relatórios e 24,99% de linhas-fonte únicas por arquivo/linha. Job Python CI analisado localmente; execução remota pendente. Nenhuma produção acessada; sem pacote, release, commit, push ou deploy. Escopo servidor/web; curadoria IA fora do escopo ativo. Pendências detalhadas em T0.3 do roadmap."
+      "updatedAt": "2026-10-08T03:47:52-03:00",
+      "evidence": "Auditoria/expansão segue em andamento; progressPercent null porque cobertura global do escopo e matriz formal não estão consolidadas. Inventário .NET: 17 projetos e 444 arquivos C# de teste. Nebula Python: `uv run --with-requirements requirements.txt --with-requirements requirements-test.txt python -m pytest --cov=ftp --cov=tools --cov=control_plane --cov=stream_service --cov=main --cov-report=term-missing:skip-covered -q` passou 371/371, exit 0. Recorte instrumentado: 6.510 statements, 59%; `control_plane.py` 92%, `ftp/server.py` 71%, `ftp/pathio.py` 74%, `main.py` 54%, `ftp/tg.py` 67%, `tools/strm_downloader.py` 46%, `tools/feed_ftp.py` 42%, `supabase_sync.py` 78%, `stream_service.py` 91% e `tools/check_deps.py` 57%. Testes cobrem cache/prune/readiness/drain, feeder/FeederSupervisor, staging scanner/stats reporter, limpeza STRM/duplicatas, retry Telegram por parte e produtor de pré-leitura. `main.py` upload-part focal 8/8 cobre bytes/leitura por offset, metadados de retomada, FloodWait/timeout, payload/bots vazios, backoff RPC e `_readahead_producer` com blocos completos/parcial, EOF e offset explícito. Defeito anterior em `stats_reporter`: conflito idempotente referenciava variáveis/classes ausentes; removida atribuição inválida e busca global confirmou zero usos restantes. Scanner/reporter 9/9 e limpeza 2/2. Todas as chamadas Mongo/Telegram desses testes são simuladas; sem sessão Telegram, banco real, limite real da Bot API, backpressure/concorrência, disco sob falha, CI remota ou E2E completos. Lacuna confirmada: `control_plane._generate_strm()` importa `generate_strm.generate_strm_files`, mas `generate_strm` não existe no checkout (find_spec=None); teste valida só delegação com double. Gerador C# existe em caminho separado; ainda requer decisão de implementação/empacotamento ou redirecionamento/remoção, com teste de empacotamento. `compileall`, portal 4/4, sincronização/status e `git diff --check` serão repetidos após atualizar o registro. As 15/15 suítes unitárias .NET em Release passaram isoladamente: 4.829 aprovados, 56 ignorados, 0 falhas. `IntroSkipper.Integration.Tests`: 28 aprovados, 1 ignorado. Dois testes focais `Jellyfin.Server.Integration.Tests` passaram 2/2; suíte integral foi interrompida após cinco minutos sem novos resultados. `progressPercent` continua null; sem produção, pacote, release, commit, push ou deploy. Escopo servidor/web; curadoria IA fora do escopo ativo.",
+      "latestEvidence": "08/10/2026 — Rodada ampliada de qualidade. Nebula Python: `py -3.10 -m pytest -q --cov=. --cov-branch --cov-report=term-missing` passou 526/526, exit 0; 12.811 statements, 1.496 não executados, 85% por linhas; `ftp/common.py` 90%, `main.py` 71%, `tools/feed_ftp.py` 68%, `tools/strm_downloader.py` 71%, `ftp/pathio.py` 78%, `ftp/tg.py` 78%. Corrigidos bugs descobertos por regressões: captura de timeout do subprocesso no Python 3.10 e `pop/popitem` do cache LRU; normalizado teste de caminho Windows. `py -3.10 -m compileall -q .` e `git diff --check` passaram. .NET Release da solução passou com `FullyQualifiedName!~Integration`: 4.816 aprovados, 56 ignorados, 0 falhas, `TEST_EXIT_CODE=0`; filtro exclui integrações e testes de internet. Tentativa sem filtro foi anulada pelo host em `DramaBoxLiveIntegrationTests` após 736 aprovados. Web: `npm test -- --run` passou 74 arquivos/405 testes e `npm run build:check` exit 0. Sem Mongo/MariaDB real, Telegram, CI Linux, integração externa ou E2E instalado; `progressPercent` null; T0.3 segue parcial. Sem pacote, release, commit, push ou deploy; curadoria IA fora do escopo ativo."
+    },
+    {
+      "id": "server-backup-failure-regressions-2026-10-08",
+      "title": "Regressões de falha no backup MongoDB para Supabase",
+      "agent": "Codex",
+      "front": "server",
+      "featureIds": [
+        "T4.2"
+      ],
+      "local": "D:\\Users\\Raphael\\Documents\\Projetos\\mulletaflix",
+      "location": "MulletaFlix-master/Tools/NebulaPython/tools/supabase_sync.py e tests/test_supabase_sync.py",
+      "scope": "Cobrir falha de lote de arquivos/usuários e falha ao registrar histórico, impedindo que backup incompleto seja apresentado como sucesso.",
+      "status": "completed",
+      "progressPercent": null,
+      "startedAt": "2026-10-08T01:18:50-03:00",
+      "updatedAt": "2026-10-08T01:33:46-03:00",
+      "evidence": "Implementação e testes locais concluídos em doubles, sem serviços externos. Teste focal 30/30 e suíte Nebula 424/424; cobertura 6.563 statements, 70%, supabase_sync.py 83%. Falha por lote incompleto grava status failed e lança erro; falha de histórico também falha fechado. `dotnet test MulletaFlix.sln --no-restore --configuration Release` terminou exit 0; todas as suítes da solução executadas passaram, com skips de dependências/ambientes opt-in. Portal homologação 4/4, sitemap 7/7, compileall e git diff --check exit 0. T4.2 e a auditoria global T0.3 seguem parciais; sem release/commit/push/deploy."
     }
   ]
 }
