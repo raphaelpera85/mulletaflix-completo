@@ -15,8 +15,15 @@ import org.xmlpull.v1.XmlPullParser
 import org.xmlpull.v1.XmlPullParserFactory
 
 /** Small, virtualized text document for servers that return readable content directly. */
+internal data class PlainTextBookChapter(
+    val title: String,
+    val depth: Int,
+    val chunkIndex: Int,
+)
+
 internal class PlainTextBookDocument private constructor(
     val chunks: List<String>,
+    val chapters: List<PlainTextBookChapter> = emptyList(),
 ) {
     val chunkCount: Int get() = chunks.size
 
@@ -169,12 +176,7 @@ internal class PlainTextBookDocument private constructor(
             ) {
                 val xmlBytes = FictionBookZipTextExtractor.extractXml(file)
                 val xml = decode(xmlBytes, contentType, fictionBook = true)
-                val text = fictionBookToText(xml)
-                    .replace("\u0000", "\uFFFD")
-                    .replace("\r\n", "\n")
-                    .replace('\r', '\n')
-                if (text.isBlank()) throw IOException("O arquivo FB2 ZIP não contém conteúdo para leitura.")
-                return PlainTextBookDocument(splitIntoChunks(text))
+                return openFictionBook(xml, "O arquivo FB2 ZIP não contém conteúdo para leitura.")
             }
             val isHtml = isHtml(contentType)
             val isMarkdown = isMarkdown(contentType)
@@ -199,10 +201,12 @@ internal class PlainTextBookDocument private constructor(
                 output.toByteArray()
             }
             val decoded = decode(bytes, contentType, isFictionBook)
+            if (isFictionBook) {
+                return openFictionBook(decoded, "O arquivo de texto não contém conteúdo para leitura.")
+            }
             val text = when {
                 isHtml -> htmlToText(decoded)
                 isMarkdown -> MarkdownBookTextParser.parse(decoded)
-                isFictionBook -> fictionBookToText(decoded)
                 isRtf -> RtfBookTextParser.parse(decoded)
                 else -> decoded
             }
@@ -213,14 +217,45 @@ internal class PlainTextBookDocument private constructor(
             return PlainTextBookDocument(splitIntoChunks(text))
         }
 
-        /** Reads FictionBook body text and ignores DTD declarations without resolving entities. */
-        private fun fictionBookToText(xml: String): String {
+        private fun openFictionBook(xml: String, emptyMessage: String): PlainTextBookDocument {
+            val parsed = fictionBookToText(xml)
+            if (parsed.text.isBlank()) throw IOException(emptyMessage)
+            val chunks = splitIntoChunks(parsed.text)
+            val chapters = parsed.headings.map { heading ->
+                PlainTextBookChapter(
+                    title = heading.title,
+                    depth = heading.depth,
+                    chunkIndex = chunkIndexForOffset(chunks, heading.rawTextOffset),
+                )
+            }
+            return PlainTextBookDocument(chunks, chapters)
+        }
+
+        private fun chunkIndexForOffset(chunks: List<String>, offset: Int): Int {
+            var chunkStart = 0
+            chunks.forEachIndexed { index, chunk ->
+                if (offset < chunkStart + chunk.length) return index
+                chunkStart += chunk.length
+            }
+            return (chunks.size - 1).coerceAtLeast(0)
+        }
+
+        private data class FictionBookHeading(val title: String, val depth: Int, val rawTextOffset: Int)
+        private data class ParsedFictionBook(val text: String, val headings: List<FictionBookHeading>)
+
+        /** Reads FictionBook chapters and body text without resolving external entities. */
+        private fun fictionBookToText(xml: String): ParsedFictionBook {
             val parser = newFictionBookParser()
             parser.setInput(StringReader(xml))
             val text = StringBuilder(xml.length.coerceAtMost(MAX_CHUNK_CHARACTERS * 4))
+            val headings = mutableListOf<FictionBookHeading>()
             var rootSeen = false
             var bodyDepth = 0
             var binaryDepth = 0
+            var sectionDepth = 0
+            var activeTitleDepth: Int? = null
+            var activeTitleText: StringBuilder? = null
+            var activeTitleOffset: Int? = null
             try {
                 while (true) {
                     when (parser.nextToken()) {
@@ -234,25 +269,61 @@ internal class PlainTextBookDocument private constructor(
                             bodyDepth++
                         } else if (bodyDepth > 0 && name == "binary") {
                             binaryDepth++
+                        } else if (bodyDepth > 0 && binaryDepth == 0 && name == "section") {
+                            sectionDepth++
+                            text.append('\n')
+                        } else if (bodyDepth > 0 && binaryDepth == 0 && name == "title" && sectionDepth > 0) {
+                            activeTitleDepth = sectionDepth - 1
+                            activeTitleText = StringBuilder()
+                            activeTitleOffset = null
+                            text.append('\n')
                         } else if (bodyDepth > 0 && binaryDepth == 0 && name in FICTION_BOOK_BLOCK_ELEMENTS) {
                             text.append('\n')
                         }
                     }
                     XmlPullParser.END_TAG -> {
                         val name = parser.name.substringAfter(':')
-                        if (bodyDepth > 0 && binaryDepth == 0 && name in FICTION_BOOK_BLOCK_ELEMENTS) {
+                        if (bodyDepth > 0 && binaryDepth == 0 && name == "title" && activeTitleText != null) {
+                            val title = activeTitleText.toString().trim()
+                            val depth = activeTitleDepth
+                            val offset = activeTitleOffset
+                            if (title.isNotEmpty() && depth != null && offset != null) {
+                                headings += FictionBookHeading(title, depth, offset)
+                            }
+                            activeTitleDepth = null
+                            activeTitleText = null
+                            activeTitleOffset = null
+                            text.append('\n')
+                        } else if (bodyDepth > 0 && binaryDepth == 0 && name in FICTION_BOOK_BLOCK_ELEMENTS) {
                             text.append('\n')
                         }
                         if (name == "binary" && binaryDepth > 0) binaryDepth--
+                        if (name == "section" && bodyDepth > 0 && sectionDepth > 0) sectionDepth--
                         if (name == "body" && bodyDepth > 0) bodyDepth--
                     }
                     XmlPullParser.TEXT, XmlPullParser.CDSECT -> {
-                        if (bodyDepth > 0 && binaryDepth == 0) text.append(parser.text)
+                        if (bodyDepth > 0 && binaryDepth == 0) {
+                            val value = parser.text
+                            activeTitleText?.let { title ->
+                                if (activeTitleOffset == null) {
+                                    val firstContent = value.indexOfFirst { !it.isWhitespace() }
+                                    if (firstContent >= 0) activeTitleOffset = text.length + firstContent
+                                }
+                                title.append(value)
+                            }
+                            text.append(value)
+                        }
                     }
                     XmlPullParser.ENTITY_REF -> {
                         if (bodyDepth > 0 && binaryDepth == 0) {
                             val entity = FICTION_BOOK_ENTITIES[parser.name]
                                 ?: throw IOException("O livro contém uma entidade XML não suportada.")
+                            activeTitleText?.let { title ->
+                                if (activeTitleOffset == null && entity.any { !it.isWhitespace() }) {
+                                    activeTitleOffset = text.length
+                                }
+                                title.append(entity)
+                            }
                             text.append(entity)
                         }
                     }
@@ -267,12 +338,57 @@ internal class PlainTextBookDocument private constructor(
                 throw IOException("O livro FictionBook está malformado ou usa XML não suportado.", error)
             }
             if (!rootSeen) throw IOException("O arquivo não contém um livro FictionBook válido.")
-            return text.toString()
-                .replace('\u00a0', ' ')
-                .replace(Regex("[\\t\\u000B\\f ]+"), " ")
-                .replace(Regex(" *\\n *"), "\n")
-                .replace(Regex("\\n{3,}"), "\n\n")
-                .trim()
+            val (normalizedText, normalizedOffsets) = normalizeFictionBookText(
+                text = text.toString(),
+                offsets = headings.map(FictionBookHeading::rawTextOffset),
+            )
+            val normalizedHeadings = headings.mapIndexed { index, heading ->
+                heading.copy(rawTextOffset = normalizedOffsets[index])
+            }
+            return ParsedFictionBook(normalizedText, normalizedHeadings)
+        }
+
+        private fun normalizeFictionBookText(text: String, offsets: List<Int>): Pair<String, List<Int>> {
+            val normalized = StringBuilder(text.length)
+            val normalizedOffsets = IntArray(offsets.size)
+            var headingIndex = 0
+            var pendingSpace = false
+            var index = 0
+            while (index <= text.length) {
+                while (headingIndex < offsets.size && offsets[headingIndex] <= index) {
+                    normalizedOffsets[headingIndex] = normalized.length
+                    headingIndex++
+                }
+                if (index == text.length) break
+                when (val character = text[index]) {
+                    '\r' -> {
+                        pendingSpace = false
+                        appendFictionBookLineBreak(normalized)
+                        if (text.getOrNull(index + 1) == '\n') index++
+                    }
+                    '\n' -> {
+                        pendingSpace = false
+                        appendFictionBookLineBreak(normalized)
+                    }
+                    '\t', '\u000B', '\u000C', ' ', '\u00A0' -> pendingSpace = true
+                    else -> {
+                        if (pendingSpace && normalized.lastOrNull() != '\n') normalized.append(' ')
+                        pendingSpace = false
+                        normalized.append(character)
+                    }
+                }
+                index++
+            }
+            val leadingTrim = normalized.indexOfFirst { !it.isWhitespace() }.coerceAtLeast(0)
+            return normalized.toString().trim() to normalizedOffsets.map { (it - leadingTrim).coerceAtLeast(0) }
+        }
+
+        private fun appendFictionBookLineBreak(output: StringBuilder) {
+            if (output.lastOrNull() == '\n') {
+                if (output.length < 2 || output[output.length - 2] != '\n') output.append('\n')
+            } else {
+                output.append('\n')
+            }
         }
 
         private fun newFictionBookParser(): XmlPullParser =

@@ -40,7 +40,7 @@ class BookReaderContentsTest {
                 "https://book.test/OPS/chapter-two.xhtml",
                 "https://book.test/OPS/part-two.xhtml",
             ),
-            entries.map { it.link.href.toString() },
+            entries.map { requireNotNull(it.link).href.toString() },
         )
     }
 

@@ -7,8 +7,17 @@
 - [x] Testar a busca real na TV: resultados e sugestões ocultam `Book`/`AudioBook` e preservam filmes; `SearchScreenDeviceVisibilityTest` passou 2/2 em Android TV API 34 em 2026-10-08.
 - [x] A biblioteca aplica a política de ocultação também no limite da UI: catálogo móvel previamente carregado não revela livros/audiolivros na TV durante atualização nem após falha; prévia offline, navegação alfabética e contagem seguem os itens visíveis. `LibraryOfflineReconnectFlowTest` passou 2/2 no AVD Android TV API 34.
 - [x] Instrumentados Android TV API 34: Home carregada e rolada na `LazyColumn` real 1/1; detalhe/recomendações e compatibilidade handheld 4/4; GPU NVIDIA confirmada e AVD encerrado pelo wrapper após cada execução.
+- [x] Revalidação Android TV API 34 em 2026-10-08: `HomeLibraryNavigationTest` 3/3 e `TvHomeRefreshIntegrationTest` 2/2; confirmou biblioteca Livros ausente e livros filtrados das linhas da Home mesmo após feed carregado/atualizado. AVD executado na GPU NVIDIA e encerrado pelo wrapper.
 - [x] `:feature:item-detail:testDebugUnitTest`: 162 testes, 0 falhas/erros/ignorados; `:feature:item-detail:compileDebugAndroidTestKotlin`, `:feature:item-detail:lintDebug`, `:app:lintDebug` e `:app:assembleDebug`: `BUILD SUCCESSFUL`.
 - [ ] Validar visualmente em uma Android TV física conectada ao servidor real; os instrumentados usam feed controlado.
+- [ ] Sem bump de versão, APK de produção, portal ou publicação.
+
+## Atualização do cliente HTTP para OkHttp 5.4.0 (APK local; sem release)
+
+- [x] Atualizar a versão centralizada do OkHttp de 4.12.0 para 5.4.0; Retrofit permanece em 3.0.0 e as integrações de API, TLS, logging, Media3, Coil e MockWebServer continuam usando aliases alinhados do catálogo, sem nova dependência direta.
+- [x] Gradle `:app:dependencyInsight --dependency com.squareup.okhttp3:okhttp --configuration debugRuntimeClasspath`: runtime resolve OkHttp 5.4.0; as solicitações transitivas 4.12.0 de Retrofit/Coil/Media3 são resolvidas para 5.4.0.
+- [x] Quality Bar em 2026-10-08: `testDebugUnitTest` 1.499 testes JVM, 0 falhas/erros/ignorados; `:app:lintDebug` e `:app:assembleDebug` com `BUILD SUCCESSFUL`.
+- [x] Testes instrumentados API 35: HTTP na sub-rede LAN 3/3 e busca de legenda externa por HTTPS/redirect HTTP bloqueado 2/2; AVDs executados com NVIDIA RTX 3050 e encerrados pelo wrapper.
 - [ ] Sem bump de versão, APK de produção, portal ou publicação.
 
 ## Leitura direta de formatos de livro no APK (APK local; sem release)
@@ -21,6 +30,9 @@
 - [x] Aceitar HTML direto como fallback em texto sem WebView, removendo conteúdo ativo/oculto com varredura linear, respeitando charset declarado; limitar a 2 MiB.
 - [x] Abrir FictionBook 2 (FB2) diretamente como texto paginado; reconhecer MIME e XML genérico, ignorar DTD sem resolver entidades externas, decodificar entidades comuns e codificações UTF-16BE/LE sem BOM.
 - [x] Abrir FictionBook compactado (`.fb2.zip`/`.fbz`) diretamente; detectar exatamente um membro `.fb2` antes da classificação CBZ, ignorar capas ZIP sem extraí-las no disco e limitar pacote a 64 MiB/XML descompactado a 16 MiB. MIME genérico é aceito por inspeção do ZIP.
+- [x] Gerar sumário hierárquico para seções FB2 com título, preservar profundidade e mapear cada capítulo ao trecho correto; selecionar capítulo navega e salva locator de retomada. EPUB continua usando sumário Readium e formatos diretos sem estrutura de capítulo não exibem entradas fictícias.
+- [x] Testes do leitor FB2: `:feature:item-detail:testDebugUnitTest` com 166 testes, 0 falhas/erros/ignorados; `PlainTextBookReaderIntegrationTest` 7/7 no PHONE e 7/7 no TABLET (API 35), incluindo salto ao capítulo após vários trechos e restauração do locator. Revisão adversarial sem achados; AVDs usaram NVIDIA RTX 3050 e foram encerrados pelo wrapper.
+- [x] `:feature:item-detail:compileDebugAndroidTestKotlin`, `:feature:item-detail:lintDebug`, `:app:lintDebug` e `:app:assembleDebug`: `BUILD SUCCESSFUL` em 2026-10-08.
 - [x] Ler `text/markdown` e `text/x-markdown` como texto paginado sem WebView; converter headings, listas, citações, tabelas, código inline/bloco e links/imagens inline, mantendo HTML bruto como texto inerte. Limite direto de 8 MiB; implementa um subconjunto de leitura, não o parser completo CommonMark.
 - [x] Abrir RTF diretamente como texto seguro; reconhecer `application/rtf`, `application/x-rtf`, `text/rtf` e assinatura genérica, converter controles/Unicode/escapes e ignorar grupos de metadados; limitar o payload a 8 MiB.
 - [x] Abrir DOCX diretamente como texto paginado; ler parágrafos e tabelas sem extrair arquivos no disco, ignorar texto excluído e limitar pacote a 64 MiB/XML descompactado a 16 MiB.
@@ -40,8 +52,7 @@
 - [x] Reutilizar a instância `Junrar Archive` e seus `FileHeader` durante toda a sessão CBR, eliminando reabertura e nova varredura a cada página/zoom; serializar decode/close; encerrar a fonte na substituição ou via `ApplicationScope` ao limpar o ViewModel, sem bloquear a UI. Testes cobrem páginas consecutivas, fechamento idempotente, descarte no ViewModel e cancelamento com bitmap pendente; suíte do módulo 161/161, lint do módulo/app e `:app:assembleDebug` aprovados; integração CBR no Android TV 1/1 (AVD na NVIDIA, encerrado pelo wrapper).
 - [x] Indexar os `FileHeader` por `nextFileHeader()` em vez de `archive.fileHeaders`, evitando uma segunda lista completa durante a abertura. `CbrBookArchiveTest` validou a fixture CBR real, ordem natural e locators dentro da suíte do módulo (162/162); `lintDebug` e `:app:assembleDebug` também passaram em 2026-10-08.
 - [x] Verificar cancelamento entre entradas durante a indexação feita pelo app e antes/depois da ordenação; propagar `CancellationException` e fechar o arquivo RAR no caminho de erro. Regressão JVM confirma que a indexação para após o cancelamento.
-- [ ] Limite `MAX_ARCHIVE_ENTRIES` continua sendo conferido depois de o parser Junrar materializar seus cabeçalhos internos; a iteração incremental evita apenas a lista duplicada e não protege o pico interno contra arquivo com muitos cabeçalhos. Antes de tratar como defesa contra flood malicioso, avaliar parser com limite pré-alocação e testes RAR4/RAR5; não substituir por pré-scanner caseiro.
-- [ ] A construção interna do Junrar ainda materializa cabeçalhos sincronamente antes de verificar `MAX_ARCHIVE_ENTRIES`; cancelamento não interrompe esse parser e a troca de livro ainda pode aguardar sua leitura inicial. Reavaliar parser cancelável/com limite pré-alocação; não criar pré-scanner caseiro.
+- [ ] Auditoria upstream do Junrar 8.1.1 (2026-10-08): `Archive` lê os cabeçalhos durante a construção e mantém todos em `headers`; `nextFileHeader()` apenas percorre essa lista depois. O limite `MAX_ARCHIVE_ENTRIES` do APK só é aplicado após essa alocação, portanto não protege o pico de memória nem permite interromper a leitura inicial. O parser não expõe limite prévio/cancelamento nessa API; manter o risco explícito e avaliar parser mantido com leitura incremental ou contribuição upstream, sem implementar scanner RAR caseiro. Fonte: https://github.com/junrar/junrar/blob/v8.1.1/src/main/java/com/github/junrar/Archive.java
 - [ ] Validar mídia real servida pelo Mulletaflix e conversões MOBI/AZW no servidor; APK usa conversão do servidor para formatos ainda não suportados diretamente.
 - [ ] Sem bump de versão, APK de produção, portal ou publicação.
 
@@ -3226,9 +3237,9 @@ Pendências relacionadas:
 - [ ] Sem bump, APK de produção ou publicação nesta melhoria local do APK.
 
 ## Leitor CBR — erro compreensível e retry após resposta inválida (sem release)
-- [x] Trocar erro técnico em inglês por mensagem clara em português quando Junrar rejeita o arquivo CBR.
+- [x] Trocar erros técnicos do parser Junrar por mensagens claras em português para CBR inválido/não compatível e entrada vazia; testes unitários confirmam o texto exato.
 - [x] Cobrir fluxo Compose + HTTP 200: payload CBR inválido exibe erro e ação Retry; a resposta seguinte com EPUB abre e renderiza o conteúdo.
-- [x] `:feature:item-detail:testDebugUnitTest`: 163 testes, 0 falhas/erros/ignorados.
+- [x] `:feature:item-detail:testDebugUnitTest`: 165 testes, 0 falhas/erros/ignorados; `CbrBookArchiveTest` e `CbrBookArchiveFailureTest` protegem as mensagens localizadas.
 - [x] `:feature:item-detail:compileDebugAndroidTestKotlin`, `:feature:item-detail:lintDebug`, `:app:lintDebug` e `:app:assembleDebug`: `BUILD SUCCESSFUL`.
 - [x] `BookReaderScreenIntegrationTest` no PHONE API 35: 3/3; wrapper confirmou QEMU na NVIDIA RTX 3050 e fechou o AVD.
 - [ ] Sem bump, APK de produção, portal ou publicação; a melhoria localiza-se apenas no APK.

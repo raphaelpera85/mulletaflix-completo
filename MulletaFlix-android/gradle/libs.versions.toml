@@ -27,7 +27,7 @@ hiltNavigationCompose = "1.2.0"
 
 # Retrofit + OkHttp
 retrofit = "3.0.0"
-okhttp = "4.12.0"
+okhttp = "5.4.0"
 
 # Coil
 coil = "2.7.0"

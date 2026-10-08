@@ -217,6 +217,30 @@ class PlainTextBookDocumentTest {
     }
 
     @Test
+    fun `builds nested FictionBook table of contents with locators across chunks`() = withTempDirectory { directory ->
+        val file = directory.resolve("chapters.fb2").apply {
+            writeText(
+                """<FictionBook><body><section><title><p>Parte I</p></title>
+                    <section><title><p>Capítulo 1</p></title><p>${"texto ".repeat(240)}</p></section>
+                    <section><title><p>Capítulo 2 &amp; fim</p></title><p>Última parte.</p></section>
+                </section></body></FictionBook>""".trimIndent(),
+            )
+        }
+
+        val document = PlainTextBookDocument.open(file, "application/x-fictionbook+xml")
+        val chapters = document.chapters
+
+        assertEquals(listOf("Parte I", "Capítulo 1", "Capítulo 2 & fim"), chapters.map { it.title })
+        assertEquals(listOf(0, 1, 1), chapters.map { it.depth })
+        assertTrue(chapters.last().chunkIndex > chapters.first().chunkIndex)
+        assertTrue(document.chunks[chapters.last().chunkIndex].contains("Capítulo 2 & fim"))
+        assertEquals(
+            chapters.last().chunkIndex,
+            document.chunkIndexFromLocator(document.locatorForChunk(chapters.last().chunkIndex)),
+        )
+    }
+
+    @Test
     fun `reads generic FictionBook XML encoded as UTF-16 without a BOM`() = withTempDirectory { directory ->
         val xml = """<?xml version="1.0" encoding="UTF-16"?>
             <FictionBook><body><section><p>Leitura sem BOM: São Paulo &amp; ação.</p></section></body></FictionBook>""".trimIndent()

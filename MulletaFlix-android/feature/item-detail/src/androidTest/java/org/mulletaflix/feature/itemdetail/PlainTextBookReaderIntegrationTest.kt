@@ -1,14 +1,17 @@
 package org.mulletaflix.feature.itemdetail
 
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertTextContains
 import androidx.compose.ui.test.junit4.v2.createComposeRule
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollToIndex
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import java.nio.charset.StandardCharsets
@@ -19,6 +22,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
+import org.readium.r2.shared.publication.Locator
 
 @RunWith(AndroidJUnit4::class)
 class PlainTextBookReaderIntegrationTest {
@@ -175,6 +179,65 @@ class PlainTextBookReaderIntegrationTest {
                 .assertTextContains("Capítulo FB2", substring = true)
                 .assertTextContains("Texto FictionBook — seguro & legível.", substring = true)
             composeRule.onNodeWithText("Metadata").assertDoesNotExist()
+        } finally {
+            directory.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun fictionBookTableOfContentsJumpsToChapterAndRestoresItsLocator() {
+        val directory = Files.createTempDirectory("fb2-toc-integration").toFile()
+        try {
+            val file = directory.resolve("chapters.fb2").apply {
+                writeText(
+                    """<FictionBook><body><section><title><p>Parte I</p></title>
+                        <section><title><p>Capítulo 1</p></title><p>${"texto ".repeat(240)}</p></section>
+                        <section><title><p>Capítulo 2 &amp; fim</p></title><p>Última parte legível.</p></section>
+                    </section></body></FictionBook>""".trimIndent(),
+                )
+            }
+            val document = PlainTextBookDocument.open(file, "application/x-fictionbook+xml")
+            val selectedChunk = mutableIntStateOf(0)
+            var savedLocator: Locator? = null
+            val entries = document.chapters.map { chapter ->
+                BookReaderContentsEntry(
+                    title = chapter.title,
+                    depth = chapter.depth,
+                    chapterChunkIndex = chapter.chunkIndex,
+                )
+            }
+
+            composeRule.setContent {
+                MaterialTheme {
+                    Column(Modifier.fillMaxSize()) {
+                        BookReaderContentsActions(entries = entries, enabled = true) { entry ->
+                            val chunk = requireNotNull(entry.chapterChunkIndex)
+                            selectedChunk.intValue = chunk
+                            savedLocator = document.locatorForChunk(chunk)
+                        }
+                        PlainTextBookReaderContent(
+                            document = document,
+                            currentChunk = selectedChunk.intValue,
+                            fontSizePercent = 100,
+                            onChunkSelected = { selectedChunk.intValue = it },
+                            modifier = Modifier.weight(1f),
+                        )
+                    }
+                }
+            }
+
+            composeRule.onNodeWithContentDescription("Abrir sumário").performClick()
+            composeRule.onNodeWithText("Capítulo 2 & fim").performClick()
+            composeRule.waitUntil(timeoutMillis = 5_000) {
+                selectedChunk.intValue == document.chapters.last().chunkIndex
+            }
+            composeRule.onNodeWithTag("$PLAIN_TEXT_BOOK_CHUNK_TEST_TAG-${document.chapters.last().chunkIndex}")
+                .assertIsDisplayed()
+                .assertTextContains("Capítulo 2 & fim", substring = true)
+            assertEquals(
+                document.chapters.last().chunkIndex,
+                document.chunkIndexFromLocator(savedLocator),
+            )
         } finally {
             directory.deleteRecursively()
         }

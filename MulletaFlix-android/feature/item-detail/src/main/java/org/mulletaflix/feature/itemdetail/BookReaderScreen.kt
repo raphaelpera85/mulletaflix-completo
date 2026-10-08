@@ -120,8 +120,15 @@ fun BookReaderScreen(
     }
     val renditionController = renditionState?.controller
     val publication = state.publication
-    val contentsEntries = remember(publication) {
-        publication?.tableOfContents?.let(::flattenBookReaderContents).orEmpty()
+    val contentsEntries = remember(publication, textBook) {
+        publication?.tableOfContents?.let(::flattenBookReaderContents)
+            ?: textBook?.chapters?.map { chapter ->
+                BookReaderContentsEntry(
+                    title = chapter.title,
+                    depth = chapter.depth,
+                    chapterChunkIndex = chapter.chunkIndex,
+                )
+            }.orEmpty()
     }
     LaunchedEffect(state.bookmarkMessage) {
         val message = state.bookmarkMessage ?: return@LaunchedEffect
@@ -182,13 +189,24 @@ fun BookReaderScreen(
                     if (pageBook == null && contentsEntries.isNotEmpty()) {
                         BookReaderContentsActions(
                             entries = contentsEntries,
-                            enabled = renditionController != null,
+                            enabled = if (textBook?.chapters?.isNotEmpty() == true) !state.isLoading
+                            else renditionController != null,
                             onOpenEntry = { entry ->
+                                val chapterChunk = entry.chapterChunkIndex
+                                if (chapterChunk != null && textBook != null) {
+                                    currentTextChunk = chapterChunk.coerceIn(0, textBook.chunkCount - 1)
+                                    viewModel.saveReadingProgression(
+                                        itemId,
+                                        textBook.locatorForChunk(currentTextChunk),
+                                    )
+                                    return@BookReaderContentsActions
+                                }
                                 val activePublication = publication ?: return@BookReaderContentsActions
                                 val controller = renditionController ?: return@BookReaderContentsActions
+                                val link = entry.link ?: return@BookReaderContentsActions
                                 coroutineScope.launch {
                                     try {
-                                        controller.goTo(activePublication.url(entry.link))
+                                        controller.goTo(activePublication.url(link))
                                     } catch (cancelled: CancellationException) {
                                         throw cancelled
                                     } catch (_: Exception) {
@@ -439,12 +457,15 @@ internal const val PLAIN_TEXT_BOOK_READER_TEST_TAG = "plain-text-book-reader"
 internal const val PLAIN_TEXT_BOOK_CHUNK_TEST_TAG = "plain-text-book-chunk"
 
 internal data class BookReaderContentsEntry(
-    val link: Link,
     val title: String,
     val depth: Int,
+    val link: Link? = null,
+    val chapterChunkIndex: Int? = null,
 ) {
     val isNavigable: Boolean
-        get() = !(link.href.toString() == "#" && link.children.isNotEmpty())
+        get() = chapterChunkIndex != null || link?.let {
+            !(it.href.toString() == "#" && it.children.isNotEmpty())
+        } == true
 }
 
 internal fun flattenBookReaderContents(
@@ -454,9 +475,9 @@ internal fun flattenBookReaderContents(
     fun append(currentLinks: List<Link>, depth: Int) {
         currentLinks.forEach { link ->
             entries += BookReaderContentsEntry(
-                link = link,
                 title = link.title?.takeIf(String::isNotBlank) ?: "Seção ${entries.size + 1}",
                 depth = depth,
+                link = link,
             )
             append(link.children, depth + 1)
         }
@@ -466,7 +487,7 @@ internal fun flattenBookReaderContents(
 }
 
 @Composable
-private fun BookReaderContentsActions(
+internal fun BookReaderContentsActions(
     entries: List<BookReaderContentsEntry>,
     enabled: Boolean,
     onOpenEntry: (BookReaderContentsEntry) -> Unit,
