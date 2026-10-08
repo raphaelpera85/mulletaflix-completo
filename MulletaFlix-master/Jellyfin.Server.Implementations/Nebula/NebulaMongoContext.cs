@@ -1267,9 +1267,12 @@ public sealed class NebulaMongoContext : IDisposable
     /// Telegram, local_path e arquivos físicos permanecem intactos.
     /// </summary>
     public async Task<NebulaNovelaMigrationResult> ScanAndMoveNovelasAsync(CancellationToken cancellationToken = default)
+        => await ScanAndMoveNovelasAsync(null, cancellationToken).ConfigureAwait(false);
+
+    internal async Task<NebulaNovelaMigrationResult> ScanAndMoveNovelasAsync(List<BsonDocument>? startupSnapshot, CancellationToken cancellationToken = default)
     {
         var result = new NebulaNovelaMigrationResult { Success = false };
-        var documents = await GetAllFilesForSyncAsync(cancellationToken).ConfigureAwait(false);
+        var documents = startupSnapshot ?? await GetAllFilesForSyncAsync(cancellationToken).ConfigureAwait(false);
         result.Scanned = documents.Count;
 
         var byId = documents
@@ -1494,9 +1497,12 @@ public sealed class NebulaMongoContext : IDisposable
     /// como uma série recente no aplicativo.
     /// </summary>
     public async Task<NebulaAnimacaoMigrationResult> NormalizeAnimacoesLibraryAsync(CancellationToken cancellationToken = default)
+        => await NormalizeAnimacoesLibraryAsync(null, cancellationToken).ConfigureAwait(false);
+
+    internal async Task<NebulaAnimacaoMigrationResult> NormalizeAnimacoesLibraryAsync(List<BsonDocument>? startupSnapshot, CancellationToken cancellationToken = default)
     {
         var result = new NebulaAnimacaoMigrationResult { Success = false };
-        var documents = await GetAllFilesForSyncAsync(cancellationToken).ConfigureAwait(false);
+        var documents = startupSnapshot ?? await GetAllFilesForSyncAsync(cancellationToken).ConfigureAwait(false);
 
         static string ParentKey(BsonDocument doc)
             => doc.TryGetValue("parent", out var parent) && !parent.IsBsonNull ? parent.ToString() : string.Empty;

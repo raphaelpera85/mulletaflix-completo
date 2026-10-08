@@ -481,6 +481,19 @@ public sealed class NebulaFtpControllerTests
         Assert.Equal(8, saved.PlaybackCacheMinimumFreeSpaceGb);
     }
 
+    [Fact]
+    public void UpdateConfig_RejectsBotApiChunkAboveSafeLimit()
+    {
+        var manager = new Mock<INebulaFtpManager>(MockBehavior.Strict);
+        var configuration = new Mock<IServerConfigurationManager>(MockBehavior.Strict);
+        var controller = new NebulaFtpController(manager.Object, configuration.Object);
+
+        var result = controller.UpdateConfig(new NebulaFtpConfiguration { ChunkSizeMb = 64 });
+
+        Assert.IsType<BadRequestObjectResult>(result);
+        configuration.Verify(m => m.SaveConfiguration(It.IsAny<string>(), It.IsAny<object>()), Times.Never);
+    }
+
     [Theory]
     [InlineData(0, 2)]
     [InlineData(50, -1)]

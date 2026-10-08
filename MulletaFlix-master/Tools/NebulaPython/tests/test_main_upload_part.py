@@ -9,6 +9,14 @@ import pytest
 main = importlib.import_module("main")
 
 
+@pytest.mark.parametrize(
+    ("configured_mb", "expected_mb"),
+    [(64, 45), (50, 45), (45, 45), (12, 12), (0, 1)],
+)
+def test_bot_api_chunk_size_is_bounded_with_safe_headroom(configured_mb, expected_mb):
+    assert main.normalize_bot_api_chunk_size_mb(configured_mb) == expected_mb
+
+
 def _message(file_id="telegram-file", message_id=91):
     return SimpleNamespace(document=SimpleNamespace(file_id=file_id), id=message_id)
 

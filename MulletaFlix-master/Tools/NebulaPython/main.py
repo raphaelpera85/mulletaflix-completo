@@ -97,7 +97,15 @@ LOG_COMPACT_LINES = int(environ.get("LOG_COMPACT_LINES", "1000"))
 LOG_CONTEXT_FILE = environ.get("LOG_CONTEXT_FILE", "nebula_context.md")
 LOG_MAX_SIZE = max(1, int(environ.get("LOG_MAX_SIZE", "5")))
 LOG_BACKUP_COUNT = max(0, int(environ.get("LOG_BACKUP_COUNT", "3")))
-CHUNK_SIZE_MB = int(environ.get("CHUNK_SIZE_MB", "64"))
+MAX_BOT_API_CHUNK_SIZE_MB = 45
+
+
+def normalize_bot_api_chunk_size_mb(value: int) -> int:
+    """Keep multipart requests safely below the standard Telegram Bot API limit."""
+    return min(MAX_BOT_API_CHUNK_SIZE_MB, max(1, value))
+
+
+CHUNK_SIZE_MB = normalize_bot_api_chunk_size_mb(int(environ.get("CHUNK_SIZE_MB", "45")))
 CHUNK_SIZE = CHUNK_SIZE_MB * 1024 * 1024
 MAX_RETRIES = int(environ.get("MAX_RETRIES", "5"))
 MAX_STAGING_AGE = int(environ.get("MAX_STAGING_AGE", "3600"))

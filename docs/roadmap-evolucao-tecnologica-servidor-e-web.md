@@ -3063,6 +3063,14 @@ Este documento é backlog em execução; não autoriza publicar uma release ante
 - Testes focais: **52/52**; `tools/feed_ftp.py` **68%** na suíte focal (era 67% com os 41 casos anteriores). Suíte Nebula completa: **558/558**, exit 0; 6.626 statements de produção instrumentados, 1.354 ausentes, **77%** incluindo branches; `feed_ftp.py` **69%** na execução global. `compileall`, quatro testes do portal de homologação, parsing do JSON e `git diff --check` passaram.
 - Sem alteração de lógica de produção. Limites: os testes do feeder usam filesystem temporário e falha simulada; não validam atomicidade/recuperação em falha física, processos concorrentes, Mongo real, rede/Telegram, execução Linux ou CI remota. T0.3/T2.1 e homologação formal continuam parciais, `progressPercent: null`; sem pacote, release, commit, push ou deploy; curadoria IA permanece fora do escopo ativo.
 
+### 08/10/2026 — Inicialização e upload Nebula (T0.1/T0.3/T2.1 parcial)
+
+- O log anexado mostrou as migrações síncronas de Novelas (~22 s) e Animações (~14 s) lendo/materializando toda `ftp.files` separadamente antes de subir o Python. As rotinas agora compartilham o primeiro snapshot se nenhuma mídia foi movida; recarregam após mudanças para não usar pais obsoletos. A redução pós-correção ainda precisa ser cronometrada contra uma instância Mongo de porte comparável.
+- Corrigido o tamanho efetivo dos blocos enviados via Bot API padrão: valor histórico de 64 MiB causava HTTP 413 em todos os bots. O servidor normaliza para no máximo 45 MiB; API/UI limitam o valor configurável a 1–45 MiB, e Python impõe o mesmo teto de forma defensiva.
+- O log também mostrou permissões FTP legadas como string causando `TypeError`. O código atual do servidor já trata formato legado e ACL malformada sem ampliar acesso; adicionados/revistos testes que cobrem lookup FTP e negação fora da pasta do usuário. A evidência aponta para instalação em execução sem esse código, a confirmar após instalar esta release.
+- Validação: solução .NET Release `dotnet test MulletaFlix.sln --no-restore` exit 0; Implementations **1.374 aprovados/55 ignorados**, API **664 aprovados**, Server Integration **140 aprovados/3 ignorados**. Suíte Nebula Python **563/563**; teste de submissão Telegram continua mockado e não comprova upload real. T0.1/T0.3/T2.1 permanecem parciais; homologação formal `progressPercent: null`.
+- Release `v12.1.16` solicitada pelo usuário; pacote e publicação ainda dependem de build de produção e confirmação de assets/portal. Não medir melhora real do tempo de startup sem teste com Mongo carregado; não declarar reprodução/upload real homologados.
+
 ## Referências técnicas
 
 Fontes oficiais consultadas em 28/09/2026. Disponibilidade, suporte e requisitos de hardware devem ser revalidados antes de qualquer implementação.

@@ -1539,12 +1539,21 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable, IAsyncDis
 
             await _mongoContext.EnsureIndexesAsync(cancellationToken).ConfigureAwait(false);
 
-            var novelaMigration = await _mongoContext.ScanAndMoveNovelasAsync(cancellationToken).ConfigureAwait(false);
+            // Both startup migrations used to download/materialize the entire
+            // ftp.files collection independently. Share one snapshot when the
+            // first pass is read-only; reload only if it actually moved records.
+            var startupMigrationSnapshot = await _mongoContext.GetAllFilesForSyncAsync(cancellationToken).ConfigureAwait(false);
+            var novelaMigration = await _mongoContext.ScanAndMoveNovelasAsync(startupMigrationSnapshot, cancellationToken).ConfigureAwait(false);
             EmitServerLog(
                 novelaMigration.Success ? "INFO" : "WARNING",
                 $"[NEBULA-NOVELAS] {novelaMigration.Message}");
 
-            var animacaoMigration = await _mongoContext.NormalizeAnimacoesLibraryAsync(cancellationToken).ConfigureAwait(false);
+            if (novelaMigration.Moved > 0)
+            {
+                startupMigrationSnapshot = await _mongoContext.GetAllFilesForSyncAsync(cancellationToken).ConfigureAwait(false);
+            }
+
+            var animacaoMigration = await _mongoContext.NormalizeAnimacoesLibraryAsync(startupMigrationSnapshot, cancellationToken).ConfigureAwait(false);
             EmitServerLog(
                 animacaoMigration.Success ? "INFO" : "WARNING",
                 $"[NEBULA-ANIMACOES] {animacaoMigration.Message}");
@@ -4875,7 +4884,10 @@ CREATE POLICY nebula_bot_tokens_service_role_all
             changed = true;
         }
 
-        var chunkSize = Math.Clamp(copy.ChunkSizeMb, 1, 512);
+        // Python uploads use api.telegram.org/sendDocument (standard Bot API, 50 MB
+        // request limit). Leave multipart overhead headroom rather than allowing
+        // 64 MiB chunks that every bot rejects with HTTP 413.
+        var chunkSize = Math.Clamp(copy.ChunkSizeMb, 1, 45);
         if (chunkSize != copy.ChunkSizeMb)
         {
             copy.ChunkSizeMb = chunkSize;
@@ -5564,7 +5576,7 @@ CREATE POLICY nebula_bot_tokens_service_role_all
             processInfo.Environment["STAGING_DIRS"] = string.Join(';', config.StagePaths.Where(p => !string.IsNullOrWhiteSpace(p)));
         }
         processInfo.Environment["MAX_WORKERS"] = Math.Max(1, config.MaxWorkers).ToString(CultureInfo.InvariantCulture);
-        processInfo.Environment["CHUNK_SIZE_MB"] = Math.Max(1, config.ChunkSizeMb).ToString(CultureInfo.InvariantCulture);
+        processInfo.Environment["CHUNK_SIZE_MB"] = Math.Clamp(config.ChunkSizeMb, 1, 45).ToString(CultureInfo.InvariantCulture);
         processInfo.Environment["PYTHONUTF8"] = "1";
         var existingPath = processInfo.Environment["PATH"] ?? string.Empty;
         processInfo.Environment["PATH"] = string.Join(Path.PathSeparator, new[]

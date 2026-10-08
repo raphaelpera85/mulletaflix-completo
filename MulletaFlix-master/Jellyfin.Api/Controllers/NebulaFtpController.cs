@@ -295,9 +295,9 @@ public sealed class NebulaFtpController : BaseMulletaFlixApiController
             return "MaxWorkers deve estar entre 1 e 128.";
         }
 
-        if (config.ChunkSizeMb is < 1 or > 1024)
+        if (config.ChunkSizeMb is < 1 or > 45)
         {
-            return "ChunkSizeMb deve estar entre 1 e 1024 MB.";
+            return "ChunkSizeMb deve estar entre 1 e 45 MB para compatibilidade com o Telegram Bot API padrão.";
         }
 
         if (config.PlaybackCacheMaxSizeGb is < 1 or > 4096)

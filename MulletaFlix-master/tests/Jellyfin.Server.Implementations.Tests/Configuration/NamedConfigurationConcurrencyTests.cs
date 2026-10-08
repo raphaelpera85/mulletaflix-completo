@@ -952,6 +952,13 @@ public sealed class NamedConfigurationConcurrencyTests : IDisposable
         Assert.Equal(1, normalized.ChunkSizeMb);
         Assert.Equal(32, normalized.DownloadParts);
         Assert.Equal(NebulaFtpConfiguration.DefaultSupabaseAutoBackupIntervalHours, normalized.SupabaseAutoBackupIntervalHours);
+
+        var oversized = new NebulaFtpConfiguration { ChunkSizeMb = 64 };
+        var oversizedResult = method.Invoke(null, [oversized]);
+        Assert.NotNull(oversizedResult);
+        var oversizedNormalized = (NebulaFtpConfiguration)oversizedResult.GetType().GetField("Item2")!.GetValue(oversizedResult)!;
+        Assert.Equal(45, oversizedNormalized.ChunkSizeMb);
+        Assert.Equal(64, oversized.ChunkSizeMb);
     }
 
     [Fact]

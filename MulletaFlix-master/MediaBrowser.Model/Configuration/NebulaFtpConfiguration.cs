@@ -102,7 +102,8 @@ public class NebulaFtpConfiguration
 
     public int MaxWorkers { get; set; } = 10;
 
-    public int ChunkSizeMb { get; set; } = 64;
+    /// <summary>Gets or sets the per-part size for the standard Telegram Bot API upload path.</summary>
+    public int ChunkSizeMb { get; set; } = 45;
 
     public bool DeleteSourceAfterUpload { get; set; } = true;
 

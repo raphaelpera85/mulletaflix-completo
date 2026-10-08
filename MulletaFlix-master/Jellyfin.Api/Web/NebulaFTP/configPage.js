@@ -659,7 +659,7 @@ export default function (view, params) {
             BotTokensCollection: baseConfig.BotTokensCollection || 'bot_tokens',
             BotTokensTable: baseConfig.BotTokensTable || 'nebula_bot_tokens',
             MaxWorkers: baseConfig.MaxWorkers || 10,
-            ChunkSizeMb: baseConfig.ChunkSizeMb || 64,
+            ChunkSizeMb: Math.min(45, baseConfig.ChunkSizeMb || 45),
             DeleteSourceAfterUpload: baseConfig.DeleteSourceAfterUpload !== false,
             DriveLetter: baseConfig.DriveLetter || 'N:',
             RemotePath: baseConfig.RemotePath || '/',
