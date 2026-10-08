@@ -32,9 +32,14 @@ UPLOADABLE_EXTENSIONS = {
 }
 MONITORED_EXTENSIONS = UPLOADABLE_EXTENSIONS | {".strm"}
 ACTIVE_STATUSES = ("staging", "queued", "uploading")
-EPISODE_RE = re.compile(r"(?i)(?P<prefix>.*?)(?:[.\s_-]+)?s(?P<season>\d{1,2})[.\s_-]*e(?P<episode>\d{1,3})")
+EPISODE_RE = re.compile(
+    r"(?i)(?P<prefix>.*?)(?:[.\s_-]+)?"
+    r"(?:s(?P<season>\d{1,2})[.\s_-]*e(?P<episode>\d{1,3})|"
+    r"(?P<season_x>\d{1,2})x(?P<episode_x>\d{1,3}))"
+)
 INCOMPLETE_RE = re.compile(
-    r"(?i)(?P<download>.+\.download)(?:\.part\d+)?$|.+\.(?:partial|crdownload|aria2|tmp)$"
+    r"(?i)(?P<download>.+\.download)(?:\.part\d+)?$|"
+    r".+\.(?:partial|crdownload|aria2|tmp)$|.+\.part\d+$"
 )
 
 # Priority order for category processing: Animações > Filmes > Séries > Doramas > Novelas > Porno (A–Z)
@@ -138,26 +143,18 @@ def iter_files_by_priority(sources: list[Path], all_files: bool, exclude_dirs: s
                     else:
                         categorized["other"].append((source, src))
     
-    # 1. Animações: Séries/Episódios ordenados por temporada/episódio, filmes por ano decrescente, outros A-Z
+    # 1. Animações: episódios por série/temporada/episódio; demais títulos A-Z.
     def animacoes_sort_key(item: tuple[Path, Path]):
         src_path = item[1]
         ep_info = episode_identity(src_path.parent.name, src_path.name)
         if ep_info:
             return (0, ep_info[0], ep_info[1], ep_info[2])
-        year = extract_media_year(src_path.name, src_path.parent.name)
-        if year > 0:
-            return (1, "", -year, src_path.name.lower())
-        return (2, src_path.name.lower(), 0, 0)
+        return (1, src_path.name.casefold(), 0, 0)
 
     categorized["animacoes"].sort(key=animacoes_sort_key)
 
-    # 2. Filmes por ano da mídia em ordem decrescente (ex: 2026 -> 2025 -> 2024 -> ...), desempate por nome A-Z
-    categorized["filmes"].sort(
-        key=lambda item: (
-            -extract_media_year(item[1].name, item[1].parent.name),
-            item[1].name.lower(),
-        )
-    )
+    # 2. Filmes em ordem alfabética, sem priorizar ano de lançamento.
+    categorized["filmes"].sort(key=lambda item: item[1].name.casefold())
 
     # Função auxiliar para ordenação de séries/doramas/novelas por temporada e episódio
     def series_sort_key(item: tuple[Path, Path]):
@@ -779,7 +776,9 @@ def episode_identity(series_name: str, filename: str) -> tuple[str, int, int] | 
     title = normalize_media_title(series_name)
     if not match or not title:
         return None
-    return title, int(match.group("season")), int(match.group("episode"))
+    season = match.group("season") or match.group("season_x")
+    episode = match.group("episode") or match.group("episode_x")
+    return title, int(season), int(episode)
 
 
 def completed_media_identities(mongo_uri: str) -> tuple[set[tuple[str, str]], set[tuple[str, int, int]]]:
@@ -992,7 +991,7 @@ def series_path_from_filename(dest: Path, src: Path) -> Path | None:
         return None
     series_name = re.sub(r"[._]+", " ", series_name)
     series_name = re.sub(r"\s+", " ", series_name).strip()
-    season = int(match.group("season"))
+    season = int(match.group("season") or match.group("season_x"))
     return dest / "Series" / series_name / f"Season {season:02d}" / src.name
 
 

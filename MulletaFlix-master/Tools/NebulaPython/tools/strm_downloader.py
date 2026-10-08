@@ -7,7 +7,7 @@ Programa autônomo para escanear bibliotecas de arquivos .strm, validar
 duplicatas/mídias já enviadas no Nebula, realizar download multipart diretamente
 para as pastas de stage configuradas e registrar as mídias na fila do MongoDB
 (db.files) com status='queued' e delete_source=True, respeitando a ordem
-de prioridade por categoria e ano de lançamento (2026 -> 2025 -> ...).
+de prioridade por categoria e a ordenação alfabética dos títulos.
 """
 
 from __future__ import annotations
@@ -49,9 +49,14 @@ UPLOADABLE_EXTENSIONS = {
 }
 MONITORED_EXTENSIONS = UPLOADABLE_EXTENSIONS | {".strm"}
 ACTIVE_STATUSES = ("staging", "queued", "uploading")
-EPISODE_RE = re.compile(r"(?i)(?P<prefix>.*?)(?:[.\s_-]+)?s(?P<season>\d{1,2})[.\s_-]*e(?P<episode>\d{1,3})")
+EPISODE_RE = re.compile(
+    r"(?i)(?P<prefix>.*?)(?:[.\s_-]+)?"
+    r"(?:s(?P<season>\d{1,2})[.\s_-]*e(?P<episode>\d{1,3})|"
+    r"(?P<season_x>\d{1,2})x(?P<episode_x>\d{1,3}))"
+)
 INCOMPLETE_RE = re.compile(
-    r"(?i)(?P<download>.+\.download)(?:\.part\d+)?$|.+\.(?:partial|crdownload|aria2|tmp|part)$"
+    r"(?i)(?P<download>.+\.download)(?:\.part\d+)?$|"
+    r".+\.(?:partial|crdownload|aria2|tmp|part)$|.+\.part\d+$"
 )
 
 
@@ -151,7 +156,9 @@ def episode_identity(series_name: str, filename: str) -> tuple[str, int, int] | 
     title = normalize_media_title(effective_name)
     if not title:
         return None
-    return title, int(match.group("season")), int(match.group("episode"))
+    season = match.group("season") or match.group("season_x")
+    episode = match.group("episode") or match.group("episode_x")
+    return title, int(season), int(episode)
 
 
 def get_category_from_path(src: Path, source_root: Path) -> str:
@@ -240,7 +247,7 @@ def series_path_from_filename(dest_root: Path, src: Path) -> Path | None:
         return None
     series_name = re.sub(r"[._]+", " ", series_name)
     series_name = re.sub(r"\s+", " ", series_name).strip()
-    season = int(match.group("season"))
+    season = int(match.group("season") or match.group("season_x"))
     return dest_root / "Series" / series_name / f"Season {season:02d}" / src.name
 
 
@@ -1164,7 +1171,7 @@ def register_in_nebula_queue(
 
 
 # =====================================================================
-# VARREDURA E ORDENAÇÃO POR PRIORIDADE & ANO
+# VARREDURA E ORDENAÇÃO POR PRIORIDADE E TÍTULO
 # =====================================================================
 
 def iter_strm_files_prioritized(
@@ -1174,9 +1181,8 @@ def iter_strm_files_prioritized(
     """
     Varre as fontes e retorna lista de tuplas (source_root, media_path, category, year)
     ordenadas por:
-      1. Categoria: Filmes -> Porno -> Series -> Outros
-      2. Filmes: Ano decrescente (2026 -> 2025 -> ...) e depois título alfabético
-      3. Séries: Nome da série -> Temporada -> Episódio
+      1. Categoria: Animações -> Filmes -> Séries -> Doramas -> Novelas -> Porno
+      2. Título A-Z dentro da categoria; episódios ficam por série, temporada e episódio
     Suporta arquivos .strm e arquivos de mídia prontos (.mkv, .mp4, etc).
     """
     exclude = {d.lower() for d in (exclude_dirs or set())}
@@ -1212,23 +1218,18 @@ def iter_strm_files_prioritized(
                 else:
                     categorized["other"].append(item)
 
-    # 1. Animações: Séries/Episódios ordenados por temporada/episódio, filmes por ano decrescente, outros A-Z
+    # 1. Animações: séries por título/temporada/episódio; demais títulos A-Z.
     def animacoes_sort_key(it: tuple[Path, Path, str, int]):
         src_path = it[1]
         ep_info = episode_identity(src_path.parent.name, src_path.name)
         if ep_info:
             return (0, ep_info[0], ep_info[1], ep_info[2])
-        year = it[3]
-        if year > 0:
-            return (1, "", -year, src_path.name.lower())
-        return (2, src_path.name.lower(), 0, 0)
+        return (1, src_path.name.casefold(), 0, 0)
 
     categorized["animacoes"].sort(key=animacoes_sort_key)
 
-    # 2. Ordenação de Filmes: Ano mais recente primeiro (ex: 2026 -> 2025), desempate por nome A-Z
-    categorized["filmes"].sort(
-        key=lambda it: (-it[3], it[1].name.lower())
-    )
+    # 2. Filmes em ordem alfabética, sem priorizar ano de lançamento.
+    categorized["filmes"].sort(key=lambda it: it[1].name.casefold())
 
     # Função auxiliar para ordenação de séries/doramas/novelas por temporada e episódio
     def series_sort_key(it: tuple[Path, Path, str, int]):

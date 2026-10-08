@@ -36,6 +36,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavHostController
+import androidx.navigation.NavGraphBuilder
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -350,20 +351,7 @@ fun MulletaFlixNavHost(
             )
         }
 
-        composable(
-            route = MulletaFlixRoute.BOOK_READER,
-            arguments = listOf(navArgument("itemId") { type = NavType.StringType }),
-        ) { backStack ->
-            BookReaderDestination(
-                isTelevision = isTelevisionDevice,
-                onBack = { navController.popBackStack() },
-            ) {
-                BookReaderScreen(
-                    itemId = backStack.arguments?.getString("itemId").orEmpty(),
-                    onBack = { navController.popBackStack() },
-                )
-            }
-        }
+        bookReaderRoute(navController, isTelevisionDevice)
 
         // Player
         composable(
@@ -414,6 +402,27 @@ fun MulletaFlixNavHost(
             onOpen = { navController.navigate(MulletaFlixRoute.videoPlayer(castMiniController!!.itemId)) },
         )
     }
+    }
+}
+
+internal fun NavGraphBuilder.bookReaderRoute(
+    navController: NavHostController,
+    isTelevision: Boolean,
+    readerContent: @Composable (itemId: String, onBack: () -> Unit) -> Unit = { itemId, onBack ->
+        BookReaderScreen(itemId = itemId, onBack = onBack)
+    },
+) {
+    composable(
+        route = MulletaFlixRoute.BOOK_READER,
+        arguments = listOf(navArgument("itemId") { type = NavType.StringType }),
+    ) { backStack ->
+        val onBack = { navController.popBackStack(); Unit }
+        BookReaderDestination(
+            isTelevision = isTelevision,
+            onBack = onBack,
+        ) {
+            readerContent(backStack.arguments?.getString("itemId").orEmpty(), onBack)
+        }
     }
 }
 

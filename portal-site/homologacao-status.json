@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-10-07T21:17:28-03:00",
+  "generatedAt": "2026-10-07T21:28:42-03:00",
   "source": {
     "roadmap": "https://github.com/raphaelpera85/mulletaflix-completo/blob/main/docs/roadmap-evolucao-tecnologica-servidor-e-web.md",
     "repository": "https://github.com/raphaelpera85/mulletaflix-completo"
@@ -308,7 +308,7 @@
     },
     {
       "id": "T0.3.9",
-      "name": "Aguardar execução remota do job Python e ampliar testes dos módulos Nebula sem cobertura (stream service, feeder, downloader, sync, FTP server e fluxos restantes do control plane)",
+      "name": "Aguardar execução remota do job Python e ampliar cenários de negócio/erro em `feed_ftp`, `strm_downloader`, `supabase_sync`, `main.py`, `control_plane.py`, FTP e Mongo; cobertur…",
       "area": "Servidor",
       "status": "pending",
       "source": "roadmap"
@@ -4470,8 +4470,8 @@
       "status": "in_progress",
       "progressPercent": null,
       "startedAt": "2026-10-07T16:21:51-03:00",
-      "updatedAt": "2026-10-07T21:16:35-03:00",
-      "evidence": "Etapa de auditoria/expansão segue em andamento; progressPercent null porque a cobertura global e a matriz formal não estão consolidadas. Inventário: 17 projetos e 444 arquivos C# de teste. Suíte Python Nebula: 65 testes aprovados, 0 falhas em Python 3.10.11; coverage total 24%; control_plane 45%, FTP pathio 45%, FTP server 34%, FTP common 71%, FTP auth 83%; stream_service, feed_ftp, strm_downloader e supabase_sync sem cobertura. .NET: `dotnet test MulletaFlix.sln --no-build --no-restore --filter FullyQualifiedName!~Integration --collect:XPlat Code Coverage` exit 0, sem falhas nos casos executados; 33 relatórios, 24,99% de linhas fonte únicas após deduplicação; 55 testes de Implementations ignorados e integrações Mongo não habilitadas nessa rodada. Criado job Python no CI; YAML parseado localmente, execução remota pendente. Nenhum serviço de produção tocado; sem pacote, release, commit, push ou deploy. Escopo servidor/web apenas. Pendências detalhadas em T0.3 do roadmap."
+      "updatedAt": "2026-10-07T21:28:18-03:00",
+      "evidence": "Auditoria/expansão segue em andamento; progressPercent null porque cobertura global do escopo e matriz formal não estão consolidadas. Inventário anterior: 17 projetos e 444 arquivos C# de teste. Suíte Nebula Python em Python 3.10.11 passou 85/85, exit 0; cobertura agregada 32%. `feed_ftp.py` 13%, `strm_downloader.py` 20%, `stream_service.py` 91%, `control_plane.py` 45%, `ftp/pathio.py` 45%, `ftp/server.py` 34%, `ftp/common.py` 71%, `ftp/auth.py` 83%, `main.py` 18%; `supabase_sync.py` 0%. Testes novos validam ordem de categorias/A–Z, duas notações de episódio, destino sazonal, filtragem `.partN`, parsing de URL STRM e ciclo de vida de startup/cleanup. Corrigidos os três comportamentos discrepantes encontrados pelas asserções. .NET continua baseado na execução anterior: dotnet test excluindo Integration exit 0, com 55 testes de Implementations ignorados e Mongo opt-in desabilitado; 33 relatórios e 24,99% de linhas-fonte únicas por arquivo/linha. Job Python CI analisado localmente; execução remota pendente. Nenhuma produção acessada; sem pacote, release, commit, push ou deploy. Escopo servidor/web; curadoria IA fora do escopo ativo. Pendências detalhadas em T0.3 do roadmap."
     }
   ]
 }

@@ -51,6 +51,7 @@ As skills abaixo existem no catálogo local. São complementos de domínio; a me
 | --- | --- | --- |
 | T0.1, T0.4, T5.1, W3.1–W3.6 | `performance-engineer`, `k6-load-testing` | Medir inicialização, latência, throughput, bundle e carga; só definir budgets depois de obter baseline representativo. Para usar k6, ler também o guia detalhado da skill antes de executar cenários. |
 | T0.2, T1.1–T1.5 | `backend-architect`, `observability-engineer`, `csharp-testing` | Mapear limites e dependências, definir sinais úteis, validar health checks, logs, métricas, alertas e diagnósticos com testes. |
+| T0.3 — testes Python Nebula e contratos do control plane | `python-testing`, `pytest-skill`, `backend-architect`; `api-testing-observability-api-mock` somente quando houver integração/contrato externo a simular | Parametrização e fixtures pytest, async com `pytest-asyncio`, cobertura; contratos locais com dependências determinísticas, sem chamar serviços de produção. |
 | T2.x, T3.2–T3.6, T7.x, T8.x | `csharp-testing`, `performance-engineer`; `k6-load-testing` para HTTP sob carga | Testes determinísticos de ciclo de vida, concorrência, recuperação, codecs e limites; testes de runtime permanecem distintos dos unitários. |
 | T4.2–T4.4 | `database-admin`, `database-architect`, `api-security-testing`, `observability-engineer` | Consistência entre bancos, restore isolado, proteção das operações administrativas, retenção e sinais operacionais; escolhas destrutivas aguardam decisão explícita. |
 | T5.1–T5.6 | `database-architect`, `database-optimizer`, `data-engineer`, `k6-load-testing` | Planos de execução e índices baseados em evidência, cache com invalidação segura, carga e degradação. |
@@ -76,8 +77,8 @@ As skills abaixo existem no catálogo local. São complementos de domínio; a me
   - [x] Criar recuperação integrada de metadados persistidos no Mongo com falha/retorno de fetch simulado, cache em disco e Mongo descartável provisionado por workflow.
   - [x] Executar localmente o cenário Mongo integrado em serviço descartável, incluindo recuperação após falha e reutilização do cache em disco; ver evidências de 04/10/2026 no Registro de execução.
   - [x] Serializar na suíte Providers as classes de teste que compartilham `Video.RecordingsManager`: as regressões que restauram estado estático global não podem executar em paralelo com testes consumidores desse mesmo estado.
-  - [x] Declarar dependências de teste do Nebula Python (`pytest`, `pytest-asyncio`, `pytest-cov`), adicionar job Linux ao CI e cobrir permissões FTP legadas, segurança HTTP, hierarquia STRM, validação e rotas HTTP do control plane, ranges HTTP, autenticação FTP e filas upload; execução local Windows: 65/65 aprovados.
-  - [ ] Aguardar execução remota do job Python e ampliar testes dos módulos Nebula sem cobertura (stream service, feeder, downloader, sync, FTP server e fluxos restantes do control plane).
+  - [x] Declarar dependências de teste do Nebula Python (`pytest`, `pytest-asyncio`, `pytest-cov`), adicionar job Linux ao CI e cobrir permissões FTP legadas, segurança HTTP, hierarquia STRM, validação e rotas HTTP do control plane, ranges HTTP, autenticação FTP, filas de upload, ciclo de vida do worker de streaming e contratos de ingestão; execução local Windows: 85/85 aprovados.
+  - [ ] Aguardar execução remota do job Python e ampliar cenários de negócio/erro em `feed_ftp`, `strm_downloader`, `supabase_sync`, `main.py`, `control_plane.py`, FTP e Mongo; cobertura Python atual ainda é 32%.
   - [ ] Confirmar execução remota dos jobs representativos Windows/Linux e do job Mongo Linux; exige CI acionado por push, ainda não autorizado.
 - [ ] **T0.4 — Definir limites de regressão.** Fixar budgets iniciais para tempo de boot, tamanho do bundle web, latência de busca, espaço temporário e memória; calibrar com medições reais, não valores arbitrários.
   - [x] Medir o artefato web de produção e conferir o gate existente de 1.536 KiB por arquivo JS/CSS.
@@ -665,6 +666,19 @@ Limite de evidência atual: `ClaimFileForUploadAsync` realiza claim atômico, ma
 Este documento é backlog em execução; não autoriza publicar uma release antes do gate acima.
 
 ## Registro de execução
+
+### 08/10/2026 — Ingestão Nebula: prioridade A–Z e identidade de episódios (T0.3 parcial)
+
+- TDD identificou divergências nas duas rotinas de ingestão: filmes eram ordenados por ano em vez de A–Z, episódios no formato `1x02` não eram reconhecidos e arquivos de parte `.partN` podiam passar pelo filtro de incompletos. Os testes também cobrem ordem de categoria (Animações > Filmes > Séries > Doramas > Novelas > Porno), ordenação A–Z, identidades, destinos sazonais e leitura/validação de STRM.
+- Corrigidos `feed_ftp.py` e `strm_downloader.py` para ordenar filmes/animações não episódicas alfabeticamente, reconhecer ambas as notações de episódio (`SxxExx` e `1x02`) na identidade e montagem de destino, e rejeitar nomes `.partN` incompletos.
+- Quality bar: testes focais de ingestão e worker **20/20**; suíte Nebula Python completa, Python 3.10.11: **85/85**, exit 0. Cobertura agregada **32%**; `feed_ftp.py` 13%, `strm_downloader.py` 20%, `stream_service.py` 91%, `control_plane.py` 45%, `ftp/pathio.py` 45%, `ftp/server.py` 34%, `main.py` 18%, `supabase_sync.py` 0%. `git diff --check` exit 0.
+- Limite: testes de ingestão usam filesystem temporário e não comprovam download/upload real, Mongo/Telegram, concorrência, recuperação ou execução remota Windows/Linux. T0.3 segue parcial; sem release, pacote, commit, push, deploy ou uso de produção.
+
+### 08/10/2026 — Cobertura do ciclo de vida do worker de streaming (T0.3 parcial)
+
+- Adicionado `tests/test_stream_service.py` com cenários isolados para configuração inválida, nenhum bot autenticado, falha de ping no Mongo e cancelamento do servidor HTTP, verificando limpeza de sessão, bots, servidor e cliente Mongo. Todas dependências externas são falsas; nenhum Telegram, Mongo ou mídia real é acessado.
+- Quality bar local: o arquivo focal passou 4/4; a suíte Nebula Python completa em Python 3.10.11 passou **69/69**, exit 0. Cobertura agregada Python subiu de 24% para **26%**; `stream_service.py` atingiu **91%**. `feed_ftp.py`, `strm_downloader.py` e `supabase_sync.py` permanecem em 0%; `main.py` em 18%, `control_plane.py` em 45%, `ftp/server.py` em 34% e `ftp/pathio.py` em 45%.
+- Limite: cobertura do worker não comprova início real de bots/Mongo/stream nem substitui integração entre processos; a matriz CI Windows/Linux e Mongo ainda precisa ser executada remotamente. T0.3 segue parcial; sem release, package, commit, push, deploy ou acesso a produção.
 
 ### 07/10/2026 — Expansão e auditoria de cobertura do servidor (T0.3 parcial)
 
