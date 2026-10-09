@@ -73,10 +73,14 @@ class Media3DownloadRepository @Inject constructor(
     private val artworkClient = OkHttpClient.Builder()
         .addInterceptor(clientIdentityInterceptor)
         .enforceLocalNetworkCleartextPolicy()
+        .addNetworkInterceptor(clientIdentityInterceptor.identityAfterConnectedRoute())
         .connectTimeout(30, TimeUnit.SECONDS)
         .readTimeout(30, TimeUnit.SECONDS)
         .build()
-    private val subtitleClient = offlineSubtitleHttpClient(clientIdentityInterceptor)
+    private val subtitleClient = offlineSubtitleHttpClient(
+        clientIdentityInterceptor,
+        clientIdentityInterceptor.identityAfterConnectedRoute(),
+    )
     private val artworkPersistenceLock = Any()
     private val artworkUpdates = MutableSharedFlow<Unit>(replay = 1, extraBufferCapacity = 1)
     private val artworkRequestsStarted = ConcurrentHashMap.newKeySet<String>()
@@ -775,10 +779,14 @@ internal fun offlineSubtitleStreamPath(itemId: String, streamIndex: Int, mediaSo
 private fun encodeSubtitleComponent(value: String): String =
     URLEncoder.encode(value, StandardCharsets.UTF_8.name()).replace("+", "%20")
 
-internal fun offlineSubtitleHttpClient(identityInterceptor: Interceptor): OkHttpClient =
+internal fun offlineSubtitleHttpClient(
+    identityInterceptor: Interceptor,
+    connectedRouteIdentityInterceptor: Interceptor,
+): OkHttpClient =
     OkHttpClient.Builder()
         .addInterceptor(identityInterceptor)
         .enforceLocalNetworkCleartextPolicy()
+        .addNetworkInterceptor(connectedRouteIdentityInterceptor)
         .connectTimeout(30, TimeUnit.SECONDS)
         .readTimeout(30, TimeUnit.SECONDS)
         .followRedirects(false)

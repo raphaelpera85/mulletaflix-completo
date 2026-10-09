@@ -15,6 +15,7 @@ import org.mulletaflix.core.common.cache.ArtworkCacheCleaner
 import org.mulletaflix.core.common.update.AppUpdateDownloader
 import org.mulletaflix.core.common.update.AppUpdateInstallOutcome
 import org.mulletaflix.core.common.update.DownloadState
+import org.mulletaflix.core.common.update.PendingAppUpdateApk
 import org.mulletaflix.core.common.update.errorMessageOrNull
 import org.mulletaflix.core.common.update.installDownloadedApk
 import org.mulletaflix.designsystem.theme.MulletaFlixThemeVariant
@@ -58,6 +59,7 @@ data class SettingsState(
     val isCheckingUpdate: Boolean = false,
     val updateInfo: AppUpdateInfo? = null,
     val isDownloadingUpdate: Boolean = false,
+    val isPreparingUpdateInstall: Boolean = false,
     val updateDownloadProgress: Float = 0f,
     val updateStatusMessage: String? = null,
     val updateErrorMessage: String? = null,
@@ -84,6 +86,7 @@ class SettingsViewModel @Inject constructor(
 
     private val _state = MutableStateFlow(SettingsState())
     val state: StateFlow<SettingsState> = _state.asStateFlow()
+    private val pendingInstallApk = PendingAppUpdateApk(ioDispatcher)
 
     init {
         refreshStorageInfo()
@@ -451,7 +454,7 @@ class SettingsViewModel @Inject constructor(
             }
             return
         }
-        if (_state.value.isCheckingUpdate || _state.value.isDownloadingUpdate) return
+        if (_state.value.isCheckingUpdate || _state.value.isDownloadingUpdate || _state.value.isPreparingUpdateInstall) return
         _state.update { it.copy(isCheckingUpdate = true, updateErrorMessage = null, updateStatusMessage = null) }
         viewModelScope.launch {
             runCatching { checkAppUpdateUseCase(normalizedVersion) }
@@ -487,56 +490,71 @@ class SettingsViewModel @Inject constructor(
         _state.update { it.copy(updateStatusMessage = null, updateErrorMessage = null) }
     }
 
-    fun downloadAndInstallUpdate(install: (java.io.File) -> Boolean) {
+    fun downloadAndInstallUpdate(
+        openGooglePlay: (() -> Boolean)? = null,
+        install: (java.io.File) -> Boolean,
+    ) {
         // O botão já fica desabilitado enquanto baixa, mas isso é lido na composição:
         // dois toques no mesmo frame passam os dois. E o segundo download apaga o
         // arquivo que o primeiro já abriu (`AppUpdateDownloader`), então o resultado é
         // uma instalação quebrada. `checkForUpdates` já tinha essa guarda; esta é a
         // mesma, no irmão que faltava.
-        if (_state.value.isDownloadingUpdate) return
-        val downloadUrl = _state.value.updateInfo?.apkDownloadUrl ?: return
-        val versionName = _state.value.updateInfo?.latestVersion ?: "update"
+        if (_state.value.isDownloadingUpdate || _state.value.isPreparingUpdateInstall) return
+        val update = _state.value.updateInfo ?: return
+        val downloadUrl = update.apkDownloadUrl?.takeIf(String::isNotBlank) ?: return
+        val versionName = update.latestVersion
+        val expectedSha256 = update.apkSha256
+
+        if (openGooglePlay != null) {
+            _state.update { it.copy(isPreparingUpdateInstall = true, updateErrorMessage = null) }
+            val opened = runCatching(openGooglePlay).getOrDefault(false)
+            _state.update {
+                it.copy(
+                    isPreparingUpdateInstall = false,
+                    showUpdateDialog = if (opened) false else it.showUpdateDialog,
+                    updateStatusMessage = if (opened) "Página do app aberta na Google Play." else null,
+                    updateErrorMessage = if (opened) null else "Não foi possível abrir a Google Play.",
+                )
+            }
+            return
+        }
         val downloader = appUpdateDownloader ?: return
 
         // Marcado antes de lançar a corrotina, pelo mesmo motivo dos outros flags deste
         // app: a janela entre o toque e o primeiro `update` é onde o segundo toque entra.
-        _state.update { it.copy(isDownloadingUpdate = true, updateDownloadProgress = 0f, updateErrorMessage = null) }
+        _state.update { it.copy(isPreparingUpdateInstall = true, updateErrorMessage = null) }
 
         viewModelScope.launch {
+            val cachedApk = pendingInstallApk.findFor(versionName, downloadUrl, expectedSha256)
+            if (cachedApk != null) {
+                _state.update { it.copy(isPreparingUpdateInstall = false) }
+                handleInstallOutcome(cachedApk, install)
+                return@launch
+            }
+            _state.update { it.copy(isPreparingUpdateInstall = false, isDownloadingUpdate = true, updateDownloadProgress = 0f) }
             downloader.downloadApk(
                 downloadUrl = downloadUrl,
                 versionName = versionName,
-                expectedSha256 = _state.value.updateInfo?.apkSha256,
+                expectedSha256 = expectedSha256,
             ).collect { downloadState ->
                 when (downloadState) {
                     is DownloadState.Downloading -> {
                         _state.update { it.copy(updateDownloadProgress = downloadState.progress) }
                     }
                     is DownloadState.Completed -> {
+                        _state.update { it.copy(isDownloadingUpdate = false, isPreparingUpdateInstall = true) }
+                        pendingInstallApk.remember(
+                            file = downloadState.file,
+                            versionName = versionName,
+                            downloadUrl = downloadUrl,
+                            expectedSha256 = expectedSha256,
+                        )
                         // A instalação é classificada pela política compartilhada
                         // (`installDownloadedApk`), a mesma da checagem automática da
                         // `MainActivity`; o que esta tela faz com o resultado — fechar o
                         // diálogo e anunciar o status — é dela.
-                        when (val outcome = installDownloadedApk(downloadState.file, install)) {
-                            AppUpdateInstallOutcome.Started -> {
-                                _state.update {
-                                    it.copy(
-                                        isDownloadingUpdate = false,
-                                        showUpdateDialog = false,
-                                        updateStatusMessage = "Download concluído. Iniciando instalação...",
-                                    )
-                                }
-                            }
-
-                            else -> {
-                                _state.update {
-                                    it.copy(
-                                        isDownloadingUpdate = false,
-                                        updateErrorMessage = outcome.errorMessageOrNull(),
-                                    )
-                                }
-                            }
-                        }
+                        _state.update { it.copy(isPreparingUpdateInstall = false) }
+                        handleInstallOutcome(downloadState.file, install)
                     }
                     is DownloadState.Error -> {
                         _state.update {
@@ -547,6 +565,32 @@ class SettingsViewModel @Inject constructor(
                         }
                     }
                     DownloadState.Idle -> Unit
+                }
+            }
+        }
+    }
+
+    private fun handleInstallOutcome(file: java.io.File, install: (java.io.File) -> Boolean) {
+        when (val outcome = installDownloadedApk(file, install)) {
+            AppUpdateInstallOutcome.Started -> {
+                pendingInstallApk.clear()
+                _state.update {
+                    it.copy(
+                        isDownloadingUpdate = false,
+                        isPreparingUpdateInstall = false,
+                        showUpdateDialog = false,
+                        updateStatusMessage = "Download concluído. Iniciando instalação...",
+                    )
+                }
+            }
+
+            else -> {
+                _state.update {
+                    it.copy(
+                        isDownloadingUpdate = false,
+                        isPreparingUpdateInstall = false,
+                        updateErrorMessage = outcome.errorMessageOrNull(),
+                    )
                 }
             }
         }

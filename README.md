@@ -2,7 +2,7 @@
 
 **Servidor de mídia pessoal, com interface web e aplicativos para assistir à sua coleção em diferentes dispositivos.** O projeto combina o servidor MulletaFlix, uma interface web personalizada e clientes Android e iOS. Você mantém o controle dos arquivos, da organização das bibliotecas e da configuração do servidor.
 
-[Código-fonte](https://github.com/raphaelpera85/mulletaflix-completo) · [Releases](https://github.com/raphaelpera85/mulletaflix-completo/releases) · [Documentação operacional](docs/NEBULA-RUNBOOK.md)
+[Código-fonte](https://github.com/raphaelpera85/mulletaflix-completo) · [Releases](https://github.com/raphaelpera85/mulletaflix-completo/releases) · [Documentação TDD do projeto](docs/TDD-PROJECT.md) · [Documentação operacional](docs/NEBULA-RUNBOOK.md)
 
 > Este README descreve o estado e os componentes deste repositório. Alguns recursos dependem de configuração externa, de plugins ou de serviços de terceiros. O cliente iOS está em desenvolvimento; consulte as releases para saber quais plataformas têm pacotes prontos.
 

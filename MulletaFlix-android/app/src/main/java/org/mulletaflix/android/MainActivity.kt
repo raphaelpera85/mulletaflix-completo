@@ -92,6 +92,13 @@ class MainActivity : ComponentActivity() {
             val appUpdateViewModel: AppUpdateViewModel = hiltViewModel()
             val updateState by appUpdateViewModel.state.collectAsStateWithLifecycle()
             val context = LocalContext.current
+            val openPlayStoreUpdate = remember(context) {
+                if (AppUpdateInstaller.isInstalledFromGooglePlay(context)) {
+                    { AppUpdateInstaller.openGooglePlayListing(context) }
+                } else {
+                    null
+                }
+            }
             val lifecycleOwner = LocalLifecycleOwner.current
             val isTelevision = LocalConfiguration.current.uiMode and
                 android.content.res.Configuration.UI_MODE_TYPE_MASK ==
@@ -156,9 +163,11 @@ class MainActivity : ComponentActivity() {
                         if (updateState.isDialogVisible && updateState.available != null) {
                             val update = updateState.available!!
                             val isDownloadingUpdate = updateState.isDownloading
+                            val isPreparingInstall = updateState.isPreparingInstall
+                            val isBusy = isDownloadingUpdate || isPreparingInstall
                             AlertDialog(
                                 onDismissRequest = {
-                                    if (!isDownloadingUpdate) {
+                                    if (!isBusy) {
                                         appUpdateViewModel.dismissDialog()
                                     }
                                 },
@@ -200,7 +209,10 @@ class MainActivity : ComponentActivity() {
                                                 modifier = Modifier.padding(top = 4.dp),
                                             )
                                         }
-                                        if (isDownloadingUpdate) {
+                                        if (isPreparingInstall) {
+                                            Spacer(modifier = Modifier.height(16.dp))
+                                            Text("Verificando o APK...", style = MaterialTheme.typography.bodySmall)
+                                        } else if (isDownloadingUpdate) {
                                             Spacer(modifier = Modifier.height(16.dp))
                                             LinearProgressIndicator(
                                                 progress = { updateState.progress },
@@ -227,15 +239,16 @@ class MainActivity : ComponentActivity() {
                                         onClick = {
                                             // O download roda em `viewModelScope`: uma
                                             // recriação da Activity não o interrompe mais.
-                                            appUpdateViewModel.downloadUpdate { file ->
-                                                AppUpdateInstaller.installApk(context, file)
-                                            }
+                                            appUpdateViewModel.downloadUpdate(
+                                                openGooglePlay = openPlayStoreUpdate,
+                                            ) { file -> AppUpdateInstaller.installApk(context, file) }
                                         },
-                                        enabled = !isDownloadingUpdate && !update.apkDownloadUrl.isNullOrBlank(),
+                                        enabled = !isBusy && !update.apkDownloadUrl.isNullOrBlank(),
                                     ) {
                                         Text(
                                             when {
                                                 isDownloadingUpdate -> "Baixando..."
+                                                isPreparingInstall -> "Verificando APK..."
                                                 updateState.error != null -> "Tentar novamente"
                                                 else -> "Atualizar Agora"
                                             },
@@ -243,7 +256,7 @@ class MainActivity : ComponentActivity() {
                                     }
                                 },
                                 dismissButton = {
-                                    if (!isDownloadingUpdate) {
+                                    if (!isBusy) {
                                         TextButton(onClick = { appUpdateViewModel.dismissDialog() }) {
                                             Text("Depois")
                                         }

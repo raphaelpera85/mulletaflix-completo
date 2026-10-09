@@ -66,6 +66,8 @@ class AppUpdateDownloader private constructor(
         var completed = false
         var activeCall: Call? = null
         var cancellationHandle: DisposableHandle? = null
+        var declaredContentLength = -1L
+        var bytesDownloaded = 0L
         try {
             if (!isTrustedDownloadUrl(downloadUrl)) {
                 emit(DownloadState.Error("A origem do APK não é confiável."))
@@ -105,13 +107,7 @@ class AppUpdateDownloader private constructor(
                 }
 
                 val body = response.body
-                if (body == null) {
-                    emit(DownloadState.Error("Resposta vazia ao baixar o APK."))
-                    return@flow
-                }
-
-                val totalBytes = body.contentLength()
-                var bytesDownloaded = 0L
+                declaredContentLength = body.contentLength()
 
                 body.byteStream().use { input ->
                     FileOutputStream(destinationFile).use { output ->
@@ -122,24 +118,33 @@ class AppUpdateDownloader private constructor(
                             output.write(buffer, 0, bytesRead)
                             bytesDownloaded += bytesRead
 
-                            val progress = if (totalBytes > 0) {
-                                (bytesDownloaded.toFloat() / totalBytes.toFloat()).coerceIn(0f, 1f)
+                            val progress = if (declaredContentLength > 0) {
+                                (bytesDownloaded.toFloat() / declaredContentLength.toFloat()).coerceIn(0f, 1f)
                             } else {
                                 0f
                             }
 
-                            emit(DownloadState.Downloading(progress, bytesDownloaded, totalBytes))
+                            emit(DownloadState.Downloading(progress, bytesDownloaded, declaredContentLength))
                         }
                         output.flush()
                     }
                 }
             }
 
+            if (declaredContentLength >= 0 && bytesDownloaded != declaredContentLength) {
+                emit(DownloadState.Error("O APK baixado está incompleto."))
+                return@flow
+            }
+
             val downloadedFile = destinationFile
-            if (downloadedFile?.exists() == true && downloadedFile.length() > 0) {
+            if (downloadedFile.exists() && downloadedFile.length() > 0) {
                 if (expectedSha256 != null && !sha256Matches(downloadedFile, expectedSha256)) {
                     deletePartialApk(downloadedFile)
                     emit(DownloadState.Error("A assinatura SHA-256 do APK não confere."))
+                    return@flow
+                }
+                if (!hasValidAndroidApkManifestEntry(downloadedFile)) {
+                    emit(DownloadState.Error("O manifesto do APK está ausente, vazio ou corrompido."))
                     return@flow
                 }
                 emit(DownloadState.Completed(downloadedFile))

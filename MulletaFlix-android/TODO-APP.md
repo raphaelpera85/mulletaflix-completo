@@ -5,7 +5,7 @@
 - [x] Aceitar apenas URLs HTTPS do endpoint oficial de assets do GitHub, sem user-info e usando somente porta padrão ou 443 explícita.
 - [x] TDD: teste RED provou aceitação incorreta de `https://attacker:secret@github.com/...`; GREEN passou rejeitando credenciais e porta 8443 e aceitando 443.
 - [x] Validação em 2026-10-08: `ApkIntegrityTest` passou; suíte JVM completa 1.516 testes, 0 falhas/erros/ignorados; `:core:common:lintDebug`, `:app:lintDebug` e `:app:assembleDebug` passaram.
-- [ ] Fluxos completos do downloader (sucesso/progresso, HTTP, corpo vazio, checksum, cancelamento e limpeza) continuam pendentes conforme `TDD-PLAN.md`.
+- [x] Cobertura unitária do downloader inclui sucesso/progresso, HTTP inválido, corpo vazio, checksum, URL não confiável, resposta truncada, cancelamento e limpeza do APK parcial. Gate focal `:core:common:testDebugUnitTest --tests "org.mulletaflix.core.common.update.AppUpdateDownloaderTest"` passou; suíte Android completa pendente nesta retomada. A existência dos testes não prova RED-GREEN histórico para cada caso; ver `TDD-PLAN.md`.
 - [ ] Sem bump de versão, APK de produção, portal ou publicação.
 
 ## Velocidade ajustável da narração de livros (APK local; sem release)
@@ -121,7 +121,7 @@ Este documento rastreia o status de implementação de todas as funcionalidades,
 - [x] Garantir que redirect same-origin reutilize a identidade capturada uma vez e redirect cross-origin não a reanexe. A cobertura comprova identidade por cabeçalho; credenciais `api_key` em query strings não fazem parte deste teste.
 - [x] Manter a ordem guard de rota antes da identidade diferida nos clientes Retrofit, Coil, artwork Media3 e legendas offline; tornar obrigatória a configuração do segundo estágio no cliente de legendas.
 - [x] Testar HTTP público antes da leitura de credenciais, política de destino local resolvido fora da sub-rede, redirect e rotas same-origin/cross-origin; suíte focal e Quality Bar registradas em `TDD-PLAN.md`.
-- [ ] Adicionar teste combinado de hostname `.local` resolvido fora da sub-rede e zero leituras de credenciais; hoje o teste de identidade usa fixture loopback e a rejeição off-subnet é coberta separadamente pela política.
+- [x] Teste combinado controlado: hostname `.local` com rota remota fora da LAN é rejeitado antes das leituras de token/DeviceId; `CleartextRequestProtectionTest` passou. A fixture controla Route/Socket e não simula a descoberta DNS nem o tráfego físico do dispositivo.
 - [ ] A configuração Android ainda permite cleartext para LAN dinâmica; guards nos clientes não substituem bloqueio global do SO. APK-H12 segue em validação e não libera release até política e cobertura ampla estarem fechadas.
 - [x] Adicionado teste de contrato do cliente usado pelo Coil: URL de imagem HTTP público direto é negada antes de ler token/identidade ou enviar tráfego; HTTP LAN continua coberto pelo round-trip do cliente de artwork. Suíte focada `CleartextRequestProtectionTest` + `ArtworkClientIdentityTest` passou.
 - [x] Teste instrumentado com o `DownloadManager` Media3 real: transferência HTTP LAN de 64 KiB termina e persiste no cache temporário; redirect para HTTP público falha e não acrescenta bytes ao cache. SQLite e cache são exclusivos por execução; AVD API 35 isolado usou a NVIDIA e foi fechado ao terminar.

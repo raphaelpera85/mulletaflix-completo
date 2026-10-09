@@ -3,14 +3,29 @@ package org.mulletaflix.core.api
 import com.squareup.moshi.Moshi
 import java.io.IOException
 import java.net.InetAddress
+import java.net.InetSocketAddress
+import java.net.Proxy
+import java.net.Socket
+import java.net.ProxySelector
+import javax.net.SocketFactory
 import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.runBlocking
 import okhttp3.Dns
+import okhttp3.Connection
+import okhttp3.Address
+import okhttp3.Authenticator
+import okhttp3.CertificatePinner
+import okhttp3.ConnectionSpec
 import okhttp3.Interceptor
 import okhttp3.Protocol
+import okhttp3.Route
 import okhttp3.Request
 import okhttp3.Response
+import okhttp3.CookieJar
+import okhttp3.Cache
+import okhttp3.ConnectionPool
+import okhttp3.EventListener
 import okhttp3.ResponseBody.Companion.toResponseBody
 import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.mockwebserver.MockResponse
@@ -22,6 +37,8 @@ import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import org.mulletaflix.core.api.di.NetworkModule
+import org.mulletaflix.core.common.network.enforceLocalNetworkCleartextPolicy
+import org.mulletaflix.core.common.network.LocalNetworkCleartextNetworkInterceptor
 
 class CleartextRequestProtectionTest {
     private lateinit var server: MockWebServer
@@ -287,6 +304,157 @@ class CleartextRequestProtectionTest {
         assertFalse(innerInterceptorCalled.get() > 0)
     }
 
+    @Test
+    fun `local DNS identity is not read before the connected route passes cleartext validation`() {
+        server.enqueue(MockResponse().setBody("{}"))
+        val sessions = CountingSessionRepository(baseUrl = "https://media.example")
+        val identityReadsAtRouteBoundary = AtomicInteger(-1)
+        val identityInterceptor = ClientIdentityInterceptor(sessions)
+        val url = server.url("/Users").newBuilder().host("media.local").build()
+        val client = okhttp3.OkHttpClient.Builder()
+            .addInterceptor(identityInterceptor)
+            .enforceLocalNetworkCleartextPolicy()
+            .addNetworkInterceptor { chain ->
+                identityReadsAtRouteBoundary.set(sessions.tokenReads.get() + sessions.deviceReads.get())
+                chain.proceed(chain.request())
+            }
+            .addNetworkInterceptor(identityInterceptor.identityAfterConnectedRoute())
+            .dns(object : Dns {
+                override fun lookup(hostname: String): List<InetAddress> =
+                    if (hostname == "media.local") listOf(InetAddress.getByName("127.0.0.1"))
+                    else Dns.SYSTEM.lookup(hostname)
+            })
+            .build()
+
+        val response = client.newCall(Request.Builder().url(url).build()).execute()
+
+        assertEquals(200, response.code)
+        response.close()
+        assertEquals("the connected-route guard must run before reading credentials", 0, identityReadsAtRouteBoundary.get())
+        assertEquals("credentials are read after the LAN route is accepted", 1, sessions.tokenReads.get())
+        assertEquals(1, sessions.deviceReads.get())
+        assertTrue(server.takeRequest().getHeader("Authorization").orEmpty().contains("Token=\"session-token\""))
+    }
+
+    @Test
+    fun `local DNS route resolving outside the LAN is rejected before token or device reads`() {
+        val sessions = CountingSessionRepository(baseUrl = "https://media.example")
+        val identity = ClientIdentityInterceptor(sessions)
+        val request = Request.Builder().url("http://media.local:8096/Users").build()
+        var deferredRequest: Request? = null
+        val applicationChain = TestInterceptorChain(request, connection = null) { forwarded ->
+            deferredRequest = forwarded
+            successfulResponse(forwarded)
+        }
+
+        identity.intercept(applicationChain)
+
+        val localAddress = InetAddress.getByName("127.0.0.1")
+        val route = Route(
+            Address(
+                "media.local",
+                8096,
+                Dns.SYSTEM,
+                SocketFactory.getDefault(),
+                null,
+                null,
+                CertificatePinner.DEFAULT,
+                Authenticator.NONE,
+                Proxy.NO_PROXY,
+                listOf(Protocol.HTTP_1_1),
+                listOf(ConnectionSpec.CLEARTEXT),
+                requireNotNull(ProxySelector.getDefault()),
+            ),
+            Proxy.NO_PROXY,
+            InetSocketAddress("198.51.100.22", 8096),
+        )
+        val connection = TestConnection(route, TestSocket(localAddress))
+        var terminalReached = false
+        val networkChain = TestInterceptorChain(
+            currentRequest = requireNotNull(deferredRequest),
+            connection = connection,
+            interceptors = listOf(identity.identityAfterConnectedRoute()),
+        ) { forwarded ->
+            terminalReached = true
+            successfulResponse(forwarded)
+        }
+
+        val failure = runCatching {
+            LocalNetworkCleartextNetworkInterceptor.intercept(networkChain)
+        }.exceptionOrNull()
+
+        assertTrue("A .local name resolving outside the active LAN must be rejected", failure is IOException)
+        assertFalse("The identity interceptor must not reach the terminal exchange", terminalReached)
+        assertEquals("a rejected route must not read the session token", 0, sessions.tokenReads.get())
+        assertEquals("a rejected route must not read the device identity", 0, sessions.deviceReads.get())
+    }
+
+    @Test
+    fun `local DNS same origin redirect retains deferred session identity`() {
+        server.enqueue(MockResponse().setResponseCode(302).addHeader("Location", "/next"))
+        server.enqueue(MockResponse().setBody("{}"))
+        val sessions = CountingSessionRepository(baseUrl = "https://media.example")
+        val identity = ClientIdentityInterceptor(sessions)
+        val client = okhttp3.OkHttpClient.Builder()
+            .addInterceptor(identity)
+            .enforceLocalNetworkCleartextPolicy()
+            .addNetworkInterceptor(identity.identityAfterConnectedRoute())
+            .dns(localMediaDns())
+            .build()
+        val url = server.url("/start").newBuilder().host("media.local").build()
+
+        val response = client.newCall(Request.Builder().url(url).build()).execute()
+
+        assertEquals(200, response.code)
+        response.close()
+        assertEquals(2, server.requestCount)
+        repeat(2) {
+            assertTrue(
+                server.takeRequest().getHeader("Authorization").orEmpty()
+                    .contains("Token=\"session-token\""),
+            )
+        }
+        assertEquals(1, sessions.tokenReads.get())
+        assertEquals(1, sessions.deviceReads.get())
+    }
+
+    @Test
+    fun `cross origin local DNS redirect never reattaches deferred session identity`() {
+        server.enqueue(
+            MockResponse().setResponseCode(302)
+                .addHeader("Location", "http://other.local:${server.port}/next?keep=yes"),
+        )
+        server.enqueue(MockResponse().setBody("{}"))
+        val sessions = CountingSessionRepository(baseUrl = "https://media.example")
+        val identity = ClientIdentityInterceptor(sessions)
+        val client = okhttp3.OkHttpClient.Builder()
+            .addInterceptor(identity)
+            .enforceLocalNetworkCleartextPolicy()
+            .addNetworkInterceptor(identity.identityAfterConnectedRoute())
+            .dns(localMediaDns())
+            .build()
+        val url = server.url("/start").newBuilder().host("media.local").build()
+
+        val response = client.newCall(Request.Builder().url(url).build()).execute()
+
+        assertEquals(200, response.code)
+        response.close()
+        assertEquals(2, server.requestCount)
+        val initial = server.takeRequest()
+        val redirected = server.takeRequest()
+        assertTrue(initial.getHeader("Authorization").orEmpty().contains("Token=\"session-token\""))
+        assertEquals(null, redirected.getHeader("Authorization"))
+        assertEquals("keep=yes", redirected.requestUrl?.query)
+        assertEquals(1, sessions.tokenReads.get())
+        assertEquals(1, sessions.deviceReads.get())
+    }
+
+    private fun localMediaDns() = object : Dns {
+        override fun lookup(hostname: String): List<InetAddress> =
+            if (hostname.endsWith(".local")) listOf(InetAddress.getByName("127.0.0.1"))
+            else Dns.SYSTEM.lookup(hostname)
+    }
+
     private class CountingSessionRepository(
         private val baseUrl: String,
     ) : SessionRepository {
@@ -300,5 +468,90 @@ class CleartextRequestProtectionTest {
         override suspend fun saveSession(serverUrl: String, token: String, userId: String, deviceId: String) = Unit
         override suspend fun setBaseUrl(url: String) = Unit
         override suspend fun clearSession() = Unit
+    }
+
+    private fun successfulResponse(request: Request): Response = Response.Builder()
+        .request(request)
+        .protocol(Protocol.HTTP_1_1)
+        .code(200)
+        .message("OK")
+        .body(byteArrayOf().toResponseBody())
+        .build()
+
+    private class TestInterceptorChain(
+        private var currentRequest: Request,
+        private val connection: Connection?,
+        private val interceptors: List<Interceptor> = emptyList(),
+        private val terminal: (Request) -> Response,
+    ) : Interceptor.Chain {
+        private var nextInterceptorIndex = 0
+        private val delegate = okhttp3.OkHttpClient().newCall(currentRequest)
+
+        override fun request(): Request = currentRequest
+
+        override fun proceed(request: Request): Response {
+            currentRequest = request
+            val nextInterceptor = interceptors.getOrNull(nextInterceptorIndex++)
+                ?: return terminal(request)
+            return nextInterceptor.intercept(this)
+        }
+
+        override fun connection(): Connection? = connection
+        override fun connectTimeoutMillis(): Int = 10_000
+        override fun withConnectTimeout(timeout: Int, unit: java.util.concurrent.TimeUnit): Interceptor.Chain = this
+        override fun readTimeoutMillis(): Int = 10_000
+        override fun withReadTimeout(timeout: Int, unit: java.util.concurrent.TimeUnit): Interceptor.Chain = this
+        override fun writeTimeoutMillis(): Int = 10_000
+        override fun withWriteTimeout(timeout: Int, unit: java.util.concurrent.TimeUnit): Interceptor.Chain = this
+        override val followSslRedirects: Boolean = true
+        override val followRedirects: Boolean = true
+        override val dns: Dns = Dns.SYSTEM
+        override val socketFactory: SocketFactory = SocketFactory.getDefault()
+        override val retryOnConnectionFailure: Boolean = true
+        override val authenticator: Authenticator = Authenticator.NONE
+        override val cookieJar: CookieJar = CookieJar.NO_COOKIES
+        override val cache: Cache? = null
+        override val proxy: Proxy? = Proxy.NO_PROXY
+        override val proxySelector: ProxySelector = requireNotNull(ProxySelector.getDefault())
+        override val proxyAuthenticator: Authenticator = Authenticator.NONE
+        override val sslSocketFactoryOrNull: javax.net.ssl.SSLSocketFactory? = null
+        override val x509TrustManagerOrNull: javax.net.ssl.X509TrustManager? = null
+        override val hostnameVerifier: javax.net.ssl.HostnameVerifier = javax.net.ssl.HttpsURLConnection.getDefaultHostnameVerifier()
+        override val certificatePinner: CertificatePinner = CertificatePinner.DEFAULT
+        override val connectionPool: ConnectionPool = okhttp3.ConnectionPool()
+        override val eventListener: EventListener = EventListener.NONE
+
+        override fun withDns(dns: Dns): Interceptor.Chain = this
+        override fun withSocketFactory(socketFactory: SocketFactory): Interceptor.Chain = this
+        override fun withRetryOnConnectionFailure(retryOnConnectionFailure: Boolean): Interceptor.Chain = this
+        override fun withAuthenticator(authenticator: Authenticator): Interceptor.Chain = this
+        override fun withCookieJar(cookieJar: CookieJar): Interceptor.Chain = this
+        override fun withCache(cache: Cache?): Interceptor.Chain = this
+        override fun withProxy(proxy: Proxy?): Interceptor.Chain = this
+        override fun withProxySelector(proxySelector: ProxySelector): Interceptor.Chain = this
+        override fun withProxyAuthenticator(proxyAuthenticator: Authenticator): Interceptor.Chain = this
+        override fun withSslSocketFactory(
+            sslSocketFactory: javax.net.ssl.SSLSocketFactory?,
+            x509TrustManager: javax.net.ssl.X509TrustManager?,
+        ): Interceptor.Chain = this
+        override fun withHostnameVerifier(hostnameVerifier: javax.net.ssl.HostnameVerifier): Interceptor.Chain = this
+        override fun withCertificatePinner(certificatePinner: CertificatePinner): Interceptor.Chain = this
+        override fun withConnectionPool(connectionPool: ConnectionPool): Interceptor.Chain = this
+
+        override fun call(): okhttp3.Call = delegate
+    }
+
+    private class TestConnection(
+        private val routeValue: Route,
+        private val socketValue: Socket,
+    ) : Connection {
+        override fun route(): Route = routeValue
+        override fun socket(): Socket = socketValue
+        override fun handshake(): okhttp3.Handshake? = null
+        override fun protocol(): Protocol = Protocol.HTTP_1_1
+    }
+
+    private class TestSocket(private val boundLocalAddress: InetAddress) : Socket() {
+        override fun getLocalAddress(): InetAddress = boundLocalAddress
     }
 }

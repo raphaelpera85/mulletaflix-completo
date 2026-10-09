@@ -1,6 +1,11 @@
 package org.mulletaflix.android.service
 
 import kotlinx.coroutines.flow.flowOf
+import com.sun.net.httpserver.HttpServer
+import java.net.InetAddress
+import java.net.InetSocketAddress
+import java.util.concurrent.atomic.AtomicReference
+import okhttp3.Dns
 import okhttp3.Interceptor
 import okhttp3.Protocol
 import okhttp3.Response
@@ -19,8 +24,59 @@ import org.mulletaflix.core.common.network.CleartextTrafficPolicy
 
 class OfflineSubtitleNetworkPolicyTest {
     @Test
+    fun `wrapped subtitle identity still authenticates local DNS HTTP after route validation`() {
+        val authorization = AtomicReference<String?>()
+        val server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0).apply {
+            createContext("/") { exchange ->
+                authorization.set(exchange.requestHeaders.getFirst("Authorization"))
+                val body = "subtitle".toByteArray()
+                exchange.sendResponseHeaders(200, body.size.toLong())
+                exchange.responseBody.use { it.write(body) }
+            }
+            start()
+        }
+        try {
+            val session = subtitleSession(
+                serverUrl = "https://media.example",
+                accessToken = "session-token",
+                userId = "user-a",
+                deviceId = "device-a",
+                serverId = "server-a",
+            )
+            val identity = ClientIdentityInterceptor(MutableSubtitleSessionRepository(session))
+            val decoratedIdentity = Interceptor { chain -> identity.intercept(chain) }
+            val client = offlineSubtitleHttpClient(
+                decoratedIdentity,
+                identity.identityAfterConnectedRoute(),
+            )
+                .newBuilder()
+                .dns(object : Dns {
+                    override fun lookup(hostname: String): List<InetAddress> =
+                        if (hostname == "media.local") listOf(InetAddress.getByName("127.0.0.1"))
+                        else Dns.SYSTEM.lookup(hostname)
+                })
+                .build()
+            val url = "http://media.local:${server.address.port}/Items/movie/Subtitles/2/Stream"
+
+            val response = client.newCall(authenticatedSubtitleRequest(url, session)).execute()
+
+            assertEquals(200, response.code)
+            response.close()
+            assertEquals(
+                "MediaBrowser Token=\"session-token\", " +
+                    "Client=\"MulletaFlix Android\", Device=\"Android\", " +
+                    "DeviceId=\"device-a\", Version=\"${BuildConfig.CLIENT_VERSION}\"",
+                authorization.get(),
+            )
+        } finally {
+            server.stop(0)
+        }
+    }
+
+    @Test
     fun `authenticated subtitle client refuses HTTP and HTTPS redirects`() {
-        val client = offlineSubtitleHttpClient(Interceptor { chain -> chain.proceed(chain.request()) })
+        val passThrough = Interceptor { chain -> chain.proceed(chain.request()) }
+        val client = offlineSubtitleHttpClient(passThrough, passThrough)
 
         assertFalse(client.followRedirects)
         assertFalse(client.followSslRedirects)
@@ -35,7 +91,8 @@ class OfflineSubtitleNetworkPolicyTest {
             deviceId = "device-a",
             serverId = "server-a",
         )
-        val client = offlineSubtitleHttpClient(ClientIdentityInterceptor(MutableSubtitleSessionRepository(session)))
+        val identity = ClientIdentityInterceptor(MutableSubtitleSessionRepository(session))
+        val client = offlineSubtitleHttpClient(identity, identity.identityAfterConnectedRoute())
 
         val failure = runCatching {
             client.newCall(authenticatedSubtitleRequest(
@@ -84,7 +141,8 @@ class OfflineSubtitleNetworkPolicyTest {
         )
         val repository = MutableSubtitleSessionRepository(activeSession)
         val observedRequests = mutableListOf<okhttp3.Request>()
-        val client = offlineSubtitleHttpClient(ClientIdentityInterceptor(repository))
+        val identity = ClientIdentityInterceptor(repository)
+        val client = offlineSubtitleHttpClient(identity, identity.identityAfterConnectedRoute())
             .newBuilder()
             .addInterceptor { chain ->
                 val request = chain.request()

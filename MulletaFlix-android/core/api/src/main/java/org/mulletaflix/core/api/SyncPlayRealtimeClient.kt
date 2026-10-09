@@ -14,6 +14,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlin.random.Random
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -225,8 +226,13 @@ internal fun isCurrentSyncPlayConnection(
 ): Boolean = activeGeneration == callbackGeneration && !activeGroupId.isNullOrBlank() &&
     isCurrentSyncPlaySocket(activeSocket, callbackSocket)
 
-/** Bounded backoff keeps a transient Wi-Fi loss from creating a reconnect storm. */
-internal fun syncPlayReconnectDelayMs(attempt: Int): Long = when (attempt.coerceAtLeast(0)) {
+/** Equal jitter spreads clients across the bounded exponential reconnect window. */
+internal fun syncPlayReconnectDelayMs(attempt: Int): Long {
+    val ceiling = syncPlayReconnectDelayCeilingMs(attempt)
+    return Random.nextLong(ceiling / 2, ceiling)
+}
+
+internal fun syncPlayReconnectDelayCeilingMs(attempt: Int): Long = when (attempt.coerceAtLeast(0)) {
     0 -> 1_000L
     1 -> 2_000L
     2 -> 4_000L

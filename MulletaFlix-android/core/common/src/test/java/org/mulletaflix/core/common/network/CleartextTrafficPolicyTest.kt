@@ -34,6 +34,16 @@ class CleartextTrafficPolicyTest {
     }
 
     @Test
+    fun `loopback identity classification excludes LAN and local DNS hosts`() {
+        listOf("localhost", "127.0.0.1", "::1").forEach { host ->
+            assertTrue("expected device loopback: $host", CleartextTrafficPolicy.isLoopbackHost(host))
+        }
+        listOf("media.local", "media.home.arpa", "192.168.1.20", "203.0.113.5").forEach { host ->
+            assertFalse("expected non-loopback host: $host", CleartextTrafficPolicy.isLoopbackHost(host))
+        }
+    }
+
+    @Test
     fun `HTTP is denied for public unspecified and off subnet hosts`() {
         listOf(
             "http://mulletaflix.duckdns.org:8096",

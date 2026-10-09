@@ -38,6 +38,7 @@ object NetworkModule {
         .addInterceptor(serverUrlInterceptor)     // replaces base URL dynamically
         .addInterceptor(clientIdentityInterceptor) // names the client/device and adds the token
         .enforceLocalNetworkCleartextPolicy() // validates redirect targets before the wire
+        .addNetworkInterceptor(clientIdentityInterceptor.identityAfterConnectedRoute())
         .addInterceptor(apiRetryInterceptor)       // recovers safe transient API failures
         // Do not log bodies, Authorization headers, or playback URLs. Media
         // URLs may contain api_key tokens even when the app is a debug build.

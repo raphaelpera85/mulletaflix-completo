@@ -1,6 +1,7 @@
 package org.mulletaflix.core.api
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import org.junit.Test
@@ -8,16 +9,32 @@ import org.junit.Test
 class SyncPlayReconnectPolicyTest {
     @Test
     fun `uses bounded exponential backoff`() {
-        assertEquals(1_000L, syncPlayReconnectDelayMs(0))
-        assertEquals(2_000L, syncPlayReconnectDelayMs(1))
-        assertEquals(4_000L, syncPlayReconnectDelayMs(2))
-        assertEquals(8_000L, syncPlayReconnectDelayMs(3))
-        assertEquals(8_000L, syncPlayReconnectDelayMs(20))
+        assertEquals(1_000L, syncPlayReconnectDelayCeilingMs(0))
+        assertEquals(2_000L, syncPlayReconnectDelayCeilingMs(1))
+        assertEquals(4_000L, syncPlayReconnectDelayCeilingMs(2))
+        assertEquals(8_000L, syncPlayReconnectDelayCeilingMs(3))
+        assertEquals(8_000L, syncPlayReconnectDelayCeilingMs(20))
     }
 
     @Test
     fun `negative attempt uses the initial delay`() {
-        assertEquals(1_000L, syncPlayReconnectDelayMs(-1))
+        assertEquals(1_000L, syncPlayReconnectDelayCeilingMs(-1))
+        val delayMs = syncPlayReconnectDelayMs(-1)
+        assertTrue(delayMs >= 500L)
+        assertTrue(delayMs < 1_000L)
+    }
+
+    @Test
+    fun `reconnect delay uses bounded jitter below each exponential ceiling`() {
+        val ceilings = listOf(1_000L, 2_000L, 4_000L, 8_000L, 8_000L)
+
+        ceilings.forEachIndexed { attempt, ceiling ->
+            repeat(100) {
+                val delayMs = syncPlayReconnectDelayMs(attempt)
+                assertTrue("delay must stay above half of $ceiling ms", delayMs >= ceiling / 2)
+                assertTrue("delay must be below $ceiling ms", delayMs < ceiling)
+            }
+        }
     }
 
     @Test

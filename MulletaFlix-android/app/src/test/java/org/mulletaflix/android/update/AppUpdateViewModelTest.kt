@@ -2,6 +2,7 @@ package org.mulletaflix.android.update
 
 import io.mockk.every
 import io.mockk.mockk
+import io.mockk.verify
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.flowOf
@@ -76,9 +77,11 @@ class AppUpdateViewModelTest {
     private fun viewModelReturning(
         info: AppUpdateInfo,
         downloader: AppUpdateDownloader = downloaderEmitting(),
+        ioDispatcher: kotlinx.coroutines.CoroutineDispatcher = dispatcher,
     ) = AppUpdateViewModel(
         checkAppUpdateUseCase = CheckAppUpdateUseCase(FakeCheckRepository { Result.success(info) }),
         downloader = downloader,
+        ioDispatcher = ioDispatcher,
     )
 
     @Test
@@ -206,6 +209,48 @@ class AppUpdateViewModelTest {
     }
 
     @Test
+    fun `Play Store update opens the store without downloading the APK`() = runTest {
+        val downloader = mockk<AppUpdateDownloader>()
+        every { downloader.downloadApk(any(), any(), any()) } returns flowOf(
+            DownloadState.Completed(File("unexpected.apk")),
+        )
+        val viewModel = viewModelReturning(update(), downloader)
+        var storeLaunches = 0
+        val installedFiles = mutableListOf<File>()
+        viewModel.checkForUpdate("1.2.84")
+        advanceUntilIdle()
+
+        viewModel.downloadUpdate(
+            install = { installedFiles += it; true },
+            openGooglePlay = { storeLaunches++; true },
+        )
+        advanceUntilIdle()
+
+        assertEquals(1, storeLaunches)
+        assertTrue(installedFiles.isEmpty())
+        verify(exactly = 0) { downloader.downloadApk(any(), any(), any()) }
+        assertFalse(viewModel.state.value.isDialogVisible)
+    }
+
+    @Test
+    fun `unavailable Play Store handler does not fall through to APK download`() = runTest {
+        val downloader = mockk<AppUpdateDownloader>()
+        every { downloader.downloadApk(any(), any(), any()) } returns flowOf(
+            DownloadState.Completed(File("unexpected.apk")),
+        )
+        val viewModel = viewModelReturning(update(), downloader)
+        viewModel.checkForUpdate("1.2.84")
+        advanceUntilIdle()
+
+        viewModel.downloadUpdate(install = { true }, openGooglePlay = { false })
+        advanceUntilIdle()
+
+        verify(exactly = 0) { downloader.downloadApk(any(), any(), any()) }
+        assertTrue(viewModel.state.value.isDialogVisible)
+        assertEquals("Não foi possível abrir a Google Play.", viewModel.state.value.error)
+    }
+
+    @Test
     fun `a refused installation explains what to allow`() = runTest {
         val viewModel = viewModelReturning(
             info = update(),
@@ -223,6 +268,31 @@ class AppUpdateViewModelTest {
             "Permita a instalação de fontes desconhecidas e tente novamente.",
             viewModel.state.value.error,
         )
+    }
+
+    @Test
+    fun `a refused installation retry reuses the verified APK`() = runTest {
+        val apk = File.createTempFile("mulletaflix-update-retry", ".apk")
+        try {
+            val downloader = mockk<AppUpdateDownloader>()
+            every { downloader.downloadApk(any(), any(), any()) } returns
+                flowOf(DownloadState.Completed(apk))
+            val viewModel = viewModelReturning(update(), downloader)
+            val installAttempts = mutableListOf<File>()
+            viewModel.checkForUpdate("1.2.84")
+            advanceUntilIdle()
+
+            viewModel.downloadUpdate { file -> installAttempts += file; false }
+            advanceUntilIdle()
+            viewModel.downloadUpdate { file -> installAttempts += file; true }
+            advanceUntilIdle()
+
+            assertEquals(listOf(apk, apk), installAttempts)
+            verify(exactly = 1) { downloader.downloadApk(any(), any(), any()) }
+            assertFalse(viewModel.state.value.isDialogVisible)
+        } finally {
+            apk.delete()
+        }
     }
 
     @Test

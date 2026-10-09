@@ -289,7 +289,9 @@ class SessionRepositoryImpl @Inject constructor(
                 org.mulletaflix.core.api.SavedServerSession(
                     name = "MulletaFlix Oficial (Nuvem)",
                     url = DEFAULT_MULLETAFLIX_SERVER_URL,
-                    version = "12.0.2",
+                    // The cloud server may be updated independently of the APK.
+                    // Only a successful server handshake can provide its version.
+                    version = null,
                     lastConnected = 0L,
                 )
             )

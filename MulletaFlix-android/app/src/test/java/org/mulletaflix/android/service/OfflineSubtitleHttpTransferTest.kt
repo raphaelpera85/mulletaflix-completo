@@ -47,7 +47,7 @@ class OfflineSubtitleHttpTransferTest {
                 session,
             )
             val observedAuthorization = AtomicReference<String?>()
-            val client = offlineSubtitleHttpClient(Interceptor { chain ->
+            val client = offlineSubtitleHttpClientForTest(Interceptor { chain ->
                 observedAuthorization.set(chain.request().tag(FeedbackRequestSession::class.java)?.accessToken)
                 chain.proceed(chain.request())
             })
@@ -78,7 +78,7 @@ class OfflineSubtitleHttpTransferTest {
     fun `HTTP failure preserves retry classification and writes no subtitle`() = runBlocking {
         localServer(503, "temporarily unavailable".toByteArray()).use { server ->
             val store = OfflineSubtitleStore(File(temporaryFolder.root, "captions"))
-            val client = offlineSubtitleHttpClient(Interceptor { chain -> chain.proceed(chain.request()) })
+            val client = offlineSubtitleHttpClientForTest(Interceptor { chain -> chain.proceed(chain.request()) })
             val result = transferOfflineSubtitle(
                 call = client.newCall(authenticatedSubtitleRequest("${server.baseUrl}/subtitles/3", session)),
                 isSessionCurrent = { true },
@@ -95,7 +95,7 @@ class OfflineSubtitleHttpTransferTest {
     fun `invalid HTTP subtitle never commits a partial cache file`() = runBlocking {
         localServer(200, "<!doctype html><html>login</html>".toByteArray()).use { server ->
             val store = OfflineSubtitleStore(File(temporaryFolder.root, "captions"))
-            val client = offlineSubtitleHttpClient(Interceptor { chain -> chain.proceed(chain.request()) })
+            val client = offlineSubtitleHttpClientForTest(Interceptor { chain -> chain.proceed(chain.request()) })
             val result = transferOfflineSubtitle(
                 call = client.newCall(authenticatedSubtitleRequest("${server.baseUrl}/subtitles/3", session)),
                 isSessionCurrent = { true },
@@ -117,7 +117,7 @@ class OfflineSubtitleHttpTransferTest {
     fun `session changing after HTTP response prevents persistence`() = runBlocking {
         localServer(200, "valid subtitle".toByteArray()).use { server ->
             val store = OfflineSubtitleStore(File(temporaryFolder.root, "captions"))
-            val client = offlineSubtitleHttpClient(Interceptor { chain -> chain.proceed(chain.request()) })
+            val client = offlineSubtitleHttpClientForTest(Interceptor { chain -> chain.proceed(chain.request()) })
             val result = transferOfflineSubtitle(
                 call = client.newCall(authenticatedSubtitleRequest("${server.baseUrl}/subtitles/3", session)),
                 isSessionCurrent = { false },
@@ -131,6 +131,12 @@ class OfflineSubtitleHttpTransferTest {
 
     private fun localServer(status: Int, responseBody: ByteArray): LocalSubtitleServer =
         LocalSubtitleServer(status, responseBody)
+
+    private fun offlineSubtitleHttpClientForTest(identityInterceptor: Interceptor) =
+        offlineSubtitleHttpClient(
+            identityInterceptor,
+            Interceptor { chain -> chain.proceed(chain.request()) },
+        )
 
     private class LocalSubtitleServer(status: Int, responseBody: ByteArray) : AutoCloseable {
         private val pathRef = AtomicReference<String?>()

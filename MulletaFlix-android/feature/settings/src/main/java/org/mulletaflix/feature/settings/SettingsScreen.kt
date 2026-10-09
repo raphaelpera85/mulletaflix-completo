@@ -70,6 +70,13 @@ fun SettingsScreen(
     var showClearImageCacheDialog by remember { mutableStateOf(false) }
     var showClearSeriesTrackPreferencesDialog by remember { mutableStateOf(false) }
     val context = androidx.compose.ui.platform.LocalContext.current
+    val openPlayStoreUpdate = remember(context) {
+        if (AppUpdateInstaller.isInstalledFromGooglePlay(context)) {
+            { AppUpdateInstaller.openGooglePlayListing(context) }
+        } else {
+            null
+        }
+    }
     val lifecycleOwner = LocalLifecycleOwner.current
 
     LaunchedEffect(lifecycleOwner) {
@@ -410,13 +417,14 @@ fun SettingsScreen(
                     title = "Verificar Atualizações do Aplicativo",
                     subtitle = when {
                         state.isCheckingUpdate -> "Buscando novas versões no GitHub..."
+                        state.isPreparingUpdateInstall -> "Verificando a integridade do APK..."
                         state.isDownloadingUpdate -> "Baixando atualização (${(state.updateDownloadProgress * 100).toInt()}%)..."
                         state.updateStatusMessage != null -> state.updateStatusMessage ?: ""
                         state.updateErrorMessage != null -> state.updateErrorMessage ?: ""
                         else -> "Tocar para verificar atualizações"
                     },
                     onClick = { viewModel.checkForUpdates(currentAppVersion) },
-                    enabled = !state.isCheckingUpdate && !state.isDownloadingUpdate,
+                    enabled = !state.isCheckingUpdate && !state.isDownloadingUpdate && !state.isPreparingUpdateInstall,
                 )
                 SettingsItem(
                     icon = Icons.Default.OpenInBrowser,
@@ -502,7 +510,7 @@ fun SettingsScreen(
                 val update = state.updateInfo!!
                 val context = androidx.compose.ui.platform.LocalContext.current
                 AlertDialog(
-                    onDismissRequest = { if (!state.isDownloadingUpdate) viewModel.dismissUpdateDialog() },
+                    onDismissRequest = { if (!state.isDownloadingUpdate && !state.isPreparingUpdateInstall) viewModel.dismissUpdateDialog() },
                     icon = { Icon(Icons.Default.CloudDownload, contentDescription = null, tint = MaterialTheme.colorScheme.secondary) },
                     title = { Text("Nova Versão Disponível: v${update.latestVersion}") },
                     text = {
@@ -535,7 +543,10 @@ fun SettingsScreen(
                                     modifier = Modifier.padding(top = 4.dp),
                                 )
                             }
-                            if (state.isDownloadingUpdate) {
+                            if (state.isPreparingUpdateInstall) {
+                                Spacer(modifier = Modifier.height(16.dp))
+                                Text("Verificando o APK...", style = MaterialTheme.typography.bodySmall)
+                            } else if (state.isDownloadingUpdate) {
                                 Spacer(modifier = Modifier.height(16.dp))
                                 LinearProgressIndicator(
                                     progress = { state.updateDownloadProgress },
@@ -560,15 +571,16 @@ fun SettingsScreen(
                     confirmButton = {
                         Button(
                             onClick = {
-                                viewModel.downloadAndInstallUpdate { file ->
-                                    AppUpdateInstaller.installApk(context, file)
-                                }
+                                viewModel.downloadAndInstallUpdate(
+                                    openGooglePlay = openPlayStoreUpdate,
+                                ) { file -> AppUpdateInstaller.installApk(context, file) }
                             },
-                            enabled = !state.isDownloadingUpdate && !update.apkDownloadUrl.isNullOrBlank()
+                            enabled = !state.isDownloadingUpdate && !state.isPreparingUpdateInstall && !update.apkDownloadUrl.isNullOrBlank()
                         ) {
                             Text(
                                 when {
                                     state.isDownloadingUpdate -> "Baixando..."
+                                    state.isPreparingUpdateInstall -> "Verificando APK..."
                                     state.updateErrorMessage != null -> "Tentar novamente"
                                     else -> "Atualizar Agora"
                                 },
@@ -576,7 +588,7 @@ fun SettingsScreen(
                         }
                     },
                     dismissButton = {
-                        if (!state.isDownloadingUpdate) {
+                        if (!state.isDownloadingUpdate && !state.isPreparingUpdateInstall) {
                             TextButton(onClick = viewModel::dismissUpdateDialog) {
                                 Text("Depois")
                             }

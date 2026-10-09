@@ -8,7 +8,10 @@ import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import okhttp3.OkHttpClient
 import okhttp3.Response
 import okhttp3.WebSocket
@@ -83,6 +86,54 @@ class SyncPlayCleartextPolicyTest {
             )
         } finally {
             syncPlayClient.stop()
+            server.shutdown()
+        }
+    }
+
+    @Test
+    fun reconnectsAfterWebSocketHandshakeFailureAndStopsRetryingWhenRoomCloses() {
+        val server = MockWebServer()
+        server.start()
+        val secondConnectionOpened = CountDownLatch(1)
+        server.enqueue(MockResponse().setResponseCode(503))
+        server.enqueue(
+            MockResponse().withWebSocketUpgrade(object : WebSocketListener() {
+                override fun onOpen(webSocket: WebSocket, response: Response) {
+                    secondConnectionOpened.countDown()
+                }
+
+                override fun onClosing(webSocket: WebSocket, code: Int, reason: String) {
+                    webSocket.close(code, reason)
+                }
+            }),
+        )
+        val sessions = CountingSessionRepository(server.url("/").toString())
+        val client = SyncPlayRealtimeClient(
+            httpClient = OkHttpClient(),
+            sessionRepository = sessions,
+            applicationScope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined),
+            moshi = Moshi.Builder().addLast(KotlinJsonAdapterFactory()).build(),
+        )
+
+        try {
+            client.start("group-1")
+
+            assertTrue(
+                "active room must reconnect after WebSocket handshake failure; requests=${server.requestCount}, state=${client.connectionState.value}",
+                secondConnectionOpened.await(5, TimeUnit.SECONDS),
+            )
+            assertEquals(2, server.requestCount)
+            runBlocking {
+                withTimeout(2_000) { client.connectionState.first { it.connected } }
+            }
+
+            client.stop()
+            Thread.sleep(1_100)
+
+            assertEquals("leaving the room must cancel scheduled reconnects", 2, server.requestCount)
+            assertFalse(client.connectionState.value.connected)
+        } finally {
+            client.stop()
             server.shutdown()
         }
     }

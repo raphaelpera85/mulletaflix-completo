@@ -3,6 +3,8 @@ package org.mulletaflix.core.common.update
 import java.io.File
 import java.nio.charset.StandardCharsets
 import java.security.MessageDigest
+import java.util.zip.ZipEntry
+import java.util.zip.ZipOutputStream
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -67,6 +69,22 @@ class ApkIntegrityTest {
         deletePartialApk(null)
 
         assertFalse(file.exists())
+    }
+
+    @Test
+    fun `apk with manifest larger than sixteen mebibytes is rejected`() {
+        val file = File.createTempFile("mulletaflix-large-manifest-", ".apk")
+        try {
+            ZipOutputStream(file.outputStream()).use { archive ->
+                archive.putNextEntry(ZipEntry("AndroidManifest.xml"))
+                archive.write(ByteArray(16 * 1024 * 1024 + 1))
+                archive.closeEntry()
+            }
+
+            assertFalse("Oversized manifests must be rejected", hasValidAndroidApkManifestEntry(file))
+        } finally {
+            file.delete()
+        }
     }
 
     private fun temporaryApk(content: String): File = File.createTempFile("mulletaflix-", ".apk").apply {

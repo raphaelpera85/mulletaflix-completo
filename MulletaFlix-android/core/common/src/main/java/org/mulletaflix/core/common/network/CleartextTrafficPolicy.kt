@@ -65,6 +65,12 @@ object CleartextTrafficPolicy {
         }
     }
 
+    /** Identifies literal/localhost loopback hosts that never leave the device. */
+    fun isLoopbackHost(host: String): Boolean {
+        val normalized = host.trim().trim('[', ']').substringBefore('%').lowercase()
+        return normalized == "localhost" || parseIpLiteral(normalized)?.isLoopbackAddress == true
+    }
+
     internal fun isLocalNetworkHost(host: String, localSubnets: List<LocalNetworkSubnet>): Boolean {
         val normalized = host.trim().trim('[', ']').substringBefore('%').lowercase()
         if (normalized == "localhost" || normalized.endsWith(".local") ||

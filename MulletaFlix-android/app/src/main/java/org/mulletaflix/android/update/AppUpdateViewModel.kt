@@ -2,6 +2,8 @@ package org.mulletaflix.android.update
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.Dispatchers
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -13,6 +15,8 @@ import org.mulletaflix.android.shouldShowAppUpdateDialog
 import org.mulletaflix.core.common.update.AppUpdateDownloader
 import org.mulletaflix.core.common.update.AppUpdateInstallOutcome
 import org.mulletaflix.core.common.update.DownloadState
+import org.mulletaflix.core.common.update.PendingAppUpdateApk
+import org.mulletaflix.core.common.dispatcher.IoDispatcher
 import org.mulletaflix.core.common.update.errorMessageOrNull
 import org.mulletaflix.core.common.update.installDownloadedApk
 import org.mulletaflix.domain.model.AppUpdateInfo
@@ -25,6 +29,7 @@ data class AppUpdateState(
     val available: AppUpdateInfo? = null,
     val isDialogVisible: Boolean = false,
     val isDownloading: Boolean = false,
+    val isPreparingInstall: Boolean = false,
     val progress: Float = 0f,
     val error: String? = null,
 )
@@ -54,6 +59,7 @@ data class AppUpdateState(
 class AppUpdateViewModel @Inject constructor(
     private val checkAppUpdateUseCase: CheckAppUpdateUseCase,
     private val downloader: AppUpdateDownloader,
+    @IoDispatcher private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(AppUpdateState())
@@ -64,6 +70,7 @@ class AppUpdateViewModel @Inject constructor(
 
     private var downloadJob: Job? = null
     private var checkJob: Job? = null
+    private val pendingInstallApk = PendingAppUpdateApk(ioDispatcher)
 
     /**
      * Consulta o GitHub e decide se há o que mostrar.
@@ -73,7 +80,10 @@ class AppUpdateViewModel @Inject constructor(
      * resposta atrasada atropelar um download que começou depois dela.
      */
     fun checkForUpdate(currentVersion: String) {
-        if (_state.value.isDownloading || checkJob?.isActive == true) return
+        if (
+            _state.value.isDownloading || _state.value.isPreparingInstall ||
+            downloadJob?.isActive == true || checkJob?.isActive == true
+        ) return
         checkJob = viewModelScope.launch {
             runCatching { checkAppUpdateUseCase(currentVersion) }
                 .getOrElse { Result.failure(it) }
@@ -81,7 +91,7 @@ class AppUpdateViewModel @Inject constructor(
                     _state.update { current ->
                         // A checagem é assíncrona: se um download começou enquanto ela
                         // corria, esta resposta é velha e não pode mexer no diálogo.
-                        if (current.isDownloading) {
+                        if (current.isDownloading || current.isPreparingInstall) {
                             current
                         } else {
                             current.copy(
@@ -112,34 +122,62 @@ class AppUpdateViewModel @Inject constructor(
      * JVM exercitar o fluxo inteiro — sucesso, falha e instalação recusada — sem Android
      * e sem um `Context` dentro do `ViewModel`.
      */
-    fun downloadUpdate(install: (File) -> Boolean) {
+    fun downloadUpdate(
+        openGooglePlay: (() -> Boolean)? = null,
+        install: (File) -> Boolean,
+    ) {
         val update = _state.value.available ?: return
         val url = update.apkDownloadUrl?.takeIf(String::isNotBlank) ?: return
-        if (_state.value.isDownloading) return
+        if (_state.value.isDownloading || _state.value.isPreparingInstall || downloadJob?.isActive == true) return
+        val expectedSha256 = update.apkSha256
+
+        if (openGooglePlay != null) {
+            _state.update { it.copy(isPreparingInstall = true, error = null) }
+            val opened = runCatching(openGooglePlay).getOrDefault(false)
+            if (opened) dismissedVersion = update.latestVersion
+            _state.update {
+                it.copy(
+                    isPreparingInstall = false,
+                    isDialogVisible = if (opened) false else it.isDialogVisible,
+                    error = if (opened) null else "Não foi possível abrir a Google Play.",
+                )
+            }
+            return
+        }
 
         downloadJob = viewModelScope.launch {
-            _state.update { it.copy(isDownloading = true, progress = 0f, error = null) }
+            _state.update { it.copy(isPreparingInstall = true, error = null) }
+            val cachedApk = pendingInstallApk.findFor(update.latestVersion, url, expectedSha256)
+            if (cachedApk != null) {
+                _state.update { it.copy(isPreparingInstall = false) }
+                handleInstallOutcome(cachedApk, install)
+                return@launch
+            }
+            _state.update {
+                it.copy(isPreparingInstall = false, isDownloading = true, progress = 0f, error = null)
+            }
             downloader.downloadApk(
                 downloadUrl = url,
                 versionName = update.latestVersion,
-                expectedSha256 = update.apkSha256,
+                expectedSha256 = expectedSha256,
             ).collect { downloadState ->
                 when (downloadState) {
                     is DownloadState.Downloading ->
                         _state.update { it.copy(progress = downloadState.progress) }
 
                     is DownloadState.Completed -> {
-                        _state.update { it.copy(isDownloading = false) }
+                        _state.update { it.copy(isDownloading = false, isPreparingInstall = true) }
+                        pendingInstallApk.remember(
+                            file = downloadState.file,
+                            versionName = update.latestVersion,
+                            downloadUrl = url,
+                            expectedSha256 = expectedSha256,
+                        )
+                        _state.update { it.copy(isPreparingInstall = false) }
                         // A classificação do resultado (abriu, recusou, explodiu) e as
                         // mensagens estão em `installDownloadedApk`, compartilhadas com o
                         // Centro de Atualizações — aqui só se decide o que a tela mostra.
-                        when (val outcome = installDownloadedApk(downloadState.file, install)) {
-                            AppUpdateInstallOutcome.Started ->
-                                _state.update { it.copy(isDialogVisible = false) }
-
-                            else ->
-                                _state.update { it.copy(error = outcome.errorMessageOrNull()) }
-                        }
+                        handleInstallOutcome(downloadState.file, install)
                     }
 
                     is DownloadState.Error ->
@@ -148,6 +186,17 @@ class AppUpdateViewModel @Inject constructor(
                     DownloadState.Idle -> Unit
                 }
             }
+        }
+    }
+
+    private fun handleInstallOutcome(file: File, install: (File) -> Boolean) {
+        when (val outcome = installDownloadedApk(file, install)) {
+            AppUpdateInstallOutcome.Started -> {
+                pendingInstallApk.clear()
+                _state.update { it.copy(isDialogVisible = false) }
+            }
+
+            else -> _state.update { it.copy(error = outcome.errorMessageOrNull()) }
         }
     }
 }

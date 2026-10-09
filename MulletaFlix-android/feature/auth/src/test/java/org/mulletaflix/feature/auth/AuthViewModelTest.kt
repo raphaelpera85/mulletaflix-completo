@@ -181,6 +181,51 @@ class AuthViewModelTest {
     }
 
     @Test
+    fun `already authorized quick connect confirms session when initiation finishes after deadline`() = runTest {
+        every { QuickConnectMonotonicClock.nowMillis() } answers { testScheduler.currentTime }
+        var checkCalls = 0
+        val authRepo = object : FakeAuthRepository() {
+            override suspend fun initiateQuickConnect(): Result<QuickConnectState> {
+                delay(QUICK_CONNECT_DURATION_MILLIS + 30_000L)
+                return Result.success(QuickConnectState("123456", "late-authorized-secret", true))
+            }
+
+            override suspend fun checkQuickConnect(secret: String): Result<UserSession?> {
+                checkCalls++
+                return Result.success(UserSession("u1", "Raphael", "token", "server-1"))
+            }
+        }
+        val viewModel = createViewModel(authRepo)
+        advanceUntilIdle()
+
+        viewModel.initiateQuickConnect()
+        advanceUntilIdle()
+
+        assertEquals(1, checkCalls)
+        assertTrue(viewModel.state.value.isAuthenticated)
+        assertFalse(viewModel.state.value.isWaitingForQuickConnect)
+    }
+
+    @Test
+    fun `quick connect deadline includes initiation request latency`() = runTest {
+        every { QuickConnectMonotonicClock.nowMillis() } answers { testScheduler.currentTime }
+        val viewModel = createViewModel(object : FakeAuthRepository() {
+            override suspend fun initiateQuickConnect(): Result<QuickConnectState> {
+                delay(90_000)
+                return Result.success(QuickConnectState("123456", "slow-initiation-secret", false))
+            }
+        })
+        advanceUntilIdle()
+
+        viewModel.initiateQuickConnect()
+        advanceTimeBy(90_000)
+        runCurrent()
+
+        assertEquals(210, viewModel.state.value.quickConnectSecondsRemaining)
+        viewModel.cancelQuickConnect()
+    }
+
+    @Test
     fun `quick connect poll timeout does not claim server confirmed expiration after network failures`() = runTest {
         var checkCalls = 0
         val authRepo = object : FakeAuthRepository() {

@@ -4,6 +4,7 @@ import android.content.Context
 import io.mockk.mockk
 import io.mockk.every
 import io.mockk.coVerify
+import io.mockk.verify
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.awaitCancellation
@@ -623,6 +624,52 @@ class SettingsViewModelTest {
     }
 
     @Test
+    fun `Play Store update opens the store without downloading the APK`() = runTest {
+        val updateRepository = object : AppUpdateRepository {
+            override suspend fun checkForUpdate(currentVersion: String): Result<AppUpdateInfo> =
+                Result.success(
+                    AppUpdateInfo(
+                        isUpdateAvailable = true,
+                        currentVersion = currentVersion,
+                        latestVersion = "9.9.9",
+                        apkDownloadUrl = "https://example.invalid/app.apk",
+                    ),
+                )
+        }
+        val downloader = mockk<AppUpdateDownloader>()
+        every { downloader.downloadApk(any(), any(), any()) } returns flowOf(
+            DownloadState.Completed(File("unexpected.apk")),
+        )
+        val authRepo = FakeAuthRepository()
+        val viewModel = SettingsViewModel(
+            context,
+            FakeSettingsRepository(),
+            authRepo,
+            LogoutUseCase(authRepo),
+            checkAppUpdateUseCase = CheckAppUpdateUseCase(updateRepository),
+            appUpdateDownloader = downloader,
+            ioDispatcher = dispatcher,
+        )
+        var storeLaunches = 0
+        var installCalls = 0
+        advanceUntilIdle()
+        viewModel.checkForUpdates("1.0.0")
+        advanceUntilIdle()
+
+        viewModel.downloadAndInstallUpdate(
+            install = { installCalls++; true },
+            openGooglePlay = { storeLaunches++; true },
+        )
+        advanceUntilIdle()
+
+        assertEquals(1, storeLaunches)
+        assertEquals(0, installCalls)
+        verify(exactly = 0) { downloader.downloadApk(any(), any(), any()) }
+        assertFalse(viewModel.state.value.showUpdateDialog)
+        assertEquals("Página do app aberta na Google Play.", viewModel.state.value.updateStatusMessage)
+    }
+
+    @Test
     fun `a refused install keeps the dialog and explains the permission step`() = runTest {
         // `false` não é falha: é a resposta do sistema quando falta a permissão de
         // fontes desconhecidas — a tela precisa dizer isso, e não fingir sucesso.
@@ -640,6 +687,50 @@ class SettingsViewModelTest {
             "Permita a instalação de fontes desconhecidas e tente novamente.",
             state.updateErrorMessage,
         )
+    }
+
+    @Test
+    fun `a refused installation retry reuses the verified APK`() = runTest {
+        val apk = File.createTempFile("mulletaflix-settings-update-retry", ".apk")
+        try {
+            val updateRepository = object : AppUpdateRepository {
+                override suspend fun checkForUpdate(currentVersion: String): Result<AppUpdateInfo> =
+                    Result.success(
+                        AppUpdateInfo(
+                            isUpdateAvailable = true,
+                            currentVersion = currentVersion,
+                            latestVersion = "9.9.9",
+                            apkDownloadUrl = "https://example.invalid/app.apk",
+                        ),
+                    )
+            }
+            val downloader = mockk<AppUpdateDownloader>()
+            every { downloader.downloadApk(any(), any(), any()) } returns
+                flowOf(DownloadState.Completed(apk))
+            val authRepo = FakeAuthRepository()
+            val viewModel = SettingsViewModel(
+                context,
+                FakeSettingsRepository(),
+                authRepo,
+                LogoutUseCase(authRepo),
+                checkAppUpdateUseCase = CheckAppUpdateUseCase(updateRepository),
+                appUpdateDownloader = downloader,
+                ioDispatcher = dispatcher,
+            )
+            advanceUntilIdle()
+            viewModel.checkForUpdates("1.0.0")
+            advanceUntilIdle()
+
+            viewModel.downloadAndInstallUpdate { false }
+            advanceUntilIdle()
+            viewModel.downloadAndInstallUpdate { true }
+            advanceUntilIdle()
+
+            verify(exactly = 1) { downloader.downloadApk(any(), any(), any()) }
+            assertFalse(viewModel.state.value.showUpdateDialog)
+        } finally {
+            apk.delete()
+        }
     }
 
     @Test

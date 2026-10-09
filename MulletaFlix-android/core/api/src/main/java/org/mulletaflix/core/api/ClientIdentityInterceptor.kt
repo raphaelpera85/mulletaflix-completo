@@ -5,6 +5,7 @@ import kotlinx.coroutines.runBlocking
 import org.mulletaflix.core.common.session.FeedbackRequestSession
 import org.mulletaflix.core.common.network.CleartextTrafficPolicy
 import org.mulletaflix.core.common.network.enforceLocalNetworkCleartextPolicy
+import okhttp3.HttpUrl
 import okhttp3.Interceptor
 import okhttp3.Response
 import javax.inject.Inject
@@ -12,6 +13,29 @@ import javax.inject.Singleton
 
 /** Product name used to build the User-Agent of every app request. */
 const val MULLETAFLIX_USER_AGENT_PRODUCT = "MulletaFlix-Android"
+
+internal data class DeferredClientIdentity(
+    val accessToken: String?,
+    val deviceId: String,
+)
+
+internal class DeferredClientIdentityOrigin(
+    val scheme: String,
+    val host: String,
+    val port: Int,
+) {
+    @Volatile
+    private var cachedIdentity: DeferredClientIdentity? = null
+
+    fun matches(url: HttpUrl): Boolean = scheme == url.scheme && host == url.host && port == url.port
+
+    fun identityOrCache(identityProvider: () -> DeferredClientIdentity): DeferredClientIdentity {
+        cachedIdentity?.let { return it }
+        return synchronized(this) {
+            cachedIdentity ?: identityProvider().also { cachedIdentity = it }
+        }
+    }
+}
 
 /**
  * Builds the `Authorization` header the server parses into a client identity.
@@ -57,10 +81,75 @@ class ClientIdentityInterceptor @Inject constructor(
     private val sessionRepository: SessionRepository,
 ) : Interceptor {
 
+    /**
+     * Returns the network interceptor for clients that defer HTTP identity until
+     * the physical route has passed [CleartextTrafficPolicy]. Register it after
+     * [enforceLocalNetworkCleartextPolicy] on every client using this interceptor.
+     */
+    fun identityAfterConnectedRoute(): Interceptor = Interceptor { chain ->
+        val request = chain.request()
+        val deferredOrigin = request.tag(DeferredClientIdentityOrigin::class.java)
+        if (deferredOrigin == null || !deferredOrigin.matches(request.url)) {
+            return@Interceptor chain.proceed(request)
+        }
+
+        // This network interceptor is registered after the connected-route guard.
+        // Reuse the captured identity on same-origin retries. Cross-origin redirects
+        // never match this tag and cannot receive the cached credentials.
+        val alreadyAuthenticated = request.header("Authorization")
+            ?.startsWith("MediaBrowser ") == true
+        if (alreadyAuthenticated) return@Interceptor chain.proceed(request)
+
+        val identity = deferredOrigin.identityOrCache {
+            request.tag(FeedbackRequestSession::class.java).let { requestSession ->
+                val isPublicServerVerification =
+                    request.tag(PublicServerVerificationRequest::class.java) != null
+                DeferredClientIdentity(
+                    accessToken = if (isPublicServerVerification) {
+                        null
+                    } else {
+                        requestSession?.accessToken
+                            ?: runBlocking { sessionRepository.getAccessToken().first() }
+                    },
+                    deviceId = if (isPublicServerVerification) {
+                        ""
+                    } else {
+                        requestSession?.deviceId
+                            ?: runBlocking { sessionRepository.getDeviceId().first() }
+                    },
+                )
+            }
+        }
+
+        chain.proceed(
+            request.newBuilder()
+                .header("User-Agent", "$MULLETAFLIX_USER_AGENT_PRODUCT/${BuildConfig.CLIENT_VERSION}")
+                .header(
+                    "Authorization",
+                    buildMediaBrowserAuthorizationHeader(identity.accessToken, identity.deviceId),
+                )
+                .build(),
+        )
+    }
+
     override fun intercept(chain: Interceptor.Chain): Response {
         val request = chain.request()
         // This check must precede all session reads and credential construction.
         CleartextTrafficPolicy.requireAllowed(request.url)
+        if (request.url.scheme == "http" && !CleartextTrafficPolicy.isLoopbackHost(request.url.host)) {
+            // Hostnames such as .local are only hints. Defer session reads until
+            // the network interceptor validates the actual connected LAN route.
+            val deferredRequest = request.newBuilder()
+                .tag(
+                    DeferredClientIdentityOrigin::class.java,
+                    DeferredClientIdentityOrigin(request.url.scheme, request.url.host, request.url.port),
+                )
+                .removeHeader("Authorization")
+                .header("User-Agent", "$MULLETAFLIX_USER_AGENT_PRODUCT/${BuildConfig.CLIENT_VERSION}")
+                .build()
+            return chain.proceed(deferredRequest)
+        }
+
         val requestSession = request.tag(FeedbackRequestSession::class.java)
         val isPublicServerVerification =
             request.tag(PublicServerVerificationRequest::class.java) != null
@@ -99,11 +188,12 @@ class ClientIdentityInterceptor @Inject constructor(
  */
 fun buildAuthenticatedImageClient(
     serverUrlInterceptor: Interceptor,
-    clientIdentityInterceptor: Interceptor,
+    clientIdentityInterceptor: ClientIdentityInterceptor,
 ): okhttp3.OkHttpClient = okhttp3.OkHttpClient.Builder()
     .addInterceptor(serverUrlInterceptor)
     .addInterceptor(clientIdentityInterceptor)
     .enforceLocalNetworkCleartextPolicy()
+    .addNetworkInterceptor(clientIdentityInterceptor.identityAfterConnectedRoute())
     .connectTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
     .readTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
     .build()

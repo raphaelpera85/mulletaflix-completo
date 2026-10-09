@@ -108,7 +108,7 @@ class ArtworkClientIdentityTest {
         val identity = ClientIdentityInterceptor(sessionRepository)
         val chainedTwice = buildAuthenticatedImageClient(
             serverUrlInterceptor = Interceptor { chain -> chain.proceed(chain.request()) },
-            clientIdentityInterceptor = Interceptor { chain -> identity.intercept(chain) },
+            clientIdentityInterceptor = identity,
         ).newBuilder()
             // A second copy of the same interceptor: the inner one sees the
             // request the outer one already stamped.

@@ -480,6 +480,7 @@ class AuthViewModel @Inject constructor(
         }
         cancelQuickConnectPolling()
         val generation = quickConnectGeneration
+        val deadlineMillis = QuickConnectMonotonicClock.nowMillis() + QUICK_CONNECT_DURATION_MILLIS
         quickConnectPollingJob = viewModelScope.launch {
             _state.update { it.copy(isLoading = true, error = null) }
             authRepository.initiateQuickConnect()
@@ -490,14 +491,21 @@ class AuthViewModel @Inject constructor(
                             isLoading = false,
                             quickConnectPin = qc.code,
                             quickConnectSecret = qc.secret,
-                            quickConnectSecondsRemaining = quickConnectDurationSeconds(),
+                            quickConnectSecondsRemaining = quickConnectRemainingSeconds(
+                                deadlineMillis - QuickConnectMonotonicClock.nowMillis(),
+                            ).takeIf { it > 0 },
                             isWaitingForQuickConnect = true,
                         )
                     }
                     // Some server versions authorize during initiation, so
                     // check immediately; all checks still share the same
                     // deadline and bounded request timeout.
-                    pollQuickConnect(qc.secret, generation, pollImmediately = qc.isAuthorized)
+                    pollQuickConnect(
+                        secret = qc.secret,
+                        generation = generation,
+                        deadlineMillis = deadlineMillis,
+                        pollImmediately = qc.isAuthorized,
+                    )
                 }
                 .onFailure { err ->
                     if (isActive && generation == quickConnectGeneration) {
@@ -533,9 +541,9 @@ class AuthViewModel @Inject constructor(
     private suspend fun pollQuickConnect(
         secret: String,
         generation: Long,
+        deadlineMillis: Long,
         pollImmediately: Boolean = false,
     ) = coroutineScope {
-        val deadlineMillis = QuickConnectMonotonicClock.nowMillis() + QUICK_CONNECT_DURATION_MILLIS
         val countdownJob = launch {
             while (currentCoroutineContext().isActive && generation == quickConnectGeneration) {
                 val remainingMillis = (deadlineMillis - QuickConnectMonotonicClock.nowMillis()).coerceAtLeast(0L)
@@ -560,8 +568,9 @@ class AuthViewModel @Inject constructor(
                 attempts < QUICK_CONNECT_MAX_POLL_ATTEMPTS
             ) {
                 val remainingMillis = deadlineMillis - QuickConnectMonotonicClock.nowMillis()
-                if (remainingMillis <= 0L) break
-                if (!(pollImmediately && attempts == 0)) {
+                val immediateAuthorizedCheck = pollImmediately && attempts == 0
+                if (remainingMillis <= 0L && !immediateAuthorizedCheck) break
+                if (!immediateAuthorizedCheck) {
                     delay(minOf(QUICK_CONNECT_POLL_INTERVAL_MILLIS, remainingMillis))
                 }
                 if (!currentCoroutineContext().isActive || generation != quickConnectGeneration) return@coroutineScope
