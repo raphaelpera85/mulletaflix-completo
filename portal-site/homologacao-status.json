@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-10-08T20:52:52-03:00",
+  "generatedAt": "2026-10-08T22:13:05-03:00",
   "source": {
     "roadmap": "https://github.com/raphaelpera85/mulletaflix-completo/blob/main/docs/roadmap-evolucao-tecnologica-servidor-e-web.md",
     "repository": "https://github.com/raphaelpera85/mulletaflix-completo"
@@ -4693,6 +4693,36 @@
       "startedAt": "2026-10-08T20:28:26-03:00",
       "updatedAt": "2026-10-08T21:04:00-03:00",
       "evidence": "v12.1.16 publicada: https://github.com/raphaelpera85/mulletaflix-completo/releases/tag/v12.1.16. Assets confirmados na API oficial: mulletaflix-update-win-x64.zip, mulletaflix_12.1.16_windows-x64.exe e mulletaflix_12.1.16_linux-x64.tar.gz. Correções: reduz leitura integral redundante do Mongo no startup; limita blocos Bot API a 45 MiB para evitar HTTP 413 com configuração antiga de 64 MiB; cobre ACL FTP legada com fallback defensivo já presente no HEAD. Testes: dotnet test MulletaFlix.sln -c Release --no-restore passou (Implementations 1.374 pass/55 skipped, API 664 pass, Server Integration 140 pass/3 skipped); pytest Nebula 563/563; compileall e sitemap validator passaram. Portal conectado ao Vercel atualizado pelo commit Mulletaflix-Portal 2cc55b3; check oficial GitHub/Vercel:success e HTTP 200 em /, /docs, /downloads, /updates, /homologacao e /sitemap.xml. Portal versionado v12.1.16. SHA256: ZIP 0104C63F65659270D697C6A39A0F7CACB77675071253ADC5B22743CF09E86E6A; EXE 26280D524FDD52D8435AB8C1BC6735D3D3382CF1DE9B9C6EEFCE3148E39D1D45; Linux 66E6EE2A910D8EDE0D00A51B7654C1ABF10B0F413D41D54062E5EEFAD6998F8A. Homologação formal completa não é alegada: nenhum upload Telegram real nem startup cronometrado pós-fix foi executado; progressPercent null; itens mais amplos T0.1/T0.3/T2.1 continuam parcialmente abertos."
+    },
+    {
+      "id": "project-wide-tdd-inventory-2026-10-08-2205",
+      "title": "Criar plano TDD rastreável para todo o projeto",
+      "agent": "Codex",
+      "front": "cross-project",
+      "featureIds": [],
+      "local": "D:\\Users\\Raphael\\Documents\\Projetos\\mulletaflix",
+      "location": "TDD-PLAN.md, docs/TDD-PROJECT.md e inventários Android, iOS, servidor, Nebula Python, Web, portal e ferramentas",
+      "scope": "Consolidar ciclo RED-GREEN-REFACTOR, quality gates, inventário real de suítes e backlog de lacunas por frente; sem alegar que todo o legado foi escrito por TDD ou homologado.",
+      "status": "blocked",
+      "progressPercent": null,
+      "startedAt": "2026-10-08T22:05:20-03:00",
+      "updatedAt": "2026-10-08T22:13:05-03:00",
+      "evidence": "Plano TDD integrado atualizado em `TDD-PLAN.md` e `docs/TDD-PROJECT.md`, com fluxo RED-GREEN-REFACTOR, gates e lacunas reais por frente. Inventário estático: Android 18 módulos/239 arquivos JVM/143 instrumentados; iOS 2 arquivos XCTest; .NET 17 projetos de teste; Nebula Python 37 arquivos; Web 74 unitários, 20 Playwright padrão, 3 e2e fora do padrão e 4 features Cucumber; portal 4 testes; suites release Bash/Node/Pester identificadas. Portal local: 4/4 testes e sitemap 7/7 canônicas. Android nesta rodada: 1.539 testes JVM aprovados e 3/3 instrumentados. Suítes .NET, Python, Web, iOS e release não executadas; legado não recebe selo TDD retroativo. Portal: commit `100d52e` foi enviado e `/`, `/docs`, `/downloads`, `/updates`, `/homologacao`, `/sitemap.xml` e `/homologacao-status.json` retornaram HTTP 200; o JSON publicado contém este evento. A API Vercel recusou inspeção de projeto/deployment (403 para o escopo `raphaelpera85s-projects`) e Vercel CLI não está instalado; não foi possível confirmar estado READY vinculado ao commit. Falha de autorização registrada; implantação formal permanece bloqueada. progressPercent permanece null: a cobertura formal de todo o projeto não está consolidada."
+    },
+    {
+      "id": "android-lan-identity-route-guard-2026-10-08-2206",
+      "title": "Adiar identidade Android até validar rota HTTP LAN",
+      "agent": "Codex",
+      "front": "android",
+      "featureIds": [],
+      "local": "D:\\Users\\Raphael\\Documents\\Projetos\\mulletaflix",
+      "location": "MulletaFlix-android/core/api, core/common e app/service; TODO-APP.md",
+      "scope": "Não ler nem anexar identidade de sessão para HTTP de hostname dinâmico antes da validação da rota; preservar LAN e redirects same-origin sem vazar identidade cross-origin.",
+      "status": "completed",
+      "progressPercent": null,
+      "startedAt": "2026-10-08T22:06:10-03:00",
+      "updatedAt": "2026-10-08T22:07:41-03:00",
+      "evidence": "TDD RED-GREEN: teste de identidade DNS local falhou antes do guard; cliente de legendas com interceptor envolvido falhou sem estágio pós-rota; teste same-origin redirect detectou duas leituras em vez de uma. Focal core:api/app passou; 26 chamadas diretas pesquisadas, sem construção paralela em produção. Quality Bar Android: `testDebugUnitTest :core:common:lintDebug :core:api:lintDebug :app:lintDebug :app:assembleDebug --no-daemon --console=plain` BUILD SUCCESSFUL; 238 XML, 1.539 testes, 0 falhas/erros/ignorados. `AndroidCleartextPolicyIntegrationTest` PHONE API 35: 3/3, GPU NVIDIA verificada, AVD encerrado. Sem APK, pacote ou release. Limitações: Network Security Config ainda permite cleartext amplo para CIDR dinâmico; teste combinado `.local` off-subnet + zero leituras de credenciais pendente; API-key em query não coberta; homologação formal permanece sem percentual consolidado."
     }
   ]
 }

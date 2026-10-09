@@ -114,12 +114,15 @@ Este documento rastreia o status de implementação de todas as funcionalidades,
 - [x] AVDs geridos pelo wrapper; QEMU confirmado na NVIDIA RTX 3050 e encerrado ao final dos testes.
 - [ ] Sem bump de versão, APK de produção ou publicação.
 
-## P1 — Restringir HTTP sem quebrar a descoberta LAN (pendente)
+## P1 — Restringir HTTP sem quebrar a descoberta LAN (parcial)
 
-- [ ] A configuração Android ainda permite cleartext de forma ampla (`base-config` e `usesCleartextTraffic`), enquanto o cliente API anexa o token de sessão ao `Authorization`. Restringir tráfego HTTP público/não local antes da inclusão de credenciais.
-- [ ] Cobrir o caso em que um hostname `.local`/`.home.arpa` permitido sem resolução prévia resolve, na rota efetiva, para fora da LAN: o guard de rede impede o envio em HTTP, mas a identidade pode ler/adicionar o token ao request antes dessa rejeição. Não há evidência atual de credencial transmitida; desenvolver a proteção mantendo descoberta local sem exigir DNS prévio.
-- [ ] Preservar HTTP de servidores na sub-rede ativa descoberta/configurada e HTTPS para a URL pública padrão; abranger Retrofit, Coil, streaming Media3, downloads e legendas — nomes `.local` e `.home.arpa` continuam aceitos sem resolução DNS.
-- [ ] Testar HTTP público bloqueado sem token, HTTPS remoto permitido e HTTP LAN permitido em cada caminho de rede; não publicar APK até fechar a cobertura.
+- [x] Guards dos clientes bloqueiam HTTP público antes da leitura/anexação da identidade. A configuração do SO ainda permite cleartext amplo para suportar LAN dinâmica; a limitação global permanece aberta abaixo.
+- [x] Para HTTP não-loopback, adiar a leitura/anexação da identidade até o guard de rota conectada aprovar o socket; isso cobre hostnames `.local`/`.home.arpa` sem DNS prévio e mantém HTTP LAN.
+- [x] Garantir que redirect same-origin reutilize a identidade capturada uma vez e redirect cross-origin não a reanexe. A cobertura comprova identidade por cabeçalho; credenciais `api_key` em query strings não fazem parte deste teste.
+- [x] Manter a ordem guard de rota antes da identidade diferida nos clientes Retrofit, Coil, artwork Media3 e legendas offline; tornar obrigatória a configuração do segundo estágio no cliente de legendas.
+- [x] Testar HTTP público antes da leitura de credenciais, política de destino local resolvido fora da sub-rede, redirect e rotas same-origin/cross-origin; suíte focal e Quality Bar registradas em `TDD-PLAN.md`.
+- [ ] Adicionar teste combinado de hostname `.local` resolvido fora da sub-rede e zero leituras de credenciais; hoje o teste de identidade usa fixture loopback e a rejeição off-subnet é coberta separadamente pela política.
+- [ ] A configuração Android ainda permite cleartext para LAN dinâmica; guards nos clientes não substituem bloqueio global do SO. APK-H12 segue em validação e não libera release até política e cobertura ampla estarem fechadas.
 - [x] Adicionado teste de contrato do cliente usado pelo Coil: URL de imagem HTTP público direto é negada antes de ler token/identidade ou enviar tráfego; HTTP LAN continua coberto pelo round-trip do cliente de artwork. Suíte focada `CleartextRequestProtectionTest` + `ArtworkClientIdentityTest` passou.
 - [x] Teste instrumentado com o `DownloadManager` Media3 real: transferência HTTP LAN de 64 KiB termina e persiste no cache temporário; redirect para HTTP público falha e não acrescenta bytes ao cache. SQLite e cache são exclusivos por execução; AVD API 35 isolado usou a NVIDIA e foi fechado ao terminar.
 - [x] Teste instrumentado com o `DownloadManager` Media3 real: transferência HTTPS remota com TLS de teste confiável conclui, valida 64 KiB e persiste no `SimpleCache` isolado; AVD API 35 usou a NVIDIA e foi fechado ao terminar.
