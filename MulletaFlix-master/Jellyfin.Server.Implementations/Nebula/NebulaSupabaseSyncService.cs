@@ -569,7 +569,7 @@ public sealed class NebulaSupabaseSyncService : IDisposable
 
         try
         {
-            var uri = $"{supabaseUrl.TrimEnd('/')}/rest/v1/nebula_files?select=updated_at&order=updated_at.desc&limit=1";
+            var uri = $"{supabaseUrl.TrimEnd('/')}/rest/v1/nebula_files?select=updated_at&order=updated_at.desc.nullslast&limit=1";
             using var req = new HttpRequestMessage(HttpMethod.Get, uri);
             req.Headers.Add("apikey", supabaseKey);
             req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", supabaseKey);

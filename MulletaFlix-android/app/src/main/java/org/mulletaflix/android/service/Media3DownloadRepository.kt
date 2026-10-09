@@ -109,7 +109,7 @@ class Media3DownloadRepository @Inject constructor(
 
     init {
         manager.requirements = requirementsFor(wifiOnly.value)
-        if (queuePaused.value) manager.pauseDownloads()
+        if (queuePaused.value) pauseDownloadsThroughService()
         repositoryScope.launch {
             sessionRepository.getCurrentUserId().distinctUntilChanged().collect { currentUserId = it }
         }
@@ -618,14 +618,26 @@ class Media3DownloadRepository @Inject constructor(
         }
     }
 
+    private fun pauseDownloadsThroughService() {
+        Media3DownloadService.sendPauseDownloads(
+            appContext,
+            DownloadService::class.java,
+            false,
+        )
+    }
+
     override fun pauseAll(): Result<Unit> = runCatching {
-        manager.pauseDownloads()
+        pauseDownloadsThroughService()
         metadata.edit().putBoolean(KEY_QUEUE_PAUSED, true).apply()
         queuePaused.value = true
     }
 
     override fun resumeAll(): Result<Unit> = runCatching {
-        manager.resumeDownloads()
+        Media3DownloadService.sendResumeDownloads(
+            appContext,
+            DownloadService::class.java,
+            false,
+        )
         metadata.edit().putBoolean(KEY_QUEUE_PAUSED, false).apply()
         queuePaused.value = false
     }

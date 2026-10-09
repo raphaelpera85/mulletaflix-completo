@@ -56,6 +56,7 @@ import okio.Buffer
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Rule
@@ -189,6 +190,42 @@ class BookReaderScreenIntegrationTest {
         val retryRequest = server.takeRequest()
         assertEquals("/BookReader/Items/reader-screen-book/BookReader/Epub", firstRequest.path)
         assertEquals(firstRequest.path, retryRequest.path)
+    }
+
+    @Test
+    fun pdfHttpPayloadUsesTheNativePaginatedReader() {
+        server.enqueue(
+            MockResponse()
+                .setResponseCode(200)
+                .addHeader("Content-Type", "application/pdf")
+                .setBody(Buffer().write(createPdfFixture())),
+        )
+        val api = Retrofit.Builder()
+            .baseUrl(server.url("/"))
+            .client(OkHttpClient())
+            .build()
+            .create(MulletaFlixApiService::class.java)
+        val viewModel = ViewModelProvider(
+            viewModelStore,
+            object : ViewModelProvider.Factory {
+                @Suppress("UNCHECKED_CAST")
+                override fun <T : ViewModel> create(modelClass: Class<T>): T =
+                    BookReaderViewModel(api, TestSessionRepository(sessionScope), context) as T
+            },
+        )[BookReaderViewModel::class.java]
+
+        viewModel.load("pdf-http-book")
+        composeRule.waitUntil(timeoutMillis = 20_000) { !viewModel.state.value.isLoading }
+
+        val state = viewModel.state.value
+        assertNull(state.error)
+        assertNull(state.publication)
+        assertTrue(state.pageBook is PdfBookDocument)
+        assertEquals(2, state.pageBook?.pageCount)
+        assertEquals(
+            "/BookReader/Items/pdf-http-book/BookReader/Epub",
+            server.takeRequest(5, TimeUnit.SECONDS)?.path,
+        )
     }
 
     @Test

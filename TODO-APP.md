@@ -1,5 +1,13 @@
 # MulletaFlix Android - Plano de Desenvolvimento & Checklist de Funcionalidades (TODO)
 
+## Restauração de deep link na recriação da Activity — APK, sem release
+
+- [x] Preservar o marcador de estado salvo, sequence, ID da mídia e ID do servidor no `savedInstanceState`.
+- [x] Evitar reprocessar o intent de lançamento quando há estado salvo; deep link já consumido permanece ausente.
+- [x] Testar na `MainActivity` real: link consumido/pendente, recriação e sequência de `onNewIntent`.
+- [ ] Validar jornada autenticada, mídia real e restauração completa do back stack do `NavHost`.
+- Evidência de dispositivo, suíte completa, lint, build e grafo será registrada no `MulletaFlix-android/TDD-PLAN.md` após o gate. Sem alteração de servidor/portal e sem release.
+
 ## Trabalho APK sem release — Ocultar livros em rotas secundárias da Android TV
 
 - [x] Bloquear detalhes de `Book`/`AudioBook` abertos por deep link na TV, com aviso e ação de voltar; celular/tablet mantêm detalhes.

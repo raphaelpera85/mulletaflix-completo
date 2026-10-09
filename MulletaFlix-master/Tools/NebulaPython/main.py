@@ -166,7 +166,10 @@ def is_loopback_host(host):
 def get_upload_worker_count(bot_count):
     # Each worker uploads one file at a time using PART_WORKERS_PER_FILE parallel parts.
     target_workers = max(1, bot_count // PART_WORKERS_PER_FILE)
-    concurrency_limit = max(UPLOAD_CONCURRENCY // PART_WORKERS_PER_FILE, bot_count // PART_WORKERS_PER_FILE, 1)
+    # Do not turn the available bot count into a minimum concurrency: the global
+    # semaphore is the configured cap, and workers retain read-ahead buffers even
+    # while waiting for it. More workers than this cap waste memory and I/O.
+    concurrency_limit = max(1, UPLOAD_CONCURRENCY // PART_WORKERS_PER_FILE)
     limit = max(MAX_WORKERS, LARGE_WORKERS_CONFIG)
     return min(limit, concurrency_limit, target_workers)
 

@@ -115,9 +115,11 @@ def test_worker_counts_respect_bot_and_configuration_limits(monkeypatch):
     monkeypatch.setattr("main.PART_WORKERS_PER_FILE", 2)
     monkeypatch.setattr("main.UPLOAD_CONCURRENCY", 8)
     monkeypatch.setattr("main.MAX_WORKERS", 4)
-    monkeypatch.setattr("main.LARGE_WORKERS_CONFIG", 3)
+    monkeypatch.setattr("main.LARGE_WORKERS_CONFIG", 10)
     assert get_upload_worker_count(1) == 1
     assert get_upload_worker_count(8) == 4
+    # A large bot pool must not override the configured global upload cap.
+    assert get_upload_worker_count(27) == 4
     assert get_upload_worker_count(0) == 1
     monkeypatch.setenv("SMALL_WORKERS", "20")
     assert get_small_upload_worker_count(3) == 3

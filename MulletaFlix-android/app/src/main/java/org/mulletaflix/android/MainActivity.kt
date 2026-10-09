@@ -76,7 +76,12 @@ class MainActivity : ComponentActivity() {
         installSplashScreen()
         super.onCreate(savedInstanceState)
         PlayerPictureInPictureController.onPictureInPictureModeChanged(isInPictureInPictureMode)
-        incomingDeepLink = mediaDeepLinkRequest(intent, ++deepLinkSequence)
+        deepLinkSequence = savedInstanceState?.getLong(STATE_DEEP_LINK_SEQUENCE) ?: 0L
+        incomingDeepLink = if (savedInstanceState?.getBoolean(STATE_DEEP_LINK_SAVED) == true) {
+            savedInstanceState.restoreMediaDeepLinkRequest()
+        } else {
+            mediaDeepLinkRequest(intent, ++deepLinkSequence)
+        }
         enableEdgeToEdge()
 
         setContent {
@@ -300,6 +305,18 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        outState.putBoolean(STATE_DEEP_LINK_SAVED, true)
+        outState.putLong(STATE_DEEP_LINK_SEQUENCE, deepLinkSequence)
+        incomingDeepLink?.let { request ->
+            outState.putString(STATE_DEEP_LINK_ITEM_ID, request.itemId)
+            outState.putLong(STATE_DEEP_LINK_REQUEST_SEQUENCE, request.sequence)
+            outState.putString(STATE_DEEP_LINK_SERVER_ID, request.serverId)
+            outState.putBoolean(STATE_DEEP_LINK_REQUEST_PRESENT, true)
+        }
+    }
+
     override fun onUserLeaveHint() {
         super.onUserLeaveHint()
         PlayerPictureInPictureController.dispatchUserLeaveHint()
@@ -323,5 +340,24 @@ class MainActivity : ComponentActivity() {
     override fun onDestroy() {
         lanServerRecovery.stop()
         super.onDestroy()
+    }
+
+    private fun Bundle.restoreMediaDeepLinkRequest(): MediaDeepLinkRequest? {
+        if (!getBoolean(STATE_DEEP_LINK_REQUEST_PRESENT)) return null
+        val itemId = getString(STATE_DEEP_LINK_ITEM_ID)?.takeIf(String::isNotBlank) ?: return null
+        return MediaDeepLinkRequest(
+            itemId = itemId,
+            sequence = getLong(STATE_DEEP_LINK_REQUEST_SEQUENCE),
+            serverId = getString(STATE_DEEP_LINK_SERVER_ID),
+        )
+    }
+
+    private companion object {
+        const val STATE_DEEP_LINK_SAVED = "org.mulletaflix.android.state.deep_link_saved"
+        const val STATE_DEEP_LINK_SEQUENCE = "org.mulletaflix.android.state.deep_link_sequence"
+        const val STATE_DEEP_LINK_REQUEST_PRESENT = "org.mulletaflix.android.state.deep_link_request_present"
+        const val STATE_DEEP_LINK_ITEM_ID = "org.mulletaflix.android.state.deep_link_item_id"
+        const val STATE_DEEP_LINK_REQUEST_SEQUENCE = "org.mulletaflix.android.state.deep_link_request_sequence"
+        const val STATE_DEEP_LINK_SERVER_ID = "org.mulletaflix.android.state.deep_link_server_id"
     }
 }

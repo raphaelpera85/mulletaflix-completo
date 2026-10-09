@@ -34,7 +34,12 @@ class DownloadQueueGuardTest {
         )
 
         val source = repository.readText()
-        val directMutations = listOf("manager.addDownload(", "manager.removeDownload(")
+        val directMutations = listOf(
+            "manager.addDownload(",
+            "manager.removeDownload(",
+            "manager.pauseDownloads(",
+            "manager.resumeDownloads(",
+        )
             .filter { source.contains(it) }
 
         assertTrue(
@@ -51,6 +56,7 @@ class DownloadQueueGuardTest {
         listOf(
             "sendAddDownload",
             "sendRemoveDownload",
+            "sendPauseDownloads",
             "sendResumeDownloads",
         ).forEach { entryPoint ->
             assertTrue(

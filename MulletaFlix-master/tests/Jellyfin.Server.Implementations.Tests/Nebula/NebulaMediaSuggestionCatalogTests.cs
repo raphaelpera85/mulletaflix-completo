@@ -66,4 +66,26 @@ public sealed class NebulaMediaSuggestionCatalogTests
         Assert.Equal("Last Good", Assert.Single(catalog.GetItems()).Title);
         Assert.Equal(2, scanCount);
     }
+
+    [Fact]
+    public async Task RefreshAsyncReindexesRootsThatBecomeAvailableWithoutChangingTheirPaths()
+    {
+        var scanCount = 0;
+        await using var catalog = new NebulaMediaSuggestionCatalog(
+            () => ["N:\\Series"],
+            (_, _) => new NebulaMediaSuggestionCatalogBuildResult(
+                Interlocked.Increment(ref scanCount) == 1
+                    ? Array.Empty<NebulaMediaSuggestionDto>()
+                    : [new NebulaMediaSuggestionDto { Title = "Mounted Series", MediaType = "Series" }],
+                0),
+            NullLogger.Instance);
+
+        _ = catalog.GetItems();
+        Assert.True(SpinWait.SpinUntil(() => catalog.GetStatus().State == "Ready", TimeSpan.FromSeconds(5)));
+
+        await catalog.RefreshAsync();
+
+        Assert.Equal("Mounted Series", Assert.Single(catalog.GetItems()).Title);
+        Assert.Equal(2, scanCount);
+    }
 }

@@ -25,6 +25,9 @@ public interface INebulaFtpManager
     /// <summary>Gets the indexed STRM title catalog for request administration.</summary>
     System.Collections.Generic.IReadOnlyList<NebulaMediaSuggestionDto> GetMediaSuggestionCatalog();
 
+    /// <summary>Forces a catalog refresh after media roots become available.</summary>
+    Task RefreshMediaSuggestionCatalogAsync(CancellationToken cancellationToken = default);
+
     /// <summary>Gets the current path-free STRM catalog index status.</summary>
     NebulaMediaSuggestionIndexStatusDto GetMediaSuggestionIndexStatus();
 

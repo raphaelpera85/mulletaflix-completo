@@ -279,6 +279,21 @@ public class NebulaSupabaseSyncTests
     }
 
     [Fact]
+    public async Task GetLastRemoteFileTimestampAsync_OrdersNullsLastToMatchTheCursorIndex()
+    {
+        var handler = new StaticResponseHandler(new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StringContent("[{\"updated_at\":\"2026-10-09T05:00:00Z\"}]")
+        });
+        using var service = new NebulaSupabaseSyncService(null!, NullLogger<NebulaSupabaseSyncService>.Instance, null, handler);
+
+        var timestamp = await service.GetLastRemoteFileTimestampAsync("https://supabase.invalid", "sb_secret_test");
+
+        Assert.Equal(new DateTime(2026, 10, 9, 5, 0, 0, DateTimeKind.Utc), timestamp);
+        Assert.Contains("order=updated_at.desc.nullslast", handler.LastUri, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task GetSupabaseFileCountAsync_UsesExactContentRangeCount()
     {
         var response = new HttpResponseMessage(HttpStatusCode.OK)

@@ -1,5 +1,13 @@
 # MulletaFlix Android - Plano de Desenvolvimento & Checklist de Funcionalidades (TODO)
 
+## Regressão do despacho HTTP para leitores de livros — APK, sem release
+
+- [x] Cobrir no ViewModel respostas HTTP CBZ com MIME genérico e TXT com `text/plain`, confirmando o modelo paginado correto e conteúdo lido.
+- [x] Cobrir PDF HTTP com `application/pdf` no fluxo instrumentado do Android, confirmando `PdfBookDocument`, paginação e rota do servidor.
+- [x] Quality Gate Android em 2026-10-09: 1.550 testes JVM (239 XML), 0 falhas/erros/ignorados; `:feature:item-detail:lintDebug`, `:app:lintDebug` e `:app:assembleDebug` passaram. Instrumentação `BookReaderScreenIntegrationTest` no AVD PHONE/API 35: 9/9, incluindo PDF HTTP.
+- [ ] Cobrir futuramente truncamento/limite e respostas HTTP incompatíveis no pipeline do ViewModel, além de validação com catálogo real quando disponível.
+- [ ] Sem mudança de comportamento de produção, versão ou release do APK.
+
 ## Endurecer origem do download do APK (APK local; sem release)
 
 - [x] Aceitar apenas URLs HTTPS do endpoint oficial de assets do GitHub, sem user-info e usando somente porta padrão ou 443 explícita.

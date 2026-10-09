@@ -852,6 +852,13 @@ public class NebulaUploadEngineTests
         // Deve incluir DROP POLICY IF EXISTS para idempotência
         Assert.Contains("DROP POLICY IF EXISTS nebula_files_service_role_all", sql, System.StringComparison.Ordinal);
 
+        // O cursor delta usa ORDER BY updated_at DESC LIMIT 1. Sem este índice,
+        // catálogos grandes podem exceder o timeout do PostgREST antes do backup.
+        Assert.Contains(
+            "CREATE INDEX IF NOT EXISTS idx_nebula_files_updated_at ON nebula_files(updated_at DESC NULLS LAST)",
+            sql,
+            System.StringComparison.Ordinal);
+
         // Não deve mais conter o comentário enganoso que dizia "Desabilita RLS"
         Assert.DoesNotContain("Desabilita RLS", sql, System.StringComparison.Ordinal);
     }

@@ -1708,10 +1708,15 @@ public sealed class NebulaMongoContext : IDisposable
     /// remove a pasta duplicada intermediária.
     /// </summary>
     public async Task NormalizeDuplicateCategoryRootsAsync(CancellationToken cancellationToken = default)
+        => await NormalizeDuplicateCategoryRootsAsync(null, cancellationToken).ConfigureAwait(false);
+
+    internal async Task NormalizeDuplicateCategoryRootsAsync(
+        List<BsonDocument>? startupSnapshot,
+        CancellationToken cancellationToken = default)
     {
         try
         {
-            var documents = await GetAllFilesForSyncAsync(cancellationToken).ConfigureAwait(false);
+            var documents = startupSnapshot ?? await GetAllFilesForSyncAsync(cancellationToken).ConfigureAwait(false);
             static string ParentKey(BsonDocument doc)
                 => doc.TryGetValue("parent", out var parent) && !parent.IsBsonNull ? parent.ToString() : string.Empty;
 

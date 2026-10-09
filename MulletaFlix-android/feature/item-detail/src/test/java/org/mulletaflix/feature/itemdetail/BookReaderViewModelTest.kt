@@ -1,6 +1,7 @@
 package org.mulletaflix.feature.itemdetail
 
 import android.content.Context
+import android.graphics.Bitmap
 import androidx.lifecycle.ViewModelStore
 import androidx.test.core.app.ApplicationProvider
 import io.mockk.coEvery
@@ -149,6 +150,54 @@ class BookReaderViewModelTest {
                 runCatching { pageBook.decodePage(index = 0, maxWidth = 320, maxHeight = 480) }
                     .exceptionOrNull() is IllegalStateException,
             )
+        } finally {
+            viewModelStore.clear()
+        }
+    }
+
+    @Test
+    fun `load detects a generic CBZ HTTP response and opens comic pages`() = runTest(dispatcher) {
+        val api = mockk<MulletaFlixApiService>(relaxed = true)
+        coEvery { api.getBookReaderEpub(any()) } returns
+            cbzBytes().toResponseBody("application/octet-stream".toMediaType())
+        coEvery { api.getBookReaderStatus(any()) } returns BookReaderStatusDto("Ready")
+        val viewModel = BookReaderViewModel(api, FakeSessionRepository(SCOPE_A), context)
+        val viewModelStore = ViewModelStore().apply { put("cbz-reader-view-model", viewModel) }
+
+        try {
+            viewModel.load("cbz-over-http")
+            awaitLoadFinished(viewModel)
+
+            val state = viewModel.state.value
+            assertFalse(state.isLoading)
+            assertNull(state.error)
+            assertNull(state.publication)
+            assertTrue(state.pageBook is ComicBookArchive)
+            assertEquals(1, state.pageBook?.pageCount)
+        } finally {
+            viewModelStore.clear()
+        }
+    }
+
+    @Test
+    fun `load opens a plain text HTTP response in the paginated text reader`() = runTest(dispatcher) {
+        val api = mockk<MulletaFlixApiService>(relaxed = true)
+        coEvery { api.getBookReaderEpub(any()) } returns
+            "Texto de livro via servidor.".toResponseBody("text/plain; charset=utf-8".toMediaType())
+        coEvery { api.getBookReaderStatus(any()) } returns BookReaderStatusDto("Ready")
+        val viewModel = BookReaderViewModel(api, FakeSessionRepository(SCOPE_A), context)
+        val viewModelStore = ViewModelStore().apply { put("text-reader-view-model", viewModel) }
+
+        try {
+            viewModel.load("text-over-http")
+            awaitLoadFinished(viewModel)
+
+            val state = viewModel.state.value
+            assertFalse(state.isLoading)
+            assertNull(state.error)
+            assertNull(state.publication)
+            assertNull(state.pageBook)
+            assertTrue(state.textBook?.chunks?.joinToString().orEmpty().contains("Texto de livro via servidor."))
         } finally {
             viewModelStore.clear()
         }
@@ -610,6 +659,21 @@ class BookReaderViewModelTest {
 
     private fun epubResponseBody(): ResponseBody =
         epubBytes().toResponseBody("application/epub+zip".toMediaType())
+
+    private fun cbzBytes(): ByteArray {
+        val bitmap = Bitmap.createBitmap(1, 1, Bitmap.Config.ARGB_8888).apply { eraseColor(0xff0000ff.toInt()) }
+        val output = ByteArrayOutputStream()
+        try {
+            ZipOutputStream(output).use { zip ->
+                zip.putNextEntry(ZipEntry("pages/001.png"))
+                check(bitmap.compress(Bitmap.CompressFormat.PNG, 100, zip))
+                zip.closeEntry()
+            }
+            return output.toByteArray()
+        } finally {
+            bitmap.recycle()
+        }
+    }
 
     private fun epubBytes(): ByteArray {
         val output = ByteArrayOutputStream()

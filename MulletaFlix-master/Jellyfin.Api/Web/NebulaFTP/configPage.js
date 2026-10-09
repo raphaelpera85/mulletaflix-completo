@@ -463,12 +463,12 @@ export default function (view, params) {
                 .then(function (res) {
                     if (res && res.Success) {
                         var term = view.querySelector('#supabaseLogTerminal');
-                        if (term) term.textContent = '[SUPABASE] Backup concluído.\n' + (res.Message || '') + '\n';
+                        if (term) term.textContent = '[SUPABASE] Solicitação de backup enviada.\n' + (res.Message || '') + '\n';
                         pollStatusAndLogs();
                         if (typeof Dashboard !== 'undefined' && Dashboard.alert) {
-                            Dashboard.alert(res.Message || 'Backup concluído!');
+                            Dashboard.alert(res.Message || 'Backup iniciado. Acompanhe o status de manutenção.');
                         } else {
-                            alert(res.Message || 'Backup concluído!');
+                            alert(res.Message || 'Backup iniciado. Acompanhe o status de manutenção.');
                         }
                     } else {
                         alert('Erro ao iniciar backup: ' + (res ? res.Message : 'Erro desconhecido'));

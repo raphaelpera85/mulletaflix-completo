@@ -48,6 +48,33 @@ internal sealed class NebulaMediaSuggestionCatalog : IAsyncDisposable
         }
     }
 
+    public async Task RefreshAsync(CancellationToken cancellationToken = default)
+    {
+        Task currentRefresh;
+        lock (_gate)
+        {
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            currentRefresh = _refreshTask;
+        }
+
+        await currentRefresh.WaitAsync(cancellationToken).ConfigureAwait(false);
+        lock (_gate)
+        {
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            _rootSignature = string.Empty;
+            _lastAttemptAtUtc = DateTime.MinValue;
+        }
+
+        EnsureRefreshStarted();
+        Task requestedRefresh;
+        lock (_gate)
+        {
+            requestedRefresh = _refreshTask;
+        }
+
+        await requestedRefresh.WaitAsync(cancellationToken).ConfigureAwait(false);
+    }
+
     public NebulaMediaSuggestionIndexStatusDto GetStatus()
     {
         EnsureRefreshStarted();

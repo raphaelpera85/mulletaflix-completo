@@ -327,6 +327,7 @@ public sealed class NebulaHostedService : IHostedService, IDisposable
             _logger.LogInformation("[NEBULA-STARTUP] Disco N: montado e acessível.");
             _logger.LogInformation("[NEBULA-STARTUP] Unidade N disponível. Iniciando refresh da biblioteca para indexar filmes, séries e capas...");
             await _libraryManager.ValidateMediaLibrary(new Progress<double>(), startupCancellationToken).ConfigureAwait(false);
+            await _nebulaManager.RefreshMediaSuggestionCatalogAsync(startupCancellationToken).ConfigureAwait(false);
         }
         else
         {

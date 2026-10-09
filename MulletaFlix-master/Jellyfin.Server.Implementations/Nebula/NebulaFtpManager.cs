@@ -575,6 +575,10 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable, IAsyncDis
     }
 
     /// <inheritdoc />
+    public Task RefreshMediaSuggestionCatalogAsync(CancellationToken cancellationToken = default)
+        => _mediaSuggestionCatalog.RefreshAsync(cancellationToken);
+
+    /// <inheritdoc />
     public NebulaMediaSuggestionIndexStatusDto GetMediaSuggestionIndexStatus()
     {
         return _mediaSuggestionCatalog.GetStatus();
@@ -1558,7 +1562,12 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable, IAsyncDis
                 animacaoMigration.Success ? "INFO" : "WARNING",
                 $"[NEBULA-ANIMACOES] {animacaoMigration.Message}");
 
-            await _mongoContext.NormalizeDuplicateCategoryRootsAsync(cancellationToken).ConfigureAwait(false);
+            if (animacaoMigration.Moved > 0 || animacaoMigration.DuplicateRemoved)
+            {
+                startupMigrationSnapshot = await _mongoContext.GetAllFilesForSyncAsync(cancellationToken).ConfigureAwait(false);
+            }
+
+            await _mongoContext.NormalizeDuplicateCategoryRootsAsync(startupMigrationSnapshot, cancellationToken).ConfigureAwait(false);
 
             // 1.1 Sincronizador com Supabase e verificação de prioridade do banco (restauração se Mongo estiver vazio)
             if (!string.IsNullOrWhiteSpace(config.SupabaseUrl) && !string.IsNullOrWhiteSpace(config.SupabaseKey))
@@ -4387,6 +4396,9 @@ CREATE TABLE IF NOT EXISTS nebula_files (
 CREATE INDEX IF NOT EXISTS idx_nebula_files_status ON nebula_files(status);
 CREATE INDEX IF NOT EXISTS idx_nebula_files_parent ON nebula_files(parent);
 CREATE INDEX IF NOT EXISTS idx_nebula_files_name ON nebula_files(name);
+-- O cursor delta consulta o registro mais recente em catálogos grandes.
+-- Sem este índice o ORDER BY pode exceder o timeout do PostgREST.
+CREATE INDEX IF NOT EXISTS idx_nebula_files_updated_at ON nebula_files(updated_at DESC NULLS LAST);
 
 CREATE TABLE IF NOT EXISTS nebula_bot_tokens (
     id BIGSERIAL PRIMARY KEY,
