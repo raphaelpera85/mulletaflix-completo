@@ -218,6 +218,15 @@ Verificação instrumentada adicional de Livros na Android TV em 2026-10-08: `Tv
 
 `TWINS`: searched `ClientIdentityInterceptor\(` — found 26 other sites: `core/api/src/test/**` (20), `app/src/test/**` (3), `app/src/androidTest/**` (2), `core/api/src/androidTest/**` (1); no parallel production constructor.
 
+### Registro TDD — troca de sala SyncPlay e callback WebSocket obsoleto
+
+- `INTENT`: ao trocar de sala, o callback tardio `onClosed` do WebSocket anterior não pode limpar o socket atual nem marcar a nova conexão como desconectada.
+- `RED`: teste de mutação temporário removeu a validação `isCurrentConnection` de `onClosed`; `:core:api:testDebugUnitTest --tests "org.mulletaflix.core.api.SyncPlayRealtimeGroupSwitchTest"` falhou pela asserção de desconexão obsoleta. Mutação revertida imediatamente.
+- `GREEN`: mesmo teste passou com o guard original. Dois upgrades WebSocket reais via MockWebServer e uma barreira determinística no fechamento antigo; sem `sleep`.
+- `QUALITY GATE`: suíte completa, lint de `core:api`/`app` e `app:assembleDebug` registrados após execução desta rodada.
+- `DEVICE`: não aplicável; integração JVM no transporte WebSocket OkHttp. Não valida conexão com servidor público.
+- `LIMITAÇÕES`: cobre troca de sala e fechamento atrasado; não cobre todos os eventos SyncPlay nem substitui teste ponta a ponta. Sem release.
+
 ### Revalidação Android — 2026-10-08
 
 - `QUALITY GATE`: `testDebugUnitTest :core:common:lintDebug :core:api:lintDebug :app:lintDebug :app:assembleDebug --no-daemon --console=plain` — `BUILD SUCCESSFUL`; relatórios XML: 238 arquivos, 1.545 testes JVM, 0 falhas, 0 erros e 0 ignorados. Lint e build Debug passaram.
