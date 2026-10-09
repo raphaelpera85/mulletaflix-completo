@@ -138,8 +138,8 @@ public sealed class NebulaSupabaseRestoreMongoTests : IDisposable
             Assert.Contains("apikey", request.Headers.Keys);
             Assert.Equal("Bearer sb_secret_test", request.Headers["Authorization"]);
         });
-        Assert.Contains("/rest/v1/nebula_files?select=id,name,parent,size,status,parts,uploaded_at,doc_data&order=id.asc&limit=500&offset=0", handler.Requests[0].Uri, StringComparison.Ordinal);
-        Assert.Contains("/rest/v1/nebula_files?select=id,name,parent,size,status,parts,uploaded_at,doc_data&order=id.asc&limit=500&offset=1", handler.Requests[1].Uri, StringComparison.Ordinal);
+        Assert.Contains("/rest/v1/nebula_files?select=id,name,parent,size,status,parts,uploaded_at,doc_data&order=id.asc&limit=100&offset=0", Uri.UnescapeDataString(handler.Requests[0].Uri), StringComparison.Ordinal);
+        Assert.Contains("/rest/v1/nebula_files?select=id,name,parent,size,status,parts,uploaded_at,doc_data&order=id.asc&limit=100&offset=1", Uri.UnescapeDataString(handler.Requests[1].Uri), StringComparison.Ordinal);
         Assert.Contains("/rest/v1/nebula_users?select=*", handler.Requests[2].Uri, StringComparison.Ordinal);
         Assert.Contains("/rest/v1/mulletaflix_users?select=*&order=username.asc", handler.Requests[3].Uri, StringComparison.Ordinal);
         Assert.Contains("/rest/v1/nebula_bot_tokens?select=*&order=index.asc", handler.Requests[4].Uri, StringComparison.Ordinal);

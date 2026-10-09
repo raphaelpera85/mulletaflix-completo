@@ -5,6 +5,7 @@ using System.Globalization;
 using System.Linq;
 using System.Net;
 using System.Net.Http;
+using System.Net.Http.Headers;
 using System.Threading;
 using System.Threading.Tasks;
 using Jellyfin.Server.Implementations.Nebula;
@@ -259,6 +260,153 @@ public class NebulaSupabaseSyncTests
 
         Assert.Equal(1, count);
         Assert.Equal(HttpMethod.Post, handler.LastMethod);
+    }
+
+    [Fact]
+    public async Task GetLastRemoteFileTimestampAsync_ThrowsWhenSupabaseIsUnavailableInsteadOfTriggeringFullSync()
+    {
+        var handler = new StaticResponseHandler(new HttpResponseMessage(HttpStatusCode.ServiceUnavailable)
+        {
+            Content = new StringContent("temporary failure")
+        });
+        using var service = new NebulaSupabaseSyncService(null!, NullLogger<NebulaSupabaseSyncService>.Instance, null, handler);
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.GetLastRemoteFileTimestampAsync("https://supabase.invalid", "sb_secret_test"));
+
+        Assert.Contains("HTTP 503", exception.Message, StringComparison.Ordinal);
+        Assert.Equal(HttpMethod.Get, handler.LastMethod);
+    }
+
+    [Fact]
+    public async Task GetSupabaseFileCountAsync_UsesExactContentRangeCount()
+    {
+        var response = new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StringContent(string.Empty)
+        };
+        response.Content.Headers.ContentRange = new ContentRangeHeaderValue(136136);
+        using var service = new NebulaSupabaseSyncService(
+            null!,
+            NullLogger<NebulaSupabaseSyncService>.Instance,
+            null,
+            new StaticResponseHandler(response));
+
+        var count = await service.GetSupabaseFileCountAsync("https://supabase.invalid", "sb_secret_test");
+
+        Assert.Equal(136136, count);
+    }
+
+    [Fact]
+    public async Task GetSupabaseFileCountAsync_ReturnsUnknownWhenExactCountHeaderIsMissing()
+    {
+        using var service = new NebulaSupabaseSyncService(
+            null!,
+            NullLogger<NebulaSupabaseSyncService>.Instance,
+            null,
+            new StaticResponseHandler(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(string.Empty)
+            }));
+
+        var count = await service.GetSupabaseFileCountAsync("https://supabase.invalid", "sb_secret_test");
+
+        Assert.Equal(-1, count);
+    }
+
+    [Fact]
+    public async Task GetLastRemoteFileTimestampAsync_UsesFullSyncWhenCatalogIsEmptyButHistoryHadFiles()
+    {
+        var checkpoint = new DateTime(2026, 10, 8, 20, 0, 0, DateTimeKind.Utc);
+        var handler = new SequenceResponseHandler(
+            new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("[]") },
+            new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent($"[{{\"created_at\":\"{checkpoint:O}\",\"total_files\":100}}]")
+            });
+        using var service = new NebulaSupabaseSyncService(null!, NullLogger<NebulaSupabaseSyncService>.Instance, null, handler);
+
+        var watermark = await service.GetLastRemoteFileTimestampAsync("https://supabase.invalid", "sb_secret_test");
+
+        Assert.Null(watermark);
+        Assert.Equal(new[] { HttpMethod.Get, HttpMethod.Get }, handler.Methods);
+    }
+
+    [Fact]
+    public async Task GetLastRemoteFileTimestampAsync_UsesFullSyncWhenCatalogIsEmptyAndHistoryHadZeroFiles()
+    {
+        var checkpoint = new DateTime(2026, 10, 8, 20, 0, 0, DateTimeKind.Utc);
+        var handler = new SequenceResponseHandler(
+            new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("[]") },
+            new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent($"[{{\"created_at\":\"{checkpoint:O}\",\"total_files\":0}}]")
+            });
+        using var service = new NebulaSupabaseSyncService(null!, NullLogger<NebulaSupabaseSyncService>.Instance, null, handler);
+
+        var watermark = await service.GetLastRemoteFileTimestampAsync("https://supabase.invalid", "sb_secret_test");
+
+        Assert.Null(watermark);
+        Assert.Equal(new[] { HttpMethod.Get, HttpMethod.Get }, handler.Methods);
+    }
+
+    [Fact]
+    public async Task GetLastRemoteFileTimestampAsync_AllowsFullSyncOnlyWhenBothRemoteTablesAreInitiallyEmpty()
+    {
+        var handler = new SequenceResponseHandler(
+            new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("[]") },
+            new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("[]") });
+        using var service = new NebulaSupabaseSyncService(null!, NullLogger<NebulaSupabaseSyncService>.Instance, null, handler);
+
+        var watermark = await service.GetLastRemoteFileTimestampAsync("https://supabase.invalid", "sb_secret_test");
+
+        Assert.Null(watermark);
+        Assert.Equal(2, handler.Methods.Count);
+    }
+
+    [Fact]
+    public async Task GetLastRemoteFileTimestampAsync_DoesNotFallbackToFullSyncWhenEmptyCatalogHistoryCannotBeRead()
+    {
+        var handler = new SequenceResponseHandler(
+            new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("[]") },
+            new HttpResponseMessage(HttpStatusCode.ServiceUnavailable));
+        using var service = new NebulaSupabaseSyncService(null!, NullLogger<NebulaSupabaseSyncService>.Instance, null, handler);
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.GetLastRemoteFileTimestampAsync("https://supabase.invalid", "sb_secret_test"));
+
+        Assert.Contains("HTTP 503", exception.Message, StringComparison.Ordinal);
+        Assert.Equal(2, handler.Methods.Count);
+    }
+
+    [Fact]
+    public void ConvertBsonDocToSupabaseRecord_IncludesFreshUpdatedAtForDeltaWatermark()
+    {
+        var sourceUpdatedAt = new DateTime(2026, 10, 8, 10, 0, 0, DateTimeKind.Utc);
+        var beforeSync = DateTime.UtcNow.AddSeconds(-1);
+        var converter = typeof(NebulaSupabaseSyncService).GetMethod(
+            "ConvertBsonDocToSupabaseRecord",
+            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static);
+        var record = converter!.Invoke(null, [new BsonDocument
+        {
+            ["_id"] = ObjectId.GenerateNewId(),
+            ["name"] = "episode.mkv",
+            ["status"] = "completed",
+            ["modified_at"] = new DateTimeOffset(sourceUpdatedAt).ToUnixTimeSeconds(),
+            ["parts"] = new BsonArray { new BsonDocument("tg_file_id", "file-id") }
+        }])!;
+        var updatedAt = (DateTime)record.GetType().GetProperty("UpdatedAt")!.GetValue(record)!;
+
+        Assert.True(updatedAt > sourceUpdatedAt, "O cursor deve representar a sincronização, não a data antiga da mídia.");
+        Assert.InRange(updatedAt, beforeSync, DateTime.UtcNow.AddSeconds(1));
+    }
+
+    [Fact]
+    public void DeltaSync_StartsWithSafetyOverlapBeforeRemoteWatermark()
+    {
+        var watermark = new DateTime(2026, 10, 8, 20, 30, 0, DateTimeKind.Utc);
+
+        Assert.Equal(watermark.AddMinutes(-15), NebulaMongoContext.GetSyncDeltaStartUtc(watermark));
     }
 
     [Fact]

@@ -34,8 +34,11 @@ namespace Jellyfin.Server.Implementations.Nebula;
 /// </summary>
 public sealed class NebulaSupabaseSyncService : IDisposable
 {
+    private sealed record RemoteBackupState(DateTime CreatedAtUtc, int TotalFiles);
+
     public const string MeterName = "MulletaFlix.Nebula.SupabaseSync";
     internal const int SupabaseRestorePageSize = 100;
+    internal static readonly TimeSpan AutomaticBackupUploadIdleCheckInterval = TimeSpan.FromSeconds(30);
 
     private static readonly Meter SyncMeter = new(MeterName);
     private static readonly Counter<long> OperationCounter = SyncMeter.CreateCounter<long>("mulletaflix.supabase.operations");
@@ -188,7 +191,7 @@ public sealed class NebulaSupabaseSyncService : IDisposable
                     // Primeira execução imediata
                     try
                     {
-                        await PerformBackupAsync(supabaseUrl, supabaseKey, progressAction, ct).ConfigureAwait(false);
+                        await PerformAutomaticBackupWhenIdleAsync(supabaseUrl, supabaseKey, progressAction, ct).ConfigureAwait(false);
                     }
                     catch (Exception ex) when (!ct.IsCancellationRequested)
                     {
@@ -201,7 +204,7 @@ public sealed class NebulaSupabaseSyncService : IDisposable
                         {
                             await Task.Delay(TimeSpan.FromMinutes(Math.Max(5, intervalMinutes)), ct).ConfigureAwait(false);
                             _logger.LogInformation("[SUPABASE-AUTO-SYNC] Executando sincronização periódica programada...");
-                            await PerformBackupAsync(supabaseUrl, supabaseKey, progressAction, ct).ConfigureAwait(false);
+                            await PerformAutomaticBackupWhenIdleAsync(supabaseUrl, supabaseKey, progressAction, ct).ConfigureAwait(false);
                         }
                         catch (OperationCanceledException)
                         {
@@ -246,6 +249,23 @@ public sealed class NebulaSupabaseSyncService : IDisposable
             },
             ct);
         }
+    }
+
+    internal async Task<NebulaSupabaseBackupResultDto> PerformAutomaticBackupWhenIdleAsync(
+        string supabaseUrl,
+        string supabaseKey,
+        Action<string>? progressAction,
+        CancellationToken cancellationToken)
+    {
+        while (await _mongoContext.HasActiveUploadsAsync(cancellationToken).ConfigureAwait(false))
+        {
+            const string deferredMessage = "[SUPABASE-AUTO-SYNC] Backup automático adiado enquanto há uploads Telegram ativos; nova verificação em 30 segundos.";
+            _logger.LogInformation("{Message}", deferredMessage);
+            progressAction?.Invoke(deferredMessage);
+            await Task.Delay(AutomaticBackupUploadIdleCheckInterval, cancellationToken).ConfigureAwait(false);
+        }
+
+        return await PerformBackupAsync(supabaseUrl, supabaseKey, progressAction, cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>
@@ -460,7 +480,7 @@ public sealed class NebulaSupabaseSyncService : IDisposable
                 }
             }
 
-            return 0;
+            return -1;
         }
         catch (Exception ex)
         {
@@ -473,15 +493,18 @@ public sealed class NebulaSupabaseSyncService : IDisposable
     /// Obtém o timestamp UTC do último backup registrado com sucesso no Supabase.
     /// </summary>
     public async Task<DateTime?> GetLastRemoteBackupTimestampAsync(string supabaseUrl, string supabaseKey, CancellationToken cancellationToken = default)
+        => (await GetLastRemoteBackupStateAsync(supabaseUrl, supabaseKey, cancellationToken).ConfigureAwait(false))?.CreatedAtUtc;
+
+    private async Task<RemoteBackupState?> GetLastRemoteBackupStateAsync(string supabaseUrl, string supabaseKey, CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(supabaseUrl) || string.IsNullOrWhiteSpace(supabaseKey))
         {
-            return null;
+            throw new InvalidOperationException("A URL e a chave do Supabase são necessárias para consultar o histórico de backup.");
         }
 
         try
         {
-            var uri = $"{supabaseUrl.TrimEnd('/')}/rest/v1/nebula_backups?status=eq.success&order=id.desc&limit=1";
+            var uri = $"{supabaseUrl.TrimEnd('/')}/rest/v1/nebula_backups?select=created_at,total_files&status=eq.success&order=id.desc&limit=1";
             using var req = new HttpRequestMessage(HttpMethod.Get, uri);
             req.Headers.Add("apikey", supabaseKey);
             req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", supabaseKey);
@@ -489,26 +512,47 @@ public sealed class NebulaSupabaseSyncService : IDisposable
             using var resp = await _httpClient.SendAsync(req, cancellationToken).ConfigureAwait(false);
             if (!resp.IsSuccessStatusCode)
             {
-                return null;
+                throw new InvalidOperationException($"Falha ao consultar o histórico do Supabase: HTTP {(int)resp.StatusCode} {resp.ReasonPhrase}.");
             }
 
             var body = await resp.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
             using var doc = JsonDocument.Parse(body);
-            if (doc.RootElement.ValueKind == JsonValueKind.Array && doc.RootElement.GetArrayLength() > 0)
+            if (doc.RootElement.ValueKind != JsonValueKind.Array)
             {
-                var first = doc.RootElement[0];
-                if (first.TryGetProperty("created_at", out var caProp) && caProp.TryGetDateTime(out var dt))
-                {
-                    return dt.ToUniversalTime();
-                }
+                throw new InvalidOperationException("O histórico remoto do Supabase retornou um formato inesperado.");
             }
 
-            return null;
+            if (doc.RootElement.GetArrayLength() == 0)
+            {
+                return null;
+            }
+
+            if (!doc.RootElement[0].TryGetProperty("created_at", out var createdAtProp) || !createdAtProp.TryGetDateTime(out var createdAt))
+            {
+                throw new InvalidOperationException("O último backup do Supabase não contém um created_at válido.");
+            }
+
+            if (!doc.RootElement[0].TryGetProperty("total_files", out var totalFilesProp)
+                || !totalFilesProp.TryGetInt32(out var totalFiles)
+                || totalFiles < 0)
+            {
+                throw new InvalidOperationException("O último backup do Supabase não contém um total_files válido.");
+            }
+
+            return new RemoteBackupState(createdAt.ToUniversalTime(), totalFiles);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (InvalidOperationException)
+        {
+            throw;
         }
         catch (Exception ex)
         {
-            _logger.LogDebug(ex, "[SUPABASE-TIMESTAMP] Falha ao obter timestamp do último backup remoto.");
-            return null;
+            _logger.LogWarning(ex, "[SUPABASE-TIMESTAMP] Falha ao obter o histórico do Supabase; fallback para sincronização integral foi bloqueado.");
+            throw new InvalidOperationException("Não foi possível verificar com segurança o histórico remoto do Supabase.", ex);
         }
     }
 
@@ -520,7 +564,7 @@ public sealed class NebulaSupabaseSyncService : IDisposable
     {
         if (string.IsNullOrWhiteSpace(supabaseUrl) || string.IsNullOrWhiteSpace(supabaseKey))
         {
-            return null;
+            throw new InvalidOperationException("A URL e a chave do Supabase são necessárias para obter o cursor delta.");
         }
 
         try
@@ -533,24 +577,51 @@ public sealed class NebulaSupabaseSyncService : IDisposable
             using var resp = await _httpClient.SendAsync(req, cancellationToken).ConfigureAwait(false);
             if (!resp.IsSuccessStatusCode)
             {
-                return null;
+                throw new InvalidOperationException($"Falha ao consultar o cursor do Supabase: HTTP {(int)resp.StatusCode} {resp.ReasonPhrase}.");
             }
 
             var body = await resp.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
             using var doc = JsonDocument.Parse(body);
-            if (doc.RootElement.ValueKind == JsonValueKind.Array && doc.RootElement.GetArrayLength() > 0 &&
-                doc.RootElement[0].TryGetProperty("updated_at", out var updatedProp) &&
-                updatedProp.TryGetDateTime(out var updatedAt))
+            if (doc.RootElement.ValueKind != JsonValueKind.Array)
             {
-                return updatedAt.ToUniversalTime();
+                throw new InvalidOperationException("O cursor remoto do Supabase retornou um formato inesperado.");
             }
 
-            return null;
+            if (doc.RootElement.GetArrayLength() == 0)
+            {
+                // Catálogo vazio com backup histórico não é um catálogo inicial:
+                // o checkpoint faria somente delta e não recuperaria arquivos apagados.
+                var backupState = await GetLastRemoteBackupStateAsync(supabaseUrl, supabaseKey, cancellationToken).ConfigureAwait(false);
+                if (backupState is not null)
+                {
+                    _logger.LogWarning(
+                        "[SUPABASE-TIMESTAMP] Catálogo de arquivos vazio, mas existe histórico de backup (última contagem: {TotalFiles}); será feita sincronização integral de recuperação.",
+                        backupState.TotalFiles);
+                    return null;
+                }
+
+                return backupState?.CreatedAtUtc;
+            }
+
+            if (!doc.RootElement[0].TryGetProperty("updated_at", out var updatedProp) || !updatedProp.TryGetDateTime(out var updatedAt))
+            {
+                throw new InvalidOperationException("O registro mais recente do Supabase não contém um updated_at válido.");
+            }
+
+            return updatedAt.ToUniversalTime();
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (InvalidOperationException)
+        {
+            throw;
         }
         catch (Exception ex)
         {
-            _logger.LogDebug(ex, "[SUPABASE-TIMESTAMP] Falha ao obter o updated_at mais recente do Supabase.");
-            return null;
+            _logger.LogWarning(ex, "[SUPABASE-TIMESTAMP] Falha ao obter o updated_at mais recente do Supabase; a sincronização delta foi interrompida para evitar fallback integral.");
+            throw new InvalidOperationException("Não foi possível obter com segurança o cursor delta do Supabase.", ex);
         }
     }
 
@@ -670,13 +741,19 @@ public sealed class NebulaSupabaseSyncService : IDisposable
             _logger.LogInformation("{Message}", tokensProgressMsg);
             progressAction?.Invoke(tokensProgressMsg);
 
+            var remoteFileCount = await GetSupabaseFileCountAsync(supabaseUrl, supabaseKey, cancellationToken).ConfigureAwait(false);
+            if (remoteFileCount < 0 || remoteFileCount > int.MaxValue)
+            {
+                throw new InvalidOperationException("Não foi possível confirmar a quantidade de arquivos persistidos no Supabase; o backup não será registrado como concluído.");
+            }
+
             // 5. Registra log na tabela nebula_backups
             var syncModeName = forceFullSync ? "mongo_full_sync" : "mongo_delta_sync";
             var backupLog = new
             {
                 backup_type = syncModeName,
                 status = "success",
-                total_files = 0,
+                total_files = (int)remoteFileCount,
                 total_users = syncedUsers,
                 details = $"Backup do MongoDB concluído com {syncedFiles} arquivos, {syncedUsers} usuários FTP e {syncedTokens} tokens de bot; {deletedFtpUsers} usuários removidos do backup. Usuários do aplicativo não incluídos."
             };
@@ -1108,6 +1185,7 @@ public sealed class NebulaSupabaseSyncService : IDisposable
             Status = status,
             Parts = partsObj,
             UploadedAt = uploadedAt,
+            UpdatedAt = DateTime.UtcNow,
             DocData = cleanDict
         };
     }
@@ -1879,6 +1957,9 @@ public sealed class NebulaSupabaseSyncService : IDisposable
 
         [JsonPropertyName("uploaded_at")]
         public double? UploadedAt { get; set; }
+
+        [JsonPropertyName("updated_at")]
+        public DateTime UpdatedAt { get; set; }
 
         [JsonPropertyName("doc_data")]
         public object? DocData { get; set; }

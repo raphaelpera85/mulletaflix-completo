@@ -3084,6 +3084,13 @@ Este documento é backlog em execução; não autoriza publicar uma release ante
 - Release `v12.1.16` publicada no GitHub com update ZIP, instalador Windows e tarball Linux; portal `Mulletaflix-Portal` sincronizado pelo commit `c316c81`, Vercel `success`, seis rotas públicas HTTP 200. Teste remoto de upload Telegram e medição de startup com Mongo carregado continuam pendentes; não declarar esses fluxos homologados.
 - Revalidação posterior do log anexado (`08/10/2026 20:20`) confirmou que a execução defeituosa ocorreu antes do commit `95ed2dc3` (`20:53`): erros de permissões legadas (`TypeError` em `permissions` string) e upload Bot API HTTP 413 são exatamente os casos já corrigidos na `v12.1.16`; o anexo não contém falha de download. Arquivos Python instalados agora têm SHA-256 idêntico ao checkout e o processo instalado iniciou às 22:45, Python às 22:46–22:47, depois do log. Regressões focadas passaram 17/17 Python e 1/1 .NET. Não houve teste real de upload Telegram nem reinício induzido para cronometragem. O pacote já está publicado; nenhuma release intermediária adicional. Restam 68 tarefas pendentes do roadmap e T0.1/T0.3/T2.1 seguem parciais.
 
+### 09/10/2026 — Correções do backup Supabase e hierarquia Mongo (v12.1.17)
+
+- O backup automático espera a fila de upload Telegram ficar ociosa; a sincronização delta valida o cursor remoto, usa sobreposição de 15 minutos, recupera o catálogo vazio apesar de histórico e só registra sucesso após confirmar contagem remota. Listagem Mongo reconhece categorias sob a raiz e IDs de diretório em `ObjectId`/string.
+- Auditoria read-only das cinco tabelas de aplicação Supabase encontrou zero registros duplicados; nenhum registro foi removido.
+- Validação Release `Jellyfin.Server.Implementations.Tests`: **1.408 aprovados, 39 ignorados, 0 falhas (1.447 total)**, incluindo Mongo isolado `127.0.0.1:27099` com 20 integrações opt-in. `build-update-package.ps1 -Version 12.1.17` compilou servidor Windows Release e web (`npm ci`, `build:check`, `build:production`), gerando ZIP e instalador EXE; `build-linux-package.ps1` gerou tarball Linux x64. Nenhum build Android pertence a esta release.
+- Limites mantidos: N: não mapeado neste ambiente; sem A/B real de upload Telegram; 68 itens do roadmap seguem pendentes. Esses pontos não são declarados homologados. Release foi solicitada explicitamente pelo usuário para estas correções concluídas.
+
 ## Referências técnicas
 
 Fontes oficiais consultadas em 28/09/2026. Disponibilidade, suporte e requisitos de hardware devem ser revalidados antes de qualquer implementação.

@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
 using Jellyfin.Server.Implementations.Nebula;
@@ -484,11 +485,142 @@ public sealed class NebulaQueueConcurrencyMongoTests : IDisposable
         }
     }
 
+    [Fact]
+    public async Task RootListing_IncludesCategoryChildrenStoredUnderRaphaelObjectId()
+    {
+        Assert.SkipUnless(_available, _skipReason);
+
+        var rootId = ObjectId.GenerateNewId();
+        var categoryId = ObjectId.GenerateNewId();
+        await Files.InsertManyAsync(new[]
+        {
+            new BsonDocument
+            {
+                ["_id"] = rootId,
+                ["name"] = "raphael",
+                ["is_directory"] = true,
+                ["type"] = "dir",
+                ["parent"] = BsonNull.Value
+            },
+            new BsonDocument
+            {
+                ["_id"] = categoryId,
+                ["name"] = "Animações",
+                ["is_directory"] = true,
+                ["type"] = "dir",
+                ["parent"] = rootId
+            }
+        });
+
+        using var context = CreateContext();
+        var entries = await context.GetChildrenAsync(null, "/", TestContext.Current.CancellationToken);
+
+        Assert.Contains(entries, entry => entry.GetValue("_id").AsObjectId == categoryId);
+        Assert.DoesNotContain(entries, entry => entry.GetValue("_id").AsObjectId == rootId);
+    }
+
+    [Fact]
+    public async Task HasAnyFileDescendant_FollowsObjectIdDirectoryHierarchyToTelegramPayload()
+    {
+        Assert.SkipUnless(_available, _skipReason);
+
+        var categoryId = ObjectId.GenerateNewId();
+        var titleId = ObjectId.GenerateNewId();
+        await Files.InsertManyAsync(new[]
+        {
+            new BsonDocument
+            {
+                ["_id"] = titleId,
+                ["name"] = "Title (2026)",
+                ["is_directory"] = true,
+                ["type"] = "dir",
+                ["parent"] = categoryId
+            },
+            new BsonDocument
+            {
+                ["_id"] = ObjectId.GenerateNewId(),
+                ["name"] = "episode.mkv",
+                ["is_directory"] = false,
+                ["type"] = "file",
+                ["parent"] = titleId,
+                ["parts"] = new BsonArray { new BsonDocument("tg_file_id", "test-file") }
+            }
+        });
+
+        using var context = CreateContext();
+
+        Assert.True(await context.HasAnyFileDescendantAsync(categoryId.ToString(), "/raphael/Series/Title (2026)", TestContext.Current.CancellationToken));
+        // The empty virtual path must not reuse the non-empty category's Mongo ID;
+        // doing so correctly asks the tree traversal to inspect that category.
+        Assert.False(await context.HasAnyFileDescendantAsync(null, "/raphael/Series/Empty", TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
+    public async Task HasActiveUploads_UsesMongoStatusAndDoesNotRemainActiveAfterCompletion()
+    {
+        Assert.SkipUnless(_available, _skipReason);
+
+        var id = await InsertQueuedFileAsync();
+        await Files.UpdateOneAsync(
+            Builders<BsonDocument>.Filter.Eq("_id", id),
+            Builders<BsonDocument>.Update.Set("status", "uploading"),
+            cancellationToken: TestContext.Current.CancellationToken);
+
+        using var context = CreateContext();
+        Assert.True(await context.HasActiveUploadsAsync(TestContext.Current.CancellationToken));
+
+        await Files.UpdateOneAsync(
+            Builders<BsonDocument>.Filter.Eq("_id", id),
+            Builders<BsonDocument>.Update.Set("status", "completed"),
+            cancellationToken: TestContext.Current.CancellationToken);
+
+        Assert.False(await context.HasActiveUploadsAsync(TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
+    public async Task AutomaticSupabaseBackup_WaitsWhileTelegramUploadIsActive()
+    {
+        Assert.SkipUnless(_available, _skipReason);
+
+        var id = await InsertQueuedFileAsync();
+        await Files.UpdateOneAsync(
+            Builders<BsonDocument>.Filter.Eq("_id", id),
+            Builders<BsonDocument>.Update.Set("status", "uploading"),
+            cancellationToken: TestContext.Current.CancellationToken);
+
+        using var context = CreateContext();
+        using var handler = new UnexpectedHttpHandler();
+        using var service = new NebulaSupabaseSyncService(
+            context,
+            NullLogger<NebulaSupabaseSyncService>.Instance,
+            null!,
+            handler);
+        using var cancellation = new CancellationTokenSource(TimeSpan.FromMilliseconds(100));
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => service.PerformAutomaticBackupWhenIdleAsync(
+            "https://supabase.invalid",
+            "sb_secret_test",
+            progressAction: null,
+            cancellation.Token));
+        Assert.Equal(0, handler.RequestCount);
+    }
+
     public void Dispose()
     {
         if (_available && _client is not null)
         {
             _client.DropDatabase(_databaseName);
+        }
+    }
+
+    private sealed class UnexpectedHttpHandler : HttpMessageHandler
+    {
+        public int RequestCount { get; private set; }
+
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            RequestCount++;
+            throw new InvalidOperationException("The automatic backup must wait for active uploads before sending HTTP requests.");
         }
     }
 }

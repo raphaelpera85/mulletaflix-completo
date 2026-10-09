@@ -189,7 +189,7 @@ public sealed class NebulaFileSystem : IUnixFileSystem
 
                 // Oculta pastas que não têm nenhum arquivo com payload do Telegram (direto ou aninhado).
                 // Isso evita que pastas "fantasma" apareçam no disco N: quando ainda não há mídia publicada.
-                var hasFiles = await _mongoContext.HasAnyFileDescendantAsync(childVirtualPath, cancellationToken).ConfigureAwait(false);
+                var hasFiles = await _mongoContext.HasAnyFileDescendantAsync(id, childVirtualPath, cancellationToken).ConfigureAwait(false);
                 if (!hasFiles)
                 {
                     continue;

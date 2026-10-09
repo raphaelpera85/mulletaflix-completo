@@ -170,6 +170,14 @@ public sealed class NebulaSupabaseBackupBotTokensMongoTests : IDisposable
                 ? null
                 : await request.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
             Requests.Add(new CapturedRequest(request.Method, request.RequestUri!.PathAndQuery, body));
+            if (request.Method == HttpMethod.Head
+                && request.RequestUri.AbsolutePath.EndsWith("/nebula_files", StringComparison.Ordinal))
+            {
+                var countResponse = new HttpResponseMessage(HttpStatusCode.OK);
+                countResponse.Content.Headers.TryAddWithoutValidation("Content-Range", "*/2");
+                return countResponse;
+            }
+
             return responses[_nextResponse++];
         }
     }

@@ -37,6 +37,7 @@ public sealed class NebulaMongoContext : IDisposable
     /// dono desses arquivos e a varredura de staging não precisa reavaliá-los.
     /// </summary>
     private static readonly string[] InFlightStatuses = ["queued", "staging", "uploading"];
+    private static readonly TimeSpan SyncDeltaOverlap = TimeSpan.FromMinutes(15);
 
     private readonly ILogger<NebulaMongoContext> _logger;
     private readonly MongoClient _client;
@@ -467,14 +468,70 @@ public sealed class NebulaMongoContext : IDisposable
         => string.Equals(path, "/raphael", StringComparison.OrdinalIgnoreCase)
             || path.StartsWith("/raphael/", StringComparison.OrdinalIgnoreCase);
 
+    private static bool IsDirectoryDocument(BsonDocument document)
+        => (document.TryGetValue("is_directory", out var isDirectory) && isDirectory.IsBoolean && isDirectory.AsBoolean)
+            || (document.TryGetValue("type", out var type) && type.IsString && string.Equals(type.AsString, "dir", StringComparison.OrdinalIgnoreCase));
+
+    internal static DateTime GetSyncDeltaStartUtc(DateTime remoteWatermarkUtc)
+        => remoteWatermarkUtc.ToUniversalTime().Subtract(SyncDeltaOverlap);
+
+    internal static IReadOnlyList<BsonValue> GetMongoIdVariants(BsonValue id)
+    {
+        if (id.IsObjectId)
+        {
+            return [id, new BsonString(id.AsObjectId.ToString())];
+        }
+
+        if (id.IsString && ObjectId.TryParse(id.AsString, out var objectId))
+        {
+            return [id, objectId];
+        }
+
+        return [id];
+    }
+
+    internal static async Task<bool> HasFileDescendantByIdsAsync(
+        IEnumerable<BsonValue> directoryIds,
+        Func<IReadOnlyCollection<BsonValue>, CancellationToken, Task<DescendantQueryResult>> queryChildrenAsync,
+        CancellationToken cancellationToken = default)
+    {
+        var visited = new HashSet<string>(StringComparer.Ordinal);
+        var frontier = directoryIds
+            .Where(id => id.BsonType is BsonType.ObjectId or BsonType.String)
+            .Where(id => visited.Add($"{id.BsonType}:{id}"))
+            .ToList();
+
+        while (frontier.Count > 0)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var parentValues = frontier.SelectMany(GetMongoIdVariants).Distinct().ToArray();
+
+            var result = await queryChildrenAsync(parentValues, cancellationToken).ConfigureAwait(false);
+            if (result.HasFile)
+            {
+                return true;
+            }
+
+            frontier = result.DirectoryIds
+                .Where(id => id.BsonType is BsonType.ObjectId or BsonType.String)
+                .Where(id => visited.Add($"{id.BsonType}:{id}"))
+                .ToList();
+        }
+
+        return false;
+    }
+
+    internal readonly record struct DescendantQueryResult(bool HasFile, IReadOnlyList<BsonValue> DirectoryIds);
+
     /// <summary>
     /// Verifica se existe pelo menos um arquivo com payload do Telegram descendente do caminho virtual informado.
     /// Usado para ocultar pastas vazias (sem arquivos publicados) no sistema de arquivos virtual FTP.
     /// </summary>
+    /// <param name="directoryId">ID Mongo do diretório a partir do qual a hierarquia ObjectId será percorrida.</param>
     /// <param name="virtualPath">Caminho virtual POSIX do diretório (ex.: "/raphael/Series/Dark").</param>
     /// <param name="cancellationToken">Token de cancelamento.</param>
     /// <returns><see langword="true"/> se houver ao menos um arquivo com partes do Telegram sob esse caminho.</returns>
-    public async Task<bool> HasAnyFileDescendantAsync(string virtualPath, CancellationToken cancellationToken = default)
+    public async Task<bool> HasAnyFileDescendantAsync(string? directoryId, string virtualPath, CancellationToken cancellationToken = default)
     {
         using var activity = StartMongoActivity("mongodb.has_any_file_descendant");
         try
@@ -497,7 +554,8 @@ public sealed class NebulaMongoContext : IDisposable
                 Builders<BsonDocument>.Filter.Exists("parts", true),
                 Builders<BsonDocument>.Filter.Not(Builders<BsonDocument>.Filter.Size("parts", 0)));
 
-            // Para cada variante de caminho, verifica filhos diretos E descendentes via prefixo
+            // Nós legados usam caminhos no campo parent. Procura o caminho inteiro
+            // antes de percorrer os nós novos, que relacionam diretórios por ObjectId.
             var pathOrFilters = new List<FilterDefinition<BsonDocument>>();
             foreach (var p in paths)
             {
@@ -508,13 +566,73 @@ public sealed class NebulaMongoContext : IDisposable
                 pathOrFilters.Add(Builders<BsonDocument>.Filter.Regex("parent", new BsonRegularExpression($"^{escapedPrefix}")));
             }
 
-            var filter = Builders<BsonDocument>.Filter.And(
+            var legacyFileFilter = Builders<BsonDocument>.Filter.And(
                 Builders<BsonDocument>.Filter.Or(pathOrFilters),
-                hasPartsFilter);
+                hasPartsFilter,
+                Builders<BsonDocument>.Filter.Ne("is_directory", true),
+                Builders<BsonDocument>.Filter.Ne("type", "dir"));
+            if (await _filesCollection.Find(legacyFileFilter).Limit(1).AnyAsync(cancellationToken).ConfigureAwait(false))
+            {
+                activity?.SetTag("mongodb.result", "success");
+                return true;
+            }
 
-            var count = await _filesCollection.CountDocumentsAsync(filter, new CountOptions { Limit = 1 }, cancellationToken).ConfigureAwait(false);
+            var startingDirectoryIds = new List<BsonValue>();
+            if (ObjectId.TryParse(directoryId, out var startDirectoryId))
+            {
+                startingDirectoryIds.Add(startDirectoryId);
+            }
+            else if (!string.IsNullOrWhiteSpace(directoryId))
+            {
+                startingDirectoryIds.Add(new BsonString(directoryId));
+            }
+
+            var legacyDirectoryFilter = Builders<BsonDocument>.Filter.And(
+                Builders<BsonDocument>.Filter.Or(paths.Select(path => Builders<BsonDocument>.Filter.Eq("parent", path))),
+                Builders<BsonDocument>.Filter.Or(
+                    Builders<BsonDocument>.Filter.Eq("is_directory", true),
+                    Builders<BsonDocument>.Filter.Eq("type", "dir")));
+            var legacyDirectories = await _filesCollection.Find(legacyDirectoryFilter)
+                .Project(Builders<BsonDocument>.Projection.Include("_id"))
+                .ToListAsync(cancellationToken)
+                .ConfigureAwait(false);
+            foreach (var directory in legacyDirectories)
+            {
+                if (directory.TryGetValue("_id", out var id))
+                {
+                    startingDirectoryIds.Add(id);
+                }
+            }
+
+            var hasFile = await HasFileDescendantByIdsAsync(
+                startingDirectoryIds,
+                async (parentIds, token) =>
+                {
+                    var parentFilter = Builders<BsonDocument>.Filter.In("parent", parentIds);
+                    var directoryFilter = Builders<BsonDocument>.Filter.And(
+                        parentFilter,
+                        Builders<BsonDocument>.Filter.Or(
+                            Builders<BsonDocument>.Filter.Eq("is_directory", true),
+                            Builders<BsonDocument>.Filter.Eq("type", "dir")));
+                    var fileFilter = Builders<BsonDocument>.Filter.And(
+                        parentFilter,
+                        hasPartsFilter,
+                        Builders<BsonDocument>.Filter.Ne("is_directory", true),
+                        Builders<BsonDocument>.Filter.Ne("type", "dir"));
+
+                    var hasFileTask = _filesCollection.Find(fileFilter).Limit(1).AnyAsync(token);
+                    var directoryTask = _filesCollection.Find(directoryFilter)
+                        .Project(Builders<BsonDocument>.Projection.Include("_id"))
+                        .ToListAsync(token);
+                    await Task.WhenAll(hasFileTask, directoryTask).ConfigureAwait(false);
+                    return new DescendantQueryResult(
+                        hasFileTask.Result,
+                        directoryTask.Result.Select(document => document["_id"]).ToArray());
+                },
+                cancellationToken).ConfigureAwait(false);
+
             activity?.SetTag("mongodb.result", "success");
-            return count > 0;
+            return hasFile;
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -597,6 +715,25 @@ public sealed class NebulaMongoContext : IDisposable
 
             using var cursor = await _filesCollection.FindAsync(filter, cancellationToken: cancellationToken).ConfigureAwait(false);
             var list = await cursor.ToListAsync(cancellationToken).ConfigureAwait(false);
+
+            // Bancos novos podem guardar as categorias sob o ObjectId do diretório
+            // raiz "raphael". Inclui esses filhos ao listar /, sem expor a pasta
+            // interna como uma entrada duplicada.
+            if ((virtualPath == "/" || virtualPath?.Equals("/raphael", StringComparison.OrdinalIgnoreCase) == true) && parentId == null)
+            {
+                var rootDirectory = list.FirstOrDefault(document =>
+                    string.Equals(document.GetValue("name", string.Empty).ToString(), "raphael", StringComparison.OrdinalIgnoreCase)
+                    && IsDirectoryDocument(document));
+                if (rootDirectory is not null && rootDirectory.TryGetValue("_id", out var rootId))
+                {
+                    var rootIdValues = GetMongoIdVariants(rootId);
+
+                    using var rootCursor = await _filesCollection.FindAsync(
+                        Builders<BsonDocument>.Filter.In("parent", rootIdValues),
+                        cancellationToken: cancellationToken).ConfigureAwait(false);
+                    list.AddRange(await rootCursor.ToListAsync(cancellationToken).ConfigureAwait(false));
+                }
+            }
 
             // Se for a raiz /raphael ou /, não incluir a própria pasta "raphael" como subpasta de si mesma
             if ((virtualPath == "/" || virtualPath?.Equals("/raphael", StringComparison.OrdinalIgnoreCase) == true) && parentId == null)
@@ -1654,8 +1791,9 @@ public sealed class NebulaMongoContext : IDisposable
     /// <returns>Documentos alterados e pendentes.</returns>
     public async Task<List<BsonDocument>> GetSyncDeltaAsync(DateTime sinceUtc, CancellationToken cancellationToken = default)
     {
-        var sinceEpoch = new DateTimeOffset(sinceUtc.ToUniversalTime()).ToUnixTimeSeconds();
-        var minOid = ObjectId.GenerateNewId(sinceUtc.ToUniversalTime());
+        var deltaStartUtc = GetSyncDeltaStartUtc(sinceUtc);
+        var sinceEpoch = new DateTimeOffset(deltaStartUtc).ToUnixTimeSeconds();
+        var minOid = ObjectId.GenerateNewId(deltaStartUtc);
 
         var filter = Builders<BsonDocument>.Filter.Or(
             Builders<BsonDocument>.Filter.Gte("modified_at", sinceEpoch),
@@ -1755,6 +1893,36 @@ public sealed class NebulaMongoContext : IDisposable
         var filter = Builders<BsonDocument>.Filter.Eq("status", "uploading");
         using var cursor = await _filesCollection.FindAsync(filter, cancellationToken: cancellationToken).ConfigureAwait(false);
         return await cursor.ToListAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Checks whether any Telegram upload is active without loading upload documents into memory.
+    /// </summary>
+    public async Task<bool> HasActiveUploadsAsync(CancellationToken cancellationToken = default)
+    {
+        using var activity = StartMongoActivity("mongodb.has_active_uploads");
+        try
+        {
+            var filter = Builders<BsonDocument>.Filter.Eq("status", "uploading");
+            var hasActiveUpload = await _filesCollection.Find(filter)
+                .Limit(1)
+                .AnyAsync(cancellationToken)
+                .ConfigureAwait(false);
+            activity?.SetTag("mongodb.result", "success");
+            return hasActiveUpload;
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            activity?.SetTag("mongodb.result", "cancelled");
+            throw;
+        }
+        catch (Exception ex)
+        {
+            activity?.SetStatus(ActivityStatusCode.Error, "MongoDB active upload check failed");
+            activity?.SetTag("error.type", ex.GetType().FullName);
+            activity?.SetTag("mongodb.result", "failure");
+            throw;
+        }
     }
 
     public async Task<NebulaUploadQueueSummaryDto> GetUploadQueueSummaryAsync(CancellationToken cancellationToken = default)

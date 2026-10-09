@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
+using System.Linq;
 using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
@@ -350,6 +351,7 @@ public class NebulaStreamEngineTests
         cancellation.Cancel();
 
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => context.HasAnyFileDescendantAsync(
+            MongoDB.Bson.ObjectId.GenerateNewId().ToString(),
             "/raphael/Series/Sensitive Title",
             cancellation.Token));
 
@@ -358,6 +360,148 @@ public class NebulaStreamEngineTests
         Assert.Equal("cancelled", stoppedActivity.GetTagItem("mongodb.result"));
         Assert.DoesNotContain(stoppedActivity.TagObjects, tag => tag.Key.Contains("path", StringComparison.OrdinalIgnoreCase));
         Assert.DoesNotContain(stoppedActivity.TagObjects, tag => tag.Key.Contains("name", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public async Task MongoDescendantTraversal_FollowsNestedObjectIdsUntilTelegramFile()
+    {
+        var categoryId = MongoDB.Bson.ObjectId.GenerateNewId();
+        var titleId = MongoDB.Bson.ObjectId.GenerateNewId();
+        var seasonId = MongoDB.Bson.ObjectId.GenerateNewId();
+        var documents = new[]
+        {
+            new MongoDB.Bson.BsonDocument
+            {
+                ["_id"] = titleId,
+                ["name"] = "Example",
+                ["is_directory"] = true,
+                ["parent"] = categoryId
+            },
+            new MongoDB.Bson.BsonDocument
+            {
+                ["_id"] = seasonId,
+                ["name"] = "Season 1",
+                ["type"] = "dir",
+                ["parent"] = titleId
+            },
+            new MongoDB.Bson.BsonDocument
+            {
+                ["_id"] = MongoDB.Bson.ObjectId.GenerateNewId(),
+                ["name"] = "episode.mkv",
+                ["type"] = "file",
+                ["parent"] = seasonId,
+                ["parts"] = new MongoDB.Bson.BsonArray { new MongoDB.Bson.BsonDocument("tg_file_id", "file-id") }
+            }
+        };
+
+        var found = await NebulaMongoContext.HasFileDescendantByIdsAsync(
+            [categoryId],
+            (parentIds, _) => Task.FromResult(QueryDescendants(documents, parentIds)));
+
+        Assert.True(found);
+    }
+
+    [Fact]
+    public async Task MongoDescendantTraversal_ReturnsFalseForEmptyDirectoryTree()
+    {
+        var found = await NebulaMongoContext.HasFileDescendantByIdsAsync(
+            [MongoDB.Bson.ObjectId.GenerateNewId()],
+            (_, _) => Task.FromResult(new NebulaMongoContext.DescendantQueryResult(false, [])));
+
+        Assert.False(found);
+    }
+
+    [Fact]
+    public async Task MongoDescendantTraversal_FollowsStringDirectoryIds()
+    {
+        var documents = new[]
+        {
+            new MongoDB.Bson.BsonDocument
+            {
+                ["_id"] = "library-root",
+                ["name"] = "Series",
+                ["type"] = "dir",
+                ["parent"] = "virtual-root"
+            },
+            new MongoDB.Bson.BsonDocument
+            {
+                ["_id"] = "media-file",
+                ["name"] = "episode.mkv",
+                ["type"] = "file",
+                ["parent"] = "library-root",
+                ["parts"] = new MongoDB.Bson.BsonArray { new MongoDB.Bson.BsonDocument("tg_file_id", "file-id") }
+            }
+        };
+
+        var found = await NebulaMongoContext.HasFileDescendantByIdsAsync(
+            [new MongoDB.Bson.BsonString("virtual-root")],
+            (parentIds, _) => Task.FromResult(QueryDescendants(documents, parentIds)));
+
+        Assert.True(found);
+    }
+
+    [Fact]
+    public async Task MongoDescendantTraversal_FollowsObjectIdParentWhenDirectoryIdIsHexString()
+    {
+        var directoryId = MongoDB.Bson.ObjectId.GenerateNewId();
+        var documents = new[]
+        {
+            new MongoDB.Bson.BsonDocument
+            {
+                ["_id"] = "nested-directory",
+                ["type"] = "dir",
+                ["parent"] = directoryId
+            },
+            new MongoDB.Bson.BsonDocument
+            {
+                ["_id"] = "media-file",
+                ["type"] = "file",
+                ["parent"] = "nested-directory",
+                ["parts"] = new MongoDB.Bson.BsonArray { new MongoDB.Bson.BsonDocument("tg_file_id", "file-id") }
+            }
+        };
+
+        var found = await NebulaMongoContext.HasFileDescendantByIdsAsync(
+            [new MongoDB.Bson.BsonString(directoryId.ToString())],
+            (parentIds, _) => Task.FromResult(QueryDescendants(documents, parentIds)));
+
+        Assert.True(found);
+    }
+
+    [Fact]
+    public void MongoIdVariants_ConvertStringHexAndObjectIdInBothDirections()
+    {
+        var objectId = MongoDB.Bson.ObjectId.GenerateNewId();
+
+        Assert.Equal(
+            new MongoDB.Bson.BsonValue[] { objectId, new MongoDB.Bson.BsonString(objectId.ToString()) },
+            NebulaMongoContext.GetMongoIdVariants(objectId));
+        Assert.Equal(
+            new MongoDB.Bson.BsonValue[] { new MongoDB.Bson.BsonString(objectId.ToString()), objectId },
+            NebulaMongoContext.GetMongoIdVariants(new MongoDB.Bson.BsonString(objectId.ToString())));
+    }
+
+    private static NebulaMongoContext.DescendantQueryResult QueryDescendants(
+        IEnumerable<MongoDB.Bson.BsonDocument> documents,
+        IReadOnlyCollection<MongoDB.Bson.BsonValue> parentIds)
+    {
+        var children = documents
+            .Where(document => document.TryGetValue("parent", out var parent) && parentIds.Contains(parent))
+            .ToArray();
+        var hasFile = children.Any(document =>
+            !(document.TryGetValue("is_directory", out var isDirectory) && isDirectory.IsBoolean && isDirectory.AsBoolean)
+            && !(document.TryGetValue("type", out var type) && type.IsString && type.AsString == "dir")
+            && document.TryGetValue("parts", out var parts)
+            && parts.IsBsonArray
+            && parts.AsBsonArray.Count > 0);
+        var directoryIds = children
+            .Where(document =>
+                (document.TryGetValue("is_directory", out var isDirectory) && isDirectory.IsBoolean && isDirectory.AsBoolean)
+                || (document.TryGetValue("type", out var type) && type.IsString && type.AsString == "dir"))
+            .Where(document => document.Contains("_id"))
+            .Select(document => document["_id"])
+            .ToArray();
+        return new NebulaMongoContext.DescendantQueryResult(hasFile, directoryIds);
     }
 
     [Fact]
