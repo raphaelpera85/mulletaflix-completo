@@ -578,6 +578,23 @@ public sealed class NebulaQueueConcurrencyMongoTests : IDisposable
     }
 
     [Fact]
+    public async Task HasActiveUploads_IgnoresInterruptedItemsFlaggedForRecovery()
+    {
+        Assert.SkipUnless(_available, _skipReason);
+
+        var id = await InsertQueuedFileAsync();
+        await Files.UpdateOneAsync(
+            Builders<BsonDocument>.Filter.Eq("_id", id),
+            Builders<BsonDocument>.Update
+                .Set("status", "uploading")
+                .Set("recovery_required", true),
+            cancellationToken: TestContext.Current.CancellationToken);
+
+        using var context = CreateContext();
+        Assert.False(await context.HasActiveUploadsAsync(TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
     public async Task AutomaticSupabaseBackup_WaitsWhileTelegramUploadIsActive()
     {
         Assert.SkipUnless(_available, _skipReason);

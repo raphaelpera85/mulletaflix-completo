@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-10-09T02:57:30-03:00",
+  "generatedAt": "2026-10-09T03:09:19-03:00",
   "source": {
     "roadmap": "https://github.com/raphaelpera85/mulletaflix-completo/blob/main/docs/roadmap-evolucao-tecnologica-servidor-e-web.md",
     "repository": "https://github.com/raphaelpera85/mulletaflix-completo"
@@ -2940,6 +2940,21 @@
     }
   ],
   "events": [
+    {
+      "id": "nebula-upload-startup-throughput-2026-10-09-0603",
+      "title": "Reduzir demora de inicialização e melhorar throughput de upload Nebula",
+      "agent": "Codex",
+      "front": "server",
+      "featureIds": ["T0.1", "T0.3", "T2.1", "T4.2"],
+      "local": "D:\\Users\\Raphael\\Documents\\Projetos\\mulletaflix",
+      "location": "MulletaFlix-master/Tools/NebulaPython/main.py, ftp/tg.py e testes",
+      "scope": "Investigar as fases de startup/upload, reduzir verificações sequenciais dos bots e reaproveitar conexões HTTP do Bot API; validar com testes, build e medição controlada sem publicar release intermediária.",
+      "status": "in_progress",
+      "progressPercent": null,
+      "startedAt": "2026-10-09T03:03:53-03:00",
+      "updatedAt": "2026-10-09T03:09:19-03:00",
+      "evidence": "Causa de startup confirmada: 27 verificações get_chat serializadas dos logs levam ~7,5 s; teste agora limita a validação simultânea a 8 bots e comprova pico de 8 em um pool de 27. Bot API criava/fechava ClientSession por parte; código agora mantém uma conexão HTTP keep-alive por bot e fecha os pools no encerramento. Suíte Python completa 566/566, exit 0; build Release Jellyfin.Server.Implementations 0 avisos/0 erros; testes .NET Nebula excluindo NebulaDownloaderEngineTests: 598 aprovados, 21 ignorados, 0 falhas. Execução ampla .NET com a classe antiga incluída falhou em 17 testes por incompatibilidade de mocks com NebulaMongoContext selada e expectativa legada de extensão .strm; nenhum desses testes cobre este caminho Python. git diff --check, compileall e JSON válidos. Continua sem A/B de envio real ao Telegram: logs antigos medem 0,16–0,65 MiB/s por parte, então throughput em produção não está confirmado. Nenhuma reinicialização, envio de teste, pacote ou release; roadmap mantém gate contra release intermediária. Progresso formal null e homologação permanece in_progress até A/B operacional após instalação/reinicialização autorizada."
+    },
     {
       "id": "roadmap-t0-baseline-current-server-2026-10-08-2245",
       "title": "Atualizar baseline operacional para roadmap T0.1",

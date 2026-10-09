@@ -9,6 +9,26 @@ main_module = importlib.import_module("main")
 
 
 @pytest.mark.asyncio
+async def test_channel_access_checks_run_concurrently_for_all_upload_bots():
+    active = 0
+    peak_active = 0
+
+    class Bot:
+        async def get_chat(self, _target):
+            nonlocal active, peak_active
+            active += 1
+            peak_active = max(peak_active, active)
+            await asyncio.sleep(0.01)
+            active -= 1
+
+    bots = [Bot() for _ in range(27)]
+    failed = await main_module._confirm_upload_bots(bots, "channel", first_index=2)
+
+    assert failed == []
+    assert peak_active == 8
+
+
+@pytest.mark.asyncio
 async def test_main_rejects_missing_configuration_before_starting_resources(monkeypatch, tmp_path):
     started = []
 

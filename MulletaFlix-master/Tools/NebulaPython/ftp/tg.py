@@ -30,6 +30,7 @@ logger = logging.getLogger("NebulaFTP")
 GETFILE_CHUNK_SIZE = 1024 * 1024
 UPLOAD_PART_WORKERS = 1
 UPLOAD_PART_TIMEOUT = 180
+UPLOAD_HTTP_CONNECTIONS_PER_BOT = 1
 
 
 async def sequential_save_file(
@@ -161,6 +162,45 @@ def install_reliable_upload():
     Methods.save_file = sequential_save_file
 
 
+def _get_upload_http_session(bot):
+    session = getattr(bot, "_nebula_upload_http_session", None)
+    if session is None or session.closed:
+        timeout = aiohttp.ClientTimeout(total=900, sock_connect=30, sock_read=900)
+        connector = aiohttp.TCPConnector(
+            limit=UPLOAD_HTTP_CONNECTIONS_PER_BOT,
+            limit_per_host=UPLOAD_HTTP_CONNECTIONS_PER_BOT,
+            keepalive_timeout=30,
+        )
+        session = aiohttp.ClientSession(timeout=timeout, connector=connector)
+        bot._nebula_upload_http_session = session
+    return session
+
+
+async def close_upload_sessions(bots):
+    """Close persistent Bot API HTTP pools during Nebula shutdown."""
+    closed = 0
+    seen = set()
+    for bot in bots:
+        if id(bot) in seen:
+            continue
+        seen.add(id(bot))
+        session = getattr(bot, "_nebula_upload_http_session", None)
+        if session is None:
+            continue
+        bot._nebula_upload_http_session = None
+        try:
+            if not session.closed:
+                await session.close()
+                closed += 1
+        except Exception as exc:
+            logger.warning(
+                "Falha fechando pool HTTP de upload do bot %s (%s)",
+                getattr(bot, "name", "?"),
+                type(exc).__name__,
+            )
+    return closed
+
+
 async def send_document_bot_api(bot, chat_id, data, file_name, caption=""):
     token = getattr(bot, "_nebula_bot_token", None)
     if not isinstance(token, str) or not token:
@@ -177,14 +217,13 @@ async def send_document_bot_api(bot, chat_id, data, file_name, caption=""):
         filename=file_name,
         content_type="application/octet-stream",
     )
-    timeout = aiohttp.ClientTimeout(total=900, sock_connect=30, sock_read=900)
     try:
-        async with aiohttp.ClientSession(timeout=timeout) as session:
-            async with session.post(
-                f"https://api.telegram.org/bot{token}/sendDocument",
-                data=form,
-            ) as response:
-                payload = await response.json(content_type=None)
+        session = _get_upload_http_session(bot)
+        async with session.post(
+            f"https://api.telegram.org/bot{token}/sendDocument",
+            data=form,
+        ) as response:
+            payload = await response.json(content_type=None)
     except (aiohttp.ClientError, TimeoutError, ValueError) as exc:
         raise ConnectionError(
             f"Telegram Bot API transport failed: {type(exc).__name__}"

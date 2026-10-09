@@ -99,8 +99,9 @@ async def test_restore_pending_uploads_requeues_existing_media_in_oldest_first_o
 
 
 @pytest.mark.asyncio
-async def test_restore_pending_uploads_marks_missing_stage_for_recovery_without_enqueuing(monkeypatch):
-    doc = {"_id": "missing", "name": "Lost.mkv", "local_path": "Z:/stage/Lost.mkv", "status": "queued"}
+@pytest.mark.parametrize("status", ["queued", "uploading"])
+async def test_restore_pending_uploads_marks_missing_stage_for_recovery_without_enqueuing(monkeypatch, status):
+    doc = {"_id": "missing", "name": "Lost.mkv", "local_path": "Z:/stage/Lost.mkv", "status": status}
     files, queue = Files([doc]), Queue()
     mongo = configure_restore(monkeypatch, files, queue, {})
 
@@ -150,4 +151,3 @@ async def test_restore_pending_uploads_handles_racing_duplicate_key_without_losi
     assert files.updates[-1] == ({"_id": "racing"}, {"$set": {
         "status": "queued", "failed_reason": "duplicate_target_preserved", "recovery_required": True,
     }})
-

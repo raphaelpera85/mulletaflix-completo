@@ -180,6 +180,48 @@ async def test_send_document_bot_api_maps_success_payload(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_send_document_bot_api_reuses_connection_pool_and_closes_it(monkeypatch):
+    created = []
+
+    class Response:
+        status = 200
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return None
+
+        async def json(self, **_kwargs):
+            return {"ok": True, "result": {"message_id": 42, "document": {"file_id": "tg-file"}}}
+
+    class ClientSession:
+        def __init__(self, **_kwargs):
+            self.posts = 0
+            self.closed = False
+            created.append(self)
+
+        def post(self, *_args, **_kwargs):
+            self.posts += 1
+            return Response()
+
+        async def close(self):
+            self.closed = True
+
+    monkeypatch.setattr(tg.aiohttp, "ClientSession", ClientSession)
+    bot = SimpleNamespace(_nebula_bot_token="secret")
+
+    await tg.send_document_bot_api(bot, -100, b"first", "first.bin")
+    await tg.send_document_bot_api(bot, -100, b"second", "second.bin")
+
+    assert len(created) == 1
+    assert created[0].posts == 2
+    assert await tg.close_upload_sessions([bot]) == 1
+    assert created[0].closed
+    assert getattr(bot, "_nebula_upload_http_session") is None
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize(
     ("payload", "status", "message"),
     [

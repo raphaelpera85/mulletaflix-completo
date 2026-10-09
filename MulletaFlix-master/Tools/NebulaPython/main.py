@@ -77,7 +77,7 @@ from ftp import MongoDBPathIO, MongoDBUserManager, Server
 from ftp.common import UPLOAD_QUEUE
 from ftp.pathio import MongoDBMemoryIO, Node, is_uploadable_name, movie_folder_score
 from ftp.range import parse_range as _parse_range
-from ftp.tg import install_reliable_upload, send_document_bot_api
+from ftp.tg import close_upload_sessions, install_reliable_upload, send_document_bot_api
 
 for stream in (sys.stdout, sys.stderr):
     if hasattr(stream, "reconfigure"):
@@ -1042,7 +1042,10 @@ async def restore_pending_uploads(mongo):
                 await mongo.files.update_one(
                     {"_id": doc["_id"]},
                     {"$set": {
-                        "status": doc.get("status", "queued"),
+                        # Do not leave interrupted/missing files marked as actively
+                        # uploading: the C# automatic backup gate uses this status
+                        # and would otherwise wait forever for an upload that cannot run.
+                        "status": "queued",
                         "failed_at": int(time.time()),
                         "failed_reason": "local_path_missing",
                         "recovery_required": True,
@@ -2427,17 +2430,11 @@ async def main():
             target_chat_id = None
         else:
             confirm_bots = upload_bots if upload_bots is not bots else bots[1:]
-            failed_confirm = []
-            for idx, bot in enumerate(confirm_bots, start=2 if len(bots) > 1 else 1):
-                try:
-                    await asyncio.wait_for(bot.get_chat(target_chat_id), timeout=20)
-                    logger.info("Bot #%s confirmado no canal.", idx)
-                except (asyncio.TimeoutError, Exception) as exc:
-                    logger.warning(
-                        "Bot #%s sem acesso ao canal (%s); removendo da lista de upload.",
-                        idx, exc
-                    )
-                    failed_confirm.append(bot)
+            failed_confirm = await _confirm_upload_bots(
+                confirm_bots,
+                target_chat_id,
+                first_index=2 if len(bots) > 1 else 1,
+            )
             if failed_confirm:
                 bots = [b for b in bots if b not in failed_confirm]
                 upload_bots = bots[1:] or bots
@@ -2664,10 +2661,35 @@ async def main():
         for task in background_tasks:
             task.cancel()
         await asyncio.gather(*background_tasks, return_exceptions=True)
+        await close_upload_sessions(bots)
         for bot in bots:
             await bot.stop()
         logger.info("👋 Desligado.")
     return 0
+
+async def _confirm_upload_bots(bots, target_chat_id, first_index=1):
+    """Validate channel access concurrently without flooding Telegram at startup."""
+    failed = []
+    concurrency = asyncio.Semaphore(min(8, max(1, len(bots))))
+
+    async def _confirm(index, bot):
+        try:
+            async with concurrency:
+                await asyncio.wait_for(bot.get_chat(target_chat_id), timeout=20)
+            logger.info("Bot #%s confirmado no canal.", index)
+        except Exception as exc:
+            logger.warning(
+                "Bot #%s sem acesso ao canal (%s); removendo da lista de upload.",
+                index,
+                exc,
+            )
+            failed.append(bot)
+
+    await asyncio.gather(
+        *(_confirm(first_index + offset, bot) for offset, bot in enumerate(bots))
+    )
+    return failed
+
 
 if __name__ == "__main__":
     exit_code = 0

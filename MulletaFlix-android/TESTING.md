@@ -33,7 +33,7 @@ Execute na raiz `MulletaFlix-android`. Rode o lint do módulo alterado e do app:
 .\gradlew.bat testDebugUnitTest :feature:item-detail:lintDebug :app:lintDebug :app:assembleDebug --no-daemon --console=plain
 ```
 
-Troque `:feature:item-detail:lintDebug` pelo módulo afetado. O Quality Gate completo executado em 2026-10-08 comprovou 1.485 testes JVM nos relatórios XML, zero falhas, erros ou ignorados. Esse número é um baseline de execução, não uma métrica de cobertura nem garantia de que todos os comportamentos existentes tenham sido auditados em RED-GREEN.
+Troque `:feature:item-detail:lintDebug` pelo módulo afetado. O Quality Gate completo executado em 2026-10-09 comprovou 1.556 testes JVM nos relatórios XML, zero falhas, erros ou ignorados. Esse número é um baseline de execução, não uma métrica de cobertura nem garantia de que todos os comportamentos existentes tenham sido auditados em RED-GREEN.
 
 Para instrumentação, use `tools\with-emulator.ps1`, informe `expectedDeviceProfile` e selecione os testes relevantes. A suíte não depende de instalar uma release no aparelho. Perfis e comandos ficam na seção “Perfis de emulador para UX adaptativa”.
 

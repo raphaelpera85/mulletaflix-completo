@@ -1908,7 +1908,9 @@ public sealed class NebulaMongoContext : IDisposable
         using var activity = StartMongoActivity("mongodb.has_active_uploads");
         try
         {
-            var filter = Builders<BsonDocument>.Filter.Eq("status", "uploading");
+            var filter = Builders<BsonDocument>.Filter.And(
+                Builders<BsonDocument>.Filter.Eq("status", "uploading"),
+                Builders<BsonDocument>.Filter.Ne("recovery_required", true));
             var hasActiveUpload = await _filesCollection.Find(filter)
                 .Limit(1)
                 .AnyAsync(cancellationToken)

@@ -104,12 +104,19 @@ internal fun isClearlyNotSupportedBookContentType(contentType: String?): Boolean
         mimeType.startsWith("image/") ||
         mimeType.startsWith("audio/") ||
         mimeType.startsWith("video/") ||
+        mimeType.endsWith("+json") ||
         mimeType in setOf(
             "application/json",
             "application/x-mobipocket-ebook",
             "application/x-cb7",
             "application/x-cbt",
         )
+}
+
+internal fun validateBookReaderPayloadLength(declaredBytes: Long, copiedBytes: Long) {
+    if (declaredBytes >= 0L && declaredBytes != copiedBytes) {
+        throw IOException("A resposta do livro está incompleta ou inconsistente.")
+    }
 }
 
 internal fun bookReaderHttpFailureMessage(statusCode: Int): String =

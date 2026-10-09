@@ -95,6 +95,26 @@ class BookReaderViewModelTest {
     }
 
     @Test
+    fun `load rejects structured JSON error response before opening content`() = runTest(dispatcher) {
+        val api = mockk<MulletaFlixApiService>(relaxed = true)
+        coEvery { api.getBookReaderEpub(any()) } returns
+            """{"type":"about:blank","title":"Conversion failed"}"""
+                .toResponseBody("application/vnd.api+json; charset=utf-8".toMediaType())
+        coEvery { api.getBookReaderStatus(any()) } returns BookReaderStatusDto("Ready")
+        val viewModel = BookReaderViewModel(api, FakeSessionRepository(SCOPE_A), context)
+
+        viewModel.load("json-error-book")
+        awaitLoadFinished(viewModel)
+
+        val state = viewModel.state.value
+        assertFalse(state.isLoading)
+        assertEquals("O servidor não enviou um arquivo de livro compatível para leitura.", state.error)
+        assertNull(state.publication)
+        assertNull(state.pageBook)
+        assertNull(state.textBook)
+    }
+
+    @Test
     fun `load reads directly returned HTML as safe text`() = runTest(dispatcher) {
         val api = mockk<MulletaFlixApiService>(relaxed = true)
         coEvery { api.getBookReaderEpub(any()) } returns
@@ -341,6 +361,44 @@ class BookReaderViewModelTest {
         assertFalse(state.isLoading)
         assertEquals(bookReaderHttpFailureMessage(415), state.error)
         assertNull(state.publication)
+    }
+
+    @Test
+    fun `truncated HTTP response is rejected before opening the book`() = runTest(dispatcher) {
+        val api = mockk<MulletaFlixApiService>(relaxed = true)
+        val payload = epubBytes()
+        coEvery { api.getBookReaderEpub(any()) } returns
+            DeclaredLengthResponseBody(
+                payload.toResponseBody("application/epub+zip".toMediaType()),
+                declaredLength = payload.size - 1L,
+            )
+        coEvery { api.getBookReaderStatus(any()) } returns BookReaderStatusDto("Ready")
+        val viewModel = BookReaderViewModel(api, FakeSessionRepository(SCOPE_A), context)
+
+        viewModel.load("truncated-book")
+        awaitLoadFinished(viewModel)
+
+        val state = viewModel.state.value
+        assertFalse(state.isLoading)
+        assertEquals("A resposta do livro está incompleta ou inconsistente.", state.error)
+        assertNull(state.publication)
+        assertNull(state.pageBook)
+        assertNull(state.textBook)
+    }
+
+    @Test
+    fun `response without content length remains readable`() = runTest(dispatcher) {
+        val api = mockk<MulletaFlixApiService>(relaxed = true)
+        coEvery { api.getBookReaderEpub(any()) } returns
+            DeclaredLengthResponseBody(epubResponseBody(), declaredLength = -1L)
+        coEvery { api.getBookReaderStatus(any()) } returns BookReaderStatusDto("Ready")
+        val viewModel = BookReaderViewModel(api, FakeSessionRepository(SCOPE_A), context)
+
+        viewModel.load("unknown-length-book")
+        awaitLoadFinished(viewModel)
+
+        assertNull(viewModel.state.value.error)
+        assertEquals("Integration Test Book", viewModel.state.value.publication?.metadata?.title)
     }
 
     @Test
@@ -742,6 +800,17 @@ class BookReaderViewModelTest {
         val SCOPE_A = HomeFeedCacheScope("server-a", "https://server-a.example", "user-a")
         val SCOPE_B = HomeFeedCacheScope("server-b", "https://server-b.example", "user-b")
     }
+}
+
+private class DeclaredLengthResponseBody(
+    private val delegate: ResponseBody,
+    private val declaredLength: Long,
+) : ResponseBody() {
+    override fun contentType() = delegate.contentType()
+
+    override fun contentLength() = declaredLength
+
+    override fun source(): BufferedSource = delegate.source()
 }
 
 private class GatedEpubResponseBody(

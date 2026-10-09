@@ -368,6 +368,27 @@ class BookReaderPayloadPolicyTest {
     }
 
     @Test
+    fun `rejects a response when declared and copied lengths differ`() {
+        val failure = assertThrows(IOException::class.java) {
+            validateBookReaderPayloadLength(declaredBytes = 10L, copiedBytes = 9L)
+        }
+
+        assertEquals("A resposta do livro está incompleta ou inconsistente.", failure.message)
+    }
+
+    @Test
+    fun `accepts unknown response length and exact declared length`() {
+        validateBookReaderPayloadLength(declaredBytes = -1L, copiedBytes = 9L)
+        validateBookReaderPayloadLength(declaredBytes = 9L, copiedBytes = 9L)
+    }
+
+    @Test
+    fun `rejects structured JSON response types as incompatible book payloads`() {
+        assertTrue(isClearlyNotSupportedBookContentType("application/problem+json"))
+        assertTrue(isClearlyNotSupportedBookContentType("application/vnd.api+json; charset=utf-8"))
+    }
+
+    @Test
     fun `maps unsupported conversion response to actionable message`() {
         assertEquals(
             "Este formato não pode ser lido pelo aplicativo.",

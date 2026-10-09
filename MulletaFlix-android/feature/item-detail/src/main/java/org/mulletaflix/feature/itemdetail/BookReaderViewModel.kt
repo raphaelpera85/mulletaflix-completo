@@ -157,7 +157,7 @@ class BookReaderViewModel @Inject constructor(
                         var cacheTarget = target
                         var contentOpened = false
                         try {
-                            body.byteStream().use { input ->
+                            val copiedBytes = body.byteStream().use { input ->
                                 target.outputStream().use { output ->
                                     copyBookReaderPayload(
                                         input,
@@ -167,6 +167,7 @@ class BookReaderViewModel @Inject constructor(
                                     )
                                 }
                             }
+                            validateBookReaderPayloadLength(body.contentLength(), copiedBytes)
                             currentCoroutineContext().ensureActive()
                             val payloadFormat = detectBookPayloadFormat(target, contentType)
                             val extension = when (payloadFormat) {

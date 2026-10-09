@@ -4,8 +4,12 @@
 
 - [x] Cobrir no ViewModel respostas HTTP CBZ com MIME genérico e TXT com `text/plain`, confirmando o modelo paginado correto e conteúdo lido.
 - [x] Cobrir PDF HTTP com `application/pdf` no fluxo instrumentado do Android, confirmando `PdfBookDocument`, paginação e rota do servidor.
-- [x] Quality Gate Android em 2026-10-09: 1.550 testes JVM (239 XML), 0 falhas/erros/ignorados; `:feature:item-detail:lintDebug`, `:app:lintDebug` e `:app:assembleDebug` passaram. Instrumentação `BookReaderScreenIntegrationTest` no AVD PHONE/API 35: 9/9, incluindo PDF HTTP.
-- [ ] Cobrir futuramente truncamento/limite e respostas HTTP incompatíveis no pipeline do ViewModel, além de validação com catálogo real quando disponível.
+- [x] Rejeitar no leitor corpos HTTP truncados ou inconsistentes quando `Content-Length` é informado: comparar bytes realmente copiados antes de abrir EPUB/PDF/CBZ/CBR/TXT; manter respostas sem tamanho declarado aceitas.
+- [x] TDD nesta rodada: o teste de resposta truncada falhou antes da implementação e passou depois; a política pura cobre tamanho exato, tamanho desconhecido e divergência.
+- [x] Quality Gate Android em 2026-10-09 após a validação de tamanho e MIME: 1.556 testes JVM (239 XML), 0 falhas/erros/ignorados; `:feature:item-detail:lintDebug`, `:app:lintDebug` e `:app:assembleDebug` passaram.
+- [x] Rejeitar tipos JSON estruturados (`application/problem+json` e `application/*+json`) como respostas incompatíveis, evitando tratar mensagens de erro da API como livros.
+- [x] Teste ViewModel/Robolectric confirma `application/vnd.api+json` com corpo de erro: encerra o loading, mostra mensagem localizada e não abre publicação, página ou texto.
+- [ ] Validar respostas incompatíveis adicionais com catálogo real quando disponível.
 - [ ] Sem mudança de comportamento de produção, versão ou release do APK.
 
 ## Endurecer origem do download do APK (APK local; sem release)
