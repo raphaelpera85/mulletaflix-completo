@@ -2534,9 +2534,11 @@ async def main():
         upload_worker_count = get_upload_worker_count(len(upload_bots))
         small_worker_count = get_small_upload_worker_count(len(upload_bots))
         logger.info(
-            "Workers de upload ativos: %s grandes / %s pequenos (configurados: max_grandes=%s, max_pequenos=%s, bots=%s).",
+            "Workers de upload ativos: %s grandes / %s pequenos "
+            "(concorrencia maxima=%s partes, configurados: max_grandes=%s, max_pequenos=%s, bots=%s).",
             upload_worker_count,
             small_worker_count,
+            UPLOAD_CONCURRENCY,
             LARGE_WORKERS_CONFIG,
             SMALL_WORKERS_CONFIG,
             len(upload_bots),

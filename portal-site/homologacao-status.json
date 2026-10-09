@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-10-09T02:30:00-03:00",
+  "generatedAt": "2026-10-09T02:39:53-03:00",
   "source": {
     "roadmap": "https://github.com/raphaelpera85/mulletaflix-completo/blob/main/docs/roadmap-evolucao-tecnologica-servidor-e-web.md",
     "repository": "https://github.com/raphaelpera85/mulletaflix-completo"
@@ -4762,12 +4762,12 @@
       "featureIds": ["T0.3", "T2.1", "T4.2"],
       "local": "D:\\Users\\Raphael\\Documents\\Projetos\\mulletaflix",
       "location": "MulletaFlix-master/Jellyfin.Server.Implementations/Nebula, testes Nebula .NET e schema Supabase",
-      "scope": "Eliminar o HTTP 500 na consulta do cursor de backup delta, sem expor credenciais, e comprovar o backup por testes e validação remota do schema.",
+      "scope": "Corrigir a consulta do cursor delta Supabase e sincronização/indexação após startup; reduzir workers de upload ociosos que mantinham buffers de chunks sem elevar concorrência efetiva; validar mensagens de backup e investigar throughput Nebula.",
       "status": "in_progress",
       "progressPercent": null,
       "startedAt": "2026-10-09T02:30:00-03:00",
-      "updatedAt": "2026-10-09T02:30:00-03:00",
-      "evidence": "Investigação inicial: a tabela public.nebula_files e a coluna updated_at existem; a consulta SQL direta funciona, mas o endpoint REST/PostgREST retorna HTTP 500 ao ordenar por updated_at. O índice idx_nebula_files_updated_at não existe. A hipótese sob teste é timeout de ordenação no PostgREST sobre catálogo grande; ainda sem correção aplicada."
+      "updatedAt": "2026-10-09T02:39:53-03:00",
+      "evidence": "Supabase: confirmado que a tabela/coluna existem, SQL direto funciona e o REST falhava no cursor; índice public.idx_nebula_files_updated_at aplicado e confirmado por EXPLAIN/Index Only Scan. Testes focados de cursor/índice/catálogo: 5/5; conjunto Nebula .NET: 598 aprovados, 20 ignorados, 0 falhas; build Release de Jellyfin.Server.Implementations: 0 erros (1072 avisos preexistentes); npm run build:check: exit 0. Log novo mostrou 27 bots, 10 workers grandes, limite global padrão 8 partes e chunks de até 45 MiB; taxas por parte em geral ~0,16–0,65 MiB/s, com pelo menos um ClientOSError/rotação. Gauntlet RED: com pool de 27 bots e UPLOAD_CONCURRENCY=8, teste falhou reproduzindo 10 workers; GREEN: corrigido get_upload_worker_count para respeitar o limite, teste focalizado 91/91. Isso elimina workers/buffers de read-ahead acima do limite, mas ainda não prova aumento da taxa na rede real. Suíte Python completa: 563/563. A suíte inteira de Implementations teve 17 falhas na classe NebulaDownloaderEngineTests presente no workspace (mocks de classe selada e expectativas antigas), embora o filtro Nebula exceto essa classe passe: 598 aprovados, 20 ignorados, 0 falhas. O patch de throughput permanece local; sem benchmark controlado contra Telegram/uplink do host, não há comprovação quantitativa de aumento da vazão. Homologação de produção e validação final pendentes; progressPercent null. Sem release por enquanto."
     },
     {
       "id": "nebula-final-gaps-2026-10-09-0020",
