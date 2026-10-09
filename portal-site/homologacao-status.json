@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-10-08T23:57:40-03:00",
+  "generatedAt": "2026-10-09T00:22:44-03:00",
   "source": {
     "roadmap": "https://github.com/raphaelpera85/mulletaflix-completo/blob/main/docs/roadmap-evolucao-tecnologica-servidor-e-web.md",
     "repository": "https://github.com/raphaelpera85/mulletaflix-completo"
@@ -4753,6 +4753,21 @@
       "startedAt": "2026-10-08T23:10:00-03:00",
       "updatedAt": "2026-10-08T23:57:40-03:00",
       "evidence": "Correção validada: updated_at Supabase atualizado em cada upsert; delta usa sobreposição de 15 min e falha HTTP/formato inválido não inicia full backup; catálogo vazio após qualquer backup histórico inicia recuperação integral, e histórico registra contagem remota exata validada por Content-Range. Listagem Mongo inclui categorias sob root raphael e travessia descendente aceita IDs ObjectId/string hex nos dois sentidos; consultas Mongo verificam arquivos com AnyAsync e projetam somente IDs de diretórios, sem materializar subárvores/payloads. Testes focados 10/10; suite Server.Implementations Release com build: 1.388 aprovados, 57 ignorados, 0 falhas (1.445 total). 57 ignorados incluem integrações Mongo explicitamente opt-in (Mongo isolado localhost:27099 indisponível). Revisão adversarial final: sem achados. Uma execução da solução inteira foi interrompida após longa espera em Jellyfin.Server.Integration.Tests sem saída de conclusão; não é declarada como aprovada. Auditoria read-only do Supabase Mulletaflix-Nebula: 5 tabelas de aplicação (136.136 arquivos, 7 usuários Nebula, 784 backups, 28 tokens, 15 usuários Mulletaflix); zero duplicatas pelas chaves de identidade, conteúdo completo idêntico e nomes de usuários normalizados; nenhum registro removido. Causa da queda de velocidade não recebeu medição A/B com upload Telegram real; concorrência do backup no log segue hipótese de impacto. Roadmap permanece com 68 itens pendentes e gate do AGENTS.md bloqueia release intermediária; nenhuma release/pacote publicado. Status de homologação enviado ao Git principal no commit 522d02a7 e sincronizado ao portal no commit d8a9c1b; rotas públicas /, /docs, /downloads, /updates, /homologacao, /sitemap.xml e /homologacao-status.json retornaram HTTP 200 e o JSON público contém este evento. Vercel API respondeu 403 para o escopo do projeto e CLI não está instalada; estado READY vinculado ao commit não pôde ser confirmado. progressPercent permanece null por homologação formal não consolidada."
+    },
+    {
+      "id": "nebula-final-gaps-2026-10-09-0020",
+      "title": "Corrigir interferência do backup automático e fechar validação Mongo/Nebula",
+      "agent": "Codex",
+      "front": "server",
+      "featureIds": ["T0.3", "T2.1", "T4.2"],
+      "local": "D:\\Users\\Raphael\\Documents\\Projetos\\mulletaflix",
+      "location": "MulletaFlix-master/Jellyfin.Server.Implementations/Nebula e testes Nebula .NET",
+      "scope": "Usar os logs enviados para corrigir interferência do backup do Supabase nos uploads Telegram; executar integração Mongo real isolada, revisar hierarquia/listagem do N e registrar limites de validação de produção.",
+      "status": "blocked",
+      "progressPercent": null,
+      "startedAt": "2026-10-09T00:20:32-03:00",
+      "updatedAt": "2026-10-09T00:22:44-03:00",
+      "evidence": "Análise do log compartilhado localizou backup full de 54.313 arquivos concluído em 614,9 s simultaneamente a uploads em 10 workers; as partes registraram 0,13–0,25 MB/s e 180–340 s. Implementado guard para backups automáticos esperar uploads Mongo status=uploading cessarem; backups manuais permanecem operáveis. Mongo descartável localhost:27099 passou 20/20 integrações; suíte integral Server.Implementations Release passou 1.408 aprovados, 39 ignorados, 0 falhas; `git diff --check` e JSON de homologação válidos. Ainda não foi possível conferir a raiz N: porque nenhuma unidade SMB N: está mapeada neste ambiente; o A/B de Telegram real não foi executado para evitar criar upload externo em destino de produção sem amostra/destino de teste definidos. Esta confirmação prática permanece bloqueada; a correção de código e os testes automatizados estão validados. Roadmap tem 68 itens pendentes e impede release intermediária; nenhum pacote/release criado."
     }
   ]
 }
