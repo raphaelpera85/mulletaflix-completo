@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-10-08T22:55:00-03:00",
+  "generatedAt": "2026-10-08T23:54:19-03:00",
   "source": {
     "roadmap": "https://github.com/raphaelpera85/mulletaflix-completo/blob/main/docs/roadmap-evolucao-tecnologica-servidor-e-web.md",
     "repository": "https://github.com/raphaelpera85/mulletaflix-completo"
@@ -4634,7 +4634,7 @@
       "local": "D:\\Users\\Raphael\\Documents\\Projetos\\mulletaflix",
       "location": "MulletaFlix-android/app/src/main/AndroidManifest.xml e Google Play Console",
       "scope": "Remover permissões Android sem uso que bloqueiam a publicação, validar o aplicativo e completar as declarações obrigatórias da faixa de teste fechado.",
-      "status": "in_progress",
+      "status": "completed",
       "progressPercent": null,
       "startedAt": "2026-10-08T11:49:28-03:00",
       "updatedAt": "2026-10-08T11:49:28-03:00",
@@ -4738,6 +4738,21 @@
       "startedAt": "2026-10-08T22:06:10-03:00",
       "updatedAt": "2026-10-08T22:07:41-03:00",
       "evidence": "TDD RED-GREEN: teste de identidade DNS local falhou antes do guard; cliente de legendas com interceptor envolvido falhou sem estágio pós-rota; teste same-origin redirect detectou duas leituras em vez de uma. Focal core:api/app passou; 26 chamadas diretas pesquisadas, sem construção paralela em produção. Quality Bar Android: `testDebugUnitTest :core:common:lintDebug :core:api:lintDebug :app:lintDebug :app:assembleDebug --no-daemon --console=plain` BUILD SUCCESSFUL; 238 XML, 1.539 testes, 0 falhas/erros/ignorados. `AndroidCleartextPolicyIntegrationTest` PHONE API 35: 3/3, GPU NVIDIA verificada, AVD encerrado. Sem APK, pacote ou release. Limitações: Network Security Config ainda permite cleartext amplo para CIDR dinâmico; teste combinado `.local` off-subnet + zero leituras de credenciais pendente; API-key em query não coberta; homologação formal permanece sem percentual consolidado."
+    },
+    {
+      "id": "nebula-upload-speed-and-n-drive-categories-2026-10-08",
+      "title": "Corrigir lentidão de upload e listagem incompleta do disco N",
+      "agent": "Codex",
+      "front": "server",
+      "featureIds": ["T0.3", "T2.1", "T4.2"],
+      "local": "D:\\Users\\Raphael\\Documents\\Projetos\\mulletaflix",
+      "location": "MulletaFlix-master/Jellyfin.Server.Implementations/Nebula e testes Nebula .NET",
+      "scope": "Investigar concorrência do backup Supabase durante uploads e hierarquia Mongo de diretórios no FTP; corrigir apenas regressões reproduzidas e validar com testes/build de produção.",
+      "status": "completed",
+      "progressPercent": null,
+      "startedAt": "2026-10-08T23:10:00-03:00",
+      "updatedAt": "2026-10-08T23:54:19-03:00",
+      "evidence": "Correção validada: updated_at Supabase atualizado em cada upsert; delta usa sobreposição de 15 min e falha HTTP/formato inválido não inicia full backup; catálogo vazio após qualquer backup histórico inicia recuperação integral, e histórico registra contagem remota exata validada por Content-Range. Listagem Mongo inclui categorias sob root raphael e travessia descendente aceita IDs ObjectId/string hex nos dois sentidos; consultas Mongo verificam arquivos com AnyAsync e projetam somente IDs de diretórios, sem materializar subárvores/payloads. Testes focados 10/10; suite Server.Implementations Release com build: 1.388 aprovados, 57 ignorados, 0 falhas (1.445 total). 57 ignorados incluem integrações Mongo explicitamente opt-in (Mongo isolado localhost:27099 indisponível). Revisão adversarial final: sem achados. Uma execução da solução inteira foi interrompida após longa espera em Jellyfin.Server.Integration.Tests sem saída de conclusão; não é declarada como aprovada. Auditoria read-only do Supabase Mulletaflix-Nebula: 5 tabelas de aplicação (136.136 arquivos, 7 usuários Nebula, 784 backups, 28 tokens, 15 usuários Mulletaflix); zero duplicatas pelas chaves de identidade, conteúdo completo idêntico e nomes de usuários normalizados; nenhum registro removido. Causa da queda de velocidade não recebeu medição A/B com upload Telegram real; concorrência do backup no log segue hipótese de impacto. Roadmap permanece com 68 itens pendentes e gate do AGENTS.md bloqueia release intermediária; nenhuma release/pacote publicado. progressPercent permanece null por homologação formal não consolidada."
     }
   ]
 }
