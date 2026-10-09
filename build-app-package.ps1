@@ -69,10 +69,6 @@ if (-not $OutputDir) {
     $OutputDir = Join-Path $projectRoot 'dist'
 }
 
-if (-not (Test-Path -LiteralPath $OutputDir)) {
-    New-Item -ItemType Directory -Path $OutputDir -Force | Out-Null
-}
-
 $apkSource = Join-Path $androidDir 'app\build\outputs\apk\release\app-release.apk'
 
 Write-Host "==================================================" -ForegroundColor Cyan
@@ -92,11 +88,32 @@ if (-not (Test-Path -LiteralPath $apkSource)) {
     throw "Arquivo APK não encontrado em: $apkSource"
 }
 
+$gradleFile = Join-Path $androidDir 'app\build.gradle.kts'
+$gradleContent = Get-Content -LiteralPath $gradleFile -Raw
+if ($gradleContent -notmatch 'applicationId\s*=\s*"([^"]+)"') {
+    throw 'applicationId não encontrado em app/build.gradle.kts.'
+}
+$expectedPackageName = $Matches[1]
+if ($gradleContent -notmatch 'versionCode\s*=\s*(\d+)') {
+    throw 'versionCode literal não encontrado em app/build.gradle.kts.'
+}
+$expectedVersionCode = [int]$Matches[1]
+
+$metadataVerifier = Join-Path $projectRoot 'tools\Assert-AndroidApkMetadata.ps1'
+if (-not (Test-Path -LiteralPath $metadataVerifier)) {
+    throw "Validador de metadados Android não encontrado: $metadataVerifier"
+}
+& $metadataVerifier -ApkPath $apkSource -ProjectRoot $projectRoot -ExpectedPackageName $expectedPackageName -ExpectedVersionName $Version -ExpectedVersionCode $expectedVersionCode
+
 $signatureVerifier = Join-Path $projectRoot 'tools\Assert-AndroidApkSignature.ps1'
 if (-not (Test-Path -LiteralPath $signatureVerifier)) {
     throw "Validador de assinatura Android não encontrado: $signatureVerifier"
 }
 & $signatureVerifier -ApkPath $apkSource
+
+if (-not (Test-Path -LiteralPath $OutputDir)) {
+    New-Item -ItemType Directory -Path $OutputDir -Force | Out-Null
+}
 
 $destApkVersioned = Join-Path $OutputDir "mulletaflix-app-v$Version.apk"
 $destApkLatest = Join-Path $OutputDir "mulletaflix-app.apk"

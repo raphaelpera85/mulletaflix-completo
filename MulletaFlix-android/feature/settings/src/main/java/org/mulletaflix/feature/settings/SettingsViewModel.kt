@@ -400,7 +400,7 @@ class SettingsViewModel @Inject constructor(
                 // (`mulletaflix_search_history`) e sobrevivia à limpeza: os termos
                 // buscados reapareciam no próximo login do mesmo usuário.
                 val userId = authRepository.getSavedUserId().firstOrNull()
-                searchHistoryRepository?.clear(userId)
+                searchHistoryRepository?.clearAllForUser(userId)
 
                 withContext(ioDispatcher) {
                     artworkCacheCleaner.clear()

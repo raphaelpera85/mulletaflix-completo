@@ -25,6 +25,7 @@ import org.mulletaflix.core.api.ServerUrlInterceptor
 import org.mulletaflix.core.common.session.FeedbackRequestSession
 import org.mulletaflix.designsystem.media.canonicalImageCacheKey
 import org.mulletaflix.domain.repository.PlaybackIssueQueue
+import org.mulletaflix.domain.repository.DownloadRepository
 import org.mulletaflix.android.service.PlaybackIssueWorkScheduler
 import org.mulletaflix.android.service.OfflineSubtitleRecoveryWorkScheduler
 
@@ -50,6 +51,13 @@ class MulletaFlixApp : Application(), ImageLoaderFactory {
     @Inject lateinit var sessionRepository: SessionRepository
 
     @Inject lateinit var playbackIssueQueue: PlaybackIssueQueue
+
+    // Construct at process startup so Media3's persisted queue is reattached to
+    // DownloadService after Android kills the app process. A lazy repository
+    // was only created when the downloads screen opened, leaving partial files
+    // stranded indefinitely after a restart.
+    @Inject @Suppress("unused") lateinit var downloadRepository: DownloadRepository
+
 
     @Inject internal lateinit var playbackIssueWorkScheduler: PlaybackIssueWorkScheduler
 

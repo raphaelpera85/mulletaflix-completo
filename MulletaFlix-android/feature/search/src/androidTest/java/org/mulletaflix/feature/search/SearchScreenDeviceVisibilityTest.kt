@@ -21,6 +21,7 @@ import org.mulletaflix.domain.repository.QuickConnectState
 import org.mulletaflix.domain.repository.RegistrationResult
 import org.mulletaflix.domain.repository.SearchHintItem
 import org.mulletaflix.domain.repository.SearchHistoryRepository
+import org.mulletaflix.domain.repository.SearchHistoryScope
 import org.mulletaflix.domain.repository.SearchRepository
 import org.mulletaflix.domain.repository.SearchResults
 import org.mulletaflix.domain.repository.ServerVerification
@@ -119,10 +120,11 @@ private class TvSearchRepository : SearchRepository {
 }
 
 private class TvSearchHistoryRepository : SearchHistoryRepository {
-    override fun observeHistory(userId: String?) = flowOf(emptyList<String>())
-    override suspend fun add(userId: String?, query: String) = Unit
-    override suspend fun remove(userId: String?, query: String) = Unit
-    override suspend fun clear(userId: String?) = Unit
+    override fun observeHistory(scope: SearchHistoryScope) = flowOf(emptyList<String>())
+    override suspend fun add(scope: SearchHistoryScope, query: String) = Unit
+    override suspend fun remove(scope: SearchHistoryScope, query: String) = Unit
+    override suspend fun clear(scope: SearchHistoryScope) = Unit
+    override suspend fun clearAllForUser(userId: String?) = Unit
 }
 
 private class TvAuthRepository : AuthRepository {

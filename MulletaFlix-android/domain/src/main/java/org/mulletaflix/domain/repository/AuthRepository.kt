@@ -33,6 +33,7 @@ interface AuthRepository {
     suspend fun getCurrentUserProfile(): Result<org.mulletaflix.domain.model.UserProfile> =
         Result.failure(UnsupportedOperationException())
     fun getSavedServerUrl(): Flow<String>
+    fun getSavedServerId(): Flow<String?> = kotlinx.coroutines.flow.flowOf(null)
     suspend fun setServerUrl(url: String)
     fun getSavedUserId(): Flow<String?>
     fun getSavedUserName(): Flow<String?> = kotlinx.coroutines.flow.flowOf(null)

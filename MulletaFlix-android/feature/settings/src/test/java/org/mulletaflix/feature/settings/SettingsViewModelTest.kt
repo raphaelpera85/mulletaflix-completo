@@ -814,13 +814,15 @@ class SettingsViewModelTest {
     private class RecordingSearchHistoryRepository : SearchHistoryRepository {
         val clearedFor = mutableListOf<String?>()
 
-        override fun observeHistory(userId: String?): Flow<List<String>> = flowOf(emptyList())
+        override fun observeHistory(scope: SearchHistoryScope): Flow<List<String>> = flowOf(emptyList())
 
-        override suspend fun add(userId: String?, query: String) = Unit
+        override suspend fun add(scope: SearchHistoryScope, query: String) = Unit
 
-        override suspend fun remove(userId: String?, query: String) = Unit
+        override suspend fun remove(scope: SearchHistoryScope, query: String) = Unit
 
-        override suspend fun clear(userId: String?) {
+        override suspend fun clear(scope: SearchHistoryScope) = Unit
+
+        override suspend fun clearAllForUser(userId: String?) {
             clearedFor += userId
         }
     }

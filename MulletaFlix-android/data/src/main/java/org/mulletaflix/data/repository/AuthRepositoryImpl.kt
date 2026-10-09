@@ -159,6 +159,8 @@ class AuthRepositoryImpl @Inject constructor(
 
     override fun getSavedServerUrl(): Flow<String> = sessionRepository.getBaseUrl()
 
+    override fun getSavedServerId(): Flow<String?> = sessionRepository.getServerId()
+
     override suspend fun setServerUrl(url: String) {
         sessionRepository.setBaseUrl(url)
     }

@@ -1,5 +1,24 @@
 # MulletaFlix Android - Plano de Desenvolvimento & Checklist de Funcionalidades (TODO)
 
+## Histórico de busca isolado por servidor e conta — Android, sem release
+
+- [x] Escopar persistência e observação do histórico por identidade estável do servidor + conta; mesmo servidor acessado por URL LAN e pública compartilha histórico quando o backend fornece o mesmo ID.
+- [x] Isolar servidores distintos, normalizar URL fallback, armazenar identidades como SHA-256 nas chaves DataStore e limpar todos os escopos da conta no fluxo de limpeza de dados locais.
+- [x] RED-GREEN: `SearchViewModelTest` reproduz troca de servidor sem troca de conta; testes de chave cobrem compartilhamento LAN/WAN, normalização de URL, isolamento e prefixo de limpeza.
+- [x] Gates focais `:feature:search:testDebugUnitTest :data:testDebugUnitTest :feature:settings:testDebugUnitTest` passaram; revisão adversarial encontrou e levou à correção da limpeza imediata do histórico na troca de escopo.
+- [x] Quality gate completo: `testDebugUnitTest :app:lintDebug :app:assembleDebug :app:compileDebugAndroidTestKotlin` — `BUILD SUCCESSFUL`; 1.564 testes JVM, 0 falhas/erros/ignorados.
+- [x] Revisão adversarial: escopo e identidade/hash sem achados adicionais; riscos de estado antigo, query-string de endpoint, chave legada e seleção de limpeza cobertos/corrigidos. Busca twin-check não encontrou outros consumidores dos métodos antigos.
+- Nota de compatibilidade: o histórico antigo somente por conta não é migrado porque não guarda servidor de origem; limpeza total remove também a chave legada.
+
+## Validar metadados antes de empacotar APK existente — APK local, sem release
+
+- [x] `build-app-package.ps1` agora lê `applicationId`, `versionName` e `versionCode` do APK antes da assinatura/cópia; `-SkipBuild` rejeita APK incompatível com a versão solicitada ou configuração atual.
+- [x] Validação implementada com `aapt dump badging`; falha de metadados ocorre antes de criar diretório/copiar artefatos de saída.
+- [x] TDD Pester 3.4: 4 testes aprovados (metadados corretos, nome de versão antigo, pacote divergente e código divergente). O validador também leu o APK existente `dist/mulletaflix-app.apk` como `org.mulletaflix.android` / `1.3.82` / `382`.
+- [x] Nenhum APK foi reconstruído, empacotado ou publicado nesta tarefa. APK-fonte de release não existe no diretório Gradle; não foi executada a criação de release.
+- [ ] Adicionar teste de integração automatizado do empacotador com APK sintético/SDK stub, garantindo também que saídas pré-existentes não sejam sobrescritas no caso de rejeição.
+
+
 ## Regressão do despacho HTTP para leitores de livros — APK, sem release
 
 - [x] Cobrir no ViewModel respostas HTTP CBZ com MIME genérico e TXT com `text/plain`, confirmando o modelo paginado correto e conteúdo lido.
@@ -3299,5 +3318,7 @@ Pendências relacionadas:
 - [x] Gate Android: 1.556 testes JVM, 0 falhas/erros/ignorados; `:app:lintDebug`, `:app:assembleDebug` e `git diff --check` passaram.
 - [x] Testar fila pausada com índice SQLite/cache isolados: recriar o `DownloadManager`, confirmar que a entrada sobrevive e retomar até completar sem requisições antecipadas.
 - [x] `DownloadManagerCleartextIntegrationTest` PHONE API 35: 2/2; wrapper confirmou QEMU na NVIDIA RTX 3050 e encerrou o AVD.
-- [ ] Validar morte real/reinício do APK e retomada parcial em duas fases orquestradas pelo host, com fixture HTTP fora do processo-alvo. Não executar `force-stop` dentro do runner nem usar AVD com downloads de usuário.
+- [x] Validar morte real/reinício do processo e retomada de download parcial via fixture HTTP host e runner Android em duas fases: 1) fila isolada persistida e pausada em ~6.6 MB; 2) host aplica `force-stop`, relança o app e observa HTTP Range a partir do offset persistido, transferindo todos os bytes restantes. Limpeza remove somente o request UUID do teste pelo `DownloadService`.
+- [x] Corrigir a restauração da fila no cold start: injetar `DownloadRepository` na Application para construir o repositório e reanexar o Media3 `DownloadService` logo que o processo inicia, não apenas ao abrir a tela de downloads.
+- [x] Teste end-to-end PHONE/API 35 no AVD `MulletaflixApi35`; wrapper verificou QEMU na NVIDIA RTX 3050 e fechou o AVD ao final. Runner e force-stop foram coordenados no host; nenhum dado do app foi limpo.
 - [ ] Sem bump, APK de produção ou publicação; mudança exclusivamente do APK.

@@ -6,6 +6,7 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.channelFlow
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.test.StandardTestDispatcher
@@ -28,6 +29,7 @@ import org.mulletaflix.domain.repository.QuickConnectState
 import org.mulletaflix.domain.repository.RegistrationResult
 import org.mulletaflix.domain.repository.SearchHintItem
 import org.mulletaflix.domain.repository.SearchHistoryRepository
+import org.mulletaflix.domain.repository.SearchHistoryScope
 import org.mulletaflix.domain.repository.SearchRepository
 import org.mulletaflix.domain.repository.SearchResults
 import org.mulletaflix.domain.repository.ServerVerification
@@ -450,7 +452,7 @@ class SearchViewModelTest {
 
     @Test
     fun `history loaded for one user does not leak to another user`() = runTest {
-        historyRepository.seed("user-1", listOf("batman"))
+        historyRepository.seed(defaultSwitchingHistoryScope("user-1"), listOf("batman"))
         viewModel = SearchViewModel(
             SearchMediaUseCase(searchRepository),
             SwitchingAuthRepository(),
@@ -463,12 +465,59 @@ class SearchViewModelTest {
     }
 
     @Test
+    fun `search history reloads when server changes for the same user`() = runTest {
+        val auth = SwitchingAuthRepository()
+        val repository = FakeSearchHistoryRepository().apply {
+            historiesByObservation = listOf(listOf("server A"), listOf("server B"))
+        }
+        viewModel = SearchViewModel(
+            SearchMediaUseCase(searchRepository),
+            auth,
+            repository,
+            FakeNetworkMonitor(networkState),
+        )
+        advanceUntilIdle()
+
+        assertEquals(listOf("server A"), viewModel.state.value.history)
+
+        auth.switchServer("https://server-b.example")
+        advanceUntilIdle()
+
+        assertEquals(listOf("server B"), viewModel.state.value.history)
+    }
+
+    @Test
+    fun `history is cleared immediately while the new server history is loading`() = runTest {
+        val auth = SwitchingAuthRepository()
+        val repository = FakeSearchHistoryRepository().apply {
+            historiesByObservation = listOf(listOf("server A"), emptyList())
+            delayedObservationIndex = 1
+        }
+        viewModel = SearchViewModel(
+            SearchMediaUseCase(searchRepository),
+            auth,
+            repository,
+            FakeNetworkMonitor(networkState),
+        )
+        advanceUntilIdle()
+        assertEquals(listOf("server A"), viewModel.state.value.history)
+
+        auth.switchServer("https://server-b.example")
+        runCurrent()
+
+        assertTrue(viewModel.state.value.history.isEmpty())
+        repository.delayedHistory.complete(listOf("server B"))
+        advanceUntilIdle()
+        assertEquals(listOf("server B"), viewModel.state.value.history)
+    }
+
+    @Test
     fun `late history emission from a previous user cannot replace current history`() = runTest {
         val auth = SwitchingAuthRepository()
         val oldHistory = CompletableDeferred<List<String>>()
         val repository = FakeSearchHistoryRepository().apply {
-            seed("user-1", listOf("old"))
-            seed("user-2", listOf("current"))
+            seed(defaultSwitchingHistoryScope("user-1"), listOf("old"))
+            seed(defaultSwitchingHistoryScope("user-2"), listOf("current"))
             lateUserOneHistory = oldHistory
         }
         viewModel = SearchViewModel(
@@ -970,48 +1019,98 @@ class SearchViewModelTest {
 
     private class FakeSearchHistoryRepository : SearchHistoryRepository {
         val entries = mutableListOf<String>()
-        private val byUser = mutableMapOf<String?, MutableList<String>>()
+        private val byScope = mutableMapOf<String, MutableList<String>>()
+        private val usersByScope = mutableMapOf<String, String>()
+        var historiesByObservation: List<List<String>> = emptyList()
+        var delayedObservationIndex: Int? = null
+        val delayedHistory = CompletableDeferred<List<String>>()
+        private var observationIndex = 0
         var lateUserOneHistory: CompletableDeferred<List<String>>? = null
 
-        override fun observeHistory(userId: String?): Flow<List<String>> {
+        override fun observeHistory(scope: SearchHistoryScope): Flow<List<String>> {
+            val currentIndex = observationIndex++
+            val requestedHistory = historiesByObservation.getOrNull(currentIndex)
+            if (currentIndex == delayedObservationIndex) {
+                return flow {
+                    emit(requestedHistory.orEmpty())
+                    emit(delayedHistory.await())
+                }
+            }
             val deferred = lateUserOneHistory
-            if (userId == "user-1" && deferred != null) {
+            if (scope.userId == "user-1" && deferred != null) {
                 return channelFlow {
-                    send(byUser[userId]?.toList().orEmpty())
+                    send(requestedHistory ?: byScope[scope.identity]?.toList().orEmpty())
                     withContext(NonCancellable) {
                         send(deferred.await())
                     }
                 }
             }
-            return MutableStateFlow(byUser[userId]?.toList().orEmpty())
+            return MutableStateFlow(requestedHistory ?: byScope[scope.identity]?.toList().orEmpty())
         }
 
-        override suspend fun add(userId: String?, query: String) {
-            val list = byUser.getOrPut(userId) { mutableListOf() }
+        override suspend fun add(scope: SearchHistoryScope, query: String) {
+            val list = byScope.getOrPut(scope.identity) { mutableListOf() }
+            usersByScope[scope.identity] = scope.userIdentity
             list.remove(query)
             list.add(0, query)
             while (list.size > 10) list.removeAt(list.lastIndex)
             entries.clear(); entries.addAll(list)
         }
 
-        override suspend fun remove(userId: String?, query: String) {
-            byUser[userId]?.remove(query)
-            entries.clear(); entries.addAll(byUser[userId].orEmpty())
+        override suspend fun remove(scope: SearchHistoryScope, query: String) {
+            byScope[scope.identity]?.remove(query)
+            entries.clear(); entries.addAll(byScope[scope.identity].orEmpty())
         }
 
-        override suspend fun clear(userId: String?) { byUser.remove(userId); entries.clear() }
+        override suspend fun clear(scope: SearchHistoryScope) { byScope.remove(scope.identity); entries.clear() }
 
-        fun seed(userId: String?, values: List<String>) { byUser[userId] = values.toMutableList() }
+        override suspend fun clearAllForUser(userId: String?) {
+            val normalizedUser = userId?.trim()?.takeIf(String::isNotEmpty) ?: "anonymous"
+            byScope.keys.removeAll { usersByScope[it] == normalizedUser }
+            usersByScope.entries.removeAll { it.value == normalizedUser }
+            entries.clear()
+        }
+
+        fun seed(scope: SearchHistoryScope, values: List<String>) {
+            byScope[scope.identity] = values.toMutableList()
+            usersByScope[scope.identity] = scope.userIdentity
+        }
     }
 
     private class SwitchingAuthRepository : FakeAuthRepository() {
         private val userId = MutableStateFlow<String?>("user-1")
+        private val serverUrl = MutableStateFlow("http://server-a.example")
+        private val serverId = MutableStateFlow<String?>(null)
 
         override fun getSavedUserId(): Flow<String?> = userId
+        override fun getSavedServerUrl(): Flow<String> = serverUrl
+        override fun getSavedServerId(): Flow<String?> = serverId
 
         fun switchTo(nextUserId: String) {
             userId.value = nextUserId
         }
+
+        fun switchServer(nextServerUrl: String) {
+            serverUrl.value = nextServerUrl
+        }
+
+        fun identifyServer(id: String?) {
+            serverId.value = id
+        }
+    }
+
+    private companion object {
+        fun defaultHistoryScope(userId: String?) = SearchHistoryScope(
+            serverId = null,
+            serverUrl = "http://localhost",
+            userId = userId,
+        )
+
+        fun defaultSwitchingHistoryScope(userId: String?) = SearchHistoryScope(
+            serverId = null,
+            serverUrl = "http://server-a.example",
+            userId = userId,
+        )
     }
 
     private class FakeNetworkMonitor(

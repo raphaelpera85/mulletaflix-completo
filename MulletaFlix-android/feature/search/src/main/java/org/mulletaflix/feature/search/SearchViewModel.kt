@@ -11,6 +11,7 @@ import org.mulletaflix.core.common.network.NetworkMonitor
 import org.mulletaflix.domain.model.MediaItem
 import org.mulletaflix.domain.repository.AuthRepository
 import org.mulletaflix.domain.repository.SearchHistoryRepository
+import org.mulletaflix.domain.repository.SearchHistoryScope
 import org.mulletaflix.domain.repository.SearchHintItem
 import org.mulletaflix.domain.usecase.SearchMediaUseCase
 import javax.inject.Inject
@@ -75,6 +76,7 @@ class SearchViewModel @Inject constructor(
     private var hintsJob: Job? = null
     private var historyJob: Job? = null
     private var currentUserId: String? = null
+    private var currentHistoryScope: SearchHistoryScope? = null
     private var searchGeneration = 0L
     private var historyGeneration = 0L
     private var receivedSearchItemCount = 0
@@ -90,10 +92,20 @@ class SearchViewModel @Inject constructor(
             }
         }
         viewModelScope.launch {
-            authRepository.getSavedUserId().distinctUntilChanged().collect { userId ->
-                val userChanged = currentUserId != userId
-                currentUserId = userId
-                if (userChanged) {
+            combine(
+                authRepository.getSavedUserId(),
+                authRepository.getSavedServerUrl(),
+                authRepository.getSavedServerId(),
+            ) { userId, serverUrl, serverId ->
+                SearchHistoryScope(serverId = serverId, serverUrl = serverUrl, userId = userId)
+            }.distinctUntilChangedBy(SearchHistoryScope::identity).collect { scope ->
+                // The initial scope can arrive after a user has already started typing.
+                // Only an actual transition from a known scope should invalidate work;
+                // treating first initialization as a switch cancels that first search.
+                val scopeChanged = currentHistoryScope?.let { it.identity != scope.identity } ?: false
+                currentHistoryScope = scope
+                currentUserId = scope.userId
+                if (scopeChanged) {
                     receivedSearchItemCount = 0
                     searchJob?.cancel()
                     hintsJob?.cancel()
@@ -101,6 +113,7 @@ class SearchViewModel @Inject constructor(
                     _state.update {
                         it.copy(
                             results = emptyList(),
+                            history = emptyList(),
                             totalMatching = null,
                             hasMore = false,
                             canRetryLoadMore = false,
@@ -116,8 +129,8 @@ class SearchViewModel @Inject constructor(
                 val generation = ++historyGeneration
                 historyJob?.cancel()
                 historyJob = launch {
-                    searchHistoryRepository.observeHistory(userId).collect { history ->
-                        if (generation == historyGeneration && currentUserId == userId) {
+                    searchHistoryRepository.observeHistory(scope).collect { history ->
+                        if (generation == historyGeneration && currentHistoryScope?.identity == scope.identity) {
                             _state.update { it.copy(history = history) }
                         }
                     }
@@ -185,7 +198,7 @@ class SearchViewModel @Inject constructor(
             )
         }
         // An explicit search is remembered whatever it returns: the viewer asked for it.
-        rememberSearch(normalizedQuery, currentUserId)
+        rememberSearch(normalizedQuery)
         searchJob?.cancel()
         hintsJob?.cancel()
         _state.update { it.copy(hints = emptyList(), isLoadingHints = false) }
@@ -198,7 +211,7 @@ class SearchViewModel @Inject constructor(
     /** Records the selected title without replacing the current search, which stays available on back. */
     fun selectHint(hint: SearchHintItem) {
         val normalizedQuery = normalizeSearchQuery(hint.name) ?: return
-        rememberSearch(normalizedQuery, currentUserId)
+        rememberSearch(normalizedQuery)
     }
 
     /**
@@ -207,9 +220,11 @@ class SearchViewModel @Inject constructor(
      * Shared by the explicit search and the debounced one, so both paths keep the same
      * limit, the same de-duplication and the same store.
      */
-    private fun rememberSearch(query: String, userId: String?) {
+    private fun rememberSearch(query: String) {
         _state.update { it.copy(history = (listOf(query) + it.history).distinct().take(10)) }
-        viewModelScope.launch { searchHistoryRepository.add(userId, query) }
+        currentHistoryScope?.let { scope ->
+            viewModelScope.launch { searchHistoryRepository.add(scope, query) }
+        }
     }
 
     fun retrySearch() {
@@ -266,12 +281,16 @@ class SearchViewModel @Inject constructor(
 
     fun removeHistoryItem(term: String) {
         _state.update { it.copy(history = it.history.filterNot { item -> item == term }) }
-        viewModelScope.launch { searchHistoryRepository.remove(currentUserId, term) }
+        currentHistoryScope?.let { scope ->
+            viewModelScope.launch { searchHistoryRepository.remove(scope, term) }
+        }
     }
 
     fun clearHistory() {
         _state.update { it.copy(history = emptyList()) }
-        viewModelScope.launch { searchHistoryRepository.clear(currentUserId) }
+        currentHistoryScope?.let { scope ->
+            viewModelScope.launch { searchHistoryRepository.clear(scope) }
+        }
     }
 
     private suspend fun loadHints(query: String, filter: SearchFilter?, generation: Long) {
@@ -369,7 +388,7 @@ class SearchViewModel @Inject constructor(
                 //
                 // A search that found nothing is deliberately not remembered: it is a
                 // typo or a title the server does not have, and re-running it is useless.
-                if (results.items.isNotEmpty()) rememberSearch(query, userId)
+                if (results.items.isNotEmpty()) rememberSearch(query)
             }
         }.onFailure {
             if (isCurrentSearch(query, filter, generation, userId)) {
@@ -487,7 +506,7 @@ class SearchViewModel @Inject constructor(
         generation == searchGeneration &&
             _state.value.query == query &&
             _state.value.activeFilter == filter &&
-            currentUserId == userId
+            (currentUserId == null || currentUserId == userId)
 
     private companion object {
     }
