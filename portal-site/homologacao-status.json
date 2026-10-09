@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-10-09T02:39:53-03:00",
+  "generatedAt": "2026-10-09T02:43:15-03:00",
   "source": {
     "roadmap": "https://github.com/raphaelpera85/mulletaflix-completo/blob/main/docs/roadmap-evolucao-tecnologica-servidor-e-web.md",
     "repository": "https://github.com/raphaelpera85/mulletaflix-completo"
@@ -4756,7 +4756,7 @@
     },
     {
       "id": "nebula-supabase-cursor-reliability-2026-10-09-0230",
-      "title": "Corrigir falha do cursor delta do Supabase no Nebula",
+      "title": "Confiabilidade do backup e concorrência de upload Nebula",
       "agent": "Codex",
       "front": "server",
       "featureIds": ["T0.3", "T2.1", "T4.2"],
@@ -4766,8 +4766,8 @@
       "status": "in_progress",
       "progressPercent": null,
       "startedAt": "2026-10-09T02:30:00-03:00",
-      "updatedAt": "2026-10-09T02:39:53-03:00",
-      "evidence": "Supabase: confirmado que a tabela/coluna existem, SQL direto funciona e o REST falhava no cursor; índice public.idx_nebula_files_updated_at aplicado e confirmado por EXPLAIN/Index Only Scan. Testes focados de cursor/índice/catálogo: 5/5; conjunto Nebula .NET: 598 aprovados, 20 ignorados, 0 falhas; build Release de Jellyfin.Server.Implementations: 0 erros (1072 avisos preexistentes); npm run build:check: exit 0. Log novo mostrou 27 bots, 10 workers grandes, limite global padrão 8 partes e chunks de até 45 MiB; taxas por parte em geral ~0,16–0,65 MiB/s, com pelo menos um ClientOSError/rotação. Gauntlet RED: com pool de 27 bots e UPLOAD_CONCURRENCY=8, teste falhou reproduzindo 10 workers; GREEN: corrigido get_upload_worker_count para respeitar o limite, teste focalizado 91/91. Isso elimina workers/buffers de read-ahead acima do limite, mas ainda não prova aumento da taxa na rede real. Suíte Python completa: 563/563. A suíte inteira de Implementations teve 17 falhas na classe NebulaDownloaderEngineTests presente no workspace (mocks de classe selada e expectativas antigas), embora o filtro Nebula exceto essa classe passe: 598 aprovados, 20 ignorados, 0 falhas. O patch de throughput permanece local; sem benchmark controlado contra Telegram/uplink do host, não há comprovação quantitativa de aumento da vazão. Homologação de produção e validação final pendentes; progressPercent null. Sem release por enquanto."
+      "updatedAt": "2026-10-09T02:43:15-03:00",
+      "evidence": "Supabase: tabela/coluna existem, SQL direto funciona e o REST falhava no cursor; índice public.idx_nebula_files_updated_at aplicado e confirmado por EXPLAIN/Index Only Scan. Testes focados de cursor/índice/catálogo: 5/5; conjunto Nebula .NET: 598 aprovados, 20 ignorados, 0 falhas; build Release de Jellyfin.Server.Implementations: 0 erros (1072 avisos); npm run build:check: exit 0. Log mostrou 27 bots, 10 workers grandes, limite global padrão 8 partes e chunks de até 45 MiB; taxas por parte ~0,16–0,65 MiB/s, com ClientOSError/rotação. RED: teste reproduziu 10 workers com 27 bots e UPLOAD_CONCURRENCY=8; GREEN: get_upload_worker_count agora respeita o teto, teste focalizado 91/91. Isso evita workers e buffers de read-ahead além do limite, mas não prova aumento da taxa real. Suíte Python: 563/563. Suíte integral Implementations: 17 falhas na classe NebulaDownloaderEngineTests já existente (mocks de classe selada/expectativas antigas); filtro Nebula exceto essa classe: 598 aprovados, 20 ignorados, 0 falhas. Sem benchmark A/B live com Telegram/uplink, não se afirma ganho de vazão. Homologação geral aberta e progressPercent null; nenhuma release devido ao gate de 68 itens ativos no roadmap. Portal anterior já validado: https://mulletaflix-portal-qthfbqmtf-raphaelpera85s-projects.vercel.app, deployment dpl_G4ZEfmjCoYvU4wVaKrxeTZz7BdUZ, commit 970af7eecbb82ae209292022fdd82de99b6b5995, target production, state READY. Rotas canônicas /, /docs, /downloads, /updates, /homologacao, /sitemap.xml e /homologacao-status.json: HTTP 200; JSON confirma este evento."
     },
     {
       "id": "nebula-final-gaps-2026-10-09-0020",
