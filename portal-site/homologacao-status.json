@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-10-08T22:48:15-03:00",
+  "generatedAt": "2026-10-08T22:55:00-03:00",
   "source": {
     "roadmap": "https://github.com/raphaelpera85/mulletaflix-completo/blob/main/docs/roadmap-evolucao-tecnologica-servidor-e-web.md",
     "repository": "https://github.com/raphaelpera85/mulletaflix-completo"
@@ -4706,8 +4706,8 @@
       "status": "completed",
       "progressPercent": null,
       "startedAt": "2026-10-08T20:28:26-03:00",
-      "updatedAt": "2026-10-08T21:04:00-03:00",
-      "evidence": "v12.1.16 publicada: https://github.com/raphaelpera85/mulletaflix-completo/releases/tag/v12.1.16. Assets confirmados na API oficial: mulletaflix-update-win-x64.zip, mulletaflix_12.1.16_windows-x64.exe e mulletaflix_12.1.16_linux-x64.tar.gz. Correções: reduz leitura integral redundante do Mongo no startup; limita blocos Bot API a 45 MiB para evitar HTTP 413 com configuração antiga de 64 MiB; cobre ACL FTP legada com fallback defensivo já presente no HEAD. Testes: dotnet test MulletaFlix.sln -c Release --no-restore passou (Implementations 1.374 pass/55 skipped, API 664 pass, Server Integration 140 pass/3 skipped); pytest Nebula 563/563; compileall e sitemap validator passaram. Portal conectado ao Vercel atualizado pelo commit Mulletaflix-Portal 2cc55b3; check oficial GitHub/Vercel:success e HTTP 200 em /, /docs, /downloads, /updates, /homologacao e /sitemap.xml. Portal versionado v12.1.16. SHA256: ZIP 0104C63F65659270D697C6A39A0F7CACB77675071253ADC5B22743CF09E86E6A; EXE 26280D524FDD52D8435AB8C1BC6735D3D3382CF1DE9B9C6EEFCE3148E39D1D45; Linux 66E6EE2A910D8EDE0D00A51B7654C1ABF10B0F413D41D54062E5EEFAD6998F8A. Homologação formal completa não é alegada: nenhum upload Telegram real nem startup cronometrado pós-fix foi executado; progressPercent null; itens mais amplos T0.1/T0.3/T2.1 continuam parcialmente abertos."
+      "updatedAt": "2026-10-08T22:55:00-03:00",
+      "evidence": "v12.1.16 publicada: https://github.com/raphaelpera85/mulletaflix-completo/releases/tag/v12.1.16. Assets confirmados na API oficial: mulletaflix-update-win-x64.zip, mulletaflix_12.1.16_windows-x64.exe e mulletaflix_12.1.16_linux-x64.tar.gz. Correções incluem compartilhamento do snapshot Mongo nas duas migrações de startup quando não há movimentações, limite de blocos Bot API de 45 MiB contra HTTP 413 com configuração antiga de 64 MiB e leitura defensiva de permissões FTP legadas. Novo log anexado foi gerado em 08/10/2026 20:20, antes do commit da correção `95ed2dc3` às 20:53; mostra falhas `permissions` string e rejeições HTTP 413, mas não contém erro de download. Verificação atual: SHA-256 dos arquivos instalados `Tools/NebulaPython/ftp/server.py` e `main.py` coincide exatamente com o checkout; servidor instalado iniciou às 22:45 e processos Python às 22:46–22:47, portanto posteriores ao log. Testes focados nesta triagem: Nebula Python `test_ftp_user_permissions.py` + `test_main_upload_part.py` 17/17; .NET `Constructor_UsesSixteenMegabyteLogicalChunks` 1/1. Não foi feito upload real ao Telegram (ação externa) nem reinicialização provocada para cronometrar startup; os 70 s no log antecedem o pacote corrigido. A release v12.1.16 já contém as correções descritas e portal foi sincronizado anteriormente (commit Mulletaflix-Portal 2cc55b3, Vercel success, seis rotas HTTP 200). Nenhuma release intermediária nova: o roadmap ainda tem 68 tarefas pendentes. Download permanece sem causa diagnosticada até haver um log com a falha. Homologação formal `progressPercent: null`; T0.1/T0.3/T2.1 permanecem parciais."
     },
     {
       "id": "project-wide-tdd-inventory-2026-10-08-2205",
