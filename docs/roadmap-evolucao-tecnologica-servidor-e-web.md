@@ -61,12 +61,15 @@ As skills abaixo existem no catálogo local. São complementos de domínio; a me
 | W1.1–W1.5, W4.1–W4.5 | `react-testing`, `vitest-skill`, `playwright-skill`, `frontend-api-integration-patterns`, `frontend-data-contracts` | Estados de tela, contratos reais, solicitações, testes de integração, E2E e prevenção de flaky tests. |
 | W2.1–W2.4 | `accessibility-compliance-accessibility-audit`, `screen-reader-testing`, `playwright-skill` | Auditoria WCAG 2.2 AA, teclado/leitor de tela, formulários e automação axe; ferramenta automática não substitui avaliação manual. |
 
+Revalidação do catálogo local em 08/10/2026: as **21/21 skills especializadas** listadas acima foram encontradas. Para a coleta T0.1 desta rodada foi usada `performance-engineer`; `k6-load-testing` fica reservado para cenário de carga controlado, não para a instância local em uso sem autorização e safeguards.
+
 ## Backlog priorizado
 
 ### Fase 0 — Baseline, inventário e critérios de qualidade (P0)
 
 - [ ] **T0.1 — Definir baseline de produção.** Registrar tempo de inicialização, memória, uso de disco, latências p50/p95 dos endpoints mais usados, duração das tarefas Nebula e volume de mídia processado.
   - [x] Capturar amostra inicial read-only da instância instalada: versão/ambiente, startup aproximado, memória/CPU, espaço livre e latência local de endpoints públicos.
+  - [x] Repetir a amostra em 08/10 após a instalação de `12.1.16`, com 20 GETs sequenciais por endpoint; sem concorrência, autenticação ou chamadas mutáveis.
   - [ ] Repetir sob carga representativa e incluir métricas autenticadas de duração/volume Nebula, footprint dos dados, Linux e amostra temporal suficiente.
 - [x] **T0.2 — Mapear fluxos e dependências.** Mapa estático documentado abaixo, com fontes de código por fluxo. Lacunas operacionais e medições continuam nas tarefas correspondentes.
 - [ ] **T0.3 — Criar conjunto de cenários representativo.** Incluir biblioteca pequena/grande, mídia local e Telegram, interrupção de banco/rede, cache cheio, Windows e Linux.
@@ -119,6 +122,15 @@ As skills abaixo existem no catálogo local. São complementos de domínio; a me
 - Processo observado: servidor instalado, versão `12.1.10`, PID `20600`, iniciado em `03/10/2026 19:28:49 -03:00`. Antes/depois: working set **1,00 GiB**/**1,00 GiB**, memória privada **1,14 GiB**/**1,14 GiB**; CPU acumulada **2.170,547 s**/**2.170,844 s**. Unidade do executável `C:`: **63,88 GiB livres de 475,84 GiB**.
 - Resultados: `/health` — **20/20 HTTP 200**, p50 **4,399 ms**, p95 **8,6 ms**; `/ready` — **20/20 HTTP 200**, p50 **5,241 ms**, p95 **6,728 ms**; `/System/Info/Public` — **20/20 HTTP 200**, p50 **0,278 ms**, p95 **2,941 ms**. Execução local registrada em `2026-10-04T02:45:34Z` (23:45 de 03/10 em `-03:00`); falhas: **0**.
 - Limite: amostra curta, sequencial e sem concorrência; servidor e tarefas de fundo não foram isolados, e probes não representam operações mais usadas. Não foram iniciadas mídias. Isto torna a medição reproduzível, mas **não** substitui carga representativa, duração/volume autenticado Nebula, Linux, footprint dos bancos ou série temporal; T0.1 permanece aberta.
+
+#### T0.1 — Repetição pós-release no Windows (parcial; 08/10/2026)
+
+- Comando read-only: `& '.\tools\performance\measure-server-baseline.ps1' -BaseUrl 'http://127.0.0.1:8096' -Samples 20 -Paths '/health','/ready','/System/Info/Public'`. Executado em `2026-10-09T01:46:29Z` (08/10, 22:46:29 `-03:00`), máquina `DESKTOP-QOJQI4L`, Windows 10.0.26300. Processo `MulletaFlix.exe`, versão **12.1.16**, PID **15640**, iniciado às 22:45:02 `-03:00`; idade aproximada de 87 s na coleta, que **não** mede duração real do startup. Nenhum arquivo de mídia foi iniciado.
+- Resultados, 20/20 HTTP 200 por endpoint: `/health` p50 **7,212 ms**, p95 **75,909 ms**, máximo **2.232,926 ms**; `/ready` p50 **13,957 ms**, p95 **25,935 ms**, máximo **30,980 ms**; `/System/Info/Public` p50 **0,484 ms**, p95 **12,879 ms**, máximo **35,572 ms**. Falhas: **0**.
+- Working set: **5,71 → 5,73 GB**; memória privada: **5,68 → 5,86 GB**; CPU acumulada: **58,391 → 61,969 s** durante a amostra. Volume `C:` livre: **73,22 GiB de 475,84 GiB**. `DataPath` não foi informado, portanto o espaço do volume de dados não foi medido.
+- Repetição em `2026-10-09T01:47:43Z` (22:47:43 `-03:00`), mesma instância e N=20: 60/60 HTTP 200; `/health` p50/p95/máximo **16,046/24,902/220,200 ms**, `/ready` **13,129/22,236/24,930 ms**, `/System/Info/Public` **0,431/6,956/17,390 ms**. O pico de 2.232,926 ms de `/health` não se repetiu; p95 baixou de 75,909 para 24,902 ms, sem prova de causa.
+- No segundo snapshot, working set foi **3,73 → 3,94 GB**, memória privada **3,68 → 3,89 GB** e CPU **107,469 → 108,812 s**; `C:` livre **73,25 GiB**. A queda do working set entre baterias em menos de 75 segundos impede interpretar os contadores como baseline estável; sem GC/host profiling não se atribui causa.
+- Interpretação limitada: a amostra curta teve outlier de 2,23 s em `/health` e p95 de 75,909 ms; isto não identifica causa nem prova regressão. Precisamos repetir em janela ociosa, identificar atividades simultâneas e medir startup por marcadores próprios antes de propor otimização. Sem concorrência induzida, Nebula autenticado ou serviço alterado.
 
 ### Fase 1 — Observabilidade e operação (P0)
 
@@ -3069,7 +3081,7 @@ Este documento é backlog em execução; não autoriza publicar uma release ante
 - Corrigido o tamanho efetivo dos blocos enviados via Bot API padrão: valor histórico de 64 MiB causava HTTP 413 em todos os bots. O servidor normaliza para no máximo 45 MiB; API/UI limitam o valor configurável a 1–45 MiB, e Python impõe o mesmo teto de forma defensiva.
 - O log também mostrou permissões FTP legadas como string causando `TypeError`. O código atual do servidor já trata formato legado e ACL malformada sem ampliar acesso; adicionados/revistos testes que cobrem lookup FTP e negação fora da pasta do usuário. A evidência aponta para instalação em execução sem esse código, a confirmar após instalar esta release.
 - Validação: solução .NET Release `dotnet test MulletaFlix.sln --no-restore` exit 0; Implementations **1.374 aprovados/55 ignorados**, API **664 aprovados**, Server Integration **140 aprovados/3 ignorados**. Suíte Nebula Python **563/563**; teste de submissão Telegram continua mockado e não comprova upload real. T0.1/T0.3/T2.1 permanecem parciais; homologação formal `progressPercent: null`.
-- Release `v12.1.16` solicitada pelo usuário; pacote e publicação ainda dependem de build de produção e confirmação de assets/portal. Não medir melhora real do tempo de startup sem teste com Mongo carregado; não declarar reprodução/upload real homologados.
+- Release `v12.1.16` publicada no GitHub com update ZIP, instalador Windows e tarball Linux; portal `Mulletaflix-Portal` sincronizado pelo commit `c316c81`, Vercel `success`, seis rotas públicas HTTP 200. Teste remoto de upload Telegram e medição de startup com Mongo carregado continuam pendentes; não declarar esses fluxos homologados.
 
 ## Referências técnicas
 

@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-10-08T22:13:05-03:00",
+  "generatedAt": "2026-10-08T22:48:15-03:00",
   "source": {
     "roadmap": "https://github.com/raphaelpera85/mulletaflix-completo/blob/main/docs/roadmap-evolucao-tecnologica-servidor-e-web.md",
     "repository": "https://github.com/raphaelpera85/mulletaflix-completo"
@@ -2940,6 +2940,21 @@
     }
   ],
   "events": [
+    {
+      "id": "roadmap-t0-baseline-current-server-2026-10-08-2245",
+      "title": "Atualizar baseline operacional para roadmap T0.1",
+      "agent": "Codex",
+      "front": "server",
+      "featureIds": ["T0.1", "T0.4"],
+      "local": "D:\\Users\\Raphael\\Documents\\Projetos\\mulletaflix",
+      "location": "tools/performance/measure-server-baseline.ps1 e docs/roadmap-evolucao-tecnologica-servidor-e-web.md",
+      "scope": "Executar amostra GET sequencial, read-only, na instância local se disponível; registrar versão, latência, recursos e limitações sem aplicar carga nem iniciar mídia.",
+      "status": "completed",
+      "progressPercent": null,
+      "startedAt": "2026-10-08T22:45:56-03:00",
+      "updatedAt": "2026-10-08T22:48:15-03:00",
+      "evidence": "T0.1 sample concluída read-only com duas baterias de `tools/performance/measure-server-baseline.ps1`, 20 GETs por rota no Windows 10.0.26300, servidor 12.1.16. Em ambas: 120/120 HTTP 200 total. Primeira /health p50/p95/max (ms) 7.212/75.909/2232.926; segunda 16.046/24.902/220.200. /ready: p50/p95 13.957/25.935 e 13.129/22.236 ms. /System/Info/Public: 0.484/12.879 e 0.431/6.956 ms. O pico >2 s não se repetiu, sem causa provada. Memória processual variou fortemente entre snapshots (working set 5.71 GB para 3.73 GB em cerca de 74 s), por isso não é baseline estável nem prova de otimização/regressão. Volume C: ~73.2 GiB livre; volume de dados não foi informado. Amostra sem concorrência induzida nem mídia; startup real, métricas Nebula autenticadas e Linux não medidos. Nenhuma configuração foi alterada. ProgressPercent formal permanece null; T0.1/T0.4 permanecem abertos."
+    },
     {
       "id": "nebula-ftp-auth-optional-bcrypt-tests-2026-10-08",
       "title": "Cobertura do fallback de autenticação FTP sem bcrypt",
