@@ -60,29 +60,7 @@ class DownloadManagerCleartextIntegrationTest {
         cache = SimpleCache(tempDirectory, androidx.media3.datasource.cache.NoOpCacheEvictor(), databaseProvider)
         executor = Executors.newSingleThreadExecutor()
         server = LocalHttpServer().also(LocalHttpServer::start)
-        downloadManager = DownloadManager(
-            context,
-            databaseProvider,
-            cache,
-            cleartextAwareMediaDataSourceFactory(connectTimeoutMs = 5_000, readTimeoutMs = 5_000),
-            executor,
-        ).apply {
-            setMinRetryCount(0)
-            setMaxParallelDownloads(1)
-            setRequirements(Requirements(Requirements.NETWORK))
-            addListener(object : DownloadManager.Listener {
-                override fun onDownloadChanged(
-                    manager: DownloadManager,
-                    download: Download,
-                    finalException: Exception?,
-                ) {
-                    if (download.state == Download.STATE_COMPLETED || download.state == Download.STATE_FAILED) {
-                        terminalDownloads += download.request.id to download.state
-                    }
-                }
-            })
-            resumeDownloads()
-        }
+        downloadManager = createDownloadManager(resumeImmediately = true)
     }
 
     @After
@@ -120,6 +98,64 @@ class DownloadManagerCleartextIntegrationTest {
             "The blocked public redirect must not leave bytes in cache",
             cache.cacheSpace == cachedBytesAfterLocalDownload,
         )
+    }
+
+    @Test
+    fun queuedDownloadResumesAfterManagerRecreationFromPersistentIndex() {
+        val request = request("restart-${UUID.randomUUID()}", server.url("/resumed"))
+        downloadManager.pauseDownloads()
+        downloadManager.addDownload(request)
+        awaitDownloadIndexEntry(request.id)
+
+        assertTrue("The isolated manager is paused before its queue is reconstructed", server.requestPaths.isEmpty())
+        downloadManager.release()
+        cache.release()
+
+        cache = SimpleCache(tempDirectory, androidx.media3.datasource.cache.NoOpCacheEvictor(), databaseProvider)
+        downloadManager = createDownloadManager(resumeImmediately = false)
+        assertTrue(
+            "The queued request must survive manager recreation in the isolated persistent index",
+            downloadManager.downloadIndex.getDownload(request.id) != null,
+        )
+
+        downloadManager.resumeDownloads()
+        awaitTerminalState(request.id, Download.STATE_COMPLETED)
+
+        assertEquals(listOf("/resumed"), server.requestPaths.toList())
+        assertTrue("The resumed media bytes must reach the isolated cache", cache.cacheSpace >= PAYLOAD.size)
+    }
+
+    private fun createDownloadManager(resumeImmediately: Boolean): DownloadManager = DownloadManager(
+        context,
+        databaseProvider,
+        cache,
+        cleartextAwareMediaDataSourceFactory(connectTimeoutMs = 5_000, readTimeoutMs = 5_000),
+        executor,
+    ).apply {
+        setMinRetryCount(0)
+        setMaxParallelDownloads(1)
+        setRequirements(Requirements(Requirements.NETWORK))
+        addListener(object : DownloadManager.Listener {
+            override fun onDownloadChanged(
+                manager: DownloadManager,
+                download: Download,
+                finalException: Exception?,
+            ) {
+                if (download.state == Download.STATE_COMPLETED || download.state == Download.STATE_FAILED) {
+                    terminalDownloads += download.request.id to download.state
+                }
+            }
+        })
+        if (resumeImmediately) resumeDownloads()
+    }
+
+    private fun awaitDownloadIndexEntry(id: String) {
+        val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10)
+        while (System.nanoTime() < deadline) {
+            if (downloadManager.downloadIndex.getDownload(id) != null) return
+            Thread.sleep(25)
+        }
+        throw AssertionError("Timed out waiting for isolated download index entry $id")
     }
 
     private fun request(id: String, uri: String): DownloadRequest =

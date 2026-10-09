@@ -260,3 +260,21 @@ Verificação instrumentada adicional de Livros na Android TV em 2026-10-08: `Tv
 - `QUALITY GATE`: `testDebugUnitTest :feature:item-detail:lintDebug :app:lintDebug :app:assembleDebug --no-daemon --console=plain` — `BUILD SUCCESSFUL`; 239 relatórios XML, 1.550 testes JVM, 0 falhas, 0 erros e 0 ignorados; `git diff --check` aprovado.
 - `TDD`: sem RED comportamental nesta rodada, pois a implementação já aceitava esses formatos e o objetivo era cobrir lacuna de regressão. Uma primeira fixture PDF em Robolectric falhou ao usar `PdfDocument` fechado antes da execução; isso foi classificado como problema de fixture/ambiente e movido para instrumentação Android, sem tratar como falha do produto.
 - `LIMITAÇÕES`: o ViewModel de PDF tem agora fluxo HTTP validado em instrumento; não foram adicionados casos de limite/truncamento ou MIME incompatível nesta rodada. Sem mudança de produção, bump, APK/release, servidor ou portal.
+
+### Registro TDD — comandos da fila offline sempre via DownloadService
+
+- `INTENT`: toda mutação de fila (adicionar, remover, pausar e retomar), inclusive a restauração de uma fila marcada como pausada, deve passar pelo `DownloadService` para manter o ciclo de vida foreground e o estado persistido coerentes.
+- `RED`: `:app:testDebugUnitTest --tests org.mulletaflix.android.service.DownloadQueueGuardTest` — 2 testes falharam pelas razões esperadas: chamadas diretas `manager.pauseDownloads()`/`manager.resumeDownloads()` e ausência de `sendPauseDownloads` no repositório.
+- `GREEN`: o teste focal passou em nova execução. `testDebugUnitTest :app:lintDebug :app:assembleDebug --no-daemon --console=plain` — `BUILD SUCCESSFUL`; 239 relatórios XML, 1.556 testes JVM, 0 falhas, 0 erros e 0 ignorados.
+- `QUALITY GATE`: o gate acima passou; `git diff --check` passou. Uma execução intermediária teve falha transitória do KSP por arquivo gerado ausente; foi repetida e a execução final concluiu com código 0.
+- `DEVICE`: não aplicável à mudança estrutural dos comandos. A integração existente confirma download completo e reprodução offline, mas não mata/reinicia o processo nem valida retomada de download incompleto.
+- `LIMITAÇÕES`: a retomada após morte real do processo e em fila parcial continua pendente para teste instrumentado/orquestrado isolado; não simular isso encerrando o processo do runner. Nenhuma mudança de versão, APK de produção, release, servidor ou portal.
+- `TWINS`: buscadas chamadas diretas `manager.addDownload/removeDownload/pauseDownloads/resumeDownloads` em `Media3DownloadRepository.kt`; 0 ocorrências restantes.
+
+### Verificação instrumentada — persistência do índice ao recriar DownloadManager
+
+- `INTENT`: uma fila pausada e enfileirada no índice local deve sobreviver à recriação do `DownloadManager`; ao retomar, deve concluir usando o cache isolado, sem iniciar tráfego antes do comando de retomada.
+- `DEVICE`: `DownloadManagerCleartextIntegrationTest` no PHONE API 35 — 2/2 aprovados, 0 falhas/erros/ignorados; inclui download local/redirect e recriação do manager com SQLite/cache temporários. `tools/with-emulator.ps1` confirmou QEMU na NVIDIA RTX 3050 e deixou `adb devices` sem AVD após terminar.
+- `QUALITY GATE`: `testDebugUnitTest :app:lintDebug :app:assembleDebug :app:compileDebugAndroidTestKotlin --no-daemon --console=plain` — `BUILD SUCCESSFUL`; 239 relatórios XML, 1.556 testes JVM, 0 falhas, 0 erros e 0 ignorados.
+- `TDD`: cobertura de integração adicionada para um contrato Media3 já existente; não foi feita alegação de RED de produção nem alterado código produtivo nesta etapa.
+- `LIMITAÇÕES`: recriar `DownloadManager` valida o índice/cache persistentes, mas não simula a morte do processo Android nem comprova retomada de bytes parciais. O ensaio real exige duas execuções de instrumentação coordenadas no host e fixture fora do processo-alvo; não executar `force-stop` no runner. Sem mudança de versão, APK/release, servidor ou portal.

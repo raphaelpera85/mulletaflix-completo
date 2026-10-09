@@ -3292,3 +3292,12 @@ Pendências relacionadas:
 - [x] `:feature:item-detail:compileDebugAndroidTestKotlin`, `:feature:item-detail:lintDebug`, `:app:lintDebug` e `:app:assembleDebug`: `BUILD SUCCESSFUL`.
 - [x] `BookReaderScreenIntegrationTest` no PHONE API 35: 3/3; wrapper confirmou QEMU na NVIDIA RTX 3050 e fechou o AVD.
 - [ ] Sem bump, APK de produção, portal ou publicação; a melhoria localiza-se apenas no APK.
+
+## Fila offline — ciclo de vida pelo serviço foreground (APK local; sem release)
+- [x] Direcionar pause/resume da fila, inclusive a restauração da preferência de pausa, pelas ações `DownloadService.sendPauseDownloads`/`sendResumeDownloads`.
+- [x] Expandir `DownloadQueueGuardTest` para rejeitar mutações diretas do `DownloadManager` e exigir os quatro comandos do serviço; TDD RED observado em duas assertions.
+- [x] Gate Android: 1.556 testes JVM, 0 falhas/erros/ignorados; `:app:lintDebug`, `:app:assembleDebug` e `git diff --check` passaram.
+- [x] Testar fila pausada com índice SQLite/cache isolados: recriar o `DownloadManager`, confirmar que a entrada sobrevive e retomar até completar sem requisições antecipadas.
+- [x] `DownloadManagerCleartextIntegrationTest` PHONE API 35: 2/2; wrapper confirmou QEMU na NVIDIA RTX 3050 e encerrou o AVD.
+- [ ] Validar morte real/reinício do APK e retomada parcial em duas fases orquestradas pelo host, com fixture HTTP fora do processo-alvo. Não executar `force-stop` dentro do runner nem usar AVD com downloads de usuário.
+- [ ] Sem bump, APK de produção ou publicação; mudança exclusivamente do APK.
