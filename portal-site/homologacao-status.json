@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-10-09T02:00:00-03:00",
+  "generatedAt": "2026-10-09T02:03:00-03:00",
   "source": {
     "roadmap": "https://github.com/raphaelpera85/mulletaflix-completo/blob/main/docs/roadmap-evolucao-tecnologica-servidor-e-web.md",
     "repository": "https://github.com/raphaelpera85/mulletaflix-completo"
@@ -4718,7 +4718,7 @@
       "local": "D:\\Users\\Raphael\\Documents\\Projetos\\mulletaflix",
       "location": "TDD-PLAN.md, docs/TDD-PROJECT.md e inventários Android, iOS, servidor, Nebula Python, Web, portal e ferramentas",
       "scope": "Consolidar ciclo RED-GREEN-REFACTOR, quality gates, inventário real de suítes e backlog de lacunas por frente; sem alegar que todo o legado foi escrito por TDD ou homologado.",
-      "status": "in_progress",
+      "status": "blocked",
       "progressPercent": null,
       "startedAt": "2026-10-08T22:05:20-03:00",
       "updatedAt": "2026-10-08T22:13:05-03:00",
@@ -4763,11 +4763,11 @@
       "local": "D:\\Users\\Raphael\\Documents\\Projetos\\mulletaflix",
       "location": "MulletaFlix-master/Jellyfin.Server.Implementations/Nebula e testes Nebula .NET",
       "scope": "Usar os logs enviados para corrigir interferência do backup do Supabase nos uploads Telegram; executar integração Mongo real isolada, revisar hierarquia/listagem do N e registrar limites de validação de produção.",
-      "status": "in_progress",
+      "status": "blocked",
       "progressPercent": null,
       "startedAt": "2026-10-09T00:20:32-03:00",
-      "updatedAt": "2026-10-09T02:00:00-03:00",
-      "evidence": "Análise do log compartilhado localizou backup full de 54.313 arquivos concluído em 614,9 s simultaneamente a uploads em 10 workers; as partes registraram 0,13–0,25 MB/s e 180–340 s. Implementado guard para backups automáticos esperar uploads Mongo status=uploading cessarem; backups manuais permanecem operáveis. Mongo descartável localhost:27099 passou 20/20 integrações; suíte integral Server.Implementations Release passou 1.408 aprovados, 39 ignorados, 0 falhas. Zero duplicatas Supabase na auditoria read-only. Usuário autorizou publicar release limitada às correções concluídas apesar de 68 itens pendentes no roadmap. Build de produção 12.1.17: stage Windows versão Assembly 12.1.17.0; web npm ci/build:check/build:production aprovados; sitemap validado (7 páginas). ZIP 388516509 bytes SHA256 C018A71749FF0BDCF9EE8028046367120F086AC69323CD56FB2532224A1BEC06; EXE Windows 423398871 bytes SHA256 9B595031C0BFF490B00451657764D5EAF4B480C9C66E9F902501E1AD014A79EB; TAR.GZ Linux 137005671 bytes SHA256 B4D136171EB742D1FEBB4FA6BAC90A519D5FA8410A4947C39FBD5A72910B5F34. A raiz N: não está mapeada e não foi feito A/B de upload Telegram real. Portal/Vercel anterior: deployment MCP 403 e CLI não instalada; READY e rotas serão verificados após sincronização. Release GitHub e portal ainda não enviados."
+      "updatedAt": "2026-10-09T02:03:00-03:00",
+      "evidence": "Análise do log compartilhado localizou backup full de 54.313 arquivos concluído em 614,9 s simultaneamente a uploads em 10 workers; as partes registraram 0,13–0,25 MB/s e 180–340 s. Implementado guard para backups automáticos esperar uploads Mongo status=uploading cessarem; backups manuais permanecem operáveis. Mongo descartável localhost:27099 passou 20/20 integrações; suíte integral Server.Implementations Release passou 1.408 aprovados, 39 ignorados, 0 falhas. Zero duplicatas Supabase na auditoria read-only. Build de produção 12.1.17: stage Windows Assembly 12.1.17.0; web npm ci/build:check/build:production aprovados; sitemap validado (7 páginas). ZIP 388516509 bytes SHA256 C018A71749FF0BDCF9EE8028046367120F086AC69323CD56FB2532224A1BEC06; EXE Windows 423398871 bytes SHA256 9B595031C0BFF490B00451657764D5EAF4B480C9C66E9F902501E1AD014A79EB; TAR.GZ Linux 137005671 bytes SHA256 B4D136171EB742D1FEBB4FA6BAC90A519D5FA8410A4947C39FBD5A72910B5F34. Release estável publicada: https://github.com/raphaelpera85/mulletaflix-completo/releases/tag/v12.1.17, tag aponta para commit servidor 47e5298be22c1a21b155132b9bb8a725137a312d; API oficial confirmou três assets, draft=false/prerelease=false. Portal GitHub Mulletaflix-Portal commit 115c9565ef160eb6ca87cee2d9914ea7bebf6609; deployment Vercel de produção mulletaflix-portal-k41hml9st-raphaelpera85s-projects.vercel.app (deployment dpl_B5mSdBKkAvTBhXGvNSp2MN73RGU8) READY, 6 rotas /, /docs, /downloads, /updates, /homologacao, /sitemap.xml e /homologacao-status.json retornaram HTTP 200; /updates exibe v12.1.17. Evidência técnica e publicação concluídas. Validação operacional adicional permanece bloqueada: N: não está mapeado e não foi feito A/B de upload Telegram real. Usuário autorizou a release limitada às correções concluídas apesar de 68 itens pendentes do roadmap."
     }
   ]
 }
