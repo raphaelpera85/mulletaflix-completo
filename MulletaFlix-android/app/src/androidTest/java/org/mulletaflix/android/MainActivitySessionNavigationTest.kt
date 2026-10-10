@@ -362,6 +362,73 @@ class MainActivitySessionNavigationTest {
         )
     }
 
+    @Test
+    fun authenticatedBookDeepLinkOpensReaderAndSurvivesActivityRecreation() = runBlocking {
+        val itemId = "activity-book-reader-item"
+        val serverId = "activity-book-reader-server"
+        val userId = "activity-book-reader-user"
+        val receivedRequests = ConcurrentLinkedQueue<String>()
+        val server = MockWebServer().apply {
+            dispatcher = object : Dispatcher() {
+                override fun dispatch(request: RecordedRequest): MockResponse {
+                    receivedRequests.add("${request.method} ${request.path}")
+                    return when (request.path?.substringBefore('?')) {
+                        "/Users/$userId/Items/$itemId" -> MockResponse()
+                            .setHeader("Content-Type", "application/json")
+                            .setBody(
+                                """{"Id":"$itemId","Name":"Livro da Activity","ServerId":"$serverId","Type":"Book"}""",
+                            )
+                        "/BookReader/Items/$itemId/BookReader/Status" -> MockResponse()
+                            .setHeader("Content-Type", "application/json")
+                            .setBody("""{"Status":"Ready"}""")
+                        "/BookReader/Items/$itemId/BookReader/Epub" -> MockResponse()
+                            .setHeader("Content-Type", "text/plain; charset=utf-8")
+                            .setBody("Conteúdo do livro na Activity principal.")
+                        else -> MockResponse().setResponseCode(404)
+                    }
+                }
+            }
+            start()
+        }
+        mockServers += server
+        sessionRepository.saveSession(
+            server.url("/").toString().trimEnd('/'),
+            token = "activity-book-reader-token",
+            userId = userId,
+            userName = "Leitor de teste",
+            serverId = serverId,
+            deviceId = requireNotNull(originalSession).deviceId,
+        )
+        val launchIntent = Intent(context, MainActivity::class.java).setData(
+            Uri.parse("mulletaflix://details?id=$itemId&serverId=$serverId"),
+        )
+        activityScenario = ActivityScenario.launch(launchIntent)
+
+        composeRule.waitUntil(timeoutMillis = 20_000) {
+            receivedRequests.contains("GET /Users/$userId/Items/$itemId") &&
+                runCatching { composeRule.onNodeWithText("Ler livro").assertIsDisplayed() }.isSuccess
+        }
+        composeRule.onNodeWithText("Ler livro").performClick()
+        composeRule.waitUntil(timeoutMillis = 20_000) {
+            "GET /BookReader/Items/$itemId/BookReader/Epub" in receivedRequests &&
+                runCatching {
+                    composeRule.onNodeWithText("Conteúdo do livro na Activity principal.").assertIsDisplayed()
+                }.isSuccess
+        }
+
+        activityScenario?.recreate()
+
+        composeRule.waitUntil(timeoutMillis = 20_000) {
+            runCatching {
+                composeRule.onNodeWithText("Conteúdo do livro na Activity principal.").assertIsDisplayed()
+            }.isSuccess
+        }
+        assertTrue(
+            "A recriação da Activity deve manter o destino do leitor e o conteúdo visível",
+            receivedRequests.contains("GET /BookReader/Items/$itemId/BookReader/Epub"),
+        )
+    }
+
     private fun launchMainActivity() {
         activityScenario = ActivityScenario.launch(MainActivity::class.java)
     }

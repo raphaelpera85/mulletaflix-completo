@@ -467,6 +467,14 @@ Verificação instrumentada adicional de Livros na Android TV em 2026-10-08: `Tv
 - `GRAPHIFY`: atualizar o grafo Android após o teste e os documentos e conferir o nó/relação da integração EPUB.
 - `LIMITAÇÕES`: executado apenas no perfil PHONE (único AVD disponível neste ambiente); D-pad/Back do sistema, falha de renderização, restauração em processo novo e validação de servidor/mídia reais seguem no APK-H21. Nenhuma mudança de versão, APK de produção/release, servidor ou portal.
 
+### Cobertura de navegação do leitor na Activity principal
+
+- `ESCOPO`: garantir que um deep link autenticado de livro abra o `BookReaderScreen` pela navegação real de `MainActivity` e que a tela/rota permaneça visível após recriação da Activity.
+- `TESTE`: `MainActivitySessionNavigationTest.authenticatedBookDeepLinkOpensReaderAndSurvivesActivityRecreation` usa `MockWebServer`, sessão autenticada e deep link `mulletaflix://details`; valida detalhe, ação “Ler livro”, conteúdo EPUB e endpoint solicitado, chama `ActivityScenario.recreate()` e confirma o conteúdo após a recriação.
+- `DEVICE`: PHONE/API 35, teste instrumentado direcionado 1/1 aprovado, 0 falhas/erros/ignorados; wrapper confirmou QEMU na NVIDIA RTX 3050 e encerrou o AVD.
+- `LIMITAÇÃO`: `ActivityScenario.recreate()` valida somente recriação de Activity no mesmo processo. Não comprova morte do processo da aplicação principal, restauração após cold start, backend/mídia reais, outros dispositivos, falhas de renderização ou acessibilidade. APK-H21 continua aberto para essas validações.
+- `QUALITY GATE`: `testDebugUnitTest`, `:app:lintDebug`, `:app:assembleDebug` e `:app:compileDebugAndroidTestKotlin` executados em conjunto; registrar o resultado consolidado ao concluir a execução.
+
 ### Plano — progresso do leitor após morte do processo
 
 - [x] Adicionar instrumentação em fases para abrir livro de texto via ViewModel, salvar locator escopado por usuário/servidor e verificá-lo num ViewModel novo.
@@ -495,3 +503,10 @@ Verificação instrumentada adicional de Livros na Android TV em 2026-10-08: `Tv
 - `DEVICE`: `:feature:library:connectedDebugAndroidTest` filtrado para `LibraryOfflineReconnectFlowTest`, AVD `MulletaflixTvApi34`, perfil TV — 2/2, 0 falhas/erros/ignorados. `tools/with-emulator.ps1` confirmou QEMU na NVIDIA RTX 3050, validou o perfil e encerrou o AVD.
 - `GRAFO`: consulta Graphify sobre a política HTTP/LAN localizou `AndroidCleartextPolicyIntegrationTest`, guards dos clientes, `CleartextTrafficPolicy` e o pendente APK-H12. Restringir globalmente cleartext sem quebrar LAN dinâmica continua sem solução estática segura; nenhum comportamento foi alterado nesta rodada.
 - `LIMITAÇÕES`: nenhum teste contra servidor/catálogo real ou TalkBack manual; build é Debug. `git diff --check` passou com avisos de conversão LF→CRLF nos arquivos já modificados. Sem bump, APK de produção, release, portal ou mudança no servidor.
+
+### Homologação instrumentada — ocultação de Livros em Android TV — 2026-10-10
+
+- `INTENT`: livros e audiolivros não devem aparecer para quem usa a versão Android TV, inclusive ao navegar pela Home, Biblioteca e Busca.
+- `DEVICE`: `:feature:home:connectedDebugAndroidTest`, `:feature:library:connectedDebugAndroidTest` e `:feature:search:connectedDebugAndroidTest`, em `MulletaflixTvApi34`, perfil TV — respectivamente 36/36, 36/36 e 17/17; zero falhas, erros ou ignorados. Testes incluem ausência da biblioteca Books, títulos Book/Audiobook em busca e ocultação após offline/reconexão.
+- `AMBIENTE`: wrapper verificou QEMU na NVIDIA RTX 3050 e fechou o AVD ao completar.
+- `LIMITAÇÕES`: feed de teste/instrumentado, não servidor e catálogo reais; nenhum comportamento ou versão alterados. Sem APK de produção ou publicação.
