@@ -104,7 +104,7 @@ internal class PlainTextBookDocument private constructor(
         fun supports(contentType: String?): Boolean = mimeType(contentType).lowercase() in
             setOf(CONTENT_TYPE, HTML_CONTENT_TYPE) + MARKDOWN_CONTENT_TYPES + FICTION_BOOK_CONTENT_TYPES + RTF_CONTENT_TYPES ||
             DocxBookTextExtractor.supports(contentType) || OdtBookTextExtractor.supports(contentType) ||
-            FictionBookZipTextExtractor.supports(contentType)
+            FictionBookZipTextExtractor.supports(contentType) || MobiBookTextExtractor.supports(contentType)
 
         fun isRtfContentType(contentType: String?): Boolean =
             mimeType(contentType).lowercase() in RTF_CONTENT_TYPES
@@ -155,6 +155,11 @@ internal class PlainTextBookDocument private constructor(
 
         fun open(file: File, contentType: String? = CONTENT_TYPE): PlainTextBookDocument {
             if (!file.isFile || file.length() <= 0L) throw IOException("O arquivo de texto está vazio ou ausente.")
+            if (MobiBookTextExtractor.supports(contentType) || MobiBookTextExtractor.hasMobiDatabase(file)) {
+                val text = htmlToText(MobiBookTextExtractor.extractHtml(file))
+                if (text.isBlank()) throw IOException("O livro MOBI não contém conteúdo para leitura.")
+                return PlainTextBookDocument(splitIntoChunks(text))
+            }
             if (OdtBookTextExtractor.supports(contentType) || OdtBookTextExtractor.hasOpenDocumentTextPackage(file)) {
                 val text = OdtBookTextExtractor.extract(file)
                     .replace("\u0000", "\uFFFD")

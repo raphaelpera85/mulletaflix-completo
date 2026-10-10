@@ -73,7 +73,7 @@ class BookReaderPayloadPolicyTest {
         assertTrue(isClearlyNotSupportedBookContentType("image/jpeg"))
         assertTrue(isClearlyNotSupportedBookContentType("application/json"))
         assertTrue(isClearlyNotSupportedBookContentType("application/x-cb7"))
-        assertTrue(isClearlyNotSupportedBookContentType("application/x-mobipocket-ebook"))
+        assertFalse(isClearlyNotSupportedBookContentType("application/x-mobipocket-ebook"))
     }
 
     @Test
@@ -83,6 +83,11 @@ class BookReaderPayloadPolicyTest {
         assertEquals(MAX_BOOK_PAYLOAD_BYTES, bookReaderPayloadLimit("application/epub+zip"))
         assertEquals(MAX_BOOK_PAYLOAD_BYTES, bookReaderPayloadLimit(CbrBookArchive.CONTENT_TYPE))
         assertEquals(MAX_BOOK_PAYLOAD_BYTES, bookReaderPayloadLimit(null))
+    }
+
+    @Test
+    fun `limits MOBI download to bounded ebook package size`() {
+        assertEquals(64L * 1024L * 1024L, bookReaderPayloadLimit("application/x-mobipocket-ebook"))
     }
 
     @Test
@@ -266,6 +271,56 @@ class BookReaderPayloadPolicyTest {
             copyBookReaderPayload(input, output, maxBytes = MAX_BOOK_PAYLOAD_BYTES, contentType = "application/octet-stream")
         }
         assertEquals(OdtBookTextExtractor.MAX_PACKAGE_BYTES, output.bytesWritten)
+    }
+
+    @Test
+    fun `generic MOBI database is identified and capped while streaming`() {
+        val prefix = ByteArray(68).apply {
+            "BOOK".toByteArray(Charsets.US_ASCII).copyInto(this, 60)
+            "MOBI".toByteArray(Charsets.US_ASCII).copyInto(this, 64)
+        }
+        val totalBytes = MobiBookTextExtractor.MAX_PACKAGE_BYTES + 1L
+        val input = object : InputStream() {
+            private var position = 0L
+
+            override fun read(): Int {
+                if (position >= totalBytes) return -1
+                val value = if (position < prefix.size) prefix[position.toInt()].toInt() and 0xFF else 0
+                position++
+                return value
+            }
+
+            override fun read(buffer: ByteArray, offset: Int, length: Int): Int {
+                if (position >= totalBytes) return -1
+                val count = minOf(length.toLong(), totalBytes - position).toInt()
+                for (index in 0 until count) {
+                    buffer[offset + index] = if (position + index < prefix.size) {
+                        prefix[(position + index).toInt()]
+                    } else {
+                        0
+                    }
+                }
+                position += count
+                return count
+            }
+        }
+        val output = object : OutputStream() {
+            var bytesWritten = 0L
+                private set
+
+            override fun write(value: Int) {
+                bytesWritten++
+            }
+
+            override fun write(buffer: ByteArray, offset: Int, length: Int) {
+                bytesWritten += length
+            }
+        }
+
+        assertThrows(IOException::class.java) {
+            copyBookReaderPayload(input, output, maxBytes = MAX_BOOK_PAYLOAD_BYTES, contentType = "application/octet-stream")
+        }
+        assertEquals(MobiBookTextExtractor.MAX_PACKAGE_BYTES, output.bytesWritten)
     }
 
     @Test

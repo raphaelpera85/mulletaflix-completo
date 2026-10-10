@@ -13,6 +13,7 @@ internal const val MAX_BOOK_PAYLOAD_BYTES = 512L * 1024L * 1024L
 
 internal fun bookReaderPayloadLimit(contentType: String?): Long = when {
     PlainTextBookDocument.isHtml(contentType) -> PlainTextBookDocument.MAX_HTML_BYTES
+    MobiBookTextExtractor.supports(contentType) -> MobiBookTextExtractor.MAX_PACKAGE_BYTES
     OdtBookTextExtractor.supports(contentType) -> OdtBookTextExtractor.MAX_PACKAGE_BYTES
     DocxBookTextExtractor.supports(contentType) -> DocxBookTextExtractor.MAX_PACKAGE_BYTES
     FictionBookZipTextExtractor.supports(contentType) -> FictionBookZipTextExtractor.MAX_PACKAGE_BYTES
@@ -40,11 +41,13 @@ internal fun copyBookReaderPayload(
         val readBytes = input.read(buffer)
         if (readBytes < 0) return copiedBytes
         if (!signatureResolved) {
-            val prefixBytes = minOf(readBytes, OdtBookTextExtractor.ZIP_MIMETYPE_PREFIX_BYTES - signaturePrefix.size())
+            val prefixBytes = minOf(readBytes, SIGNATURE_PREFIX_BYTES - signaturePrefix.size())
             signaturePrefix.write(buffer, 0, prefixBytes)
-            if (signaturePrefix.size() == OdtBookTextExtractor.ZIP_MIMETYPE_PREFIX_BYTES) {
+            if (signaturePrefix.size() == SIGNATURE_PREFIX_BYTES) {
                 val prefix = signaturePrefix.toByteArray()
                 effectiveMaxBytes = when {
+                    MobiBookTextExtractor.hasMobiDatabaseHeader(prefix) ->
+                        minOf(maxBytes, MobiBookTextExtractor.MAX_PACKAGE_BYTES)
                     OdtBookTextExtractor.hasOpenDocumentTextZipPrefix(prefix) ->
                         minOf(maxBytes, OdtBookTextExtractor.MAX_PACKAGE_BYTES)
                     hasLargeBookPayloadSignature(prefix) -> maxBytes
@@ -71,6 +74,7 @@ private fun hasLargeBookContentType(contentType: String?): Boolean {
         ComicBookArchive.supports(mimeType) ||
         CbrBookArchive.supports(mimeType) ||
         OdtBookTextExtractor.supports(mimeType) ||
+        MobiBookTextExtractor.supports(mimeType) ||
         FictionBookZipTextExtractor.supports(mimeType) ||
         mimeType == "application/epub+zip"
 }
@@ -107,9 +111,9 @@ internal fun isClearlyNotSupportedBookContentType(contentType: String?): Boolean
         mimeType.endsWith("+json") ||
         mimeType in setOf(
             "application/json",
-            "application/x-mobipocket-ebook",
             "application/x-cb7",
             "application/x-cbt",
+            "application/vnd.amazon.mobi8-ebook",
         )
 }
 
@@ -263,6 +267,9 @@ internal fun detectBookPayloadFormat(file: File, contentType: String?): BookPayl
     if (FictionBookZipTextExtractor.supports(contentType) ||
         FictionBookZipTextExtractor.hasFictionBookPackage(file)
     ) return BookPayloadFormat.PLAIN_TEXT
+    if (MobiBookTextExtractor.supports(contentType) || MobiBookTextExtractor.hasMobiDatabase(file)) {
+        return BookPayloadFormat.PLAIN_TEXT
+    }
     if (PlainTextBookDocument.isFictionBookContentType(contentType) ||
         PlainTextBookDocument.hasFictionBookRoot(file)
     ) return BookPayloadFormat.PLAIN_TEXT
@@ -294,3 +301,4 @@ internal fun detectBookPayloadFormat(file: File, contentType: String?): BookPayl
 }
 
 private val PDF_SIGNATURE = "%PDF-".toByteArray(Charsets.US_ASCII)
+private val SIGNATURE_PREFIX_BYTES = maxOf(68, OdtBookTextExtractor.ZIP_MIMETYPE_PREFIX_BYTES)

@@ -1,5 +1,26 @@
 # Plano de TDD do MulletaFlix Android
 
+## RED-GREEN — registros e trailers MOBI/PalmDOC — 2026-10-10
+
+- `INTENT`: aceitar blocos de texto MOBI/PalmDOC divididos em vários registros, removendo trailers indicados por `extra_data_flags` antes da descompressão e preservando caracteres UTF-8 que cruzam a fronteira dos registros.
+- `RED`: `:feature:item-detail:testDebugUnitTest --tests "org.mulletaflix.feature.itemdetail.MobiBookTextExtractorTest"` — teste novo falhou como esperado com `O conteúdo MOBI não corresponde ao tamanho declarado.` porque bytes de trailer eram tratados como conteúdo.
+- `GREEN`: `MobiBookTextExtractorTest` passou 5/5; fixture com dois registros verifica PalmDOC, sobreposição UTF-8, VWI reverso de dois bytes (trailer de 130 bytes), remoção de marcadores sem sobreposição; entrada com trailer truncado é rejeitada.
+- `QUALITY GATE`: `:feature:item-detail:testDebugUnitTest :feature:item-detail:lintDebug :app:lintDebug :app:assembleDebug :feature:item-detail:compileDebugAndroidTestKotlin --no-daemon --console=plain` — `BUILD SUCCESSFUL`; 197 testes JVM, 0 falhas/erros/ignorados.
+- `DEVICE`: `BookReaderScreenIntegrationTest.mobiResponseFromServerIsDecodedAndRenderedInTheReader` passou 1/1 em PHONE/API 35 e 1/1 em TABLET/API 35. Fixture HTTP/Compose usa dois registros, quebra UTF-8 e trailers com VWI de 130 bytes; ambos os wrappers confirmaram GPU NVIDIA e encerraram os emuladores.
+- `GRAPHIFY`: consulta localizou `MobiBookTextExtractor`, `removeTrailingEntries`, `decodeBackwardVariableInteger` e `MobiBookTextExtractorTest`; grafo Android atualizado (10.961 nós, 28.634 arestas, 505 comunidades) e grafo agregado atualizado (63.638 nós, 162.531 arestas, 1.604 comunidades). Arquivos Markdown são registrados neste plano, mas não recebem extração semântica pelo `graphify update`.
+- `LIMITAÇÕES`: validado com fixture sintética compatível com o formato; ainda falta executar um MOBI real confirmado pelo servidor/usuário. Sem release/portal/servidor.
+
+## RED-GREEN — leitura limitada de MOBI/PalmDOC — 2026-10-10
+
+- `INTENT`: o leitor rejeitava `application/x-mobipocket-ebook` e um MOBI com MIME genérico caía no caminho EPUB; os testes exigem abrir MOBI/PalmDOC não criptografado com compressão 1/2 como texto paginado, enquanto o plano anterior reservava MOBI/AZW não suportado à conversão do servidor.
+- `RED`: `:feature:item-detail:testDebugUnitTest --tests "org.mulletaflix.feature.itemdetail.BookReaderPayloadPolicyTest"` — os dois novos casos falharam como esperado: MOBI continuava listado como incompatível e recebia limite genérico de 512 MiB.
+- `GREEN`: `MobiBookTextExtractorTest` passou 4/4 e `BookReaderPayloadPolicyTest` passou 29/29. Cobertura inclui HTML UTF-8, PalmDOC comprimido Windows-1252, back-reference sobreposta, MIME/assinatura genérica, limite de transferência, DRM, HUFF/CDIC, índice e tamanho inválidos.
+- `DEVICE`: `BookReaderScreenIntegrationTest.mobiResponseFromServerIsDecodedAndRenderedInTheReader` passou 1/1 em PHONE/API 35 e 1/1 em TABLET/API 35. Retrofit + `MockWebServer` + Compose confirmaram texto e rota; `tools/with-emulator.ps1` confirmou QEMU/NVIDIA RTX 3050 e encerrou os AVDs.
+- `QUALITY GATE`: `:feature:item-detail:testDebugUnitTest :feature:item-detail:lintDebug :app:lintDebug :app:assembleDebug :feature:item-detail:compileDebugAndroidTestKotlin --no-daemon --console=plain` — `BUILD SUCCESSFUL`; suíte do módulo: 196 testes, 0 falhas/erros/ignorados; lint e build Debug aprovados.
+- `DECISÃO`: código agora permite apenas MOBI/PalmDOC não criptografado, sem compressão ou com compressão PalmDOC; formato bruto é lido por offsets. Arquivo máximo 64 MiB e texto descompactado 8 MiB.
+- `TWINS`: busca pelas strings `application/x-mobipocket-ebook` e `application/vnd.amazon.mobi8-ebook` no código do APK identificou o MIME compatível no parser/política e o MIME AZW3 na lista de rejeição; sem outro bloqueio MOBI equivalente.
+- `LIMITAÇÕES`: não inclui AZW3/KF8, HUFF/CDIC, DRM, MIME `application/vnd.amazon.mobi8-ebook` nem fixture de catálogo real. Sem mudança de versão, servidor, APK de produção, release ou portal.
+
 ## RED-GREEN — atualização da Home ao retomar na TV com carga ativa — 2026-10-10
 
 - `INTENT`: a retomada da Home da TV chama `refreshIfIdle`, que descarta a atualização enquanto uma carga está ativa; a especificação de `HomeRefreshPolicy`/`HomeScreen` exige atualização imediata ao voltar a `Resumed`, sem duplicar requisições periódicas.
@@ -463,5 +484,14 @@ Verificação instrumentada adicional de Livros na Android TV em 2026-10-08: `Tv
 - `PROCESS`: `tools/Test-AndroidBookReaderProgressRestart.ps1` executou três fases no PHONE/API 35; após a primeira, `am force-stop` encerrou `org.mulletaflix.feature.itemdetail.test` e o harness confirmou que o pacote não tinha processo ativo antes de iniciar a segunda. Fases: salvar 1/1, restauração 1/1, limpeza UUID 1/1.
 - `REVISÃO ADVERSARIAL`: exigida correspondência entre `-AvdName` e o AVD ativo; cleanup UUID agora faz a execução falhar se não for comprovado. Reexecução posterior passou nas três fases.
 - `QUALITY GATE`: `testDebugUnitTest :feature:item-detail:lintDebug :app:lintDebug :app:assembleDebug` — `BUILD SUCCESSFUL`; 1.587 testes JVM, 0 falhas/erros/ignorados. `:feature:item-detail:compileDebugAndroidTestKotlin` — `BUILD SUCCESSFUL`; `git diff --check` passou.
-- `GRAPHIFY`: atualização final após adicionar o teste, endurecer o harness e documentar a limitação; grafo com 10.859 nós, 28.386 arestas, 499 comunidades; consulta confirmou `BookReaderProgressProcessRestartTest`, `BookReaderViewModel` e `BookReaderProgressStore`.
+- `GRAPHIFY`: atualização após adicionar o teste, endurecer o harness e documentar a limitação; grafo final desta continuação com 10.859 nós, 28.387 arestas, 500 comunidades. A consulta confirmou relações entre `BookReaderScreen`, `BookReaderViewModel` e o fluxo de persistência.
 - `LIMITAÇÃO`: o Android matou o alvo isolado gerado para instrumentação do módulo, não o `applicationId` `org.mulletaflix.android.debug`; prova a persistência real do DataStore e leitura por novo ViewModel, mas cold start/Activity/renderização integrados ao APK principal continuam pendentes. Sem mudança de produção, release, servidor ou portal.
+- `DIAGNÓSTICO PENDENTE`: tentativa adicional de compor `BookReaderScreen` na fase de restauração manteve Locator e índice corretos, mas o Compose test host não expôs os nós dos trechos; três tentativas variaram espera de UI, visibilidade e presença sem sucesso. Extensão foi removida para não deixar teste vermelho; investigar a árvore semântica/host de Activity antes de retomar. Não prova defeito de produção.
+
+### Quality gate global — retomada 2026-10-10
+
+- `INTENT`: confirmar que o estado atual do APK compila e que a regressão reportada anteriormente — biblioteca de livros visível na Android TV — continua impedida durante carga, falha de atualização, modo offline e reconexão.
+- `QUALITY GATE`: `./gradlew testDebugUnitTest :app:lintDebug :app:assembleDebug --no-daemon --console=plain` — `BUILD SUCCESSFUL`; relatórios JVM: 1.594 testes, 0 falhas, 0 erros, 0 ignorados (242 XML).
+- `DEVICE`: `:feature:library:connectedDebugAndroidTest` filtrado para `LibraryOfflineReconnectFlowTest`, AVD `MulletaflixTvApi34`, perfil TV — 2/2, 0 falhas/erros/ignorados. `tools/with-emulator.ps1` confirmou QEMU na NVIDIA RTX 3050, validou o perfil e encerrou o AVD.
+- `GRAFO`: consulta Graphify sobre a política HTTP/LAN localizou `AndroidCleartextPolicyIntegrationTest`, guards dos clientes, `CleartextTrafficPolicy` e o pendente APK-H12. Restringir globalmente cleartext sem quebrar LAN dinâmica continua sem solução estática segura; nenhum comportamento foi alterado nesta rodada.
+- `LIMITAÇÕES`: nenhum teste contra servidor/catálogo real ou TalkBack manual; build é Debug. `git diff --check` passou com avisos de conversão LF→CRLF nos arquivos já modificados. Sem bump, APK de produção, release, portal ou mudança no servidor.

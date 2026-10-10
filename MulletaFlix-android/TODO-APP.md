@@ -1,5 +1,16 @@
 # MulletaFlix Android - Plano de Desenvolvimento & Checklist de Funcionalidades (TODO)
 
+## Leitura de MOBI/PalmDOC sem DRM — Android, sem release
+
+- [x] Ler MOBI/PalmDOC não criptografado, sem compressão ou com compressão PalmDOC, como texto paginado; aceitar UTF-8/Windows-1252 e reconhecer MIME específico ou banco `BOOKMOBI` com MIME genérico.
+- [x] Fazer leitura por offsets de registro, validar índice/tamanhos e limitar arquivo a 64 MiB e texto descompactado a 8 MiB; remover trailers MOBI marcados antes de decodificar, inclusive extensão de índice com VWI reverso e bytes de sobreposição UTF-8.
+- [x] Rejeitar DRM, HUFF/CDIC, AZW3, trailer truncado e payload malformado com erro compreensível.
+- [x] TDD: `MobiBookTextExtractorTest` cobre HTML UTF-8, PalmDOC/Windows-1252, back-reference sobreposta, múltiplos registros, caractere UTF-8 dividido, trailers e rejeições. `BookReaderPayloadPolicyTest` cobre MIME, assinatura genérica e limites do stream.
+- [x] `BookReaderScreenIntegrationTest.mobiResponseFromServerIsDecodedAndRenderedInTheReader`: PHONE/API 35 1/1 e TABLET/API 35 1/1 via HTTP local; a fixture contém dois registros, UTF-8 dividido e trailers MOBI com VWI reverso de 130 bytes; wrappers verificaram NVIDIA RTX 3050 e encerraram os AVDs.
+- [x] Quality Gate 2026-10-10: suíte completa `:feature:item-detail:testDebugUnitTest` (197 testes, 0 falhas/erros/ignorados), `:feature:item-detail:lintDebug`, `:app:lintDebug`, `:app:assembleDebug` e `:feature:item-detail:compileDebugAndroidTestKotlin` — `BUILD SUCCESSFUL`.
+- [ ] Validar arquivo MOBI real sem DRM e confirmado pelo usuário/servidor; ainda não se alega compatibilidade com todos os arquivos MOBI/AZW.
+- [ ] Sem bump, APK de produção, release, portal ou alteração no servidor.
+
 ## Manter a tela ligada durante a leitura — Android, sem release
 
 - [x] Manter `FLAG_KEEP_SCREEN_ON` enquanto `BookReaderScreen` estiver composto e restaurar o estado anterior ao sair, sem wakelock permanente nem mudança no player.
@@ -192,7 +203,7 @@
 - [x] Unificar a ordenação natural de CBZ/CBR e tokenizar cada nome de página uma vez por ordenação, em vez de recriar tokens em cada comparação; cobrir páginas numéricas, zeros à esquerda, desempate de caixa e números acima do limite de inteiro.
 - [x] Verificar cancelamento entre entradas durante a indexação feita pelo app e antes/depois da ordenação; propagar `CancellationException` e fechar o arquivo RAR no caminho de erro. Regressão JVM confirma que a indexação para após o cancelamento.
 - [ ] Auditoria upstream do Junrar 8.1.1 (2026-10-08): `Archive` lê os cabeçalhos durante a construção e mantém todos em `headers`; `nextFileHeader()` apenas percorre essa lista depois. O limite `MAX_ARCHIVE_ENTRIES` do APK só é aplicado após essa alocação, portanto não protege o pico de memória nem permite interromper a leitura inicial. O parser não expõe limite prévio/cancelamento nessa API; manter o risco explícito e avaliar parser mantido com leitura incremental ou contribuição upstream, sem implementar scanner RAR caseiro. Fonte: https://github.com/junrar/junrar/blob/v8.1.1/src/main/java/com/github/junrar/Archive.java
-- [ ] Validar mídia real servida pelo Mulletaflix e conversões MOBI/AZW no servidor; APK usa conversão do servidor para formatos ainda não suportados diretamente.
+- [ ] Validar mídia MOBI real servida pelo Mulletaflix; testar conversão do servidor para AZW3/HUFF-CDIC e MOBI com DRM, formatos que o APK ainda não abre diretamente.
 - [ ] Sem bump de versão, APK de produção, portal ou publicação.
 
 Este documento rastreia o status de implementação de todas as funcionalidades, módulos, telas e componentes do aplicativo oficial **MulletaFlix Android**.

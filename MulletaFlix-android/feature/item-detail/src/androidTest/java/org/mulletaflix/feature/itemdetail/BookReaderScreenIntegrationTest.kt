@@ -17,6 +17,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
+import androidx.compose.ui.test.assertTextContains
 import androidx.compose.ui.test.assertHasNoClickAction
 import androidx.compose.ui.test.assertHasClickAction
 import androidx.compose.ui.test.isHeading
@@ -193,6 +194,49 @@ class BookReaderScreenIntegrationTest {
         val retryRequest = server.takeRequest()
         assertEquals("/BookReader/Items/reader-screen-book/BookReader/Epub", firstRequest.path)
         assertEquals(firstRequest.path, retryRequest.path)
+    }
+
+    @Test
+    fun mobiResponseFromServerIsDecodedAndRenderedInTheReader() {
+        val itemId = "reader-mobi-${System.nanoTime()}"
+        server.enqueue(
+            MockResponse()
+                .setResponseCode(200)
+                .addHeader("Content-Type", MobiBookTextExtractor.CONTENT_TYPE)
+                .setBody(Buffer().write(createMobi("<h1>Capítulo MOBI</h1><p>Texto MOBI café entregue via HTTP.</p>"))),
+        )
+        val api = Retrofit.Builder()
+            .baseUrl(server.url("/"))
+            .client(OkHttpClient())
+            .build()
+            .create(MulletaFlixApiService::class.java)
+        val viewModel = ViewModelProvider(
+            viewModelStore,
+            object : ViewModelProvider.Factory {
+                @Suppress("UNCHECKED_CAST")
+                override fun <T : ViewModel> create(modelClass: Class<T>): T =
+                    BookReaderViewModel(api, TestSessionRepository(sessionScope), context) as T
+            },
+        )[BookReaderViewModel::class.java]
+
+        composeRule.setContent {
+            MaterialTheme {
+                BookReaderScreen(itemId = itemId, onBack = {}, viewModel = viewModel)
+            }
+        }
+
+        composeRule.waitUntil(timeoutMillis = 20_000) {
+            runCatching {
+                composeRule.onNodeWithTag("$PLAIN_TEXT_BOOK_CHUNK_TEST_TAG-0")
+                    .assertIsDisplayed()
+                    .assertTextContains("Capítulo MOBI", substring = true)
+                    .assertTextContains("Texto MOBI café entregue via HTTP.", substring = true)
+            }.isSuccess
+        }
+        assertEquals(
+            "/BookReader/Items/$itemId/BookReader/Epub",
+            server.takeRequest(5, TimeUnit.SECONDS)?.path,
+        )
     }
 
     @Test
@@ -928,6 +972,58 @@ class BookReaderScreenIntegrationTest {
             )
         }
         return output.toByteArray()
+    }
+
+    private fun createMobi(html: String): ByteArray {
+        val text = html.toByteArray(Charsets.UTF_8)
+        val splitAfterFirstByteOfMultibyteCharacter = text.indexOf(0xC3.toByte()) + 1
+        require(splitAfterFirstByteOfMultibyteCharacter > 0)
+        val indexingTrailer = ByteArray(128) { 0x42 } + byteArrayOf(0x81.toByte(), 0x02)
+        val firstTextRecord = text.copyOfRange(0, splitAfterFirstByteOfMultibyteCharacter) +
+            byteArrayOf(text[splitAfterFirstByteOfMultibyteCharacter], 0x01) + indexingTrailer
+        val secondTextRecord = text.copyOfRange(splitAfterFirstByteOfMultibyteCharacter, text.size) +
+            byteArrayOf(0x00) + indexingTrailer
+        val recordCount = 3
+        val firstRecordOffset = 78 + recordCount * 8
+        val firstRecordLength = 248
+        val firstTextRecordOffset = firstRecordOffset + firstRecordLength
+        val secondTextRecordOffset = firstTextRecordOffset + firstTextRecord.size
+        val result = ByteArray(secondTextRecordOffset + secondTextRecord.size)
+        writeAscii(result, 0, "Mulletaflix MOBI test")
+        writeAscii(result, 60, "BOOK")
+        writeAscii(result, 64, "MOBI")
+        writeUInt16(result, 76, recordCount)
+        writeUInt32(result, 78, firstRecordOffset)
+        writeUInt32(result, 86, firstTextRecordOffset)
+        writeUInt32(result, 94, secondTextRecordOffset)
+        writeUInt16(result, firstRecordOffset, 1)
+        writeUInt32(result, firstRecordOffset + 4, text.size)
+        writeUInt16(result, firstRecordOffset + 8, 2)
+        writeUInt16(result, firstRecordOffset + 10, 4_096)
+        writeAscii(result, firstRecordOffset + 16, "MOBI")
+        writeUInt32(result, firstRecordOffset + 20, 232)
+        writeUInt32(result, firstRecordOffset + 24, 2)
+        writeUInt32(result, firstRecordOffset + 28, 65_001)
+        writeUInt16(result, firstRecordOffset + 242, 3)
+        firstTextRecord.copyInto(result, firstTextRecordOffset)
+        secondTextRecord.copyInto(result, secondTextRecordOffset)
+        return result
+    }
+
+    private fun writeAscii(target: ByteArray, offset: Int, value: String) {
+        value.toByteArray(Charsets.US_ASCII).copyInto(target, offset)
+    }
+
+    private fun writeUInt16(target: ByteArray, offset: Int, value: Int) {
+        target[offset] = (value ushr 8).toByte()
+        target[offset + 1] = value.toByte()
+    }
+
+    private fun writeUInt32(target: ByteArray, offset: Int, value: Int) {
+        target[offset] = (value ushr 24).toByte()
+        target[offset + 1] = (value ushr 16).toByte()
+        target[offset + 2] = (value ushr 8).toByte()
+        target[offset + 3] = value.toByte()
     }
 
     private fun createPdfFixture(): ByteArray {
