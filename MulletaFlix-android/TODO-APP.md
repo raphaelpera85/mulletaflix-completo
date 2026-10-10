@@ -1,5 +1,13 @@
 # MulletaFlix Android - Plano de Desenvolvimento & Checklist de Funcionalidades (TODO)
 
+## Preservar rascunho do formulário de solicitação — Android, sem release
+
+- [x] Preservar título, tipo, ano e observações durante restauração de estado salvo da tela Home com `rememberSaveable`.
+- [x] Teste de integração Compose RED-GREEN: reprodução de estado salvo passou 1/1 em PHONE/API 35 e 1/1 em TABLET/API 35; os quatro campos foram verificados.
+- [x] Quality gate global: suítes JVM, lint home/app, assemble Debug e compilação AndroidTest home/app — `BUILD SUCCESSFUL`.
+- [ ] Validar restauração com processo encerrado/hardware real. O diálogo não reabre automaticamente, e envio/progresso/status não são persistidos nem repetidos.
+- [ ] Sem bump de versão, APK de produção, release, portal ou mudança no servidor.
+
 ## Leitura de MOBI/PalmDOC sem DRM — Android, sem release
 
 - [x] Ler MOBI/PalmDOC não criptografado, sem compressão ou com compressão PalmDOC, como texto paginado; aceitar UTF-8/Windows-1252 e reconhecer MIME específico ou banco `BOOKMOBI` com MIME genérico.

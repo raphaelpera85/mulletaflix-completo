@@ -16,6 +16,7 @@ import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.compose.ui.Alignment
@@ -77,10 +78,10 @@ fun HomeScreen(
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     var showRequestDialog by remember { mutableStateOf(false) }
-    var requestTitle by remember { mutableStateOf("") }
-    var requestType by remember { mutableStateOf("Série") }
-    var requestYear by remember { mutableStateOf("") }
-    var requestNotes by remember { mutableStateOf("") }
+    var requestTitle by rememberSaveable { mutableStateOf("") }
+    var requestType by rememberSaveable { mutableStateOf("Série") }
+    var requestYear by rememberSaveable { mutableStateOf("") }
+    var requestNotes by rememberSaveable { mutableStateOf("") }
     var requestMessage by remember { mutableStateOf<String?>(null) }
     var requestSubmitting by remember { mutableStateOf(false) }
     val requestYearNumber = requestYear.toIntOrNull()

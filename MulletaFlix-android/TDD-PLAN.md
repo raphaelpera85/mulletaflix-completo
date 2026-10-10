@@ -1,5 +1,14 @@
 # Plano de TDD do MulletaFlix Android
 
+## RED-GREEN — preservar rascunho de solicitação de mídia — 2026-10-10
+
+- `INTENT`: HomeScreen currently holds the media-request title, type, year and notes in remember; the new integration test expects those draft fields to survive saved-instance-state restoration; the intended mobile behavior is to retain user input across Android activity recreation without durable storage or automatic resubmission.
+- `RED`: `:feature:home:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.expectedDeviceProfile=PHONE -Pandroid.testInstrumentationRunnerArguments.class=org.mulletaflix.feature.home.HomeMediaRequestDraftRestorationTest` — falhou pela razão esperada: após restauração, o campo de título não continha `Duna`.
+- `GREEN`: mesmo teste passou 1/1 em PHONE/API 35 e 1/1 em TABLET/API 35, via `tools/with-emulator.ps1`; título, tipo, ano e observações são restaurados após recriação do estado salvo. `rememberSaveable` mantém os quatro campos; diálogo, progresso e resultado de envio não são restaurados.
+- `QUALITY GATE`: `testDebugUnitTest :feature:home:lintDebug :app:lintDebug :app:assembleDebug :feature:home:compileDebugAndroidTestKotlin :app:compileDebugAndroidTestKotlin --no-daemon --console=plain` — `BUILD SUCCESSFUL` (881 tarefas acionáveis; 32 executadas, 849 atualizadas). Lint, build e compilação dos testes instrumentados aprovados.
+- `GRAPHIFY`: `graphify update .` — 10.980 nós, 28.675 arestas, 489 comunidades; gerados `graphify-out/graph.json`, `graph.html` e `GRAPH_REPORT.md`. Consulta `graphify query "HomeMediaRequestDraftRestorationTest HomeScreen rememberSaveable" --budget 700` localizou o teste novo (linha 31), `HomeScreen()` e `rememberSaveable`. Avisos: CLI 0.9.79 usa skill 0.9.84; parser preexistente reporta sintaxe em `TvHomeRefreshIntegrationTest.kt:53`; 83 arquivos não classificados e 28 sem símbolos. A atualização extrai código; não faz extração semântica dos Markdown.
+- `LIMITAÇÕES`: o teste usa `StateRestorationTester` para o mecanismo Compose de estado salvo; não comprova restauração após encerramento forçado do processo, persistência durável, envio ao servidor ou fluxo em hardware/TV. Sem versão/release/portal/servidor.
+
 ## RED-GREEN — registros e trailers MOBI/PalmDOC — 2026-10-10
 
 - `INTENT`: aceitar blocos de texto MOBI/PalmDOC divididos em vários registros, removendo trailers indicados por `extra_data_flags` antes da descompressão e preservando caracteres UTF-8 que cruzam a fronteira dos registros.

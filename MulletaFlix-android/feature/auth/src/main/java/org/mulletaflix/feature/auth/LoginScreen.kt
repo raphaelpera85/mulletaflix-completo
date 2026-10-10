@@ -14,6 +14,7 @@ import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -81,13 +82,6 @@ fun LoginScreen(
         if (!switchingServer && state.savedServersLoaded) viewModel.prepareLoginOptions()
     }
 
-    // Quick Connect is scoped to this authentication surface. Leaving the
-    // screen must not leave a background poll that can authenticate a later
-    // session or keep the network active after navigation.
-    DisposableEffect(viewModel) {
-        onDispose { viewModel.cancelQuickConnect() }
-    }
-
     LaunchedEffect(state.isAuthenticated, switchingServer) {
         if (shouldAutoAdvanceAuthScreen(state.isAuthenticated, switchingServer)) onLoginSuccess()
     }
@@ -132,7 +126,7 @@ fun LoginScreen(
             )
 
             // ── Tab Selector (Login / Quick Connect) ──────────────────────────
-            var selectedTab by remember { mutableIntStateOf(0) }
+            var selectedTab by rememberSaveable { mutableIntStateOf(0) }
             LaunchedEffect(selectedTab) {
                 if (selectedTab == 0) viewModel.cancelQuickConnect()
             }
