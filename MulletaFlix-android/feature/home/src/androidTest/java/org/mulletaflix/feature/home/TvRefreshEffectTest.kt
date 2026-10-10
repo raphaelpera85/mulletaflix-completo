@@ -7,6 +7,7 @@ import androidx.lifecycle.LifecycleRegistry
 import org.junit.Rule
 import org.junit.Test
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicBoolean
 
@@ -47,6 +48,37 @@ class TvRefreshEffectTest {
         composeRule.waitUntil { refreshCount.get() == 2 }
 
         assertEquals(2, refreshCount.get())
+    }
+
+    @Test
+    fun resume_refresh_and_periodic_refresh_use_separate_handlers() {
+        val owner = TestLifecycleOwner()
+        val resumeRefreshCount = AtomicInteger(0)
+        val periodicRefreshCount = AtomicInteger(0)
+        composeRule.runOnUiThread {
+            owner.registry.handleLifecycleEvent(Lifecycle.Event.ON_CREATE)
+        }
+
+        composeRule.setContent {
+            TvRefreshEffect(
+                lifecycleOwner = owner,
+                refreshIntervalMillis = 50,
+                refreshImmediately = true,
+                onRefresh = { periodicRefreshCount.incrementAndGet() },
+                onResumeRefresh = { resumeRefreshCount.incrementAndGet() },
+            )
+        }
+
+        composeRule.runOnUiThread {
+            owner.registry.handleLifecycleEvent(Lifecycle.Event.ON_START)
+            owner.registry.handleLifecycleEvent(Lifecycle.Event.ON_RESUME)
+        }
+        composeRule.waitUntil(timeoutMillis = 2_000) {
+            resumeRefreshCount.get() == 1 && periodicRefreshCount.get() > 0
+        }
+
+        assertEquals(1, resumeRefreshCount.get())
+        assertTrue(periodicRefreshCount.get() > 0)
     }
 
     @Test

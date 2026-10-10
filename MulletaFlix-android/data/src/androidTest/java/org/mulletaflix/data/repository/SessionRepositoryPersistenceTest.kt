@@ -4,10 +4,17 @@ import android.content.Context
 import android.content.ContextWrapper
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import com.squareup.moshi.Moshi
+import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
 import java.io.File
 import java.util.UUID
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
+import okhttp3.OkHttpClient
+import okhttp3.tls.HandshakeCertificates
+import okhttp3.tls.HeldCertificate
+import okhttp3.mockwebserver.MockResponse
+import okhttp3.mockwebserver.MockWebServer
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
@@ -15,7 +22,10 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
+import org.mulletaflix.core.api.MulletaFlixApiService
 import org.mulletaflix.core.api.SavedServerSession
+import retrofit2.Retrofit
+import retrofit2.converter.moshi.MoshiConverterFactory
 
 @RunWith(AndroidJUnit4::class)
 class SessionRepositoryPersistenceTest {
@@ -61,6 +71,15 @@ class SessionRepositoryPersistenceTest {
         assertEquals("Pessoa de teste", restored.getCurrentUserName().first())
         assertEquals("server-9", restored.getServerId().first())
         assertEquals("device-2", restored.getDeviceId().first())
+        assertEquals(
+            org.mulletaflix.core.api.SessionState(
+                serverUrl = "https://media.example.test",
+                accessToken = "fake-token",
+                userId = "user-7",
+                serverId = "server-9",
+            ),
+            restored.getSessionState().first(),
+        )
         assertNotNull(restored.getFeedbackRequestSession().first())
 
         restored.clearSession()
@@ -72,6 +91,73 @@ class SessionRepositoryPersistenceTest {
         assertNull(restored.getFeedbackRequestSession().first())
         assertEquals("https://media.example.test", restored.getBaseUrl().first())
         assertEquals("device-2", restored.getDeviceId().first())
+    }
+
+    @Test
+    fun loginForAnotherAccountReplacesPersistedIdentityAndSurvivesRepositoryRecreation() = runBlocking {
+        repository.saveSession(
+            serverUrl = "https://media.example.test/",
+            token = "old-token",
+            userId = "old-user",
+            userName = "Conta antiga",
+            serverId = "server-9",
+            deviceId = "device-2",
+        )
+        val server = MockWebServer()
+        try {
+            val certificate = HeldCertificate.Builder()
+                .addSubjectAlternativeName("localhost")
+                .addSubjectAlternativeName("127.0.0.1")
+                .build()
+            val serverTls = HandshakeCertificates.Builder()
+                .heldCertificate(certificate)
+                .build()
+            val clientTls = HandshakeCertificates.Builder()
+                .addTrustedCertificate(certificate.certificate)
+                .build()
+            server.useHttps(serverTls.sslSocketFactory(), false)
+            server.start(java.net.InetAddress.getByName("127.0.0.1"), 0)
+            server.enqueue(
+                MockResponse()
+                    .setHeader("Content-Type", "application/json")
+                    .setBody(
+                        """{"AccessToken":"new-token","ServerId":"server-9","User":{"Id":"new-user","Name":"Nova conta"}}""",
+                    ),
+            )
+            val moshi = Moshi.Builder().addLast(KotlinJsonAdapterFactory()).build()
+            val api = Retrofit.Builder()
+                .baseUrl(server.url("/"))
+                .client(
+                    OkHttpClient.Builder()
+                        .sslSocketFactory(clientTls.sslSocketFactory(), clientTls.trustManager)
+                        .build(),
+                )
+                .addConverterFactory(MoshiConverterFactory.create(moshi))
+                .build()
+                .create(MulletaFlixApiService::class.java)
+
+            val login = AuthRepositoryImpl(api, repository).login("Nova conta", "senha-de-teste").getOrThrow()
+            val request = server.takeRequest()
+            val restored = SessionRepositoryImpl(context)
+
+            assertEquals("POST", request.method)
+            assertEquals("/Users/AuthenticateByName", request.path)
+            val requestBody = request.body.readUtf8()
+            assertTrue(requestBody.contains("\"Username\":\"Nova conta\""))
+            assertTrue(requestBody.contains("\"Pw\":\"senha-de-teste\""))
+            assertEquals(1, server.requestCount)
+            assertEquals("new-user", login.userId)
+            assertEquals("new-token", login.token)
+            assertEquals("server-9", login.serverId)
+            assertEquals("https://media.example.test", restored.getBaseUrl().first())
+            assertEquals("new-token", restored.getAccessToken().first())
+            assertEquals("new-user", restored.getCurrentUserId().first())
+            assertEquals("Nova conta", restored.getCurrentUserName().first())
+            assertEquals("server-9", restored.getServerId().first())
+            assertEquals("device-2", restored.getDeviceId().first())
+        } finally {
+            server.shutdown()
+        }
     }
 
     @Test

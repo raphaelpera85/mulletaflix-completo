@@ -31,4 +31,9 @@ dependencies {
     testImplementation("org.json:json:20240303")
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.test.runner)
+    androidTestImplementation(libs.mockwebserver)
+    androidTestImplementation(libs.okhttp.tls)
+    androidTestImplementation(libs.retrofit)
+    androidTestImplementation(libs.retrofit.moshi)
+    androidTestImplementation(libs.moshi.kotlin)
 }

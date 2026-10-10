@@ -1,6 +1,10 @@
 package org.mulletaflix.feature.itemdetail
 
 import android.app.Application
+import android.app.Activity
+import android.content.Context
+import android.content.ContextWrapper
+import android.view.WindowManager
 import androidx.compose.foundation.background
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.LazyColumn
@@ -106,6 +110,7 @@ fun BookReaderScreen(
     val pageBook = state.pageBook
     val textBook = state.textBook
     val context = LocalContext.current
+    val activity = context.findActivity()
     val lifecycleOwner = LocalLifecycleOwner.current
     val speechEngineFactory = LocalBookSpeechEngineFactory.current
     val coroutineScope = rememberCoroutineScope()
@@ -130,6 +135,22 @@ fun BookReaderScreen(
             engine = speechEngineFactory(context.applicationContext),
             onChunkChanged = { currentTextChunk = it },
         )
+    }
+    DisposableEffect(activity) {
+        val window = activity?.window
+        val keepScreenOnBeforeReader = window?.let {
+            it.attributes.flags and WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON != 0
+        } ?: false
+        window?.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        onDispose {
+            if (window != null) {
+                if (keepScreenOnBeforeReader) {
+                    window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                } else {
+                    window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                }
+            }
+        }
     }
     LaunchedEffect(speechController, speechRatePercent) {
         speechController.setSpeechRatePercent(speechRatePercent)
@@ -634,6 +655,15 @@ fun BookReaderScreen(
             }
         }
     }
+}
+
+private fun Context.findActivity(): Activity? {
+    var current: Context = this
+    while (current is ContextWrapper) {
+        if (current is Activity) return current
+        current = current.baseContext
+    }
+    return current as? Activity
 }
 
 @Composable

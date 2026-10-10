@@ -46,6 +46,39 @@ class TvRefreshEffectTest {
     }
 
     @Test
+    fun uses_resume_callback_separately_from_periodic_callback() {
+        val owner = TestLifecycleOwner()
+        val periodicCount = AtomicInteger(0)
+        val resumeCount = AtomicInteger(0)
+        composeRule.runOnUiThread {
+            owner.registry.handleLifecycleEvent(Lifecycle.Event.ON_CREATE)
+        }
+
+        composeRule.setContent {
+            TvRefreshEffect(
+                lifecycleOwner = owner,
+                refreshIntervalMillis = Long.MAX_VALUE,
+                refreshImmediately = true,
+                onRefresh = { periodicCount.incrementAndGet() },
+                onResumeRefresh = { resumeCount.incrementAndGet() },
+            )
+        }
+
+        resume(owner)
+        composeRule.waitUntil { resumeCount.get() == 1 }
+        assertEquals(0, periodicCount.get())
+
+        composeRule.runOnUiThread {
+            owner.registry.handleLifecycleEvent(Lifecycle.Event.ON_PAUSE)
+            owner.registry.handleLifecycleEvent(Lifecycle.Event.ON_STOP)
+        }
+        resume(owner)
+        composeRule.waitUntil { resumeCount.get() == 2 }
+
+        assertEquals(0, periodicCount.get())
+    }
+
+    @Test
     fun keeps_refreshing_after_one_refresh_failure() {
         val owner = TestLifecycleOwner()
         val refreshCount = AtomicInteger(0)

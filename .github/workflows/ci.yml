@@ -309,11 +309,21 @@ jobs:
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
 
-      - name: Run Android unit tests
-        run: ./gradlew test
+      - name: Run Android unit tests and lint
+        run: ./gradlew test lintDebug
 
       - name: Build Android Debug APK
         run: ./gradlew assembleDebug
+
+      - name: Upload Android test and lint reports
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: mulletaflix-android-validation-reports
+          path: |
+            MulletaFlix-android/**/build/test-results/**/*.xml
+            MulletaFlix-android/**/build/reports/lint-results-*.html
+          if-no-files-found: warn
 
       - name: Prepare Android production keystore
         if: ${{ env.HAS_ANDROID_PRODUCTION_KEYSTORE == 'true' }}

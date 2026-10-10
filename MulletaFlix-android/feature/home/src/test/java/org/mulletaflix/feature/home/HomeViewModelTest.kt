@@ -15,6 +15,7 @@ import kotlinx.coroutines.test.setMain
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.launch
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -915,6 +916,48 @@ class HomeViewModelTest {
         assertEquals(1, resumeCalls)
         responseRelease.complete(Unit)
         advanceUntilIdle()
+    }
+
+    @Test fun `refresh after TV resume runs once the active initial load completes`() = runTest {
+        val initialResponse = CompletableDeferred<Result<List<MediaItem>>>()
+        val resumedResponse = CompletableDeferred<Result<List<MediaItem>>>()
+        var resumeCalls = 0
+        val initialTitle = MediaItem("initial", "Conteúdo inicial", MediaItemType.Movie)
+        val resumedTitle = MediaItem("resumed", "Conteúdo atualizado", MediaItemType.Movie)
+        val repository = object : FakeMediaRepository() {
+            override suspend fun getResumeItems(userId: String, limit: Int): Result<List<MediaItem>> =
+                when (resumeCalls++) {
+                    0 -> initialResponse.await()
+                    1 -> resumedResponse.await()
+                    else -> error("Unexpected duplicate refresh")
+                }
+
+            override suspend fun getNextUp(userId: String, limit: Int) = Result.success(emptyList<MediaItem>())
+            override suspend fun getLibraries(userId: String) = Result.success(emptyList<MediaItem>())
+            override suspend fun getLatestItems(userId: String, parentId: String?, limit: Int) = Result.success(emptyList<MediaItem>())
+            override suspend fun getLiveTvChannelPreview(userId: String) = Result.success(emptyList<MediaItem>())
+        }
+        val viewModel = HomeViewModel(
+            GetHomeFeedUseCase(repository),
+            FakeSessionRepository(userId = "u1"),
+            FakeNetworkMonitor(),
+            FakeAuthRepository(),
+        )
+        runCurrent()
+
+        val resumedRefresh = launch { viewModel.refreshAfterActiveLoadOnResume() }
+        runCurrent()
+        assertEquals("An active load must not be duplicated or cancelled", 1, resumeCalls)
+
+        initialResponse.complete(Result.success(listOf(initialTitle)))
+        runCurrent()
+        assertEquals("A resume refresh must follow the completed initial load", 2, resumeCalls)
+        resumedResponse.complete(Result.success(listOf(resumedTitle)))
+        resumedRefresh.join()
+        advanceUntilIdle()
+
+        assertEquals(listOf(resumedTitle), viewModel.state.value.resumeItems)
+        assertEquals(2, resumeCalls)
     }
 
     @Test fun `a late refresh cannot overwrite a newer home response`() = runTest {

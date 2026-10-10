@@ -3,6 +3,8 @@ package org.mulletaflix.feature.player
 private const val MIN_SLEEP_TIMER_MINUTES = 1
 private const val MAX_SLEEP_TIMER_MINUTES = 180
 
+internal val SLEEP_TIMER_OPTIONS_MINUTES = listOf(15, 30, 45, 60, 90, 120, 180)
+
 enum class SleepTimerMode {
     OFF,
     COUNTDOWN,

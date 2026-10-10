@@ -10,6 +10,7 @@ import androidx.compose.ui.test.hasClickAction
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.requestFocus
 import org.junit.Assert.assertEquals
 import org.junit.Rule
@@ -48,6 +49,35 @@ class SleepTimerMenuTest {
 
         assertEquals(30, selectedMinutes)
         assertEquals(false, selectedAtMediaEnd)
+    }
+
+    @Test
+    fun maximumSupportedTimerDurationsAreVisibleAndSelectable() {
+        var selectedMinutes: Int? = null
+        composeRule.setContent {
+            MaterialTheme {
+                SleepTimerMenu(
+                    mode = SleepTimerMode.OFF,
+                    remainingMs = null,
+                    selectedMinutes = null,
+                    onSelect = { selectedMinutes = it },
+                    onSelectAtMediaEnd = {},
+                    onDismiss = {},
+                )
+            }
+        }
+
+        composeRule.onNode(hasText("120 minutos") and hasClickAction())
+            .performScrollTo()
+            .performClick()
+
+        assertEquals(120, selectedMinutes)
+
+        composeRule.onNode(hasText("180 minutos") and hasClickAction())
+            .performScrollTo()
+            .performClick()
+
+        assertEquals(180, selectedMinutes)
     }
 
     @Test

@@ -3,8 +3,10 @@ package org.mulletaflix.feature.itemdetail
 import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.pdf.PdfDocument
+import android.content.ContextWrapper
 import android.os.Build
 import android.os.ext.SdkExtensions
+import android.view.WindowManager
 import android.view.View
 import android.view.ViewGroup
 import android.webkit.WebView
@@ -29,6 +31,7 @@ import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollToIndex
 import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.ViewModelStore
@@ -190,6 +193,140 @@ class BookReaderScreenIntegrationTest {
         val retryRequest = server.takeRequest()
         assertEquals("/BookReader/Items/reader-screen-book/BookReader/Epub", firstRequest.path)
         assertEquals(firstRequest.path, retryRequest.path)
+    }
+
+    @Test
+    fun epubPaginationControlsMoveAndPersistTheReadingPosition() {
+        val itemId = "reader-pagination-${System.nanoTime()}"
+        server.enqueue(
+            MockResponse()
+                .setResponseCode(200)
+                .addHeader("Content-Type", "application/epub+zip")
+                .setBody(Buffer().write(createEpub())),
+        )
+        val api = Retrofit.Builder()
+            .baseUrl(server.url("/"))
+            .client(OkHttpClient())
+            .build()
+            .create(MulletaFlixApiService::class.java)
+        val viewModel = ViewModelProvider(
+            viewModelStore,
+            object : ViewModelProvider.Factory {
+                @Suppress("UNCHECKED_CAST")
+                override fun <T : ViewModel> create(modelClass: Class<T>): T =
+                    BookReaderViewModel(api, TestSessionRepository(sessionScope), context) as T
+            },
+        )[BookReaderViewModel::class.java]
+        val progressStore = BookReaderProgressStore(context)
+
+        try {
+            composeRule.setContent {
+                MaterialTheme {
+                    BookReaderScreen(itemId = itemId, onBack = {}, viewModel = viewModel)
+                }
+            }
+
+            composeRule.waitUntil(timeoutMillis = 30_000) {
+                runCatching {
+                    composeRule.onNodeWithContentDescription("Próxima página").assertIsEnabled()
+                    composeRule.onNodeWithContentDescription("Página anterior").assertIsEnabled()
+                }.isSuccess
+            }
+            assertTrue(
+                "O conteúdo inicial do EPUB deve estar renderizado no WebView.",
+                awaitWebViewText("Leitura integrada funcionando").contains("Leitura integrada funcionando"),
+            )
+            composeRule.waitUntil(timeoutMillis = 10_000) {
+                runBlocking { progressStore.read(sessionScope, itemId) } != null
+            }
+            val initialPosition = runBlocking { progressStore.read(sessionScope, itemId) }
+                ?.toJSON()
+                ?.toString()
+            assertTrue("A posição inicial do EPUB deve ser armazenada.", initialPosition != null)
+
+            composeRule.onNodeWithContentDescription("Próxima página").performClick()
+            composeRule.waitUntil(timeoutMillis = 15_000) {
+                val currentPosition = runBlocking { progressStore.read(sessionScope, itemId) }
+                    ?.toJSON()
+                    ?.toString()
+                currentPosition != null && currentPosition != initialPosition
+            }
+            val nextPosition = runBlocking { progressStore.read(sessionScope, itemId) }
+                ?.toJSON()
+                ?.toString()
+            assertTrue("Avançar página deve atualizar e persistir o localizador.", nextPosition != initialPosition)
+
+            composeRule.onNodeWithContentDescription("Página anterior").performClick()
+            composeRule.waitUntil(timeoutMillis = 15_000) {
+                runBlocking { progressStore.read(sessionScope, itemId) }
+                    ?.toJSON()
+                    ?.toString() == initialPosition
+            }
+            assertEquals(
+                "Voltar página deve restaurar e persistir a posição anterior.",
+                initialPosition,
+                runBlocking { progressStore.read(sessionScope, itemId) }?.toJSON()?.toString(),
+            )
+        } finally {
+            runBlocking { progressStore.remove(sessionScope, itemId) }
+        }
+    }
+
+    @Test
+    fun readerKeepsScreenOnOnlyWhileVisibleAndRestoresPreviousWindowState() {
+        server.enqueue(MockResponse().setResponseCode(503))
+        val api = Retrofit.Builder()
+            .baseUrl(server.url("/"))
+            .client(OkHttpClient())
+            .build()
+            .create(MulletaFlixApiService::class.java)
+        val viewModel = ViewModelProvider(
+            viewModelStore,
+            object : ViewModelProvider.Factory {
+                @Suppress("UNCHECKED_CAST")
+                override fun <T : ViewModel> create(modelClass: Class<T>): T =
+                    BookReaderViewModel(api, TestSessionRepository(sessionScope), context) as T
+            },
+        )[BookReaderViewModel::class.java]
+        val activity = composeRule.activity
+        val originalKeepScreenOn = activity.window.attributes.flags and
+            WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON != 0
+        val readerVisible = mutableStateOf(true)
+
+        composeRule.setContent {
+            CompositionLocalProvider(LocalContext provides ContextWrapper(activity)) {
+                if (readerVisible.value) {
+                    MaterialTheme {
+                        BookReaderScreen(itemId = "keep-screen-reader", onBack = {}, viewModel = viewModel)
+                    }
+                }
+            }
+        }
+        composeRule.waitForIdle()
+        assertTrue(
+            "O leitor deve impedir que a tela apague enquanto está visível.",
+            activity.window.attributes.flags and WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON != 0,
+        )
+
+        composeRule.runOnIdle { readerVisible.value = false }
+        composeRule.waitForIdle()
+        assertEquals(
+            "Ao sair do leitor, o estado prévio da janela deve ser restaurado.",
+            originalKeepScreenOn,
+            activity.window.attributes.flags and WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON != 0,
+        )
+
+        activity.runOnUiThread {
+            activity.window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        }
+        composeRule.runOnIdle { readerVisible.value = true }
+        composeRule.waitForIdle()
+        composeRule.runOnIdle { readerVisible.value = false }
+        composeRule.waitForIdle()
+        assertTrue(
+            "Ao sair do leitor, o flag keep-screen preexistente deve continuar ativo.",
+            activity.window.attributes.flags and WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON != 0,
+        )
     }
 
     @Test

@@ -1,5 +1,80 @@
 # MulletaFlix Android - Plano de Desenvolvimento & Checklist de Funcionalidades (TODO)
 
+## Manter a tela ligada durante a leitura — Android, sem release
+
+- [x] Manter `FLAG_KEEP_SCREEN_ON` enquanto `BookReaderScreen` estiver composto e restaurar o estado anterior ao sair, sem wakelock permanente nem mudança no player.
+- [x] Instrumentação RED-GREEN verifica leitor visível sob `ContextWrapper`, saída do leitor e preservação do flag previamente ativo; PHONE/API 35 e TABLET/API 35 passaram 1/1 cada via `tools/with-emulator.ps1` com GPU NVIDIA.
+- [x] Quality Gate `:feature:item-detail:testDebugUnitTest :feature:item-detail:lintDebug :app:lintDebug :app:assembleDebug` — `BUILD SUCCESSFUL`.
+- [ ] Sem bump de versão, APK de produção, release, portal ou mudança no servidor.
+
+## Retomada da Home Android TV enquanto a carga inicial está ativa — APK local, sem release
+
+- [x] RED observado em `HomeViewModelTest`: `refreshIfIdle()` descarta o refresh de retomada se a carga estiver ativa; o catálogo atualizado só chegaria no tick seguinte (até 60 s).
+- [x] No retorno à TV, aguardar a carga atual terminar e executar exatamente um refresh; cancelamento da espera segue escopado ao ciclo de vida `RESUMED`; não duplicar/cancelar a chamada atual.
+- [x] Manter ticks periódicos ignorando cargas ativas; `TvRefreshEffectTest` confirma callbacks separados e a integração na TV/API 34 passou 36/36.
+- [x] Separar callbacks de retomada e timer periódico na Biblioteca, Favoritos e TV ao Vivo: retomada enfileira no máximo um refresh após carga ativa; ticks periódicos não enfileiram trabalho em série.
+- [x] Cobrir coalescência/retomada e descarte de tick durante carga ativa em unit tests; instrumentar os callbacks distintos em Android TV.
+- [x] Sem alteração de servidor, portal, versão, APK de produção ou release.
+
+## Opções longas do timer de suspensão — Android, sem release
+
+- [x] Expor 120 e 180 minutos no menu do player, conforme o limite de 180 minutos já aceito pela política do timer.
+- [x] Manter as opções no grupo de rádio rolável, acessíveis por toque e D-pad; testar seleção e foco remoto.
+- [x] Teste instrumentado de seleção passou em PHONE/API 35 e TABLET/API 35; suíte do menu passou 5/5 em Android TV/API 34.
+- [x] Testes `SleepTimerPolicyTest` passaram; Quality Bar e grafo registrados em `TDD-PLAN.md`.
+- [ ] Sem bump, APK de produção ou publicação.
+
+## Retry seguro do logout — Android, sem release
+
+- [x] Ao iniciar nova tentativa, limpar erro antigo de imediato; não aceitar um segundo logout enquanto o primeiro aguarda o resultado.
+- [x] RED-GREEN com testes de retry e de chamadas duplicadas no `UserProfileViewModelTest`.
+- [x] Quality gate Android: 1.580 testes JVM, 0 falhas/erros/ignorados; lint, build Debug e compilação AndroidTest passaram. Instrumentação PHONE/API 35, 1/1, também passou.
+- [ ] Ainda falta teste de integração que provoque falha real no DataStore/disco. Sem alteração de versão ou release.
+
+## Homologar feedback visual de falha ao sair — Android, sem release
+
+- [x] Teste Compose instrumentado instancia o ViewModel e tela reais, simula falha do logout, confirma mensagem visível, progresso encerrado e callback de navegação não chamado.
+- [x] `:feature:user:connectedDebugAndroidTest` passou 1/1 em PHONE/API 35 (`SmartMeasureApi35Play`), com GPU NVIDIA confirmada; wrapper encerrou o emulador após o teste.
+- [ ] Confirmar com falha real de persistência/DataStore. O teste injeta falha controlada no contrato do repositório; não valida falha física de armazenamento.
+- [ ] Sem alterações de comportamento, versão, APK de produção ou release.
+
+## Logout só navega após a sessão ser limpa — Android, sem release
+
+- [x] Corrigir a saída do Perfil: `UserProfileViewModel` só chama navegação se `LogoutUseCase` retornar sucesso; falha mantém o Perfil, encerra progresso e apresenta a mensagem em `uiState.error`.
+- [x] TDD RED-GREEN em `UserProfileViewModelTest`: antes, a callback era executada após `Result.failure`; depois, classe inteira passou 8/8.
+- [x] Quality gate: 1.578 testes JVM, sem falhas/erros/ignorados; lint do módulo user e app, build Debug, compilação de AndroidTest e `git diff --check` aprovados.
+- [ ] Verificar mensagem visual por teste Compose e falha DataStore real; este ciclo validou estado do ViewModel. Sem bump ou release.
+
+## Troca de conta persiste a nova identidade — Android, sem release
+
+- [x] Instrumentar login da segunda conta via `AuthRepositoryImpl` real e `MockWebServer` HTTPS; confirmar atualização de token/ID/nome e persistência após recriar `SessionRepositoryImpl`, preservando servidor e DeviceId.
+- [x] `:data:connectedDebugAndroidTest` focado em `SessionRepositoryPersistenceTest`, PHONE/API 35 passou. A tentativa inicial por HTTP falhou na política de cleartext do Android (fixture inválida, não defeito do app); corrigido para HTTPS local com certificado de teste.
+- [x] Quality gate: `testDebugUnitTest :data:lintDebug :app:lintDebug :app:assembleDebug :data:compileDebugAndroidTestKotlin` — `BUILD SUCCESSFUL`; 1.569 testes JVM, 0 falhas/erros/ignorados; instrumentação PHONE/API 35 4/4 aprovada. O teste não cobre navegação UI pós-login nem troca de servidor.
+
+## Sessão incompleta não deve avançar para a Home — Android, sem release
+
+- [x] Corrigir o estado de autenticação no `AuthViewModel`: uma sessão só é autenticada se URL do servidor, token e ID do usuário estiverem presentes.
+- [x] RED-GREEN: `AuthViewModelTest` reproduziu token+usuário órfãos com URL vazia como autenticados; após a correção o teste unitário focal passou.
+- [x] `MainActivitySessionNavigationTest`: PHONE/API 35, 4/4 aprovados — sem sessão vai à autenticação, credenciais parciais ficam na seleção de servidor, sessão completa abre Home, e link autenticado despacha GET exato do item no servidor local. Usa `SessionRepositoryImpl` real e `MockWebServer`.
+- [x] Deep link autenticado de inicialização confirmou `GET /Users/{userId}/Items/{itemId}` em MockWebServer; a renderização visual completa do título não é alegada por este teste.
+- [x] Cold start por deep link no mesmo servidor mantém Home sob o detalhe na pilha; Voltar retorna à Home em Activity real, PHONE/API 35 e TV/API 34, 5/5 em cada perfil.
+- [ ] Acrescentar casos de logout, troca de servidor e deep link cross-server com retorno ao NavHost; executar cenários TABLET/TV quando fizerem sentido ao fluxo.
+- [x] Quality Bar completa após adicionar o deep link: `testDebugUnitTest :app:lintDebug :app:assembleDebug :app:compileDebugAndroidTestKotlin --no-daemon --console=plain` passou; 240 relatórios XML, 1.567 testes JVM, 0 falhas/erros/ignorados. Sem bump ou release.
+
+## Conexão em LAN sem internet — Android, sem release
+
+- [x] Compartilhar a solicitação de rede sem requisito `NET_CAPABILITY_INTERNET` entre o monitor de conectividade e a redescoberta automática após mudanças de LAN, preservando detecção remota por capability e acesso local via Wi‑Fi/Ethernet.
+- [x] RED-GREEN da política: Wi‑Fi e Ethernet sem Internet são utilizáveis; rede sem Internet e sem transporte local é offline.
+- [x] Teste instrumentado no PHONE/API 35 confirma que o `NetworkRequest` de monitoramento não exige capability Internet.
+- [ ] A conectividade do servidor continua sendo validada pelo endpoint/descoberta; instrumentação não simula um roteador isolado real. Sem build de produção, bump, portal ou release.
+
+## Escopo e rótulos acessíveis do histórico de busca — Android, sem release
+
+- [x] Informar que “Limpar histórico” afeta somente o servidor e a conta ativos, sem sugerir limpeza global do usuário.
+- [x] Dar ao botão de remoção de cada item um rótulo TalkBack com o termo correspondente.
+- [x] TDD RED-GREEN instrumentado: PHONE/API 35 e TV/API 34, `SearchHistoryDialogTest` 4/4 em cada perfil.
+- [x] Revisão de duplicatas: `rg` pelas duas mensagens e padrões relacionados em todo `MulletaFlix-android`; único rótulo genérico era o botão alterado. Não publicar release nesta tarefa.
+
 ## Histórico de busca isolado por servidor e conta — Android, sem release
 
 - [x] Escopar persistência e observação do histórico por identidade estável do servidor + conta; mesmo servidor acessado por URL LAN e pública compartilha histórico quando o backend fornece o mesmo ID.
@@ -209,12 +284,14 @@ Este documento rastreia o status de implementação de todas as funcionalidades,
 - [x] `:feature:item-detail:testDebugUnitTest --tests "org.mulletaflix.feature.itemdetail.BookReaderViewModelTest"`: `BUILD SUCCESSFUL`, 4/4 testes, 0 falhas/erros/ignorados.
 - [x] Quality Bar após a adição: `:feature:item-detail:testDebugUnitTest` (90 testes do módulo) e `:feature:item-detail:lintDebug`: `BUILD SUCCESSFUL`. Suíte JVM global `testDebugUnitTest` (1.411 testes, 0 falhas/erros/ignorados) e `:app:lintDebug`: `BUILD SUCCESSFUL`.
 - [x] Teste instrumentado de `BookReaderScreen` integra Compose, `BookReaderViewModel`, Retrofit real, `MockWebServer` local e Readium: falha HTTP 503, retry, abertura de EPUB válido e habilitação dos controles de navegação/fonte; PHONE API 35, 1/1 aprovado.
+- [x] `BookReaderScreenIntegrationTest.epubPaginationControlsMoveAndPersistTheReadingPosition`: no PHONE API 35, usa EPUB local servido por `MockWebServer`, aciona Próxima/Anterior e verifica no DataStore que o locator muda e retorna à posição inicial; o registro de progresso é removido em `finally`. Não comprova encerramento do processo nem restauração após reabrir o leitor.
+- [x] `BookReaderProgressProcessRestartTest` + `tools/Test-AndroidBookReaderProgressRestart.ps1`: primeiro runner abre um livro de texto via ViewModel, grava posição no índice 3 (4º trecho) e confirma leitura no DataStore; o host executa `am force-stop`, confirma ausência do processo do alvo e inicia outro runner; ViewModel novo restaura o mesmo locator e verifica isolamento por usuário/servidor; limpeza remove só a entrada UUID do teste. PHONE/API 35, fases 1/1, 1/1 e cleanup 1/1. O alvo é o pacote isolado de instrumentação `org.mulletaflix.feature.itemdetail.test`, não o `applicationId` principal.
 - [x] O mesmo teste confirma que a Activity contém apenas um WebView, inspeciona seu DOM e valida o parágrafo exclusivo da fixture EPUB; não depende apenas da criação do controller/ativação dos controles.
 - [x] Encerramento do teste limpa o `ViewModelStore`, cancelando efeitos assíncronos e acionando a limpeza do cache do leitor.
 - [x] `BookReaderCacheFiles` agora recupera EPUB/CBZ órfãos com prefixo/extensão próprios ao inicializar o leitor; mantém registro de arquivos ativos compartilhado no processo para que abrir outra instância não remova mídia em uso e preserva arquivos fora do padrão.
 - [x] `BookReaderPayloadPolicyTest`: simula cache deixado por processo encerrado, confirma remoção dos EPUB/CBZ órfãos, preservação de arquivos não pertencentes ao leitor e de livro ainda ativo após inicializar outro leitor; exclusão que retorna `false` ou lança `SecurityException` não derruba o leitor e é tentada novamente na inicialização seguinte.
 - [x] Quality Bar após a recuperação do cache: `testDebugUnitTest` (1.416 testes, 0 falhas/erros/ignorados), `:feature:item-detail:lintDebug`, `:app:lintDebug` e `:app:assembleDebug`: `BUILD SUCCESSFUL`.
-- [ ] Validar recuperação após encerramento real do processo Android, falhas de renderização e navegação EPUB por paginação/back/D-pad. O teste de cache atual semeia arquivos órfãos antes de iniciar uma instância nova; não mata/reinicia o processo. Fixture HTTP é local; APK-H21 continua aberto até validar instância real, mídia, MIME/autenticação e dispositivos-alvo.
+- [ ] Validar cold start e renderização do APK principal (`org.mulletaflix.android.debug`) após morte do processo, falhas de renderização e navegação EPUB por Back do sistema/D-pad. A prova atual mata e reinicia o alvo Android isolado do módulo e valida o mesmo DataStore/ViewModel, mas não lança a Activity principal após o processo morrer. APK-H21 continua aberto até validar a tela integrada, instância real, mídia, MIME/autenticação e dispositivos-alvo.
 
 ## Mapeamento de faixas offline mistas (embutidas + legenda externa) (APK local; sem release)
 
@@ -3322,3 +3399,47 @@ Pendências relacionadas:
 - [x] Corrigir a restauração da fila no cold start: injetar `DownloadRepository` na Application para construir o repositório e reanexar o Media3 `DownloadService` logo que o processo inicia, não apenas ao abrir a tela de downloads.
 - [x] Teste end-to-end PHONE/API 35 no AVD `MulletaflixApi35`; wrapper verificou QEMU na NVIDIA RTX 3050 e fechou o AVD ao final. Runner e force-stop foram coordenados no host; nenhum dado do app foi limpo.
 - [ ] Sem bump, APK de produção ou publicação; mudança exclusivamente do APK.
+
+## Sessão e deep link da Activity — teste de integração (APK local; sem release)
+- [x] Cobrir inicialização real sem sessão, com sessão incompleta e com sessão autenticada no AVD PHONE API 35.
+- [x] Com sessão válida, abrir intent `mulletaflix://details?id=…&serverId=…` e exigir GET exato `/Users/{userId}/Items/{itemId}` em MockWebServer; 4/4 testes passaram.
+- [x] Restaurar token, usuário, servidor, URL e `deviceId` preexistentes; pular teardown destrutivo se snapshot preexistente não for restaurável.
+- [x] Quality Bar: `testDebugUnitTest :app:lintDebug :app:assembleDebug :app:compileDebugAndroidTestKotlin` — `BUILD SUCCESSFUL`; instrumentação focal 4/4; `git diff --check` passou.
+- [ ] Não totalmente hermético: a checagem automática de atualização da Activity não foi interceptada e pode consultar GitHub. A instrumentação valida despacho da rota/API, não renderização visual completa nem servidor real.
+- [ ] Sem bump, APK de produção/release ou publicação; mudança de teste apenas.
+
+## Recuperação de conectividade LAN em Android 7.x (APK local; sem release)
+- [x] Revisão de callback encontrou que Android API 24–25 não garante `onCapabilitiesChanged` após `onAvailable`; API 26+ garante a ordem e proíbe consultas síncronas de capabilities dentro do callback.
+- [x] Manter o fluxo assíncrono de capabilities API 26+ e adicionar fallback API 24–25 que agenda a reconciliação depois que `onAvailable` retorna; aplicar estratégia equivalente ao estado tarifado da rede padrão.
+- [x] Teste unitário da fronteira 24/25/26/35; testes instrumentados de callbacks 2/2 em PHONE API 35.
+- [x] Quality gate: `testDebugUnitTest :core:common:lintDebug :app:lintDebug :app:assembleDebug :core:common:compileDebugAndroidTestKotlin` — `BUILD SUCCESSFUL`; `git diff --check` passou.
+- [ ] Sem AVD API 24/25 neste ciclo; o caminho legado foi coberto pela política unitária, não executado em runtime Android antigo.
+- [ ] Sem bump, APK de produção ou publicação; alteração exclusivamente local do APK.
+
+## Troca de usuário — confirmação duplicada durante login (APK local; sem release)
+- [x] Reproduzir duas confirmações em sequência enquanto o primeiro login está pendente; baseline falhava com duas chamadas de autenticação.
+- [x] Reservar a operação no ViewModel de forma síncrona e aceitar apenas uma chamada/callback de sucesso.
+- [x] Teste RED-GREEN focal aprovado; quality gate `testDebugUnitTest :feature:user:lintDebug :app:lintDebug :app:assembleDebug` concluído com `BUILD SUCCESSFUL`; revisão adversarial sem achados.
+- [x] `SessionRepositoryPersistenceTest` cobre login com outra conta no mesmo servidor e persistência após recriar o repositório; token, ID e nome substituem a identidade anterior, URL/DeviceId permanecem.
+- [ ] Fluxo integrado da UI incluindo troca de servidor e restauração visual da identidade ainda permanece pendente.
+- [ ] Sem bump, APK de produção ou publicação; alteração exclusivamente local do APK.
+
+## Identidade de sessão inicial e deep link cross-server (APK local; sem release)
+- [x] Unificar URL, token, usuário e `serverId` num snapshot do DataStore para a Activity não montar a navegação com `serverId=null` enquanto a sessão existente ainda carrega.
+- [x] Adicionar teste de persistência para validar que `getSessionState()` retorna URL, identidade e servidor coerentes após recriar o repositório.
+- [x] `testDebugUnitTest` — 1.569 testes, 0 falhas/erros/ignorados; `:core:api:lintDebug`, `:data:lintDebug`, `:app:lintDebug`, `:app:assembleDebug` e `:app:compileDebugAndroidTestKotlin` — `BUILD SUCCESSFUL`; `git diff --check` passou.
+- [x] `:data:connectedDebugAndroidTest --tests org.mulletaflix.data.repository.SessionRepositoryPersistenceTest` — 4/4 em PHONE/API 35; inclui snapshot completo depois de reabrir o DataStore.
+- [x] Corrigir cold start: não compor o destino do detalhe quando o deep link tem `serverId` diferente da sessão; iniciar na seleção e desativar conexão automática com A. TDD RED reproduziu o GET do item B sendo enviado ao servidor A; GREEN corrigiu a rota inicial.
+- [x] E2E cross-server PHONE/API 35 em Activity real: sessão A + deep link B, seleção manual, `GET /System/Info/Public`, `GET /Users/Public`, POST de login com credenciais conferidas e GET do item em B; após recriar `SessionRepositoryImpl`, URL/token/usuário/`serverId` B persistidos e nenhuma requisição a A. MockWebServer não substitui servidor real nem comprova renderização visual do detalhe.
+- [x] Impedir que a política de conexão automática verifique ou conecte à URL salva do servidor A durante a seleção iniciada por deep link com `serverId` do servidor B; RED-GREEN unitário comprovado. A instrumentação agora cobre seleção, autenticação e entrega do título.
+- [x] Impedir consultas de usuários e Quick Connect ao servidor salvo durante a inicialização/troca; RED-GREEN no `AuthViewModelTest` e teste Activity com MockWebServer no host correto do AVD (5/5).
+- [x] Quality gate Android: `testDebugUnitTest` 1.577/1.577, `:app:lintDebug`, `:app:assembleDebug`, `:app:compileDebugAndroidTestKotlin`, `:app:connectedDebugAndroidTest` (classe 5/5 PHONE/API 35) e `git diff --check` passaram. Sem bump, APK de produção ou publicação; mudança exclusivamente local do APK.
+
+## Leitor paginado — salto direto para página (APK local; sem release)
+- [x] Tornar o indicador de página uma ação acessível; diálogo aceita somente inteiros dentro de `1..total`, mostra erro para fora da faixa e aplica salto somente após confirmação.
+- [x] Integração Compose com página CBZ real: salto da página 1 para 3, recusa da página 3 em livro de 2 páginas, cancelamento sem alterar progresso e D-pad na Android TV.
+- [x] `ComicBookReaderIntegrationTest`: 5/5 no PHONE API 35 e 5/5 no TABLET API 35; `TvBookReaderPageJumpTest`: 1/1 no TV API 34. Wrappers confirmaram QEMU na GPU NVIDIA e encerraram cada AVD.
+- [x] Quality gate `testDebugUnitTest`: 1.584 aprovados, 0 falhas/erros/skips; `:feature:item-detail:lintDebug`, `:app:lintDebug`, `:app:assembleDebug`, `:app:compileDebugAndroidTestKotlin` e `git diff --check` passaram.
+- [x] `graphify update .` após as mudanças: 10.802 nós, 28.206 arestas, 488 comunidades; avisos conhecidos de extração parcial em `TvHomeRefreshIntegrationTest.kt` e arquivos sem símbolos.
+- [ ] TalkBack manual não executado.
+- [ ] Sem bump, APK de produção ou publicação; melhoria exclusivamente do APK.

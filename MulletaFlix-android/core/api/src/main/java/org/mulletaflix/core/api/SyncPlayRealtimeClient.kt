@@ -2,7 +2,10 @@ package org.mulletaflix.core.api
 
 import com.squareup.moshi.JsonClass
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -13,7 +16,6 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.runBlocking
 import kotlin.random.Random
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.OkHttpClient
@@ -95,6 +97,7 @@ class SyncPlayRealtimeClient @Inject constructor(
     @Volatile private var connectionGeneration = 0L
     @Volatile private var reconnectAttempt = 0
     private var reconnectJob: Job? = null
+    private var connectionJob: Job? = null
 
     fun start(groupId: String? = null) {
         replaceConnection(groupId)
@@ -102,25 +105,49 @@ class SyncPlayRealtimeClient @Inject constructor(
 
     private fun connect(generation: Long) {
         if (generation != connectionGeneration || activeGroupId == null) return
-        val serverUrl = runBlocking { sessionRepository.getBaseUrl().first() }
-        val base = serverUrl.toHttpUrlOrNull() ?: run {
-            scheduleReconnect(generation)
-            return
-        }
-        // Reject remote cleartext before the shared identity interceptor reads
-        // credentials. The interceptor sends authentication in the header.
-        if (!CleartextTrafficPolicy.isAllowed(base)) return
+        val job = applicationScope.launch(start = CoroutineStart.LAZY) {
+            try {
+                val serverUrl = sessionRepository.getBaseUrl().first()
+                if (generation != connectionGeneration || activeGroupId == null) return@launch
+                val base = serverUrl.toHttpUrlOrNull() ?: run {
+                    scheduleReconnect(generation)
+                    return@launch
+                }
+                // Reject remote cleartext before the shared identity interceptor reads
+                // credentials. The interceptor sends authentication in the header.
+                if (!CleartextTrafficPolicy.isAllowed(base)) return@launch
 
-        val websocketUrl = base.newBuilder()
-            .addPathSegment("socket")
-            .build()
-        synchronized(connectionLock) {
-            if (generation != connectionGeneration || activeGroupId == null) return
-            socket = httpClient.newWebSocket(
-                Request.Builder().url(websocketUrl).build(),
-                listenerFor(generation),
-            )
+                val websocketUrl = base.newBuilder()
+                    .addPathSegment("socket")
+                    .build()
+                synchronized(connectionLock) {
+                    if (generation != connectionGeneration || activeGroupId == null) return@synchronized
+                    socket = httpClient.newWebSocket(
+                        Request.Builder().url(websocketUrl).build(),
+                        listenerFor(generation),
+                    )
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                scheduleReconnect(generation)
+            } finally {
+                val thisJob = currentCoroutineContext()[Job]
+                synchronized(connectionLock) {
+                    if (connectionJob === thisJob) connectionJob = null
+                }
+            }
         }
+        val shouldStart = synchronized(connectionLock) {
+            if (generation != connectionGeneration || activeGroupId == null) {
+                false
+            } else {
+                connectionJob?.cancel()
+                connectionJob = job
+                true
+            }
+        }
+        if (shouldStart) job.start() else job.cancel()
     }
 
     fun stop() {
@@ -132,6 +159,8 @@ class SyncPlayRealtimeClient @Inject constructor(
             connectionGeneration++
             reconnectJob?.cancel()
             reconnectJob = null
+            connectionJob?.cancel()
+            connectionJob = null
             reconnectAttempt = 0
             activeGroupId = groupId
             val previousSocket = socket

@@ -32,6 +32,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
@@ -116,15 +117,20 @@ fun ServerSelectionScreen(
         state.isDiscovering,
         state.discoveredServers,
         state.serverUrl,
+        state.isLocalNetworkPermissionRequired,
+        state.completedLocalDiscoveryGeneration,
+        state.savedServersLoaded,
         autoConnectionCycle.manuallyEdited,
         autoConnectionCycle.connectionStarted,
         autoConnectionCycle.requiredDiscoveryGeneration,
+        switchingServer,
     ) {
         automaticServerCandidate(
             state,
             autoConnectionCycle.manuallyEdited,
             autoConnectionCycle.connectionStarted,
             autoConnectionCycle.requiredDiscoveryGeneration,
+            switchingServer,
         )?.let { endpoint ->
             autoConnectionCycle = autoConnectionCycle.onAutomaticConnectionStarted()
             viewModel.connectToServer(
@@ -186,7 +192,7 @@ fun ServerSelectionScreen(
                 placeholder = { Text(DEFAULT_MULLETAFLIX_SERVER_URL) },
                 singleLine = true,
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier.fillMaxWidth().testTag("auth.server.url"),
                 colors = OutlinedTextFieldDefaults.colors(
                     focusedBorderColor = MaterialTheme.colorScheme.secondary,
                     cursorColor = MaterialTheme.colorScheme.secondary,

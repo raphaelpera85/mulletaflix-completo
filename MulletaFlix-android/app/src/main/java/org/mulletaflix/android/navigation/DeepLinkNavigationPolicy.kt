@@ -1,5 +1,7 @@
 package org.mulletaflix.android.navigation
 
+import org.mulletaflix.android.MediaDeepLinkRequest
+
 /**
  * Decides whether a media deep link should replace the currently visible
  * authenticated destination. Authentication routes intentionally return false
@@ -61,6 +63,21 @@ internal fun shouldOpenLinkOnCurrentServer(
     val session = sessionServerId?.trim().orEmpty()
     if (link.isEmpty() || session.isEmpty()) return true
     return link.equals(session, ignoreCase = true)
+}
+
+/** Selects the initial route before any detail screen can issue requests. */
+internal fun initialDestinationForSession(
+    hasValidSession: Boolean,
+    deepLinkRequest: MediaDeepLinkRequest?,
+    sessionServerId: String?,
+): String {
+    if (!hasValidSession) return MulletaFlixRoute.SERVER_SELECTION
+    if (deepLinkRequest != null &&
+        !shouldOpenLinkOnCurrentServer(deepLinkRequest.serverId, sessionServerId)
+    ) return MulletaFlixRoute.SERVER_SELECTION
+    // Keep Home beneath a cold-start detail route so system Back returns to
+    // the library instead of finishing the Activity.
+    return MulletaFlixRoute.HOME
 }
 
 /**

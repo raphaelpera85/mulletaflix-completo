@@ -6,10 +6,10 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
@@ -19,9 +19,11 @@ import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithContentDescription
 import androidx.compose.ui.test.onNodeWithContentDescription
-import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performTextClearance
+import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.performTouchInput
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import java.io.File
@@ -102,6 +104,84 @@ class ComicBookReaderIntegrationTest {
     }
 
     @Test
+    fun canJumpDirectlyToASelectedPage() {
+        val file = createComicArchive(pageCount = 4)
+        try {
+            val archive = ComicBookArchive.open(file)
+            var currentPage by mutableIntStateOf(0)
+
+            composeRule.setContent {
+                MaterialTheme {
+                    Column(Modifier.fillMaxSize()) {
+                        PagedBookReaderContent(
+                            pageBook = archive,
+                            currentPage = currentPage,
+                            modifier = Modifier.weight(1f),
+                        )
+                        ComicBookPageControls(
+                            currentPage = currentPage,
+                            pageCount = archive.pageCount,
+                            onPageSelected = { currentPage = it },
+                        )
+                    }
+                }
+            }
+
+            composeRule.onNodeWithContentDescription("Ir para página", substring = true).performClick()
+            composeRule.onNodeWithTag("page-number-input").performTextClearance()
+            composeRule.onNodeWithTag("page-number-input").performTextInput("3")
+            composeRule.onNodeWithText("Ir").performClick()
+
+            composeRule.onNodeWithText("Página 3 de 4").assertIsDisplayed()
+            composeRule.waitUntil(timeoutMillis = 10_000) {
+                composeRule.onAllNodesWithContentDescription("Página 3 de 4", substring = true)
+                    .fetchSemanticsNodes().isNotEmpty()
+            }
+            composeRule.runOnIdle { assertEquals(2, currentPage) }
+        } finally {
+            file.delete()
+        }
+    }
+
+    @Test
+    fun pageJumpRejectsNumbersOutsideTheBookAndCanBeCancelled() {
+        val file = createComicArchive()
+        try {
+            val archive = ComicBookArchive.open(file)
+            var currentPage by mutableIntStateOf(0)
+
+            composeRule.setContent {
+                MaterialTheme {
+                    Column(Modifier.fillMaxSize()) {
+                        PagedBookReaderContent(
+                            pageBook = archive,
+                            currentPage = currentPage,
+                            modifier = Modifier.weight(1f),
+                        )
+                        ComicBookPageControls(
+                            currentPage = currentPage,
+                            pageCount = archive.pageCount,
+                            onPageSelected = { currentPage = it },
+                        )
+                    }
+                }
+            }
+
+            composeRule.onNodeWithContentDescription("Ir para página", substring = true).performClick()
+            composeRule.onNodeWithTag("page-number-input").performTextClearance()
+            composeRule.onNodeWithTag("page-number-input").performTextInput("3")
+
+            composeRule.onNodeWithText("Informe um número entre 1 e 2").assertIsDisplayed()
+            composeRule.onNodeWithText("Ir").assertIsNotEnabled()
+            composeRule.onNodeWithText("Cancelar").performClick()
+            composeRule.onNodeWithText("Página 1 de 2").assertIsDisplayed()
+            composeRule.runOnIdle { assertEquals(0, currentPage) }
+        } finally {
+            file.delete()
+        }
+    }
+
+    @Test
     fun comicPagesCanBeMagnifiedWithAccessibleControls() {
         val file = createComicArchive()
         try {
@@ -176,10 +256,15 @@ class ComicBookReaderIntegrationTest {
         }
     }
 
-    private fun createComicArchive(): File {
+    private fun createComicArchive(pageCount: Int = 2): File {
         val file = File.createTempFile("comic-reader-", ".cbz")
         ZipOutputStream(file.outputStream()).use { archive ->
-            listOf("pages/10.png", "pages/2.png").forEachIndexed { index, name ->
+            val pageNames = if (pageCount == 2) {
+                listOf("pages/10.png", "pages/2.png")
+            } else {
+                (1..pageCount).map { pageNumber -> "pages/$pageNumber.png" }
+            }
+            pageNames.forEachIndexed { index, name ->
                 val bitmap = Bitmap.createBitmap(1_600, 2_400, Bitmap.Config.ARGB_8888)
                 try {
                     bitmap.eraseColor(if (index == 0) android.graphics.Color.RED else android.graphics.Color.BLUE)

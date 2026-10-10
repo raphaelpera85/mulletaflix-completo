@@ -50,6 +50,7 @@ class FavoritesViewModel @Inject constructor(
     private var searchJob: Job? = null
     private var loadGeneration = 0L
     private var loadInFlight = false
+    private var deferredRefreshJob: Job? = null
     private var currentUserId: String? = null
     private var hasObservedUser = false
 
@@ -153,14 +154,35 @@ class FavoritesViewModel @Inject constructor(
     }
 
     /**
-     * Used by the TV foreground timer. A periodic reconciliation must not
-     * cancel a slow response that is already bringing the user's list up to
-     * date.
+     * Used by the periodic TV timer. Ignore an active request.
      */
     fun refreshIfIdle() {
         val current = _state.value
         if (loadInFlight || current.isLoading || current.isRefreshing) return
         refresh()
+    }
+
+    /** Preserve an active request, then reconcile once it settles after resume. */
+    fun refreshOnResume() {
+        val current = _state.value
+        if (loadInFlight || current.isLoading || current.isRefreshing) {
+            refreshAfterActiveLoad()
+            return
+        }
+        refreshIfIdle()
+    }
+
+    private fun refreshAfterActiveLoad() {
+        val activeLoad = loadJob ?: return
+        if (deferredRefreshJob?.isActive == true) return
+        val generation = loadGeneration
+        deferredRefreshJob = viewModelScope.launch {
+            activeLoad.join()
+            if (generation == loadGeneration && !_state.value.isOffline) {
+                deferredRefreshJob = null
+                refreshIfIdle()
+            }
+        }
     }
 
     fun loadMore() {

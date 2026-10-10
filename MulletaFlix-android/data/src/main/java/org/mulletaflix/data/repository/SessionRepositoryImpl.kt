@@ -14,6 +14,7 @@ import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onStart
 import org.mulletaflix.core.api.SessionRepository
+import org.mulletaflix.core.api.SessionState
 import org.mulletaflix.core.api.HomeFeedCacheScope
 import org.mulletaflix.core.common.session.FeedbackRequestSession
 import java.util.UUID
@@ -107,6 +108,15 @@ class SessionRepositoryImpl @Inject constructor(
         return sessionData().map { preferences ->
             preferences[PreferencesKeys.SERVER_URL] ?: ""
         }
+    }
+
+    override fun getSessionState(): Flow<SessionState> = sessionData().map { preferences ->
+        SessionState(
+            serverUrl = preferences[PreferencesKeys.SERVER_URL].orEmpty(),
+            accessToken = preferences[PreferencesKeys.ACCESS_TOKEN],
+            userId = preferences[PreferencesKeys.USER_ID],
+            serverId = preferences[PreferencesKeys.SERVER_ID],
+        )
     }
 
     override fun getCurrentUserId(): Flow<String?> {

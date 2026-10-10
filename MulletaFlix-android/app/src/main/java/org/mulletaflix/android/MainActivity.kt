@@ -26,6 +26,7 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import dagger.hilt.android.AndroidEntryPoint
 import org.mulletaflix.android.navigation.MulletaFlixNavHost
+import org.mulletaflix.android.navigation.initialDestinationForSession
 import org.mulletaflix.designsystem.theme.MulletaFlixTheme
 import org.mulletaflix.designsystem.media.LocalMulletaFlixServerUrl
 import org.mulletaflix.designsystem.media.LocalMulletaFlixAccessToken
@@ -36,8 +37,7 @@ import org.mulletaflix.android.network.LanServerRecovery
 import org.mulletaflix.feature.player.PlayerPictureInPictureController
 import androidx.media3.common.util.UnstableApi
 import javax.inject.Inject
-import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
 
 import androidx.compose.material3.*
 import androidx.compose.material.icons.Icons
@@ -85,11 +85,25 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
 
         setContent {
-            val serverUrl by sessionRepository.getBaseUrl().collectAsStateWithLifecycle(initialValue = "")
-            val accessToken by sessionRepository.getAccessToken().collectAsStateWithLifecycle(initialValue = null)
-            val serverId by sessionRepository.getServerId().collectAsStateWithLifecycle(initialValue = null)
-            var sessionResolved by remember { mutableStateOf(false) }
-            var hasValidSession by remember { mutableStateOf(false) }
+            val initialSession by remember(sessionRepository) {
+                sessionRepository.getSessionState().map { session ->
+                    InitialSessionState(
+                        serverUrl = session.serverUrl,
+                        accessToken = session.accessToken,
+                        serverId = session.serverId,
+                        hasValidSession = hasUsableSession(
+                            session.serverUrl,
+                            session.accessToken,
+                            session.userId,
+                        ),
+                    )
+                }
+            }.collectAsStateWithLifecycle(initialValue = null)
+            val sessionResolved = initialSession != null
+            val serverUrl = initialSession?.serverUrl.orEmpty()
+            val accessToken = initialSession?.accessToken
+            val serverId = initialSession?.serverId
+            val hasValidSession = initialSession?.hasValidSession == true
 
             // O aviso de atualização — estado **e** download — vive no ViewModel, e não
             // em `remember`: ver `AppUpdateViewModel` para o defeito que isso corrigia
@@ -108,15 +122,6 @@ class MainActivity : ComponentActivity() {
             val isTelevision = LocalConfiguration.current.uiMode and
                 android.content.res.Configuration.UI_MODE_TYPE_MASK ==
                 android.content.res.Configuration.UI_MODE_TYPE_TELEVISION
-
-            LaunchedEffect(Unit) {
-                hasValidSession = combine(
-                    sessionRepository.getBaseUrl(),
-                    sessionRepository.getAccessToken(),
-                    sessionRepository.getCurrentUserId(),
-                ) { url, token, userId -> hasUsableSession(url, token, userId) }.first()
-                sessionResolved = true
-            }
 
             if (sessionResolved) {
                 AppUpdateCheckEffect(
@@ -152,12 +157,11 @@ class MainActivity : ComponentActivity() {
                         }
                     } else {
                         MulletaFlixNavHost(
-                            startDestination = if (hasValidSession) {
-                                incomingDeepLink?.detailRoute
-                                    ?: org.mulletaflix.android.navigation.MulletaFlixRoute.HOME
-                            } else {
-                                org.mulletaflix.android.navigation.MulletaFlixRoute.SERVER_SELECTION
-                            },
+                            startDestination = initialDestinationForSession(
+                                hasValidSession = hasValidSession,
+                                deepLinkRequest = incomingDeepLink,
+                                sessionServerId = serverId,
+                            ),
                             deepLinkRequest = incomingDeepLink,
                             // The request is cleared once its destination is on
                             // screen: otherwise a later logout and login would
@@ -361,3 +365,10 @@ class MainActivity : ComponentActivity() {
         const val STATE_DEEP_LINK_SERVER_ID = "org.mulletaflix.android.state.deep_link_server_id"
     }
 }
+
+private data class InitialSessionState(
+    val serverUrl: String,
+    val accessToken: String?,
+    val serverId: String?,
+    val hasValidSession: Boolean,
+)

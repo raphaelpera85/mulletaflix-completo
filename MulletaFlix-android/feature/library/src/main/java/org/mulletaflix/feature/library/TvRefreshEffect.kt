@@ -16,11 +16,12 @@ internal fun TvRefreshEffect(
     refreshIntervalMillis: Long,
     refreshImmediately: Boolean,
     onRefresh: suspend () -> Unit,
+    onResumeRefresh: suspend () -> Unit = onRefresh,
 ) {
     LaunchedEffect(lifecycleOwner, refreshIntervalMillis, refreshImmediately) {
         if (refreshIntervalMillis <= 0L) return@LaunchedEffect
         lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
-            if (refreshImmediately) refreshSafely(onRefresh)
+            if (refreshImmediately) refreshSafely(onResumeRefresh)
             while (isActive) {
                 delay(refreshIntervalMillis)
                 refreshSafely(onRefresh)

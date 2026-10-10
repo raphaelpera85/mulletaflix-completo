@@ -13,6 +13,7 @@ import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 import org.junit.After
@@ -197,6 +198,38 @@ class UserProfileViewModelTest {
     }
 
     @Test
+    fun `repeated switch confirmation while login is pending submits only once`() = runTest {
+        val target = AvailableUser(id = "u2", name = "Guest")
+        val loginResult = CompletableDeferred<Result<UserSession>>()
+        var loginCalls = 0
+        var successCallbacks = 0
+        val authRepo = object : FakeAuthRepository() {
+            override suspend fun login(username: String, password: String): Result<UserSession> {
+                loginCalls++
+                return loginResult.await()
+            }
+        }
+        val viewModel = createViewModel(authRepo)
+        advanceUntilIdle()
+        viewModel.selectUserToSwitch(target)
+        viewModel.onSwitchPasswordChanged("1234")
+
+        viewModel.confirmSwitchUser { successCallbacks++ }
+        viewModel.confirmSwitchUser { successCallbacks++ }
+        runCurrent()
+
+        assertEquals(1, loginCalls)
+        assertTrue(viewModel.uiState.value.isSwitchingUser)
+
+        loginResult.complete(Result.success(UserSession("u2", "Guest", "token-2", "srv-1")))
+        advanceUntilIdle()
+
+        assertEquals(1, successCallbacks)
+        assertFalse(viewModel.uiState.value.isSwitchingUser)
+        assertFalse(viewModel.uiState.value.isSwitchDialogOpen)
+    }
+
+    @Test
     fun `logout triggers authRepository logout and executes onComplete callback`() = runTest {
         var authLogoutCalled = false
         var onCompleteCalled = false
@@ -219,6 +252,83 @@ class UserProfileViewModelTest {
 
         assertTrue(authLogoutCalled)
         assertTrue(onCompleteCalled)
+    }
+
+    @Test
+    fun `failed logout keeps the current destination and exposes the failure`() = runTest {
+        var onCompleteCalled = false
+        val failure = IllegalStateException("session storage unavailable")
+        val authRepo = object : FakeAuthRepository() {
+            override suspend fun logout(): Result<Unit> = Result.failure(failure)
+        }
+        val viewModel = createViewModel(authRepo)
+        advanceUntilIdle()
+
+        viewModel.logout { onCompleteCalled = true }
+        advanceUntilIdle()
+
+        assertFalse("Navigation must wait until persisted credentials are cleared", onCompleteCalled)
+        assertFalse("The progress state must settle after a failed logout", viewModel.uiState.value.isLoggingOut)
+        assertEquals(failure.message, viewModel.uiState.value.error)
+    }
+
+    @Test
+    fun `retrying logout clears stale error before request starts`() = runTest {
+        val retryResult = CompletableDeferred<Result<Unit>>()
+        var logoutCalls = 0
+        val authRepo = object : FakeAuthRepository() {
+            override suspend fun logout(): Result<Unit> {
+                logoutCalls++
+                return if (logoutCalls == 1) {
+                    Result.failure(IllegalStateException("first attempt failed"))
+                } else {
+                    retryResult.await()
+                }
+            }
+        }
+        val viewModel = createViewModel(authRepo)
+        advanceUntilIdle()
+
+        viewModel.logout {}
+        advanceUntilIdle()
+        assertEquals("first attempt failed", viewModel.uiState.value.error)
+
+        viewModel.logout {}
+        assertNull("A new attempt must not display the previous failure", viewModel.uiState.value.error)
+        assertTrue(viewModel.uiState.value.isLoggingOut)
+
+        runCurrent()
+        retryResult.complete(Result.success(Unit))
+        advanceUntilIdle()
+        assertNull(viewModel.uiState.value.error)
+        assertFalse(viewModel.uiState.value.isLoggingOut)
+    }
+
+    @Test
+    fun `duplicate logout requests while first request is pending are ignored`() = runTest {
+        val logoutResult = CompletableDeferred<Result<Unit>>()
+        var logoutCalls = 0
+        var completedCallbacks = 0
+        val authRepo = object : FakeAuthRepository() {
+            override suspend fun logout(): Result<Unit> {
+                logoutCalls++
+                return logoutResult.await()
+            }
+        }
+        val viewModel = createViewModel(authRepo)
+        advanceUntilIdle()
+
+        viewModel.logout { completedCallbacks++ }
+        viewModel.logout { completedCallbacks++ }
+        runCurrent()
+
+        assertEquals("Only one session-clear request may run at a time", 1, logoutCalls)
+        assertTrue(viewModel.uiState.value.isLoggingOut)
+
+        logoutResult.complete(Result.success(Unit))
+        advanceUntilIdle()
+        assertEquals(1, completedCallbacks)
+        assertFalse(viewModel.uiState.value.isLoggingOut)
     }
 
     @Test

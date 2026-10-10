@@ -97,6 +97,7 @@ fun LibraryScreen(
         refreshIntervalMillis = libraryAutoRefreshIntervalMillis(isTelevision),
         refreshImmediately = libraryRefreshImmediatelyOnResume(isTelevision),
         onRefresh = { viewModel.refreshIfIdle(libraryId, isTelevision) },
+        onResumeRefresh = { viewModel.refreshOnResume(libraryId, isTelevision) },
     )
 
     Scaffold(

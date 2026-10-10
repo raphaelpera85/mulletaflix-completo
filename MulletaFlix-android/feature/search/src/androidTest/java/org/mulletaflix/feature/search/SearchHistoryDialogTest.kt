@@ -22,7 +22,7 @@ class SearchHistoryDialogTest {
         }
 
         composeRule.onNodeWithText("Limpar histórico?").assertIsDisplayed()
-        composeRule.onNodeWithText("Todas as buscas recentes serão removidas deste usuário.").assertIsDisplayed()
+        composeRule.onNodeWithText("Todas as buscas recentes deste servidor e desta conta serão removidas.").assertIsDisplayed()
         composeRule.onNodeWithText("Cancelar").performClick()
     }
 
@@ -56,5 +56,21 @@ class SearchHistoryDialogTest {
 
         composeRule.onNodeWithContentDescription("Pesquisar novamente por Matrix").performClick()
         check(replayed)
+    }
+
+    @Test
+    fun removeHistoryButtonNamesTheSearchTermForAccessibility() {
+        composeRule.setContent {
+            MaterialTheme {
+                SearchHistory(
+                    history = listOf("Matrix"),
+                    onItemClick = {},
+                    onRemoveItem = {},
+                    onClearHistory = {},
+                )
+            }
+        }
+
+        composeRule.onNodeWithContentDescription("Remover busca Matrix").assertIsDisplayed()
     }
 }

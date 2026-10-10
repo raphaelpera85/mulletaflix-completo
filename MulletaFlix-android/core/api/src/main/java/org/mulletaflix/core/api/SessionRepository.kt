@@ -1,6 +1,7 @@
 package org.mulletaflix.core.api
 
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flowOf
 import org.mulletaflix.core.common.session.FeedbackRequestSession
 
@@ -8,6 +9,17 @@ import org.mulletaflix.core.common.session.FeedbackRequestSession
  * Session provider interface used across networking and interceptors.
  */
 interface SessionRepository {
+    /**
+     * Session identity for Activity startup.
+     *
+     * The default keeps lightweight test repositories source-compatible, but it is only a
+     * best-effort combination of independent flows and is not atomic. Persisted repositories
+     * used by the application must override this with a single backing-store snapshot.
+     */
+    fun getSessionState(): Flow<SessionState> = combine(
+        getBaseUrl(), getAccessToken(), getCurrentUserId(), getServerId(),
+    ) { url, token, userId, serverId -> SessionState(url, token, userId, serverId) }
+
     fun getAccessToken(): Flow<String?>
     fun getDeviceId(): Flow<String>
     fun getBaseUrl(): Flow<String>
@@ -41,6 +53,13 @@ interface SessionRepository {
     suspend fun addSavedServer(server: SavedServerSession) {}
     suspend fun removeSavedServer(url: String) {}
 }
+
+data class SessionState(
+    val serverUrl: String,
+    val accessToken: String?,
+    val userId: String?,
+    val serverId: String?,
+)
 
 data class HomeFeedCacheScope(val serverId: String?, val serverUrl: String, val userId: String)
 

@@ -71,6 +71,7 @@ class LibraryViewModel @Inject constructor(
     private var currentIncludeItemTypes: String = LibraryBrowseTypes.DEFAULT
     private val pageSize = 40
     private var loadJob: Job? = null
+    private var deferredRefreshJob: Job? = null
     private var filterOptionsJob: Job? = null
     private var filterOptionsRequestGeneration = 0L
 
@@ -446,9 +447,11 @@ class LibraryViewModel @Inject constructor(
     }
 
     private fun refreshAfterActiveLoad(generation: Long, libraryId: String, isTelevision: Boolean) {
+        if (deferredRefreshJob?.isActive == true) return
         val activeLoad = loadJob ?: return
-        viewModelScope.launch {
+        deferredRefreshJob = viewModelScope.launch {
             activeLoad.join()
+            deferredRefreshJob = null
             if (generation == requestGeneration && currentLibraryId == libraryId && !_state.value.isOffline) {
                 loadLibrary(libraryId, isTelevision)
             }
@@ -456,9 +459,8 @@ class LibraryViewModel @Inject constructor(
     }
 
     /**
-     * Refreshes a visible library only when no request is already active.
-     * This is used by the TV foreground timer to avoid cancelling a slow
-     * catalog response and replacing it with another request.
+     * Refreshes a visible library without cancelling active work. Coalesce a
+     * foreground refresh and run it after the current catalog request settles.
      */
     fun refreshIfIdle(
         libraryId: String,
@@ -480,6 +482,10 @@ class LibraryViewModel @Inject constructor(
             return
         }
         loadLibrary(libraryId, isTelevision, preserveLetterNavigation = true)
+    }
+
+    fun refreshOnResume(libraryId: String, isTelevision: Boolean = currentIsTelevision) {
+        refreshIfIdle(libraryId, isTelevision, deferUntilIdle = true)
     }
 
     private suspend fun persistLibrarySnapshot(

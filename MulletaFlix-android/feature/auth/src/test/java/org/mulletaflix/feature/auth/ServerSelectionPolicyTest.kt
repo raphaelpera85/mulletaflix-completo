@@ -131,6 +131,24 @@ class ServerSelectionPolicyTest {
     }
 
     @Test
+    fun `automatic verification stays disabled while switching servers`() {
+        val state = AuthState(
+            serverUrl = "http://old-server:8096",
+            savedServersLoaded = true,
+        )
+
+        assertEquals(
+            null,
+            automaticServerCandidate(
+                state,
+                manuallyEdited = false,
+                connectionStarted = false,
+                switchingServer = true,
+            ),
+        )
+    }
+
+    @Test
     fun `automatic verification waits for local network permission instead of selecting cloud`() {
         val state = AuthState(
             serverUrl = DEFAULT_MULLETAFLIX_SERVER_URL,

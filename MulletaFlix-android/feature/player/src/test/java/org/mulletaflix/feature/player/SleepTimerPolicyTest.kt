@@ -12,6 +12,10 @@ class SleepTimerPolicyTest {
     fun `accepts supported timer values`() {
         assertEquals(15, normalizeSleepTimerMinutes(15))
         assertEquals(180, normalizeSleepTimerMinutes(180))
+        assertEquals(listOf(15, 30, 45, 60, 90, 120, 180), SLEEP_TIMER_OPTIONS_MINUTES)
+        SLEEP_TIMER_OPTIONS_MINUTES.forEach { minutes ->
+            assertEquals(minutes, normalizeSleepTimerMinutes(minutes))
+        }
     }
 
     @Test

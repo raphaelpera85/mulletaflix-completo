@@ -42,6 +42,29 @@ class LiveTvRefreshEffectTest {
     }
 
     @Test
+    fun uses_resume_callback_separately_from_periodic_callback() {
+        val owner = TestLifecycleOwner()
+        val periodicCount = AtomicInteger(0)
+        val resumeCount = AtomicInteger(0)
+        composeRule.runOnUiThread {
+            owner.registry.handleLifecycleEvent(Lifecycle.Event.ON_CREATE)
+        }
+
+        composeRule.setContent {
+            LiveTvRefreshEffect(
+                lifecycleOwner = owner,
+                refreshIntervalMillis = Long.MAX_VALUE,
+                refreshImmediately = true,
+                onRefresh = { periodicCount.incrementAndGet() },
+                onResumeRefresh = { resumeCount.incrementAndGet() },
+            )
+        }
+        resume(owner)
+        composeRule.waitUntil(timeoutMillis = 2_000) { resumeCount.get() == 1 }
+        assertEquals(0, periodicCount.get())
+    }
+
+    @Test
     fun stops_refreshing_when_the_screen_is_paused() {
         val owner = TestLifecycleOwner()
         val refreshCount = AtomicInteger(0)

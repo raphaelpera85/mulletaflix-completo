@@ -98,6 +98,7 @@ fun HomeScreen(
             refreshIntervalMillis = homeAutoRefreshIntervalMillis(isTelevision),
             refreshImmediately = refreshHomeImmediatelyOnResume(isTelevision),
             onRefresh = viewModel::refreshIfIdle,
+            onResumeRefresh = viewModel::refreshAfterActiveLoadOnResume,
         )
 
         PullToRefreshBox(

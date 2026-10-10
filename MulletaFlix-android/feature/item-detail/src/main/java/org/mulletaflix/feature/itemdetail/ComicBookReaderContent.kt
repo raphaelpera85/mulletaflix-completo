@@ -1,10 +1,11 @@
 package org.mulletaflix.feature.itemdetail
 
 import android.graphics.Bitmap
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import androidx.compose.ui.draw.clipToBounds
-import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.gestures.rememberTransformableState
+import androidx.compose.foundation.gestures.transformable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -13,6 +14,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
@@ -21,32 +23,35 @@ import androidx.compose.material.icons.filled.RecordVoiceOver
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.ZoomIn
 import androidx.compose.material.icons.filled.ZoomOut
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.foundation.gestures.rememberTransformableState
-import androidx.compose.foundation.gestures.transformable
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import kotlin.math.roundToInt
@@ -271,6 +276,7 @@ internal fun ComicBookPageControls(
     onToggleSpeech: () -> Unit = {},
     onPageSelected: (Int) -> Unit,
 ) {
+    var showPageDialog by remember { mutableStateOf(false) }
     Row(
         modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
@@ -283,10 +289,18 @@ internal fun ComicBookPageControls(
             Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Página anterior")
         }
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Text(
-                text = "Página ${currentPage + 1} de $pageCount",
-                style = MaterialTheme.typography.labelMedium,
-            )
+            TextButton(
+                onClick = { showPageDialog = true },
+                enabled = pageCount > 0,
+                modifier = Modifier.semantics(mergeDescendants = true) {
+                    contentDescription = "Ir para página ${currentPage + 1} de $pageCount"
+                },
+            ) {
+                Text(
+                    text = "Página ${currentPage + 1} de $pageCount",
+                    style = MaterialTheme.typography.labelMedium,
+                )
+            }
             if (speechEnabled) {
                 IconButton(
                     onClick = onToggleSpeech,
@@ -324,4 +338,64 @@ internal fun ComicBookPageControls(
             Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = "Próxima página")
         }
     }
+    if (showPageDialog) {
+        GoToBookPageDialog(
+            currentPage = currentPage,
+            pageCount = pageCount,
+            onDismiss = { showPageDialog = false },
+            onPageSelected = { page ->
+                onPageSelected(page)
+                showPageDialog = false
+            },
+        )
+    }
+}
+
+@Composable
+private fun GoToBookPageDialog(
+    currentPage: Int,
+    pageCount: Int,
+    onDismiss: () -> Unit,
+    onPageSelected: (Int) -> Unit,
+) {
+    var pageNumber by remember(currentPage) { mutableStateOf((currentPage + 1).toString()) }
+    val selectedPage = pageNumber.toIntOrNull()?.takeIf { it in 1..pageCount }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Ir para página") },
+        text = {
+            Column {
+                OutlinedTextField(
+                    value = pageNumber,
+                    onValueChange = { value ->
+                        if (value.all(Char::isDigit)) pageNumber = value
+                    },
+                    modifier = Modifier.fillMaxWidth().testTag("page-number-input"),
+                    label = { Text("Número da página") },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    singleLine = true,
+                    isError = pageNumber.isNotBlank() && selectedPage == null,
+                )
+                if (pageNumber.isNotBlank() && selectedPage == null) {
+                    Text(
+                        text = "Informe um número entre 1 e $pageCount",
+                        color = MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = { selectedPage?.let { onPageSelected(it - 1) } },
+                enabled = selectedPage != null,
+            ) {
+                Text("Ir")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Cancelar") }
+        },
+    )
 }

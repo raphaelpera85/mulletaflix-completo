@@ -128,6 +128,44 @@ class DeepLinkNavigationPolicyTest {
     }
 
     @Test
+    fun `cold cross-server link starts at server selection before rendering the media route`() {
+        assertEquals(
+            MulletaFlixRoute.SERVER_SELECTION,
+            initialDestinationForSession(
+                hasValidSession = true,
+                deepLinkRequest = MediaDeepLinkRequest("movie-123", sequence = 1L, serverId = "server-B"),
+                sessionServerId = "server-A",
+            ),
+        )
+    }
+
+    @Test
+    fun `cold matching or unidentified server link starts at home to preserve back navigation`() {
+        val matching = MediaDeepLinkRequest("movie-123", sequence = 1L, serverId = "server-A")
+        assertEquals(
+            MulletaFlixRoute.HOME,
+            initialDestinationForSession(true, matching, "server-A"),
+        )
+        val unidentified = MediaDeepLinkRequest("movie-456", sequence = 2L, serverId = null)
+        assertEquals(
+            MulletaFlixRoute.HOME,
+            initialDestinationForSession(true, unidentified, "server-A"),
+        )
+    }
+
+    @Test
+    fun `cold link without a valid session still starts at server selection`() {
+        assertEquals(
+            MulletaFlixRoute.SERVER_SELECTION,
+            initialDestinationForSession(
+                hasValidSession = false,
+                deepLinkRequest = MediaDeepLinkRequest("movie-123", sequence = 1L, serverId = "server-A"),
+                sessionServerId = "server-A",
+            ),
+        )
+    }
+
+    @Test
     fun `a link from this server opens normally`() {
         assertTrue(shouldOpenLinkOnCurrentServer("server-A", "server-A"))
         assertTrue("a server id is case insensitive", shouldOpenLinkOnCurrentServer("SERVER-A", "server-a"))

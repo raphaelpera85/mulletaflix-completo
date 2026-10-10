@@ -244,19 +244,54 @@ class FavoritesViewModelTest {
     }
 
     @Test
-    fun `idle refresh does not cancel or duplicate an in flight request`() = runTest {
+    fun `repeated resume refresh waits and coalesces while a request is in flight`() = runTest {
+        val response = CompletableDeferred<Result<Pair<List<MediaItem>, Int>>>()
+        media.responseSequence = ArrayDeque(listOf(response))
+        val viewModel = createViewModel()
+        runCurrent()
+
+        viewModel.refreshOnResume()
+        viewModel.refreshOnResume()
+        runCurrent()
+
+        assertEquals(1, media.pageRequestCountFor(0))
+        response.complete(Result.success(emptyList<MediaItem>() to 0))
+        advanceUntilIdle()
+        assertEquals(2, media.pageRequestCountFor(0))
+    }
+
+    @Test
+    fun `resume refresh runs once after initial favorites request completes`() = runTest {
+        val initial = CompletableDeferred<Result<Pair<List<MediaItem>, Int>>>()
+        val resumed = CompletableDeferred<Result<Pair<List<MediaItem>, Int>>>()
+        media.responseSequence = ArrayDeque(listOf(initial, resumed))
+        val viewModel = createViewModel()
+        runCurrent()
+
+        viewModel.refreshOnResume()
+        runCurrent()
+        assertEquals(1, media.pageRequestCountFor(0))
+
+        initial.complete(Result.success(emptyList<MediaItem>() to 0))
+        runCurrent()
+        assertEquals(2, media.pageRequestCountFor(0))
+
+        resumed.complete(Result.success(emptyList<MediaItem>() to 0))
+        advanceUntilIdle()
+    }
+
+    @Test
+    fun `periodic favorites refresh does not queue behind active request`() = runTest {
         val response = CompletableDeferred<Result<Pair<List<MediaItem>, Int>>>()
         media.responseSequence = ArrayDeque(listOf(response))
         val viewModel = createViewModel()
         runCurrent()
 
         viewModel.refreshIfIdle()
-        viewModel.refreshIfIdle()
-        runCurrent()
-
-        assertEquals(1, media.pageRequestCountFor(0))
         response.complete(Result.success(emptyList<MediaItem>() to 0))
         advanceUntilIdle()
+
+        assertEquals(1, media.pageRequestCountFor(0))
     }
 
     @Test

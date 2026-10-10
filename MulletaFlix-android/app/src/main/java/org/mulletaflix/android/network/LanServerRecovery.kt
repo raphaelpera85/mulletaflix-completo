@@ -3,8 +3,6 @@ package org.mulletaflix.android.network
 import android.content.Context
 import android.net.ConnectivityManager
 import android.net.Network
-import android.net.NetworkRequest
-import android.net.NetworkCapabilities
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -16,6 +14,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import org.mulletaflix.core.api.ActiveServerEndpointChangeSignal
 import org.mulletaflix.core.api.SessionRepository
+import org.mulletaflix.core.common.network.serverAccessNetworkRequest
 import org.mulletaflix.feature.auth.LocalServerDiscovery
 import org.mulletaflix.feature.auth.DEFAULT_MULLETAFLIX_SERVER_URL
 import java.util.concurrent.atomic.AtomicLong
@@ -63,9 +62,7 @@ class LanServerRecovery @Inject constructor(
         started = true
         registered = runCatching {
             connectivityManager.registerNetworkCallback(
-                NetworkRequest.Builder()
-                    .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
-                    .build(),
+                serverAccessNetworkRequest(),
                 callback,
             )
             true

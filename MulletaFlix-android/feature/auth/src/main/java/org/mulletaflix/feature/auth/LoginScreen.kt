@@ -77,6 +77,10 @@ fun LoginScreen(
     val context = LocalContext.current
     var showRegisterDialog by remember { mutableStateOf(false) }
 
+    LaunchedEffect(state.serverUrl, state.savedServersLoaded, switchingServer) {
+        if (!switchingServer && state.savedServersLoaded) viewModel.prepareLoginOptions()
+    }
+
     // Quick Connect is scoped to this authentication surface. Leaving the
     // screen must not leave a background poll that can authenticate a later
     // session or keep the network active after navigation.

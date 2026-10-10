@@ -80,6 +80,48 @@ class AuthViewModelTest {
     }
 
     @Test
+    fun `orphaned credentials without server url are not an authenticated session`() = runTest {
+        val authRepo = object : FakeAuthRepository() {
+            override fun getSavedServerUrl(): Flow<String> = flowOf("")
+            override fun getSavedToken(): Flow<String?> = flowOf("orphaned-token")
+            override fun getSavedUserId(): Flow<String?> = flowOf("orphaned-user")
+        }
+        val viewModel = createViewModel(authRepo)
+        advanceUntilIdle()
+
+        assertFalse(viewModel.state.value.isAuthenticated)
+    }
+
+    @Test
+    fun `persisted authentication turns off when any required session field is removed`() = runTest {
+        val serverUrl = MutableStateFlow(DEFAULT_MULLETAFLIX_SERVER_URL)
+        val token = MutableStateFlow<String?>("session-token")
+        val userId = MutableStateFlow<String?>("session-user")
+        val authRepo = object : FakeAuthRepository() {
+            override fun getSavedServerUrl(): Flow<String> = serverUrl
+            override fun getSavedToken(): Flow<String?> = token
+            override fun getSavedUserId(): Flow<String?> = userId
+        }
+        val viewModel = createViewModel(authRepo)
+        advanceUntilIdle()
+        assertTrue(viewModel.state.value.isAuthenticated)
+
+        serverUrl.value = ""
+        advanceUntilIdle()
+        assertFalse(viewModel.state.value.isAuthenticated)
+
+        serverUrl.value = DEFAULT_MULLETAFLIX_SERVER_URL
+        token.value = null
+        advanceUntilIdle()
+        assertFalse(viewModel.state.value.isAuthenticated)
+
+        token.value = "session-token"
+        userId.value = null
+        advanceUntilIdle()
+        assertFalse(viewModel.state.value.isAuthenticated)
+    }
+
+    @Test
     fun `login with valid credentials sets isAuthenticated to true`() = runTest {
         val authRepo = object : FakeAuthRepository() {
             override suspend fun login(username: String, password: String): Result<UserSession> {
@@ -119,6 +161,7 @@ class AuthViewModelTest {
             override suspend fun isQuickConnectEnabled(): Result<Boolean> = Result.success(false)
         }
         val viewModel = createViewModel(authRepo)
+        viewModel.prepareLoginOptions()
         advanceUntilIdle()
 
         assertEquals(false, viewModel.state.value.isQuickConnectAvailable)
@@ -144,6 +187,7 @@ class AuthViewModelTest {
                 }
         }
         val viewModel = createViewModel(authRepo)
+        viewModel.prepareLoginOptions()
         advanceUntilIdle()
 
         assertEquals(null, viewModel.state.value.isQuickConnectAvailable)
@@ -446,6 +490,9 @@ class AuthViewModelTest {
         val viewModel = createViewModel(authRepo)
         runCurrent()
 
+        viewModel.prepareLoginOptions()
+        runCurrent()
+
         viewModel.connectToServer("http://new-server:8096", onSuccess = {})
         runCurrent()
         newAvailability.complete(Result.success(true))
@@ -696,6 +743,38 @@ class AuthViewModelTest {
     }
 
     @Test
+    fun `view model initialization does not request login options from the saved endpoint`() = runTest {
+        coEvery { discovery.discover(any()) } returns emptyList()
+        var availableUsersCalls = 0
+        var quickConnectAvailabilityCalls = 0
+        val authRepo = object : FakeAuthRepository() {
+            init {
+                savedServersState.value = listOf(
+                    SavedServer(name = "Old server", url = "http://old-server:8096"),
+                )
+            }
+
+            override fun getSavedServerUrl(): Flow<String> = flowOf("http://old-server:8096")
+
+            override suspend fun getAvailableUsers(): Result<List<AvailableUser>> {
+                availableUsersCalls += 1
+                return Result.success(emptyList())
+            }
+
+            override suspend fun isQuickConnectEnabled(): Result<Boolean> {
+                quickConnectAvailabilityCalls += 1
+                return Result.success(true)
+            }
+        }
+
+        createViewModel(authRepo)
+        advanceUntilIdle()
+
+        assertEquals(0, availableUsersCalls)
+        assertEquals(0, quickConnectAvailabilityCalls)
+    }
+
+    @Test
     fun `switching from public fallback to LAN clears endpoint scoped login state`() = runTest {
         var availableUsersCalls = 0
         coEvery { discovery.discover(any()) } returns listOf(
@@ -709,6 +788,9 @@ class AuthViewModelTest {
         }
 
         val viewModel = createViewModel(authRepo)
+        advanceUntilIdle()
+
+        viewModel.prepareLoginOptions()
         advanceUntilIdle()
 
         assertEquals("http://192.168.1.10:8096", viewModel.state.value.serverUrl)

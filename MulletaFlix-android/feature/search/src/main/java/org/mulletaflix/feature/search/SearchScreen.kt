@@ -513,7 +513,7 @@ internal fun ClearSearchHistoryDialog(
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Limpar histórico?") },
-        text = { Text("Todas as buscas recentes serão removidas deste usuário.") },
+        text = { Text("Todas as buscas recentes deste servidor e desta conta serão removidas.") },
         confirmButton = {
             TextButton(
                 onClick = onConfirm,
@@ -609,7 +609,7 @@ internal fun SearchHistory(
                     MulletaFlixTopBarAction(onClick = { onRemoveItem(query) }) {
                         Icon(
                             Icons.Default.Close,
-                            contentDescription = "Remover da busca",
+                            contentDescription = "Remover busca $query",
                             tint = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.size(18.dp),
                         )

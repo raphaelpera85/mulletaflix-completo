@@ -393,20 +393,20 @@ class LiveTvViewModelTest {
         )
     }
 
-    @Test fun `idle refresh does not cancel an in flight channel request`() = runTest {
-        // The TV foreground timer must not tear down a request it did not
-        // start; that is the whole point of refreshIfIdle().
+    @Test fun `resume refresh waits for an in flight channel request and refreshes once`() = runTest {
+        // The TV foreground timer must not cancel the request already active,
+        // and must still reconcile once that response settles.
         val inFlight = CompletableDeferred<Result<List<MediaItem>>>()
         val channel = MediaItem("channel-1", "Canal", org.mulletaflix.domain.model.MediaItemType.LiveTvChannel)
         repository.channels = listOf(channel)
         repository.channelResponses.add(inFlight)
-        repository.channelResponses.add(CompletableDeferred())
+        repository.channelResponses.add(CompletableDeferred(Result.success(listOf(channel))))
         val viewModel = createViewModel()
 
         runCurrent()
         assertTrue("expected the initial channel request to be in flight", repository.channelResponses.isNotEmpty())
 
-        viewModel.refreshIfIdle()
+        viewModel.refreshOnResume()
         runCurrent()
 
         inFlight.complete(Result.success(listOf(channel)))
@@ -414,10 +414,44 @@ class LiveTvViewModelTest {
 
         assertEquals(listOf(channel), viewModel.state.value.channels)
         assertEquals(
-            "refreshIfIdle must not issue a second channel request while one is loading",
-            1,
+            "resume refresh must issue one channel request after the active request settles",
+            2,
             repository.channelRequests,
         )
+    }
+
+    @Test fun `resume refresh runs after initial channel request completes`() = runTest {
+        val inFlight = CompletableDeferred<Result<List<MediaItem>>>()
+        val channel = MediaItem("channel-resume", "Canal retomada", org.mulletaflix.domain.model.MediaItemType.LiveTvChannel)
+        repository.channels = listOf(channel)
+        repository.channelResponses.add(inFlight)
+        repository.channelResponses.add(CompletableDeferred(Result.success(listOf(channel))))
+        val viewModel = createViewModel()
+        runCurrent()
+
+        viewModel.refreshOnResume()
+        runCurrent()
+        assertEquals(1, repository.channelRequests)
+
+        inFlight.complete(Result.success(listOf(channel)))
+        runCurrent()
+        assertEquals(2, repository.channelRequests)
+        advanceUntilIdle()
+    }
+
+    @Test fun `periodic refresh does not queue behind active channel request`() = runTest {
+        val inFlight = CompletableDeferred<Result<List<MediaItem>>>()
+        val channel = MediaItem("channel-periodic", "Canal período", org.mulletaflix.domain.model.MediaItemType.LiveTvChannel)
+        repository.channels = listOf(channel)
+        repository.channelResponses.add(inFlight)
+        val viewModel = createViewModel()
+        runCurrent()
+
+        viewModel.refreshIfIdle()
+        inFlight.complete(Result.success(listOf(channel)))
+        advanceUntilIdle()
+
+        assertEquals(1, repository.channelRequests)
     }
 
     @Test fun `guide load waits for active channel refresh and runs once on the settled snapshot`() = runTest {

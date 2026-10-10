@@ -69,7 +69,9 @@ internal fun automaticServerCandidate(
     manuallyEdited: Boolean,
     connectionStarted: Boolean,
     requiredDiscoveryGeneration: Long = 0,
+    switchingServer: Boolean = false,
 ): String? = if (
+    !switchingServer &&
     !manuallyEdited &&
     !connectionStarted &&
     !state.isDiscovering &&

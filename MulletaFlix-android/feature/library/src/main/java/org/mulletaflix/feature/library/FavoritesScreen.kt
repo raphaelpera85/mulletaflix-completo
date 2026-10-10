@@ -89,6 +89,7 @@ fun FavoritesScreen(
         refreshIntervalMillis = favoritesAutoRefreshIntervalMillis(isTelevision),
         refreshImmediately = isTelevision,
         onRefresh = viewModel::refreshIfIdle,
+        onResumeRefresh = viewModel::refreshOnResume,
     )
 
     Scaffold(

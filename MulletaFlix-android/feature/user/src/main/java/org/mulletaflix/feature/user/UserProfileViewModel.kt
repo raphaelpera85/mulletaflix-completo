@@ -187,11 +187,14 @@ class UserProfileViewModel @Inject constructor(
     }
 
     fun confirmSwitchUser(onSuccess: () -> Unit) {
+        if (_uiState.value.isSwitchingUser) return
         val targetUser = _uiState.value.selectedUserForSwitch ?: return
         val password = _uiState.value.switchPasswordInput
 
+        // Reserve the operation synchronously so two rapid confirmations cannot
+        // enqueue duplicate authentication requests before the coroutine runs.
+        _uiState.update { it.copy(isSwitchingUser = true, error = null) }
         viewModelScope.launch {
-            _uiState.update { it.copy(isSwitchingUser = true, error = null) }
             switchUserUseCase(targetUser.name, password)
                 .onSuccess {
                     _uiState.update {
@@ -218,11 +221,24 @@ class UserProfileViewModel @Inject constructor(
     }
 
     fun logout(onComplete: () -> Unit) {
+        if (_uiState.value.isLoggingOut) return
+        _uiState.update { it.copy(isLoggingOut = true, error = null) }
         viewModelScope.launch {
-            _uiState.update { it.copy(isLoggingOut = true) }
-            logoutUseCase()
-            _uiState.update { it.copy(isLoggingOut = false) }
-            onComplete()
+            logoutUseCase().fold(
+                onSuccess = {
+                    _uiState.update { it.copy(isLoggingOut = false, error = null) }
+                    onComplete()
+                },
+                onFailure = { failure ->
+                    _uiState.update {
+                        it.copy(
+                            isLoggingOut = false,
+                            error = failure.localizedMessage
+                                ?: "Não foi possível encerrar a sessão. Tente novamente.",
+                        )
+                    }
+                },
+            )
         }
     }
 

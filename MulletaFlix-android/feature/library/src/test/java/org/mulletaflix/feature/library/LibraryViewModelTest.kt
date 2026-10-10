@@ -489,7 +489,7 @@ class LibraryViewModelTest {
     }
 
     @Test
-    fun `refreshIfIdle does not cancel an active library request`() = runTest {
+    fun `resume refresh waits for an active library request and refreshes once`() = runTest {
         val responseRelease = CompletableDeferred<Unit>()
         media.blockLibraryId = "library-1"
         media.blockedLibraryRelease = responseRelease
@@ -504,15 +504,16 @@ class LibraryViewModelTest {
 
         viewModel.loadLibrary("library-1")
         runCurrent()
-        viewModel.refreshIfIdle("library-1")
+        viewModel.refreshOnResume("library-1")
 
         assertEquals(1, media.detailCalls)
         responseRelease.complete(Unit)
         advanceUntilIdle()
+        assertEquals(2, media.detailCalls)
     }
 
     @Test
-    fun `refreshIfIdle does not replace the initial job before loading state is published`() = runTest {
+    fun `resume refresh does not replace the initial job before loading state is published`() = runTest {
         val responseRelease = CompletableDeferred<Unit>()
         media.blockLibraryId = "library-1"
         media.blockedLibraryRelease = responseRelease
@@ -522,12 +523,47 @@ class LibraryViewModelTest {
         // The initial coroutine is active, but it has not reached the point
         // where it publishes isLoading yet. This is the TV-entry race window.
         viewModel.loadLibrary("library-1")
-        viewModel.refreshIfIdle("library-1")
+        viewModel.refreshOnResume("library-1")
         runCurrent()
 
         assertEquals(1, media.detailCalls)
         responseRelease.complete(Unit)
         advanceUntilIdle()
+    }
+
+    @Test
+    fun `resume refresh waits for the active library load and then reloads once`() = runTest {
+        val responseRelease = CompletableDeferred<Unit>()
+        media.blockLibraryId = "library-1"
+        media.blockedLibraryRelease = responseRelease
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+
+        viewModel.loadLibrary("library-1")
+        viewModel.refreshOnResume("library-1")
+        runCurrent()
+        assertEquals(1, media.detailCalls)
+
+        responseRelease.complete(Unit)
+        advanceUntilIdle()
+
+        assertEquals(2, media.detailCalls)
+    }
+
+    @Test
+    fun `periodic refresh does not queue behind an active library load`() = runTest {
+        val responseRelease = CompletableDeferred<Unit>()
+        media.blockLibraryId = "library-1"
+        media.blockedLibraryRelease = responseRelease
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+
+        viewModel.loadLibrary("library-1")
+        viewModel.refreshIfIdle("library-1")
+        responseRelease.complete(Unit)
+        advanceUntilIdle()
+
+        assertEquals(1, media.detailCalls)
     }
 
     @Test

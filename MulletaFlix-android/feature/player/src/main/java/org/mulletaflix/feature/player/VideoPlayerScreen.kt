@@ -1765,7 +1765,6 @@ internal fun SleepTimerMenu(
     onSelectAtMediaEnd: () -> Unit,
     onDismiss: () -> Unit,
 ) {
-    val options = listOf(15, 30, 45, 60, 90)
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Temporizador de suspensão") },
@@ -1800,7 +1799,7 @@ internal fun SleepTimerMenu(
                     RadioButton(selected = isSleepTimerAtMediaEndSelected(mode), onClick = null)
                     Text("Ao fim da mídia", modifier = Modifier.padding(start = 8.dp))
                 }
-                options.forEach { minutes ->
+                SLEEP_TIMER_OPTIONS_MINUTES.forEach { minutes ->
                     PlayerOptionRow(
                         verticalAlignment = Alignment.CenterVertically,
                         selected = isSleepTimerOptionSelected(mode, selectedMinutes, minutes),

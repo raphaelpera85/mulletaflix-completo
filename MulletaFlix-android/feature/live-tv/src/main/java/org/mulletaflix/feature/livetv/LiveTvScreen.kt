@@ -53,6 +53,7 @@ fun LiveTvScreen(
         refreshIntervalMillis = liveTvAutoRefreshIntervalMillis(isTelevision),
         refreshImmediately = refreshLiveTvImmediatelyOnResume(isTelevision),
         onRefresh = viewModel::refreshIfIdle,
+        onResumeRefresh = viewModel::refreshOnResume,
     )
     LiveTvRefreshEffect(
         lifecycleOwner = lifecycleOwner,

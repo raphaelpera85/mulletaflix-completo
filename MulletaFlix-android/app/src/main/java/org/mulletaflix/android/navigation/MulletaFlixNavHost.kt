@@ -108,7 +108,12 @@ fun MulletaFlixNavHost(
     // already exists, which is right for the launch destination and wrong here:
     // the server list sent the user to login, login sent them to Home, and
     // "Trocar de Servidor" looked like a dead button.
-    var switchingServer by remember { mutableStateOf(false) }
+    var switchingServer by remember {
+        mutableStateOf(
+            startDestination == MulletaFlixRoute.SERVER_SELECTION &&
+                !shouldOpenLinkOnCurrentServer(deepLinkRequest?.serverId, currentServerId),
+        )
+    }
 
     LaunchedEffect(deepLinkRequest, currentRoute, currentItemId, currentServerId) {
         if (!shouldDeliverMediaDeepLink(deepLinkRequest?.sequence, handledDeepLinkSequence, deepLinkItemId)) {

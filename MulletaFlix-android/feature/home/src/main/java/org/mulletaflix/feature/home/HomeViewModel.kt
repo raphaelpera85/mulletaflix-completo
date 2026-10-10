@@ -293,6 +293,21 @@ class HomeViewModel @Inject constructor(
         refresh()
     }
 
+    /**
+     * A resume-triggered TV refresh waits for an in-flight Home load instead
+     * of dropping the refresh or cancelling that load. If another refresh or
+     * session change supersedes the load while waiting, its newer generation
+     * already owns reconciliation and this request becomes a no-op.
+     */
+    suspend fun refreshAfterActiveLoadOnResume() {
+        val resumeGeneration = loadGeneration
+        while (resumeGeneration == loadGeneration) {
+            val activeLoad = loadJob?.takeIf { it.isActive } ?: break
+            activeLoad.join()
+        }
+        if (resumeGeneration == loadGeneration) refreshIfIdle()
+    }
+
     private fun loadHome(refresh: Boolean = false) {
         val generation = ++loadGeneration
         recentlyAddedRetryJobs.values.toList().forEach { it.cancel() }

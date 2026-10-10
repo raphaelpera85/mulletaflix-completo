@@ -106,11 +106,6 @@ class AuthViewModel @Inject constructor(
                             serverUrl = if (hasLocalServer) it.serverUrl else url,
                         )
                     }
-                    // A saved public URL must not trigger requests while discovery
-                    // has already selected a different LAN endpoint.
-                    if (_state.value.serverUrl != url) return@collect
-                    loadAvailableUsers(url)
-                    loadQuickConnectAvailability(_state.value.serverUrl ?: url)
                 }
             }
         }
@@ -138,10 +133,11 @@ class AuthViewModel @Inject constructor(
         }
         viewModelScope.launch {
             combine(
+                authRepository.getSavedServerUrl(),
                 authRepository.getSavedToken(),
                 authRepository.getSavedUserId()
-            ) { token, userId ->
-                !token.isNullOrBlank() && !userId.isNullOrBlank()
+            ) { serverUrl, token, userId ->
+                serverUrl.isNotBlank() && !token.isNullOrBlank() && !userId.isNullOrBlank()
             }.collect { isAuth ->
                 _state.update { it.copy(isAuthenticated = isAuth) }
             }
@@ -191,9 +187,8 @@ class AuthViewModel @Inject constructor(
         val current = _state.value
         if (selectedUrl == current.serverUrl) return
 
-        // A late discovery/persistence result can change the endpoint after startup
-        // requests have begun. Invalidate all endpoint-scoped state just as discovery
-        // does when it selects a server immediately.
+        // Discovery or persistence can change the endpoint after startup. Invalidate
+        // endpoint-scoped state so results from the previous server never leak.
         invalidateAvailableUsersForEndpoint()
         quickConnectAvailabilityJob?.cancel()
         quickConnectAvailabilityGeneration += 1
@@ -204,10 +199,13 @@ class AuthViewModel @Inject constructor(
                 quickConnectAvailabilityError = null,
             )
         }
-        selectedUrl?.takeIf(String::isNotBlank)?.let { url ->
-            loadAvailableUsers(url)
-            loadQuickConnectAvailability(url)
-        }
+    }
+
+    /** Load server-specific login choices only when the login surface is active. */
+    fun prepareLoginOptions() {
+        val url = _state.value.serverUrl?.takeIf(String::isNotBlank) ?: return
+        loadAvailableUsers(url)
+        loadQuickConnectAvailability(url)
     }
 
     private fun loadQuickConnectAvailability(serverUrl: String) {

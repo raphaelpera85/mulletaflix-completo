@@ -55,6 +55,7 @@ class LiveTvViewModel @Inject constructor(
     private val _state = MutableStateFlow(LiveTvUiState())
     val state = _state.asStateFlow()
     private var refreshJob: Job? = null
+    private var deferredRefreshJob: Job? = null
     private var guideJob: Job? = null
     private var refreshGeneration = 0L
     private var guideGeneration = 0L
@@ -232,17 +233,47 @@ class LiveTvViewModel @Inject constructor(
         }
         timerIds
     }
-    /** Used by the TV foreground timer; manual refresh remains destructive. */
+    /** Used by the periodic foreground timer; ignore an active request. */
     fun refreshIfIdle() {
         val current = _state.value
         // The initial session collector starts the request before the first
         // `isLoading` state emission is dispatched. Treat the Job as the
         // source of truth too, otherwise the TV foreground timer can cancel
         // the first channel load and leave the screen with stale/empty data.
-        if (refreshJob?.isActive == true ||
-            !shouldRefreshLiveTvIfIdle(current.isOffline, current.isLoading)
-        ) return
+        if (current.isOffline) return
+        if (refreshJob?.isActive == true || current.isLoading) {
+            return
+        }
+        if (!shouldRefreshLiveTvIfIdle(current.isOffline, current.isLoading)) return
         refresh()
+    }
+
+    /** Preserve active channel work, then reconcile once after a resume. */
+    fun refreshOnResume() {
+        val current = _state.value
+        if (current.isOffline) return
+        if (refreshJob?.isActive == true || current.isLoading) {
+            refreshAfterActiveLoad()
+            return
+        }
+        refreshIfIdle()
+    }
+
+    private fun refreshAfterActiveLoad() {
+        val activeRefresh = refreshJob ?: return
+        if (deferredRefreshJob?.isActive == true) return
+        val generation = refreshGeneration
+        val sessionAtRequest = sessionGeneration
+        deferredRefreshJob = viewModelScope.launch {
+            activeRefresh.join()
+            deferredRefreshJob = null
+            if (generation == refreshGeneration &&
+                sessionAtRequest == sessionGeneration &&
+                !_state.value.isOffline
+            ) {
+                refreshIfIdle()
+            }
+        }
     }
 
     /** Marks the EPG dialog as open so a later refresh reloads it. */
