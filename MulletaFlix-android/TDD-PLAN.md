@@ -1,5 +1,23 @@
 # Plano de TDD do MulletaFlix Android
 
+## RED-GREEN — sumário de livros HTML e MOBI — 2026-10-11
+
+- `INTENT`: o leitor extraía texto HTML/MOBI, mas descartava capítulos; testes exigem capítulos apenas de cabeçalhos visíveis `<h1>`–`<h6>`, profundidade correta e navegação ao trecho certo. `TODO-APP.md` diz que formatos sem estrutura não devem mostrar capítulos fictícios e registra HTML/MOBI como formatos de leitura direta.
+- `RED`: testes de HTML com cabeçalho oculto/script e título depois do primeiro trecho, e de MOBI com cabeçalho, falharam porque `chapters` vinha vazio.
+- `GREEN`: sanitiza antes de reconhecer cabeçalhos; converte cabeçalhos para tags internas únicas, captura offsets durante a conversão Android HTML, remove marcadores antes de expor texto e mapeia títulos/chunks ao modelo comum do sumário.
+- `TEST`: `PlainTextBookDocumentTest` e `MobiBookTextExtractorTest` passaram juntos após implementação; quality gate completa ainda pendente.
+- `LIMITAÇÕES`: nenhum AVD, servidor, portal, bump de versão ou release. Validação com livro MOBI real permanece pendente.
+
+## RED-GREEN — sumário navegável em livros Markdown — 2026-10-11
+
+- `INTENT`: o parser já converte Markdown em texto seguro, mas omite os cabeçalhos do sumário comum; leitores Markdown devem navegar pelos cabeçalhos ATX sem indexar linhas dentro de blocos cercados.
+- `RED`: `PlainTextBookDocumentTest.builds Markdown table of contents from headings outside code fences` falhou com títulos ausentes; testes de mais de 10.000 capítulos e cerca indentada em quatro espaços também reproduziram limites/parsing ausentes.
+- `GREEN`: parser mantém níveis e títulos formatados de cabeçalhos ATX externos a cercas, associa-os ao chunk correto, respeita até três colunas de recuo (tabs contam por tab-stop de quatro), limita sumário a 10.000 entradas como DOCX e calcula offsets com o mesmo predicado Unicode do trim.
+- `TEST`: `PlainTextBookDocumentTest` — 25/25; qualidade Android completa — `testDebugUnitTest :feature:item-detail:lintDebug :app:lintDebug :app:assembleDebug :feature:item-detail:compileDebugAndroidTestKotlin` — `BUILD SUCCESSFUL`; 1.668 testes JVM aprovados, 0 falhas/erros/ignorados; `git diff --check` aprovado.
+- `GRAPHIFY`: atualização do grafo raiz — 64.165 nós/165.459 arestas; `graphify explain` confirmou parser e teste relacionados. Graphify 0.9.79 está abaixo da skill 0.9.84; 3 SQL sem parser, 4 arquivos com extração sintática parcial e 174 sem símbolos.
+- `REVIEW`: revisores Cavecrew encontraram fechamento indevido com recuo inválido e ausência de limite; correções adicionaram também cobertura do limite exato e whitespace Unicode.
+- `LIMITAÇÕES`: AVD `MulletaflixApi35` permanece reservado pelo usuário; nenhuma instrumentação foi executada. Sem alteração de versão, servidor, portal ou release.
+
 ## RED-GREEN — trechos contextuais na busca de PDF — 2026-10-11
 
 - `INTENT`: `BookPdfTextSearch` exibia sempre o começo da página e podia exceder 140 caracteres ao alinhar limites UTF-16; o teste exige contexto da ocorrência real, sem distinção de caixa/acentos, limite estrito e pares substitutos íntegros. `TODO-APP.md` estabelece busca página a página para PDFs com texto selecionável; este incremento melhora o trecho de resultado sem alterar navegação.

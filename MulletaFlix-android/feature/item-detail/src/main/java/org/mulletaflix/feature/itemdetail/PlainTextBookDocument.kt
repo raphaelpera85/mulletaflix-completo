@@ -1,6 +1,7 @@
 package org.mulletaflix.feature.itemdetail
 
 import android.text.Html
+import android.text.Html.TagHandler
 import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.IOException
@@ -9,6 +10,7 @@ import java.nio.ByteBuffer
 import java.nio.charset.Charset
 import java.nio.charset.CodingErrorAction
 import java.nio.charset.StandardCharsets
+import java.util.UUID
 import org.json.JSONObject
 import org.readium.r2.shared.publication.Locator
 import org.xmlpull.v1.XmlPullParser
@@ -57,6 +59,9 @@ internal class PlainTextBookDocument private constructor(
         const val CONTENT_TYPE = "text/plain"
         const val MAX_TEXT_BYTES = 8L * 1024L * 1024L
         const val MAX_HTML_BYTES = 2L * 1024L * 1024L
+        private const val MAX_HTML_HEADINGS = 10_000
+        private const val HTML_MARKER_START = "\uE000MFLIX"
+        private const val HTML_MARKER_END = "\uE001"
         private const val HTML_CONTENT_TYPE = "text/html"
         private val MARKDOWN_CONTENT_TYPES = setOf("text/markdown", "text/x-markdown")
         private val RTF_CONTENT_TYPES = setOf("application/rtf", "application/x-rtf", "text/rtf")
@@ -156,9 +161,13 @@ internal class PlainTextBookDocument private constructor(
         fun open(file: File, contentType: String? = CONTENT_TYPE): PlainTextBookDocument {
             if (!file.isFile || file.length() <= 0L) throw IOException("O arquivo de texto está vazio ou ausente.")
             if (MobiBookTextExtractor.supports(contentType) || MobiBookTextExtractor.hasMobiDatabase(file)) {
-                val text = htmlToText(MobiBookTextExtractor.extractHtml(file))
-                if (text.isBlank()) throw IOException("O livro MOBI não contém conteúdo para leitura.")
-                return PlainTextBookDocument(splitIntoChunks(text))
+                val parsed = htmlToBookDocument(MobiBookTextExtractor.extractHtml(file))
+                if (parsed.text.isBlank()) throw IOException("O livro MOBI não contém conteúdo para leitura.")
+                val chunks = splitIntoChunks(parsed.text)
+                val chapters = parsed.headings.map { heading ->
+                    PlainTextBookChapter(heading.title, heading.depth, chunkIndexForOffset(chunks, heading.textOffset))
+                }
+                return PlainTextBookDocument(chunks, chapters)
             }
             if (OdtBookTextExtractor.supports(contentType) || OdtBookTextExtractor.hasOpenDocumentTextPackage(file)) {
                 val text = OdtBookTextExtractor.extract(file)
@@ -218,9 +227,11 @@ internal class PlainTextBookDocument private constructor(
             if (isFictionBook) {
                 return openFictionBook(decoded, "O arquivo de texto não contém conteúdo para leitura.")
             }
+            val markdownDocument = if (isMarkdown) MarkdownBookTextParser.parseDocument(decoded) else null
+            val htmlDocument = if (isHtml) htmlToBookDocument(decoded) else null
             val text = when {
-                isHtml -> htmlToText(decoded)
-                isMarkdown -> MarkdownBookTextParser.parse(decoded)
+                isHtml -> requireNotNull(htmlDocument).text
+                isMarkdown -> requireNotNull(markdownDocument).text
                 isRtf -> RtfBookTextParser.parse(decoded)
                 else -> decoded
             }
@@ -228,7 +239,13 @@ internal class PlainTextBookDocument private constructor(
                 .replace("\r\n", "\n")
                 .replace('\r', '\n')
             if (text.isBlank()) throw IOException("O arquivo de texto não contém conteúdo para leitura.")
-            return PlainTextBookDocument(splitIntoChunks(text))
+            val chunks = splitIntoChunks(text)
+            val chapters = (markdownDocument?.headings.orEmpty().map { heading ->
+                PlainTextBookChapter(heading.title, heading.depth, chunkIndexForOffset(chunks, heading.textOffset))
+            } + htmlDocument?.headings.orEmpty().map { heading ->
+                PlainTextBookChapter(heading.title, heading.depth, chunkIndexForOffset(chunks, heading.textOffset))
+            })
+            return PlainTextBookDocument(chunks, chapters)
         }
 
         private fun openFictionBook(xml: String, emptyMessage: String): PlainTextBookDocument {
@@ -446,14 +463,152 @@ internal class PlainTextBookDocument private constructor(
                 }
             }
 
-        private fun htmlToText(html: String): String {
+        private data class HtmlBookHeading(val title: String, val depth: Int, val textOffset: Int)
+        private data class HtmlBookDocument(val text: String, val headings: List<HtmlBookHeading>)
+        private data class HtmlHeadingMarker(
+            val id: String,
+            val depth: Int,
+            val start: String,
+            val end: String,
+        )
+        private data class HtmlMarkerEvent(val marker: HtmlHeadingMarker, val opening: Boolean)
+        private data class ActiveHtmlHeading(
+            val marker: HtmlHeadingMarker,
+            val textOffset: Int,
+            val title: StringBuilder = StringBuilder(),
+        )
+
+        private fun htmlToBookDocument(html: String): HtmlBookDocument {
             val withoutNonContent = removeNonContentHtmlElements(html)
-            return Html.fromHtml(withoutNonContent, Html.FROM_HTML_MODE_LEGACY)
-                .toString()
-                .replace(Regex("[\\t\\u000B\\f ]+"), " ")
-                .replace(Regex(" *\\n *"), "\n")
-                .replace(Regex("\\n{3,}"), "\n\n")
-                .trim()
+            val markers = mutableListOf<HtmlHeadingMarker>()
+            val activeMarkers = mutableListOf<HtmlHeadingMarker>()
+            val namespace = generateSequence { UUID.randomUUID().toString() }
+                .first { !withoutNonContent.contains("$HTML_MARKER_START$it") }
+            val headingTagPrefix = "mulletaflixheading${namespace.replace("-", "")}"
+            val handler = TagHandler { opening, tag, output, _ ->
+                if (!tag.startsWith(headingTagPrefix)) return@TagHandler
+                val depth = tag.removePrefix(headingTagPrefix).toIntOrNull()
+                    ?.takeIf { it in 1..6 } ?: return@TagHandler
+                if (opening) {
+                    if (markers.size >= MAX_HTML_HEADINGS) {
+                        throw IOException("O HTML excede o limite de capítulos do sumário.")
+                    }
+                    val id = markers.size.toString()
+                    val marker = HtmlHeadingMarker(
+                        id = id,
+                        depth = depth,
+                        start = "$HTML_MARKER_START${namespace}S$id$HTML_MARKER_END",
+                        end = "$HTML_MARKER_START${namespace}E$id$HTML_MARKER_END",
+                    )
+                    markers += marker
+                    activeMarkers += marker
+                    output.append(marker.start)
+                } else {
+                    val index = activeMarkers.indexOfLast { it.depth == depth }
+                    if (index >= 0) output.append(activeMarkers.removeAt(index).end)
+                }
+            }
+            val taggedHtml = markHtmlHeadings(withoutNonContent, headingTagPrefix)
+            val rendered = Html.fromHtml(
+                taggedHtml,
+                Html.FROM_HTML_MODE_LEGACY,
+                null,
+                handler,
+            ).toString()
+            val normalized = normalizeHtmlText(rendered)
+            val text = StringBuilder(normalized.length)
+            val headings = mutableListOf<HtmlBookHeading>()
+            val activeHeadings = mutableListOf<ActiveHtmlHeading>()
+            val eventsByToken = buildMap {
+                markers.forEach { marker ->
+                    put(marker.start, HtmlMarkerEvent(marker, opening = true))
+                    put(marker.end, HtmlMarkerEvent(marker, opening = false))
+                }
+            }
+            var cursor = 0
+            while (cursor < normalized.length) {
+                val markerStart = normalized.indexOf(HTML_MARKER_START, cursor)
+                if (markerStart < 0) {
+                    appendHtmlText(normalized, cursor, normalized.length, text, activeHeadings)
+                    break
+                }
+                appendHtmlText(normalized, cursor, markerStart, text, activeHeadings)
+                val markerEnd = normalized.indexOf(HTML_MARKER_END, markerStart + HTML_MARKER_START.length)
+                if (markerEnd < 0) {
+                    appendHtmlText(normalized, markerStart, normalized.length, text, activeHeadings)
+                    break
+                }
+                val tokenEnd = markerEnd + HTML_MARKER_END.length
+                val event = eventsByToken[normalized.substring(markerStart, tokenEnd)]
+                if (event != null && event.opening) {
+                    activeHeadings += ActiveHtmlHeading(event.marker, text.length)
+                } else if (event != null) {
+                    val activeIndex = activeHeadings.indexOfLast { it.marker === event.marker }
+                    if (activeIndex >= 0) {
+                        val active = activeHeadings.removeAt(activeIndex)
+                        val title = active.title.toString().replace(Regex("\\s+"), " ").trim()
+                        if (title.isNotEmpty()) {
+                            headings += HtmlBookHeading(title, active.marker.depth, active.textOffset)
+                        }
+                    }
+                } else {
+                    appendHtmlText(normalized, markerStart, tokenEnd, text, activeHeadings)
+                }
+                cursor = tokenEnd
+            }
+            headings.sortBy(HtmlBookHeading::textOffset)
+            return HtmlBookDocument(text.toString(), headings)
+        }
+
+        private fun appendHtmlText(
+            source: String,
+            start: Int,
+            end: Int,
+            output: StringBuilder,
+            activeHeadings: List<ActiveHtmlHeading>,
+        ) {
+            if (start >= end) return
+            val text = source.substring(start, end)
+            output.append(text)
+            activeHeadings.lastOrNull()?.title?.append(text)
+        }
+
+        private fun normalizeHtmlText(text: String): String = text
+            .replace(Regex("[\\t\\u000B\\f ]+"), " ")
+            .replace(Regex(" *\\n *"), "\n")
+            .replace(Regex("\\n{3,}"), "\n\n")
+            .trim()
+
+        private fun markHtmlHeadings(html: String, headingTagPrefix: String): String {
+            val marked = StringBuilder(html.length)
+            var copyFrom = 0
+            var scanFrom = 0
+            while (scanFrom < html.length) {
+                val tagStart = html.indexOf('<', scanFrom)
+                if (tagStart < 0) break
+                val tagEnd = findHtmlTagEnd(html, tagStart)
+                if (tagEnd < 0) break
+                val tag = parseHtmlTag(html, tagStart, tagEnd)
+                if (tag != null && !tag.isClosing && tag.name in VISIBLE_RAW_TEXT_HTML_ELEMENTS) {
+                    scanFrom = findRawTextHtmlElementEnd(html, tag.name, tagEnd + 1)
+                        ?.plus(1) ?: html.length
+                    continue
+                }
+                val depth = tag?.name?.removePrefix("h")?.toIntOrNull()
+                    ?.takeIf { tag.name == "h$it" && it in 1..6 }
+                if (tag != null && depth != null) {
+                    marked.append(html, copyFrom, tagStart)
+                    if (tag.isClosing) {
+                        marked.append("</$headingTagPrefix$depth></p>")
+                    } else {
+                        marked.append("<p><$headingTagPrefix$depth>")
+                    }
+                    copyFrom = tagEnd + 1
+                }
+                scanFrom = tagEnd + 1
+            }
+            marked.append(html, copyFrom, html.length)
+            return marked.toString()
         }
 
         /** Removes non-rendered/active elements in one forward scan; HTML input is untrusted. */

@@ -1,7 +1,12 @@
 package org.mulletaflix.feature.itemdetail
 
+import java.io.IOException
+
 /** Converts common Markdown structure to safe, readable plain text without rendering HTML. */
 internal object MarkdownBookTextParser {
+    internal data class Heading(val title: String, val depth: Int, val textOffset: Int)
+    internal data class ParsedDocument(val text: String, val headings: List<Heading>)
+
     private val heading = Regex("^ {0,3}#{1,6}[ \\t]+(.*?)[ \\t]*#*[ \\t]*$")
     private val blockQuote = Regex("^ {0,3}>[ \\t]?(?:>[ \\t]?)*")
     private val unorderedList = Regex("^(\\s*)[-+*][ \\t]+(.*)$")
@@ -18,11 +23,15 @@ internal object MarkdownBookTextParser {
     private val emphasis = Regex("(?<![\\w*])([*_])(?=\\S)(.+?\\S)\\1(?![\\w*])")
     private val escapedPunctuation = Regex("\\\\([!\\\"#$%&'()*+,./:;<=>?@\\[\\]\\^_`{|}~-])")
 
-    fun parse(markdown: String): String {
+    fun parse(markdown: String): String = parseDocument(markdown).text
+
+    fun parseDocument(markdown: String): ParsedDocument {
         val output = StringBuilder(markdown.length.coerceAtMost(PlainTextBookDocument.MAX_TEXT_BYTES.toInt()))
-        var lineCount = 0
+        val headings = mutableListOf<Heading>()
         fun appendLine(line: String) {
-            if (lineCount++ > 0) output.append('\n')
+            val isBlank = line.isEmpty()
+            if (isBlank && output.endsWith("\n\n")) return
+            if (output.isNotEmpty()) output.append('\n')
             output.append(line)
         }
         var fenceCharacter: Char? = null
@@ -38,7 +47,9 @@ internal object MarkdownBookTextParser {
             }
             if (fenceCharacter != null) {
                 val close = line.trimStart()
-                if (close.firstOrNull() == fenceCharacter && close.takeWhile { it == fenceCharacter }.length >= fenceLength &&
+                val indentation = indentationColumns(line)
+                if (indentation <= 3 && close.firstOrNull() == fenceCharacter &&
+                    close.takeWhile { it == fenceCharacter }.length >= fenceLength &&
                     close.dropWhile { it == fenceCharacter }.isBlank()
                 ) {
                     fenceCharacter = null
@@ -60,7 +71,8 @@ internal object MarkdownBookTextParser {
                 continue
             }
 
-            var readable = heading.matchEntire(line)?.groupValues?.get(1) ?: line
+            val headingMatch = heading.matchEntire(line)
+            var readable = headingMatch?.groupValues?.get(1) ?: line
             readable = readable.replace(blockQuote, "    ")
             val unordered = unorderedList.matchEntire(readable)
             if (unordered != null) {
@@ -80,12 +92,26 @@ internal object MarkdownBookTextParser {
             readable = if (cells.contains('|') && tableCells.size > 1) {
                 if (tableDivider.matches(line)) "" else tableCells.joinToString("    |    ") { it.trim() }
             } else readable
-            appendLine(formatInline(readable))
+            val formatted = formatInline(readable)
+            val offset = output.length + if (output.isEmpty()) 0 else 1
+            appendLine(formatted)
+            if (headingMatch != null && formatted.isNotBlank()) {
+                if (headings.size >= MAX_HEADINGS) {
+                    throw IOException("O Markdown excede o limite de capítulos do sumário.")
+                }
+                headings += Heading(formatted, line.trimStart().takeWhile { it == '#' }.length, offset)
+            }
         }
 
-        return output.toString()
-            .replace(Regex("\\n{3,}"), "\n\n")
-            .trim()
+        val leadingWhitespace = output.indexOfFirst { !it.isWhitespace() }.let { if (it < 0) output.length else it }
+        val text = output.toString().trim { it.isWhitespace() }
+        return ParsedDocument(
+            text = text,
+            headings = headings.mapNotNull { item ->
+                val offset = item.textOffset - leadingWhitespace
+                if (offset !in text.indices) null else item.copy(textOffset = offset)
+            },
+        )
     }
 
     private fun formatInline(text: String): String = text
@@ -98,5 +124,18 @@ internal object MarkdownBookTextParser {
         .replace(emphasis) { it.groupValues[2] }
         .replace(escapedPunctuation) { it.groupValues[1] }
 
+    private fun indentationColumns(line: String): Int {
+        var columns = 0
+        for (character in line) {
+            when (character) {
+                ' ' -> columns++
+                '\t' -> columns = (columns / 4 + 1) * 4
+                else -> return columns
+            }
+        }
+        return columns
+    }
+
     private val FENCE = Regex("^ {0,3}(`{3,}|~{3,}).*$")
+    private const val MAX_HEADINGS = 10_000
 }

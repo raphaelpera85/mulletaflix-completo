@@ -23,7 +23,9 @@ class MobiBookTextExtractorTest {
 
         assertTrue(MobiBookTextExtractor.hasMobiDatabase(file))
         assertEquals(BookPayloadFormat.PLAIN_TEXT, detectBookPayloadFormat(file, "application/octet-stream"))
-        assertEquals("Capítulo\n\nOlá MOBI.", PlainTextBookDocument.open(file, "application/octet-stream").chunks.joinToString(""))
+        val document = PlainTextBookDocument.open(file, "application/octet-stream")
+        assertEquals("Capítulo\n\nOlá MOBI.", document.chunks.joinToString(""))
+        assertEquals(listOf("Capítulo"), document.chapters.map { it.title })
     }
 
     @Test

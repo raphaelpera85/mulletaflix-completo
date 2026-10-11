@@ -136,18 +136,23 @@ class PlainTextBookDocumentTest {
         val filler = "Texto de preenchimento.\n".repeat(900)
         val file = directory.resolve("chapters.md").apply {
             writeText(
-                """# Prólogo
-                    Introdução.
-                    ## Capítulo **Um** ##
-
-                    ```markdown
-                    # Título dentro do código
-                    ```
-
-                    $filler
-                    ### Ação _final_
-                    Encerramento.
-                """.trimIndent(),
+                listOf(
+                    "# Prólogo",
+                    "Introdução.",
+                    "## Capítulo **Um** ##",
+                    "",
+                    "```markdown",
+                    "# Título dentro do código",
+                    "    ```",
+                    "# Ainda dentro do código",
+                    "\t```",
+                    "# Cabeçalho ainda dentro do código",
+                    "```",
+                    "",
+                    filler.trimEnd(),
+                    "### Ação _final_",
+                    "Encerramento.",
+                ).joinToString("\n"),
             )
         }
 
@@ -158,6 +163,40 @@ class PlainTextBookDocumentTest {
         assertEquals(0, document.chapters.first().chunkIndex)
         assertTrue(document.chapters.last().chunkIndex > document.chapters[1].chunkIndex)
         assertTrue(document.chunks[document.chapters.last().chunkIndex].contains("Ação final"))
+    }
+
+    @Test
+    fun `rejects Markdown with more headings than the bounded table of contents`() = withTempDirectory { directory ->
+        val file = directory.resolve("too-many-headings.md").apply {
+            writeText(buildString {
+                repeat(10_001) { append("# Capítulo $it\n") }
+            })
+        }
+
+        val error = assertThrows(java.io.IOException::class.java) {
+            PlainTextBookDocument.open(file, "text/markdown; charset=utf-8")
+        }
+
+        assertEquals("O Markdown excede o limite de capítulos do sumário.", error.message)
+    }
+
+    @Test
+    fun `accepts exactly the bounded number of Markdown headings`() = withTempDirectory { directory ->
+        val file = directory.resolve("maximum-headings.md").apply {
+            writeText(buildString {
+                repeat(10_000) { append("# Capítulo $it\n") }
+            })
+        }
+
+        assertEquals(10_000, PlainTextBookDocument.open(file, "text/markdown").chapters.size)
+    }
+
+    @Test
+    fun `heading offsets account for Unicode whitespace removed at document start`() {
+        val parsed = MarkdownBookTextParser.parseDocument("\u2003Introdução\n# Capítulo")
+
+        assertEquals("Introdução\nCapítulo", parsed.text)
+        assertEquals(parsed.text.indexOf("Capítulo"), parsed.headings.single().textOffset)
     }
 
     @Test
@@ -450,6 +489,42 @@ class PlainTextBookDocumentTest {
         assertFalse(text.contains("Hidden display"))
         assertFalse(text.contains("Hidden visibility"))
         assertFalse(text.contains("Hidden aria text"))
+    }
+
+    @Test
+    fun `builds HTML table of contents from visible headings and maps later chapters to chunks`() = withTempDirectory { directory ->
+        val file = directory.resolve("html-chapters.html").apply {
+            writeText(
+                """<html><head><title>Hidden title</title></head><body>
+                    <p>Chapter One mentioned before the heading.</p>
+                    <h1>Chapter <em>One</em></h1><p>${"filler ".repeat(500)}</p>
+                    <h3>Chapter Two &amp; more</h3><p>Ending.</p>
+                    <div hidden><h2>Hidden chapter</h2></div>
+                    <script><h2>Script chapter</h2></script>
+                </body></html>""".trimIndent(),
+            )
+        }
+
+        val document = PlainTextBookDocument.open(file, "text/html; charset=utf-8")
+
+        assertEquals(listOf("Chapter One", "Chapter Two & more"), document.chapters.map { it.title })
+        assertEquals(listOf(1, 3), document.chapters.map { it.depth })
+        assertTrue(document.chapters.last().chunkIndex > document.chapters.first().chunkIndex)
+        assertTrue(document.chunks[document.chapters.last().chunkIndex].contains("Chapter Two & more"))
+        assertFalse(document.chapters.any { it.title.contains("Hidden") || it.title.contains("Script") })
+    }
+
+    @Test
+    fun `keeps nested malformed HTML headings as separate table of contents entries`() = withTempDirectory { directory ->
+        val file = directory.resolve("nested-headings.html").apply {
+            writeText("<h2>Outer <h3>Inner</h3> tail</h2>")
+        }
+
+        val document = PlainTextBookDocument.open(file, "text/html")
+
+        assertEquals(listOf("Outer tail", "Inner"), document.chapters.map { it.title })
+        assertEquals(listOf(2, 3), document.chapters.map { it.depth })
+        assertFalse(document.chunks.joinToString("").contains("MFLIX"))
     }
 
     @Test

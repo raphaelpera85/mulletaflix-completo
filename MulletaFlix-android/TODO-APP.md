@@ -1,5 +1,13 @@
 # MulletaFlix Android - Plano de Desenvolvimento & Checklist de Funcionalidades (TODO)
 
+## Sumário para livros HTML e MOBI — APK local; sem release
+
+- [x] Gerar capítulos hierárquicos a partir de cabeçalhos visíveis HTML `<h1>`–`<h6>` em HTML direto e HTML extraído de MOBI; títulos vazios/ocultos não entram no sumário.
+- [x] Capturar offsets durante a conversão e mapear capítulos aos trechos; remover marcadores internos do texto e limitar o sumário a 10.000 entradas.
+- [x] TDD: testes confirmam níveis HTML, heading com formatação inline/entidades, headings ocultos e em script ignorados, heading tardio associado ao trecho posterior e capítulo MOBI extraído.
+- [ ] Executar quality gate completa e atualização do grafo Graphify; não executar instrumentação enquanto AVD `MulletaflixApi35` estiver reservada.
+- [ ] Sem bump, APK de produção, release, portal, commit ou push.
+
 ## Limites de leitura dos locators persistidos — APK local; sem release
 
 - [x] Aplicar limite compartilhado de 8.192 caracteres UTF-16 aos locators de retomada e aos marcadores, tanto ao salvar quanto ao decodificar estado persistido.
@@ -3645,3 +3653,13 @@ Pendências relacionadas:
 - [x] Cobrir abertura do seletor, seleção e persistência com Compose/DataStore; cobrir o mapeamento de cor do Readium em integração.
 - [ ] Validar manualmente com TalkBack/controle remoto e EPUB real; testes automatizados usam fixtures.
 - [ ] Sem alteração do servidor/portal, bump, APK de produção ou publicação.
+# Leitor de livros Markdown (APK local; sem release)
+
+- [x] Incluir cabeçalhos ATX no sumário e navegar ao chunk correspondente.
+- [x] Remover marcação inline dos títulos e ignorar cabeçalhos aparentes em cercas de código.
+- [x] Limitar sumário Markdown a 10.000 capítulos e só fechar cercas com no máximo três espaços de recuo.
+- [x] Cobrir níveis, formatação e capítulo posterior ao primeiro chunk em teste JVM.
+- [x] Testar limite acima de 10.000 entradas e fechamento incorreto de cerca.
+- [x] Testar aceitação exata do limite, tabs/recuos de cerca e offsets após whitespace Unicode.
+- [ ] Validar a interação visual do sumário em dispositivo quando o AVD reservado pelo usuário for liberado.
+- [ ] Sem bump, APK de produção ou publicação nesta tarefa.
