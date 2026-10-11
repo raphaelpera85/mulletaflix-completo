@@ -1,5 +1,62 @@
 # Plano de TDD do MulletaFlix Android
 
+## RED-GREEN — páginas de código ANSI no leitor RTF — 2026-10-11
+
+- `INTENT`: `RtfBookTextParser` decodificava todos os escapes `\'hh` como Windows-1252 e ignorava `\ansicpgN`; o teste exige usar a página declarada e preservar o estado entre grupos. `TODO-APP.md`, seção “Leitura direta de formatos de livro no APK”, promete converter escapes RTF sem restringir páginas de código. A especificação Microsoft identifica `\ansicpgN` como página de código ANSI padrão para as sequências de texto RTF: https://learn.microsoft.com/en-us/openspecs/exchange_server_protocols/ms-oxrtfex/1e44fa4c-3ea3-402c-8b21-fb19a617e43b
+- `RED`: antes do parser, os testes CP1251 e página desconhecida falharam pelas razões esperadas: texto cirílico decodificado incorretamente e ausência do erro de página incompatível.
+- `GREEN`: parser resolve `\ansicpgN`, mantém CP1252 por padrão, decodifica sequências contíguas com o charset declarado e rejeita charset/bytes não suportados sem corrupção silenciosa. Cobertura adicional valida escopo de grupo e UTF-8.
+- `QUALITY BAR`: classe `RtfBookTextParserTest` passou 9/9; `testDebugUnitTest :feature:item-detail:lintDebug :app:lintDebug :app:assembleDebug :feature:item-detail:compileDebugAndroidTestKotlin --no-daemon --console=plain` — `BUILD SUCCESSFUL` em 3m34s; 248 relatórios XML, 1.662 testes JVM, 0 falhas/erros/ignorados; `git diff --check` limpo.
+- `GRAPHIFY`: `graphify update . --no-cluster` reconstruiu 64.148 nós e 165.407 arestas; `graphify explain "RtfBookTextParser"` mostra `appendAnsiEscapeRun`, `ansiCharset` e ligação ao registro TDD; `RtfBookTextParserTest` liga os quatro novos cenários ao plano e ao TODO de formatos. Avisos conhecidos: pacote Graphify 0.9.79 vs skill 0.9.84, 3 SQL sem parser e extração parcial em 4 arquivos.
+- `ESCOPO`: somente parser/testes do APK e documentação Android; sem servidor, portal, versão, pacote, release, commit ou push; AVD preservada não foi acessada e instrumentação não foi executada.
+
+## RED-GREEN — limites para locators persistidos do leitor — 2026-10-11
+
+- `INTENT`: a gravação limitava marcadores a 8.192 caracteres UTF-16, mas o decoder ignorava o limite; a retomada de leitura também lia e gravava locators sem teto. A especificação Android registra persistência/restauração da posição e os marcadores existentes já têm limite de tamanho.
+- `RED`: `BookReaderProgressStoreTest.ignores persisted bookmarks whose locator exceeds the write limit` e `does not store a progress locator larger than the reader size limit` reproduziram o excesso com locators Readium válidos; o segundo teste falhou porque o progresso foi persistido/restaurado.
+- `GREEN`: limite compartilhado de 8.192 caracteres UTF-16 em gravação/decodificação de progresso e marcadores, antes do parser Readium; payload agregado de marcadores limitado por `MAX_BOOKMARKS_JSON_CHARS`. Testes preservam locators válidos e recusam as três entradas excessivas.
+- `QUALITY BAR`: cinco testes focais passaram; `testDebugUnitTest :feature:item-detail:lintDebug :app:lintDebug :app:assembleDebug :feature:item-detail:compileDebugAndroidTestKotlin --no-daemon --console=plain` — `BUILD SUCCESSFUL` em 3m23s; 248 relatórios XML, 1.658 testes, zero falhas/erros/ignorados; `git diff --check` limpo.
+- `TESTABILITY`: decoders ficaram testáveis dentro do módulo sem reflexão; depois da revisão de progresso, `:feature:item-detail:testDebugUnitTest` passou com 235 testes, zero falhas/erros/ignorados; suíte e lint do módulo repetidos em seguida.
+- `GRAPHIFY`: `graphify update . --no-cluster` concluiu com 11.390 nós e 30.080 arestas; `graphify explain` confirmou referências de `BookReaderProgressStore` à classe de teste e de `BookReaderProgressStoreTest` ao plano de testes. CLI 0.9.79 (skill 0.9.84) advertiu extração parcial preexistente em `TvHomeRefreshIntegrationTest.kt` e 28 arquivos sem símbolos.
+- `ESCOPO`: somente APK e documentação Android; sem versão, servidor, portal, assinatura, pacote ou publicação; AVD preservada não foi consultada/alterada; instrumentação Android não executada.
+
+## RED-GREEN — cancelamento cooperativo da busca textual de livros — 2026-10-11
+
+- `INTENT`: `BookTextSearch.search` percorria todos os trechos sem ponto de suspensão ou verificação de cancelamento; o teste espera parar quando a consulta antiga for cancelada. `TODO-APP.md` exige cancelar a busca anterior ao substituir a consulta e manter resultados sincronizados.
+- `RED`: `BookTextSearchTest.stops scanning text chunks promptly when the search coroutine is cancelled` compilou e falhou pela asserção esperada: leu 10.000 trechos em vez de parar após 5.
+- `GREEN`: a busca agora é suspend e verifica o contexto de coroutine por trecho; extensão do documento também é suspend. Teste novo + classe `BookTextSearchTest` passaram.
+- `QUALITY BAR`: `testDebugUnitTest :feature:item-detail:lintDebug :app:lintDebug :app:assembleDebug :feature:item-detail:compileDebugAndroidTestKotlin --no-daemon --console=plain` — `BUILD SUCCESSFUL` (3m07s); 247 relatórios XML, 1.653 testes JVM, zero falhas/erros/ignorados; `git diff --check` limpo.
+- `GRAPHIFY`: `graphify update . --no-cluster` concluiu com 11.373 nós e 30.037 arestas; `graphify explain "BookTextSearch"`, `graphify explain "BookReaderScreen"` e o novo teste confirmaram vínculos busca→diálogo→teste. CLI 0.9.79 (skill 0.9.84) reportou extração parcial preexistente em `TvHomeRefreshIntegrationTest.kt`.
+- `ESCOPO`: somente APK Android e docs TDD; sem servidor, versão, assinatura, portal ou publicação.
+
+## RED-GREEN — hierarquia real de estilos DOCX no sumário — 2026-10-11
+
+- `INTENT`: o extrator resolvia somente IDs padrão `Heading1–9`/nível direto e perdia headings com `styleId` personalizado; teste espera resolver a referência do parágrafo, herdar `outlineLvl` por `basedOn` e respeitar o nível direto. Microsoft Open XML documenta que `pStyle` referencia `styleId` e que ID difere do nome mostrado: https://learn.microsoft.com/en-us/office/open-xml/word/how-to-create-and-add-a-paragraph-style-to-a-word-processing-document
+- `RED`: `PlainTextBookDocumentTest.resolves custom DOCX paragraph headings through inherited styles` falhou por capítulos vazios antes da implementação.
+- `GREEN`: extrator indexa apenas estilos de parágrafo, resolve `basedOn` com detecção de ciclo e limites explícitos; teste focal passou junto dos testes de limite/arquivo.
+- `QUALITY BAR`: `testDebugUnitTest :feature:item-detail:lintDebug :app:lintDebug :app:assembleDebug :feature:item-detail:compileDebugAndroidTestKotlin --no-daemon --console=plain` — `BUILD SUCCESSFUL` (3m26s); 247 relatórios XML, 1.652 testes JVM, 0 falhas/erros/ignorados. `git diff --check` sem erros.
+- `GRAPHIFY`: `graphify update . --no-cluster` concluiu com 11.368 nós e 30.021 arestas; `graphify explain "DocxBookTextExtractor"` e `graphify explain "PlainTextBookDocumentTest"` confirmaram ligações parser→estilos→teste. Um teste Android preexistente (`TvHomeRefreshIntegrationTest.kt`) foi parcialmente extraído pela versão local 0.9.79.
+- `ESCOPO`: somente APK local; não alterar servidor, versão, portal, assinatura ou publicação. AVD `MulletaflixApi35` continua reservada; compilar testes, sem instrumentação.
+
+## RED-GREEN — estilos DOCX herdados de Heading padrão — 2026-10-11
+
+- `INTENT`: resolvedor seguia `basedOn` apenas enquanto cada ancestral existia em `styles.xml`; teste espera que cadeia personalizada herde nível de `Heading1` mesmo sem definição local completa. Open XML define `basedOn` como ID do estilo pai e define herança de estilo: https://learn.microsoft.com/en-us/dotnet/api/documentformat.openxml.wordprocessing.basedon?view=openxml-3.0.1
+- `RED`: `PlainTextBookDocumentTest.resolves custom DOCX paragraph headings through inherited styles` compilou e falhou na asserção esperada porque `Capítulo baseado em Heading1` não foi indexado.
+- `GREEN`: o resolvedor agora confere nível explícito em cada ancestral, reconhece Heading1–9 no caminho e encerra em ciclo/limite; o teste focal passou.
+- `UI`: o teste Compose existente de sumário DOCX ganhou cadeia `CustomChapter → LocalIntermediate → Heading1`, navegação para heading direto e personalizado, e verificação do locator. Compilou; execução instrumentada foi tentada no AVD Tablet, mas o wrapper recusou corretamente porque o AVD preservado `emulator-5572` estava visível como dispositivo adicional. O wrapper encerrou o Tablet e verificação final confirmou que apenas o AVD preservado continuou aberto; nenhuma interação nele foi feita.
+- `QUALITY BAR`: `testDebugUnitTest :feature:item-detail:lintDebug :app:lintDebug :app:assembleDebug :feature:item-detail:compileDebugAndroidTestKotlin --no-daemon --console=plain` — `BUILD SUCCESSFUL` (3m05s); 247 relatórios XML, 1.652 testes JVM, zero falhas/erros/ignorados. `git diff --check` sem erros.
+- `GRAPHIFY`: `graphify update . --no-cluster` concluiu com 11.369 nós e 30.023 arestas; `graphify explain` pós-atualização confirma parser DOCX, resolver de estilos e testes integrados. Graphify 0.9.79 sinalizou extração parcial do teste preexistente `TvHomeRefreshIntegrationTest.kt`.
+- `ESCOPO`: somente APK local; manter as mudanças existentes; sem bump, produção, portal, servidor ou publicação.
+
+## RED-GREEN — sumário de capítulos em DOCX — 2026-10-11
+
+- `INTENT`: o leitor já extrai o texto de DOCX, mas não mostra navegação por capítulos; deve derivar entradas de estilos `Heading 1`–`Heading 9` ou `outlineLvl`, apontar para o trecho correto e manter o locator de retomada.
+- `RED`: `PlainTextBookDocumentTest.builds DOCX chapter navigation from Word heading styles and outline levels` falhou porque `document.chapters` estava vazio.
+- `GREEN`: o extrator retorna texto e metadados limitados a 10.000 capítulos; o leitor mapeia offsets aos trechos existentes. O teste focal passou.
+- `UI`: foi acrescentado teste Compose para abrir sumário, selecionar capítulo e validar trecho/locator; compilação AndroidTest é obrigatória, execução em AVD aguarda liberação do dispositivo preservado.
+- `QUALITY BAR`: `testDebugUnitTest :feature:item-detail:lintDebug :app:lintDebug :app:assembleDebug :feature:item-detail:compileDebugAndroidTestKotlin --no-daemon --console=plain` — `BUILD SUCCESSFUL` em 4m01s; 247 relatórios XML, 1.650 testes JVM, 0 falhas/erros/ignorados. Focal `PlainTextBookDocumentTest` também passou; `git diff --check` sem erros.
+- `GRAPHIFY`: `graphify update . --no-cluster` reindexou 1.058 arquivos de código; explicar os nós do extrator/tela/testes após a atualização.
+- `ESCOPO`: somente APK local; nenhuma mudança em servidor, versão, portal, assinatura, APK de produção ou release.
+
 ## Regressão de navegação Activity para logout em Ajustes — 2026-10-11
 
 - `ESCOPO`: cenário instrumentado novo, sem alterar comportamento de produção. Como o fluxo já fora corrigido e os testes de ViewModel já passaram na etapa anterior, este teste de integração de regressão não foi apresentado como RED retroativo.

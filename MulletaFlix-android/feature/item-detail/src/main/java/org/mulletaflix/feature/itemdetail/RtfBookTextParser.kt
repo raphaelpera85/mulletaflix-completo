@@ -1,7 +1,12 @@
 package org.mulletaflix.feature.itemdetail
 
 import java.io.IOException
+import java.io.ByteArrayOutputStream
+import java.nio.ByteBuffer
 import java.nio.charset.Charset
+import java.nio.charset.CharacterCodingException
+import java.nio.charset.StandardCharsets
+import java.nio.charset.UnsupportedCharsetException
 
 /** Converts the readable text of a bounded RTF payload without evaluating embedded content. */
 internal object RtfBookTextParser {
@@ -60,10 +65,11 @@ internal object RtfBookTextParser {
             when (symbol) {
                 '\'', '{', '}', '\\' -> {
                     if (symbol == '\'') {
+                        if (!state.skipGroup) return appendAnsiEscapeRun(rtf, start, state, output)
                         if (start + 2 >= rtf.length) throw IOException("O RTF contém um escape hexadecimal incompleto.")
-                        val value = rtf.substring(start + 1, start + 3).toIntOrNull(16)
-                            ?: throw IOException("O RTF contém um escape hexadecimal inválido.")
-                        if (!state.skipGroup) appendVisible(output, state, decodeWindows1252(value))
+                        if (rtf.substring(start + 1, start + 3).toIntOrNull(16) == null) {
+                            throw IOException("O RTF contém um escape hexadecimal inválido.")
+                        }
                         state.groupStart = false
                         return start + 3
                     }
@@ -102,6 +108,11 @@ internal object RtfBookTextParser {
         if (state.skipGroup) return skipBinaryPayload(rtf, end, word, parameter)
 
         when (word) {
+            "ansicpg" -> {
+                val codePage = parameter
+                    ?: throw IOException("O RTF declara uma página de código inválida.")
+                state.ansiCharset = ansiCharset(codePage)
+            }
             "uc" -> parameter?.let { state.unicodeFallbackCount = it.coerceIn(0, 16) }
             "u" -> parameter?.let {
                 if (!state.hidden) append(output, it.toChar())
@@ -135,14 +146,47 @@ internal object RtfBookTextParser {
         output.append(value)
     }
 
-    private fun decodeWindows1252(byte: Int): Char =
-        String(byteArrayOf(byte.toByte()), windows1252).first()
+    private fun ansiCharset(codePage: Int): Charset {
+        if (codePage !in 1..65_535) throw IOException("O RTF declara uma página de código inválida.")
+        val charset = try {
+            if (codePage == 65_001) StandardCharsets.UTF_8 else Charset.forName("windows-$codePage")
+        } catch (failure: UnsupportedCharsetException) {
+            throw IOException("A página de código ANSI $codePage do RTF não é compatível.", failure)
+        } catch (failure: IllegalArgumentException) {
+            throw IOException("A página de código ANSI $codePage do RTF não é compatível.", failure)
+        }
+        return charset
+    }
+
+    private fun appendAnsiEscapeRun(rtf: String, start: Int, state: State, output: StringBuilder): Int {
+        val bytes = ByteArrayOutputStream()
+        var cursor = start
+        while (cursor < rtf.length && rtf[cursor] == '\'') {
+            if (cursor + 2 >= rtf.length) throw IOException("O RTF contém um escape hexadecimal incompleto.")
+            val value = rtf.substring(cursor + 1, cursor + 3).toIntOrNull(16)
+                ?: throw IOException("O RTF contém um escape hexadecimal inválido.")
+            bytes.write(value)
+            cursor += 3
+            if (cursor + 1 < rtf.length && rtf[cursor] == '\\' && rtf[cursor + 1] == '\'') cursor++
+            else break
+        }
+
+        val decoded = try {
+            state.ansiCharset.newDecoder().decode(ByteBuffer.wrap(bytes.toByteArray())).toString()
+        } catch (failure: CharacterCodingException) {
+            throw IOException("Os escapes RTF não são válidos para a página de código ANSI declarada.", failure)
+        }
+        decoded.forEach { appendVisible(output, state, it) }
+        state.groupStart = false
+        return cursor
+    }
 
     private data class State(
         var skipGroup: Boolean = false,
         var hidden: Boolean = false,
         var groupStart: Boolean = true,
         var ignoreNextDestination: Boolean = false,
+        var ansiCharset: Charset = windows1252,
         var unicodeFallbackCount: Int = 1,
         var fallbackRemaining: Int = 0,
     )

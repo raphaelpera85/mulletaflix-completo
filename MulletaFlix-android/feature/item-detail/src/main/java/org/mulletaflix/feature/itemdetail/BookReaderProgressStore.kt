@@ -48,6 +48,11 @@ internal data class BookReaderBookmarkWrite(
     val limitReached: Boolean,
 )
 
+internal data class DecodedBookReaderProgress(
+    val locator: Locator,
+    val migrated: Boolean,
+)
+
 internal class BookReaderProgressStore(context: Context) {
     private val store = context.applicationContext.bookReaderProgressStore
 
@@ -55,21 +60,24 @@ internal class BookReaderProgressStore(context: Context) {
         val key = entryKey(scope, itemId)
         val encoded = store.data.first()[stringPreferencesKey(key)]
         encoded?.let {
-            val locatorJson = JSONObject(it)
-            val migratedJson = ComicBookArchive.migrateLegacyPageLocator(locatorJson)
-            val locator = Locator.fromJSON(migratedJson ?: locatorJson)
-            if (migratedJson != null && locator != null) {
-                store.edit { preferences -> preferences[stringPreferencesKey(key)] = locator.toJSON().toString() }
+            val decoded = decodeBookReaderProgress(it) ?: return@let null
+            if (decoded.migrated) {
+                val migrated = decoded.locator.toJSON().toString()
+                if (migrated.length <= MAX_READER_LOCATOR_CHARS) {
+                    store.edit { preferences -> preferences[stringPreferencesKey(key)] = migrated }
+                }
             }
-            locator
+            decoded.locator
         }
     }
 
     suspend fun write(scope: HomeFeedCacheScope, itemId: String, locator: Locator) {
         recoverBookReaderStorageFailure {
             val key = entryKey(scope, itemId)
+            val encoded = locator.toJSON().toString()
+            if (encoded.length > MAX_READER_LOCATOR_CHARS) return@recoverBookReaderStorageFailure
             store.edit { preferences ->
-                preferences[stringPreferencesKey(key)] = locator.toJSON().toString()
+                preferences[stringPreferencesKey(key)] = encoded
                 preferences[longPreferencesKey(timestampKey(key))] = System.currentTimeMillis()
                 trimOldEntries(preferences)
             }
@@ -377,12 +385,13 @@ internal class BookReaderProgressStore(context: Context) {
         "${BOOKMARKS_PREFIX}${entryKey(scope, itemId).removePrefix(ENTRY_PREFIX)}",
     )
 
-    private fun decodeBookmarks(encoded: String?): List<BookReaderBookmark> {
-        if (encoded.isNullOrBlank()) return emptyList()
+    internal fun decodeBookmarks(encoded: String?): List<BookReaderBookmark> {
+        if (encoded.isNullOrBlank() || encoded.length > MAX_BOOKMARKS_JSON_CHARS) return emptyList()
         val json = runCatching { JSONArray(encoded) }.getOrNull() ?: return emptyList()
         return (0 until json.length()).mapNotNull { index ->
             val row = json.optJSONObject(index) ?: return@mapNotNull null
             val locatorJson = row.optJSONObject("locator") ?: return@mapNotNull null
+            if (locatorJson.toString().length > MAX_READER_LOCATOR_CHARS) return@mapNotNull null
             val locator = Locator.fromJSON(locatorJson) ?: return@mapNotNull null
             val id = row.optString("id").takeIf(String::isNotBlank) ?: return@mapNotNull null
             val label = row.optString("label").trim().take(MAX_BOOKMARK_LABEL_LENGTH)
@@ -439,8 +448,19 @@ internal class BookReaderProgressStore(context: Context) {
         const val MAX_FONT_SIZE_SCOPES = 100
         const val MAX_BOOKMARKS_PER_BOOK = 20
         const val MAX_BOOKMARK_LABEL_LENGTH = 80
-        const val MAX_BOOKMARK_LOCATOR_CHARS = 8_192
+        const val MAX_READER_LOCATOR_CHARS = 8_192
+        const val MAX_BOOKMARK_LOCATOR_CHARS = MAX_READER_LOCATOR_CHARS
+        const val MAX_BOOKMARKS_JSON_CHARS =
+            MAX_BOOKMARKS_PER_BOOK * (MAX_BOOKMARK_LOCATOR_CHARS + MAX_BOOKMARK_LABEL_LENGTH + 256)
     }
+}
+
+internal fun decodeBookReaderProgress(encoded: String?): DecodedBookReaderProgress? {
+    if (encoded.isNullOrBlank() || encoded.length > BookReaderProgressStore.MAX_READER_LOCATOR_CHARS) return null
+    val locatorJson = runCatching { JSONObject(encoded) }.getOrNull() ?: return null
+    val migratedJson = ComicBookArchive.migrateLegacyPageLocator(locatorJson)
+    val locator = Locator.fromJSON(migratedJson ?: locatorJson) ?: return null
+    return DecodedBookReaderProgress(locator, migrated = migratedJson != null)
 }
 
 internal suspend fun <T> recoverBookReaderStorageFailure(block: suspend () -> T): T? = try {

@@ -169,12 +169,21 @@ internal class PlainTextBookDocument private constructor(
                 return PlainTextBookDocument(splitIntoChunks(text))
             }
             if (DocxBookTextExtractor.supports(contentType) || DocxBookTextExtractor.isDocxPackage(file)) {
-                val text = DocxBookTextExtractor.extract(file)
+                val content = DocxBookTextExtractor.extractContent(file)
+                val text = content.text
                     .replace("\u0000", "\uFFFD")
                     .replace("\r\n", "\n")
                     .replace('\r', '\n')
                 if (text.isBlank()) throw IOException("O arquivo DOCX não contém conteúdo para leitura.")
-                return PlainTextBookDocument(splitIntoChunks(text))
+                val chunks = splitIntoChunks(text)
+                val chapters = content.headings.map { heading ->
+                    PlainTextBookChapter(
+                        title = heading.title,
+                        depth = heading.depth,
+                        chunkIndex = chunkIndexForOffset(chunks, heading.textOffset),
+                    )
+                }
+                return PlainTextBookDocument(chunks, chapters)
             }
             if (FictionBookZipTextExtractor.supports(contentType) ||
                 FictionBookZipTextExtractor.hasFictionBookPackage(file)

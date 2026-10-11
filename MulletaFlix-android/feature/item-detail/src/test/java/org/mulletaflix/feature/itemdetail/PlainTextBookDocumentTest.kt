@@ -151,6 +151,100 @@ class PlainTextBookDocumentTest {
     }
 
     @Test
+    fun `builds DOCX chapter navigation from Word heading styles and outline levels`() = withTempDirectory { directory ->
+        val file = directory.resolve("chapters.docx")
+        writeDocx(file, """<w:document xmlns:w="urn:word"><w:body>
+            <w:p><w:pPr><w:pStyle w:val="Heading1"/></w:pPr><w:r><w:t>Parte I</w:t></w:r></w:p>
+            <w:p><w:r><w:t>${"Texto inicial. ".repeat(300)}</w:t></w:r></w:p>
+            <w:p><w:pPr><w:outlineLvl w:val="1"/></w:pPr><w:r><w:t>Capítulo 1</w:t></w:r></w:p>
+            <w:p><w:r><w:t>Conteúdo do capítulo.</w:t></w:r></w:p>
+            </w:body></w:document>""")
+
+        val document = PlainTextBookDocument.open(file, DocxBookTextExtractor.CONTENT_TYPE)
+
+        assertEquals(listOf("Parte I", "Capítulo 1"), document.chapters.map { it.title })
+        assertEquals(listOf(0, 1), document.chapters.map { it.depth })
+        assertTrue(document.chapters[1].chunkIndex > document.chapters[0].chunkIndex)
+        assertTrue(document.chunks[document.chapters[1].chunkIndex].contains("Capítulo 1"))
+        assertEquals(document.chapters[1].chunkIndex, document.chunkIndexFromLocator(document.locatorForChunk(document.chapters[1].chunkIndex)))
+    }
+
+    @Test
+    fun `rejects DOCX with more headings than the bounded table of contents`() = withTempDirectory { directory ->
+        val file = directory.resolve("too-many-headings.docx")
+        val paragraphs = buildString {
+            repeat(10_001) {
+                append("<w:p><w:pPr><w:pStyle w:val=\"Heading1\"/></w:pPr><w:r><w:t>H</w:t></w:r></w:p>")
+            }
+        }
+        writeDocx(file, "<w:document xmlns:w=\"urn:word\"><w:body>$paragraphs</w:body></w:document>")
+
+        val failure = assertThrows(java.io.IOException::class.java) {
+            PlainTextBookDocument.open(file, DocxBookTextExtractor.CONTENT_TYPE)
+        }
+
+        assertTrue(failure.message.orEmpty().contains("limite de capítulos"))
+    }
+
+    @Test
+    fun `resolves custom DOCX paragraph headings through inherited styles`() = withTempDirectory { directory ->
+        val file = directory.resolve("custom-styles.docx")
+        val styles = """<w:styles xmlns:w="urn:word">
+            <w:style w:type="paragraph" w:styleId="ChapterBase"><w:pPr><w:outlineLvl w:val="2"/></w:pPr></w:style>
+            <w:style w:type="paragraph" w:styleId="CustomChapter"><w:basedOn w:val="ChapterBase"/></w:style>
+            <w:style w:type="paragraph" w:styleId="NestedCustomChapter"><w:basedOn w:val="LocalIntermediate"/></w:style>
+            <w:style w:type="paragraph" w:styleId="LocalIntermediate"><w:basedOn w:val="Heading1"/></w:style>
+            <w:style w:type="character" w:styleId="CharacterOnly"><w:pPr><w:outlineLvl w:val="0"/></w:pPr></w:style>
+            </w:styles>"""
+        writeDocx(
+            file,
+            """<w:document xmlns:w="urn:word"><w:body>
+                <w:p><w:pPr><w:pStyle w:val="CustomChapter"/></w:pPr><w:r><w:t>Capítulo herdado</w:t></w:r></w:p>
+                <w:p><w:pPr><w:pStyle w:val="CustomChapter"/><w:outlineLvl w:val="0"/></w:pPr><w:r><w:t>Parte com nível direto</w:t></w:r></w:p>
+                <w:p><w:pPr><w:pStyle w:val="NestedCustomChapter"/></w:pPr><w:r><w:t>Capítulo baseado em Heading1</w:t></w:r></w:p>
+                <w:p><w:pPr><w:pStyle w:val="CharacterOnly"/></w:pPr><w:r><w:t>Não é capítulo</w:t></w:r></w:p>
+                </w:body></w:document>""",
+            stylesXml = styles,
+        )
+
+        val document = PlainTextBookDocument.open(file, DocxBookTextExtractor.CONTENT_TYPE)
+
+        assertEquals(
+            listOf("Capítulo herdado", "Parte com nível direto", "Capítulo baseado em Heading1"),
+            document.chapters.map { it.title },
+        )
+        assertEquals(listOf(2, 0, 0), document.chapters.map { it.depth })
+    }
+
+    @Test
+    fun `bounds DOCX styles and safely ignores cyclic style inheritance`() = withTempDirectory { directory ->
+        val documentFile = directory.resolve("cyclic-styles.docx")
+        val cyclicStyles = """<w:styles xmlns:w="urn:word">
+            <w:style w:type="paragraph" w:styleId="First"><w:basedOn w:val="Second"/></w:style>
+            <w:style w:type="paragraph" w:styleId="Second"><w:basedOn w:val="First"/></w:style>
+            </w:styles>"""
+        writeDocx(
+            documentFile,
+            """<w:document xmlns:w="urn:word"><w:body>
+                <w:p><w:pPr><w:pStyle w:val="First"/></w:pPr><w:r><w:t>No heading</w:t></w:r></w:p>
+                </w:body></w:document>""",
+            stylesXml = cyclicStyles,
+        )
+        assertTrue(PlainTextBookDocument.open(documentFile, DocxBookTextExtractor.CONTENT_TYPE).chapters.isEmpty())
+
+        val oversizedStylesFile = directory.resolve("oversized-styles.docx")
+        writeDocx(
+            oversizedStylesFile,
+            "<w:document xmlns:w=\"urn:word\"><w:body><w:p><w:r><w:t>Text</w:t></w:r></w:p></w:body></w:document>",
+            stylesXml = "<w:styles xmlns:w=\"urn:word\"><!--${"x".repeat(4 * 1024 * 1024)}--></w:styles>",
+        )
+        val failure = assertThrows(java.io.IOException::class.java) {
+            PlainTextBookDocument.open(oversizedStylesFile, DocxBookTextExtractor.CONTENT_TYPE)
+        }
+        assertTrue(failure.message.orEmpty().contains("estilos DOCX excede o limite"))
+    }
+
+    @Test
     fun `rejects invalid DOCX packages and oversized document XML`() = withTempDirectory { directory ->
         val invalid = directory.resolve("invalid.docx").apply { writeText("not a ZIP") }
         assertThrows(java.io.IOException::class.java) {
@@ -176,7 +270,7 @@ class PlainTextBookDocumentTest {
         }
     }
 
-    private fun writeDocx(file: File, documentXml: String) {
+    private fun writeDocx(file: File, documentXml: String, stylesXml: String? = null) {
         ZipOutputStream(file.outputStream()).use { zip ->
             zip.putNextEntry(ZipEntry("[Content_Types].xml"))
             zip.write("<Types/>".toByteArray())
@@ -184,6 +278,11 @@ class PlainTextBookDocumentTest {
             zip.putNextEntry(ZipEntry("word/document.xml"))
             zip.write(documentXml.toByteArray())
             zip.closeEntry()
+            if (stylesXml != null) {
+                zip.putNextEntry(ZipEntry("word/styles.xml"))
+                zip.write(stylesXml.toByteArray())
+                zip.closeEntry()
+            }
             zip.putNextEntry(ZipEntry("word/media/image1.jpeg"))
             zip.write(byteArrayOf(1, 2, 3))
             zip.closeEntry()

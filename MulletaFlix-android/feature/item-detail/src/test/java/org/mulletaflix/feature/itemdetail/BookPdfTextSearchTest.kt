@@ -18,6 +18,31 @@ class BookPdfTextSearchTest {
     }
 
     @Test
+    fun `snippet shows a late accent-insensitive match in the page`() = runTest {
+        val page = "Introdução sem o termo. ".repeat(12) + "Ação específica encontrada no final."
+
+        val match = BookPdfTextSearch.search(pageCount = 1, query = "acao especifica") { page }
+            .single()
+
+        assertTrue(match.snippet.contains("Ação específica"))
+        assertTrue(match.snippet.length <= 140)
+    }
+
+    @Test
+    fun `snippet stays within the limit when context starts inside a surrogate pair`() = runTest {
+        val page = "x" + "🙂".repeat(1_000) + "Ação" + "y".repeat(1_000)
+
+        val snippet = BookPdfTextSearch.search(pageCount = 1, query = "acao") { page }
+            .single()
+            .snippet
+
+        assertTrue(snippet.contains("Ação"))
+        assertTrue(snippet.length <= 140)
+        assertTrue(snippet.startsWith("…"))
+        assertTrue(snippet.endsWith("…"))
+    }
+
+    @Test
     fun `stops extracting after reaching result limit`() = runTest {
         val pages = List(BookTextSearch.MAX_RESULTS + 3) { "alvo na página $it" }
         val extracted = mutableListOf<Int>()

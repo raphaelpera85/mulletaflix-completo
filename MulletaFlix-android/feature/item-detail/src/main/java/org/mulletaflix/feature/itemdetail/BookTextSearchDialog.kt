@@ -148,7 +148,7 @@ internal data class BookTextSearchResult(
     val locator: Locator? = null,
 )
 
-internal fun PlainTextBookDocument.searchResults(query: String): List<BookTextSearchResult> =
+internal suspend fun PlainTextBookDocument.searchResults(query: String): List<BookTextSearchResult> =
     BookTextSearch.search(chunks, query).map { index ->
         BookTextSearchResult(
             label = "Trecho ${index + 1}: ${chunks[index].take(100)}",

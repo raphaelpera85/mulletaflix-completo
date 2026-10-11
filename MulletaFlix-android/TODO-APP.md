@@ -1,5 +1,22 @@
 # MulletaFlix Android - Plano de Desenvolvimento & Checklist de Funcionalidades (TODO)
 
+## Limites de leitura dos locators persistidos — APK local; sem release
+
+- [x] Aplicar limite compartilhado de 8.192 caracteres UTF-16 aos locators de retomada e aos marcadores, tanto ao salvar quanto ao decodificar estado persistido.
+- [x] Recusar o JSON agregado de marcadores acima do limite derivado de 20 registros, sem tentar decodificá-lo.
+- [x] TDD RED/GREEN: excesso em locator Readium válido foi reproduzido na restauração do progresso; testes preservam locators válidos e rejeitam progresso/marcadores e payload agregado excessivos.
+- [ ] Sem bump, APK de produção, release ou publicação.
+
+## Sumário de capítulos para DOCX — APK local; sem release
+
+- [x] Extrair capítulos do Word por estilos `Heading 1`–`Heading 9` e `outlineLvl`, incluindo offsets corretos para navegação entre trechos e restauração de locator.
+- [x] Resolver `styleId` de parágrafo personalizado, herdar nível por `basedOn` e deixar `outlineLvl` direto prevalecer; ignorar estilos de caractere e ciclos de herança.
+- [x] Limitar `word/styles.xml` a 4 MiB e 4.096 estilos de parágrafo antes de indexar; cadeia `basedOn` limitada a 32 níveis.
+- [x] Limitar o sumário do DOCX a 10.000 entradas para manter memória delimitada; excesso recebe erro compreensível.
+- [x] TDD: teste JVM cobre hierarquia, salto para trecho e locator; teste de UI Compose cobre abrir sumário, navegar ao capítulo e salvar posição.
+- [ ] Executar o Compose instrumentado somente após o proprietário liberar a AVD preservada; teste foi adicionado, sem instrumentação nesta rodada.
+- [ ] Sem bump de versão, APK de produção, release, portal ou publicação.
+
 ## Isolamento obrigatório de instrumentação Android — APK local
 
 - [x] O wrapper de emulador recusa testes instrumentados se qualquer dispositivo ADB além do AVD selecionado estiver listado; não desconecta nem interrompe dispositivos de terceiros.
@@ -99,7 +116,7 @@
 - [x] Selecionar resultado navega ao trecho e mantém o salvamento de progresso existente.
 - [x] Testes de diálogo Compose: 4/4 em PHONE/API 35, TABLET/API 35 e Android TV/API 34; as três execuções foram encerradas pelos wrappers de AVD.
 - [x] Quality gate Android: 1.611 testes JVM, zero falhas/erros/ignorados; lint do módulo/app, assemble Debug e compilação dos AndroidTests do módulo/app — `BUILD SUCCESSFUL`.
-- [ ] EPUB, PDF e quadrinhos não entram nesta busca; não alterar acesso ao servidor. Sem bump, APK de produção, portal ou release.
+- [x] EPUB usa `SearchService` do Readium e PDF com texto selecionável usa busca página a página dedicada; quadrinhos somente imagem continuam sem busca/OCR.
 
 ## Quick Connect durante recriação de Activity — Android, sem release
 
@@ -308,9 +325,11 @@
 - [x] `:feature:item-detail:compileDebugAndroidTestKotlin`, `:feature:item-detail:lintDebug`, `:app:lintDebug` e `:app:assembleDebug`: `BUILD SUCCESSFUL` em 2026-10-08.
 - [x] Ler `text/markdown` e `text/x-markdown` como texto paginado sem WebView; converter headings, listas, citações, tabelas, código inline/bloco e links/imagens inline, mantendo HTML bruto como texto inerte. Limite direto de 8 MiB; implementa um subconjunto de leitura, não o parser completo CommonMark.
 - [x] Abrir RTF diretamente como texto seguro; reconhecer `application/rtf`, `application/x-rtf`, `text/rtf` e assinatura genérica, converter controles/Unicode/escapes e ignorar grupos de metadados; limitar o payload a 8 MiB.
+- [x] Decodificar escapes hexadecimais pela página `\ansicpgN` declarada (incluindo CP1251, páginas Windows disponíveis e UTF-8 em sequências de bytes); rejeitar sequências inválidas com erro legível e manter CP1252 quando a página não é declarada.
 - [x] Abrir DOCX diretamente como texto paginado; ler parágrafos e tabelas sem extrair arquivos no disco, ignorar texto excluído e limitar pacote a 64 MiB/XML descompactado a 16 MiB.
 - [x] Quality Bar DOCX original: suíte JVM `feature:item-detail` com 136 testes, 0 falhas/erros/ignorados; teste ViewModel cobre download HTTP DOCX; integração Compose `DocxBookReaderIntegrationTest` passou 1/1 em PHONE e 1/1 em TABLET API 35; `lintDebug`, `compileDebugAndroidTestKotlin`, `:app:assembleDebug` e `:app:lintDebug` aprovados. Wrapper confirmou GPU NVIDIA e encerrou cada AVD.
 - [x] Testes de regressão RTF cobrem MIME específico e genérico, limite, escapes CP1252, Unicode, controles de parágrafo, metadados, texto oculto, imagens binárias e entrada malformada; integração Compose valida texto legível.
+- [x] `RtfBookTextParserTest` passou 9/9, incluindo CP1251, UTF-8 em escapes contíguos, restauração de página após grupo e erros de página desconhecida; suíte JVM completa passou 1.662/1.662, lint/app e módulo, `assembleDebug` e compilação AndroidTest passaram. AVD preservada não foi usada.
 - [x] Quality Bar atual do `feature:item-detail`: 148 testes JVM, 0 falhas/erros/ignorados; `:feature:item-detail:lintDebug`, `:feature:item-detail:compileDebugAndroidTestKotlin`, `:app:assembleDebug` e `:app:lintDebug` aprovados. `PlainTextBookReaderIntegrationTest` passou 6/6 em PHONE e 6/6 em TABLET API 35; o teste Markdown foi repetido após a otimização do parser e passou 1/1 nos dois perfis. Wrapper confirmou GPU NVIDIA e encerrou os AVDs.
 - [x] Limitar MIME genérico a 8 MiB durante a transferência e só ampliar para PDF/ZIP após assinatura reconhecida; XML UTF-16BE sem BOM não contorna o limite.
 - [x] Validação instrumentada focada no AVD PHONE API 35: DOCX 1/1, ODT 1/1, RTF 1/1, TXT/HTML/FB2/Markdown 6/6, CBZ 3/3 e PDF 4/4; `PlainTextBookReaderIntegrationTest` também passou 6/6 no AVD TABLET API 35. Todos os AVDs foram executados pelo wrapper com NVIDIA RTX 3050 e encerrados ao final.
