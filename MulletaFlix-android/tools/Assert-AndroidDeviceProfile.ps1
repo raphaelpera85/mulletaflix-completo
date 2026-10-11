@@ -65,6 +65,40 @@ function Assert-AndroidDeviceProfile {
     }
 }
 
+function Assert-AndroidInstrumentationTargetIsolated {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)]
+        [string] $ExpectedSerial,
+
+        [Parameter(Mandatory = $true)]
+        [AllowEmptyCollection()]
+        [AllowEmptyString()]
+        [string[]] $DeviceLines
+    )
+
+    $devices = @(
+        foreach ($line in $DeviceLines) {
+            if ($line -match '^\s*(?<serial>\S+)\s+(?<state>\S+)(?:\s|$)' -and
+                $Matches.serial -ne 'List'
+            ) {
+                [pscustomobject]@{ Serial = $Matches.serial; State = $Matches.state }
+            }
+        }
+    )
+    $additionalSerials = @($devices | Where-Object { $_.Serial -ne $ExpectedSerial } | ForEach-Object Serial)
+    if ($additionalSerials.Count -gt 0) {
+        throw "Refusing connected instrumentation because additional ADB device(s) are visible: $($additionalSerials -join ', ')."
+    }
+
+    if ($devices.Count -ne 1 -or $devices[0].State -ne 'device') {
+        throw "Instrumentation target '$ExpectedSerial' must be the only ADB device and be in state device."
+    }
+    if ($devices[0].Serial -ne $ExpectedSerial) {
+        throw "Instrumentation target '$ExpectedSerial' is not the only connected ADB device."
+    }
+}
+
 function Get-ExpectedAndroidDeviceProfile {
     [CmdletBinding()]
     param(

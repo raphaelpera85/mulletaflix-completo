@@ -146,6 +146,40 @@ class BookReaderReadiumIntegrationTest {
     }
 
     @Test
+    fun appearancePreferencePersistsAcrossReaderInstancesAndIsIsolatedByAccountAndServer() = runBlocking {
+        val store = BookReaderProgressStore(context)
+        val reloadedStore = BookReaderProgressStore(context)
+        val scope = HomeFeedCacheScope(
+            "appearance-server-${System.nanoTime()}",
+            "https://appearance.example",
+            "appearance-user-${System.nanoTime()}",
+        )
+        val sameServerLanEndpoint = scope.copy(serverUrl = "http://192.168.1.40:8096")
+        val differentAccount = scope.copy(userId = "another-appearance-user")
+        val differentServer = scope.copy(serverId = "another-appearance-server")
+
+        try {
+            assertEquals(BookReaderAppearance.ORIGINAL, reloadedStore.readAppearance(scope))
+            store.writeAppearance(scope, BookReaderAppearance.SEPIA)
+
+            assertEquals(BookReaderAppearance.SEPIA, reloadedStore.readAppearance(scope))
+            assertEquals(BookReaderAppearance.SEPIA, reloadedStore.readAppearance(sameServerLanEndpoint))
+            assertEquals(BookReaderAppearance.ORIGINAL, reloadedStore.readAppearance(differentAccount))
+            assertEquals(BookReaderAppearance.ORIGINAL, reloadedStore.readAppearance(differentServer))
+            store.writeAppearance(scope, BookReaderAppearance.DARK)
+            assertEquals(BookReaderAppearance.DARK, reloadedStore.readAppearance(scope))
+            assertEquals("#F4ECD8", BookReaderAppearance.SEPIA.backgroundHex)
+            assertEquals("#332B1D", BookReaderAppearance.SEPIA.textHex)
+            assertEquals("#121212", BookReaderAppearance.DARK.backgroundHex)
+            assertEquals("#E6E1D8", BookReaderAppearance.DARK.textHex)
+        } finally {
+            store.removeAppearance(scope)
+            store.removeAppearance(differentAccount)
+            store.removeAppearance(differentServer)
+        }
+    }
+
+    @Test
     fun comicPageProgressPersistsAndRemainsScopedToItsAccountAndServer() = runBlocking {
         val store = BookReaderProgressStore(context)
         val reloadedStore = BookReaderProgressStore(context)
@@ -341,12 +375,26 @@ class BookReaderReadiumIntegrationTest {
             }
             val controller = requireNotNull(validRenditionState.controller)
 
+            val sepia = BookReaderAppearance.SEPIA
             composeRule.runOnIdle {
-                controller.preferences = controller.preferences.copy(fontSize = 1.5)
+                controller.preferences = controller.preferences.copy(
+                    fontSize = 1.5,
+                    backgroundColor = sepia.readiumBackgroundColor,
+                    textColor = sepia.readiumTextColor,
+                    overridePublisherColors = true,
+                )
             }
-            composeRule.waitUntil(timeoutMillis = 10_000) { controller.settings.fontSize == 1.5 }
+            composeRule.waitUntil(timeoutMillis = 10_000) {
+                controller.settings.fontSize == 1.5 &&
+                    controller.settings.backgroundColor == sepia.readiumBackgroundColor &&
+                    controller.settings.textColor == sepia.readiumTextColor &&
+                    controller.settings.overridePublisherColors
+            }
 
             assertEquals(1.5, controller.settings.fontSize, 0.0)
+            assertEquals(sepia.readiumBackgroundColor, controller.settings.backgroundColor)
+            assertEquals(sepia.readiumTextColor, controller.settings.textColor)
+            assertTrue(controller.settings.overridePublisherColors)
             assertEquals("OPS/chapter-2.xhtml", controller.location.href.toString())
         } finally {
             epub.delete()

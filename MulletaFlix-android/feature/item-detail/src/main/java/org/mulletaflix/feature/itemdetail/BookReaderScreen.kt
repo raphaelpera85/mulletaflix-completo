@@ -33,6 +33,7 @@ import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.RecordVoiceOver
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.automirrored.filled.List
@@ -140,6 +141,7 @@ fun BookReaderScreen(
     var pdfSpeechJob by remember(itemId) { mutableStateOf<Job?>(null) }
     var currentTextChunk by rememberSaveable(itemId) { mutableIntStateOf(0) }
     var showBookSearch by rememberSaveable(itemId) { mutableStateOf(false) }
+    var showAppearanceDialog by rememberSaveable(itemId) { mutableStateOf(false) }
     val speechRatePercent = state.speechRatePercent
     var pageZoom by rememberSaveable(itemId) { mutableFloatStateOf(1f) }
     var renditionState by remember(itemId) { mutableStateOf<ReflowableWebRenditionState?>(null) }
@@ -306,6 +308,9 @@ fun BookReaderScreen(
             )?.createRenditionState(
                 initialPreferences = ReflowableWebPreferences(
                     fontSize = state.fontSizePercent / 100.0,
+                    backgroundColor = state.appearance.readiumBackgroundColor,
+                    textColor = state.appearance.readiumTextColor,
+                    overridePublisherColors = state.appearance != BookReaderAppearance.ORIGINAL,
                 ),
                 initialLocation = state.initialLocator?.let(::ReflowableWebGoLocation),
             )?.getOrNull() ?: error("Não foi possível preparar a leitura.")
@@ -388,11 +393,21 @@ fun BookReaderScreen(
         snackbarHostState.showSnackbar(message)
         viewModel.clearBookmarkMessage()
     }
-    LaunchedEffect(renditionController, state.fontSizePercent) {
+    LaunchedEffect(renditionController, state.fontSizePercent, state.appearance) {
         val controller = renditionController ?: return@LaunchedEffect
         val fontSize = state.fontSizePercent / 100.0
-        if (controller.preferences.fontSize != fontSize) {
-            controller.preferences = controller.preferences.copy(fontSize = fontSize)
+        val appearance = state.appearance
+        if (controller.preferences.fontSize != fontSize ||
+            controller.preferences.backgroundColor != appearance.readiumBackgroundColor ||
+            controller.preferences.textColor != appearance.readiumTextColor ||
+            controller.preferences.overridePublisherColors != (appearance != BookReaderAppearance.ORIGINAL)
+        ) {
+            controller.preferences = controller.preferences.copy(
+                fontSize = fontSize,
+                backgroundColor = appearance.readiumBackgroundColor,
+                textColor = appearance.readiumTextColor,
+                overridePublisherColors = appearance != BookReaderAppearance.ORIGINAL,
+            )
         }
     }
     LaunchedEffect(itemId, renditionController) {
@@ -493,6 +508,34 @@ fun BookReaderScreen(
         )
     }
 
+    if (showAppearanceDialog) {
+        AlertDialog(
+            onDismissRequest = { showAppearanceDialog = false },
+            title = { Text("Aparência da leitura") },
+            text = {
+                Column {
+                    BookReaderAppearance.entries.forEach { appearance ->
+                        TextButton(
+                            onClick = {
+                                viewModel.setAppearance(itemId, appearance)
+                                showAppearanceDialog = false
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Text(
+                                text = if (state.appearance == appearance) "✓ ${appearance.label}" else appearance.label,
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showAppearanceDialog = false }) { Text("Fechar") }
+            },
+        )
+    }
+
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
@@ -509,6 +552,17 @@ fun BookReaderScreen(
                     }
                 },
                 actions = {
+                    if ((textBook != null || publication != null) && !state.isLoading) {
+                        IconButton(
+                            onClick = { showAppearanceDialog = true },
+                            modifier = Modifier.semantics(mergeDescendants = true) {
+                                contentDescription = "Aparência da leitura"
+                                stateDescription = state.appearance.label
+                            },
+                        ) {
+                            Icon(Icons.Default.Palette, contentDescription = null)
+                        }
+                    }
                     if ((textBook != null || pdfSpeechSupported) && !state.isLoading) {
                         IconButton(
                             onClick = openSpeechLanguageDialog,
@@ -763,7 +817,13 @@ fun BookReaderScreen(
     ) { contentPadding ->
         Box(
             modifier = Modifier.fillMaxSize().padding(contentPadding)
-                .background(MaterialTheme.colorScheme.background),
+                .background(
+                    if (pageBook == null && (textBook != null || publication != null)) {
+                        state.appearance.backgroundColor ?: MaterialTheme.colorScheme.background
+                    } else {
+                        MaterialTheme.colorScheme.background
+                    },
+                ),
             contentAlignment = Alignment.Center,
         ) {
             when {
@@ -787,6 +847,7 @@ fun BookReaderScreen(
                     document = textBook,
                     currentChunk = currentTextChunk,
                     fontSizePercent = state.fontSizePercent,
+                    appearance = state.appearance,
                     onChunkSelected = { chunk ->
                         if (chunk != speechController.currentChunkIndex && speechController.isSpeaking) {
                             speechController.stop()
@@ -840,6 +901,7 @@ internal fun PlainTextBookReaderContent(
     document: PlainTextBookDocument,
     currentChunk: Int,
     fontSizePercent: Int,
+    appearance: BookReaderAppearance = BookReaderAppearance.ORIGINAL,
     onChunkSelected: (Int) -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -854,10 +916,12 @@ internal fun PlainTextBookReaderContent(
             .collect { index -> onChunkSelected(index.coerceIn(0, document.chunkCount - 1)) }
     }
     val fontSize = 18.sp * (BookReaderFontSize.normalize(fontSizePercent) / 100f)
+    val backgroundColor = appearance.backgroundColor ?: MaterialTheme.colorScheme.background
+    val textColor = appearance.textColor ?: MaterialTheme.colorScheme.onBackground
     LazyColumn(
         state = listState,
         modifier = modifier
-            .background(MaterialTheme.colorScheme.background)
+            .background(backgroundColor)
             .testTag(PLAIN_TEXT_BOOK_READER_TEST_TAG),
     ) {
         itemsIndexed(document.chunks, key = { index, _ -> index }) { index, chunk ->
@@ -866,6 +930,7 @@ internal fun PlainTextBookReaderContent(
                 style = MaterialTheme.typography.bodyLarge.copy(
                     fontSize = fontSize,
                     lineHeight = fontSize * 1.5f,
+                    color = textColor,
                 ),
                 modifier = Modifier
                     .fillMaxWidth()

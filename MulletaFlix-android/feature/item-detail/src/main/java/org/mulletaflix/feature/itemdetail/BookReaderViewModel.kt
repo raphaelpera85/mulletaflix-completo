@@ -46,6 +46,7 @@ internal data class BookReaderState(
     val textBook: PlainTextBookDocument? = null,
     val initialLocator: Locator? = null,
     val fontSizePercent: Int = BookReaderFontSize.DEFAULT_PERCENT,
+    val appearance: BookReaderAppearance = BookReaderAppearance.ORIGINAL,
     val speechRatePercent: Int = BookSpeechRate.DEFAULT_PERCENT,
     val speechLanguageTag: String? = null,
     val bookmarks: List<BookReaderBookmark> = emptyList(),
@@ -86,6 +87,8 @@ class BookReaderViewModel @Inject constructor(
     private var speechRateSaveJob: Job? = null
     private val speechLanguageSaveGeneration = BookReaderRequestGeneration()
     private var speechLanguageSaveJob: Job? = null
+    private val appearanceSaveGeneration = BookReaderRequestGeneration()
+    private var appearanceSaveJob: Job? = null
 
     init {
         viewModelScope.launch {
@@ -112,6 +115,8 @@ class BookReaderViewModel @Inject constructor(
                     speechRateSaveJob?.cancel()
                     speechLanguageSaveGeneration.begin()
                     speechLanguageSaveJob?.cancel()
+                    appearanceSaveGeneration.begin()
+                    appearanceSaveJob?.cancel()
                     load(activeItemId)
                 }
             }
@@ -144,6 +149,8 @@ class BookReaderViewModel @Inject constructor(
             val speechRatePercent = progressScope?.let { progressStore.readSpeechRatePercent(it) }
                 ?: BookSpeechRate.DEFAULT_PERCENT
             val speechLanguageTag = progressScope?.let { progressStore.readSpeechLanguageTag(it) }
+            val appearance = progressScope?.let { progressStore.readAppearance(it) }
+                ?: BookReaderAppearance.ORIGINAL
             var unownedPageBook: BookPageSource? = null
             val pageBookCreatedOnIo = AtomicReference<BookPageSource?>()
             try {
@@ -265,6 +272,7 @@ class BookReaderViewModel @Inject constructor(
                     textBook = content.textBook,
                     initialLocator = restorableLocator,
                     fontSizePercent = fontSizePercent,
+                    appearance = appearance,
                     speechRatePercent = speechRatePercent,
                     speechLanguageTag = speechLanguageTag,
                     bookmarks = bookmarks,
@@ -342,6 +350,29 @@ class BookReaderViewModel @Inject constructor(
             }
             if (!fontSizeSaveGeneration.isCurrent(generation)) return@launch
             progressStore.writeFontSizePercent(expectedScope, normalizedPercent)
+        }
+    }
+
+    internal fun setAppearance(itemId: String, appearance: BookReaderAppearance) {
+        val expectedScope = loadedProgressScope ?: return
+        val currentState = _state.value
+        if (loadedItemId != itemId ||
+            (currentState.publication == null && currentState.textBook == null)
+        ) return
+        if (currentState.appearance == appearance) return
+        _state.value = currentState.copy(appearance = appearance)
+
+        val generation = appearanceSaveGeneration.begin()
+        appearanceSaveJob?.cancel()
+        appearanceSaveJob = viewModelScope.launch {
+            val currentScope = recoverBookReaderStorageFailure {
+                sessionRepository.getHomeFeedCacheScope().first()
+            } ?: return@launch
+            if (progressStore.entryKey(currentScope, BookReaderProgressStore.APPEARANCE_SCOPE_ITEM_ID) !=
+                progressStore.entryKey(expectedScope, BookReaderProgressStore.APPEARANCE_SCOPE_ITEM_ID)
+            ) return@launch
+            if (!appearanceSaveGeneration.isCurrent(generation)) return@launch
+            progressStore.writeAppearance(expectedScope, appearance)
         }
     }
 
@@ -536,6 +567,8 @@ class BookReaderViewModel @Inject constructor(
         speechRateSaveJob?.cancel()
         speechLanguageSaveGeneration.begin()
         speechLanguageSaveJob?.cancel()
+        appearanceSaveGeneration.begin()
+        appearanceSaveJob?.cancel()
         val pageBookToClose = activePageBook
         activePageBook = null
         applicationScope.launch {

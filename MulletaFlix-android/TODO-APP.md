@@ -1,5 +1,12 @@
 # MulletaFlix Android - Plano de Desenvolvimento & Checklist de Funcionalidades (TODO)
 
+## Isolamento obrigatório de instrumentação Android — APK local
+
+- [x] O wrapper de emulador recusa testes instrumentados se qualquer dispositivo ADB além do AVD selecionado estiver listado; não desconecta nem interrompe dispositivos de terceiros.
+- [x] Testes Pester cobrem dispositivo único correto, dispositivo extra e alvo ausente/offline.
+- [ ] Verificar o guard com AVD phone/tablet/TV depois que o proprietário liberar o AVD preservado; nenhuma instrumentação executada nesta alteração.
+- [ ] Sem bump, APK de produção, release ou publicação.
+
 ## Mensagens de erro recuperáveis em playlists, update e TV ao vivo (APK local)
 
 - [x] Aplicar fallback para exceções sem texto nas ações de playlist dos detalhes, biblioteca de playlists, verificação de atualização, agendamento e cancelamento de gravação.
@@ -3608,3 +3615,13 @@ Pendências relacionadas:
 - [x] `PlaybackIssueReportDialogTest` 2/2 no PHONE API 35; AVD iniciado com GPU NVIDIA e encerrado pelo wrapper.
 - [ ] Confirmar envio posterior contra servidor de homologação real e verificar relato no painel; MockWebServer não valida o servidor implantado.
 - [ ] Sem bump, APK de produção ou publicação; mudança exclusivamente no APK.
+
+## Aparência configurável no leitor de livros (APK local; sem release)
+
+- [x] Adicionar opções Original, Sépia e Escuro para EPUB e livros de texto paginado.
+- [x] Usar preferências de cores do Readium para EPUB e cores de alto contraste no leitor de texto; Original mantém o estilo editorial.
+- [x] Salvar a aparência por conta/servidor, compartilhada entre livros e entre URL pública e endpoint LAN do mesmo servidor.
+- [x] Manter PDF e quadrinhos sem filtros nem controle de aparência.
+- [x] Cobrir abertura do seletor, seleção e persistência com Compose/DataStore; cobrir o mapeamento de cor do Readium em integração.
+- [ ] Validar manualmente com TalkBack/controle remoto e EPUB real; testes automatizados usam fixtures.
+- [ ] Sem alteração do servidor/portal, bump, APK de produção ou publicação.

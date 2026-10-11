@@ -239,6 +239,12 @@ try {
         Assert-AndroidDeviceProfile -Expected $expectedProfile -Actual $actualProfile
     }
 
+    if ($instrumentedTestRequested) {
+        $deviceLines = @(& $adb devices)
+        if ($LASTEXITCODE -ne 0) { throw 'Could not enumerate ADB devices before instrumentation.' }
+        Assert-AndroidInstrumentationTargetIsolated -ExpectedSerial $serial -DeviceLines $deviceLines
+    }
+
     $commandStartedAt = Get-Date
     & $Command @CommandArgument
     $commandExitCode = $LASTEXITCODE

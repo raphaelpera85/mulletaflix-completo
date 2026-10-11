@@ -335,6 +335,17 @@ class BookReaderScreenIntegrationTest {
             .assertIsDisplayed()
             .assertTextContains("Capítulo simples", substring = true)
             .assertTextContains("Ação e leitura servidas como binário genérico.", substring = true)
+        composeRule.onNodeWithContentDescription("Aparência da leitura")
+            .assertIsDisplayed()
+            .performClick()
+        composeRule.onNodeWithText("Sépia").assertIsDisplayed().performClick()
+        composeRule.onNodeWithTag(PLAIN_TEXT_BOOK_READER_TEST_TAG)
+            .assertIsDisplayed()
+        composeRule.waitUntil(timeoutMillis = 5_000) {
+            runBlocking { BookReaderProgressStore(context).readAppearance(sessionScope) } ==
+                BookReaderAppearance.SEPIA
+        }
+        assertEquals(BookReaderAppearance.SEPIA, viewModel.state.value.appearance)
         assertEquals(
             "/BookReader/Items/$itemId/BookReader/Epub",
             server.takeRequest(5, TimeUnit.SECONDS)?.path,

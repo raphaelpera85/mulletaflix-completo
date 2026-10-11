@@ -63,6 +63,51 @@ Describe 'Assert-AndroidDeviceProfile' {
     }
 }
 
+Describe 'Assert-AndroidInstrumentationTargetIsolated' {
+    It 'accepts only the requested connected emulator' {
+        $message = $null
+        try {
+            Assert-AndroidInstrumentationTargetIsolated `
+                -ExpectedSerial 'emulator-5576' `
+                -DeviceLines @('List of devices attached', 'emulator-5576 device', '')
+        } catch {
+            $message = $_.Exception.Message
+        }
+
+        $message | Should Be $null
+    }
+
+    It 'rejects another connected device before Gradle can select it' {
+        $message = $null
+        try {
+            Assert-AndroidInstrumentationTargetIsolated `
+                -ExpectedSerial 'emulator-5576' `
+                -DeviceLines @(
+                    'List of devices attached',
+                    'emulator-5572 device',
+                    'emulator-5576 device'
+                )
+        } catch {
+            $message = $_.Exception.Message
+        }
+
+        $message -like '*additional ADB device(s)*emulator-5572*' | Should Be $true
+    }
+
+    It 'rejects a missing or non-ready target instead of guessing' {
+        $message = $null
+        try {
+            Assert-AndroidInstrumentationTargetIsolated `
+                -ExpectedSerial 'emulator-5576' `
+                -DeviceLines @('emulator-5576 offline')
+        } catch {
+            $message = $_.Exception.Message
+        }
+
+        $message -like '*must be the only ADB device and be in state device*' | Should Be $true
+    }
+}
+
 Describe 'Get-ExpectedAndroidDeviceProfile' {
     It 'requires a profile for instrumentation commands' {
         $message = $null

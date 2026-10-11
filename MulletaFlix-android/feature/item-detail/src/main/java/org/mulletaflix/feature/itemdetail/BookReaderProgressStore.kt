@@ -229,6 +229,41 @@ internal class BookReaderProgressStore(context: Context) {
         }
     }
 
+    suspend fun readAppearance(scope: HomeFeedCacheScope): BookReaderAppearance =
+        recoverBookReaderStorageFailure {
+            val key = appearanceKey(scope)
+            val stored = store.data.first()[key]
+            val saved = BookReaderAppearance.fromStoredValue(stored)
+            if (stored != null) {
+                store.edit { preferences ->
+                    preferences[longPreferencesKey(timestampKey(key.name))] = System.currentTimeMillis()
+                    trimOldEntries(preferences)
+                }
+            }
+            saved
+        } ?: BookReaderAppearance.ORIGINAL
+
+    suspend fun writeAppearance(scope: HomeFeedCacheScope, appearance: BookReaderAppearance) {
+        recoverBookReaderStorageFailure {
+            store.edit { preferences ->
+                val key = appearanceKey(scope)
+                preferences[key] = appearance.name
+                preferences[longPreferencesKey(timestampKey(key.name))] = System.currentTimeMillis()
+                trimOldEntries(preferences)
+            }
+        }
+    }
+
+    suspend fun removeAppearance(scope: HomeFeedCacheScope) {
+        recoverBookReaderStorageFailure {
+            store.edit { preferences ->
+                val key = appearanceKey(scope)
+                preferences.remove(key)
+                preferences.remove(longPreferencesKey(timestampKey(key.name)))
+            }
+        }
+    }
+
     suspend fun readSpeechRatePercent(scope: HomeFeedCacheScope): Int =
         recoverBookReaderStorageFailure {
             val key = speechRateKey(scope)
@@ -318,6 +353,10 @@ internal class BookReaderProgressStore(context: Context) {
         "${SPEECH_LANGUAGE_PREFIX}${entryKey(scope, SPEECH_LANGUAGE_SCOPE_ITEM_ID).removePrefix(ENTRY_PREFIX)}",
     )
 
+    private fun appearanceKey(scope: HomeFeedCacheScope) = stringPreferencesKey(
+        "${APPEARANCE_PREFIX}${entryKey(scope, APPEARANCE_SCOPE_ITEM_ID).removePrefix(ENTRY_PREFIX)}",
+    )
+
     private fun normalizeSpeechLanguageTag(languageTag: String?): String? {
         val tag = languageTag?.trim()?.takeIf(String::isNotEmpty) ?: return null
         val locale = Locale.forLanguageTag(tag)
@@ -370,6 +409,7 @@ internal class BookReaderProgressStore(context: Context) {
         trimEntries(preferences, FONT_SIZE_PREFIX, MAX_FONT_SIZE_SCOPES)
         trimEntries(preferences, SPEECH_RATE_PREFIX, MAX_FONT_SIZE_SCOPES)
         trimEntries(preferences, SPEECH_LANGUAGE_PREFIX, MAX_FONT_SIZE_SCOPES)
+        trimEntries(preferences, APPEARANCE_PREFIX, MAX_FONT_SIZE_SCOPES)
         trimEntries(preferences, BOOKMARKS_PREFIX, MAX_ENTRIES)
     }
 
@@ -391,6 +431,8 @@ internal class BookReaderProgressStore(context: Context) {
         const val FONT_SIZE_PREFIX = "book_reader_font_size_"
         const val SPEECH_RATE_PREFIX = "book_reader_speech_rate_"
         const val SPEECH_LANGUAGE_PREFIX = "book_reader_speech_language_"
+        const val APPEARANCE_SCOPE_ITEM_ID = "__reader_appearance_preference__"
+        const val APPEARANCE_PREFIX = "book_reader_appearance_"
         const val BOOKMARKS_PREFIX = "book_reader_bookmarks_"
         const val UPDATED_SUFFIX = "_updated"
         const val MAX_ENTRIES = 100
