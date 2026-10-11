@@ -132,6 +132,35 @@ class PlainTextBookDocumentTest {
     }
 
     @Test
+    fun `builds Markdown table of contents from headings outside code fences`() = withTempDirectory { directory ->
+        val filler = "Texto de preenchimento.\n".repeat(900)
+        val file = directory.resolve("chapters.md").apply {
+            writeText(
+                """# Prólogo
+                    Introdução.
+                    ## Capítulo **Um** ##
+
+                    ```markdown
+                    # Título dentro do código
+                    ```
+
+                    $filler
+                    ### Ação _final_
+                    Encerramento.
+                """.trimIndent(),
+            )
+        }
+
+        val document = PlainTextBookDocument.open(file, "text/markdown; charset=utf-8")
+
+        assertEquals(listOf("Prólogo", "Capítulo Um", "Ação final"), document.chapters.map { it.title })
+        assertEquals(listOf(1, 2, 3), document.chapters.map { it.depth })
+        assertEquals(0, document.chapters.first().chunkIndex)
+        assertTrue(document.chapters.last().chunkIndex > document.chapters[1].chunkIndex)
+        assertTrue(document.chunks[document.chapters.last().chunkIndex].contains("Ação final"))
+    }
+
+    @Test
     fun `reads DOCX paragraphs and detects generic ZIP MIME before comic classification`() = withTempDirectory { directory ->
         val file = directory.resolve("book.docx")
         writeDocx(file, """<w:document xmlns:w="urn:word"><w:body>

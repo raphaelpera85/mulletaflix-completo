@@ -1,5 +1,14 @@
 # Plano de TDD do MulletaFlix Android
 
+## RED-GREEN — trechos contextuais na busca de PDF — 2026-10-11
+
+- `INTENT`: `BookPdfTextSearch` exibia sempre o começo da página e podia exceder 140 caracteres ao alinhar limites UTF-16; o teste exige contexto da ocorrência real, sem distinção de caixa/acentos, limite estrito e pares substitutos íntegros. `TODO-APP.md` estabelece busca página a página para PDFs com texto selecionável; este incremento melhora o trecho de resultado sem alterar navegação.
+- `RED`: `BookPdfTextSearchTest.snippet shows a late accent-insensitive match in the page` compilou e falhou na asserção do contexto porque a ocorrência ficava após os primeiros 140 caracteres.
+- `GREEN`: resultado agora centraliza o trecho na primeira ocorrência, mantém acentos originais, adiciona reticências quando há texto omitido e limita a 140 caracteres; teste adicional cobre corte junto a emoji/surrogate pair.
+- `QUALITY BAR`: `BookPdfTextSearchTest` passou 6/6. `testDebugUnitTest :feature:item-detail:lintDebug :app:lintDebug :app:assembleDebug :feature:item-detail:compileDebugAndroidTestKotlin :app:compileDebugAndroidTestKotlin --no-daemon --console=plain` — `BUILD SUCCESSFUL` em 6m; XML JVM agregados: 1.664 testes, 0 falhas/erros/ignorados. `git diff --check` limpo.
+- `GRAPHIFY`: `graphify update . --no-cluster` — 64.155 nós e 165.428 arestas. `graphify explain "contextualSnippet"` liga o helper ao fluxo `BookPdfTextSearch.search`; `graphify explain "BookPdfTextSearchTest"` confirma os cenários e referências ao TDD/TODO. Avisos: CLI 0.9.79 vs skill 0.9.84; 3 SQL sem parser, 4 arquivos parcialmente extraídos e 174 sem símbolos.
+- `ESCOPO`: APK local, algoritmo e testes de busca PDF e documentação Android; AVD preservada intacta; sem bump, produção, release, portal ou mudança no servidor.
+
 ## RED-GREEN — páginas de código ANSI no leitor RTF — 2026-10-11
 
 - `INTENT`: `RtfBookTextParser` decodificava todos os escapes `\'hh` como Windows-1252 e ignorava `\ansicpgN`; o teste exige usar a página declarada e preservar o estado entre grupos. `TODO-APP.md`, seção “Leitura direta de formatos de livro no APK”, promete converter escapes RTF sem restringir páginas de código. A especificação Microsoft identifica `\ansicpgN` como página de código ANSI padrão para as sequências de texto RTF: https://learn.microsoft.com/en-us/openspecs/exchange_server_protocols/ms-oxrtfex/1e44fa4c-3ea3-402c-8b21-fb19a617e43b

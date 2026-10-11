@@ -117,6 +117,7 @@
 - [x] Testes de diálogo Compose: 4/4 em PHONE/API 35, TABLET/API 35 e Android TV/API 34; as três execuções foram encerradas pelos wrappers de AVD.
 - [x] Quality gate Android: 1.611 testes JVM, zero falhas/erros/ignorados; lint do módulo/app, assemble Debug e compilação dos AndroidTests do módulo/app — `BUILD SUCCESSFUL`.
 - [x] EPUB usa `SearchService` do Readium e PDF com texto selecionável usa busca página a página dedicada; quadrinhos somente imagem continuam sem busca/OCR.
+- [x] Resultados PDF exibem contexto da ocorrência encontrada, preservam acentos do texto e limitam o trecho a 140 caracteres, inclusive junto a emojis.
 
 ## Quick Connect durante recriação de Activity — Android, sem release
 

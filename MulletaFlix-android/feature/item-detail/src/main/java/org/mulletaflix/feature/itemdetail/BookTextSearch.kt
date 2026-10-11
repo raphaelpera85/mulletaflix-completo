@@ -42,7 +42,7 @@ internal object BookTextSearch {
 
         val originalMatchStart = normalizedText.sourceStarts[matchStart]
         val originalMatchEnd = normalizedText.sourceEnds[matchStart + normalizedQuery.length - 1]
-        val contentLimit = PDF_SNIPPET_CHARACTERS - 2
+        val contentLimit = PDF_SNIPPET_CHARACTERS - 4
         val matchLength = originalMatchEnd - originalMatchStart
         var start = (originalMatchStart - ((contentLimit - matchLength).coerceAtLeast(0) / 2))
             .coerceAtLeast(0)
