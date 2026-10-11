@@ -1,11 +1,31 @@
 # MulletaFlix Android - Plano de Desenvolvimento & Checklist de Funcionalidades (TODO)
 
+## Busca dentro de livros de texto — Android, sem release
+
+- [x] Disponibilizar busca local no leitor de texto paginado; ignorar diferenças entre maiúsculas/minúsculas e acentos.
+- [x] Executar a busca fora da thread da interface, limitar a 100 trechos e apresentar resultados em lista rolável acessível.
+- [x] Selecionar resultado navega ao trecho e mantém o salvamento de progresso existente.
+- [x] Testes de política e diálogo Compose passaram; PHONE/API 35, TABLET/API 35 e Android TV/API 34.
+- [ ] EPUB, PDF e quadrinhos não entram nesta busca; não alterar acesso ao servidor. Sem bump, APK de produção, portal ou release.
+
+## Quick Connect durante recriação de Activity — Android, sem release
+
+- [x] Verificado no código existente que a aba usa `rememberSaveable`; PIN, segredo e polling ficam no `AuthViewModel` em memória, sem armazenamento durável.
+- [x] Teste de Activity real garante que descartar/recriar a composição não encerra a operação; voltar à aba Entrar continua cancelando o polling.
+- [x] Teste integrado Activity + MockWebServer: PHONE/API 35 passou 1/1; PIN continua visível e polling consulta novamente após `recreate()`.
+- [x] Teste de sucesso integrado Activity + MockWebServer: autorização, `POST /Users/AuthenticateWithQuickConnect`, persistência de token/usuário/servidor e navegação à Home passaram 1/1 em PHONE/API 35, TABLET/API 35 e Android TV/API 34. A fixture inclui todos os campos obrigatórios do DTO (`Code`, `Secret`, `Authenticated`).
+- [x] Quality gate local: 1.594 testes JVM passaram sem falhas/erros/ignorados; lint auth/app, assemble Debug e compilação de AndroidTests passaram.
+- [ ] Validar saída explícita da autenticação e autorização ponta a ponta em servidor real/dispositivo físico.
+- [ ] Sem bump, APK de produção, release, portal ou mudança no servidor.
+
 ## Preservar rascunho do formulário de solicitação — Android, sem release
 
 - [x] Preservar título, tipo, ano e observações durante restauração de estado salvo da tela Home com `rememberSaveable`.
 - [x] Teste de integração Compose RED-GREEN: reprodução de estado salvo passou 1/1 em PHONE/API 35 e 1/1 em TABLET/API 35; os quatro campos foram verificados.
+- [x] Restaurar também o diálogo aberto após restauração do estado salvo; teste focado passou em PHONE/API 35, TABLET/API 35 e TV/API 34. Fechamento voluntário continua sendo salvo como fechado.
+- [x] Ao selecionar sugestão sem ano, limpar ano digitado anteriormente para não enviar dado desatualizado; teste integrado confirma `year = null` no envio em PHONE/API 35, TABLET/API 35 e TV/API 34.
 - [x] Quality gate global: suítes JVM, lint home/app, assemble Debug e compilação AndroidTest home/app — `BUILD SUCCESSFUL`.
-- [ ] Validar restauração com processo encerrado/hardware real. O diálogo não reabre automaticamente, e envio/progresso/status não são persistidos nem repetidos.
+- [ ] Validar restauração após encerramento real do processo e em hardware físico. Envio/progresso/status não são persistidos nem repetidos.
 - [ ] Sem bump de versão, APK de produção, release, portal ou mudança no servidor.
 
 ## Leitura de MOBI/PalmDOC sem DRM — Android, sem release
@@ -312,6 +332,7 @@ Este documento rastreia o status de implementação de todas as funcionalidades,
 - [x] Quality Bar após a recuperação do cache: `testDebugUnitTest` (1.416 testes, 0 falhas/erros/ignorados), `:feature:item-detail:lintDebug`, `:app:lintDebug` e `:app:assembleDebug`: `BUILD SUCCESSFUL`.
 - [ ] Validar cold start e renderização do APK principal (`org.mulletaflix.android.debug`) após morte do processo, falhas de renderização e navegação EPUB por Back do sistema/D-pad. A prova atual mata e reinicia o alvo Android isolado do módulo e valida o mesmo DataStore/ViewModel, mas não lança a Activity principal após o processo morrer. APK-H21 continua aberto até validar a tela integrada, instância real, mídia, MIME/autenticação e dispositivos-alvo.
 - [x] Adicionar cobertura da rota integrada na Activity principal: `MainActivitySessionNavigationTest.authenticatedBookDeepLinkOpensReaderAndSurvivesActivityRecreation` abre livro via deep link autenticado, valida o conteúdo servido por MockWebServer e confirma a tela após `ActivityScenario.recreate()` (PHONE/API 35, 1/1). Isso cobre recriação de Activity no mesmo processo, não morte/cold start do processo principal; a pendência APK-H21 permanece.
+- [ ] APK-H21 — o experimento que tentou `am force-stop org.mulletaflix.android.debug` dentro desse mesmo runner foi descartado: compilação AndroidTest passou, mas a execução PHONE/API 35 falhou em 6,215 s sem stack trace (`tests=1`, `failures=1`, `errors=0`, `skipped=0`). Não tratar como evidência de restauração. Próximo: orquestrador independente do pacote APK, backend fixture que permaneça ativo entre fases e checagem de PID anterior/novo, sem `clear data` nem limpeza da sessão do usuário.
 
 ## Mapeamento de faixas offline mistas (embutidas + legenda externa) (APK local; sem release)
 
@@ -3463,3 +3484,37 @@ Pendências relacionadas:
 - [x] `graphify update .` após as mudanças: 10.802 nós, 28.206 arestas, 488 comunidades; avisos conhecidos de extração parcial em `TvHomeRefreshIntegrationTest.kt` e arquivos sem símbolos.
 - [ ] TalkBack manual não executado.
 - [ ] Sem bump, APK de produção ou publicação; melhoria exclusivamente do APK.
+
+## Busca no conteúdo EPUB (APK local; sem release)
+
+- [x] Integrar a busca textual ao `SearchService` da publicação Readium; resultados usam Locator do toolkit, navegam para o local encontrado e fecham o iterator mesmo em falha.
+- [x] Executar a busca fora da thread principal; busca case/diacrítico-insensível, máximo de 100 resultados e mensagem recuperável se ocorrer erro.
+- [x] Cobrir interação e navegação entre capítulos com EPUB de fixture em PHONE/API 35; manter cobertura existente para busca e salto em livros de texto.
+- [ ] Validar com EPUB real do usuário/servidor e em tablet/TV; sem essa evidência, não afirmar compatibilidade com todos os EPUBs.
+- [ ] Busca em quadrinhos e outros formatos binários permanece fora deste incremento.
+
+## Busca de texto em PDF (APK local; sem release)
+
+- [x] Pesquisar texto extraível página a página, ignorando caixa e diacríticos e limitando a 100 resultados; consulta vazia não deve extrair conteúdo e cancelamento deve ser propagado.
+- [x] Exibir busca somente se o Android oferece extração de texto PDF; abrir a página correspondente ao selecionar ocorrência e parar narração ativa.
+- [x] Cobrir política de busca com testes unitários e adicionar teste Compose + PDF via MockWebServer para resultado e navegação.
+- [x] Testes: `BookPdfTextSearchTest` (4 casos); `BookReaderScreenIntegrationTest` 14/14 em PHONE/API 35; extração, busca e navegação reais sobre fixture PDF aprovadas.
+- [ ] Sem OCR: PDFs somente imagem permanecem sem busca. Compatibilidade depende de Android 11 com extensão SDK 13 ou Android 15+.
+- [ ] Sem bump, APK de produção, portal ou publicação; alteração exclusivamente local do APK.
+
+## Jornada integrada de solicitação de mídia (APK local; sem release)
+
+- [x] Cobrir Home → consulta autenticada de sugestões → selecionar resultado → preencher observações → POST autenticado com metadados selecionados.
+- [x] Verificar rotas, query, corpo JSON e identidade (token/deviceId) no MockWebServer em PHONE API 35; `HomeMediaRequestJourneyIntegrationTest` passou 1/1.
+- [ ] A validação usa servidor HTTP mockado; confirmar operação com servidor de homologação implantado e conferência no painel permanece pendente e depende de acesso autorizado.
+- [ ] Sem bump, APK de produção ou publicação; alteração exclusivamente no APK.
+
+## Relatos de reprodução offline a partir dos detalhes (APK local; sem release)
+
+- [x] Se o envio imediato do relato falhar, oferecer “Salvar para enviar depois” e fechar o diálogo após persistência bem-sucedida.
+- [x] Enfileirar apenas item, categoria, descrição limitada e hash irreversível do escopo servidor/conta; rejeitar sessão alterada durante a operação. Credenciais, URL e deviceId não são gravados.
+- [x] Reutilizar a fila persistente existente, cujo observador agenda a sincronização WorkManager quando houver sessão compatível.
+- [x] TDD RED comprovado: testes não compilavam antes do método de enfileiramento; GREEN: testes ViewModel e compilação do teste Compose aprovados.
+- [x] `PlaybackIssueReportDialogTest` 2/2 no PHONE API 35; AVD iniciado com GPU NVIDIA e encerrado pelo wrapper.
+- [ ] Confirmar envio posterior contra servidor de homologação real e verificar relato no painel; MockWebServer não valida o servidor implantado.
+- [ ] Sem bump, APK de produção ou publicação; mudança exclusivamente no APK.

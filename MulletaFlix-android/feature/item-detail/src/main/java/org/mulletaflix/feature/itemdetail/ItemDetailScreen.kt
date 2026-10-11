@@ -67,10 +67,6 @@ fun ItemDetailScreen(
     val state by viewModel.state.collectAsStateWithLifecycle()
     val feedbackItemId = state.item?.id ?: itemId
     var showIssueDialog by remember { mutableStateOf(false) }
-    var issueCategory by remember { mutableStateOf("Não reproduz") }
-    var issueDescription by remember { mutableStateOf("") }
-    var issueSubmitting by remember { mutableStateOf(false) }
-    var issueError by remember { mutableStateOf<String?>(null) }
     val context = LocalContext.current
     val isTelevision = (LocalConfiguration.current.uiMode and Configuration.UI_MODE_TYPE_MASK) ==
         Configuration.UI_MODE_TYPE_TELEVISION
@@ -131,7 +127,7 @@ fun ItemDetailScreen(
                 MetadataPills(item = item)
                 PlaybackIssueAction(
                     itemName = item.name,
-                    onClick = { showIssueDialog = true; issueError = null },
+                    onClick = { showIssueDialog = true },
                     modifier = Modifier.padding(horizontal = 16.dp),
                 )
 
@@ -222,54 +218,16 @@ fun ItemDetailScreen(
         }
 
         if (showIssueDialog) {
-            AlertDialog(
-                onDismissRequest = { if (!issueSubmitting) showIssueDialog = false },
-                title = { Text("Reportar problema") },
-                text = {
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        var expanded by remember { mutableStateOf(false) }
-                        Box {
-                        OutlinedButton(onClick = { expanded = true }, enabled = !issueSubmitting) { Text(issueCategory) }
-                            DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-                                listOf("Não reproduz", "Travamentos", "Sem áudio", "Áudio/legenda", "Qualidade", "Outro").forEach { category ->
-                                    DropdownMenuItem(text = { Text(category) }, onClick = { issueCategory = category; expanded = false })
-                                }
-                            }
-                        }
-                        OutlinedTextField(issueDescription, { issueDescription = it.take(1000) }, label = { Text("Descreva o problema (opcional)") }, minLines = 2, enabled = !issueSubmitting)
-                        if (!state.hasFeedbackSession) {
-                            Text(
-                                text = if (state.feedbackSessionLoaded) "Conecte-se ao servidor para enviar." else "Verificando sessão…",
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                style = MaterialTheme.typography.bodySmall,
-                            )
-                        }
-                        issueError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
-                    }
+            PlaybackIssueReportDialog(
+                hasFeedbackSession = state.hasFeedbackSession,
+                feedbackSessionLoaded = state.feedbackSessionLoaded,
+                onDismiss = { showIssueDialog = false },
+                onSubmit = { category, description, complete ->
+                    viewModel.reportPlaybackIssue(feedbackItemId, category, description, complete)
                 },
-                confirmButton = {
-                    TextButton(enabled = state.hasFeedbackSession && !issueSubmitting, onClick = {
-                        issueSubmitting = true
-                        issueError = null
-                        viewModel.reportPlaybackIssue(feedbackItemId, issueCategory, issueDescription) { result ->
-                            issueSubmitting = false
-                            result.onSuccess {
-                                showIssueDialog = false
-                                issueDescription = ""
-                            }.onFailure {
-                                issueError = if (it is kotlinx.coroutines.CancellationException) {
-                                    null
-                                } else {
-                                    it.localizedMessage ?: "Não foi possível enviar o relato. Tente novamente."
-                                }
-                            }
-                        }
-                    }) {
-                        if (issueSubmitting) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
-                        else Text("Enviar")
-                    }
+                onQueue = { category, description, complete ->
+                    viewModel.queuePlaybackIssue(feedbackItemId, category, description, complete)
                 },
-                dismissButton = { TextButton(enabled = !issueSubmitting, onClick = { showIssueDialog = false; issueError = null }) { Text("Cancelar") } },
             )
         }
 

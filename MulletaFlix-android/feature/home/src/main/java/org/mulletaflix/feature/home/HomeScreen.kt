@@ -77,7 +77,7 @@ fun HomeScreen(
     viewModel: HomeViewModel = hiltViewModel()
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
-    var showRequestDialog by remember { mutableStateOf(false) }
+    var showRequestDialog by rememberSaveable { mutableStateOf(false) }
     var requestTitle by rememberSaveable { mutableStateOf("") }
     var requestType by rememberSaveable { mutableStateOf("Série") }
     var requestYear by rememberSaveable { mutableStateOf("") }
@@ -382,7 +382,7 @@ fun HomeScreen(
                     "dorama" -> "Dorama"
                     else -> "Outro"
                 }
-                suggestion.year?.let { requestYear = it.toString() }
+                requestYear = suggestion.year?.toString().orEmpty()
                 viewModel.clearMediaSuggestions()
             },
             mediaType = requestType,

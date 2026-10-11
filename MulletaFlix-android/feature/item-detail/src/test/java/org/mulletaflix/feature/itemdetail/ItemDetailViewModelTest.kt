@@ -26,6 +26,7 @@ import org.mulletaflix.domain.usecase.ToggleFavoriteUseCase
 import org.mulletaflix.domain.usecase.TogglePlayedUseCase
 import org.mulletaflix.core.api.SessionRepository
 import org.mulletaflix.core.common.session.FeedbackRequestSession
+import org.mulletaflix.core.common.session.playbackIssueScopeHash
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class ItemDetailViewModelTest {
@@ -88,6 +89,7 @@ class ItemDetailViewModelTest {
             override suspend fun reportPlaybackIssue(session: FeedbackRequestSession, itemId: String, category: String, description: String?) = Result.success(Unit)
         },
         sessionRepo: SessionRepository = MutableFeedbackSessionRepository(testFeedbackSession),
+        playbackIssueQueue: PlaybackIssueQueue = RecordingPlaybackIssueQueue(),
     ): ItemDetailViewModel {
         return ItemDetailViewModel(
             getItemDetailUseCase = GetItemDetailUseCase(mediaRepo),
@@ -100,7 +102,16 @@ class ItemDetailViewModelTest {
             playbackRepository = playbackRepo,
             sessionRepository = sessionRepo,
             userFeedbackRepository = feedbackRepo,
+            playbackIssueQueue = playbackIssueQueue,
         )
+    }
+
+    private class RecordingPlaybackIssueQueue : PlaybackIssueQueue {
+        private val records = mutableListOf<QueuedPlaybackIssue>()
+        override val pendingCount = flowOf(records.size)
+        override suspend fun enqueue(issue: QueuedPlaybackIssue) { records += issue }
+        override suspend fun pending() = records.toList()
+        override suspend fun remove(id: String) { records.removeAll { it.id == id } }
     }
 
     private class MutableFeedbackSessionRepository(initialSession: FeedbackRequestSession) : SessionRepository {
@@ -172,6 +183,52 @@ class ItemDetailViewModelTest {
         assertEquals(2, requestCount)
         assertEquals(2, completionCount)
         assertEquals("Relato enviado. Obrigado pelo aviso.", viewModel.state.value.interactionMessage)
+    }
+
+    @Test
+    fun `playback issue can be saved for later in the current account scope`() = runTest {
+        val queue = RecordingPlaybackIssueQueue()
+        val viewModel = createViewModel(FakeMediaRepository(), playbackIssueQueue = queue)
+        runCurrent()
+        var completionSucceeded = false
+
+        viewModel.queuePlaybackIssue("movie-42", "  Sem áudio  ", "  Som ausente  ") {
+            completionSucceeded = it.isSuccess
+        }
+        advanceUntilIdle()
+
+        val saved = queue.pending().single()
+        assertTrue(completionSucceeded)
+        assertEquals(testFeedbackSession.playbackIssueScopeHash(), saved.scopeHash)
+        assertEquals("movie-42", saved.itemId)
+        assertEquals("Sem áudio", saved.category)
+        assertEquals("Som ausente", saved.description)
+        assertTrue(saved.id.isNotBlank())
+        assertEquals("Relato salvo. Será enviado quando houver conexão.", viewModel.state.value.interactionMessage)
+    }
+
+    @Test
+    fun `offline issue queue refuses stale session and persists nothing`() = runTest {
+        val sessionRepository = MutableFeedbackSessionRepository(testFeedbackSession)
+        val queue = RecordingPlaybackIssueQueue()
+        val viewModel = createViewModel(
+            FakeMediaRepository(),
+            sessionRepo = sessionRepository,
+            playbackIssueQueue = queue,
+        )
+        runCurrent()
+        var completionError: Throwable? = null
+
+        viewModel.queuePlaybackIssue("movie-42", "Sem áudio", "") {
+            completionError = it.exceptionOrNull()
+        }
+        sessionRepository.switchSession(
+            testFeedbackSession.copy(serverUrl = "https://other.test", accessToken = "different", userId = "different-user"),
+        )
+        advanceUntilIdle()
+
+        assertTrue(completionError?.message?.contains("A sessão mudou") == true)
+        assertTrue(queue.pending().isEmpty())
     }
 
     @Test

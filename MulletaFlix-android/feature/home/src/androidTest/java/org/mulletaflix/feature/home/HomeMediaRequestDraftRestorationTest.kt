@@ -6,6 +6,7 @@ import androidx.compose.ui.test.assertTextContains
 import androidx.compose.ui.test.junit4.StateRestorationTester
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -20,6 +21,7 @@ import org.mulletaflix.core.common.session.FeedbackRequestSession
 import org.mulletaflix.designsystem.theme.MulletaFlixTheme
 import org.mulletaflix.domain.model.LibraryFilterOptions
 import org.mulletaflix.domain.model.MediaItem
+import org.mulletaflix.domain.model.MediaSuggestion
 import org.mulletaflix.domain.model.UserProfile
 import org.mulletaflix.domain.repository.AuthRepository
 import org.mulletaflix.domain.repository.MediaRepository
@@ -27,6 +29,8 @@ import org.mulletaflix.domain.repository.UserFeedbackRepository
 import org.mulletaflix.domain.usecase.GetHomeFeedUseCase
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicReference
 
 class HomeMediaRequestDraftRestorationTest {
     @get:Rule
@@ -82,11 +86,80 @@ class HomeMediaRequestDraftRestorationTest {
 
         restorationTester.emulateSavedInstanceStateRestore()
 
-        composeRule.onNodeWithContentDescription("Solicitar mídia").performClick()
         composeRule.onNodeWithTag("media-request-title").assertTextContains("Duna")
         composeRule.onNodeWithText("Filme").assertExists()
         composeRule.onNodeWithTag("media-request-year").assertTextContains("2024")
         composeRule.onNodeWithTag("media-request-notes").performScrollTo().assertTextContains("Legendas em português")
+
+        composeRule.onNodeWithText("Cancelar").performClick()
+        restorationTester.emulateSavedInstanceStateRestore()
+        composeRule.onNodeWithTag("media-request-title").assertDoesNotExist()
+
+        composeRule.onNodeWithContentDescription("Solicitar mídia").performClick()
+        composeRule.onNodeWithTag("media-request-title").assertTextContains("Duna")
+    }
+
+    @Test
+    fun selectingSuggestionWithoutYearDoesNotSubmitPreviouslyEnteredYear() {
+        val submitted = AtomicBoolean(false)
+        val submittedYear = AtomicReference<Int?>(9999)
+        val feedbackRepository = object : UserFeedbackRepository {
+            override suspend fun getMediaSuggestions(session: FeedbackRequestSession, query: String) =
+                Result.success(listOf(MediaSuggestion("Duna sem ano", "Movie", null)))
+
+            override suspend fun requestMedia(
+                session: FeedbackRequestSession,
+                title: String,
+                mediaType: String,
+                year: Int?,
+                notes: String?,
+            ): Result<Unit> {
+                submittedYear.set(year)
+                submitted.set(true)
+                return Result.success(Unit)
+            }
+
+            override suspend fun reportPlaybackIssue(
+                session: FeedbackRequestSession,
+                itemId: String,
+                category: String,
+                description: String?,
+            ) = Result.success(Unit)
+        }
+        val viewModel = HomeViewModel(
+            getHomeFeedUseCase = GetHomeFeedUseCase(EmptyMediaRepository()),
+            sessionRepository = TestSessionRepository(),
+            networkMonitor = object : NetworkMonitor { override val isOnline = flowOf(true) },
+            authRepository = TestAuthRepository(),
+            userFeedbackRepository = feedbackRepository,
+        )
+
+        composeRule.setContent {
+            val context = LocalContext.current
+            val navController = remember(context) { NavController(context) }
+            MulletaFlixTheme {
+                HomeScreen(
+                    onItemClick = {},
+                    onPlayItemClick = {},
+                    onLibraryClick = {},
+                    onLiveTvClick = {},
+                    navController = navController,
+                    viewModel = viewModel,
+                )
+            }
+        }
+
+        composeRule.onNodeWithContentDescription("Solicitar mídia").performClick()
+        composeRule.onNodeWithTag("media-request-title").performTextInput("Duna")
+        composeRule.waitUntil(5_000) {
+            composeRule.onAllNodesWithText("Duna sem ano").fetchSemanticsNodes().isNotEmpty()
+        }
+        composeRule.onNodeWithTag("media-request-year").performScrollTo().performTextInput("2024")
+        composeRule.onNodeWithText("Duna sem ano").performScrollTo().performClick()
+        composeRule.onNodeWithText("Enviar").performClick()
+        composeRule.waitUntil(5_000) { submitted.get() }
+
+        composeRule.runOnIdle { org.junit.Assert.assertNull(submittedYear.get()) }
     }
 
     private class TestSessionRepository : SessionRepository {

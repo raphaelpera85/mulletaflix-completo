@@ -25,11 +25,13 @@ import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onAllNodesWithContentDescription
+import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.performScrollToIndex
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.platform.LocalContext
@@ -194,6 +196,55 @@ class BookReaderScreenIntegrationTest {
         val retryRequest = server.takeRequest()
         assertEquals("/BookReader/Items/reader-screen-book/BookReader/Epub", firstRequest.path)
         assertEquals(firstRequest.path, retryRequest.path)
+    }
+
+    @Test
+    fun epubSearchFindsAndNavigatesToMatchingText() {
+        val itemId = "reader-epub-search-${System.nanoTime()}"
+        server.enqueue(
+            MockResponse()
+                .setResponseCode(200)
+                .addHeader("Content-Type", "application/epub+zip")
+                .setBody(Buffer().write(createEpub())),
+        )
+        val api = Retrofit.Builder()
+            .baseUrl(server.url("/"))
+            .client(OkHttpClient())
+            .build()
+            .create(MulletaFlixApiService::class.java)
+        val viewModel = ViewModelProvider(
+            viewModelStore,
+            object : ViewModelProvider.Factory {
+                @Suppress("UNCHECKED_CAST")
+                override fun <T : ViewModel> create(modelClass: Class<T>): T =
+                    BookReaderViewModel(api, TestSessionRepository(sessionScope), context) as T
+            },
+        )[BookReaderViewModel::class.java]
+
+        composeRule.setContent {
+            MaterialTheme {
+                BookReaderScreen(itemId = itemId, onBack = {}, viewModel = viewModel)
+            }
+        }
+
+        composeRule.waitUntil(timeoutMillis = 30_000) {
+            runCatching {
+                composeRule.onNodeWithContentDescription("Buscar no livro").assertIsDisplayed()
+            }.isSuccess
+        }
+        composeRule.onNodeWithContentDescription("Buscar no livro").performClick()
+        composeRule.onNodeWithText("Texto").performClick()
+        composeRule.onNodeWithText("Texto").performTextInput("exclusivo")
+        composeRule.onNodeWithText("Buscar").performClick()
+        composeRule.waitUntil(timeoutMillis = 15_000) {
+            composeRule.onAllNodesWithTag("$BOOK_TEXT_SEARCH_RESULT_TEST_TAG-0")
+                .fetchSemanticsNodes().isNotEmpty()
+        }
+        composeRule.onNodeWithTag("$BOOK_TEXT_SEARCH_RESULT_TEST_TAG-0").performClick()
+        composeRule.waitUntil(timeoutMillis = 15_000) {
+            awaitWebViewText("Conteúdo exclusivo do segundo capítulo.")
+                .contains("Conteúdo exclusivo do segundo capítulo.")
+        }
     }
 
     @Test
@@ -683,6 +734,63 @@ class BookReaderScreenIntegrationTest {
                 runCatching { composeRule.onNodeWithText("Capítulo 2", substring = true).assertIsDisplayed() }.isSuccess
         }
         assertEquals(1, speechEngine.stopCount)
+    }
+
+    @Test
+    fun pdfSearchFindsAndNavigatesToMatchingPageWhenPlatformSupportsExtraction() {
+        server.enqueue(
+            MockResponse()
+                .setResponseCode(200)
+                .addHeader("Content-Type", "application/pdf")
+                .setBody(Buffer().write(createPdfFixture())),
+        )
+        val api = Retrofit.Builder()
+            .baseUrl(server.url("/"))
+            .client(OkHttpClient())
+            .build()
+            .create(MulletaFlixApiService::class.java)
+        val viewModel = ViewModelProvider(
+            viewModelStore,
+            object : ViewModelProvider.Factory {
+                @Suppress("UNCHECKED_CAST")
+                override fun <T : ViewModel> create(modelClass: Class<T>): T =
+                    BookReaderViewModel(api, TestSessionRepository(sessionScope), context) as T
+            },
+        )[BookReaderViewModel::class.java]
+
+        composeRule.setContent {
+            MaterialTheme {
+                BookReaderScreen(itemId = "reader-pdf-search-${System.nanoTime()}", onBack = {}, viewModel = viewModel)
+            }
+        }
+
+        composeRule.waitUntil(timeoutMillis = 15_000) {
+            runCatching { composeRule.onNodeWithText("Página 1 de 2").assertIsDisplayed() }.isSuccess
+        }
+        val searchControl = composeRule.onAllNodesWithContentDescription("Buscar no livro").fetchSemanticsNodes()
+        if (searchControl.isEmpty()) {
+            assertFalse(
+                "PDF search must be hidden when platform text extraction is unavailable",
+                supportsPdfTextExtraction(
+                    Build.VERSION.SDK_INT,
+                    SdkExtensions.getExtensionVersion(Build.VERSION_CODES.S),
+                ),
+            )
+            return
+        }
+
+        composeRule.onNodeWithContentDescription("Buscar no livro").performClick()
+        composeRule.onNodeWithTag(BOOK_TEXT_SEARCH_QUERY_TEST_TAG).performTextInput("page 2")
+        composeRule.onNodeWithText("Buscar").performClick()
+        composeRule.waitUntil(timeoutMillis = 10_000) {
+            composeRule.onAllNodesWithTag("$BOOK_TEXT_SEARCH_RESULT_TEST_TAG-0").fetchSemanticsNodes().isNotEmpty()
+        }
+        composeRule.onNodeWithTag("$BOOK_TEXT_SEARCH_RESULT_TEST_TAG-0")
+            .assertIsDisplayed()
+            .performClick()
+        composeRule.waitUntil(timeoutMillis = 5_000) {
+            runCatching { composeRule.onNodeWithText("Página 2 de 2").assertIsDisplayed() }.isSuccess
+        }
     }
 
     @Test

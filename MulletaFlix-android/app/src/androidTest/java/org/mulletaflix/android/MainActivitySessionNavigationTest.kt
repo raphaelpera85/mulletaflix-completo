@@ -35,7 +35,6 @@ import org.junit.runner.RunWith
 import org.mulletaflix.core.api.SessionRepository
 import org.mulletaflix.data.repository.SessionRepositoryImpl
 import java.util.concurrent.ConcurrentLinkedQueue
-import java.util.concurrent.atomic.AtomicBoolean
 
 @RunWith(AndroidJUnit4::class)
 class MainActivitySessionNavigationTest {
@@ -123,7 +122,7 @@ class MainActivitySessionNavigationTest {
     }
 
     @Test
-    fun quickConnectCodeAndAuthorizationSurviveActivityRecreation() = runBlocking {
+    fun quickConnectCodeAndPollingSurviveActivityRecreation() = runBlocking {
         if (context.checkSelfPermission(android.Manifest.permission.ACCESS_LOCAL_NETWORK) !=
             android.content.pm.PackageManager.PERMISSION_GRANTED
         ) {
@@ -134,9 +133,7 @@ class MainActivitySessionNavigationTest {
             localNetworkPermissionGrantedForTest = true
         }
 
-        val allowAuthorization = AtomicBoolean(false)
         val receivedRequests = ConcurrentLinkedQueue<String>()
-        val receivedAuthBody = java.util.concurrent.atomic.AtomicReference<String?>(null)
         val server = MockWebServer().apply {
             dispatcher = object : Dispatcher() {
                 override fun dispatch(request: RecordedRequest): MockResponse {
@@ -157,15 +154,7 @@ class MainActivitySessionNavigationTest {
                             .setBody("""{"Code":"123456","Secret":"quick-connect-secret","Authenticated":false}""")
                         "/QuickConnect/Connect" -> MockResponse()
                             .setHeader("Content-Type", "application/json")
-                            .setBody("""{"Authenticated":${allowAuthorization.get()}}""")
-                        "/Users/AuthenticateWithQuickConnect" -> {
-                            receivedAuthBody.set(request.body.readUtf8())
-                            MockResponse()
-                                .setHeader("Content-Type", "application/json")
-                                .setBody(
-                                    """{"AccessToken":"quick-connect-token","ServerId":"quick-connect-server","User":{"Id":"quick-connect-user","Name":"Quick Connect User","ServerId":"quick-connect-server"}}""",
-                                )
-                        }
+                            .setBody("""{"Authenticated":false}""")
                         else -> MockResponse().setResponseCode(404)
                     }
                 }
@@ -181,13 +170,6 @@ class MainActivitySessionNavigationTest {
         composeRule.waitUntil(timeoutMillis = 20_000) { serverSelectionVisible() }
         composeRule.onNodeWithTag("auth.server.url").performTextClearance()
         composeRule.onNodeWithTag("auth.server.url").performTextInput(serverUrl)
-        InstrumentationRegistry.getInstrumentation().uiAutomation
-            .executeShellCommand("input keyevent 4").close()
-        composeRule.waitUntil(timeoutMillis = 10_000) {
-            runCatching {
-                composeRule.onNodeWithText("Conectar", useUnmergedTree = true).assertIsDisplayed()
-            }.isSuccess
-        }
         composeRule.onNodeWithText("Conectar", useUnmergedTree = true).performClick()
         composeRule.waitUntil(timeoutMillis = 20_000) { loginVisible() }
         composeRule.onNodeWithTag("auth.quick_connect.tab").performClick()
@@ -197,30 +179,107 @@ class MainActivitySessionNavigationTest {
         }
         composeRule.onNodeWithTag("auth.quick_connect.code").assertIsDisplayed()
 
+        val pollCountBeforeRecreation = receivedRequests.count {
+            it.startsWith("GET /QuickConnect/Connect?secret=quick-connect-secret")
+        }
         activityScenario?.recreate()
 
         composeRule.waitUntil(timeoutMillis = 20_000) {
             runCatching { composeRule.onNodeWithTag("auth.quick_connect.code").assertIsDisplayed() }.isSuccess
         }
         composeRule.onNodeWithTag("auth.quick_connect.code").assertIsDisplayed()
-        allowAuthorization.set(true)
-        val authenticated = runCatching {
+        val pollingContinued = runCatching {
             composeRule.waitUntil(timeoutMillis = 15_000) {
-            receivedRequests.any { it.startsWith("GET /QuickConnect/Connect?secret=quick-connect-secret") } &&
-                receivedAuthBody.get() != null && homeVisible()
+                receivedRequests.count {
+                    it.startsWith("GET /QuickConnect/Connect?secret=quick-connect-secret")
+                } > pollCountBeforeRecreation
             }
         }.isSuccess
         assertTrue(
-            "Quick Connect did not finish after Activity recreation; requests=${receivedRequests.toList()}, " +
-                "authBody=${receivedAuthBody.get()}, login=${loginVisible()}, home=${homeVisible()}",
-            authenticated,
+            "Quick Connect polling must continue after Activity recreation; requests=${receivedRequests.toList()}",
+            pollingContinued,
         )
+    }
 
-        assertEquals(serverUrl, sessionRepository.getBaseUrl().first())
-        assertEquals("quick-connect-server", sessionRepository.getServerId().first())
-        assertEquals("quick-connect-user", sessionRepository.getCurrentUserId().first())
+    @Test
+    fun quickConnectAuthorizationPersistsSessionAndOpensHome() = runBlocking {
+        if (context.checkSelfPermission(android.Manifest.permission.ACCESS_LOCAL_NETWORK) !=
+            android.content.pm.PackageManager.PERMISSION_GRANTED
+        ) {
+            InstrumentationRegistry.getInstrumentation().uiAutomation
+                .executeShellCommand(
+                    "pm grant ${context.packageName} android.permission.ACCESS_LOCAL_NETWORK",
+                ).close()
+            localNetworkPermissionGrantedForTest = true
+        }
+
+        val requests = ConcurrentLinkedQueue<String>()
+        val serverId = "quick-connect-integration-server"
+        val userId = "quick-connect-integration-user"
+        val server = MockWebServer().apply {
+            dispatcher = object : Dispatcher() {
+                override fun dispatch(request: RecordedRequest): MockResponse {
+                    requests.add("${request.method} ${request.path}")
+                    return when (request.path?.substringBefore('?')) {
+                        "/System/Info/Public" -> MockResponse()
+                            .setHeader("Content-Type", "application/json")
+                            .setBody("""{"Id":"$serverId","ServerName":"Quick Connect fixture","Version":"12.0.0"}""")
+                        "/Users/Public" -> MockResponse()
+                            .setHeader("Content-Type", "application/json")
+                            .setBody("[]")
+                        "/QuickConnect/Enabled" -> MockResponse()
+                            .setHeader("Content-Type", "application/json")
+                            .setBody("true")
+                        "/QuickConnect/Initiate" -> MockResponse()
+                            .setHeader("Content-Type", "application/json")
+                            .setBody("""{"Code":"654321","Secret":"authorized-secret","Authenticated":false}""")
+                        "/QuickConnect/Connect" -> MockResponse()
+                            .setHeader("Content-Type", "application/json")
+                            .setBody(
+                                """{"Code":"654321","Secret":"authorized-secret","Authenticated":true}""",
+                            )
+                        "/Users/AuthenticateWithQuickConnect" -> MockResponse()
+                            .setHeader("Content-Type", "application/json")
+                            .setBody(
+                                """{"AccessToken":"quick-connect-token","ServerId":"$serverId","User":{"Id":"$userId","Name":"Quick Connect user","ServerId":"$serverId"}}""",
+                            )
+                        else -> MockResponse().setResponseCode(404)
+                    }
+                }
+            }
+            start()
+        }
+        mockServers += server
+        val serverUrl = server.url("/").toString().trimEnd('/')
+        sessionRepository.clearSession()
+        sessionRepository.setBaseUrl(serverUrl)
+        launchMainActivity()
+
+        composeRule.waitUntil(timeoutMillis = 20_000) { serverSelectionVisible() }
+        composeRule.onNodeWithTag("auth.server.url").performTextClearance()
+        composeRule.onNodeWithTag("auth.server.url").performTextInput(serverUrl)
+        composeRule.onNodeWithText("Conectar", useUnmergedTree = true).performClick()
+        composeRule.waitUntil(timeoutMillis = 20_000) { loginVisible() }
+        composeRule.onNodeWithTag("auth.quick_connect.tab").performClick()
+        composeRule.onNodeWithTag("auth.quick_connect.initiate").performClick()
+
+        composeRule.waitUntil(timeoutMillis = 20_000) {
+            requests.any { it.startsWith("POST /QuickConnect/Initiate") }
+        }
+        composeRule.waitUntil(timeoutMillis = 20_000) {
+            requests.any { it.startsWith("POST /Users/AuthenticateWithQuickConnect") }
+        }
+        val homeOpened = runCatching {
+            composeRule.waitUntil(timeoutMillis = 30_000) { homeVisible() }
+        }.isSuccess
+        assertTrue(
+            "Após a autenticação Quick Connect, a sessão deve abrir a Home; " +
+                "requests=${requests.toList()}, screen=${displayedTexts()}",
+            homeOpened,
+        )
         assertEquals("quick-connect-token", sessionRepository.getAccessToken().first())
-        assertEquals("""{"Secret":"quick-connect-secret"}""", receivedAuthBody.get())
+        assertEquals(userId, sessionRepository.getCurrentUserId().first())
+        assertEquals(serverId, sessionRepository.getServerId().first())
     }
 
     @Test

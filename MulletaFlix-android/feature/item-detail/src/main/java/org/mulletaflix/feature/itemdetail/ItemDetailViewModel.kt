@@ -19,15 +19,19 @@ import org.mulletaflix.domain.repository.AuthRepository
 import org.mulletaflix.domain.repository.DownloadEntry
 import org.mulletaflix.domain.repository.MediaRepository
 import org.mulletaflix.domain.repository.PlaybackRepository
+import org.mulletaflix.domain.repository.PlaybackIssueQueue
+import org.mulletaflix.domain.repository.QueuedPlaybackIssue
 import org.mulletaflix.domain.repository.UserFeedbackRepository
 import org.mulletaflix.core.api.SessionRepository
 import org.mulletaflix.core.common.session.FeedbackRequestSession
+import org.mulletaflix.core.common.session.playbackIssueScopeHash
 import org.mulletaflix.domain.usecase.GetItemDetailUseCase
 import org.mulletaflix.domain.usecase.ManageDownloadsUseCase
 import org.mulletaflix.domain.usecase.ManagePlaylistUseCase
 import org.mulletaflix.domain.usecase.ToggleFavoriteUseCase
 import org.mulletaflix.domain.usecase.TogglePlayedUseCase
 import javax.inject.Inject
+import java.util.UUID
 
 data class ItemDetailState(
     val item: MediaItem? = null,
@@ -83,6 +87,12 @@ class ItemDetailViewModel @Inject constructor(
         override suspend fun requestMedia(session: FeedbackRequestSession, title: String, mediaType: String, year: Int?, notes: String?) = Result.failure<Unit>(UnsupportedOperationException())
         override suspend fun reportPlaybackIssue(session: FeedbackRequestSession, itemId: String, category: String, description: String?) = Result.failure<Unit>(UnsupportedOperationException())
     },
+    private val playbackIssueQueue: PlaybackIssueQueue = object : PlaybackIssueQueue {
+        override val pendingCount = flowOf(0)
+        override suspend fun enqueue(issue: QueuedPlaybackIssue) = Unit
+        override suspend fun pending() = emptyList<QueuedPlaybackIssue>()
+        override suspend fun remove(id: String) = Unit
+    },
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(ItemDetailState())
@@ -135,6 +145,54 @@ class ItemDetailViewModel @Inject constructor(
             }
             result.onSuccess {
                 _state.update { it.copy(interactionMessage = "Relato enviado. Obrigado pelo aviso.") }
+            }
+            onComplete(result)
+        }
+    }
+
+    /** Saves a failed title report for the existing authenticated background sync path. */
+    fun queuePlaybackIssue(
+        itemId: String,
+        category: String,
+        description: String,
+        onComplete: (Result<Unit>) -> Unit,
+    ) {
+        if (playbackIssueSubmitting) return
+        val requestSession = feedbackRequestSession
+        if (requestSession == null) {
+            onComplete(Result.failure(IllegalStateException("Sessão indisponível. Conecte-se novamente.")))
+            return
+        }
+        playbackIssueSubmitting = true
+        viewModelScope.launch {
+            val result = try {
+                check(sessionRepository.getFeedbackRequestSession().first() == requestSession) {
+                    "A sessão mudou. Revise sua conexão antes de tentar novamente."
+                }
+                require(itemId.isNotBlank()) { "O título deste relato não está disponível." }
+                val normalizedCategory = category.trim().take(100)
+                require(normalizedCategory.isNotBlank()) { "Selecione uma categoria para o relato." }
+                playbackIssueQueue.enqueue(
+                    QueuedPlaybackIssue(
+                        id = UUID.randomUUID().toString(),
+                        scopeHash = requestSession.playbackIssueScopeHash(),
+                        itemId = itemId,
+                        category = normalizedCategory,
+                        description = description.trim().take(1_000).ifBlank { null },
+                        createdAtEpochMillis = System.currentTimeMillis(),
+                    ),
+                )
+                Result.success(Unit)
+            } catch (cancelled: CancellationException) {
+                onComplete(Result.failure(cancelled))
+                throw cancelled
+            } catch (error: Throwable) {
+                Result.failure(error)
+            } finally {
+                playbackIssueSubmitting = false
+            }
+            result.onSuccess {
+                _state.update { it.copy(interactionMessage = "Relato salvo. Será enviado quando houver conexão.") }
             }
             onComplete(result)
         }

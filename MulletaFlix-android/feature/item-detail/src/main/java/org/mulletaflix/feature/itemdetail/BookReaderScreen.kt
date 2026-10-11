@@ -27,6 +27,7 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.RecordVoiceOver
 import androidx.compose.material.icons.filled.Stop
@@ -92,6 +93,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.readium.navigator.web.reflowable.ReflowableWebGoLocation
 import org.readium.r2.shared.publication.Link
+import org.readium.r2.shared.publication.services.search.SearchService
 import org.readium.navigator.media.tts.TtsNavigator
 import org.readium.navigator.media.tts.TtsNavigatorFactory
 import org.readium.navigator.media.tts.android.AndroidTtsSettings
@@ -120,6 +122,7 @@ fun BookReaderScreen(
     var pdfSpeechLoading by remember(itemId) { mutableStateOf(false) }
     var pdfSpeechJob by remember(itemId) { mutableStateOf<Job?>(null) }
     var currentTextChunk by rememberSaveable(itemId) { mutableIntStateOf(0) }
+    var showBookSearch by rememberSaveable(itemId) { mutableStateOf(false) }
     val speechRatePercent = state.speechRatePercent
     var pageZoom by rememberSaveable(itemId) { mutableFloatStateOf(1f) }
     var renditionState by remember(itemId) { mutableStateOf<ReflowableWebRenditionState?>(null) }
@@ -162,6 +165,7 @@ fun BookReaderScreen(
     }
     val pdfBook = pageBook as? PdfBookDocument
     val pdfSpeechSupported = remember(pdfBook) { pdfBook?.supportsTextExtraction == true }
+    val pdfSearchAvailable = pdfSpeechSupported
     val stopPdfSpeech: () -> Unit = {
         pdfSpeechJob?.cancel()
         pdfSpeechJob = null
@@ -366,6 +370,59 @@ fun BookReaderScreen(
             }
     }
 
+    val epubSearchAvailable = publication?.findService(SearchService::class) != null && renditionController != null
+    if (showBookSearch && (textBook != null || epubSearchAvailable || pdfSearchAvailable)) {
+        BookTextSearchDialog(
+            search = { query ->
+                val plainText = textBook
+                if (plainText != null) {
+                    plainText.searchResults(query)
+                } else if (pdfBook != null && pdfSearchAvailable) {
+                    BookPdfTextSearch.search(pdfBook.pageCount, query) { pageIndex ->
+                        pdfBook.extractPageText(pageIndex)
+                    }.map { hit ->
+                        BookTextSearchResult(
+                            label = "Página ${hit.pageIndex + 1}: ${hit.snippet}",
+                            locator = pdfBook.locatorForPage(hit.pageIndex),
+                        )
+                    }
+                } else {
+                    val activePublication = publication ?: return@BookTextSearchDialog emptyList()
+                    searchBookPublication(activePublication, query).mapIndexed { index, locator ->
+                        locator.toBookTextSearchResult(index)
+                    }
+                }
+            },
+            onDismiss = { showBookSearch = false },
+            onOpenResult = { result ->
+                val chunk = result.chunkIndex
+                val locator = result.locator
+                if (chunk != null) {
+                    navigateToTextChunk(chunk)
+                } else if (locator != null) {
+                    if (pdfBook != null) {
+                        stopPdfSpeech()
+                        pdfBook.pageIndexFromLocator(locator)?.let { currentPage = it }
+                    } else {
+                        stopEpubSpeech()
+                        renditionController?.let { controller ->
+                            coroutineScope.launch {
+                                try {
+                                    controller.goTo(ReflowableWebGoLocation(locator))
+                                } catch (cancelled: CancellationException) {
+                                    throw cancelled
+                                } catch (_: Exception) {
+                                    snackbarHostState.showSnackbar("Não foi possível abrir este resultado.")
+                                }
+                            }
+                        }
+                    }
+                }
+                showBookSearch = false
+            },
+        )
+    }
+
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
@@ -382,6 +439,11 @@ fun BookReaderScreen(
                     }
                 },
                 actions = {
+                    if ((textBook != null || epubSearchAvailable || pdfSearchAvailable) && !state.isLoading) {
+                        IconButton(onClick = { showBookSearch = true }) {
+                            Icon(Icons.Default.Search, contentDescription = "Buscar no livro")
+                        }
+                    }
                     if (pageBook != null && !state.isLoading) {
                         ComicBookZoomControls(
                             zoom = pageZoom,

@@ -286,6 +286,8 @@ dependencies {
     androidTestImplementation(libs.androidx.espresso.core)
     androidTestImplementation(libs.mockwebserver)
     androidTestImplementation(libs.moshi.kotlin)
+    androidTestImplementation(libs.retrofit)
+    androidTestImplementation(libs.retrofit.moshi)
     androidTestImplementation(libs.media3.cast)
     androidTestImplementation(libs.okhttp.tls)
     androidTestImplementation(platform(libs.androidx.compose.bom))
