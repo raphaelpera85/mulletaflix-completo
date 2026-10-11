@@ -560,6 +560,7 @@ class BookReaderScreenIntegrationTest {
         composeRule.waitUntil(timeoutMillis = 15_000) {
             runCatching { composeRule.onNodeWithText("Trecho 1 de 2").assertIsDisplayed() }.isSuccess
         }
+        composeRule.onNodeWithTag("book-speech-language").assertIsDisplayed()
         composeRule.onNodeWithContentDescription("Próximo trecho").performClick()
         composeRule.onNodeWithText("Trecho 2 de 2").assertIsDisplayed()
         composeRule.onNodeWithContentDescription("Mais opções de leitura").performClick()
@@ -580,6 +581,120 @@ class BookReaderScreenIntegrationTest {
         composeRule.onNodeWithText("Marcadores salvos (1)").performClick()
         composeRule.onNodeWithText("Trecho 2").assertIsDisplayed().performClick()
         composeRule.onNodeWithText("Trecho 2 de 2").assertIsDisplayed()
+    }
+
+    @Test
+    fun textBookNarrationLanguageCanBeSelectedAndResetToDeviceDefault() {
+        val suffix = System.nanoTime()
+        val itemId = "reader-language-$suffix"
+        val scopedSession = sessionScope.copy(serverId = "reader-language-server-$suffix")
+        val progressStore = BookReaderProgressStore(context)
+        runBlocking { progressStore.writeSpeechLanguageTag(scopedSession, null) }
+        server.enqueue(
+            MockResponse()
+                .setResponseCode(200)
+                .addHeader("Content-Type", "text/plain; charset=utf-8")
+                .setBody("Conteúdo para narração. ".repeat(90)),
+        )
+        val api = Retrofit.Builder()
+            .baseUrl(server.url("/"))
+            .client(OkHttpClient())
+            .build()
+            .create(MulletaFlixApiService::class.java)
+        val viewModel = ViewModelProvider(
+            viewModelStore,
+            object : ViewModelProvider.Factory {
+                @Suppress("UNCHECKED_CAST")
+                override fun <T : ViewModel> create(modelClass: Class<T>): T =
+                    BookReaderViewModel(api, TestSessionRepository(scopedSession), context) as T
+            },
+        )[BookReaderViewModel::class.java]
+        val speechEngine = FakeBookSpeechEngine()
+
+        composeRule.setContent {
+            MaterialTheme {
+                CompositionLocalProvider(LocalBookSpeechEngineFactory provides { speechEngine }) {
+                    BookReaderScreen(itemId = itemId, onBack = {}, viewModel = viewModel)
+                }
+            }
+        }
+
+        composeRule.waitUntil(timeoutMillis = 15_000) {
+            runCatching { composeRule.onNodeWithText("Trecho 1 de 2").assertIsDisplayed() }.isSuccess
+        }
+        composeRule.onNodeWithTag("book-speech-language").performClick()
+        composeRule.waitUntil(timeoutMillis = 5_000) { speechEngine.initializeRequested }
+        composeRule.runOnUiThread { speechEngine.listener.onReady() }
+        composeRule.onNodeWithText("Idioma da narração").assertIsDisplayed()
+        composeRule.onNodeWithTag("speech-language-en-US").performClick()
+        composeRule.waitUntil(timeoutMillis = 10_000) {
+            viewModel.state.value.speechLanguageTag == "en-US" &&
+                speechEngine.selectedLanguageTag == "en-US" &&
+                runBlocking { progressStore.readSpeechLanguageTag(scopedSession) } == "en-US"
+        }
+
+        composeRule.onNodeWithTag("book-speech-language").performClick()
+        composeRule.onNodeWithTag("speech-language-default").performClick()
+        composeRule.waitUntil(timeoutMillis = 10_000) {
+            viewModel.state.value.speechLanguageTag == null &&
+                speechEngine.selectedLanguageTag == null &&
+                runBlocking { progressStore.readSpeechLanguageTag(scopedSession) } == null
+        }
+    }
+
+    @Test
+    fun staleSavedNarrationLanguageCanBeRecoveredFromTheLanguageSelector() {
+        val suffix = System.nanoTime()
+        val itemId = "reader-stale-language-$suffix"
+        val scopedSession = sessionScope.copy(serverId = "reader-stale-language-server-$suffix")
+        val progressStore = BookReaderProgressStore(context)
+        runBlocking { progressStore.writeSpeechLanguageTag(scopedSession, "it-IT") }
+        server.enqueue(
+            MockResponse()
+                .setResponseCode(200)
+                .addHeader("Content-Type", "text/plain; charset=utf-8")
+                .setBody("Conteúdo para narração. ".repeat(90)),
+        )
+        val api = Retrofit.Builder()
+            .baseUrl(server.url("/"))
+            .client(OkHttpClient())
+            .build()
+            .create(MulletaFlixApiService::class.java)
+        val viewModel = ViewModelProvider(
+            viewModelStore,
+            object : ViewModelProvider.Factory {
+                @Suppress("UNCHECKED_CAST")
+                override fun <T : ViewModel> create(modelClass: Class<T>): T =
+                    BookReaderViewModel(api, TestSessionRepository(scopedSession), context) as T
+            },
+        )[BookReaderViewModel::class.java]
+        val speechEngine = FakeBookSpeechEngine()
+
+        composeRule.setContent {
+            MaterialTheme {
+                CompositionLocalProvider(LocalBookSpeechEngineFactory provides { speechEngine }) {
+                    BookReaderScreen(itemId = itemId, onBack = {}, viewModel = viewModel)
+                }
+            }
+        }
+
+        composeRule.waitUntil(timeoutMillis = 15_000) {
+            runCatching { composeRule.onNodeWithText("Trecho 1 de 2").assertIsDisplayed() }.isSuccess
+        }
+        composeRule.waitUntil(timeoutMillis = 5_000) {
+            viewModel.state.value.speechLanguageTag == "it-IT"
+        }
+        composeRule.onNodeWithTag("book-speech-language").performClick()
+        composeRule.waitUntil(timeoutMillis = 5_000) { speechEngine.initializeRequested }
+        composeRule.runOnUiThread { speechEngine.listener.onReady() }
+
+        composeRule.onNodeWithText("Idioma da narração").assertIsDisplayed()
+        composeRule.onNodeWithTag("speech-language-default").assertIsDisplayed()
+        composeRule.waitUntil(timeoutMillis = 10_000) {
+            viewModel.state.value.speechLanguageTag == null &&
+                speechEngine.selectedLanguageTag == null &&
+                runBlocking { progressStore.readSpeechLanguageTag(scopedSession) } == null
+        }
     }
 
     @Test
@@ -983,6 +1098,7 @@ class BookReaderScreenIntegrationTest {
     private class FakeBookSpeechEngine : BookSpeechEngine {
         lateinit var listener: BookSpeechEngine.Listener
         var initializeRequested = false
+        var selectedLanguageTag: String? = null
         var stopCount = 0
         var shutdownCount = 0
         val speechRates = mutableListOf<Float>()
@@ -992,6 +1108,17 @@ class BookReaderScreenIntegrationTest {
         override fun initialize(listener: BookSpeechEngine.Listener) {
             initializeRequested = true
             this.listener = listener
+        }
+
+        override fun availableLanguages() = listOf(
+            BookSpeechLanguageOption("en-US", "English (United States)"),
+            BookSpeechLanguageOption("pt-BR", "Português (Brasil)"),
+        )
+
+        override fun setSpeechLanguage(languageTag: String?): Boolean {
+            if (languageTag != null && availableLanguages().none { it.languageTag == languageTag }) return false
+            selectedLanguageTag = languageTag
+            return true
         }
 
         override fun setSpeechRate(rate: Float): Boolean {

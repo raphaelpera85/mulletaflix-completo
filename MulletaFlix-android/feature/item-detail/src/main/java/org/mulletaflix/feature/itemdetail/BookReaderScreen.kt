@@ -19,12 +19,14 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
@@ -117,6 +119,7 @@ fun BookReaderScreen(
     val speechEngineFactory = LocalBookSpeechEngineFactory.current
     val coroutineScope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
+    val speechLanguageResetNotice = stringResource(R.string.book_reader_speech_language_reset_notice)
     var currentPage by rememberSaveable(itemId) { mutableIntStateOf(0) }
     var pdfSpeechActive by remember(itemId) { mutableStateOf(false) }
     var pdfSpeechLoading by remember(itemId) { mutableStateOf(false) }
@@ -137,8 +140,19 @@ fun BookReaderScreen(
         BookSpeechPlaybackController(
             engine = speechEngineFactory(context.applicationContext),
             onChunkChanged = { currentTextChunk = it },
+            onSpeechLanguageUnavailable = {
+                viewModel.setSpeechLanguageTag(itemId, null)
+                coroutineScope.launch {
+                    snackbarHostState.showSnackbar(
+                        speechLanguageResetNotice,
+                    )
+                }
+            },
         )
     }
+    var showSpeechLanguageDialog by rememberSaveable(itemId) { mutableStateOf(false) }
+    var speechLanguageOptions by remember(itemId) { mutableStateOf(emptyList<BookSpeechLanguageOption>()) }
+    var speechLanguageLoading by remember(itemId) { mutableStateOf(false) }
     DisposableEffect(activity) {
         val window = activity?.window
         val keepScreenOnBeforeReader = window?.let {
@@ -165,6 +179,30 @@ fun BookReaderScreen(
     }
     val pdfBook = pageBook as? PdfBookDocument
     val pdfSpeechSupported = remember(pdfBook) { pdfBook?.supportsTextExtraction == true }
+    LaunchedEffect(speechController, state.speechLanguageTag) {
+        if (!speechController.setSpeechLanguage(state.speechLanguageTag)) {
+            viewModel.setSpeechLanguageTag(itemId, null)
+            snackbarHostState.showSnackbar(speechLanguageResetNotice)
+        }
+    }
+    val openSpeechLanguageDialog: () -> Unit = {
+        if (!speechLanguageLoading) {
+            speechLanguageLoading = true
+            speechController.loadAvailableLanguages { result ->
+                speechLanguageLoading = false
+                result.onSuccess { languages ->
+                    speechLanguageOptions = languages
+                    showSpeechLanguageDialog = true
+                }.onFailure { error ->
+                    coroutineScope.launch {
+                        snackbarHostState.showSnackbar(
+                            error.localizedMessage ?: "Não foi possível consultar os idiomas instalados.",
+                        )
+                    }
+                }
+            }
+        }
+    }
     val pdfSearchAvailable = pdfSpeechSupported
     val stopPdfSpeech: () -> Unit = {
         pdfSpeechJob?.cancel()
@@ -423,6 +461,24 @@ fun BookReaderScreen(
         )
     }
 
+    if (showSpeechLanguageDialog) {
+        BookSpeechLanguageDialog(
+            languages = speechLanguageOptions,
+            selectedLanguageTag = state.speechLanguageTag,
+            onSelect = { languageTag ->
+                if (speechController.setSpeechLanguage(languageTag)) {
+                    viewModel.setSpeechLanguageTag(itemId, languageTag)
+                    showSpeechLanguageDialog = false
+                } else {
+                    coroutineScope.launch {
+                        snackbarHostState.showSnackbar("O idioma selecionado não está mais disponível.")
+                    }
+                }
+            },
+            onDismiss = { showSpeechLanguageDialog = false },
+        )
+    }
+
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
@@ -439,6 +495,22 @@ fun BookReaderScreen(
                     }
                 },
                 actions = {
+                    if ((textBook != null || pdfSpeechSupported) && !state.isLoading) {
+                        IconButton(
+                            onClick = openSpeechLanguageDialog,
+                            enabled = !speechLanguageLoading,
+                            modifier = Modifier.testTag("book-speech-language"),
+                        ) {
+                            if (speechLanguageLoading) {
+                                CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+                            } else {
+                                Icon(
+                                    Icons.Default.Language,
+                                    contentDescription = stringResource(R.string.book_reader_speech_language),
+                                )
+                            }
+                        }
+                    }
                     if ((textBook != null || epubSearchAvailable || pdfSearchAvailable) && !state.isLoading) {
                         IconButton(onClick = { showBookSearch = true }) {
                             Icon(Icons.Default.Search, contentDescription = "Buscar no livro")

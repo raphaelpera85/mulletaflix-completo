@@ -8,6 +8,7 @@ import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import java.security.MessageDigest
 import java.util.UUID
+import java.util.Locale
 import kotlin.math.roundToInt
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.first
@@ -264,6 +265,36 @@ internal class BookReaderProgressStore(context: Context) {
         }
     }
 
+    suspend fun readSpeechLanguageTag(scope: HomeFeedCacheScope): String? =
+        recoverBookReaderStorageFailure {
+            val key = speechLanguageKey(scope)
+            val saved = normalizeSpeechLanguageTag(store.data.first()[key])
+            if (saved != null) {
+                store.edit { preferences ->
+                    preferences[longPreferencesKey(timestampKey(key.name))] = System.currentTimeMillis()
+                    trimOldEntries(preferences)
+                }
+            }
+            saved
+        }
+
+    suspend fun writeSpeechLanguageTag(scope: HomeFeedCacheScope, languageTag: String?) {
+        recoverBookReaderStorageFailure {
+            store.edit { preferences ->
+                val key = speechLanguageKey(scope)
+                val normalized = normalizeSpeechLanguageTag(languageTag)
+                if (normalized == null) {
+                    preferences.remove(key)
+                    preferences.remove(longPreferencesKey(timestampKey(key.name)))
+                } else {
+                    preferences[key] = normalized
+                    preferences[longPreferencesKey(timestampKey(key.name))] = System.currentTimeMillis()
+                    trimOldEntries(preferences)
+                }
+            }
+        }
+    }
+
     internal fun entryKey(scope: HomeFeedCacheScope, itemId: String): String {
         val serverIdentity = scope.serverId?.takeIf(String::isNotBlank)
             ?.let { "id:$it" }
@@ -282,6 +313,26 @@ internal class BookReaderProgressStore(context: Context) {
     private fun speechRateKey(scope: HomeFeedCacheScope) = stringPreferencesKey(
         "${SPEECH_RATE_PREFIX}${entryKey(scope, SPEECH_RATE_SCOPE_ITEM_ID).removePrefix(ENTRY_PREFIX)}",
     )
+
+    private fun speechLanguageKey(scope: HomeFeedCacheScope) = stringPreferencesKey(
+        "${SPEECH_LANGUAGE_PREFIX}${entryKey(scope, SPEECH_LANGUAGE_SCOPE_ITEM_ID).removePrefix(ENTRY_PREFIX)}",
+    )
+
+    private fun normalizeSpeechLanguageTag(languageTag: String?): String? {
+        val tag = languageTag?.trim()?.takeIf(String::isNotEmpty) ?: return null
+        val locale = Locale.forLanguageTag(tag)
+        val normalized = locale.toLanguageTag().split('-').mapIndexed { index, part ->
+            when {
+                index == 0 -> part.lowercase(Locale.ROOT)
+                part.length == 4 && part.all(Char::isLetter) ->
+                    part.lowercase(Locale.ROOT).replaceFirstChar { it.titlecase(Locale.ROOT) }
+                (part.length == 2 && part.all(Char::isLetter)) ||
+                    (part.length == 3 && part.all(Char::isDigit)) -> part.uppercase(Locale.ROOT)
+                else -> part.lowercase(Locale.ROOT)
+            }
+        }.joinToString("-")
+        return normalized.takeIf { locale.language.isNotBlank() && it != "und" }
+    }
 
     private fun bookmarksKey(scope: HomeFeedCacheScope, itemId: String) = stringPreferencesKey(
         "${BOOKMARKS_PREFIX}${entryKey(scope, itemId).removePrefix(ENTRY_PREFIX)}",
@@ -318,6 +369,7 @@ internal class BookReaderProgressStore(context: Context) {
         trimEntries(preferences, ENTRY_PREFIX, MAX_ENTRIES)
         trimEntries(preferences, FONT_SIZE_PREFIX, MAX_FONT_SIZE_SCOPES)
         trimEntries(preferences, SPEECH_RATE_PREFIX, MAX_FONT_SIZE_SCOPES)
+        trimEntries(preferences, SPEECH_LANGUAGE_PREFIX, MAX_FONT_SIZE_SCOPES)
         trimEntries(preferences, BOOKMARKS_PREFIX, MAX_ENTRIES)
     }
 
@@ -334,9 +386,11 @@ internal class BookReaderProgressStore(context: Context) {
     internal companion object {
         const val FONT_SIZE_SCOPE_ITEM_ID = "__reader_font_size_preference__"
         const val SPEECH_RATE_SCOPE_ITEM_ID = "__reader_speech_rate_preference__"
+        const val SPEECH_LANGUAGE_SCOPE_ITEM_ID = "__reader_speech_language_preference__"
         const val ENTRY_PREFIX = "book_reader_progress_"
         const val FONT_SIZE_PREFIX = "book_reader_font_size_"
         const val SPEECH_RATE_PREFIX = "book_reader_speech_rate_"
+        const val SPEECH_LANGUAGE_PREFIX = "book_reader_speech_language_"
         const val BOOKMARKS_PREFIX = "book_reader_bookmarks_"
         const val UPDATED_SUFFIX = "_updated"
         const val MAX_ENTRIES = 100

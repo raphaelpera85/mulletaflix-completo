@@ -37,6 +37,74 @@ class BookSpeechPlaybackControllerTest {
     }
 
     @Test
+    fun `language options initialize speech engine only when requested`() {
+        val engine = FakeBookSpeechEngine()
+        val controller = BookSpeechPlaybackController(engine)
+        var result: Result<List<BookSpeechLanguageOption>>? = null
+
+        controller.loadAvailableLanguages { result = it }
+
+        assertEquals(1, engine.initializeCount)
+        assertTrue(engine.spokenChunks.isEmpty())
+        engine.listener.onReady()
+
+        assertEquals(engine.languages, result?.getOrNull())
+        assertTrue(engine.spokenChunks.isEmpty())
+    }
+
+    @Test
+    fun `selected language is applied before speech starts`() {
+        val engine = FakeBookSpeechEngine()
+        val controller = BookSpeechPlaybackController(engine)
+        assertTrue(controller.setSpeechLanguage("pt-BR"))
+
+        controller.play(listOf("olá"))
+        engine.listener.onReady()
+
+        assertEquals(listOf("pt-BR"), engine.selectedLanguages)
+        assertEquals(listOf("olá"), engine.spokenChunks)
+    }
+
+    @Test
+    fun `unavailable saved language falls back to device default and keeps selector available`() {
+        val engine = FakeBookSpeechEngine().apply {
+            languages = listOf(BookSpeechLanguageOption("en-US", "English (United States)"))
+        }
+        var unavailableLanguageCleared = false
+        val controller = BookSpeechPlaybackController(
+            engine = engine,
+            onSpeechLanguageUnavailable = { unavailableLanguageCleared = true },
+        )
+        assertTrue(controller.setSpeechLanguage("pt-BR"))
+        var result: Result<List<BookSpeechLanguageOption>>? = null
+
+        controller.loadAvailableLanguages { result = it }
+        engine.listener.onReady()
+
+        assertEquals(engine.languages, result?.getOrNull())
+        assertEquals(listOf(null), engine.selectedLanguages)
+        assertTrue(unavailableLanguageCleared)
+    }
+
+    @Test
+    fun `changing language during speech restarts current chunk and ignores stale completion`() {
+        val engine = FakeBookSpeechEngine()
+        val controller = BookSpeechPlaybackController(engine)
+        controller.play(listOf("one", "two"))
+        engine.listener.onReady()
+        val oldUtterance = engine.utteranceIds.single()
+
+        assertTrue(controller.setSpeechLanguage("en-US"))
+        engine.listener.onUtteranceFinished(oldUtterance)
+
+        assertEquals(listOf("one", "one"), engine.spokenChunks)
+        assertEquals(BookSpeechState.Speaking, controller.state)
+        assertEquals(listOf("en-US"), engine.selectedLanguages)
+        engine.listener.onUtteranceFinished(engine.utteranceIds.last())
+        assertEquals("two", engine.spokenChunks.last())
+    }
+
+    @Test
     fun `advances through chunks and completes after final utterance`() {
         val engine = FakeBookSpeechEngine()
         val states = mutableListOf<BookSpeechState>()
@@ -163,11 +231,24 @@ class BookSpeechPlaybackControllerTest {
         val speechRates = mutableListOf<Float>()
         val spokenChunks = mutableListOf<String>()
         val utteranceIds = mutableListOf<String>()
+        var languages = listOf(
+            BookSpeechLanguageOption("en-US", "English (United States)"),
+            BookSpeechLanguageOption("pt-BR", "Português (Brasil)"),
+        )
+        val selectedLanguages = mutableListOf<String?>()
 
         override fun initialize(listener: BookSpeechEngine.Listener) {
             initializeRequested = true
             initializeCount++
             this.listener = listener
+        }
+
+        override fun availableLanguages(): List<BookSpeechLanguageOption> = languages
+
+        override fun setSpeechLanguage(languageTag: String?): Boolean {
+            if (languageTag != null && languages.none { it.languageTag == languageTag }) return false
+            selectedLanguages += languageTag
+            return true
         }
 
         override fun setSpeechRate(rate: Float): Boolean {

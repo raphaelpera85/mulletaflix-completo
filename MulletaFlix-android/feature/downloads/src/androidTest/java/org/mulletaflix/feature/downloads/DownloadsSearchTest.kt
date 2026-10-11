@@ -129,6 +129,10 @@ class DownloadsSearchTest {
         composeRule.onNodeWithText("Maior primeiro").assertIsSelected()
         composeRule.onNodeWithText("Menor primeiro").performClick().assertIsSelected()
         composeRule.runOnIdle { check(selected == DownloadStorageOrder.SmallestFirst) }
+        composeRule.onNodeWithText("Título A–Z").performClick().assertIsSelected()
+        composeRule.runOnIdle { check(selected == DownloadStorageOrder.TitleAscending) }
+        composeRule.onNodeWithText("Título Z–A").performClick().assertIsSelected()
+        composeRule.runOnIdle { check(selected == DownloadStorageOrder.TitleDescending) }
     }
 
     @Test

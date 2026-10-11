@@ -15,6 +15,7 @@ internal class AndroidBookSpeechEngine(context: Context) : BookSpeechEngine {
     private var initializationPending = false
     private var initializationGeneration = 0
     private var speechRate = 1f
+    private var speechLanguageTag: String? = null
     private val mainHandler = Handler(Looper.getMainLooper())
 
     override fun initialize(listener: BookSpeechEngine.Listener) {
@@ -32,13 +33,18 @@ internal class AndroidBookSpeechEngine(context: Context) : BookSpeechEngine {
                 dispatchError(listener, "O mecanismo de voz não está disponível.")
                 return@TextToSpeech
             }
-            val languageStatus = engine.setLanguage(Locale.getDefault())
-            if (languageStatus == TextToSpeech.LANG_MISSING_DATA || languageStatus == TextToSpeech.LANG_NOT_SUPPORTED) {
+            val selection = BookSpeechLocalePolicy.resolve(
+                requestedLanguageTag = speechLanguageTag,
+                deviceLocale = Locale.getDefault(),
+                languageAvailability = engine::isLanguageAvailable,
+            )
+            if (selection == null || engine.setLanguage(selection.locale) < TextToSpeech.LANG_AVAILABLE) {
                 engine.shutdown()
                 textToSpeech = null
                 dispatchError(listener, "O idioma do dispositivo não é compatível com o mecanismo de voz instalado.")
                 return@TextToSpeech
             }
+            if (!selection.preserveSavedLanguage) speechLanguageTag = null
             engine.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
                 override fun onStart(utteranceId: String?) = Unit
                 override fun onDone(utteranceId: String?) {
@@ -63,6 +69,27 @@ internal class AndroidBookSpeechEngine(context: Context) : BookSpeechEngine {
     override fun speak(text: String, utteranceId: String): Boolean {
         val params = Bundle().apply { putFloat(TextToSpeech.Engine.KEY_PARAM_VOLUME, 1f) }
         return textToSpeech?.speak(text, TextToSpeech.QUEUE_FLUSH, params, utteranceId) == TextToSpeech.SUCCESS
+    }
+
+    override fun availableLanguages(): List<BookSpeechLanguageOption> =
+        textToSpeech?.availableLanguages.orEmpty()
+            .filter { it.language.isNotBlank() }
+            .distinctBy(Locale::toLanguageTag)
+            .map { locale ->
+                BookSpeechLanguageOption(
+                    languageTag = locale.toLanguageTag(),
+                    displayName = locale.getDisplayName(locale),
+                )
+            }
+            .sortedBy { it.displayName.lowercase(Locale.getDefault()) }
+
+    override fun setSpeechLanguage(languageTag: String?): Boolean {
+        val locale = languageTag?.let(Locale::forLanguageTag) ?: Locale.getDefault()
+        if (languageTag != null && locale.language.isBlank()) return false
+        val engine = textToSpeech
+        if (engine != null && engine.setLanguage(locale) < TextToSpeech.LANG_AVAILABLE) return false
+        speechLanguageTag = languageTag
+        return true
     }
 
     override fun setSpeechRate(rate: Float): Boolean {

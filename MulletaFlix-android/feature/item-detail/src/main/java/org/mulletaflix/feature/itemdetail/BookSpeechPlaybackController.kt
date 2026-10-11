@@ -14,6 +14,11 @@ internal sealed interface BookSpeechState {
     data class Error(val message: String) : BookSpeechState
 }
 
+internal data class BookSpeechLanguageOption(
+    val languageTag: String,
+    val displayName: String,
+)
+
 internal interface BookSpeechEngine {
     interface Listener {
         fun onReady()
@@ -22,6 +27,8 @@ internal interface BookSpeechEngine {
     }
 
     fun initialize(listener: Listener)
+    fun availableLanguages(): List<BookSpeechLanguageOption>
+    fun setSpeechLanguage(languageTag: String?): Boolean
     fun setSpeechRate(rate: Float): Boolean
     fun speak(text: String, utteranceId: String): Boolean
     fun stop()
@@ -35,6 +42,7 @@ internal class BookSpeechPlaybackController(
     private val engine: BookSpeechEngine,
     private val onStateChanged: (BookSpeechState) -> Unit = {},
     private val onChunkChanged: (Int) -> Unit = {},
+    private val onSpeechLanguageUnavailable: () -> Unit = {},
 ) : BookSpeechEngine.Listener {
     var state: BookSpeechState by mutableStateOf(BookSpeechState.Idle)
         private set
@@ -49,6 +57,8 @@ internal class BookSpeechPlaybackController(
     private var activeUtteranceId: String? = null
     private var initialized = false
     private var initializationRequested = false
+    private var selectedLanguageTag: String? = null
+    private val languageRequests = mutableListOf<(Result<List<BookSpeechLanguageOption>>) -> Unit>()
 
     fun play(chunks: List<String>, startIndex: Int = 0) {
         if (chunks.isEmpty()) return fail("Este trecho não contém texto para leitura.")
@@ -69,6 +79,18 @@ internal class BookSpeechPlaybackController(
     override fun onReady() {
         initialized = true
         initializationRequested = false
+        val selectedLanguage = selectedLanguageTag
+        if (selectedLanguage != null && !engine.setSpeechLanguage(selectedLanguage)) {
+            if (!engine.setSpeechLanguage(null)) {
+                val message = "O idioma selecionado não está disponível e o padrão do dispositivo falhou."
+                completeLanguageRequests(Result.failure(IllegalStateException(message)))
+                onError(message)
+                return
+            }
+            selectedLanguageTag = null
+            onSpeechLanguageUnavailable()
+        }
+        completeLanguageRequests(Result.success(engine.availableLanguages()))
         if (state == BookSpeechState.Preparing) speakCurrentChunk()
     }
 
@@ -96,6 +118,33 @@ internal class BookSpeechPlaybackController(
         if (isActiveError) {
             fail(message)
         }
+        if (!initialized && utteranceId == null) {
+            completeLanguageRequests(Result.failure(IllegalStateException(message)))
+        }
+    }
+
+    fun loadAvailableLanguages(callback: (Result<List<BookSpeechLanguageOption>>) -> Unit) {
+        if (initialized) {
+            callback(Result.success(engine.availableLanguages()))
+            return
+        }
+        languageRequests += callback
+        if (initializationRequested) return
+        initializationRequested = true
+        engine.initialize(this)
+    }
+
+    fun setSpeechLanguage(languageTag: String?): Boolean {
+        if (languageTag != null && languageTag.isBlank()) return false
+        if (initialized && !engine.setSpeechLanguage(languageTag)) return false
+        selectedLanguageTag = languageTag
+        if (initialized && state == BookSpeechState.Speaking) {
+            generation++
+            activeUtteranceId = null
+            engine.stop()
+            speakCurrentChunk()
+        }
+        return true
     }
 
     fun stop() {
@@ -121,6 +170,7 @@ internal class BookSpeechPlaybackController(
         engine.shutdown()
         initialized = false
         initializationRequested = false
+        languageRequests.clear()
     }
 
     private fun speakCurrentChunk() {
@@ -143,5 +193,9 @@ internal class BookSpeechPlaybackController(
     private fun updateState(value: BookSpeechState) {
         state = value
         onStateChanged(value)
+    }
+
+    private fun completeLanguageRequests(result: Result<List<BookSpeechLanguageOption>>) {
+        languageRequests.toList().also { languageRequests.clear() }.forEach { it(result) }
     }
 }

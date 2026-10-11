@@ -409,7 +409,7 @@ internal fun DownloadStorageSortRow(
 ) {
     Column(Modifier.fillMaxWidth()) {
         Text(
-            text = "Ordenar por espaço usado",
+            text = "Ordenar downloads",
             style = MaterialTheme.typography.labelLarge,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )

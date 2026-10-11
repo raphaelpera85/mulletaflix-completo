@@ -1,11 +1,32 @@
 # MulletaFlix Android - Plano de Desenvolvimento & Checklist de Funcionalidades (TODO)
 
+## Ordenação dos downloads offline por título (APK local; sem release)
+
+- [x] Acrescentar ordenação de todos os downloads por título A–Z ou Z–A na tela Offline, além das opções de espaço ocupado já existentes.
+- [x] Comparação usa locale pt-BR e ordem determinística por `downloadId` quando títulos equivalem; títulos sem tamanho conhecido também entram na ordenação alfabética.
+- [x] TDD: testes unitários verificam ordem ascendente/descendente, títulos acentuados, empate estável e estados/bytes mistos; teste Compose permite selecionar as duas opções.
+- [x] `DownloadsSearchTest`: 14/14 em PHONE/API 35, TABLET/API 35 e TV/API 34; wrappers verificaram GPU NVIDIA e encerraram cada AVD. O XML final TV confirma 14 testes, 0 falhas/erros/ignorados.
+- [x] Gate Android: `testDebugUnitTest` — 1.613 testes, 0 falhas/erros/ignorados; lint do módulo downloads e app, `assembleDebug` e compilação AndroidTest do módulo — `BUILD SUCCESSFUL`.
+- [ ] Nenhuma versão, APK de produção, portal ou release foi gerada/publicada.
+
+## Idioma da narração no leitor paginado (APK local; sem release)
+
+- [x] Mostrar seletor acessível de idiomas expostos pelo mecanismo TTS, com opção de usar idioma padrão do aparelho; carregar a lista apenas sob demanda.
+- [x] Persistir localmente por servidor/conta, aplicar antes de narrar e reiniciar o trecho atual ao mudar idioma; EPUB continua usando idioma de conteúdo do Readium.
+- [x] Se o idioma salvo deixar de estar instalado, voltar ao idioma padrão, limpar a preferência obsoleta e ainda abrir o seletor; o adaptador verifica suporte antes de aplicar o locale.
+- [x] Cobrir seleção, restauração do padrão, isolamento, inicialização preguiçosa e callbacks obsoletos por testes.
+- [x] Cobrir recuperação do idioma obsoleto com controlador unitário e teste integrado Compose/DataStore em PHONE/API 35; política Android pura cobre locale salvo, fallback do aparelho, tag inválida e ausência de locale compatível.
+- [ ] Validar voz/idiomas instalados em aparelhos Android reais; não se assume que todo mecanismo possua o mesmo catálogo.
+- [ ] Sem bump, APK de produção, portal ou publicação; mudança exclusivamente no APK.
+
 ## Busca dentro de livros de texto — Android, sem release
 
 - [x] Disponibilizar busca local no leitor de texto paginado; ignorar diferenças entre maiúsculas/minúsculas e acentos.
 - [x] Executar a busca fora da thread da interface, limitar a 100 trechos e apresentar resultados em lista rolável acessível.
+- [x] Permitir substituir uma busca em andamento por uma consulta nova; cancelar o trabalho antigo e ignorar resultados atrasados para manter consulta e resultados sincronizados.
 - [x] Selecionar resultado navega ao trecho e mantém o salvamento de progresso existente.
-- [x] Testes de política e diálogo Compose passaram; PHONE/API 35, TABLET/API 35 e Android TV/API 34.
+- [x] Testes de diálogo Compose: 4/4 em PHONE/API 35, TABLET/API 35 e Android TV/API 34; as três execuções foram encerradas pelos wrappers de AVD.
+- [x] Quality gate Android: 1.611 testes JVM, zero falhas/erros/ignorados; lint do módulo/app, assemble Debug e compilação dos AndroidTests do módulo/app — `BUILD SUCCESSFUL`.
 - [ ] EPUB, PDF e quadrinhos não entram nesta busca; não alterar acesso ao servidor. Sem bump, APK de produção, portal ou release.
 
 ## Quick Connect durante recriação de Activity — Android, sem release
@@ -130,7 +151,8 @@
 - [x] Validação implementada com `aapt dump badging`; falha de metadados ocorre antes de criar diretório/copiar artefatos de saída.
 - [x] TDD Pester 3.4: 4 testes aprovados (metadados corretos, nome de versão antigo, pacote divergente e código divergente). O validador também leu o APK existente `dist/mulletaflix-app.apk` como `org.mulletaflix.android` / `1.3.82` / `382`.
 - [x] Nenhum APK foi reconstruído, empacotado ou publicado nesta tarefa. APK-fonte de release não existe no diretório Gradle; não foi executada a criação de release.
-- [ ] Adicionar teste de integração automatizado do empacotador com APK sintético/SDK stub, garantindo também que saídas pré-existentes não sejam sobrescritas no caso de rejeição.
+- [x] Adicionar teste de integração automatizado do empacotador: um APK sintético inválido é rejeitado pelo `aapt` do SDK, e hashes SHA-256 dos APKs versionado/mais recente preexistentes permanecem iguais.
+- [x] `Invoke-Pester -Script .\tools\Build-AppPackage.Tests.ps1 -PassThru`: 1/1 aprovado; fixture isolada em diretório temporário e removida ao final. O teste não chama Gradle nem assinatura de produção.
 
 
 ## Regressão do despacho HTTP para leitores de livros — APK, sem release

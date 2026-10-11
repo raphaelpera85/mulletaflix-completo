@@ -2,6 +2,7 @@ package org.mulletaflix.feature.downloads
 
 import org.mulletaflix.domain.repository.DownloadEntry
 import org.mulletaflix.domain.repository.DownloadState
+import java.text.Collator
 import java.util.Locale
 
 private val storageLocale = Locale.forLanguageTag("pt-BR")
@@ -15,6 +16,8 @@ internal data class DownloadStorageSummary(
 internal enum class DownloadStorageOrder(val label: String) {
     LargestFirst("Maior primeiro"),
     SmallestFirst("Menor primeiro"),
+    TitleAscending("Título A–Z"),
+    TitleDescending("Título Z–A"),
 }
 
 internal fun summarizeDownloadStorage(downloads: List<DownloadEntry>): DownloadStorageSummary =
@@ -28,6 +31,15 @@ internal fun sortDownloadsByStorage(
     downloads: List<DownloadEntry>,
     order: DownloadStorageOrder,
 ): List<DownloadEntry> {
+    if (order == DownloadStorageOrder.TitleAscending || order == DownloadStorageOrder.TitleDescending) {
+        val titleOrder = Collator.getInstance(storageLocale).apply { strength = Collator.SECONDARY }
+        val direction = if (order == DownloadStorageOrder.TitleAscending) 1 else -1
+        return downloads.sortedWith { first, second ->
+            val titleComparison = titleOrder.compare(first.title.trim(), second.title.trim()) * direction
+            if (titleComparison != 0) titleComparison else first.downloadId.compareTo(second.downloadId)
+        }
+    }
+
     val withKnownUsage = downloads.filter(::hasKnownDownloadedSize)
     val withoutKnownUsage = downloads
         .filterNot(::hasKnownDownloadedSize)

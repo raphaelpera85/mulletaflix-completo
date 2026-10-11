@@ -521,6 +521,47 @@ class BookReaderViewModelTest {
         }
 
     @Test
+    fun `speech language persists across books and stays isolated by account and server`() =
+        runTest(dispatcher) {
+            val suffix = System.nanoTime()
+            val scopeA = HomeFeedCacheScope("language-server-a-$suffix", "https://language-a.example", "language-user-a")
+            val scopeB = HomeFeedCacheScope("language-server-b-$suffix", "https://language-b.example", "language-user-b")
+            val progressStore = BookReaderProgressStore(context)
+            progressStore.writeSpeechLanguageTag(scopeA, null)
+            progressStore.writeSpeechLanguageTag(scopeB, null)
+
+            val api = mockk<MulletaFlixApiService>(relaxed = true)
+            coEvery { api.getBookReaderEpub(any()) } answers { epubResponseBody() }
+            coEvery { api.getBookReaderStatus(any()) } returns BookReaderStatusDto("Ready")
+            val scopeFlow = MutableStateFlow<HomeFeedCacheScope?>(scopeA)
+            val firstReader = BookReaderViewModel(api, FakeSessionRepository { scopeFlow }, context)
+
+            firstReader.load("language-book-one-$suffix")
+            awaitLoadFinished(firstReader)
+            assertNull(firstReader.state.value.speechLanguageTag)
+
+            firstReader.setSpeechLanguageTag("language-book-one-$suffix", "pt-br")
+            assertEquals("pt-BR", firstReader.state.value.speechLanguageTag)
+            settle { runBlocking { progressStore.readSpeechLanguageTag(scopeA) } == "pt-BR" }
+
+            firstReader.load("language-book-two-$suffix")
+            awaitLoadFinished(firstReader)
+            assertEquals("pt-BR", firstReader.state.value.speechLanguageTag)
+
+            val reopenedReader = BookReaderViewModel(api, FakeSessionRepository(scopeA), context)
+            reopenedReader.load("language-book-three-$suffix")
+            awaitLoadFinished(reopenedReader)
+            assertEquals("pt-BR", reopenedReader.state.value.speechLanguageTag)
+
+            scopeFlow.value = scopeB
+            awaitLoadFinished(firstReader)
+            assertNull(firstReader.state.value.speechLanguageTag)
+            firstReader.setSpeechLanguageTag("language-book-two-$suffix", "en-GB")
+            settle { runBlocking { progressStore.readSpeechLanguageTag(scopeB) } == "en-GB" }
+            assertEquals("pt-BR", progressStore.readSpeechLanguageTag(scopeA))
+        }
+
+    @Test
     fun `server conversion status is shown while the book stream waits and cleared after it arrives`() =
         runTest(dispatcher) {
             val api = mockk<MulletaFlixApiService>(relaxed = true)

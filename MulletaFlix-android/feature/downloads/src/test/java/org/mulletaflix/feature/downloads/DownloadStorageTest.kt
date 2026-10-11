@@ -51,6 +51,36 @@ class DownloadStorageTest {
     }
 
     @Test
+    fun `title ascending sorts every download by Portuguese title and uses id as tie breaker`() {
+        val entries = listOf(
+            entry("z", "Zulu", 4),
+            entry("b", "Épico", 0, DownloadState.Queued),
+            entry("a", "Aventura", 0, DownloadState.Failed),
+            entry("c", "Épico", 1),
+        )
+
+        assertEquals(
+            listOf("a", "b", "c", "z"),
+            sortDownloadsByStorage(entries, DownloadStorageOrder.TitleAscending).map { it.id },
+        )
+    }
+
+    @Test
+    fun `title descending reverses title order without reversing stable id ties`() {
+        val entries = listOf(
+            entry("z", "Zulu", 4),
+            entry("b", "Épico", 0, DownloadState.Queued),
+            entry("a", "Aventura", 0, DownloadState.Failed),
+            entry("c", "Épico", 1),
+        )
+
+        assertEquals(
+            listOf("z", "b", "c", "a"),
+            sortDownloadsByStorage(entries, DownloadStorageOrder.TitleDescending).map { it.id },
+        )
+    }
+
+    @Test
     fun `per title storage label clamps invalid values and includes total when known`() {
         val download = entry("movie", "Filme", -5).copy(contentLength = 2_097_152)
 

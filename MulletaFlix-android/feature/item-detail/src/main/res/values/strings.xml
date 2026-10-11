@@ -7,4 +7,9 @@
     <string name="book_reader_speech_rate_increase">Aumentar velocidade da narração</string>
     <string name="book_reader_speech_rate_percent">%1$d%%</string>
     <string name="book_reader_speech_rate_value">Velocidade da narração: %1$d%%</string>
+    <string name="book_reader_speech_language">Idioma da narração</string>
+    <string name="book_reader_speech_language_default">Padrão do dispositivo</string>
+    <string name="book_reader_speech_language_close">Fechar</string>
+    <string name="book_reader_speech_languages_unavailable">Nenhum idioma de narração instalado foi informado pelo mecanismo de voz.</string>
+    <string name="book_reader_speech_language_reset_notice">O idioma salvo não está mais disponível. A narração voltou ao padrão do dispositivo.</string>
 </resources>

@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.io.File
+import java.util.Locale
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -45,6 +46,7 @@ internal data class BookReaderState(
     val initialLocator: Locator? = null,
     val fontSizePercent: Int = BookReaderFontSize.DEFAULT_PERCENT,
     val speechRatePercent: Int = BookSpeechRate.DEFAULT_PERCENT,
+    val speechLanguageTag: String? = null,
     val bookmarks: List<BookReaderBookmark> = emptyList(),
     val bookmarkMessage: String? = null,
     val error: String? = null,
@@ -81,6 +83,8 @@ class BookReaderViewModel @Inject constructor(
     private var fontSizeSaveJob: Job? = null
     private val speechRateSaveGeneration = BookReaderRequestGeneration()
     private var speechRateSaveJob: Job? = null
+    private val speechLanguageSaveGeneration = BookReaderRequestGeneration()
+    private var speechLanguageSaveJob: Job? = null
 
     init {
         viewModelScope.launch {
@@ -105,6 +109,8 @@ class BookReaderViewModel @Inject constructor(
                     fontSizeSaveJob?.cancel()
                     speechRateSaveGeneration.begin()
                     speechRateSaveJob?.cancel()
+                    speechLanguageSaveGeneration.begin()
+                    speechLanguageSaveJob?.cancel()
                     load(activeItemId)
                 }
             }
@@ -136,6 +142,7 @@ class BookReaderViewModel @Inject constructor(
                 ?: BookReaderFontSize.DEFAULT_PERCENT
             val speechRatePercent = progressScope?.let { progressStore.readSpeechRatePercent(it) }
                 ?: BookSpeechRate.DEFAULT_PERCENT
+            val speechLanguageTag = progressScope?.let { progressStore.readSpeechLanguageTag(it) }
             var unownedPageBook: BookPageSource? = null
             val pageBookCreatedOnIo = AtomicReference<BookPageSource?>()
             try {
@@ -250,6 +257,7 @@ class BookReaderViewModel @Inject constructor(
                     initialLocator = restorableLocator,
                     fontSizePercent = fontSizePercent,
                     speechRatePercent = speechRatePercent,
+                    speechLanguageTag = speechLanguageTag,
                     bookmarks = bookmarks,
                 )
             } catch (cancelled: CancellationException) {
@@ -352,6 +360,42 @@ class BookReaderViewModel @Inject constructor(
             }
             if (!speechRateSaveGeneration.isCurrent(generation)) return@launch
             progressStore.writeSpeechRatePercent(expectedScope, normalizedPercent)
+        }
+    }
+
+    fun setSpeechLanguageTag(itemId: String, languageTag: String?) {
+        val expectedScope = loadedProgressScope ?: return
+        val currentState = _state.value
+        if (loadedItemId != itemId ||
+            (currentState.publication == null && currentState.pageBook == null && currentState.textBook == null)
+        ) return
+
+        val normalizedTag = languageTag?.trim()?.takeIf(String::isNotEmpty)?.let { tag ->
+            Locale.forLanguageTag(tag).toLanguageTag().split('-').mapIndexed { index, part ->
+                when {
+                    index == 0 -> part.lowercase(Locale.ROOT)
+                    part.length == 4 && part.all(Char::isLetter) ->
+                        part.lowercase(Locale.ROOT).replaceFirstChar { it.titlecase(Locale.ROOT) }
+                    (part.length == 2 && part.all(Char::isLetter)) ||
+                        (part.length == 3 && part.all(Char::isDigit)) -> part.uppercase(Locale.ROOT)
+                    else -> part.lowercase(Locale.ROOT)
+                }
+            }.joinToString("-").takeIf { it != "und" }
+        }
+        if (currentState.speechLanguageTag == normalizedTag) return
+        _state.value = currentState.copy(speechLanguageTag = normalizedTag)
+
+        val generation = speechLanguageSaveGeneration.begin()
+        speechLanguageSaveJob?.cancel()
+        speechLanguageSaveJob = viewModelScope.launch {
+            val currentScope = recoverBookReaderStorageFailure {
+                sessionRepository.getHomeFeedCacheScope().first()
+            } ?: return@launch
+            if (progressStore.entryKey(currentScope, BookReaderProgressStore.SPEECH_LANGUAGE_SCOPE_ITEM_ID) !=
+                progressStore.entryKey(expectedScope, BookReaderProgressStore.SPEECH_LANGUAGE_SCOPE_ITEM_ID)
+            ) return@launch
+            if (!speechLanguageSaveGeneration.isCurrent(generation)) return@launch
+            progressStore.writeSpeechLanguageTag(expectedScope, normalizedTag)
         }
     }
 
@@ -481,6 +525,8 @@ class BookReaderViewModel @Inject constructor(
         fontSizeSaveJob?.cancel()
         speechRateSaveGeneration.begin()
         speechRateSaveJob?.cancel()
+        speechLanguageSaveGeneration.begin()
+        speechLanguageSaveJob?.cancel()
         val pageBookToClose = activePageBook
         activePageBook = null
         applicationScope.launch {

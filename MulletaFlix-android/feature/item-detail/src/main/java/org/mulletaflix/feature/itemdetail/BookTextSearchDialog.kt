@@ -27,6 +27,7 @@ import androidx.compose.ui.unit.dp
 import org.readium.r2.shared.publication.Locator
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -41,24 +42,50 @@ internal fun BookTextSearchDialog(
     var hasSearched by remember { mutableStateOf(false) }
     var isSearching by remember { mutableStateOf(false) }
     var searchFailed by remember { mutableStateOf(false) }
+    var activeQuery by remember { mutableStateOf<String?>(null) }
+    var activeSearch by remember { mutableStateOf<Job?>(null) }
+    var searchGeneration by remember { mutableStateOf(0) }
     val scope = rememberCoroutineScope()
 
+    fun updateQuery(updatedQuery: String) {
+        if (updatedQuery == query) return
+        query = updatedQuery
+        results.clear()
+        hasSearched = false
+        searchFailed = false
+        if (isSearching) {
+            searchGeneration++
+            activeSearch?.cancel()
+            activeSearch = null
+            activeQuery = null
+            isSearching = false
+        }
+    }
+
     fun search() {
-        if (isSearching) return
+        val requestedQuery = query
+        if (requestedQuery.isBlank() || (isSearching && requestedQuery == activeQuery)) return
+        activeSearch?.cancel()
+        val generation = ++searchGeneration
+        activeQuery = requestedQuery
         isSearching = true
         hasSearched = true
         searchFailed = false
         results.clear()
-        scope.launch {
+        activeSearch = scope.launch {
             try {
-                val matches = withContext(Dispatchers.IO) { search(query) }
-                results.addAll(matches)
+                val matches = withContext(Dispatchers.IO) { search(requestedQuery) }
+                if (generation == searchGeneration) results.addAll(matches)
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (_: Exception) {
-                searchFailed = true
+                if (generation == searchGeneration) searchFailed = true
             } finally {
-                isSearching = false
+                if (generation == searchGeneration) {
+                    isSearching = false
+                    activeQuery = null
+                    activeSearch = null
+                }
             }
         }
     }
@@ -70,7 +97,7 @@ internal fun BookTextSearchDialog(
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedTextField(
                     value = query,
-                    onValueChange = { query = it },
+                    onValueChange = ::updateQuery,
                     label = { Text("Texto") },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth().testTag(BOOK_TEXT_SEARCH_QUERY_TEST_TAG),
@@ -102,7 +129,10 @@ internal fun BookTextSearchDialog(
             }
         },
         confirmButton = {
-            TextButton(onClick = ::search, enabled = query.isNotBlank() && !isSearching) {
+            TextButton(
+                onClick = ::search,
+                enabled = query.isNotBlank() && (!isSearching || query != activeQuery),
+            ) {
                 Text("Buscar")
             }
         },

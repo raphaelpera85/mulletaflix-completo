@@ -1,5 +1,24 @@
 # Plano de TDD do MulletaFlix Android
 
+## RED-GREEN — idioma da narração TTS no leitor paginado — 2026-10-10
+
+- `INTENT`: oferecer nos leitores PDF/texto paginado uma escolha entre idiomas disponíveis no mecanismo TTS, com padrão do aparelho e preferência persistida por servidor/conta; carregar idiomas somente quando solicitado.
+- `RED`: teste Compose `textBookNarrationLanguageCanBeSelectedAndResetToDeviceDefault` foi adicionado primeiro e falhou no PHONE/API 35 porque a ação `book-speech-language` não estava visível.
+- `GREEN`: controlador inicializa TTS sob demanda, carrega opções instaladas, aplica a escolha e reinicia o trecho ativo ao alterar idioma; preferência local no DataStore é normalizada e isolada por servidor/conta. Cobertura unitária de inicialização preguiçosa, aplicação antes da fala, reinício/descartar callback obsoleto e persistência/isolamento.
+- `DEVICE`: `:feature:item-detail:compileDebugAndroidTestKotlin` passou; `BookReaderScreenIntegrationTest.textBookNarrationLanguageCanBeSelectedAndResetToDeviceDefault` passou 1/1 no PHONE/API 35. O teste abriu o diálogo, selecionou inglês, verificou DataStore/estado e voltou ao idioma padrão; wrapper confirmou GPU NVIDIA e encerrou o AVD.
+- `GATE`: `testDebugUnitTest :feature:item-detail:lintDebug :app:lintDebug :app:assembleDebug :feature:item-detail:compileDebugAndroidTestKotlin :app:compileDebugAndroidTestKotlin` — `BUILD SUCCESSFUL`; 1.606 testes JVM, 0 falhas/erros/ignorados. `git diff --check` aprovado.
+- `LIMITAÇÕES`: teste com engine falso e sem áudio/motor real; idiomas efetivamente instalados e qualidade da voz variam por dispositivo. Sem release, servidor ou portal.
+
+## RED-GREEN — recuperar idioma TTS salvo que deixou de estar disponível — 2026-10-10
+
+- `INTENT`: o seletor atual falha a inicialização quando não consegue aplicar o locale salvo; o teste novo exige fallback ao locale do aparelho, remoção da preferência obsoleta e abertura do seletor; `TODO-APP.md` promete a opção padrão e idiomas efetivamente disponíveis.
+- `RED`: `BookSpeechPlaybackControllerTest.unavailable saved language falls back to device default and keeps selector available` falhou antes da correção: requisição de idiomas retornou falha e não aceitou o padrão.
+- `GREEN`: adaptador Android resolve suporte antes de aplicar locale e tenta padrão; controlador, se a preferência antiga falhar, seleciona padrão, limpa a preferência via ViewModel/DataStore e conclui a consulta de idiomas.
+- `UNIT`: `BookSpeechPlaybackControllerTest` e `BookSpeechLocalePolicyTest` passaram após GREEN; a política cobre locale salvo instalado, fallback do aparelho, tag inválida e nenhum locale compatível.
+- `DEVICE`: `BookReaderScreenIntegrationTest.staleSavedNarrationLanguageCanBeRecoveredFromTheLanguageSelector` passou 1/1 no PHONE/API 35; restaurou `it-IT` obsoleto, abriu o seletor, confirmou idioma padrão e persistência removida. AVD usou GPU NVIDIA e foi encerrado pelo wrapper.
+- `GATE`: `testDebugUnitTest :feature:item-detail:lintDebug :app:lintDebug :app:assembleDebug :feature:item-detail:compileDebugAndroidTestKotlin :app:compileDebugAndroidTestKotlin` — `BUILD SUCCESSFUL`; 1.611 testes JVM, 0 falhas/erros/ignorados; `git diff --check` aprovado.
+- `LIMITAÇÕES`: mecanismo e saída de áudio reais variam por dispositivo; validado com engine falso no teste Compose e política executável, sem voz física. Sem release, servidor ou portal.
+
 ## RED-GREEN — busca de conteúdo EPUB via Readium — 2026-10-10
 
 - `INTENT`: estender a busca adicionada ao leitor de texto para EPUB, usando o SearchService real da publicação e permitindo saltar para uma ocorrência em outro capítulo.
@@ -602,3 +621,26 @@ Verificação instrumentada adicional de Livros na Android TV em 2026-10-08: `Tv
 - `GRAPHIFY`: atualizado depois do código e documentação (11.118 nós, 29.103 arestas, 481 comunidades). `graphify explain` confirmou que o diálogo é chamado por `ItemDetailScreen`, coberto pelos dois testes Compose, e que `queuePlaybackIssue` constrói `QueuedPlaybackIssue`.
 - `LIMITAÇÕES`: mock HTTP não comprova recebimento pelo servidor real; Graphify instalado é 0.9.79 diante das instruções 0.9.84 e reporta erro de parsing preexistente em `TvHomeRefreshIntegrationTest.kt:53`, 83 arquivos não classificados e 28 sem símbolos.
 - `ESCOPO`: somente APK; sem bump, artefato de produção, release, servidor ou portal.
+### TDD — consultas concorrentes na busca de livros (APK local; sem release)
+
+- `INTENT`: o diálogo de busca deixava editar o texto mas ignorava nova busca enquanto havia uma ativa e podia manter resultados obsoletos depois da edição; os testes exigem que a nova consulta substitua a anterior, que resultados antigos desapareçam imediatamente e que respostas atrasadas não sobrescrevam a atual. `TODO-APP.md` define a busca local fora da UI, limitada e ligada à consulta submetida.
+- `RED`: `newerQueryCanReplaceInFlightSearchAndIgnoreLateResults` falhou esperando a segunda consulta ser executada; `editingQueryClearsResultsFromPreviousQuery` falhou porque o resultado antigo ainda ficava visível ao editar.
+- `GREEN`: capturar a consulta submetida, cancelar o trabalho anterior, invalidar callbacks com geração monotônica e limpar resultados ao editar. A busca permanece em `Dispatchers.IO`; erros/resultados/finalização só atualizam a consulta vigente.
+- `DEVICE`: `BookTextSearchDialogTest` — 4/4 PHONE/API 35 (`MulletaflixApi35`), 4/4 TABLET/API 35 (`MulletaflixTabletApi35`) e 4/4 Android TV/API 34 (`MulletaflixTvApi34`). Cada wrapper confirmou o uso da GPU NVIDIA e encerrou o AVD.
+- `QUALITY BAR`: `testDebugUnitTest :feature:item-detail:lintDebug :app:lintDebug :app:assembleDebug :feature:item-detail:compileDebugAndroidTestKotlin :app:compileDebugAndroidTestKotlin --no-daemon --console=plain` — `BUILD SUCCESSFUL` em 2m29s; 1.611 testes JVM, 0 falhas/erros/ignorados. `git diff --check` passou; avisos apenas de conversão de LF para CRLF.
+- `ESCOPO/LIMITAÇÕES`: teste de UI usa fixture Compose e não valida catálogo real. Nenhuma mudança no servidor, portal, versão ou release; build Debug usado somente para testes locais.
+
+## Cobertura de segurança do empacotador de APK — sem release
+
+- `INTENT`: `build-app-package.ps1` valida o APK antes de copiar os destinos; a integração deve rejeitar APK sintético ilegível e preservar os dois artefatos preexistentes sem truncar nem criar arquivos novos.
+- `RED/GREEN`: mudança somente em cobertura; não foi observada regressão de produção nem se alega um RED do empacotador. A primeira tentativa de harness falhou porque PowerShell 7.6 não permite `Add-Type` como ConsoleApplication; o teste passou a usar o `aapt` instalado. A execução seguinte expôs newline criado pelo fixture nos arquivos-sentinela; fixture corrigida com `-NoNewline`.
+- `EVIDÊNCIA`: `Invoke-Pester -Script .\tools\Build-AppPackage.Tests.ps1 -PassThru` — 1/1 passou. Teste copiou o script e validadores para pasta temporária, usou APK sintético inválido e SDK local, e confirmou conteúdo e SHA-256 inalterados nos destinos `mulletaflix-app-v1.3.83.apk` e `mulletaflix-app.apk`; pasta temporária removida em `finally`. `testDebugUnitTest --rerun-tasks --no-daemon --console=plain` — `BUILD SUCCESSFUL`; 1.611 testes JVM, 0 falhas/erros/ignorados; 470 tarefas executadas.
+- `LIMITAÇÕES`: exercita rejeição de APK ilegível, não gera APK binário válido nem simula keystore; testes unitários existentes cobrem incompatibilidade de package, versionName e versionCode. Nenhum APK real foi empacotado ou assinado; sem mudança do servidor, portal, versão ou release.
+## Ordenação alfabética da fila de downloads offline — APK, sem release
+
+- `INTENT`: tornar a fila Offline navegável por nome do título nos dois sentidos sem remover a ordenação por uso de armazenamento.
+- `RED`: testes de ordenação adicionados antes do código falharam na compilação por ausência de `TitleAscending`/`TitleDescending`; isso confirmou que as opções ainda não existiam. Não houve alegação de falha de runtime anterior.
+- `GREEN`: `DownloadStorageOrder` passou a oferecer Título A–Z e Título Z–A. A ordenação pt-BR inclui todos os estados da fila e desempata títulos equivalentes por `downloadId` crescente, sem inverter a estabilidade no modo descendente. O seletor Compose permite ativar ambos.
+- `TEST`: `DownloadStorageTest` focal passou com `--rerun-tasks`; `DownloadsSearchTest` instrumentado passou em PHONE/API 35, TABLET/API 35 e TV/API 34 (14 testes por perfil, 0 falhas/erros/ignorados). Os wrappers confirmaram GPU NVIDIA e encerraram os AVDs. XML final da execução TV registra 14/14 aprovados.
+- `QUALITY BAR`: `testDebugUnitTest` — 1.613 testes JVM, 0 falhas/erros/ignorados; `:feature:downloads:lintDebug`, `:app:lintDebug`, `:app:assembleDebug` e `:feature:downloads:compileDebugAndroidTestKotlin` — `BUILD SUCCESSFUL`; `git diff --check` aprovado.
+- `SCOPE`: somente APK; nenhuma mudança de servidor/portal, versão, assinatura, pacote de produção ou release.
