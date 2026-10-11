@@ -1,5 +1,7 @@
 package org.mulletaflix.feature.itemdetail
 
+import org.mulletaflix.core.common.util.userFacingMessageOr
+
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -47,7 +49,7 @@ internal fun PlaybackIssueReportDialog(
                 onDismiss()
             }.onFailure { failure ->
                 errorMessage = if (failure is CancellationException) null else
-                    failure.localizedMessage ?: "Não foi possível enviar o relato. Tente novamente."
+                    failure.userFacingMessageOr("Não foi possível enviar o relato. Tente novamente.")
             }
         }
     }

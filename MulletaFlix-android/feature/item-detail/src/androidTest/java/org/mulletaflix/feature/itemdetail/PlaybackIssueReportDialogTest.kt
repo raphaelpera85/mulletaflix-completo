@@ -76,4 +76,27 @@ class PlaybackIssueReportDialogTest {
 
         composeRule.onNodeWithTag("playback-issue-queue").assertDoesNotExist()
     }
+
+    @Test
+    fun blankFailureMessageShowsActionableFallback() {
+        composeRule.setContent {
+            MaterialTheme {
+                PlaybackIssueReportDialog(
+                    hasFeedbackSession = true,
+                    feedbackSessionLoaded = true,
+                    onDismiss = {},
+                    onSubmit = { _, _, complete -> complete(Result.failure(IOException("  "))) },
+                    onQueue = { _, _, _ -> },
+                )
+            }
+        }
+
+        composeRule.onNodeWithText("Enviar").performClick()
+        composeRule.waitUntil(5_000) {
+            composeRule.onAllNodesWithText("Não foi possível enviar o relato. Tente novamente.")
+                .fetchSemanticsNodes().isNotEmpty()
+        }
+        composeRule.onNodeWithText("Não foi possível enviar o relato. Tente novamente.").assertIsDisplayed()
+        composeRule.onNodeWithTag("playback-issue-queue").assertIsDisplayed()
+    }
 }

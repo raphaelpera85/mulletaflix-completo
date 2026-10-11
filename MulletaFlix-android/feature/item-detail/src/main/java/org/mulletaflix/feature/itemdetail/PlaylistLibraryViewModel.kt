@@ -9,6 +9,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
+import org.mulletaflix.core.common.util.userFacingMessageOr
 import org.mulletaflix.domain.model.MediaItem
 import org.mulletaflix.domain.model.Playlist
 import org.mulletaflix.domain.repository.AuthRepository
@@ -85,7 +86,12 @@ class PlaylistLibraryViewModel @Inject constructor(
                     }
                 },
                 onFailure = { error ->
-                    if (generation == playlistsRequestGeneration) _state.value = _state.value.copy(isLoadingPlaylists = false, error = error.message ?: "Não foi possível carregar as playlists.")
+                    if (generation == playlistsRequestGeneration) {
+                        _state.value = _state.value.copy(
+                            isLoadingPlaylists = false,
+                            error = error.userFacingMessageOr("Não foi possível carregar as playlists."),
+                        )
+                    }
                 },
             )
         }
@@ -159,7 +165,7 @@ class PlaylistLibraryViewModel @Inject constructor(
                         failedItemsStartIndex = startIndex
                         _state.value = _state.value.copy(
                             isLoadingItems = false,
-                            itemsError = error.message ?: "Não foi possível carregar os títulos.",
+                            itemsError = error.userFacingMessageOr("Não foi possível carregar os títulos."),
                             hasMoreItems = false,
                         )
                     }

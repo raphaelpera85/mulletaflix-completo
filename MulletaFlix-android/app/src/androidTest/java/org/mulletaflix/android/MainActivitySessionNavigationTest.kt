@@ -323,6 +323,32 @@ class MainActivitySessionNavigationTest {
     }
 
     @Test
+    fun settingsLogoutClearsPersistedSessionBeforeShowingServerSelection() = runBlocking {
+        val server = startMockServer()
+        val serverUrl = server.url("/").toString().trimEnd('/')
+        sessionRepository.setBaseUrl(serverUrl)
+        sessionRepository.saveSession(
+            serverUrl = serverUrl,
+            token = "settings-logout-instrumentation-token",
+            userId = "settings-logout-instrumentation-user",
+            userName = "Usuário de teste",
+            serverId = "settings-logout-instrumentation-server",
+            deviceId = requireNotNull(originalSession).deviceId,
+        )
+        launchMainActivity()
+
+        composeRule.waitUntil(timeoutMillis = 20_000) { homeVisible() }
+        composeRule.onNodeWithContentDescription("Mais ações", useUnmergedTree = true).performClick()
+        composeRule.onNodeWithText("Configurações", useUnmergedTree = true).performClick()
+        composeRule.onNodeWithText("Sair", useUnmergedTree = true).performClick()
+
+        composeRule.waitUntil(timeoutMillis = 20_000) { serverSelectionVisible() }
+        assertTrue("Logout deve limpar o token persistido antes de sair de Ajustes", sessionRepository.getAccessToken().first().isNullOrBlank())
+        assertTrue("Logout deve limpar o usuário persistido", sessionRepository.getCurrentUserId().first().isNullOrBlank())
+        assertEquals("Logout deve manter o servidor para reconexão", serverUrl, sessionRepository.getBaseUrl().first())
+    }
+
+    @Test
     fun crossServerDeepLinkAuthenticatesOnTargetServerAndLoadsItemWithoutRequestingOldServer() = runBlocking {
         if (context.checkSelfPermission(android.Manifest.permission.ACCESS_LOCAL_NETWORK) !=
             android.content.pm.PackageManager.PERMISSION_GRANTED
@@ -388,6 +414,7 @@ class MainActivitySessionNavigationTest {
         }
         mockServers += targetServer
         val targetServerUrl = targetServer.url("/").toString().trimEnd('/')
+        sessionRepository.setBaseUrl(oldServerUrl)
         sessionRepository.saveSession(
             serverUrl = oldServerUrl,
             token = "old-server-token",
@@ -434,13 +461,29 @@ class MainActivitySessionNavigationTest {
             "GET /System/Info/Public" in targetServerRequests,
         )
         assertTrue("A tela de login deve abrir após validar B", loginVisible())
+        assertEquals(
+            "A URL persistida precisa continuar no servidor B depois da conexão e antes do login",
+            targetServerUrl,
+            sessionRepository.getBaseUrl().first(),
+        )
         composeRule.onNodeWithTag("auth.login.username").performTextInput("raphael")
         composeRule.onNodeWithTag("auth.login.password").performTextInput("test-password")
         composeRule.onNodeWithTag("auth.login.submit").performClick()
 
-        composeRule.waitUntil(timeoutMillis = 30_000) {
-            "GET /Users/$targetUserId/Items/$targetItemId" in targetServerRequests
-        }
+        val targetItemRequested = runCatching {
+            composeRule.waitUntil(timeoutMillis = 30_000) {
+                "GET /Users/$targetUserId/Items/$targetItemId" in targetServerRequests
+            }
+        }.isSuccess
+        assertTrue(
+            "Após autenticação em B, o app deve solicitar o item do link. " +
+                "requests=$targetServerRequests, authBodies=$targetAuthenticationBodies, " +
+                "savedUrl=${sessionRepository.getBaseUrl().first()}, " +
+                "savedServerId=${sessionRepository.getServerId().first()}, " +
+                "savedUser=${sessionRepository.getCurrentUserId().first()}, " +
+                "loginVisible=${loginVisible()}, visibleText=${displayedTexts()}",
+            targetItemRequested,
+        )
         assertTrue(
             "O login deve usar o endpoint de autenticação do servidor indicado pelo link",
             "POST /Users/AuthenticateByName" in targetServerRequests,

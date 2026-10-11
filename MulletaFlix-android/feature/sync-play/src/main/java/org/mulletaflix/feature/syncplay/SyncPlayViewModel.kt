@@ -9,6 +9,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
+import org.mulletaflix.core.common.util.userFacingMessageOr
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import org.mulletaflix.domain.repository.SyncPlayGroup
@@ -145,7 +146,7 @@ class SyncPlayViewModel @Inject constructor(
                             it.copy(
                                 isGroupsStale = true,
                                 isLoading = false,
-                                error = e.message ?: "Não foi possível carregar as salas.",
+                                error = e.userFacingMessageOr("Não foi possível carregar as salas."),
                             )
                         }
                     }
@@ -173,7 +174,7 @@ class SyncPlayViewModel @Inject constructor(
                 }
                 .onFailure { e ->
                     if (isCurrentSession(userId, generation)) {
-                        _state.update { it.copy(isSubmitting = false, error = e.message ?: "Não foi possível criar a sala.") }
+                        _state.update { it.copy(isSubmitting = false, error = e.userFacingMessageOr("Não foi possível criar a sala.")) }
                     }
                 }
         }
@@ -203,7 +204,7 @@ class SyncPlayViewModel @Inject constructor(
                 }
                 .onFailure { e ->
                     if (isCurrentSession(userId, generation)) {
-                        _state.update { it.copy(isSubmitting = false, error = e.message ?: "Não foi possível entrar na sala.") }
+                        _state.update { it.copy(isSubmitting = false, error = e.userFacingMessageOr("Não foi possível entrar na sala.")) }
                     }
                 }
         }
@@ -224,7 +225,7 @@ class SyncPlayViewModel @Inject constructor(
                 }
                 .onFailure { e ->
                     if (isCurrentSession(userId, generation)) {
-                        _state.update { it.copy(isSubmitting = false, error = e.message ?: "Não foi possível sair da sala.") }
+                        _state.update { it.copy(isSubmitting = false, error = e.userFacingMessageOr("Não foi possível sair da sala.")) }
                     }
                 }
         }
@@ -245,7 +246,7 @@ class SyncPlayViewModel @Inject constructor(
                 }
                 .onFailure { e ->
                     if (isCurrentSession(userId, generation)) {
-                        _state.update { it.copy(isSubmitting = false, error = e.message ?: "Não foi possível controlar a reprodução da sala.") }
+                        _state.update { it.copy(isSubmitting = false, error = e.userFacingMessageOr("Não foi possível controlar a reprodução da sala.")) }
                     }
                 }
         }

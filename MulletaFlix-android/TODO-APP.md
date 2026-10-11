@@ -1,5 +1,70 @@
 # MulletaFlix Android - Plano de Desenvolvimento & Checklist de Funcionalidades (TODO)
 
+## Mensagens de erro recuperáveis em playlists, update e TV ao vivo (APK local)
+
+- [x] Aplicar fallback para exceções sem texto nas ações de playlist dos detalhes, biblioteca de playlists, verificação de atualização, agendamento e cancelamento de gravação.
+- [x] Cinco testes unitários novos reproduzem os fluxos de exceção com espaços; RED confirmado antes e GREEN depois.
+- [x] Suíte global 1.635/1.635; lint de detalhes, Configurações, TV ao vivo e app, montagem Debug e compilação AndroidTest do leitor passaram.
+- [x] Aplicado `Throwable.userFacingMessageOr()` aos fallbacks de erro da narração PDF e EPUB; helper cobre exceções vazias/brancas e mensagens úteis.
+- [x] Suíte global 1.635/1.635, lint do módulo/app, `assembleDebug`, compilação AndroidTest e integração de narração PDF PHONE/API 35 (1/1) passaram; AVD NVIDIA fechado.
+- [ ] Sem nova versão, APK de produção ou publicação.
+
+## Mensagens de erro recuperáveis nas bibliotecas (APK local; sem release)
+
+- [x] Biblioteca e Minha Lista mostram fallback localizado quando a falha vem sem mensagem ou com espaços, nos carregamentos inicial, paginação, filtros e catálogo aleatório completo.
+- [x] Cinco testes ViewModel comprovam fallback; mensagens úteis do servidor continuam preservadas pelos caminhos existentes.
+- [x] Cinco testes RED/GREEN passaram; suíte global 1.630/1.630, lint de biblioteca/app, `assembleDebug` e `git diff --check` aprovados.
+- [x] Dez usos equivalentes em cadastro, downloads, TV ao vivo e SyncPlay foram migrados e cobertos por testes RED/GREEN em 2026-10-11.
+- [x] Cadastro também preserva mensagem útil retornada pelo servidor; suíte global passou com 1.646 testes, sem falhas/erros/ignorados.
+- [ ] Sem bump, APK de produção, release ou publicação.
+
+## Fallback recuperável ao falhar a abertura de livro (APK local; sem release)
+
+- [x] Quando o erro HTTP/parser da abertura traz mensagem vazia ou espaços, exibir fallback acionável “Não foi possível abrir este livro.” no estado de erro.
+- [x] Reutilizar `Throwable.userFacingMessageOr()` e preservar mensagens reais; teste RED-GREEN em `BookReaderViewModelTest`.
+- [x] Teste focal RED/GREEN; suíte completa 1.625 testes sem falha, lint do módulo/app, compilação AndroidTest do módulo, `assembleDebug` e `git diff --check` aprovados.
+- [x] Auditoria posterior migrou os demais fallbacks de exceção localizados; não há `message ?: fallback` de exceção em Kotlin. `state.message ?: ""` na UI é exibição opcional, não fallback de erro.
+- [ ] Sem bump, APK de produção, release, portal, commit ou push.
+
+## Erros com mensagem localizada vazia (APK local; sem release)
+
+- [x] Centralizar fallback seguro em `Throwable.userFacingMessageOr()`; mensagem localizada nula/branca usa texto recuperável e mensagem válida é preservada.
+- [x] Migrar os oito usos vulneráveis em Home, detalhes/leitor/relato e downloader do APK; unificar três usos previamente protegidos no Home/perfil.
+- [x] Testes unitários do helper + ViewModel de detalhes aprovados; teste Compose do relato confirma mensagem e ação de fila após erro vazio (1/1 PHONE/API 35).
+- [x] Quality gate: 1.624 testes JVM, 0 falhas/erros/ignorados; lint core-common/Home/item-detail/perfil/app, assemble Debug e compilação AndroidTest app/item-detail — `BUILD SUCCESSFUL`.
+- [x] Graphify atualizado e consultado; busca pelo padrão `localizedMessage ?: ` sem ocorrências em Kotlin.
+- [x] Sem servidor, versão, APK de produção, portal, release ou push.
+
+## Mensagem recuperável em falhas de logout/troca de conta (APK local; sem release)
+
+- [x] Usar fallback quando a mensagem da exceção estiver vazia ou só contiver espaços nos fluxos de logout e troca de usuário.
+- [x] TDD RED/GREEN com dois testes de ViewModel; teste Compose PHONE/API 35 confirma o erro visível e não navega após logout falho.
+- [x] Suíte JVM global, lint de `:feature:user` e `:app`, `assembleDebug` e compilação AndroidTest — `BUILD SUCCESSFUL`.
+- [x] Atualizar Graphify após código e documentação; validar relações ViewModel/testes via `explain`.
+- [x] Sem servidor, nova versão, APK de produção, portal ou release.
+
+## Detecção segura de formato do leitor de livros (APK local; sem release)
+
+- [x] Abrir texto simples UTF-8/Windows-1252 quando o servidor o entrega com MIME binário genérico; limitar o sniffing a 4 KiB e rejeitar conteúdo binário arbitrário.
+- [x] TDD RED-GREEN em policy/ViewModel e teste de integração PHONE/API 35: texto aparece no leitor e bytes binários recebem erro de formato acionável (2/2).
+- [x] Quality gate completo: `testDebugUnitTest :feature:item-detail:lintDebug :app:lintDebug :app:assembleDebug :feature:item-detail:compileDebugAndroidTestKotlin` — `BUILD SUCCESSFUL`; 1.618 testes JVM, 0 falhas/erros/ignorados.
+- [x] Não tratar binário arbitrário recebido com MIME genérico como EPUB automaticamente.
+- [x] Manter EPUB quando o MIME for explicitamente `application/epub+zip`; para MIME genérico, reconhecer EPUB pela presença de `META-INF/container.xml`, após as detecções já existentes de outros formatos.
+- [x] Mostrar mensagem clara no leitor para payload genérico incompatível; testes de policy e estado do ViewModel aprovados.
+- [x] Quality gate Android: `testDebugUnitTest :feature:item-detail:lintDebug :app:lintDebug :app:assembleDebug :feature:item-detail:compileDebugAndroidTestKotlin` — `BUILD SUCCESSFUL`; relatórios XML agregados: 1.617 testes, 0 falhas, 0 erros, 0 ignorados.
+- [x] `BookReaderScreenIntegrationTest.unsupportedGenericPayloadShowsActionableFormatMessageInReader`: 1/1 no PHONE/API 35; confirmou mensagem visível e chamada à rota do leitor. Wrapper verificou NVIDIA RTX 3050 e encerrou o AVD.
+- [x] Graphify atualizado após a mudança; `explain` confirmou nó e relações de `BookReaderPayloadPolicy.kt` e seus testes.
+- [x] Sem bump de versão, APK de produção, portal ou publicação; nenhuma alteração no servidor.
+
+## Leitura de quadrinhos em tablets (APK local; sem release)
+
+- [x] Usar duas páginas simultâneas somente em tablet com largura suficiente; manter phone, TV e janelas compactas em página única.
+- [x] Navegar pares de páginas sem ultrapassar/omitir a última página; manter salto direto para página e progresso existente.
+- [x] Instrumentação `ComicBookReaderIntegrationTest`: 7/7 em PHONE/API 35, TABLET/API 35 e TV/API 34; wrapper verificou NVIDIA e encerrou cada AVD.
+- [x] Quality gate: 1.615 testes JVM, 0 falhas/erros/ignorados; lint de `:feature:item-detail` e `:app`, `assembleDebug`, compilação AndroidTest do módulo e `git diff --check` passaram.
+- [x] Grafo Graphify atualizado: 11.220 nós, 29.411 arestas, 496 comunidades; `explain` confirmou vínculos entre layout, tela e testes.
+- [x] Sem bump, APK de produção, portal ou publicação.
+
 ## Ordenação dos downloads offline por título (APK local; sem release)
 
 - [x] Acrescentar ordenação de todos os downloads por título A–Z ou Z–A na tela Offline, além das opções de espaço ocupado já existentes.
@@ -118,7 +183,9 @@
 - [x] `MainActivitySessionNavigationTest`: PHONE/API 35, 4/4 aprovados — sem sessão vai à autenticação, credenciais parciais ficam na seleção de servidor, sessão completa abre Home, e link autenticado despacha GET exato do item no servidor local. Usa `SessionRepositoryImpl` real e `MockWebServer`.
 - [x] Deep link autenticado de inicialização confirmou `GET /Users/{userId}/Items/{itemId}` em MockWebServer; a renderização visual completa do título não é alegada por este teste.
 - [x] Cold start por deep link no mesmo servidor mantém Home sob o detalhe na pilha; Voltar retorna à Home em Activity real, PHONE/API 35 e TV/API 34, 5/5 em cada perfil.
-- [ ] Acrescentar casos de logout, troca de servidor e deep link cross-server com retorno ao NavHost; executar cenários TABLET/TV quando fizerem sentido ao fluxo.
+- [x] Em Ajustes, logout só navega após sucesso; falha mantém o destino, encerra progresso e mostra erro recuperável. RED-GREEN em `SettingsViewModelTest` para falha e sucesso.
+- [x] Teste por Activity para logout em Ajustes: sessão autenticada → Ajustes → sair → seleção de servidor; comprova remoção persistida do token/usuário e retenção da URL.
+- [ ] Cobrir por Activity troca de servidor e deep link cross-server com retorno ao NavHost; executar TABLET/TV quando fizer sentido ao fluxo.
 - [x] Quality Bar completa após adicionar o deep link: `testDebugUnitTest :app:lintDebug :app:assembleDebug :app:compileDebugAndroidTestKotlin --no-daemon --console=plain` passou; 240 relatórios XML, 1.567 testes JVM, 0 falhas/erros/ignorados. Sem bump ou release.
 
 ## Conexão em LAN sem internet — Android, sem release
@@ -353,8 +420,9 @@ Este documento rastreia o status de implementação de todas as funcionalidades,
 - [x] `BookReaderPayloadPolicyTest`: simula cache deixado por processo encerrado, confirma remoção dos EPUB/CBZ órfãos, preservação de arquivos não pertencentes ao leitor e de livro ainda ativo após inicializar outro leitor; exclusão que retorna `false` ou lança `SecurityException` não derruba o leitor e é tentada novamente na inicialização seguinte.
 - [x] Quality Bar após a recuperação do cache: `testDebugUnitTest` (1.416 testes, 0 falhas/erros/ignorados), `:feature:item-detail:lintDebug`, `:app:lintDebug` e `:app:assembleDebug`: `BUILD SUCCESSFUL`.
 - [ ] Validar cold start e renderização do APK principal (`org.mulletaflix.android.debug`) após morte do processo, falhas de renderização e navegação EPUB por Back do sistema/D-pad. A prova atual mata e reinicia o alvo Android isolado do módulo e valida o mesmo DataStore/ViewModel, mas não lança a Activity principal após o processo morrer. APK-H21 continua aberto até validar a tela integrada, instância real, mídia, MIME/autenticação e dispositivos-alvo.
+- [ ] Harness host-orquestrado parcial: AVD temporária API 35 confirmou captura/restauração 1/1, força encerramento do PID 3493, relançamento autenticado por deep link, livro renderizado e PID 3566 reportado pela Activity. Script terminou com exit 1 porque exige `/BookReader/Status`, que o `BookReaderViewModel` cancela se o corpo retorna antes do atraso de polling de 1 s; esse endpoint é best-effort, logo não prova falha de leitura. Revisar o critério em ciclo futuro; não declarar harness aprovado ainda.
 - [x] Adicionar cobertura da rota integrada na Activity principal: `MainActivitySessionNavigationTest.authenticatedBookDeepLinkOpensReaderAndSurvivesActivityRecreation` abre livro via deep link autenticado, valida o conteúdo servido por MockWebServer e confirma a tela após `ActivityScenario.recreate()` (PHONE/API 35, 1/1). Isso cobre recriação de Activity no mesmo processo, não morte/cold start do processo principal; a pendência APK-H21 permanece.
-- [ ] APK-H21 — o experimento que tentou `am force-stop org.mulletaflix.android.debug` dentro desse mesmo runner foi descartado: compilação AndroidTest passou, mas a execução PHONE/API 35 falhou em 6,215 s sem stack trace (`tests=1`, `failures=1`, `errors=0`, `skipped=0`). Não tratar como evidência de restauração. Próximo: orquestrador independente do pacote APK, backend fixture que permaneça ativo entre fases e checagem de PID anterior/novo, sem `clear data` nem limpeza da sessão do usuário.
+- [ ] APK-H21 — primeira execução PHONE/API 35 no AVD `MulletaflixApi35` falhou por falta de argumento do snapshot depois de gravar sessão fixture; estado anterior pode ter sido perdido. Não limpar nem reutilizar essa AVD sem orientação. Em AVD temporária separada, captura antes de mutar via `Instrumentation.sendStatus` passou; cold start real exibiu o livro e capturou PID distinto; restauração passou. O script continua com falso negativo ao exigir `/BookReader/Status` num fluxo em que o monitor de status pode ser cancelado antes da primeira consulta. Nunca usar `pm clear`.
 
 ## Mapeamento de faixas offline mistas (embutidas + legenda externa) (APK local; sem release)
 

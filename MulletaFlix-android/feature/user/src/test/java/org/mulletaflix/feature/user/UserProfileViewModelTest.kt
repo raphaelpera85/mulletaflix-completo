@@ -273,6 +273,43 @@ class UserProfileViewModelTest {
     }
 
     @Test
+    fun `logout failure with blank message exposes an actionable fallback`() = runTest {
+        val authRepo = object : FakeAuthRepository() {
+            override suspend fun logout(): Result<Unit> = Result.failure(IllegalStateException("  "))
+        }
+        val viewModel = createViewModel(authRepo)
+        advanceUntilIdle()
+
+        viewModel.logout {}
+        advanceUntilIdle()
+
+        assertEquals(
+            "Não foi possível encerrar a sessão. Tente novamente.",
+            viewModel.uiState.value.error,
+        )
+    }
+
+    @Test
+    fun `user switch failure with blank message exposes an actionable fallback`() = runTest {
+        val authRepo = object : FakeAuthRepository() {
+            override suspend fun login(username: String, password: String): Result<UserSession> =
+                Result.failure(IllegalStateException(""))
+        }
+        val viewModel = createViewModel(authRepo)
+        advanceUntilIdle()
+        viewModel.selectUserToSwitch(AvailableUser(id = "u2", name = "Guest"))
+        viewModel.onSwitchPasswordChanged("password")
+
+        viewModel.confirmSwitchUser {}
+        advanceUntilIdle()
+
+        assertEquals(
+            "Senha incorreta ou erro ao alternar usuário",
+            viewModel.uiState.value.error,
+        )
+    }
+
+    @Test
     fun `retrying logout clears stale error before request starts`() = runTest {
         val retryResult = CompletableDeferred<Result<Unit>>()
         var logoutCalls = 0

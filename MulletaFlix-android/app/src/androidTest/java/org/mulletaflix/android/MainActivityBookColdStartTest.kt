@@ -1,6 +1,7 @@
 package org.mulletaflix.android
 
 import android.content.Intent
+import android.os.Bundle
 import android.net.Uri
 import android.util.Base64
 import androidx.compose.ui.test.assertIsDisplayed
@@ -31,9 +32,23 @@ class MainActivityBookColdStartTest {
     private val sessionRepository = SessionRepositoryImpl(context)
 
     @Test
-    fun prepareAuthenticatedSessionForColdStart() = runBlocking {
+    fun captureOriginalSessionSnapshotForColdStart() = runBlocking {
         val existing = readSession()
         assumeTrue("Cannot safely restore the current partial session", existing.isSafelyRestorable)
+        val snapshot = Base64.encodeToString(
+            existing.toJson().toString().toByteArray(Charsets.UTF_8),
+            Base64.NO_WRAP,
+        )
+        InstrumentationRegistry.getInstrumentation().sendStatus(
+            0,
+            Bundle().apply { putString(SESSION_SNAPSHOT_STATUS_KEY, snapshot) },
+        )
+        Unit
+    }
+
+    @Test
+    fun prepareAuthenticatedSessionForColdStart() = runBlocking {
+        val existing = readSession()
         val arguments = InstrumentationRegistry.getArguments()
         sessionRepository.saveSession(
             serverUrl = requireArgument(arguments.getString(ARG_SERVER_URL), ARG_SERVER_URL),
@@ -43,12 +58,6 @@ class MainActivityBookColdStartTest {
             serverId = requireArgument(arguments.getString(ARG_SERVER_ID), ARG_SERVER_ID),
             deviceId = existing.deviceId,
         )
-        val snapshot = Base64.encodeToString(
-            existing.toJson().toString().toByteArray(Charsets.UTF_8),
-            Base64.NO_WRAP,
-        )
-        println("$SESSION_SNAPSHOT_OUTPUT_PREFIX$snapshot")
-        System.out.flush()
     }
 
     @Test
@@ -76,6 +85,16 @@ class MainActivityBookColdStartTest {
                 }.isSuccess
             }
             composeRule.onNodeWithText(TEST_BOOK_CONTENT).assertIsDisplayed()
+            val mainProcessId = requireNotNull(scenario).let { launchedScenario ->
+                var processId = -1
+                launchedScenario.onActivity { processId = android.os.Process.myPid() }
+                processId
+            }
+            check(mainProcessId > 0) { "MainActivity did not report a valid process id" }
+            InstrumentationRegistry.getInstrumentation().sendStatus(
+                0,
+                Bundle().apply { putInt(MAIN_PROCESS_PID_STATUS_KEY, mainProcessId) },
+            )
         } finally {
             scenario?.close()
             restoreSessionFromSnapshot(sessionSnapshot)
@@ -160,7 +179,8 @@ class MainActivityBookColdStartTest {
         requireNotNull(value?.takeIf(String::isNotBlank)) { "Missing instrumentation argument: $name" }
 
     private companion object {
-        const val SESSION_SNAPSHOT_OUTPUT_PREFIX = "BOOK_COLD_START_SESSION_SNAPSHOT="
+        const val SESSION_SNAPSHOT_STATUS_KEY = "BOOK_COLD_START_SESSION_SNAPSHOT"
+        const val MAIN_PROCESS_PID_STATUS_KEY = "BOOK_COLD_START_MAIN_PID"
         const val ARG_SESSION_SNAPSHOT = "bookColdStartSessionSnapshot"
         const val ARG_SERVER_URL = "bookColdStartServerUrl"
         const val ARG_ITEM_ID = "bookColdStartItemId"

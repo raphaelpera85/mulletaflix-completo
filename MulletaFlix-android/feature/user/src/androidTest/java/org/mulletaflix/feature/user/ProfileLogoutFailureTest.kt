@@ -58,6 +58,35 @@ class ProfileLogoutFailureTest {
         composeRule.runOnIdle { assertEquals(0, logoutNavigations) }
         composeRule.runOnIdle { assertFalse(viewModel.uiState.value.isLoggingOut) }
     }
+
+    @Test
+    fun failedLogoutWithBlankMessageRendersFallbackAndDoesNotInvokeNavigation() {
+        val fallback = "Não foi possível encerrar a sessão. Tente novamente."
+        var logoutNavigations = 0
+        val authRepository = FailingLogoutAuthRepository(IllegalStateException("  "))
+        val viewModel = UserProfileViewModel(
+            authRepository = authRepository,
+            sessionRepository = TestProfileSessionRepository(),
+            getUserProfileUseCase = GetUserProfileUseCase(authRepository),
+            logoutUseCase = LogoutUseCase(authRepository),
+            switchUserUseCase = SwitchUserUseCase(authRepository),
+            context = InstrumentationRegistry.getInstrumentation().targetContext,
+        )
+
+        composeRule.setContent {
+            MaterialTheme {
+                ProfileScreen(viewModel = viewModel, onLogout = { logoutNavigations++ })
+            }
+        }
+
+        composeRule.runOnIdle { viewModel.logout { logoutNavigations++ } }
+
+        composeRule.waitUntil(timeoutMillis = 5_000) {
+            viewModel.uiState.value.error == fallback && !viewModel.uiState.value.isLoggingOut
+        }
+        composeRule.onNodeWithText(fallback).assertExists()
+        composeRule.runOnIdle { assertEquals(0, logoutNavigations) }
+    }
 }
 
 private class FailingLogoutAuthRepository(

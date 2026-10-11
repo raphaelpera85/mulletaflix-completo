@@ -40,6 +40,31 @@ class LiveTvViewModelTest {
         assertTrue(viewModel.state.value.error == null)
     }
 
+    @Test fun `blank channel failure exposes localized fallback and resets loading`() = runTest {
+        repository.channelResponses += CompletableDeferred(Result.failure(IllegalStateException("  ")))
+        val viewModel = createViewModel()
+
+        advanceUntilIdle()
+
+        assertEquals("Não foi possível carregar os canais.", viewModel.state.value.error)
+        assertEquals(false, viewModel.state.value.isLoading)
+    }
+
+    @Test fun `blank guide failure exposes localized fallback and resets loading`() = runTest {
+        repository.channels = listOf(
+            MediaItem("channel-guide-blank", "Canal", org.mulletaflix.domain.model.MediaItemType.LiveTvChannel),
+        )
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+        repository.guideResponses += CompletableDeferred(Result.failure(IllegalStateException("  ")))
+
+        viewModel.loadGuide()
+        advanceUntilIdle()
+
+        assertEquals("Não foi possível carregar o guia.", viewModel.state.value.guideError)
+        assertEquals(false, viewModel.state.value.isLoadingGuide)
+    }
+
     @Test fun `does not request channels without a session`() = runTest {
         val viewModel = createViewModel(session = FakeSessionRepository(userId = null))
         advanceUntilIdle()
@@ -249,6 +274,33 @@ class LiveTvViewModelTest {
         assertTrue(viewModel.state.value.cancellingProgramIds.isEmpty())
         assertEquals("Permissão negada", viewModel.state.value.recordingActionError)
         assertEquals(null, viewModel.state.value.guideError)
+    }
+
+    @Test fun `blank recording schedule failure exposes fallback`() = runTest {
+        repository.schedulingResult = Result.failure(IllegalStateException(" "))
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+        val program = testProgram("program-schedule-blank-failure")
+
+        viewModel.scheduleRecording(program)
+        advanceUntilIdle()
+
+        assertEquals("Não foi possível agendar a gravação.", viewModel.state.value.recordingActionError)
+        assertTrue(program.id !in viewModel.state.value.schedulingProgramIds)
+    }
+
+    @Test fun `blank recording cancellation failure exposes fallback`() = runTest {
+        val program = testProgram("program-cancel-blank-failure")
+        repository.scheduledResponse = Result.success(mapOf(program.id to "timer-blank"))
+        repository.cancellationResult = Result.failure(IllegalStateException(" "))
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+
+        viewModel.cancelScheduledRecording(program)
+        advanceUntilIdle()
+
+        assertEquals("Não foi possível cancelar a gravação.", viewModel.state.value.recordingActionError)
+        assertTrue(program.id in viewModel.state.value.scheduledProgramIds)
     }
 
     @Test fun `offline cancellation does not call the server`() = runTest {
@@ -736,6 +788,7 @@ class LiveTvViewModelTest {
         val scheduledLookupResponses = mutableListOf<Result<Map<String, String>>>()
         val scheduledLookupDeferredResponses = mutableListOf<CompletableDeferred<Result<Map<String, String>>>>()
         var cancellationResult: Result<Unit> = Result.success(Unit)
+        var schedulingResult: Result<Unit> = Result.success(Unit)
         val scheduledIds = mutableListOf<String>()
         val cancelledTimerIds = mutableListOf<String>()
         val guideResponses = mutableListOf<CompletableDeferred<Result<List<MediaItem>>>>()
@@ -778,8 +831,10 @@ class LiveTvViewModelTest {
         }
         override suspend fun scheduleRecording(program: MediaItem): Result<Unit> {
             scheduledIds += program.id
-            scheduledResponse = Result.success(scheduledResponse.getOrDefault(emptyMap()) + (program.id to "timer-${program.id}"))
-            return Result.success(Unit)
+            if (schedulingResult.isSuccess) {
+                scheduledResponse = Result.success(scheduledResponse.getOrDefault(emptyMap()) + (program.id to "timer-${program.id}"))
+            }
+            return schedulingResult
         }
         override suspend fun cancelScheduledRecording(timerId: String): Result<Unit> {
             cancelledTimerIds += timerId

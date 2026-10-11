@@ -22,6 +22,7 @@ $fixtureProcess = $null
 $testApksInstalled = $false
 $fixturePort = 0
 $script:sessionSnapshotBase64 = $null
+$script:mainProcessPidAfterColdStart = $null
 
 function Invoke-TestPhase {
     param([Parameter(Mandatory = $true)][string] $Method)
@@ -43,7 +44,7 @@ function Invoke-TestPhase {
             '-e', 'bookColdStartServerId', $serverId
         )
     }
-    if ($Method -ne 'prepareAuthenticatedSessionForColdStart' -and $script:sessionSnapshotBase64) {
+    if ($Method -notin @('captureOriginalSessionSnapshotForColdStart', 'prepareAuthenticatedSessionForColdStart') -and $script:sessionSnapshotBase64) {
         $arguments += @('-e', 'bookColdStartSessionSnapshot', $script:sessionSnapshotBase64)
     }
     $arguments += "$testPackage/$testRunner"
@@ -51,12 +52,28 @@ function Invoke-TestPhase {
     $output = @(& $adb @arguments)
     $exitCode = $LASTEXITCODE
     $text = $output -join [Environment]::NewLine
-    if ($Method -eq 'prepareAuthenticatedSessionForColdStart') {
-        $snapshotMatch = [regex]::Match($text, 'BOOK_COLD_START_SESSION_SNAPSHOT=(?<snapshot>[A-Za-z0-9+/=]+)')
+    if ($Method -eq 'captureOriginalSessionSnapshotForColdStart') {
+        $snapshotMatch = [regex]::Match($text, '(?im)INSTRUMENTATION_STATUS:\s*BOOK_COLD_START_SESSION_SNAPSHOT\s*=\s*(?<snapshot>[A-Za-z0-9+/=]+)')
         if ($snapshotMatch.Success) { $script:sessionSnapshotBase64 = $snapshotMatch.Groups['snapshot'].Value }
-        $text = [regex]::Replace($text, 'BOOK_COLD_START_SESSION_SNAPSHOT=[A-Za-z0-9+/=]+', 'BOOK_COLD_START_SESSION_SNAPSHOT=[REDACTED]')
+        $text = [regex]::Replace($text, '(?im)(BOOK_COLD_START_SESSION_SNAPSHOT\s*=\s*)[^\r\n]+', '$1[REDACTED]')
+        Write-Host $text
+        if (-not $snapshotMatch.Success) {
+            $crash = @(& $adb -s $serial logcat -d -t 250 -s AndroidRuntime:E '*:S' 2>$null)
+            if ($crash.Count -gt 0) {
+                Write-Host 'AndroidRuntime error log (capture-only phase; no session writes occurred):'
+                Write-Host ($crash -join [Environment]::NewLine)
+            }
+            throw 'Snapshot-only instrumentation phase did not return the recovery data; app session was not modified.'
+        }
     }
-    Write-Host $text
+    if ($Method -eq 'authenticatedBookDeepLinkRendersAfterMainProcessRestart') {
+        $pidMatch = [regex]::Match($text, '(?im)INSTRUMENTATION_STATUS:\s*BOOK_COLD_START_MAIN_PID\s*=\s*(?<pid>\d+)')
+        if ($pidMatch.Success) { $script:mainProcessPidAfterColdStart = $pidMatch.Groups['pid'].Value }
+        if (-not $pidMatch.Success) {
+            throw 'Deep-link instrumentation did not report the live MainActivity process id.'
+        }
+    }
+    if ($Method -ne 'captureOriginalSessionSnapshotForColdStart') { Write-Host $text }
     if ($exitCode -ne 0 -or $text -notmatch 'OK \(1 test\)' -or
         $text -match 'FAILURES!!!|INSTRUMENTATION_FAILED') {
         throw "Instrumentation phase '$Method' did not report exactly one passing test (adb exit=$exitCode)."
@@ -129,10 +146,23 @@ try {
     if ($LASTEXITCODE -ne 0) { throw "Gradle installation failed with code $LASTEXITCODE." }
     $testApksInstalled = $true
 
+    Invoke-TestPhase -Method 'captureOriginalSessionSnapshotForColdStart'
     Invoke-TestPhase -Method 'prepareAuthenticatedSessionForColdStart'
-    $pidBefore = @(Get-AppProcessIds)
+
+    $startOutput = @(& $adb -s $serial shell am start -W -n "$appPackage/org.mulletaflix.android.MainActivity" 2>&1)
+    $startExitCode = $LASTEXITCODE
+    if ($startExitCode -ne 0 -or ($startOutput -join [Environment]::NewLine) -match 'Error:|Exception') {
+        throw "Could not start the authenticated app before its cold start: $($startOutput -join ' ')."
+    }
+    $pidBefore = @()
+    $startDeadline = (Get-Date).AddSeconds(15)
+    do {
+        $pidBefore = @(Get-AppProcessIds)
+        if ($pidBefore.Count -eq 1) { break }
+        Start-Sleep -Milliseconds 250
+    } while ((Get-Date) -lt $startDeadline)
     if ($pidBefore.Count -ne 1) {
-        throw "Expected one live target app PID after session preparation; found: $($pidBefore -join ', ')."
+        throw "Expected one live target app PID after launching MainActivity; found: $($pidBefore -join ', ')."
     }
 
     & $adb -s $serial shell am force-stop $appPackage
@@ -141,9 +171,9 @@ try {
     Write-Host "Confirmed process death: previous PID $($pidBefore[0]) stopped."
 
     Invoke-TestPhase -Method 'authenticatedBookDeepLinkRendersAfterMainProcessRestart'
-    $pidAfter = @(Get-AppProcessIds)
-    if ($pidAfter.Count -ne 1 -or $pidAfter[0] -eq $pidBefore[0]) {
-        throw "Cold start did not create a different app process; before=$($pidBefore -join ', '), after=$($pidAfter -join ', ')."
+    $pidAfter = $script:mainProcessPidAfterColdStart
+    if ([string]::IsNullOrWhiteSpace($pidAfter) -or $pidAfter -eq $pidBefore[0]) {
+        throw "Cold start did not create a different app process; before=$($pidBefore[0]), after=$pidAfter."
     }
 
     $status = Invoke-RestMethod -Uri "http://127.0.0.1:$fixturePort/status" -TimeoutSec 5
@@ -155,7 +185,7 @@ try {
     )) {
         if ($requiredPath -notin $paths) { throw "Cold-start fixture did not receive required request '$requiredPath'." }
     }
-    Write-Host "Main app cold-start rendered the book; PID $($pidBefore[0]) -> $($pidAfter[0]); required routes were requested."
+    Write-Host "Main app cold-start rendered the book; PID $($pidBefore[0]) -> $pidAfter; required routes were requested."
 }
 finally {
     if ($testApksInstalled -and $script:sessionSnapshotBase64) {

@@ -11,6 +11,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.launch
 import org.mulletaflix.core.common.dispatcher.IoDispatcher
+import org.mulletaflix.core.common.util.userFacingMessageOr
 import org.mulletaflix.core.common.cache.ArtworkCacheCleaner
 import org.mulletaflix.core.common.update.AppUpdateDownloader
 import org.mulletaflix.core.common.update.AppUpdateInstallOutcome
@@ -67,6 +68,8 @@ data class SettingsState(
     val isCheckingConnection: Boolean = false,
     val connectionStatus: String? = null,
     val cacheStatusMessage: String? = null,
+    val isLoggingOut: Boolean = false,
+    val logoutErrorMessage: String? = null,
     val seriesTrackPreferenceStatusMessage: String? = null,
 )
 
@@ -328,9 +331,26 @@ class SettingsViewModel @Inject constructor(
         viewModelScope.launch { settingsRepository.setDefaultLibrarySortOrder(normalized) }
     }
 
-    fun logout() {
+    fun logout(onSuccess: () -> Unit = {}) {
+        if (_state.value.isLoggingOut) return
+        _state.update { it.copy(isLoggingOut = true, logoutErrorMessage = null) }
         viewModelScope.launch {
-            logoutUseCase()
+            logoutUseCase().fold(
+                onSuccess = {
+                    _state.update { it.copy(isLoggingOut = false, logoutErrorMessage = null) }
+                    onSuccess()
+                },
+                onFailure = { failure ->
+                    _state.update {
+                        it.copy(
+                            isLoggingOut = false,
+                            logoutErrorMessage = failure.userFacingMessageOr(
+                                "Não foi possível encerrar a sessão. Tente novamente.",
+                            ),
+                        )
+                    }
+                },
+            )
         }
     }
 
@@ -475,7 +495,7 @@ class SettingsViewModel @Inject constructor(
                     _state.update {
                         it.copy(
                             isCheckingUpdate = false,
-                            updateErrorMessage = error.message ?: "Erro ao verificar atualizações.",
+                            updateErrorMessage = error.userFacingMessageOr("Erro ao verificar atualizações."),
                         )
                     }
                 }

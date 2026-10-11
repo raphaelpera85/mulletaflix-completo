@@ -459,7 +459,15 @@ class AuthViewModel @Inject constructor(
                         _state.update { it.copy(isRegistering = false, error = null) }
                         onSuccess()
                     } else {
-                        _state.update { it.copy(isRegistering = false, error = result.message ?: "Ocorreu um erro durante o cadastro") }
+                        _state.update {
+                            it.copy(
+                                isRegistering = false,
+                                error = result.message
+                                    ?.trim()
+                                    ?.takeIf(String::isNotBlank)
+                                    ?: "Ocorreu um erro durante o cadastro",
+                            )
+                        }
                     }
                 }
                 .onFailure { err ->

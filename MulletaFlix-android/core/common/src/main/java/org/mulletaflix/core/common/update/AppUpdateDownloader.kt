@@ -1,5 +1,7 @@
 package org.mulletaflix.core.common.update
 
+import org.mulletaflix.core.common.util.userFacingMessageOr
+
 import android.content.Context
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CancellationException
@@ -155,7 +157,7 @@ class AppUpdateDownloader private constructor(
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            emit(DownloadState.Error("Erro durante o download: ${e.localizedMessage ?: e.message}"))
+            emit(DownloadState.Error("Erro durante o download: ${e.userFacingMessageOr("falha desconhecida")}"))
         } finally {
             cancellationHandle?.dispose()
             if (!completed) {

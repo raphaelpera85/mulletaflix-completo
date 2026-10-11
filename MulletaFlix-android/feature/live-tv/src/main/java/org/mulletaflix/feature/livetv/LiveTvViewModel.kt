@@ -8,6 +8,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.update
+import org.mulletaflix.core.common.util.userFacingMessageOr
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.delay
@@ -17,6 +18,7 @@ import kotlinx.coroutines.sync.withLock
 import kotlin.coroutines.coroutineContext
 import org.mulletaflix.core.api.SessionRepository
 import org.mulletaflix.core.common.network.NetworkMonitor
+import org.mulletaflix.core.common.util.userFacingMessageOr
 import org.mulletaflix.domain.model.MediaItem
 import org.mulletaflix.domain.repository.LiveTvRepository
 import org.mulletaflix.domain.usecase.GetLiveTvChannelsUseCase
@@ -191,7 +193,7 @@ class LiveTvViewModel @Inject constructor(
                     _state.update {
                         it.copy(
                             isLoading = false,
-                            error = e.message ?: "Não foi possível carregar os canais.",
+                            error = e.userFacingMessageOr("Não foi possível carregar os canais."),
                         )
                     }
                     if (guideRequested) loadGuideForCurrentChannels()
@@ -327,7 +329,9 @@ class LiveTvViewModel @Inject constructor(
                 }
                 .onFailure { e ->
                     if (generation != guideGeneration || !isCurrentSession(userIdAtRequest, sessionAtRequest)) return@onFailure
-                    _state.update { it.copy(isLoadingGuide = false, guideError = e.message ?: "Não foi possível carregar o guia.") }
+                    _state.update {
+                        it.copy(isLoadingGuide = false, guideError = e.userFacingMessageOr("Não foi possível carregar o guia."))
+                    }
                 }
         }
     }
@@ -402,7 +406,7 @@ class LiveTvViewModel @Inject constructor(
                     _state.update {
                         it.copy(
                             schedulingProgramIds = it.schedulingProgramIds - program.id,
-                            recordingActionError = error.message ?: "Não foi possível agendar a gravação.",
+                            recordingActionError = error.userFacingMessageOr("Não foi possível agendar a gravação."),
                         )
                     }
                 }
@@ -509,7 +513,7 @@ class LiveTvViewModel @Inject constructor(
                     _state.update {
                         it.copy(
                             cancellingProgramIds = it.cancellingProgramIds - program.id,
-                            recordingActionError = error.message ?: "Não foi possível cancelar a gravação.",
+                            recordingActionError = error.userFacingMessageOr("Não foi possível cancelar a gravação."),
                         )
                     }
                 }

@@ -120,6 +120,36 @@ class PlaylistLibraryViewModelTest {
         assertEquals(null, viewModel.state.value.itemsError)
     }
 
+    @Test
+    fun blankPlaylistAndItemFailuresExposeFallbackMessages() = runTest {
+        val playlist = Playlist("p1", "Favoritos")
+        var failPlaylistLoad = true
+        val repo = object : PlaylistRepository {
+            override suspend fun getPlaylists(userId: String): Result<List<Playlist>> =
+                if (failPlaylistLoad) Result.failure(IllegalStateException(" "))
+                else Result.success(listOf(playlist))
+            override suspend fun getPlaylistItems(
+                userId: String,
+                playlistId: String,
+                startIndex: Int,
+                limit: Int,
+            ): Result<Pair<List<MediaItem>, Int>> = Result.failure(IllegalStateException(" "))
+            override suspend fun createPlaylist(userId: String, name: String, itemId: String?) = Result.success(playlist)
+            override suspend fun addItem(userId: String, playlistId: String, itemId: String) = Result.success(Unit)
+        }
+        val viewModel = PlaylistLibraryViewModel(ManagePlaylistUseCase(repo), fakeAuthRepository())
+        advanceUntilIdle()
+
+        assertEquals("Não foi possível carregar as playlists.", viewModel.state.value.error)
+
+        failPlaylistLoad = false
+        viewModel.refresh()
+        advanceUntilIdle()
+
+        assertEquals("Não foi possível carregar os títulos.", viewModel.state.value.itemsError)
+        assertFalse(viewModel.state.value.isLoadingItems)
+    }
+
     private fun fakeAuthRepository() = object : AuthRepository {
         override suspend fun verifyServer(url: String) = Result.failure<ServerVerification>(UnsupportedOperationException())
         override suspend fun register(username: String, password: String) = Result.failure<RegistrationResult>(UnsupportedOperationException())

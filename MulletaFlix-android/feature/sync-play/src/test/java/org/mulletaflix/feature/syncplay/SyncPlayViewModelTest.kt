@@ -69,6 +69,86 @@ class SyncPlayViewModelTest {
         assertEquals(1, repository.listCalls)
     }
 
+    @Test fun `blank group loading failure exposes a localized fallback`() = runTest {
+        val repository = FakeRepository(
+            emptyList(),
+            firstResponse = CompletableDeferred(Result.failure(IllegalStateException("  "))),
+        )
+        val viewModel = SyncPlayViewModel(ManageSyncPlayUseCase(repository), repository)
+
+        advanceUntilIdle()
+
+        assertEquals("Não foi possível carregar as salas.", viewModel.state.value.error)
+        assertEquals(false, viewModel.state.value.isLoading)
+    }
+
+    @Test fun `blank create failure exposes a localized fallback`() = runTest {
+        val repository = FakeRepository(
+            emptyList(),
+            createGate = CompletableDeferred(Result.failure(IllegalStateException("  "))),
+        )
+        val viewModel = SyncPlayViewModel(ManageSyncPlayUseCase(repository), repository)
+        advanceUntilIdle()
+
+        viewModel.createGroup("Sala")
+        advanceUntilIdle()
+
+        assertEquals("Não foi possível criar a sala.", viewModel.state.value.error)
+        assertEquals(false, viewModel.state.value.isSubmitting)
+    }
+
+    @Test fun `blank join failure exposes a localized fallback`() = runTest {
+        val group = SyncPlayGroup("g1", "Filme", "Paused", emptyList())
+        val repository = FakeRepository(
+            listOf(group),
+            joinGate = CompletableDeferred(Result.failure(IllegalStateException("  "))),
+        )
+        val viewModel = SyncPlayViewModel(ManageSyncPlayUseCase(repository), repository)
+        advanceUntilIdle()
+
+        viewModel.joinGroup(group.groupId)
+        advanceUntilIdle()
+
+        assertEquals("Não foi possível entrar na sala.", viewModel.state.value.error)
+        assertEquals(false, viewModel.state.value.isSubmitting)
+    }
+
+    @Test fun `blank leave failure exposes a localized fallback`() = runTest {
+        val group = SyncPlayGroup("g1", "Filme", "Paused", emptyList())
+        val repository = FakeRepository(
+            listOf(group),
+            leaveGate = CompletableDeferred(Result.failure(IllegalStateException("  "))),
+        )
+        val viewModel = SyncPlayViewModel(ManageSyncPlayUseCase(repository), repository)
+        advanceUntilIdle()
+        viewModel.joinGroup(group.groupId)
+        advanceUntilIdle()
+
+        viewModel.leaveGroup()
+        advanceUntilIdle()
+
+        assertEquals("Não foi possível sair da sala.", viewModel.state.value.error)
+        assertEquals(false, viewModel.state.value.isSubmitting)
+    }
+
+    @Test fun `blank playback command failure exposes a localized fallback`() = runTest {
+        val group = SyncPlayGroup("g1", "Filme", "Paused", emptyList())
+        val repository = FakeRepository(
+            listOf(group),
+            commandGate = CompletableDeferred(Result.failure(IllegalStateException("  "))),
+        )
+        val viewModel = SyncPlayViewModel(ManageSyncPlayUseCase(repository), repository)
+        advanceUntilIdle()
+        viewModel.joinGroup(group.groupId)
+        advanceUntilIdle()
+
+        viewModel.sendPlaybackCommand(SyncPlayPlaybackCommand.PAUSE)
+        advanceUntilIdle()
+
+        assertEquals("Não foi possível controlar a reprodução da sala.", viewModel.state.value.error)
+        assertEquals(false, viewModel.state.value.isSubmitting)
+    }
+
     @Test fun `background refresh does not cancel an in flight groups request`() = runTest {
         val pendingResponse = CompletableDeferred<Result<List<SyncPlayGroup>>>()
         val groups = listOf(SyncPlayGroup("g1", "Filme", "Playing", emptyList()))

@@ -1,5 +1,7 @@
 package org.mulletaflix.feature.home
 
+import org.mulletaflix.core.common.util.userFacingMessageOr
+
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
@@ -411,7 +413,7 @@ fun HomeScreen(
                         requestMessage = if (it is kotlinx.coroutines.CancellationException) {
                             null
                         } else {
-                            it.localizedMessage ?: "Não foi possível enviar. Tente novamente."
+                            it.userFacingMessageOr("Não foi possível enviar. Tente novamente.")
                         }
                     }
                 }

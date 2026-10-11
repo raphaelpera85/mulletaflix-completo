@@ -248,6 +248,100 @@ class BookReaderScreenIntegrationTest {
     }
 
     @Test
+    fun unsupportedGenericPayloadShowsActionableFormatMessageInReader() {
+        server.enqueue(
+            MockResponse()
+                .setResponseCode(200)
+                .addHeader("Content-Type", "application/octet-stream")
+                .setBody(Buffer().write(byteArrayOf(0, 1, 2, 3, 4, 5, 0x7F))),
+        )
+        val api = Retrofit.Builder()
+            .baseUrl(server.url("/"))
+            .client(OkHttpClient())
+            .build()
+            .create(MulletaFlixApiService::class.java)
+        val viewModel = ViewModelProvider(
+            viewModelStore,
+            object : ViewModelProvider.Factory {
+                @Suppress("UNCHECKED_CAST")
+                override fun <T : ViewModel> create(modelClass: Class<T>): T =
+                    BookReaderViewModel(api, TestSessionRepository(sessionScope), context) as T
+            },
+        )[BookReaderViewModel::class.java]
+
+        composeRule.setContent {
+            MaterialTheme {
+                BookReaderScreen(itemId = "reader-unsupported-generic", onBack = {}, viewModel = viewModel)
+            }
+        }
+
+        composeRule.waitUntil(timeoutMillis = 15_000) {
+            runCatching {
+                composeRule.onNodeWithText(
+                    "O arquivo recebido não corresponde a um formato de livro compatível.",
+                    useUnmergedTree = true,
+                ).assertIsDisplayed()
+            }.isSuccess
+        }
+        assertEquals(1, server.requestCount)
+        assertTrue(
+            server.takeRequest().path.orEmpty().contains(
+                "/BookReader/Items/reader-unsupported-generic/BookReader/Epub",
+            ),
+        )
+    }
+
+    @Test
+    fun genericBinaryMimeWithReadableUtf8IsRenderedAsPlainText() {
+        val itemId = "reader-generic-text-${System.nanoTime()}"
+        server.enqueue(
+            MockResponse()
+                .setResponseCode(200)
+                .addHeader("Content-Type", "application/octet-stream")
+                .setBody(Buffer().write("Capítulo simples\nAção e leitura servidas como binário genérico.".toByteArray())),
+        )
+        val api = Retrofit.Builder()
+            .baseUrl(server.url("/"))
+            .client(OkHttpClient())
+            .build()
+            .create(MulletaFlixApiService::class.java)
+        val viewModel = ViewModelProvider(
+            viewModelStore,
+            object : ViewModelProvider.Factory {
+                @Suppress("UNCHECKED_CAST")
+                override fun <T : ViewModel> create(modelClass: Class<T>): T =
+                    BookReaderViewModel(api, TestSessionRepository(sessionScope), context) as T
+            },
+        )[BookReaderViewModel::class.java]
+
+        composeRule.setContent {
+            MaterialTheme {
+                BookReaderScreen(itemId = itemId, onBack = {}, viewModel = viewModel)
+            }
+        }
+
+        composeRule.waitUntil(timeoutMillis = 20_000) {
+            viewModel.state.value.textBook != null || viewModel.state.value.error != null
+        }
+        assertNull(
+            "Generic readable text should load instead of failing: ${viewModel.state.value.error}",
+            viewModel.state.value.error,
+        )
+        assertEquals(
+            "Capítulo simples\nAção e leitura servidas como binário genérico.",
+            viewModel.state.value.textBook?.chunks?.joinToString(""),
+        )
+        composeRule.onNodeWithTag("$PLAIN_TEXT_BOOK_CHUNK_TEST_TAG-0")
+            .assertIsDisplayed()
+            .assertTextContains("Capítulo simples", substring = true)
+            .assertTextContains("Ação e leitura servidas como binário genérico.", substring = true)
+        assertEquals(
+            "/BookReader/Items/$itemId/BookReader/Epub",
+            server.takeRequest(5, TimeUnit.SECONDS)?.path,
+        )
+    }
+
+    @Test
     fun mobiResponseFromServerIsDecodedAndRenderedInTheReader() {
         val itemId = "reader-mobi-${System.nanoTime()}"
         server.enqueue(

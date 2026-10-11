@@ -7,6 +7,7 @@ import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import org.mulletaflix.core.common.network.NetworkMonitor
+import org.mulletaflix.core.common.util.userFacingMessageOr
 import java.util.Locale
 import org.mulletaflix.domain.model.LibraryBrowseTypes
 import org.mulletaflix.domain.model.LibraryFilterOptions
@@ -343,7 +344,7 @@ class LibraryViewModel @Inject constructor(
                             it.copy(
                                 isLoading = false,
                                 isRefreshing = false,
-                                error = error.message ?: "Não foi possível carregar o catálogo completo. Tente novamente.",
+                                error = error.userFacingMessageOr("Não foi possível carregar o catálogo completo. Tente novamente."),
                             )
                         }
                         return@onSuccess
@@ -375,7 +376,13 @@ class LibraryViewModel @Inject constructor(
                     restoreCachedCatalog(userId, libraryId, isTelevision, requestGeneration)
                     return@onFailure
                 }
-                _state.update { it.copy(isLoading = false, isRefreshing = false, error = error.message ?: "Não foi possível carregar a biblioteca.") }
+                _state.update {
+                    it.copy(
+                        isLoading = false,
+                        isRefreshing = false,
+                        error = error.userFacingMessageOr("Não foi possível carregar a biblioteca."),
+                    )
+                }
             }
         }
     }
@@ -610,7 +617,7 @@ class LibraryViewModel @Inject constructor(
                 _state.update {
                     it.copy(
                         isLoading = false,
-                        error = error.message ?: "Não foi possível carregar mais itens.",
+                        error = error.userFacingMessageOr("Não foi possível carregar mais itens."),
                         letterNavigationError = it.letterNavigationTarget != null,
                     )
                 }
@@ -699,7 +706,9 @@ class LibraryViewModel @Inject constructor(
                     _state.update {
                         it.copy(
                             isLoadingFilterOptions = false,
-                            filterOptionsError = error.message ?: "Não foi possível carregar as opções. Você ainda pode digitar os filtros.",
+                            filterOptionsError = error.userFacingMessageOr(
+                                "Não foi possível carregar as opções. Você ainda pode digitar os filtros.",
+                            ),
                         )
                     }
                 }

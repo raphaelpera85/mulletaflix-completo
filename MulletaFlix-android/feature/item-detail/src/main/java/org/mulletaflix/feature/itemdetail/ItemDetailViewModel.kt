@@ -1,5 +1,7 @@
 package org.mulletaflix.feature.itemdetail
 
+import org.mulletaflix.core.common.util.userFacingMessageOr
+
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -336,7 +338,7 @@ class ItemDetailViewModel @Inject constructor(
                 }
                 .onFailure { err ->
                     if (!isCurrentRequest(userId, requestSessionGeneration, requestGeneration)) return@onFailure
-                    _state.update { it.copy(isLoading = false, error = err.localizedMessage ?: "Erro ao carregar detalhes") }
+                    _state.update { it.copy(isLoading = false, error = err.userFacingMessageOr("Erro ao carregar detalhes")) }
                 }
         }
     }
@@ -388,7 +390,7 @@ class ItemDetailViewModel @Inject constructor(
                     _state.update {
                         it.copy(
                             isLoadingSeasons = false,
-                            seasonError = error.localizedMessage ?: "Não foi possível carregar as temporadas.",
+                            seasonError = error.userFacingMessageOr("Não foi possível carregar as temporadas."),
                         )
                     }
                 }
@@ -425,7 +427,7 @@ class ItemDetailViewModel @Inject constructor(
                     _state.update {
                         it.copy(
                             isLoadingSeasons = false,
-                            seasonError = error.localizedMessage ?: "Não foi possível carregar os episódios.",
+                            seasonError = error.userFacingMessageOr("Não foi possível carregar os episódios."),
                         )
                     }
                 }
@@ -607,13 +609,13 @@ class ItemDetailViewModel @Inject constructor(
                             }
                             .onFailure { e ->
                                 if (isCurrentRequest(userId, requestSessionGeneration, requestGeneration)) {
-                                    _state.update { it.copy(downloadMessage = e.message ?: "Não foi possível iniciar o download.") }
+                                    _state.update { it.copy(downloadMessage = e.userFacingMessageOr("Não foi possível iniciar o download.")) }
                                 }
                             }
                     },
                     onFailure = { e ->
                         if (isCurrentRequest(userId, requestSessionGeneration, requestGeneration)) {
-                            _state.update { it.copy(downloadMessage = e.message ?: "Não foi possível preparar o download.") }
+                            _state.update { it.copy(downloadMessage = e.userFacingMessageOr("Não foi possível preparar o download.")) }
                         }
                     },
                 )
@@ -811,7 +813,12 @@ class ItemDetailViewModel @Inject constructor(
                 }
                 .onFailure { error ->
                     if (!isCurrentSession(userId, requestSessionGeneration)) return@onFailure
-                    _state.update { it.copy(isPlaylistLoading = false, playlistMessage = error.message ?: "Não foi possível carregar as playlists.") }
+                    _state.update {
+                        it.copy(
+                            isPlaylistLoading = false,
+                            playlistMessage = error.userFacingMessageOr("Não foi possível carregar as playlists."),
+                        )
+                    }
                 }
         }
     }
@@ -832,7 +839,9 @@ class ItemDetailViewModel @Inject constructor(
                 }
                 .onFailure { error ->
                     if (!isCurrentSession(userId, requestSessionGeneration)) return@onFailure
-                    _state.update { it.copy(playlistMessage = error.message ?: "Não foi possível adicionar à playlist.") }
+                    _state.update {
+                        it.copy(playlistMessage = error.userFacingMessageOr("Não foi possível adicionar à playlist."))
+                    }
                 }
         }
     }
@@ -849,7 +858,9 @@ class ItemDetailViewModel @Inject constructor(
                 }
                 .onFailure { error ->
                     if (!isCurrentSession(userId, requestSessionGeneration)) return@onFailure
-                    _state.update { it.copy(playlistMessage = error.message ?: "Não foi possível criar a playlist.") }
+                    _state.update {
+                        it.copy(playlistMessage = error.userFacingMessageOr("Não foi possível criar a playlist."))
+                    }
                 }
         }
     }

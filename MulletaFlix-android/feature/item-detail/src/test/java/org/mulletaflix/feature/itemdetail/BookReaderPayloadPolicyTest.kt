@@ -359,6 +359,34 @@ class BookReaderPayloadPolicyTest {
     }
 
     @Test
+    fun `generic payload must have an EPUB container instead of defaulting unknown data to EPUB`() {
+        val directory = Files.createTempDirectory("book-format-fallback-test").toFile()
+        try {
+            val unknown = directory.resolve("unknown.bin").apply { writeBytes(byteArrayOf(1, 2, 3, 4, 5)) }
+            val epub = directory.resolve("valid-epub.bin")
+            ZipOutputStream(epub.outputStream()).use { zip ->
+                zip.putNextEntry(ZipEntry("META-INF/container.xml"))
+                zip.write("<container/>".toByteArray())
+                zip.closeEntry()
+            }
+            val text = directory.resolve("plain-text.bin").apply {
+                writeText("Capítulo 1\nAção e leitura em texto simples.", Charsets.UTF_8)
+            }
+            val legacyText = directory.resolve("legacy-text.bin").apply {
+                writeBytes("Leitura em Windows-1252: ação.".toByteArray(java.nio.charset.Charset.forName("windows-1252")))
+            }
+
+            assertEquals(BookPayloadFormat.UNSUPPORTED, detectBookPayloadFormat(unknown, "application/octet-stream"))
+            assertEquals(BookPayloadFormat.PLAIN_TEXT, detectBookPayloadFormat(text, "application/octet-stream"))
+            assertEquals(BookPayloadFormat.PLAIN_TEXT, detectBookPayloadFormat(legacyText, "application/octet-stream"))
+            assertEquals(BookPayloadFormat.EPUB, detectBookPayloadFormat(epub, "application/octet-stream"))
+            assertEquals(BookPayloadFormat.EPUB, detectBookPayloadFormat(unknown, "application/epub+zip"))
+        } finally {
+            directory.deleteRecursively()
+        }
+    }
+
+    @Test
     fun `generic RAR signatures retain the large book transfer limit`() {
         val payload = ByteArray(PlainTextBookDocument.MAX_TEXT_BYTES.toInt() + 1).apply {
             "Rar!\u001a\u0007".toByteArray(Charsets.ISO_8859_1).copyInto(this)

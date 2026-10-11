@@ -25,3 +25,10 @@
 - Testes usam fixtures e credenciais fictícias. Testes contra servidor real exigem ambiente de teste autorizado.
 - Mantenha o escopo de implementação no aplicativo Android quando a tarefa estiver limitada ao APK; este arquivo não autoriza mudanças no servidor nem no portal. Obrigações globais de release, homologação e publicação definidas por instruções de nível superior continuam prevalecendo e não são substituídas por esta política.
 - Consulte `TESTING.md` para cenários, comandos e perfis de emulador mantidos pelo projeto.
+
+## Grafo de documentação e arquitetura
+
+- Antes de investigar uma área com relações entre requisitos, documentação, código e testes, consulte o Graphify do projeto (`graphify query`, `graphify explain` ou `graphify path`) para localizar as ligações relevantes; confirme sempre as conclusões nos arquivos e comandos reais.
+- Depois de modificar código, testes ou documentação do sistema, execute `graphify update .` e consulte os nós afetados com `graphify explain`/`graphify query` para confirmar que o grafo representa a mudança.
+- Use apenas comandos existentes na versão instalada do Graphify (`graphify --help`). Não presuma que `graphify refine` esteja disponível; escolha `cluster-only` ou `label` somente quando a intenção corresponder e o comando existir.
+- Registre no handoff o comando, os resultados e avisos relevantes do grafo. Não trate o grafo como fonte de verdade acima do código ou da documentação atual.

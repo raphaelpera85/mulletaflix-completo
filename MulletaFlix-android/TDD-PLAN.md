@@ -1,5 +1,135 @@
 # Plano de TDD do MulletaFlix Android
 
+## Regressão de navegação Activity para logout em Ajustes — 2026-10-11
+
+- `ESCOPO`: cenário instrumentado novo, sem alterar comportamento de produção. Como o fluxo já fora corrigido e os testes de ViewModel já passaram na etapa anterior, este teste de integração de regressão não foi apresentado como RED retroativo.
+- `CENÁRIO`: sessão completa persistida → abrir Home na Activity → abrir “Mais ações”/“Configurações” → “Sair” → aguardar seleção de servidor; valida token e usuário limpos e URL do servidor preservada.
+- `ANDROID`: execução focal PHONE/API 35 via `tools/with-emulator.ps1` — 1 teste aprovado, 0 falhas, 0 ignorados. O wrapper confirmou QEMU na GPU NVIDIA e deixou `adb devices` sem emuladores ao encerrar.
+- `SUÍTE DA CLASSE`: duas execuções completas recentes (9 testes) falharam intermitentemente no cenário `crossServerDeepLinkAuthenticatesOnTargetServerAndLoadsItemWithoutRequestingOldServer`; o diagnóstico mostra que, após validar o servidor B, o login termina na URL padrão e a autenticação não chega ao mock B. Execuções focais do mesmo cenário passaram. O teste agora registra chamadas, credenciais sem segredo, endpoint salvo e estado visível em caso de falha, e prepara explicitamente a URL do servidor A. A causa funcional/timing segue em aberto; nenhuma correção de produção foi feita.
+- `QUALITY BAR`: `testDebugUnitTest :app:lintDebug :app:assembleDebug :app:compileDebugAndroidTestKotlin --no-daemon --console=plain` — `BUILD SUCCESSFUL`; 247 XML, 1.648 testes JVM, 0 falhas/erros/ignorados. `git diff --check` sem erros (apenas avisos de conversão LF/CRLF).
+- `GRAPHIFY`: atualização incremental final `graphify update . --no-cluster` — 64.074 nós/165.183 arestas; `graphify explain settingsLogoutClearsPersistedSessionBeforeShowingServerSelection` aponta para o método e `TESTING.md`. `cluster-only` detectou reconstrução com 64.073 nós e recusou sobrescrever por redução de 1; reconstrução integral sem código apenas ficou indisponível por ausência de chave de LLM para extração semântica dos documentos/imagens. Nenhum force overwrite foi usado. CLI 0.9.79 vs skill 0.9.84.
+- `STATUS`: teste de logout isolado passou; teste da classe completa requer isolamento explícito do endpoint e ainda revela falha intermitente no fluxo cross-server. Não considerar esse fluxo homologado até corrigir e repetir a classe com todos os testes passando.
+
+## RED-GREEN — logout confiável em Ajustes — 2026-10-11
+
+- `INTENT`: Ajustes navegava à seleção de servidor imediatamente, antes de confirmar `LogoutUseCase`; deve permanecer na tela em caso de falha, mostrar erro recuperável e navegar apenas após sucesso.
+- `RED`: os testes de falha/sucesso foram escritos primeiro. A primeira execução só falhou ao compilar e não conta como RED segundo `TESTING.md`; após adicionar temporariamente uma implementação neutra compilável, as duas asserções de comportamento falharam como esperado.
+- `GREEN`: `SettingsViewModel` agora bloqueia pedidos duplicados, publica progresso, preserva o destino e expõe fallback de erro em falha; navegação só ocorre após sucesso. `SettingsScreen` aguarda o resultado e mostra erro visível.
+- `UNIT`: os dois testes focais passaram após GREEN. Quality gate `testDebugUnitTest :feature:settings:lintDebug :app:lintDebug :app:assembleDebug :app:compileDebugAndroidTestKotlin` — BUILD SUCCESSFUL; 247 relatórios XML, 1.648 testes JVM, 0 falhas/erros/ignorados.
+- `DEVICE`: `:feature:settings:connectedDebugAndroidTest` — 18/18 PHONE/API 35, 0 falhas/erros/ignorados; wrapper confirmou QEMU na NVIDIA RTX 3050 e encerrou o AVD.
+- `GRAPHIFY`: `graphify update .` — 11.325 nós, 29.753 arestas; `graphify cluster-only .` refinou para 465 comunidades. `explain SettingsViewModel`, `SettingsScreen` e teste focal confirmaram relações. CLI 0.9.79 difere da skill 0.9.84; um teste Home continua parcialmente extraído.
+- `LIMITAÇÃO`: à época desta alteração, faltava navegação pela tela Settings real em Activity; essa lacuna está coberta no registro “Regressão de navegação Activity para logout em Ajustes” acima. Casos integrados de troca de servidor e retorno de deep link cross-server continuam pendentes.
+- `ESCOPO`: APK local; sem bump, pacote de produção, portal, release, commit ou push.
+
+## RED-GREEN — fallbacks para mensagens vazias em cadastro, downloads, TV ao vivo e SyncPlay — 2026-10-11
+
+- `INTENT`: dez fluxos propagavam `message ?: fallback`, aceitando texto vazio/em branco; código deve exibir fallback localizado e manter mensagem útil do servidor.
+- `RED`: dez testes novos falharam pela comparação entre fallback esperado e espaços recebidos: cadastro (1), preparação/fila de download (2), canais/guia (2), SyncPlay (5). No cadastro, a fonte correta é `RegistrationResult.message`; o teste foi alinhado ao contrato observado em `RegistrationResult` antes do RED final.
+- `GREEN`: cadastro agora valida mensagem de resposta não branca; os outros nove fluxos usam `Throwable.userFacingMessageOr()`. As ações também encerram os indicadores de progresso ao falhar.
+- `QUALITY BAR`: `testDebugUnitTest :feature:auth:lintDebug :feature:item-detail:lintDebug :feature:live-tv:lintDebug :feature:sync-play:lintDebug :app:lintDebug :app:assembleDebug` — `BUILD SUCCESSFUL`; relatórios XML agregados após o teste de preservação: 1.646 testes, 0 falhas/erros/ignorados.
+- `TWINS`: busca por `(localizedMessage|error.message|e.message|err.message|result.message) ?: ` encontrou zero fallbacks de exceção; a única ocorrência restante usa `state.message ?: ""` para estado de UI.
+- `GRAPHIFY`: `graphify update .` e `explain` confirmaram relações ViewModel/telas/testes nos quatro módulos. Avisos: CLI 0.9.79 versus skill 0.9.84, extração parcial de teste Home e 28 arquivos sem símbolos.
+- `ESCOPO`: somente APK local; sem mudança de versão, servidor, portal, APK de produção ou publicação.
+
+## RED-GREEN — fallbacks em playlists, atualização e gravação de TV — 2026-10-11
+
+- `INTENT`: oito falhas de atualização/playlists/gravações usavam `error.message ?: fallback`; o teste espera fallback localizado para exceção em branco e preservação do texto útil, conforme `Throwable.userFacingMessageOr()`.
+- `RED`: cinco testes novos falharam antes da mudança: operações de playlist em detalhes, lista/títulos de playlists, erro ao consultar update, agendar gravação e cancelar gravação.
+- `GREEN`: os oito caminhos reutilizam o helper comum.
+- `UNIT`: os cinco testes focais passaram depois da correção; suíte global agregada: 1.635 testes, 0 falhas/erros/ignorados.
+- `QUALITY BAR`: `testDebugUnitTest :feature:item-detail:lintDebug :feature:settings:lintDebug :feature:live-tv:lintDebug :app:lintDebug :app:assembleDebug :feature:item-detail:compileDebugAndroidTestKotlin` — `BUILD SUCCESSFUL`; `git diff --check` passou.
+- `TWINS`: oito dos dez sites anteriores foram corrigidos; restam os dois avisos de narração em `BookReaderScreen.kt`, cuja validação de interface requer uma falha reproduzível do fluxo PDF/EPUB.
+- `GRAPHIFY`: atualizar após a edição/documentação e conferir as ligações de ViewModels, telas e testes.
+- `ESCOPO`: APK local; sem mudança de versão, assinatura, artefato de produção, portal ou publicação.
+
+## RED-GREEN — mensagens de erro recuperáveis na biblioteca — 2026-10-11
+
+- `INTENT`: cinco fluxos de biblioteca repassavam `error.message ?: fallback`, aceitando strings em branco; testes exigem texto recuperável preservando o texto de exceções úteis, conforme o contrato de `Throwable.userFacingMessageOr()`.
+- `RED`: cinco testes novos falharam antes da correção: erro inicial, paginação, opções de filtros, catálogo completo aleatório e Minha Lista; todos recebiam espaços no estado.
+- `GREEN`: os cinco caminhos usam o helper comum; mensagens não vazias continuam intactas.
+- `UNIT`: cinco testes focais passaram após GREEN; suíte global agregada: 1.630 testes, 0 falhas/erros/ignorados.
+- `QUALITY BAR`: `testDebugUnitTest :feature:library:lintDebug :app:lintDebug :app:assembleDebug` — `BUILD SUCCESSFUL`; `git diff --check` passou.
+- `TWINS`: escopo remove cinco dos 15 sites previamente encontrados; 10 sites fora da biblioteca continuam para incrementos futuros.
+- `GRAPHIFY`: atualização após código/documentação e `explain LibraryViewModel` confirmaram as relações com a tela e os testes.
+- `ESCOPO`: somente APK local, sem bump, produção, release, portal, commit ou push.
+
+## Validação — fallback de erros na narração de livros — 2026-10-11
+
+- `INTENT`: exceções da extração de texto PDF e inicialização de narração EPUB devem exibir fallback localizado se a mensagem estiver ausente/branca; mensagens úteis devem continuar visíveis.
+- `EVIDÊNCIA PRÉVIA`: `ThrowableMessagesTest` já cobre exceções sem mensagem, com espaços e com mensagem útil; teste PDF integrado cobre início, avanço e parada da narração.
+- `MUDANÇA`: ambos os `catch` usam `Throwable.userFacingMessageOr()`; nenhum código de servidor ou release foi alterado.
+- `DEVICE`: `BookReaderScreenIntegrationTest.pdfSpeechReadsVisiblePageAdvancesAndStopsOnManualNavigation` passou 1/1 no PHONE/API 35 via wrapper; AVD usou NVIDIA e foi encerrado. O cenário valida fluxo PDF, mas não injeta exceção no `catch`.
+- `QUALITY BAR`: `testDebugUnitTest :feature:item-detail:lintDebug :app:lintDebug :app:assembleDebug :feature:item-detail:compileDebugAndroidTestKotlin` — `BUILD SUCCESSFUL`; relatórios agregados 1.635 testes JVM, 0 falhas/erros/ignorados; `git diff --check` aprovado.
+- `LIMITAÇÃO TDD`: não há seam de falha injetável na tela para reproduzir especificamente esses dois `catch`; o RED/GREEN do consumidor não foi demonstrado. Os testes existentes de `Throwable.userFacingMessageOr()` cobrem fallback branco e preservação de mensagem útil.
+- `GRAPHIFY`: `graphify update .` — 11.291 nós, 29.636 arestas, 497 comunidades; `explain BookReaderScreen` confirmou vínculos com integração e plano TDD. Avisos: CLI 0.9.79 versus skill 0.9.84, extração parcial de `TvHomeRefreshIntegrationTest.kt` e 28 arquivos sem símbolos.
+- `ESCOPO`: APK local; sem mudança de versão, APK de produção, portal ou publicação.
+
+## RED-GREEN — fallback em erro de abertura do leitor — 2026-10-11
+
+- `INTENT`: o `BookReaderViewModel` repassava `error.message ?: fallback`, que aceita mensagem vazia/branca; o teste espera uma orientação recuperável, conforme o TODO do leitor sobre mensagens de erro/retry.
+- `RED`: `BookReaderViewModelTest.load shows a fallback when the failure message is blank` falhou antes da alteração (`ComparisonFailure`, linha 118); a exceção `"   "` chegou ao estado sem fallback.
+- `GREEN`: o catch do carregamento usa `Throwable.userFacingMessageOr()` compartilhado; o fallback textual continua “Não foi possível abrir este livro.”.
+- `UNIT`: teste focal aprovado; suíte completa agregada: 1.625 testes, 0 falhas/erros/ignorados.
+- `QUALITY BAR`: `testDebugUnitTest :feature:item-detail:lintDebug :app:lintDebug :app:assembleDebug :feature:item-detail:compileDebugAndroidTestKotlin` — `BUILD SUCCESSFUL`; `git diff --check` passou.
+- `TWINS`: busca global por `error.message ?: ` encontrou 15 outros pontos em Settings, leitor de áudio, playlists, detalhes, biblioteca e TV ao vivo; separados desta mudança e precisam de correções/testes em incrementos posteriores. Busca por `localizedMessage ?: ` encontrou zero.
+- `GRAPHIFY`: atualização após código/documentos e `explain` do ViewModel/teste concluídos abaixo.
+- `ESCOPO`: APK local apenas; sem bump, produção, release, portal, commit ou push.
+
+## RED-GREEN — fallback compartilhado para erro sem mensagem — 2026-10-11
+
+- `INTENT`: pontos do app usavam `localizedMessage ?: fallback`, que aceita texto vazio/branco; testes esperam uma mensagem recuperável quando a exceção não traz texto; o guia Android exige que falhas não sejam silenciosas.
+- `RED`: o teste `ItemDetailViewModelTest.loadItem uses a fallback when failure message is blank` falhou pela comparação esperada após receber somente espaços. `PlaybackIssueReportDialogTest.blankFailureMessageShowsActionableFallback` também falhou antes da correção no PHONE/API 35.
+- `GREEN`: helper `Throwable.userFacingMessageOr()` em `:core:common` usa `localizedMessage` somente se `isNotBlank()`. Aplicado aos oito sites vulneráveis encontrados em Home, detalhes/leitor/relato e download/atualização; Home e perfil também reutilizam o helper onde já tinham lógica equivalente. Cancelamentos continuam sem mensagem.
+- `UNIT`: testes do helper cobrem mensagem nula, em branco e válida; teste do ViewModel de detalhes e testes existentes de logout/troca de usuário passaram.
+- `DEVICE`: `PlaybackIssueReportDialogTest.blankFailureMessageShowsActionableFallback` — 1/1 PHONE/API 35, 0 falhas/ignorados; confirma aviso visível e opção de salvar para envio posterior. Wrapper verificou GPU NVIDIA e encerrou o AVD.
+- `QUALITY BAR`: suíte `testDebugUnitTest`, lint de `:core:common`, `:feature:home`, `:feature:item-detail`, `:feature:user` e `:app`, `:app:assembleDebug`, compilações AndroidTest de item-detail/app — `BUILD SUCCESSFUL`; XML: 1.624 testes, 0 falhas/erros/ignorados.
+- `TWINS`: pesquisado `localizedMessage\s*\?:` em todos os arquivos Kotlin — zero ocorrências restantes.
+- `GRAPHIFY`: atualização e `explain` do helper/testes registrados após atualizar código e documentação; Markdown continua fora da extração semântica da CLI.
+- `ESCOPO`: somente APK; sem bump, assinatura/artefato de produção, portal, release, commit ou push.
+
+## RED-GREEN — fallback para erros sem mensagem no perfil — 2026-10-11
+
+- `INTENT`: falhas de logout ou troca de usuário com mensagem localizada vazia/em branco devem exibir texto acionável, sem navegar como se a operação tivesse sido concluída.
+- `RED`: os dois novos testes de `UserProfileViewModelTest` falharam antes da correção porque o estado recebeu mensagem vazia/branca.
+- `GREEN`: ambos os caminhos agora descartam mensagem em branco com `isNotBlank()` e usam o fallback localizado apropriado. Os dois testes unitários focados passaram.
+- `DEVICE`: `ProfileLogoutFailureTest.failedLogoutWithBlankMessageRendersFallbackAndDoesNotInvokeNavigation` passou no PHONE/API 35; verifica mensagem renderizada e ausência de navegação. O wrapper NVIDIA iniciou e encerrou o AVD.
+- `QUALITY BAR`: `testDebugUnitTest :feature:user:lintDebug :app:lintDebug :app:assembleDebug :feature:user:compileDebugAndroidTestKotlin --no-daemon --console=plain` — `BUILD SUCCESSFUL`; 246 relatórios XML: 1.620 testes, 0 falhas, 0 erros e 0 ignorados.
+- `TWINS`: ambos os caminhos do `UserProfileViewModel` foram corrigidos. Busca em `feature/**/*.kt` encontrou usos independentes de `localizedMessage ?: ` em Home e detalhes/leitor/relato; não alterados neste escopo.
+- `GRAPHIFY`: `graphify update .` — 11.245 nós, 29.506 arestas e 521 comunidades. `explain UserProfileViewModel` e `explain failedLogoutWithBlankMessageRendersFallbackAndDoesNotInvokeNavigation` ligam ViewModel, tela, teste unitário/instrumentado e esta nota (relação da nota inferida por título); Markdown não é semanticamente reextraído pela CLI. Avisos: versão instalada 0.9.79 vs instrução 0.9.84, parser parcial em `TvHomeRefreshIntegrationTest.kt:53`, 28 fontes sem símbolos e 83 recursos não classificados.
+- `ESCOPO`: APK local; sem servidor, bump de versão, pacote de produção, portal, release, commit ou push.
+
+## RED-GREEN — texto legível com MIME binário genérico — 2026-10-11
+
+- `INTENT`: alguns servidores entregam livros em texto simples com `application/octet-stream`; continuar rejeitando binário arbitrário, mas reconhecer texto UTF-8/Windows-1252 legível e abri-lo no leitor de texto.
+- `RED`: testes de policy esperam texto legível como `PLAIN_TEXT` e bytes binários de controle como `UNSUPPORTED`; teste do ViewModel exige o conteúdo carregado. Ambos falharam antes da implementação.
+- `GREEN`: detecção limitada a amostra de 4 KiB, rejeita NUL e exige pelo menos 98% de caracteres imprimíveis; decodificação estrita UTF-8 com fallback Windows-1252. MIME explícito e EPUB estrutural preservam prioridade. ViewModel roteia a resposta genérica identificada como texto pelo leitor de texto.
+- `UNIT`: testes focados de `BookReaderPayloadPolicyTest` e `BookReaderViewModelTest` — `BUILD SUCCESSFUL`.
+- `DEVICE`: `BookReaderScreenIntegrationTest` para texto legível e binário não suportado — 2/2 PHONE/API 35; teste verifica estado carregado, conteúdo visível e mensagem acionável. Wrapper confirmou GPU NVIDIA e encerrou o AVD.
+- `QUALITY BAR`: `testDebugUnitTest :feature:item-detail:lintDebug :app:lintDebug :app:assembleDebug :feature:item-detail:compileDebugAndroidTestKotlin --no-daemon --console=plain` — `BUILD SUCCESSFUL`; XML agregado: 1.618 testes, 0 falhas, 0 erros, 0 ignorados.
+- `GRAPHIFY`: atualização final e consultas `explain` registradas após sincronizar a documentação.
+- `ESCOPO`: sem servidor, bump de versão, APK de produção, portal, release, commit ou push.
+
+## RED-GREEN — não presumir EPUB para binário desconhecido — 2026-10-11
+
+- `INTENT`: respostas `application/octet-stream` sem assinatura de um formato conhecido eram encaminhadas como EPUB por padrão, podendo exibir uma falha de parser confusa; exigir EPUB MIME explícito ou `META-INF/container.xml` e sinalizar formatos desconhecidos claramente.
+- `RED`: `BookReaderPayloadPolicyTest.generic payload must have an EPUB container instead of defaulting unknown data to EPUB` compilou e falhou pela asserção esperada, pois o payload arbitrário era classificado como EPUB. Uma primeira tentativa de teste não compilou por referenciar um enum ainda inexistente; foi corrigida e não foi considerada evidência RED.
+- `GREEN`: EPUB genérico só é selecionado com estrutura ZIP contendo `META-INF/container.xml`; MIME EPUB continua autoritativo; formatos por assinatura/MIME já suportados mantêm prioridade. O ViewModel passa a mostrar mensagem explícita e limpa recursos se o payload não corresponder a formato suportado.
+- `UNIT`: `:feature:item-detail:testDebugUnitTest --tests ...BookReaderPayloadPolicyTest --tests ...BookReaderViewModelTest` — `BUILD SUCCESSFUL`; validou policy (incluindo desconhecido, EPUB com contêiner e MIME EPUB explícito) e estado de erro do ViewModel.
+- `QUALITY BAR`: `testDebugUnitTest :feature:item-detail:lintDebug :app:lintDebug :app:assembleDebug :feature:item-detail:compileDebugAndroidTestKotlin` — `BUILD SUCCESSFUL`; XML agregado: 1.617 testes, 0 falhas, 0 erros, 0 ignorados.
+- `DEVICE`: `BookReaderScreenIntegrationTest.unsupportedGenericPayloadShowsActionableFormatMessageInReader` — 1/1 PHONE/API 35; mensagem foi exibida e a rota do leitor confirmada; `tools/with-emulator.ps1` validou NVIDIA RTX 3050 e encerrou o AVD. Primeira execução teve falha apenas numa asserção inválida sobre corpo de GET; corrigida para verificar o caminho da requisição, repetição passou.
+- `GRAPHIFY`: `graphify update .` — 11.229 nós, 29.442 arestas, 458 comunidades; `explain detectBookPayloadFormat()` mostra o fluxo para o ViewModel e testes, e `explain unsupportedGenericPayloadShowsActionableFormatMessageInReader` confirma o teste UI. `adb devices` final sem emuladores ativos. Permanecem avisos do parser parcialmente extraído e de Graphify 0.9.79 vs skill 0.9.84.
+- `LIMITAÇÕES`: não testa cada variação de EPUB em servidor real; a detecção estrutural genérica exige o `META-INF/container.xml`, conforme o contrato do EPUB. Sem mudança de servidor, versão, pacote ou release.
+
+## RED-GREEN — leitura de quadrinhos em página dupla adaptativa — 2026-10-11
+
+- `INTENT`: o leitor de quadrinhos exibia só uma página em qualquer largura; testes esperam duas páginas apenas em tablets com largura mínima de 840 dp e largura menor da classe de tablet (600 dp), enquanto celulares e Android TV permanecem em página única. `TESTING.md` define UX separada por telefone/tablet/TV; o requisito de layout duplo vem do objetivo atual de melhorar a UX por dispositivo.
+- `RED`: `ComicBookSpreadPolicyTest` falhou em runtime nos dois casos antes da regra correta: tablet largo não ativava spread e página seguinte não era incluída.
+- `GREEN`: política calcula páginas visíveis com limites do arquivo; Compose decodifica e exibe somente uma ou duas páginas visíveis; controles de tablet avançam/retornam duas páginas, incluindo final ímpar.
+- `DEVICE`: `ComicBookReaderIntegrationTest` — 7/7 em PHONE/API 35 (`MulletaflixApi35`), TABLET/API 35 (`MulletaflixTabletApi35`) e TV/API 34 (`MulletaflixTvApi34`); todos os wrappers confirmaram GPU NVIDIA e encerraram o AVD. Tablet mostra página 2 ao lado da 1; telefone/TV não mostram; navegação por pares e página final ímpar aprovadas.
+- `QUALITY BAR`: `testDebugUnitTest :feature:item-detail:lintDebug :app:lintDebug :app:assembleDebug :feature:item-detail:compileDebugAndroidTestKotlin --no-daemon --console=plain` — `BUILD SUCCESSFUL`; XML da suíte JVM: 1.615 testes, 0 falhas, 0 erros, 0 ignorados.
+- `GRAFO`: `graphify update .` — 11.220 nós, 29.411 arestas, 496 comunidades; `graphify explain` liga o compositor, `BookReaderScreen()` e os testes de política/Compose. Permanecem avisos conhecidos de 1 arquivo parcialmente parseado, 28 arquivos sem símbolos e 83 recursos sem classificação; Graphify 0.9.79 instalado versus skill 0.9.84.
+- `LIMITAÇÕES`: fixtures CBZ geradas nos testes; não valida quadrinhos reais, desempenho em aparelho físico, TalkBack manual, nem CBR real do servidor. Nenhuma release, portal ou alteração de servidor.
+
 ## RED-GREEN — idioma da narração TTS no leitor paginado — 2026-10-10
 
 - `INTENT`: oferecer nos leitores PDF/texto paginado uma escolha entre idiomas disponíveis no mecanismo TTS, com padrão do aparelho e preferência persistida por servidor/conta; carregar idiomas somente quando solicitado.
@@ -65,6 +195,23 @@
 - `PRÓXIMO PASSO`: criar/usar um orquestrador de teste independente do pacote principal (runner externo + fixture HTTP persistente entre fases), que capture PID antes/depois, sobreviva ao `force-stop` e restaure a sessão de teste sem limpar dados do usuário.
 - `STATUS`: APK-H21 permanece pendente; nenhuma mudança de produção, release, portal, servidor ou dados de usuário.
 
+## Harness independente para cold start da Activity do leitor — 2026-10-11
+
+- `INTENT`: fechar a lacuna APK-H21 com um teste host-orquestrado que mate o processo principal entre fases instrumentadas, relance o deep link de livro e confirme que a rota HTTP real foi consultada.
+- `RED`: primeira execução real no PHONE/API 35 passou na preparação e confirmou morte do PID principal (PID 3533), mas a fase do deep link falhou com `IllegalArgumentException: Missing instrumentation argument: bookColdStartSessionSnapshot`. A saída `println` do teste não chegou ao host via `adb shell am instrument -w`; o orquestrador não tinha snapshot para cleanup, então a sessão anterior do AVD pode ter sido substituída pela sessão fictícia. O wrapper fechou o AVD sem limpar dados; não repetir até o usuário escolher como tratar o AVD.
+- `FIX DO HARNESS`: captura separada e somente leitura agora precede a gravação de qualquer sessão fixture; usa `Instrumentation.sendStatus` para retornar snapshot, host exige captura antes de iniciar fase mutável, mascara o valor nos logs e restaura em `finally`. Não usa `pm clear`; `force-stop` fica restrito ao pacote debug.
+- `DEVICE / RED`: na AVD temporária isolada `MulletaflixColdStartTempApi35_20261011`, primeira captura caiu (`Process crashed`) sem modificar a sessão. Na repetição com diagnóstico de AndroidRuntime, captura passou 1/1 e preparação passou 1/1; `finally` restaurou a sessão vazia 1/1. O host então falhou porque pressupunha que salvar a sessão iniciava o processo principal (nenhum PID); portanto o cold start ainda não ocorreu. Wrapper confirmou QEMU na RTX 3050 e fechou a AVD. APKs de teste instalados sem limpar dados.
+- `DEVICE / EXECUÇÃO POSTERIOR`: corrigida inicialização explícita para o componente `org.mulletaflix.android.MainActivity`; o ciclo PHONE/API 35 confirmou captura, preparação, PID 3493 encerrado, PID principal 3566 reportado pela Activity, deep link e conteúdo do livro visíveis, restauração da sessão 1/1. A execução inteira ainda terminou com exit 1 porque o host exigiu `/BookReader/Status`, rota não solicitada nesse carregamento rápido.
+- `SURPRESA`: `BookReaderViewModel.fetchBookReaderBody()` atrasa a consulta de status por 1 s e cancela o monitor quando o corpo EPUB chega. Portanto a rota Status é best-effort e não é contrato garantido de cold start; manter essa expectativa transforma leitura bem-sucedida em falso negativo. Não foi alterada após três ciclos de correção/validação do mesmo harness.
+- `AVD ORIGINAL`: primeira tentativa no `MulletaflixApi35` alterou possivelmente a sessão salva antes de falhar; snapshot anterior não pôde ser recuperado. Nenhum `pm clear` ou nova execução foi feita nele. Aguardar confirmação do usuário antes de tocar nessa AVD.
+- `BUILD`: `testDebugUnitTest :app:lintDebug :app:assembleDebug :app:compileDebugAndroidTestKotlin --no-daemon --console=plain` — `BUILD SUCCESSFUL`; XML: 1.613 testes, 0 falhas/erros/ignorados. Parser PowerShell, `node --check` e `git diff --check` também passaram após a última alteração.
+- `QUALITY GATE`: `testDebugUnitTest :app:lintDebug :app:assembleDebug --no-daemon --console=plain` — `BUILD SUCCESSFUL` (861 tarefas, 3 executadas, 858 up-to-date); relatórios XML: 1.613 testes, 0 falhas, 0 erros, 0 ignorados. `git diff --check` passou.
+- `DEVICE`: AVD isolada temporária usou NVIDIA RTX 3050; captura/restauração do snapshot confirmadas. A AVD original não foi repetida e aguarda decisão do usuário.
+- `GRAPHIFY`: `graphify update .` atualizou o grafo Android para 11.207 nós, 29.368 arestas e 501 comunidades; `graphify explain MainActivityBookColdStartTest` confirmou relações com repositório de sessão e fases capture/prepare/restore. CLI 0.9.79 vs skill 0.9.84; labels atualizados por hub, sem backend LLM.
+- `AVALIAÇÃO`: cold start da Activity e renderização do livro passaram na AVD isolada, com PID novo e sessão restaurada. A automação permanece vermelha pelo requisito indevido de `/BookReader/Status`; não contar o harness como aprovado. Não reutilizar `MulletaflixApi35` até Raphael orientar sobre a possível sessão sintética.
+- `PRÓXIMO`: aguardar orientação sobre `MulletaflixApi35`. Em ciclo futuro, revisar o contrato do harness: exigir somente as rotas necessárias à renderização, ou atrasar a fixture se Status for requisito explícito; depois rerodar instrumentação e quality gate. Snapshot deve ser recebido antes de mutar sessão.
+- `ESCOPO`: somente APK/testes Android; sem mudança de produção, bump, release, portal ou servidor. A UI do livro abriu após cold start, mas o script encerrou com falha por rota Status ausente; AVD original ainda pode ter sessão sintética.
+
 ## Cobertura instrumentada — manter Quick Connect ativo ao recriar Activity — 2026-10-10
 
 - `INTENT`: ampliar a cobertura de Activity real para garantir que a aba Quick Connect, PIN e polling do `AuthViewModel` sobrevivam à recriação sem gravar segredo em armazenamento durável.
@@ -120,7 +267,7 @@
 - `GREEN`: o teste focal passou 1/1 após `refreshAfterActiveLoadOnResume()` aguardar a carga atual e atualizar uma única vez. `:feature:home:connectedDebugAndroidTest` na TV/API 34 passou 36/36, 0 falhas/erros/ignorados; novo teste instrumentado confirma handlers independentes para retomada e tick periódico.
 - `QUALITY GATE`: `testDebugUnitTest lintDebug :app:assembleDebug :feature:home:compileDebugAndroidTestKotlin --no-daemon --console=plain` concluiu `BUILD SUCCESSFUL`; 241 XML, 1.581 testes JVM, 0 falhas/erros/ignorados. Lint e build Debug passaram. Após o ajuste final do teste instrumentado, `TvRefreshEffectTest` foi executado novamente e o wrapper terminou com `BUILD SUCCESSFUL`.
 - `DEVICE`: `MulletaflixTvApi34`, GPU NVIDIA RTX 3050 verificada pelo wrapper; 36 testes passaram e o AVD foi encerrado após a execução. Escopo funcional de refresh automático é TV; telefone/tablet mantêm refresh manual.
-- `TWINS`: busca pelo acoplamento entre callback imediato de retomada e `refreshIfIdle` encontrou três análogos em `feature/library/.../LibraryScreen.kt`, `feature/library/.../FavoritesScreen.kt` e `feature/live-tv/.../LiveTvScreen.kt`; suas políticas/jobs independentes não foram alterados neste incremento e seguem para auditoria própria.
+- `TWINS`: nota histórica retificada após nova inspeção: `LibraryScreen`, `FavoritesScreen` e `LiveTvScreen` já encaminham retomada aos respectivos `refreshOnResume`; a afirmação de que estavam sem alteração ficou desatualizada. Testes atuais incluem `LibraryViewModelTest`, `FavoritesViewModelTest`, `LiveTvViewModelTest`, `TvRefreshEffectTest` e `LiveTvRefreshEffectTest`; essa verificação estática não declara nova execução instrumentada nesta tarefa.
 - `GRAPHIFY`: investigação qualificou `feature/home/.../TvRefreshEffect` após encontrar homônimo na Biblioteca. `graphify update MulletaFlix-android` após a mudança: 10.786 nós, 28.135 arestas, 491 comunidades; HTML/relatório regenerados. `explain` ligou `HomeViewModel` a testes e TODO Android. CLI informa que Markdown não é reextraído semanticamente nesta execução. Parser AST ainda aponta falha preexistente em `TvHomeRefreshIntegrationTest.kt:53` e 28 arquivos sem símbolos.
 - `LIMITAÇÕES`: nenhuma mudança de servidor, portal, versão, APK de produção ou release. Validação em hardware/servidor de produção não realizada.
 

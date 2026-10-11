@@ -6,6 +6,9 @@ import java.io.File
 import java.io.ByteArrayOutputStream
 import java.io.OutputStream
 import java.io.RandomAccessFile
+import java.nio.ByteBuffer
+import java.nio.charset.CodingErrorAction
+import java.nio.charset.StandardCharsets
 import java.util.zip.ZipFile
 import kotlinx.coroutines.Job
 
@@ -254,7 +257,7 @@ internal class BookReaderCacheFiles(
     }
 }
 
-internal enum class BookPayloadFormat { EPUB, PDF, CBZ, CBR, PLAIN_TEXT }
+internal enum class BookPayloadFormat { EPUB, PDF, CBZ, CBR, PLAIN_TEXT, UNSUPPORTED }
 
 /** MIME is authoritative when specific; inspect signatures/ZIP structure for generic responses. */
 internal fun detectBookPayloadFormat(file: File, contentType: String?): BookPayloadFormat {
@@ -297,8 +300,57 @@ internal fun detectBookPayloadFormat(file: File, contentType: String?): BookPayl
         }.getOrDefault(false)
         if (isComicArchive) return BookPayloadFormat.CBZ
     }
-    return BookPayloadFormat.EPUB
+    val mimeType = contentType?.substringBefore(';')?.trim()
+    if (mimeType.equals("application/epub+zip", ignoreCase = true)) return BookPayloadFormat.EPUB
+    val hasEpubContainer = runCatching {
+        file.isFile && ZipFile(file).use { it.getEntry("META-INF/container.xml") != null }
+    }.getOrDefault(false)
+    if (hasEpubContainer) return BookPayloadFormat.EPUB
+    if (isGenericBinaryContentType(contentType) && hasReadableTextPayload(file)) {
+        return BookPayloadFormat.PLAIN_TEXT
+    }
+    return BookPayloadFormat.UNSUPPORTED
 }
+
+private fun isGenericBinaryContentType(contentType: String?): Boolean {
+    val mimeType = contentType?.substringBefore(';')?.trim()?.lowercase().orEmpty()
+    return mimeType.isEmpty() || mimeType in setOf(
+        "application/octet-stream",
+        "application/binary",
+        "binary/octet-stream",
+    )
+}
+
+/** Samples a small prefix and accepts only mostly printable UTF-8/Windows-1252 text. */
+private fun hasReadableTextPayload(file: File): Boolean = runCatching {
+    if (!file.isFile || file.length() <= 0L) return@runCatching false
+    val sample = ByteArray(minOf(file.length(), MAX_TEXT_DETECTION_BYTES.toLong()).toInt())
+    var copied = 0
+    file.inputStream().use { input ->
+        while (copied < sample.size) {
+            val count = input.read(sample, copied, sample.size - copied)
+            if (count < 0) break
+            copied += count
+        }
+    }
+    if (copied == 0 || sample.take(copied).any { it == 0.toByte() }) return@runCatching false
+    val bytes = sample.copyOf(copied)
+    val text = runCatching {
+        StandardCharsets.UTF_8.newDecoder()
+            .onMalformedInput(CodingErrorAction.REPORT)
+            .onUnmappableCharacter(CodingErrorAction.REPORT)
+            .decode(ByteBuffer.wrap(bytes))
+            .toString()
+    }.getOrElse { String(bytes, WINDOWS_1252) }
+    if (text.isEmpty()) return@runCatching false
+    val printable = text.count { character ->
+        character == '\t' || character == '\n' || character == '\r' || !character.isISOControl()
+    }
+    printable.toDouble() / text.length >= MIN_PRINTABLE_TEXT_RATIO && text.any { !it.isWhitespace() }
+}.getOrDefault(false)
 
 private val PDF_SIGNATURE = "%PDF-".toByteArray(Charsets.US_ASCII)
 private val SIGNATURE_PREFIX_BYTES = maxOf(68, OdtBookTextExtractor.ZIP_MIMETYPE_PREFIX_BYTES)
+private const val MAX_TEXT_DETECTION_BYTES = 4 * 1024
+private const val MIN_PRINTABLE_TEXT_RATIO = 0.98
+private val WINDOWS_1252 = java.nio.charset.Charset.forName("windows-1252")

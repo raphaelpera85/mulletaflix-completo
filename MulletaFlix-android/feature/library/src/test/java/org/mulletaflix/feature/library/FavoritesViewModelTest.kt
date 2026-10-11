@@ -216,6 +216,17 @@ class FavoritesViewModelTest {
     }
 
     @Test
+    fun `blank favorites load failure exposes a fallback error`() = runTest {
+        media.pages[0] = Result.failure(IllegalStateException(" "))
+        val viewModel = createViewModel()
+
+        advanceUntilIdle()
+
+        assertEquals("Não foi possível carregar Minha Lista.", viewModel.state.value.error)
+        assertEquals(false, viewModel.state.value.isLoading)
+    }
+
+    @Test
     fun `missing session finishes loading and exposes reauthentication state`() = runTest {
         val auth = FakeAuthRepository().apply { userIdState.value = null }
         val viewModel = FavoritesViewModel(GetFavoriteItemsUseCase(media), auth, FakeSettingsRepository(), FakeNetworkMonitor())

@@ -13,6 +13,7 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import org.mulletaflix.core.common.network.NetworkMonitor
+import org.mulletaflix.core.common.util.userFacingMessageOr
 import org.mulletaflix.domain.model.MediaItem
 import org.mulletaflix.domain.paging.appendDistinctBy
 import org.mulletaflix.domain.paging.hasMorePages
@@ -250,7 +251,7 @@ class FavoritesViewModel @Inject constructor(
                             it.copy(
                                 isLoading = false,
                                 isRefreshing = false,
-                                error = error.message ?: "Não foi possível carregar Minha Lista.",
+                                error = error.userFacingMessageOr("Não foi possível carregar Minha Lista."),
                             )
                         }
                     }

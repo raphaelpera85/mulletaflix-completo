@@ -1,6 +1,7 @@
 package org.mulletaflix.feature.itemdetail
 
 import android.graphics.Bitmap
+import android.content.res.Configuration
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
@@ -16,6 +17,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
+import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithContentDescription
 import androidx.compose.ui.test.onNodeWithContentDescription
@@ -26,6 +28,7 @@ import androidx.compose.ui.test.performTextClearance
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.performTouchInput
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import androidx.test.platform.app.InstrumentationRegistry
 import java.io.File
 import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
@@ -51,6 +54,82 @@ class ComicBookReaderIntegrationTest {
             assertEquals(200, bitmap.width)
             assertEquals(300, bitmap.height)
             bitmap.recycle()
+        } finally {
+            file.delete()
+        }
+    }
+
+    @Test
+    fun tabletUsesTwoPageSpreadButPhoneAndTelevisionStaySinglePage() {
+        val file = createComicArchive(pageCount = 3)
+        try {
+            val archive = ComicBookArchive.open(file)
+            val configuration = InstrumentationRegistry.getInstrumentation()
+                .targetContext.resources.configuration
+            val isTelevision = configuration.uiMode and Configuration.UI_MODE_TYPE_MASK ==
+                Configuration.UI_MODE_TYPE_TELEVISION
+            val expectedSpread = shouldShowComicBookSpread(
+                widthDp = configuration.screenWidthDp,
+                smallestWidthDp = configuration.smallestScreenWidthDp,
+                isTelevision = isTelevision,
+                isComicBook = true,
+            )
+
+            composeRule.setContent {
+                MaterialTheme {
+                    PagedBookReaderContent(pageBook = archive, currentPage = 0)
+                }
+            }
+
+            composeRule.waitUntil(timeoutMillis = 10_000) {
+                composeRule.onAllNodesWithContentDescription("Página 1 de 3, ampliação 100%")
+                    .fetchSemanticsNodes().isNotEmpty()
+            }
+            if (expectedSpread) {
+                composeRule.waitUntil(timeoutMillis = 10_000) {
+                    composeRule.onAllNodesWithContentDescription("Página 2 de 3, ampliação 100%")
+                        .fetchSemanticsNodes().isNotEmpty()
+                }
+                composeRule.onNodeWithContentDescription("Página 2 de 3, ampliação 100%")
+                    .assertIsDisplayed()
+            } else {
+                composeRule.onAllNodesWithContentDescription("Página 2 de 3, ampliação 100%")
+                    .assertCountEquals(0)
+            }
+            composeRule.onAllNodesWithContentDescription("Página 3 de 3, ampliação 100%")
+                .assertCountEquals(0)
+        } finally {
+            file.delete()
+        }
+    }
+
+    @Test
+    fun spreadNavigationAdvancesAndReturnsByTwoPagesWithoutSkippingTheEnd() {
+        val file = createComicArchive(pageCount = 5)
+        try {
+            val archive = ComicBookArchive.open(file)
+            var currentPage by mutableIntStateOf(0)
+
+            composeRule.setContent {
+                MaterialTheme {
+                    Column(Modifier.fillMaxSize()) {
+                        ComicBookPageControls(
+                            currentPage = currentPage,
+                            pageCount = archive.pageCount,
+                            pageStep = 2,
+                            onPageSelected = { currentPage = it },
+                        )
+                    }
+                }
+            }
+
+            composeRule.onNodeWithContentDescription("Próxima página").performClick()
+            composeRule.onNodeWithText("Página 3 de 5").assertIsDisplayed()
+            composeRule.onNodeWithContentDescription("Próxima página").performClick()
+            composeRule.onNodeWithText("Página 5 de 5").assertIsDisplayed()
+            composeRule.onNodeWithContentDescription("Próxima página").assertIsNotEnabled()
+            composeRule.onNodeWithContentDescription("Página anterior").performClick()
+            composeRule.onNodeWithText("Página 3 de 5").assertIsDisplayed()
         } finally {
             file.delete()
         }

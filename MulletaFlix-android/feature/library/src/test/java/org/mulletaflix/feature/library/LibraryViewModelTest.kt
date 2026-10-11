@@ -691,6 +691,50 @@ class LibraryViewModelTest {
     }
 
     @Test
+    fun `blank library request failure exposes a fallback error`() = runTest {
+        media.pages[0] = Result.failure(IllegalStateException("   "))
+        val viewModel = createViewModel()
+
+        viewModel.loadLibrary("library-1")
+        advanceUntilIdle()
+
+        assertEquals("Não foi possível carregar a biblioteca.", viewModel.state.value.error)
+        assertEquals(false, viewModel.state.value.isLoading)
+    }
+
+    @Test
+    fun `blank pagination failure exposes a fallback error`() = runTest {
+        val first = MediaItem("first", "First", MediaItemType.Movie)
+        media.pages[0] = Result.success(listOf(first) to 2)
+        media.pages[1] = Result.failure(IllegalStateException(" "))
+        val viewModel = createViewModel()
+
+        viewModel.loadLibrary("library-1")
+        advanceUntilIdle()
+        viewModel.loadMore()
+        advanceUntilIdle()
+
+        assertEquals("Não foi possível carregar mais itens.", viewModel.state.value.error)
+    }
+
+    @Test
+    fun `blank filter options failure exposes a fallback error`() = runTest {
+        media.filterOptionsResult = Result.failure(IllegalStateException(" "))
+        val viewModel = createViewModel()
+        viewModel.loadLibrary("library-1")
+        advanceUntilIdle()
+
+        viewModel.showFilterMenu()
+        advanceUntilIdle()
+
+        assertEquals(
+            "Não foi possível carregar as opções. Você ainda pode digitar os filtros.",
+            viewModel.state.value.filterOptionsError,
+        )
+        assertEquals(false, viewModel.state.value.isLoadingFilterOptions)
+    }
+
+    @Test
     fun `library filters are sent to the server`() = runTest {
         media.pages[0] = Result.success(emptyList<MediaItem>() to 0)
         val viewModel = createViewModel()
@@ -921,6 +965,31 @@ class LibraryViewModelTest {
         assertEquals(false, viewModel.state.value.isLoading)
         assertEquals(false, viewModel.state.value.isRefreshing)
         assertEquals(4, media.itemCalls)
+    }
+
+    @Test
+    fun `blank full random catalog failure exposes a fallback error`() = runTest {
+        val item = MediaItem("item-1", "Item 1", MediaItemType.Movie)
+        media.responseSequence = ArrayDeque(
+            listOf(
+                CompletableDeferred(Result.success(listOf(item) to 120)),
+                CompletableDeferred(Result.failure(IllegalStateException(" "))),
+            ),
+        )
+        val viewModel = LibraryViewModel(
+            getLibraryItemsUseCase = GetLibraryItemsUseCase(media),
+            getItemDetailUseCase = GetItemDetailUseCase(media),
+            authRepository = FakeAuthRepository(),
+            settingsRepository = FakeSettingsRepository(initialSort = "Random"),
+            networkMonitor = FakeNetworkMonitor(),
+        )
+        advanceUntilIdle()
+
+        viewModel.loadLibrary("library-1")
+        advanceUntilIdle()
+
+        assertEquals("Não foi possível carregar o catálogo completo. Tente novamente.", viewModel.state.value.error)
+        assertEquals(false, viewModel.state.value.isLoading)
     }
 
     @Test
@@ -1187,6 +1256,7 @@ class LibraryViewModelTest {
         var itemCalls: Int = 0
         var filterOptionsCalls: Int = 0
         var filterOptions = LibraryFilterOptions()
+        var filterOptionsResult: Result<LibraryFilterOptions>? = null
         var pendingFilterOptions: CompletableDeferred<Result<LibraryFilterOptions>>? = null
         var lastFilterParentId: String? = null
         var lastFilterIncludeItemTypes: String? = null
@@ -1214,7 +1284,7 @@ class LibraryViewModelTest {
             lastFilterIncludeItemTypes = includeItemTypes
             return pendingFilterOptions?.let { deferred ->
                 withContext(NonCancellable) { deferred.await() }
-            } ?: Result.success(filterOptions)
+            } ?: filterOptionsResult ?: Result.success(filterOptions)
         }
         override suspend fun getItem(userId: String, itemId: String): Result<MediaItem> {
             detailCalls++

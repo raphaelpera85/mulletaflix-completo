@@ -1,5 +1,7 @@
 package org.mulletaflix.feature.itemdetail
 
+import org.mulletaflix.core.common.util.userFacingMessageOr
+
 import android.app.Application
 import android.app.Activity
 import android.content.Context
@@ -72,6 +74,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -114,6 +117,17 @@ fun BookReaderScreen(
     val pageBook = state.pageBook
     val textBook = state.textBook
     val context = LocalContext.current
+    val configuration = LocalConfiguration.current
+    val isTelevision = configuration.uiMode and android.content.res.Configuration.UI_MODE_TYPE_MASK ==
+        android.content.res.Configuration.UI_MODE_TYPE_TELEVISION
+    val comicPageStep = if (
+        shouldShowComicBookSpread(
+            widthDp = configuration.screenWidthDp,
+            smallestWidthDp = configuration.smallestScreenWidthDp,
+            isTelevision = isTelevision,
+            isComicBook = pageBook is ComicBookArchive || pageBook is CbrBookArchive,
+        )
+    ) 2 else 1
     val activity = context.findActivity()
     val lifecycleOwner = LocalLifecycleOwner.current
     val speechEngineFactory = LocalBookSpeechEngineFactory.current
@@ -196,7 +210,7 @@ fun BookReaderScreen(
                 }.onFailure { error ->
                     coroutineScope.launch {
                         snackbarHostState.showSnackbar(
-                            error.localizedMessage ?: "Não foi possível consultar os idiomas instalados.",
+                            error.userFacingMessageOr("Não foi possível consultar os idiomas instalados."),
                         )
                     }
                 }
@@ -239,7 +253,7 @@ fun BookReaderScreen(
                 } catch (error: Exception) {
                     pdfSpeechActive = false
                     pdfSpeechLoading = false
-                    snackbarHostState.showSnackbar(error.message ?: "Não foi possível narrar este PDF.")
+                    snackbarHostState.showSnackbar(error.userFacingMessageOr("Não foi possível narrar este PDF."))
                 }
             }
         }
@@ -346,7 +360,7 @@ fun BookReaderScreen(
                         epubSpeechNavigator = null
                         epubSpeechStarting = false
                         epubSpeechActive = false
-                        snackbarHostState.showSnackbar(error.message ?: "Não foi possível iniciar a narração.")
+                        snackbarHostState.showSnackbar(error.userFacingMessageOr("Não foi possível iniciar a narração."))
                     }
                 }
             }
@@ -611,6 +625,7 @@ fun BookReaderScreen(
                 ComicBookPageControls(
                     currentPage = currentPage,
                     pageCount = pageBook.pageCount,
+                    pageStep = comicPageStep,
                     speechEnabled = pdfSpeechSupported,
                     speechLoading = pdfSpeechLoading,
                     speechPreparing = speechController.state == BookSpeechState.Preparing,

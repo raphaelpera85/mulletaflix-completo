@@ -666,6 +666,69 @@ class ItemDetailViewModelTest {
     }
 
     @Test
+    fun `blank playback preparation failure exposes localized download fallback`() = runTest {
+        val movie = MediaItem(id = "blank-preparation", name = "Filme", type = MediaItemType.Movie)
+        val mediaRepo = object : FakeMediaRepository() {
+            override suspend fun getItem(userId: String, itemId: String): Result<MediaItem> = Result.success(movie)
+        }
+        val playbackRepo = object : FakePlaybackRepository() {
+            override suspend fun getPlaybackInfo(
+                itemId: String,
+                userId: String,
+                audioStreamIndex: Int?,
+                subtitleStreamIndex: Int?,
+                startTimeTicks: Long?,
+            ): Result<PlaybackInfo> = Result.failure(IllegalStateException("  "))
+        }
+        val viewModel = createViewModel(mediaRepo, playbackRepo = playbackRepo)
+        advanceUntilIdle()
+        viewModel.loadItem(movie.id)
+        advanceUntilIdle()
+
+        viewModel.downloadItem()
+        advanceUntilIdle()
+
+        assertEquals("Não foi possível preparar o download.", viewModel.state.value.downloadMessage)
+        assertFalse(viewModel.state.value.isPreparingDownload)
+    }
+
+    @Test
+    fun `blank download queue failure exposes localized fallback`() = runTest {
+        val movie = MediaItem(id = "blank-queue", name = "Filme", type = MediaItemType.Movie)
+        val mediaRepo = object : FakeMediaRepository() {
+            override suspend fun getItem(userId: String, itemId: String): Result<MediaItem> = Result.success(movie)
+        }
+        val playbackRepo = object : FakePlaybackRepository() {
+            override suspend fun getPlaybackInfo(
+                itemId: String,
+                userId: String,
+                audioStreamIndex: Int?,
+                subtitleStreamIndex: Int?,
+                startTimeTicks: Long?,
+            ) = Result.success(playbackInfo(itemId))
+        }
+        val downloadRepo = object : FakeDownloadRepository() {
+            override fun enqueueWithMetadata(
+                id: String,
+                title: String,
+                uri: String,
+                imageUrl: String?,
+                episodeMetadata: DownloadEpisodeMetadata?,
+            ): Result<Unit> = Result.failure(IllegalStateException("  "))
+        }
+        val viewModel = createViewModel(mediaRepo, playbackRepo = playbackRepo, downloadRepo = downloadRepo)
+        advanceUntilIdle()
+        viewModel.loadItem(movie.id)
+        advanceUntilIdle()
+
+        viewModel.downloadItem()
+        advanceUntilIdle()
+
+        assertEquals("Não foi possível iniciar o download.", viewModel.state.value.downloadMessage)
+        assertFalse(viewModel.state.value.isPreparingDownload)
+    }
+
+    @Test
     fun `loadItem for series loads seasons and auto selects first season`() = runTest {
         val series = MediaItem(id = "s1", name = "Test Series", type = MediaItemType.Series)
         val seasons = listOf(
@@ -1058,6 +1121,43 @@ class ItemDetailViewModelTest {
     }
 
     @Test
+    fun `blank playlist failures expose fallback messages`() = runTest {
+        val movie = MediaItem(id = "m1", name = "Movie", type = MediaItemType.Movie)
+        val playlist = Playlist(id = "p1", name = "My Favorites")
+        val mediaRepo = object : FakeMediaRepository() {
+            override suspend fun getItem(userId: String, itemId: String): Result<MediaItem> = Result.success(movie)
+        }
+        val playlistRepo = object : FakePlaylistRepository() {
+            override suspend fun getPlaylists(userId: String): Result<List<Playlist>> =
+                Result.failure(IllegalStateException(" "))
+            override suspend fun addItem(userId: String, playlistId: String, itemId: String): Result<Unit> =
+                Result.failure(IllegalStateException(" "))
+            override suspend fun createPlaylist(userId: String, name: String, itemId: String?): Result<Playlist> =
+                Result.failure(IllegalStateException(" "))
+        }
+        val viewModel = createViewModel(
+            mediaRepo,
+            FakeAuthRepository(userId = "u1"),
+            playlistRepo = playlistRepo,
+        )
+        advanceUntilIdle()
+        viewModel.loadItem("m1")
+        advanceUntilIdle()
+
+        viewModel.openPlaylistPicker()
+        advanceUntilIdle()
+        assertEquals("Não foi possível carregar as playlists.", viewModel.state.value.playlistMessage)
+
+        viewModel.addToPlaylist(playlist)
+        advanceUntilIdle()
+        assertEquals("Não foi possível adicionar à playlist.", viewModel.state.value.playlistMessage)
+
+        viewModel.createPlaylist("Nova")
+        advanceUntilIdle()
+        assertEquals("Não foi possível criar a playlist.", viewModel.state.value.playlistMessage)
+    }
+
+    @Test
     fun `loadItem sets error on failure`() = runTest {
         val mediaRepo = object : FakeMediaRepository() {
             override suspend fun getItem(userId: String, itemId: String): Result<MediaItem> {
@@ -1075,6 +1175,21 @@ class ItemDetailViewModelTest {
         assertFalse(state.isLoading)
         assertNotNull(state.error)
         assertTrue(state.error!!.contains("Network connection failed"))
+    }
+
+    @Test
+    fun `loadItem uses a fallback when failure message is blank`() = runTest {
+        val mediaRepo = object : FakeMediaRepository() {
+            override suspend fun getItem(userId: String, itemId: String): Result<MediaItem> =
+                Result.failure(IllegalStateException("  "))
+        }
+        val viewModel = createViewModel(mediaRepo, FakeAuthRepository(userId = "u1"))
+        advanceUntilIdle()
+
+        viewModel.loadItem("invalid-id")
+        advanceUntilIdle()
+
+        assertEquals("Erro ao carregar detalhes", viewModel.state.value.error)
     }
 
     @Test

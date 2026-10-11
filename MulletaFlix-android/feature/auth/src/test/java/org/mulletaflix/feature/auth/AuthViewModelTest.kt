@@ -552,6 +552,37 @@ class AuthViewModelTest {
     }
 
     @Test
+    fun `blank registration failure exposes localized fallback and resets progress`() = runTest {
+        val authRepo = object : FakeAuthRepository() {
+            override suspend fun register(username: String, password: String): Result<RegistrationResult> =
+                Result.success(RegistrationResult(success = false, message = "  "))
+        }
+        val viewModel = createViewModel(authRepo)
+        advanceUntilIdle()
+
+        viewModel.register("newuser", "securepass123")
+        advanceUntilIdle()
+
+        assertEquals("Ocorreu um erro durante o cadastro", viewModel.state.value.error)
+        assertFalse(viewModel.state.value.isRegistering)
+    }
+
+    @Test
+    fun `registration failure preserves a meaningful server message`() = runTest {
+        val authRepo = object : FakeAuthRepository() {
+            override suspend fun register(username: String, password: String): Result<RegistrationResult> =
+                Result.success(RegistrationResult(success = false, message = "Este usuário já existe."))
+        }
+        val viewModel = createViewModel(authRepo)
+        advanceUntilIdle()
+
+        viewModel.register("newuser", "securepass123")
+        advanceUntilIdle()
+
+        assertEquals("Este usuário já existe.", viewModel.state.value.error)
+    }
+
+    @Test
     fun `saved servers list always includes official duckdns server`() = runTest {
         val viewModel = createViewModel()
         advanceUntilIdle()

@@ -339,6 +339,51 @@ class SettingsViewModelTest {
     }
 
     @Test
+    fun `failed logout keeps current destination and exposes error`() = runTest {
+        val authRepo = object : FakeAuthRepository() {
+            override suspend fun logout(): Result<Unit> =
+                Result.failure(IllegalStateException("Falha ao encerrar sessão"))
+        }
+        val viewModel = SettingsViewModel(
+            context,
+            FakeSettingsRepository(),
+            authRepo,
+            LogoutUseCase(authRepo),
+        )
+        var navigationCalls = 0
+        advanceUntilIdle()
+
+        viewModel.logout { navigationCalls++ }
+        advanceUntilIdle()
+
+        assertFalse(viewModel.state.value.isLoggingOut)
+        assertEquals("Falha ao encerrar sessão", viewModel.state.value.logoutErrorMessage)
+        assertEquals("logout failure must not navigate away", 0, navigationCalls)
+    }
+
+    @Test
+    fun `successful logout navigates only after session cleanup succeeds`() = runTest {
+        val authRepo = object : FakeAuthRepository() {
+            override suspend fun logout(): Result<Unit> = Result.success(Unit)
+        }
+        val viewModel = SettingsViewModel(
+            context,
+            FakeSettingsRepository(),
+            authRepo,
+            LogoutUseCase(authRepo),
+        )
+        var navigationCalls = 0
+        advanceUntilIdle()
+
+        viewModel.logout { navigationCalls++ }
+        advanceUntilIdle()
+
+        assertFalse(viewModel.state.value.isLoggingOut)
+        assertEquals(1, navigationCalls)
+        assertEquals(null, viewModel.state.value.logoutErrorMessage)
+    }
+
+    @Test
     fun `clearing image cache exposes a completion message`() = runTest {
         val cacheRoot = Files.createTempDirectory("mulletaflix-settings-test").toFile()
         every { context.cacheDir } returns cacheRoot
@@ -794,6 +839,22 @@ class SettingsViewModelTest {
 
         assertFalse(viewModel.state.value.isCheckingUpdate)
         assertEquals("network exploded", viewModel.state.value.updateErrorMessage)
+    }
+
+    @Test
+    fun `blank repository exception resets checking state with fallback error`() = runTest {
+        val updateRepository = object : AppUpdateRepository {
+            override suspend fun checkForUpdate(currentVersion: String): Result<AppUpdateInfo> {
+                error("  ")
+            }
+        }
+        val viewModel = newViewModel(checkAppUpdateUseCase = CheckAppUpdateUseCase(updateRepository))
+
+        viewModel.checkForUpdates("1.1.29")
+        advanceUntilIdle()
+
+        assertFalse(viewModel.state.value.isCheckingUpdate)
+        assertEquals("Erro ao verificar atualizações.", viewModel.state.value.updateErrorMessage)
     }
 
     private fun newViewModel(

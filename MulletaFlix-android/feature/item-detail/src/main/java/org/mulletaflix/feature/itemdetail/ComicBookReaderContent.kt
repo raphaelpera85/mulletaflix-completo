@@ -1,5 +1,6 @@
 package org.mulletaflix.feature.itemdetail
 
+import android.content.res.Configuration
 import android.graphics.Bitmap
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
@@ -35,6 +36,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -48,6 +50,7 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -71,6 +74,64 @@ internal fun PagedBookReaderContent(
     zoom: Float = 1f,
     onZoomChange: (Float) -> Unit = {},
     modifier: Modifier = Modifier,
+) {
+    val configuration = LocalConfiguration.current
+    val isTelevision = configuration.uiMode and Configuration.UI_MODE_TYPE_MASK ==
+        Configuration.UI_MODE_TYPE_TELEVISION
+    Box(
+        modifier = modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.background),
+        contentAlignment = Alignment.Center,
+    ) {
+        val visiblePages = comicBookVisiblePages(
+            currentPage = currentPage,
+            pageCount = pageBook.pageCount,
+            useSpread = shouldShowComicBookSpread(
+                widthDp = configuration.screenWidthDp,
+                smallestWidthDp = configuration.smallestScreenWidthDp,
+                isTelevision = isTelevision,
+                isComicBook = pageBook is ComicBookArchive || pageBook is CbrBookArchive,
+            ),
+        )
+        if (visiblePages.size > 1) {
+            Row(
+                modifier = Modifier.fillMaxSize().padding(horizontal = 12.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                visiblePages.forEach { page ->
+                    key(page) {
+                        ComicBookSinglePageContent(
+                            pageBook = pageBook,
+                            currentPage = page,
+                            zoom = zoom,
+                            onZoomChange = onZoomChange,
+                            modifier = Modifier.weight(1f),
+                        )
+                    }
+                }
+            }
+        } else {
+            ComicBookSinglePageContent(
+                pageBook = pageBook,
+                currentPage = visiblePages.firstOrNull() ?: currentPage,
+                zoom = zoom,
+                onZoomChange = onZoomChange,
+                modifier = Modifier.fillMaxSize(),
+            )
+        }
+    }
+}
+
+@Composable
+@OptIn(ExperimentalFoundationApi::class)
+private fun ComicBookSinglePageContent(
+    pageBook: BookPageSource,
+    currentPage: Int,
+    zoom: Float,
+    onZoomChange: (Float) -> Unit,
+    modifier: Modifier,
 ) {
     BoxWithConstraints(
         modifier = modifier
@@ -178,7 +239,7 @@ internal fun PagedBookReaderContent(
                     contentScale = ContentScale.Fit,
                     modifier = Modifier
                         .fillMaxSize()
-                        .testTag("comic-book-page")
+                        .testTag(if (currentPage == 0) "comic-book-page" else "comic-book-page-${currentPage + 1}")
                         .graphicsLayer {
                             scaleX = zoom
                             scaleY = zoom
@@ -266,6 +327,7 @@ private const val COMIC_PAGE_RENDER_DEBOUNCE_MS = 250L
 internal fun ComicBookPageControls(
     currentPage: Int,
     pageCount: Int,
+    pageStep: Int = 1,
     speechEnabled: Boolean = false,
     speechLoading: Boolean = false,
     speechPreparing: Boolean = false,
@@ -283,7 +345,7 @@ internal fun ComicBookPageControls(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         IconButton(
-            onClick = { onPageSelected(currentPage - 1) },
+            onClick = { onPageSelected((currentPage - pageStep.coerceAtLeast(1)).coerceAtLeast(0)) },
             enabled = currentPage > 0,
         ) {
             Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Página anterior")
@@ -332,8 +394,10 @@ internal fun ComicBookPageControls(
             }
         }
         IconButton(
-            onClick = { onPageSelected(currentPage + 1) },
-            enabled = currentPage < pageCount - 1,
+            onClick = {
+                onPageSelected((currentPage + pageStep.coerceAtLeast(1)).coerceAtMost(pageCount - 1))
+            },
+            enabled = currentPage + pageStep.coerceAtLeast(1) < pageCount,
         ) {
             Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = "Próxima página")
         }

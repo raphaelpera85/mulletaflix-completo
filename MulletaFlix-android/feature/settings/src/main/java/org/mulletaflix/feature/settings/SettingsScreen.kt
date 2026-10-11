@@ -125,10 +125,21 @@ fun SettingsScreen(
                 SettingsItem(icon = Icons.Default.Group, title = "Salas SyncPlay", subtitle = "Assistir sincronizado com amigos", onClick = onSyncPlay)
                 SettingsItem(icon = Icons.Default.CastConnected, title = "Dispositivos em reprodução", subtitle = "Controlar TVs e outros players conectados", onClick = onRemotePlayback)
                 SettingsItem(icon = Icons.AutoMirrored.Filled.QueueMusic, title = "Minhas playlists", subtitle = "Consultar e reproduzir títulos salvos", onClick = onPlaylists)
-                SettingsItem(icon = Icons.AutoMirrored.Filled.Logout, title = "Sair", subtitle = "Desconectar da conta atual", onClick = {
-                    viewModel.logout()
-                    onLogout()
-                })
+                SettingsItem(
+                    icon = Icons.AutoMirrored.Filled.Logout,
+                    title = if (state.isLoggingOut) "Saindo…" else "Sair",
+                    subtitle = "Desconectar da conta atual",
+                    enabled = !state.isLoggingOut,
+                    onClick = { viewModel.logout(onLogout) },
+                )
+                state.logoutErrorMessage?.let { message ->
+                    Text(
+                        text = message,
+                        color = MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.bodySmall,
+                        modifier = Modifier.padding(start = 56.dp, end = 16.dp, bottom = 8.dp),
+                    )
+                }
             }
 
             // ── Aparência ────────────────────────────────────────────────────

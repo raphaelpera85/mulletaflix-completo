@@ -28,6 +28,7 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.util.concurrent.atomic.AtomicReference
 import org.mulletaflix.core.common.dispatcher.ApplicationScope
+import org.mulletaflix.core.common.util.userFacingMessageOr
 import org.mulletaflix.core.api.MulletaFlixApiService
 import org.mulletaflix.core.api.HomeFeedCacheScope
 import org.mulletaflix.core.api.SessionRepository
@@ -177,12 +178,16 @@ class BookReaderViewModel @Inject constructor(
                             validateBookReaderPayloadLength(body.contentLength(), copiedBytes)
                             currentCoroutineContext().ensureActive()
                             val payloadFormat = detectBookPayloadFormat(target, contentType)
+                            if (payloadFormat == BookPayloadFormat.UNSUPPORTED) {
+                                error("O arquivo recebido não corresponde a um formato de livro compatível.")
+                            }
                             val extension = when (payloadFormat) {
                                 BookPayloadFormat.EPUB -> ".epub"
                                 BookPayloadFormat.PDF -> ".pdf"
                                 BookPayloadFormat.CBZ -> ".cbz"
                                 BookPayloadFormat.CBR -> ".cbr"
                                 BookPayloadFormat.PLAIN_TEXT -> ".txt"
+                                BookPayloadFormat.UNSUPPORTED -> error("Formato de livro não suportado.")
                             }
                             cacheTarget = bookCacheFiles.withExtension(target, extension)
                             val loadedContent = when {
@@ -199,7 +204,11 @@ class BookReaderViewModel @Inject constructor(
                                     cacheFile = cacheTarget,
                                 )
                                 payloadFormat == BookPayloadFormat.PLAIN_TEXT -> LoadedBookContent(
-                                    textBook = PlainTextBookDocument.open(cacheTarget, contentType),
+                                    textBook = PlainTextBookDocument.open(
+                                        cacheTarget,
+                                        contentType.takeIf(PlainTextBookDocument::supports)
+                                            ?: PlainTextBookDocument.CONTENT_TYPE,
+                                    ),
                                     cacheFile = cacheTarget,
                                 )
                                 else -> LoadedBookContent(
@@ -271,7 +280,7 @@ class BookReaderViewModel @Inject constructor(
                 bookCacheFiles.deleteAllOwned()
                 _state.value = BookReaderState(
                     isLoading = false,
-                    error = error.message ?: "Não foi possível abrir este livro.",
+                    error = error.userFacingMessageOr("Não foi possível abrir este livro."),
                 )
             } finally {
                 val orphanedPageBook = unownedPageBook ?: pageBookCreatedOnIo.getAndSet(null)

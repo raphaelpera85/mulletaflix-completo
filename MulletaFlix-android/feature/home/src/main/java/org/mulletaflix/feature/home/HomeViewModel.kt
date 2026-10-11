@@ -1,5 +1,7 @@
 package org.mulletaflix.feature.home
 
+import org.mulletaflix.core.common.util.userFacingMessageOr
+
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -253,8 +255,9 @@ class HomeViewModel @Inject constructor(
                             )
                         }
                     }.onFailure { error ->
-                        val message = error.localizedMessage?.takeIf(String::isNotBlank)
-                            ?: "Não foi possível carregar Adicionados Recentemente — ${library.name}."
+                        val message = error.userFacingMessageOr(
+                            "Não foi possível carregar Adicionados Recentemente — ${library.name}.",
+                        )
                         _state.update { state ->
                             if (state.libraries.none { it.id == libraryId }) state
                             else state.copy(
@@ -452,5 +455,5 @@ class HomeViewModel @Inject constructor(
 private fun Throwable.userMessage(): String = when (this) {
     is java.net.UnknownHostException -> "Servidor indisponível. Verifique a conexão com a rede."
     is java.net.ConnectException -> "Não foi possível conectar ao servidor."
-    else -> localizedMessage ?: "Não foi possível carregar o conteúdo do servidor."
+    else -> userFacingMessageOr("Não foi possível carregar o conteúdo do servidor.")
 }

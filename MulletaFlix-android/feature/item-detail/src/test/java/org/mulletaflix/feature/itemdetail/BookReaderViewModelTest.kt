@@ -115,6 +115,19 @@ class BookReaderViewModelTest {
     }
 
     @Test
+    fun `load shows a fallback when the failure message is blank`() = runTest(dispatcher) {
+        val api = mockk<MulletaFlixApiService>(relaxed = true)
+        coEvery { api.getBookReaderEpub(any()) } throws IllegalStateException("   ")
+        val viewModel = BookReaderViewModel(api, FakeSessionRepository(SCOPE_A), context)
+
+        viewModel.load("blank-error-book")
+        awaitLoadFinished(viewModel)
+
+        assertEquals("Não foi possível abrir este livro.", viewModel.state.value.error)
+        assertFalse(viewModel.state.value.isLoading)
+    }
+
+    @Test
     fun `load reads directly returned HTML as safe text`() = runTest(dispatcher) {
         val api = mockk<MulletaFlixApiService>(relaxed = true)
         coEvery { api.getBookReaderEpub(any()) } returns
@@ -361,6 +374,44 @@ class BookReaderViewModelTest {
         assertFalse(state.isLoading)
         assertEquals(bookReaderHttpFailureMessage(415), state.error)
         assertNull(state.publication)
+    }
+
+    @Test
+    fun `generic binary response that is not a supported book shows a format error`() = runTest(dispatcher) {
+        val api = mockk<MulletaFlixApiService>(relaxed = true)
+        coEvery { api.getBookReaderEpub(any()) } returns
+            byteArrayOf(0, 1, 2, 3, 4, 5, 0x7F).toResponseBody("application/octet-stream".toMediaType())
+        coEvery { api.getBookReaderStatus(any()) } returns BookReaderStatusDto("Ready")
+        val viewModel = BookReaderViewModel(api, FakeSessionRepository(SCOPE_A), context)
+
+        viewModel.load("unknown-format-book")
+        awaitLoadFinished(viewModel)
+
+        val state = viewModel.state.value
+        assertFalse(state.isLoading)
+        assertEquals("O arquivo recebido não corresponde a um formato de livro compatível.", state.error)
+        assertNull(state.publication)
+        assertNull(state.pageBook)
+        assertNull(state.textBook)
+    }
+
+    @Test
+    fun `generic binary response containing readable text opens in the plain text reader`() = runTest(dispatcher) {
+        val api = mockk<MulletaFlixApiService>(relaxed = true)
+        coEvery { api.getBookReaderEpub(any()) } returns
+            "Capítulo 1\nAção e leitura em texto simples.".toResponseBody("application/octet-stream".toMediaType())
+        coEvery { api.getBookReaderStatus(any()) } returns BookReaderStatusDto("Ready")
+        val viewModel = BookReaderViewModel(api, FakeSessionRepository(SCOPE_A), context)
+
+        viewModel.load("generic-text-book")
+        awaitLoadFinished(viewModel)
+
+        val state = viewModel.state.value
+        assertFalse(state.isLoading)
+        assertNull(state.error)
+        assertEquals("Capítulo 1\nAção e leitura em texto simples.", state.textBook?.chunks?.joinToString(""))
+        assertNull(state.publication)
+        assertNull(state.pageBook)
     }
 
     @Test

@@ -1,5 +1,7 @@
 package org.mulletaflix.feature.user
 
+import org.mulletaflix.core.common.util.userFacingMessageOr
+
 import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -213,7 +215,7 @@ class UserProfileViewModel @Inject constructor(
                     _uiState.update {
                         it.copy(
                             isSwitchingUser = false,
-                            error = err.localizedMessage ?: "Senha incorreta ou erro ao alternar usuário",
+                            error = err.userFacingMessageOr("Senha incorreta ou erro ao alternar usuário"),
                         )
                     }
                 }
@@ -233,8 +235,7 @@ class UserProfileViewModel @Inject constructor(
                     _uiState.update {
                         it.copy(
                             isLoggingOut = false,
-                            error = failure.localizedMessage
-                                ?: "Não foi possível encerrar a sessão. Tente novamente.",
+                            error = failure.userFacingMessageOr("Não foi possível encerrar a sessão. Tente novamente."),
                         )
                     }
                 },
