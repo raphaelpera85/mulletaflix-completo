@@ -1,5 +1,15 @@
 # MulletaFlix Android - Plano de Desenvolvimento & Checklist de Funcionalidades (TODO)
 
+## Token de sessão cifrado no APK — concluído localmente; sem release
+
+- [x] Cifrar o token com AES-GCM e chave não exportável do Android Keystore; não adicionar dependências obsoletas.
+- [x] Guardar ciphertext versionado junto dos metadados na mesma transação do DataStore, evitando token da conta anterior combinado com identidade nova.
+- [x] Migrar tokens legados; recuperar de ciphertext inválido se houver token legado, ou falhar fechado limpando autenticação sem remover URL/dispositivo.
+- [x] Preservar login, restauração da sessão, logout, servidores salvos e DeviceId; cobrir Android Keystore real em instrumentação PHONE/API 35.
+- [x] Quality gate em 2026-10-11: 1.675 testes JVM/248 suítes e 8 AndroidTests de sessão, zero falhas/erros/ignorados; lint app/módulo, `assembleDebug`, compilação AndroidTest e `git diff --check` aprovados.
+- [x] Revisão adversarial dos limites de migração e atomicidade; Graphify atualizado/consultado para repositório e cifrador.
+- [ ] Sem bump, artefato de produção, release, portal, commit ou push.
+
 ## Sumário navegável para livros ODT — APK local; sem release
 
 - [x] Extrair capítulos ODT de `<text:h>`, preservando título com formatação inline/entidades, nível de outline e offset do texto para navegação no chunk correto.
@@ -3684,3 +3694,13 @@ Pendências relacionadas:
 - [x] Testar aceitação exata do limite, tabs/recuos de cerca e offsets após whitespace Unicode.
 - [ ] Validar a interação visual do sumário em dispositivo quando o AVD reservado pelo usuário for liberado.
 - [ ] Sem bump, APK de produção ou publicação nesta tarefa.
+
+## Erro acionável para AZW3/KF8 não suportado (APK local; sem release)
+
+- [x] Identificar respostas com MIME `application/vnd.amazon.mobi8-ebook` e explicar que AZW3/KF8 ainda não é lido diretamente.
+- [x] Sugerir conversão para EPUB sem afirmar suporte incompleto como leitura válida; demais MIME incompatíveis mantêm a mensagem genérica.
+- [x] Teste ViewModel verifica MIME com variação de caixa/parâmetros, erro recuperável e ausência de conteúdo parcialmente aberto.
+- [x] RED-GREEN e Quality Gate: 1.676 testes JVM, lint do módulo e app, assemble Debug e compilação AndroidTest aprovados; revisor adversarial sem achados; Graphify atualizado e função ligada ao carregamento do ViewModel.
+- [ ] Implementar extração AZW3/KF8 completa e validá-la com arquivos reais não protegidos; suporte direto permanece ausente.
+- [ ] Validar interação Compose nos perfis depois que o usuário liberar o AVD reservado.
+- [ ] Sem bump, APK de produção ou publicação; alteração exclusivamente local do APK.

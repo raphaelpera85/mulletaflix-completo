@@ -129,8 +129,15 @@ internal object RtfBookTextParser {
     }
 
     private fun skipBinaryPayload(rtf: String, end: Int, word: String, parameter: Int?): Int {
-        if (word != "bin" || parameter == null || parameter <= 0) return end
-        return (end + parameter).coerceAtMost(rtf.length)
+        if (word != "bin") return end
+        if (parameter == null || parameter < 0) {
+            throw IOException("O RTF declara um tamanho binário inválido.")
+        }
+        val payloadEnd = end.toLong() + parameter
+        if (payloadEnd > rtf.length) {
+            throw IOException("O RTF contém um conteúdo binário incompleto.")
+        }
+        return payloadEnd.toInt()
     }
 
     private fun appendVisible(output: StringBuilder, state: State, value: Char) {

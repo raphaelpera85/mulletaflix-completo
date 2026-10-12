@@ -126,6 +126,20 @@ internal fun validateBookReaderPayloadLength(declaredBytes: Long, copiedBytes: L
     }
 }
 
+internal fun bookReaderIncompatibleContentTypeMessage(contentType: String?): String {
+    val mimeType = contentType
+        ?.substringBefore(';')
+        ?.trim()
+        ?.lowercase()
+        .orEmpty()
+    return if (mimeType == "application/vnd.amazon.mobi8-ebook") {
+        "Este livro está no formato AZW3/KF8, que o aplicativo ainda não lê diretamente. " +
+            "Se possível, converta-o para EPUB e tente novamente."
+    } else {
+        "O servidor não enviou um arquivo de livro compatível para leitura."
+    }
+}
+
 internal fun bookReaderHttpFailureMessage(statusCode: Int): String =
     if (statusCode == 415) {
         "Este formato não pode ser lido pelo aplicativo."

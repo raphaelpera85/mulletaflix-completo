@@ -90,6 +90,17 @@ class RtfBookTextParserTest {
     }
 
     @Test
+    fun `rejects a truncated binary payload instead of accepting partial RTF`() {
+        val rtf = "{\\rtf1 before \\bin5 abc}"
+
+        val failure = assertThrows(IOException::class.java) {
+            RtfBookTextParser.parse(rtf)
+        }
+
+        assertTrue(failure.message.orEmpty().contains("binário incompleto"))
+    }
+
+    @Test
     fun `rejects malformed and excessively nested RTF`() {
         assertThrows(IOException::class.java) { RtfBookTextParser.parse("not an RTF document") }
         assertThrows(IOException::class.java) { RtfBookTextParser.parse("{\\rtf1{incomplete}") }

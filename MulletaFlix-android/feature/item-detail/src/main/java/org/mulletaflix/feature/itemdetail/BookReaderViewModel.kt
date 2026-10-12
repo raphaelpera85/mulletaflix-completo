@@ -163,7 +163,7 @@ class BookReaderViewModel @Inject constructor(
                             error("Book file exceeds the supported size limit.")
                         }
                         if (isClearlyNotSupportedBookContentType(contentType)) {
-                            error("O servidor não enviou um arquivo de livro compatível para leitura.")
+                            error(bookReaderIncompatibleContentTypeMessage(contentType))
                         }
 
                         val target = bookCacheFiles.create(

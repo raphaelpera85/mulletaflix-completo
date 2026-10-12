@@ -396,6 +396,31 @@ class BookReaderViewModelTest {
     }
 
     @Test
+    fun `AZW3 response explains the unsupported format and offers EPUB as an alternative`() = runTest(dispatcher) {
+        val api = mockk<MulletaFlixApiService>(relaxed = true)
+        coEvery { api.getBookReaderEpub(any()) } returns
+            byteArrayOf(0xEA.toByte(), 0x44, 0x52, 0x4D).toResponseBody(
+                "Application/Vnd.Amazon.Mobi8-Ebook; charset=binary".toMediaType(),
+            )
+        coEvery { api.getBookReaderStatus(any()) } returns BookReaderStatusDto("Ready")
+        val viewModel = BookReaderViewModel(api, FakeSessionRepository(SCOPE_A), context)
+
+        viewModel.load("azw3-book")
+        awaitLoadFinished(viewModel)
+
+        val state = viewModel.state.value
+        assertFalse(state.isLoading)
+        assertEquals(
+            "Este livro está no formato AZW3/KF8, que o aplicativo ainda não lê diretamente. " +
+                "Se possível, converta-o para EPUB e tente novamente.",
+            state.error,
+        )
+        assertNull(state.publication)
+        assertNull(state.pageBook)
+        assertNull(state.textBook)
+    }
+
+    @Test
     fun `generic binary response containing readable text opens in the plain text reader`() = runTest(dispatcher) {
         val api = mockk<MulletaFlixApiService>(relaxed = true)
         coEvery { api.getBookReaderEpub(any()) } returns
