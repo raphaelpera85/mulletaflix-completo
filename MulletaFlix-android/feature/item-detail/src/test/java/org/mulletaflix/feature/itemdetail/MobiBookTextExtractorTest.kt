@@ -41,6 +41,91 @@ class MobiBookTextExtractorTest {
     }
 
     @Test
+    fun `reads HUFF CDIC compressed text records`() = withTempDirectory { directory ->
+        val file = directory.resolve("huff.mobi").apply {
+            writeBytes(
+                mobiFile(
+                    byteArrayOf(0x55),
+                    declaredLength = 8,
+                    compression = 17_480,
+                    huffRecords = listOf(huffRecord(), cdicRecord()),
+                ),
+            )
+        }
+
+        assertEquals("BABABABA", MobiBookTextExtractor.extractHtml(file))
+    }
+
+    @Test
+    fun `ignores incomplete HUFF code in final byte padding`() = withTempDirectory { directory ->
+        val file = directory.resolve("huff-padding.mobi").apply {
+            writeBytes(
+                mobiFile(
+                    byteArrayOf(0),
+                    declaredLength = 1,
+                    compression = 17_480,
+                    huffRecords = listOf(huffRecord(codeLength = 5), cdicRecord()),
+                ),
+            )
+        }
+
+        assertEquals("A", MobiBookTextExtractor.extractHtml(file))
+    }
+
+    @Test
+    fun `decodes each HUFF text record independently`() = withTempDirectory { directory ->
+        val file = directory.resolve("multiple-huff-records.mobi").apply {
+            writeBytes(
+                mobiFile(
+                    listOf(byteArrayOf(0x55), byteArrayOf(0x55)),
+                    declaredLength = 16,
+                    compression = 17_480,
+                    huffRecords = listOf(huffRecord(), cdicRecord()),
+                ),
+            )
+        }
+
+        assertEquals("BABABABABABABABA", MobiBookTextExtractor.extractHtml(file))
+    }
+
+    @Test
+    fun `rejects HUFF output larger than declared text size`() = withTempDirectory { directory ->
+        val file = directory.resolve("oversized-huff.mobi").apply {
+            writeBytes(
+                mobiFile(
+                    byteArrayOf(0x55),
+                    declaredLength = 4,
+                    compression = 17_480,
+                    huffRecords = listOf(huffRecord(), cdicRecord()),
+                ),
+            )
+        }
+
+        val error = assertThrows(IOException::class.java) { MobiBookTextExtractor.extractHtml(file) }
+
+        assertEquals("O texto MOBI excede o tamanho declarado.", error.message)
+    }
+
+    @Test
+    fun `rejects recursive HUFF dictionary phrases`() = withTempDirectory { directory ->
+        val recursiveDictionary = cdicRecord(secondPhraseLiteral = false)
+        val file = directory.resolve("recursive-huff.mobi").apply {
+            writeBytes(
+                mobiFile(
+                    byteArrayOf(0x00),
+                    declaredLength = 1,
+                    compression = 17_480,
+                    huffRecords = listOf(huffRecord(), recursiveDictionary),
+                ),
+            )
+        }
+
+        val error = assertThrows(IOException::class.java) { MobiBookTextExtractor.extractHtml(file) }
+
+        assertEquals("O dicionário HUFF/CDIC contém uma referência circular.", error.message)
+    }
+
+    @Test
     fun `rejects PalmDOC output as soon as it exceeds the declared text length`() = withTempDirectory { directory ->
         val source = "<p>Texto maior que o declarado.</p>".toByteArray(StandardCharsets.UTF_8)
         val file = directory.resolve("oversized.mobi").apply {
@@ -123,7 +208,8 @@ class MobiBookTextExtractorTest {
         compression: Int = 1,
         encryption: Int = 0,
         encoding: Long = 65_001,
-    ): ByteArray = mobiFile(listOf(textRecord), declaredLength, compression, encryption, encoding)
+        huffRecords: List<ByteArray> = emptyList(),
+    ): ByteArray = mobiFile(listOf(textRecord), declaredLength, compression, encryption, encoding, huffRecords = huffRecords)
 
     private fun mobiFile(
         textRecords: List<ByteArray>,
@@ -132,20 +218,22 @@ class MobiBookTextExtractorTest {
         encryption: Int = 0,
         encoding: Long = 65_001,
         extraDataFlags: Int = 0,
+        huffRecords: List<ByteArray> = emptyList(),
     ): ByteArray {
         val headerSize = 248
-        val recordCount = textRecords.size + 1
+        val recordPayloads = textRecords + huffRecords
+        val recordCount = recordPayloads.size + 1
         val firstRecordOffset = 78 + recordCount * 8
-        val textRecordOffsets = textRecords.indices.map { index ->
-            firstRecordOffset + headerSize + textRecords.take(index).sumOf { it.size }
+        val payloadOffsets = recordPayloads.indices.map { index ->
+            firstRecordOffset + headerSize + recordPayloads.take(index).sumOf { it.size }
         }
-        val bytes = ByteArray(firstRecordOffset + headerSize + textRecords.sumOf { it.size })
+        val bytes = ByteArray(firstRecordOffset + headerSize + recordPayloads.sumOf { it.size })
         putAscii(bytes, 0, "Test book")
         putAscii(bytes, 60, "BOOK")
         putAscii(bytes, 64, "MOBI")
         putShort(bytes, 76, recordCount)
         putInt(bytes, 78, firstRecordOffset)
-        textRecordOffsets.forEachIndexed { index, offset ->
+        payloadOffsets.forEachIndexed { index, offset ->
             putInt(bytes, 78 + (index + 1) * 8, offset)
         }
 
@@ -159,8 +247,34 @@ class MobiBookTextExtractorTest {
         putInt(bytes, firstRecordOffset + 24, 2)
         putInt(bytes, firstRecordOffset + 28, encoding.toInt())
         putShort(bytes, firstRecordOffset + 242, extraDataFlags)
-        textRecords.forEachIndexed { index, record -> record.copyInto(bytes, textRecordOffsets[index]) }
+        if (huffRecords.isNotEmpty()) {
+            putInt(bytes, firstRecordOffset + 112, textRecords.size + 1)
+            putInt(bytes, firstRecordOffset + 116, huffRecords.size)
+        }
+        recordPayloads.forEachIndexed { index, record -> record.copyInto(bytes, payloadOffsets[index]) }
         return bytes
+    }
+
+    private fun huffRecord(codeLength: Int = 1): ByteArray = ByteArray(1_304).apply {
+        putAscii(this, 0, "HUFF")
+        putInt(this, 4, 24)
+        putInt(this, 8, 24)
+        putInt(this, 12, 1_048)
+        val tableEntry = if (codeLength == 1) 0x181 else 0x80 or codeLength
+        repeat(256) { putInt(this, 24 + it * 4, tableEntry) }
+    }
+
+    private fun cdicRecord(secondPhraseLiteral: Boolean = true): ByteArray = ByteArray(28).apply {
+        putAscii(this, 0, "CDIC")
+        putInt(this, 4, 16)
+        putInt(this, 8, 2)
+        putInt(this, 12, 1)
+        putShort(this, 16, 4)
+        putShort(this, 18, 7)
+        putShort(this, 22, 0x8001)
+        this[24] = 'A'.code.toByte()
+        putShort(this, 25, if (secondPhraseLiteral) 0x8001 else 1)
+        this[27] = if (secondPhraseLiteral) 'B'.code.toByte() else 0x00
     }
 
     private fun palmDocLiteral(bytes: ByteArray): ByteArray {

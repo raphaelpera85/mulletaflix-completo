@@ -9,7 +9,7 @@ import java.nio.charset.Charset
 import java.nio.charset.CodingErrorAction
 import java.nio.charset.StandardCharsets
 
-/** Reads non-DRM PalmDOC-compressed and uncompressed MOBI text; HUFF/CDIC and AZW3 are unsupported. */
+/** Reads non-DRM uncompressed, PalmDOC, and HUFF/CDIC MOBI text; AZW3/KF8 reconstruction is unsupported. */
 internal object MobiBookTextExtractor {
     const val CONTENT_TYPE = "application/x-mobipocket-ebook"
     const val MAX_PACKAGE_BYTES = 64L * 1024L * 1024L
@@ -17,6 +17,7 @@ internal object MobiBookTextExtractor {
     private const val PDB_HEADER_BYTES = 78
     private const val PDB_RECORD_ENTRY_BYTES = 8
     private const val MAX_RECORDS = 4_096
+    private const val MAX_HUFF_DICTIONARY_BYTES = 8 * 1024 * 1024
     private const val COMPRESSION_NONE = 1
     private const val COMPRESSION_PALMDOC = 2
     private const val COMPRESSION_HUFF_CDIC = 17_480
@@ -85,10 +86,7 @@ internal object MobiBookTextExtractor {
                 throw IOException("O cabeçalho do livro MOBI é inválido.")
             }
             if (encryption != 0) throw IOException("Livros MOBI protegidos por DRM não são compatíveis.")
-            if (compression == COMPRESSION_HUFF_CDIC) {
-                throw IOException("Este MOBI usa compressão HUFF/CDIC, ainda não compatível.")
-            }
-            if (compression !in setOf(COMPRESSION_NONE, COMPRESSION_PALMDOC)) {
+            if (compression !in setOf(COMPRESSION_NONE, COMPRESSION_PALMDOC, COMPRESSION_HUFF_CDIC)) {
                 throw IOException("O tipo de compressão deste MOBI não é compatível.")
             }
             if (declaredLength !in 1..MAX_TEXT_BYTES.toLong() ||
@@ -100,6 +98,33 @@ internal object MobiBookTextExtractor {
                 unsignedShort(firstRecord, 242)
             } else {
                 0
+            }
+            val huffDecoder = if (compression == COMPRESSION_HUFF_CDIC) {
+                val firstHuffRecord = unsignedInt(firstRecord, 112)
+                val huffRecordCount = unsignedInt(firstRecord, 116)
+                if (firstHuffRecord < textRecordCount + 1L ||
+                    huffRecordCount !in 2..MAX_RECORDS.toLong() ||
+                    firstHuffRecord + huffRecordCount > recordCount
+                ) {
+                    throw IOException("O índice dos registros HUFF/CDIC é inválido.")
+                }
+                var dictionaryBytes = 0L
+                val huffRecords = List(huffRecordCount.toInt()) { offset ->
+                    val recordIndex = firstHuffRecord.toInt() + offset
+                    val start = records[recordIndex]
+                    val end = records.getOrElse(recordIndex + 1) { input.length().toInt() }
+                    if (end <= start || end - start > MAX_HUFF_DICTIONARY_BYTES) {
+                        throw IOException("Um registro HUFF/CDIC está vazio ou excede o limite.")
+                    }
+                    dictionaryBytes += end - start
+                    if (dictionaryBytes > MAX_HUFF_DICTIONARY_BYTES) {
+                        throw IOException("O dicionário HUFF/CDIC excede o limite de leitura.")
+                    }
+                    readAt(input, start.toLong(), end - start)
+                }
+                HuffCdicTextDecoder.create(huffRecords)
+            } else {
+                null
             }
 
             val output = BoundedByteOutputStream(declaredLength.toInt())
@@ -115,7 +140,8 @@ internal object MobiBookTextExtractor {
                     extraDataFlags,
                 )
                 if (compression == COMPRESSION_NONE) output.writeBounded(textRecord)
-                else decompressPalmDoc(textRecord, output)
+                else if (compression == COMPRESSION_PALMDOC) decompressPalmDoc(textRecord, output)
+                else output.writeBounded(requireNotNull(huffDecoder).decode(textRecord, declaredLength.toInt() - output.size()))
             }
             if (output.size() != declaredLength.toInt()) {
                 throw IOException("O conteúdo MOBI não corresponde ao tamanho declarado.")
