@@ -1,54 +1,7 @@
-# Antigravity Global Project Directives
+# Memória do projeto
 
-Este projeto e todas as suas sessões de desenvolvimento são governados estritamente pela metodologia **Gauntlet Loop**.
+Antes de agir, leia `../AGENTS.md`, `00 Início.md` do vault, a nota `01 Projetos/MulletaFlix.md` e `02 Operações/Protocolo de memória contínua.md` em `D:\Users\Raphael\Documents\Obsidian\UmbrellaPowerTech`.
 
-## Diretrizes Obrigatórias do Agente
+Ao concluir trabalho duradouro, atualize este projeto e sua nota canônica no vault com fatos verificados, evidências, data real, decisões, riscos e próximo passo. Atualize também a documentação-fonte afetada no repositório. Registre decisões e sessões relevantes em `03 Memória/Decisões/` ou `03 Memória/Sessões/`.
 
-1. **Metodologia Gauntlet Loop**:
-   - Para qualquer solicitação de implementação, correção de bug ou refatoração, o agente deve operar no ciclo **Builder vs. Evaluator**.
-   - A barra de qualidade ("Quality Bar") deve ser testada e comprovada através dos comandos reais de terminal do projeto (`dotnet test`, `npm run build:check`, `./gradlew testDebugUnitTest`).
-   - Nenhuma tarefa pode ser finalizada baseada em suposição. Somente evidências reais de execução com código de saída 0 são aceitas.
-
-2. **Regras e Convenções do Repositório**:
-   - Siga sempre as regras descritas em `.agents/rules/mulletaflix-conventions.md` e `.agents/rules/gauntlet-loop.md`.
-   - Mantenha a integridade da arquitetura, sem quebra de convenções estabelecidas.
-
-3. **Atualização Mandatória de Release (Servidor e Aplicativo)**:
-   - **Gate obrigatório deste ciclo:** não crie, empacote nem publique releases intermediárias enquanto houver melhorias ativas pendentes no roadmap `docs/roadmap-evolucao-tecnologica-servidor-e-web.md`. A release final só começa depois que todas as melhorias do escopo forem implementadas e validadas; então publique os artefatos e atualize o portal em conjunto. Esta condição prevalece sobre os passos abaixo, que descrevem o procedimento da release final.
-   - Sempre que qualquer alteração, correção ou funcionalidade for concluída e testada:
-     1. Gere o pacote de atualização do servidor via `.\build-update-package.ps1`. Este passo também compila o instalador executável (`stage` -> `.\build-mulletaflix-installer.ps1`), então a release do servidor sempre leva **dois** assets: `mulletaflix-update-win-x64.zip` e `mulletaflix_<versao>_windows-x64.exe`. Nunca use `-SkipInstaller` numa release oficial.
-     2. Gere o pacote do aplicativo Android via `.\build-app-package.ps1`.
-     3. Atualize as releases oficiais no GitHub Releases separadamente para cada sistema: via `.\publish-release.ps1` (release do servidor com o zip **e** o instalador executável) e via `.\publish-app-release.ps1` (release do aplicativo Android com o APK) antes de finalizar a tarefa. `publish-release.ps1` recusa publicar sem o instalador; `-AllowMissingInstaller` só existe para releases deliberadamente sem instalador.
-     4. Atualize e publique também o portal (`portal-site`) junto com cada nova release do servidor, refletindo a versão e as informações atuais da release. Confirme que o portal publicado exibe os dados da mesma versão antes de declarar a tarefa concluída.
-     5. Confirme o resultado consultando a API de releases e verificando que os dois assets estão anexados antes de declarar a tarefa concluída.
-
-   - **Premissa obrigatória das notas de release**: toda release deve descrever as correções, melhorias e funcionalidades realmente incluídas e validadas naquela versão. As notas devem corresponder ao diff e aos artefatos publicados, sem reapresentar mudanças antigas como novidades. A regra vale para servidor e aplicativo; para APK, siga também as restrições específicas abaixo.
-   - **Premissa obrigatória de produção**: toda versão oficial do servidor e de qualquer aplicativo deve ser gerada e publicada exclusivamente com a configuração e os artefatos de produção. É proibido publicar builds `Debug`, chaves de assinatura de desenvolvimento, keystores temporários ou qualquer fallback de desenvolvimento. Antes da publicação, confirme a assinatura/configuração de produção e valide que os artefatos anexados correspondem à versão testada.
-   - **Versionamento do servidor**: formato `MAJOR.MINOR.PATCH`; `PATCH` vai de 0 a 99. Ao exceder 99, incremente `MINOR` e zere `PATCH`; `MINOR` vai de 0 a 9. Ao exceder 9, incremente `MAJOR` e zere `MINOR` e `PATCH` (por exemplo, `12.1.99` → `12.2.0` e `12.9.99` → `13.0.0`).
-
-4. **Notas de versão do APK**:
-   - Sempre atualize as notas junto com cada release do APK.
-   - Descreva apenas melhorias e correções realmente incluídas no APK e validadas no diff/testes; não use notas genéricas nem anuncie alterações exclusivas do servidor.
-   - Confira se versão, testes e artefato citados nas notas correspondem ao APK publicado.
-
-5. **Premissa obrigatória de sincronização do portal**:
-   - Toda nova release oficial do servidor ou do aplicativo deve refletir imediatamente no `portal-site` a versão, os links dos artefatos, os assets disponíveis e as notas correspondentes.
-   - Antes de finalizar a publicação, consulte a API oficial de releases do repositório `raphaelpera85/mulletaflix-completo` e confirme que o portal aponta para a release estável mais recente de cada plataforma.
-   - O arquivo `portal-site/release-sync.js` deve permanecer carregado nas páginas de downloads, documentação e início. Ele sincroniza em produção as versões e URLs com as releases estáveis do GitHub; não remova esse fluxo nem substitua os links por versões fixas sem atualizar também a sincronização.
-   - Quando uma mudança de release alterar texto, changelog ou disponibilidade de plataforma, atualize também `portal-site/updates.html` e `portal-site/docs.html`, publique o portal e valide as rotas públicas com HTTP 200 e a versão efetivamente exibida.
-   - Esta regra vale para todos os agentes, subagentes e automações que criarem, atualizarem ou publicarem releases neste projeto.
-
-6. **Premissa obrigatória do sitemap do portal**:
-   - Sempre que uma nova página pública for criada no `portal-site`, ela deve conter uma URL canônica e ser adicionada imediatamente ao `portal-site/sitemap.xml`.
-   - Antes de finalizar a tarefa, execute `.\tools\Validate-PortalSitemap.ps1` e corrija qualquer página pública ausente do mapa enviado ao Google Search.
-   - A regra vale para todos os agentes, subagentes e automações que criarem páginas no portal.
-
-7. **Premissa obrigatória de homologação, progresso e publicação**:
-   - Ao iniciar qualquer tarefa, registre um evento em `portal-site/homologacao-status.json` com `status: "in_progress"`, local, escopo, evidência inicial e a porcentagem real de desenvolvimento/testes coberta.
-   - Servidor e APK são trilhas independentes: o agente do servidor deve registrar o evento da frente `server`, e o agente Android deve registrar um evento próprio da frente `android`/`apk`, incluindo build, testes, percentual e artefato APK quando houver.
-   - Nunca derive percentual de homologação a partir de uma suíte parcial, de um único teste ou de testes ignorados. Se a cobertura formal ainda não estiver consolidada, use `progressPercent: null`, status `in_progress` ou `blocked` e explique os bloqueios em `evidence`.
-   - Durante a execução, atualize o mesmo evento com a porcentagem real, status, `updatedAt` e evidência dos comandos executados. Ao terminar, use `completed`, `blocked` ou `failed` e registre a evidência final.
-   - Faça commit e push do JSON no repositório principal `raphaelpera85/mulletaflix-completo`.
-   - Sincronize o conteúdo de `portal-site/` para a raiz do repositório conectado ao Vercel `raphaelpera85/Mulletaflix-Portal`, faça commit e push em `main` e aguarde o deploy automático.
-   - Usando a skill de deployments do Vercel, confirme a implantação `READY` vinculada ao commit enviado e valide `/`, `/docs`, `/downloads`, `/updates`, `/homologacao` e `/sitemap.xml` com HTTP 200. Registre URL, commit e estado no campo `evidence`.
-   - Se houver erro de autorização ou deploy, não declare a tarefa publicada: registre a falha no JSON e informe o bloqueio.
+Não copie segredos, credenciais, dados pessoais ou conteúdo de `.env` para o vault. Separe fatos de hipóteses; se não puder verificar algo, marque como pendente. Preserve mudanças preexistentes e siga as instruções específicas deste projeto.

@@ -17,6 +17,36 @@ import org.robolectric.annotation.Config
 @Config(sdk = [35])
 class MobiBookTextExtractorTest {
     @Test
+    fun `reads a real unencrypted AZW3 publication`() = withTempDirectory { directory ->
+        val fixture = requireNotNull(javaClass.getResourceAsStream("/books/calibre-user-manual.azw3"))
+        val file = directory.resolve("calibre-user-manual.azw3").apply {
+            fixture.use { input -> outputStream().use(input::copyTo) }
+        }
+
+        assertEquals(BookPayloadFormat.PLAIN_TEXT, detectBookPayloadFormat(file, "application/octet-stream"))
+        val document = PlainTextBookDocument.open(file, "application/octet-stream")
+        val text = document.chunks.joinToString("")
+
+        assertTrue(text.contains("calibre is an e-book library manager", ignoreCase = true))
+        assertTrue(document.chunks.isNotEmpty())
+    }
+
+    @Test
+    fun `prefers KF8 text in a real hybrid MOBI publication`() = withTempDirectory { directory ->
+        val fixture = requireNotNull(javaClass.getResourceAsStream("/books/calibre-user-manual.azw3"))
+            .use { it.readBytes() }
+        val file = directory.resolve("calibre-hybrid.mobi").apply {
+            writeBytes(hybridMobiFixture(fixture))
+        }
+
+        val document = PlainTextBookDocument.open(file, "application/octet-stream")
+        val text = document.chunks.joinToString("")
+
+        assertTrue(text.contains("calibre is an e-book library manager", ignoreCase = true))
+        assertFalse(text.contains("LEGACY MOBI 7 CONTENT"))
+    }
+
+    @Test
     fun `reads uncompressed MOBI HTML and recognizes generic database signature`() = withTempDirectory { directory ->
         val source = "<h1>Capítulo</h1><p>Olá MOBI.</p>".toByteArray(StandardCharsets.UTF_8)
         val file = directory.resolve("book.bin").apply { writeBytes(mobiFile(source, source.size, encoding = 65_001)) }
@@ -54,6 +84,36 @@ class MobiBookTextExtractorTest {
         }
 
         assertEquals("BABABABA", MobiBookTextExtractor.extractHtml(file))
+    }
+
+    @Test
+    fun `rejects malformed standalone KF8 indexes instead of showing an unsupported-format message`() = withTempDirectory { directory ->
+        val file = directory.resolve("standalone.azw3").apply {
+            writeBytes(mobiFile(kf8IndexRecord(), 12, mobiVersion = 8, standaloneKf8 = true))
+        }
+
+        assertEquals(BookPayloadFormat.PLAIN_TEXT, detectBookPayloadFormat(file, "application/octet-stream"))
+        val error = assertThrows(IOException::class.java) { MobiBookTextExtractor.extractHtml(file) }
+        assertFalse(requireNotNull(error.message).contains("ainda não lê diretamente"))
+    }
+
+    @Test
+    fun `does not classify MOBI v8 as KF8 without a valid skeleton index record`() = withTempDirectory { directory ->
+        val file = directory.resolve("malformed-v8.mobi").apply {
+            writeBytes(mobiFile(kf8IndexRecord(validTagxStructure = false), 200, mobiVersion = 8, standaloneKf8 = true))
+        }
+
+        assertEquals(BookPayloadFormat.PLAIN_TEXT, detectBookPayloadFormat(file, "application/octet-stream"))
+    }
+
+    @Test
+    fun `reads the legacy text stream from a hybrid MOBI KF8 when available`() = withTempDirectory { directory ->
+        val file = directory.resolve("hybrid.azw3").apply {
+            writeBytes(mobiFile("legacy".toByteArray(), 6, hybridKf8 = true))
+        }
+
+        assertEquals(BookPayloadFormat.PLAIN_TEXT, detectBookPayloadFormat(file, "application/octet-stream"))
+        assertEquals("legacy", MobiBookTextExtractor.extractHtml(file))
     }
 
     @Test
@@ -209,7 +269,20 @@ class MobiBookTextExtractorTest {
         encryption: Int = 0,
         encoding: Long = 65_001,
         huffRecords: List<ByteArray> = emptyList(),
-    ): ByteArray = mobiFile(listOf(textRecord), declaredLength, compression, encryption, encoding, huffRecords = huffRecords)
+        mobiVersion: Int = 6,
+        standaloneKf8: Boolean = false,
+        hybridKf8: Boolean = false,
+    ): ByteArray = mobiFile(
+        listOf(textRecord),
+        declaredLength,
+        compression,
+        encryption,
+        encoding,
+        huffRecords = huffRecords,
+        mobiVersion = mobiVersion,
+        standaloneKf8 = standaloneKf8,
+        hybridKf8 = hybridKf8,
+    )
 
     private fun mobiFile(
         textRecords: List<ByteArray>,
@@ -219,9 +292,17 @@ class MobiBookTextExtractorTest {
         encoding: Long = 65_001,
         extraDataFlags: Int = 0,
         huffRecords: List<ByteArray> = emptyList(),
+        mobiVersion: Int = 6,
+        standaloneKf8: Boolean = false,
+        hybridKf8: Boolean = false,
     ): ByteArray {
-        val headerSize = 248
-        val recordPayloads = textRecords + huffRecords
+        val trailingRecords = if (hybridKf8) listOf("BOUNDARY".toByteArray(StandardCharsets.US_ASCII), kf8HeaderRecord()) else emptyList()
+        val headerSize = when {
+            standaloneKf8 -> 264
+            hybridKf8 -> 272
+            else -> 248
+        }
+        val recordPayloads = textRecords + huffRecords + trailingRecords
         val recordCount = recordPayloads.size + 1
         val firstRecordOffset = 78 + recordCount * 8
         val payloadOffsets = recordPayloads.indices.map { index ->
@@ -243,16 +324,98 @@ class MobiBookTextExtractorTest {
         putShort(bytes, firstRecordOffset + 10, 4_096)
         putShort(bytes, firstRecordOffset + 12, encryption)
         putAscii(bytes, firstRecordOffset + 16, "MOBI")
-        putInt(bytes, firstRecordOffset + 20, 232)
+        putInt(bytes, firstRecordOffset + 20, headerSize - 16 - if (hybridKf8) 24 else 0)
         putInt(bytes, firstRecordOffset + 24, 2)
         putInt(bytes, firstRecordOffset + 28, encoding.toInt())
+        putInt(bytes, firstRecordOffset + 104, mobiVersion)
         putShort(bytes, firstRecordOffset + 242, extraDataFlags)
+        if (standaloneKf8) putInt(bytes, firstRecordOffset + 252, 1)
+        if (hybridKf8) {
+            putInt(bytes, firstRecordOffset + 128, 0x40)
+            putAscii(bytes, firstRecordOffset + 248, "EXTH")
+            putInt(bytes, firstRecordOffset + 252, 24)
+            putInt(bytes, firstRecordOffset + 256, 1)
+            putInt(bytes, firstRecordOffset + 260, 121)
+            putInt(bytes, firstRecordOffset + 264, 12)
+            putInt(bytes, firstRecordOffset + 268, 1 + textRecords.size + huffRecords.size + 1)
+        }
         if (huffRecords.isNotEmpty()) {
             putInt(bytes, firstRecordOffset + 112, textRecords.size + 1)
             putInt(bytes, firstRecordOffset + 116, huffRecords.size)
         }
         recordPayloads.forEachIndexed { index, record -> record.copyInto(bytes, payloadOffsets[index]) }
         return bytes
+    }
+
+    private fun hybridMobiFixture(kf8Bytes: ByteArray): ByteArray {
+        val kf8RecordCount = unsignedShort(kf8Bytes, 76)
+        val kf8Offsets = List(kf8RecordCount) { index -> unsignedInt(kf8Bytes, 78 + index * 8) }
+        val kf8Records = kf8Offsets.mapIndexed { index, offset ->
+            val end = kf8Offsets.getOrElse(index + 1) { kf8Bytes.size }
+            kf8Bytes.copyOfRange(offset, end)
+        }
+        val shiftedKf8Header = kf8Records.first().copyOf().apply {
+            listOf(192, 248, 252).forEach { offset -> putInt(this, offset, unsignedInt(this, offset) + 3) }
+        }
+        val legacyHeader = ByteArray(272).apply {
+            putShort(this, 0, 1)
+            putInt(this, 4, "LEGACY MOBI 7 CONTENT".length)
+            putShort(this, 8, 1)
+            putShort(this, 10, 4_096)
+            putAscii(this, 16, "MOBI")
+            putInt(this, 20, 232)
+            putInt(this, 24, 2)
+            putInt(this, 28, 65_001)
+            putInt(this, 104, 6)
+            putInt(this, 128, 0x40)
+            putAscii(this, 248, "EXTH")
+            putInt(this, 252, 24)
+            putInt(this, 256, 1)
+            putInt(this, 260, 121)
+            putInt(this, 264, 12)
+            putInt(this, 268, 3)
+        }
+        val records = listOf(
+            legacyHeader,
+            "LEGACY MOBI 7 CONTENT".toByteArray(StandardCharsets.US_ASCII),
+            "BOUNDARY".toByteArray(StandardCharsets.US_ASCII),
+            shiftedKf8Header,
+        ) + kf8Records.drop(1)
+        val recordTableEnd = 78 + records.size * 8
+        val offsets = records.indices.map { index -> recordTableEnd + records.take(index).sumOf { it.size } }
+        val result = ByteArray(recordTableEnd + records.sumOf { it.size })
+        putAscii(result, 0, "Hybrid AZW3 fixture")
+        putAscii(result, 60, "BOOKMOBI")
+        putShort(result, 76, records.size)
+        offsets.forEachIndexed { index, offset -> putInt(result, 78 + index * 8, offset) }
+        records.forEachIndexed { index, record -> record.copyInto(result, offsets[index]) }
+        return result
+    }
+
+    private fun unsignedShort(bytes: ByteArray, offset: Int): Int =
+        ((bytes[offset].toInt() and 0xFF) shl 8) or (bytes[offset + 1].toInt() and 0xFF)
+
+    private fun unsignedInt(bytes: ByteArray, offset: Int): Int =
+        ((bytes[offset].toInt() and 0xFF) shl 24) or
+            ((bytes[offset + 1].toInt() and 0xFF) shl 16) or
+            ((bytes[offset + 2].toInt() and 0xFF) shl 8) or
+            (bytes[offset + 3].toInt() and 0xFF)
+
+    private fun kf8HeaderRecord(): ByteArray = ByteArray(264).apply {
+        putAscii(this, 16, "MOBI")
+        putInt(this, 20, 248)
+        putInt(this, 104, 8)
+        putInt(this, 252, 1)
+    }
+
+    private fun kf8IndexRecord(validTagxStructure: Boolean = true): ByteArray = ByteArray(200).apply {
+        putAscii(this, 0, "INDX")
+        putInt(this, 4, 184)
+        putInt(this, 180, 184)
+        putAscii(this, 184, "TAGX")
+        putInt(this, 188, if (validTagxStructure) 16 else 12)
+        putInt(this, 192, 1)
+        this[199] = 1
     }
 
     private fun huffRecord(codeLength: Int = 1): ByteArray = ByteArray(1_304).apply {

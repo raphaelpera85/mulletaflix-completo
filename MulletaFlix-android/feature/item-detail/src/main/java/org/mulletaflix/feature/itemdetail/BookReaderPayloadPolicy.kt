@@ -16,7 +16,8 @@ internal const val MAX_BOOK_PAYLOAD_BYTES = 512L * 1024L * 1024L
 
 internal fun bookReaderPayloadLimit(contentType: String?): Long = when {
     PlainTextBookDocument.isHtml(contentType) -> PlainTextBookDocument.MAX_HTML_BYTES
-    MobiBookTextExtractor.supports(contentType) -> MobiBookTextExtractor.MAX_PACKAGE_BYTES
+    MobiBookTextExtractor.supports(contentType) || MobiBookTextExtractor.supportsKf8(contentType) ->
+        MobiBookTextExtractor.MAX_PACKAGE_BYTES
     OdtBookTextExtractor.supports(contentType) -> OdtBookTextExtractor.MAX_PACKAGE_BYTES
     DocxBookTextExtractor.supports(contentType) -> DocxBookTextExtractor.MAX_PACKAGE_BYTES
     FictionBookZipTextExtractor.supports(contentType) -> FictionBookZipTextExtractor.MAX_PACKAGE_BYTES
@@ -116,7 +117,6 @@ internal fun isClearlyNotSupportedBookContentType(contentType: String?): Boolean
             "application/json",
             "application/x-cb7",
             "application/x-cbt",
-            "application/vnd.amazon.mobi8-ebook",
         )
 }
 
@@ -126,19 +126,8 @@ internal fun validateBookReaderPayloadLength(declaredBytes: Long, copiedBytes: L
     }
 }
 
-internal fun bookReaderIncompatibleContentTypeMessage(contentType: String?): String {
-    val mimeType = contentType
-        ?.substringBefore(';')
-        ?.trim()
-        ?.lowercase()
-        .orEmpty()
-    return if (mimeType == "application/vnd.amazon.mobi8-ebook") {
-        "Este livro está no formato AZW3/KF8, que o aplicativo ainda não lê diretamente. " +
-            "Se possível, converta-o para EPUB e tente novamente."
-    } else {
-        "O servidor não enviou um arquivo de livro compatível para leitura."
-    }
-}
+internal fun bookReaderIncompatibleContentTypeMessage(): String =
+    "O servidor não enviou um arquivo de livro compatível para leitura."
 
 internal fun bookReaderHttpFailureMessage(statusCode: Int): String =
     if (statusCode == 415) {
@@ -275,6 +264,9 @@ internal enum class BookPayloadFormat { EPUB, PDF, CBZ, CBR, PLAIN_TEXT, UNSUPPO
 
 /** MIME is authoritative when specific; inspect signatures/ZIP structure for generic responses. */
 internal fun detectBookPayloadFormat(file: File, contentType: String?): BookPayloadFormat {
+    if (MobiBookTextExtractor.supportsKf8(contentType) ||
+        MobiBookTextExtractor.hasKf8Database(file)
+    ) return BookPayloadFormat.PLAIN_TEXT
     if (OdtBookTextExtractor.supports(contentType) || OdtBookTextExtractor.hasOpenDocumentTextPackage(file)) {
         return BookPayloadFormat.PLAIN_TEXT
     }

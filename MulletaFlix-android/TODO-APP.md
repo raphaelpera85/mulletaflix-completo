@@ -189,14 +189,17 @@
 ## Leitura de MOBI/PalmDOC sem DRM — Android, sem release
 
 - [x] Ler MOBI/PalmDOC não criptografado, sem compressão, com compressão PalmDOC ou HUFF/CDIC (17480), como texto paginado; aceitar UTF-8/Windows-1252 e reconhecer MIME específico ou banco `BOOKMOBI` com MIME genérico.
-- [x] Fazer leitura por offsets de registro, validar índice/tamanhos e limitar arquivo a 64 MiB e texto descompactado a 8 MiB; remover trailers MOBI marcados antes de decodificar, inclusive extensão de índice com VWI reverso e bytes de sobreposição UTF-8.
-- [x] Rejeitar DRM, AZW3/KF8, trailer truncado e payload malformado com erro compreensível; HUFF/CDIC passou a ser decodificado em alteração posterior descrita no TDD-PLAN.
+- [x] Fazer leitura por offsets de registro, validar índice/tamanhos e limitar arquivo a 64 MiB e texto descompactado a 16 MiB; remover trailers MOBI marcados antes de decodificar, inclusive extensão de índice com VWI reverso e bytes de sobreposição UTF-8.
+- [x] Rejeitar DRM, trailer truncado e payload malformado com erro compreensível; HUFF/CDIC passou a ser decodificado em alteração posterior descrita no TDD-PLAN.
 - [x] TDD: `MobiBookTextExtractorTest` cobre HTML UTF-8, PalmDOC/Windows-1252, back-reference sobreposta, múltiplos registros, caractere UTF-8 dividido, trailers e rejeições. `BookReaderPayloadPolicyTest` cobre MIME, assinatura genérica e limites do stream.
 - [x] `BookReaderScreenIntegrationTest.mobiResponseFromServerIsDecodedAndRenderedInTheReader`: PHONE/API 35 1/1 e TABLET/API 35 1/1 via HTTP local; a fixture contém dois registros, UTF-8 dividido e trailers MOBI com VWI reverso de 130 bytes; wrappers verificaram NVIDIA RTX 3050 e encerraram os AVDs.
 - [x] Quality Gate 2026-10-10: suíte completa `:feature:item-detail:testDebugUnitTest` (197 testes, 0 falhas/erros/ignorados), `:feature:item-detail:lintDebug`, `:app:lintDebug`, `:app:assembleDebug` e `:feature:item-detail:compileDebugAndroidTestKotlin` — `BUILD SUCCESSFUL`.
-- [ ] Validar arquivo MOBI real sem DRM e confirmado pelo usuário/servidor; ainda não se alega compatibilidade com todos os arquivos MOBI/AZW.
+- [x] Ler AZW3/KF8 standalone não protegido: descompactar registros MOBI 8, ler índices INDX/TAGX/IDXT e tabela FDST, recompor skeletons/fragments e encaminhar o HTML ao leitor de texto.
+- [x] Teste real com o calibre User Manual AZW3 e MIME `application/octet-stream`; verificar texto real após a detecção, abertura e extração do documento. O teste longo pelo ViewModel foi descartado por timeout no dispatcher IO.
+- [ ] Validar com livros AZW3 reais do usuário/servidor, incluindo variações de recursos, e confirmar que MOBI híbrido usa o texto KF8 preferencialmente quando presente.
 - [x] Decodificar HUFF/CDIC com validação de registros HUFF/CDIC, limite do texto declarado, limite de tamanho/dicionário e detecção de ciclos nas frases; a cobertura atual usa fixture sintética, não comprova todos os arquivos reais.
-- [ ] Reconstrução completa de AZW3/KF8 (HTML, skeleton/fragments e fluxo de recursos) continua sem suporte direto no APK.
+- [ ] Recursos visuais/CSS em outros flows KF8 não são renderizados pelo leitor plain-text; validar capítulos, links e índices em outros arquivos reais.
+- [ ] Confirmar validação final por instrumento Compose após o usuário liberar o AVD reservado.
 - [ ] Sem bump, APK de produção, release, portal ou alteração no servidor.
 
 ## Manter a tela ligada durante a leitura — Android, sem release
@@ -3705,13 +3708,15 @@ Pendências relacionadas:
 - [ ] Validar a interação visual do sumário em dispositivo quando o AVD reservado pelo usuário for liberado.
 - [ ] Sem bump, APK de produção ou publicação nesta tarefa.
 
-## Erro acionável para AZW3/KF8 não suportado (APK local; sem release)
+## Leitura textual AZW3/KF8 (APK local; sem release)
 
-- [x] Identificar respostas com MIME `application/vnd.amazon.mobi8-ebook` e explicar que AZW3/KF8 ainda não é lido diretamente.
-- [x] Sugerir conversão para EPUB sem afirmar suporte incompleto como leitura válida; demais MIME incompatíveis mantêm a mensagem genérica.
-- [x] Teste ViewModel verifica MIME com variação de caixa/parâmetros, erro recuperável e ausência de conteúdo parcialmente aberto.
-- [x] RED-GREEN e Quality Gate: 1.676 testes JVM, lint do módulo e app, assemble Debug e compilação AndroidTest aprovados; revisor adversarial sem achados; Graphify atualizado e função ligada ao carregamento do ViewModel.
-- [ ] Implementar extração AZW3/KF8 completa e validá-la com arquivos reais não protegidos; suporte direto permanece ausente.
+- [x] Amostra real não criptografada do manual calibre salva como fixture exclusiva de teste, com SHA-256 e atribuição; nunca é incluída nos assets do APK.
+- [x] Detectar e abrir fixture AZW3 real com MIME genérico no pipeline de documento; confirmar texto legível pelo parser e pelo `BookReaderViewModel` Robolectric com resposta HTTP mockada.
+- [x] Reconstruir conteúdo textual de KF8 standalone a partir de INDX/TAGX, fragments e FDST; respeitar limites de registros, offsets, número de entradas e conteúdo reconstruído.
+- [x] Em MOBI híbrido, selecionar o fluxo KF8 quando EXTH 121, BOUNDARY, FDST e índices INDX/TAGX estiverem válidos; preservar fallback para MOBI 7 se o fluxo KF8 estiver incompleto.
+- [x] Validar o carregamento assíncrono do arquivo AZW3 real no `BookReaderViewModel` e conferir texto no estado final, erro nulo, sem publicação/pageBook.
+- [ ] Validar composição e interação do leitor AZW3/KF8 por Compose em PHONE/TABLET/TV quando o AVD reservado for liberado.
+- [ ] Flow de imagens/fontes/CSS, navegação por links e compatibilidade com arquivos reais do usuário continuam pendentes.
 - [ ] Validar interação Compose nos perfis depois que o usuário liberar o AVD reservado.
 - [ ] Sem bump, APK de produção ou publicação; alteração exclusivamente local do APK.
 

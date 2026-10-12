@@ -396,7 +396,7 @@ class BookReaderViewModelTest {
     }
 
     @Test
-    fun `AZW3 response explains the unsupported format and offers EPUB as an alternative`() = runTest(dispatcher) {
+    fun `AZW3 MIME response with a truncated database shows a recoverable read error`() = runTest(dispatcher) {
         val api = mockk<MulletaFlixApiService>(relaxed = true)
         coEvery { api.getBookReaderEpub(any()) } returns
             byteArrayOf(0xEA.toByte(), 0x44, 0x52, 0x4D).toResponseBody(
@@ -410,11 +410,26 @@ class BookReaderViewModelTest {
 
         val state = viewModel.state.value
         assertFalse(state.isLoading)
-        assertEquals(
-            "Este livro está no formato AZW3/KF8, que o aplicativo ainda não lê diretamente. " +
-                "Se possível, converta-o para EPUB e tente novamente.",
-            state.error,
-        )
+        assertEquals("O arquivo MOBI está vazio ou excede o limite de leitura.", state.error)
+        assertNull(state.publication)
+        assertNull(state.pageBook)
+        assertNull(state.textBook)
+    }
+
+    @Test
+    fun `generic MIME KF8 response reaches the format parser`() = runTest(dispatcher) {
+        val api = mockk<MulletaFlixApiService>(relaxed = true)
+        coEvery { api.getBookReaderEpub(any()) } returns
+            standaloneKf8Fixture().toResponseBody("application/octet-stream".toMediaType())
+        coEvery { api.getBookReaderStatus(any()) } returns BookReaderStatusDto("Ready")
+        val viewModel = BookReaderViewModel(api, FakeSessionRepository(SCOPE_A), context)
+
+        viewModel.load("kf8-generic-mime-book")
+        awaitLoadFinished(viewModel)
+
+        val state = viewModel.state.value
+        assertFalse(state.isLoading)
+        assertEquals("O tipo de compressão deste MOBI não é compatível.", state.error)
         assertNull(state.publication)
         assertNull(state.pageBook)
         assertNull(state.textBook)
@@ -435,6 +450,30 @@ class BookReaderViewModelTest {
         assertFalse(state.isLoading)
         assertNull(state.error)
         assertEquals("Capítulo 1\nAção e leitura em texto simples.", state.textBook?.chunks?.joinToString(""))
+        assertNull(state.publication)
+        assertNull(state.pageBook)
+    }
+
+    @Test
+    fun `real AZW3 response loads readable KF8 text through the view model`() = runTest(dispatcher) {
+        val fixture = requireNotNull(javaClass.getResourceAsStream("/books/calibre-user-manual.azw3"))
+            .use { it.readBytes() }
+        val api = mockk<MulletaFlixApiService>(relaxed = true)
+        coEvery { api.getBookReaderEpub("real-azw3-book") } returns
+            fixture.toResponseBody("application/octet-stream".toMediaType())
+        coEvery { api.getBookReaderStatus(any()) } returns BookReaderStatusDto("Ready")
+        val viewModel = BookReaderViewModel(api, FakeSessionRepository(SCOPE_A), context)
+
+        viewModel.load("real-azw3-book")
+        awaitLoadFinished(viewModel, timeoutMs = 120_000)
+
+        val state = viewModel.state.value
+        assertFalse(state.isLoading)
+        assertNull(state.error)
+        assertTrue(
+            state.textBook?.chunks?.joinToString("")
+                ?.contains("calibre is an e-book library manager", ignoreCase = true) == true,
+        )
         assertNull(state.publication)
         assertNull(state.pageBook)
     }
@@ -834,6 +873,40 @@ class BookReaderViewModelTest {
 
     private fun epubResponseBody(): ResponseBody =
         epubBytes().toResponseBody("application/epub+zip".toMediaType())
+
+    private fun standaloneKf8Fixture(): ByteArray = ByteArray(558).apply {
+        putAscii(this, 60, "BOOKMOBI")
+        putShort(this, 76, 2)
+        putInt(this, 78, 94)
+        putInt(this, 86, 358)
+        putAscii(this, 94 + 16, "MOBI")
+        putInt(this, 94 + 20, 248)
+        putInt(this, 94 + 104, 8)
+        putInt(this, 94 + 252, 1)
+        putAscii(this, 358, "INDX")
+        putInt(this, 362, 184)
+        putInt(this, 358 + 180, 184)
+        putAscii(this, 358 + 184, "TAGX")
+        putInt(this, 358 + 188, 16)
+        putInt(this, 358 + 192, 1)
+        this[557] = 1
+    }
+
+    private fun putAscii(bytes: ByteArray, offset: Int, value: String) {
+        value.toByteArray(Charsets.US_ASCII).copyInto(bytes, offset)
+    }
+
+    private fun putShort(bytes: ByteArray, offset: Int, value: Int) {
+        bytes[offset] = (value ushr 8).toByte()
+        bytes[offset + 1] = value.toByte()
+    }
+
+    private fun putInt(bytes: ByteArray, offset: Int, value: Int) {
+        bytes[offset] = (value ushr 24).toByte()
+        bytes[offset + 1] = (value ushr 16).toByte()
+        bytes[offset + 2] = (value ushr 8).toByte()
+        bytes[offset + 3] = value.toByte()
+    }
 
     private fun cbzBytes(): ByteArray {
         val bitmap = Bitmap.createBitmap(1, 1, Bitmap.Config.ARGB_8888).apply { eraseColor(0xff0000ff.toInt()) }
