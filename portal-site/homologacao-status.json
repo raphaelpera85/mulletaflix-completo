@@ -4851,11 +4851,11 @@
       "local": "D:\\Users\\Raphael\\Documents\\Projetos\\mulletaflix",
       "location": "MulletaFlix-master/Emby.Server.Implementations/IO/LibraryMonitor.cs, pacotes de release e portal-site",
       "scope": "Empacotar e publicar a correção que limita watchers às localizações atualmente configuradas nas bibliotecas virtuais, com ZIP e instalador Windows de produção.",
-      "status": "in_progress",
+      "status": "completed",
       "progressPercent": null,
       "startedAt": "2026-10-12T06:45:00-03:00",
-      "updatedAt": "2026-10-12T06:45:00-03:00",
-      "evidence": "Autorização explícita do usuário para fluxo de release registrada como exceção pontual no roadmap. Pré-validação concluída antes do empacotamento: testes LibraryMonitorTests 2/2 e build Release de Emby.Server.Implementations com 0 avisos/0 erros. A release será publicada somente após geração, verificação de assinatura/artefatos e confirmação pela API GitHub; APK está fora do escopo desta exceção."
+      "updatedAt": "2026-10-12T06:55:00-03:00",
+      "evidence": "Autorização explícita do usuário para fluxo de release registrada como exceção pontual no roadmap. Pré-validação: testes LibraryMonitorTests 2/2 e build Release de Emby.Server.Implementations com 0 avisos/0 erros. Release estável publicada: https://github.com/raphaelpera85/mulletaflix-completo/releases/tag/v12.1.19, tag v12.1.19 no commit 8f9f630b951ee21fa91081797b0c2c8d52926652; API GitHub confirmou draft=false, prerelease=false e os assets `mulletaflix-update-win-x64.zip` (388518979 bytes, SHA-256 6ECF5F42947C074D3B011EA4FECFF88CA9EC15CBFF4465D86C3BE36FC1895E06) e `mulletaflix_12.1.19_windows-x64.exe` (423401347 bytes, SHA-256 1F3B52DC7CCDF02D2019E9087F6E773C50F9EBE657537A1A135BE1437F95C612). O instalador foi criado por NSIS em configuração Release/self-contained; a verificação Authenticode é NotSigned, igual ao instalador oficial 12.1.18, pois o projeto não possui assinatura Authenticode configurada — não foi usada assinatura ou chave de desenvolvimento. Portal: commit daa51e8, deploy Vercel de produção READY dpl_HXMRb2AV4HxjSPtnkqcEC3CqVjAa; /, /docs, /downloads, /updates, /homologacao e /sitemap.xml retornaram HTTP 200, e /docs e /updates exibem a versão/correção. APK fora do escopo da exceção; roadmap permanece em andamento."
     }
   ]
 }
