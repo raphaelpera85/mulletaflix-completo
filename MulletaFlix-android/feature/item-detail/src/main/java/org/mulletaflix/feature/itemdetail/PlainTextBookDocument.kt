@@ -1,7 +1,6 @@
 package org.mulletaflix.feature.itemdetail
 
 import android.text.Html
-import android.text.Html.TagHandler
 import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.IOException
@@ -107,6 +106,12 @@ internal class PlainTextBookDocument private constructor(
         private val VISIBLE_RAW_TEXT_HTML_ELEMENTS = setOf(
             "textarea", "title", "xmp", "noembed", "noframes", "plaintext",
         )
+        private val HTML_BLOCK_ELEMENTS = setOf(
+            "address", "article", "aside", "blockquote", "dd", "div", "dl", "dt", "fieldset",
+            "figcaption", "figure", "footer", "form", "h1", "h2", "h3", "h4", "h5", "h6",
+            "header", "hr", "li", "main", "nav", "ol", "p", "pre", "section", "table", "tr", "ul",
+        )
+        private val HTML_PARAGRAPH_ELEMENTS = setOf("blockquote", "h1", "h2", "h3", "h4", "h5", "h6", "p")
         private val HIDDEN_STYLE_DECLARATION = Regex(
             "(?:^|;)\\s*(?:display\\s*:\\s*none|visibility\\s*:\\s*(?:hidden|collapse))(?:\\s*!important)?\\s*(?:;|$)",
             RegexOption.IGNORE_CASE,
@@ -565,36 +570,8 @@ internal class PlainTextBookDocument private constructor(
             val namespace = generateSequence { UUID.randomUUID().toString() }
                 .first { !withoutNonContent.contains("$HTML_MARKER_START$it") }
             val headingTagPrefix = "mulletaflixheading${namespace.replace("-", "")}"
-            val handler = TagHandler { opening, tag, output, _ ->
-                if (!tag.startsWith(headingTagPrefix)) return@TagHandler
-                val depth = tag.removePrefix(headingTagPrefix).toIntOrNull()
-                    ?.takeIf { it in 1..6 } ?: return@TagHandler
-                if (opening) {
-                    if (markers.size >= MAX_HTML_HEADINGS) {
-                        throw IOException("O HTML excede o limite de capítulos do sumário.")
-                    }
-                    val id = markers.size.toString()
-                    val marker = HtmlHeadingMarker(
-                        id = id,
-                        depth = depth,
-                        start = "$HTML_MARKER_START${namespace}S$id$HTML_MARKER_END",
-                        end = "$HTML_MARKER_START${namespace}E$id$HTML_MARKER_END",
-                    )
-                    markers += marker
-                    activeMarkers += marker
-                    output.append(marker.start)
-                } else {
-                    val index = activeMarkers.indexOfLast { it.depth == depth }
-                    if (index >= 0) output.append(activeMarkers.removeAt(index).end)
-                }
-            }
             val taggedHtml = markHtmlHeadings(withoutNonContent, headingTagPrefix)
-            val rendered = Html.fromHtml(
-                taggedHtml,
-                Html.FROM_HTML_MODE_LEGACY,
-                null,
-                handler,
-            ).toString()
+            val rendered = renderHtmlText(taggedHtml, headingTagPrefix, namespace, markers, activeMarkers)
             val normalized = normalizeHtmlText(rendered)
             val text = StringBuilder(normalized.length)
             val headings = mutableListOf<HtmlBookHeading>()
@@ -638,6 +615,126 @@ internal class PlainTextBookDocument private constructor(
             }
             headings.sortBy(HtmlBookHeading::textOffset)
             return HtmlBookDocument(text.toString(), headings)
+        }
+
+        /** Converts book HTML without building Android spans for every character. */
+        private fun renderHtmlText(
+            html: String,
+            headingTagPrefix: String,
+            namespace: String,
+            markers: MutableList<HtmlHeadingMarker>,
+            activeMarkers: MutableList<HtmlHeadingMarker>,
+        ): String {
+            val output = StringBuilder(html.length)
+            val decodedEntities = HashMap<String, String>()
+            var cursor = 0
+            while (cursor < html.length) {
+                val tagStart = html.indexOf('<', cursor)
+                val textEnd = if (tagStart < 0) html.length else tagStart
+                appendDecodedHtmlText(html, cursor, textEnd, output, decodedEntities)
+                if (tagStart < 0) break
+
+                if (html.startsWith("<!--", tagStart)) {
+                    val commentEnd = html.indexOf("-->", tagStart + 4)
+                    cursor = if (commentEnd < 0) html.length else commentEnd + 3
+                    continue
+                }
+                val tagEnd = findHtmlTagEnd(html, tagStart)
+                if (tagEnd < 0) {
+                    appendDecodedHtmlText(html, tagStart, html.length, output, decodedEntities)
+                    break
+                }
+                val tag = parseHtmlTag(html, tagStart, tagEnd)
+                if (tag == null) {
+                    appendDecodedHtmlText(html, tagStart, tagEnd + 1, output, decodedEntities)
+                    cursor = tagEnd + 1
+                    continue
+                }
+                val depth = tag.name.removePrefix(headingTagPrefix).toIntOrNull()
+                    ?.takeIf { tag.name.startsWith(headingTagPrefix) && it in 1..6 }
+                if (depth != null) {
+                    if (!tag.isClosing) {
+                        if (markers.size >= MAX_HTML_HEADINGS) {
+                            throw IOException("O HTML excede o limite de capítulos do sumário.")
+                        }
+                        val id = markers.size.toString()
+                        val marker = HtmlHeadingMarker(
+                            id = id,
+                            depth = depth,
+                            start = "$HTML_MARKER_START${namespace}S$id$HTML_MARKER_END",
+                            end = "$HTML_MARKER_START${namespace}E$id$HTML_MARKER_END",
+                        )
+                        markers += marker
+                        activeMarkers += marker
+                        output.append(marker.start)
+                    } else {
+                        val index = activeMarkers.indexOfLast { it.depth == depth }
+                        if (index >= 0) output.append(activeMarkers.removeAt(index).end)
+                    }
+                } else if (!tag.isClosing && tag.name in VISIBLE_RAW_TEXT_HTML_ELEMENTS) {
+                    val rawEnd = findRawTextHtmlElementEnd(html, tag.name, tagEnd + 1)
+                    val contentEnd = rawEnd ?: html.length
+                    appendDecodedHtmlText(html, tagEnd + 1, contentEnd, output, decodedEntities)
+                    cursor = rawEnd?.plus(1) ?: html.length
+                    continue
+                } else if (tag.name == "br" || tag.name in HTML_BLOCK_ELEMENTS) {
+                    appendHtmlLineBreak(output, blankLine = tag.name in HTML_PARAGRAPH_ELEMENTS)
+                }
+                cursor = tagEnd + 1
+            }
+            return output.toString()
+        }
+
+        private fun appendHtmlLineBreak(output: StringBuilder, blankLine: Boolean) {
+            val required = if (blankLine) 2 else 1
+            var trailing = 0
+            while (trailing < required && trailing < output.length && output[output.lastIndex - trailing] == '\n') {
+                trailing++
+            }
+            repeat(required - trailing) { output.append('\n') }
+        }
+
+        private fun appendDecodedHtmlText(
+            source: String,
+            start: Int,
+            end: Int,
+            output: StringBuilder,
+            cachedEntities: MutableMap<String, String>,
+        ) {
+            var cursor = start
+            while (cursor < end) {
+                val ampersand = source.indexOf('&', cursor)
+                if (ampersand < 0 || ampersand >= end) {
+                    output.append(source, cursor, end)
+                    return
+                }
+                output.append(source, cursor, ampersand)
+                val semicolon = source.indexOf(';', ampersand + 1)
+                if (semicolon < 0 || semicolon >= end || semicolon - ampersand > 33) {
+                    output.append('&')
+                    cursor = ampersand + 1
+                    continue
+                }
+                val entity = source.substring(ampersand + 1, semicolon)
+                val decoded = decodeHtmlEntity(entity, cachedEntities)
+                if (decoded == null) output.append(source, ampersand, semicolon + 1) else output.append(decoded)
+                cursor = semicolon + 1
+            }
+        }
+
+        private fun decodeHtmlEntity(entity: String, cachedEntities: MutableMap<String, String>): String? {
+            if (entity.startsWith('#')) {
+                val hexadecimal = entity.startsWith("#x", ignoreCase = true)
+                val number = entity.substring(if (hexadecimal) 2 else 1).toIntOrNull(if (hexadecimal) 16 else 10)
+                    ?: return null
+                if (!Character.isValidCodePoint(number) || number == 0) return "\uFFFD"
+                return String(Character.toChars(number))
+            }
+            cachedEntities[entity]?.let { return it }
+            val decoded = Html.fromHtml("&$entity;", Html.FROM_HTML_MODE_LEGACY).toString()
+                .takeIf { it != "&$entity;" } ?: return null
+            if (cachedEntities.size < 2_048) cachedEntities[entity] = decoded
+            return decoded
         }
 
         private fun appendHtmlText(

@@ -162,7 +162,7 @@
 - [x] Selecionar resultado navega ao trecho e mantém o salvamento de progresso existente.
 - [x] Testes de diálogo Compose: 4/4 em PHONE/API 35, TABLET/API 35 e Android TV/API 34; as três execuções foram encerradas pelos wrappers de AVD.
 - [x] Quality gate Android: 1.611 testes JVM, zero falhas/erros/ignorados; lint do módulo/app, assemble Debug e compilação dos AndroidTests do módulo/app — `BUILD SUCCESSFUL`.
-- [x] EPUB usa `SearchService` do Readium e PDF com texto selecionável usa busca página a página dedicada; quadrinhos somente imagem continuam sem busca/OCR.
+- [x] EPUB usa `SearchService` do Readium e PDF tenta texto nativo com fallback OCR Latin bundled/offline em páginas sem camada textual; quadrinhos somente imagem continuam sem busca/OCR dedicado.
 - [x] Resultados PDF exibem contexto da ocorrência encontrada, preservam acentos do texto e limitam o trecho a 140 caracteres, inclusive junto a emojis.
 - [x] Resultados da busca em livros de texto paginado mostram contexto ao redor da ocorrência tardia, preservam acentos e mantêm o trecho limitado a 140 caracteres.
 
@@ -195,10 +195,10 @@
 - [x] `BookReaderScreenIntegrationTest.mobiResponseFromServerIsDecodedAndRenderedInTheReader`: PHONE/API 35 1/1 e TABLET/API 35 1/1 via HTTP local; a fixture contém dois registros, UTF-8 dividido e trailers MOBI com VWI reverso de 130 bytes; wrappers verificaram NVIDIA RTX 3050 e encerraram os AVDs.
 - [x] Quality Gate 2026-10-10: suíte completa `:feature:item-detail:testDebugUnitTest` (197 testes, 0 falhas/erros/ignorados), `:feature:item-detail:lintDebug`, `:app:lintDebug`, `:app:assembleDebug` e `:feature:item-detail:compileDebugAndroidTestKotlin` — `BUILD SUCCESSFUL`.
 - [x] Ler AZW3/KF8 standalone não protegido: descompactar registros MOBI 8, ler índices INDX/TAGX/IDXT e tabela FDST, recompor skeletons/fragments e encaminhar o HTML ao leitor de texto.
-- [x] Teste real com o calibre User Manual AZW3 e MIME `application/octet-stream`; verificar texto real após a detecção, abertura e extração do documento. O teste longo pelo ViewModel foi descartado por timeout no dispatcher IO.
+- [x] Teste real com o calibre User Manual AZW3 e MIME `application/octet-stream`; o caso do ViewModel confirma texto KF8 legível no estado após HTTP mockado. Um baseline de 73,3 s foi reduzido a 24,0 s eliminando a conversão Android de HTML para spans e montando fragments sem cópias quadráticas.
 - [x] MOBI híbrido prefere o texto KF8 quando a estrutura é válida; teste `MobiBookTextExtractorTest.prefers KF8 text in a real hybrid MOBI publication` envolve a fixture AZW3 calibre e rejeita o conteúdo MOBI 7 legado. A validação com arquivos reais do usuário/servidor e variações de recursos continua pendente.
 - [x] Decodificar HUFF/CDIC com validação de registros HUFF/CDIC, limite do texto declarado, limite de tamanho/dicionário e detecção de ciclos nas frases; a cobertura atual usa fixture sintética, não comprova todos os arquivos reais.
-- [ ] Recursos visuais/CSS em outros flows KF8 não são renderizados pelo leitor plain-text; validar capítulos, links e índices em outros arquivos reais.
+- [ ] Recursos visuais/CSS e links em flows KF8 não são renderizados pelo leitor plain-text; validar capítulos, links e índices em outros arquivos reais.
 - [ ] Confirmar validação final por instrumento Compose após o usuário liberar o AVD reservado.
 - [ ] Sem bump, APK de produção, release, portal ou alteração no servidor.
 
@@ -338,7 +338,7 @@
 - [x] Adicionar narração de EPUB com TTS do Readium, iniciar do local visível, seguir a posição falada no leitor, respeitar idioma/segmentação declarados no EPUB, pausar quando o app vai para segundo plano e interromper ao navegar manualmente.
 - [x] `testDebugUnitTest`, `:feature:item-detail:lintDebug`, `:app:lintDebug` e `:app:assembleDebug`: `BUILD SUCCESSFUL` em 2026-10-08.
 - [x] Instrumentação PDF: a suíte `BookReaderScreenIntegrationTest` passou no PHONE API 35; o cenário de PDF passou em TABLET API 35 e TV API 34, onde confirmou o controle oculto sem a extensão de extração. AVDs usaram GPU NVIDIA e foram encerrados pelo wrapper.
-- [x] PDFs com texto selecionável: extrair texto apenas da página falada, narrar em blocos limitados com TextToSpeech, avançar automaticamente entre páginas com texto e interromper ao navegar ou deixar o app; páginas digitalizadas/imagem não têm OCR e não são narradas.
+- [x] PDFs: extrair texto nativo ou reconhecer localmente página digitalizada com OCR Latin; narrar em blocos limitados com TextToSpeech, avançar automaticamente e interromper ao navegar ou deixar o app.
 - [x] Disponibilidade limitada pelas APIs do sistema: Android 15+ ou Android 11+ com extensão S versão 13; em versões sem suporte o controle de narração fica oculto. Android TV API 34 validou o caminho sem suporte; PHONE/TABLET API 35 validaram a narração.
 - [x] PDFs sem camada de texto usam OCR Latin bundled offline por página; pesquisa e narração reutilizam o texto reconhecido com limite/cache curto. Instrumentação em PDF rasterizado comprova reconhecimento e busca no tablet API 35.
 - [ ] Validar OCR em PDFs reais diversos (orientação, baixa resolução, idiomas além de Latin e documentos longos) e avaliar extração em quadrinhos; validar áudio/idiomas TTS em dispositivo físico.
@@ -400,7 +400,7 @@
 - [x] Unificar a ordenação natural de CBZ/CBR e tokenizar cada nome de página uma vez por ordenação, em vez de recriar tokens em cada comparação; cobrir páginas numéricas, zeros à esquerda, desempate de caixa e números acima do limite de inteiro.
 - [x] Verificar cancelamento entre entradas durante a indexação feita pelo app e antes/depois da ordenação; propagar `CancellationException` e fechar o arquivo RAR no caminho de erro. Regressão JVM confirma que a indexação para após o cancelamento.
 - [ ] Auditoria upstream do Junrar 8.1.1 (2026-10-08): `Archive` lê os cabeçalhos durante a construção e mantém todos em `headers`; `nextFileHeader()` apenas percorre essa lista depois. O limite `MAX_ARCHIVE_ENTRIES` do APK só é aplicado após essa alocação, portanto não protege o pico de memória nem permite interromper a leitura inicial. O parser não expõe limite prévio/cancelamento nessa API; manter o risco explícito e avaliar parser mantido com leitura incremental ou contribuição upstream, sem implementar scanner RAR caseiro. Fonte: https://github.com/junrar/junrar/blob/v8.1.1/src/main/java/com/github/junrar/Archive.java
-- [ ] Validar mídia MOBI real servida pelo Mulletaflix; HUFF/CDIC tem decoder coberto por fixtures sintéticas, mas precisa de validação com exemplar real. AZW3/KF8 e MOBI com DRM continuam sem suporte direto; qualquer conversão no servidor está fora do escopo APK.
+- [ ] Validar mídia MOBI real servida pelo Mulletaflix; HUFF/CDIC tem decoder coberto por fixtures sintéticas, mas precisa de validação com exemplar real. AZW3/KF8 não protegido é aberto em texto simples; CSS, imagens e links não são renderizados. MOBI com DRM permanece sem suporte direto; qualquer conversão no servidor está fora do escopo APK.
 - [ ] Sem bump de versão, APK de produção, portal ou publicação.
 
 Este documento rastreia o status de implementação de todas as funcionalidades, módulos, telas e componentes do aplicativo oficial **MulletaFlix Android**.
@@ -3669,7 +3669,8 @@ Pendências relacionadas:
 - [x] Exibir busca somente se o Android oferece extração de texto PDF; abrir a página correspondente ao selecionar ocorrência e parar narração ativa.
 - [x] Cobrir política de busca com testes unitários e adicionar teste Compose + PDF via MockWebServer para resultado e navegação.
 - [x] Testes: `BookPdfTextSearchTest` (4 casos); `BookReaderScreenIntegrationTest` 14/14 em PHONE/API 35; extração, busca e navegação reais sobre fixture PDF aprovadas.
-- [ ] Sem OCR: PDFs somente imagem permanecem sem busca. Compatibilidade depende de Android 11 com extensão SDK 13 ou Android 15+.
+- [x] PDF somente imagem: fallback OCR Latin local integrado à extração e busca por página; teste unitário de disponibilidade e instrumentação em TABLET/API 35 validam disponibilidade, reconhecimento offline e localização do resultado.
+- [ ] Validar PDFs variados, idiomas não Latin, orientação/resolução e documentos extensos sob memória limitada; quadrinhos imagem permanecem sem OCR dedicado.
 - [ ] Sem bump, APK de produção, portal ou publicação; alteração exclusivamente local do APK.
 
 ## Jornada integrada de solicitação de mídia (APK local; sem release)
@@ -3716,6 +3717,7 @@ Pendências relacionadas:
 - [x] Reconstruir conteúdo textual de KF8 standalone a partir de INDX/TAGX, fragments e FDST; respeitar limites de registros, offsets, número de entradas e conteúdo reconstruído.
 - [x] Em MOBI híbrido, selecionar o fluxo KF8 quando EXTH 121, BOUNDARY, FDST e índices INDX/TAGX estiverem válidos; preservar fallback para MOBI 7 se o fluxo KF8 estiver incompleto.
 - [x] Validar o carregamento assíncrono do arquivo AZW3 real no `BookReaderViewModel` e conferir texto no estado final, erro nulo, sem publicação/pageBook.
+- [x] Otimizar reconstrução KF8 com buffer de segmentos e conversão HTML linear; preservar caracteres HTML, limites de parágrafo, capítulos visíveis e texto de fixture real. Teste ViewModel real: 24,0 s após ajuste, sem elevar o limite do `runTest`.
 - [ ] Validar composição e interação do leitor AZW3/KF8 por Compose em PHONE/TABLET/TV quando o AVD reservado for liberado.
 - [ ] Flow de imagens/fontes/CSS, navegação por links e compatibilidade com arquivos reais do usuário continuam pendentes.
 - [ ] Validar interação Compose nos perfis depois que o usuário liberar o AVD reservado.

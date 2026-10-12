@@ -1,6 +1,7 @@
 package org.mulletaflix.feature.itemdetail
 
 import java.io.IOException
+import java.io.ByteArrayOutputStream
 import java.nio.charset.Charset
 import java.nio.charset.StandardCharsets
 
@@ -38,7 +39,9 @@ internal object Kf8HtmlReconstructor {
             val skeletonLength = skeleton.values[6]?.getOrNull(1)
                 ?: throw IOException("O índice KF8 não informa o tamanho do skeleton.")
             val skeletonEnd = checkedEnd(skeletonStart, skeletonLength, textFlow.size)
-            var reconstructed = textFlow.copyOfRange(skeletonStart.toInt(), skeletonEnd.toInt())
+            val reconstructed = Kf8SegmentedByteBuffer(
+                textFlow.copyOfRange(skeletonStart.toInt(), skeletonEnd.toInt()),
+            )
             nextFragmentOffset = maxOf(nextFragmentOffset, skeletonEnd)
 
             repeat(divisionCount) {
@@ -58,15 +61,14 @@ internal object Kf8HtmlReconstructor {
                 if (outputBytes + reconstructed.size + fragment.size > MAX_INDEX_BYTES.toLong() * 2) {
                     throw IOException("O HTML reconstruído do KF8 excede o limite de leitura.")
                 }
-                reconstructed = reconstructed.copyOfRange(0, insertion) + fragment +
-                    reconstructed.copyOfRange(insertion, reconstructed.size)
+                reconstructed.insert(insertion, fragment)
                 nextFragmentOffset = fragmentEnd
             }
             outputBytes += reconstructed.size
             if (outputBytes > MAX_INDEX_BYTES.toLong() * 2) {
                 throw IOException("O HTML reconstruído do KF8 excede o limite de leitura.")
             }
-            result.append(reconstructed.toString(charset))
+            result.append(reconstructed.toByteArray().toString(charset))
         }
         if (divisionCursor != divisions.size || result.isEmpty()) {
             throw IOException("Os índices KF8 não produziram conteúdo legível.")
@@ -269,4 +271,105 @@ internal object Kf8HtmlReconstructor {
 
     private data class TagDefinition(val tag: Int, val valuesPerEntry: Int, val mask: Int, val isEnd: Boolean)
     private data class IndexEntry(val name: String, val values: Map<Int, List<Long>>)
+}
+
+/** Keeps KF8 fragments as pieces so each insertion does not recopy the whole skeleton. */
+internal class Kf8SegmentedByteBuffer(initialBytes: ByteArray) {
+    private data class Node(
+        val bytes: ByteArray,
+        val priority: Int,
+        var left: Node? = null,
+        var right: Node? = null,
+        var subtreeSize: Int = bytes.size,
+    )
+
+    private var nextPriority = 0x6D2B79F5
+    private var root: Node? = initialBytes.takeIf(ByteArray::isNotEmpty)?.let(::newNode)
+
+    var size: Int = initialBytes.size
+        private set
+
+    fun insert(position: Int, bytes: ByteArray) {
+        require(position in 0..size) { "Insertion position is outside the byte buffer." }
+        require(bytes.isNotEmpty()) { "Cannot insert an empty byte segment." }
+        require(bytes.size <= Int.MAX_VALUE - size) { "Byte buffer size overflow." }
+
+        val (before, after) = split(root, position)
+        root = merge(merge(before, newNode(bytes)), after)
+        size += bytes.size
+    }
+
+    fun toByteArray(): ByteArray = ByteArrayOutputStream(size).apply { writeInOrder(root, this) }.toByteArray()
+
+    private fun split(tree: Node?, position: Int): Pair<Node?, Node?> {
+        tree ?: return null to null
+        val leftSize = nodeSize(tree.left)
+        val segmentEnd = leftSize + tree.bytes.size
+        return when {
+            position < leftSize -> {
+                val (before, middle) = split(tree.left, position)
+                tree.left = middle
+                updateSize(tree)
+                before to tree
+            }
+            position > segmentEnd -> {
+                val (middle, after) = split(tree.right, position - segmentEnd)
+                tree.right = middle
+                updateSize(tree)
+                tree to after
+            }
+            position == leftSize -> {
+                val before = tree.left
+                tree.left = null
+                updateSize(tree)
+                before to tree
+            }
+            position == segmentEnd -> {
+                val after = tree.right
+                tree.right = null
+                updateSize(tree)
+                tree to after
+            }
+            else -> {
+                val splitAt = position - leftSize
+                val before = merge(tree.left, newNode(tree.bytes.copyOfRange(0, splitAt)))
+                val after = merge(newNode(tree.bytes.copyOfRange(splitAt, tree.bytes.size)), tree.right)
+                before to after
+            }
+        }
+    }
+
+    private fun merge(before: Node?, after: Node?): Node? {
+        if (before == null) return after
+        if (after == null) return before
+        return if (before.priority >= after.priority) {
+            before.right = merge(before.right, after)
+            updateSize(before)
+            before
+        } else {
+            after.left = merge(before, after.left)
+            updateSize(after)
+            after
+        }
+    }
+
+    private fun newNode(bytes: ByteArray): Node {
+        nextPriority = nextPriority xor (nextPriority shl 13)
+        nextPriority = nextPriority xor (nextPriority ushr 17)
+        nextPriority = nextPriority xor (nextPriority shl 5)
+        return Node(bytes, nextPriority)
+    }
+
+    private fun nodeSize(node: Node?): Int = node?.subtreeSize ?: 0
+
+    private fun updateSize(node: Node) {
+        node.subtreeSize = nodeSize(node.left) + node.bytes.size + nodeSize(node.right)
+    }
+
+    private fun writeInOrder(node: Node?, output: ByteArrayOutputStream) {
+        if (node == null) return
+        writeInOrder(node.left, output)
+        output.write(node.bytes)
+        writeInOrder(node.right, output)
+    }
 }

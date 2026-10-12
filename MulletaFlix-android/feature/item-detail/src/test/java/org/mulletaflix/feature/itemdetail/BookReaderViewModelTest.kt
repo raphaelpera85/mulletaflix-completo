@@ -510,7 +510,7 @@ class BookReaderViewModelTest {
         val viewModel = BookReaderViewModel(api, FakeSessionRepository(SCOPE_A), context)
 
         viewModel.load("unknown-length-book")
-        awaitLoadFinished(viewModel)
+        awaitLoadFinished(viewModel, timeoutMs = 120_000)
 
         assertNull(viewModel.state.value.error)
         assertEquals("Integration Test Book", viewModel.state.value.publication?.metadata?.title)

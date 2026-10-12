@@ -446,7 +446,7 @@ class PlainTextBookDocumentTest {
         val file = directory.resolve("book.html").apply {
             writeText(
                 """<html><head><title>Hidden title</title><style>.x{display:none}</style></head>""" +
-                    """<body><h1>Capítulo 1</h1><p>Olá &amp; bem-vindo.</p>""" +
+                    """<body><h1>Capítulo 1</h1><p>Olá &amp; bem-vindo &#x1F680;.</p>""" +
                     """<script>alert('never show')</script><embed src="video"> <p>Fim.</p></body></html>""",
             )
         }
@@ -454,7 +454,7 @@ class PlainTextBookDocumentTest {
         val text = PlainTextBookDocument.open(file, "text/html; charset=utf-8").chunks.joinToString("")
 
         assertTrue(text.contains("Capítulo 1"))
-        assertTrue(text.contains("Olá & bem-vindo."))
+        assertTrue(text.contains("Olá & bem-vindo 🚀."))
         assertTrue(text.contains("Fim."))
         assertFalse(text.contains("Hidden title"))
         assertFalse(text.contains("display:none"))
