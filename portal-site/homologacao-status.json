@@ -4841,6 +4841,21 @@
       "startedAt": "2026-10-12T06:20:00-03:00",
       "updatedAt": "2026-10-12T06:35:00-03:00",
       "evidence": "Linha de base: logs de produção mostraram watchers em N:\\Animações, N:\\Doramas, N:\\Filmes, N:\\Novelas e N:\\Series embora a configuração atual de bibliotecas use somente strm_library e estágios locais. Diagnóstico local confirmou que LibraryMonitor.Start lia RootFolder.Children, que pode conservar itens históricos. Correção concluída: startup usa exclusivamente ILibraryManager.GetVirtualFolders(), filtra EnableRealtimeMonitor, remove caminhos vazios e desduplica sem diferenciar maiúsculas/minúsculas. Regressões comprovadas: `dotnet test ... --filter FullyQualifiedName~LibraryMonitorTests --no-build --no-restore` passou 2/2; `dotnet build Emby.Server.Implementations/Emby.Server.Implementations.csproj --no-restore --configuration Release -m:1` passou com 0 avisos/0 erros; `git diff --check` passou. Nenhuma limpeza de registros/arquivos N: foi aplicada; a correção não depende disso. Código principal enviado no commit 92a61d49. Status do portal enviado no commit 70540e2; Vercel confirmou deploy de produção READY dpl_3i52jFpabv4SbkYanqMXpkmKqxf1 e as rotas /, /docs, /downloads, /updates, /homologacao e /sitemap.xml responderam HTTP 200; homologacao-status.json público contém este evento. Homologação integral do servidor permanece sem percentual consolidado e o gate do roadmap bloqueia release intermediária."
+    },
+    {
+      "id": "server-release-12-1-19-2026-10-12",
+      "title": "Release de produção 12.1.19 — monitor de bibliotecas configuradas",
+      "agent": "Codex",
+      "front": "server",
+      "featureIds": [],
+      "local": "D:\\Users\\Raphael\\Documents\\Projetos\\mulletaflix",
+      "location": "MulletaFlix-master/Emby.Server.Implementations/IO/LibraryMonitor.cs, pacotes de release e portal-site",
+      "scope": "Empacotar e publicar a correção que limita watchers às localizações atualmente configuradas nas bibliotecas virtuais, com ZIP e instalador Windows de produção.",
+      "status": "in_progress",
+      "progressPercent": null,
+      "startedAt": "2026-10-12T06:45:00-03:00",
+      "updatedAt": "2026-10-12T06:45:00-03:00",
+      "evidence": "Autorização explícita do usuário para fluxo de release registrada como exceção pontual no roadmap. Pré-validação concluída antes do empacotamento: testes LibraryMonitorTests 2/2 e build Release de Emby.Server.Implementations com 0 avisos/0 erros. A release será publicada somente após geração, verificação de assinatura/artefatos e confirmação pela API GitHub; APK está fora do escopo desta exceção."
     }
   ]
 }

@@ -4,6 +4,7 @@
 **Status:** em execução progressiva; consultar “Registro de execução” para evidências e pendências.
 
 **Exceção pontual de release — 30/09/2026:** usuário solicitou “feche um release do servidor e crie”. Preparar 12.1.9 com correções atuais validadas, pacotes de produção Windows/Linux e portal enviado pelo Git. Não considerar o roadmap concluído nem publicar APK. Gauntlet desta rodada: Implementations 1.218 aprovados/50 ignorados, API 225 aprovados, web 248 aprovados e Playwright 8 aprovados; build Release sem erros. Publicação e verificação dos assets são gates separados destes testes.
+**Exceção pontual de release — 12/10/2026:** usuário solicitou explicitamente o fluxo de release para a correção de monitoramento de bibliotecas. Preparar 12.1.19 somente para o servidor, com pacote Windows de produção (ZIP + instalador), notas específicas, publicação no GitHub e sincronização do portal. Esta exceção não conclui o roadmap nem autoriza publicação de APK.
 **Escopo:** servidor MulletaFlix para Windows e Linux e frontend web distribuído junto ao servidor. O aplicativo Android/iOS não faz parte deste roadmap.
 
 ## Objetivo
