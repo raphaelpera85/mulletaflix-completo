@@ -2941,6 +2941,20 @@
   ],
   "events": [
     {
+      "id": "nebula-library-stat-stability-2026-10-11",
+      "title": "Interromper invalidação contínua de mídias Nebula e investigar E/S",
+      "agent": "Codex",
+      "front": "server",
+      "local": "D:\\Users\\Raphael\\Documents\\Projetos\\mulletaflix",
+      "location": "MulletaFlix-master/Jellyfin.Server.Implementations/Nebula/NebulaFileSystem.cs e testes Nebula",
+      "scope": "Hotfix emergencial de produção para interromper invalidação contínua das mídias virtuais Nebula no disco N:, estabilizar timestamps e evitar reprocessamento de metadados/Intro Skipper e carga de E/S; validar, publicar v12.1.18 e instalar na instância ativa.",
+      "status": "in_progress",
+      "progressPercent": null,
+      "startedAt": "2026-10-11T00:00:00-03:00",
+      "updatedAt": "2026-10-11T22:10:00-03:00",
+      "evidence": "Causa raiz confirmada pelo log (21:17:04–21:22:05) e código: FileEntry/DirectoryEntry retornavam UtcNow para LastWriteTime e CreatedTime em cada leitura; Jellyfin tratou a biblioteca inteira como alterada, disparando 1.583 invalidações de metadados, 554 erros ERR (incluindo IOException de dispositivo E/S enumerando N:) e processamento em lote do Intro Skipper. Corrigido localmente: datas agora vêm de mtime/created_at/modified_at do MongoDB, com fallback estável pelo ObjectId/UnixEpoch e proteção contra timestamp inválido. `dotnet test ... --filter FullyQualifiedName~NebulaUploadEngineTests`: 224 aprovados, 0 falhas; `dotnet build Jellyfin.Server.Implementations/Jellyfin.Server.Implementations.csproj --no-restore --configuration Release`: exit 0, 0 avisos/0 erros; `git diff --check`: exit 0. Usuário autorizou explicitamente hotfix emergencial apesar do gate do roadmap; autorização registrada em 2026-10-11. Produção detectada em C:\\Program Files\\MulletaFlix\\Server, processo MulletaFlix.exe PID 8212; publicação, instalação e teste pós-reinício pendentes. `progressPercent` null: cobertura formal global não consolidada."
+    },
+    {
       "id": "nebula-upload-startup-throughput-2026-10-09-0603",
       "title": "Reduzir demora de inicialização e melhorar throughput de upload Nebula",
       "agent": "Codex",

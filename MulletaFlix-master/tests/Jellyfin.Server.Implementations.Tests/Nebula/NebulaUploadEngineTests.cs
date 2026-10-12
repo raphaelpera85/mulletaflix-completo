@@ -25,6 +25,42 @@ namespace MulletaFlix.Server.Implementations.Tests.Nebula;
 public class NebulaUploadEngineTests
 {
     [Fact]
+    public void NebulaFileSystemEntry_TimestampsRemainStableAcrossReads()
+    {
+        var modifiedAt = DateTimeOffset.FromUnixTimeSeconds(1_760_000_000);
+        var createdAt = modifiedAt.AddDays(-3);
+        var file = new NebulaFileEntry(null!, "file-id", "episode.mkv", 123L, "/Series/Test/episode.mkv", modifiedAt, createdAt);
+        var directory = new NebulaDirectoryEntry(null!, "directory-id", "Test", "/Series/Test", null, modifiedAt, createdAt);
+
+        Assert.Equal(modifiedAt, file.LastWriteTime);
+        Assert.Equal(modifiedAt, file.LastWriteTime);
+        Assert.Equal(createdAt, file.CreatedTime);
+        Assert.Equal(modifiedAt, directory.LastWriteTime);
+        Assert.Equal(modifiedAt, directory.LastWriteTime);
+        Assert.Equal(createdAt, directory.CreatedTime);
+    }
+
+    [Fact]
+    public void NebulaFileSystem_ResolvesStableTimestampsFromMongoDocument()
+    {
+        var objectId = ObjectId.GenerateNewId(DateTime.UtcNow.AddYears(-2));
+        var sourceModifiedAt = DateTimeOffset.FromUnixTimeSeconds(1_700_000_000);
+        var documentModifiedAt = sourceModifiedAt.AddDays(10);
+        var document = new BsonDocument
+        {
+            ["_id"] = objectId,
+            ["created_at"] = sourceModifiedAt.ToUnixTimeSeconds(),
+            ["mtime"] = sourceModifiedAt.ToUnixTimeSeconds(),
+            ["modified_at"] = documentModifiedAt.ToUnixTimeSeconds()
+        };
+
+        var (createdAt, lastWriteAt) = NebulaFileSystem.ResolveEntryTimes(document);
+
+        Assert.Equal(sourceModifiedAt, createdAt);
+        Assert.Equal(sourceModifiedAt, lastWriteAt);
+    }
+
+    [Fact]
     public async Task DisposeAsync_CancelsAndDrainsActiveUploadBeforeDisposingSemaphore()
     {
         var engine = new NebulaUploadEngine(

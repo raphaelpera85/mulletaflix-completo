@@ -2,6 +2,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Threading;
@@ -127,10 +128,11 @@ public sealed class NebulaFileSystem : IUnixFileSystem
         var isDir = doc.GetValue("is_directory", false).AsBoolean || doc.GetValue("type", string.Empty).AsString == "dir";
         var id = doc.GetValue("_id").ToString()!;
         var childVirtualPath = dir.FullVirtualPath == "/" ? $"/{name}" : $"{dir.FullVirtualPath.TrimEnd('/')}/{name}";
+        var (createdTime, lastWriteTime) = ResolveEntryTimes(doc);
 
         if (isDir)
         {
-            return new NebulaDirectoryEntry(this, id, name, childVirtualPath, dir);
+            return new NebulaDirectoryEntry(this, id, name, childVirtualPath, dir, lastWriteTime, createdTime);
         }
 
         if (!HasTelegramPayload(doc))
@@ -139,7 +141,7 @@ public sealed class NebulaFileSystem : IUnixFileSystem
         }
 
         var size = doc.GetValue("size", 0L).ToInt64();
-        return new NebulaFileEntry(this, id, name, size, childVirtualPath);
+        return new NebulaFileEntry(this, id, name, size, childVirtualPath, lastWriteTime, createdTime);
     }
 
     /// <inheritdoc />
@@ -175,6 +177,7 @@ public sealed class NebulaFileSystem : IUnixFileSystem
 
             var id = doc.GetValue("_id").ToString()!;
             var childVirtualPath = dir.FullVirtualPath == "/" ? $"/{name}" : $"{dir.FullVirtualPath.TrimEnd('/')}/{name}";
+            var (createdTime, lastWriteTime) = ResolveEntryTimes(doc);
 
             if (isDir)
             {
@@ -195,12 +198,12 @@ public sealed class NebulaFileSystem : IUnixFileSystem
                     continue;
                 }
 
-                entries.Add(new NebulaDirectoryEntry(this, id, name, childVirtualPath, dir));
+                entries.Add(new NebulaDirectoryEntry(this, id, name, childVirtualPath, dir, lastWriteTime, createdTime));
             }
             else if (HasTelegramPayload(doc))
             {
                 var size = doc.GetValue("size", 0L).ToInt64();
-                entries.Add(new NebulaFileEntry(this, id, name, size, childVirtualPath));
+                entries.Add(new NebulaFileEntry(this, id, name, size, childVirtualPath, lastWriteTime, createdTime));
             }
         }
 
@@ -239,7 +242,8 @@ public sealed class NebulaFileSystem : IUnixFileSystem
             if (isDir)
             {
                 var existingPath = parent.FullVirtualPath == "/" ? $"/{directoryName}" : $"{parent.FullVirtualPath.TrimEnd('/')}/{directoryName}";
-                return new NebulaDirectoryEntry(this, existing.GetValue("_id").ToString()!, directoryName, existingPath, parent);
+                var (createdTime, lastWriteTime) = ResolveEntryTimes(existing);
+                return new NebulaDirectoryEntry(this, existing.GetValue("_id").ToString()!, directoryName, existingPath, parent, lastWriteTime, createdTime);
             }
 
             throw new IOException($"Já existe um arquivo chamado '{directoryName}'.");
@@ -262,7 +266,77 @@ public sealed class NebulaFileSystem : IUnixFileSystem
         };
 
         await _mongoContext.InsertFileDocAsync(document, cancellationToken).ConfigureAwait(false);
-        return new NebulaDirectoryEntry(this, nodeId.ToString(), directoryName, targetPath, parent);
+        var newDirectoryTime = DateTimeOffset.FromUnixTimeSeconds(now);
+        return new NebulaDirectoryEntry(this, nodeId.ToString(), directoryName, targetPath, parent, newDirectoryTime, newDirectoryTime);
+    }
+
+    internal static (DateTimeOffset CreatedTime, DateTimeOffset LastWriteTime) ResolveEntryTimes(BsonDocument document)
+    {
+        var objectIdTime = document.TryGetValue("_id", out var idValue)
+            ? idValue.BsonType switch
+            {
+                BsonType.ObjectId => new DateTimeOffset(idValue.AsObjectId.CreationTime, TimeSpan.Zero),
+                BsonType.String when ObjectId.TryParse(idValue.AsString, out var objectId) => new DateTimeOffset(objectId.CreationTime, TimeSpan.Zero),
+                _ => DateTimeOffset.UnixEpoch
+            }
+            : DateTimeOffset.UnixEpoch;
+
+        var createdTime = ReadDocumentTimestamp(document, "created_at") ?? objectIdTime;
+        // Prefer the source file's mtime. modified_at may track queue/progress changes,
+        // while mtime is the stable timestamp used to decide whether media content changed.
+        var lastWriteTime = ReadDocumentTimestamp(document, "mtime")
+            ?? ReadDocumentTimestamp(document, "modified_at")
+            ?? createdTime;
+
+        return (createdTime, lastWriteTime);
+    }
+
+    private static DateTimeOffset? ReadDocumentTimestamp(BsonDocument document, string fieldName)
+    {
+        if (!document.TryGetValue(fieldName, out var value) || value.IsBsonNull)
+        {
+            return null;
+        }
+
+        if (value.BsonType == BsonType.DateTime)
+        {
+            return new DateTimeOffset(value.ToUniversalTime(), TimeSpan.Zero);
+        }
+
+        if (value.IsNumeric)
+        {
+            return FromUnixTimestamp(value.ToInt64());
+        }
+
+        if (value.BsonType == BsonType.String)
+        {
+            var text = value.AsString;
+            if (long.TryParse(text, NumberStyles.Integer, CultureInfo.InvariantCulture, out var timestamp))
+            {
+                return FromUnixTimestamp(timestamp);
+            }
+
+            if (DateTimeOffset.TryParse(text, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal, out var parsed))
+            {
+                return parsed;
+            }
+        }
+
+        return null;
+    }
+
+    private static DateTimeOffset? FromUnixTimestamp(long timestamp)
+    {
+        try
+        {
+            return timestamp > 9_999_999_999
+                ? DateTimeOffset.FromUnixTimeMilliseconds(timestamp)
+                : DateTimeOffset.FromUnixTimeSeconds(timestamp);
+        }
+        catch (ArgumentOutOfRangeException)
+        {
+            return null;
+        }
     }
 
     /// <inheritdoc />
@@ -502,16 +576,28 @@ internal sealed class NebulaBackgroundTransfer : IBackgroundTransfer
 /// </summary>
 public sealed class NebulaDirectoryEntry : IUnixDirectoryEntry
 {
+    private readonly DateTimeOffset _createdTime;
+    private readonly DateTimeOffset _lastWriteTime;
+
     /// <summary>
     /// Inicializa uma nova instância de <see cref="NebulaDirectoryEntry"/>.
     /// </summary>
-    public NebulaDirectoryEntry(IUnixFileSystem fileSystem, string? nodeId, string name, string fullVirtualPath, NebulaDirectoryEntry? parent = null)
+    public NebulaDirectoryEntry(
+        IUnixFileSystem fileSystem,
+        string? nodeId,
+        string name,
+        string fullVirtualPath,
+        NebulaDirectoryEntry? parent = null,
+        DateTimeOffset? lastWriteTime = null,
+        DateTimeOffset? createdTime = null)
     {
         FileSystem = fileSystem;
         NodeId = nodeId;
         Name = name;
         FullVirtualPath = fullVirtualPath;
         Parent = parent;
+        _lastWriteTime = lastWriteTime ?? DateTimeOffset.UnixEpoch;
+        _createdTime = createdTime ?? _lastWriteTime;
     }
 
     /// <summary>
@@ -540,10 +626,10 @@ public sealed class NebulaDirectoryEntry : IUnixDirectoryEntry
     public bool IsDeletable => false;
 
     /// <inheritdoc />
-    public DateTimeOffset? LastWriteTime => DateTimeOffset.UtcNow;
+    public DateTimeOffset? LastWriteTime => _lastWriteTime;
 
     /// <inheritdoc />
-    public DateTimeOffset? CreatedTime => DateTimeOffset.UtcNow;
+    public DateTimeOffset? CreatedTime => _createdTime;
 
     /// <inheritdoc />
     public long NumberOfLinks => 1;
@@ -563,16 +649,28 @@ public sealed class NebulaDirectoryEntry : IUnixDirectoryEntry
 /// </summary>
 public sealed class NebulaFileEntry : IUnixFileEntry
 {
+    private readonly DateTimeOffset _createdTime;
+    private readonly DateTimeOffset _lastWriteTime;
+
     /// <summary>
     /// Inicializa uma nova instância de <see cref="NebulaFileEntry"/>.
     /// </summary>
-    public NebulaFileEntry(IUnixFileSystem fileSystem, string nodeId, string name, long size, string fullVirtualPath)
+    public NebulaFileEntry(
+        IUnixFileSystem fileSystem,
+        string nodeId,
+        string name,
+        long size,
+        string fullVirtualPath,
+        DateTimeOffset? lastWriteTime = null,
+        DateTimeOffset? createdTime = null)
     {
         FileSystem = fileSystem;
         NodeId = nodeId;
         Name = name;
         Size = size;
         FullVirtualPath = fullVirtualPath;
+        _lastWriteTime = lastWriteTime ?? DateTimeOffset.UnixEpoch;
+        _createdTime = createdTime ?? _lastWriteTime;
     }
 
     /// <summary>
@@ -598,10 +696,10 @@ public sealed class NebulaFileEntry : IUnixFileEntry
     public bool IsDeletable => false;
 
     /// <inheritdoc />
-    public DateTimeOffset? LastWriteTime => DateTimeOffset.UtcNow;
+    public DateTimeOffset? LastWriteTime => _lastWriteTime;
 
     /// <inheritdoc />
-    public DateTimeOffset? CreatedTime => DateTimeOffset.UtcNow;
+    public DateTimeOffset? CreatedTime => _createdTime;
 
     /// <inheritdoc />
     public long NumberOfLinks => 1;
