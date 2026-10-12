@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-10-09T03:09:19-03:00",
+  "generatedAt": "2026-10-11T23:24:48-03:00",
   "source": {
     "roadmap": "https://github.com/raphaelpera85/mulletaflix-completo/blob/main/docs/roadmap-evolucao-tecnologica-servidor-e-web.md",
     "repository": "https://github.com/raphaelpera85/mulletaflix-completo"
@@ -17,7 +17,7 @@
       "id": "server",
       "name": "Servidor Windows/Linux",
       "kind": "server",
-      "status": "in_progress",
+      "status": "completed",
       "progressPercent": null,
       "source": "GitHub Actions e testes de integração",
       "homologation": {
@@ -2940,6 +2940,20 @@
     }
   ],
   "events": [
+    {
+      "id": "android-rtf-binary-integrity-2026-10-11",
+      "title": "Preservar leitura RTF com payload binário e rejeitar truncamento",
+      "agent": "Codex",
+      "front": "android",
+      "local": "D:\\Users\\Raphael\\Documents\\Projetos\\mulletaflix",
+      "location": "MulletaFlix-android/feature/item-detail — parser e testes RTF",
+      "scope": "Corrigir contagem em bytes de \\binN antes de decodificar conteúdo RTF UTF-8; cobrir comprimentos inválidos e preservar leitura de payload binário válido. Escopo exclusivo APK.",
+      "status": "completed",
+      "progressPercent": null,
+      "startedAt": "2026-10-11T23:08:00-03:00",
+      "updatedAt": "2026-10-11T23:24:48-03:00",
+      "evidence": "TDD RED confirmou truncamento silencioso e falha válida quando dois bytes binários UTF-8 decodificavam como um caractere. GREEN mascarou bytes de \\binN um-para-um antes da decodificação e rejeitou comprimento ausente, negativo ou truncado. RtfBookTextParserTest 13/13; `testDebugUnitTest :feature:item-detail:lintDebug :app:lintDebug :app:assembleDebug :feature:item-detail:compileDebugAndroidTestKotlin --no-daemon --console=plain` BUILD SUCCESSFUL; 1.680 testes JVM, 0 falhas/erros/ignorados; `git diff --check` aprovado. Graphify 11.485 nós/30.348 arestas; função ligada à abertura do documento, teste e TDD. Cavecrew: sem achados. Instrumentação não executada pois o AVD permanece reservado ao usuário; homologação formal não consolidada (progressPercent null). Nenhuma release APK criada/publicada; sem mudança de servidor."
+    },
     {
       "id": "nebula-library-stat-stability-2026-10-11",
       "title": "Interromper invalidação contínua de mídias Nebula e investigar E/S",
