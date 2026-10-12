@@ -112,6 +112,31 @@ namespace Emby.Server.Implementations.IO
             return options is not null && options.EnableRealtimeMonitor;
         }
 
+        /// <summary>
+        /// Gets the physical paths explicitly configured for realtime monitoring.
+        /// </summary>
+        /// <remarks>
+        /// Root-folder children can survive in the item database after a library location is
+        /// removed.  They are not the source of truth for file system watchers: the configured
+        /// virtual folders are.  Reading this configuration prevents an obsolete location from
+        /// being watched again after a server restart.
+        /// </remarks>
+        /// <param name="libraryManager">The library manager that owns the configured folders.</param>
+        /// <returns>The distinct configured paths whose realtime monitor is enabled.</returns>
+        internal static IEnumerable<string> GetConfiguredLibraryPaths(ILibraryManager libraryManager)
+        {
+            ArgumentNullException.ThrowIfNull(libraryManager);
+
+            return libraryManager
+                .GetVirtualFolders()
+                .Where(folder => folder.LibraryOptions?.EnableRealtimeMonitor == true)
+                .SelectMany(folder => folder.Locations ?? Array.Empty<string>())
+                .Where(path => !string.IsNullOrWhiteSpace(path))
+                .Select(path => Path.TrimEndingDirectorySeparator(path.Trim()))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .Order(StringComparer.OrdinalIgnoreCase);
+        }
+
         /// <inheritdoc />
         public void Start()
         {
@@ -120,14 +145,7 @@ namespace Emby.Server.Implementations.IO
 
             var pathsToWatch = new List<string>();
 
-            var paths = _libraryManager
-                .RootFolder
-                .Children
-                .Where(IsLibraryMonitorEnabled)
-                .OfType<Folder>()
-                .SelectMany(f => f.PhysicalLocations)
-                .Distinct()
-                .Order();
+            var paths = GetConfiguredLibraryPaths(_libraryManager);
 
             foreach (var path in paths)
             {
@@ -145,7 +163,8 @@ namespace Emby.Server.Implementations.IO
 
         private void StartWatching(BaseItem item)
         {
-            if (IsLibraryMonitorEnabled(item))
+            if (IsLibraryMonitorEnabled(item)
+                && GetConfiguredLibraryPaths(_libraryManager).Contains(item.Path, StringComparer.OrdinalIgnoreCase))
             {
                 StartWatchingPath(item.Path);
             }

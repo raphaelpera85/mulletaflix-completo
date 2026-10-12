@@ -4826,6 +4826,21 @@
       "startedAt": "2026-10-09T00:20:32-03:00",
       "updatedAt": "2026-10-09T02:03:00-03:00",
       "evidence": "Análise do log compartilhado localizou backup full de 54.313 arquivos concluído em 614,9 s simultaneamente a uploads em 10 workers; as partes registraram 0,13–0,25 MB/s e 180–340 s. Implementado guard para backups automáticos esperar uploads Mongo status=uploading cessarem; backups manuais permanecem operáveis. Mongo descartável localhost:27099 passou 20/20 integrações; suíte integral Server.Implementations Release passou 1.408 aprovados, 39 ignorados, 0 falhas. Zero duplicatas Supabase na auditoria read-only. Build de produção 12.1.17: stage Windows Assembly 12.1.17.0; web npm ci/build:check/build:production aprovados; sitemap validado (7 páginas). ZIP 388516509 bytes SHA256 C018A71749FF0BDCF9EE8028046367120F086AC69323CD56FB2532224A1BEC06; EXE Windows 423398871 bytes SHA256 9B595031C0BFF490B00451657764D5EAF4B480C9C66E9F902501E1AD014A79EB; TAR.GZ Linux 137005671 bytes SHA256 B4D136171EB742D1FEBB4FA6BAC90A519D5FA8410A4947C39FBD5A72910B5F34. Release estável publicada: https://github.com/raphaelpera85/mulletaflix-completo/releases/tag/v12.1.17, tag aponta para commit servidor 47e5298be22c1a21b155132b9bb8a725137a312d; API oficial confirmou três assets, draft=false/prerelease=false. Portal GitHub Mulletaflix-Portal commit 115c9565ef160eb6ca87cee2d9914ea7bebf6609; deployment Vercel de produção mulletaflix-portal-k41hml9st-raphaelpera85s-projects.vercel.app (deployment dpl_B5mSdBKkAvTBhXGvNSp2MN73RGU8) READY, 6 rotas /, /docs, /downloads, /updates, /homologacao, /sitemap.xml e /homologacao-status.json retornaram HTTP 200; /updates exibe v12.1.17. Evidência técnica e publicação concluídas. Validação operacional adicional permanece bloqueada: N: não está mapeado e não foi feito A/B de upload Telegram real. Usuário autorizou a release limitada às correções concluídas apesar de 68 itens pendentes do roadmap."
+    },
+    {
+      "id": "library-monitor-configured-sources-2026-10-12",
+      "title": "Monitorar apenas pastas configuradas nas bibliotecas",
+      "agent": "Codex",
+      "front": "server",
+      "featureIds": [],
+      "local": "D:\\Users\\Raphael\\Documents\\Projetos\\mulletaflix",
+      "location": "MulletaFlix-master/Emby.Server.Implementations/IO/LibraryMonitor.cs e testes IO",
+      "scope": "Eliminar a dependência de raízes históricas persistidas no banco ao iniciar watchers; usar exclusivamente as localizações configuradas em bibliotecas virtuais com monitoramento em tempo real habilitado.",
+      "status": "completed",
+      "progressPercent": null,
+      "startedAt": "2026-10-12T06:20:00-03:00",
+      "updatedAt": "2026-10-12T06:25:00-03:00",
+      "evidence": "Linha de base: logs de produção mostraram watchers em N:\\Animações, N:\\Doramas, N:\\Filmes, N:\\Novelas e N:\\Series embora a configuração atual de bibliotecas use somente strm_library e estágios locais. Diagnóstico local confirmou que LibraryMonitor.Start lia RootFolder.Children, que pode conservar itens históricos. Correção concluída: startup usa exclusivamente ILibraryManager.GetVirtualFolders(), filtra EnableRealtimeMonitor, remove caminhos vazios e desduplica sem diferenciar maiúsculas/minúsculas. Regressões comprovadas: `dotnet test ... --filter FullyQualifiedName~LibraryMonitorTests --no-build --no-restore` passou 2/2; `dotnet build Emby.Server.Implementations/Emby.Server.Implementations.csproj --no-restore --configuration Release -m:1` passou com 0 avisos/0 erros; `git diff --check` passou. Nenhuma limpeza de registros/arquivos N: foi aplicada; a correção não depende disso. Homologação integral do servidor permanece sem percentual consolidado e o gate do roadmap bloqueia release intermediária."
     }
   ]
 }
