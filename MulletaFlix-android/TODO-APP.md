@@ -1,5 +1,13 @@
 # MulletaFlix Android - Plano de Desenvolvimento & Checklist de Funcionalidades (TODO)
 
+## Charset declarado em HTML no APK — concluído localmente; sem release
+
+- [x] Respeitar `<meta charset>` e o formato legado `http-equiv` quando o HTTP não declara charset; charset explícito no `Content-Type` e BOM mantêm precedência.
+- [x] Limitar a inspeção ao prescan inicial de 1 KiB e ignorar aparições em comentários, scripts e estilos.
+- [x] TDD RED-GREEN com HTML Shift_JIS em fixture JVM, metadado legado, declarações falsas e precedência do charset HTTP.
+- [x] Quality Gate em 2026-10-11: suíte JVM completa com 1.685 testes, 0 falhas/erros/ignorados; lint do módulo/app, `assembleDebug`, compilação AndroidTest e `git diff --check` aprovados.
+- [ ] Sem AVD (reservado pelo usuário), bump, APK de produção, release, portal, commit ou push.
+
 ## Token de sessão cifrado no APK — concluído localmente; sem release
 
 - [x] Cifrar o token com AES-GCM e chave não exportável do Android Keystore; não adicionar dependências obsoletas.
@@ -3704,3 +3712,11 @@ Pendências relacionadas:
 - [ ] Implementar extração AZW3/KF8 completa e validá-la com arquivos reais não protegidos; suporte direto permanece ausente.
 - [ ] Validar interação Compose nos perfis depois que o usuário liberar o AVD reservado.
 - [ ] Sem bump, APK de produção ou publicação; alteração exclusivamente local do APK.
+
+## Integridade de payload binário no leitor RTF (APK local; sem release)
+
+- [x] Rejeitar `\\binN` com tamanho ausente/negativo ou bytes truncados, em vez de ignorar o erro e apresentar texto incompleto.
+- [x] Cobrir truncamento e comprimentos inválidos; validar arquivo realista com payload de dois bytes UTF-8 que decodifica como um caractere, além do cenário existente de bytes completos com chaves no payload.
+- [x] Quality Gate: `RtfBookTextParserTest` 13/13; suíte JVM 1.680 aprovados, 0 falhas/erros/ignorados; lint do módulo e app, assemble Debug e compilação AndroidTest — `BUILD SUCCESSFUL`. Graphify atualizado; revisão Cavecrew sem achados.
+- [ ] Instrumentação visual/AVD fica pendente até o usuário liberar o dispositivo reservado.
+- [x] Sem AVD, bump, APK de produção, portal ou publicação nesta alteração local do APK.

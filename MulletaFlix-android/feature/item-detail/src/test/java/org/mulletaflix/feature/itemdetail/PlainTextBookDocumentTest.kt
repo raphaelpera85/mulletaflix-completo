@@ -568,6 +568,126 @@ class PlainTextBookDocumentTest {
     }
 
     @Test
+    fun `honors HTML meta charset when response has no charset`() = withTempDirectory { directory ->
+        val expected = "映画の字幕"
+        val file = directory.resolve("shift-jis.html").apply {
+            writeBytes("<html><head><meta charset=\"Shift_JIS\"></head><body><p>$expected</p></body></html>"
+                .toByteArray(Charset.forName("Shift_JIS")))
+        }
+
+        val text = PlainTextBookDocument.open(file, "text/html").chunks.joinToString("")
+
+        assertTrue(text.contains(expected))
+    }
+
+    @Test
+    fun `supports legacy HTML charset metadata and ignores fake declarations`() = withTempDirectory { directory ->
+        val expected = "映画の字幕"
+        val legacy = directory.resolve("legacy-charset.html").apply {
+            writeBytes("<meta http-equiv='Content-Type' content='text/html; charset=Shift_JIS'><p>$expected</p>"
+                .toByteArray(Charset.forName("Shift_JIS")))
+        }
+        val unquoted = directory.resolve("unquoted-charset.html").apply {
+            writeBytes("<meta charset=Shift_JIS/><p>$expected</p>".toByteArray(Charset.forName("Shift_JIS")))
+        }
+        val unsupportedThenValid = directory.resolve("unsupported-charset.html").apply {
+            writeBytes("<meta charset=unknown-charset><meta charset=Shift_JIS><p>$expected</p>"
+                .toByteArray(Charset.forName("Shift_JIS")))
+        }
+        val fake = directory.resolve("fake-charset.html").apply {
+            writeText("<!-- <meta charset='Shift_JIS'> --><script>var fake = '<meta charset=Shift_JIS>';</script><p>café</p>")
+        }
+        val description = directory.resolve("description-charset.html").apply {
+            writeText("<meta name='description' content='charset=Shift_JIS'><p>café</p>")
+        }
+        val utf16Label = directory.resolve("utf16-label.html").apply {
+            writeText("<meta charset='UTF-16LE'><p>café</p>")
+        }
+        val plaintext = directory.resolve("plaintext-meta.html").apply {
+            writeText("<plaintext></plaintext><meta charset='Shift_JIS'><p>café</p>")
+        }
+        val invalidTagSpacing = directory.resolve("invalid-tag-spacing.html").apply {
+            writeText("< meta charset='Shift_JIS'><p>café</p>")
+        }
+        val invalidClosingSpacing = directory.resolve("invalid-closing-spacing.html").apply {
+            writeText("<script>var fake='</ script><meta charset=Shift_JIS>';</script><p>café</p>")
+        }
+        val invalidTagName = directory.resolve("invalid-tag-name.html").apply {
+            writeText("<meta.foo charset='Shift_JIS'><p>café</p>")
+        }
+        val punctuatedTagNames = listOf("?", "!").mapIndexed { index, punctuation ->
+            directory.resolve("invalid-tag-punctuation-$index.html").apply {
+                writeText("<meta$punctuation charset='Shift_JIS'><p>café</p>")
+            }
+        }
+
+        assertTrue(PlainTextBookDocument.open(legacy, "text/html").chunks.joinToString("").contains(expected))
+        assertTrue(PlainTextBookDocument.open(unquoted, "text/html").chunks.joinToString("").contains(expected))
+        assertTrue(
+            PlainTextBookDocument.open(unsupportedThenValid, "text/html").chunks.joinToString("").contains(expected),
+        )
+        assertTrue(PlainTextBookDocument.open(fake, "text/html").chunks.joinToString("").contains("café"))
+        assertTrue(PlainTextBookDocument.open(description, "text/html").chunks.joinToString("").contains("café"))
+        assertTrue(PlainTextBookDocument.open(utf16Label, "text/html").chunks.joinToString("").contains("café"))
+        assertTrue(PlainTextBookDocument.open(plaintext, "text/html").chunks.joinToString("").contains("café"))
+        assertTrue(PlainTextBookDocument.open(invalidTagSpacing, "text/html").chunks.joinToString("").contains("café"))
+        assertTrue(
+            PlainTextBookDocument.open(invalidClosingSpacing, "text/html").chunks.joinToString("").contains("café"),
+        )
+        assertTrue(PlainTextBookDocument.open(invalidTagName, "text/html").chunks.joinToString("").contains("café"))
+        punctuatedTagNames.forEach { file ->
+            assertTrue(PlainTextBookDocument.open(file, "text/html").chunks.joinToString("").contains("café"))
+        }
+    }
+
+    @Test
+    fun `ignores HTML charset declarations after the first 1024 bytes`() = withTempDirectory { directory ->
+        val expected = "映画の字幕"
+        val prefix = " ".repeat(1_024)
+        val file = directory.resolve("late-charset.html").apply {
+            writeBytes((prefix + "<meta charset='Shift_JIS'><p>$expected</p>")
+                .toByteArray(Charset.forName("Shift_JIS")))
+        }
+
+        val text = PlainTextBookDocument.open(file, "text/html").chunks.joinToString("")
+
+        assertFalse(text.contains(expected))
+    }
+
+    @Test
+    fun `ignores fake declarations in title and maps ISO-8859-1 HTML to Windows-1252`() = withTempDirectory { directory ->
+        val title = directory.resolve("title-meta.html").apply {
+            writeText("<title><meta charset='Shift_JIS'></title><p>café</p>")
+        }
+        val iso = directory.resolve("iso-8859-1.html").apply {
+            writeBytes("<meta charset='ISO-8859-1'><p>“café” —</p>"
+                .toByteArray(Charset.forName("windows-1252")))
+        }
+
+        assertTrue(PlainTextBookDocument.open(title, "text/html").chunks.joinToString("").contains("café"))
+        assertTrue(PlainTextBookDocument.open(iso, "text/html").chunks.joinToString("").contains("“café” —"))
+    }
+
+    @Test
+    fun `HTTP charset takes precedence over HTML meta charset`() = withTempDirectory { directory ->
+        val file = directory.resolve("http-charset.html").apply {
+            writeBytes("<meta charset='Shift_JIS'><p>Ação: café</p>".toByteArray(Charset.forName("windows-1252")))
+        }
+        val httpUtf16 = directory.resolve("http-utf16.html").apply {
+            writeBytes("<meta charset='Shift_JIS'><p>café</p>".toByteArray(StandardCharsets.UTF_16LE))
+        }
+
+        assertTrue(
+            PlainTextBookDocument.open(file, "text/html; charset=windows-1252")
+                .chunks.joinToString("").contains("Ação: café"),
+        )
+        assertTrue(
+            PlainTextBookDocument.open(httpUtf16, "text/html; charset=UTF-16LE")
+                .chunks.joinToString("").contains("café"),
+        )
+    }
+
+    @Test
     fun `rejects empty and oversized direct text files`() = withTempDirectory { directory ->
         val empty = directory.resolve("empty.txt").apply { writeBytes(byteArrayOf()) }
         assertThrows(java.io.IOException::class.java) { PlainTextBookDocument.open(empty) }

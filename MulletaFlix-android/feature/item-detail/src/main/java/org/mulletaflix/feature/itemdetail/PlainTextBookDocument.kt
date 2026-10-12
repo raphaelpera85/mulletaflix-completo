@@ -63,6 +63,7 @@ internal class PlainTextBookDocument private constructor(
         private const val HTML_MARKER_START = "\uE000MFLIX"
         private const val HTML_MARKER_END = "\uE001"
         private const val HTML_CONTENT_TYPE = "text/html"
+        private const val HTML_CHARSET_SNIFF_BYTES = 1_024
         private val MARKDOWN_CONTENT_TYPES = setOf("text/markdown", "text/x-markdown")
         private val RTF_CONTENT_TYPES = setOf("application/rtf", "application/x-rtf", "text/rtf")
         private val FICTION_BOOK_CONTENT_TYPES = setOf(
@@ -88,6 +89,11 @@ internal class PlainTextBookDocument private constructor(
         private const val LOCATOR_PREFIX = "mulletaflix-text-chunk-"
         private val UTF8_BOM = byteArrayOf(0xEF.toByte(), 0xBB.toByte(), 0xBF.toByte())
         private val WINDOWS_1252 = Charset.forName("windows-1252")
+        private val HTML_WINDOWS_1252_LABELS = setOf(
+            "ascii", "ansi_x3.4-1968", "cp1252", "cp819", "csisolatin1", "ibm819", "iso-8859-1",
+            "iso-ir-100", "iso8859-1", "iso88591", "iso_8859-1", "iso_8859-1:1987", "l1", "latin1",
+            "us-ascii", "windows-1252", "x-cp1252",
+        )
         private val NON_CONTENT_HTML_ELEMENTS = setOf(
             "script", "style", "head", "iframe", "object", "svg", "template", "embed",
         )
@@ -228,7 +234,8 @@ internal class PlainTextBookDocument private constructor(
                 }
                 output.toByteArray()
             }
-            val decoded = decode(bytes, contentType, isFictionBook)
+            val payloadBytes = if (isRtf) RtfBookTextParser.preserveBinaryByteOffsets(bytes) else bytes
+            val decoded = decode(payloadBytes, contentType, isFictionBook, isHtml)
             if (isFictionBook) {
                 return openFictionBook(decoded, "O arquivo de texto não contém conteúdo para leitura.")
             }
@@ -435,6 +442,7 @@ internal class PlainTextBookDocument private constructor(
             bytes: ByteArray,
             contentType: String?,
             fictionBook: Boolean = false,
+            html: Boolean = false,
         ): String = when {
             bytes.startsWith(UTF8_BOM) -> String(bytes, UTF8_BOM.size, bytes.size - UTF8_BOM.size, StandardCharsets.UTF_8)
             bytes.size >= 2 && bytes[0] == 0xFF.toByte() && bytes[1] == 0xFE.toByte() ->
@@ -443,9 +451,68 @@ internal class PlainTextBookDocument private constructor(
                 String(bytes, 2, bytes.size - 2, StandardCharsets.UTF_16BE)
             fictionBook && bytes.isUtf16BeXmlWithoutBom() -> String(bytes, StandardCharsets.UTF_16BE)
             fictionBook && bytes.isUtf16LeXmlWithoutBom() -> String(bytes, StandardCharsets.UTF_16LE)
-            else -> declaredCharset(contentType)?.let { String(bytes, it) }
+            else -> (declaredCharset(contentType) ?: if (html) htmlMetaCharset(bytes) else null)
+                ?.let { String(bytes, it) }
                 ?: decodeUtf8(bytes)
                 ?: String(bytes, WINDOWS_1252)
+        }
+
+        private fun htmlMetaCharset(bytes: ByteArray): Charset? {
+            if (bytes.isEmpty()) return null
+            val prefix = String(
+                bytes,
+                0,
+                minOf(bytes.size, HTML_CHARSET_SNIFF_BYTES),
+                StandardCharsets.ISO_8859_1,
+            )
+            var cursor = 0
+            while (cursor < prefix.length) {
+                val tagStart = prefix.indexOf('<', cursor)
+                if (tagStart < 0) break
+                if (prefix.startsWith("<!--", tagStart)) {
+                    val commentEnd = prefix.indexOf("-->", tagStart + 4)
+                    if (commentEnd < 0) break
+                    cursor = commentEnd + 3
+                    continue
+                }
+                val firstTagCharacter = prefix.getOrNull(tagStart + 1)
+                if (firstTagCharacter == null ||
+                    !(firstTagCharacter.isLetter() || firstTagCharacter == '/' || firstTagCharacter == '!')
+                ) {
+                    cursor = tagStart + 1
+                    continue
+                }
+                val tagEnd = findHtmlTagEnd(prefix, tagStart)
+                if (tagEnd < 0) break
+                val tag = parseHtmlTag(prefix, tagStart, tagEnd)
+                if (tag != null && !tag.isClosing && tag.name == "plaintext") break
+                if (tag != null && !tag.isClosing && tag.name in RAW_TEXT_HTML_ELEMENTS) {
+                    cursor = findRawTextHtmlElementEnd(prefix, tag.name, tagEnd + 1)?.plus(1) ?: break
+                    continue
+                }
+                if (tag != null && !tag.isClosing && tag.name == "meta") {
+                    val direct = tag.attributes["charset"]?.trim()?.trimEnd('/')
+                    val isContentType = tag.attributes["http-equiv"]
+                        ?.equals("content-type", ignoreCase = true) == true
+                    val legacy = if (isContentType) {
+                        tag.attributes["content"]?.let { HTML_CONTENT_CHARSET_REGEX.find(it)?.groupValues?.get(1) }
+                    } else {
+                        null
+                    }
+                    for (charsetName in listOfNotNull(direct, legacy)) {
+                        val charset = htmlCharset(charsetName)
+                        if (charset != null) return charset
+                    }
+                }
+                cursor = tagEnd + 1
+            }
+            return null
+        }
+
+        private fun htmlCharset(label: String): Charset? = when (label.trim().lowercase()) {
+            "utf-16", "utf-16le", "utf-16be" -> StandardCharsets.UTF_8
+            in HTML_WINDOWS_1252_LABELS -> WINDOWS_1252
+            else -> runCatching { Charset.forName(label.trim()) }.getOrNull()
         }
 
         private fun ByteArray.isUtf16BeXmlWithoutBom(): Boolean =
@@ -467,6 +534,11 @@ internal class PlainTextBookDocument private constructor(
                     null
                 }
             }
+
+        private val HTML_CONTENT_CHARSET_REGEX = Regex(
+            "charset\\s*=\\s*['\"]?\\s*([A-Za-z0-9._:-]+)",
+            RegexOption.IGNORE_CASE,
+        )
 
         private data class HtmlBookHeading(val title: String, val depth: Int, val textOffset: Int)
         private data class HtmlBookDocument(val text: String, val headings: List<HtmlBookHeading>)
@@ -666,6 +738,7 @@ internal class PlainTextBookDocument private constructor(
             val name: String,
             val isClosing: Boolean,
             val isHidden: Boolean,
+            val attributes: Map<String, String>,
         )
 
         private fun parseHtmlTag(html: String, start: Int, end: Int): HtmlTag? {
@@ -675,10 +748,11 @@ internal class PlainTextBookDocument private constructor(
             if (isClosing) index++
             while (index < end && html[index].isWhitespace()) index++
             val nameStart = index
-            while (index < end && (html[index].isLetterOrDigit() || html[index] == '-' || html[index] == ':')) index++
+            while (index < end && !html[index].isWhitespace() && html[index] != '/') index++
             if (index == nameStart) return null
             val name = html.substring(nameStart, index).lowercase()
             var isHidden = false
+            val attributes = mutableMapOf<String, String>()
             while (index < end) {
                 while (index < end && (html[index].isWhitespace() || html[index] == '/')) index++
                 if (index >= end) break
@@ -706,11 +780,12 @@ internal class PlainTextBookDocument private constructor(
                         attributeValue = html.substring(valueStart, index)
                     }
                 }
+                attributes.putIfAbsent(attributeName, attributeValue)
                 isHidden = isHidden || attributeName == "hidden" ||
                     (attributeName == "aria-hidden" && attributeValue.equals("true", ignoreCase = true)) ||
                     (attributeName == "style" && HIDDEN_STYLE_DECLARATION.containsMatchIn(attributeValue))
             }
-            return HtmlTag(name, isClosing, isHidden)
+            return HtmlTag(name, isClosing, isHidden, attributes)
         }
 
         private fun findHtmlTagEnd(html: String, start: Int): Int {
@@ -767,8 +842,7 @@ internal class PlainTextBookDocument private constructor(
             while (searchFrom < html.length) {
                 val candidate = html.indexOf("</", searchFrom)
                 if (candidate < 0) return null
-                var nameStart = candidate + 2
-                while (nameStart < html.length && html[nameStart].isWhitespace()) nameStart++
+                val nameStart = candidate + 2
                 val nameEnd = nameStart + name.length
                 val boundary = html.getOrNull(nameEnd)
                 if (boundary != null && (boundary == '>' || boundary.isWhitespace()) &&

@@ -101,6 +101,43 @@ class RtfBookTextParserTest {
     }
 
     @Test
+    fun `rejects missing and negative binary lengths`() {
+        val missingLength = assertThrows(IOException::class.java) {
+            RtfBookTextParser.parse("{\\rtf1 \\bin bytes}")
+        }
+        val negativeLength = assertThrows(IOException::class.java) {
+            RtfBookTextParser.parse("{\\rtf1 \\bin-1 bytes}")
+        }
+
+        assertTrue(missingLength.message.orEmpty().contains("tamanho binário inválido"))
+        assertTrue(negativeLength.message.orEmpty().contains("tamanho binário inválido"))
+    }
+
+    @Test
+    fun `counts binary RTF payload bytes before UTF-8 decoding`() = withTempDirectory { directory ->
+        val prefix = "{\\rtf1 before {\\pict\\bin2 ".toByteArray(Charsets.UTF_8)
+        val binaryUtf8 = byteArrayOf(0xC3.toByte(), 0xA9.toByte())
+        val suffix = "} after}".toByteArray(Charsets.UTF_8)
+        val file = directory.resolve("utf8-binary.rtf").apply {
+            writeBytes(prefix + binaryUtf8 + suffix)
+        }
+
+        assertEquals("before  after", PlainTextBookDocument.open(file, "application/rtf; charset=utf-8")
+            .chunks.joinToString(""))
+    }
+
+    @Test
+    fun `rejects truncated binary payload before decoding the RTF file`() {
+        val truncated = "{\\rtf1 before {\\pict\\bin99 abc} after}".toByteArray(Charsets.UTF_8)
+
+        val failure = assertThrows(IOException::class.java) {
+            RtfBookTextParser.preserveBinaryByteOffsets(truncated)
+        }
+
+        assertTrue(failure.message.orEmpty().contains("binário incompleto"))
+    }
+
+    @Test
     fun `rejects malformed and excessively nested RTF`() {
         assertThrows(IOException::class.java) { RtfBookTextParser.parse("not an RTF document") }
         assertThrows(IOException::class.java) { RtfBookTextParser.parse("{\\rtf1{incomplete}") }

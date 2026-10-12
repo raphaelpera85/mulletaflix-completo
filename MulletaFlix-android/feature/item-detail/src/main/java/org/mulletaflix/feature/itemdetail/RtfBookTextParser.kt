@@ -18,6 +18,52 @@ internal object RtfBookTextParser {
     )
     private val windows1252 = Charset.forName("windows-1252")
 
+    /** Replaces raw `\\binN` bytes before character decoding so their byte offsets stay exact. */
+    fun preserveBinaryByteOffsets(bytes: ByteArray): ByteArray {
+        val masked = bytes.copyOf()
+        var cursor = 0
+        while (cursor < masked.size) {
+            if (masked[cursor] != '\\'.code.toByte()) {
+                cursor++
+                continue
+            }
+            cursor++
+            if (cursor >= masked.size) break
+            if (!masked[cursor].isAsciiLetter()) {
+                cursor++
+                continue
+            }
+
+            val wordStart = cursor
+            while (cursor < masked.size && masked[cursor].isAsciiLetter()) cursor++
+            val isBinary = String(masked, wordStart, cursor - wordStart, StandardCharsets.US_ASCII)
+                .equals("bin", ignoreCase = true)
+            val parameterStart = cursor
+            if (cursor < masked.size && (masked[cursor] == '-'.code.toByte() || masked[cursor] == '+'.code.toByte())) {
+                cursor++
+            }
+            val digitsStart = cursor
+            while (cursor < masked.size && masked[cursor] in '0'.code.toByte()..'9'.code.toByte()) cursor++
+
+            if (isBinary) {
+                val length = if (digitsStart == cursor) null else
+                    String(masked, parameterStart, cursor - parameterStart, StandardCharsets.US_ASCII).toLongOrNull()
+                if (length == null || length < 0L) {
+                    throw IOException("O RTF declara um tamanho binário inválido.")
+                }
+                if (cursor < masked.size && masked[cursor] == ' '.code.toByte()) cursor++
+                val payloadEnd = cursor.toLong() + length
+                if (payloadEnd > masked.size) {
+                    throw IOException("O RTF contém um conteúdo binário incompleto.")
+                }
+                while (cursor < payloadEnd) masked[cursor++] = ' '.code.toByte()
+            } else if (cursor < masked.size && masked[cursor] == ' '.code.toByte()) {
+                cursor++
+            }
+        }
+        return masked
+    }
+
     fun parse(rtf: String): String {
         if (!rtf.trimStart().startsWith("{\\rtf", ignoreCase = true)) {
             throw IOException("O arquivo não contém um documento RTF válido.")
@@ -197,4 +243,7 @@ internal object RtfBookTextParser {
         var unicodeFallbackCount: Int = 1,
         var fallbackRemaining: Int = 0,
     )
+
+    private fun Byte.isAsciiLetter(): Boolean =
+        this in 'A'.code.toByte()..'Z'.code.toByte() || this in 'a'.code.toByte()..'z'.code.toByte()
 }
