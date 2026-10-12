@@ -41,6 +41,28 @@ class MobiBookTextExtractorTest {
     }
 
     @Test
+    fun `rejects PalmDOC output as soon as it exceeds the declared text length`() = withTempDirectory { directory ->
+        val source = "<p>Texto maior que o declarado.</p>".toByteArray(StandardCharsets.UTF_8)
+        val file = directory.resolve("oversized.mobi").apply {
+            writeBytes(mobiFile(palmDocLiteral(source), declaredLength = 3, compression = 2))
+        }
+        val backReference = directory.resolve("oversized-reference.mobi").apply {
+            val compressed = byteArrayOf(
+                4, '<'.code.toByte(), 'p'.code.toByte(), '>'.code.toByte(), 'A'.code.toByte(),
+                0x80.toByte(), 0x08,
+            )
+            writeBytes(mobiFile(compressed, declaredLength = 5, compression = 2))
+        }
+
+        listOf(file, backReference).forEach { oversized ->
+            val error = assertThrows(IOException::class.java) {
+                MobiBookTextExtractor.extractHtml(oversized)
+            }
+            assertEquals("O texto MOBI excede o tamanho declarado.", error.message)
+        }
+    }
+
+    @Test
     fun `expands overlapping PalmDOC back references`() = withTempDirectory { directory ->
         val source = "<p>AAAA</p>".toByteArray(StandardCharsets.US_ASCII)
         val compressed = byteArrayOf(

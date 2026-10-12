@@ -1,11 +1,31 @@
 # MulletaFlix Android - Plano de Desenvolvimento & Checklist de Funcionalidades (TODO)
 
+## Sumário navegável para livros ODT — APK local; sem release
+
+- [x] Extrair capítulos ODT de `<text:h>`, preservando título com formatação inline/entidades, nível de outline e offset do texto para navegação no chunk correto.
+- [x] Omitir headings vazios, usar nível 1 quando ausente, limitar profundidade a 9 e sumário a 10.000 capítulos.
+- [x] TDD RED-GREEN: reproduzido sumário vazio; testes cobrem hierarquia, heading após múltiplos chunks, entidades/span e níveis ausente/excessivo.
+- [x] Quality gate em 2026-10-11: 1.674 testes JVM, 0 falhas/erros/ignorados; lint do módulo/app, `assembleDebug` e compilação AndroidTest aprovados; `git diff --check` limpo.
+- [x] Revisão adversarial validou hierarquia/limites e levou à regressão adicional para offsets CRLF; revisão seguinte confirmou que CR isolado mantém o comprimento após normalização.
+- [x] Grafo estrutural Graphify atualizado em 2026-10-11: 64.189 nós/164.223 arestas/1.584 comunidades; `explain OdtBookTextExtractor` liga parser, headings e conteúdo. Markdown não foi semanticamente reextraído.
+- [ ] Sem bump, APK de produção, release, portal, commit ou push.
+
+## Limite de descompactação MOBI — APK local; sem release
+
+- [x] Limitar a saída PalmDOC ao tamanho descompactado declarado pelo MOBI, além do teto global de 8 MiB; parar ao exceder durante escrita literal ou back-reference.
+- [x] TDD RED-GREEN: teste confirma falha anterior e rejeição antecipada para as duas formas de expansão; teste focal aprovado.
+- [x] Quality gate em 2026-10-11: 1.671 testes JVM, 0 falhas/erros/ignorados; lint do módulo/app, `assembleDebug` e compilação AndroidTest aprovados.
+- [x] Graphify atualizado: 64.180 nós/164.196 arestas/1.605 comunidades; `explain MobiBookTextExtractor` confirma o parser e o buffer limitado.
+- [ ] Sem AVD, bump, APK de produção, release, portal, commit ou push.
+
 ## Sumário para livros HTML e MOBI — APK local; sem release
 
 - [x] Gerar capítulos hierárquicos a partir de cabeçalhos visíveis HTML `<h1>`–`<h6>` em HTML direto e HTML extraído de MOBI; títulos vazios/ocultos não entram no sumário.
 - [x] Capturar offsets durante a conversão e mapear capítulos aos trechos; remover marcadores internos do texto e limitar o sumário a 10.000 entradas.
-- [x] TDD: testes confirmam níveis HTML, heading com formatação inline/entidades, headings ocultos e em script ignorados, heading tardio associado ao trecho posterior e capítulo MOBI extraído.
-- [ ] Executar quality gate completa e atualização do grafo Graphify; não executar instrumentação enquanto AVD `MulletaflixApi35` estiver reservada.
+- [x] TDD: testes confirmam níveis HTML, heading com formatação inline/entidades, headings ocultos e em script ignorados, heading aninhado, heading tardio associado ao trecho posterior e capítulo MOBI extraído.
+- [x] Quality gate em 2026-10-11: 1.670 testes JVM, 0 falhas/erros/ignorados; lint do módulo/app, `assembleDebug` e compilação `AndroidTest` aprovados; `git diff --check` limpo.
+- [x] Grafo estrutural Graphify atualizado em 2026-10-11: 64.178 nós/164.188 arestas/1.467 comunidades; `explain` confirma conexões do conversor e testes. Documentos Markdown não foram semanticamente reextraídos.
+- [ ] Testar instrumentação após liberação do AVD `MulletaflixApi35`; validar arquivo MOBI real quando disponível.
 - [ ] Sem bump, APK de produção, release, portal, commit ou push.
 
 ## Limites de leitura dos locators persistidos — APK local; sem release
@@ -126,6 +146,7 @@
 - [x] Quality gate Android: 1.611 testes JVM, zero falhas/erros/ignorados; lint do módulo/app, assemble Debug e compilação dos AndroidTests do módulo/app — `BUILD SUCCESSFUL`.
 - [x] EPUB usa `SearchService` do Readium e PDF com texto selecionável usa busca página a página dedicada; quadrinhos somente imagem continuam sem busca/OCR.
 - [x] Resultados PDF exibem contexto da ocorrência encontrada, preservam acentos do texto e limitam o trecho a 140 caracteres, inclusive junto a emojis.
+- [x] Resultados da busca em livros de texto paginado mostram contexto ao redor da ocorrência tardia, preservam acentos e mantêm o trecho limitado a 140 caracteres.
 
 ## Quick Connect durante recriação de Activity — Android, sem release
 

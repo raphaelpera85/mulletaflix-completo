@@ -1,12 +1,49 @@
 # Plano de TDD do MulletaFlix Android
 
+## Em andamento — proteger token de sessão em repouso — Android
+
+- `INTENT`: o app persiste o token em texto legível no Preferences DataStore; o teste exige ciphertext sem token recuperável dos arquivos e sessão restaurável; a documentação Android recomenda Android Keystore para chaves e marca `EncryptedSharedPreferences` como obsoleto.
+- `ESCOPO`: `data/SessionRepositoryImpl`, armazenamento criptografado do token, testes instrumentados da sessão, `TDD-PLAN.md` e `TODO-APP.md`; sem servidor, portal, versão, release, commit ou push.
+- `CHECKLIST`: [ ] falhar com teste que inspeciona arquivos em repouso; [ ] criptografar novos tokens e migrar token legado; [ ] testar restauração, migração e logout com Android Keystore real; [ ] executar Quality Gate e revisão adversarial; [ ] atualizar Graphify e consultar nós afetados.
+- `MOBILE CHECKPOINT`: Android nativo Kotlin; nenhuma UI nova. Preservar o contrato de sessão, manter token em memória só quando consumido e em repouso apenas cifrado, falhar fechado se a chave não puder decifrar. Sem nova dependência, gesto, layout ou custo de renderização. MFRI: 8.
+
+## RED-GREEN — contexto nos resultados de busca de livros — 2026-10-11
+
+- `INTENT`: `searchResults` rotulava cada ocorrência com `chunks[index].take(100)`; o teste exige contexto em torno do termo; `TODO-APP.md` mantém a busca navegável e `BookTextSearch.contextualSnippet` já fornece excerto limitado para PDF.
+- `RED`: `BookTextSearchTest.search result snippet centers on a late accent-insensitive match` falhou antes da implementação (`AssertionError` na primeira asserção), pois a ocorrência tardia em “Ação estratégica” ficava fora dos primeiros 100 caracteres.
+- `GREEN`: resultados do texto paginado reutilizam `contextualSnippet`, centralizando o excerto no termo sem perder acentos; a regressão testa busca sem acento, posição do termo, índice de navegação e limite de 140 caracteres.
+- `QUALITY BAR`: `testDebugUnitTest :feature:item-detail:lintDebug :app:lintDebug :app:assembleDebug :feature:item-detail:compileDebugAndroidTestKotlin --no-daemon --console=plain` — `BUILD SUCCESSFUL` em 4m45s; 248 suites/1.675 testes JVM, zero falhas/erros/ignorados; lint do módulo/app, assemble Debug e compilação dos AndroidTests do módulo aprovados. Teste focal `BookTextSearchTest`: 4/4.
+- `GRAPHIFY`: `graphify update .` — 11.448 nós, 30.117 arestas, 492 comunidades; `graphify explain BookTextSearchDialog` confirmou as conexões com `BookReaderScreen` e testes de UI. CLI 0.9.79 vs skill 0.9.84; o atualizador avisou uma fonte preexistente de TV com extração sintática parcial e 28 arquivos sem símbolos.
+- `REVIEW`: avaliação adversarial independente sem findings em offsets, acentos ou limite; nenhum arquivo ou AVD alterado.
+- `SCOPE`: APK local somente; AVD protegida mantida intocada; instrumentação visual permanece pendente; sem bump, artefato de produção, release, portal, commit ou push.
+
+## RED-GREEN — sumário navegável em livros ODT — 2026-10-11
+
+- `INTENT`: o extrator ODT lia texto de `<text:h>`, mas descartava capítulos; o teste exige títulos, hierarquia e posição navegável no trecho certo; `text:outline-level` define o nível do heading ODF.
+- `RED`: `OdtBookTextExtractorTest.opens ODT outline headings as navigable chapters at their text chunks` falhou antes da implementação (`AssertionError`), pois `PlainTextBookDocument.open` retornava capítulos vazios. A revisão apontou offsets desalinhados após CRLF; novo teste falhou em `assertFalse` com `&#13;&#10;` antes do título.
+- `GREEN`: parser preserva título com spans/entidades, offsets e nível `text:outline-level`; nível ausente assume 1, profundidade é limitada a 9 e capítulos vazios não entram no sumário, limitado a 10.000. Os offsets são ajustados ao trim e ligados aos chunks.
+- `QUALITY BAR`: `testDebugUnitTest :feature:item-detail:lintDebug :app:lintDebug :app:assembleDebug :feature:item-detail:compileDebugAndroidTestKotlin --no-daemon --console=plain` — `BUILD SUCCESSFUL` em 4m26s; 248 suites/1.674 testes JVM, 0 falhas/erros/ignorados; `git diff --check` aprovado. Teste focal ODT aprovado.
+- `GRAPHIFY`: `graphify update .` — 64.189 nós, 164.223 arestas, 1.584 comunidades; `graphify explain OdtBookTextExtractor` confirmou ligações ao parser XML, `Content`/`Heading` e extração. Avisos: versão CLI 0.9.79 vs skill 0.9.84, 3 SQL sem parser, 4 fontes com extração sintática parcial e 174 arquivos sem símbolos.
+- `REVIEW`: duas revisões adversariais; a correção CRLF foi retida. CR isolado vira LF sem alteração de comprimento, logo não desloca offsets.
+- `SCOPE`: APK local somente; AVD reservada intocada; sem versão, artefato de produção, release, portal, commit ou push.
+
+## RED-GREEN — limite MOBI pelo tamanho declarado — 2026-10-11
+
+- `INTENT`: o extrator limitava texto MOBI ao teto global, deixando registros PalmDOC expandirem além do tamanho anunciado; o teste exige rejeição no primeiro bloco literal ou back-reference que cruza o tamanho declarado; `TODO-APP.md` promete validar tamanho e manter leitura limitada.
+- `RED`: `MobiBookTextExtractorTest.rejects PalmDOC output as soon as it exceeds the declared text length` falhou antes da alteração (`ComparisonFailure`): o parser só acusava divergência depois de descompactar toda a saída.
+- `GREEN`: a saída agora usa o tamanho declarado como limite efetivo; escrita literal e back-reference são recusadas antes de crescer o buffer além desse limite. O teto global de 8 MiB permanece validado antes da alocação.
+- `QUALITY BAR`: `testDebugUnitTest :feature:item-detail:lintDebug :app:lintDebug :app:assembleDebug :feature:item-detail:compileDebugAndroidTestKotlin --no-daemon --console=plain` — `BUILD SUCCESSFUL`; relatórios `testDebugUnitTest`: 1.671 testes, 0 falhas/erros/ignorados; `git diff --check` passou.
+- `GRAPHIFY`: `graphify update .` — 64.180 nós, 164.196 arestas, 1.605 comunidades; `graphify explain MobiBookTextExtractor` confirmou conexões ao parser e ao stream limitado. CLI 0.9.79 vs skill 0.9.84; atualização estrutural não reextrai semanticamente prosa Markdown.
+- `SCOPE`: APK local somente; sem AVD, bump, artefato de produção, release, portal, commit ou push.
+
 ## RED-GREEN — sumário de livros HTML e MOBI — 2026-10-11
 
 - `INTENT`: o leitor extraía texto HTML/MOBI, mas descartava capítulos; testes exigem capítulos apenas de cabeçalhos visíveis `<h1>`–`<h6>`, profundidade correta e navegação ao trecho certo. `TODO-APP.md` diz que formatos sem estrutura não devem mostrar capítulos fictícios e registra HTML/MOBI como formatos de leitura direta.
-- `RED`: testes de HTML com cabeçalho oculto/script e título depois do primeiro trecho, e de MOBI com cabeçalho, falharam porque `chapters` vinha vazio.
-- `GREEN`: sanitiza antes de reconhecer cabeçalhos; converte cabeçalhos para tags internas únicas, captura offsets durante a conversão Android HTML, remove marcadores antes de expor texto e mapeia títulos/chunks ao modelo comum do sumário.
-- `TEST`: `PlainTextBookDocumentTest` e `MobiBookTextExtractorTest` passaram juntos após implementação; quality gate completa ainda pendente.
-- `LIMITAÇÕES`: nenhum AVD, servidor, portal, bump de versão ou release. Validação com livro MOBI real permanece pendente.
+- `RED`: testes de HTML com cabeçalho oculto/script e título depois do primeiro trecho, e de MOBI com cabeçalho, falharam porque `chapters` vinha vazio. Revisão adversarial encontrou heading aninhado com título externo contaminado; regressão foi adicionada.
+- `GREEN`: sanitiza antes de reconhecer cabeçalhos; converte cabeçalhos para tags internas únicas, captura offsets durante a conversão Android HTML, remove marcadores antes de expor texto e mapeia títulos/chunks ao modelo comum do sumário. Eventos por marcador mantêm headings aninhados separados.
+- `QUALITY BAR`: testes focais `PlainTextBookDocumentTest` + `MobiBookTextExtractorTest` passaram; `testDebugUnitTest :feature:item-detail:lintDebug :app:lintDebug :app:assembleDebug :feature:item-detail:compileDebugAndroidTestKotlin --no-daemon --console=plain` — `BUILD SUCCESSFUL`; 1.670 testes JVM, 0 falhas/erros/ignorados; `git diff --check` limpo.
+- `GRAPHIFY`: `graphify update .` — 64.178 nós, 164.188 arestas, 1.467 comunidades; `graphify explain htmlToBookDocument` liga conversor a `open`, sanitização, marcação e modelo de capítulos; `PlainTextBookDocumentTest` conecta cenários e TDD. CLI 0.9.79 vs skill 0.9.84; 3 SQL sem parser, 4 arquivos com extração parcial e 174 sem símbolos. Update estrutural cobre código; prosa TDD/TODO não foi reextraída semanticamente.
+- `LIMITAÇÕES`: nenhum AVD, servidor, portal, bump de versão ou release. Validação MOBI real permanece pendente; instrumentação não foi executada porque AVD está reservada pelo usuário.
 
 ## RED-GREEN — sumário navegável em livros Markdown — 2026-10-11
 

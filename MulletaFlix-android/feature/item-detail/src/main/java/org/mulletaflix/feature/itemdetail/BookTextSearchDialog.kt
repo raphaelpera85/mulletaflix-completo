@@ -151,7 +151,7 @@ internal data class BookTextSearchResult(
 internal suspend fun PlainTextBookDocument.searchResults(query: String): List<BookTextSearchResult> =
     BookTextSearch.search(chunks, query).map { index ->
         BookTextSearchResult(
-            label = "Trecho ${index + 1}: ${chunks[index].take(100)}",
+            label = "Trecho ${index + 1}: ${BookTextSearch.contextualSnippet(chunks[index], query)}",
             chunkIndex = index,
         )
     }

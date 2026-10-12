@@ -3,7 +3,9 @@ package org.mulletaflix.data.repository
 import android.content.Context
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
+import androidx.datastore.preferences.core.MutablePreferences
 import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.mutablePreferencesOf
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -12,7 +14,8 @@ import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.flow.onStart
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import org.mulletaflix.core.api.SessionRepository
 import org.mulletaflix.core.api.SessionState
 import org.mulletaflix.core.api.HomeFeedCacheScope
@@ -21,7 +24,8 @@ import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
 
-private val Context.dataStore: DataStore<Preferences> by preferencesDataStore(name = "mulletaflix_session")
+internal val Context.sessionPreferencesDataStore: DataStore<Preferences> by preferencesDataStore(name = "mulletaflix_session")
+private val sessionMutationMutex = Mutex()
 
 @Singleton
 class SessionRepositoryImpl @Inject constructor(
@@ -36,14 +40,15 @@ class SessionRepositoryImpl @Inject constructor(
         val DEVICE_ID = stringPreferencesKey("device_id")
         val SERVER_ID = stringPreferencesKey("server_id")
         val SAVED_SERVERS = stringPreferencesKey("saved_servers")
+        val ENCRYPTED_ACCESS_TOKEN = stringPreferencesKey("encrypted_access_token")
     }
 
     companion object {
         const val DEFAULT_MULLETAFLIX_SERVER_URL = "https://mulletaflix.duckdns.org"
     }
 
-    private fun sessionData() = context.dataStore.data.onStart {
-        context.dataStore.edit { preferences ->
+    private suspend fun migrateSessionData() = sessionMutationMutex.withLock {
+        context.sessionPreferencesDataStore.edit { preferences ->
             val oldUrl = preferences[PreferencesKeys.SERVER_URL]
             if (oldUrl != null) {
                 val migratedUrl = migrateLegacyOfficialServerUrl(oldUrl)
@@ -66,7 +71,38 @@ class SessionRepositoryImpl @Inject constructor(
                     preferences[PreferencesKeys.SAVED_SERVERS] = migratedServers
                 }
             }
+            val encrypted = preferences[PreferencesKeys.ENCRYPTED_ACCESS_TOKEN]
+            val legacyToken = preferences[PreferencesKeys.ACCESS_TOKEN]
+            if (encrypted != null && SessionTokenCrypto.decryptOrNull(encrypted) != null) {
+                preferences.remove(PreferencesKeys.ACCESS_TOKEN)
+            } else if (!legacyToken.isNullOrBlank()) {
+                try {
+                    preferences[PreferencesKeys.ENCRYPTED_ACCESS_TOKEN] = SessionTokenCrypto.encrypt(legacyToken)
+                    preferences.remove(PreferencesKeys.ACCESS_TOKEN)
+                } catch (_: Exception) {
+                    clearAuthentication(preferences)
+                }
+            } else if (encrypted != null) {
+                preferences.remove(PreferencesKeys.ACCESS_TOKEN)
+                preferences.remove(PreferencesKeys.ENCRYPTED_ACCESS_TOKEN)
+                clearAuthentication(preferences)
+            }
         }
+    }
+
+    private fun sessionData(): Flow<Preferences> = flow {
+        migrateSessionData()
+        emitAll(
+            context.sessionPreferencesDataStore.data.map { session ->
+                val merged = mutablePreferencesOf()
+                session.asMap().forEach { (key, value) -> copyPreference(merged, key, value) }
+                val encrypted = session[PreferencesKeys.ENCRYPTED_ACCESS_TOKEN]
+                val token = encrypted?.let(SessionTokenCrypto::decryptOrNull)
+                if (token != null) merged[PreferencesKeys.ACCESS_TOKEN] = token
+                else merged.remove(PreferencesKeys.ACCESS_TOKEN)
+                merged
+            },
+        )
     }
 
     override fun getAccessToken(): Flow<String?> {
@@ -83,9 +119,9 @@ class SessionRepositoryImpl @Inject constructor(
      * dispositivos diferentes.
      */
     private val deviceId = SingleFlightId(
-        read = { context.dataStore.data.first()[PreferencesKeys.DEVICE_ID] },
+        read = { context.sessionPreferencesDataStore.data.first()[PreferencesKeys.DEVICE_ID] },
         write = { generatedId ->
-            context.dataStore.edit { preferences ->
+            context.sessionPreferencesDataStore.edit { preferences ->
                 preferences[PreferencesKeys.DEVICE_ID] = generatedId
             }
         },
@@ -97,7 +133,7 @@ class SessionRepositoryImpl @Inject constructor(
             val resolved = deviceId.get()
             emit(resolved)
             emitAll(
-                context.dataStore.data.map { preferences ->
+                context.sessionPreferencesDataStore.data.map { preferences ->
                     preferences[PreferencesKeys.DEVICE_ID] ?: resolved
                 }
             )
@@ -120,7 +156,7 @@ class SessionRepositoryImpl @Inject constructor(
     }
 
     override fun getCurrentUserId(): Flow<String?> {
-        return context.dataStore.data.map { preferences ->
+        return sessionData().map { preferences ->
             preferences[PreferencesKeys.USER_ID]
         }
     }
@@ -147,7 +183,7 @@ class SessionRepositoryImpl @Inject constructor(
     }
 
     override fun getCurrentUserName(): Flow<String?> {
-        return context.dataStore.data.map { preferences ->
+        return sessionData().map { preferences ->
             preferences[PreferencesKeys.USER_NAME]
         }
     }
@@ -163,7 +199,7 @@ class SessionRepositoryImpl @Inject constructor(
         )
     }
 
-    override fun getServerId(): Flow<String?> = context.dataStore.data.map { preferences ->
+    override fun getServerId(): Flow<String?> = sessionData().map { preferences ->
         preferences[PreferencesKeys.SERVER_ID]
     }
 
@@ -183,44 +219,46 @@ class SessionRepositoryImpl @Inject constructor(
         serverId: String?,
         deviceId: String,
     ) {
-        context.dataStore.edit { preferences ->
-            preferences[PreferencesKeys.SERVER_URL] = migrateLegacyOfficialServerUrl(serverUrl.trimEnd('/'))
-            preferences[PreferencesKeys.ACCESS_TOKEN] = token
-            // Normalized on write as well as on read. This id is embedded in the
-            // Media3 download request id (`<userId>::<itemId>`), and the reader
-            // trims before stripping that prefix, so storing a padded value would
-            // make the two sides disagree and leak the scoped id as a media id.
-            preferences[PreferencesKeys.USER_ID] = userId.trim()
-            if (!userName.isNullOrBlank()) {
-                preferences[PreferencesKeys.USER_NAME] = userName
-            } else {
-                preferences.remove(PreferencesKeys.USER_NAME)
+        val ciphertext = token.takeIf(String::isNotBlank)?.let(SessionTokenCrypto::encrypt)
+        sessionMutationMutex.withLock {
+            context.sessionPreferencesDataStore.edit { preferences ->
+                preferences[PreferencesKeys.SERVER_URL] = migrateLegacyOfficialServerUrl(serverUrl.trimEnd('/'))
+                preferences.remove(PreferencesKeys.ACCESS_TOKEN)
+                if (ciphertext == null) preferences.remove(PreferencesKeys.ENCRYPTED_ACCESS_TOKEN)
+                else preferences[PreferencesKeys.ENCRYPTED_ACCESS_TOKEN] = ciphertext
+                // Normalize IDs because they scope Media3 download request IDs.
+                preferences[PreferencesKeys.USER_ID] = userId.trim()
+                if (!userName.isNullOrBlank()) preferences[PreferencesKeys.USER_NAME] = userName
+                else preferences.remove(PreferencesKeys.USER_NAME)
+                preferences[PreferencesKeys.DEVICE_ID] = deviceId
+                if (serverId.isNullOrBlank()) preferences.remove(PreferencesKeys.SERVER_ID)
+                else preferences[PreferencesKeys.SERVER_ID] = serverId
             }
-            preferences[PreferencesKeys.DEVICE_ID] = deviceId
-            if (serverId.isNullOrBlank()) preferences.remove(PreferencesKeys.SERVER_ID)
-            else preferences[PreferencesKeys.SERVER_ID] = serverId
         }
     }
 
     override suspend fun setBaseUrl(url: String) {
-        context.dataStore.edit { preferences ->
+        context.sessionPreferencesDataStore.edit { preferences ->
             preferences[PreferencesKeys.SERVER_URL] = migrateLegacyOfficialServerUrl(url.trimEnd('/'))
         }
     }
 
     override suspend fun setServerId(serverId: String?) {
-        context.dataStore.edit { preferences ->
+        context.sessionPreferencesDataStore.edit { preferences ->
             if (serverId.isNullOrBlank()) preferences.remove(PreferencesKeys.SERVER_ID)
             else preferences[PreferencesKeys.SERVER_ID] = serverId
         }
     }
 
     override suspend fun clearSession() {
-        context.dataStore.edit { preferences ->
-            preferences.remove(PreferencesKeys.ACCESS_TOKEN)
-            preferences.remove(PreferencesKeys.USER_ID)
-            preferences.remove(PreferencesKeys.USER_NAME)
-            preferences.remove(PreferencesKeys.SERVER_ID)
+        sessionMutationMutex.withLock {
+            context.sessionPreferencesDataStore.edit { preferences ->
+                preferences.remove(PreferencesKeys.ACCESS_TOKEN)
+                preferences.remove(PreferencesKeys.ENCRYPTED_ACCESS_TOKEN)
+                preferences.remove(PreferencesKeys.USER_ID)
+                preferences.remove(PreferencesKeys.USER_NAME)
+                preferences.remove(PreferencesKeys.SERVER_ID)
+            }
         }
     }
 
@@ -233,7 +271,7 @@ class SessionRepositoryImpl @Inject constructor(
 
     override suspend fun addSavedServer(server: org.mulletaflix.core.api.SavedServerSession) {
         val cleanUrl = migrateLegacyOfficialServerUrl(server.url.trimEnd('/'))
-        context.dataStore.edit { preferences ->
+        context.sessionPreferencesDataStore.edit { preferences ->
             val currentList = deserializeSavedServers(preferences[PreferencesKeys.SAVED_SERVERS]).toMutableList()
             // Remove existing entry for the same URL (ignoring trailing slash)
             currentList.removeAll { it.url.trimEnd('/') == cleanUrl }
@@ -249,7 +287,7 @@ class SessionRepositoryImpl @Inject constructor(
         if (cleanUrl == DEFAULT_MULLETAFLIX_SERVER_URL.trimEnd('/')) {
             return
         }
-        context.dataStore.edit { preferences ->
+        context.sessionPreferencesDataStore.edit { preferences ->
             val currentList = deserializeSavedServers(preferences[PreferencesKeys.SAVED_SERVERS]).toMutableList()
             currentList.removeAll { it.url.trimEnd('/') == cleanUrl }
             preferences[PreferencesKeys.SAVED_SERVERS] = serializeSavedServers(currentList)
@@ -308,6 +346,19 @@ class SessionRepositoryImpl @Inject constructor(
         }
         return list.sortedByDescending { it.lastConnected }
     }
+}
+
+@Suppress("UNCHECKED_CAST")
+private fun copyPreference(target: MutablePreferences, key: Preferences.Key<*>, value: Any) {
+    target[key as Preferences.Key<Any>] = value
+}
+
+private fun clearAuthentication(preferences: MutablePreferences) {
+    preferences.remove(stringPreferencesKey("access_token"))
+    preferences.remove(stringPreferencesKey("encrypted_access_token"))
+    preferences.remove(stringPreferencesKey("user_id"))
+    preferences.remove(stringPreferencesKey("user_name"))
+    preferences.remove(stringPreferencesKey("server_id"))
 }
 
 internal fun migrateLegacyOfficialServerUrl(url: String): String {

@@ -4,6 +4,8 @@ import android.content.Context
 import android.content.ContextWrapper
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.stringPreferencesKey
 import com.squareup.moshi.Moshi
 import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
 import java.io.File
@@ -17,6 +19,7 @@ import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -91,6 +94,86 @@ class SessionRepositoryPersistenceTest {
         assertNull(restored.getFeedbackRequestSession().first())
         assertEquals("https://media.example.test", restored.getBaseUrl().first())
         assertEquals("device-2", restored.getDeviceId().first())
+    }
+
+    @Test
+    fun accessTokenSurvivesRepositoryRecreationWithoutPlaintextOnDisk() = runBlocking {
+        val token = "synthetic-session-token-for-storage-test"
+        repository.saveSession(
+            serverUrl = "https://media.example.test",
+            token = token,
+            userId = "user-7",
+            userName = "Pessoa de teste",
+            serverId = "server-9",
+            deviceId = "device-2",
+        )
+        val restored = SessionRepositoryImpl(context)
+        assertEquals(token, restored.getAccessToken().first())
+
+        val sessionPreferences = context.sessionPreferencesDataStore.data.first()
+        val encryptedToken = sessionPreferences[stringPreferencesKey("encrypted_access_token")]
+
+        assertNull("token legado deve estar ausente do DataStore de sessão", sessionPreferences[stringPreferencesKey("access_token")])
+        assertNotNull("token precisa persistir cifrado no DataStore seguro", encryptedToken)
+        assertTrue(encryptedToken.orEmpty().startsWith("v1:"))
+        assertFalse("ciphertext não pode conter token legível", encryptedToken.orEmpty().contains(token))
+    }
+
+    @Test
+    fun legacyPlaintextTokenMigratesToKeystoreCiphertext() = runBlocking {
+        val token = "synthetic-legacy-session-token"
+        context.sessionPreferencesDataStore.edit { preferences ->
+            preferences[stringPreferencesKey("server_url")] = "https://media.example.test"
+            preferences[stringPreferencesKey("access_token")] = token
+            preferences[stringPreferencesKey("user_id")] = "user-7"
+            preferences[stringPreferencesKey("user_name")] = "Pessoa de teste"
+            preferences[stringPreferencesKey("device_id")] = "device-2"
+        }
+
+        assertEquals(token, repository.getAccessToken().first())
+        val migratedPreferences = context.sessionPreferencesDataStore.data.first()
+        val legacyToken = migratedPreferences[stringPreferencesKey("access_token")]
+        val encryptedToken = migratedPreferences[stringPreferencesKey("encrypted_access_token")]
+
+        assertNull("migração remove token do DataStore legado", legacyToken)
+        assertNotNull("migração conserva o token cifrado", encryptedToken)
+        assertFalse("migração não grava token legível", encryptedToken.orEmpty().contains(token))
+        assertEquals(token, repository.getSessionState().first().accessToken)
+    }
+
+    @Test
+    fun unreadableKeystoreCiphertextClearsAuthenticationAndCorruptValue() = runBlocking {
+        context.sessionPreferencesDataStore.edit { preferences ->
+            preferences[stringPreferencesKey("server_url")] = "https://media.example.test"
+            preferences[stringPreferencesKey("user_id")] = "user-7"
+            preferences[stringPreferencesKey("user_name")] = "Pessoa de teste"
+            preferences[stringPreferencesKey("server_id")] = "server-9"
+            preferences[stringPreferencesKey("encrypted_access_token")] = "v1:invalid-ciphertext"
+        }
+
+        val state = repository.getSessionState().first()
+
+        assertEquals("https://media.example.test", state.serverUrl)
+        assertNull(state.accessToken)
+        assertNull(state.userId)
+        assertNull(state.serverId)
+        assertNull(context.sessionPreferencesDataStore.data.first()[stringPreferencesKey("encrypted_access_token")])
+    }
+
+    @Test
+    fun invalidCiphertextFallsBackToAvailableLegacyToken() = runBlocking {
+        val legacyToken = "recoverable-legacy-token"
+        context.sessionPreferencesDataStore.edit { preferences ->
+            preferences[stringPreferencesKey("server_url")] = "https://media.example.test"
+            preferences[stringPreferencesKey("user_id")] = "user-7"
+            preferences[stringPreferencesKey("encrypted_access_token")] = "v1:invalid-ciphertext"
+            preferences[stringPreferencesKey("access_token")] = legacyToken
+        }
+
+        assertEquals(legacyToken, repository.getAccessToken().first())
+        val preferences = context.sessionPreferencesDataStore.data.first()
+        assertNull(preferences[stringPreferencesKey("access_token")])
+        assertNotNull(preferences[stringPreferencesKey("encrypted_access_token")])
     }
 
     @Test

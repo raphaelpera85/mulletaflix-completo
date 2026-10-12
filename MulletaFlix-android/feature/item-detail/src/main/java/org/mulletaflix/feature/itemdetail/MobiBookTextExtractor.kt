@@ -237,14 +237,21 @@ internal object MobiBookTextExtractor {
             bytes.copyOfRange(offset, offset + length).toString(StandardCharsets.US_ASCII)
 
     private class BoundedByteOutputStream(initialCapacity: Int) : ByteArrayOutputStream(initialCapacity) {
+        private val maxBytes = initialCapacity
+
         fun writeBounded(bytes: ByteArray) {
-            if (bytes.size > MAX_TEXT_BYTES - count) throw IOException("O texto MOBI excede o limite de leitura.")
+            if (bytes.size > maxBytes - count) {
+                throw IOException("O texto MOBI excede o tamanho declarado.")
+            }
             write(bytes)
         }
 
         fun copyBackReference(distance: Int, length: Int) {
-            if (distance <= 0 || distance > count || length > MAX_TEXT_BYTES - count) {
+            if (distance <= 0 || distance > count) {
                 throw IOException("Uma referência PalmDOC aponta para fora do texto.")
+            }
+            if (length > maxBytes - count) {
+                throw IOException("O texto MOBI excede o tamanho declarado.")
             }
             val required = count + length
             if (required > buf.size) buf = buf.copyOf(maxOf(required, buf.size * 2))

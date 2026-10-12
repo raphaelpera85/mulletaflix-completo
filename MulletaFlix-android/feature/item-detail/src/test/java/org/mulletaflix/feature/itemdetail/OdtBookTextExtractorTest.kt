@@ -49,6 +49,70 @@ class OdtBookTextExtractorTest {
     }
 
     @Test
+    fun `opens ODT outline headings as navigable chapters at their text chunks`() = withTempDirectory { directory ->
+        val file = directory.resolve("outline.odt")
+        writeOdt(
+            file,
+            """<office:document-content xmlns:office="$OFFICE_NS" xmlns:text="$TEXT_NS">
+                <office:body><office:text>
+                  <text:p>Preface</text:p>
+                  <text:h text:outline-level="1">Part <text:span>One</text:span></text:h>
+                  <text:p>${"filler ".repeat(5_000)}</text:p>
+                  <text:h text:outline-level="2">Chapter &amp; More</text:h>
+                  <text:p>Chapter body</text:p>
+                  <text:h text:outline-level="3"></text:h>
+                </office:text></office:body>
+              </office:document-content>""".trimIndent(),
+        )
+
+        val document = PlainTextBookDocument.open(file, OdtBookTextExtractor.CONTENT_TYPE)
+
+        assertEquals(listOf("Part One", "Chapter & More"), document.chapters.map { it.title })
+        assertEquals(listOf(1, 2), document.chapters.map { it.depth })
+        assertTrue(document.chapters[1].chunkIndex > document.chapters[0].chunkIndex)
+        assertTrue(document.chunks[document.chapters[1].chunkIndex].contains("Chapter & More"))
+    }
+
+    @Test
+    fun `defaults missing ODT outline level and bounds hostile indentation depth`() = withTempDirectory { directory ->
+        val file = directory.resolve("outline-levels.odt")
+        writeOdt(
+            file,
+            """<office:document-content xmlns:office="$OFFICE_NS" xmlns:text="$TEXT_NS">
+                <office:body><office:text>
+                  <text:h>Default level</text:h>
+                  <text:h text:outline-level="999999">Deep level</text:h>
+                </office:text></office:body>
+              </office:document-content>""".trimIndent(),
+        )
+
+        val document = PlainTextBookDocument.open(file, OdtBookTextExtractor.CONTENT_TYPE)
+
+        assertEquals(listOf("Default level", "Deep level"), document.chapters.map { it.title })
+        assertEquals(listOf(1, 9), document.chapters.map { it.depth })
+    }
+
+    @Test
+    fun `keeps ODT heading offsets aligned after normalizing CRLF character references`() = withTempDirectory { directory ->
+        val file = directory.resolve("outline-crlf.odt")
+        writeOdt(
+            file,
+            """<office:document-content xmlns:office="$OFFICE_NS" xmlns:text="$TEXT_NS">
+                <office:body><office:text>
+                  <text:p>${"prefix ".repeat(120)}Before&#13;&#10;After</text:p>
+                  <text:h text:outline-level="1">Aligned title</text:h>
+                </office:text></office:body>
+              </office:document-content>""".trimIndent(),
+        )
+
+        val content = OdtBookTextExtractor.extractContent(file)
+        val heading = content.headings.single()
+
+        assertFalse(content.text.contains('\r'))
+        assertEquals("Aligned title", content.text.substring(heading.textOffset, heading.textOffset + heading.title.length))
+    }
+
+    @Test
     fun `rejects malformed packages DTDs wrong MIME and oversized packages`() = withTempDirectory { directory ->
         val invalidZip = directory.resolve("invalid.odt").apply { writeText("not a ZIP") }
         assertThrows(IOException::class.java) { OdtBookTextExtractor.extract(invalidZip) }

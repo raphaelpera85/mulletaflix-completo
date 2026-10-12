@@ -170,12 +170,17 @@ internal class PlainTextBookDocument private constructor(
                 return PlainTextBookDocument(chunks, chapters)
             }
             if (OdtBookTextExtractor.supports(contentType) || OdtBookTextExtractor.hasOpenDocumentTextPackage(file)) {
-                val text = OdtBookTextExtractor.extract(file)
+                val content = OdtBookTextExtractor.extractContent(file)
+                val text = content.text
                     .replace("\u0000", "\uFFFD")
                     .replace("\r\n", "\n")
                     .replace('\r', '\n')
                 if (text.isBlank()) throw IOException("O arquivo ODT não contém conteúdo para leitura.")
-                return PlainTextBookDocument(splitIntoChunks(text))
+                val chunks = splitIntoChunks(text)
+                val chapters = content.headings.map { heading ->
+                    PlainTextBookChapter(heading.title, heading.depth, chunkIndexForOffset(chunks, heading.textOffset))
+                }
+                return PlainTextBookDocument(chunks, chapters)
             }
             if (DocxBookTextExtractor.supports(contentType) || DocxBookTextExtractor.isDocxPackage(file)) {
                 val content = DocxBookTextExtractor.extractContent(file)

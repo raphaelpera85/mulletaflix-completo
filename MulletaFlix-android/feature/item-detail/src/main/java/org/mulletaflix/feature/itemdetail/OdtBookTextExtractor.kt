@@ -11,6 +11,9 @@ import org.xmlpull.v1.XmlPullParserFactory
 
 /** Extracts the readable text from an OpenDocument Text package without unpacking it to disk. */
 internal object OdtBookTextExtractor {
+    data class Heading(val title: String, val depth: Int, val textOffset: Int)
+    data class Content(val text: String, val headings: List<Heading>)
+
     const val CONTENT_TYPE = "application/vnd.oasis.opendocument.text"
     const val MAX_PACKAGE_BYTES = 64L * 1024L * 1024L
     const val MAX_CONTENT_XML_BYTES = 16L * 1024L * 1024L
@@ -19,6 +22,8 @@ internal object OdtBookTextExtractor {
     private const val CONTENT_ENTRY = "content.xml"
     private const val MAX_MIME_ENTRY_BYTES = 128
     private const val MAX_TEXT_CHARACTERS = 8 * 1024 * 1024
+    private const val MAX_HEADINGS = 10_000
+    private const val MAX_HEADING_DEPTH = 9
     private const val ZIP_LOCAL_HEADER_BYTES = 30
     private const val MIME_DATA_OFFSET = 38
     private const val OFFICE_NAMESPACE = "urn:oasis:names:tc:opendocument:xmlns:office:1.0"
@@ -60,6 +65,10 @@ internal object OdtBookTextExtractor {
     }.getOrDefault(false)
 
     fun extract(file: java.io.File): String {
+        return extractContent(file).text
+    }
+
+    fun extractContent(file: java.io.File): Content {
         if (!file.isFile || file.length() <= 0L) throw IOException("O arquivo ODT está vazio ou ausente.")
         if (file.length() > MAX_PACKAGE_BYTES) throw IOException("O arquivo ODT excede o limite de leitura direta.")
 
@@ -86,16 +95,19 @@ internal object OdtBookTextExtractor {
         }
     }
 
-    private fun parseContentXml(input: InputStream): String {
+    private fun parseContentXml(input: InputStream): Content {
         val parser = XmlPullParserFactory.newInstance().apply { isNamespaceAware = true }.newPullParser()
         parser.setFeature(XmlPullParser.FEATURE_PROCESS_DOCDECL, false)
         parser.setInput(input, null)
 
         val text = StringBuilder()
+        val headings = ArrayList<Heading>()
         var documentRootSeen = false
         var bodyDepth = 0
         var officeTextDepth = 0
         var paragraphDepth = 0
+        var headingStart = -1
+        var headingDepth = 1
 
         try {
             while (true) {
@@ -110,6 +122,11 @@ internal object OdtBookTextExtractor {
                         if (namespace == OFFICE_NAMESPACE && name == "text" && bodyDepth > 0) officeTextDepth++
                         if (officeTextDepth > 0 && namespace == TEXT_NAMESPACE && name in setOf("p", "h")) {
                             appendLineBreak(text)
+                            if (name == "h" && paragraphDepth == 0) {
+                                headingStart = text.length
+                                val level = parser.getAttributeValue(TEXT_NAMESPACE, "outline-level")?.toIntOrNull() ?: 1
+                                headingDepth = level.coerceIn(1, MAX_HEADING_DEPTH)
+                            }
                             paragraphDepth++
                         }
                         if (paragraphDepth > 0 && namespace == TEXT_NAMESPACE) {
@@ -130,6 +147,17 @@ internal object OdtBookTextExtractor {
                         val namespace = parser.namespace.orEmpty()
                         val name = parser.name
                         if (namespace == TEXT_NAMESPACE && name in setOf("p", "h") && paragraphDepth > 0) {
+                            if (name == "h" && paragraphDepth == 1 && headingStart >= 0) {
+                                val rawTitle = text.substring(headingStart).trim()
+                                val leadingWhitespace = text.substring(headingStart).indexOfFirst { !it.isWhitespace() }
+                                if (rawTitle.isNotEmpty()) {
+                                    if (headings.size >= MAX_HEADINGS) {
+                                        throw IOException("O sumário ODT excede o limite de capítulos.")
+                                    }
+                                    headings += Heading(rawTitle, headingDepth, headingStart + leadingWhitespace)
+                                }
+                                headingStart = -1
+                            }
                             appendLineBreak(text)
                             paragraphDepth--
                         }
@@ -157,7 +185,27 @@ internal object OdtBookTextExtractor {
         if (!documentRootSeen || bodyDepth != 0 || officeTextDepth != 0) {
             throw IOException("O ODT não contém uma estrutura de documento válida.")
         }
-        return text.toString().trim()
+        val fullText = text.toString().trim()
+        val leadingTrim = text.indexOfFirst { !it.isWhitespace() }.coerceAtLeast(0)
+        val normalizedText = fullText.replace("\r\n", "\n").replace('\r', '\n')
+        var scannedOffset = 0
+        var removedCarriageReturns = 0
+        val normalizedHeadings = headings.mapNotNull { heading ->
+            val rawOffset = heading.textOffset - leadingTrim
+            if (rawOffset !in fullText.indices) return@mapNotNull null
+            while (scannedOffset < rawOffset) {
+                if (fullText[scannedOffset] == '\r' && scannedOffset + 1 < rawOffset &&
+                    fullText[scannedOffset + 1] == '\n'
+                ) {
+                    removedCarriageReturns++
+                    scannedOffset += 2
+                } else {
+                    scannedOffset++
+                }
+            }
+            heading.copy(textOffset = rawOffset - removedCarriageReturns)
+        }
+        return Content(normalizedText, normalizedHeadings)
     }
 
     private fun appendSpaces(target: StringBuilder, countValue: String?) {
