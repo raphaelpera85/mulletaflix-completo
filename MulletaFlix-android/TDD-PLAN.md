@@ -718,7 +718,16 @@ Verificação instrumentada adicional de Livros na Android TV em 2026-10-08: `Tv
 - `QUALITY GATE`: `testDebugUnitTest :core:common:lintDebug :core:api:lintDebug :app:lintDebug :app:assembleDebug --no-daemon --console=plain` — `BUILD SUCCESSFUL`; relatórios XML: 239 arquivos, 1.548 testes JVM, 0 falhas, 0 erros e 0 ignorados. Lint e build Debug passaram.
 - `DEVICE`: `AppUpdateInstallerIntegrationTest` 6/6 e `SessionRepositoryPersistenceTest` 3/3 no AVD PHONE/API 35. `HomeLibraryNavigationTest` 3/3 no AVD TV/API 34; `books_libraryIsNotRenderedOnAndroidTv` confirmou ausência de Livros e presença de Filmes na tela real Compose. `tools/with-emulator.ps1` confirmou NVIDIA RTX 3050 para cada AVD e encerrou os emuladores; `adb devices` ficou sem devices.
 - `RED/GREEN`: as mudanças de updater/sessão revisadas já estavam no worktree antes desta revalidação; não atribuir RED-GREEN retrospectivo aos testes acima. O compilador inicialmente revelou que o fake de `Interceptor.Chain` do teste off-subnet precisava implementar novos membros do OkHttp 5; após completar o fake, as classes `CleartextRequestProtectionTest` e `AppUpdateDownloaderTest` executaram sem falhas.
-- `LIMITAÇÕES`: nenhuma release ou APK de produção foi gerado. A configuração global de cleartext permanece pendente (APK-H12); testes de rota controlada não substituem ensaio de rede real. A solicitação de incluir OCR offline requer autorização explícita para acrescentar a dependência empacotada.
+- `LIMITAÇÕES`: nenhuma release ou APK de produção foi gerado. A configuração global de cleartext permanece pendente (APK-H12); testes de rota controlada não substituem ensaio de rede real.
+
+### TDD — OCR local para PDFs digitalizados (APK local; sem release; 2026-10-12)
+
+- `INTENT`: PDFs compostos por imagens devem poder ser pesquisados e narrados no leitor Android, além dos formatos de livro previamente cobertos. O usuário autorizou incluir OCR empacotado/offline.
+- `RED`: `:feature:item-detail:testDebugUnitTest --tests "org.mulletaflix.feature.itemdetail.PdfOcrAvailabilityTest" --no-daemon --console=plain` falhou antes da implementação porque a política de extração nativa desabilitava as funções para API 24–34.
+- `IMPLEMENTAÇÃO`: `com.google.mlkit:text-recognition:16.0.1` bundled Latin. `PdfBookDocument` mantém texto nativo como caminho preferido; se a página não possui texto selecionável, renderiza somente essa página até 2048 px por lado e usa ML Kit local. Texto reconhecido é limitado ao limite existente de 64 KiB e cache LRU de três páginas; Bitmap é reciclado e o recognizer aguarda reconhecimento ativo antes de fechar. Nenhum texto OCR é persistido nem enviado ao servidor.
+- `GREEN`: teste unitário de disponibilidade em Android minSdk 24+ aprovado; teste instrumental tablet API 35 com PDF de página rasterizada confirma texto reconhecido offline e encontra consulta pelo `BookPdfTextSearch`. A execução inicial de extração/caching no AVD `MulletaflixTabletApi35` passou 1/1; wrapper confirmou GPU NVIDIA e finalizou o AVD. A mesma integração com asserção de busca está em reexecução para fechar a evidência final desta rodada.
+- `LIMITES`: OCR Latin; qualidade depende de resolução, orientação, contraste e idioma. Textos nativos continuam com fidelidade superior; a resolução limitada é trade-off para memória. Ainda não foi feita validação em arquivo real do usuário, PDF multipágina extenso, acessibilidade/TTS acústico, TV, release ou APK de produção. Custo aproximado documentado pelo fornecedor: +4 MB no pacote.
+- `ESCOPO`: somente Android/APK, fonte, testes e documentação. Sem bump, release, portal, servidor, commit ou push.
 
 ## Critério de conclusão do plano
 
@@ -1033,4 +1042,11 @@ Verificação instrumentada adicional de Livros na Android TV em 2026-10-08: `Tv
 - `DISPOSITIVO`: nenhum AVD ou ADB usado; instrumentação Compose PHONE/TABLET/TV continua pendente porque o telefone `MulletaflixApi35` está reservado.
 - `REVISÃO`: Cavecrew/subagentes recusados pelo limite de threads ativos; diff/teste foram revisados localmente, sem alegar crítica independente.
 - `ESCOPO`: teste e documentação do APK; sem código de produção, servidor, portal, versão, assinatura, release, publicação, commit ou push.
+
+## Revisão de status — preferência KF8 em MOBI híbrido — 2026-10-12
+
+- `ACHADO`: a seção histórica “Leitura de MOBI/PalmDOC sem DRM” ainda listava como pendente a preferência KF8 em híbridos, mas a implementação e os testes já foram concluídos em seção posterior.
+- `EVIDÊNCIA`: `MobiBookTextExtractorTest.prefers KF8 text in a real hybrid MOBI publication` usa o manual calibre AZW3 como fluxo KF8, envolve-o em uma fixture MOBI híbrida e confirma presença do texto KF8 e ausência do texto MOBI 7 legado. `reads the legacy text stream from a hybrid MOBI KF8 when available` mantém cobertura do fallback quando KF8 não está disponível.
+- `ATUALIZAÇÃO`: backlog reconciliado. Continua pendente apenas validar amostras reais do usuário/servidor e variações de recursos; nenhum teste foi executado nesta atualização documental.
+- `ESCOPO`: documentação Android/APK somente; sem mudanças de código, release, servidor ou portal.
 

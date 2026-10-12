@@ -247,7 +247,7 @@ fun BookReaderScreen(
                     pdfSpeechActive = false
                     pdfSpeechLoading = false
                     snackbarHostState.showSnackbar(
-                        if (startAt == 0) "Este PDF não contém texto selecionável para narração."
+                        if (startAt == 0) "Não foi possível reconhecer texto neste PDF para narração."
                         else "Fim da narração do PDF.",
                     )
                 } catch (cancelled: CancellationException) {

@@ -1,6 +1,8 @@
 package org.mulletaflix.feature.itemdetail
 
 import android.graphics.Color
+import android.graphics.Bitmap
+import android.graphics.Canvas
 import android.graphics.Paint
 import android.graphics.pdf.PdfDocument
 import androidx.compose.foundation.layout.Column
@@ -60,6 +62,23 @@ class PdfBookReaderIntegrationTest {
             val book = PdfBookDocument.open(file)
             assertEquals("PDF page 1", book.extractPageText(0))
         } finally {
+            file.delete()
+        }
+    }
+
+    @Test(timeout = 60_000)
+    fun scannedPdfPageIsRecognizedOfflineAndIndexedBySearch() = runBlocking(Dispatchers.IO) {
+        val file = createScannedPdf()
+        val book = PdfBookDocument.open(file)
+        try {
+            assertEquals("MULLETA OCR TESTE", book.extractPageText(0).uppercase())
+            val hits = BookPdfTextSearch.search(book.pageCount, "ocr teste") { page ->
+                book.extractPageText(page)
+            }
+            assertEquals(1, hits.size)
+            assertEquals(0, hits.single().pageIndex)
+        } finally {
+            book.close()
             file.delete()
         }
     }
@@ -172,6 +191,30 @@ class PdfBookReaderIntegrationTest {
             }
             file.outputStream().use(document::writeTo)
         } finally {
+            document.close()
+        }
+        return file
+    }
+
+    private fun createScannedPdf(): File {
+        val file = File.createTempFile("book-reader-scanned-", ".pdf")
+        val document = PdfDocument()
+        val bitmap = Bitmap.createBitmap(1200, 600, Bitmap.Config.ARGB_8888)
+        try {
+            val canvas = Canvas(bitmap)
+            canvas.drawColor(Color.WHITE)
+            canvas.drawText(
+                "MULLETA OCR TESTE",
+                60f,
+                300f,
+                Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.BLACK; textSize = 96f },
+            )
+            val page = document.startPage(PdfDocument.PageInfo.Builder(1200, 600, 1).create())
+            page.canvas.drawBitmap(bitmap, 0f, 0f, null)
+            document.finishPage(page)
+            file.outputStream().use(document::writeTo)
+        } finally {
+            bitmap.recycle()
             document.close()
         }
         return file

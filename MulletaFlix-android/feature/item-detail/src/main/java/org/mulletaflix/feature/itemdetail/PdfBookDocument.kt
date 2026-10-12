@@ -6,6 +6,11 @@ import android.graphics.pdf.PdfRendererPreV
 import android.os.Build
 import android.os.ParcelFileDescriptor
 import android.os.ext.SdkExtensions
+import com.google.android.gms.tasks.Tasks
+import com.google.mlkit.vision.common.InputImage
+import com.google.mlkit.vision.text.TextRecognition
+import com.google.mlkit.vision.text.TextRecognizer
+import com.google.mlkit.vision.text.latin.TextRecognizerOptions
 import android.annotation.SuppressLint
 import java.io.File
 import java.io.IOException
@@ -18,8 +23,19 @@ internal class PdfBookDocument private constructor(
     private val file: File,
     override val pageCount: Int,
 ) : BookPageSource {
+    private var textRecognizer: TextRecognizer? = null
+    private val recognitionExecution = Any()
+    private val recognizedPages = object : LinkedHashMap<Int, String>(OCR_CACHE_PAGE_COUNT, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<Int, String>?): Boolean =
+            size > OCR_CACHE_PAGE_COUNT
+    }
+    private val recognizerLifecycle = Any()
+    private var activeRecognitions = 0
+    private var closeRequested = false
+    private var recognizerClosed = false
+
     val supportsTextExtraction: Boolean
-        get() = supportsPdfTextExtraction(Build.VERSION.SDK_INT, pdfSdkExtensionVersion())
+        get() = true
 
     override fun locatorForPage(index: Int): Locator {
         require(index in 0 until pageCount)
@@ -44,19 +60,64 @@ internal class PdfBookDocument private constructor(
     @SuppressLint("NewApi")
     fun extractPageText(index: Int): String {
         require(index in 0 until pageCount) { "PDF page is out of range." }
-        if (!supportsTextExtraction) {
-            throw UnsupportedOperationException("A extração de texto PDF exige Android 11 com extensão 13 ou Android 15.")
-        }
+        val embeddedText = if (supportsNativePdfTextExtraction(Build.VERSION.SDK_INT, pdfSdkExtensionVersion())) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.VANILLA_ICE_CREAM) {
+                openRenderer(file).use { renderer ->
+                    renderer.openPage(index).use { page ->
+                        normalizeSpeechSegments(page.textContents.asSequence().map { it.text })
+                    }
+                }
+            } else {
+                extractPageTextPreV(index)
+            }
+        } else ""
+        if (embeddedText.isNotBlank()) return embeddedText
 
-        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.VANILLA_ICE_CREAM) {
-            openRenderer(file).use { renderer ->
-                renderer.openPage(index).use { page ->
-                    normalizeSpeechSegments(page.textContents.asSequence().map { it.text })
+        synchronized(recognizedPages) { recognizedPages[index] }?.let { return it }
+        val recognizer = beginRecognition()
+        val recognizedText = try {
+            synchronized(recognitionExecution) {
+                synchronized(recognizedPages) { recognizedPages[index] } ?: run {
+                    val bitmap = decodePage(index, OCR_MAX_BITMAP_SIDE, OCR_MAX_BITMAP_SIDE)
+                    try {
+                        val result = Tasks.await(recognizer.process(InputImage.fromBitmap(bitmap, 0)))
+                        normalizeSpeechSegments(result.textBlocks.asSequence().map { it.text })
+                    } finally {
+                        bitmap.recycle()
+                    }
                 }
             }
-        } else {
-            extractPageTextPreV(index)
+        } finally {
+            endRecognition()
         }
+        synchronized(recognizedPages) { recognizedPages[index] = recognizedText }
+        return recognizedText
+    }
+
+    override fun close() {
+        synchronized(recognizedPages) { recognizedPages.clear() }
+        synchronized(recognizerLifecycle) {
+            closeRequested = true
+            if (activeRecognitions == 0) closeRecognizerLocked()
+        }
+    }
+
+    private fun beginRecognition() = synchronized(recognizerLifecycle) {
+        check(!closeRequested) { "PDF document is already closed." }
+        activeRecognitions++
+        textRecognizer ?: TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS).also {
+            textRecognizer = it
+        }
+    }
+
+    private fun endRecognition() = synchronized(recognizerLifecycle) {
+        activeRecognitions--
+        if (closeRequested && activeRecognitions == 0) closeRecognizerLocked()
+    }
+
+    private fun closeRecognizerLocked() {
+        textRecognizer?.close()
+        textRecognizer = null
     }
 
     override fun decodePage(index: Int, maxWidth: Int, maxHeight: Int): Bitmap {
@@ -86,6 +147,8 @@ internal class PdfBookDocument private constructor(
     companion object {
         const val CONTENT_TYPE = "application/pdf"
         const val MAX_SPEECH_CHARACTERS_PER_PAGE = 64 * 1024
+        private const val OCR_MAX_BITMAP_SIDE = 2048
+        private const val OCR_CACHE_PAGE_COUNT = 3
         private const val PAGE_HREF_PREFIX = "mulletaflix-pdf-page-"
         private const val MAX_DECODED_PIXELS = 16_777_216L
 
@@ -143,6 +206,8 @@ internal class PdfBookDocument private constructor(
         }
 }
 
-internal fun supportsPdfTextExtraction(sdkInt: Int, sExtensionVersion: Int): Boolean =
+internal fun supportsNativePdfTextExtraction(sdkInt: Int, sExtensionVersion: Int): Boolean =
     sdkInt >= Build.VERSION_CODES.VANILLA_ICE_CREAM ||
         (sdkInt >= Build.VERSION_CODES.R && sExtensionVersion >= 13)
+
+internal fun supportsPdfTextExtraction(sdkInt: Int, sExtensionVersion: Int): Boolean = sdkInt >= 24

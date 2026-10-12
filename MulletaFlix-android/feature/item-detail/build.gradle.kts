@@ -45,6 +45,7 @@ dependencies {
     implementation(libs.readium.navigator.web.reflowable)
     implementation(libs.readium.navigator.media.tts)
     implementation(libs.junrar)
+    implementation(libs.mlkit.text.recognition)
     implementation(libs.retrofit)
     implementation(libs.okhttp)
     testImplementation(libs.junit)

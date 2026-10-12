@@ -196,7 +196,7 @@
 - [x] Quality Gate 2026-10-10: suíte completa `:feature:item-detail:testDebugUnitTest` (197 testes, 0 falhas/erros/ignorados), `:feature:item-detail:lintDebug`, `:app:lintDebug`, `:app:assembleDebug` e `:feature:item-detail:compileDebugAndroidTestKotlin` — `BUILD SUCCESSFUL`.
 - [x] Ler AZW3/KF8 standalone não protegido: descompactar registros MOBI 8, ler índices INDX/TAGX/IDXT e tabela FDST, recompor skeletons/fragments e encaminhar o HTML ao leitor de texto.
 - [x] Teste real com o calibre User Manual AZW3 e MIME `application/octet-stream`; verificar texto real após a detecção, abertura e extração do documento. O teste longo pelo ViewModel foi descartado por timeout no dispatcher IO.
-- [ ] Validar com livros AZW3 reais do usuário/servidor, incluindo variações de recursos, e confirmar que MOBI híbrido usa o texto KF8 preferencialmente quando presente.
+- [x] MOBI híbrido prefere o texto KF8 quando a estrutura é válida; teste `MobiBookTextExtractorTest.prefers KF8 text in a real hybrid MOBI publication` envolve a fixture AZW3 calibre e rejeita o conteúdo MOBI 7 legado. A validação com arquivos reais do usuário/servidor e variações de recursos continua pendente.
 - [x] Decodificar HUFF/CDIC com validação de registros HUFF/CDIC, limite do texto declarado, limite de tamanho/dicionário e detecção de ciclos nas frases; a cobertura atual usa fixture sintética, não comprova todos os arquivos reais.
 - [ ] Recursos visuais/CSS em outros flows KF8 não são renderizados pelo leitor plain-text; validar capítulos, links e índices em outros arquivos reais.
 - [ ] Confirmar validação final por instrumento Compose após o usuário liberar o AVD reservado.
@@ -340,7 +340,8 @@
 - [x] Instrumentação PDF: a suíte `BookReaderScreenIntegrationTest` passou no PHONE API 35; o cenário de PDF passou em TABLET API 35 e TV API 34, onde confirmou o controle oculto sem a extensão de extração. AVDs usaram GPU NVIDIA e foram encerrados pelo wrapper.
 - [x] PDFs com texto selecionável: extrair texto apenas da página falada, narrar em blocos limitados com TextToSpeech, avançar automaticamente entre páginas com texto e interromper ao navegar ou deixar o app; páginas digitalizadas/imagem não têm OCR e não são narradas.
 - [x] Disponibilidade limitada pelas APIs do sistema: Android 15+ ou Android 11+ com extensão S versão 13; em versões sem suporte o controle de narração fica oculto. Android TV API 34 validou o caminho sem suporte; PHONE/TABLET API 35 validaram a narração.
-- [ ] Quadrinhos e PDFs apenas em imagem continuam sem narração/OCR; validar PDFs com documentos reais e saídas TTS/idiomas em dispositivos físicos.
+- [x] PDFs sem camada de texto usam OCR Latin bundled offline por página; pesquisa e narração reutilizam o texto reconhecido com limite/cache curto. Instrumentação em PDF rasterizado comprova reconhecimento e busca no tablet API 35.
+- [ ] Validar OCR em PDFs reais diversos (orientação, baixa resolução, idiomas além de Latin e documentos longos) e avaliar extração em quadrinhos; validar áudio/idiomas TTS em dispositivo físico.
 - [ ] Sem bump de versão, APK de produção, portal ou publicação.
 
 ## Ocultação de livros em toda a experiência Android TV (validação local; sem release)
