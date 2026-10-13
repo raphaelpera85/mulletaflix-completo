@@ -3,12 +3,22 @@ package org.mulletaflix.android.service
 import android.content.Context
 import android.content.ContextWrapper
 import android.content.res.Configuration
+import android.graphics.Bitmap
 import androidx.lifecycle.ViewModelStore
 import androidx.media3.common.C
 import androidx.media3.common.util.UnstableApi
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import androidx.work.Configuration as WorkConfiguration
+import androidx.work.WorkInfo
+import androidx.work.WorkManager
+import androidx.work.impl.WorkManagerImpl
+import androidx.work.testing.WorkManagerTestInitHelper
+import androidx.work.testing.WorkManagerTestInitHelper.ExecutorsMode
+import coil.Coil
+import coil.annotation.ExperimentalCoilApi
+import coil.memory.MemoryCache
 import com.squareup.moshi.Moshi
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -22,10 +32,12 @@ import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
 import okio.Buffer
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
+import org.mulletaflix.android.ImageCacheCleanup
 import org.mulletaflix.android.service.DownloadManagerSingleton
 import org.mulletaflix.android.service.Media3DownloadRepository
 import org.mulletaflix.android.service.OfflineSubtitleRecoveryWorkScheduler
@@ -54,6 +66,7 @@ import java.util.concurrent.TimeUnit
 
 @RunWith(AndroidJUnit4::class)
 @UnstableApi
+@OptIn(ExperimentalCoilApi::class)
 class OfflinePlayerProductionDownloadFlowTest {
     @Test
     fun productionDownloadRepositoryFeedsOfflinePlayerFromCacheWithoutNetwork() {
@@ -141,6 +154,13 @@ class OfflinePlayerProductionDownloadFlowTest {
             assertEquals("The repository must report all downloaded bytes", fixture.size.toLong(), downloadedEntry.bytesDownloaded)
             assertTrue("The production cache should contain the completed fixture", cache.cacheSpace >= fixture.size)
             assertEquals("The file should be downloaded once", 1, server.requestCount)
+
+            executeHourlyImageCleanup(context)
+            assertEquals(
+                "The hourly image cleanup must preserve the production download state",
+                androidx.media3.exoplayer.offline.Download.STATE_COMPLETED,
+                manager.downloadIndex.getDownload(downloadedEntry.downloadId)?.state,
+            )
 
             val mediaRepository = unusedDependency<MediaRepository>()
             lateinit var viewModel: PlayerViewModel
@@ -303,6 +323,73 @@ class OfflinePlayerProductionDownloadFlowTest {
         assertTrue("Timed out: $message", condition())
     }
 
+    private fun executeHourlyImageCleanup(context: Context) {
+        val originalWorkManager = WorkManagerImpl.getInstance(context)
+        var workManager: WorkManager? = null
+        var initialized = false
+        val imageLoader = Coil.imageLoader(context)
+        val memoryCache = requireNotNull(imageLoader.memoryCache)
+        val cacheKey = MemoryCache.Key("offline-cleanup-integration-${UUID.randomUUID()}")
+        val bitmap = Bitmap.createBitmap(2, 2, Bitmap.Config.ARGB_8888)
+
+        try {
+            WorkManagerTestInitHelper.initializeTestWorkManager(
+                context,
+                WorkConfiguration.Builder().build(),
+                ExecutorsMode.LEGACY_OVERRIDE_WITH_SYNCHRONOUS_EXECUTORS,
+            )
+            initialized = true
+            workManager = WorkManager.getInstance(context)
+            ImageCacheCleanup.schedule(context)
+
+            val scheduled = workManager
+                .getWorkInfosForUniqueWork(HOURLY_IMAGE_CACHE_CLEANUP_WORK_NAME)
+                .get()
+                .single()
+            assertEquals(
+                TimeUnit.HOURS.toMillis(ImageCacheCleanup.INTERVAL_HOURS),
+                requireNotNull(scheduled.periodicityInfo).repeatIntervalMillis,
+            )
+            awaitPeriodicWorkEnqueued(workManager, scheduled.id)
+
+            memoryCache[cacheKey] = MemoryCache.Value(bitmap)
+            assertNotNull("The test artwork entry must exist before the worker runs", memoryCache[cacheKey])
+            requireNotNull(WorkManagerTestInitHelper.getTestDriver(context))
+                .setPeriodDelayMet(scheduled.id)
+            awaitCondition("the scheduled image-cache worker clears Coil memory") {
+                memoryCache[cacheKey] == null
+            }
+            val completedCycle = requireNotNull(workManager.getWorkInfoById(scheduled.id).get())
+            assertEquals(WorkInfo.State.ENQUEUED, completedCycle.state)
+            assertNull(memoryCache[cacheKey])
+        } finally {
+            memoryCache.remove(cacheKey)
+            bitmap.recycle()
+            try {
+                if (initialized) {
+                    try {
+                        workManager?.cancelUniqueWork(HOURLY_IMAGE_CACHE_CLEANUP_WORK_NAME)?.result?.get()
+                    } finally {
+                        WorkManagerTestInitHelper.closeWorkDatabase()
+                    }
+                }
+            } finally {
+                // Restore the app's singleton even if test initialization failed midway.
+                WorkManagerImpl.setDelegate(originalWorkManager)
+            }
+        }
+    }
+
+    private fun awaitPeriodicWorkEnqueued(workManager: WorkManager, id: UUID) {
+        val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10)
+        var latest = requireNotNull(workManager.getWorkInfoById(id).get())
+        while (latest.state != WorkInfo.State.ENQUEUED && System.nanoTime() < deadline) {
+            Thread.sleep(20)
+            latest = requireNotNull(workManager.getWorkInfoById(id).get())
+        }
+        assertEquals(WorkInfo.State.ENQUEUED, latest.state)
+    }
+
     private fun <T : Any> awaitValue(message: String, value: () -> T?): T {
         val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10)
         while (System.nanoTime() < deadline) {
@@ -316,4 +403,8 @@ class OfflinePlayerProductionDownloadFlowTest {
         Proxy.newProxyInstance(T::class.java.classLoader, arrayOf(T::class.java)) { _, method, _ ->
             throw AssertionError("Unexpected test dependency call: ${T::class.java.simpleName}.${method.name}")
         } as T
+
+    private companion object {
+        const val HOURLY_IMAGE_CACHE_CLEANUP_WORK_NAME = "hourly-image-cache-cleanup"
+    }
 }

@@ -2,6 +2,10 @@
 
 ## TDD obrigatório
 
+Para começar uma tarefa, siga a ordem de leitura em `DEVELOPMENT-GUIDE.md`.
+Ele é o índice para arquitetura, backlog, testes e registros; as regras abaixo
+continuam autoritativas quando houver diferença.
+
 - Para correção, funcionalidade ou mudança de comportamento, escreva primeiro um teste que descreva o resultado observável.
 - Execute o teste antes da implementação. Registre o comando e confirme falha pela razão esperada, não por erro de compilação ou configuração.
 - Implemente a menor mudança que torna o teste verde. Execute o mesmo teste e a suíte da área afetada.

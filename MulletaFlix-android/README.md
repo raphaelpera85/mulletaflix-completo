@@ -15,7 +15,7 @@ servidor local responder, usa a URL pública. A busca manual continua disponíve
 | 🔐 Autenticação (Senha + Quick Connect) | ✅ |
 | 🏠 Home com Hero Banner + 6 seções | ✅ |
 | 📚 Biblioteca com Grid/Lista + Filtros + Sort | ✅ |
-| 🎬 Detalhe completo (Filmes, Séries, Músicas, Livros) | ✅ |
+| 🎬 Detalhes de mídia e leitores de livros nos formatos compatíveis | ✅ |
 | ▶️ Player ExoPlayer HLS/DASH + OSD completo | ✅ |
 | 🔍 Busca universal em tempo real | ✅ |
 | ⬇️ Downloads offline | ✅ |
@@ -73,7 +73,10 @@ cd MulletaFlix-android
 ./gradlew assembleDebug
 ```
 
-Consulte [`TDD-PLAN.md`](TDD-PLAN.md) para o plano TDD do projeto. [`TESTING.md`](TESTING.md) descreve o Quality Gate e os testes por dispositivo.
+Comece pelo [`DEVELOPMENT-GUIDE.md`](DEVELOPMENT-GUIDE.md), que define a ordem
+de leitura, limites do cliente Android, arquitetura, fluxo de tarefas e gates.
+Consulte [`TDD-PLAN.md`](TDD-PLAN.md) para evidências e lacunas do TDD;
+[`TESTING.md`](TESTING.md) é a referência de comandos, perfis e cenários.
 
 ## 📡 Configuração
 

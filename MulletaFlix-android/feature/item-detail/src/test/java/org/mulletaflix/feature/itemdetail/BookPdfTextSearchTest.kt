@@ -8,6 +8,49 @@ import org.junit.Test
 
 class BookPdfTextSearchTest {
     @Test
+    fun `progress is monotonic and limited for long comic scans`() = runTest {
+        val progress = mutableListOf<Pair<Int, Int>>()
+        var extractedPages = 0
+
+        BookPdfTextSearch.search(
+            pageCount = 5_000,
+            query = "missing",
+            onProgress = { current, total ->
+                progress += current to total
+                assertEquals(extractedPages, current)
+            },
+        ) {
+            extractedPages++
+            "no match"
+        }
+
+        assertEquals(101, progress.size)
+        assertEquals(1 to 5_000, progress.first())
+        assertEquals(5_000 to 5_000, progress.last())
+        assertTrue(progress.zipWithNext().all { (previous, next) -> next.first > previous.first })
+        assertTrue(progress.all { (_, total) -> total == 5_000 })
+    }
+
+    @Test
+    fun `progress remains bounded around the update interval threshold`() = runTest {
+        val updates = mutableListOf<Int>()
+
+        BookPdfTextSearch.search(
+            pageCount = 199,
+            query = "missing",
+            onProgress = { current, _ -> updates += current },
+        ) { "no match" }
+
+        assertEquals(101, updates.size)
+        assertEquals((1..199).last(), updates.last())
+    }
+
+    @Test
+    fun `page search supports comic image text extraction`() {
+        assertTrue(isBookSearchAvailable(hasPlainText = false, hasEpubSearch = false, hasPageTextSearch = true))
+    }
+
+    @Test
     fun `finds pages without case or accent sensitivity`() = runTest {
         val pages = listOf("capa", "Ação e consequência", "fim")
 
@@ -58,11 +101,15 @@ class BookPdfTextSearchTest {
 
     @Test
     fun `blank query does not extract page text`() = runTest {
-        val matches = BookPdfTextSearch.search(pageCount = 20, query = "  ") {
+        var progressUpdates = 0
+        val matches = BookPdfTextSearch.search(pageCount = 20, query = "  ", onProgress = { _, _ ->
+            progressUpdates++
+        }) {
             error("Blank query must not read PDF pages")
         }
 
         assertTrue(matches.isEmpty())
+        assertEquals(0, progressUpdates)
     }
 
     @Test
@@ -78,6 +125,25 @@ class BookPdfTextSearchTest {
             throw AssertionError("Cancellation must propagate")
         } catch (_: CancellationException) {
             assertEquals(listOf(0, 1), extracted)
+        }
+    }
+
+    @Test
+    fun `cancellation from progress callback prevents the next page read`() = runTest {
+        var extractedPages = 0
+
+        try {
+            BookPdfTextSearch.search(
+                pageCount = 3,
+                query = "missing",
+                onProgress = { _, _ -> throw CancellationException("dialog closed") },
+            ) {
+                extractedPages++
+                "no match"
+            }
+            throw AssertionError("Cancellation must propagate")
+        } catch (_: CancellationException) {
+            assertEquals(1, extractedPages)
         }
     }
 }

@@ -2,6 +2,8 @@ package org.mulletaflix.feature.itemdetail
 
 import android.graphics.Color
 import android.graphics.Paint
+import android.graphics.Bitmap
+import android.graphics.Canvas
 import android.graphics.pdf.PdfDocument
 import android.content.ContextWrapper
 import android.os.Build
@@ -54,6 +56,7 @@ import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicReference
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.runBlocking
 import okhttp3.OkHttpClient
 import okhttp3.mockwebserver.MockResponse
@@ -628,6 +631,68 @@ class BookReaderScreenIntegrationTest {
     }
 
     @Test
+    fun truncatedRtfShowsErrorWithoutPartialTextAndRetryLoadsValidRtf() {
+        val itemId = "reader-screen-truncated-rtf-${System.nanoTime()}"
+        val errorMessage = "O RTF contém um conteúdo binário incompleto."
+        server.enqueue(
+            MockResponse()
+                .setResponseCode(200)
+                .addHeader("Content-Type", "application/rtf")
+                .setBody("{\\rtf1\\ansi Texto parcial \\bin4ab"),
+        )
+        server.enqueue(
+            MockResponse()
+                .setResponseCode(200)
+                .addHeader("Content-Type", "application/rtf")
+                .setBody("{\\rtf1\\ansi Texto íntegro após retry.}"),
+        )
+        val api = Retrofit.Builder()
+            .baseUrl(server.url("/"))
+            .client(OkHttpClient())
+            .build()
+            .create(MulletaFlixApiService::class.java)
+        val viewModel = ViewModelProvider(
+            viewModelStore,
+            object : ViewModelProvider.Factory {
+                @Suppress("UNCHECKED_CAST")
+                override fun <T : ViewModel> create(modelClass: Class<T>): T =
+                    BookReaderViewModel(api, TestSessionRepository(sessionScope), context) as T
+            },
+        )[BookReaderViewModel::class.java]
+
+        composeRule.setContent {
+            MaterialTheme {
+                BookReaderScreen(itemId = itemId, onBack = {}, viewModel = viewModel)
+            }
+        }
+
+        composeRule.waitUntil(timeoutMillis = 15_000) {
+            runCatching { composeRule.onNodeWithText(errorMessage, useUnmergedTree = true).assertIsDisplayed() }
+                .isSuccess
+        }
+        composeRule.onNodeWithText("Texto parcial", useUnmergedTree = true).assertDoesNotExist()
+        composeRule.onNodeWithContentDescription("Tentar carregar o livro novamente")
+            .assertIsDisplayed()
+            .performClick()
+
+        composeRule.waitUntil(timeoutMillis = 15_000) {
+            runCatching {
+                composeRule.onNodeWithTag("$PLAIN_TEXT_BOOK_CHUNK_TEST_TAG-0")
+                    .assertTextContains("Texto íntegro após retry.")
+            }.isSuccess
+        }
+        composeRule.onNodeWithText(errorMessage, useUnmergedTree = true).assertDoesNotExist()
+        assertEquals(
+            "/BookReader/Items/$itemId/BookReader/Epub",
+            server.takeRequest().path,
+        )
+        assertEquals(
+            "/BookReader/Items/$itemId/BookReader/Epub",
+            server.takeRequest().path,
+        )
+    }
+
+    @Test
     fun directTextBookCanSaveAndRestoreBookmarkForCurrentChunk() {
         val itemId = "reader-screen-text-${System.nanoTime()}"
         server.enqueue(
@@ -686,6 +751,78 @@ class BookReaderScreenIntegrationTest {
         composeRule.onNodeWithText("Marcadores salvos (1)").performClick()
         composeRule.onNodeWithText("Trecho 2").assertIsDisplayed().performClick()
         composeRule.onNodeWithText("Trecho 2 de 2").assertIsDisplayed()
+    }
+
+    @Test
+    fun plainTextReaderExposesInternalAnchorAsAccessibleLinkAndSelectsTargetChunk() {
+        val htmlFile = context.cacheDir.resolve("reader-anchor-${System.nanoTime()}.html")
+        htmlFile.writeText(
+            "<p><a href='#part-two'>Abrir capítulo dois</a></p>" +
+                "<p>${"texto intermediário ".repeat(180)}</p>" +
+                "<h2 id='part-two'>Capítulo dois</h2><p>Texto de destino.</p>",
+        )
+        val document = PlainTextBookDocument.open(htmlFile, "text/html")
+        val targetChunk = document.linksByChunk.values.flatten().single().targetChunk
+        val selectedChunk = AtomicInteger(-1)
+        assertTrue("A âncora deve apontar para um trecho posterior.", targetChunk > 0)
+
+        try {
+            composeRule.setContent {
+                MaterialTheme {
+                    PlainTextBookReaderContent(
+                        document = document,
+                        currentChunk = 0,
+                        fontSizePercent = 100,
+                        onChunkSelected = selectedChunk::set,
+                    )
+                }
+            }
+            composeRule.onNodeWithText("Abrir capítulo dois").assertHasClickAction().performClick()
+            composeRule.waitForIdle()
+
+            assertEquals(targetChunk, selectedChunk.get())
+        } finally {
+            htmlFile.delete()
+        }
+    }
+
+    @Test
+    fun plainTextReaderScrollsToAnchorWhenTargetIsInTheSameChunk() {
+        val htmlFile = context.cacheDir.resolve("reader-same-chunk-anchor-${System.nanoTime()}.html")
+        htmlFile.writeText(
+            "<p><a href='#inside'>Ir para o destino</a></p>" +
+                "<p>${"Texto intermediário. ".repeat(22)}</p>" +
+                "<p id='inside'>Destino exato do link.</p>",
+        )
+        val document = PlainTextBookDocument.open(htmlFile, "text/html")
+        val link = document.linksByChunk.values.flatten().single()
+        val selectedChunk = AtomicInteger(-1)
+        assertEquals(0, link.targetChunk)
+        assertTrue("O destino deve estar abaixo do início do mesmo trecho.", link.targetOffset > 0)
+
+        try {
+            composeRule.setContent {
+                MaterialTheme {
+                    PlainTextBookReaderContent(
+                        document = document,
+                        currentChunk = 0,
+                        fontSizePercent = 100,
+                        onChunkSelected = selectedChunk::set,
+                    )
+                }
+            }
+            composeRule.onNodeWithText("Ir para o destino").assertHasClickAction()
+            val chunkNode = composeRule.onNodeWithTag("$PLAIN_TEXT_BOOK_CHUNK_TEST_TAG-0")
+            val beforeTop = chunkNode.fetchSemanticsNode().boundsInRoot.top
+            composeRule.onNodeWithText("Ir para o destino").performClick()
+            composeRule.waitUntil(timeoutMillis = 5_000) {
+                chunkNode.fetchSemanticsNode().boundsInRoot.top < beforeTop - 20f
+            }
+
+            assertEquals(0, selectedChunk.get())
+        } finally {
+            htmlFile.delete()
+        }
     }
 
     @Test
@@ -1107,6 +1244,330 @@ class BookReaderScreenIntegrationTest {
     }
 
     @Test
+    fun switchingBookCancelsPendingPageNarrationExtraction() {
+        val firstItemId = "reader-speech-cancel-${System.nanoTime()}"
+        val nextItemId = "$firstItemId-next"
+        server.enqueue(
+            MockResponse()
+                .setResponseCode(200)
+                .addHeader("Content-Type", "application/pdf")
+                .setBody(Buffer().write(createPdfFixture(pageCount = 2))),
+        )
+        server.enqueue(
+            MockResponse()
+                .setResponseCode(200)
+                .addHeader("Content-Type", "application/pdf")
+                .setBody(Buffer().write(createPdfFixture(pageCount = 3))),
+        )
+        val api = Retrofit.Builder()
+            .baseUrl(server.url("/"))
+            .client(OkHttpClient())
+            .build()
+            .create(MulletaFlixApiService::class.java)
+        val viewModel = ViewModelProvider(
+            viewModelStore,
+            object : ViewModelProvider.Factory {
+                @Suppress("UNCHECKED_CAST")
+                override fun <T : ViewModel> create(modelClass: Class<T>): T =
+                    BookReaderViewModel(api, TestSessionRepository(sessionScope), context) as T
+            },
+        )[BookReaderViewModel::class.java]
+        val readerItemId = mutableStateOf(firstItemId)
+        val extractionStarted = CountDownLatch(1)
+        val extractionCancelled = CountDownLatch(1)
+        val speechEngine = FakeBookSpeechEngine()
+
+        composeRule.setContent {
+            CompositionLocalProvider(
+                LocalBookSpeechEngineFactory provides { speechEngine },
+                LocalBookPageTextExtractor provides { _, _, _ ->
+                    extractionStarted.countDown()
+                    try {
+                        awaitCancellation()
+                    } finally {
+                        extractionCancelled.countDown()
+                    }
+                },
+            ) {
+                MaterialTheme {
+                    BookReaderScreen(itemId = readerItemId.value, onBack = {}, viewModel = viewModel)
+                }
+            }
+        }
+
+        composeRule.waitUntil(timeoutMillis = 15_000) {
+            runCatching { composeRule.onNodeWithText("Página 1 de 2").assertIsDisplayed() }.isSuccess
+        }
+        composeRule.onNodeWithContentDescription("Ler PDF em voz alta").performClick()
+        assertTrue("Page extraction should start", extractionStarted.await(15, TimeUnit.SECONDS))
+
+        composeRule.runOnUiThread { readerItemId.value = nextItemId }
+
+        composeRule.waitUntil(timeoutMillis = 15_000) {
+            runCatching { composeRule.onNodeWithText("Página 1 de 3").assertIsDisplayed() }.isSuccess
+        }
+        assertTrue(
+            "Changing books must cancel pending page extraction",
+            extractionCancelled.await(15, TimeUnit.SECONDS),
+        )
+        assertEquals("The stale extraction must not start speech", emptyList<String>(), speechEngine.spokenChunks)
+        assertEquals(
+            "/BookReader/Items/$firstItemId/BookReader/Epub",
+            server.takeRequest().path,
+        )
+        assertEquals(
+            "/BookReader/Items/$nextItemId/BookReader/Epub",
+            server.takeRequest().path,
+        )
+    }
+
+    @Test
+    fun switchingBookStopsActivePageNarrationAndIgnoresLateSpeechCallback() {
+        val firstItemId = "reader-speech-active-${System.nanoTime()}"
+        val nextItemId = "$firstItemId-next"
+        server.enqueue(
+            MockResponse()
+                .setResponseCode(200)
+                .addHeader("Content-Type", "application/pdf")
+                .setBody(Buffer().write(createPdfFixture(pageCount = 2))),
+        )
+        server.enqueue(
+            MockResponse()
+                .setResponseCode(200)
+                .addHeader("Content-Type", "application/pdf")
+                .setBody(Buffer().write(createPdfFixture(pageCount = 3))),
+        )
+        val api = Retrofit.Builder()
+            .baseUrl(server.url("/"))
+            .client(OkHttpClient())
+            .build()
+            .create(MulletaFlixApiService::class.java)
+        val viewModel = ViewModelProvider(
+            viewModelStore,
+            object : ViewModelProvider.Factory {
+                @Suppress("UNCHECKED_CAST")
+                override fun <T : ViewModel> create(modelClass: Class<T>): T =
+                    BookReaderViewModel(api, TestSessionRepository(sessionScope), context) as T
+            },
+        )[BookReaderViewModel::class.java]
+        val engines = java.util.Collections.synchronizedList(mutableListOf<FakeBookSpeechEngine>())
+        val speechEngineFactory: (android.content.Context) -> BookSpeechEngine = {
+            FakeBookSpeechEngine().also(engines::add)
+        }
+        val readerItemId = mutableStateOf(firstItemId)
+        val lifecycleOwner = SpeechTestLifecycleOwner()
+        composeRule.runOnUiThread {
+            lifecycleOwner.registry.handleLifecycleEvent(Lifecycle.Event.ON_CREATE)
+            lifecycleOwner.registry.handleLifecycleEvent(Lifecycle.Event.ON_START)
+            lifecycleOwner.registry.handleLifecycleEvent(Lifecycle.Event.ON_RESUME)
+        }
+
+        composeRule.setContent {
+            CompositionLocalProvider(
+                LocalLifecycleOwner provides lifecycleOwner,
+                LocalBookSpeechEngineFactory provides speechEngineFactory,
+                LocalBookPageTextExtractor provides { _, _, pageIndex ->
+                    "Narration A page $pageIndex. ".repeat(100)
+                },
+            ) {
+                MaterialTheme {
+                    BookReaderScreen(itemId = readerItemId.value, onBack = {}, viewModel = viewModel)
+                }
+            }
+        }
+
+        composeRule.waitUntil(timeoutMillis = 15_000) {
+            runCatching { composeRule.onNodeWithText("Página 1 de 2").assertIsDisplayed() }.isSuccess
+        }
+        composeRule.onNodeWithContentDescription("Ler PDF em voz alta").performClick()
+        composeRule.waitUntil(timeoutMillis = 5_000) { engines.firstOrNull()?.initializeRequested == true }
+        val firstEngine = engines.first()
+        val firstListener = firstEngine.listener
+        composeRule.runOnUiThread { firstListener.onReady() }
+        composeRule.waitUntil(timeoutMillis = 5_000) { firstEngine.spokenChunks.size == 1 }
+        val activeUtteranceId = firstEngine.utteranceIds.single()
+
+        composeRule.runOnUiThread { readerItemId.value = nextItemId }
+
+        composeRule.waitUntil(timeoutMillis = 15_000) {
+            engines.size >= 2 &&
+                runCatching { composeRule.onNodeWithText("Página 1 de 3").assertIsDisplayed() }.isSuccess
+        }
+        composeRule.waitUntil(timeoutMillis = 5_000) { firstEngine.stopCount > 0 }
+        composeRule.runOnUiThread { firstListener.onUtteranceFinished(activeUtteranceId) }
+
+        assertTrue("The old engine must stop after an item switch", firstEngine.stopCount > 0)
+        assertEquals("Late completion must not start narration for another page", 1, firstEngine.spokenChunks.size)
+        assertTrue("The new book must not inherit old narration", engines[1].spokenChunks.isEmpty())
+        assertEquals("/BookReader/Items/$firstItemId/BookReader/Epub", server.takeRequest().path)
+        assertEquals("/BookReader/Items/$nextItemId/BookReader/Epub", server.takeRequest().path)
+
+        composeRule.runOnUiThread {
+            lifecycleOwner.registry.handleLifecycleEvent(Lifecycle.Event.ON_DESTROY)
+        }
+    }
+
+    @Test(timeout = 60_000)
+    fun comicSpeechRecognizesCurrentPageOfflineAndAdvancesAfterUtterance() {
+        server.enqueue(
+            MockResponse()
+                .setResponseCode(200)
+                .addHeader("Content-Type", ComicBookArchive.CONTENT_TYPE)
+                .setBody(Buffer().write(createTextComicCbz("MULLETA PAGE ONE", "MULLETA PAGE TWO"))),
+        )
+        val api = Retrofit.Builder()
+            .baseUrl(server.url("/"))
+            .client(OkHttpClient())
+            .build()
+            .create(MulletaFlixApiService::class.java)
+        val viewModel = ViewModelProvider(
+            viewModelStore,
+            object : ViewModelProvider.Factory {
+                @Suppress("UNCHECKED_CAST")
+                override fun <T : ViewModel> create(modelClass: Class<T>): T =
+                    BookReaderViewModel(api, TestSessionRepository(sessionScope), context) as T
+            },
+        )[BookReaderViewModel::class.java]
+        val speechEngine = FakeBookSpeechEngine()
+
+        composeRule.setContent {
+            CompositionLocalProvider(LocalBookSpeechEngineFactory provides { speechEngine }) {
+                MaterialTheme {
+                    BookReaderScreen(itemId = "reader-speech-comic-${System.nanoTime()}", onBack = {}, viewModel = viewModel)
+                }
+            }
+        }
+
+        composeRule.waitUntil(timeoutMillis = 15_000) {
+            runCatching { composeRule.onNodeWithText("Página 1 de 2").assertIsDisplayed() }.isSuccess
+        }
+        composeRule.onNodeWithContentDescription("Ler quadrinhos em voz alta").assertIsDisplayed().performClick()
+        composeRule.waitUntil(timeoutMillis = 5_000) { speechEngine.initializeRequested }
+        composeRule.runOnUiThread { speechEngine.listener.onReady() }
+        composeRule.waitUntil(timeoutMillis = 15_000) { speechEngine.spokenChunks.isNotEmpty() }
+        assertTrue("Expected OCR text from page 1, got ${speechEngine.spokenChunks}", speechEngine.spokenChunks.first().contains("PAGE ONE"))
+
+        composeRule.runOnUiThread {
+            speechEngine.listener.onUtteranceFinished(speechEngine.utteranceIds.last())
+        }
+        composeRule.waitUntil(timeoutMillis = 15_000) {
+            speechEngine.spokenChunks.size >= 2 &&
+                runCatching { composeRule.onNodeWithText("Página 2 de 2").assertIsDisplayed() }.isSuccess
+        }
+        assertTrue("Expected OCR text from page 2, got ${speechEngine.spokenChunks}", speechEngine.spokenChunks.last().contains("PAGE TWO"))
+    }
+
+    @Test(timeout = 60_000)
+    fun cbrSearchResultOpensMatchingPage() {
+        val cbrBytes = context.assets.open("books/cbr-ocr-pages.cbr").use { it.readBytes() }
+        server.enqueue(
+            MockResponse()
+                .setResponseCode(200)
+                .addHeader("Content-Type", CbrBookArchive.CONTENT_TYPE)
+                .setBody(Buffer().write(cbrBytes)),
+        )
+        val api = Retrofit.Builder()
+            .baseUrl(server.url("/"))
+            .client(OkHttpClient())
+            .build()
+            .create(MulletaFlixApiService::class.java)
+        val viewModel = ViewModelProvider(
+            viewModelStore,
+            object : ViewModelProvider.Factory {
+                @Suppress("UNCHECKED_CAST")
+                override fun <T : ViewModel> create(modelClass: Class<T>): T =
+                    BookReaderViewModel(api, TestSessionRepository(sessionScope), context) as T
+            },
+        )[BookReaderViewModel::class.java]
+
+        composeRule.setContent {
+            MaterialTheme {
+                BookReaderScreen(
+                    itemId = "reader-search-cbr-${System.nanoTime()}",
+                    onBack = {},
+                    viewModel = viewModel,
+                )
+            }
+        }
+
+        composeRule.waitUntil(timeoutMillis = 15_000) {
+            runCatching { composeRule.onNodeWithText("Página 1 de 2").assertIsDisplayed() }.isSuccess
+        }
+        composeRule.onNodeWithContentDescription("Buscar no livro").performClick()
+        composeRule.onNodeWithText("Texto").performClick().performTextInput("page two")
+        composeRule.onNodeWithText("Buscar").performClick()
+        composeRule.waitUntil(timeoutMillis = 20_000) {
+            composeRule.onAllNodesWithTag("$BOOK_TEXT_SEARCH_RESULT_TEST_TAG-0")
+                .fetchSemanticsNodes().isNotEmpty()
+        }
+        composeRule.onNodeWithTag("$BOOK_TEXT_SEARCH_RESULT_TEST_TAG-0")
+            .assertTextContains("Página 2:", substring = true)
+            .assertTextContains("PAGE TWO", substring = true)
+            .performClick()
+        composeRule.waitUntil(timeoutMillis = 15_000) {
+            runCatching { composeRule.onNodeWithText("Página 2 de 2").assertIsDisplayed() }.isSuccess
+        }
+    }
+
+    @Test(timeout = 60_000)
+    fun cbrSpeechRecognizesCurrentPageOfflineAndAdvancesAfterUtterance() {
+        val cbrBytes = context.assets.open("books/cbr-ocr-pages.cbr").use { it.readBytes() }
+        server.enqueue(
+            MockResponse()
+                .setResponseCode(200)
+                .addHeader("Content-Type", CbrBookArchive.CONTENT_TYPE)
+                .setBody(Buffer().write(cbrBytes)),
+        )
+        val api = Retrofit.Builder()
+            .baseUrl(server.url("/"))
+            .client(OkHttpClient())
+            .build()
+            .create(MulletaFlixApiService::class.java)
+        val viewModel = ViewModelProvider(
+            viewModelStore,
+            object : ViewModelProvider.Factory {
+                @Suppress("UNCHECKED_CAST")
+                override fun <T : ViewModel> create(modelClass: Class<T>): T =
+                    BookReaderViewModel(api, TestSessionRepository(sessionScope), context) as T
+            },
+        )[BookReaderViewModel::class.java]
+        val speechEngine = FakeBookSpeechEngine()
+
+        composeRule.setContent {
+            CompositionLocalProvider(LocalBookSpeechEngineFactory provides { speechEngine }) {
+                MaterialTheme {
+                    BookReaderScreen(itemId = "reader-speech-cbr-${System.nanoTime()}", onBack = {}, viewModel = viewModel)
+                }
+            }
+        }
+
+        composeRule.waitUntil(timeoutMillis = 15_000) {
+            runCatching { composeRule.onNodeWithText("Página 1 de 2").assertIsDisplayed() }.isSuccess
+        }
+        composeRule.onNodeWithContentDescription("Ler quadrinhos em voz alta").assertIsDisplayed().performClick()
+        composeRule.waitUntil(timeoutMillis = 5_000) { speechEngine.initializeRequested }
+        composeRule.runOnUiThread { speechEngine.listener.onReady() }
+        composeRule.waitUntil(timeoutMillis = 15_000) { speechEngine.spokenChunks.isNotEmpty() }
+        assertTrue(
+            "Expected recognized CBR page 1 text, got ${speechEngine.spokenChunks}",
+            speechEngine.spokenChunks.first().contains("MULLETA PAGE ONE"),
+        )
+        composeRule.onNodeWithText("Página 1 de 2").assertIsDisplayed()
+
+        composeRule.runOnUiThread {
+            speechEngine.listener.onUtteranceFinished(speechEngine.utteranceIds.last())
+        }
+        composeRule.waitUntil(timeoutMillis = 15_000) {
+            speechEngine.spokenChunks.size >= 2 &&
+                runCatching { composeRule.onNodeWithText("Página 2 de 2").assertIsDisplayed() }.isSuccess
+        }
+        assertTrue(
+            "Expected recognized CBR page 2 text, got ${speechEngine.spokenChunks}",
+            speechEngine.spokenChunks.last().contains("MULLETA PAGE TWO"),
+        )
+    }
+
+    @Test
     fun speechStopsWhenUserScrollsToAnotherTextChunk() {
         val itemId = "reader-speech-scroll-${System.nanoTime()}"
         server.enqueue(
@@ -1366,11 +1827,11 @@ class BookReaderScreenIntegrationTest {
         target[offset + 3] = value.toByte()
     }
 
-    private fun createPdfFixture(): ByteArray {
+    private fun createPdfFixture(pageCount: Int = 2): ByteArray {
         val output = ByteArrayOutputStream()
         val document = PdfDocument()
         try {
-            repeat(2) { index ->
+            repeat(pageCount) { index ->
                 val page = document.startPage(PdfDocument.PageInfo.Builder(600, 900, index + 1).create())
                 page.canvas.drawColor(Color.WHITE)
                 page.canvas.drawText(
@@ -1386,6 +1847,36 @@ class BookReaderScreenIntegrationTest {
         } finally {
             document.close()
         }
+    }
+
+    private fun createTextComicCbz(vararg pageLabels: String): ByteArray {
+        val output = ByteArrayOutputStream()
+        ZipOutputStream(output).use { zip ->
+            pageLabels.forEachIndexed { index, label ->
+                val bitmap = Bitmap.createBitmap(1400, 700, Bitmap.Config.ARGB_8888)
+                try {
+                    Canvas(bitmap).apply {
+                        drawColor(Color.WHITE)
+                        drawText(
+                            label,
+                            55f,
+                            390f,
+                            Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                                color = Color.BLACK
+                                textSize = 118f
+                                typeface = android.graphics.Typeface.create("sans-serif", android.graphics.Typeface.BOLD)
+                            },
+                        )
+                    }
+                    zip.putNextEntry(ZipEntry("page-${index + 1}.png"))
+                    check(bitmap.compress(Bitmap.CompressFormat.PNG, 100, zip))
+                    zip.closeEntry()
+                } finally {
+                    bitmap.recycle()
+                }
+            }
+        }
+        return output.toByteArray()
     }
 
     private fun awaitWebViewText(expectedText: String): String {

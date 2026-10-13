@@ -329,6 +329,7 @@ internal fun ComicBookPageControls(
     pageCount: Int,
     pageStep: Int = 1,
     speechEnabled: Boolean = false,
+    speechContentDescription: String = "Ler PDF em voz alta",
     speechLoading: Boolean = false,
     speechPreparing: Boolean = false,
     speechActive: Boolean = false,
@@ -370,7 +371,7 @@ internal fun ComicBookPageControls(
                         contentDescription = when {
                             speechLoading -> "Cancelar preparação da leitura em voz alta"
                             speechActive -> "Parar leitura em voz alta"
-                            else -> "Ler PDF em voz alta"
+                            else -> speechContentDescription
                         }
                     },
                 ) {

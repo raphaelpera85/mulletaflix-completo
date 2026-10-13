@@ -162,7 +162,11 @@
 - [x] Selecionar resultado navega ao trecho e mantém o salvamento de progresso existente.
 - [x] Testes de diálogo Compose: 4/4 em PHONE/API 35, TABLET/API 35 e Android TV/API 34; as três execuções foram encerradas pelos wrappers de AVD.
 - [x] Quality gate Android: 1.611 testes JVM, zero falhas/erros/ignorados; lint do módulo/app, assemble Debug e compilação dos AndroidTests do módulo/app — `BUILD SUCCESSFUL`.
-- [x] EPUB usa `SearchService` do Readium e PDF tenta texto nativo com fallback OCR Latin bundled/offline em páginas sem camada textual; quadrinhos somente imagem continuam sem busca/OCR dedicado.
+- [x] EPUB usa `SearchService` do Readium; PDF tenta texto nativo com fallback OCR Latin bundled/offline; CBZ/CBR oferece busca OCR Latin offline sob demanda nas páginas.
+- [x] Busca de OCR CBR exercitada no TABLET/API 35 com fixture sintética de duas páginas; query “page two” retorna a página correta e trecho esperado. Isso valida OCR + busca de página, não a navegação do resultado pela UI.
+- [x] Validar busca CBR pela UI Compose no TABLET/API 35: resultado da consulta “page two” aponta para a página 2 e, ao tocar, o leitor abre “Página 2 de 2”.
+- [x] Repetir o fluxo de busca e navegação pela UI Compose no PHONE/API 35 com a fixture sintética; `BookReaderScreenIntegrationTest.cbrSearchResultOpensMatchingPage` passou 1/1 em `SmartMeasureApi35Play` (2026-10-12).
+- [ ] Validar arquivo CBR autorizado/real, TalkBack e uso prolongado; manter livros ocultos na TV, sem executar leitura CBR nesse perfil.
 - [x] Resultados PDF exibem contexto da ocorrência encontrada, preservam acentos do texto e limitam o trecho a 140 caracteres, inclusive junto a emojis.
 - [x] Resultados da busca em livros de texto paginado mostram contexto ao redor da ocorrência tardia, preservam acentos e mantêm o trecho limitado a 140 caracteres.
 
@@ -198,7 +202,7 @@
 - [x] Teste real com o calibre User Manual AZW3 e MIME `application/octet-stream`; o caso do ViewModel confirma texto KF8 legível no estado após HTTP mockado. Um baseline de 73,3 s foi reduzido a 24,0 s eliminando a conversão Android de HTML para spans e montando fragments sem cópias quadráticas.
 - [x] MOBI híbrido prefere o texto KF8 quando a estrutura é válida; teste `MobiBookTextExtractorTest.prefers KF8 text in a real hybrid MOBI publication` envolve a fixture AZW3 calibre e rejeita o conteúdo MOBI 7 legado. A validação com arquivos reais do usuário/servidor e variações de recursos continua pendente.
 - [x] Decodificar HUFF/CDIC com validação de registros HUFF/CDIC, limite do texto declarado, limite de tamanho/dicionário e detecção de ciclos nas frases; a cobertura atual usa fixture sintética, não comprova todos os arquivos reais.
-- [ ] Recursos visuais/CSS e links em flows KF8 não são renderizados pelo leitor plain-text; validar capítulos, links e índices em outros arquivos reais.
+- [ ] Imagens, fontes e CSS em flows KF8 não são renderizados pelo leitor plain-text; validar índices/capítulos em outros arquivos reais. Links fragmentados da mesma publicação agora navegam internamente; links externos e de outros arquivos permanecem inertes.
 - [ ] Confirmar validação final por instrumento Compose após o usuário liberar o AVD reservado.
 - [ ] Sem bump, APK de produção, release, portal ou alteração no servidor.
 
@@ -341,7 +345,11 @@
 - [x] PDFs: extrair texto nativo ou reconhecer localmente página digitalizada com OCR Latin; narrar em blocos limitados com TextToSpeech, avançar automaticamente e interromper ao navegar ou deixar o app.
 - [x] Disponibilidade limitada pelas APIs do sistema: Android 15+ ou Android 11+ com extensão S versão 13; em versões sem suporte o controle de narração fica oculto. Android TV API 34 validou o caminho sem suporte; PHONE/TABLET API 35 validaram a narração.
 - [x] PDFs sem camada de texto usam OCR Latin bundled offline por página; pesquisa e narração reutilizam o texto reconhecido com limite/cache curto. Instrumentação em PDF rasterizado comprova reconhecimento e busca no tablet API 35.
-- [ ] Validar OCR em PDFs reais diversos (orientação, baixa resolução, idiomas além de Latin e documentos longos) e avaliar extração em quadrinhos; validar áudio/idiomas TTS em dispositivo físico.
+- [x] Habilitar narração TTS em CBZ/CBR paginados: reutilizar o OCR Latin local sob demanda, sequencialmente por página, manter o bitmap protegido durante inferência, e avançar quando terminar a fala; expor controle acessível, velocidade e seletor de idioma.
+- [x] TDD instrumentado: teste CBZ comprovou leitura OCR das páginas 1 e 2 e avanço apenas após callback TTS; regressão PDF confirmou avanço e parada em navegação manual. Ambos passaram 1/1 no TABLET/API 35 em 2026-10-12.
+- [x] Homologar CBR com fixture sintética RAR4 de duas páginas e texto conhecido: `cbrSpeechRecognizesCurrentPageOfflineAndAdvancesAfterUtterance` passou 1/1 no TABLET/API 35; OCR encaminhou ambas as frases ao TTS fake e avançou só após callback. XML: 0 falhas/erros/ignorados (2026-10-12).
+- [x] Quality gate após fixture/teste: 1.708 testes JVM, 0 falhas/erros/ignorados; lint módulo/app, assemble Debug e compilação AndroidTest app/módulo — `BUILD SUCCESSFUL`.
+- [ ] Homologar CBR real autorizado, orientação/baixa resolução, idiomas não Latin, latência/bateria, áudio audível, TalkBack/D-pad e PHONE/TV.
 - [ ] Sem bump de versão, APK de produção, portal ou publicação.
 
 ## Ocultação de livros em toda a experiência Android TV (validação local; sem release)
@@ -400,7 +408,7 @@
 - [x] Unificar a ordenação natural de CBZ/CBR e tokenizar cada nome de página uma vez por ordenação, em vez de recriar tokens em cada comparação; cobrir páginas numéricas, zeros à esquerda, desempate de caixa e números acima do limite de inteiro.
 - [x] Verificar cancelamento entre entradas durante a indexação feita pelo app e antes/depois da ordenação; propagar `CancellationException` e fechar o arquivo RAR no caminho de erro. Regressão JVM confirma que a indexação para após o cancelamento.
 - [ ] Auditoria upstream do Junrar 8.1.1 (2026-10-08): `Archive` lê os cabeçalhos durante a construção e mantém todos em `headers`; `nextFileHeader()` apenas percorre essa lista depois. O limite `MAX_ARCHIVE_ENTRIES` do APK só é aplicado após essa alocação, portanto não protege o pico de memória nem permite interromper a leitura inicial. O parser não expõe limite prévio/cancelamento nessa API; manter o risco explícito e avaliar parser mantido com leitura incremental ou contribuição upstream, sem implementar scanner RAR caseiro. Fonte: https://github.com/junrar/junrar/blob/v8.1.1/src/main/java/com/github/junrar/Archive.java
-- [ ] Validar mídia MOBI real servida pelo Mulletaflix; HUFF/CDIC tem decoder coberto por fixtures sintéticas, mas precisa de validação com exemplar real. AZW3/KF8 não protegido é aberto em texto simples; CSS, imagens e links não são renderizados. MOBI com DRM permanece sem suporte direto; qualquer conversão no servidor está fora do escopo APK.
+- [ ] Validar mídia MOBI real servida pelo Mulletaflix; HUFF/CDIC tem decoder coberto por fixtures sintéticas, mas precisa de validação com exemplar real. AZW3/KF8 não protegido é aberto em texto simples; CSS, imagens e links externos/entre documentos não são renderizados. Fragmentos internos são suportados. MOBI com DRM permanece sem suporte direto; qualquer conversão no servidor está fora do escopo APK.
 - [ ] Sem bump de versão, APK de produção, portal ou publicação.
 
 Este documento rastreia o status de implementação de todas as funcionalidades, módulos, telas e componentes do aplicativo oficial **MulletaFlix Android**.
@@ -723,6 +731,7 @@ Este documento rastreia o status de implementação de todas as funcionalidades,
 - [x] Reutilizar o limpador Coil de memória/disco nas ações manuais de Ajustes, Perfil e limpeza de dados locais; manter o diretório de disco do Coil sob controle do próprio cache e preservar downloads Media3.
 - [x] Testar que cada entrada manual invoca a limpeza compartilhada e que a limpeza de dados locais preserva downloads; cobertura unitária de Settings/Profile e teste instrumentado da limpeza real do cache.
 - [x] Testar o trabalho periódico real com `TestDriver`: confirmar intervalo de 1 h, limpeza dos caches Coil em memória/disco e preservação de uma entrada isolada no cache offline Media3; o prazo real do sistema operacional não é simulado.
+- [x] Integração real verificada em 2026-10-12: após download Media3 concluído pelo fluxo de produção, executar a limpeza horária Coil com WorkManager `TestDriver`; o item permaneceu `COMPLETED` e reproduziu offline sem nova requisição. TABLET/API 35, `OfflinePlayerProductionDownloadFlowTest.productionDownloadRepositoryFeedsOfflinePlayerFromCacheWithoutNetwork` 1/1, 0 falhas/erros/ignorados. `TestDriver` simula o vencimento do intervalo; não simula uma hora de relógio real.
 - [x] Não apagar downloads offline explícitos: o player de streaming não persiste bytes de sessões online e compartilha apenas conteúdo já baixado.
 - [x] Ocultar toda ação de iniciar download na Android TV, inclusive baixar filme/série e temporada; não mostrar progresso nem cancelamento de lote na interface TV. Celular/tablet mantêm as ações.
 - [x] Na Android TV, ocultar Downloads da Home e de Ajustes; redirecionar acesso direto à fila para a Home. Downloads offline existentes continuam reproduzíveis por celular/tablet.
@@ -3661,7 +3670,15 @@ Pendências relacionadas:
 - [x] Executar a busca fora da thread principal; busca case/diacrítico-insensível, máximo de 100 resultados e mensagem recuperável se ocorrer erro.
 - [x] Cobrir interação e navegação entre capítulos com EPUB de fixture em PHONE/API 35; manter cobertura existente para busca e salto em livros de texto.
 - [ ] Validar com EPUB real do usuário/servidor e em tablet/TV; sem essa evidência, não afirmar compatibilidade com todos os EPUBs.
-- [ ] Busca em quadrinhos e outros formatos binários permanece fora deste incremento.
+- [x] Busca local em páginas CBZ/CBR: OCR Latin offline sob demanda, leitura sequencial e resultado navegável pelo locator da página; cache LRU limitado a 3 páginas e bitmap até 2048 px por lado.
+- [x] Mostrar páginas concluídas na busca paginada, com barra acessível e no máximo 100 checkpoints periódicos (+ início/fim quando não coincidem) para evitar recomposição excessiva em arquivos extensos.
+- [x] Adicionar ação explícita “Cancelar busca”: cancela o job da interface, limpa progresso/estado e permite iniciar outra consulta; Compose AndroidTest em TABLET/API 35, 6/6.
+- [x] Tornar a espera pelo resultado OCR CBR suspensível/cancelável: a busca retorna sem aguardar inferência ML Kit em curso; bitmap e recognizer permanecem válidos até a Task terminar, então são liberados. Teste unitário Robolectric verifica cancelamento imediato e limpeza adiada; ciclo RED/GREEN e gate registrados em `TDD-PLAN.md` (2026-10-12).
+- [x] Executar OCR de CBZ com texto sintético conhecido em TABLET/API 35; ML Kit local reconheceu o texto e busca retornou a página correta (2026-10-12).
+- [x] Revalidar OCR/busca sintéticos em PHONE/API 35: CBR e CBZ passaram 2/2; PDF digitalizado passou 1/1. A AVD temporária foi encerrada pelo wrapper; isso não homologa mídia real ou TV.
+- [ ] Validar OCR e busca CBR com fixture licenciada/autorizada real; a fixture sintética atual valida narração e navegação, não diversidade de mídia de usuário.
+- [ ] Validar anúncio TalkBack e atualização visual do progresso em PHONE. Cancelar a busca não interrompe a inferência nativa ML Kit já iniciada: ela continua em segundo plano até a Task concluir, mantendo bitmap/recognizer vivos nesse intervalo.
+- [ ] Homologar reconhecimento com arquivos CBZ/CBR reais em PHONE/TABLET/TV, incluindo cancelamento durante OCR e medição de latência/bateria em arquivo extenso; OCR Latin pode não reconhecer outros alfabetos.
 
 ## Busca de texto em PDF (APK local; sem release)
 
@@ -3670,7 +3687,8 @@ Pendências relacionadas:
 - [x] Cobrir política de busca com testes unitários e adicionar teste Compose + PDF via MockWebServer para resultado e navegação.
 - [x] Testes: `BookPdfTextSearchTest` (4 casos); `BookReaderScreenIntegrationTest` 14/14 em PHONE/API 35; extração, busca e navegação reais sobre fixture PDF aprovadas.
 - [x] PDF somente imagem: fallback OCR Latin local integrado à extração e busca por página; teste unitário de disponibilidade e instrumentação em TABLET/API 35 validam disponibilidade, reconhecimento offline e localização do resultado.
-- [ ] Validar PDFs variados, idiomas não Latin, orientação/resolução e documentos extensos sob memória limitada; quadrinhos imagem permanecem sem OCR dedicado.
+- [x] Cancelamento da espera do OCR PDF retorna sem aguardar a Task ML Kit em andamento; bitmap e recognizer permanecem válidos até a conclusão e só então são liberados. Coberto por `PdfBookDocumentOcrTest`; RED/GREEN, PHONE/API 35 e gate em `TDD-PLAN.md` (2026-10-12).
+- [ ] Validar PDFs e quadrinhos variados, idiomas não Latin, orientação/resolução e documentos extensos sob memória limitada.
 - [ ] Sem bump, APK de produção, portal ou publicação; alteração exclusivamente local do APK.
 
 ## Jornada integrada de solicitação de mídia (APK local; sem release)
@@ -3718,9 +3736,9 @@ Pendências relacionadas:
 - [x] Em MOBI híbrido, selecionar o fluxo KF8 quando EXTH 121, BOUNDARY, FDST e índices INDX/TAGX estiverem válidos; preservar fallback para MOBI 7 se o fluxo KF8 estiver incompleto.
 - [x] Validar o carregamento assíncrono do arquivo AZW3 real no `BookReaderViewModel` e conferir texto no estado final, erro nulo, sem publicação/pageBook.
 - [x] Otimizar reconstrução KF8 com buffer de segmentos e conversão HTML linear; preservar caracteres HTML, limites de parágrafo, capítulos visíveis e texto de fixture real. Teste ViewModel real: 24,0 s após ajuste, sem elevar o limite do `runTest`.
-- [ ] Validar composição e interação do leitor AZW3/KF8 por Compose em PHONE/TABLET/TV quando o AVD reservado for liberado.
-- [ ] Flow de imagens/fontes/CSS, navegação por links e compatibilidade com arquivos reais do usuário continuam pendentes.
-- [ ] Validar interação Compose nos perfis depois que o usuário liberar o AVD reservado.
+- [x] Implementar navegação por fragmentos internos no HTML/KF8 textual: `id` e `a[name]` (incluindo entidades HTML) resolvem para o offset de texto/chunk do alvo; ao tocar, o leitor rola até a linha correta mesmo dentro do mesmo chunk. Destino ausente, URL externa ou outro arquivo não vira link acionável; links são limitados a 10.000 marcadores e spans divididos entre chunks preservam o destino. Testes JVM cobrem parsing/offset; Compose instrumentado cobre interação e rolagem, mas execução em dispositivo permanece pendente.
+- [ ] Validar toque e TalkBack em PHONE/TABLET e foco/OK por D-pad na TV quando houver perfis/AVDs liberados; validar também com arquivos KF8 reais autorizados. O AVD `MulletaflixApi35` permanece reservado.
+- [ ] Recursos de imagem, fontes e CSS do KF8 continuam sem renderização; validar também com arquivos reais autorizados do usuário antes de declarar compatibilidade ampla.
 - [ ] Sem bump, APK de produção ou publicação; alteração exclusivamente local do APK.
 
 ## Integridade de payload binário no leitor RTF (APK local; sem release)
@@ -3728,5 +3746,15 @@ Pendências relacionadas:
 - [x] Rejeitar `\\binN` com tamanho ausente/negativo ou bytes truncados, em vez de ignorar o erro e apresentar texto incompleto.
 - [x] Cobrir truncamento e comprimentos inválidos; validar arquivo realista com payload de dois bytes UTF-8 que decodifica como um caractere, além do cenário existente de bytes completos com chaves no payload.
 - [x] Quality Gate: `RtfBookTextParserTest` 13/13; suíte JVM 1.680 aprovados, 0 falhas/erros/ignorados; lint do módulo e app, assemble Debug e compilação AndroidTest — `BUILD SUCCESSFUL`. Graphify atualizado; revisão Cavecrew sem achados.
-- [ ] Instrumentação visual/AVD fica pendente até o usuário liberar o dispositivo reservado.
+- [x] AndroidTest do fluxo completo: RTF truncado mostra erro compreensível sem texto parcial; retry recebe RTF íntegro, limpa o erro e renderiza o texto. Passou 1/1 em PHONE/API 35 (`SmartMeasureApi35Play`) em 2026-10-12.
+- [ ] TalkBack, D-pad em TV e arquivos RTF reais diversos permanecem pendentes; o teste usa MockWebServer e fixture sintética.
 - [x] Sem AVD, bump, APK de produção, portal ou publicação nesta alteração local do APK.
+
+## Ciclo de vida da narração ao trocar de livro (APK local)
+
+- [x] Auditoria confirmou que o job paginado sobrevivia à troca do `itemId`; `DisposableEffect(itemId)` agora cancela o job do livro anterior e interrompe sua fala sem fechar o controlador compartilhado da tela.
+- [x] AndroidTest suspende a extração do PDF A, troca o livro mantendo composição, espera o PDF B distinto (3 páginas), confere ambas as rotas e exige cancelamento/ausência de fala obsoleta. RED esperado reproduzido; GREEN passou 1/1 em PHONE/API 35.
+- [x] AndroidTest `switchingBookStopsActivePageNarrationAndIgnoresLateSpeechCallback` inicia TTS do livro A com múltiplos trechos, troca para B, exige parada do engine antigo e entrega callback tardio; passou 1/1 em PHONE/API 35 em 2026-10-12. Revisão adversarial detectou que o texto inicial cabia em um único trecho; fixture foi ampliada para comprovar que um callback aceito tentaria iniciar o trecho seguinte.
+- [x] Quality gate 2026-10-12: suíte JVM 1.710/1.710, lint módulo/app, `assembleDebug` e compilação AndroidTest módulo/app — `BUILD SUCCESSFUL`; wrapper validou NVIDIA e encerrou AVD temporário `MulletaflixCodexPhoneApi35`. AVDs preexistentes preservados.
+- [ ] Verificar ON_STOP, TalkBack/D-pad e perfis TV/aparelho físico; a troca durante TTS ativo agora tem cobertura instrumentada apenas em PHONE/API 35 e não equivale à homologação geral.
+- [x] Sem bump, APK de produção, servidor, portal ou publicação nesta alteração local.

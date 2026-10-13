@@ -117,15 +117,23 @@ internal object BookPdfTextSearch {
         pageCount: Int,
         query: String,
         maxResults: Int = BookTextSearch.MAX_RESULTS,
+        onProgress: suspend (currentPage: Int, totalPages: Int) -> Unit = { _, _ -> },
         extractPageText: suspend (Int) -> String,
     ): List<BookPdfSearchHit> {
         val limit = minOf(maxResults, BookTextSearch.MAX_RESULTS)
         if (pageCount <= 0 || query.isBlank() || limit <= 0) return emptyList()
+        val progressInterval = (
+            (pageCount.toLong() + MAX_PERIODIC_PROGRESS_CHECKPOINTS - 1) / MAX_PERIODIC_PROGRESS_CHECKPOINTS
+            ).toInt().coerceAtLeast(1)
 
         return buildList {
             for (pageIndex in 0 until pageCount) {
                 currentCoroutineContext().ensureActive()
+                val currentPage = pageIndex + 1
                 val text = extractPageText(pageIndex)
+                if (pageIndex == 0 || currentPage == pageCount || currentPage % progressInterval == 0) {
+                    onProgress(currentPage, pageCount)
+                }
                 if (BookTextSearch.search(listOf(text), query, maxResults = 1).isNotEmpty()) {
                     add(BookPdfSearchHit(pageIndex, BookTextSearch.contextualSnippet(text, query)))
                     if (size == limit) break
@@ -133,6 +141,8 @@ internal object BookPdfTextSearch {
             }
         }
     }
+
+    private const val MAX_PERIODIC_PROGRESS_CHECKPOINTS = 100
 }
 
 internal suspend fun searchBookPublication(

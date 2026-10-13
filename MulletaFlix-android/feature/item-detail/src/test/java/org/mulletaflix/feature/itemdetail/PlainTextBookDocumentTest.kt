@@ -515,6 +515,78 @@ class PlainTextBookDocumentTest {
     }
 
     @Test
+    fun `maps same-document fragment links to visible anchor IDs and legacy names`() = withTempDirectory { directory ->
+        val file = directory.resolve("html-links.html").apply {
+            writeText(
+                "<p><a href=\"#chapter&amp;two\">Leia o capítulo</a> " +
+                    "<a href=\"#legacy\">nota antiga</a> " +
+                    "<a href=\"#missing\">destino ausente</a> " +
+                    "<a href=\"other.html#chapter&amp;two\">outro arquivo</a> " +
+                    "<a href=\"https://example.invalid/#chapter&amp;two\">externo</a></p>" +
+                    "<p>${"texto longo ".repeat(150)}</p>" +
+                    "<h2 id=\"chapter&amp;two\">Capítulo de destino</h2>" +
+                    "<p>${"continuação ".repeat(150)}</p>" +
+                    "<a name=\"legacy\">Âncora legada</a>",
+            )
+        }
+
+        val document = PlainTextBookDocument.open(file, "text/html")
+        val fullText = document.chunks.joinToString("")
+        val mappedLinks = document.linksByChunk.values.flatten()
+
+        assertEquals(2, mappedLinks.size)
+        val labels = mappedLinks.map { link ->
+            val sourceChunk = document.chunks[document.linksByChunk.entries.single { link in it.value }.key]
+            sourceChunk.substring(link.start, link.endExclusive)
+        }
+        assertEquals(setOf("Leia o capítulo", "nota antiga"), labels.toSet())
+        mappedLinks.forEach { link ->
+            assertTrue(link.start >= 0)
+            assertTrue(link.endExclusive > link.start)
+            assertTrue(link.endExclusive <= document.chunks[document.linksByChunk.entries.single { link in it.value }.key].length)
+        }
+        val targetByLabel = labels.zip(mappedLinks.map { document.chunks[it.targetChunk] }).toMap()
+        assertTrue(targetByLabel.getValue("Leia o capítulo").contains("Capítulo de destino"))
+        assertTrue(targetByLabel.getValue("nota antiga").contains("Âncora legada"))
+        assertTrue(fullText.contains("externo"))
+    }
+
+    @Test
+    fun `keeps a long internal link actionable when its text crosses chunk boundaries`() = withTempDirectory { directory ->
+        val linkText = "link label ".repeat(260)
+        val file = directory.resolve("html-link-across-chunks.html").apply {
+            writeText("<a href='#end'>$linkText</a><p>${"filler ".repeat(300)}</p><p id='end'>Final target.</p>")
+        }
+
+        val document = PlainTextBookDocument.open(file, "text/html")
+        val mappedSpans = document.linksByChunk.values.flatten()
+        val reconstructedLinkText = document.linksByChunk.toSortedMap().entries.joinToString("") { (chunkIndex, spans) ->
+            spans.joinToString("") { span ->
+                document.chunks[chunkIndex].substring(span.start, span.endExclusive)
+            }
+        }
+
+        assertTrue("Long link should span multiple virtual chunks.", mappedSpans.size > 1)
+        assertEquals(linkText, reconstructedLinkText)
+        assertTrue(mappedSpans.map { it.targetChunk }.distinct().single() in document.chunks.indices)
+        assertTrue(document.chunks[mappedSpans.first().targetChunk].contains("Final target."))
+    }
+
+    @Test
+    fun `maps a same-chunk fragment to the visible target text offset`() = withTempDirectory { directory ->
+        val file = directory.resolve("html-same-chunk-link.html").apply {
+            writeText("<p><a href='#inside'>Jump</a></p><p>${"before destination ".repeat(8)}</p><p id='inside'>Destination text.</p>")
+        }
+
+        val document = PlainTextBookDocument.open(file, "text/html")
+        val link = document.linksByChunk.values.flatten().single()
+
+        assertEquals(0, link.targetChunk)
+        assertTrue(link.targetOffset > 0)
+        assertTrue(document.chunks[link.targetChunk].substring(link.targetOffset).startsWith("Destination text."))
+    }
+
+    @Test
     fun `keeps nested malformed HTML headings as separate table of contents entries`() = withTempDirectory { directory ->
         val file = directory.resolve("nested-headings.html").apply {
             writeText("<h2>Outer <h3>Inner</h3> tail</h2>")

@@ -2,11 +2,13 @@ package org.mulletaflix.feature.itemdetail
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -20,6 +22,11 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.ProgressBarRangeInfo
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.progressBarRangeInfo
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -33,7 +40,7 @@ import kotlinx.coroutines.withContext
 
 @Composable
 internal fun BookTextSearchDialog(
-    search: suspend (String) -> List<BookTextSearchResult>,
+    search: suspend (String, suspend (currentPage: Int, totalPages: Int) -> Unit) -> List<BookTextSearchResult>,
     onDismiss: () -> Unit,
     onOpenResult: (BookTextSearchResult) -> Unit,
 ) {
@@ -42,6 +49,7 @@ internal fun BookTextSearchDialog(
     var hasSearched by remember { mutableStateOf(false) }
     var isSearching by remember { mutableStateOf(false) }
     var searchFailed by remember { mutableStateOf(false) }
+    var searchProgress by remember { mutableStateOf<BookSearchProgress?>(null) }
     var activeQuery by remember { mutableStateOf<String?>(null) }
     var activeSearch by remember { mutableStateOf<Job?>(null) }
     var searchGeneration by remember { mutableStateOf(0) }
@@ -53,6 +61,7 @@ internal fun BookTextSearchDialog(
         results.clear()
         hasSearched = false
         searchFailed = false
+        searchProgress = null
         if (isSearching) {
             searchGeneration++
             activeSearch?.cancel()
@@ -71,10 +80,19 @@ internal fun BookTextSearchDialog(
         isSearching = true
         hasSearched = true
         searchFailed = false
+        searchProgress = null
         results.clear()
         activeSearch = scope.launch {
             try {
-                val matches = withContext(Dispatchers.IO) { search(requestedQuery) }
+                val matches = withContext(Dispatchers.IO) {
+                    search(requestedQuery) { currentPage, totalPages ->
+                        withContext(Dispatchers.Main.immediate) {
+                            if (generation == searchGeneration) {
+                                searchProgress = BookSearchProgress(currentPage, totalPages)
+                            }
+                        }
+                    }
+                }
                 if (generation == searchGeneration) results.addAll(matches)
             } catch (cancelled: CancellationException) {
                 throw cancelled
@@ -82,12 +100,25 @@ internal fun BookTextSearchDialog(
                 if (generation == searchGeneration) searchFailed = true
             } finally {
                 if (generation == searchGeneration) {
+                    searchProgress = null
                     isSearching = false
                     activeQuery = null
                     activeSearch = null
                 }
             }
         }
+    }
+
+    fun cancelSearch() {
+        val searchToCancel = activeSearch ?: return
+        searchGeneration++
+        activeSearch = null
+        activeQuery = null
+        searchProgress = null
+        isSearching = false
+        hasSearched = false
+        searchFailed = false
+        searchToCancel.cancel()
     }
 
     AlertDialog(
@@ -105,7 +136,25 @@ internal fun BookTextSearchDialog(
                     keyboardActions = KeyboardActions(onSearch = { search() }),
                 )
                 if (isSearching) {
-                    Text("Buscando…")
+                    val progress = searchProgress
+                    if (progress == null) {
+                        Text("Buscando…")
+                    } else {
+                        Text("Analisadas ${progress.currentPage} de ${progress.totalPages} páginas")
+                        LinearProgressIndicator(
+                            progress = { progress.currentPage.toFloat() / progress.totalPages },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag(BOOK_TEXT_SEARCH_PROGRESS_TEST_TAG)
+                                .semantics {
+                                    liveRegion = LiveRegionMode.Polite
+                                    progressBarRangeInfo = ProgressBarRangeInfo(
+                                        progress.currentPage.toFloat(),
+                                        0f..progress.totalPages.toFloat(),
+                                    )
+                                },
+                        )
+                    }
                 } else if (searchFailed) {
                     Text("Não foi possível pesquisar este livro.")
                 } else if (hasSearched && results.isEmpty()) {
@@ -137,7 +186,12 @@ internal fun BookTextSearchDialog(
             }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) { Text("Fechar") }
+            Row {
+                if (isSearching) {
+                    TextButton(onClick = ::cancelSearch) { Text("Cancelar busca") }
+                }
+                TextButton(onClick = onDismiss) { Text("Fechar") }
+            }
         },
     )
 }
@@ -147,6 +201,8 @@ internal data class BookTextSearchResult(
     val chunkIndex: Int? = null,
     val locator: Locator? = null,
 )
+
+private data class BookSearchProgress(val currentPage: Int, val totalPages: Int)
 
 internal suspend fun PlainTextBookDocument.searchResults(query: String): List<BookTextSearchResult> =
     BookTextSearch.search(chunks, query).map { index ->
@@ -165,3 +221,4 @@ internal fun Locator.toBookTextSearchResult(index: Int): BookTextSearchResult {
 
 internal const val BOOK_TEXT_SEARCH_QUERY_TEST_TAG = "book-text-search-query"
 internal const val BOOK_TEXT_SEARCH_RESULT_TEST_TAG = "book-text-search-result"
+internal const val BOOK_TEXT_SEARCH_PROGRESS_TEST_TAG = "book-text-search-progress"

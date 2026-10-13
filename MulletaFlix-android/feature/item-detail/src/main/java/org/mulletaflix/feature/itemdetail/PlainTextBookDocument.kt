@@ -22,9 +22,17 @@ internal data class PlainTextBookChapter(
     val chunkIndex: Int,
 )
 
+internal data class PlainTextBookLinkSpan(
+    val start: Int,
+    val endExclusive: Int,
+    val targetChunk: Int,
+    val targetOffset: Int = 0,
+)
+
 internal class PlainTextBookDocument private constructor(
     val chunks: List<String>,
     val chapters: List<PlainTextBookChapter> = emptyList(),
+    val linksByChunk: Map<Int, List<PlainTextBookLinkSpan>> = emptyMap(),
 ) {
     val chunkCount: Int get() = chunks.size
 
@@ -59,6 +67,7 @@ internal class PlainTextBookDocument private constructor(
         const val MAX_TEXT_BYTES = 8L * 1024L * 1024L
         const val MAX_HTML_BYTES = 2L * 1024L * 1024L
         private const val MAX_HTML_HEADINGS = 10_000
+        private const val MAX_HTML_LINK_MARKERS = 10_000
         private const val HTML_MARKER_START = "\uE000MFLIX"
         private const val HTML_MARKER_END = "\uE001"
         private const val HTML_CONTENT_TYPE = "text/html"
@@ -181,7 +190,7 @@ internal class PlainTextBookDocument private constructor(
                 val chapters = parsed.headings.map { heading ->
                     PlainTextBookChapter(heading.title, heading.depth, chunkIndexForOffset(chunks, heading.textOffset))
                 }
-                return PlainTextBookDocument(chunks, chapters)
+                return PlainTextBookDocument(chunks, chapters, mapHtmlLinksToChunks(chunks, parsed))
             }
             if (OdtBookTextExtractor.supports(contentType) || OdtBookTextExtractor.hasOpenDocumentTextPackage(file)) {
                 val content = OdtBookTextExtractor.extractContent(file)
@@ -265,7 +274,11 @@ internal class PlainTextBookDocument private constructor(
             } + htmlDocument?.headings.orEmpty().map { heading ->
                 PlainTextBookChapter(heading.title, heading.depth, chunkIndexForOffset(chunks, heading.textOffset))
             })
-            return PlainTextBookDocument(chunks, chapters)
+            return PlainTextBookDocument(
+                chunks,
+                chapters,
+                htmlDocument?.let { mapHtmlLinksToChunks(chunks, it) }.orEmpty(),
+            )
         }
 
         private fun openFictionBook(xml: String, emptyMessage: String): PlainTextBookDocument {
@@ -549,7 +562,17 @@ internal class PlainTextBookDocument private constructor(
         )
 
         private data class HtmlBookHeading(val title: String, val depth: Int, val textOffset: Int)
-        private data class HtmlBookDocument(val text: String, val headings: List<HtmlBookHeading>)
+        private data class HtmlBookDocument(
+            val text: String,
+            val headings: List<HtmlBookHeading>,
+            val links: List<HtmlBookLink>,
+        )
+        private data class HtmlBookLink(
+            val start: Int,
+            val endExclusive: Int,
+            val targetId: String,
+            val targetOffset: Int = -1,
+        )
         private data class HtmlHeadingMarker(
             val id: String,
             val depth: Int,
@@ -557,6 +580,14 @@ internal class PlainTextBookDocument private constructor(
             val end: String,
         )
         private data class HtmlMarkerEvent(val marker: HtmlHeadingMarker, val opening: Boolean)
+        private data class HtmlInlineMarker(
+            val token: String,
+            val kind: Kind,
+            val value: String = "",
+        ) {
+            enum class Kind { ANCHOR, LINK_START, LINK_END }
+        }
+        private data class ActiveHtmlLink(val targetId: String, val textOffset: Int)
         private data class ActiveHtmlHeading(
             val marker: HtmlHeadingMarker,
             val textOffset: Int,
@@ -567,21 +598,29 @@ internal class PlainTextBookDocument private constructor(
             val withoutNonContent = removeNonContentHtmlElements(html)
             val markers = mutableListOf<HtmlHeadingMarker>()
             val activeMarkers = mutableListOf<HtmlHeadingMarker>()
+            val inlineMarkers = mutableListOf<HtmlInlineMarker>()
+            val activeInlineLinks = mutableListOf<HtmlInlineMarker>()
             val namespace = generateSequence { UUID.randomUUID().toString() }
                 .first { !withoutNonContent.contains("$HTML_MARKER_START$it") }
             val headingTagPrefix = "mulletaflixheading${namespace.replace("-", "")}"
             val taggedHtml = markHtmlHeadings(withoutNonContent, headingTagPrefix)
-            val rendered = renderHtmlText(taggedHtml, headingTagPrefix, namespace, markers, activeMarkers)
+            val rendered = renderHtmlText(
+                taggedHtml, headingTagPrefix, namespace, markers, activeMarkers, inlineMarkers, activeInlineLinks,
+            )
             val normalized = normalizeHtmlText(rendered)
             val text = StringBuilder(normalized.length)
             val headings = mutableListOf<HtmlBookHeading>()
             val activeHeadings = mutableListOf<ActiveHtmlHeading>()
+            val anchors = linkedMapOf<String, Int>()
+            val activeLinks = mutableListOf<ActiveHtmlLink>()
+            val links = mutableListOf<HtmlBookLink>()
             val eventsByToken = buildMap {
                 markers.forEach { marker ->
                     put(marker.start, HtmlMarkerEvent(marker, opening = true))
                     put(marker.end, HtmlMarkerEvent(marker, opening = false))
                 }
             }
+            val inlineEventsByToken = inlineMarkers.associateBy(HtmlInlineMarker::token)
             var cursor = 0
             while (cursor < normalized.length) {
                 val markerStart = normalized.indexOf(HTML_MARKER_START, cursor)
@@ -608,13 +647,33 @@ internal class PlainTextBookDocument private constructor(
                             headings += HtmlBookHeading(title, active.marker.depth, active.textOffset)
                         }
                     }
-                } else {
-                    appendHtmlText(normalized, markerStart, tokenEnd, text, activeHeadings)
+                } else when (val inlineEvent = inlineEventsByToken[normalized.substring(markerStart, tokenEnd)]) {
+                    null -> appendHtmlText(normalized, markerStart, tokenEnd, text, activeHeadings)
+                    else -> when (inlineEvent.kind) {
+                        HtmlInlineMarker.Kind.ANCHOR -> anchors.putIfAbsent(inlineEvent.value, text.length)
+                        HtmlInlineMarker.Kind.LINK_START -> activeLinks += ActiveHtmlLink(inlineEvent.value, text.length)
+                        HtmlInlineMarker.Kind.LINK_END -> {
+                            val active = activeLinks.removeLastOrNull()
+                            if (active != null && active.textOffset < text.length) {
+                                links += HtmlBookLink(active.textOffset, text.length, active.targetId)
+                            }
+                        }
+                    }
                 }
                 cursor = tokenEnd
             }
             headings.sortBy(HtmlBookHeading::textOffset)
-            return HtmlBookDocument(text.toString(), headings)
+            return HtmlBookDocument(
+                text = text.toString(),
+                headings = headings,
+                links = links.mapNotNull { link ->
+                    anchors[link.targetId]?.let { anchorOffset ->
+                        var targetOffset = anchorOffset
+                        while (targetOffset < text.length && text[targetOffset].isWhitespace()) targetOffset++
+                        link.copy(targetOffset = targetOffset)
+                    }
+                },
+            )
         }
 
         /** Converts book HTML without building Android spans for every character. */
@@ -624,6 +683,8 @@ internal class PlainTextBookDocument private constructor(
             namespace: String,
             markers: MutableList<HtmlHeadingMarker>,
             activeMarkers: MutableList<HtmlHeadingMarker>,
+            inlineMarkers: MutableList<HtmlInlineMarker>,
+            activeInlineLinks: MutableList<HtmlInlineMarker>,
         ): String {
             val output = StringBuilder(html.length)
             val decodedEntities = HashMap<String, String>()
@@ -652,6 +713,31 @@ internal class PlainTextBookDocument private constructor(
                 }
                 val depth = tag.name.removePrefix(headingTagPrefix).toIntOrNull()
                     ?.takeIf { tag.name.startsWith(headingTagPrefix) && it in 1..6 }
+                if (!tag.isClosing) {
+                    val target = tag.attributes["id"]?.takeIf(String::isNotBlank)
+                        ?: tag.attributes["name"]?.takeIf { tag.name == "a" && it.isNotBlank() }
+                    if (target != null && inlineMarkers.size < MAX_HTML_LINK_MARKERS) {
+                        inlineMarkers += HtmlInlineMarker(
+                            token = "$HTML_MARKER_START${namespace}A${inlineMarkers.size}$HTML_MARKER_END",
+                            kind = HtmlInlineMarker.Kind.ANCHOR,
+                            value = decodeHtmlAttribute(target, decodedEntities),
+                        ).also { output.append(it.token) }
+                    }
+                    if (tag.name == "a") {
+                        val href = tag.attributes["href"]?.let { decodeHtmlAttribute(it, decodedEntities) }
+                        val fragment = href?.takeIf { it.startsWith('#') && it.length > 1 }?.substring(1)
+                        if (fragment != null && inlineMarkers.size < MAX_HTML_LINK_MARKERS) {
+                            val link = HtmlInlineMarker(
+                                token = "$HTML_MARKER_START${namespace}L${inlineMarkers.size}$HTML_MARKER_END",
+                                kind = HtmlInlineMarker.Kind.LINK_START,
+                                value = fragment,
+                            )
+                            inlineMarkers += link
+                            activeInlineLinks += link
+                            output.append(link.token)
+                        }
+                    }
+                }
                 if (depth != null) {
                     if (!tag.isClosing) {
                         if (markers.size >= MAX_HTML_HEADINGS) {
@@ -671,7 +757,17 @@ internal class PlainTextBookDocument private constructor(
                         val index = activeMarkers.indexOfLast { it.depth == depth }
                         if (index >= 0) output.append(activeMarkers.removeAt(index).end)
                     }
-                } else if (!tag.isClosing && tag.name in VISIBLE_RAW_TEXT_HTML_ELEMENTS) {
+                }
+                if (tag.isClosing && tag.name == "a") {
+                    val activeLink = activeInlineLinks.removeLastOrNull()
+                    if (activeLink != null) {
+                        inlineMarkers += HtmlInlineMarker(
+                            token = "$HTML_MARKER_START${namespace}E${inlineMarkers.size}$HTML_MARKER_END",
+                            kind = HtmlInlineMarker.Kind.LINK_END,
+                        ).also { output.append(it.token) }
+                    }
+                }
+                if (!tag.isClosing && tag.name in VISIBLE_RAW_TEXT_HTML_ELEMENTS) {
                     val rawEnd = findRawTextHtmlElementEnd(html, tag.name, tagEnd + 1)
                     val contentEnd = rawEnd ?: html.length
                     appendDecodedHtmlText(html, tagEnd + 1, contentEnd, output, decodedEntities)
@@ -683,6 +779,47 @@ internal class PlainTextBookDocument private constructor(
                 cursor = tagEnd + 1
             }
             return output.toString()
+        }
+
+        private fun decodeHtmlAttribute(value: String, cachedEntities: MutableMap<String, String>): String =
+            buildString(value.length) { appendDecodedHtmlText(value, 0, value.length, this, cachedEntities) }
+
+        private fun mapHtmlLinksToChunks(
+            chunks: List<String>,
+            document: HtmlBookDocument,
+        ): Map<Int, List<PlainTextBookLinkSpan>> {
+            if (document.links.isEmpty()) return emptyMap()
+            val spans = mutableMapOf<Int, MutableList<PlainTextBookLinkSpan>>()
+            val chunkStarts = IntArray(chunks.size)
+            var totalLength = 0
+            chunks.forEachIndexed { chunkIndex, chunk ->
+                chunkStarts[chunkIndex] = totalLength
+                totalLength += chunk.length
+            }
+            document.links.forEach { link ->
+                val targetChunk = chunkIndexForOffset(chunks, link.targetOffset)
+                val targetOffset = link.targetOffset - chunkStarts[targetChunk]
+                val firstChunk = (chunkStarts.binarySearch(link.start).let { result ->
+                    if (result >= 0) result else -result - 2
+                }).coerceAtLeast(0)
+                var index = firstChunk
+                while (index < chunks.size && chunkStarts[index] < link.endExclusive) {
+                    val chunkStart = chunkStarts[index]
+                    val chunkEnd = chunkStart + chunks[index].length
+                    val start = maxOf(link.start, chunkStart)
+                    val end = minOf(link.endExclusive, chunkEnd)
+                    if (start < end) {
+                        spans.getOrPut(index, ::mutableListOf) += PlainTextBookLinkSpan(
+                            start = start - chunkStart,
+                            endExclusive = end - chunkStart,
+                            targetChunk = targetChunk,
+                            targetOffset = targetOffset,
+                        )
+                    }
+                    index++
+                }
+            }
+            return spans
         }
 
         private fun appendHtmlLineBreak(output: StringBuilder, blankLine: Boolean) {
@@ -778,7 +915,9 @@ internal class PlainTextBookDocument private constructor(
                     if (tag.isClosing) {
                         marked.append("</$headingTagPrefix$depth></p>")
                     } else {
-                        marked.append("<p><$headingTagPrefix$depth>")
+                        marked.append("<p><$headingTagPrefix$depth")
+                        marked.append(html, tagStart + 1 + tag.name.length, tagEnd)
+                        marked.append('>')
                     }
                     copyFrom = tagEnd + 1
                 }

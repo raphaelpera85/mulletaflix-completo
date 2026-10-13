@@ -59,9 +59,11 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.setValue
@@ -78,6 +80,14 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.LinkAnnotation
+import androidx.compose.ui.text.LinkInteractionListener
+import androidx.compose.ui.text.TextLayoutResult
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.TextLinkStyles
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.withLink
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -107,6 +117,16 @@ import org.readium.navigator.media.tts.android.AndroidTtsPreferences
 import org.readium.navigator.media.tts.android.AndroidTtsEngine
 import kotlin.math.roundToInt
 
+internal val LocalBookPageTextExtractor = staticCompositionLocalOf<
+    suspend (PdfBookDocument?, ComicBookOcr?, Int) -> String
+> { { pdfBook, comicOcr, pageIndex ->
+    when {
+        pdfBook != null -> pdfBook.extractPageText(pageIndex)
+        comicOcr != null -> comicOcr.extractPageText(pageIndex)
+        else -> ""
+    }
+} }
+
 @Composable
 @OptIn(ExperimentalMaterial3Api::class)
 fun BookReaderScreen(
@@ -132,13 +152,15 @@ fun BookReaderScreen(
     val activity = context.findActivity()
     val lifecycleOwner = LocalLifecycleOwner.current
     val speechEngineFactory = LocalBookSpeechEngineFactory.current
+    val pageTextExtractor = LocalBookPageTextExtractor.current
     val coroutineScope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
     val speechLanguageResetNotice = stringResource(R.string.book_reader_speech_language_reset_notice)
     var currentPage by rememberSaveable(itemId) { mutableIntStateOf(0) }
-    var pdfSpeechActive by remember(itemId) { mutableStateOf(false) }
-    var pdfSpeechLoading by remember(itemId) { mutableStateOf(false) }
-    var pdfSpeechJob by remember(itemId) { mutableStateOf<Job?>(null) }
+    var pageSpeechActive by remember(itemId) { mutableStateOf(false) }
+    var pageSpeechLoading by remember(itemId) { mutableStateOf(false) }
+    val pageSpeechJobState = remember(itemId) { mutableStateOf<Job?>(null) }
+    var pageSpeechJob by pageSpeechJobState
     var currentTextChunk by rememberSaveable(itemId) { mutableIntStateOf(0) }
     var showBookSearch by rememberSaveable(itemId) { mutableStateOf(false) }
     var showAppearanceDialog by rememberSaveable(itemId) { mutableStateOf(false) }
@@ -195,6 +217,12 @@ fun BookReaderScreen(
     }
     val pdfBook = pageBook as? PdfBookDocument
     val pdfSpeechSupported = remember(pdfBook) { pdfBook?.supportsTextExtraction == true }
+    val comicOcr = remember(pageBook) {
+        if (pageBook is ComicBookArchive || pageBook is CbrBookArchive) ComicBookOcr(pageBook) else null
+    }
+    DisposableEffect(comicOcr) {
+        onDispose { comicOcr?.close() }
+    }
     LaunchedEffect(speechController, state.speechLanguageTag) {
         if (!speechController.setSpeechLanguage(state.speechLanguageTag)) {
             viewModel.setSpeechLanguageTag(itemId, null)
@@ -219,55 +247,72 @@ fun BookReaderScreen(
             }
         }
     }
-    val pdfSearchAvailable = pdfSpeechSupported
-    val stopPdfSpeech: () -> Unit = {
-        pdfSpeechJob?.cancel()
-        pdfSpeechJob = null
-        pdfSpeechLoading = false
-        pdfSpeechActive = false
+    val pageSearchAvailable = pdfSpeechSupported || comicOcr != null
+    val pageSpeechSupported = pdfSpeechSupported || comicOcr != null
+    val pageSpeechLabel = if (comicOcr != null) "Ler quadrinhos em voz alta" else "Ler PDF em voz alta"
+    val stopPageSpeech: () -> Unit = {
+        pageSpeechJob?.cancel()
+        pageSpeechJob = null
+        pageSpeechLoading = false
+        pageSpeechActive = false
         speechController.stop()
     }
-    val startPdfSpeech: (Int) -> Unit = { startAt ->
-        val document = pdfBook
-        if (document != null && pdfSpeechSupported) {
-            pdfSpeechJob?.cancel()
-            pdfSpeechActive = true
-            pdfSpeechLoading = true
-            pdfSpeechJob = coroutineScope.launch {
+    val startPageSpeech: (Int) -> Unit = { startAt ->
+        val source = pageBook
+        if (source != null && pageSpeechSupported) {
+            pageSpeechJob?.cancel()
+            pageSpeechActive = true
+            pageSpeechLoading = true
+            pageSpeechJob = coroutineScope.launch {
                 try {
-                    for (pageIndex in startAt.coerceAtLeast(0) until document.pageCount) {
-                        val text = withContext(Dispatchers.IO) { document.extractPageText(pageIndex) }
+                    for (pageIndex in startAt.coerceAtLeast(0) until source.pageCount) {
+                        val text = withContext(Dispatchers.IO) {
+                            pageTextExtractor(pdfBook, comicOcr, pageIndex)
+                        }
                         if (text.isNotBlank()) {
                             currentPage = pageIndex
                             speechController.play(PlainTextBookDocument.splitIntoChunks(text))
-                            pdfSpeechLoading = false
+                            pageSpeechLoading = false
                             return@launch
                         }
                     }
-                    pdfSpeechActive = false
-                    pdfSpeechLoading = false
+                    pageSpeechActive = false
+                    pageSpeechLoading = false
                     snackbarHostState.showSnackbar(
-                        if (startAt == 0) "Não foi possível reconhecer texto neste PDF para narração."
-                        else "Fim da narração do PDF.",
+                        if (startAt == 0) "Não foi possível reconhecer texto neste ${
+                            if (comicOcr != null) "quadrinho" else "PDF"
+                        } para narração."
+                        else "Fim da narração do ${if (comicOcr != null) "quadrinho" else "PDF"}.",
                     )
                 } catch (cancelled: CancellationException) {
                     throw cancelled
                 } catch (error: Exception) {
-                    pdfSpeechActive = false
-                    pdfSpeechLoading = false
-                    snackbarHostState.showSnackbar(error.userFacingMessageOr("Não foi possível narrar este PDF."))
+                    pageSpeechActive = false
+                    pageSpeechLoading = false
+                    snackbarHostState.showSnackbar(
+                        error.userFacingMessageOr(
+                            "Não foi possível narrar este ${if (comicOcr != null) "quadrinho" else "PDF"}.",
+                        ),
+                    )
                 }
             }
         }
     }
-    LaunchedEffect(pdfBook, speechController.state, pdfSpeechActive) {
-        if (pdfSpeechActive) {
+    DisposableEffect(itemId) {
+        val itemSpeechJobState = pageSpeechJobState
+        onDispose {
+            itemSpeechJobState.value?.cancel()
+            speechController.stop()
+        }
+    }
+    LaunchedEffect(pageBook, speechController.state, pageSpeechActive) {
+        if (pageSpeechActive) {
             when (speechController.state) {
-                BookSpeechState.Completed -> startPdfSpeech(currentPage + 1)
+                BookSpeechState.Completed -> startPageSpeech(currentPage + 1)
                 is BookSpeechState.Error -> {
-                    pdfSpeechActive = false
-                    pdfSpeechLoading = false
-                    pdfSpeechJob = null
+                    pageSpeechActive = false
+                    pageSpeechLoading = false
+                    pageSpeechJob = null
                 }
                 else -> Unit
             }
@@ -277,7 +322,7 @@ fun BookReaderScreen(
     DisposableEffect(lifecycleOwner, speechController) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_STOP) {
-                stopPdfSpeech()
+                stopPageSpeech()
                 epubSpeechNavigator?.pause()
                 epubSpeechActive = false
             }
@@ -285,6 +330,7 @@ fun BookReaderScreen(
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose {
             lifecycleOwner.lifecycle.removeObserver(observer)
+            pageSpeechJob?.cancel()
             epubSpeechSyncJob?.cancel()
             speechController.shutdown()
             epubSpeechNavigator?.close()
@@ -438,19 +484,21 @@ fun BookReaderScreen(
     }
 
     val epubSearchAvailable = publication?.findService(SearchService::class) != null && renditionController != null
-    if (showBookSearch && (textBook != null || epubSearchAvailable || pdfSearchAvailable)) {
+    if (showBookSearch && isBookSearchAvailable(textBook != null, epubSearchAvailable, pageSearchAvailable)) {
         BookTextSearchDialog(
-            search = { query ->
+            search = { query, reportProgress ->
                 val plainText = textBook
                 if (plainText != null) {
                     plainText.searchResults(query)
-                } else if (pdfBook != null && pdfSearchAvailable) {
-                    BookPdfTextSearch.search(pdfBook.pageCount, query) { pageIndex ->
-                        pdfBook.extractPageText(pageIndex)
+                } else if (pageBook != null && pageSearchAvailable) {
+                    BookPdfTextSearch.search(pageBook.pageCount, query, onProgress = reportProgress) { pageIndex ->
+                        withContext(Dispatchers.IO) {
+                            pdfBook?.extractPageText(pageIndex) ?: comicOcr?.extractPageText(pageIndex).orEmpty()
+                        }
                     }.map { hit ->
                         BookTextSearchResult(
                             label = "Página ${hit.pageIndex + 1}: ${hit.snippet}",
-                            locator = pdfBook.locatorForPage(hit.pageIndex),
+                            locator = pageBook.locatorForPage(hit.pageIndex),
                         )
                     }
                 } else {
@@ -467,9 +515,9 @@ fun BookReaderScreen(
                 if (chunk != null) {
                     navigateToTextChunk(chunk)
                 } else if (locator != null) {
-                    if (pdfBook != null) {
-                        stopPdfSpeech()
-                        pdfBook.pageIndexFromLocator(locator)?.let { currentPage = it }
+                    if (pageBook != null) {
+                        stopPageSpeech()
+                        pageBook.pageIndexFromLocator(locator)?.let { currentPage = it }
                     } else {
                         stopEpubSpeech()
                         renditionController?.let { controller ->
@@ -543,8 +591,7 @@ fun BookReaderScreen(
                 title = { Text("Leitor de livros", maxLines = 1) },
                 navigationIcon = {
                     IconButton(onClick = {
-                        speechController.stop()
-                        stopPdfSpeech()
+                        stopPageSpeech()
                         stopEpubSpeech()
                         onBack()
                     }) {
@@ -563,7 +610,7 @@ fun BookReaderScreen(
                             Icon(Icons.Default.Palette, contentDescription = null)
                         }
                     }
-                    if ((textBook != null || pdfSpeechSupported) && !state.isLoading) {
+                    if ((textBook != null || pageSpeechSupported) && !state.isLoading) {
                         IconButton(
                             onClick = openSpeechLanguageDialog,
                             enabled = !speechLanguageLoading,
@@ -579,7 +626,7 @@ fun BookReaderScreen(
                             }
                         }
                     }
-                    if ((textBook != null || epubSearchAvailable || pdfSearchAvailable) && !state.isLoading) {
+                    if (isBookSearchAvailable(textBook != null, epubSearchAvailable, pageSearchAvailable) && !state.isLoading) {
                         IconButton(onClick = { showBookSearch = true }) {
                             Icon(Icons.Default.Search, contentDescription = "Buscar no livro")
                         }
@@ -639,7 +686,7 @@ fun BookReaderScreen(
                                 if (pageBook != null) {
                                     pageBook.pageIndexFromLocator(bookmark.locator)
                                         ?.let {
-                                            stopPdfSpeech()
+                                            stopPageSpeech()
                                             currentPage = it
                                         }
                                         ?: viewModel.showBookmarkMessage("Este marcador não existe mais neste livro.")
@@ -665,7 +712,7 @@ fun BookReaderScreen(
                             onDeleteBookmark = { bookmarkId -> viewModel.deleteBookmark(itemId, bookmarkId) },
                             onRenameBookmark = { bookmarkId, label -> viewModel.renameBookmark(itemId, bookmarkId, label) },
                             onRestart = {
-                                stopPdfSpeech()
+                                stopPageSpeech()
                                 stopEpubSpeech()
                                 viewModel.restartReadingFromBeginning(itemId)
                             },
@@ -680,10 +727,11 @@ fun BookReaderScreen(
                     currentPage = currentPage,
                     pageCount = pageBook.pageCount,
                     pageStep = comicPageStep,
-                    speechEnabled = pdfSpeechSupported,
-                    speechLoading = pdfSpeechLoading,
+                    speechEnabled = pageSpeechSupported,
+                    speechContentDescription = pageSpeechLabel,
+                    speechLoading = pageSpeechLoading,
                     speechPreparing = speechController.state == BookSpeechState.Preparing,
-                    speechActive = pdfSpeechActive,
+                    speechActive = pageSpeechActive,
                     speechRatePercent = speechRatePercent,
                     onDecreaseSpeechRate = {
                         viewModel.setSpeechRatePercent(itemId, BookSpeechRate.decrease(speechRatePercent))
@@ -692,14 +740,14 @@ fun BookReaderScreen(
                         viewModel.setSpeechRatePercent(itemId, BookSpeechRate.increase(speechRatePercent))
                     },
                     onToggleSpeech = {
-                        if (pdfSpeechActive || speechController.isSpeaking) stopPdfSpeech()
+                        if (pageSpeechActive || speechController.isSpeaking) stopPageSpeech()
                         else {
                             if (speechController.state == BookSpeechState.Completed) speechController.stop()
-                            startPdfSpeech(currentPage)
+                            startPageSpeech(currentPage)
                         }
                     },
                     onPageSelected = { page ->
-                        if (pdfSpeechActive || speechController.isSpeaking) stopPdfSpeech()
+                        if (pageSpeechActive || speechController.isSpeaking) stopPageSpeech()
                         currentPage = page.coerceIn(0, pageBook.pageCount - 1)
                     },
                 )
@@ -896,6 +944,8 @@ internal fun BookReaderLoadingContent(message: String?) {
 
 internal const val BOOK_READER_LOADING_MESSAGE_TEST_TAG = "book-reader-loading-message"
 
+private data class PendingBookAnchor(val chunkIndex: Int, val targetOffset: Int)
+
 @Composable
 internal fun PlainTextBookReaderContent(
     document: PlainTextBookDocument,
@@ -907,8 +957,24 @@ internal fun PlainTextBookReaderContent(
 ) {
     val safeChunk = currentChunk.coerceIn(0, document.chunkCount - 1)
     val listState = rememberLazyListState(initialFirstVisibleItemIndex = safeChunk)
-    LaunchedEffect(document, safeChunk) {
-        if (listState.firstVisibleItemIndex != safeChunk) listState.scrollToItem(safeChunk)
+    val textLayouts = remember(document) { mutableStateMapOf<Int, TextLayoutResult>() }
+    var pendingAnchor by remember(document) { mutableStateOf<PendingBookAnchor?>(null) }
+    val pendingLayout = pendingAnchor?.let { textLayouts[it.chunkIndex] }
+    LaunchedEffect(document, safeChunk, pendingAnchor, pendingLayout) {
+        val anchor = pendingAnchor
+        if (anchor != null && anchor.chunkIndex == safeChunk) {
+            val layout = pendingLayout
+            if (layout == null) {
+                listState.scrollToItem(safeChunk)
+            } else {
+                val offset = anchor.targetOffset.coerceIn(0, document.chunks[safeChunk].length)
+                val line = layout.getLineForOffset(offset)
+                listState.scrollToItem(safeChunk, layout.getLineTop(line).roundToInt())
+                pendingAnchor = null
+            }
+        } else if (listState.firstVisibleItemIndex != safeChunk) {
+            listState.scrollToItem(safeChunk)
+        }
     }
     LaunchedEffect(document, listState) {
         snapshotFlow { listState.firstVisibleItemIndex }
@@ -925,8 +991,41 @@ internal fun PlainTextBookReaderContent(
             .testTag(PLAIN_TEXT_BOOK_READER_TEST_TAG),
     ) {
         itemsIndexed(document.chunks, key = { index, _ -> index }) { index, chunk ->
+            val chunkLinks = document.linksByChunk[index].orEmpty()
+            val linkColor = MaterialTheme.colorScheme.primary
+            val annotatedChunk = remember(document, index, chunk, chunkLinks, onChunkSelected) {
+                buildAnnotatedString {
+                    var cursor = 0
+                    chunkLinks.forEachIndexed { linkIndex, link ->
+                        val start = link.start.coerceIn(cursor, chunk.length)
+                        val end = link.endExclusive.coerceIn(start, chunk.length)
+                        if (start > cursor) append(chunk.substring(cursor, start))
+                        if (start < end) {
+                            withLink(
+                                LinkAnnotation.Clickable(
+                                    tag = "book-chunk-${link.targetChunk}-$linkIndex",
+                                    styles = TextLinkStyles(
+                                        style = SpanStyle(
+                                            color = linkColor,
+                                            textDecoration = TextDecoration.Underline,
+                                        ),
+                                    ),
+                                    linkInteractionListener = LinkInteractionListener {
+                                        pendingAnchor = PendingBookAnchor(link.targetChunk, link.targetOffset)
+                                        onChunkSelected(link.targetChunk)
+                                    },
+                                ),
+                            ) {
+                                append(chunk.substring(start, end))
+                            }
+                        }
+                        cursor = end
+                    }
+                    if (cursor < chunk.length) append(chunk.substring(cursor))
+                }
+            }
             Text(
-                text = chunk,
+                text = annotatedChunk,
                 style = MaterialTheme.typography.bodyLarge.copy(
                     fontSize = fontSize,
                     lineHeight = fontSize * 1.5f,
@@ -936,6 +1035,9 @@ internal fun PlainTextBookReaderContent(
                     .fillMaxWidth()
                     .padding(horizontal = 24.dp, vertical = 8.dp)
                     .testTag("$PLAIN_TEXT_BOOK_CHUNK_TEST_TAG-$index"),
+                onTextLayout = { layout ->
+                    if (textLayouts[index] != layout) textLayouts[index] = layout
+                },
             )
         }
     }
