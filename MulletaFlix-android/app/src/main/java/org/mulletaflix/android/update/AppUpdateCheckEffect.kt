@@ -14,9 +14,11 @@ import kotlinx.coroutines.isActive
 internal fun AppUpdateCheckEffect(
     lifecycleOwner: LifecycleOwner,
     intervalMillis: Long,
+    enabled: Boolean = true,
     checkForUpdate: () -> Unit,
 ) {
-    LaunchedEffect(lifecycleOwner, intervalMillis) {
+    LaunchedEffect(lifecycleOwner, intervalMillis, enabled) {
+        if (!enabled) return@LaunchedEffect
         lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
             checkSafely(checkForUpdate)
             if (intervalMillis <= 0L) return@repeatOnLifecycle

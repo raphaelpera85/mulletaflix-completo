@@ -9,8 +9,8 @@
   const pageSize = 25;
   let featurePage = 1;
   let latestData = null;
-  const statusText = { completed: 'Concluído', success: 'Aprovado', pending: 'Pendente', queued: 'Na fila', in_progress: 'Em execução', failure: 'Falhou', monitoring: 'Monitorando', unknown: 'Sem evidência' };
-  const statusClass = value => ({ completed: 'is-good', success: 'is-good', pending: 'is-warn', queued: 'is-warn', in_progress: 'is-live', failure: 'is-bad', monitoring: 'is-live', unknown: 'is-muted' }[value] || 'is-muted');
+  const statusText = { completed: 'Concluído', success: 'Aprovado', pending: 'Pendente', queued: 'Na fila', in_progress: 'Em execução', blocked: 'Bloqueado', failure: 'Falhou', monitoring: 'Monitorando', unknown: 'Sem evidência' };
+  const statusClass = value => ({ completed: 'is-good', success: 'is-good', pending: 'is-warn', queued: 'is-warn', blocked: 'is-warn', in_progress: 'is-live', failure: 'is-bad', monitoring: 'is-live', unknown: 'is-muted' }[value] || 'is-muted');
   const renderCoverage = data => {
     const coverage = data.coverage || {};
     const total = Number(coverage.total) || 0;

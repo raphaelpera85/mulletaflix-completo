@@ -191,6 +191,19 @@ class SyncPlayRealtimeClient @Inject constructor(
             }
         }
 
+        override fun onClosing(webSocket: WebSocket, code: Int, reason: String) {
+            val shouldAcknowledge = synchronized(connectionLock) {
+                isCurrentConnection(generation, webSocket)
+            }
+            if (shouldAcknowledge) {
+                // OkHttp reports 1005 when the remote close frame has no status;
+                // 1005 is a sentinel and cannot be sent in a close frame.
+                val replyCode = if (code == 1005) 1000 else code
+                val replyReason = if (code == 1005) "" else reason
+                webSocket.close(replyCode, replyReason)
+            }
+        }
+
         override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
             val wasCurrent = synchronized(connectionLock) {
                 if (!isCurrentConnection(generation, webSocket)) return@synchronized false

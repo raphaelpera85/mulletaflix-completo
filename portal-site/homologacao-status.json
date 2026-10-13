@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-10-13T10:08:55-03:00",
+  "generatedAt": "2026-10-13T13:44:20-03:00",
   "source": {
     "roadmap": "https://github.com/raphaelpera85/mulletaflix-completo/blob/main/docs/roadmap-evolucao-tecnologica-servidor-e-web.md",
     "repository": "https://github.com/raphaelpera85/mulletaflix-completo"
@@ -51,19 +51,19 @@
         "label": "11 de 21 áreas com evidência técnica local; 1 em validação e 9 pendentes. Aceite formal continua aberto."
       },
       "testAudit": {
-        "passed": 1734,
-        "total": 1734,
+        "passed": 1741,
+        "total": 1741,
         "skipped": 0,
         "failed": 0,
         "percent": 100,
-        "label": "JUnit auditável local: 1.734 aprovados, 0 ignorados, 0 falhas/erros; agregação dos 252 relatórios Gradle em 13/10/2026."
+        "label": "JUnit auditável local: 1.741 aprovados, 0 ignorados, 0 falhas/erros; agregação dos 252 relatórios Gradle em 13/10/2026."
       },
       "instrumentationAudit": {
-        "passed": 15,
-        "total": 15,
+        "passed": 36,
+        "total": 36,
         "skipped": 0,
         "failed": 0,
-        "label": "Media3/player 5/5; leitura HTTPS 1/1; DownloadManager HTTP LAN 1/1, HTTPS remoto 1/1; ExoPlayer legenda HTTPS 1/1 e redirect HTTPS→HTTP público bloqueado 1/1; Coil imagem HTTPS decodificada 1/1 e redirect HTTPS→HTTP público bloqueado 1/1; biblioteca offline/reconexão 1/1; contrato NetworkSecurityPolicy + guard cleartext 1/1; pausa/retomada individual Media3 1/1 em PHONE/API 35. AVD isolado; GPU NVIDIA verificada."
+        "label": "Media3/player 5/5; leitura HTTPS 1/1; DownloadManager HTTP LAN 1/1, HTTPS remoto 1/1; ExoPlayer legenda HTTPS 1/1 e redirect HTTPS→HTTP público bloqueado 1/1; Coil imagem HTTPS decodificada 1/1 e redirect HTTPS→HTTP público bloqueado 1/1; biblioteca offline/reconexão 1/1; contrato NetworkSecurityPolicy + guard cleartext 1/1; pausa/retomada individual Media3 1/1; MainActivitySessionNavigationTest 9/9; AppUpdateCheckEffectTest 2/2; cold start da Activity principal 4/4 fases em PHONE/API 35; ConnectivityNetworkCallbackTest 3/3 PHONE/API 35 e 3/3 PHONE/API 24 (inclui ramificação legacy). Execuções focais em AVD; GPU NVIDIA verificada."
       }
     },
     {
@@ -79,8 +79,8 @@
     "sourceUrl": "https://github.com/raphaelpera85/mulletaflix-completo/blob/main/MulletaFlix-android/TODO-APP.md",
     "scopeNote": "A matriz formal tem 21 áreas: 11 com evidência técnica local, 1 em validação e 9 pendentes. Testes automatizados e checkboxes do TODO não equivalem a aceite funcional. Nenhuma release de produção é certificada por esta matriz; o backlog integral permanece em TODO-APP.md.",
     "taskChecklist": {
-      "checked": 227,
-      "unchecked": 48,
+      "checked": 228,
+      "unchecked": 47,
       "total": 275,
       "definition": "Contagem literal de checkboxes desde o início do TODO-APP.md até antes do cabeçalho 'Funcionalidades APK validadas localmente, ainda não publicadas'; exclui o histórico arquivado e não equivale a percentual de homologação."
     },
@@ -108,7 +108,7 @@
         "id": "APK-H04",
         "name": "Bibliotecas, paginação, capas, filtros e ordenação",
         "status": "completed",
-        "evidence": "Testes locais de biblioteca, scroll/paginação, ordenação e perfis de tela registrados. Integração instrumentada adicional passou 1/1: tela real + ViewModel + repositório DataStore + NetworkMonitor, restauração offline após recriação de composição/ViewModel e atualização após reconexão; serviço simulado, não inclui morte real do processo. Aceite visual em aparelhos físicos continua separado."
+        "evidence": "Testes locais de biblioteca, scroll/paginação, ordenação e perfis de tela registrados. Integração instrumentada adicional passou 1/1: tela real + ViewModel + repositório DataStore + NetworkMonitor, restauração offline após recriação de composição/ViewModel e atualização após reconexão; serviço simulado, não inclui morte real do processo. Em 13/10/2026, HomeFeedCacheScopeTest passou 5/5 e confirmou que URLs fallback no escopo de cache offline da Home com HTTPS :443/HTTP :80 explícitas equivalem às portas padrão implícitas, enquanto a porta customizada 8443 continua isolada. Aceite visual em aparelhos físicos continua separado."
       },
       {
         "id": "APK-H05",
@@ -144,7 +144,7 @@
         "id": "APK-H10",
         "name": "SyncPlay e continuidade de sessão",
         "status": "completed",
-        "evidence": "Testes unitários/instrumentados e histórico de releases registram sincronização e ciclo de sessão; sincronização entre aparelhos de produção não foi verificada aqui."
+        "evidence": "Testes unitários/instrumentados e histórico de releases registram sincronização e ciclo de sessão. Integrações MockWebServer/peer TCP local verificam handshake, evento após falha HTTP 503, fechamento iniciado pelo servidor, resposta ao close frame, 1005 sentinela sem status respondido com 1000 válido, evento Disconnected, reconexão e cancelamento de retry confirmado ativo com stop; sincronização entre aparelhos/servidor de produção continua sem validação."
       },
       {
         "id": "APK-H11",
@@ -210,7 +210,7 @@
         "id": "APK-H21",
         "name": "Leitura de EPUB/CBZ servidos pela instância real",
         "status": "pending",
-        "evidence": "A leitura local/parsers possui evidência de teste; falta validar livros reais via API autenticada, MIME/respostas do servidor e retomada nos dispositivos-alvo."
+        "evidence": "A leitura local/parsers possui evidência de teste; Activity principal restaurou sessão e abriu/renderizou livro sintético após morte real do processo (cold start PHONE/API 35); harness exige metadata + /BookReader/Epub e não depende do polling best-effort de /BookReader/Status. Falta validar livros reais via API autenticada, MIME/respostas do servidor, Back/D-pad e retomada nos dispositivos-alvo."
       }
     ]
   },
@@ -2940,6 +2940,121 @@
     }
   ],
   "events": [
+    {
+      "id": "android-home-cache-default-port-normalization-2026-10-13",
+      "title": "Normalizar portas padrão no escopo fallback do cache da Home",
+      "agent": "Codex",
+      "front": "android",
+      "featureIds": [],
+      "local": "MulletaFlix-android",
+      "location": "MulletaFlix-android/data — HomeFeedCacheRepositoryImpl e HomeFeedCacheScopeTest",
+      "scope": "Tratar URLs equivalentes com portas padrão como a mesma origem para o cache offline da Home quando serverId não está disponível; preservar portas não padrão e isolamento por usuário.",
+      "status": "completed",
+      "progressPercent": null,
+      "updatedAt": "2026-10-13T13:44:20-03:00",
+      "evidence": "TDD RED reproduziu a divergência: HomeFeedCacheScopeTest teve 4 aprovados e 1 falha esperada (ComparisonFailure) entre HTTPS sem porta e :443. GREEN passou 5/5: HTTPS :443 e HTTP :80 agora equivalem às portas padrão implícitas; HTTPS :8443 continua distinto. Quality gate Android BUILD SUCCESSFUL: 1.741 testes JVM em 252 relatórios, 0 falhas/erros/ignorados; :data:lintDebug, :app:lintDebug, :app:assembleDebug, :data:compileDebugAndroidTestKotlin e :app:compileDebugAndroidTestKotlin passaram. Isto não valida reconstrução do DataStore concreto nem estado corrompido; HTTPS/HTTP são comparados separadamente e o isolamento por servidor/usuário continua. Homologação formal permanece 11/21 áreas com evidência local, 1 em validação, 9 pendentes e formalSignoff pending. Nenhuma release APK ou mudança do servidor."
+    },
+    {
+      "id": "android-connectivity-callback-api24-api35-2026-10-13",
+      "title": "Validar callbacks de conectividade em Android antigo e moderno",
+      "agent": "Codex",
+      "front": "android",
+      "featureIds": [],
+      "local": "D:\\Users\\Raphael\\Documents\\Projetos\\mulletaflix",
+      "location": "MulletaFlix-android/core/common/src/androidTest — ConnectivityNetworkCallbackTest",
+      "scope": "Caracterizar lookup legacy de capabilities/medição em API 24 e callbacks modernos em API 35; APK/testes apenas.",
+      "status": "completed",
+      "progressPercent": null,
+      "updatedAt": "2026-10-13T13:00:53-03:00",
+      "evidence": "ConnectivityNetworkCallbackTest passou 3/3 em PHONE/API 35 e 3/3 em PHONE/API 24. O teste novo usa Build.VERSION.SDK_INT; em API 24 observou schedule de lookup legacy após onAvailable e reconciliação de capabilities/estado tarifado; API 35 confirmou capabilities entregues. NVIDIA RTX 3050 verificada nos dois AVDs; wrapper encerrou ambos e ADB ficou sem dispositivos. Esta caracterização de callback com a rede ativa do AVD não valida roteador ou descoberta entre dispositivos físicos, múltiplas redes, cancelamento do Flow nem permissão ACCESS_LOCAL_NETWORK API 37. APK-H14 permanece pendente; matriz 11/21, 1 em validação, 9 pendentes e formalSignoff pending. Nenhuma release APK criada."
+    },
+    {
+      "id": "android-local-network-api37-emulator-boot-blocked-2026-10-13",
+      "title": "Tentativa de validar permissão de rede local na API 37 bloqueada pelo boot do AVD",
+      "agent": "Codex",
+      "front": "android",
+      "featureIds": [],
+      "local": "D:\\Users\\Raphael\\Documents\\Projetos\\mulletaflix",
+      "location": "MulletaFlix-android/feature/auth — ACCESS_LOCAL_NETWORK e LocalServerDiscoveryPermissionTest",
+      "scope": "Tentar executar a instrumentação de permissão Android 17/API 37 em AVD temporário; sem alterar o APK ou servidor.",
+      "status": "blocked",
+      "progressPercent": null,
+      "updatedAt": "2026-10-13T13:18:38-03:00",
+      "evidence": "Tentativa adicional com AVD temporário Pixel 6, imagem Google APIs 37.0 rev. 6 e 4 GB de RAM: o boot iniciou, mas surfaceflinger abortou repetidamente com `!rcEnc->featureInfo()->hasReadColorBufferDma`. A tentativa de desabilitar Vulkan não resolveu; a instrumentação/Gradle não iniciaram e nenhum caso de permissão foi contado. NVIDIA RTX 3050 foi usada durante a execução; o wrapper foi interrompido, encerrou o AVD e ADB terminou sem dispositivos. Junto da tentativa anterior na mesma imagem (Package Manager disponível, boot incompleto), isso caracteriza bloqueio de ambiente, não falha do APK. APK-H14 continua pendente, formalSignoff permanece pending. Próximo passo: obter imagem/versão de Emulator compatível e repetir os testes de runtime ACCESS_LOCAL_NETWORK antes de mudar o aceite."
+    },
+    {
+      "id": "android-book-reader-cold-start-harness-2026-10-13",
+      "title": "Corrigir falso negativo e validar cold start do leitor principal",
+      "agent": "Codex",
+      "front": "android",
+      "featureIds": [],
+      "local": "D:\\Users\\Raphael\\Documents\\Projetos\\mulletaflix",
+      "location": "MulletaFlix-android/tools/Test-AndroidBookMainProcessColdStart.ps1 e MainActivityBookColdStartTest",
+      "scope": "Remover do aceite do harness a rota best-effort de status e verificar leitura após morte real do processo principal com serviço sintético; somente APK/testes.",
+      "status": "completed",
+      "progressPercent": null,
+      "updatedAt": "2026-10-13T12:25:56-03:00",
+      "evidence": "TDD RED: Pester falhou 1/1 porque o host exigia /BookReader/Status. GREEN: lista obrigatória agora verifica metadata do item e /BookReader/Epub; a rota opcional foi removida. Execução com tools/with-emulator.ps1 no AVD temporário PHONE/API 35: captura de sessão 1/1, preparação 1/1, relançamento após force-stop e renderização do livro 1/1, restauração de sessão 1/1; PID 3555→3644. O host confirmou as rotas necessárias, GPU NVIDIA foi verificada, AVD foi encerrado e ADB ficou vazio. Pester 1/1, parser PowerShell e node --check passaram. Servidor e conteúdo sintéticos; APK-H21 permanece pendente para instância real, dispositivos físicos, Back/D-pad e arquivos reais. formalSignoff pending; sem release, APK de produção, portal publicado ou mudança do servidor."
+    },
+    {
+      "id": "android-syncplay-remote-close-2026-10-13",
+      "title": "Corrigir fechamento remoto e reconexão do SyncPlay realtime",
+      "agent": "Codex",
+      "front": "android",
+      "featureIds": [],
+      "local": "D:\\Users\\Raphael\\Documents\\Projetos\\mulletaflix",
+      "location": "MulletaFlix-android/core/api — SyncPlayRealtimeClient e testes MockWebServer",
+      "scope": "Responder ao close frame remoto, preservar evento de desconexão/reconexão e cancelar retry ao sair; somente APK, sem mudança do servidor.",
+      "status": "completed",
+      "progressPercent": null,
+      "updatedAt": "2026-10-13T12:02:49-03:00",
+      "evidence": "TDD RED reproduziu timeout no fechamento remoto; em frame TCP sem status, o peer não recebeu resposta. GREEN: onClosing responde somente para socket da geração/sala atual e converte sentinela 1005 em status válido 1000. MockWebServer validou falha HTTP 503 (Disconnected → Connected) e fechamento remoto (Connected → Disconnected → Connected); peer TCP confirmou quadro de resposta mascarado com 1000 usando um único fluxo de entrada. Com TestCoroutineScheduler, o teste captura o job de retry durante o backoff suspenso, chama stop e confirma cancelamento e ausência da segunda requisição após avançar o relógio virtual. Testes focais SyncPlayRealtimeClientTest passaram; gate Android BUILD SUCCESSFUL: 1.740 testes JVM em 252 relatórios, 0 falhas/erros/ignorados; lint :core:api/:app, assembleDebug e compilação AndroidTest :core:api/:app passaram. Matriz continua 11/21 áreas com evidência local, 1 em validação, 9 pendentes; formalSignoff pending. Loopback/MockWebServer não valida servidor de mídia ou aparelho real. Sem APK/release de produção."
+    },
+    {
+      "id": "android-syncplay-realtime-event-flow-2026-10-13",
+      "title": "Cobrir eventos WebSocket do SyncPlay",
+      "agent": "Codex",
+      "front": "android",
+      "featureIds": [],
+      "local": "D:\\Users\\Raphael\\Documents\\Projetos\\mulletaflix",
+      "location": "MulletaFlix-android/core/api — SyncPlayRealtimeClientTest",
+      "scope": "Adicionar evidência de integração do fluxo público de eventos do cliente SyncPlay; somente APK, sem mudança do servidor ou implementação de produção.",
+      "status": "completed",
+      "progressPercent": null,
+      "startedAt": "2026-10-13T11:12:33-03:00",
+      "updatedAt": "2026-10-13T11:28:12-03:00",
+      "evidence": "Registro histórico de 13/10/2026: teste JVM com MockWebServer validou handshake WebSocket e recebimento de SyncPlayCommand pelo fluxo público events (1/1). A cobertura subsequente de onClosing/onClosed, onFailure, Disconnected, retry e stop está registrada no evento android-syncplay-remote-close-2026-10-13."
+    },
+    {
+      "id": "android-update-effect-test-isolation-2026-10-13",
+      "title": "Isolar a checagem de atualização nos testes Android",
+      "agent": "Codex",
+      "front": "android",
+      "featureIds": [],
+      "local": "D:\\Users\\Raphael\\Documents\\Projetos\\mulletaflix",
+      "location": "MulletaFlix-android/app — AppUpdateCheckEffect, MainActivity e testes",
+      "scope": "Tornar a checagem periódica de atualização controlável na fixture de teste, sem desativar o comportamento de produção; escopo somente APK.",
+      "status": "completed",
+      "progressPercent": null,
+      "startedAt": "2026-10-13T10:54:00-03:00",
+      "updatedAt": "2026-10-13T11:11:48-03:00",
+      "evidence": "TDD RED: AppUpdateCheckEffectTest falhou pela asserção esperada; após desabilitar o efeito, callbacks subiram de 2 para 5. GREEN: o efeito observa enabled e cancela o loop; `AppUpdateCheckEffectTest` passou 2/2 no AVD PHONE/API 35; XML preservado em MulletaFlix-android/validation-evidence/2026-10-13/AppUpdateCheckEffectTest-PHONE-API35.xml. `AppUpdatePolicyTest` passou 5/5; `MainActivitySessionNavigationTest` passou 9/9 em execução anterior. Quality gate `testDebugUnitTest :app:lintDebug :app:assembleDebug :app:compileDebugAndroidTestKotlin --no-daemon --console=plain` passou; 1.735 testes JVM em 252 XML, zero falhas/erros/ignorados. AVD executada via wrapper com GPU NVIDIA e encerrada. Isto melhora hermeticidade de testes; não fecha área funcional nem altera homologação formal: 11/21 localmente evidenciadas, 1 em validação, 9 pendentes, formalSignoff pending. Limite: policy e lifecycle são testados em camadas, mas a Activity não intercepta sockets GitHub ponta a ponta. Sem release/APK de produção e sem alteração do servidor."
+    },
+    {
+      "id": "android-session-navigation-stability-2026-10-13",
+      "title": "Reteste de estabilidade da navegação cross-server no Android",
+      "agent": "Codex",
+      "front": "android",
+      "featureIds": [],
+      "local": "D:\\Users\\Raphael\\Documents\\Projetos\\mulletaflix",
+      "location": "MulletaFlix-android/app/src/androidTest — MainActivitySessionNavigationTest",
+      "scope": "Reexecutar a classe instrumentada completa após uma falha intermitente histórica; escopo somente APK.",
+      "status": "completed",
+      "progressPercent": null,
+      "startedAt": "2026-10-13T10:27:35-03:00",
+      "updatedAt": "2026-10-13T11:07:24-03:00",
+      "evidence": "MainActivitySessionNavigationTest reexecutado e passou 9/9 no AVD MulletaflixCodexPhoneApi35_20261012 (PHONE/API 35), 0 falhas/erros/ignorados; relatório preservado em MulletaFlix-android/validation-evidence/2026-10-13/MainActivitySessionNavigationTest-PHONE-API35.xml. Wrapper encerrou o emulador. Duas execuções completas anteriores também passaram 9/9, mas uma falha histórica 8/9 permanece sem causa confirmada. A evidência repetida não valida servidor ou aparelho reais e não muda a matriz formal: Android segue 11/21 áreas, 1 em validação, 9 pendentes e formalSignoff pending. Nenhuma release criada; servidor fora do escopo."
+    },
     {
       "id": "android-per-download-pause-resume-2026-10-13",
       "title": "Pausa e retomada individual de downloads no Android",

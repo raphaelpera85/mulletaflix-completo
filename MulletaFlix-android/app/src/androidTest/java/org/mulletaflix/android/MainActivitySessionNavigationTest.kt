@@ -442,7 +442,7 @@ class MainActivitySessionNavigationTest {
         val launchIntent = Intent(context, MainActivity::class.java).setData(
             Uri.parse("mulletaflix://details?id=server-b-item&serverId=server-b"),
         )
-        activityScenario = ActivityScenario.launch(launchIntent)
+        launchMainActivity(launchIntent)
 
         composeRule.waitUntil(timeoutMillis = 20_000) { serverSelectionVisible() }
         Thread.sleep(750)
@@ -581,7 +581,7 @@ class MainActivitySessionNavigationTest {
         val launchIntent = Intent(context, MainActivity::class.java).setData(
             Uri.parse("mulletaflix://details?id=$itemId&serverId=$serverId"),
         )
-        activityScenario = ActivityScenario.launch(launchIntent)
+        launchMainActivity(launchIntent)
 
         composeRule.waitUntil(timeoutMillis = 20_000) {
             receivedRequests.any { it == "GET /Users/instrumentation-deep-link-user/Items/$itemId" }
@@ -643,7 +643,7 @@ class MainActivitySessionNavigationTest {
         val launchIntent = Intent(context, MainActivity::class.java).setData(
             Uri.parse("mulletaflix://details?id=$itemId&serverId=$serverId"),
         )
-        activityScenario = ActivityScenario.launch(launchIntent)
+        launchMainActivity(launchIntent)
 
         composeRule.waitUntil(timeoutMillis = 20_000) {
             receivedRequests.contains("GET /Users/$userId/Items/$itemId") &&
@@ -670,8 +670,11 @@ class MainActivitySessionNavigationTest {
         )
     }
 
-    private fun launchMainActivity() {
-        activityScenario = ActivityScenario.launch(MainActivity::class.java)
+    private fun launchMainActivity(
+        intent: Intent = Intent(context, MainActivity::class.java),
+    ) {
+        intent.putExtra(EXTRA_SUPPRESS_APP_UPDATE_CHECK_FOR_TEST, true)
+        activityScenario = ActivityScenario.launch(intent)
     }
 
     private fun serverSelectionVisible(): Boolean =

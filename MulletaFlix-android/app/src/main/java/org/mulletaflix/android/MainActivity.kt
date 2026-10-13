@@ -123,10 +123,15 @@ class MainActivity : ComponentActivity() {
                 android.content.res.Configuration.UI_MODE_TYPE_MASK ==
                 android.content.res.Configuration.UI_MODE_TYPE_TELEVISION
 
+            val suppressUpdateCheckForTest = intent.getBooleanExtra(
+                EXTRA_SUPPRESS_APP_UPDATE_CHECK_FOR_TEST,
+                false,
+            )
             if (sessionResolved) {
                 AppUpdateCheckEffect(
                     lifecycleOwner = lifecycleOwner,
                     intervalMillis = appUpdateCheckIntervalMillis(isTelevision),
+                    enabled = shouldCheckForAppUpdates(BuildConfig.DEBUG, suppressUpdateCheckForTest),
                     checkForUpdate = { appUpdateViewModel.checkForUpdate(BuildConfig.VERSION_NAME) },
                 )
             }

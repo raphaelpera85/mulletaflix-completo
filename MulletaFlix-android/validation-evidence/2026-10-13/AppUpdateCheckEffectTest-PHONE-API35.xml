@@ -1,0 +1,10 @@
+<?xml version='1.0' encoding='UTF-8' ?>
+<testsuites tests="2" failures="0" errors="0" skipped="0" time="0.000" timestamp="2026-10-13T13:59:26" hostname="localhost">
+  <testsuite name="org.mulletaflix.android.update.AppUpdateCheckEffectTest" tests="2" failures="0" errors="0" skipped="0" time="3.190" timestamp="2026-10-13T13:59:26" hostname="localhost">
+    <properties>
+      <property name="device" value="emulator-5592" />
+    </properties>
+    <testcase name="disabling_a_running_effect_stops_future_update_callbacks" classname="org.mulletaflix.android.update.AppUpdateCheckEffectTest" time="2.263" />
+    <testcase name="periodic_check_runs_while_resumed_and_stops_in_background" classname="org.mulletaflix.android.update.AppUpdateCheckEffectTest" time="0.927" />
+  </testsuite>
+</testsuites>

@@ -9,6 +9,13 @@ import org.mulletaflix.android.update.appUpdateCheckIntervalMillis
 
 class AppUpdatePolicyTest {
     @Test
+    fun `test-only suppression disables update checks only in debug builds`() {
+        assertFalse(shouldCheckForAppUpdates(isDebuggableBuild = true, suppressForTest = true))
+        assertTrue(shouldCheckForAppUpdates(isDebuggableBuild = true, suppressForTest = false))
+        assertTrue(shouldCheckForAppUpdates(isDebuggableBuild = false, suppressForTest = true))
+    }
+
+    @Test
     fun `periodic update checks are limited to televisions`() {
         assertTrue(appUpdateCheckIntervalMillis(isTelevision = true) == TV_APP_UPDATE_CHECK_INTERVAL_MILLIS)
         assertTrue(appUpdateCheckIntervalMillis(isTelevision = false) == 0L)

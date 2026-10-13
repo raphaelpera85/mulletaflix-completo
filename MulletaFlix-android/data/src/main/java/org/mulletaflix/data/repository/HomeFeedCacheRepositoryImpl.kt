@@ -20,10 +20,11 @@ import org.mulletaflix.domain.model.MediaItemType
 import org.mulletaflix.domain.repository.HomeFeedCache
 import java.net.URI
 import java.security.MessageDigest
+import java.util.Locale
 import javax.inject.Inject
 import javax.inject.Singleton
 
-private val Context.homeFeedCacheStore by preferencesDataStore(name = "mulletaflix_home_cache")
+internal val Context.homeFeedCacheStore by preferencesDataStore(name = "mulletaflix_home_cache")
 
 /** Small versioned DTO deliberately excludes stream URLs, file paths, credentials and source metadata. */
 @JsonClass(generateAdapter = true)
@@ -194,6 +195,13 @@ internal fun homeFeedCacheScope(serverId: String?, serverUrl: String, userId: St
 }
 
 private fun normalizeServerUrl(value: String): String = runCatching {
-    val uri = URI(value.trim().trimEnd('/'))
-    "${uri.scheme?.lowercase()}://${uri.host?.lowercase()}:${uri.port}${uri.rawPath.orEmpty().trimEnd('/')}"
-}.getOrDefault(value.trim().trimEnd('/').lowercase())
+    val raw = value.trim()
+    val uri = URI(raw).normalize()
+    val scheme = uri.scheme?.lowercase(Locale.ROOT).orEmpty()
+    val host = uri.host?.lowercase(Locale.ROOT).orEmpty()
+    val port = uri.port.takeUnless {
+        it < 0 || (scheme == "https" && it == 443) || (scheme == "http" && it == 80)
+    }?.let { ":$it" }.orEmpty()
+    val path = uri.rawPath.orEmpty().trimEnd('/')
+    "$scheme://$host$port$path"
+}.getOrDefault(value.trim().trimEnd('/').lowercase(Locale.ROOT))

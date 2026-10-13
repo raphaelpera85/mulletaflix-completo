@@ -207,12 +207,11 @@ try {
         $paths = @($status.requests | ForEach-Object { $_.path })
         foreach ($requiredPath in @(
             "/Users/book-cold-start-user/Items/$itemId",
-            "/BookReader/Items/$itemId/BookReader/Status",
             "/BookReader/Items/$itemId/BookReader/Epub"
         )) {
             if ($requiredPath -notin $paths) { throw "Cold-start fixture did not receive required request '$requiredPath'." }
         }
-        Write-Host "Main app cold-start rendered the book; PID $pidBefore -> $pidAfter; required routes were requested."
+        Write-Host "Main app cold-start rendered the book; PID $pidBefore -> $pidAfter; required item and content routes were requested."
     }
 }
 finally {

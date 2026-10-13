@@ -42,6 +42,23 @@ class HomeFeedCacheScopeTest {
     }
 
     @Test
+    fun `endpoint fallback treats implicit and explicit https default ports as the same server`() {
+        // INTENT: homeFeedCacheScope currently encodes URI.port=-1 differently from :443; both URLs identify the same HTTPS origin and should reuse the same per-user offline snapshot.
+        assertEquals(
+            homeFeedCacheScope(null, "https://media.example/library", "user-1"),
+            homeFeedCacheScope(null, "https://media.example:443/library/", "user-1"),
+        )
+        assertEquals(
+            homeFeedCacheScope(null, "http://media.example/library", "user-1"),
+            homeFeedCacheScope(null, "http://media.example:80/library/", "user-1"),
+        )
+        assertNotEquals(
+            homeFeedCacheScope(null, "https://media.example/library", "user-1"),
+            homeFeedCacheScope(null, "https://media.example:8443/library", "user-1"),
+        )
+    }
+
+    @Test
     fun `cache dto serializes card fields without stream paths or credentials`() {
         val adapter = Moshi.Builder().build().adapter(HomeCardDto::class.java)
         val dto = HomeCardDto(

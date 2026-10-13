@@ -1,5 +1,15 @@
 # MulletaFlix Android - Plano de Desenvolvimento & Checklist de Funcionalidades (TODO)
 
+## Fluxo realtime WebSocket do SyncPlay — correção local; sem release
+
+- [x] Exercitar `SyncPlayRealtimeClient.events` com WebSocket real do MockWebServer: handshake emite `Connected` e uma mensagem `SyncPlayCommand` chega como evento `Command` pelo fluxo público.
+- [x] Corrigir fechamento iniciado pelo servidor: `onClosing` responde o close frame apenas quando socket, geração e sala ainda pertencem à conexão atual; `onClosed` pode então emitir `Disconnected` e iniciar reconexão. Código sentinela 1005 (frame sem status) recebe resposta válida 1000.
+- [x] Integrações verificam falha HTTP 503 (`Disconnected` → `Connected`), fechamento remoto com status (`Connected` → `Disconnected` → `Connected`), frame sem status pelo peer TCP (resposta mascarada 1000) e `stop()` cancelando retry efetivamente agendado, sem segunda requisição.
+- [x] A sincronização do teste de cancelamento observa que o job de conexão inicial terminou e que o retry está ativo, sem depender de pausa arbitrária.
+- [x] RED/GREEN e quality gate registrados em `TDD-PLAN.md`; 1.740 testes JVM/252 relatórios, zero falhas/erros/ignorados. Lint de `:core:api` e `:app`, `assembleDebug` e compilação AndroidTest de ambos passaram em 13/10/2026.
+- [ ] Validar comportamento SyncPlay com servidor real autorizado e aparelhos físicos; integração local não é aceite de produção nem fecha a homologação formal.
+- Escopo restrito ao APK/testes/documentação. Sem bump, APK/release de produção, assinatura, publicação ou alteração do servidor.
+
 ## Proteção contra iniciação duplicada do Quick Connect — APK local; sem release
 
 - [x] O ViewModel ignora nova iniciação enquanto já carrega ou aguarda autorização, antes de cancelar o polling/tarefa ativa. O estado de carregamento é marcado sincronamente antes da chamada de rede para fechar a janela entre taps/recomposições.
@@ -350,7 +360,7 @@
 - [x] TDD Pester 3.4: 4 testes aprovados (metadados corretos, nome de versão antigo, pacote divergente e código divergente). O validador também leu o APK existente `dist/mulletaflix-app.apk` como `org.mulletaflix.android` / `1.3.82` / `382`.
 - [x] Nenhum APK foi reconstruído, empacotado ou publicado nesta tarefa. APK-fonte de release não existe no diretório Gradle; não foi executada a criação de release.
 - [x] Adicionar teste de integração automatizado do empacotador: um APK sintético inválido é rejeitado pelo `aapt` do SDK, e hashes SHA-256 dos APKs versionado/mais recente preexistentes permanecem iguais.
-- [x] `Invoke-Pester -Script .\tools\Build-AppPackage.Tests.ps1 -PassThru`: 1/1 aprovado; fixture isolada em diretório temporário e removida ao final. O teste não chama Gradle nem assinatura de produção.
+- [x] `Invoke-Pester -Script .\tools\Build-AppPackage.Tests.ps1 -PassThru`: 1/1 aprovado; revalidado em 13/10/2026. Fixture isolada em diretório temporário e removida ao final; o teste não chama Gradle nem assinatura de produção.
 
 
 ## Regressão do despacho HTTP para leitores de livros — APK, sem release
@@ -559,10 +569,10 @@ Este documento rastreia o status de implementação de todas as funcionalidades,
 - [x] `BookReaderCacheFiles` agora recupera EPUB/CBZ órfãos com prefixo/extensão próprios ao inicializar o leitor; mantém registro de arquivos ativos compartilhado no processo para que abrir outra instância não remova mídia em uso e preserva arquivos fora do padrão.
 - [x] `BookReaderPayloadPolicyTest`: simula cache deixado por processo encerrado, confirma remoção dos EPUB/CBZ órfãos, preservação de arquivos não pertencentes ao leitor e de livro ainda ativo após inicializar outro leitor; exclusão que retorna `false` ou lança `SecurityException` não derruba o leitor e é tentada novamente na inicialização seguinte.
 - [x] Quality Bar após a recuperação do cache: `testDebugUnitTest` (1.416 testes, 0 falhas/erros/ignorados), `:feature:item-detail:lintDebug`, `:app:lintDebug` e `:app:assembleDebug`: `BUILD SUCCESSFUL`.
-- [ ] Validar cold start e renderização do APK principal (`org.mulletaflix.android.debug`) após morte do processo, falhas de renderização e navegação EPUB por Back do sistema/D-pad. A prova atual mata e reinicia o alvo Android isolado do módulo e valida o mesmo DataStore/ViewModel, mas não lança a Activity principal após o processo morrer. APK-H21 continua aberto até validar a tela integrada, instância real, mídia, MIME/autenticação e dispositivos-alvo.
-- [ ] Harness host-orquestrado parcial: AVD temporária API 35 confirmou captura/restauração 1/1, força encerramento do PID 3493, relançamento autenticado por deep link, livro renderizado e PID 3566 reportado pela Activity. Script terminou com exit 1 porque exige `/BookReader/Status`, que o `BookReaderViewModel` cancela se o corpo retorna antes do atraso de polling de 1 s; esse endpoint é best-effort, logo não prova falha de leitura. Revisar o critério em ciclo futuro; não declarar harness aprovado ainda.
+- [x] Validar cold start e renderização da Activity principal (`org.mulletaflix.android.debug`) após morte real do processo em AVD PHONE/API 35, com sessão e servidor sintéticos: livro carregou e texto da fixture ficou visível em processo novo. Back do sistema/D-pad, falhas de renderização, instância/mídia reais e dispositivos-alvo permanecem pendentes; APK-H21 continua aberto.
+- [x] Corrigir falso negativo do harness host-orquestrado: teste Pester reproduziu a expectativa obsoleta de `/BookReader/Status` (0/1); contrato agora exige somente metadata do item e `/BookReader/Epub`. `Test-AndroidBookMainProcessColdStart.ps1` passou no AVD temporário: snapshot 1/1, preparação 1/1, deep link/renderização 1/1, restauração da sessão 1/1; PID 3555 → 3644; rotas obrigatórias recebidas, sem exigir o polling best-effort. Wrapper confirmou GPU NVIDIA, encerrou o AVD e deixou ADB vazio.
 - [x] Adicionar cobertura da rota integrada na Activity principal: `MainActivitySessionNavigationTest.authenticatedBookDeepLinkOpensReaderAndSurvivesActivityRecreation` abre livro via deep link autenticado, valida o conteúdo servido por MockWebServer e confirma a tela após `ActivityScenario.recreate()` (PHONE/API 35, 1/1). Isso cobre recriação de Activity no mesmo processo, não morte/cold start do processo principal; a pendência APK-H21 permanece.
-- [ ] APK-H21 — primeira execução PHONE/API 35 no AVD `MulletaflixApi35` falhou por falta de argumento do snapshot depois de gravar sessão fixture; estado anterior pode ter sido perdido. Não limpar nem reutilizar essa AVD sem orientação. Em AVD temporária separada, captura antes de mutar via `Instrumentation.sendStatus` passou; cold start real exibiu o livro e capturou PID distinto; restauração passou. O script continua com falso negativo ao exigir `/BookReader/Status` num fluxo em que o monitor de status pode ser cancelado antes da primeira consulta. Nunca usar `pm clear`.
+- [ ] APK-H21 — primeira execução PHONE/API 35 no AVD `MulletaflixApi35` falhou por falta de argumento do snapshot depois de gravar sessão fixture; estado anterior pode ter sido alterado. Não limpar, restaurar ou reutilizar essa AVD sem orientação do usuário. Em AVD temporária separada, o cold start e restauração passaram; o harness agora exige metadata + `/BookReader/Epub` e trata `/BookReader/Status` como polling opcional. AVD reservada continua aguardando conferência do proprietário. Nunca usar `pm clear`.
 
 ## Mapeamento de faixas offline mistas (embutidas + legenda externa) (APK local; sem release)
 
@@ -679,8 +689,12 @@ Este documento rastreia o status de implementação de todas as funcionalidades,
 - [x] Adicionar regressões unitárias de identidade, contratos HTTP, repositório e ViewModel; revisão independente não encontrou problemas.
 - [x] `testDebugUnitTest`: 1.345 testes, 0 falhas/erros/skips; `:app:lintDebug`, `:app:assembleDebug` e `:app:compileDebugAndroidTestKotlin`: `BUILD SUCCESSFUL`.
 - [x] Teste Compose instrumentado de reprodução remota passou nos AVDs telefone API 35, tablet API 35 e Android TV API 34; wrappers encerraram os emuladores.
-- [ ] Android 17/API 37 continua sem validação: AVD expandido falhou antes da instrumentação ao consultar `adb shell wm size`; uma tentativa anterior falhou durante instalação do APK. Não declarar cobertura API 37.
+- [ ] Android 17/API 37 continua sem validação: AVD expandido falhou antes da instrumentação ao consultar `adb shell wm size`; uma tentativa anterior falhou durante instalação do APK. Em 13/10/2026, AVD temporário Google APIs 37.0 rev. 6 também ficou sem `sys.boot_completed` e `system_server` reiniciou 18 vezes; wrapper interrompeu antes de Gradle/instrumentação, encerrou o AVD e deixou ADB vazio. Não declarar cobertura API 37.
 - [ ] Sem bump, APK de produção ou publicação nesta rodada. Para release futura, conferir artefato anterior e assinatura oficial; atualizar somente release e portal do APK, nunca release do servidor.
+
+## Identidade de URL fallback do cache Home — 2026-10-13
+
+Quando a sessão não possui `serverId`, `HomeFeedCacheRepositoryImpl` usa a URL como identidade. RED reproduziu um cache fragmentado para a mesma origem (`https://media.example` versus `https://media.example:443`). GREEN passou `HomeFeedCacheScopeTest` 5/5: portas padrão HTTP 80/HTTPS 443 são canonicalizadas; portas não padrão continuam distintas; isolamento por usuário é preservado. Quality gate global em 13/10/2026: 1.741 testes JVM/252 XML, 0 falhas/erros/ignorados; lint `data`/app, assemble Debug e compilação AndroidTest `data`/app passaram. A cobertura é do escopo/normalização, não da reconstrução do DataStore concreto ou estado corrompido; não houve release.
 
 ## Consulta offline de bibliotecas (APK local; sem release)
 
@@ -763,7 +777,7 @@ Este documento rastreia o status de implementação de todas as funcionalidades,
 - [x] AVD Android TV API 34: Home instrumentada, 29 testes, 0 falhas/erros/ignorados; perfil `TV` confirmado. `:feature:home:testDebugUnitTest` e `:feature:home:compileDebugAndroidTestKotlin`: `BUILD SUCCESSFUL`.
 - [x] AVD tablet API 35: `HomeAdaptiveUsageTest`, 1/1, perfil `TABLET` confirmado; wrapper encerrou o AVD.
 - [x] AVD telefone API 35: `HomeAdaptiveUsageTest`, 1/1, perfil `PHONE` confirmado; wrapper encerrou o AVD.
-- [ ] Android 17 API 37: não validado. A imagem Google APIs 37.0 rev. 6 segue falhando na instalação instrumentada com NPE em `StorageManagerService.allocateBytes`; a imagem oficial Google APIs 37.2 16 KB rev. 5 também não completou boot com GPU host: `system_server` reiniciou e `surfaceflinger` abortou (`hasReadColorBufferDma`). Nenhum teste instrumentado executou; não afirmar compatibilidade até um AVD API 37 concluir boot e teste real.
+- [ ] Android 17 API 37: não validado. Além das falhas anteriores na imagem Google APIs 37.0 rev. 6 e Google APIs 37.2 16 KB rev. 5, em 13/10/2026 o AVD temporário `MulletaflixLanPermApi37_20261013` conectou ao ADB e publicou o serviço Package Manager, mas `sys.boot_completed` permaneceu vazio e `sys.system_server.start_count` chegou a 18. O wrapper foi interrompido antes de iniciar Gradle/instrumentação; nenhum teste foi contado. NVIDIA RTX 3050 foi confirmada durante a execução; wrapper encerrou o emulador e ADB terminou sem dispositivos. Não repetir esta imagem como validação nem afirmar compatibilidade até um AVD API 37 concluir boot e teste real.
 - [ ] Sem bump ou release; alterações desta seção são de teste, não de APK de produção. Keystore configurada ainda diverge do certificado oficial; verificar release APK anterior e assinatura antes de qualquer release.
 
 ## Detalhes adaptativos para tablets (APK local; sem release)
@@ -3604,7 +3618,7 @@ Pendências relacionadas:
 - [x] Corrigir teste de fallback que exigia HTTP após a URL pública padrão migrar para HTTPS; execução anterior falhou especificamente nessa asserção. Suíte instrumentada `:feature:auth:connectedDebugAndroidTest` no telefone API 35 passou 12/12; suíte atual `testDebugUnitTest :app:lintDebug :app:assembleDebug` passou.
 - [x] 2026-10-08: teste Compose cobre o aviso de `ACCESS_LOCAL_NETWORK`: “Permitir” aciona o callback do pedido de permissão; “Agora não” fecha o aviso e mantém a busca manual disponível; o teste existente confirma a alternativa HTTPS pela Internet após negação. `LocalNetworkPermissionDialogTest` passou 2/2 no AVD PHONE API 35; wrapper confirmou NVIDIA RTX 3050 e encerrou o emulador.
 - [x] `:feature:auth:testDebugUnitTest --rerun-tasks` aprovou 94 testes, 0 falhas/erros/skips; `:feature:auth:lintDebug` e `:feature:auth:compileDebugAndroidTestKotlin` concluíram com `BUILD SUCCESSFUL`.
-- [ ] API 37 continua sem validação. Tentativa adicional em `SmartMeasureApi37`: ADB conectou, mas `sys.boot_completed` não foi informado e os serviços Package Manager/Window falharam (“Broken pipe”/“Can't find service”); instrumentação não iniciou e não foi contabilizada. O AVD foi encerrado; não declarar cobertura API 37.
+- [ ] API 37 continua sem validação. Tentativa adicional em `SmartMeasureApi37`: ADB conectou, mas `sys.boot_completed` não foi informado e os serviços Package Manager/Window falharam (“Broken pipe”/“Can't find service”); instrumentação não iniciou e não foi contabilizada. Em 13/10/2026, `MulletaflixLanPermApi37_20261013` também não concluiu boot: serviço Package Manager respondeu, `sys.boot_completed` ficou vazio e `sys.system_server.start_count` chegou a 18; wrapper encerrou o AVD sem iniciar testes. Não declarar cobertura API 37.
 - [ ] Sem bump, APK de produção ou publicação. Antes de próxima release, conferir release anterior, usar certificado oficial e atualizar notas, versão e link APK do portal; não alterar release do servidor.
 - [x] Keystore substituída após rotação de certificado; `:app:verifyProductionSigningCertificate` passou em 2026-10-02 para o certificado registrado `4890D80B…C5A0A24C`.
 - [x] Proprietário informou que a chave antiga foi perdida e optou por reinstalar. Nova assinatura mantém o mesmo `applicationId`; para receber o APK novo, remover a instalação antiga antes de instalar. Aviso incluído nas notas e documentação do portal.
@@ -3677,15 +3691,16 @@ Pendências relacionadas:
 - [x] Com sessão válida, abrir intent `mulletaflix://details?id=…&serverId=…` e exigir GET exato `/Users/{userId}/Items/{itemId}` em MockWebServer; 4/4 testes passaram.
 - [x] Restaurar token, usuário, servidor, URL e `deviceId` preexistentes; pular teardown destrutivo se snapshot preexistente não for restaurável.
 - [x] Quality Bar: `testDebugUnitTest :app:lintDebug :app:assembleDebug :app:compileDebugAndroidTestKotlin` — `BUILD SUCCESSFUL`; instrumentação focal 4/4; `git diff --check` passou.
-- [ ] Não totalmente hermético: a checagem automática de atualização da Activity não foi interceptada e pode consultar GitHub. A instrumentação valida despacho da rota/API, não renderização visual completa nem servidor real.
+- [x] Adicionar controle da checagem externa de atualização para as fixtures: `launchMainActivity` passa extra interno que desativa o efeito somente em build debug; builds de produção ignoram o opt-out. `AppUpdatePolicyTest` passou 5/5; `AppUpdateCheckEffectTest` passou 2/2 após RED reproduzível (callbacks aumentaram de 2 para 5 com o efeito ainda ativo); `MainActivitySessionNavigationTest` passou 9/9 em PHONE/API 35. O quality gate global passou com 1.735 testes JVM/252 XML, sem falhas, erros ou ignorados. Policy e lifecycle foram validados em camadas; a Activity não tem interceptação de socket GitHub ponta a ponta. Não altera o estado de homologação formal.
+- [ ] A instrumentação valida despacho da rota/API, não renderização visual completa nem servidor real.
 - [ ] Sem bump, APK de produção/release ou publicação; mudança de teste apenas.
 
 ## Recuperação de conectividade LAN em Android 7.x (APK local; sem release)
 - [x] Revisão de callback encontrou que Android API 24–25 não garante `onCapabilitiesChanged` após `onAvailable`; API 26+ garante a ordem e proíbe consultas síncronas de capabilities dentro do callback.
 - [x] Manter o fluxo assíncrono de capabilities API 26+ e adicionar fallback API 24–25 que agenda a reconciliação depois que `onAvailable` retorna; aplicar estratégia equivalente ao estado tarifado da rede padrão.
-- [x] Teste unitário da fronteira 24/25/26/35; testes instrumentados de callbacks 2/2 em PHONE API 35.
+- [x] Teste instrumentado passa `ConnectivityNetworkCallbackTest` 3/3 em PHONE/API 35 e 3/3 em PHONE/API 24; novo cenário usa `Build.VERSION.SDK_INT` para confirmar fallback legacy antes do Android O e caminho de capabilities entregue em API moderna. NVIDIA verificada e os dois AVDs fechados pelo wrapper.
 - [x] Quality gate: `testDebugUnitTest :core:common:lintDebug :app:lintDebug :app:assembleDebug :core:common:compileDebugAndroidTestKotlin` — `BUILD SUCCESSFUL`; `git diff --check` passou.
-- [ ] Sem AVD API 24/25 neste ciclo; o caminho legado foi coberto pela política unitária, não executado em runtime Android antigo.
+- [x] Executar em runtime Android antigo: PHONE/API 24, imagem Google APIs x86_64. O teste valida agendamento de lookup legacy após `onAvailable` e reconciliação de capabilities/estado tarifado; não simula múltiplas redes nem teste físico. API 25 continua sem execução.
 - [ ] Sem bump, APK de produção ou publicação; alteração exclusivamente local do APK.
 
 ## Troca de usuário — confirmação duplicada durante login (APK local; sem release)
@@ -3708,7 +3723,7 @@ Pendências relacionadas:
 - [x] Quality gate Android anterior: `testDebugUnitTest` 1.577/1.577, `:app:lintDebug`, `:app:assembleDebug`, `:app:compileDebugAndroidTestKotlin` e execução instrumentada anterior passaram. Sem bump, APK de produção ou publicação; mudança exclusivamente local do APK.
 - [x] Reteste da classe completa em 2026-10-13, PHONE/API 35 temporário com GPU NVIDIA verificada: 8/9 passaram. O cenário cross-server falhou ao submeter login: nenhuma requisição POST foi registrada em B, a URL/sessão retornou ao padrão e a UI mostrou erro 401. A repetição focal imediata passou 1/1. Causa não confirmada.
 - [x] Nova repetição completa em 2026-10-13: 9/9 PHONE/API 35, incluindo autenticação em B, solicitação do item em B, retorno à Home e zero requests ao servidor A; execução focal também passou 1/1.
-- [ ] Intermitência histórica (execução anterior 8/9) segue sem causa confirmada. Duas repetições adicionais da classe completa passaram 9/9 no AVD `MulletaflixAptoidePhone` (PHONE/API 35), com worker LAN ativo; o XML mais recente registra zero falhas/erros/ignorados. Repetir após mudanças relacionadas, investigar a origem histórica e não declarar homologação formal apenas com execuções verdes.
+- [ ] Intermitência histórica (execução anterior 8/9) segue sem causa confirmada. Duas repetições adicionais passaram 9/9 no AVD `MulletaflixAptoidePhone`; em 2026-10-13, a classe passou 9/9 no `MulletaflixCodexPhoneApi35_20261012` (PHONE/API 35); relatório preservado em `validation-evidence/2026-10-13/MainActivitySessionNavigationTest-PHONE-API35.xml`, 0 falhas/erros/ignorados. As execuções verdes aumentam a evidência de estabilidade, mas não explicam a falha histórica, nem substituem servidor/aparelho reais ou homologação formal. Investigar a origem e repetir após mudanças relacionadas.
 
 ## Leitor paginado — salto direto para página (APK local; sem release)
 - [x] Tornar o indicador de página uma ação acessível; diálogo aceita somente inteiros dentro de `1..total`, mostra erro para fora da faixa e aplica salto somente após confirmação.

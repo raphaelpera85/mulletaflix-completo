@@ -115,7 +115,7 @@ test('formal Android matrix separates local evidence from pending product accept
     assert.match(dashboard.getElement('android-homologation-table').innerHTML, /Descoberta e troca automática entre LAN e internet/);
     assert.match(dashboard.getElement('android-homologation-table').innerHTML, /receiver Chromecast\/Web real/);
     assert.match(dashboard.getElement('android-homologation-table').innerHTML, /Leitura de EPUB\/CBZ servidos pela instância real/);
-    assert.match(dashboard.getElement('android-task-checklist').textContent, /227\/275 marcados e 48 abertos/);
+    assert.match(dashboard.getElement('android-task-checklist').textContent, /228\/275 marcados e 47 abertos/);
 });
 
 test('portal renders every formal Android area and preserves its status evidence', async () => {
@@ -138,10 +138,10 @@ test('portal publishes current per-download pause and resume evidence without cl
     const downloads = statusData.androidHomologation.areas.find(area => area.id === 'APK-H07');
     const event = statusData.events.find(item => item.id === 'android-per-download-pause-resume-2026-10-13');
 
-    assert.equal(statusData.generatedAt, '2026-10-13T10:08:55-03:00');
-    assert.equal(android.testAudit.passed, 1734);
-    assert.equal(android.testAudit.total, 1734);
-    assert.equal(android.instrumentationAudit.passed, 15);
+    assert.match(statusData.generatedAt, /^2026-10-13T13:\d{2}:\d{2}-03:00$/);
+    assert.equal(android.testAudit.passed, 1741);
+    assert.equal(android.testAudit.total, 1741);
+    assert.equal(android.instrumentationAudit.passed, 36);
     assert.match(downloads.evidence, /HTTP Range até COMPLETED/);
     assert.ok(event, 'portal should include the current Android development event');
     assert.equal(statusData.androidHomologation.formalSignoff, 'pending');
@@ -150,4 +150,162 @@ test('portal publishes current per-download pause and resume evidence without cl
     assert.equal(statusData.androidHomologation.areas.filter(area => area.status === 'pending').length, 9);
     assert.match(event.evidence, /APK-H17 continua pendente/);
     assert.match(event.evidence, /Nenhuma versão, APK de produção ou release criada/);
+});
+
+test('portal records update-effect test isolation without changing formal homologation', async () => {
+    const android = statusData.tracks.find(track => track.id === 'android');
+    const event = statusData.events.find(item => item.id === 'android-update-effect-test-isolation-2026-10-13');
+
+    assert.match(statusData.generatedAt, /^2026-10-13T13:\d{2}:\d{2}-03:00$/);
+    assert.match(event.evidence, /Activity não intercepta sockets GitHub ponta a ponta/);
+    assert.match(event.evidence, /AppUpdateCheckEffectTest-PHONE-API35\.xml/);
+    assert.equal(android.testAudit.passed, 1741);
+    assert.equal(android.instrumentationAudit.passed, 36);
+    assert.match(android.instrumentationAudit.label, /AppUpdateCheckEffectTest 2\/2/);
+    assert.ok(event, 'portal should record the completed Android test isolation update');
+    assert.match(event.evidence, /TDD RED/);
+    assert.match(event.evidence, /AppUpdateCheckEffectTest` passou 2\/2/);
+    assert.match(event.evidence, /Quality gate .* passou/);
+    assert.equal(statusData.androidHomologation.formalSignoff, 'pending');
+    assert.equal(statusData.androidHomologation.areas.filter(area => area.status === 'completed').length, 11);
+    assert.equal(statusData.androidHomologation.areas.filter(area => area.status === 'in_progress').length, 1);
+    assert.equal(statusData.androidHomologation.areas.filter(area => area.status === 'pending').length, 9);
+});
+
+test('portal records SyncPlay event-flow integration without formal acceptance', async () => {
+    const android = statusData.tracks.find(track => track.id === 'android');
+    const event = statusData.events.find(item => item.id === 'android-syncplay-realtime-event-flow-2026-10-13');
+
+    assert.ok(event, 'portal should reflect the newly verified SyncPlay integration test');
+    assert.match(event.evidence, /MockWebServer/);
+    assert.match(event.evidence, /Registro histórico de 13\/10\/2026/);
+    assert.match(event.evidence, /cobertura subsequente.*registrada no evento/);
+    assert.equal(android.testAudit.passed, 1741);
+    assert.equal(android.testAudit.total, 1741);
+    assert.equal(statusData.androidHomologation.formalSignoff, 'pending');
+    assert.equal(statusData.androidHomologation.areas.filter(area => area.status === 'completed').length, 11);
+    assert.equal(statusData.androidHomologation.areas.filter(area => area.status === 'in_progress').length, 1);
+    assert.equal(statusData.androidHomologation.areas.filter(area => area.status === 'pending').length, 9);
+});
+
+test('portal mirrors SyncPlay remote-close progress without granting formal acceptance', async () => {
+    const android = statusData.tracks.find(track => track.id === 'android');
+    const area = statusData.androidHomologation.areas.find(item => item.id === 'APK-H10');
+    const event = statusData.events.find(item => item.id === 'android-syncplay-remote-close-2026-10-13');
+
+    assert.match(statusData.generatedAt, /^2026-10-13T13:\d{2}:\d{2}-03:00$/);
+    assert.equal(android.testAudit.passed, 1741);
+    assert.equal(android.testAudit.total, 1741);
+    assert.match(android.testAudit.label, /252 relatórios Gradle/);
+    assert.ok(event, 'portal must mirror the verified SyncPlay implementation and tests');
+    assert.match(event.evidence, /TDD RED/);
+    assert.match(event.evidence, /Connected → Disconnected → Connected/);
+    assert.match(event.evidence, /1005 em status válido 1000/);
+    assert.match(event.evidence, /TestCoroutineScheduler/);
+    assert.match(event.evidence, /captura o job de retry durante o backoff suspenso/);
+    assert.match(event.evidence, /quadro de resposta mascarado com 1000 usando um único fluxo de entrada/);
+    assert.match(area.evidence, /fechamento iniciado pelo servidor/);
+    assert.equal(statusData.androidHomologation.formalSignoff, 'pending');
+    assert.equal(statusData.androidHomologation.areas.filter(item => item.status === 'completed').length, 11);
+    assert.equal(statusData.androidHomologation.areas.filter(item => item.status === 'in_progress').length, 1);
+    assert.equal(statusData.androidHomologation.areas.filter(item => item.status === 'pending').length, 9);
+});
+
+test('portal records the complete session-navigation retest without changing formal homologation', async () => {
+    const android = statusData.tracks.find(track => track.id === 'android');
+    const event = statusData.events.find(item => item.id === 'android-session-navigation-stability-2026-10-13');
+
+    assert.ok(event, 'portal should record the latest complete session-navigation run');
+    assert.match(event.evidence, /passou 9\/9/);
+    assert.match(event.evidence, /MainActivitySessionNavigationTest-PHONE-API35\.xml/);
+    assert.match(event.evidence, /falha histórica 8\/9 permanece sem causa confirmada/);
+    assert.match(android.instrumentationAudit.label, /MainActivitySessionNavigationTest 9\/9/);
+    assert.equal(statusData.androidHomologation.formalSignoff, 'pending');
+    assert.equal(statusData.androidHomologation.areas.filter(area => area.status === 'completed').length, 11);
+    assert.equal(statusData.androidHomologation.areas.filter(area => area.status === 'in_progress').length, 1);
+    assert.equal(statusData.androidHomologation.areas.filter(area => area.status === 'pending').length, 9);
+});
+
+test('portal reflects reader cold-start evidence without closing APK-H21', async () => {
+    const android = statusData.tracks.find(track => track.id === 'android');
+    const area = statusData.androidHomologation.areas.find(item => item.id === 'APK-H21');
+    const event = statusData.events.find(item => item.id === 'android-book-reader-cold-start-harness-2026-10-13');
+
+    assert.match(statusData.generatedAt, /^2026-10-13T13:\d{2}:\d{2}-03:00$/);
+    assert.equal(android.instrumentationAudit.passed, 36);
+    assert.match(android.instrumentationAudit.label, /cold start da Activity principal 4\/4 fases/);
+    assert.equal(area.status, 'pending');
+    assert.match(area.evidence, /morte real do processo/);
+    assert.match(area.evidence, /não depende do polling best-effort/);
+    assert.ok(event, 'portal should include the verified host-harness correction');
+    assert.match(event.evidence, /Pester falhou 1\/1/);
+    assert.match(event.evidence, /PID 3555→3644/);
+    assert.match(event.evidence, /Servidor e conteúdo sintéticos/);
+    assert.equal(statusData.androidHomologation.formalSignoff, 'pending');
+    assert.equal(statusData.androidHomologation.areas.filter(item => item.status === 'completed').length, 11);
+    assert.equal(statusData.androidHomologation.areas.filter(item => item.status === 'in_progress').length, 1);
+    assert.equal(statusData.androidHomologation.areas.filter(item => item.status === 'pending').length, 9);
+});
+
+test('portal records API 37 emulator boot blocker without counting tests or closing APK-H14', () => {
+    const android = statusData.tracks.find(track => track.id === 'android');
+    const area = statusData.androidHomologation.areas.find(item => item.id === 'APK-H14');
+    const event = statusData.events.find(item => item.id === 'android-local-network-api37-emulator-boot-blocked-2026-10-13');
+
+    assert.ok(event);
+    assert.equal(event.status, 'blocked');
+    assert.match(event.evidence, /surfaceflinger.*hasReadColorBufferDma/);
+    assert.match(event.evidence, /nenhum caso de permissão foi contado/);
+    assert.equal(android.instrumentationAudit.passed, 36);
+    assert.equal(android.instrumentationAudit.failed, 0);
+    assert.equal(area.status, 'pending');
+    assert.equal(statusData.androidHomologation.formalSignoff, 'pending');
+});
+
+test('portal records Android API 24 and 35 connectivity callback validation without closing APK-H14', () => {
+    const android = statusData.tracks.find(track => track.id === 'android');
+    const checklist = statusData.androidHomologation.taskChecklist;
+    const area = statusData.androidHomologation.areas.find(item => item.id === 'APK-H14');
+    const event = statusData.events.find(item => item.id === 'android-connectivity-callback-api24-api35-2026-10-13');
+
+    assert.ok(event);
+    assert.equal(event.status, 'completed');
+    assert.match(event.evidence, /passou 3\/3 em PHONE\/API 35 e 3\/3 em PHONE\/API 24/);
+    assert.equal(android.instrumentationAudit.passed, 36);
+    assert.equal(android.instrumentationAudit.total, 36);
+    assert.equal(checklist.checked, 228);
+    assert.equal(checklist.unchecked, 47);
+    assert.equal(area.status, 'pending');
+    assert.equal(statusData.androidHomologation.formalSignoff, 'pending');
+});
+
+test('portal renders blocked validation events with a Portuguese warning state', async () => {
+    const dashboard = createDashboard();
+    await settleDashboard();
+
+    const events = dashboard.getElement('event-list').innerHTML;
+    assert.match(events, /Tentativa de validar permissão de rede local na API 37/);
+    assert.match(events, /Bloqueado/);
+    assert.match(events, /event-dot is-warn/);
+});
+
+test('portal mirrors the Home cache URL-scope fix without closing formal homologation', () => {
+    const android = statusData.tracks.find(track => track.id === 'android');
+    const area = statusData.androidHomologation.areas.find(item => item.id === 'APK-H04');
+    const event = statusData.events.find(item => item.id === 'android-home-cache-default-port-normalization-2026-10-13');
+
+    assert.match(statusData.generatedAt, /^2026-10-13T13:\d{2}:\d{2}-03:00$/);
+    assert.equal(android.testAudit.passed, 1741);
+    assert.equal(android.testAudit.total, 1741);
+    assert.match(android.testAudit.label, /1\.741 aprovados/);
+    assert.ok(event, 'portal must record the verified Android cache-scope fix');
+    assert.equal(event.updatedAt, statusData.generatedAt);
+    assert.equal(event.status, 'completed');
+    assert.match(event.evidence, /RED.*1 falha esperada/);
+    assert.match(event.evidence, /HTTPS :443 e HTTP :80/);
+    assert.match(area.evidence, /escopo de cache offline da Home/);
+    assert.equal(statusData.androidHomologation.formalSignoff, 'pending');
+    assert.equal(statusData.androidHomologation.areas.filter(item => item.status === 'completed').length, 11);
+    assert.equal(statusData.androidHomologation.areas.filter(item => item.status === 'in_progress').length, 1);
+    assert.equal(statusData.androidHomologation.areas.filter(item => item.status === 'pending').length, 9);
 });

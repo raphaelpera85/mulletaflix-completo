@@ -4,6 +4,7 @@ import android.content.Context
 import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
+import android.os.Build
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import org.junit.Assert.assertEquals
@@ -13,6 +14,64 @@ import org.junit.runner.RunWith
 
 @RunWith(AndroidJUnit4::class)
 class ConnectivityNetworkCallbackTest {
+    @Test
+    fun preOAvailabilityDefersCapabilityAndMeteredLookupsUntilAfterCallback() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val connectivityManager = context.getSystemService(ConnectivityManager::class.java)
+        val network = connectivityManager.activeNetwork
+            ?: error("Emulator must expose its active test network")
+        val capabilities = connectivityManager.getNetworkCapabilities(network)
+            ?: error("Emulator active network must expose capabilities")
+        val isPreO = Build.VERSION.SDK_INT < Build.VERSION_CODES.O
+        val scheduledCapabilityLookups = mutableListOf<Network>()
+        val accessStates = mutableListOf<Boolean>()
+        val accessCallback = ServerAccessNetworkCallback(
+            scheduleLegacyCapabilityLookup = scheduledCapabilityLookups::add,
+            sdkInt = Build.VERSION.SDK_INT,
+            onNetworkStateChanged = accessStates::add,
+        )
+
+        accessCallback.onAvailable(network)
+
+        assertEquals(if (isPreO) listOf(network) else emptyList<Network>(), scheduledCapabilityLookups)
+        assertTrue(accessStates.isEmpty())
+        if (isPreO) {
+            accessCallback.onLegacyCapabilitiesAvailable(network, capabilities)
+        } else {
+            accessCallback.onCapabilitiesChanged(network, capabilities)
+        }
+        assertEquals(
+            isUsableForServerAccess(
+                hasInternetCapability = capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET),
+                hasWifiTransport = capabilities.hasTransport(NetworkCapabilities.TRANSPORT_WIFI),
+                hasEthernetTransport = capabilities.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET),
+            ),
+            accessStates.last(),
+        )
+
+        val scheduledMeteredLookups = mutableListOf<Network>()
+        val meteredStates = mutableListOf<Boolean>()
+        val meteredCallback = ActiveNetworkMeteredCallback(
+            scheduleLegacyMeteredLookup = scheduledMeteredLookups::add,
+            sdkInt = Build.VERSION.SDK_INT,
+            onMeteredStateChanged = meteredStates::add,
+        )
+
+        meteredCallback.onAvailable(network)
+
+        assertEquals(if (isPreO) listOf(network) else emptyList<Network>(), scheduledMeteredLookups)
+        assertTrue(meteredStates.isEmpty())
+        if (isPreO) {
+            meteredCallback.onLegacyMeteredStateAvailable(connectivityManager.isActiveNetworkMetered)
+        } else {
+            meteredCallback.onCapabilitiesChanged(network, capabilities)
+        }
+        assertEquals(
+            !capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_METERED),
+            meteredStates.last(),
+        )
+    }
+
     @Test
     fun availableWaitsForCapabilitiesCallbackBeforePublishingNetworkState() {
         val states = mutableListOf<Boolean>()

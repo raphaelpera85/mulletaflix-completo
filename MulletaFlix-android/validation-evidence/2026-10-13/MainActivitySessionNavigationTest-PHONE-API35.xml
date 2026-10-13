@@ -1,0 +1,17 @@
+<?xml version='1.0' encoding='UTF-8' ?>
+<testsuites tests="9" failures="0" errors="0" skipped="0" time="0.000" timestamp="2026-10-13T14:07:06" hostname="localhost">
+  <testsuite name="org.mulletaflix.android.MainActivitySessionNavigationTest" tests="9" failures="0" errors="0" skipped="0" time="26.787" timestamp="2026-10-13T14:07:06" hostname="localhost">
+    <properties>
+      <property name="device" value="emulator-5594" />
+    </properties>
+    <testcase name="authenticatedBookDeepLinkOpensReaderAndSurvivesActivityRecreation" classname="org.mulletaflix.android.MainActivitySessionNavigationTest" time="5.855" />
+    <testcase name="missingSessionStartsInAuthenticationFlow" classname="org.mulletaflix.android.MainActivitySessionNavigationTest" time="1.488" />
+    <testcase name="crossServerDeepLinkAuthenticatesOnTargetServerAndLoadsItemWithoutRequestingOldServer" classname="org.mulletaflix.android.MainActivitySessionNavigationTest" time="4.951" />
+    <testcase name="quickConnectCodeAndPollingSurviveActivityRecreation" classname="org.mulletaflix.android.MainActivitySessionNavigationTest" time="4.589" />
+    <testcase name="incompletePersistedSessionStartsInAuthenticationFlow" classname="org.mulletaflix.android.MainActivitySessionNavigationTest" time="0.912" />
+    <testcase name="completePersistedSessionStartsAtHome" classname="org.mulletaflix.android.MainActivitySessionNavigationTest" time="1.058" />
+    <testcase name="quickConnectAuthorizationPersistsSessionAndOpensHome" classname="org.mulletaflix.android.MainActivitySessionNavigationTest" time="5.224" />
+    <testcase name="settingsLogoutClearsPersistedSessionBeforeShowingServerSelection" classname="org.mulletaflix.android.MainActivitySessionNavigationTest" time="1.534" />
+    <testcase name="authenticatedMediaDeepLinkOpensDetailsAndRequestsLinkedItem" classname="org.mulletaflix.android.MainActivitySessionNavigationTest" time="1.176" />
+  </testsuite>
+</testsuites>
