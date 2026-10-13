@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-10-13T13:44:20-03:00",
+  "generatedAt": "2026-10-13T14:37:15-03:00",
   "source": {
     "roadmap": "https://github.com/raphaelpera85/mulletaflix-completo/blob/main/docs/roadmap-evolucao-tecnologica-servidor-e-web.md",
     "repository": "https://github.com/raphaelpera85/mulletaflix-completo"
@@ -59,11 +59,11 @@
         "label": "JUnit auditável local: 1.741 aprovados, 0 ignorados, 0 falhas/erros; agregação dos 252 relatórios Gradle em 13/10/2026."
       },
       "instrumentationAudit": {
-        "passed": 36,
-        "total": 36,
+        "passed": 40,
+        "total": 40,
         "skipped": 0,
         "failed": 0,
-        "label": "Media3/player 5/5; leitura HTTPS 1/1; DownloadManager HTTP LAN 1/1, HTTPS remoto 1/1; ExoPlayer legenda HTTPS 1/1 e redirect HTTPS→HTTP público bloqueado 1/1; Coil imagem HTTPS decodificada 1/1 e redirect HTTPS→HTTP público bloqueado 1/1; biblioteca offline/reconexão 1/1; contrato NetworkSecurityPolicy + guard cleartext 1/1; pausa/retomada individual Media3 1/1; MainActivitySessionNavigationTest 9/9; AppUpdateCheckEffectTest 2/2; cold start da Activity principal 4/4 fases em PHONE/API 35; ConnectivityNetworkCallbackTest 3/3 PHONE/API 35 e 3/3 PHONE/API 24 (inclui ramificação legacy). Execuções focais em AVD; GPU NVIDIA verificada."
+        "label": "Media3/player 5/5; leitura HTTPS 1/1; DownloadManager HTTP LAN 1/1, HTTPS remoto 1/1; ExoPlayer legenda HTTPS 1/1 e redirect HTTPS→HTTP público bloqueado 1/1; Coil imagem HTTPS decodificada 1/1 e redirect HTTPS→HTTP público bloqueado 1/1; biblioteca offline/reconexão 1/1; contrato NetworkSecurityPolicy + guard cleartext 1/1; pausa/retomada individual Media3 1/1; MainActivitySessionNavigationTest 9/9; AppUpdateCheckEffectTest 2/2; cold start da Activity principal 4/4 fases em PHONE/API 35; ConnectivityNetworkCallbackTest 3/3 PHONE/API 35 e 3/3 PHONE/API 24; HomeFeedCacheRepositoryPersistenceTest 4/4 PHONE/API 35 (DataStore/repositório recriados, JSON inválido recuperado, isolamento de sessão e limpeza obsoleta concorrente). Execuções focais em AVD; GPU NVIDIA verificada."
       }
     },
     {
@@ -108,7 +108,7 @@
         "id": "APK-H04",
         "name": "Bibliotecas, paginação, capas, filtros e ordenação",
         "status": "completed",
-        "evidence": "Testes locais de biblioteca, scroll/paginação, ordenação e perfis de tela registrados. Integração instrumentada adicional passou 1/1: tela real + ViewModel + repositório DataStore + NetworkMonitor, restauração offline após recriação de composição/ViewModel e atualização após reconexão; serviço simulado, não inclui morte real do processo. Em 13/10/2026, HomeFeedCacheScopeTest passou 5/5 e confirmou que URLs fallback no escopo de cache offline da Home com HTTPS :443/HTTP :80 explícitas equivalem às portas padrão implícitas, enquanto a porta customizada 8443 continua isolada. Aceite visual em aparelhos físicos continua separado."
+        "evidence": "Testes locais de biblioteca, scroll/paginação, ordenação e perfis de tela registrados. Integração instrumentada adicional passou 1/1: tela real + ViewModel + repositório DataStore + NetworkMonitor, restauração offline após recriação de composição/ViewModel e atualização após reconexão; serviço simulado, não inclui morte real do processo. Em 13/10/2026, HomeFeedCacheScopeTest passou 5/5 e confirmou que URLs fallback no escopo de cache offline da Home com HTTPS :443/HTTP :80 explícitas equivalem às portas padrão implícitas, enquanto a porta customizada 8443 continua isolada. HomeFeedCacheRepositoryPersistenceTest passou 4/4 em PHONE/API 35 com Preferences DataStore real: persistência após recriar DataStore/repositório, recuperação de JSON inválido, isolamento de sessão e preservação de gravação mais recente contra limpeza obsoleta; fixture local, sem kill real de processo, falha física de I/O ou servidor real. Aceite visual em aparelhos físicos continua separado."
       },
       {
         "id": "APK-H05",
@@ -2940,6 +2940,20 @@
     }
   ],
   "events": [
+    {
+      "id": "android-home-cache-datastore-persistence-2026-10-13",
+      "title": "Validar persistência e recuperação do cache offline da Home",
+      "agent": "Codex",
+      "front": "android",
+      "featureIds": [],
+      "local": "MulletaFlix-android",
+      "location": "MulletaFlix-android/data — HomeFeedCacheRepositoryImpl e HomeFeedCacheRepositoryPersistenceTest",
+      "scope": "Cobrir a Preferences DataStore real, reconstrução do repositório, estado corrompido, escopo de sessão e limpeza concorrente sem alterar o comportamento do cliente.",
+      "status": "completed",
+      "progressPercent": null,
+      "updatedAt": "2026-10-13T14:37:15-03:00",
+      "evidence": "HomeFeedCacheRepositoryPersistenceTest passou 4/4 em PHONE/API 35 usando Preferences DataStore real e arquivo temporário isolado: snapshot sobrevive à recriação do DataStore/repositório; JSON inválido é removido e pode ser substituído; escrita de sessão inativa não sobrescreve a sessão ativa; limpeza obsoleta preserva snapshot escrito posteriormente. O provider Hilt retorna a mesma store singleton do contexto, mantendo nome/escopo existentes. Quality gate Android BUILD SUCCESSFUL: 1.741 testes JVM em 252 relatórios, zero falhas/erros/ignorados; :data:lintDebug, :app:lintDebug, :app:assembleDebug e compilação AndroidTest de data/app passaram. A primeira tentativa de persistência em host Windows falhou na operação de rename/replace do arquivo DataStore; a validação final foi feita em AndroidTest no AVD. Estes quatro cenários caracterizam comportamento existente e não possuem RED/GREEN comportamental; não validam kill/restart real de processo, falha física de I/O, servidor ou dispositivo físico. Homologação formal continua 11/21 áreas com evidência local, 1 em validação, 9 pendentes e formalSignoff pending. Nenhuma release APK ou mudança do servidor."
+    },
     {
       "id": "android-home-cache-default-port-normalization-2026-10-13",
       "title": "Normalizar portas padrão no escopo fallback do cache da Home",

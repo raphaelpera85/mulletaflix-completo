@@ -104,6 +104,16 @@ class MainActivity : ComponentActivity() {
             val accessToken = initialSession?.accessToken
             val serverId = initialSession?.serverId
             val hasValidSession = initialSession?.hasValidSession == true
+            // The start route belongs to this Activity launch. A deliberate server
+            // switch clears the old credentials while verification is in flight;
+            // rebuilding the graph from that transient state cancels the request.
+            val initialRoute = remember(sessionResolved) {
+                initialDestinationForSession(
+                    hasValidSession = hasValidSession,
+                    deepLinkRequest = incomingDeepLink,
+                    sessionServerId = serverId,
+                )
+            }
 
             // O aviso de atualização — estado **e** download — vive no ViewModel, e não
             // em `remember`: ver `AppUpdateViewModel` para o defeito que isso corrigia
@@ -162,11 +172,7 @@ class MainActivity : ComponentActivity() {
                         }
                     } else {
                         MulletaFlixNavHost(
-                            startDestination = initialDestinationForSession(
-                                hasValidSession = hasValidSession,
-                                deepLinkRequest = incomingDeepLink,
-                                sessionServerId = serverId,
-                            ),
+                            startDestination = initialRoute,
                             deepLinkRequest = incomingDeepLink,
                             // The request is cleared once its destination is on
                             // screen: otherwise a later logout and login would

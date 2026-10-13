@@ -8,7 +8,11 @@ import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.squareup.moshi.JsonClass
 import com.squareup.moshi.Moshi
+import dagger.Module
+import dagger.Provides
+import dagger.hilt.InstallIn
 import dagger.hilt.android.qualifiers.ApplicationContext
+import dagger.hilt.components.SingletonComponent
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -24,7 +28,7 @@ import java.util.Locale
 import javax.inject.Inject
 import javax.inject.Singleton
 
-internal val Context.homeFeedCacheStore by preferencesDataStore(name = "mulletaflix_home_cache")
+private val Context.homeFeedCacheStore by preferencesDataStore(name = "mulletaflix_home_cache")
 
 /** Small versioned DTO deliberately excludes stream URLs, file paths, credentials and source metadata. */
 @JsonClass(generateAdapter = true)
@@ -66,7 +70,7 @@ internal data class HomeCardDto(
 
 @Singleton
 class HomeFeedCacheRepositoryImpl @Inject constructor(
-    @param:ApplicationContext private val context: Context,
+    private val dataStore: DataStore<Preferences>,
     private val sessionRepository: SessionRepository,
 ) : HomeFeedCache {
     private val snapshotKey = stringPreferencesKey("snapshot_v1")
@@ -75,11 +79,11 @@ class HomeFeedCacheRepositoryImpl @Inject constructor(
 
     override suspend fun read(userId: String): CachedHomeSections? {
         val scope = cacheScope(userId) ?: return null
-        val preferences = context.homeFeedCacheStore.data.first()
+        val preferences = dataStore.data.first()
         val encoded = preferences[snapshotKey] ?: return null
         val snapshot = runCatching { adapter.fromJson(encoded) }.getOrNull()
         if (snapshot == null || snapshot.schemaVersion != SCHEMA_VERSION || snapshot.scope != scope) {
-            removeHomeSnapshotIfUnchanged(context.homeFeedCacheStore, snapshotKey, encoded)
+            removeHomeSnapshotIfUnchanged(dataStore, snapshotKey, encoded)
             return null
         }
         return CachedHomeSections(
@@ -107,7 +111,7 @@ class HomeFeedCacheRepositoryImpl @Inject constructor(
                 favoriteItems = (favoriteItems ?: current?.favoriteItems.orEmpty()).map { it.toCacheCard() },
             )
             val encoded = adapter.toJson(snapshot)
-            context.homeFeedCacheStore.edit { it[snapshotKey] = encoded }
+            dataStore.edit { it[snapshotKey] = encoded }
         }
     }
 
@@ -205,3 +209,13 @@ private fun normalizeServerUrl(value: String): String = runCatching {
     val path = uri.rawPath.orEmpty().trimEnd('/')
     "$scheme://$host$port$path"
 }.getOrDefault(value.trim().trimEnd('/').lowercase(Locale.ROOT))
+
+@Module
+@InstallIn(SingletonComponent::class)
+object HomeFeedCacheDataStoreModule {
+    @Provides
+    @Singleton
+    fun provideHomeFeedCacheDataStore(
+        @ApplicationContext context: Context,
+    ): DataStore<Preferences> = context.homeFeedCacheStore
+}

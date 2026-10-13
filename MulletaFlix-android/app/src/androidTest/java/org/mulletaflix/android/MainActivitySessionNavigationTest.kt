@@ -9,6 +9,7 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTextClearance
 import androidx.compose.ui.test.performTextInput
 import androidx.test.core.app.ActivityScenario
@@ -360,6 +361,88 @@ class MainActivitySessionNavigationTest {
         assertTrue("Logout deve limpar o token persistido antes de sair de Ajustes", sessionRepository.getAccessToken().first().isNullOrBlank())
         assertTrue("Logout deve limpar o usuário persistido", sessionRepository.getCurrentUserId().first().isNullOrBlank())
         assertEquals("Logout deve manter o servidor para reconexão", serverUrl, sessionRepository.getBaseUrl().first())
+    }
+
+    @Test
+    fun switchingServerFromProfileDoesNotRestorePreviousProfileOnBackAfterLogin() = runBlocking {
+        if (context.checkSelfPermission(android.Manifest.permission.ACCESS_LOCAL_NETWORK) !=
+            android.content.pm.PackageManager.PERMISSION_GRANTED
+        ) {
+            InstrumentationRegistry.getInstrumentation().uiAutomation
+                .executeShellCommand(
+                    "pm grant ${context.packageName} android.permission.ACCESS_LOCAL_NETWORK",
+                ).close()
+            localNetworkPermissionGrantedForTest = true
+        }
+        val oldServer = startMockServer()
+        val oldServerUrl = oldServer.url("/").toString().trimEnd('/')
+        val newServerRequests = ConcurrentLinkedQueue<String>()
+        val newServer = MockWebServer().apply {
+            dispatcher = object : Dispatcher() {
+                override fun dispatch(request: RecordedRequest): MockResponse {
+                    newServerRequests.add("${request.method} ${request.path}")
+                    return when (request.path) {
+                    "/System/Info/Public" -> MockResponse()
+                        .setHeader("Content-Type", "application/json")
+                        .setBody("""{"Id":"new-server","ServerName":"New server","Version":"12.0.0"}""")
+                    "/Users/Public" -> MockResponse()
+                        .setHeader("Content-Type", "application/json")
+                        .setBody("[]")
+                    "/QuickConnect/Enabled" -> MockResponse()
+                        .setHeader("Content-Type", "application/json")
+                        .setBody("false")
+                    "/Users/AuthenticateByName" -> MockResponse()
+                        .setHeader("Content-Type", "application/json")
+                        .setBody("""{"AccessToken":"new-token","ServerId":"new-server","User":{"Id":"new-user","Name":"New user","ServerId":"new-server"}}""")
+                    else -> MockResponse().setResponseCode(404)
+                }
+                }
+            }
+            start()
+        }
+        mockServers += newServer
+        trackMockServerUrl(newServer)
+        val newServerUrl = newServer.url("/").toString().trimEnd('/')
+        sessionRepository.setBaseUrl(oldServerUrl)
+        sessionRepository.saveSession(
+            oldServerUrl,
+            "old-token",
+            "old-user",
+            "Old user",
+            "old-server",
+            requireNotNull(originalSession).deviceId,
+        )
+        launchMainActivity()
+
+        composeRule.waitUntil(timeoutMillis = 20_000) { homeVisible() }
+        composeRule.onNodeWithContentDescription("Mais ações", useUnmergedTree = true).performClick()
+        composeRule.onNodeWithText("Meu Perfil", useUnmergedTree = true).performClick()
+        composeRule.onNodeWithText("Trocar de Servidor", useUnmergedTree = true).performScrollTo().performClick()
+        composeRule.waitUntil(timeoutMillis = 20_000) { serverSelectionVisible() }
+        composeRule.onNodeWithTag("auth.server.url").performTextClearance()
+        composeRule.onNodeWithTag("auth.server.url").performTextInput(newServerUrl)
+        composeRule.onNodeWithText("Conectar", useUnmergedTree = true).performClick()
+        val connectedToNewServer = runCatching {
+            composeRule.waitUntil(timeoutMillis = 20_000) { loginVisible() }
+        }.isSuccess
+        assertTrue(
+            "A seleção do novo servidor deve abrir login; tela=${displayedTexts()}, " +
+                "url=${sessionRepository.getBaseUrl().first()}, requests=$newServerRequests",
+            connectedToNewServer,
+        )
+        composeRule.onNodeWithTag("auth.login.username").performTextInput("new-user")
+        composeRule.onNodeWithTag("auth.login.password").performTextInput("test-password")
+        composeRule.onNodeWithTag("auth.login.submit").performClick()
+        composeRule.waitUntil(timeoutMillis = 20_000) { homeVisible() }
+        assertEquals(newServerUrl, sessionRepository.getBaseUrl().first())
+        assertEquals("new-user", sessionRepository.getCurrentUserId().first())
+
+        activityScenario?.onActivity { it.onBackPressedDispatcher.onBackPressed() }
+        composeRule.waitUntil(timeoutMillis = 20_000) { !homeVisible() }
+        assertFalse(
+            "Voltar após autenticar no novo servidor não deve reabrir o perfil do servidor anterior",
+            runCatching { composeRule.onNodeWithText("Trocar de Servidor", useUnmergedTree = true).assertIsDisplayed() }.isSuccess,
+        )
     }
 
     @Test

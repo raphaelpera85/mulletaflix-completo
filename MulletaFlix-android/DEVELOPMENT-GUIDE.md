@@ -33,9 +33,11 @@ Todos os caminhos dos documentos acima são relativos à raiz Android. O segundo
 cérebro é índice complementar e não substitui esta fonte. Para retomar e curar
 o trabalho, use:
 
-- `01 Projetos/MulletaFlix.md` — contexto verificado e mapa das fontes;
-- `01 Projetos/MulletaFlix — Centro de Controle.md` — navegação do APK;
-- `01 Projetos/MulletaFlix — Grafo de arquitetura.md` — proveniência e limites
+- `01 Projetos/MulletaFlix/MulletaFlix.md` — contexto verificado e mapa das fontes;
+- `01 Projetos/MulletaFlix/Mapa técnico e estrutura do projeto.md` — mapa vivo
+  de módulos, classes/contratos, dependências e fluxos;
+- `01 Projetos/MulletaFlix/Painéis/MulletaFlix — Centro de Controle.md` — navegação do APK;
+- `01 Projetos/MulletaFlix/Arquitetura/MulletaFlix — Grafo de arquitetura.md` — proveniência e limites
   dos exports;
 - `Bases/Grafos.base` — catálogo de grafos de projeto com estado de frescor;
 - `00 Painéis/Centro de Controle.md` — entrada global para projetos, tarefas e
@@ -94,8 +96,9 @@ três próximas ações visíveis na ficha e o restante no backlog detalhado.
 | Comandos, perfis e resultados de teste | `TESTING.md` | Adicionar teste, perfil, harness ou mudar resultado reproduzível |
 | Critério e estado de aceite do produto | `HOMOLOGACAO-APK.md` | Somente quando evidência satisfizer ou invalidar critério formal |
 | Entrada para desenvolvimento | `DEVELOPMENT-GUIDE.md` | Mudar fluxo, arquitetura, instruções ou localização das fontes |
-| Estado curado e próximos passos | Nota `01 Projetos/MulletaFlix.md` no vault | Encerrar trabalho durável ou revalidar risco/foco |
-| Proveniência e frescor do mapa | Nota `MulletaFlix — Grafo de arquitetura` no vault | Após `graphify update .` e conferência dos exports |
+| Estado curado e próximos passos | Ficha `01 Projetos/MulletaFlix/MulletaFlix.md` no vault | Encerrar trabalho durável ou revalidar risco/foco |
+| Estrutura de módulos e dependências | `01 Projetos/MulletaFlix/Mapa técnico e estrutura do projeto.md` no vault | Conferir em toda sessão; atualizar quando a estrutura mudar |
+| Proveniência e frescor do mapa Graphify | `01 Projetos/MulletaFlix/Arquitetura/MulletaFlix — Grafo de arquitetura.md` no vault | Após `graphify update .` e conferência dos exports |
 
 Não copie a fila completa para o vault: o painel global apenas agrega tarefas
 das fontes. Registre em uma sessão do vault o resultado, evidência, risco e
@@ -137,8 +140,9 @@ usuário: não o inicie, encerre, limpe ou reutilize sem liberação explícita.
   homologação integral da quantidade de testes nem da conclusão de tarefas do
   backlog; confirme data, evidências e gates ainda abertos.
 - Mapa relacional da fonte: `graphify-out/graph.json` e `graphify-out/graph.html`.
-- Ficha e mapa curado: vault `01 Projetos/MulletaFlix.md` e
-  `01 Projetos/MulletaFlix — Grafo de arquitetura.md`.
+- Ficha e mapas curados: vault `01 Projetos/MulletaFlix/MulletaFlix.md`,
+  `01 Projetos/MulletaFlix/Mapa técnico e estrutura do projeto.md` e
+  `01 Projetos/MulletaFlix/Arquitetura/MulletaFlix — Grafo de arquitetura.md`.
 
 > [!warning] Estado não presumido
 > Uma contagem de testes passada não certifica a cobertura funcional integral.
