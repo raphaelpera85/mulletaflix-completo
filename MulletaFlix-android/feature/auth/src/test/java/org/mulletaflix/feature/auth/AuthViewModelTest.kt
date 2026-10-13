@@ -225,6 +225,46 @@ class AuthViewModelTest {
     }
 
     @Test
+    fun `duplicate quick connect initiation while request is in flight is ignored`() = runTest {
+        var initiationCalls = 0
+        val authRepo = object : FakeAuthRepository() {
+            override suspend fun initiateQuickConnect(): Result<QuickConnectState> {
+                initiationCalls++
+                withContext(NonCancellable) { delay(100) }
+                return Result.success(QuickConnectState("123456", "single-initiation-secret", false))
+            }
+
+            override suspend fun checkQuickConnect(secret: String): Result<UserSession?> = Result.success(null)
+        }
+        val viewModel = createViewModel(authRepo)
+        advanceUntilIdle()
+
+        viewModel.initiateQuickConnect()
+        viewModel.initiateQuickConnect()
+        runCurrent()
+        assertTrue(viewModel.state.value.isLoading)
+        assertEquals("one user action must create only one server authorization", 1, initiationCalls)
+
+        viewModel.initiateQuickConnect()
+        runCurrent()
+        assertTrue(viewModel.state.value.isLoading)
+        assertEquals("an in-flight server authorization must not be cancelled or replaced", 1, initiationCalls)
+
+        advanceTimeBy(100)
+        runCurrent()
+        assertEquals("123456", viewModel.state.value.quickConnectPin)
+        assertTrue(viewModel.state.value.isWaitingForQuickConnect)
+
+        viewModel.initiateQuickConnect()
+        runCurrent()
+        assertEquals("a waiting PIN must not be replaced by a second server authorization", 1, initiationCalls)
+        assertEquals("123456", viewModel.state.value.quickConnectPin)
+        assertTrue(viewModel.state.value.isWaitingForQuickConnect)
+        viewModel.cancelQuickConnect()
+        advanceUntilIdle()
+    }
+
+    @Test
     fun `already authorized quick connect confirms session when initiation finishes after deadline`() = runTest {
         every { QuickConnectMonotonicClock.nowMillis() } answers { testScheduler.currentTime }
         var checkCalls = 0

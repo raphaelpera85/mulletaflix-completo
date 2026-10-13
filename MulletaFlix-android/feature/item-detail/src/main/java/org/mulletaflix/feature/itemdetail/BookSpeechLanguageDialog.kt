@@ -22,6 +22,8 @@ internal fun BookSpeechLanguageDialog(
     languages: List<BookSpeechLanguageOption>,
     selectedLanguageTag: String?,
     onSelect: (String?) -> Unit,
+    onOpenVoices: () -> Unit,
+    voicesLoading: Boolean,
     onDismiss: () -> Unit,
 ) {
     AlertDialog(
@@ -54,6 +56,15 @@ internal fun BookSpeechLanguageDialog(
                         selected = language.languageTag == selectedLanguageTag,
                         onClick = { onSelect(language.languageTag) },
                     )
+                }
+                TextButton(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("speech-language-open-voices"),
+                    enabled = !voicesLoading,
+                    onClick = onOpenVoices,
+                ) {
+                    Text(stringResource(R.string.book_reader_speech_voice_open))
                 }
             }
         },

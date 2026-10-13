@@ -76,4 +76,8 @@ abstract class RepositoryModule {
     @Binds
     @Singleton
     abstract fun bindPlaybackIssueQueue(impl: PlaybackIssueQueueRepositoryImpl): PlaybackIssueQueue
+
+    @Binds
+    @Singleton
+    abstract fun bindMediaRequestDraftStore(impl: MediaRequestDraftStoreImpl): MediaRequestDraftStore
 }

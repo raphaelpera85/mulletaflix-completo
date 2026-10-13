@@ -492,7 +492,9 @@ class AuthViewModel @Inject constructor(
     }
 
     fun initiateQuickConnect() {
-        if (_state.value.isQuickConnectAvailable == false) {
+        val currentState = _state.value
+        if (currentState.isLoading || currentState.isWaitingForQuickConnect) return
+        if (currentState.isQuickConnectAvailable == false) {
             cancelQuickConnectPolling()
             _state.update {
                 it.copy(error = "Quick Connect está desativado neste servidor. Use usuário e senha.")
@@ -502,8 +504,8 @@ class AuthViewModel @Inject constructor(
         cancelQuickConnectPolling()
         val generation = quickConnectGeneration
         val deadlineMillis = QuickConnectMonotonicClock.nowMillis() + QUICK_CONNECT_DURATION_MILLIS
+        _state.update { it.copy(isLoading = true, error = null) }
         quickConnectPollingJob = viewModelScope.launch {
-            _state.update { it.copy(isLoading = true, error = null) }
             authRepository.initiateQuickConnect()
                 .onSuccess { qc ->
                     if (!isActive || generation != quickConnectGeneration) return@onSuccess

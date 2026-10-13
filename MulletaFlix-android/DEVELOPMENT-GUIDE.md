@@ -85,6 +85,23 @@ Estados sugeridos para curadoria: `pendente`, `em andamento`, `bloqueado` e
 alta, P2 normal, P3 baixa; prazo só quando realmente acordado. Mantenha no máximo
 três próximas ações visíveis na ficha e o restante no backlog detalhado.
 
+## Fonte de verdade e manutenção da documentação
+
+| Informação | Fonte canônica | Atualize quando |
+| --- | --- | --- |
+| Tarefa executável, prioridade e aceite técnico | `TODO-APP.md` | Abrir, dividir, bloquear ou concluir trabalho de engenharia |
+| Evidência RED/GREEN, limites e revisão | `TDD-PLAN.md` | Alterar comportamento ou registrar verificação técnica relevante |
+| Comandos, perfis e resultados de teste | `TESTING.md` | Adicionar teste, perfil, harness ou mudar resultado reproduzível |
+| Critério e estado de aceite do produto | `HOMOLOGACAO-APK.md` | Somente quando evidência satisfizer ou invalidar critério formal |
+| Entrada para desenvolvimento | `DEVELOPMENT-GUIDE.md` | Mudar fluxo, arquitetura, instruções ou localização das fontes |
+| Estado curado e próximos passos | Nota `01 Projetos/MulletaFlix.md` no vault | Encerrar trabalho durável ou revalidar risco/foco |
+| Proveniência e frescor do mapa | Nota `MulletaFlix — Grafo de arquitetura` no vault | Após `graphify update .` e conferência dos exports |
+
+Não copie a fila completa para o vault: o painel global apenas agrega tarefas
+das fontes. Registre em uma sessão do vault o resultado, evidência, risco e
+próximo passo. Mantenha histórico extenso nos documentos de evidência. Compare
+o hash do HTML antes de sincronizar o grafo para o vault.
+
 ## Verificação Android
 
 Execute na raiz deste módulo, adaptando o lint ao módulo dono da alteração:

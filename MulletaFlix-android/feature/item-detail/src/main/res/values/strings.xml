@@ -12,4 +12,12 @@
     <string name="book_reader_speech_language_close">Fechar</string>
     <string name="book_reader_speech_languages_unavailable">Nenhum idioma de narração instalado foi informado pelo mecanismo de voz.</string>
     <string name="book_reader_speech_language_reset_notice">O idioma salvo não está mais disponível. A narração voltou ao padrão do dispositivo.</string>
+    <string name="book_reader_speech_voice">Voz da narração</string>
+    <string name="book_reader_speech_voice_open">Escolher voz da narração</string>
+    <string name="book_reader_speech_voice_default">Voz padrão do mecanismo</string>
+    <string name="book_reader_speech_voice_close">Fechar</string>
+    <string name="book_reader_speech_voices_unavailable">Nenhuma voz compatível foi informada para o idioma selecionado.</string>
+    <string name="book_reader_speech_voice_offline">Disponível offline</string>
+    <string name="book_reader_speech_voice_online">Requer conexão</string>
+    <string name="book_reader_speech_voice_reset_notice">A voz salva não está mais disponível. A voz padrão foi selecionada.</string>
 </resources>

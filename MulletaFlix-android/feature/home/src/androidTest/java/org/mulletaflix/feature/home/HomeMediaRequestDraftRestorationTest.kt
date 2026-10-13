@@ -2,6 +2,8 @@ package org.mulletaflix.feature.home
 
 import androidx.compose.runtime.remember
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.test.SemanticsMatcher
+import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.assertTextContains
 import androidx.compose.ui.test.junit4.StateRestorationTester
 import androidx.compose.ui.test.junit4.v2.createComposeRule
@@ -12,12 +14,15 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTextInput
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.navigation.NavController
 import org.junit.Rule
 import org.junit.Test
 import org.mulletaflix.core.api.SessionRepository
 import org.mulletaflix.core.common.network.NetworkMonitor
 import org.mulletaflix.core.common.session.FeedbackRequestSession
+import org.mulletaflix.core.common.session.mediaRequestDraftScopeHash
 import org.mulletaflix.designsystem.theme.MulletaFlixTheme
 import org.mulletaflix.domain.model.LibraryFilterOptions
 import org.mulletaflix.domain.model.MediaItem
@@ -26,15 +31,110 @@ import org.mulletaflix.domain.model.UserProfile
 import org.mulletaflix.domain.repository.AuthRepository
 import org.mulletaflix.domain.repository.MediaRepository
 import org.mulletaflix.domain.repository.UserFeedbackRepository
+import org.mulletaflix.domain.repository.MediaRequestDraft
+import org.mulletaflix.domain.repository.MediaRequestDraftStore
 import org.mulletaflix.domain.usecase.GetHomeFeedUseCase
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicReference
 
 class HomeMediaRequestDraftRestorationTest {
     @get:Rule
     val composeRule = createComposeRule()
+
+    @Test
+    fun persistedDraftIsRestoredIntoRequestFormForANewViewModel() {
+        val session = FeedbackRequestSession("https://request.test", "request-token", "request-user", "request-device")
+        val draftStore = InMemoryMediaRequestDraftStore(
+            mutableMapOf(
+                session.mediaRequestDraftScopeHash() to MediaRequestDraft(
+                    title = "Duna", mediaType = "Filme", year = "2024", notes = "Legendas em português",
+                ),
+            ),
+        )
+        val viewModel = createViewModel(draftStore)
+
+        composeRule.setContent {
+            val context = LocalContext.current
+            val navController = remember(context) { NavController(context) }
+            MulletaFlixTheme {
+                HomeScreen(
+                    onItemClick = {}, onPlayItemClick = {}, onLibraryClick = {}, onLiveTvClick = {},
+                    navController = navController, viewModel = viewModel,
+                )
+            }
+        }
+
+        composeRule.onNodeWithContentDescription("Solicitar mídia").performClick()
+        composeRule.onNodeWithTag("media-request-title").assertTextContains("Duna")
+        composeRule.onNodeWithText("Filme").assertExists()
+        composeRule.onNodeWithTag("media-request-year").assertTextContains("2024")
+        composeRule.onNodeWithTag("media-request-notes").performScrollTo().assertTextContains("Legendas em português")
+    }
+
+    @Test
+    fun failedDraftSaveShowsLocalRetryAndDoesNotSubmitRequest() {
+        val saveAttempts = AtomicInteger()
+        val requestCalls = AtomicInteger()
+        val savedDraft = AtomicReference<MediaRequestDraft?>()
+        val draftStore = object : MediaRequestDraftStore {
+            override suspend fun load(scopeHash: String) = savedDraft.get()
+            override suspend fun save(scopeHash: String, draft: MediaRequestDraft) {
+                if (saveAttempts.incrementAndGet() == 1) {
+                    throw java.io.IOException("temporary local storage failure")
+                }
+                savedDraft.set(draft)
+            }
+            override suspend fun clear(scopeHash: String) { savedDraft.set(null) }
+        }
+        val feedbackRepository = object : UserFeedbackRepository {
+            override suspend fun requestMedia(
+                session: FeedbackRequestSession, title: String, mediaType: String, year: Int?, notes: String?,
+            ): Result<Unit> {
+                requestCalls.incrementAndGet()
+                return Result.success(Unit)
+            }
+
+            override suspend fun reportPlaybackIssue(
+                session: FeedbackRequestSession, itemId: String, category: String, description: String?,
+            ) = Result.success(Unit)
+        }
+        val viewModel = createViewModel(draftStore, feedbackRepository)
+
+        composeRule.setContent {
+            val context = LocalContext.current
+            val navController = remember(context) { NavController(context) }
+            MulletaFlixTheme {
+                HomeScreen(
+                    onItemClick = {}, onPlayItemClick = {}, onLibraryClick = {}, onLiveTvClick = {},
+                    navController = navController, viewModel = viewModel,
+                )
+            }
+        }
+
+        composeRule.onNodeWithContentDescription("Solicitar mídia").performClick()
+        composeRule.onNodeWithTag("media-request-title").performTextInput("Duna")
+        composeRule.waitUntil(5_000) {
+            composeRule.onAllNodesWithText("Não foi possível salvar o rascunho neste dispositivo.")
+                .fetchSemanticsNodes().isNotEmpty()
+        }
+        composeRule.onNodeWithTag("media-request-draft-save-status").assert(
+            SemanticsMatcher.expectValue(SemanticsProperties.LiveRegion, LiveRegionMode.Polite),
+        )
+        composeRule.onNodeWithText("Tentar salvar novamente").performScrollTo().performClick()
+        composeRule.waitUntil(5_000) {
+            composeRule.onAllNodesWithText("Rascunho salvo neste dispositivo.")
+                .fetchSemanticsNodes().isNotEmpty()
+        }
+
+        composeRule.runOnIdle {
+            org.junit.Assert.assertEquals(2, saveAttempts.get())
+            org.junit.Assert.assertEquals(MediaRequestDraft(title = "Duna"), savedDraft.get())
+            org.junit.Assert.assertEquals(0, requestCalls.get())
+        }
+    }
 
     @Test
     fun requestDraftSurvivesSavedInstanceStateRestoration() {
@@ -173,6 +273,34 @@ class HomeMediaRequestDraftRestorationTest {
         override suspend fun saveSession(serverUrl: String, token: String, userId: String, deviceId: String) = Unit
         override suspend fun setBaseUrl(url: String) = Unit
         override suspend fun clearSession() = Unit
+    }
+
+    private fun createViewModel(
+        draftStore: MediaRequestDraftStore,
+        feedbackRepository: UserFeedbackRepository = object : UserFeedbackRepository {
+            override suspend fun requestMedia(
+                session: FeedbackRequestSession, title: String, mediaType: String, year: Int?, notes: String?,
+            ) = Result.success(Unit)
+
+            override suspend fun reportPlaybackIssue(
+                session: FeedbackRequestSession, itemId: String, category: String, description: String?,
+            ) = Result.success(Unit)
+        },
+    ) = HomeViewModel(
+        getHomeFeedUseCase = GetHomeFeedUseCase(EmptyMediaRepository()),
+        sessionRepository = TestSessionRepository(),
+        networkMonitor = object : NetworkMonitor { override val isOnline = flowOf(true) },
+        authRepository = TestAuthRepository(),
+        userFeedbackRepository = feedbackRepository,
+        mediaRequestDraftStore = draftStore,
+    )
+
+    private class InMemoryMediaRequestDraftStore(
+        private val drafts: MutableMap<String, MediaRequestDraft> = mutableMapOf(),
+    ) : MediaRequestDraftStore {
+        override suspend fun load(scopeHash: String) = drafts[scopeHash]
+        override suspend fun save(scopeHash: String, draft: MediaRequestDraft) { drafts[scopeHash] = draft }
+        override suspend fun clear(scopeHash: String) { drafts.remove(scopeHash) }
     }
 
     private class TestAuthRepository : AuthRepository {

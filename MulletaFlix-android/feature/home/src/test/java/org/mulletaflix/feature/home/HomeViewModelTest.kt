@@ -7,6 +7,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runCurrent
@@ -19,12 +20,14 @@ import kotlinx.coroutines.launch
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import org.mulletaflix.core.api.ActiveServerEndpointChangeSignal
 import org.mulletaflix.core.api.SessionRepository
 import org.mulletaflix.core.common.session.FeedbackRequestSession
+import org.mulletaflix.core.common.session.mediaRequestDraftScopeHash
 import org.mulletaflix.core.common.network.NetworkMonitor
 import org.mulletaflix.domain.model.MediaItem
 import org.mulletaflix.domain.model.MediaSuggestion
@@ -41,6 +44,8 @@ import org.mulletaflix.domain.repository.SavedServer
 import org.mulletaflix.domain.repository.ServerVerification
 import org.mulletaflix.domain.repository.UserSession
 import org.mulletaflix.domain.repository.UserFeedbackRepository
+import org.mulletaflix.domain.repository.MediaRequestDraft
+import org.mulletaflix.domain.repository.MediaRequestDraftStore
 import org.mulletaflix.domain.usecase.GetHomeFeedUseCase
 
 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
@@ -91,6 +96,242 @@ class HomeViewModelTest {
         runCurrent()
         assertTrue(viewModel.state.value.feedbackSessionLoaded)
         assertTrue(viewModel.state.value.hasFeedbackSession)
+    }
+
+    @Test fun `media request draft is restored for the authenticated account and server`() = runTest {
+        val savedDraft = MediaRequestDraft("Duna", "Filme", "2024", "Legendas em português")
+        val session = testFeedbackSession.copy(serverId = "server-a")
+        val scopeHash = session.mediaRequestDraftScopeHash()
+        val draftStore = InMemoryMediaRequestDraftStore(mutableMapOf(scopeHash to savedDraft))
+        val viewModel = HomeViewModel(
+            GetHomeFeedUseCase(FakeMediaRepository()),
+            FakeSessionRepository(userId = null, feedbackRequestSession = session),
+            FakeNetworkMonitor(), FakeAuthRepository(), mediaRequestDraftStore = draftStore,
+        )
+
+        runCurrent()
+
+        assertTrue(viewModel.state.value.mediaRequestDraftLoaded)
+        assertEquals(savedDraft, viewModel.state.value.mediaRequestDraft)
+        assertEquals(64, viewModel.state.value.mediaRequestDraftScopeHash?.length)
+        assertEquals(scopeHash, viewModel.state.value.mediaRequestDraftScopeHash)
+    }
+
+    @Test fun `changing authenticated account never shows another account draft`() = runTest {
+        val accountA = testFeedbackSession.copy(serverId = "server-a", userId = "user-a")
+        val accountB = accountA.copy(userId = "user-b")
+        val draftA = MediaRequestDraft("A title", "Filme", "2020", "Private note A")
+        val draftB = MediaRequestDraft("B title", "Série", "2022", "Private note B")
+        val draftStore = InMemoryMediaRequestDraftStore(
+            mutableMapOf(accountA.mediaRequestDraftScopeHash() to draftA, accountB.mediaRequestDraftScopeHash() to draftB),
+        )
+        val sessions = FakeSessionRepository(userId = null, feedbackRequestSession = accountA)
+        val viewModel = HomeViewModel(
+            GetHomeFeedUseCase(FakeMediaRepository()), sessions,
+            FakeNetworkMonitor(), FakeAuthRepository(), mediaRequestDraftStore = draftStore,
+        )
+        runCurrent()
+        assertEquals(draftA, viewModel.state.value.mediaRequestDraft)
+
+        sessions.setFeedbackRequestSession(accountB)
+        runCurrent()
+
+        assertEquals(accountB.mediaRequestDraftScopeHash(), viewModel.state.value.mediaRequestDraftScopeHash)
+        assertEquals(draftB, viewModel.state.value.mediaRequestDraft)
+        viewModel.updateMediaRequestDraft(MediaRequestDraft("Edited B", "Série", "2022", "Private note B"))
+        advanceUntilIdle()
+        assertEquals("A title", draftStore.drafts.getValue(accountA.mediaRequestDraftScopeHash()).title)
+        assertEquals("Edited B", draftStore.drafts.getValue(accountB.mediaRequestDraftScopeHash()).title)
+    }
+
+    @Test fun `successful media request clears submitted fields and restoration never resubmits`() = runTest {
+        val draftStore = InMemoryMediaRequestDraftStore()
+        var requestCount = 0
+        val feedback = object : UserFeedbackRepository {
+            override suspend fun requestMedia(
+                session: FeedbackRequestSession, title: String, mediaType: String, year: Int?, notes: String?,
+            ): Result<Unit> {
+                requestCount++
+                return Result.success(Unit)
+            }
+            override suspend fun reportPlaybackIssue(
+                session: FeedbackRequestSession, itemId: String, category: String, description: String?,
+            ) = Result.success(Unit)
+        }
+        val sessions = FakeSessionRepository(userId = null, feedbackRequestSession = testFeedbackSession)
+        val viewModel = HomeViewModel(
+            GetHomeFeedUseCase(FakeMediaRepository()), sessions, FakeNetworkMonitor(), FakeAuthRepository(),
+            feedback, mediaRequestDraftStore = draftStore,
+        )
+        runCurrent()
+        viewModel.updateMediaRequestDraft(MediaRequestDraft("Duna", "Filme", "2024", "Legendas"))
+        advanceUntilIdle()
+
+        viewModel.requestMedia("Duna", "Filme", 2024, "Legendas") {}
+        advanceUntilIdle()
+
+        assertEquals(1, requestCount)
+        assertEquals(MediaRequestDraft(mediaType = "Filme"), draftStore.drafts.getValue(testFeedbackSession.mediaRequestDraftScopeHash()))
+        HomeViewModel(
+            GetHomeFeedUseCase(FakeMediaRepository()), sessions, FakeNetworkMonitor(), FakeAuthRepository(),
+            feedback, mediaRequestDraftStore = draftStore,
+        )
+        advanceUntilIdle()
+        assertEquals("A restored draft only loads form fields; it never submits automatically.", 1, requestCount)
+    }
+
+    @Test fun `leaving Home flushes the latest draft before debounce expires`() = runTest {
+        val draftStore = InMemoryMediaRequestDraftStore()
+        val viewModel = HomeViewModel(
+            GetHomeFeedUseCase(FakeMediaRepository()),
+            FakeSessionRepository(userId = null, feedbackRequestSession = testFeedbackSession),
+            FakeNetworkMonitor(), FakeAuthRepository(), mediaRequestDraftStore = draftStore,
+        )
+        runCurrent()
+        val latestDraft = MediaRequestDraft("Duna", "Filme", "2024", "Legendas")
+
+        viewModel.updateMediaRequestDraft(latestDraft)
+        assertTrue(draftStore.drafts.isEmpty())
+        viewModel.flushMediaRequestDraft()
+        runCurrent()
+
+        assertEquals(latestDraft, draftStore.drafts.getValue(testFeedbackSession.mediaRequestDraftScopeHash()))
+    }
+
+    @Test fun `failed draft persistence remains pending for a later local retry`() = runTest {
+        var saveAttempts = 0
+        var savedDraft: MediaRequestDraft? = null
+        val draftStore = object : MediaRequestDraftStore {
+            override suspend fun load(scopeHash: String) = savedDraft
+
+            override suspend fun save(scopeHash: String, draft: MediaRequestDraft) {
+                saveAttempts++
+                if (saveAttempts == 1) throw java.io.IOException("temporary local storage failure")
+                savedDraft = draft
+            }
+
+            override suspend fun clear(scopeHash: String) {
+                savedDraft = null
+            }
+        }
+        val viewModel = HomeViewModel(
+            GetHomeFeedUseCase(FakeMediaRepository()),
+            FakeSessionRepository(userId = null, feedbackRequestSession = testFeedbackSession),
+            FakeNetworkMonitor(), FakeAuthRepository(), mediaRequestDraftStore = draftStore,
+        )
+        runCurrent()
+        val draft = MediaRequestDraft("Duna", "Filme", "2024", "Legendas")
+
+        viewModel.updateMediaRequestDraft(draft)
+        advanceTimeBy(250)
+        runCurrent()
+        assertEquals(1, saveAttempts)
+        assertNull(savedDraft)
+
+        viewModel.flushMediaRequestDraft()
+        runCurrent()
+
+        assertEquals(2, saveAttempts)
+        assertEquals(draft, savedDraft)
+    }
+
+    @Test fun `draft save failure is observable and local retry recovers without request submission`() = runTest {
+        var saveAttempts = 0
+        var savedDraft: MediaRequestDraft? = null
+        val draftStore = object : MediaRequestDraftStore {
+            override suspend fun load(scopeHash: String) = savedDraft
+
+            override suspend fun save(scopeHash: String, draft: MediaRequestDraft) {
+                saveAttempts++
+                if (saveAttempts == 1) throw java.io.IOException("temporary local storage failure")
+                savedDraft = draft
+            }
+
+            override suspend fun clear(scopeHash: String) { savedDraft = null }
+        }
+        var requestCalls = 0
+        val feedback = object : UserFeedbackRepository {
+            override suspend fun requestMedia(
+                session: FeedbackRequestSession, title: String, mediaType: String, year: Int?, notes: String?,
+            ): Result<Unit> {
+                requestCalls++
+                return Result.success(Unit)
+            }
+
+            override suspend fun reportPlaybackIssue(
+                session: FeedbackRequestSession, itemId: String, category: String, description: String?,
+            ) = Result.success(Unit)
+        }
+        val viewModel = HomeViewModel(
+            GetHomeFeedUseCase(FakeMediaRepository()),
+            FakeSessionRepository(userId = null, feedbackRequestSession = testFeedbackSession),
+            FakeNetworkMonitor(), FakeAuthRepository(), feedback,
+            mediaRequestDraftStore = draftStore,
+        )
+        runCurrent()
+        val draft = MediaRequestDraft("Duna", "Filme", "2024", "Legendas")
+
+        viewModel.updateMediaRequestDraft(draft)
+        advanceTimeBy(250)
+        runCurrent()
+
+        assertEquals(MediaRequestDraftSaveState.FAILED, viewModel.state.value.mediaRequestDraftSaveState)
+        assertEquals(1, saveAttempts)
+        assertNull(savedDraft)
+
+        viewModel.retryMediaRequestDraftSave()
+        runCurrent()
+
+        assertEquals(MediaRequestDraftSaveState.SAVED, viewModel.state.value.mediaRequestDraftSaveState)
+        assertEquals(2, saveAttempts)
+        assertEquals(draft, savedDraft)
+        assertEquals(0, requestCalls)
+    }
+
+    @Test fun `failed draft remains isolated and restores after switching servers`() = runTest {
+        val sessionA = testFeedbackSession.copy(serverId = "server-a", userId = "user-a")
+        val sessionB = sessionA.copy(serverId = "server-b")
+        val scopeA = sessionA.mediaRequestDraftScopeHash()
+        val scopeB = sessionB.mediaRequestDraftScopeHash()
+        val draftA = MediaRequestDraft("A title", "Filme", "2020", "Private note A")
+        val draftB = MediaRequestDraft("B title", "Série", "2022", "Private note B")
+        val savedDrafts = mutableMapOf(scopeB to draftB)
+        val failingScopes = mutableSetOf(scopeA)
+        val draftStore = object : MediaRequestDraftStore {
+            override suspend fun load(scopeHash: String) = savedDrafts[scopeHash]
+
+            override suspend fun save(scopeHash: String, draft: MediaRequestDraft) {
+                if (scopeHash in failingScopes) throw java.io.IOException("temporary local storage failure")
+                savedDrafts[scopeHash] = draft
+            }
+
+            override suspend fun clear(scopeHash: String) {
+                savedDrafts.remove(scopeHash)
+            }
+        }
+        val sessions = FakeSessionRepository(userId = null, feedbackRequestSession = sessionA)
+        val viewModel = HomeViewModel(
+            GetHomeFeedUseCase(FakeMediaRepository()), sessions,
+            FakeNetworkMonitor(), FakeAuthRepository(), mediaRequestDraftStore = draftStore,
+        )
+        runCurrent()
+
+        viewModel.updateMediaRequestDraft(draftA)
+        advanceTimeBy(250)
+        runCurrent()
+        assertNull(savedDrafts[scopeA])
+
+        sessions.setFeedbackRequestSession(sessionB)
+        runCurrent()
+        assertEquals(draftB, viewModel.state.value.mediaRequestDraft)
+        assertNull(savedDrafts[scopeA])
+
+        failingScopes.remove(scopeA)
+        sessions.setFeedbackRequestSession(sessionA)
+        runCurrent()
+
+        assertEquals(draftA, viewModel.state.value.mediaRequestDraft)
+        assertEquals(draftA, savedDrafts[scopeA])
     }
 
     @Test fun `media request trims fields and sends only once while request is pending`() = runTest {
@@ -1093,5 +1334,13 @@ class HomeViewModelTest {
         override suspend fun markAsFavorite(userId: String, itemId: String): Result<Unit> = unavailable()
         override suspend fun unmarkAsFavorite(userId: String, itemId: String): Result<Unit> = unavailable()
         override suspend fun getLiveTvChannelPreview(userId: String): Result<List<MediaItem>> = unavailable()
+    }
+
+    private class InMemoryMediaRequestDraftStore(
+        val drafts: MutableMap<String, MediaRequestDraft> = mutableMapOf(),
+    ) : MediaRequestDraftStore {
+        override suspend fun load(scopeHash: String): MediaRequestDraft? = drafts[scopeHash]
+        override suspend fun save(scopeHash: String, draft: MediaRequestDraft) { drafts[scopeHash] = draft }
+        override suspend fun clear(scopeHash: String) { drafts.remove(scopeHash) }
     }
 }

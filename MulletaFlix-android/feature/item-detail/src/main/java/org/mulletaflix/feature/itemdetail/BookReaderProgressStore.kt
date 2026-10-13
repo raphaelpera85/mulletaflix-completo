@@ -338,6 +338,36 @@ internal class BookReaderProgressStore(context: Context) {
         }
     }
 
+    suspend fun readSpeechVoiceName(scope: HomeFeedCacheScope): String? =
+        recoverBookReaderStorageFailure {
+            val key = speechVoiceKey(scope)
+            val saved = normalizeSpeechVoiceName(store.data.first()[key])
+            if (saved != null) {
+                store.edit { preferences ->
+                    preferences[longPreferencesKey(timestampKey(key.name))] = System.currentTimeMillis()
+                    trimOldEntries(preferences)
+                }
+            }
+            saved
+        }
+
+    suspend fun writeSpeechVoiceName(scope: HomeFeedCacheScope, voiceName: String?) {
+        recoverBookReaderStorageFailure {
+            store.edit { preferences ->
+                val key = speechVoiceKey(scope)
+                val normalized = normalizeSpeechVoiceName(voiceName)
+                if (normalized == null) {
+                    preferences.remove(key)
+                    preferences.remove(longPreferencesKey(timestampKey(key.name)))
+                } else {
+                    preferences[key] = normalized
+                    preferences[longPreferencesKey(timestampKey(key.name))] = System.currentTimeMillis()
+                    trimOldEntries(preferences)
+                }
+            }
+        }
+    }
+
     internal fun entryKey(scope: HomeFeedCacheScope, itemId: String): String {
         val serverIdentity = scope.serverId?.takeIf(String::isNotBlank)
             ?.let { "id:$it" }
@@ -360,6 +390,13 @@ internal class BookReaderProgressStore(context: Context) {
     private fun speechLanguageKey(scope: HomeFeedCacheScope) = stringPreferencesKey(
         "${SPEECH_LANGUAGE_PREFIX}${entryKey(scope, SPEECH_LANGUAGE_SCOPE_ITEM_ID).removePrefix(ENTRY_PREFIX)}",
     )
+
+    private fun speechVoiceKey(scope: HomeFeedCacheScope) = stringPreferencesKey(
+        "${SPEECH_VOICE_PREFIX}${entryKey(scope, SPEECH_VOICE_SCOPE_ITEM_ID).removePrefix(ENTRY_PREFIX)}",
+    )
+
+    private fun normalizeSpeechVoiceName(voiceName: String?): String? =
+        voiceName?.trim()?.takeIf { it.isNotEmpty() && it.length <= MAX_SPEECH_VOICE_NAME_LENGTH }
 
     private fun appearanceKey(scope: HomeFeedCacheScope) = stringPreferencesKey(
         "${APPEARANCE_PREFIX}${entryKey(scope, APPEARANCE_SCOPE_ITEM_ID).removePrefix(ENTRY_PREFIX)}",
@@ -418,6 +455,7 @@ internal class BookReaderProgressStore(context: Context) {
         trimEntries(preferences, FONT_SIZE_PREFIX, MAX_FONT_SIZE_SCOPES)
         trimEntries(preferences, SPEECH_RATE_PREFIX, MAX_FONT_SIZE_SCOPES)
         trimEntries(preferences, SPEECH_LANGUAGE_PREFIX, MAX_FONT_SIZE_SCOPES)
+        trimEntries(preferences, SPEECH_VOICE_PREFIX, MAX_FONT_SIZE_SCOPES)
         trimEntries(preferences, APPEARANCE_PREFIX, MAX_FONT_SIZE_SCOPES)
         trimEntries(preferences, BOOKMARKS_PREFIX, MAX_ENTRIES)
     }
@@ -436,10 +474,13 @@ internal class BookReaderProgressStore(context: Context) {
         const val FONT_SIZE_SCOPE_ITEM_ID = "__reader_font_size_preference__"
         const val SPEECH_RATE_SCOPE_ITEM_ID = "__reader_speech_rate_preference__"
         const val SPEECH_LANGUAGE_SCOPE_ITEM_ID = "__reader_speech_language_preference__"
+        const val SPEECH_VOICE_SCOPE_ITEM_ID = "__reader_speech_voice_preference__"
         const val ENTRY_PREFIX = "book_reader_progress_"
         const val FONT_SIZE_PREFIX = "book_reader_font_size_"
         const val SPEECH_RATE_PREFIX = "book_reader_speech_rate_"
         const val SPEECH_LANGUAGE_PREFIX = "book_reader_speech_language_"
+        const val SPEECH_VOICE_PREFIX = "book_reader_speech_voice_"
+        const val MAX_SPEECH_VOICE_NAME_LENGTH = 256
         const val APPEARANCE_SCOPE_ITEM_ID = "__reader_appearance_preference__"
         const val APPEARANCE_PREFIX = "book_reader_appearance_"
         const val BOOKMARKS_PREFIX = "book_reader_bookmarks_"

@@ -47,6 +47,7 @@ class MainActivitySessionNavigationTest {
     private var sessionSnapshotIsRestorable = false
     private var activityScenario: ActivityScenario<MainActivity>? = null
     private val mockServers = mutableListOf<MockWebServer>()
+    private val mockServerUrlsCreatedByThisTest = mutableSetOf<String>()
     private val temporarySavedServerUrls = mutableSetOf<String>()
     private var localNetworkPermissionGrantedForTest = false
 
@@ -76,6 +77,12 @@ class MainActivitySessionNavigationTest {
         mockServers.clear()
         temporarySavedServerUrls.forEach { sessionRepository.removeSavedServer(it) }
         temporarySavedServerUrls.clear()
+        val untrackedSavedMockServerUrls = sessionRepository.getSavedServers().first()
+            .map { it.url.trimEnd('/') }
+            .toSet()
+            .intersect(mockServerUrlsCreatedByThisTest)
+        mockServerUrlsCreatedByThisTest.forEach { sessionRepository.removeSavedServer(it) }
+        mockServerUrlsCreatedByThisTest.clear()
 
         if (localNetworkPermissionGrantedForTest) {
             InstrumentationRegistry.getInstrumentation().uiAutomation
@@ -103,6 +110,11 @@ class MainActivitySessionNavigationTest {
         } else {
             sessionRepository.setServerId(snapshot.serverId)
         }
+        assertTrue(
+            "Todo URL de MockWebServer persistida durante o teste deve estar registrada para limpeza: " +
+                untrackedSavedMockServerUrls,
+            untrackedSavedMockServerUrls.isEmpty(),
+        )
     }
 
     @Test
@@ -162,6 +174,7 @@ class MainActivitySessionNavigationTest {
             start()
         }
         mockServers += server
+        trackMockServerUrl(server)
         val serverUrl = server.url("/").toString().trimEnd('/')
         sessionRepository.clearSession()
         sessionRepository.setBaseUrl(serverUrl)
@@ -250,6 +263,7 @@ class MainActivitySessionNavigationTest {
             start()
         }
         mockServers += server
+        trackMockServerUrl(server)
         val serverUrl = server.url("/").toString().trimEnd('/')
         sessionRepository.clearSession()
         sessionRepository.setBaseUrl(serverUrl)
@@ -370,6 +384,7 @@ class MainActivitySessionNavigationTest {
             start()
         }
         mockServers += oldServer
+        trackMockServerUrl(oldServer)
         val oldServerUrl = oldServer.url("/").toString().trimEnd('/')
         val targetItemId = "server-b-item"
         val targetUserId = "server-b-user"
@@ -413,6 +428,7 @@ class MainActivitySessionNavigationTest {
             start()
         }
         mockServers += targetServer
+        trackMockServerUrl(targetServer)
         val targetServerUrl = targetServer.url("/").toString().trimEnd('/')
         sessionRepository.setBaseUrl(oldServerUrl)
         sessionRepository.saveSession(
@@ -553,6 +569,7 @@ class MainActivitySessionNavigationTest {
             start()
         }
         mockServers += server
+        trackMockServerUrl(server)
         sessionRepository.saveSession(
             server.url("/").toString().trimEnd('/'),
             token = "instrumentation-deep-link-token",
@@ -614,6 +631,7 @@ class MainActivitySessionNavigationTest {
             start()
         }
         mockServers += server
+        trackMockServerUrl(server)
         sessionRepository.saveSession(
             server.url("/").toString().trimEnd('/'),
             token = "activity-book-reader-token",
@@ -687,6 +705,13 @@ class MainActivitySessionNavigationTest {
         }
         start()
         mockServers += this
+        trackMockServerUrl(this)
+    }
+
+    private fun trackMockServerUrl(server: MockWebServer) {
+        val url = server.url("/").toString().trimEnd('/')
+        mockServerUrlsCreatedByThisTest += url
+        temporarySavedServerUrls += url
     }
 
 

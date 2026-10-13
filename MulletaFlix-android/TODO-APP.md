@@ -1,5 +1,36 @@
 # MulletaFlix Android - Plano de Desenvolvimento & Checklist de Funcionalidades (TODO)
 
+## Proteção contra iniciação duplicada do Quick Connect — APK local; sem release
+
+- [x] O ViewModel ignora nova iniciação enquanto já carrega ou aguarda autorização, antes de cancelar o polling/tarefa ativa. O estado de carregamento é marcado sincronamente antes da chamada de rede para fechar a janela entre taps/recomposições.
+- [x] TDD em `AuthViewModelTest`: chamada repetida antes do despacho da coroutine, outra após iniciar uma requisição suspensa e outra após o PIN aparecer mantém uma única chamada à API, preserva o PIN original e permite Cancelar. RED observado antes da guarda; classe focal GREEN 42/42.
+- [x] Integração `MainActivitySessionNavigationTest.quickConnectAuthorizationPersistsSessionAndOpensHome`: 1/1 em PHONE/API 35 com MockWebServer; XML `TEST-MulletaflixCodexPhoneApi35_20261012(AVD) - 15.xml`, sem falhas/erros/ignorados. Wrapper verificou GPU NVIDIA e encerrou o AVD.
+- [x] Quality gate em 2026-10-13: 1.732 testes JVM em 252 relatórios, 0 falhas/erros/ignorados; lint auth/app, `assembleDebug` e compilação AndroidTest passaram.
+- [ ] Confirmar Quick Connect em dispositivo físico e servidor real autorizado; esta correção apenas evita múltiplas solicitações iniciadas pelo cliente e não prova conectividade/configuração do servidor.
+- Escopo: APK/testes/documentação somente. Sem versão, assinatura, release, servidor, portal, commit ou push.
+
+## Seleção de voz para narração de livros (APK local; sem release) — 2026-10-13
+
+- [x] Permitir escolher, por idioma/país, uma das vozes disponibilizadas pelo mecanismo Android; destacar vozes locais/offline e indicar quando uma voz requer conexão.
+- [x] Persistir a escolha isolada por servidor/conta usando o armazenamento privado de progresso; ao trocar de identidade, impedir que gravação atrasada contamine a sessão nova.
+- [x] Aplicar a voz antes da primeira fala; se ela não existir mais ou o engine recusar, voltar à voz padrão e limpar a preferência inválida. Ao alterar a voz durante fala ativa, reiniciar o trecho atual e ignorar callbacks obsoletos.
+- [x] TDD: teste semântico RED `applies saved voice after engine initialization and before first utterance` falhou antes da implementação; testes do controller e ViewModel passaram depois.
+- [x] Compose AndroidTest para listar vozes, indicar disponibilidade, selecionar e persistir: passou 1/1 em PHONE/API 35 e 1/1 em TABLET/API 35 (`TEST-MulletaflixTtsVoiceTabletApi35(AVD) - 15.xml`, 0 falhas/erros/ignorados).
+- [x] Quality gate em 2026-10-13: `testDebugUnitTest` — 1.732 testes em 252 relatórios, 0 falhas/erros/ignorados; lintDebug do módulo e app, `assembleDebug` e compilação AndroidTest aprovados; `git diff --check` aprovado.
+- [ ] Confirmar saída audível e catálogo de vozes em aparelho físico, engine de terceiros e TalkBack; lista e marcação offline dependem das capacidades informadas pelo engine instalado.
+- Escopo: somente APK, testes e documentação. Sem bump, release, portal, servidor, commit ou push.
+
+## Fallback LAN sem troca de servidor — validação integrada local PHONE/API 35
+
+- [x] Após duas descobertas LAN sem resposta, permitir retorno somente a endpoint remoto salvo com `serverId` igual à sessão autenticada.
+- [x] Não assumir que a URL pública padrão representa o servidor autenticado; sem identidade/endpoint remoto correspondente, preservar a URL atual.
+- [x] TDD da política: os casos de servidor diferente e `serverId` ausente falharam sem a proteção (2/26); os 26 testes de `LanServerRecoveryPolicyTest` passaram após a correção.
+- [x] AndroidTest cross-server executa com `LanServerRecovery` ativo, sem parar o worker no teste.
+- [x] Isolamento do fixture: registrar toda URL de MockWebServer simultaneamente na lista de URLs temporárias e na lista de auditoria; teardown remove qualquer endpoint de teste não registrado e falha para expor regressões.
+- [x] TDD em PHONE/API 35 (2026-10-13): teardown RED detectou `http://localhost:36447` persistida sem registro; após `trackMockServerUrl`, teste focal cross-server 1/1 e classe `MainActivitySessionNavigationTest` 9/9, sem falhas/erros/ignorados. `LanServerRecovery` permaneceu ativo.
+- [ ] Repetições adicionais para estabilidade e descoberta em LAN física seguem pendentes; a falha histórica 8/9 ainda não tem causa confirmada, e esta falha de isolamento descoberta agora não prova ser sua origem.
+- Escopo: somente APK/testes/documentação; sem versão, release, servidor, portal ou publicação.
+
 ## Charset declarado em HTML no APK — concluído localmente; sem release
 
 - [x] Respeitar `<meta charset>` e o formato legado `http-equiv` quando o HTTP não declara charset; charset explícito no `Content-Type` e BOM mantêm precedência.
@@ -43,8 +74,10 @@
 - [x] TDD: testes confirmam níveis HTML, heading com formatação inline/entidades, headings ocultos e em script ignorados, heading aninhado, heading tardio associado ao trecho posterior e capítulo MOBI extraído.
 - [x] Quality gate em 2026-10-11: 1.670 testes JVM, 0 falhas/erros/ignorados; lint do módulo/app, `assembleDebug` e compilação `AndroidTest` aprovados; `git diff --check` limpo.
 - [x] Grafo estrutural Graphify atualizado em 2026-10-11: 64.178 nós/164.188 arestas/1.467 comunidades; `explain` confirma conexões do conversor e testes. Documentos Markdown não foram semanticamente reextraídos.
-- [ ] Testar instrumentação após liberação do AVD `MulletaflixApi35`; validar arquivo MOBI real quando disponível.
-- [ ] Sem bump, APK de produção, release, portal, commit ou push.
+- [x] Compose instrumentado `BookReaderScreenIntegrationTest.mobiContentsNavigateToChapterAndRestoreTheSavedLocator`: MOBI sintético servido por MockWebServer, salto do sumário ao segundo capítulo, locator persistido e carregado por novo ViewModel; TABLET/API 35, 1/1 em 2026-10-13. AVD `MulletaflixApi35` reservada permaneceu intocada.
+- [x] Reexecutar `BookReaderScreenIntegrationTest.mobiContentsNavigateToChapterAndRestoreTheSavedLocator` em PHONE/API 35: 1/1 no AVD temporário `MulletaflixCodexPhoneApi35_20261012`, 0 falhas/erros/ignorados. Não usar AVD `MulletaflixApi35` reservada.
+- [ ] Validar arquivo MOBI/KF8 real autorizado; fixtures sintéticas não comprovam compatibilidade de todos os arquivos. PHONE foi coberto em AVD, não em aparelho físico.
+- [x] Sem bump, APK de produção, release, portal, commit ou push nesta validação local.
 
 ## Limites de leitura dos locators persistidos — APK local; sem release
 
@@ -60,7 +93,9 @@
 - [x] Limitar `word/styles.xml` a 4 MiB e 4.096 estilos de parágrafo antes de indexar; cadeia `basedOn` limitada a 32 níveis.
 - [x] Limitar o sumário do DOCX a 10.000 entradas para manter memória delimitada; excesso recebe erro compreensível.
 - [x] TDD: teste JVM cobre hierarquia, salto para trecho e locator; teste de UI Compose cobre abrir sumário, navegar ao capítulo e salvar posição.
-- [ ] Executar o Compose instrumentado somente após o proprietário liberar a AVD preservada; teste foi adicionado, sem instrumentação nesta rodada.
+- [x] Compose instrumentado `DocxBookReaderIntegrationTest`: 2/2 aprovados em PHONE/API 35 em 2026-10-13, usando AVD temporário separado; inclui renderização do texto DOCX e navegação do sumário com locator persistido/restaurado. A AVD `MulletaflixApi35` reservada não foi usada.
+- [x] Repetir o fluxo Compose em TABLET/API 35: `DocxBookReaderIntegrationTest` passou 2/2 em `MulletaflixTabletApi35` em 2026-10-13 (renderização DOCX, navegação pelo sumário e restauração do locator). TV não se aplica: a biblioteca de livros deve permanecer oculta nesse perfil.
+- [ ] Validar arquivos DOCX reais autorizados e diferentes estruturas no tablet/aparelho físico; as fixtures atuais são sintéticas.
 - [ ] Sem bump de versão, APK de produção, release, portal ou publicação.
 
 ## Isolamento obrigatório de instrumentação Android — APK local
@@ -186,8 +221,21 @@
 - [x] Teste de integração Compose RED-GREEN: reprodução de estado salvo passou 1/1 em PHONE/API 35 e 1/1 em TABLET/API 35; os quatro campos foram verificados.
 - [x] Restaurar também o diálogo aberto após restauração do estado salvo; teste focado passou em PHONE/API 35, TABLET/API 35 e TV/API 34. Fechamento voluntário continua sendo salvo como fechado.
 - [x] Ao selecionar sugestão sem ano, limpar ano digitado anteriormente para não enviar dado desatualizado; teste integrado confirma `year = null` no envio em PHONE/API 35, TABLET/API 35 e TV/API 34.
-- [x] Quality gate global: suítes JVM, lint home/app, assemble Debug e compilação AndroidTest home/app — `BUILD SUCCESSFUL`.
-- [ ] Validar restauração após encerramento real do processo e em hardware físico. Envio/progresso/status não são persistidos nem repetidos.
+- [x] Persistir os quatro campos em DataStore privado, associados a hash SHA-256 do servidor/conta; nenhum URL, token, deviceId, ID bruto, status ou resultado do envio é gravado. Limite de oito escopos e limites de tamanho nos campos.
+- [x] Restaurar o rascunho na Home com ViewModel novo; alternar conta/servidor troca para o rascunho correto sem vazar campos. Falha de envio preserva o rascunho; sucesso limpa os campos sem autoenviar após reinício.
+- [x] Agrupar gravações por 250 ms durante digitação e forçar flush ao sair da Home/ir para segundo plano. Teste de ViewModel valida flush antes do debounce.
+- [x] Preservar o rascunho pendente quando DataStore falha ao salvar; um flush/edição posterior pode tentar novamente sem repetir POST. `HomeViewModelTest.failed draft persistence remains pending for a later local retry` passou após RED comportamental.
+- [x] Manter rascunhos pendentes isolados por hash durante troca de servidor após falha local; ao voltar ao servidor original, restaurar os campos e tentar persistir. `HomeViewModelTest.failed draft remains isolated and restores after switching servers` passou 1/1 após RED comportamental.
+- [x] Informar falha da gravação local no formulário, com anúncio acessível e botão para repetir somente o save do DataStore do escopo atual; teste confirma recuperação FAILED → SAVED e nenhuma chamada de solicitação remota.
+- [x] `HomeMediaRequestDraftRestorationTest`: 4/4 em PHONE/API 35, TABLET/API 35 e TV/API 34; jornada de erro e retry local passou em todos os perfis.
+- [x] Quality gate desta alteração: 1.727 testes JVM/252 XML, 0 falhas/erros/ignorados; lint Home/App, assemble Debug e compilação AndroidTest Home — `BUILD SUCCESSFUL`.
+- [x] `MediaRequestDraftStorePersistenceTest`: 2/2 em PHONE/API 35; recriou DataStore sobre o mesmo arquivo, confirmou escopos independentes, limpeza seletiva e eviction do 9.º escopo.
+- [x] `HomeMediaRequestDraftRestorationTest`: 3/3 em PHONE/API 35, TABLET/API 35 e TV/API 34; inclui rascunho persistido já refletido na tela e regressão de sugestão sem ano.
+- [x] Quality gate 2026-10-13: 1.724 testes JVM/252 XML, 0 falhas/erros/ignorados; lint common/domain/data/home/app, assemble Debug e compilação AndroidTest data/home/app — `BUILD SUCCESSFUL`.
+- [x] Reteste após correção da troca de servidor: quality gate 1.726 testes JVM/252 XML, 0 falhas/erros/ignorados; mesmos lint/build e compilação AndroidTest passaram. Evidência TDD em `TDD-PLAN.md`.
+- [x] Cold start real da Home após `am force-stop`: harness host observou PID 3843 ser encerrado e nova MainActivity em PID 3921 restaurar título, tipo, ano e observações do DataStore; sessão original restaurada e escopo sintético removido. A fase preparatória escreve fixture diretamente no DataStore; digitação/interação segue coberta pelos testes Compose.
+- [ ] Validar hardware físico e persistência real em uso cotidiano; o cold start foi sintético em AVD PHONE/API 35 e não equivale a homologação em aparelho/servidor reais.
+- [ ] Homologar estado FAILED com falta real de espaço/armazenamento indisponível e leitor TalkBack em dispositivo físico.
 - [ ] Sem bump de versão, APK de produção, release, portal ou mudança no servidor.
 
 ## Leitura de MOBI/PalmDOC sem DRM — Android, sem release
@@ -362,6 +410,8 @@
 - [x] A biblioteca aplica a política de ocultação também no limite da UI: catálogo móvel previamente carregado não revela livros/audiolivros na TV durante atualização nem após falha; prévia offline, navegação alfabética e contagem seguem os itens visíveis. `LibraryOfflineReconnectFlowTest` passou 2/2 no AVD Android TV API 34.
 - [x] Instrumentados Android TV API 34: Home carregada e rolada na `LazyColumn` real 1/1; detalhe/recomendações e compatibilidade handheld 4/4; GPU NVIDIA confirmada e AVD encerrado pelo wrapper após cada execução.
 - [x] Revalidação Android TV API 34 em 2026-10-08: `HomeLibraryNavigationTest` 3/3 e `TvHomeRefreshIntegrationTest` 2/2; confirmou biblioteca Livros ausente e livros filtrados das linhas da Home mesmo após feed carregado/atualizado. Reexecutado `HomeLibraryNavigationTest` 3/3 agora; AVD executado na GPU NVIDIA e encerrado pelo wrapper.
+- [x] Revalidação focada Android TV API 34 em 2026-10-13: `HomeLibraryNavigationTest#books_libraryIsNotRenderedOnAndroidTv` passou 1/1 no AVD `MulletaflixTvApi34`; confirmou perfil TV, ausência de Livros e presença de Filmes na composição real de `LibraryTiles` com feed sintético. Wrapper confirmou GPU NVIDIA e encerrou o AVD; `adb devices -l` ficou vazio. Teste já existente; sem alteração de código.
+- [x] Revalidação integrada Android TV API 34 em 2026-10-13: `TvHomeRefreshIntegrationTest` passou 2/2 na `HomeScreen` real com `HomeViewModel`; confirmou livros ausentes nas faixas/biblioteca e atualização do feed ao retornar ao primeiro plano. XML `TEST-MulletaflixTvApi34(AVD) - 14.xml`, 0 falhas/erros/ignorados; wrapper confirmou RTX 3050, encerrou o AVD e deixou ADB vazio. Testes existentes; sem mudança de código.
 - [x] `:feature:item-detail:testDebugUnitTest`: 162 testes, 0 falhas/erros/ignorados; `:feature:item-detail:compileDebugAndroidTestKotlin`, `:feature:item-detail:lintDebug`, `:app:lintDebug` e `:app:assembleDebug`: `BUILD SUCCESSFUL`.
 - [ ] Validar visualmente em uma Android TV física conectada ao servidor real; os instrumentados usam feed controlado.
 - [ ] Sem bump de versão, APK de produção, portal ou publicação.
@@ -3657,7 +3707,8 @@ Pendências relacionadas:
 - [x] Impedir consultas de usuários e Quick Connect ao servidor salvo durante a inicialização/troca; RED-GREEN no `AuthViewModelTest` e teste Activity com MockWebServer no host correto do AVD (5/5).
 - [x] Quality gate Android anterior: `testDebugUnitTest` 1.577/1.577, `:app:lintDebug`, `:app:assembleDebug`, `:app:compileDebugAndroidTestKotlin` e execução instrumentada anterior passaram. Sem bump, APK de produção ou publicação; mudança exclusivamente local do APK.
 - [x] Reteste da classe completa em 2026-10-13, PHONE/API 35 temporário com GPU NVIDIA verificada: 8/9 passaram. O cenário cross-server falhou ao submeter login: nenhuma requisição POST foi registrada em B, a URL/sessão retornou ao padrão e a UI mostrou erro 401. A repetição focal imediata passou 1/1. Causa não confirmada.
-- [ ] Investigar e estabilizar o estado do servidor/login no cenário cross-server da classe completa. Confirmar URL visível/persistida e requests no instante do submit; não declarar homologação formal até repetição completa estável.
+- [x] Nova repetição completa em 2026-10-13: 9/9 PHONE/API 35, incluindo autenticação em B, solicitação do item em B, retorno à Home e zero requests ao servidor A; execução focal também passou 1/1.
+- [ ] Intermitência histórica (execução anterior 8/9) segue sem causa confirmada. Duas repetições adicionais da classe completa passaram 9/9 no AVD `MulletaflixAptoidePhone` (PHONE/API 35), com worker LAN ativo; o XML mais recente registra zero falhas/erros/ignorados. Repetir após mudanças relacionadas, investigar a origem histórica e não declarar homologação formal apenas com execuções verdes.
 
 ## Leitor paginado — salto direto para página (APK local; sem release)
 - [x] Tornar o indicador de página uma ação acessível; diálogo aceita somente inteiros dentro de `1..total`, mostra erro para fora da faixa e aplica salto somente após confirmação.

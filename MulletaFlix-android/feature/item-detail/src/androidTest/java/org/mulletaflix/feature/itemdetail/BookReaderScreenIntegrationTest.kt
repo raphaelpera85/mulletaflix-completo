@@ -19,6 +19,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
+import androidx.compose.ui.test.assertIsSelected
+import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertTextContains
 import androidx.compose.ui.test.assertHasNoClickAction
 import androidx.compose.ui.test.assertHasClickAction
@@ -396,6 +398,87 @@ class BookReaderScreenIntegrationTest {
             "/BookReader/Items/$itemId/BookReader/Epub",
             server.takeRequest(5, TimeUnit.SECONDS)?.path,
         )
+    }
+
+    @Test
+    fun mobiContentsNavigateToChapterAndRestoreTheSavedLocator() {
+        val itemId = "reader-mobi-toc-${System.nanoTime()}"
+        val mobi = createMobi(
+            "<h1>Capítulo Um</h1><p>${"Texto inicial. ".repeat(110)}</p>" +
+                "<h1>Capítulo Dois</h1><p>Conteúdo exclusivo do segundo capítulo MOBI.</p>",
+        )
+        fun enqueueMobiResponse() {
+            server.enqueue(
+                MockResponse()
+                    .setResponseCode(200)
+                    .addHeader("Content-Type", MobiBookTextExtractor.CONTENT_TYPE)
+                    .setBody(Buffer().write(mobi)),
+            )
+        }
+        val api = Retrofit.Builder()
+            .baseUrl(server.url("/"))
+            .client(OkHttpClient())
+            .build()
+            .create(MulletaFlixApiService::class.java)
+        fun createReaderViewModel(store: ViewModelStore): BookReaderViewModel =
+            ViewModelProvider(
+                store,
+                object : ViewModelProvider.Factory {
+                    @Suppress("UNCHECKED_CAST")
+                    override fun <T : ViewModel> create(modelClass: Class<T>): T =
+                        BookReaderViewModel(api, TestSessionRepository(sessionScope), context) as T
+                },
+            )[BookReaderViewModel::class.java]
+
+        enqueueMobiResponse()
+        val viewModel = createReaderViewModel(viewModelStore)
+        composeRule.setContent {
+            MaterialTheme {
+                BookReaderScreen(itemId = itemId, onBack = {}, viewModel = viewModel)
+            }
+        }
+        composeRule.waitUntil(timeoutMillis = 20_000) {
+            viewModel.state.value.textBook?.chapters?.any { it.title == "Capítulo Dois" } == true
+        }
+        val targetChapter = requireNotNull(viewModel.state.value.textBook)
+            .chapters.single { it.title == "Capítulo Dois" }
+        assertTrue("Fixture must place the second chapter after the first text chunk.", targetChapter.chunkIndex > 0)
+
+        composeRule.onNodeWithContentDescription("Abrir sumário").assertIsEnabled().performClick()
+        composeRule.onNodeWithText("Capítulo Dois").assertIsDisplayed().performClick()
+        composeRule.waitUntil(timeoutMillis = 10_000) {
+            runCatching {
+                composeRule.onNodeWithTag("$PLAIN_TEXT_BOOK_CHUNK_TEST_TAG-${targetChapter.chunkIndex}")
+                    .assertIsDisplayed()
+                    .assertTextContains("Conteúdo exclusivo do segundo capítulo MOBI.", substring = true)
+            }.isSuccess && runBlocking {
+                BookReaderProgressStore(context).read(sessionScope, itemId)
+                    ?.href?.toString() == "mulletaflix-text-chunk-${targetChapter.chunkIndex}"
+            }
+        }
+
+        val restoredStore = ViewModelStore()
+        try {
+            enqueueMobiResponse()
+            val restoredViewModel = createReaderViewModel(restoredStore)
+            composeRule.runOnUiThread { restoredViewModel.load(itemId) }
+            composeRule.waitUntil(timeoutMillis = 20_000) {
+                restoredViewModel.state.value.initialLocator?.href?.toString() ==
+                    "mulletaflix-text-chunk-${targetChapter.chunkIndex}"
+            }
+            assertEquals(
+                "mulletaflix-text-chunk-${targetChapter.chunkIndex}",
+                restoredViewModel.state.value.initialLocator?.href?.toString(),
+            )
+        } finally {
+            restoredStore.clear()
+        }
+        repeat(2) {
+            assertEquals(
+                "/BookReader/Items/$itemId/BookReader/Epub",
+                server.takeRequest(5, TimeUnit.SECONDS)?.path,
+            )
+        }
     }
 
     @Test
@@ -882,6 +965,63 @@ class BookReaderScreenIntegrationTest {
                 speechEngine.selectedLanguageTag == null &&
                 runBlocking { progressStore.readSpeechLanguageTag(scopedSession) } == null
         }
+    }
+
+    @Test
+    fun textBookNarrationVoiceCanBeSelectedAndPersisted() {
+        val suffix = System.nanoTime()
+        val itemId = "reader-voice-$suffix"
+        val scopedSession = sessionScope.copy(serverId = "reader-voice-server-$suffix")
+        val progressStore = BookReaderProgressStore(context)
+        runBlocking { progressStore.writeSpeechVoiceName(scopedSession, null) }
+        runBlocking { progressStore.writeSpeechLanguageTag(scopedSession, "pt-BR") }
+        server.enqueue(
+            MockResponse()
+                .setResponseCode(200)
+                .addHeader("Content-Type", "text/plain; charset=utf-8")
+                .setBody("Conteúdo para narração. ".repeat(90)),
+        )
+        val api = Retrofit.Builder()
+            .baseUrl(server.url("/"))
+            .client(OkHttpClient())
+            .build()
+            .create(MulletaFlixApiService::class.java)
+        val viewModel = ViewModelProvider(
+            viewModelStore,
+            object : ViewModelProvider.Factory {
+                @Suppress("UNCHECKED_CAST")
+                override fun <T : ViewModel> create(modelClass: Class<T>): T =
+                    BookReaderViewModel(api, TestSessionRepository(scopedSession), context) as T
+            },
+        )[BookReaderViewModel::class.java]
+        val speechEngine = FakeBookSpeechEngine()
+
+        composeRule.setContent {
+            MaterialTheme {
+                CompositionLocalProvider(LocalBookSpeechEngineFactory provides { speechEngine }) {
+                    BookReaderScreen(itemId = itemId, onBack = {}, viewModel = viewModel)
+                }
+            }
+        }
+        composeRule.waitUntil(timeoutMillis = 15_000) {
+            runCatching { composeRule.onNodeWithText("Trecho 1 de 2").assertIsDisplayed() }.isSuccess
+        }
+        composeRule.onNodeWithTag("book-speech-language").performClick()
+        composeRule.waitUntil(timeoutMillis = 5_000) { speechEngine.initializeRequested }
+        composeRule.runOnUiThread { speechEngine.listener.onReady() }
+        composeRule.onNodeWithTag("speech-language-open-voices").performClick()
+        composeRule.onNodeWithText("Voz da narração").assertIsDisplayed()
+        composeRule.onAllNodesWithText("Disponível offline").assertCountEquals(2)
+        composeRule.onNodeWithText("Requer conexão").assertIsDisplayed()
+        composeRule.onNodeWithTag("speech-voice-pt-br-female-local").performClick()
+        composeRule.waitUntil(timeoutMillis = 10_000) {
+            viewModel.state.value.speechVoiceName == "pt-br-female-local" &&
+                speechEngine.selectedVoiceName == "pt-br-female-local" &&
+                runBlocking { progressStore.readSpeechVoiceName(scopedSession) } == "pt-br-female-local"
+        }
+        composeRule.onNodeWithTag("book-speech-language").performClick()
+        composeRule.onNodeWithTag("speech-language-open-voices").performClick()
+        composeRule.onNodeWithTag("speech-voice-pt-br-female-local").assertIsSelected()
     }
 
     @Test
@@ -1665,6 +1805,7 @@ class BookReaderScreenIntegrationTest {
         lateinit var listener: BookSpeechEngine.Listener
         var initializeRequested = false
         var selectedLanguageTag: String? = null
+        var selectedVoiceName: String? = null
         var stopCount = 0
         var shutdownCount = 0
         val speechRates = mutableListOf<Float>()
@@ -1681,9 +1822,21 @@ class BookReaderScreenIntegrationTest {
             BookSpeechLanguageOption("pt-BR", "Português (Brasil)"),
         )
 
+        override fun availableVoices(languageTag: String?) = listOf(
+            BookSpeechVoiceOption("en-us-default", "en-US", "English", 500, false),
+            BookSpeechVoiceOption("pt-br-female-local", "pt-BR", "Português feminino", 400, false),
+            BookSpeechVoiceOption("pt-br-male-online", "pt-BR", "Português masculino", 500, true),
+        ).filter { languageTag == null || it.languageTag == languageTag }
+
         override fun setSpeechLanguage(languageTag: String?): Boolean {
             if (languageTag != null && availableLanguages().none { it.languageTag == languageTag }) return false
             selectedLanguageTag = languageTag
+            return true
+        }
+
+        override fun setSpeechVoice(voiceName: String?): Boolean {
+            if (voiceName != null && availableVoices(null).none { it.name == voiceName }) return false
+            selectedVoiceName = voiceName
             return true
         }
 

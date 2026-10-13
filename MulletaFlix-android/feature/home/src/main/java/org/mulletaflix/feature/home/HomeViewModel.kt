@@ -13,17 +13,23 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import org.mulletaflix.domain.model.MediaItem
 import org.mulletaflix.domain.model.MediaSuggestion
 import org.mulletaflix.domain.model.UserProfile
 import org.mulletaflix.domain.repository.AuthRepository
 import org.mulletaflix.domain.repository.UserFeedbackRepository
+import org.mulletaflix.domain.repository.MediaRequestDraft
+import org.mulletaflix.domain.repository.MediaRequestDraftStore
 import org.mulletaflix.domain.usecase.GetHomeFeedUseCase
 import org.mulletaflix.core.api.ActiveServerEndpointChangeSignal
 import org.mulletaflix.core.api.SessionRepository
 import org.mulletaflix.core.common.session.FeedbackRequestSession
+import org.mulletaflix.core.common.session.mediaRequestDraftScopeHash
 import org.mulletaflix.core.common.network.NetworkMonitor
 import javax.inject.Inject
 
@@ -55,7 +61,13 @@ data class HomeState(
     val feedbackSessionLoaded: Boolean = false,
     val hasFeedbackSession: Boolean = false,
     val mediaSuggestions: List<MediaSuggestion> = emptyList(),
+    val mediaRequestDraft: MediaRequestDraft = MediaRequestDraft(),
+    val mediaRequestDraftLoaded: Boolean = false,
+    val mediaRequestDraftScopeHash: String? = null,
+    val mediaRequestDraftSaveState: MediaRequestDraftSaveState = MediaRequestDraftSaveState.IDLE,
 )
+
+enum class MediaRequestDraftSaveState { IDLE, SAVING, SAVED, FAILED }
 
 @HiltViewModel
 class HomeViewModel @Inject constructor(
@@ -68,12 +80,145 @@ class HomeViewModel @Inject constructor(
         override suspend fun reportPlaybackIssue(session: FeedbackRequestSession, itemId: String, category: String, description: String?) = Result.failure<Unit>(UnsupportedOperationException())
     },
     private val activeServerEndpointChangeSignal: ActiveServerEndpointChangeSignal = ActiveServerEndpointChangeSignal(),
+    private val mediaRequestDraftStore: MediaRequestDraftStore = EmptyMediaRequestDraftStore,
 ) : ViewModel() {
 
     private var mediaRequestSubmitting = false
     private var feedbackRequestSession: FeedbackRequestSession? = null
     private var mediaSuggestionJob: Job? = null
     private var mediaSuggestionGeneration = 0L
+    private var mediaRequestDraftScope: String? = null
+    private var mediaRequestDraftScopeObserved = false
+    private var mediaRequestDraftGeneration = 0L
+    private var mediaRequestDraftLoadJob: Job? = null
+    private var mediaRequestDraftSaveJob: Job? = null
+    private var mediaRequestDraftSaveScope: String? = null
+    private val pendingMediaRequestDrafts = linkedMapOf<String, MediaRequestDraft>()
+    private val mediaRequestDraftWriteMutex = Mutex()
+
+    // INTENT: Keep request drafts private to the authenticated account/server and restore them without resubmitting.
+    fun updateMediaRequestDraft(draft: MediaRequestDraft) {
+        val current = _state.value
+        val scopeHash = current.mediaRequestDraftScopeHash ?: return
+        if (!current.mediaRequestDraftLoaded) return
+        _state.update {
+            it.copy(mediaRequestDraft = draft, mediaRequestDraftSaveState = MediaRequestDraftSaveState.SAVING)
+        }
+        pendingMediaRequestDrafts[scopeHash] = draft
+        mediaRequestDraftSaveJob?.cancel()
+        lateinit var saveJob: Job
+        saveJob = viewModelScope.launch(start = CoroutineStart.LAZY) {
+            try {
+                delay(MEDIA_REQUEST_DRAFT_SAVE_DEBOUNCE_MILLIS)
+                persistPendingMediaRequestDraft(scopeHash, draft)
+            } finally {
+                if (mediaRequestDraftSaveJob === saveJob) {
+                    mediaRequestDraftSaveJob = null
+                    mediaRequestDraftSaveScope = null
+                }
+            }
+        }
+        mediaRequestDraftSaveScope = scopeHash
+        mediaRequestDraftSaveJob = saveJob
+        saveJob.start()
+    }
+
+    /** Persist pending input before the app is backgrounded or the user leaves Home. */
+    fun flushMediaRequestDraft() {
+        val pending = pendingMediaRequestDrafts.toMap()
+        if (pending.isEmpty()) return
+        mediaRequestDraftSaveJob?.cancel()
+        mediaRequestDraftSaveScope = null
+        lateinit var flushJob: Job
+        flushJob = viewModelScope.launch(start = CoroutineStart.LAZY) {
+            try {
+                for ((scopeHash, draft) in pending) {
+                    persistPendingMediaRequestDraft(scopeHash, draft)
+                }
+            } finally {
+                if (mediaRequestDraftSaveJob === flushJob) {
+                    mediaRequestDraftSaveJob = null
+                    mediaRequestDraftSaveScope = null
+                }
+            }
+        }
+        mediaRequestDraftSaveJob = flushJob
+        flushJob.start()
+    }
+
+    /** Retry only the visible account/server's local draft; this never resubmits a media request. */
+    fun retryMediaRequestDraftSave() {
+        val scopeHash = _state.value.mediaRequestDraftScopeHash ?: return
+        val draft = pendingMediaRequestDrafts[scopeHash] ?: return
+        mediaRequestDraftSaveJob?.cancel()
+        mediaRequestDraftSaveScope = null
+        lateinit var retryJob: Job
+        retryJob = viewModelScope.launch(start = CoroutineStart.LAZY) {
+            try {
+                persistPendingMediaRequestDraft(scopeHash, draft)
+            } finally {
+                if (mediaRequestDraftSaveJob === retryJob) {
+                    mediaRequestDraftSaveJob = null
+                    mediaRequestDraftSaveScope = null
+                }
+            }
+        }
+        mediaRequestDraftSaveScope = scopeHash
+        mediaRequestDraftSaveJob = retryJob
+        retryJob.start()
+    }
+
+    private suspend fun persistPendingMediaRequestDraft(scopeHash: String, draft: MediaRequestDraft) {
+        if (pendingMediaRequestDrafts[scopeHash] != draft) return
+        updateDraftSaveState(scopeHash, draft, MediaRequestDraftSaveState.SAVING)
+        val saved = persistMediaRequestDraft(scopeHash, draft)
+        if (pendingMediaRequestDrafts[scopeHash] == draft) {
+            if (saved) {
+                pendingMediaRequestDrafts.remove(scopeHash)
+                updateDraftSaveState(scopeHash, draft, MediaRequestDraftSaveState.SAVED)
+            } else {
+                updateDraftSaveState(scopeHash, draft, MediaRequestDraftSaveState.FAILED)
+            }
+        }
+    }
+
+    private fun updateDraftSaveState(
+        scopeHash: String,
+        draft: MediaRequestDraft,
+        saveState: MediaRequestDraftSaveState,
+    ) {
+        _state.update { current ->
+            if (current.mediaRequestDraftScopeHash == scopeHash && current.mediaRequestDraft == draft) {
+                current.copy(mediaRequestDraftSaveState = saveState)
+            } else {
+                current
+            }
+        }
+    }
+
+    private suspend fun persistMediaRequestDraft(scopeHash: String, draft: MediaRequestDraft): Boolean =
+        mediaRequestDraftWriteMutex.withLock {
+            if (pendingMediaRequestDrafts[scopeHash] != draft) return@withLock false
+            // Per-scope keys prevent a late save from one account overwriting another account's draft.
+            try {
+                mediaRequestDraftStore.save(scopeHash, draft)
+                true
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Throwable) {
+                // A local persistence error must not crash Home or turn a successful network request into failure.
+                false
+            }
+        }
+
+    private fun cancelPendingMediaRequestDraftFor(scopeHash: String) {
+        if (mediaRequestDraftSaveScope == scopeHash) {
+            mediaRequestDraftSaveJob?.cancel()
+            mediaRequestDraftSaveJob = null
+            mediaRequestDraftSaveScope = null
+        }
+        pendingMediaRequestDrafts.remove(scopeHash)
+    }
 
     fun searchMediaSuggestions(query: String) {
         val normalizedQuery = query.trim()
@@ -129,6 +274,16 @@ class HomeViewModel @Inject constructor(
             } finally {
                 mediaRequestSubmitting = false
             }
+            if (result.isSuccess) {
+                val scopeHash = requestSession.mediaRequestDraftScopeHash()
+                val cleanDraft = MediaRequestDraft(mediaType = mediaType)
+                cancelPendingMediaRequestDraftFor(scopeHash)
+                if (_state.value.mediaRequestDraftScopeHash == scopeHash) {
+                    _state.update { it.copy(mediaRequestDraft = cleanDraft) }
+                }
+                pendingMediaRequestDrafts[scopeHash] = cleanDraft
+                persistPendingMediaRequestDraft(scopeHash, cleanDraft)
+            }
             onComplete(result)
         }
     }
@@ -147,9 +302,52 @@ class HomeViewModel @Inject constructor(
         viewModelScope.launch {
             sessionRepository.getFeedbackRequestSession().distinctUntilChanged().collect { session ->
                 feedbackRequestSession = session
+                val draftScope = session?.mediaRequestDraftScopeHash()
                 _state.update {
                     it.copy(feedbackSessionLoaded = true, hasFeedbackSession = session != null,
                         mediaSuggestions = if (session == null) emptyList() else it.mediaSuggestions)
+                }
+                if (!mediaRequestDraftScopeObserved || draftScope != mediaRequestDraftScope) {
+                    mediaRequestDraftScopeObserved = true
+                    val previousScope = mediaRequestDraftScope
+                    if (previousScope != null) {
+                        val pending = pendingMediaRequestDrafts[previousScope]
+                        if (mediaRequestDraftSaveScope == previousScope) {
+                            mediaRequestDraftSaveJob?.cancel()
+                            mediaRequestDraftSaveJob = null
+                            mediaRequestDraftSaveScope = null
+                        }
+                        if (pending != null) launch { persistPendingMediaRequestDraft(previousScope, pending) }
+                    }
+                    mediaRequestDraftScope = draftScope
+                    val generation = ++mediaRequestDraftGeneration
+                    mediaRequestDraftLoadJob?.cancel()
+                    _state.update {
+                        it.copy(
+                            mediaRequestDraft = MediaRequestDraft(),
+                            mediaRequestDraftLoaded = draftScope == null,
+                            mediaRequestDraftScopeHash = draftScope,
+                            mediaRequestDraftSaveState = MediaRequestDraftSaveState.IDLE,
+                        )
+                    }
+                    if (draftScope != null) {
+                        mediaRequestDraftLoadJob = launch {
+                            val pendingDraft = pendingMediaRequestDrafts[draftScope]
+                            val draft = pendingDraft ?: try {
+                                mediaRequestDraftStore.load(draftScope) ?: MediaRequestDraft()
+                            } catch (cancelled: CancellationException) {
+                                throw cancelled
+                            } catch (_: Throwable) {
+                                MediaRequestDraft()
+                            }
+                            if (generation == mediaRequestDraftGeneration && mediaRequestDraftScope == draftScope) {
+                                _state.update {
+                                    it.copy(mediaRequestDraft = draft, mediaRequestDraftLoaded = true)
+                                }
+                                if (pendingDraft != null) persistPendingMediaRequestDraft(draftScope, pendingDraft)
+                            }
+                        }
+                    }
                 }
                 if (session == null) clearMediaSuggestions()
             }
@@ -450,6 +648,16 @@ class HomeViewModel @Inject constructor(
     }
 
     private fun isCurrentLoad(generation: Long): Boolean = generation == loadGeneration
+
+    private companion object {
+        const val MEDIA_REQUEST_DRAFT_SAVE_DEBOUNCE_MILLIS = 250L
+    }
+}
+
+private object EmptyMediaRequestDraftStore : MediaRequestDraftStore {
+    override suspend fun load(scopeHash: String): MediaRequestDraft? = null
+    override suspend fun save(scopeHash: String, draft: MediaRequestDraft) = Unit
+    override suspend fun clear(scopeHash: String) = Unit
 }
 
 private fun Throwable.userMessage(): String = when (this) {

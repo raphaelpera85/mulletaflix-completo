@@ -5,9 +5,13 @@ import android.os.Bundle
 import android.net.Uri
 import android.util.Base64
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertTextContains
 import androidx.compose.ui.test.junit4.v2.createEmptyComposeRule
+import androidx.compose.ui.test.onNodeWithContentDescription
+import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performTextInput
 import androidx.test.core.app.ActivityScenario
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -20,7 +24,11 @@ import org.junit.Assume.assumeTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
+import org.mulletaflix.core.common.session.FeedbackRequestSession
+import org.mulletaflix.core.common.session.mediaRequestDraftScopeHash
 import org.mulletaflix.data.repository.SessionRepositoryImpl
+import org.mulletaflix.data.repository.MediaRequestDraftStoreImpl
+import org.mulletaflix.domain.repository.MediaRequestDraft
 
 /** Host-orchestrated phases verify the real app process is killed between session setup and UI launch. */
 @RunWith(AndroidJUnit4::class)
@@ -103,6 +111,85 @@ class MainActivityBookColdStartTest {
     }
 
     @Test
+    fun enterMediaRequestDraftBeforeMainProcessRestart() = runBlocking {
+        val serverUrl = requireArgument(
+            InstrumentationRegistry.getArguments().getString(ARG_SERVER_URL),
+            ARG_SERVER_URL,
+        )
+        val serverId = requireArgument(
+            InstrumentationRegistry.getArguments().getString(ARG_SERVER_ID),
+            ARG_SERVER_ID,
+        )
+        val scopeHash = requestDraftScopeHash(serverUrl, serverId)
+        val expectedDraft = MediaRequestDraft(
+            title = REQUEST_DRAFT_TITLE,
+            mediaType = "Filme",
+            year = REQUEST_DRAFT_YEAR,
+            notes = REQUEST_DRAFT_NOTES,
+        )
+        val store = MediaRequestDraftStoreImpl(context)
+        store.save(scopeHash, expectedDraft)
+        assertEquals(expectedDraft, store.load(scopeHash))
+        Unit
+    }
+
+    @Test
+    fun mediaRequestDraftIsRestoredAfterMainProcessRestart() = runBlocking {
+        val expectedDraft = MediaRequestDraft(
+            title = REQUEST_DRAFT_TITLE,
+            mediaType = "Filme",
+            year = REQUEST_DRAFT_YEAR,
+            notes = REQUEST_DRAFT_NOTES,
+        )
+        val scenario = ActivityScenario.launch(MainActivity::class.java)
+        try {
+            composeRule.waitUntil(timeoutMillis = 30_000) {
+                runCatching {
+                    composeRule.onNodeWithContentDescription("Solicitar mídia").assertIsDisplayed()
+                }.isSuccess
+            }
+            composeRule.onNodeWithContentDescription("Solicitar mídia").performClick()
+            composeRule.waitUntil(timeoutMillis = 10_000) {
+                runCatching {
+                    composeRule.onNodeWithTag("media-request-title")
+                        .assertTextContains(expectedDraft.title)
+                    composeRule.onNodeWithTag("media-request-year")
+                        .assertTextContains(expectedDraft.year)
+                    composeRule.onNodeWithTag("media-request-notes")
+                        .assertTextContains(expectedDraft.notes)
+                }.isSuccess
+            }
+            composeRule.onNodeWithText("Filme").assertIsDisplayed()
+            scenario.onActivity { activity ->
+                InstrumentationRegistry.getInstrumentation().sendStatus(
+                    0,
+                    Bundle().apply { putInt(MEDIA_REQUEST_DRAFT_MAIN_PID_STATUS_KEY, android.os.Process.myPid()) },
+                )
+            }
+        } finally {
+            scenario.close()
+        }
+        Unit
+    }
+
+    @Test
+    fun cleanupOnlyTheHostProcessRestartDraft() = runBlocking {
+        val serverUrl = requireArgument(
+            InstrumentationRegistry.getArguments().getString(ARG_SERVER_URL),
+            ARG_SERVER_URL,
+        )
+        val serverId = requireArgument(
+            InstrumentationRegistry.getArguments().getString(ARG_SERVER_ID),
+            ARG_SERVER_ID,
+        )
+        val store = MediaRequestDraftStoreImpl(context)
+        val scopeHash = requestDraftScopeHash(serverUrl, serverId)
+        store.clear(scopeHash)
+        assertEquals(null, store.load(scopeHash))
+        Unit
+    }
+
+    @Test
     fun restoreOriginalSessionAfterColdStartFixture() = runBlocking {
         val snapshot = requireArgument(
             InstrumentationRegistry.getArguments().getString(ARG_SESSION_SNAPSHOT),
@@ -141,6 +228,15 @@ class MainActivityBookColdStartTest {
         assertEquals(snapshot.userId, sessionRepository.getCurrentUserId().first())
         assertEquals(snapshot.serverId, sessionRepository.getServerId().first())
     }
+
+    private fun requestDraftScopeHash(serverUrl: String, serverId: String) =
+        FeedbackRequestSession(
+            serverUrl = serverUrl,
+            accessToken = TEST_TOKEN,
+            userId = TEST_USER_ID,
+            deviceId = TEST_DEVICE_ID,
+            serverId = serverId,
+        ).mediaRequestDraftScopeHash()
 
     private data class SessionSnapshot(
         val serverUrl: String,
@@ -181,6 +277,7 @@ class MainActivityBookColdStartTest {
     private companion object {
         const val SESSION_SNAPSHOT_STATUS_KEY = "BOOK_COLD_START_SESSION_SNAPSHOT"
         const val MAIN_PROCESS_PID_STATUS_KEY = "BOOK_COLD_START_MAIN_PID"
+        const val MEDIA_REQUEST_DRAFT_MAIN_PID_STATUS_KEY = "MEDIA_REQUEST_DRAFT_MAIN_PID"
         const val ARG_SESSION_SNAPSHOT = "bookColdStartSessionSnapshot"
         const val ARG_SERVER_URL = "bookColdStartServerUrl"
         const val ARG_ITEM_ID = "bookColdStartItemId"
@@ -188,6 +285,10 @@ class MainActivityBookColdStartTest {
         const val TEST_USER_ID = "book-cold-start-user"
         const val TEST_TOKEN = "book-cold-start-token"
         const val TEST_BOOK_CONTENT = "Livro reaberto após cold start do processo principal."
+        const val TEST_DEVICE_ID = "media-request-draft-test-device"
+        const val REQUEST_DRAFT_TITLE = "Duna — processo reiniciado"
+        const val REQUEST_DRAFT_YEAR = "2024"
+        const val REQUEST_DRAFT_NOTES = "Rascunho persistido antes do encerramento"
     }
 }
 

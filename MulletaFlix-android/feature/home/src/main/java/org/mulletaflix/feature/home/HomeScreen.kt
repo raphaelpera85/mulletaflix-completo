@@ -21,6 +21,8 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
@@ -32,6 +34,8 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -52,6 +56,7 @@ import org.mulletaflix.designsystem.media.LocalMulletaFlixAccessToken
 import org.mulletaflix.designsystem.media.userAvatarPath
 import org.mulletaflix.designsystem.components.MulletaFlixWordmark
 import org.mulletaflix.designsystem.components.MulletaFlixTopBarAction
+import org.mulletaflix.domain.repository.MediaRequestDraft
 import org.mulletaflix.designsystem.components.isTelevisionDevice
 import org.mulletaflix.designsystem.components.downloadsAvailableOnDevice
 import org.mulletaflix.designsystem.theme.MulletaFlixRed
@@ -86,9 +91,33 @@ fun HomeScreen(
     var requestNotes by rememberSaveable { mutableStateOf("") }
     var requestMessage by remember { mutableStateOf<String?>(null) }
     var requestSubmitting by remember { mutableStateOf(false) }
+    var appliedRequestDraftScope by remember { mutableStateOf<String?>(null) }
+    var hasAppliedRequestDraftScope by remember { mutableStateOf(false) }
+    LaunchedEffect(state.mediaRequestDraftLoaded, state.mediaRequestDraftScopeHash) {
+        if (state.mediaRequestDraftLoaded &&
+            (!hasAppliedRequestDraftScope || appliedRequestDraftScope != state.mediaRequestDraftScopeHash)
+        ) {
+            requestTitle = state.mediaRequestDraft.title
+            requestType = state.mediaRequestDraft.mediaType
+            requestYear = state.mediaRequestDraft.year
+            requestNotes = state.mediaRequestDraft.notes
+            appliedRequestDraftScope = state.mediaRequestDraftScopeHash
+            hasAppliedRequestDraftScope = true
+        }
+    }
     val requestYearNumber = requestYear.toIntOrNull()
     val requestYearValid = requestYear.isBlank() || (requestYearNumber != null && requestYearNumber in 1888..2200)
     val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner, viewModel) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_STOP) viewModel.flushMediaRequestDraft()
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+            viewModel.flushMediaRequestDraft()
+        }
+    }
     BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
         val isTelevision = isTelevisionDevice()
         val homeScrollState = rememberHomeScrollState()
@@ -372,7 +401,11 @@ fun HomeScreen(
     if (showRequestDialog) {
         MediaRequestDialog(
             title = requestTitle,
-            onTitleChange = { requestTitle = it; viewModel.searchMediaSuggestions(it) },
+            onTitleChange = {
+                requestTitle = it
+                viewModel.updateMediaRequestDraft(MediaRequestDraft(it, requestType, requestYear, requestNotes))
+                viewModel.searchMediaSuggestions(it)
+            },
             suggestions = state.mediaSuggestions,
             onSuggestionSelected = { suggestion ->
                 requestTitle = suggestion.title
@@ -385,16 +418,28 @@ fun HomeScreen(
                     else -> "Outro"
                 }
                 requestYear = suggestion.year?.toString().orEmpty()
+                viewModel.updateMediaRequestDraft(MediaRequestDraft(requestTitle, requestType, requestYear, requestNotes))
                 viewModel.clearMediaSuggestions()
             },
             mediaType = requestType,
-            onMediaTypeChange = { requestType = it },
+            onMediaTypeChange = {
+                requestType = it
+                viewModel.updateMediaRequestDraft(MediaRequestDraft(requestTitle, it, requestYear, requestNotes))
+            },
             year = requestYear,
-            onYearChange = { requestYear = it },
+            onYearChange = {
+                requestYear = it
+                viewModel.updateMediaRequestDraft(MediaRequestDraft(requestTitle, requestType, it, requestNotes))
+            },
             notes = requestNotes,
-            onNotesChange = { requestNotes = it },
+            onNotesChange = {
+                requestNotes = it
+                viewModel.updateMediaRequestDraft(MediaRequestDraft(requestTitle, requestType, requestYear, it))
+            },
             message = requestMessage,
             isSubmitting = requestSubmitting,
+            draftSaveState = state.mediaRequestDraftSaveState,
+            onRetryDraftSave = viewModel::retryMediaRequestDraftSave,
             hasFeedbackSession = state.hasFeedbackSession,
             feedbackSessionLoaded = state.feedbackSessionLoaded,
             onDismiss = { showRequestDialog = false; requestMessage = null; viewModel.clearMediaSuggestions() },
@@ -408,6 +453,7 @@ fun HomeScreen(
                         requestTitle = ""
                         requestYear = ""
                         requestNotes = ""
+                        viewModel.updateMediaRequestDraft(MediaRequestDraft(mediaType = requestType))
                         requestMessage = null
                     }.onFailure {
                         requestMessage = if (it is kotlinx.coroutines.CancellationException) {
@@ -437,6 +483,8 @@ internal fun MediaRequestDialog(
     onNotesChange: (String) -> Unit,
     message: String?,
     isSubmitting: Boolean,
+    draftSaveState: MediaRequestDraftSaveState = MediaRequestDraftSaveState.IDLE,
+    onRetryDraftSave: () -> Unit = {},
     hasFeedbackSession: Boolean,
     feedbackSessionLoaded: Boolean,
     onDismiss: () -> Unit,
@@ -515,6 +563,34 @@ internal fun MediaRequestDialog(
                     minLines = 2,
                     enabled = !isSubmitting,
                 )
+                val draftSaveMessage = when (draftSaveState) {
+                    MediaRequestDraftSaveState.IDLE -> null
+                    MediaRequestDraftSaveState.SAVING -> "Salvando rascunho neste dispositivo…"
+                    MediaRequestDraftSaveState.SAVED -> "Rascunho salvo neste dispositivo."
+                    MediaRequestDraftSaveState.FAILED -> "Não foi possível salvar o rascunho neste dispositivo."
+                }
+                draftSaveMessage?.let { status ->
+                    Text(
+                        text = status,
+                        modifier = Modifier
+                            .testTag("media-request-draft-save-status")
+                            .semantics { liveRegion = LiveRegionMode.Polite },
+                        color = if (draftSaveState == MediaRequestDraftSaveState.FAILED) {
+                            MaterialTheme.colorScheme.error
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        },
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                    if (draftSaveState == MediaRequestDraftSaveState.FAILED) {
+                        TextButton(
+                            onClick = onRetryDraftSave,
+                            modifier = Modifier.testTag("media-request-draft-save-retry"),
+                        ) {
+                            Text("Tentar salvar novamente")
+                        }
+                    }
+                }
                 if (!hasFeedbackSession) {
                     Text(
                         text = if (feedbackSessionLoaded) "Conecte-se ao servidor para enviar." else "Verificando sessão…",

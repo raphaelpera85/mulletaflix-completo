@@ -1,6 +1,8 @@
 param(
     [string] $AvdName = 'MulletaflixApi35',
-    [int] $Port = 5556
+    [int] $Port = 5556,
+    [ValidateSet('BookReader', 'MediaRequestDraft')]
+    [string] $Scenario = 'BookReader'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -44,6 +46,12 @@ function Invoke-TestPhase {
             '-e', 'bookColdStartServerId', $serverId
         )
     }
+    if ($Method -in @('enterMediaRequestDraftBeforeMainProcessRestart', 'mediaRequestDraftIsRestoredAfterMainProcessRestart', 'cleanupOnlyTheHostProcessRestartDraft')) {
+        $arguments += @(
+            '-e', 'bookColdStartServerUrl', "http://10.0.2.2:$fixturePort",
+            '-e', 'bookColdStartServerId', $serverId
+        )
+    }
     if ($Method -notin @('captureOriginalSessionSnapshotForColdStart', 'prepareAuthenticatedSessionForColdStart') -and $script:sessionSnapshotBase64) {
         $arguments += @('-e', 'bookColdStartSessionSnapshot', $script:sessionSnapshotBase64)
     }
@@ -71,6 +79,13 @@ function Invoke-TestPhase {
         if ($pidMatch.Success) { $script:mainProcessPidAfterColdStart = $pidMatch.Groups['pid'].Value }
         if (-not $pidMatch.Success) {
             throw 'Deep-link instrumentation did not report the live MainActivity process id.'
+        }
+    }
+    if ($Method -eq 'mediaRequestDraftIsRestoredAfterMainProcessRestart') {
+        $pidMatch = [regex]::Match($text, '(?im)INSTRUMENTATION_STATUS:\s*MEDIA_REQUEST_DRAFT_MAIN_PID\s*=\s*(?<pid>\d+)')
+        if ($pidMatch.Success) { $script:mainProcessPidAfterColdStart = $pidMatch.Groups['pid'].Value }
+        if (-not $pidMatch.Success) {
+            throw 'Draft-restoration instrumentation did not report the live MainActivity process id.'
         }
     }
     if ($Method -ne 'captureOriginalSessionSnapshotForColdStart') { Write-Host $text }
@@ -149,6 +164,10 @@ try {
     Invoke-TestPhase -Method 'captureOriginalSessionSnapshotForColdStart'
     Invoke-TestPhase -Method 'prepareAuthenticatedSessionForColdStart'
 
+    if ($Scenario -eq 'MediaRequestDraft') {
+        Invoke-TestPhase -Method 'enterMediaRequestDraftBeforeMainProcessRestart'
+    }
+
     $startOutput = @(& $adb -s $serial shell am start -W -n "$appPackage/org.mulletaflix.android.MainActivity" 2>&1)
     $startExitCode = $LASTEXITCODE
     if ($startExitCode -ne 0 -or ($startOutput -join [Environment]::NewLine) -match 'Error:|Exception') {
@@ -164,33 +183,46 @@ try {
     if ($pidBefore.Count -ne 1) {
         throw "Expected one live target app PID after launching MainActivity; found: $($pidBefore -join ', ')."
     }
+    $pidBefore = $pidBefore[0]
 
     & $adb -s $serial shell am force-stop $appPackage
     if ($LASTEXITCODE -ne 0) { throw 'Could not force-stop the main app before its cold start.' }
     Assert-AppProcessStopped
-    Write-Host "Confirmed process death: previous PID $($pidBefore[0]) stopped."
+    Write-Host "Confirmed process death: previous PID $pidBefore stopped."
 
-    Invoke-TestPhase -Method 'authenticatedBookDeepLinkRendersAfterMainProcessRestart'
+    if ($Scenario -eq 'MediaRequestDraft') {
+        Invoke-TestPhase -Method 'mediaRequestDraftIsRestoredAfterMainProcessRestart'
+    } else {
+        Invoke-TestPhase -Method 'authenticatedBookDeepLinkRendersAfterMainProcessRestart'
+    }
     $pidAfter = $script:mainProcessPidAfterColdStart
-    if ([string]::IsNullOrWhiteSpace($pidAfter) -or $pidAfter -eq $pidBefore[0]) {
-        throw "Cold start did not create a different app process; before=$($pidBefore[0]), after=$pidAfter."
+    if ([string]::IsNullOrWhiteSpace($pidAfter) -or $pidAfter -eq $pidBefore) {
+        throw "Cold start did not create a different app process; before=$pidBefore, after=$pidAfter."
     }
 
-    $status = Invoke-RestMethod -Uri "http://127.0.0.1:$fixturePort/status" -TimeoutSec 5
-    $paths = @($status.requests | ForEach-Object { $_.path })
-    foreach ($requiredPath in @(
-        "/Users/book-cold-start-user/Items/$itemId",
-        "/BookReader/Items/$itemId/BookReader/Status",
-        "/BookReader/Items/$itemId/BookReader/Epub"
-    )) {
-        if ($requiredPath -notin $paths) { throw "Cold-start fixture did not receive required request '$requiredPath'." }
+    if ($Scenario -eq 'MediaRequestDraft') {
+        Write-Host "Main app cold-start restored the request form draft; PID $pidBefore -> $pidAfter."
+    } else {
+        $status = Invoke-RestMethod -Uri "http://127.0.0.1:$fixturePort/status" -TimeoutSec 5
+        $paths = @($status.requests | ForEach-Object { $_.path })
+        foreach ($requiredPath in @(
+            "/Users/book-cold-start-user/Items/$itemId",
+            "/BookReader/Items/$itemId/BookReader/Status",
+            "/BookReader/Items/$itemId/BookReader/Epub"
+        )) {
+            if ($requiredPath -notin $paths) { throw "Cold-start fixture did not receive required request '$requiredPath'." }
+        }
+        Write-Host "Main app cold-start rendered the book; PID $pidBefore -> $pidAfter; required routes were requested."
     }
-    Write-Host "Main app cold-start rendered the book; PID $($pidBefore[0]) -> $pidAfter; required routes were requested."
 }
 finally {
     if ($testApksInstalled -and $script:sessionSnapshotBase64) {
         try { Invoke-TestPhase -Method 'restoreOriginalSessionAfterColdStartFixture' }
         catch { Write-Warning "Session restoration instrumentation failed: $_" }
+    }
+    if ($Scenario -eq 'MediaRequestDraft' -and $testApksInstalled -and $script:sessionSnapshotBase64) {
+        try { Invoke-TestPhase -Method 'cleanupOnlyTheHostProcessRestartDraft' }
+        catch { Write-Warning "UUID-scoped media-request draft cleanup failed: $_" }
     }
     if ($testApksInstalled) {
         & $adb -s $serial shell am force-stop $appPackage 2>$null | Out-Null

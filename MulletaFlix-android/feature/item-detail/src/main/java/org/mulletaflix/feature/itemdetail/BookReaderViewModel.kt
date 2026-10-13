@@ -49,6 +49,7 @@ internal data class BookReaderState(
     val appearance: BookReaderAppearance = BookReaderAppearance.ORIGINAL,
     val speechRatePercent: Int = BookSpeechRate.DEFAULT_PERCENT,
     val speechLanguageTag: String? = null,
+    val speechVoiceName: String? = null,
     val bookmarks: List<BookReaderBookmark> = emptyList(),
     val bookmarkMessage: String? = null,
     val error: String? = null,
@@ -87,6 +88,8 @@ class BookReaderViewModel @Inject constructor(
     private var speechRateSaveJob: Job? = null
     private val speechLanguageSaveGeneration = BookReaderRequestGeneration()
     private var speechLanguageSaveJob: Job? = null
+    private val speechVoiceSaveGeneration = BookReaderRequestGeneration()
+    private var speechVoiceSaveJob: Job? = null
     private val appearanceSaveGeneration = BookReaderRequestGeneration()
     private var appearanceSaveJob: Job? = null
 
@@ -115,6 +118,8 @@ class BookReaderViewModel @Inject constructor(
                     speechRateSaveJob?.cancel()
                     speechLanguageSaveGeneration.begin()
                     speechLanguageSaveJob?.cancel()
+                    speechVoiceSaveGeneration.begin()
+                    speechVoiceSaveJob?.cancel()
                     appearanceSaveGeneration.begin()
                     appearanceSaveJob?.cancel()
                     load(activeItemId)
@@ -149,6 +154,7 @@ class BookReaderViewModel @Inject constructor(
             val speechRatePercent = progressScope?.let { progressStore.readSpeechRatePercent(it) }
                 ?: BookSpeechRate.DEFAULT_PERCENT
             val speechLanguageTag = progressScope?.let { progressStore.readSpeechLanguageTag(it) }
+            val speechVoiceName = progressScope?.let { progressStore.readSpeechVoiceName(it) }
             val appearance = progressScope?.let { progressStore.readAppearance(it) }
                 ?: BookReaderAppearance.ORIGINAL
             var unownedPageBook: BookPageSource? = null
@@ -275,6 +281,7 @@ class BookReaderViewModel @Inject constructor(
                     appearance = appearance,
                     speechRatePercent = speechRatePercent,
                     speechLanguageTag = speechLanguageTag,
+                    speechVoiceName = speechVoiceName,
                     bookmarks = bookmarks,
                 )
             } catch (cancelled: CancellationException) {
@@ -439,6 +446,33 @@ class BookReaderViewModel @Inject constructor(
         }
     }
 
+    fun setSpeechVoiceName(itemId: String, voiceName: String?) {
+        val expectedScope = loadedProgressScope ?: return
+        val currentState = _state.value
+        if (loadedItemId != itemId ||
+            (currentState.publication == null && currentState.pageBook == null && currentState.textBook == null)
+        ) return
+        val normalizedName = voiceName?.trim()?.takeIf {
+            it.isNotEmpty() && it.length <= BookReaderProgressStore.MAX_SPEECH_VOICE_NAME_LENGTH
+        }
+        if (voiceName != null && normalizedName == null) return
+        if (currentState.speechVoiceName == normalizedName) return
+        _state.value = currentState.copy(speechVoiceName = normalizedName)
+
+        val generation = speechVoiceSaveGeneration.begin()
+        speechVoiceSaveJob?.cancel()
+        speechVoiceSaveJob = viewModelScope.launch {
+            val currentScope = recoverBookReaderStorageFailure {
+                sessionRepository.getHomeFeedCacheScope().first()
+            } ?: return@launch
+            if (progressStore.entryKey(currentScope, BookReaderProgressStore.SPEECH_VOICE_SCOPE_ITEM_ID) !=
+                progressStore.entryKey(expectedScope, BookReaderProgressStore.SPEECH_VOICE_SCOPE_ITEM_ID)
+            ) return@launch
+            if (!speechVoiceSaveGeneration.isCurrent(generation)) return@launch
+            progressStore.writeSpeechVoiceName(expectedScope, normalizedName)
+        }
+    }
+
     fun saveBookmark(itemId: String, locator: Locator, label: String) {
         val expectedScope = loadedProgressScope ?: return
         if (loadedItemId != itemId || (
@@ -567,6 +601,8 @@ class BookReaderViewModel @Inject constructor(
         speechRateSaveJob?.cancel()
         speechLanguageSaveGeneration.begin()
         speechLanguageSaveJob?.cancel()
+        speechVoiceSaveGeneration.begin()
+        speechVoiceSaveJob?.cancel()
         appearanceSaveGeneration.begin()
         appearanceSaveJob?.cancel()
         val pageBookToClose = activePageBook

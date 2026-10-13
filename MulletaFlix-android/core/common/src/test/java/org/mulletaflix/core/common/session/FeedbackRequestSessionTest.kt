@@ -2,10 +2,23 @@ package org.mulletaflix.core.common.session
 
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class FeedbackRequestSessionTest {
+    @Test
+    fun `media request draft scope is stable across aliases and excludes credentials`() {
+        val public = FeedbackRequestSession("https://server.test/", "secret-a", "user-1", "device-a", "server-id")
+        val lan = FeedbackRequestSession("http://192.168.1.8:8096", "secret-b", "user-1", "device-b", "SERVER-ID")
+
+        assertEquals(public.mediaRequestDraftScopeHash(), lan.mediaRequestDraftScopeHash())
+        assertEquals(64, public.mediaRequestDraftScopeHash().length)
+        assertFalse(public.mediaRequestDraftScopeHash().contains("secret"))
+        assertNotEquals(public.mediaRequestDraftScopeHash(), public.copy(userId = "user-2").mediaRequestDraftScopeHash())
+        assertNotEquals(public.mediaRequestDraftScopeHash(), public.copy(serverId = "another-server").mediaRequestDraftScopeHash())
+    }
+
     @Test
     fun `toString redacts access token`() {
         val session = FeedbackRequestSession(

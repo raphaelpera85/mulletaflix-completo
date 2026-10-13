@@ -4,6 +4,7 @@ import android.graphics.Bitmap
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.junit4.v2.createComposeRule
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onAllNodesWithContentDescription
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -80,5 +81,24 @@ class DownloadRowAnnouncementTest {
         composeRule
             .onAllNodesWithText(entry.title)
             .assertCountEquals(1)
+    }
+
+    @Test
+    fun anActiveDownloadHasAnAccessiblePerItemPauseAction() {
+        val activeEntry = entry.copy(state = DownloadState.Downloading, percent = 35)
+
+        composeRule.setContent {
+            MaterialTheme {
+                DownloadRow(
+                    entry = activeEntry,
+                    imageModel = null,
+                    onPlay = {},
+                    onRetry = {},
+                    onRemove = {},
+                )
+            }
+        }
+
+        composeRule.onNodeWithContentDescription("Pausar download ${activeEntry.title}").assertExists()
     }
 }

@@ -6,6 +6,7 @@ import android.os.Handler
 import android.os.Looper
 import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
+import android.speech.tts.Voice
 import java.util.Locale
 
 internal class AndroidBookSpeechEngine(context: Context) : BookSpeechEngine {
@@ -83,6 +84,37 @@ internal class AndroidBookSpeechEngine(context: Context) : BookSpeechEngine {
             }
             .sortedBy { it.displayName.lowercase(Locale.getDefault()) }
 
+    override fun availableVoices(languageTag: String?): List<BookSpeechVoiceOption> {
+        val selectedLocale = languageTag?.let(Locale::forLanguageTag)
+            ?: speechLanguageTag?.let(Locale::forLanguageTag)
+            ?: Locale.getDefault()
+        return textToSpeech?.voices.orEmpty()
+            .filter { voice ->
+                voice.locale.language == selectedLocale.language &&
+                    (selectedLocale.country.isBlank() || voice.locale.country == selectedLocale.country)
+            }
+            .distinctBy(Voice::getName)
+            .map { voice ->
+                BookSpeechVoiceOption(
+                    name = voice.name,
+                    languageTag = voice.locale.toLanguageTag(),
+                    displayName = buildString {
+                        append(voice.locale.getDisplayName(voice.locale))
+                        val variant = voice.name.substringAfter('#', "").replace('_', ' ').replace('-', ' ').trim()
+                        if (variant.isNotEmpty()) append(" · ").append(variant)
+                    },
+                    quality = voice.quality,
+                    networkRequired = voice.isNetworkConnectionRequired,
+                )
+            }
+            .sortedWith(
+                compareBy<BookSpeechVoiceOption> { it.networkRequired }
+                    .thenByDescending { it.quality }
+                    .thenBy { it.displayName.lowercase(Locale.getDefault()) }
+                    .thenBy { it.name },
+            )
+    }
+
     override fun setSpeechLanguage(languageTag: String?): Boolean {
         val locale = languageTag?.let(Locale::forLanguageTag) ?: Locale.getDefault()
         if (languageTag != null && locale.language.isBlank()) return false
@@ -90,6 +122,20 @@ internal class AndroidBookSpeechEngine(context: Context) : BookSpeechEngine {
         if (engine != null && engine.setLanguage(locale) < TextToSpeech.LANG_AVAILABLE) return false
         speechLanguageTag = languageTag
         return true
+    }
+
+    override fun setSpeechVoice(voiceName: String?): Boolean {
+        val engine = textToSpeech ?: return false
+        if (voiceName == null) {
+            val locale = speechLanguageTag?.let(Locale::forLanguageTag) ?: Locale.getDefault()
+            return engine.setLanguage(locale) >= TextToSpeech.LANG_AVAILABLE
+        }
+        val voice = engine.voices.orEmpty().firstOrNull { it.name == voiceName } ?: return false
+        val selectedLocale = speechLanguageTag?.let(Locale::forLanguageTag) ?: Locale.getDefault()
+        if (voice.locale.language != selectedLocale.language ||
+            (selectedLocale.country.isNotBlank() && voice.locale.country != selectedLocale.country)
+        ) return false
+        return engine.setVoice(voice) == TextToSpeech.SUCCESS
     }
 
     override fun setSpeechRate(rate: Float): Boolean {

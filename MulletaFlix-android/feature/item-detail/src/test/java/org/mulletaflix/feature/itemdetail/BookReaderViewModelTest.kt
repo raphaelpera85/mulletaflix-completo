@@ -644,6 +644,8 @@ class BookReaderViewModelTest {
             val progressStore = BookReaderProgressStore(context)
             progressStore.writeSpeechLanguageTag(scopeA, null)
             progressStore.writeSpeechLanguageTag(scopeB, null)
+            progressStore.writeSpeechVoiceName(scopeA, null)
+            progressStore.writeSpeechVoiceName(scopeB, null)
 
             val api = mockk<MulletaFlixApiService>(relaxed = true)
             coEvery { api.getBookReaderEpub(any()) } answers { epubResponseBody() }
@@ -654,26 +656,35 @@ class BookReaderViewModelTest {
             firstReader.load("language-book-one-$suffix")
             awaitLoadFinished(firstReader)
             assertNull(firstReader.state.value.speechLanguageTag)
+            assertNull(firstReader.state.value.speechVoiceName)
 
             firstReader.setSpeechLanguageTag("language-book-one-$suffix", "pt-br")
             assertEquals("pt-BR", firstReader.state.value.speechLanguageTag)
             settle { runBlocking { progressStore.readSpeechLanguageTag(scopeA) } == "pt-BR" }
+            firstReader.setSpeechVoiceName("language-book-one-$suffix", "pt-br-female-local")
+            settle { runBlocking { progressStore.readSpeechVoiceName(scopeA) } == "pt-br-female-local" }
 
             firstReader.load("language-book-two-$suffix")
             awaitLoadFinished(firstReader)
             assertEquals("pt-BR", firstReader.state.value.speechLanguageTag)
+            assertEquals("pt-br-female-local", firstReader.state.value.speechVoiceName)
 
             val reopenedReader = BookReaderViewModel(api, FakeSessionRepository(scopeA), context)
             reopenedReader.load("language-book-three-$suffix")
             awaitLoadFinished(reopenedReader)
             assertEquals("pt-BR", reopenedReader.state.value.speechLanguageTag)
+            assertEquals("pt-br-female-local", reopenedReader.state.value.speechVoiceName)
 
             scopeFlow.value = scopeB
             awaitLoadFinished(firstReader)
             assertNull(firstReader.state.value.speechLanguageTag)
+            assertNull(firstReader.state.value.speechVoiceName)
             firstReader.setSpeechLanguageTag("language-book-two-$suffix", "en-GB")
             settle { runBlocking { progressStore.readSpeechLanguageTag(scopeB) } == "en-GB" }
+            firstReader.setSpeechVoiceName("language-book-two-$suffix", "en-gb-local")
+            settle { runBlocking { progressStore.readSpeechVoiceName(scopeB) } == "en-gb-local" }
             assertEquals("pt-BR", progressStore.readSpeechLanguageTag(scopeA))
+            assertEquals("pt-br-female-local", progressStore.readSpeechVoiceName(scopeA))
         }
 
     @Test

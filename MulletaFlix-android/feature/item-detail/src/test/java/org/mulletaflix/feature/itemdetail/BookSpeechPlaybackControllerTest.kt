@@ -7,6 +7,73 @@ import org.junit.Test
 
 class BookSpeechPlaybackControllerTest {
     @Test
+    fun `applies saved voice after engine initialization and before first utterance`() {
+        val engine = FakeBookSpeechEngine()
+        val controller = BookSpeechPlaybackController(engine)
+
+        assertTrue(controller.setSpeechVoice("pt-br-female-local"))
+        controller.play(listOf("olá"))
+        engine.listener.onReady()
+
+        assertEquals(listOf("pt-br-female-local"), engine.selectedVoices)
+        assertEquals(listOf("olá"), engine.spokenChunks)
+    }
+
+    @Test
+    fun `voice options initialize speech engine only when requested`() {
+        val engine = FakeBookSpeechEngine()
+        val controller = BookSpeechPlaybackController(engine)
+        var result: Result<List<BookSpeechVoiceOption>>? = null
+
+        controller.loadAvailableVoices("pt-BR") { result = it }
+
+        assertEquals(1, engine.initializeCount)
+        assertTrue(engine.spokenChunks.isEmpty())
+        engine.listener.onReady()
+
+        assertEquals(engine.voices.filter { it.languageTag == "pt-BR" }, result?.getOrNull())
+        assertTrue(engine.spokenChunks.isEmpty())
+    }
+
+    @Test
+    fun `removed saved voice falls back and clears the stale preference`() {
+        val engine = FakeBookSpeechEngine().apply {
+            voices = voices.filterNot { it.name == "pt-br-female-local" }
+        }
+        var unavailableVoiceCleared = false
+        val controller = BookSpeechPlaybackController(
+            engine = engine,
+            onSpeechVoiceUnavailable = { unavailableVoiceCleared = true },
+        )
+        assertTrue(controller.setSpeechVoice("pt-br-female-local"))
+
+        controller.play(listOf("olá"))
+        engine.listener.onReady()
+
+        assertEquals(listOf(null), engine.selectedVoices)
+        assertTrue(unavailableVoiceCleared)
+        assertEquals(listOf("olá"), engine.spokenChunks)
+    }
+
+    @Test
+    fun `changing voice during speech restarts current chunk and ignores stale completion`() {
+        val engine = FakeBookSpeechEngine()
+        val controller = BookSpeechPlaybackController(engine)
+        controller.play(listOf("first", "second"))
+        engine.listener.onReady()
+        val oldUtterance = engine.utteranceIds.last()
+
+        assertTrue(controller.setSpeechVoice("pt-br-female-local"))
+        engine.listener.onUtteranceFinished(oldUtterance)
+
+        assertEquals(listOf("first", "first"), engine.spokenChunks)
+        assertEquals(BookSpeechState.Speaking, controller.state)
+        assertEquals(listOf("pt-br-female-local"), engine.selectedVoices)
+        engine.listener.onUtteranceFinished(engine.utteranceIds.last())
+        assertEquals("second", engine.spokenChunks.last())
+    }
+
+    @Test
     fun `starts selected chunk only after speech engine is ready`() {
         val engine = FakeBookSpeechEngine()
         val controller = BookSpeechPlaybackController(engine)
@@ -236,6 +303,12 @@ class BookSpeechPlaybackControllerTest {
             BookSpeechLanguageOption("pt-BR", "Português (Brasil)"),
         )
         val selectedLanguages = mutableListOf<String?>()
+        var voices = listOf(
+            BookSpeechVoiceOption("pt-br-female-local", "pt-BR", "Português feminino", quality = 400, networkRequired = false),
+            BookSpeechVoiceOption("pt-br-male-online", "pt-BR", "Português masculino", quality = 500, networkRequired = true),
+            BookSpeechVoiceOption("en-us-default", "en-US", "English", quality = 500, networkRequired = false),
+        )
+        val selectedVoices = mutableListOf<String?>()
 
         override fun initialize(listener: BookSpeechEngine.Listener) {
             initializeRequested = true
@@ -244,6 +317,15 @@ class BookSpeechPlaybackControllerTest {
         }
 
         override fun availableLanguages(): List<BookSpeechLanguageOption> = languages
+
+        override fun availableVoices(languageTag: String?): List<BookSpeechVoiceOption> =
+            if (languageTag == null) voices else voices.filter { it.languageTag == languageTag }
+
+        override fun setSpeechVoice(voiceName: String?): Boolean {
+            if (voiceName != null && voices.none { it.name == voiceName }) return false
+            selectedVoices += voiceName
+            return true
+        }
 
         override fun setSpeechLanguage(languageTag: String?): Boolean {
             if (languageTag != null && languages.none { it.languageTag == languageTag }) return false

@@ -156,6 +156,7 @@ fun BookReaderScreen(
     val coroutineScope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
     val speechLanguageResetNotice = stringResource(R.string.book_reader_speech_language_reset_notice)
+    val speechVoiceResetNotice = stringResource(R.string.book_reader_speech_voice_reset_notice)
     var currentPage by rememberSaveable(itemId) { mutableIntStateOf(0) }
     var pageSpeechActive by remember(itemId) { mutableStateOf(false) }
     var pageSpeechLoading by remember(itemId) { mutableStateOf(false) }
@@ -186,11 +187,18 @@ fun BookReaderScreen(
                     )
                 }
             },
+            onSpeechVoiceUnavailable = {
+                viewModel.setSpeechVoiceName(itemId, null)
+                coroutineScope.launch { snackbarHostState.showSnackbar(speechVoiceResetNotice) }
+            },
         )
     }
     var showSpeechLanguageDialog by rememberSaveable(itemId) { mutableStateOf(false) }
     var speechLanguageOptions by remember(itemId) { mutableStateOf(emptyList<BookSpeechLanguageOption>()) }
     var speechLanguageLoading by remember(itemId) { mutableStateOf(false) }
+    var showSpeechVoiceDialog by rememberSaveable(itemId) { mutableStateOf(false) }
+    var speechVoiceOptions by remember(itemId) { mutableStateOf(emptyList<BookSpeechVoiceOption>()) }
+    var speechVoiceLoading by remember(itemId) { mutableStateOf(false) }
     DisposableEffect(activity) {
         val window = activity?.window
         val keepScreenOnBeforeReader = window?.let {
@@ -229,6 +237,12 @@ fun BookReaderScreen(
             snackbarHostState.showSnackbar(speechLanguageResetNotice)
         }
     }
+    LaunchedEffect(speechController, state.speechVoiceName) {
+        if (!speechController.setSpeechVoice(state.speechVoiceName)) {
+            viewModel.setSpeechVoiceName(itemId, null)
+            snackbarHostState.showSnackbar(speechVoiceResetNotice)
+        }
+    }
     val openSpeechLanguageDialog: () -> Unit = {
         if (!speechLanguageLoading) {
             speechLanguageLoading = true
@@ -241,6 +255,24 @@ fun BookReaderScreen(
                     coroutineScope.launch {
                         snackbarHostState.showSnackbar(
                             error.userFacingMessageOr("Não foi possível consultar os idiomas instalados."),
+                        )
+                    }
+                }
+            }
+        }
+    }
+    val openSpeechVoiceDialog: () -> Unit = {
+        if (!speechVoiceLoading) {
+            speechVoiceLoading = true
+            speechController.loadAvailableVoices(state.speechLanguageTag) { result ->
+                speechVoiceLoading = false
+                result.onSuccess { voices ->
+                    speechVoiceOptions = voices
+                    showSpeechVoiceDialog = true
+                }.onFailure { error ->
+                    coroutineScope.launch {
+                        snackbarHostState.showSnackbar(
+                            error.userFacingMessageOr("Não foi possível consultar as vozes instaladas."),
                         )
                     }
                 }
@@ -542,6 +574,11 @@ fun BookReaderScreen(
         BookSpeechLanguageDialog(
             languages = speechLanguageOptions,
             selectedLanguageTag = state.speechLanguageTag,
+            onOpenVoices = {
+                showSpeechLanguageDialog = false
+                openSpeechVoiceDialog()
+            },
+            voicesLoading = speechVoiceLoading,
             onSelect = { languageTag ->
                 if (speechController.setSpeechLanguage(languageTag)) {
                     viewModel.setSpeechLanguageTag(itemId, languageTag)
@@ -553,6 +590,24 @@ fun BookReaderScreen(
                 }
             },
             onDismiss = { showSpeechLanguageDialog = false },
+        )
+    }
+
+    if (showSpeechVoiceDialog) {
+        BookSpeechVoiceDialog(
+            voices = speechVoiceOptions,
+            selectedVoiceName = state.speechVoiceName,
+            onSelect = { voiceName ->
+                if (speechController.setSpeechVoice(voiceName)) {
+                    viewModel.setSpeechVoiceName(itemId, voiceName)
+                    showSpeechVoiceDialog = false
+                } else {
+                    coroutineScope.launch {
+                        snackbarHostState.showSnackbar("A voz selecionada não está mais disponível.")
+                    }
+                }
+            },
+            onDismiss = { showSpeechVoiceDialog = false },
         )
     }
 
