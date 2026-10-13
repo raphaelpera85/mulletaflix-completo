@@ -58,6 +58,7 @@ class DownloadQueueGuardTest {
             "sendRemoveDownload",
             "sendPauseDownloads",
             "sendResumeDownloads",
+            "sendSetStopReason",
         ).forEach { entryPoint ->
             assertTrue(
                 "the repository must call $entryPoint so the download service is started",

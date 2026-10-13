@@ -54,6 +54,8 @@ import java.util.concurrent.ConcurrentHashMap
 import javax.inject.Inject
 import javax.inject.Singleton
 
+internal const val USER_PAUSED_DOWNLOAD_STOP_REASON = 1
+
 @UnstableApi
 @Singleton
 class Media3DownloadRepository @Inject constructor(
@@ -626,6 +628,38 @@ class Media3DownloadRepository @Inject constructor(
         )
     }
 
+    private fun setDownloadStopReasonThroughService(requestId: String, stopReason: Int) {
+        Media3DownloadService.sendSetStopReason(
+            appContext,
+            DownloadService::class.java,
+            requestId,
+            stopReason,
+            false,
+        )
+    }
+
+    override fun pause(downloadId: String): Result<Unit> = runCatching {
+        val requestId = requestIdForCurrentUser(downloadId)
+            ?: error("Este download não está mais na fila da conta atual.")
+        val download = manager.downloadIndex.getDownload(requestId)
+            ?: error("Este download não está mais na fila.")
+        require(download.state in setOf(Download.STATE_QUEUED, Download.STATE_DOWNLOADING)) {
+            "Este download não pode ser pausado no estado atual."
+        }
+        setDownloadStopReasonThroughService(requestId, USER_PAUSED_DOWNLOAD_STOP_REASON)
+    }
+
+    override fun resume(downloadId: String): Result<Unit> = runCatching {
+        val requestId = requestIdForCurrentUser(downloadId)
+            ?: error("Este download não está mais na fila da conta atual.")
+        val download = manager.downloadIndex.getDownload(requestId)
+            ?: error("Este download não está mais na fila.")
+        require(download.state == Download.STATE_STOPPED && download.stopReason == USER_PAUSED_DOWNLOAD_STOP_REASON) {
+            "Este download não está pausado pelo usuário."
+        }
+        setDownloadStopReasonThroughService(requestId, Download.STOP_REASON_NONE)
+    }
+
     override fun pauseAll(): Result<Unit> = runCatching {
         pauseDownloadsThroughService()
         metadata.edit().putBoolean(KEY_QUEUE_PAUSED, true).apply()
@@ -698,6 +732,11 @@ class Media3DownloadRepository @Inject constructor(
             state = when (state) {
                 Download.STATE_QUEUED, Download.STATE_RESTARTING -> DownloadState.Queued
                 Download.STATE_DOWNLOADING -> DownloadState.Downloading
+                Download.STATE_STOPPED -> if (stopReason == USER_PAUSED_DOWNLOAD_STOP_REASON) {
+                    DownloadState.Paused
+                } else {
+                    DownloadState.Queued
+                }
                 Download.STATE_COMPLETED -> DownloadState.Completed
                 Download.STATE_REMOVING -> DownloadState.Removing
                 else -> DownloadState.Failed

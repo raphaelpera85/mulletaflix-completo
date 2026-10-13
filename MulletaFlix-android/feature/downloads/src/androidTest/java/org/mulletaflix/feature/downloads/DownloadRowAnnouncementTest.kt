@@ -7,8 +7,11 @@ import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onAllNodesWithContentDescription
 import androidx.compose.ui.test.onAllNodesWithText
+import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.performClick
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -86,6 +89,7 @@ class DownloadRowAnnouncementTest {
     @Test
     fun anActiveDownloadHasAnAccessiblePerItemPauseAction() {
         val activeEntry = entry.copy(state = DownloadState.Downloading, percent = 35)
+        var pauseRequested = false
 
         composeRule.setContent {
             MaterialTheme {
@@ -95,10 +99,39 @@ class DownloadRowAnnouncementTest {
                     onPlay = {},
                     onRetry = {},
                     onRemove = {},
+                    onPause = { pauseRequested = true },
                 )
             }
         }
 
-        composeRule.onNodeWithContentDescription("Pausar download ${activeEntry.title}").assertExists()
+        composeRule.onNodeWithContentDescription("Pausar download ${activeEntry.title}")
+            .assertExists()
+            .performClick()
+        assertTrue("A ação individual deve acionar o callback de pausa", pauseRequested)
+    }
+
+    @Test
+    fun aPausedDownloadShowsAnAccessibleResumeActionAndInvokesIt() {
+        val pausedEntry = entry.copy(state = DownloadState.Paused, percent = 35)
+        var resumeRequested = false
+
+        composeRule.setContent {
+            MaterialTheme {
+                DownloadRow(
+                    entry = pausedEntry,
+                    imageModel = null,
+                    onPlay = {},
+                    onRetry = {},
+                    onRemove = {},
+                    onResume = { resumeRequested = true },
+                )
+            }
+        }
+
+        composeRule.onNodeWithContentDescription("Retomar download ${pausedEntry.title}")
+            .assertExists()
+            .performClick()
+        composeRule.onNodeWithText("Download pausado").assertExists()
+        assertTrue("A ação individual deve acionar o callback de retomada", resumeRequested)
     }
 }

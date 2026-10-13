@@ -146,9 +146,10 @@ class DownloadsViewModelTest {
             DownloadEntry("2", "Pronto", "uri-2", org.mulletaflix.domain.repository.DownloadState.Completed, 100),
             DownloadEntry("3", "Na fila", "uri-3", org.mulletaflix.domain.repository.DownloadState.Queued, 0),
             DownloadEntry("4", "Falhou", "uri-4", org.mulletaflix.domain.repository.DownloadState.Failed, 20),
+            DownloadEntry("5", "Pausado", "uri-5", org.mulletaflix.domain.repository.DownloadState.Paused, 30),
         )
 
-        assertEquals(listOf("1", "3"), filterDownloads(downloads, "", DownloadStatusFilter.InProgress).map { it.id })
+        assertEquals(listOf("1", "3", "5"), filterDownloads(downloads, "", DownloadStatusFilter.InProgress).map { it.id })
         assertEquals(listOf("4"), filterDownloads(downloads, "", DownloadStatusFilter.Failed).map { it.id })
     }
 
@@ -215,6 +216,34 @@ class DownloadsViewModelTest {
         assertEquals("retry failed", viewModel.actionMessage.value)
         viewModel.clearActionMessage()
         assertEquals(null, viewModel.actionMessage.value)
+    }
+
+    @Test
+    fun `pausing and resuming one download delegates its id without changing queue state`() {
+        val repository = FakeDownloadRepository()
+        val viewModel = DownloadsViewModel(ManageDownloadsUseCase(repository))
+
+        viewModel.pause("movie-1")
+        viewModel.resume("movie-2")
+
+        assertEquals(listOf("movie-1"), repository.pausedIds)
+        assertEquals(listOf("movie-2"), repository.resumedIds)
+        assertFalse(viewModel.queuePaused.value)
+        assertEquals(null, viewModel.actionMessage.value)
+    }
+
+    @Test
+    fun `failed per download pause and resume are reported without changing queue state`() {
+        val repository = FakeDownloadRepository(failItemPause = true, failItemResume = true)
+        val viewModel = DownloadsViewModel(ManageDownloadsUseCase(repository))
+
+        viewModel.pause("movie-1")
+        assertEquals("item pause failed", viewModel.actionMessage.value)
+        viewModel.clearActionMessage()
+        viewModel.resume("movie-1")
+
+        assertEquals("item resume failed", viewModel.actionMessage.value)
+        assertFalse(viewModel.queuePaused.value)
     }
 
     @Test
@@ -358,6 +387,8 @@ class DownloadsViewModelTest {
         private val failPause: Boolean = false,
         private val failRetry: Boolean = false,
         private val failWifiOnly: Boolean = false,
+        private val failItemPause: Boolean = false,
+        private val failItemResume: Boolean = false,
     ) : DownloadRepository {
         var downloadsFlow: Flow<List<DownloadEntry>> = flowOf(emptyList())
         var paused = false
@@ -365,6 +396,8 @@ class DownloadsViewModelTest {
         var retried = false
         var retryArguments = emptyArray<String>()
         val retriedIds = mutableListOf<String>()
+        val pausedIds = mutableListOf<String>()
+        val resumedIds = mutableListOf<String>()
         var wifiOnly = false
         var removedCompleted = false
         var removedFailed = false
@@ -389,6 +422,16 @@ class DownloadsViewModelTest {
             retried = true
             retryArguments = arrayOf(id, title, uri)
             retriedIds += id
+            return Result.success(Unit)
+        }
+        override fun pause(downloadId: String): Result<Unit> {
+            if (failItemPause) return Result.failure(IllegalStateException("item pause failed"))
+            pausedIds += downloadId
+            return Result.success(Unit)
+        }
+        override fun resume(downloadId: String): Result<Unit> {
+            if (failItemResume) return Result.failure(IllegalStateException("item resume failed"))
+            resumedIds += downloadId
             return Result.success(Unit)
         }
         override fun removeCompleted(): Result<Unit> {

@@ -67,6 +67,14 @@ class DownloadsViewModel @Inject constructor(
         runAction { manageDownloadsUseCase.retry(entry) }
     }
 
+    fun pause(downloadId: String) {
+        runAction { manageDownloadsUseCase.pause(downloadId) }
+    }
+
+    fun resume(downloadId: String) {
+        runAction { manageDownloadsUseCase.resume(downloadId) }
+    }
+
     /** Requeues every failed item in the queue snapshot currently rendered. */
     fun retryFailed(entries: List<DownloadEntry>) {
         failedDownloads(entries).forEach { entry ->

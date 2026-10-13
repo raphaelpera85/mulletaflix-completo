@@ -69,6 +69,177 @@ import java.util.concurrent.TimeUnit
 @OptIn(ExperimentalCoilApi::class)
 class OfflinePlayerProductionDownloadFlowTest {
     @Test
+    fun pausingOnePartialDownloadPreservesItWhileItsSiblingContinues() {
+        val expectedProfile = checkNotNull(
+            InstrumentationRegistry.getArguments().getString("expectedDeviceProfile"),
+        ) { "Set expectedDeviceProfile to PHONE for this run" }
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val configuration = InstrumentationRegistry.getInstrumentation().targetContext.resources.configuration
+        val television = (configuration.uiMode and Configuration.UI_MODE_TYPE_MASK) ==
+            Configuration.UI_MODE_TYPE_TELEVISION
+        val actualProfile = if (configuration.smallestScreenWidthDp >= 600) "TABLET" else "PHONE"
+        assertTrue("Per-item download integration targets a handheld device", !television)
+        assertEquals("Run on the declared device profile", expectedProfile, actualProfile)
+
+        val testId = UUID.randomUUID().toString()
+        val firstMediaId = "pause-resume-first-$testId"
+        val siblingMediaId = "pause-resume-sibling-$testId"
+        val firstTitle = "Download pausável $testId"
+        val siblingTitle = "Download irmão $testId"
+        val server = MockWebServer()
+        val isolatedDataDirectory = File(context.cacheDir, "per-download-pause-session/$testId")
+        val isolatedContext = object : ContextWrapper(context) {
+            override fun getApplicationContext(): Context = this
+            override fun getFilesDir(): File = File(isolatedDataDirectory, "files").apply { mkdirs() }
+        }
+        val sessionRepository = SessionRepositoryImpl(isolatedContext)
+        val settingsRepository = SettingsRepositoryImpl(isolatedContext, sessionRepository)
+        val manager = DownloadManagerSingleton.get(context)
+        var repository: Media3DownloadRepository? = null
+        val temporaryRequestIds = mutableListOf<String>()
+        var failure: Throwable? = null
+
+        try {
+            assertNoActiveProductionDownloads(manager)
+            check(!context.getSharedPreferences("offline_downloads", Context.MODE_PRIVATE)
+                .getBoolean("queue_paused", false)
+            ) { "Refusing to change a user-paused download queue during the integration test" }
+
+            val partialBody = ByteArray(8 * 1024 * 1024) { (it % 251).toByte() }
+            val siblingBody = ByteArray(64 * 1024) { (it % 127).toByte() }
+            server.enqueue(
+                MockResponse()
+                    .setHeader("Content-Type", "video/x-matroska")
+                    .setBody(Buffer().write(partialBody))
+                    .throttleBody(64 * 1024, 100, TimeUnit.MILLISECONDS),
+            )
+            server.enqueue(
+                MockResponse()
+                    .setHeader("Content-Type", "video/x-matroska")
+                    .setBody(Buffer().write(siblingBody))
+                    .throttleBody(16 * 1024, 100, TimeUnit.MILLISECONDS),
+            )
+            server.start()
+            val baseUrl = server.url("/").toString().trimEnd('/')
+            runBlocking {
+                sessionRepository.saveSession(
+                    serverUrl = baseUrl,
+                    token = "isolated-download-pause-token",
+                    userId = "download-pause-user-$testId",
+                    deviceId = "download-pause-device-$testId",
+                )
+            }
+            val downloadRepository = Media3DownloadRepository(
+                appContext = context,
+                sessionRepository = sessionRepository,
+                clientIdentityInterceptor = ClientIdentityInterceptor(sessionRepository),
+                subtitleRecoveryWorkScheduler = OfflineSubtitleRecoveryWorkScheduler(context),
+            )
+            repository = downloadRepository
+            val firstRequestId = serverScopedDownloadRequestId("download-pause-user-$testId", baseUrl, firstMediaId)
+            val siblingRequestId = serverScopedDownloadRequestId("download-pause-user-$testId", baseUrl, siblingMediaId)
+            temporaryRequestIds += firstRequestId
+            temporaryRequestIds += siblingRequestId
+
+            awaitValue("repository accepts first isolated download") {
+                downloadRepository.enqueue(
+                    firstMediaId,
+                    firstTitle,
+                    server.url("/partial-first.mkv").toString(),
+                ).takeIf { it.isSuccess }
+            }.getOrThrow()
+
+            val bytesBeforePause = awaitValue("first download has persisted partial bytes") {
+                val download = manager.downloadIndex.getDownload(firstRequestId)
+                download?.takeIf {
+                    it.state == androidx.media3.exoplayer.offline.Download.STATE_DOWNLOADING &&
+                        it.getBytesDownloaded() > 0L
+                }?.getBytesDownloaded()
+            }
+            assertTrue("Pause must be exercised after partial progress", bytesBeforePause > 0L)
+
+            awaitValue("repository accepts sibling download") {
+                downloadRepository.enqueue(
+                    siblingMediaId,
+                    siblingTitle,
+                    server.url("/sibling.mkv").toString(),
+                ).takeIf { it.isSuccess }
+            }.getOrThrow()
+            downloadRepository.pause(firstMediaId).getOrThrow()
+
+            awaitCondition("first download persists only its individual stop reason") {
+                val download = manager.downloadIndex.getDownload(firstRequestId)
+                download?.state == androidx.media3.exoplayer.offline.Download.STATE_STOPPED &&
+                    download.stopReason == USER_PAUSED_DOWNLOAD_STOP_REASON
+            }
+            val pausedDownload = requireNotNull(manager.downloadIndex.getDownload(firstRequestId))
+            assertTrue("Pausing must preserve the bytes already downloaded", pausedDownload.getBytesDownloaded() >= bytesBeforePause)
+
+            awaitCondition("sibling download finishes while the first remains paused") {
+                manager.downloadIndex.getDownload(siblingRequestId)?.state ==
+                    androidx.media3.exoplayer.offline.Download.STATE_COMPLETED
+            }
+            assertEquals(
+                DownloadState.Paused,
+                runBlocking {
+                    downloadRepository.observeDownloads().first { entries -> entries.any { it.id == firstMediaId } }
+                        .single { it.id == firstMediaId }.state
+                },
+            )
+            assertEquals(
+                DownloadState.Completed,
+                runBlocking {
+                    downloadRepository.observeDownloads().first { entries -> entries.any { it.id == siblingMediaId } }
+                        .single { it.id == siblingMediaId }.state
+                },
+            )
+
+            downloadRepository.resume(firstMediaId).getOrThrow()
+            awaitCondition("the same first download resumes to completion") {
+                manager.downloadIndex.getDownload(firstRequestId)?.state ==
+                    androidx.media3.exoplayer.offline.Download.STATE_COMPLETED
+            }
+            assertEquals(
+                "The queue-wide pause preference must remain untouched",
+                false,
+                context.getSharedPreferences("offline_downloads", Context.MODE_PRIVATE)
+                    .getBoolean("queue_paused", false),
+            )
+        } catch (throwable: Throwable) {
+            failure = throwable
+        } finally {
+            runCatching { server.shutdown() }.onFailure { if (failure == null) failure = it }
+            temporaryRequestIds.forEach { requestId ->
+                runCatching {
+                    if (manager.downloadIndex.getDownload(requestId) != null) {
+                        checkNotNull(repository).remove(requestId).getOrThrow()
+                        awaitCondition("temporary per-item test download is removed") {
+                            manager.downloadIndex.getDownload(requestId) == null
+                        }
+                    }
+                    val downloadPreferences = context.getSharedPreferences("offline_downloads", Context.MODE_PRIVATE)
+                    check(downloadPreferences.edit()
+                        .remove("title:$requestId")
+                        .remove("item:$requestId")
+                        .remove("owner:$requestId")
+                        .remove("server:$requestId")
+                        .remove("image:$requestId")
+                        .remove(downloadFailureMetadataKey(requestId))
+                        .commit()) { "Unable to persist removal of temporary download metadata" }
+                }.onFailure { if (failure == null) failure = it }
+            }
+            runCatching {
+                runBlocking {
+                    settingsRepository.clearLocalPreferences()
+                    sessionRepository.clearSession()
+                }
+                isolatedDataDirectory.deleteRecursively()
+            }.onFailure { if (failure == null) failure = it }
+        }
+        failure?.let { throw it }
+    }
+
+    @Test
     fun productionDownloadRepositoryFeedsOfflinePlayerFromCacheWithoutNetwork() {
         val expectedProfile = checkNotNull(
             InstrumentationRegistry.getArguments().getString("expectedDeviceProfile"),

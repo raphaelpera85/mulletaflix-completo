@@ -199,6 +199,8 @@ fun DownloadsScreen(
                             isSelected = entry.downloadId in selectedIds,
                             onPlay = { onItemClick(entry) },
                             onRetry = { viewModel.retry(entry) },
+                            onPause = { viewModel.pause(entry.downloadId) },
+                            onResume = { viewModel.resume(entry.downloadId) },
                             allowRetry = !isTelevision,
                             onRemove = { itemPendingDeletion = entry },
                             onToggleSelected = {
@@ -642,6 +644,8 @@ internal fun DownloadRow(
     onPlay: () -> Unit,
     onRetry: () -> Unit,
     onRemove: () -> Unit,
+    onPause: () -> Unit = {},
+    onResume: () -> Unit = {},
     onToggleSelected: () -> Unit = {},
 ) {
     var isFocused by remember { mutableStateOf(false) }
@@ -739,6 +743,16 @@ internal fun DownloadRow(
                     Icon(Icons.Default.Refresh, "Tentar download novamente")
                 }
             }
+            if (entry.state == DownloadState.Downloading || entry.state == DownloadState.Queued) {
+                MulletaFlixTopBarAction(onClick = onPause) {
+                    Icon(Icons.Default.Pause, "Pausar download ${entry.title}")
+                }
+            }
+            if (entry.state == DownloadState.Paused) {
+                MulletaFlixTopBarAction(onClick = onResume) {
+                    Icon(Icons.Default.PlayArrow, "Retomar download ${entry.title}")
+                }
+            }
             if (isSelectable) {
                 Icon(
                     imageVector = if (isSelected) Icons.Default.CheckCircle else Icons.Default.RadioButtonUnchecked,
@@ -758,6 +772,7 @@ private fun statusText(entry: DownloadEntry) = when (entry.state) {
     DownloadState.Completed -> "Disponível offline"
     DownloadState.Downloading -> "Baixando… ${entry.percent}%"
     DownloadState.Queued -> "Aguardando conexão"
+    DownloadState.Paused -> "Download pausado"
     DownloadState.Removing -> "Removendo…"
     DownloadState.Failed -> entry.error ?: "Falha no download"
 }

@@ -23,7 +23,7 @@ internal fun filterDownloads(
         val matchesStatus = when (statusFilter) {
             DownloadStatusFilter.All -> true
             DownloadStatusFilter.InProgress -> entry.state == DownloadState.Queued ||
-                entry.state == DownloadState.Downloading
+                entry.state == DownloadState.Downloading || entry.state == DownloadState.Paused
             DownloadStatusFilter.Completed -> entry.state == DownloadState.Completed
             DownloadStatusFilter.Failed -> entry.state == DownloadState.Failed
         }

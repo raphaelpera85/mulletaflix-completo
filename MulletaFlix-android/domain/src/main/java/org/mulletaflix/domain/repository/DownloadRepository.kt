@@ -58,7 +58,7 @@ data class OfflineSubtitleEntry(
     val isForced: Boolean = false,
 )
 
-enum class DownloadState { Queued, Downloading, Completed, Failed, Removing }
+enum class DownloadState { Queued, Downloading, Paused, Completed, Failed, Removing }
 
 interface DownloadRepository {
     fun observeDownloads(): Flow<List<DownloadEntry>>
@@ -83,6 +83,8 @@ interface DownloadRepository {
         mediaMetadata: DownloadMediaMetadata?,
     ): Result<Unit> = enqueueWithMetadata(id, title, uri, imageUrl, episodeMetadata)
     fun retry(downloadId: String, title: String, uri: String): Result<Unit>
+    fun pause(downloadId: String): Result<Unit> = Result.failure(UnsupportedOperationException("Pausar downloads individuais não é compatível."))
+    fun resume(downloadId: String): Result<Unit> = Result.failure(UnsupportedOperationException("Retomar downloads individuais não é compatível."))
     fun remove(downloadId: String): Result<Unit>
     /** Removes only completed downloads, preserving queued, active, and failed items. */
     fun removeCompleted(): Result<Unit> = Result.success(Unit)
