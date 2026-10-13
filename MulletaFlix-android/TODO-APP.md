@@ -3813,3 +3813,12 @@ Pendências relacionadas:
 - [x] Quality gate 2026-10-12: suíte JVM 1.710/1.710, lint módulo/app, `assembleDebug` e compilação AndroidTest módulo/app — `BUILD SUCCESSFUL`; wrapper validou NVIDIA e encerrou AVD temporário `MulletaflixCodexPhoneApi35`. AVDs preexistentes preservados.
 - [ ] Verificar ON_STOP, TalkBack/D-pad e perfis TV/aparelho físico; a troca durante TTS ativo agora tem cobertura instrumentada apenas em PHONE/API 35 e não equivale à homologação geral.
 - [x] Sem bump, APK de produção, servidor, portal ou publicação nesta alteração local.
+
+## Controles individuais de pausa/retomada da fila offline (APK local; sem release) — 2026-10-13
+
+- Ações acessíveis por download chamam `DownloadRepository.pause/resume` com o `downloadId` estável; o repositório Media3 altera o `stopReason` somente daquele request. `Paused` é diferenciado de outros `STATE_STOPPED` pelo stop reason específico do app.
+- Testes JVM de ViewModel/UI e guard do repositório cobrem ID individual, filtro de downloads ativos e separação da pausa global. O teste Compose de linha verifica as ações acessíveis para pausar e retomar.
+- AndroidTest de integração confirmou pausa após bytes parciais, preservação desses bytes, conclusão do download irmão, estado `Paused`, retomada via HTTP Range até `COMPLETED` e preferência `queue_paused` inalterada. Passou 1/1 em PHONE/API 35 no AVD temporário `MulletaflixCodexPhoneApi35_20261012`; wrapper confirmou QEMU na NVIDIA RTX 3050 e encerrou o AVD. ADB ficou sem dispositivos.
+- Fixture usa MockWebServer e IDs/sessão/metadados UUID isolados; suporta `Range`/`206 Partial Content`. Duas execuções iniciais falharam por setup do teste (ID incorreto no argumento e ausência de Range na fixture); após corrigir o harness, a execução final passou. Nenhuma falha atribuída à implementação.
+- Quality gate 13/10: suíte JVM global 1.734/1.734, 252 relatórios, 0 falhas/erros/ignorados; lint de `:feature:downloads` e `:app`, `:app:assembleDebug` e compilação AndroidTest de downloads/app — `BUILD SUCCESSFUL`.
+- Limites: sem servidor real, rede instável, dispositivo físico ou armazenamento limitado; Downloads não está disponível na Android TV. APK-H17 permanece pendente. Sem bump, APK de produção, assinatura, release ou publicação.

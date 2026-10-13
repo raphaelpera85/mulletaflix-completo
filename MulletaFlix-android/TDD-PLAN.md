@@ -1373,3 +1373,12 @@ Verificação instrumentada adicional de Livros na Android TV em 2026-10-08: `Tv
 - `RED/GREEN`: revalidação de teste existente; sem edição de comportamento e sem RED/GREEN atribuível nesta rodada.
 - `LIMITES`: MockWebServer e MOBI sintético; não valida arquivo real, servidor, aparelho físico ou TalkBack. Não é homologação formal.
 - `ESCOPO`: instrumentação e documentação APK; sem alteração de produção, versão, assinatura, release, publicação, servidor ou portal.
+
+## Integração Media3 — pausa/retomada por download — 2026-10-13
+
+- `INTENT`: pausar uma mídia não suspende a fila inteira; downloads irmãos continuam, bytes persistidos são preservados e retomar conclui somente o item pausado sem alterar a preferência global.
+- `COBERTURA`: teste Compose de linha valida ação acessível e callback; testes JVM ViewModel validam IDs/resultados individuais; AndroidTest cria dois requests Media3 com sessão/cache/metadados temporários, pausa um após progresso parcial, deixa o irmão completar e retoma o primeiro via Range.
+- `RED/GREEN`: a cobertura Compose foi observada falhando antes da implementação porque a linha não expunha a ação acessível por item. Nesta revalidação, a integração revelou dois problemas de harness, não do produto: a chamada inicial usou `itemId` onde o método espera `requestId`; depois disso, MockWebServer sem suporte Range/206 não permitia concluir a retomada. A fixture agora responde com `Content-Range`; GREEN final 1/1. Não rotular falhas do harness como regressões de produção.
+- `QUALITY GATE`: `testDebugUnitTest :feature:downloads:lintDebug :app:lintDebug :app:assembleDebug --no-daemon --console=plain` — BUILD SUCCESSFUL; 1.734 testes em 252 relatórios, 0 falhas/erros/ignorados. Compilação AndroidTest de downloads/app passou. `OfflinePlayerProductionDownloadFlowTest.pausingOnePartialDownloadPreservesItWhileItsSiblingContinues` passou 1/1 em PHONE/API 35.
+- `DISPOSITIVO`: `tools/with-emulator.ps1` abriu `MulletaflixCodexPhoneApi35_20261012` na porta 5580; QEMU foi confirmado na NVIDIA RTX 3050; o wrapper encerrou o AVD e `adb devices -l` ficou sem dispositivos. AVD reservada `MulletaflixApi35` não foi usada.
+- `LIMITES`: MockWebServer, conteúdo sintético e armazenamento do AVD; sem servidor real, rede instável, pouco espaço ou aparelho físico. Evidência amplia cobertura local de Downloads, não encerra APK-H17 nem muda o aceite formal geral. Sem bump, APK de produção ou release.

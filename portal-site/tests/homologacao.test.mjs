@@ -132,3 +132,22 @@ test('portal renders every formal Android area and preserves its status evidence
     }
     assert.equal((rendered.match(/<tr>/g) || []).length, 21);
 });
+
+test('portal publishes current per-download pause and resume evidence without closing formal gates', async () => {
+    const android = statusData.tracks.find(track => track.id === 'android');
+    const downloads = statusData.androidHomologation.areas.find(area => area.id === 'APK-H07');
+    const event = statusData.events.find(item => item.id === 'android-per-download-pause-resume-2026-10-13');
+
+    assert.equal(statusData.generatedAt, '2026-10-13T10:08:55-03:00');
+    assert.equal(android.testAudit.passed, 1734);
+    assert.equal(android.testAudit.total, 1734);
+    assert.equal(android.instrumentationAudit.passed, 15);
+    assert.match(downloads.evidence, /HTTP Range até COMPLETED/);
+    assert.ok(event, 'portal should include the current Android development event');
+    assert.equal(statusData.androidHomologation.formalSignoff, 'pending');
+    assert.equal(statusData.androidHomologation.areas.filter(area => area.status === 'completed').length, 11);
+    assert.equal(statusData.androidHomologation.areas.filter(area => area.status === 'in_progress').length, 1);
+    assert.equal(statusData.androidHomologation.areas.filter(area => area.status === 'pending').length, 9);
+    assert.match(event.evidence, /APK-H17 continua pendente/);
+    assert.match(event.evidence, /Nenhuma versão, APK de produção ou release criada/);
+});

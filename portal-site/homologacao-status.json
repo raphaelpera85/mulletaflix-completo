@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-10-11T23:24:48-03:00",
+  "generatedAt": "2026-10-13T10:08:55-03:00",
   "source": {
     "roadmap": "https://github.com/raphaelpera85/mulletaflix-completo/blob/main/docs/roadmap-evolucao-tecnologica-servidor-e-web.md",
     "repository": "https://github.com/raphaelpera85/mulletaflix-completo"
@@ -51,19 +51,19 @@
         "label": "11 de 21 áreas com evidência técnica local; 1 em validação e 9 pendentes. Aceite formal continua aberto."
       },
       "testAudit": {
-        "passed": 1400,
-        "total": 1400,
+        "passed": 1734,
+        "total": 1734,
         "skipped": 0,
         "failed": 0,
         "percent": 100,
-        "label": "JUnit auditável local: 1.400 aprovados, 0 ignorados, 0 falhas/erros; agregação dos 220 relatórios Gradle."
+        "label": "JUnit auditável local: 1.734 aprovados, 0 ignorados, 0 falhas/erros; agregação dos 252 relatórios Gradle em 13/10/2026."
       },
       "instrumentationAudit": {
-        "passed": 14,
-        "total": 14,
+        "passed": 15,
+        "total": 15,
         "skipped": 0,
         "failed": 0,
-        "label": "Media3/player 5/5; leitura HTTPS 1/1; DownloadManager HTTP LAN 1/1, HTTPS remoto 1/1; ExoPlayer legenda HTTPS 1/1 e redirect HTTPS→HTTP público bloqueado 1/1; Coil imagem HTTPS decodificada 1/1 e redirect HTTPS→HTTP público bloqueado 1/1; biblioteca offline/reconexão 1/1; contrato NetworkSecurityPolicy + guard cleartext 1/1. AVD API 35 isolado; GPU NVIDIA verificada."
+        "label": "Media3/player 5/5; leitura HTTPS 1/1; DownloadManager HTTP LAN 1/1, HTTPS remoto 1/1; ExoPlayer legenda HTTPS 1/1 e redirect HTTPS→HTTP público bloqueado 1/1; Coil imagem HTTPS decodificada 1/1 e redirect HTTPS→HTTP público bloqueado 1/1; biblioteca offline/reconexão 1/1; contrato NetworkSecurityPolicy + guard cleartext 1/1; pausa/retomada individual Media3 1/1 em PHONE/API 35. AVD isolado; GPU NVIDIA verificada."
       }
     },
     {
@@ -126,7 +126,7 @@
         "id": "APK-H07",
         "name": "Downloads e reprodução offline",
         "status": "completed",
-        "evidence": "Testes locais da fila/download, isolamento de conta, cache e reprodução offline registrados; mídia real, rede instável e storage de aparelhos finais não aceitos ainda."
+        "evidence": "Testes locais da fila/download, isolamento de conta, cache e reprodução offline registrados. Em 13/10/2026, AndroidTest PHONE/API 35 pausou uma entrada após progresso parcial, preservou bytes, concluiu o download irmão enquanto ela permanecia pausada e retomou a mesma entrada via HTTP Range até COMPLETED sem alterar a pausa global. MockWebServer, cache e dados de teste isolados; mídia/servidor reais, rede instável e storage de aparelhos finais não aceitos."
       },
       {
         "id": "APK-H08",
@@ -2940,6 +2940,21 @@
     }
   ],
   "events": [
+    {
+      "id": "android-per-download-pause-resume-2026-10-13",
+      "title": "Pausa e retomada individual de downloads no Android",
+      "agent": "Codex",
+      "front": "android",
+      "featureIds": [],
+      "local": "D:\\Users\\Raphael\\Documents\\Projetos\\mulletaflix",
+      "location": "MulletaFlix-android/app, feature/downloads, testes Media3 e matriz Android",
+      "scope": "Disponibilizar pausa/retomada acessível por download sem suspender a fila ou alterar a pausa global; escopo somente APK.",
+      "status": "completed",
+      "progressPercent": null,
+      "startedAt": "2026-10-13T09:28:37-03:00",
+      "updatedAt": "2026-10-13T10:08:55-03:00",
+      "evidence": "AndroidTest OfflinePlayerProductionDownloadFlowTest.pausingOnePartialDownloadPreservesItWhileItsSiblingContinues passou 1/1 em PHONE/API 35: pausa após bytes parciais, bytes preservados, download irmão concluído enquanto o primeiro permanecia pausado e retomada via HTTP Range até COMPLETED; a preferência global de pausa permaneceu inalterada. Media3/DownloadService reais no app, MockWebServer com Range, cache e IDs/sessão temporários isolados. Duas execuções anteriores falharam devido a problemas do harness (ID passado ao método e fixture sem suporte Range), corrigidos antes da aprovação final. Quality gate Android: 1.734 testes JVM/252 relatórios, 0 falhas/erros/ignorados; lint downloads/app, assembleDebug e compilação AndroidTest passaram. Wrapper confirmou QEMU na NVIDIA RTX 3050 e encerrou o AVD; ADB sem dispositivos. Não valida mídia/servidor real, rede instável, pouco armazenamento ou aparelho físico; APK-H17 continua pendente, formalSignoff continua pending e a matriz Android permanece 11/21. Nenhuma versão, APK de produção ou release criada; nenhum código do servidor alterado."
+    },
     {
       "id": "android-rtf-binary-integrity-2026-10-11",
       "title": "Preservar leitura RTF com payload binário e rejeitar truncamento",

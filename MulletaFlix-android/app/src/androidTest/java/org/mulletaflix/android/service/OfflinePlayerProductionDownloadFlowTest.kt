@@ -28,8 +28,10 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import okhttp3.OkHttpClient
+import okhttp3.mockwebserver.Dispatcher
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
+import okhttp3.mockwebserver.RecordedRequest
 import okio.Buffer
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
@@ -107,18 +109,35 @@ class OfflinePlayerProductionDownloadFlowTest {
 
             val partialBody = ByteArray(8 * 1024 * 1024) { (it % 251).toByte() }
             val siblingBody = ByteArray(64 * 1024) { (it % 127).toByte() }
-            server.enqueue(
-                MockResponse()
-                    .setHeader("Content-Type", "video/x-matroska")
-                    .setBody(Buffer().write(partialBody))
-                    .throttleBody(64 * 1024, 100, TimeUnit.MILLISECONDS),
+            val mediaBodies = mapOf(
+                "/partial-first.mkv" to partialBody,
+                "/sibling.mkv" to siblingBody,
             )
-            server.enqueue(
-                MockResponse()
-                    .setHeader("Content-Type", "video/x-matroska")
-                    .setBody(Buffer().write(siblingBody))
-                    .throttleBody(16 * 1024, 100, TimeUnit.MILLISECONDS),
-            )
+            server.dispatcher = object : Dispatcher() {
+                override fun dispatch(request: RecordedRequest): MockResponse {
+                    val body = mediaBodies[request.requestUrl?.encodedPath]
+                        ?: return MockResponse().setResponseCode(404)
+                    val rangeStart = request.getHeader("Range")
+                        ?.removePrefix("bytes=")
+                        ?.substringBefore('-')
+                        ?.toLongOrNull()
+                        ?: 0L
+                    if (rangeStart >= body.size) return MockResponse().setResponseCode(416)
+                    val responseBody = Buffer().write(body, rangeStart.toInt(), body.size - rangeStart.toInt())
+                    val response = MockResponse()
+                        .setHeader("Content-Type", "video/x-matroska")
+                        .setHeader("Accept-Ranges", "bytes")
+                        .setBody(responseBody)
+                        .throttleBody(if (request.requestUrl?.encodedPath == "/partial-first.mkv") 64 * 1024 else 16 * 1024, 100, TimeUnit.MILLISECONDS)
+                    return if (request.getHeader("Range") != null) {
+                        response
+                            .setResponseCode(206)
+                            .setHeader("Content-Range", "bytes $rangeStart-${body.lastIndex}/${body.size}")
+                    } else {
+                        response
+                    }
+                }
+            }
             server.start()
             val baseUrl = server.url("/").toString().trimEnd('/')
             runBlocking {
@@ -165,7 +184,7 @@ class OfflinePlayerProductionDownloadFlowTest {
                     server.url("/sibling.mkv").toString(),
                 ).takeIf { it.isSuccess }
             }.getOrThrow()
-            downloadRepository.pause(firstMediaId).getOrThrow()
+            downloadRepository.pause(firstRequestId).getOrThrow()
 
             awaitCondition("first download persists only its individual stop reason") {
                 val download = manager.downloadIndex.getDownload(firstRequestId)
@@ -194,7 +213,7 @@ class OfflinePlayerProductionDownloadFlowTest {
                 },
             )
 
-            downloadRepository.resume(firstMediaId).getOrThrow()
+            downloadRepository.resume(firstRequestId).getOrThrow()
             awaitCondition("the same first download resumes to completion") {
                 manager.downloadIndex.getDownload(firstRequestId)?.state ==
                     androidx.media3.exoplayer.offline.Download.STATE_COMPLETED

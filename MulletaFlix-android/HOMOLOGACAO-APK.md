@@ -1,6 +1,6 @@
 # Homologação formal — MulletaFlix Android
 
-**Data da revisão:** 07/10/2026
+**Data da revisão:** 13/10/2026
 **Estado:** em andamento — aceite final não concedido
 **Escopo:** somente aplicativo Android (APK), seu transporte e testes; nenhum componente do servidor foi alterado e nenhuma release foi criada/publicada.
 
@@ -9,6 +9,8 @@
 O APK ainda **não está homologado para aceite final**. Há 11 áreas concluídas com evidência técnica local, 1 em validação e 9 pendentes entre as 21 áreas do contrato público `portal-site/homologacao-status.json`. Nove gates dependem de servidor/conteúdo reais, dispositivos físicos, receiver ou assinatura/instalação de produção. Os estados “validado localmente” não significam compatibilidade universal nem aprovação da release.
 
 ## Evidência automatizada desta rodada
+
+- Atualização de 13/10/2026: quality gate `testDebugUnitTest :feature:downloads:lintDebug :app:lintDebug :app:assembleDebug --no-daemon --console=plain` concluiu `BUILD SUCCESSFUL`; 1.734 testes JVM em 252 relatórios XML, 0 falhas/erros/ignorados. Compilação de `:feature:downloads` e `:app` AndroidTest passou. Contagem de execução, não percentual de cobertura nem aceite geral.
 
 - `./gradlew.bat testDebugUnitTest :core:common:lintDebug :core:api:lintDebug :feature:item-detail:lintDebug :feature:player:lintDebug :app:lintDebug :app:assembleDebug --console=plain`: BUILD SUCCESSFUL em 07/10/2026; relatórios Gradle totalizam 1.426 testes aprovados, 0 falhas/erros e 0 ignorados. Inclui teste comportamental que prova que o guard rejeita proxy HTTP antes de enviar bytes da requisição e teste da configuração HTTPS-only para redirects do atualizador. `BookReaderContentsTest` também verifica cabeçalho EPUB `<span>` sem ação de navegação. `BookReaderPayloadPolicyTest` cobre recuperação de EPUB/CBZ órfão, retry após exclusão falsa/negada, preservação de arquivo fora do padrão e coexistência de livro ativo. A fixture representa arquivos sobreviventes de execução anterior, mas não mata/reinicia o processo Android.
 - `:core:api:connectedDebugAndroidTest` — `CleartextAwareMediaDataSourceHttpsTest`: 1/1 aprovado no AVD `MulletaflixApi35` (API 35). Exercitou leitura real via Media3/OkHttp sobre HTTPS com servidor TLS de teste e certificado confiável. O wrapper confirmou QEMU na GPU NVIDIA e encerrou o AVD.
@@ -53,7 +55,7 @@ Essas classificações agregam evidências locais preexistentes registradas em `
 | APK-H14 | Descoberta e troca automática entre LAN e internet | Validar descoberta na mesma LAN física e transição entre redes/endereços. |
 | APK-H15 | Streaming real, retomada e seleção de idioma/legenda | Testar mídia real, seeks, retries, codecs, faixas e legendas servidas pelo servidor. |
 | APK-H16 | Cast para receiver compatível | Testar receiver Chromecast/Web real, sessão e legendas externas. |
-| APK-H17 | Downloads com falha, espaço e recuperação em aparelho | Testar espaço limitado, interrupção/reinício e limpeza de cache em dispositivos-alvo. |
+| APK-H17 | Downloads com falha, espaço e recuperação em aparelho | O fluxo de pausa/retomada individual tem evidência instrumentada local; ainda testar espaço limitado, interrupção/reinício e limpeza de cache nos dispositivos-alvo. |
 | APK-H18 | Instalação, atualização e assinatura de produção | Conferir certificado oficial, instalação e atualização sobre o APK anterior; nenhum APK de produção foi gerado nesta homologação. |
 | APK-H19 | Aceite em dispositivos físicos e matriz final | Validar celulares, tablets e TVs físicas, fabricantes, Wi-Fi e controle remoto. |
 | APK-H20 | Aceite formal do responsável pelo produto | Fechar a matriz e registrar aprovação explícita do responsável. |
@@ -80,6 +82,8 @@ O HTTP em cleartext necessário à LAN permanece uma exceção arquitetural que 
 `TODO-APP.md` permanece a fonte linha a linha para implementação e histórico de releases. Do início do arquivo até imediatamente antes do cabeçalho “Funcionalidades APK validadas localmente, ainda não publicadas”, há 227 checkboxes marcadas e 48 abertas (275 no total). A contagem exclui as checklists históricas/arquivadas depois desse ponto e mede backlog de engenharia, não a cobertura formal nem o percentual de aceite.
 
 ## Evidência adicionada nesta rodada
+
+- Downloads individuais: `OfflinePlayerProductionDownloadFlowTest.pausingOnePartialDownloadPreservesItWhileItsSiblingContinues` passou 1/1 em PHONE/API 35. Pausou uma entrada após bytes parciais, preservou os bytes, concluiu um download irmão e retomou o primeiro por HTTP Range sem alterar a pausa global. Duas execuções iniciais encontraram apenas problemas no harness (argumento com ID errado e fixture sem Range/206); corrigido o teste, a repetição passou. Sem falha atribuível ao produto. Não valida servidor real, rede instável, pouco armazenamento nem aparelho físico; APK-H17 continua pendente.
 
 - Cast e legendas externas: após converter o item em payload de receiver, somente sidecars aceitos pela política são exportados. `ExternalSubtitleMediaItemTest` cobre HTTPS, HTTP de uma sub-rede LAN controlada e HTTP público descartado; passou 6/6 no AVD PHONE API 35. Os testes de política de rede verificam separadamente a autorização por sub-rede ativa. A revisão independente confirmou que o converter padrão não reenvia configurações descartadas por caminho paralelo. Isso não valida redirects do receiver nem uma sessão Chromecast real; APK-H16 segue pendente.
 - Sumário EPUB: ação acessível só aparece quando o EPUB contém TOC; preserva capítulos aninhados, expõe nível semântico e resolve navegação via `Publication.url(link)`. Grupos `<span>` sem destino são headings sem ação; links com filhos continuam navegáveis. O teste unitário focal e o teste instrumentado verificaram essa distinção. A fixture escolheu “Capítulo 2” e confirmou o texto exclusivo no DOM do WebView: `BookReaderScreenIntegrationTest` passou 1/1 em PHONE API 35 e 1/1 em TABLET API 35. Ambos AVDs foram abertos pelo wrapper, QEMU confirmado na NVIDIA RTX 3050 e encerrados ao fim. Isto valida navegação e semântica Compose, não TalkBack manual nem servidor/catálogo real; APK-H21 segue pendente.
