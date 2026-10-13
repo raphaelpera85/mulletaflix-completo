@@ -211,57 +211,92 @@ public class ItemPersistenceService : IItemPersistenceService
 
         var images = item.ImageInfos.Select(e => BaseItemMapper.MapImageToEntity(item.Id, e)).ToArray();
 
-        var context = await _dbProvider.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
-        await using (context.ConfigureAwait(false))
+        for (var attempt = 1; ; attempt++)
         {
-            if (!await context.BaseItems
-                .AnyAsync(bi => bi.Id == item.Id, cancellationToken)
-                .ConfigureAwait(false))
+            try
             {
-                _logger.LogWarning("Unable to save ImageInfo for non existing BaseItem");
-                return;
-            }
-
-            var existingImages = await context.BaseItemImageInfos
-                .Where(e => e.ItemId == item.Id)
-                .ToArrayAsync(cancellationToken)
-                .ConfigureAwait(false);
-
-            bool hasChanges = existingImages.Length != images.Length;
-            if (!hasChanges)
-            {
-                for (int i = 0; i < images.Length; i++)
+                var context = await _dbProvider.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
+                await using (context.ConfigureAwait(false))
                 {
-                    var newImg = images[i];
-                    var oldImg = existingImages.FirstOrDefault(e => e.ImageType == newImg.ImageType && e.Path == newImg.Path);
-                    if (oldImg == null
-                        || oldImg.Width != newImg.Width
-                        || oldImg.Height != newImg.Height
-                        || oldImg.DateModified != newImg.DateModified
-                        || !NullableSequenceEqual(oldImg.Blurhash, newImg.Blurhash))
-                    {
-                        hasChanges = true;
-                        break;
-                    }
-                }
-            }
+                    await using var transaction = await context.Database
+                        .BeginTransactionAsync(cancellationToken)
+                        .ConfigureAwait(false);
 
-            if (!hasChanges)
-            {
+                    if (!await context.BaseItems
+                        .AnyAsync(bi => bi.Id == item.Id, cancellationToken)
+                        .ConfigureAwait(false))
+                    {
+                        _logger.LogWarning("Unable to save ImageInfo for non existing BaseItem {ItemId}", item.Id);
+                        return;
+                    }
+
+                    var existingImages = await context.BaseItemImageInfos
+                        .Where(e => e.ItemId == item.Id)
+                        .ToArrayAsync(cancellationToken)
+                        .ConfigureAwait(false);
+
+                    bool hasChanges = existingImages.Length != images.Length;
+                    if (!hasChanges)
+                    {
+                        for (int i = 0; i < images.Length; i++)
+                        {
+                            var newImg = images[i];
+                            var oldImg = existingImages.FirstOrDefault(e => e.ImageType == newImg.ImageType && e.Path == newImg.Path);
+                            if (oldImg == null
+                                || oldImg.Width != newImg.Width
+                                || oldImg.Height != newImg.Height
+                                || oldImg.DateModified != newImg.DateModified
+                                || !NullableSequenceEqual(oldImg.Blurhash, newImg.Blurhash))
+                            {
+                                hasChanges = true;
+                                break;
+                            }
+                        }
+                    }
+
+                    if (!hasChanges)
+                    {
+                        return;
+                    }
+
+                    await context.BaseItemImageInfos
+                        .Where(e => e.ItemId == item.Id)
+                        .ExecuteDeleteAsync(cancellationToken)
+                        .ConfigureAwait(false);
+
+                    await context.BaseItemImageInfos
+                        .AddRangeAsync(images, cancellationToken)
+                        .ConfigureAwait(false);
+
+                    await context.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+                    await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+                }
+
                 return;
             }
-
-            await context.BaseItemImageInfos
-                .Where(e => e.ItemId == item.Id)
-                .ExecuteDeleteAsync(cancellationToken)
-                .ConfigureAwait(false);
-
-            await context.BaseItemImageInfos
-                .AddRangeAsync(images, cancellationToken)
-                .ConfigureAwait(false);
-
-            await context.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+            catch (Exception ex) when (attempt < 3 && IsTransientImagePersistenceFailure(ex))
+            {
+                _logger.LogWarning(
+                    ex,
+                    "Transient database failure while saving images for item {ItemId}; retrying attempt {Attempt}",
+                    item.Id,
+                    attempt + 1);
+                await Task.Delay(TimeSpan.FromMilliseconds(attempt * 150), cancellationToken).ConfigureAwait(false);
+            }
         }
+    }
+
+    private static bool IsTransientImagePersistenceFailure(Exception exception)
+    {
+        for (Exception? current = exception; current is not null; current = current.InnerException)
+        {
+            if (current is MySqlException mySqlException && mySqlException.Number is 1205 or 1213)
+            {
+                return true;
+            }
+        }
+
+        return IsTransientConnectionFailure(exception);
     }
 
     /// <inheritdoc />
