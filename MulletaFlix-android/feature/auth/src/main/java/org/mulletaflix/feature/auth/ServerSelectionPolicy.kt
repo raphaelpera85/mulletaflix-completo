@@ -21,28 +21,33 @@ internal data class ServerAutoConnectionCycle(
 /**
  * Chooses the saved server's LAN endpoint before any other discovered server.
  *
- * A network can contain more than one Jellyfin-compatible server. When the
- * discovery payload includes an identity already known by the app, matching
- * it prevents an unrelated server from silently taking over startup. If the
- * identity is unavailable, the first discovered LAN endpoint remains the
- * compatible fallback for first-time setup.
+ * A network can contain more than one Jellyfin-compatible server. Match LAN
+ * discovery to the identity of the active saved endpoint, not any server in
+ * history; otherwise an unrelated, previously used server can take over.
+ * Without an active identity, only a single known saved identity is unambiguous.
  */
 internal fun preferredServerUrl(
     discovered: List<ServerInfo>,
     saved: List<ServerInfo>,
     fallback: String?,
 ): String? {
-    discovered.firstOrNull { discoveredServer ->
-        val discoveredId = discoveredServer.serverId?.takeIf(String::isNotBlank)
-        discoveredId != null && saved.any { savedServer ->
-            savedServer.serverId?.isNotBlank() == true && savedServer.serverId == discoveredId
-        }
-    }?.let { return it.url }
+    fun String.normalizedEndpoint() = trimEnd('/')
 
-    // Once this installation knows server identities, an unmatched LAN
-    // advertisement is not safe to auto-select. Keep the active/saved endpoint
-    // instead; first-discovered fallback is only for first-time setup.
-    if (saved.any { !it.serverId.isNullOrBlank() }) {
+    val activeSavedServer = fallback?.let { activeUrl ->
+        saved.firstOrNull { it.url.normalizedEndpoint() == activeUrl.normalizedEndpoint() }
+    }
+    val activeServerId = activeSavedServer?.serverId?.takeIf(String::isNotBlank)
+    if (activeServerId != null) {
+        return discovered.firstOrNull { it.serverId == activeServerId }?.url ?: fallback
+    }
+
+    val knownServerIds = saved.mapNotNull { it.serverId?.takeIf(String::isNotBlank) }.distinct()
+    if (knownServerIds.isNotEmpty()) {
+        if (fallback == null && knownServerIds.size == 1) {
+            discovered.firstOrNull { it.serverId == knownServerIds.single() }?.let { return it.url }
+        }
+        // Do not switch to a different saved identity when the active URL is
+        // not yet associated with a known identity (or multiple identities exist).
         return fallback ?: saved.firstOrNull()?.url
     }
 

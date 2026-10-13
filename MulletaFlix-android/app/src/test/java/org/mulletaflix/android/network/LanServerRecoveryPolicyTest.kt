@@ -12,6 +12,7 @@ import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import org.mulletaflix.feature.auth.ServerInfo
+import org.mulletaflix.core.api.SavedServerSession
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class LanServerRecoveryPolicyTest {
@@ -48,9 +49,62 @@ class LanServerRecoveryPolicyTest {
         assertTrue(
             publicFallbackAfterLanLoss(
                 currentUrl = "http://192.168.1.20:8096",
-                publicUrl = "http://mulletaflix.duckdns.org:8096",
+                savedServers = listOf(
+                    SavedServerSession(
+                        name = "MulletaFlix",
+                        url = "https://mulletaflix.duckdns.org",
+                        serverId = "mulletaflix",
+                    ),
+                ),
+                authenticatedServerId = "mulletaflix",
                 consecutiveMisses = 2,
-            ) == "http://mulletaflix.duckdns.org:8096",
+            ) == "https://mulletaflix.duckdns.org",
+        )
+    }
+
+    @Test
+    fun `does not fall back to a saved endpoint for another server identity`() {
+        assertTrue(
+            publicFallbackAfterLanLoss(
+                currentUrl = "http://192.168.1.20:8096",
+                savedServers = listOf(
+                    SavedServerSession(
+                        name = "Outro servidor",
+                        url = "https://other.example.com",
+                        serverId = "other-server",
+                    ),
+                ),
+                authenticatedServerId = "mulletaflix",
+                consecutiveMisses = 2,
+            ) == null,
+        )
+    }
+
+    @Test
+    fun `does not guess a remote endpoint when authenticated server id is missing`() {
+        assertTrue(
+            publicFallbackAfterLanLoss(
+                currentUrl = "http://192.168.1.20:8096",
+                savedServers = listOf(
+                    SavedServerSession("MulletaFlix", "https://mulletaflix.duckdns.org", serverId = "mulletaflix"),
+                ),
+                authenticatedServerId = null,
+                consecutiveMisses = 2,
+            ) == null,
+        )
+    }
+
+    @Test
+    fun `never falls back to a saved local endpoint`() {
+        assertTrue(
+            publicFallbackAfterLanLoss(
+                currentUrl = "http://192.168.1.20:8096",
+                savedServers = listOf(
+                    SavedServerSession("MulletaFlix", "http://192.168.1.10:8096", serverId = "mulletaflix"),
+                ),
+                authenticatedServerId = "mulletaflix",
+                consecutiveMisses = 2,
+            ) == null,
         )
     }
 
@@ -59,7 +113,10 @@ class LanServerRecoveryPolicyTest {
         assertTrue(
             publicFallbackAfterLanLoss(
                 currentUrl = "http://192.168.1.20:8096",
-                publicUrl = "http://mulletaflix.duckdns.org:8096",
+                savedServers = listOf(
+                    SavedServerSession("MulletaFlix", "https://mulletaflix.duckdns.org", serverId = "mulletaflix"),
+                ),
+                authenticatedServerId = "mulletaflix",
                 consecutiveMisses = 1,
             ) == null,
         )
@@ -70,9 +127,12 @@ class LanServerRecoveryPolicyTest {
         assertTrue(
             publicFallbackAfterLanLoss(
                 currentUrl = "http://192.168.1.20:8096/",
-                publicUrl = "http://mulletaflix.duckdns.org:8096",
+                savedServers = listOf(
+                    SavedServerSession("MulletaFlix", "https://mulletaflix.duckdns.org", serverId = "mulletaflix"),
+                ),
+                authenticatedServerId = "mulletaflix",
                 consecutiveMisses = 2,
-            ) == "http://mulletaflix.duckdns.org:8096",
+            ) == "https://mulletaflix.duckdns.org",
         )
     }
 
@@ -81,7 +141,10 @@ class LanServerRecoveryPolicyTest {
         assertTrue(
             publicFallbackAfterLanLoss(
                 currentUrl = "https://media.example.com:443",
-                publicUrl = "http://mulletaflix.duckdns.org:8096",
+                savedServers = listOf(
+                    SavedServerSession("MulletaFlix", "https://mulletaflix.duckdns.org", serverId = "mulletaflix"),
+                ),
+                authenticatedServerId = "mulletaflix",
             ) == null,
         )
     }

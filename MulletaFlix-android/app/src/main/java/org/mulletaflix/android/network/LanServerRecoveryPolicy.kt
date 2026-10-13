@@ -2,6 +2,7 @@ package org.mulletaflix.android.network
 
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
+import org.mulletaflix.core.api.SavedServerSession
 import org.mulletaflix.feature.auth.ServerInfo
 
 /**
@@ -82,12 +83,25 @@ internal fun isDialableServerUrl(url: String): Boolean =
 /** Switches back to the public server only after a previous LAN endpoint fails discovery. */
 internal fun publicFallbackAfterLanLoss(
     currentUrl: String,
-    publicUrl: String,
+    savedServers: List<SavedServerSession>,
+    authenticatedServerId: String?,
     consecutiveMisses: Int = 1,
     requiredMisses: Int = 2,
-): String? = publicUrl.takeIf {
-    consecutiveMisses >= requiredMisses.coerceAtLeast(1) &&
-    isLocalServerUrl(currentUrl) && comparableServerUrl(it) != comparableServerUrl(currentUrl)
+): String? {
+    if (consecutiveMisses < requiredMisses.coerceAtLeast(1) || !isLocalServerUrl(currentUrl)) {
+        return null
+    }
+    if (authenticatedServerId.isNullOrBlank()) return null
+
+    return savedServers.firstNotNullOfOrNull { server ->
+        server.url.takeIf { url ->
+            server.serverId.equals(authenticatedServerId, ignoreCase = true) &&
+                url.isNotBlank() &&
+                !isLocalServerUrl(url) &&
+                isDialableServerUrl(url) &&
+                comparableServerUrl(url) != comparableServerUrl(currentUrl)
+        }
+    }
 }
 
 /** A cancelled discovery must never mutate the active session after a newer scan. */

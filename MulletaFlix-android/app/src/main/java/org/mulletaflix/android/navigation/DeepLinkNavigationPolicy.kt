@@ -80,6 +80,13 @@ internal fun initialDestinationForSession(
     return MulletaFlixRoute.HOME
 }
 
+/** Routes to build after login when a pending external media link is resumed. */
+internal fun routesAfterSuccessfulLogin(pendingItemId: String?): List<String> =
+    buildList {
+        add(MulletaFlixRoute.HOME)
+        pendingItemId?.takeIf(String::isNotBlank)?.let { add(MulletaFlixRoute.itemDetail(it)) }
+    }
+
 /**
  * A link from another server needs the existing server-switch/login flow.
  * Auth routes are left alone so the pending request survives until login.

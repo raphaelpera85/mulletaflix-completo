@@ -58,11 +58,15 @@ Para instrumentação, use `tools\with-emulator.ps1`, informe `expectedDevicePro
 
 O `MainActivitySessionNavigationTest.settingsLogoutClearsPersistedSessionBeforeShowingServerSelection` percorre a navegação real do telefone, executa logout com DataStore real e confirma que o token/usuário foram removidos antes de mostrar a seleção de servidor; a URL permanece para reconexão.
 
-O teste `crossServerDeepLinkAuthenticatesOnTargetServerAndLoadsItemWithoutRequestingOldServer` cobre um link recebido de outro servidor. Configure explicitamente `SessionRepository.setBaseUrl(oldServerUrl)` no fixture antes de salvar a sessão: `saveSession` não é substituto dessa seleção de endpoint. Em falha pós-login, o teste reporta requisições dos dois servidores, endpoint/sessão persistidos e texto visível. Execuções isoladas passaram, mas duas execuções recentes da classe completa falharam intermitentemente ao autenticar no endpoint público padrão em vez do servidor B; este fluxo continua aberto e não homologado.
+O teste `crossServerDeepLinkAuthenticatesOnTargetServerAndLoadsItemWithoutRequestingOldServer` cobre um link recebido de outro servidor. Configure explicitamente `SessionRepository.setBaseUrl(oldServerUrl)` no fixture antes de salvar a sessão: `saveSession` não é substituto dessa seleção de endpoint. Em falha pós-login, o teste reporta requisições dos dois servidores, endpoint/sessão persistidos e texto visível. Duas execuções anteriores da classe completa foram intermitentes; veja o resultado focal e a pendência de estabilidade na seção abaixo.
 
 ```powershell
 .\tools\with-emulator.ps1 -AvdName MulletaflixApi35 -Port 5572 -Command .\gradlew.bat -CommandArgument @(':app:connectedDebugAndroidTest', '-Pandroid.testInstrumentationRunnerArguments.expectedDeviceProfile=PHONE', '-Pandroid.testInstrumentationRunnerArguments.class=org.mulletaflix.android.MainActivitySessionNavigationTest#settingsLogoutClearsPersistedSessionBeforeShowingServerSelection', '--no-daemon', '--console=plain')
 ```
+
+### Deep link cross-server após login
+
+O teste `MainActivitySessionNavigationTest.crossServerDeepLinkAuthenticatesOnTargetServerAndLoadsItemWithoutRequestingOldServer` cobre sessão A → seleção manual de B → login → mídia do link. Após a autenticação, a pilha mantém Home sob o detalhe; Voltar retorna ao catálogo já autenticado em B. `DeepLinkNavigationPolicyTest` valida a sequência pura de destinos. A confirmação focal PHONE passou 1/1 em 2026-10-12 e novamente em 2026-10-13. Na execução da classe completa em 2026-10-13, 8/9 passaram; este cenário falhou ao submeter login (sem POST em B; URL/sessão retornaram ao padrão e UI mostrou erro 401). A causa não foi confirmada. Investigar o estado de servidor/login e repetir a classe; a evidência focal não altera a homologação formal.
 
 ### Adoção nos módulos existentes
 

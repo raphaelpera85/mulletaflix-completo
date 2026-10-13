@@ -29,8 +29,20 @@ em resumos ou no grafo derivado.
 8. Para um defeito, siga a tela/estado para o módulo dono, teste relacionado e
    registro do Graphify; confirme cada relação no código-fonte.
 
-Todos os caminhos dos documentos acima são relativos à raiz Android. A nota
-canônica no segundo cérebro é um índice complementar: `01 Projetos/MulletaFlix.md`.
+Todos os caminhos dos documentos acima são relativos à raiz Android. O segundo
+cérebro é índice complementar e não substitui esta fonte. Para retomar e curar
+o trabalho, use:
+
+- `01 Projetos/MulletaFlix.md` — contexto verificado e mapa das fontes;
+- `01 Projetos/MulletaFlix — Centro de Controle.md` — navegação do APK;
+- `01 Projetos/MulletaFlix — Grafo de arquitetura.md` — proveniência e limites
+  dos exports;
+- `Bases/Grafos.base` — catálogo de grafos de projeto com estado de frescor;
+- `00 Painéis/Centro de Controle.md` — entrada global para projetos, tarefas e
+  curadoria.
+
+Use o vault para encontrar fontes, não para replicar o backlog. Não copie
+segredos, credenciais ou conteúdo privado para as notas.
 
 ## Mapa dos módulos
 

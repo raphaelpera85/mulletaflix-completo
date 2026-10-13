@@ -91,6 +91,7 @@ class AuthViewModel @Inject constructor(
     private var localDiscoveryGeneration = 0L
     private var connectionJob: Job? = null
     private var connectionGeneration = 0L
+    private var manuallySelectedServerUrl: String? = null
     private var usersLoadedForUrl: String? = null
     private var usersLoadingForUrl: String? = null
     private var usersLoadGeneration = 0L
@@ -100,11 +101,14 @@ class AuthViewModel @Inject constructor(
         viewModelScope.launch {
             authRepository.getSavedServerUrl().distinctUntilChanged().collect { url ->
                 if (url.isNotBlank()) {
-                    _state.update {
-                        val hasLocalServer = it.discoveredServers.isNotEmpty()
-                        it.copy(
-                            serverUrl = if (hasLocalServer) it.serverUrl else url,
-                        )
+                val current = _state.value
+                if (manuallySelectedServerUrl == null) {
+                    val selectedUrl = if (current.savedServersLoaded) {
+                        preferredServerUrl(current.discoveredServers, current.savedServers, url)
+                    } else {
+                        url
+                    }
+                    _state.update { it.copy(serverUrl = selectedUrl) }
                     }
                 }
             }
@@ -122,13 +126,15 @@ class AuthViewModel @Inject constructor(
                 }
                 _state.update { it.copy(savedServers = mapped, savedServersLoaded = true) }
                 val current = _state.value
-                applyServerUrlSelection(
-                    preferredServerUrl(
-                        discovered = current.discoveredServers,
-                        saved = mapped,
-                        fallback = current.serverUrl,
-                    ),
-                )
+                if (manuallySelectedServerUrl == null) {
+                    applyServerUrlSelection(
+                        preferredServerUrl(
+                            discovered = current.discoveredServers,
+                            saved = mapped,
+                            fallback = current.serverUrl,
+                        ),
+                    )
+                }
             }
         }
         viewModelScope.launch {
@@ -243,6 +249,7 @@ class AuthViewModel @Inject constructor(
     }
 
     fun discoverLocalServers(): Long {
+        manuallySelectedServerUrl = null
         val generation = ++localDiscoveryGeneration
         discoveryJob?.cancel()
         _state.update {
@@ -271,7 +278,7 @@ class AuthViewModel @Inject constructor(
                 // Do not choose a LAN endpoint using the UI's placeholder server list.
                 // The persisted list carries the stable server identity and is loaded
                 // independently from discovery during startup.
-                if (current.savedServersLoaded) {
+                if (current.savedServersLoaded && manuallySelectedServerUrl == null) {
                     val latest = _state.value
                     applyServerUrlSelection(
                         preferredServerUrl(servers, latest.savedServers, latest.serverUrl),
@@ -318,7 +325,13 @@ class AuthViewModel @Inject constructor(
         _state.update { it.copy(username = user.name, error = null) }
     }
 
-    fun connectToServer(url: String, onSuccess: () -> Unit, onFailure: () -> Unit = {}) {
+    fun connectToServer(
+        url: String,
+        onSuccess: () -> Unit,
+        onFailure: () -> Unit = {},
+        preserveExplicitSelection: Boolean = true,
+    ) {
+        if (!preserveExplicitSelection) manuallySelectedServerUrl = null
         cancelQuickConnectPolling()
         connectionJob?.cancel()
         val generation = ++connectionGeneration
@@ -331,6 +344,7 @@ class AuthViewModel @Inject constructor(
                 onFailure()
                 return@launch
             }
+            if (preserveExplicitSelection) manuallySelectedServerUrl = cleanUrl
             // Do not keep showing users from the previous server while this
             // endpoint is being verified or when its verification fails.
             invalidateAvailableUsersForEndpoint()
@@ -377,6 +391,7 @@ class AuthViewModel @Inject constructor(
                 }
                 .onFailure { err ->
                     if (generation != connectionGeneration) return@onFailure
+                    if (manuallySelectedServerUrl == cleanUrl) manuallySelectedServerUrl = null
                     _state.update { it.copy(isLoading = false, error = serverConnectionErrorMessage(err)) }
                     onFailure()
                 }

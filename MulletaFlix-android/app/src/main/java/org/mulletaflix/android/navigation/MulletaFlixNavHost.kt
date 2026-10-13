@@ -198,11 +198,17 @@ fun MulletaFlixNavHost(
                 onLoginSuccess = {
                     // The pending link survives the login detour and is cleared
                     // by the LaunchedEffect once its destination is reached.
-                    val destination = deepLinkItemId?.let(MulletaFlixRoute::itemDetail)
-                        ?: MulletaFlixRoute.HOME
+                    // Keep Home beneath an external detail so Back returns to
+                    // the authenticated catalog instead of finishing the app.
+                    val destinations = routesAfterSuccessfulLogin(deepLinkItemId)
                     switchingServer = false
-                    navController.navigate(destination) {
-                        popUpTo(MulletaFlixRoute.SERVER_SELECTION) { inclusive = true }
+                    destinations.forEachIndexed { index, destination ->
+                        navController.navigate(destination) {
+                            if (index == 0) {
+                                popUpTo(MulletaFlixRoute.SERVER_SELECTION) { inclusive = true }
+                            }
+                            launchSingleTop = true
+                        }
                     }
                 }
             )

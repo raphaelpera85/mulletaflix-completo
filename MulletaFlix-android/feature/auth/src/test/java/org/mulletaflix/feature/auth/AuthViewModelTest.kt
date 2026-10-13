@@ -774,6 +774,59 @@ class AuthViewModelTest {
     }
 
     @Test
+    fun `startup discovery uses the active server identity instead of another saved server`() = runTest {
+        coEvery { discovery.discover(any()) } returns listOf(
+            ServerInfo("Old server A on LAN", "http://192.168.1.20:8096", serverId = "server-a"),
+        )
+        val authRepo = object : FakeAuthRepository() {
+            init {
+                savedServersState.value = listOf(
+                    SavedServer("Active B", "https://server-b.example", serverId = "server-b"),
+                    SavedServer("Old A", "https://server-a.example", serverId = "server-a"),
+                )
+            }
+
+            override fun getSavedServerUrl(): Flow<String> = flowOf("https://server-b.example")
+        }
+
+        val viewModel = createViewModel(authRepo)
+        advanceUntilIdle()
+
+        assertEquals("https://server-b.example", viewModel.state.value.serverUrl)
+    }
+
+    @Test
+    fun `manually selected server stays active when saved server list emits`() = runTest {
+        coEvery { discovery.discover(any()) } returns listOf(
+            ServerInfo("Saved server on LAN", "http://192.168.1.20:8096", serverId = "saved-server-id"),
+        )
+        val authRepo = object : FakeAuthRepository() {
+            init {
+                savedServersState.value = listOf(
+                    SavedServer(
+                        name = "Saved public server",
+                        url = DEFAULT_MULLETAFLIX_SERVER_URL,
+                        serverId = "saved-server-id",
+                    ),
+                )
+            }
+        }
+        val viewModel = createViewModel(authRepo)
+        advanceUntilIdle()
+        assertEquals("http://192.168.1.20:8096", viewModel.state.value.serverUrl)
+
+        viewModel.connectToServer("http://server-b:8096", onSuccess = {})
+        advanceUntilIdle()
+
+        assertEquals("http://server-b:8096", viewModel.state.value.serverUrl)
+
+        viewModel.discoverLocalServers()
+        advanceUntilIdle()
+
+        assertEquals("http://server-b:8096", viewModel.state.value.serverUrl)
+    }
+
+    @Test
     fun `view model initialization does not request login options from the saved endpoint`() = runTest {
         coEvery { discovery.discover(any()) } returns emptyList()
         var availableUsersCalls = 0

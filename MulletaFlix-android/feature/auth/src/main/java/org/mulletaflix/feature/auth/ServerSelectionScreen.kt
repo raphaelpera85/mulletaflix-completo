@@ -136,6 +136,7 @@ fun ServerSelectionScreen(
             viewModel.connectToServer(
                 url = endpoint,
                 onSuccess = { onServerSelected() },
+                preserveExplicitSelection = false,
                 onFailure = {
                     // A stale LAN advertisement must not prevent access through
                     // the saved/public endpoint.
@@ -143,6 +144,7 @@ fun ServerSelectionScreen(
                         viewModel.connectToServer(
                             fallbackServerCandidate(state, endpoint),
                             onSuccess = { onServerSelected() },
+                            preserveExplicitSelection = false,
                         )
                     }
                 },

@@ -166,6 +166,20 @@ class DeepLinkNavigationPolicyTest {
     }
 
     @Test
+    fun `successful login keeps home beneath a pending deep link`() {
+        assertEquals(
+            listOf(MulletaFlixRoute.HOME, MulletaFlixRoute.itemDetail("movie-123")),
+            routesAfterSuccessfulLogin("movie-123"),
+        )
+    }
+
+    @Test
+    fun `successful login without deep link opens only home`() {
+        assertEquals(listOf(MulletaFlixRoute.HOME), routesAfterSuccessfulLogin(null))
+        assertEquals(listOf(MulletaFlixRoute.HOME), routesAfterSuccessfulLogin(" "))
+    }
+
+    @Test
     fun `a link from this server opens normally`() {
         assertTrue(shouldOpenLinkOnCurrentServer("server-A", "server-A"))
         assertTrue("a server id is case insensitive", shouldOpenLinkOnCurrentServer("SERVER-A", "server-a"))

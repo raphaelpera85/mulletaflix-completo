@@ -104,6 +104,39 @@ class ServerSelectionPolicyTest {
     }
 
     @Test
+    fun `discovery only matches the identity of the currently active saved server`() {
+        val activeLan = ServerInfo("Active B on LAN", "http://192.168.1.10:8096", serverId = "server-b")
+        val oldLan = ServerInfo("Previously used A on LAN", "http://192.168.1.20:8096", serverId = "server-a")
+        val activeCloud = ServerInfo("Active B cloud", "https://server-b.example", serverId = "server-b")
+        val oldCloud = ServerInfo("Previously used A cloud", "https://server-a.example", serverId = "server-a")
+
+        assertEquals(
+            activeLan.url,
+            preferredServerUrl(
+                discovered = listOf(oldLan, activeLan),
+                saved = listOf(activeCloud, oldCloud),
+                fallback = activeCloud.url,
+            ),
+        )
+    }
+
+    @Test
+    fun `discovery does not replace active server with a different previously saved identity`() {
+        val oldLan = ServerInfo("Previously used A on LAN", "http://192.168.1.20:8096", serverId = "server-a")
+        val activeCloud = ServerInfo("Active B cloud", "https://server-b.example", serverId = "server-b")
+        val oldCloud = ServerInfo("Previously used A cloud", "https://server-a.example", serverId = "server-a")
+
+        assertEquals(
+            activeCloud.url,
+            preferredServerUrl(
+                discovered = listOf(oldLan),
+                saved = listOf(activeCloud, oldCloud),
+                fallback = activeCloud.url,
+            ),
+        )
+    }
+
+    @Test
     fun `discovery without identity keeps first LAN endpoint for first-time setup`() {
         val first = ServerInfo("First LAN", "http://192.168.1.20:8096")
         val second = ServerInfo("Second LAN", "http://192.168.1.10:8096")

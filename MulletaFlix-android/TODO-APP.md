@@ -266,7 +266,9 @@
 - [x] Cold start por deep link no mesmo servidor mantém Home sob o detalhe na pilha; Voltar retorna à Home em Activity real, PHONE/API 35 e TV/API 34, 5/5 em cada perfil.
 - [x] Em Ajustes, logout só navega após sucesso; falha mantém o destino, encerra progresso e mostra erro recuperável. RED-GREEN em `SettingsViewModelTest` para falha e sucesso.
 - [x] Teste por Activity para logout em Ajustes: sessão autenticada → Ajustes → sair → seleção de servidor; comprova remoção persistida do token/usuário e retenção da URL.
-- [ ] Cobrir por Activity troca de servidor e deep link cross-server com retorno ao NavHost; executar TABLET/TV quando fizer sentido ao fluxo.
+- [x] Definir a pilha após login em política: login normal cria apenas Home; login retomando deep link preserva Home sob o detalhe. Testes JVM RED-GREEN em `DeepLinkNavigationPolicyTest` (22 casos).
+- [x] O teste focal `crossServerDeepLinkAuthenticatesOnTargetServerAndLoadsItemWithoutRequestingOldServer` passou 1/1 em PHONE/API 35: autenticação, item e sessão persistida em B; Voltar retorna à Home; servidor A sem requisições. XML `TEST-MulletaflixCodexPhoneApi35_20261012(AVD) - 15.xml`, `emulator-5576`, 0 falhas/erros/ignorados.
+- [ ] Repetir a classe `MainActivitySessionNavigationTest` para avaliar estabilidade: duas execuções completas anteriores foram intermitentes. Uma execução focal aprovada confirma o cenário, mas não remove o risco de flakiness nem equivale à homologação formal.
 - [x] Quality Bar completa após adicionar o deep link: `testDebugUnitTest :app:lintDebug :app:assembleDebug :app:compileDebugAndroidTestKotlin --no-daemon --console=plain` passou; 240 relatórios XML, 1.567 testes JVM, 0 falhas/erros/ignorados. Sem bump ou release.
 
 ## Conexão em LAN sem internet — Android, sem release
@@ -3653,7 +3655,9 @@ Pendências relacionadas:
 - [x] E2E cross-server PHONE/API 35 em Activity real: sessão A + deep link B, seleção manual, `GET /System/Info/Public`, `GET /Users/Public`, POST de login com credenciais conferidas e GET do item em B; após recriar `SessionRepositoryImpl`, URL/token/usuário/`serverId` B persistidos e nenhuma requisição a A. MockWebServer não substitui servidor real nem comprova renderização visual do detalhe.
 - [x] Impedir que a política de conexão automática verifique ou conecte à URL salva do servidor A durante a seleção iniciada por deep link com `serverId` do servidor B; RED-GREEN unitário comprovado. A instrumentação agora cobre seleção, autenticação e entrega do título.
 - [x] Impedir consultas de usuários e Quick Connect ao servidor salvo durante a inicialização/troca; RED-GREEN no `AuthViewModelTest` e teste Activity com MockWebServer no host correto do AVD (5/5).
-- [x] Quality gate Android: `testDebugUnitTest` 1.577/1.577, `:app:lintDebug`, `:app:assembleDebug`, `:app:compileDebugAndroidTestKotlin`, `:app:connectedDebugAndroidTest` (classe 5/5 PHONE/API 35) e `git diff --check` passaram. Sem bump, APK de produção ou publicação; mudança exclusivamente local do APK.
+- [x] Quality gate Android anterior: `testDebugUnitTest` 1.577/1.577, `:app:lintDebug`, `:app:assembleDebug`, `:app:compileDebugAndroidTestKotlin` e execução instrumentada anterior passaram. Sem bump, APK de produção ou publicação; mudança exclusivamente local do APK.
+- [x] Reteste da classe completa em 2026-10-13, PHONE/API 35 temporário com GPU NVIDIA verificada: 8/9 passaram. O cenário cross-server falhou ao submeter login: nenhuma requisição POST foi registrada em B, a URL/sessão retornou ao padrão e a UI mostrou erro 401. A repetição focal imediata passou 1/1. Causa não confirmada.
+- [ ] Investigar e estabilizar o estado do servidor/login no cenário cross-server da classe completa. Confirmar URL visível/persistida e requests no instante do submit; não declarar homologação formal até repetição completa estável.
 
 ## Leitor paginado — salto direto para página (APK local; sem release)
 - [x] Tornar o indicador de página uma ação acessível; diálogo aceita somente inteiros dentro de `1..total`, mostra erro para fora da faixa e aplica salto somente após confirmação.

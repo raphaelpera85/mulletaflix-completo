@@ -468,6 +468,15 @@ class MainActivitySessionNavigationTest {
         )
         composeRule.onNodeWithTag("auth.login.username").performTextInput("raphael")
         composeRule.onNodeWithTag("auth.login.password").performTextInput("test-password")
+        assertTrue(
+            "A tela de login precisa continuar exibindo o servidor B imediatamente antes do envio",
+            runCatching { composeRule.onNodeWithText(targetServerUrl).assertIsDisplayed() }.isSuccess,
+        )
+        assertEquals(
+            "O endpoint ativo precisa continuar em B imediatamente antes do envio",
+            targetServerUrl,
+            sessionRepository.getBaseUrl().first(),
+        )
         composeRule.onNodeWithTag("auth.login.submit").performClick()
 
         val targetItemRequested = runCatching {
@@ -504,6 +513,16 @@ class MainActivitySessionNavigationTest {
         assertEquals("server-b-user", reopenedSession.getCurrentUserId().first())
         assertEquals("Server B user", reopenedSession.getCurrentUserName().first())
         assertEquals("server-b-token", reopenedSession.getAccessToken().first())
+
+        activityScenario?.onActivity { activity ->
+            activity.onBackPressedDispatcher.onBackPressed()
+        }
+        composeRule.waitUntil(timeoutMillis = 20_000) { homeVisible() }
+        assertEquals(
+            "Voltar de um detalhe aberto por deep link deve levar à Home do servidor autenticado",
+            targetServerUrl,
+            sessionRepository.getBaseUrl().first(),
+        )
         assertTrue(
             "O fluxo cross-server não pode consultar o servidor A antes nem depois do login",
             oldServerRequests.isEmpty(),

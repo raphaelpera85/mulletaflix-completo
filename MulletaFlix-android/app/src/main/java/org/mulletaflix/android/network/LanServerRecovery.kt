@@ -16,7 +16,6 @@ import org.mulletaflix.core.api.ActiveServerEndpointChangeSignal
 import org.mulletaflix.core.api.SessionRepository
 import org.mulletaflix.core.common.network.serverAccessNetworkRequest
 import org.mulletaflix.feature.auth.LocalServerDiscovery
-import org.mulletaflix.feature.auth.DEFAULT_MULLETAFLIX_SERVER_URL
 import java.util.concurrent.atomic.AtomicLong
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -141,9 +140,11 @@ class LanServerRecovery @Inject constructor(
                     }
                 } else {
                     consecutiveLanMisses += 1
+                    val savedServers = sessionRepository.getSavedServers().first()
                     publicFallbackAfterLanLoss(
                         currentUrl = currentUrl,
-                        publicUrl = DEFAULT_MULLETAFLIX_SERVER_URL,
+                        savedServers = savedServers,
+                        authenticatedServerId = authenticatedServerId,
                         consecutiveMisses = consecutiveLanMisses,
                     )?.let { fallbackUrl ->
                         sessionRepository.setBaseUrl(fallbackUrl)
