@@ -146,6 +146,71 @@ class PlainTextBookReaderIntegrationTest {
     }
 
     @Test
+    fun markdownTableOfContentsNavigatesToSecondChunkAndRestoresItsLocator() {
+        val directory = Files.createTempDirectory("markdown-toc-integration").toFile()
+        try {
+            val file = directory.resolve("chapters.md").apply {
+                writeText(buildString {
+                    appendLine("# Primeiro capítulo")
+                    appendLine()
+                    repeat(30) { appendLine("Texto introdutório suficiente para atravessar um bloco de leitura.") }
+                    appendLine()
+                    appendLine("## Segundo capítulo")
+                    appendLine()
+                    append("Corpo exclusivo do segundo capítulo.")
+                })
+            }
+            val document = PlainTextBookDocument.open(file, "text/markdown; charset=utf-8")
+            assertEquals(listOf("Primeiro capítulo", "Segundo capítulo"), document.chapters.map { it.title })
+            val selectedChunk = mutableIntStateOf(0)
+            var savedLocator: Locator? = null
+            val entries = document.chapters.map { chapter ->
+                BookReaderContentsEntry(
+                    title = chapter.title,
+                    depth = chapter.depth,
+                    chapterChunkIndex = chapter.chunkIndex,
+                )
+            }
+            val targetChapter = document.chapters[1]
+
+            assertEquals(0, document.chapters[0].chunkIndex)
+            assertEquals(1, targetChapter.chunkIndex)
+
+            composeRule.setContent {
+                MaterialTheme {
+                    Column(Modifier.fillMaxSize()) {
+                        BookReaderContentsActions(entries = entries, enabled = true) { entry ->
+                            val chunk = requireNotNull(entry.chapterChunkIndex)
+                            selectedChunk.intValue = chunk
+                            savedLocator = document.locatorForChunk(chunk)
+                        }
+                        PlainTextBookReaderContent(
+                            document = document,
+                            currentChunk = selectedChunk.intValue,
+                            fontSizePercent = 100,
+                            onChunkSelected = { selectedChunk.intValue = it },
+                            modifier = Modifier.weight(1f),
+                        )
+                    }
+                }
+            }
+
+            composeRule.onNodeWithContentDescription("Abrir sumário").performClick()
+            composeRule.onNodeWithText("Segundo capítulo").performClick()
+            composeRule.waitUntil(timeoutMillis = 5_000) {
+                selectedChunk.intValue == targetChapter.chunkIndex
+            }
+            composeRule.onNodeWithTag("$PLAIN_TEXT_BOOK_CHUNK_TEST_TAG-${targetChapter.chunkIndex}")
+                .assertIsDisplayed()
+                .assertTextContains("Segundo capítulo", substring = true)
+                .assertTextContains("Corpo exclusivo do segundo capítulo.", substring = true)
+            assertEquals(targetChapter.chunkIndex, document.chunkIndexFromLocator(savedLocator))
+        } finally {
+            directory.deleteRecursively()
+        }
+    }
+
+    @Test
     fun fictionBookXmlRendersOnlyReadableBodyContent() {
         val directory = Files.createTempDirectory("fb2-reader-integration").toFile()
         try {

@@ -6,12 +6,12 @@
 - [x] Executar suíte unitária isolada de `feature:auth`: 108/108 aprovados, 0 ignorados/falhas/erros.
 - [x] Reproduzir RED: login abriu a Home do servidor novo, mas Voltar restaurou a pilha Home/Perfil antiga; teste confirmou 1 falha e 9 aprovações na classe.
 - [x] Corrigir o `popUpTo` apenas para troca iniciada no Perfil; login explícito remove a Home antiga antes de abrir o catálogo novo.
-- [x] GREEN focal e classe `MainActivitySessionNavigationTest`: 1/1 e 10/10 PHONE/API 35, sem falhas/erros/ignorados.
+- [x] GREEN focal e classe `MainActivitySessionNavigationTest`: 1/1 e 11/11 PHONE/API 35, sem falhas/erros/ignorados; inclui cancelamento seguido por logout e login independente.
 - [x] Quality gate: 1.762 testes JVM/255 XML, zero falhas/erros/ignorados; lint auth/app, assembleDebug e compilação AndroidTest auth/app passaram.
 - [x] Atualizar a evidência e o estado da ficha local de APK-H02 após reteste aprovado.
 - A homologação pública não foi alterada nesta sessão APK-only; aceite formal permanece pendente.
 - APK-H02 continua em validação formal; testes locais sintéticos não equivalem a servidor/dispositivo real nem concedem aceite.
-- Nenhuma versão, APK de produção ou release foi criada. Nenhuma alteração no portal ou servidor.
+- Nenhuma versão, APK de produção ou release foi criada. Esta sessão não adicionou mudança ao portal ou servidor; arquivos do portal já modificados na sessão anterior foram preservados.
 
 ## Validação e normalização de identificadores em ToggleFavoriteUseCase e TogglePlayedUseCase — APK local; sem release
 
@@ -3847,7 +3847,8 @@ Pendências relacionadas:
 - [x] Cobrir níveis, formatação e capítulo posterior ao primeiro chunk em teste JVM.
 - [x] Testar limite acima de 10.000 entradas e fechamento incorreto de cerca.
 - [x] Testar aceitação exata do limite, tabs/recuos de cerca e offsets após whitespace Unicode.
-- [ ] Validar a interação visual do sumário em dispositivo quando o AVD reservado pelo usuário for liberado.
+- [x] Exercitar abrir o sumário e saltar para capítulo Markdown em Compose instrumentado TABLET/API 35; 1/1, com fixture sintética.
+- [ ] Validação manual de TalkBack/controle remoto, arquivos Markdown reais e aparelho físico permanece pendente.
 - [ ] Sem bump, APK de produção ou publicação nesta tarefa.
 
 ## Leitura textual AZW3/KF8 (APK local; sem release)

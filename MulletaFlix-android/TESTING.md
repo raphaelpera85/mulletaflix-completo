@@ -42,6 +42,20 @@ Não escreva primeiro código de produção para depois “cobri-lo” com teste
   ignorados; ambos os lint, assemble Debug e compilação AndroidTest concluíram.
   Isso não substitui Compose/instrumentação em PHONE/TABLET/TV.
 
+### Sumário Markdown — navegação Compose
+
+`PlainTextBookReaderIntegrationTest.markdownTableOfContentsNavigatesToSecondChunkAndRestoresItsLocator`
+valida a abertura do sumário, seleção de um cabeçalho Markdown em outro chunk,
+renderização do título/corpo e round-trip do locator. Fixture sintética; rode em
+TABLET/API 35 pelo wrapper:
+
+```powershell
+.\tools\with-emulator.ps1 -AvdName MulletaflixTtsVoiceTabletApi35 -Port 5582 -Command .\gradlew.bat -CommandArgument @(':feature:item-detail:connectedDebugAndroidTest', '-Pandroid.testInstrumentationRunnerArguments.expectedDeviceProfile=TABLET', '-Pandroid.testInstrumentationRunnerArguments.class=org.mulletaflix.feature.itemdetail.PlainTextBookReaderIntegrationTest#markdownTableOfContentsNavigatesToSecondChunkAndRestoresItsLocator', '--no-daemon', '--console=plain')
+```
+
+Esse teste cobre interação Compose em AVD, não validação manual de TalkBack,
+arquivo real ou aparelho físico.
+
 ### Quality Gate completo
 
 Execute na raiz `MulletaFlix-android`. Rode o lint do módulo alterado e do app:
@@ -74,6 +88,8 @@ O rascunho fica no DataStore privado do app e é indexado por hash da identidade
 O `MainActivitySessionNavigationTest.settingsLogoutClearsPersistedSessionBeforeShowingServerSelection` percorre a navegação real do telefone, executa logout com DataStore real e confirma que o token/usuário foram removidos antes de mostrar a seleção de servidor; a URL permanece para reconexão.
 
 `MainActivitySessionNavigationTest.switchingServerFromProfileDoesNotRestorePreviousProfileOnBackAfterLogin` cobre Home → Perfil → seleção de outro servidor → login → Home → Voltar. A troca iniciada no Perfil deve limpar a pilha da Home anterior; Voltar da nova Home encerra a Activity sem restaurar o Perfil/servidor anterior. Em 2026-10-14, a classe completa passou 10/10 em PHONE/API 35 com MockWebServer; isso não valida servidor ou dispositivo real.
+
+`MainActivitySessionNavigationTest.canceledProfileServerSwitchDoesNotAffectLoginAfterLogout` cobre cancelar a seleção pelo Perfil, voltar ao Perfil, encerrar sessão e autenticar depois por um fluxo independente. Em 2026-10-14 passou 1/1; o cenário não reproduziu reutilização prejudicial do marcador da origem anterior. A classe completa passou 11/11 no PHONE/API 35 com fixtures sintéticas.
 
 O teste `crossServerDeepLinkAuthenticatesOnTargetServerAndLoadsItemWithoutRequestingOldServer` cobre um link recebido de outro servidor. Configure explicitamente `SessionRepository.setBaseUrl(oldServerUrl)` no fixture antes de salvar a sessão: `saveSession` não é substituto dessa seleção de endpoint. Em falha pós-login, o teste reporta requisições dos dois servidores, endpoint/sessão persistidos e texto visível. Duas execuções anteriores da classe completa foram intermitentes; veja o resultado focal e a pendência de estabilidade na seção abaixo.
 

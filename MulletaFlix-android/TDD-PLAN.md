@@ -2,12 +2,13 @@
 
 ## RED-GREEN — autenticação e navegação ao trocar servidor pelo Perfil — 2026-10-14
 
-- `INTENT`: code removes only `SERVER_SELECTION` after explicit login; the regression test expects Back to exit instead of restoring the previous Profile; `DEVELOPMENT-GUIDE.md` requires the server-switch flow and session stack to be tested without restoring the previous account/server.
+- `INTENT`: code removes only `SERVER_SELECTION` after explicit login, even when switching from Profile; the regression test expects Back to exit instead of restoring the previous Profile; `DEVELOPMENT-GUIDE.md` requires the server-switch flow and session stack to be tested without restoring the previous account/server.
 - `RED`: a diagnostic PHONE/API 35 run confirmed the login POST and new Home, then failed the Back assertion: the old Home/Profile remained below the new Home. The run also exposed that the runner option for one method had executed all 10 class tests; only the target scenario failed (9 passed, 1 failed).
-- `GREEN`: `MulletaFlixNavHost` now remembers when a switch starts specifically in Profile and clears the prior Home stack on successful login only for that path. Normal login and deep-link routing retain their existing `SERVER_SELECTION` behavior. Focused scenario passed 1/1; full `MainActivitySessionNavigationTest` passed 10/10 in PHONE/API 35.
+- `GREEN`: `MulletaFlixNavHost` now remembers when a switch starts specifically in Profile and clears the prior Home stack on successful login only for that path. Normal login and deep-link routing retain their existing `SERVER_SELECTION` behavior. Focused scenario passed 1/1; full `MainActivitySessionNavigationTest` passed 11/11 in PHONE/API 35, including cancellation → logout → independent login.
 - `QUALITY GATE`: `testDebugUnitTest` produced 1,762 tests across 255 XML reports, 0 failures/errors/ignored; `:feature:auth:lintDebug`, `:app:lintDebug`, `:app:assembleDebug`, `:feature:auth:compileDebugAndroidTestKotlin` and `:app:compileDebugAndroidTestKotlin` passed. NVIDIA GPU verified by the emulator wrapper; temporary AVD closed after each run.
 - `LIMITES`: MockWebServer and AVD only; no real media server/device. APK-H02 remains in validation and formal acceptance remains pending. No version bump, release, portal change, server change, commit or push.
 - `TWINS`: searched server-switch success routing and Profile callbacks; one matching success callback in `MulletaFlixNavHost.kt`, handled by the change. Deep-link mismatch separately clears Home before auth and retains its existing behavior.
+- `REVIEW`: Cavecrew reviewer raised a possible stale-origin marker after abandoning a switch. Added `canceledProfileServerSwitchDoesNotAffectLoginAfterLogout`; it passed before any marker-reset change, so the proposed stale-marker defect was not reproduced and no extra production change was made. The initial attempt failed only because the test waited for an off-screen profile option to be displayed before scrolling; changing that setup wait to `assertExists` let the UI scroll continue.
 - `ESCOPO`: somente APK, teste e documentação Android. Sem mudança do servidor, portal, versão ou release; APK-H02 permanece em validação e aceite formal pendente.
 
 ## RED-GREEN — validação e normalização de identificadores em ToggleFavoriteUseCase e TogglePlayedUseCase — 2026-10-14
@@ -229,6 +230,14 @@
 - `GRAPHIFY`: atualização do grafo raiz — 64.165 nós/165.459 arestas; `graphify explain` confirmou parser e teste relacionados. Graphify 0.9.79 está abaixo da skill 0.9.84; 3 SQL sem parser, 4 arquivos com extração sintática parcial e 174 sem símbolos.
 - `REVIEW`: revisores Cavecrew encontraram fechamento indevido com recuo inválido e ausência de limite; correções adicionaram também cobertura do limite exato e whitespace Unicode.
 - `LIMITAÇÕES`: AVD `MulletaflixApi35` permanece reservado pelo usuário; nenhuma instrumentação foi executada. Sem alteração de versão, servidor, portal ou release.
+
+## Revalidação Compose — navegação do sumário Markdown — 2026-10-14
+
+- `INTENT`: parser e modelo de capítulos Markdown já navegam para o chunk correto; a nova integração deve abrir o sumário Compose, selecionar um cabeçalho em outro chunk, exibir título/corpo e preservar o locator correspondente.
+- `COBERTURA`: `PlainTextBookReaderIntegrationTest.markdownTableOfContentsNavigatesToSecondChunkAndRestoresItsLocator` cria documento Markdown sintético com dois cabeçalhos separados por mais de 1.200 caracteres, renderiza as ações comuns de sumário/leitor, seleciona o segundo capítulo, verifica o texto no chunk de destino e confere round-trip do locator.
+- `TENTATIVA INICIAL`: falhou com `IndexOutOfBoundsException: Index 1 out of bounds for length 1` antes de compor UI; a fixture interpolada não produziu o segundo capítulo. Não é RED válido de comportamento do aplicativo. A fixture foi reescrita com linhas explícitas e uma asserção do conjunto de títulos antes de indexar.
+- `GREEN`: o teste passou 1/1 em TABLET/API 35 no AVD `MulletaflixTtsVoiceTabletApi35`, via wrapper `tools/with-emulator.ps1`. XML: `feature/item-detail/build/outputs/androidTest-results/connected/debug/TEST-MulletaflixTtsVoiceTabletApi35(AVD) - 15.xml`, 1 teste, 0 falhas/erros/ignorados. Wrapper verificou QEMU na NVIDIA RTX 3050, encerrou somente o AVD iniciado para o teste; `adb devices -l` terminou sem dispositivos.
+- `LIMITES`: fixture sintética e interação Compose automatizada; não comprova TalkBack manual, controle remoto, arquivo real ou aparelho físico. APK-H21 e aceite formal não mudam por este teste isolado. Sem alteração de produção, versão, release, assinatura, servidor ou portal.
 
 ## RED-GREEN — trechos contextuais na busca de PDF — 2026-10-11
 
