@@ -59,9 +59,27 @@ class DeepLinkNavigationPolicyTest {
     }
 
     @Test
+    fun `marks a link handled when destination matches despite surrounding whitespace`() {
+        assertTrue(shouldMarkMediaDeepLinkHandled(" movie-123 ", "movie-123"))
+        assertTrue(shouldMarkMediaDeepLinkHandled("movie-123", "  movie-123  "))
+    }
+
+    @Test
+    fun `does not navigate when the requested item matches current item despite whitespace`() {
+        assertFalse(
+            shouldNavigateToMediaDeepLink(
+                currentRoute = MulletaFlixRoute.ITEM_DETAIL,
+                currentItemId = "movie-123",
+                targetItemId = "  movie-123  ",
+            ),
+        )
+    }
+
+    @Test
     fun `does not mark another destination handled`() {
         assertFalse(shouldMarkMediaDeepLinkHandled("movie-123", "episode-456"))
     }
+
 
     @Test
     fun `delivers a request that was never handled`() {
@@ -178,6 +196,15 @@ class DeepLinkNavigationPolicyTest {
         assertEquals(listOf(MulletaFlixRoute.HOME), routesAfterSuccessfulLogin(null))
         assertEquals(listOf(MulletaFlixRoute.HOME), routesAfterSuccessfulLogin(" "))
     }
+
+    @Test
+    fun `successful login trims whitespace from pending item id`() {
+        assertEquals(
+            listOf(MulletaFlixRoute.HOME, MulletaFlixRoute.itemDetail("movie-123")),
+            routesAfterSuccessfulLogin("  movie-123  \t"),
+        )
+    }
+
 
     @Test
     fun `a link from this server opens normally`() {

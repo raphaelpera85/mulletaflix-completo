@@ -1,6 +1,45 @@
 # Plano de TDD do MulletaFlix Android
 
+## RED-GREEN — validação e normalização de identificadores em ToggleFavoriteUseCase e TogglePlayedUseCase — 2026-10-14
+
+- `INTENT`: `ToggleFavoriteUseCase` e `TogglePlayedUseCase` devem validar identificadores de usuário e de mídia não-vazios/não-brancos (`IllegalArgumentException`), normalizar espaços (`trim()`), delegar as operações corretas ao `MediaRepository` e retornar o novo estado booleano do item.
+- `RED`: `:domain:testDebugUnitTest --tests "org.mulletaflix.domain.usecase.UseCaseTest"` falhou 2/40 antes da implementação (`ToggleFavoriteUseCase rejects blank userId or itemId with IllegalArgumentException` e `TogglePlayedUseCase rejects blank userId or itemId with IllegalArgumentException` falharam porque os use cases delegavam sem validar).
+- `GREEN`: `ToggleFavoriteUseCase.kt` e `TogglePlayedUseCase.kt` atualizados com sanitização de `cleanUser` e `cleanItem`. Se vazios após trim, retornam `Result.failure(IllegalArgumentException)`. Identificadores limpos são repassados ao repositório. 40/40 testes de `UseCaseTest` passaram.
+- `QUALITY GATE`: `testDebugUnitTest` global totalizou 1.756 testes JVM em 254 relatórios XML, 0 falhas/erros/ignorados. `:domain:lintDebug`, `:app:lintDebug`, `:app:assembleDebug`, compilação AndroidTest de `domain` e `app` passaram.
+- `LIMITES`: testes unitários em JVM com repositório fake isolado; não cobrem concorrência remota ou validação contra o backend real.
+- `ESCOPO`: somente APK e testes no módulo `domain`. Sem bump, release, commit ou push.
+
+## RED-GREEN — validação, normalização e delegação em GetFavoriteItemsUseCase — 2026-10-14
+
+- `INTENT`: `GetFavoriteItemsUseCase` deve validar parâmetros de entrada (`userId` não-vazio, `startIndex >= 0`, `limit > 0`), normalizar `userId` e `searchTerm` com `trim()`, converter buscas vazias em `null`, delegar filtros de favoritos ao `MediaRepository` e propagar sucessos ou falhas.
+- `RED`: `:domain:testDebugUnitTest --tests "org.mulletaflix.domain.usecase.GetFavoriteItemsUseCaseTest"` falhou 1/5 antes da implementação (`trims userId and searchTerm before passing to repository` falhou esperando `"user-trimmed"` mas recebendo `"  user-trimmed  "`).
+- `GREEN`: `GetFavoriteItemsUseCase.kt` atualizado para passar `userId = userId.trim()`. 5 testes unitários passaram 5/5.
+- `QUALITY GATE`: `testDebugUnitTest` global totalizou 1.754 testes JVM em 254 relatórios XML, 0 falhas/erros/ignorados. `:domain:lintDebug`, `:app:lintDebug`, `:app:assembleDebug`, compilação AndroidTest de `domain` e `app` passaram.
+- `LIMITES`: teste unitário da camada de domínio com repositório fake isolado; não substitui o teste integrado do repositório HTTP com MockWebServer ou servidor real.
+- `ESCOPO`: somente APK e testes no módulo `domain`. Sem bump, release, commit ou push.
+
+## RED-GREEN — normalização de whitespace no roteamento de deep links — 2026-10-13
+
+
+- `INTENT`: `DeepLinkNavigationPolicy` deve normalizar identificadores de mídia ao avaliar se o item solicitado já está visível (`shouldMarkMediaDeepLinkHandled`), se deve navegar (`shouldNavigateToMediaDeepLink`), e ao enfileirar rota após login (`routesAfterSuccessfulLogin`), impedindo navegações duplicadas ou rotas com espaços em branco espúrios.
+- `RED`: `:app:testDebugUnitTest --tests "org.mulletaflix.android.navigation.DeepLinkNavigationPolicyTest"` falhou 3/25 antes da implementação: asserções de correspondência com espaços ao redor do item ID falharam e `routesAfterSuccessfulLogin` gerou rota `"detail/  movie-123  \t"`.
+- `GREEN`: `cleanTarget = targetItemId?.trim().orEmpty()`, comparações utilizam `currentItemId?.trim() == cleanTarget`, e `routesAfterSuccessfulLogin` aplica `pendingItemId?.trim()`. Suíte focal passou 25/25.
+- `QUALITY GATE`: `testDebugUnitTest` global totalizou 1.749 testes JVM em 253 relatórios XML, 0 falhas/erros/ignorados. `:app:lintDebug`, `:app:assembleDebug` e `:app:compileDebugAndroidTestKotlin` concluídos com sucesso.
+- `LIMITES`: testes unitários focados nas políticas puras de navegação; validação em Activity real de back stack depende de testes instrumentados e hardware/dispositivos.
+- `ESCOPO`: somente APK e testes no módulo `app`. Sem bump, release, commit ou push.
+
+## RED-GREEN — validação e normalização de versão em CheckAppUpdateUseCase — 2026-10-13
+
+
+- `INTENT`: `CheckAppUpdateUseCase` deve validar versão não vazia/branca antes de consultar o repositório, normalizar espaços e prefixos `v`/`V`, e repassar adequadamente os resultados de atualização disponível, indisponível e falhas de rede.
+- `RED`: `:domain:testDebugUnitTest --tests "org.mulletaflix.domain.usecase.CheckAppUpdateUseCaseTest"` falhou 2/5 antes da implementação. `normalizes version string` falhou esperando `"1.3.5"` e recebendo `"  v1.3.5  "`; `fails fast with illegal argument exception when version is empty or blank` falhou por delegar a chamada em vez de rejeitar com `IllegalArgumentException`.
+- `GREEN`: `CheckAppUpdateUseCase` valida `trimmed.isNotEmpty()` e remove prefixos `v`/`V`. Se vazia após normalização, retorna `Result.failure(IllegalArgumentException)`. Versão válida e limpa é repassada para `appUpdateRepository.checkForUpdate(cleanVersion)`. 5 testes unitários passaram 5/5.
+- `QUALITY GATE`: `:domain:lintDebug :domain:testDebugUnitTest` concluídos com sucesso. Suíte unitária global `testDebugUnitTest`: 1.746 testes JVM em 253 relatórios XML, 0 falhas/erros/ignorados. `:app:lintDebug`, `:app:assembleDebug`, `:domain:compileDebugAndroidTestKotlin` e `:app:compileDebugAndroidTestKotlin` passaram sem erros.
+- `LIMITES`: teste unitário da camada de domínio com repositório fake; não substitui o teste de integração HTTP nem consulta externa ao GitHub.
+- `ESCOPO`: somente APK e testes no módulo `domain`. Sem bump, release, commit ou push.
+
 ## Verificação instrumentada de callbacks de conectividade em API 24 e 35 — 2026-10-13
+
 
 - **Escopo:** cobertura de teste, sem alterar implementação do APK. O teste novo deriva a versão de `Build.VERSION.SDK_INT`; em API 24, confirma que `onAvailable` agenda lookup legacy de capabilities e medição antes de publicar estado. Em API 35, confirma o caminho de capabilities entregues.
 - **PHONE/API 35:** `ConnectivityNetworkCallbackTest` passou 3/3; GPU NVIDIA RTX 3050 verificada e AVD encerrado pelo wrapper.
@@ -703,7 +742,7 @@ Prioridades abaixo resultam de auditoria estática dos módulos e são tarefas d
 1. `SearchHistoryRepositoryImpl`: persistência, isolamento por usuário **e servidor**, limite/ordem, duplicatas, remoção, limpeza por servidor e limpeza total por usuário entre servidores; JSON corrompido. O escopo servidor/conta agora tem RED-GREEN nesta rodada: servidores diferentes isolam o histórico, LAN/URL pública com o mesmo ID estável compartilham, e “limpar dados locais” remove todos os escopos do usuário. Dados antigos sem identidade de servidor não são migrados automaticamente porque sua origem não pode ser inferida; a limpeza total também apaga a chave legada.
 2. `HomeFeedCacheRepositoryImpl`: identidade fallback recebeu RED/GREEN em 13/10/2026: HTTPS sem porta e `:443` agora compartilham identidade; HTTP `:80` equivale à porta implícita e `:8443` permanece distinto. `HomeFeedCacheScopeTest` passou 5/5. Em 13/10/2026, `HomeFeedCacheRepositoryPersistenceTest` passou 4/4 em PHONE/API 35 com Preferences DataStore real: snapshot sobrevive a recriação do DataStore e repositório, JSON inválido é removido e substituível, escrita de sessão inativa não sobrescreve a sessão ativa e limpeza obsoleta preserva gravação posterior. A injeção do DataStore foi extraída para provider Hilt que retorna a mesma store singleton do contexto; não houve mudança semântica no cache. A primeira tentativa JVM no Windows falhou ao renomear o arquivo temporário da Preferences DataStore; a validação foi movida para AndroidTest, onde o filesystem Android passou. Esta cobertura é caracterização da implementação existente e não tem RED comportamental; não alegar TDD RED/GREEN para os quatro cenários. Processo Android morto/reiniciado, armazenamento degradado e falha real de I/O continuam fora deste teste.
 3. `ConnectivityNetworkMonitor`: RED-GREEN comprova que rotas Wi-Fi/Ethernet locais sem `NET_CAPABILITY_INTERNET` contam como acessíveis e que o `NetworkRequest` não exige Internet (instrumentado 1/1 em PHONE/API 35). Após revisão, callbacks não consultam capabilities/medição sincronamente: API 26+ usa capabilities entregues; API 24–25 agenda reconciliação posterior ao callback. Teste unitário verifica fronteira 24/25/26/35. Em 13/10/2026, `ConnectivityNetworkCallbackTest` passou 3/3 em PHONE/API 24 e 3/3 em PHONE/API 35; novo teste deriva SDK real e observa a chamada do fallback antigo, sem alteração de produção nem alegação de RED. Múltiplas redes, roteador LAN real e desregistro ao cancelar Flow seguem sem teste de integração; API 25 ainda não foi executada.
-4. `CheckAppUpdateUseCase`: atualização disponível/indisponível e erro do repositório.
+4. `CheckAppUpdateUseCase`: atualização disponível/indisponível, falha de rede/IO do repositório, validação de versão não-branca e normalização de espaços e prefixos `v`/`V`. Coberto por RED-GREEN em 13/10/2026 (`CheckAppUpdateUseCaseTest`, 5/5 aprovados; suíte global 1.746 testes JVM em 253 XML, 0 falhas).
 5. Acessibilidade integrada em telas e diálogos, com ordem TalkBack/foco, escala de fonte e estados visuais; complementar a cobertura existente de componentes e contraste.
 6. Matriz de layout/interação para PHONE, TABLET e TV: alvo touch, clipping, escala, rolagem e foco D-pad. Um teste portátil genérico não comprova os três perfis.
 

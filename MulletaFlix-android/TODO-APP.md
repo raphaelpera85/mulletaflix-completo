@@ -1,6 +1,45 @@
 # MulletaFlix Android - Plano de Desenvolvimento & Checklist de Funcionalidades (TODO)
 
+## Validação e normalização de identificadores em ToggleFavoriteUseCase e TogglePlayedUseCase — APK local; sem release
+
+- [x] Validar que `userId` e `itemId` não sejam vazios ou em branco, rejeitando com `IllegalArgumentException` sem delegar ao repositório.
+- [x] Normalizar espaços em branco em `userId` e `itemId` via `trim()` antes de repassar para `MediaRepository`.
+- [x] TDD: testes unitários em `UseCaseTest` cobrem marcação/desmarcação de favoritos e reprodução, rejeição de argumentos vazios ou em branco com falha rápida e retorno do novo estado booleano (40/40).
+- [x] Quality gate em 14/10/2026: 1.756 testes JVM em 254 relatórios XML, 0 falhas/erros/ignorados; `:domain:lintDebug`, `:app:lintDebug`, `:app:assembleDebug`, compilação AndroidTest de `domain` e `app` aprovados.
+- [ ] Validar persistência e concorrência de favoritos e status de assistido contra servidor real de mídia; testes utilizam repositório fake isolado.
+- Escopo restrito ao APK/testes/documentação. Sem bump, versão, release de produção, servidor, portal, commit ou push.
+
+## Validação, normalização e delegação em GetFavoriteItemsUseCase — APK local; sem release
+
+- [x] Validar que `userId` não seja vazio/branco, `startIndex >= 0` e `limit > 0`, lançando `IllegalArgumentException` em caso de entrada inválida.
+- [x] Normalizar espaços em branco em `userId` e `searchTerm` via `trim()`, convertendo busca vazia em `null`.
+- [x] TDD: testes unitários em `GetFavoriteItemsUseCaseTest` cobrem sucesso com paginação e total de itens, propagação de falha do repositório, normalização de strings e validação de parâmetros (5/5).
+- [x] Quality gate em 14/10/2026: 1.754 testes JVM em 254 relatórios XML, 0 falhas/erros/ignorados; `:domain:lintDebug`, `:app:lintDebug`, `:app:assembleDebug`, compilação AndroidTest aprovados.
+- [ ] Validar fluxo de favoritos com servidor real e paginação ponta a ponta; testes utilizam repositório fake isolado.
+- Escopo restrito ao APK/testes/documentação. Sem bump, versão, release de produção, servidor, portal, commit ou push.
+
+## Normalização de identificadores em DeepLinkNavigationPolicy — APK local; sem release
+
+
+- [x] Normalizar whitespace nos identificadores de itens para determinação de tela ativa (`shouldMarkMediaDeepLinkHandled`) e decisão de navegação (`shouldNavigateToMediaDeepLink`).
+- [x] Aplicar `trim()` ao identificador pendente na recomposição de rotas pós-login (`routesAfterSuccessfulLogin`).
+- [x] TDD: testes unitários em `DeepLinkNavigationPolicyTest` cobrem correspondência de tela com espaços, rejeição de navegação duplicada e rotas limpas pós-login (25/25).
+- [x] Quality gate em 13/10/2026: 1.749 testes JVM em 253 relatórios XML, 0 falhas/erros/ignorados; `:app:lintDebug`, `:domain:lintDebug`, `:app:assembleDebug`, compilação AndroidTest aprovados.
+- [ ] Validar restauração e navegação de deep links em dispositivos físicos e com servidor real; testes atuais são unitários e de política pura.
+- Escopo restrito ao APK/testes/documentação. Sem bump, versão, release de produção, servidor, portal, commit ou push.
+
+## Validação e normalização em CheckAppUpdateUseCase — APK local; sem release
+
+
+- [x] Validar que `currentVersion` não seja vazia ou em branco, rejeitando imediatamente com `IllegalArgumentException` sem disparar consulta externa.
+- [x] Normalizar espaços em branco e prefixos `v`/`V` antes de repassar a versão para o `AppUpdateRepository`.
+- [x] TDD: testes cobrem atualização disponível, app atualizado, falha de rede/IO, normalização de prefixo e rejeição de versão em branco (5/5).
+- [x] Quality gate em 13/10/2026: 1.746 testes JVM em 253 relatórios XML, 0 falhas/erros/ignorados; `:domain:lintDebug`, `:app:lintDebug`, `:app:assembleDebug`, compilação AndroidTest de `domain` e `app` aprovados.
+- [ ] Validar consulta a releases e download com servidor/GitHub real; teste unitário usa repositório fake isolado.
+- Escopo restrito ao APK/testes/documentação. Sem bump, versão, release de produção, servidor, portal, commit ou push.
+
 ## Fluxo realtime WebSocket do SyncPlay — correção local; sem release
+
 
 - [x] Exercitar `SyncPlayRealtimeClient.events` com WebSocket real do MockWebServer: handshake emite `Connected` e uma mensagem `SyncPlayCommand` chega como evento `Command` pelo fluxo público.
 - [x] Corrigir fechamento iniciado pelo servidor: `onClosing` responde o close frame apenas quando socket, geração e sala ainda pertencem à conexão atual; `onClosed` pode então emitir `Disconnected` e iniciar reconexão. Código sentinela 1005 (frame sem status) recebe resposta válida 1000.

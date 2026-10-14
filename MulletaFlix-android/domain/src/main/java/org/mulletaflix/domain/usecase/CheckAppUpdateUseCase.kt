@@ -10,6 +10,15 @@ import javax.inject.Inject
 class CheckAppUpdateUseCase @Inject constructor(
     private val appUpdateRepository: AppUpdateRepository,
 ) {
-    suspend operator fun invoke(currentVersion: String): Result<AppUpdateInfo> =
-        appUpdateRepository.checkForUpdate(currentVersion)
+    suspend operator fun invoke(currentVersion: String): Result<AppUpdateInfo> {
+        val trimmed = currentVersion.trim()
+        if (trimmed.isEmpty()) {
+            return Result.failure(IllegalArgumentException("Versão atual não pode ser vazia."))
+        }
+        val cleanVersion = trimmed.removePrefix("v").removePrefix("V")
+        if (cleanVersion.isEmpty()) {
+            return Result.failure(IllegalArgumentException("Versão atual não pode ser vazia."))
+        }
+        return appUpdateRepository.checkForUpdate(cleanVersion)
+    }
 }

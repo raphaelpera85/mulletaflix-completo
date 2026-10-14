@@ -12,21 +12,25 @@ internal fun shouldNavigateToMediaDeepLink(
     currentItemId: String?,
     targetItemId: String?,
 ): Boolean {
-    if (targetItemId.isNullOrBlank()) return false
+    val cleanTarget = targetItemId?.trim().orEmpty()
+    if (cleanTarget.isEmpty()) return false
     if (currentRoute.isNullOrBlank()) return false
     if (!currentRoute.startsWith("main/") &&
         !currentRoute.startsWith("detail/") &&
         !currentRoute.startsWith("player/")) {
         return false
     }
-    return currentItemId != targetItemId
+    return currentItemId?.trim() != cleanTarget
 }
 
 /** Marks a link as handled once its destination is already visible. */
 internal fun shouldMarkMediaDeepLinkHandled(
     currentItemId: String?,
     targetItemId: String?,
-): Boolean = !targetItemId.isNullOrBlank() && currentItemId == targetItemId
+): Boolean {
+    val cleanTarget = targetItemId?.trim().orEmpty()
+    return cleanTarget.isNotEmpty() && currentItemId?.trim() == cleanTarget
+}
 
 /**
  * Decides whether a delivered request still needs to be acted on.
@@ -84,7 +88,7 @@ internal fun initialDestinationForSession(
 internal fun routesAfterSuccessfulLogin(pendingItemId: String?): List<String> =
     buildList {
         add(MulletaFlixRoute.HOME)
-        pendingItemId?.takeIf(String::isNotBlank)?.let { add(MulletaFlixRoute.itemDetail(it)) }
+        pendingItemId?.trim()?.takeIf(String::isNotBlank)?.let { add(MulletaFlixRoute.itemDetail(it)) }
     }
 
 /**

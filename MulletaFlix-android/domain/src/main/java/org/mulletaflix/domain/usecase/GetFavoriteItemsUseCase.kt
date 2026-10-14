@@ -21,7 +21,7 @@ class GetFavoriteItemsUseCase @Inject constructor(
         require(limit > 0) { "O limite de itens deve ser maior que zero." }
 
         mediaRepository.getItems(
-            userId = userId,
+            userId = userId.trim(),
             sortBy = sortBy,
             sortOrder = sortOrder,
             filters = "IsFavorite",

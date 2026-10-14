@@ -244,6 +244,60 @@ class UseCaseTest {
     }
 
     @Test
+    fun `ToggleFavoriteUseCase validates parameters and trims whitespace`() = runTest {
+        var observedUser: String? = null
+        var observedItem: String? = null
+        val mediaRepo = object : FakeMediaRepository() {
+            override suspend fun markAsFavorite(userId: String, itemId: String): Result<Unit> {
+                observedUser = userId
+                observedItem = itemId
+                return Result.success(Unit)
+            }
+        }
+        val useCase = ToggleFavoriteUseCase(mediaRepo)
+
+        val blankUser = useCase("   ", "item-1", false)
+        assertTrue(blankUser.isFailure)
+        assertTrue(blankUser.exceptionOrNull() is IllegalArgumentException)
+
+        val blankItem = useCase("u1", "   ", false)
+        assertTrue(blankItem.isFailure)
+        assertTrue(blankItem.exceptionOrNull() is IllegalArgumentException)
+
+        val trimmedSuccess = useCase("  u-trimmed  ", "  item-trimmed  ", false)
+        assertTrue(trimmedSuccess.isSuccess)
+        assertEquals("u-trimmed", observedUser)
+        assertEquals("item-trimmed", observedItem)
+    }
+
+    @Test
+    fun `TogglePlayedUseCase validates parameters and trims whitespace`() = runTest {
+        var observedUser: String? = null
+        var observedItem: String? = null
+        val mediaRepo = object : FakeMediaRepository() {
+            override suspend fun markAsPlayed(userId: String, itemId: String): Result<Unit> {
+                observedUser = userId
+                observedItem = itemId
+                return Result.success(Unit)
+            }
+        }
+        val useCase = TogglePlayedUseCase(mediaRepo)
+
+        val blankUser = useCase("   ", "item-1", false)
+        assertTrue(blankUser.isFailure)
+        assertTrue(blankUser.exceptionOrNull() is IllegalArgumentException)
+
+        val blankItem = useCase("u1", "   ", false)
+        assertTrue(blankItem.isFailure)
+        assertTrue(blankItem.exceptionOrNull() is IllegalArgumentException)
+
+        val trimmedSuccess = useCase("  u-trimmed  ", "  item-trimmed  ", false)
+        assertTrue(trimmedSuccess.isSuccess)
+        assertEquals("u-trimmed", observedUser)
+        assertEquals("item-trimmed", observedItem)
+    }
+
+    @Test
     fun `GetNextEpisodeUseCase returns null when item has no seriesId`() = runTest {
         val movie = MediaItem(id = "m1", name = "Movie", type = MediaItemType.Movie)
         val mediaRepo = object : FakeMediaRepository() {}

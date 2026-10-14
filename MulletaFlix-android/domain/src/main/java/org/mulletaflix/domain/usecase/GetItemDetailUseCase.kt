@@ -11,6 +11,14 @@ class GetItemDetailUseCase @Inject constructor(
     private val mediaRepository: MediaRepository,
 ) {
     suspend operator fun invoke(userId: String, itemId: String): Result<MediaItem> {
-        return mediaRepository.getItem(userId, itemId)
+        val cleanUser = userId.trim()
+        if (cleanUser.isBlank()) {
+            return Result.failure(IllegalArgumentException("O ID do usuário não pode estar vazio."))
+        }
+        val cleanItem = itemId.trim()
+        if (cleanItem.isBlank()) {
+            return Result.failure(IllegalArgumentException("O ID do item não pode estar vazio."))
+        }
+        return mediaRepository.getItem(cleanUser, cleanItem)
     }
 }
