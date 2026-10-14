@@ -1,5 +1,18 @@
 # MulletaFlix Android - Plano de Desenvolvimento & Checklist de Funcionalidades (TODO)
 
+## Em andamento: regressão de autenticação ao trocar servidor pelo Perfil — 14/10/2026
+
+- [x] Adicionar teste instrumentado em PHONE/API 35 para sessão existente → Perfil → selecionar novo servidor → login → Voltar.
+- [x] Executar suíte unitária isolada de `feature:auth`: 108/108 aprovados, 0 ignorados/falhas/erros.
+- [x] Reproduzir RED: login abriu a Home do servidor novo, mas Voltar restaurou a pilha Home/Perfil antiga; teste confirmou 1 falha e 9 aprovações na classe.
+- [x] Corrigir o `popUpTo` apenas para troca iniciada no Perfil; login explícito remove a Home antiga antes de abrir o catálogo novo.
+- [x] GREEN focal e classe `MainActivitySessionNavigationTest`: 1/1 e 10/10 PHONE/API 35, sem falhas/erros/ignorados.
+- [x] Quality gate: 1.762 testes JVM/255 XML, zero falhas/erros/ignorados; lint auth/app, assembleDebug e compilação AndroidTest auth/app passaram.
+- [x] Atualizar a evidência e o estado da ficha local de APK-H02 após reteste aprovado.
+- A homologação pública não foi alterada nesta sessão APK-only; aceite formal permanece pendente.
+- APK-H02 continua em validação formal; testes locais sintéticos não equivalem a servidor/dispositivo real nem concedem aceite.
+- Nenhuma versão, APK de produção ou release foi criada. Nenhuma alteração no portal ou servidor.
+
 ## Validação e normalização de identificadores em ToggleFavoriteUseCase e TogglePlayedUseCase — APK local; sem release
 
 - [x] Validar que `userId` e `itemId` não sejam vazios ou em branco, rejeitando com `IllegalArgumentException` sem delegar ao repositório.

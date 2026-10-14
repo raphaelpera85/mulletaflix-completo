@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-10-13T14:37:15-03:00",
+  "generatedAt": "2026-10-14T14:36:14-03:00",
   "source": {
     "roadmap": "https://github.com/raphaelpera85/mulletaflix-completo/blob/main/docs/roadmap-evolucao-tecnologica-servidor-e-web.md",
     "repository": "https://github.com/raphaelpera85/mulletaflix-completo"
@@ -44,11 +44,11 @@
       "progressPercent": null,
       "source": "GitHub Actions, testes instrumentados e releases",
       "homologation": {
-        "completed": 11,
+        "completed": 10,
         "total": 21,
-        "percent": 52.4,
+        "percent": 47.6,
         "unit": "áreas do gate Android",
-        "label": "11 de 21 áreas com evidência técnica local; 1 em validação e 9 pendentes. Aceite formal continua aberto."
+        "label": "10 de 21 áreas com evidência técnica local; 2 em validação e 9 pendentes. Autenticação/troca de servidor reaberta após falha instrumentada; aceite formal continua aberto."
       },
       "testAudit": {
         "passed": 1741,
@@ -60,10 +60,10 @@
       },
       "instrumentationAudit": {
         "passed": 40,
-        "total": 40,
+        "total": 41,
         "skipped": 0,
-        "failed": 0,
-        "label": "Media3/player 5/5; leitura HTTPS 1/1; DownloadManager HTTP LAN 1/1, HTTPS remoto 1/1; ExoPlayer legenda HTTPS 1/1 e redirect HTTPS→HTTP público bloqueado 1/1; Coil imagem HTTPS decodificada 1/1 e redirect HTTPS→HTTP público bloqueado 1/1; biblioteca offline/reconexão 1/1; contrato NetworkSecurityPolicy + guard cleartext 1/1; pausa/retomada individual Media3 1/1; MainActivitySessionNavigationTest 9/9; AppUpdateCheckEffectTest 2/2; cold start da Activity principal 4/4 fases em PHONE/API 35; ConnectivityNetworkCallbackTest 3/3 PHONE/API 35 e 3/3 PHONE/API 24; HomeFeedCacheRepositoryPersistenceTest 4/4 PHONE/API 35 (DataStore/repositório recriados, JSON inválido recuperado, isolamento de sessão e limpeza obsoleta concorrente). Execuções focais em AVD; GPU NVIDIA verificada."
+        "failed": 1,
+        "label": "40/41 aprovações instrumentadas acumuladas. O teste de troca de servidor desde Perfil falhou após enviar login: catálogo não reapareceu em 20 s (XML profile-server-switch-login-red.xml, AVD PHONE/API 35). Não contado como homologado; correção e reteste pendentes. Outras evidências anteriores: Media3/player 5/5; leitura HTTPS 1/1; DownloadManager HTTP LAN 1/1, HTTPS remoto 1/1; ExoPlayer legenda HTTPS 1/1 e redirect HTTPS→HTTP público bloqueado 1/1; Coil imagem HTTPS decodificada 1/1 e redirect HTTPS→HTTP público bloqueado 1/1; biblioteca offline/reconexão 1/1; contrato NetworkSecurityPolicy + guard cleartext 1/1; pausa/retomada individual Media3 1/1; MainActivitySessionNavigationTest 9/9 em rodada anterior; AppUpdateCheckEffectTest 2/2; cold start da Activity principal 4/4 fases em PHONE/API 35; ConnectivityNetworkCallbackTest 3/3 PHONE/API 35 e 3/3 PHONE/API 24; HomeFeedCacheRepositoryPersistenceTest 4/4 PHONE/API 35. Execuções em AVD; GPU NVIDIA verificada."
       }
     },
     {
@@ -77,7 +77,7 @@
   "androidHomologation": {
     "source": "MulletaFlix-android/TODO-APP.md e relatórios Gradle/JUnit locais",
     "sourceUrl": "https://github.com/raphaelpera85/mulletaflix-completo/blob/main/MulletaFlix-android/TODO-APP.md",
-    "scopeNote": "A matriz formal tem 21 áreas: 11 com evidência técnica local, 1 em validação e 9 pendentes. Testes automatizados e checkboxes do TODO não equivalem a aceite funcional. Nenhuma release de produção é certificada por esta matriz; o backlog integral permanece em TODO-APP.md.",
+    "scopeNote": "A matriz formal tem 21 áreas: 10 com evidência técnica local, 2 em validação e 9 pendentes. Testes automatizados e checkboxes do TODO não equivalem a aceite funcional. Nenhuma release de produção é certificada por esta matriz; o backlog integral permanece em TODO-APP.md.",
     "taskChecklist": {
       "checked": 228,
       "unchecked": 47,
@@ -95,8 +95,8 @@
       {
         "id": "APK-H02",
         "name": "Autenticação, sessão e troca de conta/servidor",
-        "status": "completed",
-        "evidence": "Testes unitários e instrumentados de autenticação, sessão e isolamento constam no TODO-APP.md; falta aceite integrado com a instância final."
+        "status": "in_progress",
+        "evidence": "Em 14/10/2026, 108 testes unitários do módulo auth passaram (0 falhas/erros/ignorados). O novo teste instrumentado de troca de servidor desde Perfil chegou à tela de login, mas falhou ao aguardar o retorno ao catálogo após autenticação (timeout de 20 s); XML preservado em MulletaFlix-android/validation-evidence/2026-10-14/profile-server-switch-login-red.xml. A causa/correção ainda não foi confirmada; reteste PHONE/API 35 e teste de Voltar pendentes. Aceite integrado com servidor real e aceite formal continuam pendentes."
       },
       {
         "id": "APK-H03",
@@ -2940,6 +2940,21 @@
     }
   ],
   "events": [
+    {
+      "id": "android-profile-server-switch-login-investigation-2026-10-14",
+      "title": "Investigar falha instrumentada ao trocar de servidor pelo Perfil",
+      "agent": "Codex",
+      "front": "android",
+      "featureIds": [],
+      "local": "MulletaFlix-android",
+      "location": "feature/auth — política de avanço da autenticação e MainActivitySessionNavigationTest",
+      "scope": "Reproduzir troca de servidor com sessão existente, autenticar no destino escolhido e verificar que Voltar não restaura o Perfil/servidor anterior.",
+      "status": "in_progress",
+      "progressPercent": null,
+      "startedAt": "2026-10-14T14:31:00-03:00",
+      "updatedAt": "2026-10-14T14:36:14-03:00",
+      "evidence": "TDD ainda em andamento. O teste instrumentado PHONE/API 35 chega ao login do novo servidor, envia a autenticação e falha ao aguardar o retorno ao catálogo por 20 s; XML preservado em MulletaFlix-android/validation-evidence/2026-10-14/profile-server-switch-login-red.xml. A falha inicial confirma que o cenário não está homologado; a causa exata ainda está sob investigação e nenhum reteste verde foi obtido. A suíte unitária isolada do módulo auth passou 108/108 (0 ignorados/falhas/erros); isso não substitui o teste instrumentado. APK-H02 reaberta para validação (10/21 concluídas, 2 em validação, 9 pendentes); aceite formal segue pendente. Sem versão, APK de produção, release ou alteração de servidor."
+    },
     {
       "id": "android-home-cache-datastore-persistence-2026-10-13",
       "title": "Validar persistência e recuperação do cache offline da Home",

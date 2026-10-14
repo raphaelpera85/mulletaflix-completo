@@ -82,8 +82,10 @@ fun LoginScreen(
         if (!switchingServer && state.savedServersLoaded) viewModel.prepareLoginOptions()
     }
 
-    LaunchedEffect(state.isAuthenticated, switchingServer) {
-        if (shouldAutoAdvanceAuthScreen(state.isAuthenticated, switchingServer)) onLoginSuccess()
+    LaunchedEffect(state.isAuthenticated, switchingServer, state.authenticatedInThisFlow) {
+        if (shouldAutoAdvanceAuthScreen(state.isAuthenticated, switchingServer, state.authenticatedInThisFlow)) {
+            onLoginSuccess()
+        }
     }
 
     Box(

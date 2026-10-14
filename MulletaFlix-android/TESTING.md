@@ -73,6 +73,8 @@ O rascunho fica no DataStore privado do app e é indexado por hash da identidade
 
 O `MainActivitySessionNavigationTest.settingsLogoutClearsPersistedSessionBeforeShowingServerSelection` percorre a navegação real do telefone, executa logout com DataStore real e confirma que o token/usuário foram removidos antes de mostrar a seleção de servidor; a URL permanece para reconexão.
 
+`MainActivitySessionNavigationTest.switchingServerFromProfileDoesNotRestorePreviousProfileOnBackAfterLogin` cobre Home → Perfil → seleção de outro servidor → login → Home → Voltar. A troca iniciada no Perfil deve limpar a pilha da Home anterior; Voltar da nova Home encerra a Activity sem restaurar o Perfil/servidor anterior. Em 2026-10-14, a classe completa passou 10/10 em PHONE/API 35 com MockWebServer; isso não valida servidor ou dispositivo real.
+
 O teste `crossServerDeepLinkAuthenticatesOnTargetServerAndLoadsItemWithoutRequestingOldServer` cobre um link recebido de outro servidor. Configure explicitamente `SessionRepository.setBaseUrl(oldServerUrl)` no fixture antes de salvar a sessão: `saveSession` não é substituto dessa seleção de endpoint. Em falha pós-login, o teste reporta requisições dos dois servidores, endpoint/sessão persistidos e texto visível. Duas execuções anteriores da classe completa foram intermitentes; veja o resultado focal e a pendência de estabilidade na seção abaixo.
 
 ```powershell

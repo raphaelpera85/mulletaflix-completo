@@ -1,5 +1,15 @@
 # Plano de TDD do MulletaFlix Android
 
+## RED-GREEN — autenticação e navegação ao trocar servidor pelo Perfil — 2026-10-14
+
+- `INTENT`: code removes only `SERVER_SELECTION` after explicit login; the regression test expects Back to exit instead of restoring the previous Profile; `DEVELOPMENT-GUIDE.md` requires the server-switch flow and session stack to be tested without restoring the previous account/server.
+- `RED`: a diagnostic PHONE/API 35 run confirmed the login POST and new Home, then failed the Back assertion: the old Home/Profile remained below the new Home. The run also exposed that the runner option for one method had executed all 10 class tests; only the target scenario failed (9 passed, 1 failed).
+- `GREEN`: `MulletaFlixNavHost` now remembers when a switch starts specifically in Profile and clears the prior Home stack on successful login only for that path. Normal login and deep-link routing retain their existing `SERVER_SELECTION` behavior. Focused scenario passed 1/1; full `MainActivitySessionNavigationTest` passed 10/10 in PHONE/API 35.
+- `QUALITY GATE`: `testDebugUnitTest` produced 1,762 tests across 255 XML reports, 0 failures/errors/ignored; `:feature:auth:lintDebug`, `:app:lintDebug`, `:app:assembleDebug`, `:feature:auth:compileDebugAndroidTestKotlin` and `:app:compileDebugAndroidTestKotlin` passed. NVIDIA GPU verified by the emulator wrapper; temporary AVD closed after each run.
+- `LIMITES`: MockWebServer and AVD only; no real media server/device. APK-H02 remains in validation and formal acceptance remains pending. No version bump, release, portal change, server change, commit or push.
+- `TWINS`: searched server-switch success routing and Profile callbacks; one matching success callback in `MulletaFlixNavHost.kt`, handled by the change. Deep-link mismatch separately clears Home before auth and retains its existing behavior.
+- `ESCOPO`: somente APK, teste e documentação Android. Sem mudança do servidor, portal, versão ou release; APK-H02 permanece em validação e aceite formal pendente.
+
 ## RED-GREEN — validação e normalização de identificadores em ToggleFavoriteUseCase e TogglePlayedUseCase — 2026-10-14
 
 - `INTENT`: `ToggleFavoriteUseCase` e `TogglePlayedUseCase` devem validar identificadores de usuário e de mídia não-vazios/não-brancos (`IllegalArgumentException`), normalizar espaços (`trim()`), delegar as operações corretas ao `MediaRepository` e retornar o novo estado booleano do item.

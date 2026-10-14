@@ -19,4 +19,5 @@ package org.mulletaflix.feature.auth
 internal fun shouldAutoAdvanceAuthScreen(
     isAuthenticated: Boolean,
     switchingServer: Boolean,
-): Boolean = isAuthenticated && !switchingServer
+    authenticatedInThisFlow: Boolean = false,
+): Boolean = isAuthenticated && (!switchingServer || authenticatedInThisFlow)

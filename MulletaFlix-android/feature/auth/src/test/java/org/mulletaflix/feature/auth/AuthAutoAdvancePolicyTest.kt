@@ -36,4 +36,10 @@ class AuthAutoAdvancePolicyTest {
         assertFalse(shouldAutoAdvanceAuthScreen(isAuthenticated = false, switchingServer = false))
         assertFalse(shouldAutoAdvanceAuthScreen(isAuthenticated = false, switchingServer = true))
     }
+
+    @Test
+    fun `explicit authentication completes a deliberate server change`() {
+        assertTrue(shouldAutoAdvanceAuthScreen(true, true, authenticatedInThisFlow = true))
+        assertFalse(shouldAutoAdvanceAuthScreen(false, true, authenticatedInThisFlow = true))
+    }
 }

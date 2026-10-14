@@ -433,16 +433,117 @@ class MainActivitySessionNavigationTest {
         composeRule.onNodeWithTag("auth.login.username").performTextInput("new-user")
         composeRule.onNodeWithTag("auth.login.password").performTextInput("test-password")
         composeRule.onNodeWithTag("auth.login.submit").performClick()
-        composeRule.waitUntil(timeoutMillis = 20_000) { homeVisible() }
+        val authenticationRequestSent = runCatching {
+            composeRule.waitUntil(timeoutMillis = 10_000) {
+                "POST /Users/AuthenticateByName" in newServerRequests
+            }
+        }.isSuccess
+        assertTrue(
+            "Login deve enviar autenticação ao servidor novo; requests=$newServerRequests, " +
+                "visibleText=${displayedTexts()}, savedUser=${sessionRepository.getCurrentUserId().first()}, " +
+                "savedServerId=${sessionRepository.getServerId().first()}",
+            authenticationRequestSent,
+        )
+        val homeAfterLogin = runCatching {
+            composeRule.waitUntil(timeoutMillis = 20_000) { homeVisible() }
+        }.isSuccess
+        assertTrue(
+            "Autenticação enviada não levou ao catálogo; requests=$newServerRequests, " +
+                "visibleText=${displayedTexts()}, savedUser=${sessionRepository.getCurrentUserId().first()}, " +
+                "savedServerId=${sessionRepository.getServerId().first()}, " +
+                "hasAccessToken=${!sessionRepository.getAccessToken().first().isNullOrBlank()}",
+            homeAfterLogin,
+        )
         assertEquals(newServerUrl, sessionRepository.getBaseUrl().first())
         assertEquals("new-user", sessionRepository.getCurrentUserId().first())
 
         activityScenario?.onActivity { it.onBackPressedDispatcher.onBackPressed() }
-        composeRule.waitUntil(timeoutMillis = 20_000) { !homeVisible() }
-        assertFalse(
-            "Voltar após autenticar no novo servidor não deve reabrir o perfil do servidor anterior",
-            runCatching { composeRule.onNodeWithText("Trocar de Servidor", useUnmergedTree = true).assertIsDisplayed() }.isSuccess,
+        val leftAuthenticatedTask = runCatching {
+            composeRule.waitUntil(timeoutMillis = 20_000) {
+                requireNotNull(activityScenario).state != androidx.lifecycle.Lifecycle.State.RESUMED
+            }
+        }.isSuccess
+        assertTrue(
+            "Voltar da Home após trocar servidor deve sair da Activity, sem reabrir telas da sessão anterior",
+            leftAuthenticatedTask,
         )
+    }
+
+    @Test
+    fun canceledProfileServerSwitchDoesNotAffectLoginAfterLogout() = runBlocking {
+        if (context.checkSelfPermission(android.Manifest.permission.ACCESS_LOCAL_NETWORK) !=
+            android.content.pm.PackageManager.PERMISSION_GRANTED
+        ) {
+            InstrumentationRegistry.getInstrumentation().uiAutomation
+                .executeShellCommand(
+                    "pm grant ${context.packageName} android.permission.ACCESS_LOCAL_NETWORK",
+                ).close()
+            localNetworkPermissionGrantedForTest = true
+        }
+        val oldServer = startMockServer()
+        val oldServerUrl = oldServer.url("/").toString().trimEnd('/')
+        val targetServer = MockWebServer().apply {
+            dispatcher = object : Dispatcher() {
+                override fun dispatch(request: RecordedRequest): MockResponse = when (request.path?.substringBefore('?')) {
+                    "/System/Info/Public" -> MockResponse()
+                        .setHeader("Content-Type", "application/json")
+                        .setBody("""{"Id":"logout-target","ServerName":"Logout target","Version":"12.0.0"}""")
+                    "/Users/Public" -> MockResponse().setHeader("Content-Type", "application/json").setBody("[]")
+                    "/QuickConnect/Enabled" -> MockResponse().setHeader("Content-Type", "application/json").setBody("false")
+                    "/Users/AuthenticateByName" -> MockResponse()
+                        .setHeader("Content-Type", "application/json")
+                        .setBody("""{"AccessToken":"target-token","ServerId":"logout-target","User":{"Id":"target-user","Name":"Target user","ServerId":"logout-target"}}""")
+                    else -> MockResponse().setResponseCode(404)
+                }
+            }
+            start()
+        }
+        mockServers += targetServer
+        trackMockServerUrl(targetServer)
+        val targetServerUrl = targetServer.url("/").toString().trimEnd('/')
+        sessionRepository.setBaseUrl(oldServerUrl)
+        sessionRepository.saveSession(
+            oldServerUrl,
+            "old-token",
+            "old-user",
+            "Old user",
+            "old-server",
+            requireNotNull(originalSession).deviceId,
+        )
+        launchMainActivity()
+
+        composeRule.waitUntil(timeoutMillis = 20_000) { homeVisible() }
+        composeRule.onNodeWithContentDescription("Mais ações", useUnmergedTree = true).performClick()
+        composeRule.onNodeWithText("Meu Perfil", useUnmergedTree = true).performClick()
+        composeRule.onNodeWithText("Trocar de Servidor", useUnmergedTree = true).performScrollTo().performClick()
+        composeRule.waitUntil(timeoutMillis = 20_000) { serverSelectionVisible() }
+        activityScenario?.onActivity { it.onBackPressedDispatcher.onBackPressed() }
+        composeRule.waitUntil(timeoutMillis = 20_000) {
+            runCatching { composeRule.onNodeWithText("Sair da Conta", useUnmergedTree = true).assertExists() }.isSuccess
+        }
+        composeRule.onNodeWithText("Sair da Conta", useUnmergedTree = true).performScrollTo().performClick()
+        composeRule.onNodeWithText("Sair", useUnmergedTree = true).performClick()
+        composeRule.waitUntil(timeoutMillis = 20_000) { serverSelectionVisible() }
+
+        composeRule.onNodeWithTag("auth.server.url").performTextClearance()
+        composeRule.onNodeWithTag("auth.server.url").performTextInput(targetServerUrl)
+        composeRule.onNodeWithText("Conectar", useUnmergedTree = true).performClick()
+        composeRule.waitUntil(timeoutMillis = 20_000) { loginVisible() }
+        composeRule.onNodeWithTag("auth.login.username").performTextInput("target-user")
+        composeRule.onNodeWithTag("auth.login.password").performTextInput("test-password")
+        composeRule.onNodeWithTag("auth.login.submit").performClick()
+        val homeOpened = runCatching {
+            composeRule.waitUntil(timeoutMillis = 20_000) { homeVisible() }
+        }.isSuccess
+        assertTrue(
+            "Após cancelar a troca e encerrar a sessão, novo login independente deve abrir Home; " +
+                "visibleText=${displayedTexts()}, baseUrl=${sessionRepository.getBaseUrl().first()}",
+            homeOpened,
+        )
+        activityScenario?.onActivity { it.onBackPressedDispatcher.onBackPressed() }
+        composeRule.waitUntil(timeoutMillis = 20_000) {
+            requireNotNull(activityScenario).state != androidx.lifecycle.Lifecycle.State.RESUMED
+        }
     }
 
     @Test

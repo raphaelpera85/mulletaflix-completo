@@ -107,6 +107,7 @@ class AuthViewModelTest {
         assertTrue(viewModel.state.value.isAuthenticated)
 
         serverUrl.value = ""
+        assertFalse(viewModel.state.value.authenticatedInThisFlow)
         advanceUntilIdle()
         assertFalse(viewModel.state.value.isAuthenticated)
 
@@ -138,6 +139,7 @@ class AuthViewModelTest {
 
         val state = viewModel.state.value
         assertTrue(state.isAuthenticated)
+        assertTrue(state.authenticatedInThisFlow)
         assertNull(state.error)
     }
 
@@ -384,6 +386,7 @@ class AuthViewModelTest {
 
         assertTrue(checkCalls >= 2)
         assertTrue(viewModel.state.value.isAuthenticated)
+        assertTrue(viewModel.state.value.authenticatedInThisFlow)
         assertFalse(viewModel.state.value.isWaitingForQuickConnect)
     }
 

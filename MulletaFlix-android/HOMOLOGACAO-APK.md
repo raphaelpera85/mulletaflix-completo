@@ -1,14 +1,16 @@
 # Homologação formal — MulletaFlix Android
 
-**Data da revisão:** 13/10/2026
+**Data da revisão:** 14/10/2026
 **Estado:** em andamento — aceite final não concedido
 **Escopo:** somente aplicativo Android (APK), seu transporte e testes; nenhum componente do servidor foi alterado e nenhuma release foi criada/publicada.
 
 ## Decisão de homologação
 
-O APK ainda **não está homologado para aceite final**. Há 11 áreas concluídas com evidência técnica local, 1 em validação e 9 pendentes entre as 21 áreas do contrato público `portal-site/homologacao-status.json`. Nove gates dependem de servidor/conteúdo reais, dispositivos físicos, receiver ou assinatura/instalação de produção. Os estados “validado localmente” não significam compatibilidade universal nem aprovação da release.
+O APK ainda **não está homologado para aceite final**. Há 10 áreas concluídas com evidência técnica local, 2 em validação e 9 pendentes entre as 21 áreas do contrato público `portal-site/homologacao-status.json`. Em 14/10/2026, APK-H02 foi reaberta após falha instrumentada na troca de servidor. A pilha de navegação foi corrigida e a classe instrumentada passou 10/10 em PHONE/API 35; a área segue em validação até completar os critérios formais. Nove gates dependem de servidor/conteúdo reais, dispositivos físicos, receiver ou assinatura/instalação de produção. Os estados “validado localmente” não significam compatibilidade universal nem aprovação da release.
 
 ## Evidência automatizada desta rodada
+
+- Troca de servidor a partir do Perfil (14/10/2026): execução diagnóstica confirmou autenticação e abertura da Home, mas Voltar restaurava a pilha Home/Perfil antiga. `MulletaFlixNavHost` agora remove a Home antiga somente quando a troca começa no Perfil. `MainActivitySessionNavigationTest` passou 10/10 em PHONE/API 35, incluindo login no endpoint alvo e saída da Activity ao pressionar Voltar. RED em `validation-evidence/2026-10-14/profile-server-switch-login-red.xml`; GREEN arquivado em `validation-evidence/2026-10-14/profile-server-switch-green.xml`. Quality gate global: 1.762 testes JVM/255 relatórios XML, 0 falhas/erros/ignorados; lint auth/app, assembleDebug e compilação AndroidTest auth/app passaram. AVD temporário e GPU NVIDIA confirmados pelo wrapper. APK-H02 permanece em validação: fixtures sintéticas não comprovam servidor/dispositivo reais e não concedem aceite formal. Matriz 10/21 concluídas, 2 em validação, 9 pendentes; `formalSignoff=pending`.
 
 - Atualização Android de 14/10/2026: `UseCaseTest` cobriu validação de entrada e sanitização de `userId` e `itemId` em `ToggleFavoriteUseCase` e `TogglePlayedUseCase`, rejeitando identificadores vazios/em branco com `IllegalArgumentException` e repassando argumentos normalizados ao repositório. Quality gate global: 1.756 testes JVM em 254 relatórios XML, 0 falhas/erros/ignorados; `:domain:lintDebug`, `:app:lintDebug`, `:app:assembleDebug`, compilação AndroidTest de `domain` e `app` passaram. Matriz segue 11/21, 1 em validação, 9 pendentes e `formalSignoff=pending`; sem versão ou release APK.
 - Atualização Android de 14/10/2026: `GetFavoriteItemsUseCaseTest` passou 5/5 cobrindo normalização de whitespace no `userId` e termo de busca, conversão de termo em branco para `null`, validações de entrada (`userId` não-vazio, `startIndex >= 0`, `limit > 0`), ordenação e filtros de favoritos. Quality gate global: 1.754 testes JVM em 254 relatórios XML, 0 falhas/erros/ignorados; `:domain:lintDebug`, `:app:lintDebug`, `:app:assembleDebug`, compilação AndroidTest de `domain` e `app` passaram. Matriz segue 11/21, 1 em validação, 9 pendentes e `formalSignoff=pending`; sem versão ou release APK.

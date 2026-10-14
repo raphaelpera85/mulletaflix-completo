@@ -114,6 +114,7 @@ fun MulletaFlixNavHost(
                 !shouldOpenLinkOnCurrentServer(deepLinkRequest?.serverId, currentServerId),
         )
     }
+    var switchingServerFromProfile by remember { mutableStateOf(false) }
 
     LaunchedEffect(deepLinkRequest, currentRoute, currentItemId, currentServerId) {
         if (!shouldDeliverMediaDeepLink(deepLinkRequest?.sequence, handledDeepLinkSequence, deepLinkItemId)) {
@@ -201,11 +202,16 @@ fun MulletaFlixNavHost(
                     // Keep Home beneath an external detail so Back returns to
                     // the authenticated catalog instead of finishing the app.
                     val destinations = routesAfterSuccessfulLogin(deepLinkItemId)
+                    val clearPreviousProfileStack = switchingServerFromProfile
                     switchingServer = false
+                    switchingServerFromProfile = false
                     destinations.forEachIndexed { index, destination ->
                         navController.navigate(destination) {
                             if (index == 0) {
-                                popUpTo(MulletaFlixRoute.SERVER_SELECTION) { inclusive = true }
+                                popUpTo(
+                                    if (clearPreviousProfileStack) MulletaFlixRoute.HOME
+                                    else MulletaFlixRoute.SERVER_SELECTION,
+                                ) { inclusive = true }
                             }
                             launchSingleTop = true
                         }
@@ -342,6 +348,7 @@ fun MulletaFlixNavHost(
                 },
                 onSwitchServer = {
                     switchingServer = true
+                    switchingServerFromProfile = true
                     navController.navigate(MulletaFlixRoute.SERVER_SELECTION)
                 },
             )

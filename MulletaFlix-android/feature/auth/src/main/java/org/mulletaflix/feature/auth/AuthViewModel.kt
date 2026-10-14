@@ -42,6 +42,8 @@ data class AuthState(
     val password: String = "",
     val isLoading: Boolean = false,
     val isAuthenticated: Boolean = false,
+    /** A successful login/Quick Connect in this flow, not a restored session. */
+    val authenticatedInThisFlow: Boolean = false,
     val error: String? = null,
     val savedServers: List<ServerInfo> = listOf(
         ServerInfo(
@@ -336,7 +338,7 @@ class AuthViewModel @Inject constructor(
         connectionJob?.cancel()
         val generation = ++connectionGeneration
         connectionJob = viewModelScope.launch {
-            _state.update { it.copy(isLoading = true, error = null) }
+            _state.update { it.copy(isLoading = true, error = null, authenticatedInThisFlow = false) }
             val cleanUrl = normalizeServerUrl(url)
             if (cleanUrl == null) {
                 if (generation != connectionGeneration) return@launch
@@ -435,6 +437,7 @@ class AuthViewModel @Inject constructor(
                         it.copy(
                             isLoading = false,
                             isAuthenticated = true,
+                            authenticatedInThisFlow = true,
                             username = username,
                             password = password,
                         )
@@ -632,6 +635,7 @@ class AuthViewModel @Inject constructor(
                             quickConnectSecret = null,
                             quickConnectSecondsRemaining = null,
                             isAuthenticated = true,
+                            authenticatedInThisFlow = true,
                         )
                     }
                     terminal = true
