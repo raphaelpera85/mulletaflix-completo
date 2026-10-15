@@ -36,11 +36,22 @@ internal data class PlainTextBookInlineImage(
     val bytes: ByteArray,
 )
 
+internal data class PlainTextBookTextStyleSpan(
+    val start: Int,
+    val endExclusive: Int,
+    val bold: Boolean?,
+    val italic: Boolean?,
+    val underline: Boolean? = null,
+    val lineThrough: Boolean? = null,
+    val depth: Int = 0,
+)
+
 internal class PlainTextBookDocument private constructor(
     val chunks: List<String>,
     val chapters: List<PlainTextBookChapter> = emptyList(),
     val linksByChunk: Map<Int, List<PlainTextBookLinkSpan>> = emptyMap(),
     val inlineImagesByChunk: Map<Int, List<PlainTextBookInlineImage>> = emptyMap(),
+    val textStylesByChunk: Map<Int, List<PlainTextBookTextStyleSpan>> = emptyMap(),
 ) {
     val chunkCount: Int get() = chunks.size
 
@@ -77,6 +88,9 @@ internal class PlainTextBookDocument private constructor(
         const val MAX_INLINE_IMAGE_BYTES = EmbeddedBookImageDecoder.DEFAULT_MAX_BYTES
         private const val MAX_HTML_HEADINGS = 10_000
         private const val MAX_HTML_LINK_MARKERS = 10_000
+        private const val MAX_HTML_TEXT_STYLE_MARKERS = 10_000
+        private const val MAX_HTML_STYLESHEET_CHARS = 256 * 1024
+        private const val MAX_HTML_STYLESHEET_RULES = 2_048
         private const val MAX_HTML_INLINE_IMAGES = 128
         private const val MAX_HTML_INLINE_IMAGE_TOTAL_BYTES = 4 * 1024 * 1024
         private const val HTML_MARKER_START = "\uE000MFLIX"
@@ -132,6 +146,10 @@ internal class PlainTextBookDocument private constructor(
             "header", "hr", "li", "main", "nav", "ol", "p", "pre", "section", "table", "tr", "ul",
         )
         private val HTML_PARAGRAPH_ELEMENTS = setOf("blockquote", "h1", "h2", "h3", "h4", "h5", "h6", "p")
+        private val HTML_VOID_ELEMENTS = setOf(
+            "area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta",
+            "param", "source", "track", "wbr",
+        )
         private val HIDDEN_STYLE_DECLARATION = Regex(
             "(?:^|;)\\s*(?:display\\s*:\\s*none|visibility\\s*:\\s*(?:hidden|collapse))(?:\\s*!important)?\\s*(?:;|$)",
             RegexOption.IGNORE_CASE,
@@ -295,6 +313,7 @@ internal class PlainTextBookDocument private constructor(
                 chapters,
                 htmlDocument?.let { mapHtmlLinksToChunks(chunks, it) }.orEmpty(),
                 htmlDocument?.let { mapHtmlImagesToChunks(chunks, it) }.orEmpty(),
+                htmlDocument?.let { mapHtmlTextStylesToChunks(chunks, it) }.orEmpty(),
             )
         }
 
@@ -584,6 +603,7 @@ internal class PlainTextBookDocument private constructor(
             val headings: List<HtmlBookHeading>,
             val links: List<HtmlBookLink>,
             val images: List<HtmlBookInlineImage>,
+            val textStyles: List<HtmlBookTextStyleSpan>,
         )
         private data class HtmlBookInlineImage(
             val textOffset: Int,
@@ -597,6 +617,15 @@ internal class PlainTextBookDocument private constructor(
             val targetId: String,
             val targetOffset: Int = -1,
         )
+        private data class HtmlBookTextStyleSpan(
+            val start: Int,
+            val endExclusive: Int,
+            val bold: Boolean?,
+            val italic: Boolean?,
+            val underline: Boolean?,
+            val lineThrough: Boolean?,
+            val depth: Int,
+        )
         private data class HtmlHeadingMarker(
             val id: String,
             val depth: Int,
@@ -609,10 +638,65 @@ internal class PlainTextBookDocument private constructor(
             val kind: Kind,
             val value: String = "",
             val image: HtmlBookInlineImage? = null,
+            val bold: Boolean? = null,
+            val italic: Boolean? = null,
+            val underline: Boolean? = null,
+            val lineThrough: Boolean? = null,
+            val depth: Int = 0,
         ) {
-            enum class Kind { ANCHOR, LINK_START, LINK_END, IMAGE }
+            enum class Kind { ANCHOR, LINK_START, LINK_END, IMAGE, TEXT_STYLE_START, TEXT_STYLE_END }
         }
         private data class ActiveHtmlLink(val targetId: String, val textOffset: Int)
+        private data class ActiveHtmlTextStyle(val marker: HtmlInlineMarker, val textOffset: Int)
+        private data class HtmlTextStyle(
+            val bold: Boolean?,
+            val italic: Boolean?,
+            val underline: Boolean?,
+            val lineThrough: Boolean?,
+        ) {
+            val isDeclared: Boolean
+                get() = bold != null || italic != null || underline != null || lineThrough != null
+        }
+        private data class HtmlCssTextStyle(
+            val bold: Boolean? = null,
+            val italic: Boolean? = null,
+            val underline: Boolean? = null,
+            val lineThrough: Boolean? = null,
+            val boldImportant: Boolean = false,
+            val italicImportant: Boolean = false,
+            val underlineImportant: Boolean = false,
+            val lineThroughImportant: Boolean = false,
+        )
+        private data class HtmlCssDeclaration(val value: String, val important: Boolean)
+        private data class HtmlCssTextStyleRule(
+            val selector: HtmlCssTextSelector,
+            val style: HtmlCssTextStyle,
+            val sourceOrder: Int,
+        )
+        private data class HtmlCssTextStyleRules(
+            val byTag: Map<String, List<HtmlCssTextStyleRule>>,
+            val byClass: Map<String, List<HtmlCssTextStyleRule>>,
+            val byId: Map<String, List<HtmlCssTextStyleRule>>,
+        ) {
+            fun matching(element: HtmlTag): List<HtmlCssTextStyleRule> = buildList {
+                element.attributes["id"]?.let { addAll(byId[it].orEmpty()) }
+                element.attributes["class"].orEmpty().split(HTML_CLASS_WHITESPACE).distinct().forEach {
+                    addAll(byClass[it].orEmpty())
+                }
+                addAll(byTag[element.name].orEmpty())
+            }.filter { it.selector.matches(element) }
+        }
+        private data class HtmlCssTextSelector(
+            val tag: String?,
+            val className: String?,
+            val id: String?,
+            val specificity: Int,
+        ) {
+            fun matches(element: HtmlTag): Boolean =
+                (tag == null || tag == element.name) &&
+                    (className == null || className in element.attributes["class"].orEmpty().split(HTML_CLASS_WHITESPACE)) &&
+                    (id == null || id == element.attributes["id"])
+        }
         private data class ActiveHtmlHeading(
             val marker: HtmlHeadingMarker,
             val textOffset: Int,
@@ -620,17 +704,27 @@ internal class PlainTextBookDocument private constructor(
         )
 
         private fun htmlToBookDocument(html: String): HtmlBookDocument {
+            val embeddedTextStyles = extractEmbeddedHtmlTextStyles(html)
             val withoutNonContent = removeNonContentHtmlElements(html)
             val markers = mutableListOf<HtmlHeadingMarker>()
             val activeMarkers = mutableListOf<HtmlHeadingMarker>()
             val inlineMarkers = mutableListOf<HtmlInlineMarker>()
             val activeInlineLinks = mutableListOf<HtmlInlineMarker>()
+            val activeTextStylesForRender = mutableListOf<HtmlInlineMarker>()
             val namespace = generateSequence { UUID.randomUUID().toString() }
                 .first { !withoutNonContent.contains("$HTML_MARKER_START$it") }
             val headingTagPrefix = "mulletaflixheading${namespace.replace("-", "")}"
             val taggedHtml = markHtmlHeadings(withoutNonContent, headingTagPrefix)
             val rendered = renderHtmlText(
-                taggedHtml, headingTagPrefix, namespace, markers, activeMarkers, inlineMarkers, activeInlineLinks,
+                taggedHtml,
+                headingTagPrefix,
+                namespace,
+                markers,
+                activeMarkers,
+                inlineMarkers,
+                activeInlineLinks,
+                activeTextStylesForRender,
+                embeddedTextStyles,
             )
             val normalized = normalizeHtmlText(rendered)
             val text = StringBuilder(normalized.length)
@@ -640,6 +734,8 @@ internal class PlainTextBookDocument private constructor(
             val activeLinks = mutableListOf<ActiveHtmlLink>()
             val links = mutableListOf<HtmlBookLink>()
             val images = mutableListOf<HtmlBookInlineImage>()
+            val activeTextStyles = mutableListOf<ActiveHtmlTextStyle>()
+            val textStyles = mutableListOf<HtmlBookTextStyleSpan>()
             val eventsByToken = buildMap {
                 markers.forEach { marker ->
                     put(marker.start, HtmlMarkerEvent(marker, opening = true))
@@ -688,6 +784,26 @@ internal class PlainTextBookDocument private constructor(
                             images += image.copy(textOffset = text.length)
                             text.append('\uFFFC')
                         }
+                        HtmlInlineMarker.Kind.TEXT_STYLE_START -> {
+                            activeTextStyles += ActiveHtmlTextStyle(inlineEvent, text.length)
+                        }
+                        HtmlInlineMarker.Kind.TEXT_STYLE_END -> {
+                            val activeIndex = activeTextStyles.indexOfLast { it.marker.value == inlineEvent.value }
+                            if (activeIndex >= 0) {
+                                val active = activeTextStyles.removeAt(activeIndex)
+                                if (active.textOffset < text.length) {
+                                    textStyles += HtmlBookTextStyleSpan(
+                                        start = active.textOffset,
+                                        endExclusive = text.length,
+                                        bold = active.marker.bold,
+                                        italic = active.marker.italic,
+                                        underline = active.marker.underline,
+                                        lineThrough = active.marker.lineThrough,
+                                        depth = active.marker.depth,
+                                    )
+                                }
+                            }
+                        }
                     }
                 }
                 cursor = tokenEnd
@@ -704,6 +820,7 @@ internal class PlainTextBookDocument private constructor(
                     }
                 },
                 images = images,
+                textStyles = textStyles,
             )
         }
 
@@ -716,9 +833,12 @@ internal class PlainTextBookDocument private constructor(
             activeMarkers: MutableList<HtmlHeadingMarker>,
             inlineMarkers: MutableList<HtmlInlineMarker>,
             activeInlineLinks: MutableList<HtmlInlineMarker>,
+            activeTextStylesForRender: MutableList<HtmlInlineMarker>,
+            embeddedTextStyles: HtmlCssTextStyleRules,
         ): String {
             val output = StringBuilder(html.length)
             val decodedEntities = HashMap<String, String>()
+            var textStyleMarkerCount = 0
             var cursor = 0
             while (cursor < html.length) {
                 val tagStart = html.indexOf('<', cursor)
@@ -745,6 +865,25 @@ internal class PlainTextBookDocument private constructor(
                 val depth = tag.name.removePrefix(headingTagPrefix).toIntOrNull()
                     ?.takeIf { tag.name.startsWith(headingTagPrefix) && it in 1..6 }
                 if (!tag.isClosing) {
+                    val textStyle = htmlTextStyle(tag, embeddedTextStyles)
+                    if (textStyle.isDeclared && !tag.isSelfClosing && tag.name !in HTML_VOID_ELEMENTS &&
+                        textStyleMarkerCount < MAX_HTML_TEXT_STYLE_MARKERS
+                    ) {
+                        val marker = HtmlInlineMarker(
+                            token = "$HTML_MARKER_START${namespace}T${inlineMarkers.size}$HTML_MARKER_END",
+                            kind = HtmlInlineMarker.Kind.TEXT_STYLE_START,
+                            value = "${tag.name}:${inlineMarkers.size}",
+                            bold = textStyle.bold,
+                            italic = textStyle.italic,
+                            underline = textStyle.underline,
+                            lineThrough = textStyle.lineThrough,
+                            depth = activeTextStylesForRender.size,
+                        )
+                        inlineMarkers += marker
+                        activeTextStylesForRender += marker
+                        output.append(marker.token)
+                        textStyleMarkerCount++
+                    }
                     val target = tag.attributes["id"]?.takeIf(String::isNotBlank)
                         ?: tag.attributes["name"]?.takeIf { tag.name == "a" && it.isNotBlank() }
                     if (target != null && inlineMarkers.size < MAX_HTML_LINK_MARKERS) {
@@ -817,6 +956,17 @@ internal class PlainTextBookDocument private constructor(
                         ).also { output.append(it.token) }
                     }
                 }
+                if (tag.isClosing) {
+                    val styleIndex = activeTextStylesForRender.indexOfLast { it.value.substringBefore(':') == tag.name }
+                    if (styleIndex >= 0) {
+                        val activeStyle = activeTextStylesForRender.removeAt(styleIndex)
+                        inlineMarkers += HtmlInlineMarker(
+                            token = "$HTML_MARKER_START${namespace}E${inlineMarkers.size}$HTML_MARKER_END",
+                            kind = HtmlInlineMarker.Kind.TEXT_STYLE_END,
+                            value = activeStyle.value,
+                        ).also { output.append(it.token) }
+                    }
+                }
                 if (!tag.isClosing && tag.name in VISIBLE_RAW_TEXT_HTML_ELEMENTS) {
                     val rawEnd = findRawTextHtmlElementEnd(html, tag.name, tagEnd + 1)
                     val contentEnd = rawEnd ?: html.length
@@ -828,11 +978,239 @@ internal class PlainTextBookDocument private constructor(
                 }
                 cursor = tagEnd + 1
             }
+            activeTextStylesForRender.asReversed().forEach { activeStyle ->
+                inlineMarkers += HtmlInlineMarker(
+                    token = "$HTML_MARKER_START${namespace}E${inlineMarkers.size}$HTML_MARKER_END",
+                    kind = HtmlInlineMarker.Kind.TEXT_STYLE_END,
+                    value = activeStyle.value,
+                ).also { output.append(it.token) }
+            }
             return output.toString()
         }
 
         private fun decodeHtmlAttribute(value: String, cachedEntities: MutableMap<String, String>): String =
             buildString(value.length) { appendDecodedHtmlText(value, 0, value.length, this, cachedEntities) }
+
+        private val HTML_CLASS_WHITESPACE = Regex("\\s+")
+        private val HTML_CSS_COMMENT_REGEX = Regex("/\\*[\\s\\S]*?\\*/")
+        private val HTML_CSS_SIMPLE_SELECTOR_REGEX = Regex(
+            "^([a-z][a-z0-9-]*)?(?:([.#])([A-Za-z_][A-Za-z0-9_-]*))?$",
+            RegexOption.IGNORE_CASE,
+        )
+
+        /** Reads only bounded, embedded CSS emphasis; external stylesheets/resources are never loaded. */
+        private fun extractEmbeddedHtmlTextStyles(html: String): HtmlCssTextStyleRules {
+            val rules = mutableListOf<HtmlCssTextStyleRule>()
+            var stylesheetCharacters = 0
+            var cursor = 0
+            while (cursor < html.length && rules.size < MAX_HTML_STYLESHEET_RULES) {
+                val tagStart = html.indexOf('<', cursor)
+                if (tagStart < 0) break
+                if (html.startsWith("<!--", tagStart)) {
+                    val commentEnd = html.indexOf("-->", tagStart + 4)
+                    if (commentEnd < 0) break
+                    cursor = commentEnd + 3
+                    continue
+                }
+                val tagEnd = findHtmlTagEnd(html, tagStart)
+                if (tagEnd < 0) break
+                val tag = parseHtmlTag(html, tagStart, tagEnd)
+                if (tag != null && !tag.isClosing && tag.name == "style") {
+                    val contentEnd = findRawTextHtmlElementEnd(html, "style", tagEnd + 1) ?: break
+                    val contentStart = tagEnd + 1
+                    val contentLength = contentEnd - contentStart
+                    val contentType = tag.attributes["type"]?.trim()?.lowercase()
+                    if ((contentType.isNullOrEmpty() || contentType == "text/css") &&
+                        contentLength in 0..(MAX_HTML_STYLESHEET_CHARS - stylesheetCharacters)
+                    ) {
+                        stylesheetCharacters += contentLength
+                        parseEmbeddedHtmlTextStyles(
+                            html.substring(contentStart, contentEnd),
+                            MAX_HTML_STYLESHEET_RULES - rules.size,
+                        ).forEach { rule -> rules += rule.copy(sourceOrder = rules.size) }
+                    }
+                    cursor = contentEnd + 1
+                    continue
+                }
+                if (tag != null && !tag.isClosing && tag.name in RAW_TEXT_HTML_ELEMENTS) {
+                    cursor = findRawTextHtmlElementEnd(html, tag.name, tagEnd + 1)?.plus(1) ?: break
+                } else {
+                    cursor = tagEnd + 1
+                }
+            }
+            return HtmlCssTextStyleRules(
+                byTag = rules.filter { it.selector.tag != null && it.selector.className == null && it.selector.id == null }
+                    .groupBy { requireNotNull(it.selector.tag) },
+                byClass = rules.filter { it.selector.className != null }
+                    .groupBy { requireNotNull(it.selector.className) },
+                byId = rules.filter { it.selector.id != null }
+                    .groupBy { requireNotNull(it.selector.id) },
+            )
+        }
+
+        /** Accepts simple selectors and font emphasis declarations; nested at-rules are deliberately ignored. */
+        private fun parseEmbeddedHtmlTextStyles(css: String, maxRules: Int): List<HtmlCssTextStyleRule> {
+            if (maxRules <= 0) return emptyList()
+            val withoutComments = HTML_CSS_COMMENT_REGEX.replace(css, " ")
+            val result = mutableListOf<HtmlCssTextStyleRule>()
+            var cursor = 0
+            while (cursor < withoutComments.length && result.size < maxRules) {
+                val open = withoutComments.indexOf('{', cursor)
+                if (open < 0) break
+                val header = withoutComments.substring(cursor, open).trim()
+                var depth = 1
+                var nestedBlock = false
+                var quote: Char? = null
+                var escaped = false
+                var close = open + 1
+                while (close < withoutComments.length && depth > 0) {
+                    val character = withoutComments[close]
+                    if (quote != null) {
+                        if (escaped) escaped = false
+                        else if (character == '\\') escaped = true
+                        else if (character == quote) quote = null
+                    } else when (character) {
+                        '\'', '"' -> quote = character
+                        '{' -> {
+                            nestedBlock = true
+                            depth++
+                        }
+                        '}' -> depth--
+                    }
+                    close++
+                }
+                if (depth != 0) break
+                if (!nestedBlock && !header.startsWith('@')) {
+                    val style = parseHtmlCssTextStyle(withoutComments.substring(open + 1, close - 1))
+                    if (style.bold != null || style.italic != null || style.underline != null || style.lineThrough != null) {
+                        header.split(',').forEach selectorLoop@{ selectorText ->
+                            val selector = parseHtmlCssTextSelector(selectorText) ?: return@selectorLoop
+                            if (result.size < maxRules) {
+                                result += HtmlCssTextStyleRule(selector, style, result.size)
+                            }
+                        }
+                    }
+                }
+                cursor = close
+            }
+            return result
+        }
+
+        private fun parseHtmlCssTextSelector(value: String): HtmlCssTextSelector? {
+            val match = HTML_CSS_SIMPLE_SELECTOR_REGEX.matchEntire(value.trim()) ?: return null
+            val tag = match.groupValues[1].takeIf(String::isNotEmpty)?.lowercase()
+            val selectorKind = match.groupValues[2]
+            val selectorValue = match.groupValues[3].takeIf(String::isNotEmpty)
+            if (tag == null && selectorValue == null) return null
+            val className = selectorValue?.takeIf { selectorKind == "." }
+            val id = selectorValue?.takeIf { selectorKind == "#" }
+            val specificity = (if (id != null) 100 else 0) +
+                (if (className != null) 10 else 0) + (if (tag != null) 1 else 0)
+            return HtmlCssTextSelector(tag, className, id, specificity)
+        }
+
+        private fun parseHtmlCssTextStyle(declarationsText: String): HtmlCssTextStyle {
+            val declarations = declarationsText.split(';').mapNotNull { declaration ->
+                val separator = declaration.indexOf(':')
+                if (separator <= 0) return@mapNotNull null
+                val property = declaration.substring(0, separator).trim().lowercase()
+                if (property !in setOf("font-weight", "font-style", "text-decoration")) return@mapNotNull null
+                val rawValue = declaration.substring(separator + 1).trim()
+                val important = rawValue.endsWith("!important", ignoreCase = true)
+                val value = rawValue.removeSuffixIgnoreCase("!important").trim().lowercase()
+                property to HtmlCssDeclaration(value, important)
+            }.fold(mutableMapOf<String, HtmlCssDeclaration>()) { parsed, (property, candidate) ->
+                val previous = parsed[property]
+                if (previous == null || candidate.important || !previous.important) parsed[property] = candidate
+                parsed
+            }
+            val weight = declarations["font-weight"]?.value
+            val numericWeight = weight?.toIntOrNull()
+            val bold = when {
+                weight in setOf("bold", "bolder") -> true
+                weight == "normal" || weight == "lighter" -> false
+                numericWeight != null && numericWeight in 100..500 -> false
+                numericWeight != null && numericWeight in 600..900 -> true
+                else -> null
+            }
+            val italic = when (declarations["font-style"]?.value) {
+                "italic", "oblique" -> true
+                "normal" -> false
+                else -> null
+            }
+            val decorationDeclaration = declarations["text-decoration"]
+            val decoration = decorationDeclaration?.value?.split(HTML_CLASS_WHITESPACE).orEmpty()
+            val underline = when {
+                "none" in decoration -> false
+                "underline" in decoration -> true
+                decoration.isNotEmpty() -> false
+                else -> null
+            }
+            val lineThrough = when {
+                "none" in decoration -> false
+                "line-through" in decoration -> true
+                decoration.isNotEmpty() -> false
+                else -> null
+            }
+            return HtmlCssTextStyle(
+                bold = bold,
+                italic = italic,
+                underline = underline,
+                lineThrough = lineThrough,
+                boldImportant = declarations["font-weight"]?.important == true,
+                italicImportant = declarations["font-style"]?.important == true,
+                underlineImportant = decorationDeclaration?.important == true,
+                lineThroughImportant = decorationDeclaration?.important == true,
+            )
+        }
+
+        private fun String.removeSuffixIgnoreCase(suffix: String): String =
+            if (endsWith(suffix, ignoreCase = true)) dropLast(suffix.length) else this
+
+        private fun htmlTextStyle(tag: HtmlTag, embeddedStyles: HtmlCssTextStyleRules): HtmlTextStyle {
+            val matching = embeddedStyles.matching(tag)
+            val stylesheetBold = matching.filter { it.style.bold != null }
+                .maxWithOrNull(compareBy<HtmlCssTextStyleRule> { it.style.boldImportant }
+                    .thenBy { it.selector.specificity }.thenBy { it.sourceOrder })
+            val stylesheetBoldValue = stylesheetBold?.style?.bold
+            val stylesheetItalic = matching.filter { it.style.italic != null }
+                .maxWithOrNull(compareBy<HtmlCssTextStyleRule> { it.style.italicImportant }
+                    .thenBy { it.selector.specificity }.thenBy { it.sourceOrder })
+            val stylesheetItalicValue = stylesheetItalic?.style?.italic
+            val stylesheetUnderline = matching.filter { it.style.underline != null }
+                .maxWithOrNull(compareBy<HtmlCssTextStyleRule> { it.style.underlineImportant }
+                    .thenBy { it.selector.specificity }.thenBy { it.sourceOrder })
+            val stylesheetUnderlineValue = stylesheetUnderline?.style?.underline
+            val stylesheetLineThrough = matching.filter { it.style.lineThrough != null }
+                .maxWithOrNull(compareBy<HtmlCssTextStyleRule> { it.style.lineThroughImportant }
+                    .thenBy { it.selector.specificity }.thenBy { it.sourceOrder })
+            val stylesheetLineThroughValue = stylesheetLineThrough?.style?.lineThrough
+            val inline = parseHtmlCssTextStyle(tag.attributes["style"].orEmpty())
+            return HtmlTextStyle(
+                bold = resolveHtmlCssValue(inline.bold, inline.boldImportant, stylesheetBoldValue,
+                    stylesheetBold?.style?.boldImportant == true) ?: (true.takeIf { tag.name in setOf("b", "strong") }),
+                italic = resolveHtmlCssValue(inline.italic, inline.italicImportant, stylesheetItalicValue,
+                    stylesheetItalic?.style?.italicImportant == true) ?: (true.takeIf { tag.name in setOf("i", "em") }),
+                underline = resolveHtmlCssValue(inline.underline, inline.underlineImportant, stylesheetUnderlineValue,
+                    stylesheetUnderline?.style?.underlineImportant == true) ?: (true.takeIf { tag.name in setOf("u", "ins") }),
+                lineThrough = resolveHtmlCssValue(inline.lineThrough, inline.lineThroughImportant, stylesheetLineThroughValue,
+                    stylesheetLineThrough?.style?.lineThroughImportant == true) ?:
+                    (true.takeIf { tag.name in setOf("s", "strike", "del") }),
+            )
+        }
+
+        private fun resolveHtmlCssValue(
+            inlineValue: Boolean?,
+            inlineImportant: Boolean,
+            stylesheetValue: Boolean?,
+            stylesheetImportant: Boolean,
+        ): Boolean? = when {
+            inlineValue == null -> stylesheetValue
+            stylesheetValue == null -> inlineValue
+            inlineImportant -> inlineValue
+            stylesheetImportant -> stylesheetValue
+            else -> inlineValue
+        }
 
         private fun mapHtmlLinksToChunks(
             chunks: List<String>,
@@ -888,6 +1266,42 @@ internal class PlainTextBookDocument private constructor(
                     description = image.description,
                     bytes = image.bytes,
                 )
+            }
+            return result
+        }
+
+        private fun mapHtmlTextStylesToChunks(
+            chunks: List<String>,
+            document: HtmlBookDocument,
+        ): Map<Int, List<PlainTextBookTextStyleSpan>> {
+            if (document.textStyles.isEmpty()) return emptyMap()
+            val starts = IntArray(chunks.size)
+            var totalLength = 0
+            chunks.forEachIndexed { index, chunk ->
+                starts[index] = totalLength
+                totalLength += chunk.length
+            }
+            val result = mutableMapOf<Int, MutableList<PlainTextBookTextStyleSpan>>()
+            document.textStyles.forEach { style ->
+                var index = chunkIndexForOffset(chunks, style.start)
+                while (index < chunks.size && starts[index] < style.endExclusive) {
+                    val chunkStart = starts[index]
+                    val chunkEnd = chunkStart + chunks[index].length
+                    val start = maxOf(style.start, chunkStart)
+                    val end = minOf(style.endExclusive, chunkEnd)
+                    if (start < end) {
+                        result.getOrPut(index, ::mutableListOf) += PlainTextBookTextStyleSpan(
+                            start = start - chunkStart,
+                            endExclusive = end - chunkStart,
+                            bold = style.bold,
+                            italic = style.italic,
+                            underline = style.underline,
+                            lineThrough = style.lineThrough,
+                            depth = style.depth,
+                        )
+                    }
+                    index++
+                }
             }
             return result
         }
@@ -1062,6 +1476,7 @@ internal class PlainTextBookDocument private constructor(
             val isClosing: Boolean,
             val isHidden: Boolean,
             val attributes: Map<String, String>,
+            val isSelfClosing: Boolean = false,
         )
 
         private fun parseHtmlTag(html: String, start: Int, end: Int): HtmlTag? {
@@ -1108,7 +1523,22 @@ internal class PlainTextBookDocument private constructor(
                     (attributeName == "aria-hidden" && attributeValue.equals("true", ignoreCase = true)) ||
                     (attributeName == "style" && HIDDEN_STYLE_DECLARATION.containsMatchIn(attributeValue))
             }
-            return HtmlTag(name, isClosing, isHidden, attributes)
+            return HtmlTag(name, isClosing, isHidden, attributes, isHtmlSelfClosingTag(html, start, end))
+        }
+
+        private fun isHtmlSelfClosingTag(html: String, start: Int, end: Int): Boolean {
+            var quote: Char? = null
+            var lastUnquotedCharacter: Char? = null
+            for (index in start + 1 until end) {
+                val character = html[index]
+                if (quote != null) {
+                    if (character == quote) quote = null
+                } else when (character) {
+                    '\'', '"' -> quote = character
+                    else -> if (!character.isWhitespace()) lastUnquotedCharacter = character
+                }
+            }
+            return lastUnquotedCharacter == '/'
         }
 
         private fun findHtmlTagEnd(html: String, start: Int): Int {

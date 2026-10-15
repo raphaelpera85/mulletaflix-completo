@@ -92,6 +92,9 @@ import androidx.compose.ui.text.Placeholder
 import androidx.compose.ui.text.PlaceholderVerticalAlign
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.withLink
+import androidx.compose.ui.text.withStyle
+import androidx.compose.ui.text.font.FontStyle
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -1054,6 +1057,7 @@ internal fun PlainTextBookReaderContent(
         itemsIndexed(document.chunks, key = { index, _ -> index }) { index, chunk ->
             val chunkLinks = document.linksByChunk[index].orEmpty()
             val chunkImages = document.inlineImagesByChunk[index].orEmpty()
+            val chunkTextStyles = document.textStylesByChunk[index].orEmpty()
             val linkColor = MaterialTheme.colorScheme.primary
             val imageInlineContent = remember(chunkImages, index) {
                 chunkImages.mapIndexed { imageIndex, image ->
@@ -1078,7 +1082,9 @@ internal fun PlainTextBookReaderContent(
             val imagesByOffset = remember(chunkImages) {
                 chunkImages.associateBy(PlainTextBookInlineImage::textOffset)
             }
-            val annotatedChunk = remember(document, index, chunk, chunkLinks, chunkImages, onChunkSelected) {
+            val annotatedChunk = remember(
+                document, index, chunk, chunkLinks, chunkImages, chunkTextStyles, onChunkSelected,
+            ) {
                 buildAnnotatedString {
                     var cursor = 0
                     while (cursor < chunk.length) {
@@ -1093,13 +1099,54 @@ internal fun PlainTextBookReaderContent(
                         val activeLink = chunkLinks.firstOrNull { cursor in it.start until it.endExclusive }
                         val nextLinkStart = chunkLinks.asSequence().map(PlainTextBookLinkSpan::start)
                             .filter { it > cursor }.minOrNull() ?: chunk.length
+                        val nextStyleBoundary = chunkTextStyles.asSequence()
+                            .flatMap { sequenceOf(it.start, it.endExclusive) }
+                            .filter { it > cursor }
+                            .minOrNull() ?: chunk.length
                         val end = minOf(
                             chunk.length,
                             nextImage,
+                            nextStyleBoundary,
                             if (activeLink == null) nextLinkStart else activeLink.endExclusive,
                         ).coerceAtLeast(cursor + 1)
+                        val applicableStyles = chunkTextStyles.filter {
+                            cursor >= it.start && cursor < it.endExclusive
+                        }
+                        val bold = applicableStyles.filter { it.bold != null }.maxByOrNull { it.depth }?.bold
+                        val italic = applicableStyles.filter { it.italic != null }.maxByOrNull { it.depth }?.italic
+                        // CSS text decorations propagate through inline descendants; a child's `none`
+                        // cannot cancel a decoration applied by an ancestor box.
+                        val underline = applicableStyles.any { it.underline == true }
+                        val lineThrough = applicableStyles.any { it.lineThrough == true }
+                        val fontWeight = when (bold) {
+                            true -> FontWeight.Bold
+                            false -> FontWeight.Normal
+                            null -> null
+                        }
+                        val fontStyle = when (italic) {
+                            true -> FontStyle.Italic
+                            false -> FontStyle.Normal
+                            null -> null
+                        }
+                        val textDecorations = buildList {
+                            if (activeLink != null || underline) add(TextDecoration.Underline)
+                            if (lineThrough) add(TextDecoration.LineThrough)
+                        }
+                        val textDecoration = textDecorations.takeIf { it.isNotEmpty() }
+                            ?.let(TextDecoration::combine)
+                        val emphasis = SpanStyle(
+                            fontWeight = fontWeight,
+                            fontStyle = fontStyle,
+                            textDecoration = textDecoration,
+                        )
+                        val hasTextStyle = fontWeight != null || fontStyle != null || textDecoration != null
+                        val text = chunk.substring(cursor, end)
                         if (activeLink == null) {
-                            append(chunk.substring(cursor, end))
+                            if (hasTextStyle) {
+                                withStyle(emphasis) { append(text) }
+                            } else {
+                                append(text)
+                            }
                         } else {
                             withLink(
                                 LinkAnnotation.Clickable(
@@ -1113,7 +1160,11 @@ internal fun PlainTextBookReaderContent(
                                     },
                                 ),
                             ) {
-                                append(chunk.substring(cursor, end))
+                                if (hasTextStyle) {
+                                    withStyle(emphasis) { append(text) }
+                                } else {
+                                    append(text)
+                                }
                             }
                         }
                         cursor = end

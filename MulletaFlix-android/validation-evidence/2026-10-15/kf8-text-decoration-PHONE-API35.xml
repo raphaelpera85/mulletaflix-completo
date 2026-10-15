@@ -1,0 +1,9 @@
+<?xml version='1.0' encoding='UTF-8' ?>
+<testsuites tests="1" failures="0" errors="0" skipped="0" time="0.000" timestamp="2026-10-15T15:31:14" hostname="localhost">
+  <testsuite name="org.mulletaflix.feature.itemdetail.PlainTextBookReaderIntegrationTest" tests="1" failures="0" errors="0" skipped="0" time="6.300" timestamp="2026-10-15T15:31:14" hostname="localhost">
+    <properties>
+      <property name="device" value="emulator-5558" />
+    </properties>
+    <testcase name="htmlBookPreservesUnderlineAndLineThroughFormatting" classname="org.mulletaflix.feature.itemdetail.PlainTextBookReaderIntegrationTest" time="6.300" />
+  </testsuite>
+</testsuites>

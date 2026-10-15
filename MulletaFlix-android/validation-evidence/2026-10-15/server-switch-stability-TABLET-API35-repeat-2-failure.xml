@@ -1,0 +1,28 @@
+<?xml version='1.0' encoding='UTF-8' ?>
+<testsuites tests="1" failures="1" errors="0" skipped="0" time="0.000" timestamp="2026-10-15T12:45:37" hostname="localhost">
+  <testsuite name="org.mulletaflix.android.MainActivitySessionNavigationTest" tests="1" failures="1" errors="0" skipped="0" time="17.524" timestamp="2026-10-15T12:45:37" hostname="localhost">
+    <properties>
+      <property name="device" value="emulator-5570" />
+    </properties>
+    <testcase name="switchingServerFromProfileDoesNotRestorePreviousProfileOnBackAfterLogin" classname="org.mulletaflix.android.MainActivitySessionNavigationTest" time="17.524">
+      <failure>java.lang.AssertionError: O Perfil aberto após troca de servidor deve exibir a conta autenticada; visibleText=N | New user | Membro MulletaFlix | Servidor Conectado | MulletaFlix Server | http://localhost:59901 | Conectado | Rota: Rede local (LAN) | Recursos &amp; Permissões | Transmissão 4K HDR / Dolby Vision | TV Ao Vivo &amp; Gravações (Live TV) | Downloads para Reprodução Offline | Sessões Compartilhadas (SyncPlay) | Gerenciamento do Aplicativo | Limpar Cache Local | Armazenamento em cache: 0.0 MB | Trocar de Servidor | Conectar a outro servidor MulletaFlix | Sair da Conta | Finaliza a sessão neste dispositivo | Meu Perfil, requests=[GET /System/Info/Public, GET /Users/Public, GET /QuickConnect/Enabled, GET /Users/Me, GET /System/Info/Public, GET /Users/Public, POST /Users/AuthenticateByName, GET /Users/Me, GET /Users/new-user/Items/Resume?Limit=12&amp;Fields=Overview%2CMediaSources%2CItemCounts&amp;EnableImageTypes=Primary%2CBackdrop%2CThumb&amp;ImageTypeLimit=1, GET /Shows/NextUp?UserId=new-user&amp;Limit=12&amp;Fields=Overview%2CMediaSources%2CItemCounts&amp;EnableImageTypes=Primary%2CThumb&amp;ImageTypeLimit=1, GET /Users/new-user/Views, GET /LiveTv/Channels?UserId=new-user&amp;EnableImageTypes=Primary&amp;Fields=Overview&amp;StartIndex=0&amp;Limit=100, GET /Users/new-user/Items?SortBy=SortName&amp;SortOrder=Ascending&amp;Filters=IsFavorite&amp;Recursive=true&amp;Fields=ItemCounts&amp;StartIndex=0&amp;Limit=12&amp;ImageTypeLimit=1&amp;EnableImageTypes=Primary%2CBackdrop%2CThumb]
+	at org.junit.Assert.fail(Assert.java:89)
+	at org.junit.Assert.assertTrue(Assert.java:42)
+	at org.mulletaflix.android.MainActivitySessionNavigationTest$switchingServerFromProfileDoesNotRestorePreviousProfileOnBackAfterLogin$1.invokeSuspend(MainActivitySessionNavigationTest.kt:642)
+	at kotlin.coroutines.jvm.internal.BaseContinuationImpl.resumeWith(ContinuationImpl.kt:34)
+	at kotlinx.coroutines.DispatchedTask.run(DispatchedTask.kt:100)
+	at kotlinx.coroutines.EventLoopImplBase.processNextEvent(EventLoop.common.kt:256)
+	at kotlinx.coroutines.BlockingCoroutine.joinBlocking(Builders.kt:54)
+	at kotlinx.coroutines.BuildersKt__BuildersKt.runBlockingImpl(Builders.kt:30)
+	at kotlinx.coroutines.BuildersKt.runBlockingImpl(Unknown Source:1)
+	at kotlinx.coroutines.BuildersKt__Builders_concurrentKt.runBlockingK(Builders.concurrent.kt:172)
+	at kotlinx.coroutines.BuildersKt.runBlockingK(Unknown Source:1)
+	at kotlinx.coroutines.BuildersKt__BuildersKt.runBlocking(Builders.kt:22)
+	at kotlinx.coroutines.BuildersKt.runBlocking(Unknown Source:1)
+	at kotlinx.coroutines.BuildersKt__BuildersKt.runBlocking$default(Builders.kt:20)
+	at kotlinx.coroutines.BuildersKt.runBlocking$default(Unknown Source:1)
+	at org.mulletaflix.android.MainActivitySessionNavigationTest.switchingServerFromProfileDoesNotRestorePreviousProfileOnBackAfterLogin(MainActivitySessionNavigationTest.kt:504)
+</failure>
+    </testcase>
+  </testsuite>
+</testsuites>

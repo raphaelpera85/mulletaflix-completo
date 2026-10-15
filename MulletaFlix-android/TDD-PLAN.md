@@ -1,5 +1,98 @@
 # Plano de TDD do MulletaFlix Android
 
+## Auditoria do limite de cabeçalhos CBR/Junrar — 2026-10-15
+
+- **ESCOPO:** inspeção somente; sem alteração de produção ou teste, portanto não houve RED/GREEN.
+- **FATO:** `CbrBookArchive.openArchive()` constrói `Archive(file, ArchiveOptions)`. No fonte Junrar v8.1.2, esse construtor delega para `setVolume()`, que chama `setChannel()` e `readHeaders()`; `Archive.headers` é uma lista interna. O limite `MAX_ARCHIVE_ENTRIES` do APK é aplicado somente depois, durante a iteração `nextFileHeader()` em `CbrBookArchive.open()`.
+- **DISTINÇÃO:** o antigo [issue #63 do Junrar](https://github.com/junrar/junrar/issues/63) relata leitura integral pelo caminho `InputStream` em Junrar 7.4.0; não prova o mesmo comportamento para o construtor `File` usado pelo APK/v8.1.2. O risco de memória por indexação materializada de cabeçalhos, contudo, permanece confirmado no código atual.
+- **DECISÃO:** não impor limite arbitrário de bytes/páginas e não criar parser RAR próprio. A API atual não oferece teto de cabeçalhos na construção; mitigação requer requisito quantitativo ou alternativa/upstream compatível. Testes atuais RAR4/CC0 não quantificam pico de memória nem cobrem RAR5.
+- **VERIFICAÇÃO:** `graphify explain CbrBookArchive` e `CbrBookArchiveTest`; fonte da dependência cacheada v8.1.2 via `javap`; `Archive.java` upstream v8.1.2 consultado. Nenhum teste ou build executado nesta auditoria documental.
+
+## RED-GREEN — CSS embutido simples para ênfase HTML/KF8 — 2026-10-15
+
+- **INTENÇÃO:** preservar negrito/itálico declarado por folhas `<style>` incluídas em HTML/KF8; propriedades CSS eram descartadas junto com o elemento `style`.
+- **RED:** `PlainTextBookDocumentTest.applies bounded embedded stylesheet emphasis to matching class selectors` falhou antes da implementação porque não havia span para `.emphasis` (a busca do mapa de estilos lançou `NoSuchElementException`; 1 teste, 1 falha).
+- **GREEN:** o parser agora extrai somente CSS embutido até 256 Ki caracteres/2.048 regras, permite seletores simples de tag/classe/ID e `tag.class`/`tag#id`, resolve os exemplos por especificidade/ordem e considera apenas `font-weight`/`font-style`. Regras aninhadas em at-rules (como `@media`), combinadores e seletores inválidos são ignorados; não há rede/CSS externo. `PlainTextBookDocumentTest`: 39/39, 0 falhas/erros/ignorados.
+- **ITERações:** a primeira compilação Green revelou incompatibilidade de tipo na assinatura interna, corrigida antes da execução. O teste complementar passou por duas revisões de fixture/expectativa: retirou uma quebra de parágrafo alheia ao CSS e depois isolou `@media` para que outro seletor de tag não explicasse o span extra. A versão final passou e também verifica especificidade (`span#id` sobre `.class`) e regra posterior com a mesma especificidade.
+- **GATE:** teste JVM do módulo passou 39/39. Gate completo `testDebugUnitTest :feature:item-detail:lintDebug :app:lintDebug :app:assembleDebug :feature:item-detail:compileDebugAndroidTestKotlin :app:compileDebugAndroidTestKotlin --no-daemon --console=plain` terminou `BUILD SUCCESSFUL` (881 tarefas; 8 executadas, 873 `UP-TO-DATE`); veja contagem e limites em `TESTING.md`. Não foi executado AndroidTest novo nem AVD, pois o `BookReaderScreen` não mudou e sua renderização estilizada já é coberta pelo Compose. HTML continua sintético; AZW3/KF8 real, TalkBack e aparelho físico pendentes.
+- **ESCOPO:** sem dependências, alteração de versão, APK assinado, release, portal ou servidor.
+
+## Diagnóstico da asserção intermitente de identidade após troca de servidor — 2026-10-15
+
+- `INTENT`: tornar a verificação instrumentada da conta nova determinística e diagnóstica, sem alterar o comportamento produtivo.
+- `RED`: em TABLET/API 35, o cenário terminou com falha na asserção do Perfil após login. A árvore semântica continha `New user` e `Meu Perfil`, e as chamadas a `/Users/Me` e ao catálogo do usuário novo ocorreram; portanto não há evidência de falha de autenticação. A execução não preservou a exceção interna do `runCatching`, então a causa exata de a checagem não considerar o nó exibido não foi provada. Relatório preservado em `validation-evidence/2026-10-15/server-switch-stability-TABLET-API35-repeat-2-failure.xml`.
+- Mudança: em `MainActivitySessionNavigationTest`, aguardar a tela `Meu Perfil` e o nó de nome, executar `performScrollTo()` uma vez e então `assertIsDisplayed()` sem capturar a exceção da asserção.
+- `GREEN`: depois da mudança, o caso focal passou 1/1 em TABLET/API 35 (13,728 s) e PHONE/API 35 (18,358 s). XMLs `server-switch-stability-{TABLET,PHONE}-API35-repeat-3.xml`; os wrappers verificaram GPU NVIDIA e encerraram os AVDs.
+- `RETESTE`: quarta repetição focal passou em PHONE/API 35 (17,618 s) e TABLET/API 35 (12,394 s), 1/1 por perfil; evidências `server-switch-stability-{PHONE,TABLET}-API35-repeat-4.xml`. A falha histórica do repeat 2 permanece registrada e a causa original continua desconhecida.
+- `REGRESSÃO AMPLA`: a classe completa `MainActivitySessionNavigationTest` passou 12/12 em PHONE/API 35 (81,406 s) e TABLET/API 35 (71,331 s), 0 falhas/erros/ignorados; evidências `MainActivitySessionNavigationTest-{PHONE,TABLET}-API35-repeat-3.xml`. Isso exercita os outros fluxos de sessão/navegação no mesmo perfil, mas não invalida o XML da falha repeat 2.
+- `QUALITY GATE`: execução forçada de `testDebugUnitTest :app:lintDebug :app:assembleDebug :app:compileDebugAndroidTestKotlin --rerun-tasks --no-daemon --console=plain` terminou `BUILD SUCCESSFUL` (871 tarefas executadas). XMLs de todos os módulos agregados: 1.776 testes em 256 relatórios, 0 falhas/erros/ignorados. `app/build/test-results` sozinho não representa a suíte total.
+- `LIMITES`: reteste local/MockWebServer, sem alteração de código produtivo. Duas execuções aprovadas por perfil após a mudança aumentam a confiança, mas não identificam a causa da falha anterior e não constituem estabilidade extensa; requer mais repetições e validação com servidor/dispositivo reais. APK-H02 e aceite formal não foram promovidos.
+
+## Atualização da dependência Junrar 8.1.2 — 2026-10-15
+
+- `TIPO`: manutenção da versão de uma dependência já existente no catálogo Gradle; sem mudança de código de produção ou de contrato próprio do APK.
+- `MOTIVO`: o projeto usava Junrar 8.1.1; a release upstream 8.1.2, publicada em 2026-10-09, inclui correção de segurança para destino de symlink RAR5 com `..`, teste dessa proteção e correção de extração de entradas de tamanho desconhecido.
+- `TDD`: alteração somente de configuração/version catalog; não existe defeito do aplicativo reproduzido que justifique teste RED contra o número de versão. GREEN: `CbrBookArchiveTest` 5/5; `CbrBookReaderIntegrationTest.realRarPagesRenderAndNavigateWithReaderControls` 1/1 no AVD Android TV API 34. Quality gate completo passou com 1.776 testes JVM em 256 XMLs, zero falhas/erros/ignorados, lint, `assembleDebug` e compilação AndroidTest. A dependência runtime foi confirmada como 8.1.2 por `dependencyInsight`. Fixtures RAR4/CC0 não cobrem RAR5.
+- `RISCO NÃO RESOLVIDO`: a auditoria anterior identificou materialização de todos os cabeçalhos pelo `Archive` antes do limite local de entradas. A release 8.1.2 não é tratada como correção desse risco; auditoria do código da versão nova permanece pendente.
+- `ESCOPO`: versão de Junrar, documentação/testes Android e vault; nenhuma dependência nova, versão do APK, release, servidor ou portal.
+
+## Jornada de busca OCR de PDF escaneado pela tela do leitor — 2026-10-15
+
+- `ALVO`: confirmar pela UI que busca de texto de um PDF sem camada textual reconhece OCR local, mostra o trecho e abre a página correta.
+- `TESTE`: `BookReaderScreenIntegrationTest.scannedPdfOcrSearchFindsAndOpensMatchingPageOffline` serve uma fixture PDF sintética sem texto via MockWebServer, abre `BookReaderScreen`, busca `pagina vertical`, confere o trecho OCR na página 2 e seleciona a ocorrência.
+- `RESULTADO`: PHONE/API 35 passou 1/1 em 21,859 s; TABLET/API 35 passou 1/1 em 20,288 s; zero falhas/erros/ignorados. XMLs: `validation-evidence/2026-10-15/pdf-scanned-search-UI-{PHONE,TABLET}-API35.xml`.
+- `TDD`: adição de teste de caracterização, sem mudança de produção. O comportamento já existia e o teste não foi reportado como RED; o objetivo é proteger o fluxo completo contra regressão na UI, busca OCR e navegação.
+- `LIMITES`: fixture sintética não valida arquivos do usuário/servidor, TalkBack, uso prolongado, pressão de memória/bateria ou hardware real; APK-H21 e homologação formal permanecem pendentes.
+- `ESCOPO`: AndroidTest, documentação e evidências locais/vault; sem dependência, versão, release, servidor ou portal.
+
+## Reteste de estabilidade focal APK-H02 — 2026-10-15
+
+- `INTENT`: obter uma repetição independente por perfil para a regressão de troca de servidor iniciada no Perfil.
+- `TESTE`: `MainActivitySessionNavigationTest#switchingServerFromProfileDoesNotRestorePreviousProfileOnBackAfterLogin`, com MockWebServer e sessão sintética; sem alteração de produção nesta rodada.
+- `RESULTADO`: PHONE/API 35 passou 1/1 em 14,195 s; TABLET/API 35 passou 1/1 em 11,408 s. Evidências: `validation-evidence/2026-10-15/server-switch-stability-{PHONE,TABLET}-API35-repeat-1.xml`. Wrapper confirmou uso da GPU NVIDIA e encerrou ambos AVDs.
+- `TDD`: reteste de cobertura existente, sem RED funcional novo e sem mudança de código; não contabilizar como homologação formal.
+- `LIMITES`: fixtures locais não validam servidor real, dispositivo físico, estabilidade extensiva ou aceite formal. APK-H02 permanece em validação.
+- `ESCOPO`: APK Android, AndroidTest, evidências e documentação local/vault; sem release, portal ou servidor.
+
+## OCR em PDF digitalizado paisagem e retrato — 2026-10-15
+
+- `ALVO`: comprovar que OCR local e busca identificam texto em páginas escaneadas de orientações distintas num mesmo PDF.
+- `RED`: a asserção de duas páginas falhou com `expected:<2> but was:<1>` em `PdfBookReaderIntegrationTest.kt:74`; o fixture anterior tinha só uma página paisagem. XML diagnóstico transitório foi sobrescrito pela execução final e não é usado como evidência.
+- `GREEN`: o fixture AndroidTest agora cria uma página paisagem 1200×600 e outra retrato 600×1200. `PdfBookReaderIntegrationTest.scannedPdfPageIsRecognizedOfflineAndIndexedBySearch` reconheceu ambas e encontrou cada query na página correta.
+- `RESULTADO`: PHONE/API 35, 1/1 em 9,123 s, 0 falhas/erros/ignorados; XML `validation-evidence/2026-10-15/pdf-scanned-landscape-portrait-ocr-search-PHONE-API35.xml`. Somente fixture sintética; nenhuma mudança de produção.
+- `QUALITY GATE`: `testDebugUnitTest :feature:item-detail:lintDebug :app:lintDebug :app:assembleDebug :feature:item-detail:compileDebugAndroidTestKotlin --no-daemon --console=plain` terminou `BUILD SUCCESSFUL` (871 tarefas, 6 executadas, 865 `UP-TO-DATE`). `testDebugUnitTest` estava `UP-TO-DATE`, portanto esta rodada não reexecutou todos os testes JVM; o teste instrumentado focal acima foi executado separadamente.
+- `LIMITES`: não verifica várias resoluções de origem, PDF longo/pressão de memória, idiomas não latinos, arquivos reais, hardware, tablet/TV ou homologação formal.
+
+## Deep link autenticado apresenta título do item — 2026-10-15
+
+- `ALVO`: comprovar na UI real da Activity que o título do item solicitado pelo deep link aparece, além de verificar apenas o request HTTP.
+- `EVIDÊNCIA`: `ItemDetailScreen` renderiza `item.name`; o teste integrado já abria o deep link autenticado e validava o GET ao item, mas não inspecionava o resultado visível.
+- `TESTE`: adicionada asserção Compose para o nome literal `Linked media fixture`, vindo da resposta MockWebServer.
+- `RESULTADO`: PHONE/API 35, 1/1 em 7,951 s, 0 falhas/erros/ignorados; XML `validation-evidence/2026-10-15/authenticated-media-deep-link-visible-title-PHONE-API35.xml`. É caracterização de funcionalidade existente, não correção de defeito; nenhum teste RED de runtime ou mudança produtiva alegados.
+- `QUALITY GATE`: `testDebugUnitTest :app:lintDebug :app:assembleDebug :app:compileDebugAndroidTestKotlin --no-daemon --console=plain` terminou `BUILD SUCCESSFUL`; 871 tarefas, 3 executadas e 868 `UP-TO-DATE`. Portanto a suíte JVM foi verificada como atual, mas não reexecutada nesta sessão.
+- `LIMITES`: somente fixture sintética e PHONE/API 35; TABLET/TV, servidor real, aparelho físico e homologação formal seguem pendentes.
+
+## Identidade visual após troca de servidor — PHONE/TABLET — 2026-10-15
+
+- `INTENT`: depois de selecionar um servidor novo no Perfil e autenticar, Home e Perfil devem exibir o usuário autenticado naquele servidor, e Voltar não deve restaurar a tela/perfil anterior.
+- `RED`: antes de fornecer o endpoint de perfil no MockWebServer do novo servidor, o teste integrado concluiu o login e entrou na Home, mas falhou ao encontrar `Perfil de New user` (`MainActivitySessionNavigationTest.kt:617`; PHONE/API 35). Isso reproduziu a lacuna de perfil ausente no fixture, sem demonstrar falha do backend real.
+- `GREEN`: o dispatcher sintético passou a responder `GET /Users/Me` com o usuário do novo servidor. A jornada verifica o request do perfil, a identidade na Home (menu compacto PHONE e descrição acessível no layout amplo TABLET), abre Perfil e confirma o nome, retorna e garante que Voltar não restaura a pilha anterior.
+- `RESULTADOS`: cenário focal passou 1/1 PHONE/API 35 e 1/1 TABLET/API 35; evidências independentes em `validation-evidence/2026-10-15/server-switch-profile-identity-{PHONE,TABLET}-API35.xml`. Um erro intermediário do teste veio da coleta diagnóstica de múltiplas raízes semânticas com popup aberto; a mensagem foi simplificada, sem relaxar assert.
+- `QUALITY GATE`: `testDebugUnitTest :app:lintDebug :app:assembleDebug :app:compileDebugAndroidTestKotlin --no-daemon --console=plain` terminou `BUILD SUCCESSFUL`; 1.776 testes JVM em 256 relatórios, zero falhas/erros/ignorados. O teste instrumentado passou nos dois perfis via `tools/with-emulator.ps1`; NVIDIA RTX 3050 confirmada e AVDs temporários encerrados.
+- `TWINS`: searched `"/Users/Me"` dispatcher and `switchingServerFromProfileDoesNotRestorePreviousProfileOnBackAfterLogin` in app AndroidTests - found the existing `/Users/Me` fixture in a different profile-switch test; this server-switch target was the matching fixture missing the endpoint.
+- `LIMITES`: MockWebServer e AVDs, sem servidor verdadeiro, dispositivo físico, repetição de estabilidade ou aceite formal. APK-H02 continua em validação; matriz, versão e release não mudaram.
+- `ESCOPO`: AndroidTest e documentação; sem mudança de runtime, dependências, assinatura, release, servidor ou portal.
+
+## Troca rápida de perfil — identidade visual após login — 2026-10-15
+
+- `INTENT`: ao alternar para outra conta no Perfil, a sessão autenticada deve persistir e o cabeçalho/lista de alternância devem refletir a nova identidade. A documentação do `ProfileScreen` usa o perfil carregado como nome do usuário; `HomeTopBar` usa `Perfil de <nome>` no layout amplo e o item equivalente no menu compacto.
+- `DIAGNÓSTICO`: no TABLET, `homeVisible()` fica verdadeiro antes do perfil ser carregado; o helper de teste podia capturar o rótulo transitório e tocar depois de ele mudar. A primeira execução capturou `Meu Perfil` e falhou ao injetar toque quando o nó já era `Perfil de Conta atual`. Uma espera inicial aplicada sem distinguir layout falhou no PHONE porque o controle só está dentro de `Mais ações`.
+- `GREEN`: o teste agora espera o rótulo `Perfil de Conta atual` apenas no Home amplo; PHONE compacto mantém o caminho pelo menu. Após alternar, o fluxo existente confirma persistência de token/usuário/servidor/device, espera a conta anterior reaparecer como alternativa e verifica que o nome da conta atual permanece como único rótulo do cabeçalho.
+- `RESULTADOS`: `profileQuickSwitchPersistsSelectedAccountAndKeepsServerAndDevice` passou 1/1 em PHONE/API 35 e 1/1 em TABLET/API 35; XMLs `validation-evidence/2026-10-15/profile-quick-switch-visible-identity-{PHONE,TABLET}-API35.xml`. A suíte forçada completa inicialmente teve uma falha em `SettingsViewModelTest.clearing series track preferences leaves account defaults in place` (Dispatchers.Main resetado); o teste focal passou e a repetição do módulo Settings passou 63/63. O agregador `testDebugUnitTest` depois concluiu `BUILD SUCCESSFUL`; XMLs presentes: 1.776 testes/256 arquivos, 0 falhas/erros/ignorados. `:app:lintDebug`, `:app:assembleDebug` (UP-TO-DATE) e `:app:compileDebugAndroidTestKotlin` passaram.
+- `LIMITES`: servidor é MockWebServer; sem autenticação implantada, aparelho físico, validação da troca entre servidores nem aceite formal APK-H02. O resultado acima fecha somente a confirmação visual da troca de conta no mesmo servidor, não a pendência integrada de troca de servidor.
+- `ESCOPO`: AndroidTest/helper e documentação; nenhum runtime, módulo, dependência, API, build number, assinatura, release, portal ou servidor alterado.
+- `TWINS`: searched `firstOrNull.*Perfil|onNodeWithContentDescription\("Meu Perfil"|Perfil de Conta atual` - outros fluxos existentes usam helpers profile-aware em `MainActivitySessionNavigationTest.kt`; nenhum helper equivalente novo identificado fora desse arquivo.
+
 ## Jornadas instrumentadas separadas por perfil — 2026-10-15
 
 - `INTENT`: os fluxos de Live TV devem ser executáveis somente em Android TV; os demais cenários da classe de navegação devem seguir a UX PHONE/TABLET. O wrapper deve selecionar os testes conforme o perfil confirmado do AVD sem reclassificar falhas como skips.
@@ -1357,6 +1450,7 @@ Verificação instrumentada adicional de Livros na Android TV em 2026-10-08: `Tv
 - RED: teste de contrato temporário para callback paginado compilou e falhou na asserção enquanto a API não existia. Removido após adicionar testes comportamentais, para evitar depender do formato JVM da assinatura Kotlin.
 - GREEN: `BookPdfTextSearch` informa páginas lidas com no máximo 100 checkpoints periódicos, além de início/fim quando não coincidem. Para 5.000 páginas, 101 notificações no total; teste de fronteira em 199 páginas também confirma 101. Progresso é emitido após decodificar/ler cada página, logo não anuncia 100% antes da última leitura.
 - Testes JVM cobrem monotonicidade, limite, consulta vazia e cancelamento no callback que impede começar a página seguinte. Compose AndroidTest confere texto de progresso, `ProgressBarRangeInfo` e `LiveRegionMode.Polite`; compilado, não executado em dispositivo.
+- Revalidação PHONE/API 35 em 2026-10-15: `BookTextSearchDialogTest.paginatedSearchShowsAccessibleDeterminateProgress` executou 1/1, sem falhas/erros/ignorados. Relatório `validation-evidence/2026-10-15/book-text-search-progress-phone-api35.xml`. Confirma texto visível e árvore semântica; não confirma fala audível do TalkBack nem OCR real.
 - Gates em 2026-10-12: suíte `testDebugUnitTest`, lint item-detail/app, `assembleDebug` e compilação AndroidTest do módulo/app — `BUILD SUCCESSFUL`. AVD `MulletaflixApi35` segue reservada e ADB ausente; execução visual continua pendente.
 - Auditoria final do grafo Android: `graphify update . --no-cluster` — 11.664 nós/30.902 links; `graphify explain BookPdfTextSearch` e `BookTextSearchDialog` confirmaram ligações ao teste Compose. Export agregado: 89 comunidades, 0 ligações intercomunidade; CLI 0.9.79 (skill 0.9.84), 84 arquivos sem classificação, um teste com extração sintática parcial, 29 sem símbolos. HTML no vault conferido por SHA-256. Grafo raiz do repositório, atualizado na mesma data: 64.429 nós/166.238 links. TWINS: busca por `BookPdfTextSearch.search` e `Text("Buscando…")` encontrou 0 outros fluxos paginados sem progresso; “Buscando…” permanece apenas como estado inicial indeterminado do mesmo diálogo.
 
@@ -1556,6 +1650,16 @@ Verificação instrumentada adicional de Livros na Android TV em 2026-10-08: `Tv
 - `QUALITY GATE`: `testDebugUnitTest :feature:item-detail:lintDebug :app:lintDebug :app:assembleDebug :feature:item-detail:compileDebugAndroidTestKotlin :app:compileDebugAndroidTestKotlin --no-daemon --console=plain` concluiu `BUILD SUCCESSFUL`; 1.732 testes em 252 relatórios, zero falhas/erros/ignorados; 881 ações, 7 executadas e 874 up-to-date.
 - `LIMITES`: fixture sintética, não arquivo real servido pelo servidor; PHONE, aparelho físico, TalkBack e diversidade de MOBI/KF8 permanecem pendentes. Não atualizar homologação formal por contagem de testes. Nenhum código de produção, dependência, versão, APK de produção, servidor ou portal alterado.
 
+## RED-GREEN — ênfase semântica e CSS inline para HTML/KF8 — 2026-10-15
+
+- `INTENT`: a conversão HTML/KF8 para chunks preservava conteúdo e recursos, mas a tela não mostrava negrito/itálico. Exigir intervalos semânticos `<b>/<strong>/<i>/<em>` e CSS inline comum em Compose.
+- `RED`: o novo `PlainTextBookReaderIntegrationTest.htmlBookPreservesBoldAndItalicFormatting` falhou na inspeção de `AnnotatedString.spanStyles` antes da implementação (1 teste, 1 falha, sem erro/skip; XML preservado em `validation-evidence/2026-10-15/kf8-inline-formatting-phone-red.xml`).
+- `GREEN`: `PlainTextBookDocument` agora produz `PlainTextBookTextStyleSpan`, preserva limites de abertura/fechamento no scanner linear, mapeia intervalos para chunks e limita marcadores; a tela aplica `SpanStyle` por segmento. Testes unitários do `PlainTextBookDocumentTest` passaram. A jornada Compose passou PHONE/API 35 e TABLET/API 35 (1/1 em cada, 0 falhas/erros/ignorados); XMLs `validation-evidence/2026-10-15/kf8-inline-formatting-{phone,tablet}-api35.xml`.
+- `ESCOPO CSS`: implementa semântica de ênfase, valores inline simples `font-weight` (`bold`, `bolder`, numérico >=600) e `font-style` (`italic`, `oblique`). Não implementa CSS externo, classes, fontes, cascading completo ou fidelidade Kindle integral.
+- `HOMOLOGAÇÃO`: fixture HTML sintética e AVDs não provam leitura de arquivo AZW3 autorizado em aparelho real; APK-H21/formalSignoff e matriz permanecem inalterados.
+- `QUALITY GATE`: `testDebugUnitTest :feature:item-detail:lintDebug :app:lintDebug :app:assembleDebug :feature:item-detail:compileDebugAndroidTestKotlin :app:compileDebugAndroidTestKotlin --no-daemon --console=plain` — `BUILD SUCCESSFUL` (881 tarefas, 40 executadas e 841 `UP-TO-DATE`). A suíte completa foi solicitada; a maior parte dos módulos sem mudanças foi reutilizada pelo Gradle, enquanto `feature:item-detail:testDebugUnitTest` executou após mudança no parser. Lint módulo/app, assemble Debug e compilação AndroidTest concluídos sem falha.
+- `GRAPHIFY`: atualização e `explain` executados depois de finalizar os documentos-fonte; snapshot/hashes na memória do projeto e em [[Arquitetura/MulletaFlix — Grafo de arquitetura]].
+
 ### Revalidação PHONE — sumário MOBI e locator — 2026-10-13
 
 - `INTENÇÃO`: estender a matriz do teste Compose já aprovado em TABLET para PHONE, sem alterar o comportamento do APK.
@@ -1633,3 +1737,50 @@ Verificação instrumentada adicional de Livros na Android TV em 2026-10-08: `Tv
 - **TENTATIVAS:** primeira execução PHONE/API 35 expirou aguardando callback por 5 s; não foi falha de produção. Após elevar somente o limite do teste para 20 s, repetiu e passou. Não se classifica como RED TDD de comportamento.
 - **DEVICE:** PHONE/API 35 1/1 (13,704 s) e TABLET/API 35 1/1 (9,514 s), 0 falhas/erros/ignorados. NVIDIA confirmada; wrapper iniciou e encerrou os AVDs. XMLs `validation-evidence/2026-10-15/pdf-ocr-search-cancel-{phone,tablet}-api35.xml`.
 - **QUALIDADE/LIMITE:** `testDebugUnitTest :feature:item-detail:lintDebug :app:lintDebug :app:assembleDebug :feature:item-detail:compileDebugAndroidTestKotlin --no-daemon --console=plain` terminou `BUILD SUCCESSFUL` (871 tarefas: 4 executadas, 867 `UP-TO-DATE`); testes JVM e assemble não foram reexecutados, logo nenhum contador novo é alegado. `git diff --check` conferido ao final. Tasks/resultados são sintéticos; sem OCR ML Kit real, mídia autorizada, TalkBack, TV, latência, bateria ou hardware. APK-H21 e `formalSignoff` permanecem pendentes; sem alteração runtime, versão, release, assinatura, servidor ou portal.
+
+## Visibilidade do nome após troca de servidor no Perfil — 2026-10-15
+
+- `INTENT: code opens the Profile after authentication but the name can be outside the visible viewport; the failing Compose assertion expects the authenticated name to be displayed; the product flow requires the current server account to be identifiable in Profile.`
+- `RED`: o cenário `switchingServerFromProfileDoesNotRestorePreviousProfileOnBackAfterLogin` falhou no PHONE e no TABLET quando exigia `assertIsDisplayed()` sem rolar. O dump diagnóstico continha `N | New user`, mas o nome não estava visível no viewport no momento da asserção; trocar somente para busca por substring não resolveu a falha no TABLET.
+- `GREEN`: o teste AndroidTest agora chama `performScrollTo()` no nó do nome antes de `assertIsDisplayed()`. Não houve alteração em `ProfileScreen`, navegação, runtime ou dependências; o contrato automatizado é que o nome autenticado seja encontrável e fique visível na área rolável do Perfil.
+- `DEVICE`: após a correção do teste, PHONE/API 35 passou 1/1 em 16,485 s e TABLET/API 35 passou 1/1 em 13,469 s. Relatórios preservados em `validation-evidence/2026-10-15/server-switch-scroll-visibility-{PHONE,TABLET}-API35.xml`; AVDs temporários com GPU NVIDIA, encerrados pelo wrapper.
+- `QUALITY`: repetição forçada `testDebugUnitTest :app:lintDebug :app:assembleDebug :app:compileDebugAndroidTestKotlin --rerun-tasks --no-daemon --console=plain` — `BUILD SUCCESSFUL`, 871 tarefas; XMLs JVM somam 1.776 testes em 256 relatórios, 0 falhas/erros/ignorados. `git diff --check` passou; somente avisos existentes de CRLF e warnings de compilação foram emitidos.
+- `LIMITE`: fixture MockWebServer/sessão sintética e AVD, sem backend real, dispositivo físico ou homologação formal. Uma falha histórica de login em B/401, registrada em 13/10, permanece distinta e não explicada; a matriz APK-H02 não muda.
+- `TWINS`: searched `onNodeWithText("New user", useUnmergedTree = true).assertIsDisplayed()` in app AndroidTests - found the single profile-switch assertion in `MainActivitySessionNavigationTest.kt`; it now scrolls the matched content into view before asserting.
+- `ESCOPO`: AndroidTest, evidência e documentação do APK; sem runtime, dependência, versão, assinatura, release, portal ou servidor.
+## RED-GREEN — sublinhado e tachado HTML/KF8 — 2026-10-15
+
+- `INTENT`: o leitor convertia ênfase HTML/CSS em spans Compose apenas para negrito e itálico; `<u>/<ins>/<s>/<strike>/<del>` e `text-decoration` eram descartados. O teste exige sublinhado e tachado visíveis, inclusive via CSS embutido limitado.
+- `RED`: `PlainTextBookDocumentTest.preserves semantic and bounded CSS underline and line-through styles` falhou ao compilar porque o modelo de span não tinha `underline`/`lineThrough`. Após adicionar os campos à expectativa, uma execução mostrou os intervalos normalizados reais (espaços adjacentes entram no intervalo); expectativas foram ajustadas aos offsets observados, não removidas.
+- `GREEN`: o parser agora preserva tags semânticas e declarações `text-decoration: underline|line-through|none` em CSS inline/folha embutida, aplica a cascata existente por propriedade para seletores já suportados, e transporta as flags entre chunks. Compose aplica `TextDecoration` combinada sem perder o sublinhado de links.
+- `RESULTADOS`: teste focal do parser passou 1/1; `PlainTextBookReaderIntegrationTest.htmlBookPreservesUnderlineAndLineThroughFormatting` passou 1/1 em PHONE/API 35 (6,300 s), XML `validation-evidence/2026-10-15/kf8-text-decoration-PHONE-API35.xml`. Quality gate forçado: `testDebugUnitTest --rerun-tasks :feature:item-detail:lintDebug :app:lintDebug :app:assembleDebug :feature:item-detail:compileDebugAndroidTestKotlin :app:compileDebugAndroidTestKotlin --no-daemon --console=plain` — `BUILD SUCCESSFUL`, 881 tarefas; 1.779 testes em 256 XML, 0 falhas/erros/ignorados.
+- `LIMITES`: fixture HTML sintética e AVD; não comprova arquivos KF8/AZW3 reais autorizados, TalkBack, dispositivo físico, CSS externo, combinadores/pseudo-seletores, fontes ou cascata/herança completas. APK-H21 e homologação formal não avançam.
+- `ESCOPO`: somente parser/renderização do módulo item-detail, testes, documentação e grafo Android/vault. Sem dependência nova, mudança de servidor/portal, versão ou release.
+
+## RED-GREEN — reset de estilo e propagação de decoração HTML/KF8 — 2026-10-15
+
+- `RED`: `htmlBookExplicitNormalStyleResetsInheritedBoldAndItalic` falhou em PHONE/API 35 porque o filho com `font-weight: normal; font-style: normal` continuava herdando estilo em vez de expor `FontWeight.Normal`/`FontStyle.Normal`.
+- `GREEN`: modelo de span diferencia valor ausente (`null`) e reset explícito (`false`), preserva profundidade de escopo, e Compose resolve bold/italic pela declaração mais profunda. Reset passou 1/1 nos perfis PHONE/API 35, TABLET/API 35 e TV/API 34.
+- `RED` adicional da revisão: `htmlBookTextDecorationPropagatesThroughDescendantWithNone` detectou que a decoração do pai era anulada por `text-decoration:none` do filho. Compose agora acumula underline/line-through ativos; teste passou 1/1 nos três perfis. A classe completa `PlainTextBookReaderIntegrationTest` passou 15/15 em PHONE/API 35.
+- `GATE`: `PlainTextBookDocumentTest` 41/41; suíte integral forçada 1.780/1.780 em 256 XML; lint módulo/app, assembleDebug e compilação AndroidTest módulo/app passaram. A revisão independente foi somente leitura. O achado referente a `!important` em ancestral foi avaliado como falso positivo para cascata: a declaração é por elemento e o valor declarado diretamente no filho pode sobrepor a herança.
+- `LIMITES`: CSS externo/cascata geral e arquivo real continuam pendentes; APK-H21 não recebe aceite. Nenhuma dependência, módulo, API externa, versão, release ou servidor alterado.
+
+## Revalidação instrumentada de imagem KF8 em TV — 2026-10-15
+
+- `OBJETIVO`: estender a evidência do teste de MOBI híbrido completo, já executado em PHONE e TABLET, ao perfil Android TV; nenhuma falha de produção foi reportada, portanto esta rodada não é RED/GREEN nem altera comportamento.
+- `TESTE`: `PlainTextBookReaderIntegrationTest.hybridMobiImageRendersAtOriginalPositionInFullDocumentAfterScroll` abre fixture AZW3 calibre em MOBI híbrido sintético, injeta PNG magenta, percorre extrator e documento completos, rola até a imagem original e verifica pixel e descrição acessível.
+- `RESULTADO`: TV/API 34, 1 teste, 0 falhas, 0 erros, 0 ignorados; duração 134,355 s. XML `validation-evidence/2026-10-15/hybrid-mobi-full-document-tv-api34.xml`. Wrapper confirmou GPU NVIDIA RTX 3050 e desligou o AVD `MulletaflixCodexTvApi34_20261015`; ADB ficou sem dispositivos.
+- `LIMITES`: fixture sintética e Android Emulator; não verifica D-pad/OK, fala do TalkBack, dispositivo físico, servidor ou arquivos comerciais/autorizados. APK-H21, formalSignoff e matriz permanecem inalterados.
+- `GATE`: teste focal concluiu `BUILD SUCCESSFUL`; suíte JVM, lint e build completo não foram reexecutados nesta sessão, pois não houve alteração de produção.
+- `ESCOPO`: evidência/testes e documentação Android; nenhum runtime, dependência, versão, assinatura, APK release, portal ou servidor alterado.
+
+## RED-GREEN — prioridade CSS `!important` e ordem de folhas HTML/KF8 — 2026-10-15
+
+- `INTENT`: o parser descartava `!important`, reiniciava a ordem-fonte em cada `<style>` e criava spans para elementos HTML vazios; os testes exigem precedência importante, ordem contínua e nenhum vazamento de estilo para texto posterior; `TODO-APP.md` listava as lacunas como não suportadas.
+- `RED`: `embedded important declaration overrides normal inline style` reproduziu o conflito folha importante vs. inline normal. A revisão independente ainda encontrou contador de ordem reiniciado por bloco; `embedded stylesheet source order continues across style blocks` falhou com classes na ordem que antes escondia o defeito.
+- `RED` adicional da revisão independente: `void and self closing elements do not leak their text style` falhou quando o guard foi retirado. A fixture cobre `<br>`, `<img/>`, `<span/>` e `<embed>`; outro teste cobre `/` dentro de atributo entre aspas.
+- `GREEN`: prioridade é mantida por propriedade, declarações importantes vencem normais, estilo inline importante vence stylesheet importante e a escolha entre regras embutidas usa importância, especificidade e contador global monotônico. Elementos void e self-closing não abrem span; `/>` dentro de atributo quoted não é tratado como delimitador. `PlainTextBookDocumentTest` passou 45/45.
+- `DEVICE`: `htmlBookImportantStylesheetOverridesNormalInlineFormatting` passou 1/1 em PHONE/API 35, TABLET/API 35 e TV/API 34. XMLs em `validation-evidence/2026-10-15/html-important-cascade-{phone-api35,tablet-api35,tv-api34}.xml`; wrapper validou GPU NVIDIA e fechou cada AVD temporário.
+- `QUALITY`: quality gate forçado `testDebugUnitTest --rerun-tasks :feature:item-detail:lintDebug :app:lintDebug :app:assembleDebug :feature:item-detail:compileDebugAndroidTestKotlin :app:compileDebugAndroidTestKotlin --no-daemon --console=plain` concluiu `BUILD SUCCESSFUL`, 881 tarefas; XMLs somam 1.784 testes JVM em 256 relatórios, 0 falhas/erros/ignorados.
+- `LIMITE`: HTML/CSS embutido sintético; não é suporte CSS completo nem valida arquivo AZW3 real/autorizado, TalkBack, dispositivo físico, servidor ou release. APK-H21/matriz formal não avançam.
+- `ESCOPO`: parser/testes Android, documentação local, espelho de homologação e vault; sem mudança no servidor, versão, assinatura, APK de produção, release ou deploy.

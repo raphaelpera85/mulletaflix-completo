@@ -463,6 +463,202 @@ class PlainTextBookDocumentTest {
     }
 
     @Test
+    fun `applies bounded embedded stylesheet emphasis to matching class selectors`() = withTempDirectory { directory ->
+        val file = directory.resolve("styled-book.html").apply {
+            writeText(
+                "<html><head><style>.emphasis { font-weight: 700; font-style: italic; }</style></head>" +
+                    "<body><p>Normal <span class='emphasis'>styled</span> end.</p></body></html>",
+            )
+        }
+
+        val document = PlainTextBookDocument.open(file, "text/html")
+
+        assertEquals("Normal styled end.", document.chunks.joinToString(""))
+        assertEquals(
+            listOf(PlainTextBookTextStyleSpan(start = 7, endExclusive = 13, bold = true, italic = true)),
+            document.textStylesByChunk.getValue(0),
+        )
+    }
+
+    @Test
+    fun `honors selector specificity and source order while ignoring nested media rules`() = withTempDirectory { directory ->
+        val file = directory.resolve("selector-book.html").apply {
+            writeText(
+                "<style>.selected { font-weight: normal } span#selected { font-weight: bold } " +
+                    "#selected { font-style: italic } span.ordered { font-style: normal } " +
+                    "span.ordered { font-style: italic } " +
+                    "@media screen { span.media-only { font-weight: bold } }</style>" +
+                    "<span id='selected' class='selected'>Selected</span> " +
+                    "<span class='media-only'>Media only</span> <span class='ordered'>Ordered</span>",
+            )
+        }
+
+        val document = PlainTextBookDocument.open(file, "text/html")
+
+        assertEquals("Selected Media only Ordered", document.chunks.joinToString(""))
+        assertEquals(
+            listOf(
+                PlainTextBookTextStyleSpan(start = 0, endExclusive = 8, bold = true, italic = true),
+                PlainTextBookTextStyleSpan(start = 20, endExclusive = 27, bold = null, italic = true),
+            ),
+            document.textStylesByChunk.getValue(0),
+        )
+    }
+
+    @Test
+    fun `embedded important declaration overrides normal inline style`() = withTempDirectory { directory ->
+        val file = directory.resolve("important-book.html").apply {
+            writeText(
+                "<style>#important { font-weight: bold !important }</style>" +
+                    "<span id='important' style='font-weight: normal'>Important</span>",
+            )
+        }
+
+        val document = PlainTextBookDocument.open(file, "text/html")
+
+        assertEquals("Important", document.chunks.joinToString(""))
+        assertEquals(
+            listOf(PlainTextBookTextStyleSpan(start = 0, endExclusive = 9, bold = true, italic = null)),
+            document.textStylesByChunk.getValue(0),
+        )
+    }
+
+    @Test
+    fun `embedded stylesheet source order continues across style blocks`() = withTempDirectory { directory ->
+        val file = directory.resolve("stylesheet-order.html").apply {
+            writeText(
+                "<style>.first { font-weight: bold }</style>" +
+                    "<style>.second { font-weight: normal }</style>" +
+                    "<span class='first second'>Ordered</span>",
+            )
+        }
+
+        val document = PlainTextBookDocument.open(file, "text/html")
+
+        assertEquals("Ordered", document.chunks.joinToString(""))
+        assertEquals(
+            listOf(PlainTextBookTextStyleSpan(start = 0, endExclusive = 7, bold = false, italic = null)),
+            document.textStylesByChunk.getValue(0),
+        )
+    }
+
+    @Test
+    fun `void and self closing elements do not leak their text style`() = withTempDirectory { directory ->
+        val file = directory.resolve("void-element-style.html").apply {
+            writeText(
+                "<br style='font-weight: bold'>After break " +
+                    "<img style='font-style: italic' src='data:image/png;base64,AA=='/>After image " +
+                    "<span style='font-weight: bold'/>After self closing span " +
+                    "<embed style='font-weight: bold'>After embed",
+            )
+        }
+
+        val document = PlainTextBookDocument.open(file, "text/html")
+
+        val text = document.chunks.joinToString("")
+        assertTrue(text.contains("After break"))
+        assertTrue(text.contains("After image"))
+        assertTrue(text.contains("After self closing span"))
+        assertTrue(text.contains("After embed"))
+        assertTrue(document.textStylesByChunk.getOrDefault(0, emptyList()).isEmpty())
+    }
+
+    @Test
+    fun `slash inside quoted attribute does not make an HTML element self closing`() = withTempDirectory { directory ->
+        val file = directory.resolve("quoted-slash-attribute.html").apply {
+            writeText("<span data-token='/' style='font-weight: bold'>Quoted slash</span>")
+        }
+
+        val document = PlainTextBookDocument.open(file, "text/html")
+
+        assertEquals("Quoted slash", document.chunks.joinToString(""))
+        assertEquals(
+            listOf(PlainTextBookTextStyleSpan(start = 0, endExclusive = 12, bold = true, italic = null)),
+            document.textStylesByChunk.getValue(0),
+        )
+    }
+
+    @Test
+    fun `preserves nested explicit normal style overrides`() = withTempDirectory { directory ->
+        val file = directory.resolve("nested-style-reset.html").apply {
+            writeText(
+                "<style>.emphasis { font-weight: bold; font-style: italic }</style>" +
+                    "<span class='emphasis'>before <span style='font-weight: normal; font-style: normal'>" +
+                    "reset</span> after</span>",
+            )
+        }
+
+        val document = PlainTextBookDocument.open(file, "text/html")
+
+        assertEquals("before reset after", document.chunks.joinToString(""))
+        assertEquals(
+            listOf(
+                PlainTextBookTextStyleSpan(
+                    start = 7,
+                    endExclusive = 12,
+                    bold = false,
+                    italic = false,
+                    depth = 1,
+                ),
+                PlainTextBookTextStyleSpan(start = 0, endExclusive = 18, bold = true, italic = true),
+            ),
+            document.textStylesByChunk.getValue(0),
+        )
+    }
+
+    @Test
+    fun `preserves semantic and bounded CSS underline and line-through styles`() = withTempDirectory { directory ->
+        val file = directory.resolve("decorated-book.html").apply {
+            writeText(
+                "<style>.under { text-decoration: underline } #removed { text-decoration: line-through }</style>" +
+                    "<p><u>Underlined</u> <s>Struck</s> <span class='under'>CSS underline</span> " +
+                    "<span id='removed'>CSS struck</span></p>",
+            )
+        }
+
+        val document = PlainTextBookDocument.open(file, "text/html")
+
+        assertEquals("Underlined Struck CSS underline CSS struck", document.chunks.joinToString(""))
+        assertEquals(
+            listOf(
+                PlainTextBookTextStyleSpan(
+                    start = 0,
+                    endExclusive = 10,
+                    bold = null,
+                    italic = null,
+                    underline = true,
+                    lineThrough = null,
+                ),
+                PlainTextBookTextStyleSpan(
+                    start = 11,
+                    endExclusive = 17,
+                    bold = null,
+                    italic = null,
+                    underline = null,
+                    lineThrough = true,
+                ),
+                PlainTextBookTextStyleSpan(
+                    start = 18,
+                    endExclusive = 31,
+                    bold = null,
+                    italic = null,
+                    underline = true,
+                    lineThrough = false,
+                ),
+                PlainTextBookTextStyleSpan(
+                    start = 32,
+                    endExclusive = 42,
+                    bold = null,
+                    italic = null,
+                    underline = false,
+                    lineThrough = true,
+                ),
+            ),
+            document.textStylesByChunk.getValue(0),
+        )
+    }
+
+    @Test
     fun `preserves bounded embedded raster images in readable HTML`() = withTempDirectory { directory ->
         val imageBytes = android.util.Base64.decode(
             "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/F5sAAAAASUVORK5CYII=",

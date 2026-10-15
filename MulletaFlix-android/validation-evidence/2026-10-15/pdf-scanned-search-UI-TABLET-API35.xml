@@ -1,0 +1,9 @@
+<?xml version='1.0' encoding='UTF-8' ?>
+<testsuites tests="1" failures="0" errors="0" skipped="0" time="0.000" timestamp="2026-10-15T10:47:46" hostname="localhost">
+  <testsuite name="org.mulletaflix.feature.itemdetail.BookReaderScreenIntegrationTest" tests="1" failures="0" errors="0" skipped="0" time="20.288" timestamp="2026-10-15T10:47:46" hostname="localhost">
+    <properties>
+      <property name="device" value="emulator-5582" />
+    </properties>
+    <testcase name="scannedPdfOcrSearchFindsAndOpensMatchingPageOffline" classname="org.mulletaflix.feature.itemdetail.BookReaderScreenIntegrationTest" time="20.288" />
+  </testsuite>
+</testsuites>

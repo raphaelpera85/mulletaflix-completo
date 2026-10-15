@@ -1,0 +1,9 @@
+<?xml version='1.0' encoding='UTF-8' ?>
+<testsuites tests="1" failures="0" errors="0" skipped="0" time="0.000" timestamp="2026-10-15T16:22:31" hostname="localhost">
+  <testsuite name="org.mulletaflix.feature.player.PlayerPictureInPictureLifecycleTest" tests="1" failures="0" errors="0" skipped="0" time="10.543" timestamp="2026-10-15T16:22:31" hostname="localhost">
+    <properties>
+      <property name="device" value="emulator-5560" />
+    </properties>
+    <testcase name="mediaKeepsPlayingInPipAndPausesWhenPipActivityCloses" classname="org.mulletaflix.feature.player.PlayerPictureInPictureLifecycleTest" time="10.543" />
+  </testsuite>
+</testsuites>

@@ -1354,6 +1354,53 @@ class BookReaderScreenIntegrationTest {
         }
     }
 
+    @Test(timeout = 60_000)
+    fun scannedPdfOcrSearchFindsAndOpensMatchingPageOffline() {
+        server.enqueue(
+            MockResponse()
+                .setResponseCode(200)
+                .addHeader("Content-Type", "application/pdf")
+                .setBody(Buffer().write(createScannedPdfFixture())),
+        )
+        val api = Retrofit.Builder()
+            .baseUrl(server.url("/"))
+            .client(OkHttpClient())
+            .build()
+            .create(MulletaFlixApiService::class.java)
+        val viewModel = ViewModelProvider(
+            viewModelStore,
+            object : ViewModelProvider.Factory {
+                @Suppress("UNCHECKED_CAST")
+                override fun <T : ViewModel> create(modelClass: Class<T>): T =
+                    BookReaderViewModel(api, TestSessionRepository(sessionScope), context) as T
+            },
+        )[BookReaderViewModel::class.java]
+
+        composeRule.setContent {
+            MaterialTheme {
+                BookReaderScreen(itemId = "reader-scanned-pdf-${System.nanoTime()}", onBack = {}, viewModel = viewModel)
+            }
+        }
+
+        composeRule.waitUntil(timeoutMillis = 15_000) {
+            runCatching { composeRule.onNodeWithText("Página 1 de 2").assertIsDisplayed() }.isSuccess
+        }
+        composeRule.onNodeWithContentDescription("Buscar no livro").assertIsDisplayed().performClick()
+        composeRule.onNodeWithTag(BOOK_TEXT_SEARCH_QUERY_TEST_TAG).performTextInput("pagina vertical")
+        composeRule.onNodeWithText("Buscar").performClick()
+        composeRule.waitUntil(timeoutMillis = 30_000) {
+            composeRule.onAllNodesWithTag("$BOOK_TEXT_SEARCH_RESULT_TEST_TAG-0").fetchSemanticsNodes().isNotEmpty()
+        }
+        composeRule.onNodeWithTag("$BOOK_TEXT_SEARCH_RESULT_TEST_TAG-0")
+            .assertIsDisplayed()
+            .assertTextContains("Página 2:", substring = true)
+            .assertTextContains("PAGINA VERTICAL", substring = true)
+            .performClick()
+        composeRule.waitUntil(timeoutMillis = 5_000) {
+            runCatching { composeRule.onNodeWithText("Página 2 de 2").assertIsDisplayed() }.isSuccess
+        }
+    }
+
     @Test
     fun pdfSpeechReadsVisiblePageAdvancesAndStopsOnManualNavigation() {
         server.enqueue(
@@ -2058,6 +2105,47 @@ class BookReaderScreenIntegrationTest {
                     Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.BLACK; textSize = 32f },
                 )
                 document.finishPage(page)
+            }
+            document.writeTo(output)
+            return output.toByteArray()
+        } finally {
+            document.close()
+        }
+    }
+
+    private fun createScannedPdfFixture(): ByteArray {
+        val output = ByteArrayOutputStream()
+        val document = PdfDocument()
+        val pages = listOf(
+            Triple(1200, 600, "PAGINA HORIZONTAL"),
+            Triple(600, 1200, "PAGINA VERTICAL"),
+        )
+        try {
+            pages.forEachIndexed { index, (width, height, label) ->
+                val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+                try {
+                    Canvas(bitmap).apply {
+                        drawColor(Color.WHITE)
+                        drawText(
+                            label,
+                            24f,
+                            height / 2f,
+                            Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                                color = Color.BLACK
+                                textSize = 56f
+                                typeface = android.graphics.Typeface.create(
+                                    "sans-serif",
+                                    android.graphics.Typeface.BOLD,
+                                )
+                            },
+                        )
+                    }
+                    val page = document.startPage(PdfDocument.PageInfo.Builder(width, height, index + 1).create())
+                    page.canvas.drawBitmap(bitmap, 0f, 0f, null)
+                    document.finishPage(page)
+                } finally {
+                    bitmap.recycle()
+                }
             }
             document.writeTo(output)
             return output.toByteArray()

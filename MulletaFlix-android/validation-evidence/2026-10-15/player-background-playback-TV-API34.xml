@@ -1,0 +1,11 @@
+<?xml version='1.0' encoding='UTF-8' ?>
+<testsuites tests="3" failures="0" errors="0" skipped="0" time="0.000" timestamp="2026-10-15T16:17:09" hostname="localhost">
+  <testsuite name="org.mulletaflix.feature.player.PlayerBackgroundPlaybackTest" tests="3" failures="0" errors="0" skipped="0" time="9.582" timestamp="2026-10-15T16:17:09" hostname="localhost">
+    <properties>
+      <property name="device" value="emulator-5558" />
+    </properties>
+    <testcase name="activeMediaPausesWhenAndroidTvHomeKeyMinimizesTheActivity" classname="org.mulletaflix.feature.player.PlayerBackgroundPlaybackTest" time="5.727" />
+    <testcase name="activeMediaKeepsPlayingOnPauseThenPausesWhenActivityStops" classname="org.mulletaflix.feature.player.PlayerBackgroundPlaybackTest" time="1.993" />
+    <testcase name="activeMediaPausesWhenActivityMovesDirectlyToStoppedState" classname="org.mulletaflix.feature.player.PlayerBackgroundPlaybackTest" time="1.862" />
+  </testsuite>
+</testsuites>

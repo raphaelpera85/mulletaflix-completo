@@ -442,11 +442,16 @@ class MainActivitySessionNavigationTest {
         launchMainActivity()
 
         composeRule.waitUntil(timeoutMillis = 20_000) { homeVisible() }
-        composeRule.waitUntil(timeoutMillis = 20_000) {
-            runCatching {
-                composeRule.onNodeWithContentDescription("Perfil de Conta atual", useUnmergedTree = true)
-                    .assertIsDisplayed()
-            }.isSuccess
+        val compactHome = runCatching {
+            composeRule.onNodeWithContentDescription("Mais ações", useUnmergedTree = true).assertIsDisplayed()
+        }.isSuccess
+        if (!compactHome) {
+            composeRule.waitUntil(timeoutMillis = 20_000) {
+                runCatching {
+                    composeRule.onNodeWithContentDescription("Perfil de Conta atual", useUnmergedTree = true)
+                        .assertIsDisplayed()
+                }.isSuccess
+            }
         }
         openProfileFromHome()
         val switcherLoaded = runCatching {
@@ -526,6 +531,9 @@ class MainActivitySessionNavigationTest {
                     "/Users/AuthenticateByName" -> MockResponse()
                         .setHeader("Content-Type", "application/json")
                         .setBody("""{"AccessToken":"new-token","ServerId":"new-server","User":{"Id":"new-user","Name":"New user","ServerId":"new-server"}}""")
+                    "/Users/Me" -> MockResponse()
+                        .setHeader("Content-Type", "application/json")
+                        .setBody("""{"Id":"new-user","Name":"New user","ServerId":"new-server"}""")
                     else -> MockResponse().setResponseCode(404)
                 }
                 }
@@ -587,6 +595,55 @@ class MainActivitySessionNavigationTest {
         )
         assertEquals(newServerUrl, sessionRepository.getBaseUrl().first())
         assertEquals("new-user", sessionRepository.getCurrentUserId().first())
+
+        val newProfileDescription = "Perfil de New user"
+        val compactHome = runCatching {
+            composeRule.onNodeWithContentDescription("Mais ações", useUnmergedTree = true).assertIsDisplayed()
+        }.isSuccess
+        if (compactHome) {
+            composeRule.onNodeWithContentDescription("Mais ações", useUnmergedTree = true).performClick()
+        }
+        val visibleNewProfile = runCatching {
+            composeRule.waitUntil(timeoutMillis = 10_000) {
+                val profileAction = if (compactHome) {
+                    composeRule.onNodeWithText(newProfileDescription, useUnmergedTree = true)
+                } else {
+                    composeRule.onNodeWithContentDescription(newProfileDescription, useUnmergedTree = true)
+                }
+                profileAction.assertIsDisplayed()
+                true
+            }
+        }.isSuccess
+        assertTrue(
+            "A Home do servidor novo deve exibir a identidade autenticada; " +
+                "requests=${newServerRequests.filter { it.startsWith("GET /Users/Me") }}, " +
+                "savedUser=${sessionRepository.getCurrentUserId().first()}",
+            visibleNewProfile,
+        )
+        assertTrue(
+            "A identidade deve vir do perfil atual do servidor novo, e não apenas do estado da sessão; " +
+                "requests=$newServerRequests",
+            newServerRequests.any { it.startsWith("GET /Users/Me") },
+        )
+        val profileAction = if (compactHome) {
+            composeRule.onNodeWithText(newProfileDescription, useUnmergedTree = true)
+        } else {
+            composeRule.onNodeWithContentDescription(newProfileDescription, useUnmergedTree = true)
+        }
+        profileAction.performClick()
+        composeRule.waitUntil(timeoutMillis = 10_000) {
+            composeRule.onAllNodesWithText("Meu Perfil", useUnmergedTree = true)
+                .fetchSemanticsNodes().isNotEmpty()
+        }
+        composeRule.waitUntil(timeoutMillis = 10_000) {
+            composeRule.onAllNodesWithText("New user", useUnmergedTree = true)
+                .fetchSemanticsNodes().isNotEmpty()
+        }
+        composeRule.onNodeWithText("New user", useUnmergedTree = true)
+            .performScrollTo()
+            .assertIsDisplayed()
+        activityScenario?.onActivity { it.onBackPressedDispatcher.onBackPressed() }
+        composeRule.waitUntil(timeoutMillis = 10_000) { homeVisible() }
 
         activityScenario?.onActivity { it.onBackPressedDispatcher.onBackPressed() }
         val leftAuthenticatedTask = runCatching {
@@ -904,6 +961,10 @@ class MainActivitySessionNavigationTest {
             "O deep link autenticado deve disparar GET ao endpoint exato do item solicitado",
             "GET /Users/instrumentation-deep-link-user/Items/$itemId" in receivedRequests,
         )
+        composeRule.waitUntil(timeoutMillis = 20_000) {
+            runCatching { composeRule.onNodeWithText("Linked media fixture").assertIsDisplayed() }.isSuccess
+        }
+        composeRule.onNodeWithText("Linked media fixture").assertIsDisplayed()
 
         activityScenario?.onActivity { activity ->
             activity.onBackPressedDispatcher.onBackPressed()

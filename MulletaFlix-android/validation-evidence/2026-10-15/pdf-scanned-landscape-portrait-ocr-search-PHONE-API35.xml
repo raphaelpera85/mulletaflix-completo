@@ -1,0 +1,9 @@
+<?xml version='1.0' encoding='UTF-8' ?>
+<testsuites tests="1" failures="0" errors="0" skipped="0" time="0.000" timestamp="2026-10-15T10:16:06" hostname="localhost">
+  <testsuite name="org.mulletaflix.feature.itemdetail.PdfBookReaderIntegrationTest" tests="1" failures="0" errors="0" skipped="0" time="9.123" timestamp="2026-10-15T10:16:06" hostname="localhost">
+    <properties>
+      <property name="device" value="emulator-5558" />
+    </properties>
+    <testcase name="scannedPdfPageIsRecognizedOfflineAndIndexedBySearch" classname="org.mulletaflix.feature.itemdetail.PdfBookReaderIntegrationTest" time="9.123" />
+  </testsuite>
+</testsuites>

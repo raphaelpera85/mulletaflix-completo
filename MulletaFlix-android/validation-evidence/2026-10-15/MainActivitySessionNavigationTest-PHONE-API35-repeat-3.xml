@@ -1,0 +1,20 @@
+<?xml version='1.0' encoding='UTF-8' ?>
+<testsuites tests="12" failures="0" errors="0" skipped="0" time="0.000" timestamp="2026-10-15T13:32:40" hostname="localhost">
+  <testsuite name="org.mulletaflix.android.MainActivitySessionNavigationTest" tests="12" failures="0" errors="0" skipped="0" time="81.406" timestamp="2026-10-15T13:32:40" hostname="localhost">
+    <properties>
+      <property name="device" value="emulator-5568" />
+    </properties>
+    <testcase name="switchingServerFromProfileDoesNotRestorePreviousProfileOnBackAfterLogin" classname="org.mulletaflix.android.MainActivitySessionNavigationTest" time="21.544" />
+    <testcase name="authenticatedBookDeepLinkOpensReaderAndSurvivesActivityRecreation" classname="org.mulletaflix.android.MainActivitySessionNavigationTest" time="6.008" />
+    <testcase name="missingSessionStartsInAuthenticationFlow" classname="org.mulletaflix.android.MainActivitySessionNavigationTest" time="2.450" />
+    <testcase name="crossServerDeepLinkAuthenticatesOnTargetServerAndLoadsItemWithoutRequestingOldServer" classname="org.mulletaflix.android.MainActivitySessionNavigationTest" time="9.759" />
+    <testcase name="quickConnectCodeAndPollingSurviveActivityRecreation" classname="org.mulletaflix.android.MainActivitySessionNavigationTest" time="7.143" />
+    <testcase name="incompletePersistedSessionStartsInAuthenticationFlow" classname="org.mulletaflix.android.MainActivitySessionNavigationTest" time="2.562" />
+    <testcase name="completePersistedSessionStartsAtHome" classname="org.mulletaflix.android.MainActivitySessionNavigationTest" time="3.094" />
+    <testcase name="profileQuickSwitchPersistsSelectedAccountAndKeepsServerAndDevice" classname="org.mulletaflix.android.MainActivitySessionNavigationTest" time="5.768" />
+    <testcase name="quickConnectAuthorizationPersistsSessionAndOpensHome" classname="org.mulletaflix.android.MainActivitySessionNavigationTest" time="7.628" />
+    <testcase name="settingsLogoutClearsPersistedSessionBeforeShowingServerSelection" classname="org.mulletaflix.android.MainActivitySessionNavigationTest" time="3.975" />
+    <testcase name="authenticatedMediaDeepLinkOpensDetailsAndRequestsLinkedItem" classname="org.mulletaflix.android.MainActivitySessionNavigationTest" time="3.680" />
+    <testcase name="canceledProfileServerSwitchDoesNotAffectLoginAfterLogout" classname="org.mulletaflix.android.MainActivitySessionNavigationTest" time="7.795" />
+  </testsuite>
+</testsuites>

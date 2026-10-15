@@ -8,6 +8,10 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.text.font.FontStyle
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextDecoration
+import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertTextContains
 import androidx.compose.ui.test.captureToImage
@@ -382,6 +386,226 @@ class PlainTextBookReaderIntegrationTest {
             composeRule.onNodeWithText("window.bad=true").assertDoesNotExist()
             composeRule.onNodeWithText("Hidden attribute").assertDoesNotExist()
             composeRule.onNodeWithText("Hidden style").assertDoesNotExist()
+        } finally {
+            directory.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun htmlBookPreservesBoldAndItalicFormatting() {
+        val directory = Files.createTempDirectory("html-reader-formatting").toFile()
+        try {
+            val file = directory.resolve("formatted.html").apply {
+                writeText(
+                    "<p>Normal <strong>semantically bold</strong> " +
+                        "<em>semantically italic</em> " +
+                        "<span style=\"font-weight: bold; font-style: italic\">inline CSS</span></p>",
+                )
+            }
+            val document = PlainTextBookDocument.open(file, "text/html")
+
+            composeRule.setContent {
+                MaterialTheme {
+                    PlainTextBookReaderContent(
+                        document = document,
+                        currentChunk = 0,
+                        fontSizePercent = 100,
+                        onChunkSelected = {},
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                }
+            }
+
+            val textNode = composeRule.onNodeWithTag("$PLAIN_TEXT_BOOK_CHUNK_TEST_TAG-0")
+            textNode.assertIsDisplayed()
+            val rendered = textNode.fetchSemanticsNode().config[SemanticsProperties.Text].single()
+            assertTrue(
+                rendered.spanStyles.any { style ->
+                    style.item.fontWeight == FontWeight.Bold &&
+                        rendered.text.substring(style.start, style.end) == "semantically bold"
+                },
+            )
+            assertTrue(
+                rendered.spanStyles.any { style ->
+                    style.item.fontStyle == FontStyle.Italic &&
+                        rendered.text.substring(style.start, style.end) == "semantically italic"
+                },
+            )
+            assertTrue(
+                rendered.spanStyles.any { style ->
+                    style.item.fontWeight == FontWeight.Bold && style.item.fontStyle == FontStyle.Italic &&
+                        rendered.text.substring(style.start, style.end) == "inline CSS"
+                },
+            )
+        } finally {
+            directory.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun htmlBookImportantStylesheetOverridesNormalInlineFormatting() {
+        val directory = Files.createTempDirectory("html-reader-important-style").toFile()
+        try {
+            val file = directory.resolve("important.html").apply {
+                writeText(
+                    "<style>#important { font-weight: bold !important }</style>" +
+                        "<span id=\"important\" style=\"font-weight: normal\">Important</span>",
+                )
+            }
+            val document = PlainTextBookDocument.open(file, "text/html")
+
+            composeRule.setContent {
+                MaterialTheme {
+                    PlainTextBookReaderContent(
+                        document = document,
+                        currentChunk = 0,
+                        fontSizePercent = 100,
+                        onChunkSelected = {},
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                }
+            }
+
+            val rendered = composeRule.onNodeWithTag("$PLAIN_TEXT_BOOK_CHUNK_TEST_TAG-0")
+                .fetchSemanticsNode().config[SemanticsProperties.Text].single()
+            assertTrue(
+                rendered.spanStyles.any { style ->
+                    style.item.fontWeight == FontWeight.Bold &&
+                        rendered.text.substring(style.start, style.end) == "Important"
+                },
+            )
+        } finally {
+            directory.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun htmlBookExplicitNormalStyleResetsInheritedBoldAndItalic() {
+        val directory = Files.createTempDirectory("html-reader-style-reset").toFile()
+        try {
+            val file = directory.resolve("style-reset.html").apply {
+                writeText(
+                    "<style>.emphasis { font-weight: bold; font-style: italic }</style>" +
+                        "<p class=\"emphasis\">before " +
+                        "<span style=\"font-weight: normal; font-style: normal\">reset</span> after</p>",
+                )
+            }
+            val document = PlainTextBookDocument.open(file, "text/html")
+
+            composeRule.setContent {
+                MaterialTheme {
+                    PlainTextBookReaderContent(
+                        document = document,
+                        currentChunk = 0,
+                        fontSizePercent = 100,
+                        onChunkSelected = {},
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                }
+            }
+
+            val rendered = composeRule.onNodeWithTag("$PLAIN_TEXT_BOOK_CHUNK_TEST_TAG-0")
+                .fetchSemanticsNode().config[SemanticsProperties.Text].single()
+            fun styleFor(text: String) = rendered.spanStyles.filter { style ->
+                rendered.text.substring(style.start, style.end).contains(text)
+            }
+
+            assertTrue(styleFor("before").any { it.item.fontWeight == FontWeight.Bold })
+            assertTrue(styleFor("before").any { it.item.fontStyle == FontStyle.Italic })
+            assertTrue(styleFor("reset").any { it.item.fontWeight == FontWeight.Normal })
+            assertTrue(styleFor("reset").any { it.item.fontStyle == FontStyle.Normal })
+            assertTrue(styleFor("after").any { it.item.fontWeight == FontWeight.Bold })
+            assertTrue(styleFor("after").any { it.item.fontStyle == FontStyle.Italic })
+        } finally {
+            directory.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun htmlBookTextDecorationPropagatesThroughDescendantWithNone() {
+        val directory = Files.createTempDirectory("html-reader-decoration-propagation").toFile()
+        try {
+            val file = directory.resolve("decoration-propagation.html").apply {
+                writeText(
+                    "<u>parent <span style=\"text-decoration: none\">child</span></u>",
+                )
+            }
+            val document = PlainTextBookDocument.open(file, "text/html")
+
+            composeRule.setContent {
+                MaterialTheme {
+                    PlainTextBookReaderContent(
+                        document = document,
+                        currentChunk = 0,
+                        fontSizePercent = 100,
+                        onChunkSelected = {},
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                }
+            }
+
+            val rendered = composeRule.onNodeWithTag("$PLAIN_TEXT_BOOK_CHUNK_TEST_TAG-0")
+                .fetchSemanticsNode().config[SemanticsProperties.Text].single()
+            val childStyles = rendered.spanStyles.filter { style ->
+                rendered.text.substring(style.start, style.end).contains("child")
+            }
+            assertTrue(childStyles.any { it.item.textDecoration == TextDecoration.Underline })
+        } finally {
+            directory.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun htmlBookPreservesUnderlineAndLineThroughFormatting() {
+        val directory = Files.createTempDirectory("html-reader-text-decoration").toFile()
+        try {
+            val file = directory.resolve("decorated.html").apply {
+                writeText(
+                    "<p><u>underlined</u> <s>struck</s> " +
+                        "<span style=\"text-decoration: underline\">CSS underline</span> " +
+                        "<span style=\"text-decoration: line-through\">CSS struck</span></p>",
+                )
+            }
+            val document = PlainTextBookDocument.open(file, "text/html")
+
+            composeRule.setContent {
+                MaterialTheme {
+                    PlainTextBookReaderContent(
+                        document = document,
+                        currentChunk = 0,
+                        fontSizePercent = 100,
+                        onChunkSelected = {},
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                }
+            }
+
+            val rendered = composeRule.onNodeWithTag("$PLAIN_TEXT_BOOK_CHUNK_TEST_TAG-0")
+                .fetchSemanticsNode().config[SemanticsProperties.Text].single()
+            assertTrue(
+                rendered.spanStyles.any { style ->
+                    style.item.textDecoration == TextDecoration.Underline &&
+                        rendered.text.substring(style.start, style.end).contains("underlined")
+                },
+            )
+            assertTrue(
+                rendered.spanStyles.any { style ->
+                    style.item.textDecoration == TextDecoration.LineThrough &&
+                        rendered.text.substring(style.start, style.end).contains("struck")
+                },
+            )
+            assertTrue(
+                rendered.spanStyles.any { style ->
+                    style.item.textDecoration == TextDecoration.Underline &&
+                        rendered.text.substring(style.start, style.end).contains("CSS underline")
+                },
+            )
+            assertTrue(
+                rendered.spanStyles.any { style ->
+                    style.item.textDecoration == TextDecoration.LineThrough &&
+                        rendered.text.substring(style.start, style.end).contains("CSS struck")
+                },
+            )
         } finally {
             directory.deleteRecursively()
         }

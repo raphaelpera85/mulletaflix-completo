@@ -1,0 +1,23 @@
+<?xml version='1.0' encoding='UTF-8' ?>
+<testsuites tests="15" failures="0" errors="0" skipped="0" time="0.000" timestamp="2026-10-15T17:56:24" hostname="localhost">
+  <testsuite name="org.mulletaflix.feature.itemdetail.PlainTextBookReaderIntegrationTest" tests="15" failures="0" errors="0" skipped="0" time="146.744" timestamp="2026-10-15T17:56:24" hostname="localhost">
+    <properties>
+      <property name="device" value="emulator-5590" />
+    </properties>
+    <testcase name="htmlBookExplicitNormalStyleResetsInheritedBoldAndItalic" classname="org.mulletaflix.feature.itemdetail.PlainTextBookReaderIntegrationTest" time="3.556" />
+    <testcase name="genericUtf16FictionBookWithoutBomRendersReadableText" classname="org.mulletaflix.feature.itemdetail.PlainTextBookReaderIntegrationTest" time="1.799" />
+    <testcase name="fictionBookXmlRendersOnlyReadableBodyContent" classname="org.mulletaflix.feature.itemdetail.PlainTextBookReaderIntegrationTest" time="0.721" />
+    <testcase name="textIsReadableAndScrollingUpdatesTheRestorableChunk" classname="org.mulletaflix.feature.itemdetail.PlainTextBookReaderIntegrationTest" time="1.722" />
+    <testcase name="hybridMobiImageFromExtractorRendersInFocusedComposeExcerpt" classname="org.mulletaflix.feature.itemdetail.PlainTextBookReaderIntegrationTest" time="61.554" />
+    <testcase name="markdownBookRendersReadableContentInCompose" classname="org.mulletaflix.feature.itemdetail.PlainTextBookReaderIntegrationTest" time="0.878" />
+    <testcase name="markdownTableOfContentsNavigatesToSecondChunkAndResolvesItsLocator" classname="org.mulletaflix.feature.itemdetail.PlainTextBookReaderIntegrationTest" time="2.971" />
+    <testcase name="zippedFictionBookRendersReadableTextFromGenericZip" classname="org.mulletaflix.feature.itemdetail.PlainTextBookReaderIntegrationTest" time="1.040" />
+    <testcase name="fictionBookTableOfContentsJumpsToChapterAndRestoresItsLocator" classname="org.mulletaflix.feature.itemdetail.PlainTextBookReaderIntegrationTest" time="1.906" />
+    <testcase name="htmlBookPreservesUnderlineAndLineThroughFormatting" classname="org.mulletaflix.feature.itemdetail.PlainTextBookReaderIntegrationTest" time="1.116" />
+    <testcase name="htmlBookPreservesBoldAndItalicFormatting" classname="org.mulletaflix.feature.itemdetail.PlainTextBookReaderIntegrationTest" time="0.749" />
+    <testcase name="kf8EmbeddedImageIsResolvedAndRenderedInlineInSingleChunk" classname="org.mulletaflix.feature.itemdetail.PlainTextBookReaderIntegrationTest" time="2.037" />
+    <testcase name="htmlBookTextDecorationPropagatesThroughDescendantWithNone" classname="org.mulletaflix.feature.itemdetail.PlainTextBookReaderIntegrationTest" time="1.106" />
+    <testcase name="htmlBookRendersAsScrollableTextWithoutExecutingMarkup" classname="org.mulletaflix.feature.itemdetail.PlainTextBookReaderIntegrationTest" time="1.602" />
+    <testcase name="hybridMobiImageRendersAtOriginalPositionInFullDocumentAfterScroll" classname="org.mulletaflix.feature.itemdetail.PlainTextBookReaderIntegrationTest" time="63.987" />
+  </testsuite>
+</testsuites>

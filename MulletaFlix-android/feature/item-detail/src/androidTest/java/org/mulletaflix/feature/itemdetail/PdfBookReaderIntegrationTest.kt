@@ -71,12 +71,19 @@ class PdfBookReaderIntegrationTest {
         val file = createScannedPdf()
         val book = PdfBookDocument.open(file)
         try {
+            assertEquals(2, book.pageCount)
             assertEquals("MULLETA OCR TESTE", book.extractPageText(0).uppercase())
+            assertEquals("PAGINA RETRATO", book.extractPageText(1).uppercase())
             val hits = BookPdfTextSearch.search(book.pageCount, "ocr teste") { page ->
                 book.extractPageText(page)
             }
             assertEquals(1, hits.size)
             assertEquals(0, hits.single().pageIndex)
+            val portraitHits = BookPdfTextSearch.search(book.pageCount, "pagina retrato") { page ->
+                book.extractPageText(page)
+            }
+            assertEquals(1, portraitHits.size)
+            assertEquals(1, portraitHits.single().pageIndex)
         } finally {
             book.close()
             file.delete()
@@ -199,22 +206,38 @@ class PdfBookReaderIntegrationTest {
     private fun createScannedPdf(): File {
         val file = File.createTempFile("book-reader-scanned-", ".pdf")
         val document = PdfDocument()
-        val bitmap = Bitmap.createBitmap(1200, 600, Bitmap.Config.ARGB_8888)
+        val landscapeBitmap = Bitmap.createBitmap(1200, 600, Bitmap.Config.ARGB_8888)
+        val portraitBitmap = Bitmap.createBitmap(600, 1200, Bitmap.Config.ARGB_8888)
         try {
-            val canvas = Canvas(bitmap)
-            canvas.drawColor(Color.WHITE)
-            canvas.drawText(
-                "MULLETA OCR TESTE",
-                60f,
-                300f,
-                Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.BLACK; textSize = 96f },
-            )
-            val page = document.startPage(PdfDocument.PageInfo.Builder(1200, 600, 1).create())
-            page.canvas.drawBitmap(bitmap, 0f, 0f, null)
-            document.finishPage(page)
+            Canvas(landscapeBitmap).apply {
+                drawColor(Color.WHITE)
+                drawText(
+                    "MULLETA OCR TESTE",
+                    60f,
+                    300f,
+                    Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.BLACK; textSize = 96f },
+                )
+            }
+            val landscapePage = document.startPage(PdfDocument.PageInfo.Builder(1200, 600, 1).create())
+            landscapePage.canvas.drawBitmap(landscapeBitmap, 0f, 0f, null)
+            document.finishPage(landscapePage)
+
+            Canvas(portraitBitmap).apply {
+                drawColor(Color.WHITE)
+                drawText(
+                    "PAGINA RETRATO",
+                    30f,
+                    620f,
+                    Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.BLACK; textSize = 64f },
+                )
+            }
+            val portraitPage = document.startPage(PdfDocument.PageInfo.Builder(600, 1200, 2).create())
+            portraitPage.canvas.drawBitmap(portraitBitmap, 0f, 0f, null)
+            document.finishPage(portraitPage)
             file.outputStream().use(document::writeTo)
         } finally {
-            bitmap.recycle()
+            landscapeBitmap.recycle()
+            portraitBitmap.recycle()
             document.close()
         }
         return file

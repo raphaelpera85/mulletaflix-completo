@@ -1,0 +1,9 @@
+<?xml version='1.0' encoding='UTF-8' ?>
+<testsuites tests="1" failures="0" errors="0" skipped="0" time="0.000" timestamp="2026-10-15T16:56:32" hostname="localhost">
+  <testsuite name="org.mulletaflix.feature.itemdetail.PlainTextBookReaderIntegrationTest" tests="1" failures="0" errors="0" skipped="0" time="134.355" timestamp="2026-10-15T16:56:32" hostname="localhost">
+    <properties>
+      <property name="device" value="emulator-5586" />
+    </properties>
+    <testcase name="hybridMobiImageRendersAtOriginalPositionInFullDocumentAfterScroll" classname="org.mulletaflix.feature.itemdetail.PlainTextBookReaderIntegrationTest" time="134.355" />
+  </testsuite>
+</testsuites>

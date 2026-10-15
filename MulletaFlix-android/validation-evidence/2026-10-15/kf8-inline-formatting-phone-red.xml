@@ -1,0 +1,16 @@
+<?xml version='1.0' encoding='UTF-8' ?>
+<testsuites tests="1" failures="1" errors="0" skipped="0" time="0.000" timestamp="2026-10-15T13:47:47" hostname="localhost">
+  <testsuite name="org.mulletaflix.feature.itemdetail.PlainTextBookReaderIntegrationTest" tests="1" failures="1" errors="0" skipped="0" time="4.902" timestamp="2026-10-15T13:47:47" hostname="localhost">
+    <properties>
+      <property name="device" value="emulator-5568" />
+    </properties>
+    <testcase name="htmlBookPreservesBoldAndItalicFormatting" classname="org.mulletaflix.feature.itemdetail.PlainTextBookReaderIntegrationTest" time="4.902">
+      <failure>java.lang.AssertionError
+	at org.junit.Assert.fail(Assert.java:87)
+	at org.junit.Assert.assertTrue(Assert.java:42)
+	at org.junit.Assert.assertTrue(Assert.java:53)
+	at org.mulletaflix.feature.itemdetail.PlainTextBookReaderIntegrationTest.htmlBookPreservesBoldAndItalicFormatting(PlainTextBookReaderIntegrationTest.kt:421)
+</failure>
+    </testcase>
+  </testsuite>
+</testsuites>

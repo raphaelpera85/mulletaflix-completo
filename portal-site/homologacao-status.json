@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-10-15T03:43:46-03:00",
+  "generatedAt": "2026-10-15T17:34:23-03:00",
   "source": {
     "roadmap": "https://github.com/raphaelpera85/mulletaflix-completo/blob/main/docs/roadmap-evolucao-tecnologica-servidor-e-web.md",
     "repository": "https://github.com/raphaelpera85/mulletaflix-completo"
@@ -51,19 +51,19 @@
         "label": "10 de 21 áreas com evidência técnica local; 2 em validação e 9 pendentes. Autenticação/troca de servidor reaberta após falha instrumentada; aceite formal continua aberto."
       },
       "testAudit": {
-        "passed": 1776,
-        "total": 1776,
+        "passed": 1784,
+        "total": 1784,
         "skipped": 0,
         "failed": 0,
         "percent": 100,
-        "label": "Suíte JVM integral reexecutada em 15/10/2026: 1.776 aprovados, 0 ignorados, 0 falhas/erros em 256 XML após testDebugUnitTest; lintDebug, assembleDebug e compileDebugAndroidTestKotlin também passaram."
+        "label": "Suíte JVM integral forçada em 15/10/2026: 1.784 testes em 256 XML, 0 falhas/erros/ignorados; gate final de lint módulo/app, assembleDebug e compilação AndroidTest BUILD SUCCESSFUL, 881 tarefas executadas. Instrumentação por perfil está registrada em eventos separados."
       },
       "instrumentationAudit": {
         "passed": 44,
         "total": 45,
         "skipped": 0,
         "failed": 1,
-        "label": "Auditoria acumulada: 44/45 testes instrumentados aprovados, 1 falha histórica. Retestes anteriores incluem MainActivitySessionNavigationTest 9/9, AppUpdateCheckEffectTest 2/2, cold start da Activity principal 4/4 fases, ConnectivityNetworkCallbackTest 3/3 PHONE API 35 e 3/3 API 24, HomeFeedCacheRepositoryPersistenceTest 4/4 e demais cenários de transporte. Desde o retrato de 14/10, foram acrescentados 2 cenários Live TV em Android TV/API 34 e 2 cenários OCR em PHONE/TABLET API 35. APK-H02 teve classe completa 12/12 numa execução e 12 aprovados/2 cenários TV reportados como falha de AssumptionViolatedException no AVD PHONE numa repetição; o cenário focal de troca de servidor passou 1/1 em nova execução. A classificação dos testes por perfil precisa ser corrigida; não se declara estabilidade nem aceite. AVDs e fixtures sintéticas, sem servidor ou hardware reais."
+        "label": "Retrato histórico da auditoria instrumentada: 44/45 aprovações e 1 falha histórica; o denominador não foi recalculado como total de casos únicos após novas repetições. Incluía MainActivitySessionNavigationTest 9/9, AppUpdateCheckEffectTest 2/2, cold start da Activity principal 4/4 fases, ConnectivityNetworkCallbackTest 3/3 PHONE API 35 e 3/3 API 24, e HomeFeedCacheRepositoryPersistenceTest 4/4. Evidências recentes, em eventos separados, incluem MainActivitySessionNavigationTest 12/12 PHONE e 12/12 TABLET e 2/2 jornadas Live TV em TV/API 34. Falhas intermediárias permanecem preservadas; seleção por perfil foi corrigida, mas a causa da falha de visibilidade em TABLET segue desconhecida. AVDs e fixtures sintéticas não validam servidor ou hardware reais."
       }
     },
     {
@@ -96,7 +96,7 @@
         "id": "APK-H02",
         "name": "Autenticação, sessão e troca de conta/servidor",
         "status": "in_progress",
-        "evidence": "O RED de 14/10 identificou que Voltar restaurava a pilha Home/Perfil antiga; a navegação foi corrigida. MainActivitySessionNavigationTest passou 11/11 em 14/10 e 12/12 em uma execução PHONE/API 35 de 15/10. Na repetição de 14 casos, 12 passaram e 2 cenários exclusivos TV lançaram AssumptionViolatedException por falta de FEATURE_LEANBACK no AVD PHONE, sendo reportados como falha em vez de skipped. O teste focal de troca de servidor/Voltar passou 1/1 em execução separada; uma chave excedente em SyncPlayViewModel foi corrigida após bloquear compilação. A classificação por perfil e a estabilidade da classe ainda não estão consolidadas. Evidências e limites em MulletaFlix-android/HOMOLOGACAO-APK.md e validation-evidence/2026-10-15/. Fixtures sintéticas; servidor/aparelho reais e aceite formal pendentes."
+        "evidence": "MainActivitySessionNavigationTest passou 12/12 em PHONE/API 35 e 12/12 em TABLET/API 35 na repetição completa; inclui troca de servidor, Quick Connect, troca rápida de conta, deep links, restauração da Activity e logout. O teste focal de troca de servidor/Voltar passou duas repetições consecutivas por perfil (repeats 3 e 4). Também passaram testes de identidade após troca de servidor e quick switch visível, 1/1 por perfil. Falhas intermediárias permanecem preservadas: repeat 2 TABLET falhou na visibilidade do nome, sem causa raiz determinada; relatório misto PHONE contou duas premissas exclusivas TV como falhas, corrigido depois por seleção de perfil. MockWebServer/AVDs sintéticos; servidor e hardware reais ainda pendentes. APK-H02 continua em validação, sem aceite formal. Evidências em MulletaFlix-android/HOMOLOGACAO-APK.md e validation-evidence/2026-10-15/."
       },
       {
         "id": "APK-H03",
@@ -210,7 +210,7 @@
         "id": "APK-H21",
         "name": "Leitura de EPUB/CBZ servidos pela instância real",
         "status": "pending",
-        "evidence": "Parsers e reader local possuem evidência de teste; Activity principal restaurou sessão e abriu/renderizou livro sintético após morte real do processo (cold start PHONE/API 35); o harness exige metadata + /BookReader/Epub e não depende do polling best-effort de /BookReader/Status. Em 15/10, busca OCR PDF cancelada e reiniciada passou 1/1 em PHONE/API 35 e 1/1 em TABLET/API 35, verificando descarte de resultado obsoleto e serialização do retry com recognizer/fixtures controlados. Falta validar OCR com documentos reais e livros reais via API autenticada, MIME/respostas, Back/D-pad e retomada nos dispositivos-alvo."
+        "evidence": "Parsers e reader local possuem evidência de teste; Activity principal restaurou sessão e abriu/renderizou livro sintético após morte real do processo (cold start PHONE/API 35); o harness exige metadata + /BookReader/Epub e não depende do polling best-effort de /BookReader/Status. Busca OCR PDF cancelada/reiniciada e navegação por página escaneada passaram em PHONE/TABLET; parser HTML/KF8 preserva ênfase CSS e resets font-weight/font-style normais aninhados; `text-decoration` ancestral continua propagado a descendentes. PlainTextBookDocumentTest passou 41/41, e a classe Compose do leitor 15/15 em PHONE/API 35; testes de reset e propagação passaram 1/1 por perfil PHONE/API 35, TABLET/API 35 e Android TV/API 34. Suíte JVM integral 1.780/1.780 em 256 XML. Evidência local complementar não fecha APK-H21. Falta validar arquivos EPUB/CBZ/AZW3 autorizados via API autenticada, MIME/respostas, CSS/fontes avançadas, Back/D-pad, TalkBack e retomada nos dispositivos-alvo."
       }
     ]
   },
@@ -2941,6 +2941,98 @@
   ],
   "events": [
     {
+      "id": "android-kf8-nested-style-reset-decoration-2026-10-15",
+      "title": "Estilos aninhados e decoração CSS propagada no leitor HTML/KF8",
+      "agent": "Codex",
+      "front": "android",
+      "featureIds": ["APK-H21"],
+      "local": "D:\\Users\\Raphael\\Documents\\Projetos\\mulletaflix",
+      "location": "MulletaFlix-android/feature/item-detail e validation-evidence/2026-10-15",
+      "scope": "Corrigir perda de resets CSS font-weight/font-style normal em descendentes e preservar a decoração textual propagada por ancestrais; não alterar o aceite formal do leitor.",
+      "status": "completed",
+      "progressPercent": null,
+      "startedAt": "2026-10-15T14:24:00-03:00",
+      "updatedAt": "2026-10-15T15:26:30-03:00",
+      "evidence": "TDD reproduziu dois REDs em Compose PHONE/API 35: reset normal era descartado e text-decoration:none descendente anulava o sublinhado ancestral. Após a correção, o teste de reset e o teste de propagação passaram 1/1 por perfil PHONE/API 35, TABLET/API 35 e Android TV/API 34. PlainTextBookReaderIntegrationTest passou 15/15 em PHONE; PlainTextBookDocumentTest 41/41. Suíte JVM integral forçada 1.780/1.780 em 256 XML; lint do módulo/app, assembleDebug e compilação AndroidTests passaram (881 tarefas executadas). XMLs em MulletaFlix-android/validation-evidence/2026-10-15/kf8-style-reset-{phone,tablet}-api35.xml, kf8-style-reset-tv-api34.xml, kf8-inline-formatting-phone-api35.xml e kf8-decoration-propagation-{phone,tablet}-api35.xml + tv-api34.xml. Wrapper confirmou GPU NVIDIA RTX 3050 e encerrou AVDs; ADB sem dispositivos. Fixtures sintéticas/AVDs não validam arquivos autorizados, servidor, TalkBack falado, D-pad ou hardware real; APK-H21 permanece pendente. Matriz formal continua 10 concluídas, 2 em validação, 9 pendentes; formalSignoff=pending. Sem release, versão, deploy ou alteração de servidor."
+    },
+    {
+      "id": "android-kf8-full-document-image-tv-2026-10-15",
+      "title": "Imagem inline KF8 em Android TV",
+      "agent": "Codex",
+      "front": "android",
+      "featureIds": ["APK-H21"],
+      "local": "D:\\Users\\Raphael\\Documents\\Projetos\\mulletaflix",
+      "location": "MulletaFlix-android/feature/item-detail e validation-evidence/2026-10-15",
+      "scope": "Espelhar evidência instrumentada de renderização de imagem KF8 no perfil Android TV sem promover a homologação formal.",
+      "status": "completed",
+      "progressPercent": null,
+      "startedAt": "2026-10-15T13:56:32-03:00",
+      "updatedAt": "2026-10-15T14:03:13-03:00",
+      "evidence": "PlainTextBookReaderIntegrationTest.hybridMobiImageRendersAtOriginalPositionInFullDocumentAfterScroll passou 1/1 em Android TV/API 34, com 0 falhas, 0 erros e 0 ignorados. A fixture MOBI híbrida percorreu extrator, documento e Compose; rolagem revelou a imagem na posição original e o teste confirmou pixel magenta e descrição acessível. XML: MulletaFlix-android/validation-evidence/2026-10-15/hybrid-mobi-full-document-tv-api34.xml. Wrapper confirmou GPU NVIDIA RTX 3050, encerrou o AVD temporário e ADB ficou sem dispositivos. Fixture sintética não valida D-pad/OK, TalkBack falado, arquivo autorizado, TV física ou servidor real. APK-H21 continua pendente; matriz permanece 10/21 concluídas, 2 em validação, 9 pendentes e formalSignoff=pending. Sem versão, release ou publicação."
+    },
+    {
+      "id": "android-player-background-pause-tv-pip-close-tablet-2026-10-15",
+      "title": "Pausa em segundo plano na TV e fechamento de PiP no tablet",
+      "agent": "Codex",
+      "front": "android",
+      "featureIds": [
+        "APK-H06"
+      ],
+      "local": "D:\\Users\\Raphael\\Documents\\Projetos\\mulletaflix",
+      "location": "MulletaFlix-android/feature/player e validation-evidence/2026-10-15",
+      "scope": "Revalidar a pausa de mídia ao minimizar o aplicativo na Android TV e o encerramento/pausa ao fechar a janela PiP em tablet, sem promover a homologação formal.",
+      "status": "completed",
+      "progressPercent": null,
+      "startedAt": "2026-10-15T13:14:00-03:00",
+      "updatedAt": "2026-10-15T13:26:00-03:00",
+      "evidence": "PlayerBackgroundPlaybackTest passou 3/3 em Android TV/API 34; PlayerPictureInPictureLifecycleTest passou 1/1 em TABLET/API 35. XMLs preservados em MulletaFlix-android/validation-evidence/2026-10-15/player-background-playback-TV-API34.xml e player-pip-close-TABLET-API35.xml. AVDs temporários encerrados pelo wrapper; ADB sem dispositivos ao final. Fixtures de mídia sintética; não comprovam servidor/hardware reais. Evidência não promove área formal: matriz permanece 10/21 concluídas, 2 em validação, 9 pendentes e formalSignoff=pending. Sem release ou publicação."
+    },
+    {
+      "id": "android-book-text-search-accessible-progress-2026-10-15",
+      "title": "Progresso acessível da busca paginada no leitor",
+      "agent": "Codex",
+      "front": "android",
+      "featureIds": ["APK-H21"],
+      "local": "D:\\Users\\Raphael\\Documents\\Projetos\\mulletaflix",
+      "location": "MulletaFlix-android/feature/item-detail e validation-evidence/2026-10-15",
+      "scope": "Espelhar a evidência automatizada de progresso visual e semântico durante a busca OCR paginada, sem promover a homologação formal.",
+      "status": "completed",
+      "progressPercent": null,
+      "startedAt": "2026-10-15T13:01:41-03:00",
+      "updatedAt": "2026-10-15T13:01:41-03:00",
+      "evidence": "BookTextSearchDialogTest.paginatedSearchShowsAccessibleDeterminateProgress passou 1/1 em PHONE/API 35; confirma texto visível, ProgressBarRangeInfo determinado e LiveRegionMode.Polite. Evidência: MulletaFlix-android/validation-evidence/2026-10-15/book-text-search-progress-phone-api35.xml. Não valida fala audível do TalkBack, OCR de arquivo real, desempenho longo ou hardware. APK-H21 continua pendente; matriz permanece 10/21 concluídas, 2 em validação, 9 pendentes, formalSignoff=pending."
+    },
+    {
+      "id": "android-kf8-embedded-css-emphasis-2026-10-15",
+      "title": "Preservar ênfase CSS embutido no leitor HTML/KF8",
+      "agent": "Codex",
+      "front": "android",
+      "featureIds": ["APK-H21"],
+      "local": "D:\\Users\\Raphael\\Documents\\Projetos\\mulletaflix",
+      "location": "MulletaFlix-android/feature/item-detail e documentação de homologação",
+      "scope": "Refletir o avanço verificado no parser HTML/KF8 e no leitor do aplicativo sem promover a homologação formal.",
+      "status": "completed",
+      "progressPercent": null,
+      "startedAt": "2026-10-15T12:09:13-03:00",
+      "updatedAt": "2026-10-15T12:09:13-03:00",
+      "evidence": "PlainTextBookDocumentTest passou 39/39, incluindo seletores simples de elemento/classe/ID e tag.classe/tag#id, especificidade/ordem e descarte de regras aninhadas. CSS embutido limitado a 256 Ki caracteres e 2.048 regras; só font-weight/font-style; CSS externo, combinadores, fontes e fidelidade Kindle completa não são cobertos. Inventário dos XMLs disponíveis: 1.778 testes em 256 arquivos, zero falhas/erros/ignorados; somente a classe focal foi efetivamente reexecutada nesta qualidade final. Lint do módulo/app, assembleDebug e compilação AndroidTest passaram. Fixture HTML sintética; APK-H21 permanece pendente e aceite formal não foi concedido."
+    },
+    {
+      "id": "android-session-reader-validation-2026-10-15",
+      "title": "Atualizar evidências de navegação e leitura Android",
+      "agent": "Codex",
+      "front": "android",
+      "featureIds": ["APK-H02", "APK-H21"],
+      "local": "D:\\Users\\Raphael\\Documents\\Projetos\\mulletaflix",
+      "location": "MulletaFlix-android/validation-evidence/2026-10-15 e HOMOLOGACAO-APK.md",
+      "scope": "Sincronizar no inventário do portal as execuções de PHONE/TABLET/TV já documentadas na fonte Android.",
+      "status": "completed",
+      "progressPercent": null,
+      "startedAt": "2026-10-15T12:09:13-03:00",
+      "updatedAt": "2026-10-15T12:09:13-03:00",
+      "evidence": "MainActivitySessionNavigationTest passou 12/12 em PHONE/API 35 e TABLET/API 35; jornadas Live TV passaram 2/2 em TV/API 34. Testes de troca de servidor/identidade e quick switch passaram nos perfis PHONE/TABLET; OCR de PDF escaneado encontrou e abriu a página em 1/1 por perfil. Evidências usam AVDs, MockWebServer, documentos e sessões sintéticas; não validam servidor ou aparelhos físicos. Uma falha intermediária TABLET permanece sem causa raiz confirmada. Matriz formal continua em 10/21 concluídas, 2 em validação, 9 pendentes; APK-H02 em validação, APK-H21 pendente e formalSignoff=pending."
+    },
+    {
       "id": "android-full-jvm-gate-2026-10-15",
       "title": "Revalidar o gate JVM e a compilação Android",
       "agent": "Codex",
@@ -5071,6 +5163,21 @@
       "startedAt": "2026-10-12T06:45:00-03:00",
       "updatedAt": "2026-10-12T06:55:00-03:00",
       "evidence": "Autorização explícita do usuário para fluxo de release registrada como exceção pontual no roadmap. Pré-validação: testes LibraryMonitorTests 2/2 e build Release de Emby.Server.Implementations com 0 avisos/0 erros. Release estável publicada: https://github.com/raphaelpera85/mulletaflix-completo/releases/tag/v12.1.19, tag v12.1.19 no commit 8f9f630b951ee21fa91081797b0c2c8d52926652; API GitHub confirmou draft=false, prerelease=false e os assets `mulletaflix-update-win-x64.zip` (388518979 bytes, SHA-256 6ECF5F42947C074D3B011EA4FECFF88CA9EC15CBFF4465D86C3BE36FC1895E06) e `mulletaflix_12.1.19_windows-x64.exe` (423401347 bytes, SHA-256 1F3B52DC7CCDF02D2019E9087F6E773C50F9EBE657537A1A135BE1437F95C612). O instalador foi criado por NSIS em configuração Release/self-contained; a verificação Authenticode é NotSigned, igual ao instalador oficial 12.1.18, pois o projeto não possui assinatura Authenticode configurada — não foi usada assinatura ou chave de desenvolvimento. Portal: commit daa51e8, deploy Vercel de produção READY dpl_HXMRb2AV4HxjSPtnkqcEC3CqVjAa; /, /docs, /downloads, /updates, /homologacao e /sitemap.xml retornaram HTTP 200, e /docs e /updates exibem a versão/correção. APK fora do escopo da exceção; roadmap permanece em andamento."
+    },
+    {
+      "id": "android-kf8-css-important-order-2026-10-15",
+      "title": "Prioridade CSS importante e ordem de folhas no leitor HTML/KF8",
+      "agent": "Codex",
+      "front": "android",
+      "featureIds": ["APK-H21"],
+      "local": "D:\\Users\\Raphael\\Documents\\Projetos\\mulletaflix",
+      "location": "MulletaFlix-android/feature/item-detail e validation-evidence/2026-10-15",
+      "scope": "Preservar !important por propriedade e ordem-fonte entre múltiplos blocos style no subconjunto CSS do leitor; atualizar evidência incremental sem promover o aceite formal.",
+      "status": "completed",
+      "progressPercent": null,
+      "startedAt": "2026-10-15T16:13:14-03:00",
+      "updatedAt": "2026-10-15T17:34:23-03:00",
+      "evidence": "TDD RED/GREEN para !important, ordem-fonte entre style blocks, não vazamento de estilo por `<br>`, `<img/>`, `<span/>` e `<embed>`, além de `/` em atributo entre aspas. PlainTextBookDocumentTest passou 45/45. htmlBookImportantStylesheetOverridesNormalInlineFormatting passou 1/1 por perfil PHONE/API 35, TABLET/API 35 e Android TV/API 34; XMLs em MulletaFlix-android/validation-evidence/2026-10-15/html-important-cascade-{phone-api35,tablet-api35,tv-api34}.xml. Suíte JVM forçada 1.784/1.784 em 256 XML; lint do módulo/app, assembleDebug e compilação AndroidTest passaram (BUILD SUCCESSFUL, 881 tarefas). Wrapper confirmou GPU NVIDIA e encerrou AVDs; ADB sem dispositivos. Portal atualizado apenas no checkout local; nenhum deploy/publicação. HTML sintético e subset CSS; arquivos autorizados, TalkBack, hardware e servidor reais permanecem pendentes. Matriz inalterada: 10/21 concluídas, 2 em validação, 9 pendentes; APK-H21 e formalSignoff pending. Sem release, versão ou alteração do servidor."
     }
   ]
 }
