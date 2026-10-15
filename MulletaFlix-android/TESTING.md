@@ -1,5 +1,49 @@
 # Testes do MulletaFlix Android
 
+### Execução da navegação por perfil — 2026-10-15
+
+`MainActivitySessionNavigationTest` tem 12 jornadas PHONE/TABLET e duas jornadas Live TV exclusivas de Android TV. O wrapper confirma o perfil do AVD e, quando executa `:app:connectedDebugAndroidTest` em PHONE/TABLET, exclui automaticamente a anotação `org.mulletaflix.android.AndroidTvOnly`; isso evita que `AssumptionViolatedException` da runner seja reportada como falha. O helper de teste navega pelo menu compacto no telefone e pelos botões diretos no Home amplo do tablet.
+
+PHONE e TABLET: passe `expectedDeviceProfile` e classe; não é necessário filtro manual:
+
+```powershell
+.\tools\with-emulator.ps1 -AvdName MulletaflixCodexPhoneApi35_20261012 -Port 5558 -Command .\gradlew.bat -CommandArgument @(':app:connectedDebugAndroidTest', '-Pandroid.testInstrumentationRunnerArguments.expectedDeviceProfile=PHONE', '-Pandroid.testInstrumentationRunnerArguments.class=org.mulletaflix.android.MainActivitySessionNavigationTest', '--no-daemon', '--console=plain')
+.\tools\with-emulator.ps1 -AvdName MulletaflixTabletApi35 -Port 5554 -Command .\gradlew.bat -CommandArgument @(':app:connectedDebugAndroidTest', '-Pandroid.testInstrumentationRunnerArguments.expectedDeviceProfile=TABLET', '-Pandroid.testInstrumentationRunnerArguments.class=org.mulletaflix.android.MainActivitySessionNavigationTest', '--no-daemon', '--console=plain')
+```
+
+TV: selecione apenas jornadas com `AndroidTvOnly`; a classe toda contém navegação touch PHONE/TABLET e não deve ser executada sem filtro num AVD TV:
+
+```powershell
+.\tools\with-emulator.ps1 -AvdName MulletaflixTvApi34 -Port 5556 -Command .\gradlew.bat -CommandArgument @(':app:connectedDebugAndroidTest', '-Pandroid.testInstrumentationRunnerArguments.expectedDeviceProfile=TV', '-Pandroid.testInstrumentationRunnerArguments.class=org.mulletaflix.android.MainActivitySessionNavigationTest', '-Pandroid.testInstrumentationRunnerArguments.annotation=org.mulletaflix.android.AndroidTvOnly', '--no-daemon', '--console=plain')
+```
+
+Resultados atuais: PHONE 12/12, TABLET 12/12, TV 2/2. XMLs por perfil em `validation-evidence/2026-10-15/`. A cobertura usa MockWebServer/AVDs e não equivale a servidor real, mídia decodificada, hardware físico nem aceite formal.
+
+### APK-H02: troca de servidor e seleção por perfil — 2026-10-15
+
+Teste focal `MainActivitySessionNavigationTest#switchingServerFromProfileDoesNotRestorePreviousProfileOnBackAfterLogin` passou 1/1 em PHONE/API 35 via `tools/with-emulator.ps1`; evidência em `validation-evidence/2026-10-15/MainActivitySessionNavigationTest-switchingServer-PHONE-API35-repeat-3.xml`. Na execução da classe inteira (14 casos), 12 passaram e dois cenários Android TV lançaram `AssumptionViolatedException` por `FEATURE_LEANBACK` ausente no AVD PHONE; o XML/runner contou-os como falhas, portanto a classe completa não deve ser considerada verde. Próximo passo: separar execução por perfil e obter resultado skipped apropriado, ou mover cada jornada TV para classe exclusiva TV. Sem servidor real/hardware.
+
+### Revalidação integral JVM e gate Android local — 2026-10-15
+
+Execução forçada da suíte completa com `gradlew.bat testDebugUnitTest
+--rerun-tasks --no-daemon --console=plain`: 1.774 testes em 256 relatórios
+XML, 0 falhas, 0 erros e 0 ignorados; 470 tarefas executadas. A execução
+anterior sem `--rerun-tasks` terminou com 470 tarefas `UP-TO-DATE` e não foi
+contada como nova execução. Gate posterior:
+`:feature:item-detail:lintDebug :app:lintDebug :app:assembleDebug
+:feature:item-detail:compileDebugAndroidTestKotlin
+:app:compileDebugAndroidTestKotlin --no-daemon --console=plain` —
+`BUILD SUCCESSFUL`, 727 tarefas, 45 executadas e 682 `UP-TO-DATE`.
+`:app:assembleDebug` ficou `UP-TO-DATE`, sem novo empacotamento. Nenhum
+AndroidTest foi executado nesse gate; package Debug não é artefato de produção.
+Esta revalidação confirma a árvore local atual, mas não valida servidor,
+dispositivos físicos, mídia autorizada, acessibilidade manual nem aceite
+formal. O resumo e evidências por área continuam em `HOMOLOGACAO-APK.md`.
+
+### Busca OCR em quadrinhos: cancelar durante inferência e repetir — 2026-10-14
+
+`BookTextSearchDialogTest.cancelingComicOcrSearchReturnsToIdleAndIgnoresLateRecognitionBeforeRetry` compõe o diálogo real com `BookPdfTextSearch` e `ComicBookOcr`, usando página/Task controladas. Verifica retorno imediato ao estado ocioso após cancelar, bitmap mantido vivo até a Task ML Kit completar, serialização da consulta seguinte pelo semáforo OCR, descarte da bitmap antiga e ausência de resultado obsoleto antes/depois da nova busca. Passou 1/1 em PHONE/API 35 e 1/1 em TABLET/API 35 em 14/10/2026; XMLs separados em `validation-evidence/2026-10-14/comic-ocr-search-cancel-{phone,tablet}-api35.xml`. AndroidTest Kotlin compilou. São Tasks e conteúdo sintéticos: não medem OCR real, TalkBack, arquivo extenso, TV ou hardware físico. Cancelamento não interrompe inferência nativa já iniciada.
+
 ## Processo obrigatório: Test-Driven Development (TDD)
 
 O plano de adoção, auditoria de lacunas e ordem de fechamento por prioridade estão em [`TDD-PLAN.md`](TDD-PLAN.md). Este documento mantém os comandos e cenários de teste detalhados.
@@ -38,19 +82,48 @@ Não escreva primeiro código de produção para depois “cobri-lo” com teste
 - `BookReaderViewModelTest.real AZW3 response loads readable KF8 text through
   the view model`: resposta HTTP mockada com fixture real, texto no estado final
   e ausência de erro/publicação paginada.
+- `PlainTextBookReaderIntegrationTest.kf8EmbeddedImageIsResolvedAndRenderedInlineInSingleChunk`:
+  resolve uma referência `kindle:embed` para um PNG sintético, abre o HTML como
+  `PlainTextBookDocument` e verifica texto adjacente, descrição acessível e pixel
+  central após Coil carregar. Passou 1/1 em PHONE/API 35 via wrapper em
+  14/10/2026. Isola a camada de resolução/renderização; não percorre o mesmo
+  arquivo MOBI híbrido pelo extrator até Compose, que continua pendente.
+- `PlainTextBookReaderIntegrationTest.hybridMobiImageFromExtractorRendersInFocusedComposeExcerpt`:
+  carrega a fixture AZW3 calibre autorizada, constrói em memória um MOBI
+  híbrido com PNG sintético na faixa legada, abre o híbrido pelo extrator real,
+  encontra os bytes exatos da imagem injetada e confirma pixels magenta, texto e
+  descrição acessível no Compose. PHONE/API 35 e TABLET/API 35 passaram 1/1
+  cada em 14/10/2026. Para evitar que a virtualização do livro grande oculte o
+  nó de imagem fora da viewport, o teste cria um HTML mínimo com os bytes
+  efetivamente extraídos; portanto ainda não prova que a imagem na posição
+  original do documento completo aparece após rolagem. XMLs preservados em
+  `validation-evidence/2026-10-14/`. Fixture incluída apenas no APK AndroidTest,
+  nunca no APK de produção.
+- `PlainTextBookReaderIntegrationTest.hybridMobiImageRendersAtOriginalPositionInFullDocumentAfterScroll`:
+  conserva o MOBI híbrido completo aberto pelo extrator, seleciona a imagem
+  sintética pelos bytes extraídos e usa `performScrollToNode` para revelar o nó
+  inline no chunk/offset original da `LazyColumn`; confirma descrição e pixel
+  magenta após rolagem. PHONE/API 35 passou 1/1 (91,837 s) e TABLET/API 35
+  passou 1/1 (91,720 s) em 14/10/2026, via wrapper com GPU NVIDIA e AVD
+  encerrado ao fim. Evidência
+  arquivada em `validation-evidence/2026-10-14/hybrid-mobi-full-document-phone-api35.xml`
+  e `hybrid-mobi-full-document-tablet-api35.xml`. A fixture continua sintética
+  e restrita ao APK AndroidTest; não equivale a livro comercial, hardware real,
+  TalkBack ou homologação formal.
 - Gate observado em 2026-10-12: 1.701 testes JVM em 250 XML, sem falhas/erros/
   ignorados; ambos os lint, assemble Debug e compilação AndroidTest concluíram.
   Isso não substitui Compose/instrumentação em PHONE/TABLET/TV.
 
 ### Sumário Markdown — navegação Compose
 
-`PlainTextBookReaderIntegrationTest.markdownTableOfContentsNavigatesToSecondChunkAndRestoresItsLocator`
+`PlainTextBookReaderIntegrationTest.markdownTableOfContentsNavigatesToSecondChunkAndResolvesItsLocator`
 valida a abertura do sumário, seleção de um cabeçalho Markdown em outro chunk,
-renderização do título/corpo e round-trip do locator. Fixture sintética; rode em
+renderização do título/corpo e resolução do locator para o chunk escolhido (não
+persistência do progresso entre sessões). Fixture sintética; rode em
 TABLET/API 35 pelo wrapper:
 
 ```powershell
-.\tools\with-emulator.ps1 -AvdName MulletaflixTtsVoiceTabletApi35 -Port 5582 -Command .\gradlew.bat -CommandArgument @(':feature:item-detail:connectedDebugAndroidTest', '-Pandroid.testInstrumentationRunnerArguments.expectedDeviceProfile=TABLET', '-Pandroid.testInstrumentationRunnerArguments.class=org.mulletaflix.feature.itemdetail.PlainTextBookReaderIntegrationTest#markdownTableOfContentsNavigatesToSecondChunkAndRestoresItsLocator', '--no-daemon', '--console=plain')
+.\tools\with-emulator.ps1 -AvdName MulletaflixTtsVoiceTabletApi35 -Port 5582 -Command .\gradlew.bat -CommandArgument @(':feature:item-detail:connectedDebugAndroidTest', '-Pandroid.testInstrumentationRunnerArguments.expectedDeviceProfile=TABLET', '-Pandroid.testInstrumentationRunnerArguments.class=org.mulletaflix.feature.itemdetail.PlainTextBookReaderIntegrationTest#markdownTableOfContentsNavigatesToSecondChunkAndResolvesItsLocator', '--no-daemon', '--console=plain')
 ```
 
 Esse teste cobre interação Compose em AVD, não validação manual de TalkBack,
@@ -87,9 +160,11 @@ O rascunho fica no DataStore privado do app e é indexado por hash da identidade
 
 O `MainActivitySessionNavigationTest.settingsLogoutClearsPersistedSessionBeforeShowingServerSelection` percorre a navegação real do telefone, executa logout com DataStore real e confirma que o token/usuário foram removidos antes de mostrar a seleção de servidor; a URL permanece para reconexão.
 
-`MainActivitySessionNavigationTest.switchingServerFromProfileDoesNotRestorePreviousProfileOnBackAfterLogin` cobre Home → Perfil → seleção de outro servidor → login → Home → Voltar. A troca iniciada no Perfil deve limpar a pilha da Home anterior; Voltar da nova Home encerra a Activity sem restaurar o Perfil/servidor anterior. Em 2026-10-14, a classe completa passou 10/10 em PHONE/API 35 com MockWebServer; isso não valida servidor ou dispositivo real.
+`MainActivitySessionNavigationTest.switchingServerFromProfileDoesNotRestorePreviousProfileOnBackAfterLogin` cobre Home → Perfil → seleção de outro servidor → login → Home → Voltar. A troca iniciada no Perfil deve limpar a pilha da Home anterior; Voltar da nova Home encerra a Activity sem restaurar o Perfil/servidor anterior. Em 2026-10-14, a classe completa passou 11/11 em PHONE/API 35 com MockWebServer. Em 2026-10-15, após mudança preexistente da classe para 12 cenários, passou 12/12 em PHONE/API 35; a repetição seguinte não concluiu boot do AVD e uma terceira tentativa iniciou o runner mas ficou sem progresso por mais de 5 min, sem relatório final, sendo interrompida e limpa pelo wrapper. O risco histórico de intermitência permanece sem causa confirmada; evidência aprovada: `validation-evidence/2026-10-15/MainActivitySessionNavigationTest-PHONE-API35-repeat-1.xml`. Isso não valida servidor ou dispositivo real.
 
 `MainActivitySessionNavigationTest.canceledProfileServerSwitchDoesNotAffectLoginAfterLogout` cobre cancelar a seleção pelo Perfil, voltar ao Perfil, encerrar sessão e autenticar depois por um fluxo independente. Em 2026-10-14 passou 1/1; o cenário não reproduziu reutilização prejudicial do marcador da origem anterior. A classe completa passou 11/11 no PHONE/API 35 com fixtures sintéticas.
+
+`MainActivitySessionNavigationTest.profileQuickSwitchPersistsSelectedAccountAndKeepsServerAndDevice` percorre Home → Perfil → alternância rápida → confirmação e usa `SessionRepositoryImpl`/DataStore reais. O teste confirma que URL, `serverId` do mesmo servidor e `deviceId` são preservados, enquanto `userId`, nome e token refletem a conta selecionada. Em 2026-10-14 passou 1/1 em PHONE/API 35 com MockWebServer; isso não valida autenticação num servidor real nem troca de servidor.
 
 O teste `crossServerDeepLinkAuthenticatesOnTargetServerAndLoadsItemWithoutRequestingOldServer` cobre um link recebido de outro servidor. Configure explicitamente `SessionRepository.setBaseUrl(oldServerUrl)` no fixture antes de salvar a sessão: `saveSession` não é substituto dessa seleção de endpoint. Em falha pós-login, o teste reporta requisições dos dois servidores, endpoint/sessão persistidos e texto visível. Duas execuções anteriores da classe completa foram intermitentes; veja o resultado focal e a pendência de estabilidade na seção abaixo.
 
@@ -102,6 +177,8 @@ O teste `crossServerDeepLinkAuthenticatesOnTargetServerAndLoadsItemWithoutReques
 `MainActivitySessionNavigationTest.crossServerDeepLinkAuthenticatesOnTargetServerAndLoadsItemWithoutRequestingOldServer` cobre sessão A → seleção manual de B → login → mídia do link. Após autenticação, Voltar retorna à Home autenticada em B. O caso deve rodar com `LanServerRecovery` ativo; não pare o worker no fixture para contornar alternância de endpoint. `DeepLinkNavigationPolicyTest` valida a sequência pura de destinos.
 
 O helper `launchMainActivity` da classe adiciona `EXTRA_SUPPRESS_APP_UPDATE_CHECK_FOR_TEST`: ele suprime a consulta ao GitHub somente em builds debug e apenas nas Activities iniciadas pela fixture. Política JVM garante que build não-debug continue verificando atualizações mesmo se receber esse extra. Os testes próprios de `AppUpdateCheckEffect` continuam cobrindo lifecycle e periodicidade.
+
+Revalidação da estabilidade em 2026-10-15: uma execução completa PHONE/API 35 passou 12/12 (0 falhas, erros ou ignorados), com relatório em `validation-evidence/2026-10-15/MainActivitySessionNavigationTest-PHONE-API35-repeat-1.xml`. A tentativa seguinte expirou no boot do AVD após 4 min, antes do Gradle; uma nova tentativa com timeout de boot ampliado iniciou instrumentação, mas ficou sem progresso por mais de 5 min e sem XML final, então foi interrompida. O wrapper fechou o AVD e ADB terminou sem dispositivos. Não interpretar a execução aprovada isolada como estabilidade demonstrada; a falha histórica permanece sem causa confirmada.
 
 A política de recuperação só pode voltar de um endereço LAN a um endereço remoto persistido que tenha o mesmo `serverId` da sessão autenticada. URL padrão global não identifica, por si só, o mesmo servidor. `LanServerRecoveryPolicyTest` valida identidade, ausência de identidade, endereço local e limiar de duas falhas; passou 26/26 em 2026-10-13. O teardown de `MainActivitySessionNavigationTest` também audita isolamento: toda URL de MockWebServer deve entrar na lista de remoção; um fallback remove endpoints da própria classe e a asserção falha se encontrar URL não registrada. Em 2026-10-13, essa asserção deu RED ao detectar `http://localhost:36447`; após centralizar o registro em `trackMockServerUrl`, o AndroidTest focal passou 1/1 e a classe completa 9/9 em PHONE/API 35, com o worker LAN ativo. NVIDIA foi confirmada e o wrapper deixou ADB sem dispositivos. Uma execução histórica falhou 8/9 e sua causa permanece não confirmada; a falha de fixture observada agora não prova ser a origem. O XML da classe é `app/build/outputs/androidTest-results/connected/debug/TEST-MulletaflixAptoidePhone(AVD) - 15.xml`; cada execução o substitui. MockWebServer/AVD não substituem validação em LAN física, e não alteram homologação formal.
 
@@ -122,7 +199,7 @@ O projeto já possui testes JVM e instrumentados em todos os módulos de produto
 | Área | Cenários | Tipo |
 | --- | --- | --- |
 | UseCases de Domínio (`:domain`) | Obtenção de perfil, logout, detalhes de mídia, toggle favorito, toggle assistido, descoberta do próximo episódio (`GetNextEpisodeUseCase`) | JVM |
-| Perfil de Usuário (`:feature:user`) | Carregamento de perfil, fallback de sessão offline, alternância rápida de usuário, limpeza de cache e logout; em Ajustes, falha de logout mantém o destino e sucesso dispara navegação só após limpeza da sessão | JVM (`SettingsViewModelTest`) + Compose de falha em Perfil |
+| Perfil de Usuário (`:feature:user`) | Carregamento de perfil, fallback de sessão offline, alternância rápida de usuário, limpeza de cache e logout; a tela de Perfil confirma cancelar/confirmar logout e troca de usuário (PHONE/API 35, 4/4); falha de logout não navega | JVM (`UserProfileViewModelTest`) + Compose (`ProfileSessionConfirmationTest`, `ProfileLogoutFailureTest`) |
 | Fallback de erros (`:core:common`, auth, Home, item-detail, TV ao vivo, SyncPlay, perfil) | Mensagem localizada ausente/em branco usa texto recuperável; mensagens úteis da exceção ou resposta do servidor são preservadas; cancelar continua sem erro visível; relato de reprodução mostra aviso e opção de fila | JVM + Compose instrumentado PHONE API 35 |
 | Cache Home e Preferences DataStore (`:data`) | URL fallback normaliza HTTP 80/HTTPS 443 sem colapsar portas não padrão; persistência ao recriar DataStore/repositório, JSON inválido removido e recuperável, sessão inativa não sobrescreve sessão ativa e limpeza obsoleta preserva gravação nova | JVM (`HomeFeedCacheScopeTest`, 5/5) + AndroidTest PHONE/API 35 (`HomeFeedCacheRepositoryPersistenceTest`, 4/4; DataStore Preferences real e arquivo temporário). Não testa kill/restart do processo Android nem falha física de I/O. |
 | Detalhes do Item (`:feature:item-detail`) | Filmes, séries, temporadas/episódios, faixas de álbuns, favoritos, assistidos, playlists e erros; uma coluna em 411 dp e tablet retrato 600 dp, painel hero+detalhes rolável em 840 dp, TV preserva coluna única; hero compacta poster para 88 dp abaixo de 360 dp ou em fonte ≥1,5×, mantém capa 2:3 inteira e permite alcançar/acionar última ação após rolagem vertical e horizontal; leitores EPUB/CBZ retêm progresso isolado por servidor/conta/livro; CBZ/CBR usa duas páginas apenas em tablets com menor largura ≥600 dp e largura atual ≥840 dp; celular, TV, PDF e janelas compactas ficam em página única; controles avançam em pares sem cortar última página | JVM + Compose instrumentado em telefone, tablet API 35 e TV API 34 |
@@ -147,7 +224,7 @@ O projeto já possui testes JVM e instrumentados em todos os módulos de produto
 | Home & Descoberta (`:feature:home`) | Carregamento assíncrono, expiração de sessão, refresh da TV sem bloqueio por perfil lento, recarga após troca automática da URL pública para LAN com proteção contra resposta obsoleta, seções recentes indexadas por ID, retry isolado de Adicionados Recentemente por biblioteca (preserva seções irmãs, mostra progresso e descarta resposta obsoleta após refresh/sessão/servidor), ocultação de faixas/erros de livros na TV, estado vazio correto quando só há livros, sem afetar celular/tablet; barra compacta do celular mantém solicitação, busca, Minha Lista e Mais ações visíveis em viewport de 320 dp; card comum envia ID da biblioteca e TV ao vivo usa callback dedicado ao toque; foco D-pad abre biblioteca com um pressionamento central na TV | JVM + Compose instrumentado; retry touch 1/1 telefone e tablet, foco D-pad/OK na TV 2/2; cards de biblioteca 2/2 telefone, 2/2 tablet, 3/3 TV |
 | Feedback por título (`:feature:home`, `:feature:item-detail`, `:core:api`, `:data`) | Compose da solicitação valida título/ano, espera sessão válida antes de habilitar envio, tipo/payload, edição após falha e bloqueio de campos/Cancelar/Voltar durante envio; solicitação e relato ignoram fechamento externo enquanto enviam; ação de relato acessível leva ID do título; testes do repositório validam DTOs, falha e propagação de cancelamento; contrato HTTP verifica POST, rota, JSON e identidade autenticada do dispositivo | JVM + Compose instrumentado + MockWebServer |
 | Biblioteca (`:feature:library`) | Filtros por gênero/ano/classificação indicativa, aplicar/cancelar/limpar, validação de ano, persistência, ordenação e paginação; ordenação aleatória falha de forma explícita se a consulta do catálogo completo falhar, preserva itens no refresh e permite retry; Android TV mantém Book/Audiobook excluídos após filtro, ordenação, atualização e retorno da rede | JVM + Compose instrumentado em TV/tablet |
-| TV ao vivo / EPG (`:feature:live-tv`) | Canais e guia, agendamento otimista, resolução limitada do ID do timer, retry sem reabrir guia, respostas obsoletas após offline/troca de sessão, pré-validação de sessão/rede ao cancelar timer; ações acessíveis na TV | JVM + Compose instrumentado |
+| TV ao vivo / EPG (`:feature:live-tv`) | Canais e guia, agendamento otimista, resolução limitada do ID do timer, retry sem reabrir guia, respostas obsoletas após offline/troca de sessão, pré-validação de sessão/rede ao cancelar timer; `LiveTvPlaybackNavigationTest` cobre callback da tela (2/2); `MainActivitySessionNavigationTest` percorre Home → TV ao vivo → player e comprova que canal e gravação chegam ao `PlaybackInfo` com o ID selecionado (2/2 em TV/API 34); tuner também envia o mesmo ID a `LiveStreams/Open` | JVM + Compose/Activity instrumentado; `LiveTvPlaybackNavigationTest` e `MainActivitySessionNavigationTest` em TV/API 34; relatórios duráveis em `validation-evidence/2026-10-15/live-tv-*-player-journey-tv-api34.xml`. Fixtures MockWebServer; não provam decodificação/stream real, servidor de produção nem TV física |
 | Player (`:feature:player`) | Pular capítulos, gestos de volume/brilho, pausar em `ON_STOP`; PiP automático/fallback restrito a celular/tablet; teste de política de ciclo de vida em Activity de teste na TV envia `KEYCODE_HOME` via UiAutomation e valida Activity parada + callback de pausa; integração com WAV/SRT local muda tamanho/cor/fundo pela tela real de Ajustes e confirma DataStore compartilhado, atualização do `PlayerViewModel`, renderização via helpers de produção e reprodução contínua (não instancia `VideoPlayerScreen` completa nem valida servidor remoto); telefone/tablet confirmam PiP do sistema tocando e pausam ao encerrar Activity; ocultação/restauração dos overlays via `StateFlow`, recuperação, seleção de faixas, sidecar de legenda externa (MIME/URL/token/ID exclusivo), Cast oculta sidecars e o controle de envio não é composto no perfil TV (permanece no móvel), auto-play (`NextEpisodePolicy`) e bloqueio de seek sem busca/duração | JVM + Compose/MediaItem/StateFlow instrumentado; integração Ajustes/player PHONE API 35: 1/1 |
 | Preferências de mídia por perfil | Isolamento de áudio/legendas por usuário e identidade do servidor; alternância A→B→A; gravação tardia no perfil de origem; migração do ajuste global legado para o primeiro perfil | DataStore instrumentado em TV + tablet |
 | UX por dispositivo | A Home instrumenta `MediaSection` real e mede a largura da capa pelo perfil detectado: 130 dp no celular, 149,5 dp no tablet e 117 dp na TV; foco D-pad/centro validado só na TV, retomada por D-pad/centro e alvo touch mínimo | Android instrumentado nos três AVDs |
@@ -163,6 +240,10 @@ O projeto já possui testes JVM e instrumentados em todos os módulos de produto
 | Sessão persistida (`:data`) | Sessão gravada e reaberta; logout remove credenciais mas mantém URL/DeviceId; servidores salvos sobrevivem à recriação, atualizam sem duplicar e não removem o oficial; versão inicial do oficial permanece desconhecida até handshake | `SessionRepositoryPersistenceTest` (instrumentado, PHONE API 35) |
 | Downloader de atualização (`:core:common`) | Cancelamento interrompe chamada HTTP e remove arquivo parcial; `Content-Length` inconsistente e resposta não-APK (ZIP inválido ou sem manifesto Android não vazio) são recusados; verificação de SHA-256 | JVM com `Call.Factory` controlada e arquivos temporários |
 | Build & Packaging | Variante debug; release exige keystore e fingerprint oficial; empacotamento inclusive `-SkipBuild` e publicação rejeitam certificado divergente antes de copiar ou escrever no GitHub | Gradle + Pester + apksigner |
+
+### Cancelamento da busca OCR em PDF — Compose e retry
+
+`BookTextSearchDialogTest.cancelingPdfOcrSearchReturnsToIdleAndIgnoresLateRecognitionBeforeRetry` integra o diálogo Compose, `BookPdfTextSearch` e `PdfBookDocument` com PDF válido de página branca e recognizer controlado. Verifica idle após cancelar, Bitmap vivo enquanto a Task está pendente, serialização da busca nova, descarte do resultado antigo e liberação do Bitmap ao concluir cada Task. Passou 1/1 em PHONE/API 35 e 1/1 em TABLET/API 35 em 2026-10-15; XMLs preservados em `validation-evidence/2026-10-15/pdf-ocr-search-cancel-{phone,tablet}-api35.xml`. O recognizer/conteúdo OCR são sintéticos; o teste valida a integração/vida útil, não reconhecimento ML Kit de mídia real, hardware, TalkBack, latência ou bateria.
 
 ## Validação dependente de ambiente
 
@@ -199,7 +280,7 @@ Comandos úteis:
 & "$env:ANDROID_HOME\platform-tools\adb.exe" devices
 ```
 
-Use `tools\with-emulator.ps1` para iniciar um AVD somente durante um comando; o script encerra o processo criado no bloco `finally`:
+Use `tools\with-emulator.ps1` para iniciar um AVD somente durante um comando. O `finally` encerra primeiro o AVD pelo ADB, aguarda os processos QEMU capturados antes do shutdown e força apenas os handles ainda vivos cuja identidade (início e caminho) continua igual. Falhas do comando são propagadas depois do `finally`, garantindo limpeza também no caminho de erro. `tools\EmulatorProcessTree.Tests.ps1` cobre a captura dos descendentes e o isolamento de processos não pertencentes ao AVD.
 
 Antes do boot, o wrapper localiza o arquivo `<AVD>.ini` entre os diretórios indicados por `ANDROID_AVD_HOME`, `ANDROID_USER_HOME`, perfil do usuário e caminho legado `ANDROID_SDK_HOME`. Se `ANDROID_AVD_HOME` apontar para uma pasta sem o arquivo de configuração, o wrapper corrige a variável apenas no processo de teste; se não localizar o AVD, falha imediatamente em vez de aguardar o timeout de boot. Comandos diretos ao `emulator.exe` dependem de as variáveis do ambiente já apontarem para o diretório correto.
 
@@ -255,3 +336,34 @@ fixture debug desativar a chamada externa; build de produção ignora o opt-out.
 Em 2026-10-13, RED observou callbacks subirem de 2 para 5; GREEN passou 2/2 em
 PHONE/API 35. Esta evidência cobre o harness/lifecycle, não uma área de
 funcionalidade homologada.
+
+### Leitor KF8 e imagens inline — 2026-10-14
+
+Cobertura JVM/Robolectric em `Kf8ImageResourcesTest`, `PlainTextBookDocumentTest`
+e `MobiBookTextExtractorTest` valida imagens locais `data:image`, referências
+KF8, registros CONT/CRES, offset do cabeçalho, IDs globais de híbridos, sentinel
+legado, limites de bytes/expansão e rejeição de dimensões inseguras via
+`BitmapFactory` bounds. O caso híbrido usa fixture derivada da
+amostra de teste calibre existente, não conteúdo do servidor.
+
+Comandos e evidência desta sessão:
+
+- `:feature:item-detail:testDebugUnitTest --tests '...Kf8ImageResourcesTest' --tests '...PlainTextBookDocumentTest.preserves bounded embedded raster images in readable HTML' --tests '...PlainTextBookDocumentTest.ignores remote and oversized HTML images instead of loading them' --tests '...MobiBookTextExtractorTest.reads a real unencrypted AZW3 publication' --tests '...MobiBookTextExtractorTest.prefers KF8 text in a real hybrid MOBI publication'`: `BUILD SUCCESSFUL` após os casos focais (incluindo nova repetição de limite/híbrido).
+- `testDebugUnitTest`: `BUILD SUCCESSFUL` na árvore final, 470 tarefas/5 executadas/465 UP-TO-DATE.
+- `:feature:item-detail:lintDebug :app:lintDebug :app:assembleDebug :feature:item-detail:compileDebugAndroidTestKotlin :app:compileDebugAndroidTestKotlin`: `BUILD SUCCESSFUL` na árvore final incluindo limite de dimensão, 727 tarefas/28 executadas/699 UP-TO-DATE.
+- `BookReaderScreenIntegrationTest.embeddedBookImageIsRenderedInlineWithAccessibleDescription` passou 1/1 em PHONE/API 35 (AVD `MulletaflixCodexPhoneApi35_20261012`) e 1/1 em TABLET/API 35 (AVD `MulletaflixTtsVoiceTabletApi35`) pelo wrapper; GPU NVIDIA RTX 3050 confirmada em ambos, os dois AVDs encerrados pelo wrapper e ADB sem dispositivos ao final. Confirma HTML `data:image` no Compose e semântica da descrição; o fixture é PNG 1×1, não valida fidelidade visual em dimensão real nem o caminho completo de recurso `kindle:embed` de um arquivo KF8.
+- Em complemento (14/10/2026), `BookReaderScreenIntegrationTest.embeddedBookImagePixelsAreRenderedInlineWithAccessibleDescription` passou 1/1 em PHONE/API 35 e 1/1 em TABLET/API 35. O MockWebServer entrega PNG sintético 96×64; `captureToImage()` verifica pixel central magenta além do texto e da descrição. O XML persistente do TABLET registra 1 teste, 0 falhas/erros/ignorados; wrapper confirmou NVIDIA RTX 3050 nos dois perfis e encerrou os AVDs. O teste valida HTML `data:image` a Compose, não resolução `kindle:embed` no mesmo fluxo.
+- A integração instrumentada híbrido→Compose agora cobre o mesmo documento completo e sua rolagem até a imagem virtualizada; PHONE/API 35 e TABLET/API 35 passaram 1/1. Seguem pendentes arquivos autorizados diversos, TalkBack/D-pad, hardware e servidor real. APK-H21 continua pendente.
+- Limite: a fixture é derivada de AZW3 calibre com PNG sintético; não é mídia comercial. Não afirmar homologação em hardware ou fechamento de APK-H21.
+- Histórico de 14/10/2026: quatro tentativas iniciais com outro arranjo falharam por pixel de imagem não alvo ou timeout de visibilidade com `performScrollToIndex`; isso não comprovou falha de produção. A abordagem que preserva o documento e usa `performScrollToNode` passou depois. Detalhes no `TDD-PLAN.md`.
+
+Revalidação do módulo em 2026-10-15: `:feature:item-detail:testDebugUnitTest --rerun-tasks --no-daemon --console=plain` terminou `BUILD SUCCESSFUL`; 303 testes em 38 relatórios XML, 0 falhas, 0 erros, 0 ignorados (110 tarefas executadas). A chamada inicial sem `--rerun-tasks` deixou a tarefa `UP-TO-DATE` e não foi contada como execução. Este gate reexecuta os testes JVM do módulo; não executa instrumentação nem substitui o quality gate Android completo.
+
+Curadoria da homologação em 2026-10-15: confirmado no `BookReaderPayloadPolicy` e extratores que o APK faz parsing local de EPUB, MOBI/AZW3/KF8, texto/HTML/Markdown/RTF/FB2, PDF, ODT e CBZ/CBR. APK-H21 ainda não está formalmente homologada: cobertura com fixtures/mocks não comprova arquivos autorizados, MIME/API autenticados, hardware, retomada nem controle remoto em todos os formatos.
+
+### SyncPlay isolado pela identidade do servidor — 2026-10-15
+
+- `SyncPlayViewModel` agora consome o snapshot `SessionState` e compara usuário + `RemotePlaybackIdentity`; servidor diferente invalida sala, WebSocket e refresh antigo mesmo quando o userId é igual. URLs pública e LAN do mesmo serverId continuam sendo a mesma sessão.
+- TDD: `switching servers with the same user clears the active room` mostrou RED antes da correção (`activeGroupId` continuava `g1`) e GREEN depois; `switching LAN and public URLs for the same server keeps the active room` passou. Ambos passaram no teste focal. `SyncPlayViewModelTest`: 23 testes, 0 falhas/erros/ignorados.
+- Gate executado em 2026-10-15: `testDebugUnitTest :feature:sync-play:lintDebug :app:lintDebug :app:assembleDebug :feature:sync-play:compileDebugAndroidTestKotlin :app:compileDebugAndroidTestKotlin --no-daemon --console=plain` terminou `BUILD SUCCESSFUL`; relatórios presentes totalizam 1.776 testes em 256 XML, zero falhas/erros/ignorados. O `SyncPlayViewModelTest` (23 testes) foi executado; demais testes sem alteração estavam `UP-TO-DATE`, não forçados a reexecutar. 881 tarefas (85 executadas, 796 UP-TO-DATE). AndroidTests foram compilados, não executados. Sem AVD, servidor real, bump, release ou portal.
+- Limite: testes usam SessionState e repositório sintéticos. Não verificam desconexão do WebSocket contra serviço real, reconexão, dispositivos físicos nem comportamento do player após troca de servidor. A homologação formal não foi promovida.

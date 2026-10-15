@@ -1,0 +1,9 @@
+<?xml version='1.0' encoding='UTF-8' ?>
+<testsuites tests="1" failures="0" errors="0" skipped="0" time="0.000" timestamp="2026-10-15T05:26:15" hostname="localhost">
+  <testsuite name="org.mulletaflix.android.MainActivitySessionNavigationTest" tests="1" failures="0" errors="0" skipped="0" time="9.931" timestamp="2026-10-15T05:26:15" hostname="localhost">
+    <properties>
+      <property name="device" value="emulator-5556" />
+    </properties>
+    <testcase name="liveTvChannelSelectionReachesPlaybackAndOpenStreamWithTheChannelId" classname="org.mulletaflix.android.MainActivitySessionNavigationTest" time="9.931" />
+  </testsuite>
+</testsuites>

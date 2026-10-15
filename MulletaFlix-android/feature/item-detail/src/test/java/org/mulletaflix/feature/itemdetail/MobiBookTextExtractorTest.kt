@@ -4,6 +4,7 @@ import java.io.File
 import java.io.IOException
 import java.nio.charset.StandardCharsets
 import java.nio.file.Files
+import java.util.Base64
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertThrows
@@ -16,6 +17,10 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [35])
 class MobiBookTextExtractorTest {
+    private val HYBRID_LEGACY_PNG = Base64.getDecoder().decode(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/F5sAAAAASUVORK5CYII=",
+    )
+
     @Test
     fun `reads a real unencrypted AZW3 publication`() = withTempDirectory { directory ->
         val fixture = requireNotNull(javaClass.getResourceAsStream("/books/calibre-user-manual.azw3"))
@@ -29,6 +34,7 @@ class MobiBookTextExtractorTest {
 
         assertTrue(text.contains("calibre is an e-book library manager", ignoreCase = true))
         assertTrue(document.chunks.isNotEmpty())
+        assertTrue(document.inlineImagesByChunk.values.flatten().isNotEmpty())
     }
 
     @Test
@@ -44,6 +50,7 @@ class MobiBookTextExtractorTest {
 
         assertTrue(text.contains("calibre is an e-book library manager", ignoreCase = true))
         assertFalse(text.contains("LEGACY MOBI 7 CONTENT"))
+        assertTrue(document.inlineImagesByChunk.values.flatten().any { it.bytes.contentEquals(HYBRID_LEGACY_PNG) })
     }
 
     @Test
@@ -355,7 +362,7 @@ class MobiBookTextExtractorTest {
             kf8Bytes.copyOfRange(offset, end)
         }
         val shiftedKf8Header = kf8Records.first().copyOf().apply {
-            listOf(192, 248, 252).forEach { offset -> putInt(this, offset, unsignedInt(this, offset) + 3) }
+            listOf(192, 248, 252).forEach { offset -> putInt(this, offset, unsignedInt(this, offset) + 4) }
         }
         val legacyHeader = ByteArray(272).apply {
             putShort(this, 0, 1)
@@ -367,17 +374,19 @@ class MobiBookTextExtractorTest {
             putInt(this, 24, 2)
             putInt(this, 28, 65_001)
             putInt(this, 104, 6)
+            putInt(this, 108, -1)
             putInt(this, 128, 0x40)
             putAscii(this, 248, "EXTH")
             putInt(this, 252, 24)
             putInt(this, 256, 1)
             putInt(this, 260, 121)
             putInt(this, 264, 12)
-            putInt(this, 268, 3)
+            putInt(this, 268, 4)
         }
         val records = listOf(
             legacyHeader,
             "LEGACY MOBI 7 CONTENT".toByteArray(StandardCharsets.US_ASCII),
+            HYBRID_LEGACY_PNG,
             "BOUNDARY".toByteArray(StandardCharsets.US_ASCII),
             shiftedKf8Header,
         ) + kf8Records.drop(1)

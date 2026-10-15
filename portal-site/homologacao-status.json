@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-10-14T14:36:14-03:00",
+  "generatedAt": "2026-10-15T03:43:46-03:00",
   "source": {
     "roadmap": "https://github.com/raphaelpera85/mulletaflix-completo/blob/main/docs/roadmap-evolucao-tecnologica-servidor-e-web.md",
     "repository": "https://github.com/raphaelpera85/mulletaflix-completo"
@@ -51,19 +51,19 @@
         "label": "10 de 21 áreas com evidência técnica local; 2 em validação e 9 pendentes. Autenticação/troca de servidor reaberta após falha instrumentada; aceite formal continua aberto."
       },
       "testAudit": {
-        "passed": 1741,
-        "total": 1741,
+        "passed": 1776,
+        "total": 1776,
         "skipped": 0,
         "failed": 0,
         "percent": 100,
-        "label": "JUnit auditável local: 1.741 aprovados, 0 ignorados, 0 falhas/erros; agregação dos 252 relatórios Gradle em 13/10/2026."
+        "label": "Suíte JVM integral reexecutada em 15/10/2026: 1.776 aprovados, 0 ignorados, 0 falhas/erros em 256 XML após testDebugUnitTest; lintDebug, assembleDebug e compileDebugAndroidTestKotlin também passaram."
       },
       "instrumentationAudit": {
-        "passed": 40,
-        "total": 41,
+        "passed": 44,
+        "total": 45,
         "skipped": 0,
         "failed": 1,
-        "label": "40/41 aprovações instrumentadas acumuladas. O teste de troca de servidor desde Perfil falhou após enviar login: catálogo não reapareceu em 20 s (XML profile-server-switch-login-red.xml, AVD PHONE/API 35). Não contado como homologado; correção e reteste pendentes. Outras evidências anteriores: Media3/player 5/5; leitura HTTPS 1/1; DownloadManager HTTP LAN 1/1, HTTPS remoto 1/1; ExoPlayer legenda HTTPS 1/1 e redirect HTTPS→HTTP público bloqueado 1/1; Coil imagem HTTPS decodificada 1/1 e redirect HTTPS→HTTP público bloqueado 1/1; biblioteca offline/reconexão 1/1; contrato NetworkSecurityPolicy + guard cleartext 1/1; pausa/retomada individual Media3 1/1; MainActivitySessionNavigationTest 9/9 em rodada anterior; AppUpdateCheckEffectTest 2/2; cold start da Activity principal 4/4 fases em PHONE/API 35; ConnectivityNetworkCallbackTest 3/3 PHONE/API 35 e 3/3 PHONE/API 24; HomeFeedCacheRepositoryPersistenceTest 4/4 PHONE/API 35. Execuções em AVD; GPU NVIDIA verificada."
+        "label": "Auditoria acumulada: 44/45 testes instrumentados aprovados, 1 falha histórica. Retestes anteriores incluem MainActivitySessionNavigationTest 9/9, AppUpdateCheckEffectTest 2/2, cold start da Activity principal 4/4 fases, ConnectivityNetworkCallbackTest 3/3 PHONE API 35 e 3/3 API 24, HomeFeedCacheRepositoryPersistenceTest 4/4 e demais cenários de transporte. Desde o retrato de 14/10, foram acrescentados 2 cenários Live TV em Android TV/API 34 e 2 cenários OCR em PHONE/TABLET API 35. APK-H02 teve classe completa 12/12 numa execução e 12 aprovados/2 cenários TV reportados como falha de AssumptionViolatedException no AVD PHONE numa repetição; o cenário focal de troca de servidor passou 1/1 em nova execução. A classificação dos testes por perfil precisa ser corrigida; não se declara estabilidade nem aceite. AVDs e fixtures sintéticas, sem servidor ou hardware reais."
       }
     },
     {
@@ -96,7 +96,7 @@
         "id": "APK-H02",
         "name": "Autenticação, sessão e troca de conta/servidor",
         "status": "in_progress",
-        "evidence": "Em 14/10/2026, 108 testes unitários do módulo auth passaram (0 falhas/erros/ignorados). O novo teste instrumentado de troca de servidor desde Perfil chegou à tela de login, mas falhou ao aguardar o retorno ao catálogo após autenticação (timeout de 20 s); XML preservado em MulletaFlix-android/validation-evidence/2026-10-14/profile-server-switch-login-red.xml. A causa/correção ainda não foi confirmada; reteste PHONE/API 35 e teste de Voltar pendentes. Aceite integrado com servidor real e aceite formal continuam pendentes."
+        "evidence": "O RED de 14/10 identificou que Voltar restaurava a pilha Home/Perfil antiga; a navegação foi corrigida. MainActivitySessionNavigationTest passou 11/11 em 14/10 e 12/12 em uma execução PHONE/API 35 de 15/10. Na repetição de 14 casos, 12 passaram e 2 cenários exclusivos TV lançaram AssumptionViolatedException por falta de FEATURE_LEANBACK no AVD PHONE, sendo reportados como falha em vez de skipped. O teste focal de troca de servidor/Voltar passou 1/1 em execução separada; uma chave excedente em SyncPlayViewModel foi corrigida após bloquear compilação. A classificação por perfil e a estabilidade da classe ainda não estão consolidadas. Evidências e limites em MulletaFlix-android/HOMOLOGACAO-APK.md e validation-evidence/2026-10-15/. Fixtures sintéticas; servidor/aparelho reais e aceite formal pendentes."
       },
       {
         "id": "APK-H03",
@@ -138,13 +138,13 @@
         "id": "APK-H09",
         "name": "TV ao vivo e EPG",
         "status": "completed",
-        "evidence": "Cobertura local de navegação, EPG, atualização e foco remoto registrada; programação/streams reais não homologados nesta rodada."
+        "evidence": "Além da cobertura local de navegação, EPG, atualização e foco remoto, MainActivitySessionNavigationTest percorreu Home → Live TV → player em Android TV/API 34: canal e gravação enviaram o ID selecionado a POST /Items/{id}/PlaybackInfo (2/2); somente o canal que requer tuner abriu POST /LiveStreams/Open com o mesmo ItemId. MockWebServer e sessão sintéticos; não houve decodificação de stream ou validação em TV/servidor reais."
       },
       {
         "id": "APK-H10",
         "name": "SyncPlay e continuidade de sessão",
         "status": "completed",
-        "evidence": "Testes unitários/instrumentados e histórico de releases registram sincronização e ciclo de sessão. Integrações MockWebServer/peer TCP local verificam handshake, evento após falha HTTP 503, fechamento iniciado pelo servidor, resposta ao close frame, 1005 sentinela sem status respondido com 1000 válido, evento Disconnected, reconexão e cancelamento de retry confirmado ativo com stop; sincronização entre aparelhos/servidor de produção continua sem validação."
+        "evidence": "Integrações MockWebServer/peer TCP local verificam handshake, falha HTTP 503, fechamento iniciado pelo servidor, resposta válida ao close frame, Disconnected, reconexão e cancelamento de retry. Em 15/10, SyncPlayViewModelTest passou 23/23 após TDD para limpar sala/estado realtime ao trocar para outra conta ou servidor, preservando a sala quando muda apenas a URL LAN/WAN do mesmo serverId. Fixtures sintéticas; sincronização entre aparelhos/servidor de produção continua sem validação."
       },
       {
         "id": "APK-H11",
@@ -210,7 +210,7 @@
         "id": "APK-H21",
         "name": "Leitura de EPUB/CBZ servidos pela instância real",
         "status": "pending",
-        "evidence": "A leitura local/parsers possui evidência de teste; Activity principal restaurou sessão e abriu/renderizou livro sintético após morte real do processo (cold start PHONE/API 35); harness exige metadata + /BookReader/Epub e não depende do polling best-effort de /BookReader/Status. Falta validar livros reais via API autenticada, MIME/respostas do servidor, Back/D-pad e retomada nos dispositivos-alvo."
+        "evidence": "Parsers e reader local possuem evidência de teste; Activity principal restaurou sessão e abriu/renderizou livro sintético após morte real do processo (cold start PHONE/API 35); o harness exige metadata + /BookReader/Epub e não depende do polling best-effort de /BookReader/Status. Em 15/10, busca OCR PDF cancelada e reiniciada passou 1/1 em PHONE/API 35 e 1/1 em TABLET/API 35, verificando descarte de resultado obsoleto e serialização do retry com recognizer/fixtures controlados. Falta validar OCR com documentos reais e livros reais via API autenticada, MIME/respostas, Back/D-pad e retomada nos dispositivos-alvo."
       }
     ]
   },
@@ -2941,8 +2941,64 @@
   ],
   "events": [
     {
+      "id": "android-full-jvm-gate-2026-10-15",
+      "title": "Revalidar o gate JVM e a compilação Android",
+      "agent": "Codex",
+      "front": "android",
+      "featureIds": [],
+      "local": "MulletaFlix-android",
+      "location": "Suítes JVM, lint, assembleDebug e compilação AndroidTest",
+      "scope": "Conferir o estado automatizado do APK sem confundir relatórios UP-TO-DATE com testes reexecutados.",
+      "status": "completed",
+      "progressPercent": null,
+      "updatedAt": "2026-10-15T03:05:43-03:00",
+      "evidence": "Inventário local em MulletaFlix-android/HOMOLOGACAO-APK.md: 1.776 testes em 256 XML, 0 falhas/erros/ignorados. SyncPlayViewModelTest foi executado 23/23; os módulos inalterados ficaram UP-TO-DATE, portanto não se afirma reexecução integral nesta rodada. Lint SyncPlay/app, assembleDebug e compilação dos AndroidTests SyncPlay/app passaram; compilação não equivale a instrumentação executada. Nenhum servidor real, AVD nesta rodada, release ou aceite formal."
+    },
+    {
+      "id": "android-syncplay-server-session-isolation-2026-10-15",
+      "title": "Isolar a sessão SyncPlay ao trocar conta ou servidor",
+      "agent": "Codex",
+      "front": "android",
+      "featureIds": [],
+      "local": "MulletaFlix-android",
+      "location": "feature/sync-play — SyncPlayViewModel e SyncPlayViewModelTest",
+      "scope": "Impedir que a sala e o realtime da sessão anterior sobrevivam à troca de conta/servidor; manter a sala ao alternar somente URL LAN/WAN do mesmo servidor.",
+      "status": "completed",
+      "progressPercent": null,
+      "updatedAt": "2026-10-15T03:05:43-03:00",
+      "evidence": "TDD RED reproduziu retenção de activeGroupId ao trocar de servidor mantendo userId. GREEN passou a observar a identidade account + RemotePlaybackIdentity, encerrar realtime/cancelar refresh obsoleto e limpar estado de sala; URL local/remota do mesmo serverId mantém a sala. Dois testes novos e SyncPlayViewModelTest 23/23. Teste unitário com sessões sintéticas; sem servidor, peer real ou dispositivo. Evidência completa em MulletaFlix-android/HOMOLOGACAO-APK.md; não altera a distribuição 10/21, 2 em validação, 9 pendentes."
+    },
+    {
+      "id": "android-live-tv-player-journey-2026-10-15",
+      "title": "Validar a navegação da TV ao vivo até PlaybackInfo",
+      "agent": "Codex",
+      "front": "android",
+      "featureIds": [],
+      "local": "MulletaFlix-android",
+      "location": "app — MainActivitySessionNavigationTest em Android TV/API 34",
+      "scope": "Verificar IDs de canal/gravação e a abertura do tuner no fluxo navegação → player.",
+      "status": "completed",
+      "progressPercent": null,
+      "updatedAt": "2026-10-15T03:05:43-03:00",
+      "evidence": "Com MockWebServer e sessão sintéticos, canal e gravação chegaram a POST /Items/{id}/PlaybackInfo com seus IDs (2/2). Só o canal que exige tuner chegou a POST /LiveStreams/Open com o mesmo ItemId. XMLs live-tv-channel-player-journey-tv-api34.xml e live-tv-recording-player-journey-tv-api34.xml em MulletaFlix-android/validation-evidence/2026-10-15/. Não decodifica stream nem valida TV/servidor reais; APK-H09 mantém o estado formal existente."
+    },
+    {
+      "id": "android-pdf-ocr-cancel-retry-2026-10-15",
+      "title": "Validar cancelamento e nova tentativa de busca OCR de PDF",
+      "agent": "Codex",
+      "front": "android",
+      "featureIds": [],
+      "local": "MulletaFlix-android",
+      "location": "feature/item-detail — BookTextSearchDialogTest PHONE/TABLET API 35",
+      "scope": "Verificar retorno a idle, descarte de resultado antigo e segurança do bitmap durante cancelamento/retry.",
+      "status": "completed",
+      "progressPercent": null,
+      "updatedAt": "2026-10-15T03:05:43-03:00",
+      "evidence": "cancelingPdfOcrSearchReturnsToIdleAndIgnoresLateRecognitionBeforeRetry passou 1/1 em PHONE/API 35 e 1/1 em TABLET/API 35. O fluxo Compose + PdfBookDocument confirmou retorno a idle, bitmap válido até a Task terminar, serialização de retry e descarte do resultado obsoleto. XMLs pdf-ocr-search-cancel-phone-api35.xml e pdf-ocr-search-cancel-tablet-api35.xml em validation-evidence/2026-10-15/. Recognizer/fixtures sintéticos; não prova reconhecimento em PDFs reais nem leitura autenticada do servidor. APK-H21 continua pendente."
+    },
+    {
       "id": "android-profile-server-switch-login-investigation-2026-10-14",
-      "title": "Investigar falha instrumentada ao trocar de servidor pelo Perfil",
+      "title": "Revalidar troca de servidor pelo Perfil — estabilidade ainda inconclusiva",
       "agent": "Codex",
       "front": "android",
       "featureIds": [],
@@ -2952,8 +3008,8 @@
       "status": "in_progress",
       "progressPercent": null,
       "startedAt": "2026-10-14T14:31:00-03:00",
-      "updatedAt": "2026-10-14T14:36:14-03:00",
-      "evidence": "TDD ainda em andamento. O teste instrumentado PHONE/API 35 chega ao login do novo servidor, envia a autenticação e falha ao aguardar o retorno ao catálogo por 20 s; XML preservado em MulletaFlix-android/validation-evidence/2026-10-14/profile-server-switch-login-red.xml. A falha inicial confirma que o cenário não está homologado; a causa exata ainda está sob investigação e nenhum reteste verde foi obtido. A suíte unitária isolada do módulo auth passou 108/108 (0 ignorados/falhas/erros); isso não substitui o teste instrumentado. APK-H02 reaberta para validação (10/21 concluídas, 2 em validação, 9 pendentes); aceite formal segue pendente. Sem versão, APK de produção, release ou alteração de servidor."
+      "updatedAt": "2026-10-15T03:43:46-03:00",
+      "evidence": "A falha instrumentada inicial de 14/10 reproduziu a pilha antiga Home/Perfil ao pressionar Voltar; XML profile-server-switch-login-red.xml preservado em MulletaFlix-android/validation-evidence/2026-10-14/. A correção passou 11/11 em 14/10 e 12/12 numa execução PHONE/API 35 em 15/10. Na repetição seguinte, 12 dos 14 casos passaram; os 2 cenários exclusivos de TV lançaram AssumptionViolatedException porque o AVD PHONE não tem FEATURE_LEANBACK, e o runner os contabilizou como falhas em vez de skipped. O cenário focal switchingServerFromProfileDoesNotRestorePreviousProfileOnBackAfterLogin foi depois executado separadamente e passou 1/1. Também foi corrigida chave excedente em SyncPlayViewModel que bloqueava compilação. Gate JVM integral 1.776/1.776, lint, assembleDebug e compilação AndroidTest passaram. O perfil misto do runner ainda precisa ser corrigido e a estabilidade segue sem confirmação completa; fixtures sintéticas e aceites de servidor/dispositivo reais continuam pendentes. APK-H02 permanece em validação e o aceite formal não foi concedido. Sem release, versão nova ou mudança no servidor."
     },
     {
       "id": "android-home-cache-datastore-persistence-2026-10-13",

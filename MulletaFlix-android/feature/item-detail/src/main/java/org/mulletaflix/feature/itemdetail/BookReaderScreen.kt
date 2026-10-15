@@ -8,6 +8,9 @@ import android.content.Context
 import android.content.ContextWrapper
 import android.view.WindowManager
 import androidx.compose.foundation.background
+import androidx.compose.foundation.text.InlineTextContent
+import androidx.compose.foundation.text.appendInlineContent
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -85,11 +88,14 @@ import androidx.compose.ui.text.LinkInteractionListener
 import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextLinkStyles
+import androidx.compose.ui.text.Placeholder
+import androidx.compose.ui.text.PlaceholderVerticalAlign
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.withLink
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import coil.compose.AsyncImage
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -1047,40 +1053,76 @@ internal fun PlainTextBookReaderContent(
     ) {
         itemsIndexed(document.chunks, key = { index, _ -> index }) { index, chunk ->
             val chunkLinks = document.linksByChunk[index].orEmpty()
+            val chunkImages = document.inlineImagesByChunk[index].orEmpty()
             val linkColor = MaterialTheme.colorScheme.primary
-            val annotatedChunk = remember(document, index, chunk, chunkLinks, onChunkSelected) {
+            val imageInlineContent = remember(chunkImages, index) {
+                chunkImages.mapIndexed { imageIndex, image ->
+                    val id = "book-image-$index-$imageIndex"
+                    id to InlineTextContent(
+                        placeholder = Placeholder(
+                            width = 224.sp,
+                            height = 192.sp,
+                            placeholderVerticalAlign = PlaceholderVerticalAlign.Center,
+                        ),
+                    ) {
+                        AsyncImage(
+                            model = image.bytes,
+                            contentDescription = image.description.ifBlank { "Imagem incorporada no livro" },
+                            contentScale = ContentScale.Fit,
+                            modifier = Modifier.fillMaxSize()
+                                .testTag("$PLAIN_TEXT_BOOK_INLINE_IMAGE_TEST_TAG-$index-$imageIndex"),
+                        )
+                    }
+                }.toMap()
+            }
+            val imagesByOffset = remember(chunkImages) {
+                chunkImages.associateBy(PlainTextBookInlineImage::textOffset)
+            }
+            val annotatedChunk = remember(document, index, chunk, chunkLinks, chunkImages, onChunkSelected) {
                 buildAnnotatedString {
                     var cursor = 0
-                    chunkLinks.forEachIndexed { linkIndex, link ->
-                        val start = link.start.coerceIn(cursor, chunk.length)
-                        val end = link.endExclusive.coerceIn(start, chunk.length)
-                        if (start > cursor) append(chunk.substring(cursor, start))
-                        if (start < end) {
+                    while (cursor < chunk.length) {
+                        val image = imagesByOffset[cursor]
+                        if (image != null) {
+                            val imageIndex = chunkImages.indexOf(image)
+                            appendInlineContent("book-image-$index-$imageIndex", image.description)
+                            cursor++
+                            continue
+                        }
+                        val nextImage = imagesByOffset.keys.filter { it > cursor }.minOrNull() ?: chunk.length
+                        val activeLink = chunkLinks.firstOrNull { cursor in it.start until it.endExclusive }
+                        val nextLinkStart = chunkLinks.asSequence().map(PlainTextBookLinkSpan::start)
+                            .filter { it > cursor }.minOrNull() ?: chunk.length
+                        val end = minOf(
+                            chunk.length,
+                            nextImage,
+                            if (activeLink == null) nextLinkStart else activeLink.endExclusive,
+                        ).coerceAtLeast(cursor + 1)
+                        if (activeLink == null) {
+                            append(chunk.substring(cursor, end))
+                        } else {
                             withLink(
                                 LinkAnnotation.Clickable(
-                                    tag = "book-chunk-${link.targetChunk}-$linkIndex",
+                                    tag = "book-chunk-${activeLink.targetChunk}-${activeLink.start}",
                                     styles = TextLinkStyles(
-                                        style = SpanStyle(
-                                            color = linkColor,
-                                            textDecoration = TextDecoration.Underline,
-                                        ),
+                                        style = SpanStyle(color = linkColor, textDecoration = TextDecoration.Underline),
                                     ),
                                     linkInteractionListener = LinkInteractionListener {
-                                        pendingAnchor = PendingBookAnchor(link.targetChunk, link.targetOffset)
-                                        onChunkSelected(link.targetChunk)
+                                        pendingAnchor = PendingBookAnchor(activeLink.targetChunk, activeLink.targetOffset)
+                                        onChunkSelected(activeLink.targetChunk)
                                     },
                                 ),
                             ) {
-                                append(chunk.substring(start, end))
+                                append(chunk.substring(cursor, end))
                             }
                         }
                         cursor = end
                     }
-                    if (cursor < chunk.length) append(chunk.substring(cursor))
                 }
             }
             Text(
                 text = annotatedChunk,
+                inlineContent = imageInlineContent,
                 style = MaterialTheme.typography.bodyLarge.copy(
                     fontSize = fontSize,
                     lineHeight = fontSize * 1.5f,
@@ -1097,6 +1139,8 @@ internal fun PlainTextBookReaderContent(
         }
     }
 }
+
+internal const val PLAIN_TEXT_BOOK_INLINE_IMAGE_TEST_TAG = "plain-text-book-inline-image"
 
 @Composable
 private fun PlainTextBookChunkControls(

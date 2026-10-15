@@ -17,6 +17,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.captureToImage
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertIsSelected
@@ -37,6 +39,7 @@ import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.performScrollToIndex
+import androidx.compose.ui.graphics.toPixelMap
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.ViewModel
@@ -398,6 +401,67 @@ class BookReaderScreenIntegrationTest {
             "/BookReader/Items/$itemId/BookReader/Epub",
             server.takeRequest(5, TimeUnit.SECONDS)?.path,
         )
+    }
+
+    @Test
+    fun embeddedBookImagePixelsAreRenderedInlineWithAccessibleDescription() {
+        val itemId = "reader-inline-image-${System.nanoTime()}"
+        val image = createSolidPng(width = 96, height = 64, color = Color.MAGENTA)
+        server.enqueue(
+            MockResponse()
+                .setResponseCode(200)
+                .addHeader("Content-Type", "text/html; charset=utf-8")
+                .setBody("<p>Texto antes</p><img alt='Diagrama de teste' src='data:image/png;base64,$image'><p>Texto depois</p>"),
+        )
+        val api = Retrofit.Builder()
+            .baseUrl(server.url("/"))
+            .client(OkHttpClient())
+            .build()
+            .create(MulletaFlixApiService::class.java)
+        val viewModel = ViewModelProvider(
+            viewModelStore,
+            object : ViewModelProvider.Factory {
+                @Suppress("UNCHECKED_CAST")
+                override fun <T : ViewModel> create(modelClass: Class<T>): T =
+                    BookReaderViewModel(api, TestSessionRepository(sessionScope), context) as T
+            },
+        )[BookReaderViewModel::class.java]
+
+        composeRule.setContent {
+            MaterialTheme {
+                BookReaderScreen(itemId = itemId, onBack = {}, viewModel = viewModel)
+            }
+        }
+
+        composeRule.waitUntil(timeoutMillis = 20_000) {
+            runCatching {
+                composeRule.onNodeWithTag("$PLAIN_TEXT_BOOK_CHUNK_TEST_TAG-0")
+                    .assertIsDisplayed()
+                    .assertTextContains("Texto antes", substring = true)
+                    .assertTextContains("Texto depois", substring = true)
+                composeRule.onNodeWithTag("$PLAIN_TEXT_BOOK_INLINE_IMAGE_TEST_TAG-0-0")
+                    .assertIsDisplayed()
+                composeRule.onNodeWithContentDescription("Diagrama de teste").assertExists()
+                val renderedPixels = composeRule
+                    .onNodeWithTag("$PLAIN_TEXT_BOOK_INLINE_IMAGE_TEST_TAG-0-0")
+                    .captureToImage()
+                    .toPixelMap()
+                assertEquals(Color.MAGENTA, renderedPixels[renderedPixels.width / 2, renderedPixels.height / 2].toArgb())
+            }.isSuccess
+        }
+    }
+
+    private fun createSolidPng(width: Int, height: Int, color: Int): String {
+        val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+        return try {
+            bitmap.eraseColor(color)
+            ByteArrayOutputStream().use { output ->
+                check(bitmap.compress(Bitmap.CompressFormat.PNG, 100, output))
+                android.util.Base64.encodeToString(output.toByteArray(), android.util.Base64.NO_WRAP)
+            }
+        } finally {
+            bitmap.recycle()
+        }
     }
 
     @Test

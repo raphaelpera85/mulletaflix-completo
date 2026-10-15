@@ -6,6 +6,7 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
@@ -23,6 +24,7 @@ import org.mulletaflix.domain.repository.SyncPlayPlaybackCommand
 import org.mulletaflix.domain.usecase.ManageSyncPlayUseCase
 import org.mulletaflix.core.api.SavedServerSession
 import org.mulletaflix.core.api.SessionRepository
+import org.mulletaflix.core.api.SessionState
 import org.mulletaflix.core.api.SyncPlayRealtimeEvent
 
 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
@@ -256,6 +258,48 @@ class SyncPlayViewModelTest {
         assertEquals(2, repository.listCalls)
     }
 
+    @Test fun `switching servers with the same user clears the active room`() = runTest {
+        val session = MutableStateFlow(
+            SessionState("https://server-a.example", "token", "user-1", "server-a"),
+        )
+        val group = SyncPlayGroup("g1", "Filme", "Playing", emptyList())
+        val repository = FakeRepository(listOf(group), sessionState = session)
+        val viewModel = SyncPlayViewModel(ManageSyncPlayUseCase(repository), repository)
+        advanceUntilIdle()
+
+        viewModel.joinGroup(group.groupId)
+        advanceUntilIdle()
+        assertEquals(group.groupId, viewModel.state.value.activeGroupId)
+
+        session.value = session.value.copy(
+            serverUrl = "https://server-b.example",
+            serverId = "server-b",
+        )
+        advanceUntilIdle()
+
+        assertEquals(null, viewModel.state.value.activeGroupId)
+        assertEquals(3, repository.listCalls)
+    }
+
+    @Test fun `switching LAN and public URLs for the same server keeps the active room`() = runTest {
+        val session = MutableStateFlow(
+            SessionState("https://public.example", "token", "user-1", "stable-server"),
+        )
+        val group = SyncPlayGroup("g1", "Filme", "Playing", emptyList())
+        val repository = FakeRepository(listOf(group), sessionState = session)
+        val viewModel = SyncPlayViewModel(ManageSyncPlayUseCase(repository), repository)
+        advanceUntilIdle()
+
+        viewModel.joinGroup(group.groupId)
+        advanceUntilIdle()
+
+        session.value = session.value.copy(serverUrl = "http://192.168.1.20:8096")
+        advanceUntilIdle()
+
+        assertEquals(group.groupId, viewModel.state.value.activeGroupId)
+        assertEquals(2, repository.listCalls)
+    }
+
     /**
      * O botão desabilitado é lido na composição, então dois toques no mesmo frame
      * passam os dois. Sem a guarda síncrona o servidor recebia dois pedidos: duas
@@ -369,6 +413,7 @@ class SyncPlayViewModelTest {
         private val leaveGate: CompletableDeferred<Result<Unit>>? = null,
         private val commandGate: CompletableDeferred<Result<Unit>>? = null,
         private val cancelFirstCreate: Boolean = false,
+        private val sessionState: MutableStateFlow<SessionState>? = null,
     ) : SyncPlayRepository, SessionRepository {
         var listCalls = 0
         var failSubsequentListCallsWith: String? = null
@@ -402,10 +447,13 @@ class SyncPlayViewModelTest {
         }
         override suspend fun reportBuffering(status: org.mulletaflix.domain.repository.SyncPlayPlaybackStatus) = Result.success(Unit)
         override suspend fun reportReady(status: org.mulletaflix.domain.repository.SyncPlayPlaybackStatus) = Result.success(Unit)
-        override fun getAccessToken(): Flow<String?> = flowOf(null)
+        override fun getSessionState(): Flow<SessionState> =
+            sessionState ?: super<SessionRepository>.getSessionState()
+        override fun getAccessToken(): Flow<String?> = sessionState?.map { it.accessToken } ?: flowOf(null)
         override fun getDeviceId(): Flow<String> = flowOf("device")
-        override fun getBaseUrl(): Flow<String> = flowOf("http://server")
-        override fun getCurrentUserId(): Flow<String?> = userId
+        override fun getBaseUrl(): Flow<String> = sessionState?.map { it.serverUrl } ?: flowOf("http://server")
+        override fun getCurrentUserId(): Flow<String?> = sessionState?.map { it.userId } ?: userId
+        override fun getServerId(): Flow<String?> = sessionState?.map { it.serverId } ?: flowOf(null)
         override suspend fun saveSession(serverUrl: String, token: String, userId: String, deviceId: String) = Unit
         override suspend fun setBaseUrl(url: String) = Unit
         override suspend fun clearSession() = Unit

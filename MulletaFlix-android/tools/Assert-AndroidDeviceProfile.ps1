@@ -130,6 +130,27 @@ function Get-ExpectedAndroidDeviceProfile {
     return $profile
 }
 
+function Get-AndroidProfileInstrumentationArguments {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)]
+        [ValidateSet('PHONE', 'TABLET', 'TV')]
+        [string] $Profile,
+
+        [Parameter(Mandatory = $true)]
+        [AllowEmptyCollection()]
+        [string[]] $InstrumentationTasks
+    )
+
+    if ($Profile -in @('PHONE', 'TABLET') -and
+        $InstrumentationTasks -contains ':app:connectedDebugAndroidTest'
+    ) {
+        return @('-Pandroid.testInstrumentationRunnerArguments.notAnnotation=org.mulletaflix.android.AndroidTvOnly')
+    }
+
+    return @()
+}
+
 function Get-AndroidInstrumentationTasks {
     [CmdletBinding()]
     param(

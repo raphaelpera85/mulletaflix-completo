@@ -8,12 +8,14 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import org.mulletaflix.core.common.util.userFacingMessageOr
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import org.mulletaflix.domain.repository.SyncPlayGroup
 import org.mulletaflix.domain.repository.SyncPlayPlaybackCommand
+import org.mulletaflix.domain.repository.RemotePlaybackIdentity
 import org.mulletaflix.domain.usecase.ManageSyncPlayUseCase
 import org.mulletaflix.core.api.SessionRepository
 import org.mulletaflix.core.api.SyncPlayRealtimeClient
@@ -33,6 +35,19 @@ data class SyncPlayUiState(
     val realtimeEventSequence: Long = 0L,
 )
 
+private data class SyncPlaySessionSnapshot(
+    val userId: String?,
+    val serverIdentity: RemotePlaybackIdentity?,
+) {
+    fun matches(other: SyncPlaySessionSnapshot): Boolean {
+        if (userId != other.userId) return false
+        val current = serverIdentity
+        val candidate = other.serverIdentity
+        return if (current == null || candidate == null) current == candidate
+        else current.matches(candidate)
+    }
+}
+
 @HiltViewModel
 class SyncPlayViewModel @Inject constructor(
     private val manageSyncPlayUseCase: ManageSyncPlayUseCase,
@@ -45,6 +60,7 @@ class SyncPlayViewModel @Inject constructor(
 
     private var refreshJob: Job? = null
     private var currentUserId: String? = null
+    private var currentSessionSnapshot: SyncPlaySessionSnapshot? = null
     private var sessionGeneration = 0L
     private var hasObservedSession = false
 
@@ -91,30 +107,47 @@ class SyncPlayViewModel @Inject constructor(
             }
         }
         viewModelScope.launch {
-            sessionRepository.getCurrentUserId().distinctUntilChanged().collect { userId ->
-                val userChanged = hasObservedSession && currentUserId != userId
-                currentUserId = userId
-                hasObservedSession = true
-                if (userChanged) {
-                    realtimeClient?.stop()
-                    refreshJob?.cancel()
-                    ++sessionGeneration
-                    _state.update {
-                        it.copy(
-                            groups = emptyList(),
-                            isGroupsStale = false,
-                            isLoading = false,
-                            isSubmitting = false,
-                            error = null,
-                            activeGroupId = null,
-                            realtimeConnected = false,
-                            lastRealtimeEvent = null,
-                        )
-                    }
+            sessionRepository.getSessionState()
+                .map { session ->
+                    val userId = session.userId
+                    SyncPlaySessionSnapshot(
+                        userId = userId,
+                        serverIdentity = userId?.takeIf(String::isNotBlank)?.let {
+                            RemotePlaybackIdentity(
+                                serverId = session.serverId,
+                                serverUrl = session.serverUrl,
+                                userId = it,
+                            )
+                        },
+                    )
                 }
-                refresh()
+                .distinctUntilChanged { previous, current -> previous.matches(current) }
+                .collect { snapshot ->
+                    val userId = snapshot.userId
+                    val sessionChanged = hasObservedSession && currentSessionSnapshot?.matches(snapshot) != true
+                    currentSessionSnapshot = snapshot
+                    currentUserId = userId
+                    hasObservedSession = true
+                    if (sessionChanged) {
+                        realtimeClient?.stop()
+                        refreshJob?.cancel()
+                        ++sessionGeneration
+                        _state.update {
+                            it.copy(
+                                groups = emptyList(),
+                                isGroupsStale = false,
+                                isLoading = false,
+                                isSubmitting = false,
+                                error = null,
+                                activeGroupId = null,
+                                realtimeConnected = false,
+                                lastRealtimeEvent = null,
+                            )
+                        }
+                    }
+                    refresh()
+                }
             }
-        }
     }
 
     fun refresh(isBackground: Boolean = false) {

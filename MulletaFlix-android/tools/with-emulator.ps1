@@ -28,6 +28,7 @@ $emulatorProcess = $null
 $androidProjectRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 . (Join-Path $PSScriptRoot 'Assert-AndroidInstrumentationResults.ps1')
 . (Join-Path $PSScriptRoot 'Assert-AndroidDeviceProfile.ps1')
+. (Join-Path $PSScriptRoot 'EmulatorProcessTree.ps1')
 . (Join-Path $PSScriptRoot 'Resolve-AndroidAvdHome.ps1')
 
 $avdSearchDirectories = Get-AndroidAvdSearchDirectories `
@@ -45,20 +46,36 @@ function Stop-StartedEmulatorTree {
 
     if (-not $RootProcess) { return }
 
-    # emulator.exe starts qemu-system-x86_64.exe as a child.  Stop only this
-    # process tree so a developer's other running AVDs are left untouched.
-    $processIds = [System.Collections.Generic.HashSet[int]]::new()
-    [void] $processIds.Add($RootProcess.Id)
-    do {
-        $before = $processIds.Count
-        Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
-            Where-Object { $processIds.Contains([int]$_.ParentProcessId) } |
-            ForEach-Object { [void] $processIds.Add([int]$_.ProcessId) }
-    } while ($processIds.Count -gt $before)
+    # Snapshot the process tree while the emulator parent still exists; use the
+    # same process handles after graceful ADB shutdown so orphaned QEMU children
+    # are reaped without ever killing a later process that reuses a PID.
+    $processSnapshot = @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue)
+    $processIds = Get-EmulatorProcessTreeIds -RootProcessId $RootProcess.Id -ProcessSnapshot $processSnapshot
+    $processHandles = @(Get-EmulatorProcessHandles -ProcessIds $processIds)
 
-    Get-Process -Id @($processIds) -ErrorAction SilentlyContinue |
-        Sort-Object Id -Descending |
-        Stop-Process -Force -ErrorAction SilentlyContinue
+    try {
+        & $adb -s $serial emu kill 2>$null | Out-Null
+    } catch {
+        # The process snapshot is still authoritative if ADB is already gone.
+    }
+
+    $shutdownDeadline = (Get-Date).AddSeconds(3)
+    do {
+        $remainingProcesses = @($processHandles | Where-Object {
+            try {
+                $_.Process.Refresh()
+                -not $_.Process.HasExited -and
+                    $_.Process.StartTime.ToUniversalTime().Ticks -eq $_.StartTimeUtcTicks -and
+                    $_.Process.Path -eq $_.Path
+            } catch {
+                $false
+            }
+        })
+        if ($remainingProcesses.Count -eq 0) { break }
+        Start-Sleep -Milliseconds 250
+    } while ((Get-Date) -lt $shutdownDeadline)
+
+    Stop-EmulatorProcessTree -ProcessHandles $processHandles
 }
 
 function Get-BootState {
@@ -226,6 +243,11 @@ try {
         -CommandArguments $CommandArgument `
         -Required $instrumentedTestRequested
     if ($expectedProfile) {
+        $CommandArgument += Get-AndroidProfileInstrumentationArguments `
+            -Profile $expectedProfile `
+            -InstrumentationTasks $instrumentedTasks
+    }
+    if ($expectedProfile) {
         $deviceFeatures = & $adb -s $serial shell pm list features
         if ($LASTEXITCODE -ne 0) { throw "Could not read Android features from $serial." }
         $displaySize = & $adb -s $serial shell wm size
@@ -248,7 +270,9 @@ try {
     $commandStartedAt = Get-Date
     & $Command @CommandArgument
     $commandExitCode = $LASTEXITCODE
-    if ($commandExitCode -ne 0) { exit $commandExitCode }
+    if ($commandExitCode -ne 0) {
+        throw "Wrapped command failed with exit code $commandExitCode."
+    }
 
     foreach ($instrumentedTask in $instrumentedTasks) {
         $modulePath = $instrumentedTask -replace '^:', '' -replace ':connectedDebugAndroidTest$', ''
@@ -263,18 +287,6 @@ try {
 }
 finally {
     if ($startedHere) {
-        # Capture and stop descendants before the emulator exits, otherwise
-        # the parent relationship can disappear before cleanup is collected.
-        Stop-StartedEmulatorTree -RootProcess $emulatorProcess
-        try {
-            # The emulator may already have exited after Gradle disconnects;
-            # cleanup is idempotent and must not turn a successful test run
-            # into a false-negative wrapper failure.
-            & $adb -s $serial emu kill 2>$null | Out-Null
-        } catch {
-            # The process tree cleanup above is authoritative in this case.
-        }
-        Start-Sleep -Milliseconds 500
         Stop-StartedEmulatorTree -RootProcess $emulatorProcess
     }
 }

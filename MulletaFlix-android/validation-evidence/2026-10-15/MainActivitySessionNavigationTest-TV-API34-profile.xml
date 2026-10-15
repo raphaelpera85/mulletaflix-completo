@@ -1,0 +1,10 @@
+<?xml version='1.0' encoding='UTF-8' ?>
+<testsuites tests="2" failures="0" errors="0" skipped="0" time="0.000" timestamp="2026-10-15T07:23:30" hostname="localhost">
+  <testsuite name="org.mulletaflix.android.MainActivitySessionNavigationTest" tests="2" failures="0" errors="0" skipped="0" time="14.914" timestamp="2026-10-15T07:23:30" hostname="localhost">
+    <properties>
+      <property name="device" value="emulator-5556" />
+    </properties>
+    <testcase name="liveTvRecordingSelectionReachesPlaybackInfoWithTheRecordingId" classname="org.mulletaflix.android.MainActivitySessionNavigationTest" time="10.567" />
+    <testcase name="liveTvChannelSelectionReachesPlaybackAndOpenStreamWithTheChannelId" classname="org.mulletaflix.android.MainActivitySessionNavigationTest" time="4.347" />
+  </testsuite>
+</testsuites>

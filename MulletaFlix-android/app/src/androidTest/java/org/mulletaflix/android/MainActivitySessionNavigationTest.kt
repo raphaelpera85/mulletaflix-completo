@@ -7,6 +7,7 @@ import androidx.compose.ui.test.junit4.v2.createEmptyComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
@@ -20,6 +21,7 @@ import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.semantics.SemanticsNode
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import okhttp3.mockwebserver.Dispatcher
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
@@ -36,6 +38,10 @@ import org.junit.runner.RunWith
 import org.mulletaflix.core.api.SessionRepository
 import org.mulletaflix.data.repository.SessionRepositoryImpl
 import java.util.concurrent.ConcurrentLinkedQueue
+
+@Retention(AnnotationRetention.RUNTIME)
+@Target(AnnotationTarget.FUNCTION)
+annotation class AndroidTvOnly
 
 @RunWith(AndroidJUnit4::class)
 class MainActivitySessionNavigationTest {
@@ -353,14 +359,140 @@ class MainActivitySessionNavigationTest {
         launchMainActivity()
 
         composeRule.waitUntil(timeoutMillis = 20_000) { homeVisible() }
-        composeRule.onNodeWithContentDescription("Mais ações", useUnmergedTree = true).performClick()
-        composeRule.onNodeWithText("Configurações", useUnmergedTree = true).performClick()
+        openSettingsFromHome()
         composeRule.onNodeWithText("Sair", useUnmergedTree = true).performClick()
 
         composeRule.waitUntil(timeoutMillis = 20_000) { serverSelectionVisible() }
         assertTrue("Logout deve limpar o token persistido antes de sair de Ajustes", sessionRepository.getAccessToken().first().isNullOrBlank())
         assertTrue("Logout deve limpar o usuário persistido", sessionRepository.getCurrentUserId().first().isNullOrBlank())
         assertEquals("Logout deve manter o servidor para reconexão", serverUrl, sessionRepository.getBaseUrl().first())
+    }
+
+    @Test
+    fun profileQuickSwitchPersistsSelectedAccountAndKeepsServerAndDevice() = runBlocking {
+        if (context.checkSelfPermission(android.Manifest.permission.ACCESS_LOCAL_NETWORK) !=
+            android.content.pm.PackageManager.PERMISSION_GRANTED
+        ) {
+            InstrumentationRegistry.getInstrumentation().uiAutomation
+                .executeShellCommand(
+                    "pm grant ${context.packageName} android.permission.ACCESS_LOCAL_NETWORK",
+                ).close()
+            localNetworkPermissionGrantedForTest = true
+        }
+        val requests = ConcurrentLinkedQueue<String>()
+        val server = MockWebServer().apply {
+            dispatcher = object : Dispatcher() {
+                override fun dispatch(request: RecordedRequest): MockResponse {
+                    val path = request.path.orEmpty().substringBefore('?')
+                    requests.add("${request.method} $path")
+                    return when (path) {
+                        "/System/Info/Public" -> MockResponse()
+                            .setHeader("Content-Type", "application/json")
+                            .setBody("""{"Id":"profile-switch-server","ServerName":"Profile fixture","Version":"12.0.0"}""")
+                        "/Users/Public" -> MockResponse()
+                            .setHeader("Content-Type", "application/json")
+                            .setBody(
+                                """[{"Id":"old-user","Name":"Conta atual"},{"Id":"guest-user","Name":"Conta secundária"}]""",
+                            )
+                        "/QuickConnect/Enabled" -> MockResponse()
+                            .setHeader("Content-Type", "application/json")
+                            .setBody("false")
+                        "/Users/Me" -> {
+                            val user = if (request.getHeader("Authorization").orEmpty().contains("guest-token")) {
+                                "guest-user" to "Conta secundária"
+                            } else {
+                                "old-user" to "Conta atual"
+                            }
+                            MockResponse()
+                                .setHeader("Content-Type", "application/json")
+                                .setBody("""{"Id":"${user.first}","Name":"${user.second}"}""")
+                        }
+                        "/Users/AuthenticateByName" -> {
+                            val body = request.body.readUtf8()
+                            requests.add("AUTH $body")
+                            if (!body.contains("\"Username\":\"Conta secundária\"")) {
+                                MockResponse().setResponseCode(401)
+                            } else {
+                                MockResponse()
+                                    .setHeader("Content-Type", "application/json")
+                                    .setBody(
+                                        """{"AccessToken":"guest-token","ServerId":"profile-switch-server","User":{"Id":"guest-user","Name":"Conta secundária"}}""",
+                                    )
+                            }
+                        }
+                        else -> MockResponse().setResponseCode(404)
+                    }
+                }
+            }
+            start()
+        }
+        mockServers += server
+        trackMockServerUrl(server)
+        val serverUrl = server.url("/").toString().trimEnd('/')
+        val deviceId = requireNotNull(originalSession).deviceId
+        sessionRepository.setBaseUrl(serverUrl)
+        sessionRepository.saveSession(
+            serverUrl = serverUrl,
+            token = "old-token",
+            userId = "old-user",
+            userName = "Conta atual",
+            serverId = "profile-switch-server",
+            deviceId = deviceId,
+        )
+        launchMainActivity()
+
+        composeRule.waitUntil(timeoutMillis = 20_000) { homeVisible() }
+        composeRule.waitUntil(timeoutMillis = 20_000) {
+            runCatching {
+                composeRule.onNodeWithContentDescription("Perfil de Conta atual", useUnmergedTree = true)
+                    .assertIsDisplayed()
+            }.isSuccess
+        }
+        openProfileFromHome()
+        val switcherLoaded = runCatching {
+            composeRule.waitUntil(timeoutMillis = 20_000) {
+                runCatching {
+                    composeRule.onNodeWithText("Conta secundária").assertIsDisplayed()
+                }.isSuccess
+            }
+        }.isSuccess
+        assertTrue(
+            "O Perfil deve carregar os outros usuários públicos antes de permitir a troca; " +
+                "requests=$requests, text=${displayedTexts()}",
+            switcherLoaded,
+        )
+        composeRule.onNodeWithText("Conta secundária").performScrollTo().performClick()
+        composeRule.onNodeWithText("Entrar como Conta secundária").assertIsDisplayed()
+        composeRule.onNodeWithText("Alternar").performClick()
+
+        composeRule.waitUntil(timeoutMillis = 20_000) {
+            requests.any {
+                it.startsWith("AUTH ") && it.contains("\"Username\":\"Conta secundária\"")
+            }
+        }
+        withTimeout(20_000) {
+            sessionRepository.getCurrentUserId().first { it == "guest-user" }
+        }
+        val reopenedSession = SessionRepositoryImpl(context)
+        assertEquals(serverUrl, reopenedSession.getBaseUrl().first())
+        assertEquals("profile-switch-server", reopenedSession.getServerId().first())
+        assertEquals("guest-user", reopenedSession.getCurrentUserId().first())
+        assertEquals("Conta secundária", reopenedSession.getCurrentUserName().first())
+        assertEquals("guest-token", reopenedSession.getAccessToken().first())
+        assertEquals(deviceId, reopenedSession.getDeviceId().first())
+        assertTrue("A troca deve autenticar a conta escolhida", requests.any { it.startsWith("AUTH ") })
+
+        composeRule.waitUntil(timeoutMillis = 20_000) {
+            composeRule.onAllNodesWithText("Conta atual", useUnmergedTree = true)
+                .fetchSemanticsNodes().isNotEmpty()
+        }
+        assertEquals(
+            "Após a troca, o cabeçalho do Perfil deve refletir a conta autenticada, " +
+                "e a conta anterior deve voltar à lista de alternância",
+            1,
+            composeRule.onAllNodesWithText("Conta secundária", useUnmergedTree = true)
+                .fetchSemanticsNodes().size,
+        )
     }
 
     @Test
@@ -415,8 +547,7 @@ class MainActivitySessionNavigationTest {
         launchMainActivity()
 
         composeRule.waitUntil(timeoutMillis = 20_000) { homeVisible() }
-        composeRule.onNodeWithContentDescription("Mais ações", useUnmergedTree = true).performClick()
-        composeRule.onNodeWithText("Meu Perfil", useUnmergedTree = true).performClick()
+        openProfileFromHome()
         composeRule.onNodeWithText("Trocar de Servidor", useUnmergedTree = true).performScrollTo().performClick()
         composeRule.waitUntil(timeoutMillis = 20_000) { serverSelectionVisible() }
         composeRule.onNodeWithTag("auth.server.url").performTextClearance()
@@ -513,8 +644,7 @@ class MainActivitySessionNavigationTest {
         launchMainActivity()
 
         composeRule.waitUntil(timeoutMillis = 20_000) { homeVisible() }
-        composeRule.onNodeWithContentDescription("Mais ações", useUnmergedTree = true).performClick()
-        composeRule.onNodeWithText("Meu Perfil", useUnmergedTree = true).performClick()
+        openProfileFromHome()
         composeRule.onNodeWithText("Trocar de Servidor", useUnmergedTree = true).performScrollTo().performClick()
         composeRule.waitUntil(timeoutMillis = 20_000) { serverSelectionVisible() }
         activityScenario?.onActivity { it.onBackPressedDispatcher.onBackPressed() }
@@ -854,6 +984,138 @@ class MainActivitySessionNavigationTest {
         )
     }
 
+    @Test
+    @AndroidTvOnly
+    fun liveTvChannelSelectionReachesPlaybackAndOpenStreamWithTheChannelId() {
+        assumeTrue(
+            "Este fluxo de foco e navegação exige um dispositivo Android TV",
+            context.packageManager.hasSystemFeature(android.content.pm.PackageManager.FEATURE_LEANBACK),
+        )
+        runBlocking {
+        journeyRequests.clear()
+        openedLiveStreamItemIds.clear()
+        val channelId = "live-channel-journey-42"
+        val server = startLiveTvJourneyServer(channelId, "Canal de jornada", "LiveTvChannel", requiresOpening = true)
+        val serverUrl = server.url("/").toString().trimEnd('/')
+        trackMockServerUrl(server)
+        sessionRepository.saveSession(
+            serverUrl = serverUrl,
+            token = "live-tv-journey-token",
+            userId = "live-tv-journey-user",
+            userName = "Conta de teste",
+            serverId = "live-tv-journey-server",
+            deviceId = requireNotNull(originalSession).deviceId,
+        )
+        launchMainActivity()
+
+        composeRule.waitUntil(timeoutMillis = 20_000) { homeVisible() }
+        composeRule.onNodeWithContentDescription("TV Ao Vivo", useUnmergedTree = true).performClick()
+        val channelVisible = runCatching {
+            composeRule.waitUntil(timeoutMillis = 20_000) {
+                runCatching { composeRule.onNodeWithText("Canal de jornada").assertIsDisplayed() }.isSuccess
+            }
+        }.isSuccess
+        assertTrue("Canal não carregou; requests=$journeyRequests, tela=${displayedTexts()}", channelVisible)
+        composeRule.onNodeWithContentDescription("Assistir Canal de jornada").performClick()
+
+        composeRule.waitUntil(timeoutMillis = 30_000) {
+            journeyRequests.contains("POST /Items/$channelId/PlaybackInfo") &&
+                journeyRequests.contains("POST /LiveStreams/Open")
+        }
+        assertTrue("PlaybackInfo deve receber o ID exato do canal: $journeyRequests", journeyRequests.contains("POST /Items/$channelId/PlaybackInfo"))
+        val recordedRequests = journeyRequests.toList()
+        assertTrue("A abertura do tuner deve acontecer depois de PlaybackInfo: $recordedRequests", recordedRequests.indexOf("POST /LiveStreams/Open") > recordedRequests.indexOf("POST /Items/$channelId/PlaybackInfo"))
+        assertEquals("O tuner deve receber o mesmo ID selecionado", channelId, openedLiveStreamItemIds.peek())
+        }
+    }
+
+    @Test
+    @AndroidTvOnly
+    fun liveTvRecordingSelectionReachesPlaybackInfoWithTheRecordingId() {
+        assumeTrue(
+            "Este fluxo de foco e navegação exige um dispositivo Android TV",
+            context.packageManager.hasSystemFeature(android.content.pm.PackageManager.FEATURE_LEANBACK),
+        )
+        runBlocking {
+        journeyRequests.clear()
+        openedLiveStreamItemIds.clear()
+        val recordingId = "live-recording-journey-73"
+        val server = startLiveTvJourneyServer(recordingId, "Gravação de jornada", "Recording", requiresOpening = false)
+        val serverUrl = server.url("/").toString().trimEnd('/')
+        trackMockServerUrl(server)
+        sessionRepository.saveSession(
+            serverUrl = serverUrl,
+            token = "live-tv-journey-token",
+            userId = "live-tv-journey-user",
+            userName = "Conta de teste",
+            serverId = "live-tv-journey-server",
+            deviceId = requireNotNull(originalSession).deviceId,
+        )
+        launchMainActivity()
+
+        composeRule.waitUntil(timeoutMillis = 20_000) { homeVisible() }
+        composeRule.onNodeWithContentDescription("TV Ao Vivo", useUnmergedTree = true).performClick()
+        composeRule.waitUntil(timeoutMillis = 20_000) {
+            runCatching { composeRule.onNodeWithText("Gravações").assertIsDisplayed() }.isSuccess
+        }
+        composeRule.onAllNodesWithText("Gravação de jornada")[1].performClick()
+
+        composeRule.waitUntil(timeoutMillis = 30_000) {
+            journeyRequests.contains("POST /Items/$recordingId/PlaybackInfo")
+        }
+        assertTrue("PlaybackInfo deve receber o ID exato da gravação: $journeyRequests", journeyRequests.contains("POST /Items/$recordingId/PlaybackInfo"))
+        assertFalse("Gravação já disponível não deve abrir como tuner: $journeyRequests", journeyRequests.contains("POST /LiveStreams/Open"))
+        }
+    }
+
+    private val journeyRequests = ConcurrentLinkedQueue<String>()
+    private val openedLiveStreamItemIds = ConcurrentLinkedQueue<String>()
+
+    private fun startLiveTvJourneyServer(
+        itemId: String,
+        itemName: String,
+        itemType: String,
+        requiresOpening: Boolean,
+    ): MockWebServer = MockWebServer().apply {
+        dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse {
+                val path = request.path.orEmpty().substringBefore('?')
+                journeyRequests += "${request.method} $path"
+                return when {
+                    path == "/LiveTv/Channels" -> jsonResponse(
+                        """{"Items":[{"Id":"$itemId","Name":"$itemName","Type":"LiveTvChannel"}],"TotalRecordCount":1}""",
+                    )
+                    path == "/LiveTv/Recordings" -> jsonResponse(
+                        if (itemType == "Recording") {
+                            """{"Items":[{"Id":"$itemId","Name":"$itemName","Type":"Recording"}],"TotalRecordCount":1}"""
+                        } else {
+                            """{"Items":[],"TotalRecordCount":0}"""
+                        },
+                    )
+                    path == "/Users/live-tv-journey-user/Items/$itemId" -> jsonResponse(
+                        """{"Id":"$itemId","Name":"$itemName","Type":"$itemType","MediaSources":[]}""",
+                    )
+                    path == "/Items/$itemId/PlaybackInfo" -> jsonResponse(
+                        """{"PlaySessionId":"journey-play-session","MediaSources":[{"Id":"journey-source","Path":"http://10.0.2.2:${port}/stream.ts","Protocol":"Http","Container":"ts","RequiresOpening":$requiresOpening,"OpenToken":"journey-open-token"}]}""",
+                    )
+                    path == "/LiveStreams/Open" -> {
+                        openedLiveStreamItemIds += request.requestUrl?.queryParameter("ItemId").orEmpty()
+                        jsonResponse(
+                            """{"MediaSource":{"Id":"opened-journey-source","Path":"http://10.0.2.2:${port}/stream.ts","Protocol":"Http","Container":"ts","LiveStreamId":"journey-live-feed"}}""",
+                        )
+                    }
+                    else -> jsonResponse("""{"Items":[],"TotalRecordCount":0}""")
+                }
+            }
+        }
+        start()
+        mockServers += this
+    }
+
+    private fun jsonResponse(body: String): MockResponse = MockResponse()
+        .setHeader("Content-Type", "application/json")
+        .setBody(body)
+
     private fun launchMainActivity(
         intent: Intent = Intent(context, MainActivity::class.java),
     ) {
@@ -873,6 +1135,43 @@ class MainActivitySessionNavigationTest {
         runCatching {
             composeRule.onNodeWithContentDescription("Buscar", useUnmergedTree = true).assertIsDisplayed()
         }.isSuccess
+
+    private fun openProfileFromHome() {
+        val moreActions = composeRule.onNodeWithContentDescription("Mais ações", useUnmergedTree = true)
+        if (runCatching { moreActions.assertIsDisplayed() }.isSuccess) {
+            moreActions.performClick()
+            val menuLabel = listOf("Meu Perfil", "Perfil de Conta atual", "Perfil de Old user")
+                .firstOrNull { label ->
+                    runCatching {
+                        composeRule.onNodeWithText(label, useUnmergedTree = true).assertIsDisplayed()
+                    }.isSuccess
+                }
+            composeRule.onNodeWithText(requireNotNull(menuLabel) { "A ação de Perfil não apareceu no menu compacto." }, useUnmergedTree = true)
+                .performClick()
+            return
+        }
+
+        val directProfileDescription = listOf("Meu Perfil", "Perfil de Conta atual", "Perfil de Old user")
+            .firstOrNull { description ->
+                runCatching {
+                    composeRule.onNodeWithContentDescription(description, useUnmergedTree = true).assertIsDisplayed()
+                }.isSuccess
+            }
+        composeRule.onNodeWithContentDescription(
+            requireNotNull(directProfileDescription) { "A ação direta de Perfil não apareceu no Home amplo." },
+            useUnmergedTree = true,
+        ).performClick()
+    }
+
+    private fun openSettingsFromHome() {
+        val moreActions = composeRule.onNodeWithContentDescription("Mais ações", useUnmergedTree = true)
+        if (runCatching { moreActions.assertIsDisplayed() }.isSuccess) {
+            moreActions.performClick()
+            composeRule.onNodeWithText("Configurações", useUnmergedTree = true).performClick()
+        } else {
+            composeRule.onNodeWithContentDescription("Configurações", useUnmergedTree = true).performClick()
+        }
+    }
 
     private fun displayedTexts(): String =
         semanticsTree(composeRule.onRoot(useUnmergedTree = true).fetchSemanticsNode())

@@ -154,6 +154,25 @@ Describe 'Get-ExpectedAndroidDeviceProfile' {
     }
 }
 
+Describe 'Get-AndroidProfileInstrumentationArguments' {
+    It 'excludes Android TV-only journeys from phone and tablet runs' {
+        $appTask = @(':app:connectedDebugAndroidTest')
+        $argument = Get-AndroidProfileInstrumentationArguments -Profile PHONE -InstrumentationTasks $appTask
+        $argument | Should Be '-Pandroid.testInstrumentationRunnerArguments.notAnnotation=org.mulletaflix.android.AndroidTvOnly'
+
+        $argument = Get-AndroidProfileInstrumentationArguments -Profile TABLET -InstrumentationTasks $appTask
+        $argument | Should Be '-Pandroid.testInstrumentationRunnerArguments.notAnnotation=org.mulletaflix.android.AndroidTvOnly'
+    }
+
+    It 'keeps Android TV-only journeys eligible on TV runs' {
+        @(Get-AndroidProfileInstrumentationArguments -Profile TV -InstrumentationTasks @(':app:connectedDebugAndroidTest')).Count | Should Be 0
+    }
+
+    It 'does not add app-only filters to feature module runs' {
+        @(Get-AndroidProfileInstrumentationArguments -Profile PHONE -InstrumentationTasks @(':feature:home:connectedDebugAndroidTest')).Count | Should Be 0
+    }
+}
+
 Describe 'Get-AndroidInstrumentationTasks' {
     It 'identifies every module-qualified connected debug instrumentation task' {
         Get-AndroidInstrumentationTasks `

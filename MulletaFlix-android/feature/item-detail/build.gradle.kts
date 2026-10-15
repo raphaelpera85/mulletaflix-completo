@@ -17,6 +17,11 @@ android {
         isCoreLibraryDesugaringEnabled = true
     }
     buildFeatures { compose = true }
+    sourceSets {
+        getByName("androidTest") {
+            assets.directories.add("src/test/resources/books")
+        }
+    }
     testOptions {
         unitTests.isIncludeAndroidResources = true
         unitTests.isReturnDefaultValues = true

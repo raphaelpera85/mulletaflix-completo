@@ -138,11 +138,11 @@ test('portal publishes current per-download pause and resume evidence without cl
     const downloads = statusData.androidHomologation.areas.find(area => area.id === 'APK-H07');
     const event = statusData.events.find(item => item.id === 'android-per-download-pause-resume-2026-10-13');
 
-    assert.match(statusData.generatedAt, /^2026-10-14T14:\d{2}:\d{2}-03:00$/);
-    assert.equal(android.testAudit.passed, 1741);
-    assert.equal(android.testAudit.total, 1741);
-    assert.equal(android.instrumentationAudit.passed, 40);
-    assert.equal(android.instrumentationAudit.total, 41);
+    assert.match(statusData.generatedAt, /^2026-10-15T\d{2}:\d{2}:\d{2}-03:00$/);
+    assert.equal(android.testAudit.passed, 1776);
+    assert.equal(android.testAudit.total, 1776);
+    assert.equal(android.instrumentationAudit.passed, 44);
+    assert.equal(android.instrumentationAudit.total, 45);
     assert.equal(android.instrumentationAudit.failed, 1);
     assert.match(downloads.evidence, /HTTP Range até COMPLETED/);
     assert.ok(event, 'portal should include the current Android development event');
@@ -158,11 +158,11 @@ test('portal records update-effect test isolation without changing formal homolo
     const android = statusData.tracks.find(track => track.id === 'android');
     const event = statusData.events.find(item => item.id === 'android-update-effect-test-isolation-2026-10-13');
 
-    assert.match(statusData.generatedAt, /^2026-10-14T14:\d{2}:\d{2}-03:00$/);
+    assert.match(statusData.generatedAt, /^2026-10-15T\d{2}:\d{2}:\d{2}-03:00$/);
     assert.match(event.evidence, /Activity não intercepta sockets GitHub ponta a ponta/);
     assert.match(event.evidence, /AppUpdateCheckEffectTest-PHONE-API35\.xml/);
-    assert.equal(android.testAudit.passed, 1741);
-    assert.equal(android.instrumentationAudit.passed, 40);
+    assert.equal(android.testAudit.passed, 1776);
+    assert.equal(android.instrumentationAudit.passed, 44);
     assert.match(android.instrumentationAudit.label, /AppUpdateCheckEffectTest 2\/2/);
     assert.ok(event, 'portal should record the completed Android test isolation update');
     assert.match(event.evidence, /TDD RED/);
@@ -182,8 +182,8 @@ test('portal records SyncPlay event-flow integration without formal acceptance',
     assert.match(event.evidence, /MockWebServer/);
     assert.match(event.evidence, /Registro histórico de 13\/10\/2026/);
     assert.match(event.evidence, /cobertura subsequente.*registrada no evento/);
-    assert.equal(android.testAudit.passed, 1741);
-    assert.equal(android.testAudit.total, 1741);
+    assert.equal(android.testAudit.passed, 1776);
+    assert.equal(android.testAudit.total, 1776);
     assert.equal(statusData.androidHomologation.formalSignoff, 'pending');
     assert.equal(statusData.androidHomologation.areas.filter(area => area.status === 'completed').length, 10);
     assert.equal(statusData.androidHomologation.areas.filter(area => area.status === 'in_progress').length, 2);
@@ -195,10 +195,10 @@ test('portal mirrors SyncPlay remote-close progress without granting formal acce
     const area = statusData.androidHomologation.areas.find(item => item.id === 'APK-H10');
     const event = statusData.events.find(item => item.id === 'android-syncplay-remote-close-2026-10-13');
 
-    assert.match(statusData.generatedAt, /^2026-10-14T14:\d{2}:\d{2}-03:00$/);
-    assert.equal(android.testAudit.passed, 1741);
-    assert.equal(android.testAudit.total, 1741);
-    assert.match(android.testAudit.label, /252 relatórios Gradle/);
+    assert.match(statusData.generatedAt, /^2026-10-15T\d{2}:\d{2}:\d{2}-03:00$/);
+    assert.equal(android.testAudit.passed, 1776);
+    assert.equal(android.testAudit.total, 1776);
+    assert.match(android.testAudit.label, /256 XML/);
     assert.ok(event, 'portal must mirror the verified SyncPlay implementation and tests');
     assert.match(event.evidence, /TDD RED/);
     assert.match(event.evidence, /Connected → Disconnected → Connected/);
@@ -233,19 +233,20 @@ test('portal reports the latest server-switch login regression as in progress, n
     const area = statusData.androidHomologation.areas.find(item => item.id === 'APK-H02');
     const event = statusData.events.find(item => item.id === 'android-profile-server-switch-login-investigation-2026-10-14');
 
-    assert.equal(statusData.generatedAt, '2026-10-14T14:36:14-03:00');
+    assert.match(statusData.generatedAt, /^2026-10-15T\d{2}:\d{2}:\d{2}-03:00$/);
     assert.equal(area.status, 'in_progress');
-    assert.match(area.evidence, /108 testes unitários.*passaram/);
-    assert.match(area.evidence, /falhou ao aguardar o retorno ao catálogo/);
+    assert.match(area.evidence, /MainActivitySessionNavigationTest passou 11\/11.*12\/12/);
+    assert.match(area.evidence, /Na repetição de 14 casos, 12 passaram.*2 cenários exclusivos TV.*AssumptionViolatedException/);
+    assert.match(area.evidence, /teste focal.*passou 1\/1/);
     assert.equal(android.homologation.completed, 10);
     assert.equal(android.homologation.total, 21);
-    assert.equal(android.instrumentationAudit.passed, 40);
-    assert.equal(android.instrumentationAudit.total, 41);
+    assert.equal(android.instrumentationAudit.passed, 44);
+    assert.equal(android.instrumentationAudit.total, 45);
     assert.equal(android.instrumentationAudit.failed, 1);
     assert.ok(event);
     assert.equal(event.status, 'in_progress');
     assert.match(event.evidence, /profile-server-switch-login-red\.xml/);
-    assert.match(event.evidence, /Sem versão, APK de produção, release ou alteração de servidor/);
+    assert.match(event.evidence, /Sem release, versão nova ou mudança no servidor/);
     assert.equal(statusData.androidHomologation.formalSignoff, 'pending');
 });
 
@@ -254,8 +255,8 @@ test('portal reflects reader cold-start evidence without closing APK-H21', async
     const area = statusData.androidHomologation.areas.find(item => item.id === 'APK-H21');
     const event = statusData.events.find(item => item.id === 'android-book-reader-cold-start-harness-2026-10-13');
 
-    assert.match(statusData.generatedAt, /^2026-10-14T14:\d{2}:\d{2}-03:00$/);
-    assert.equal(android.instrumentationAudit.passed, 40);
+    assert.match(statusData.generatedAt, /^2026-10-15T\d{2}:\d{2}:\d{2}-03:00$/);
+    assert.equal(android.instrumentationAudit.passed, 44);
     assert.match(android.instrumentationAudit.label, /cold start da Activity principal 4\/4 fases/);
     assert.equal(area.status, 'pending');
     assert.match(area.evidence, /morte real do processo/);
@@ -279,7 +280,7 @@ test('portal records API 37 emulator boot blocker without counting tests or clos
     assert.equal(event.status, 'blocked');
     assert.match(event.evidence, /surfaceflinger.*hasReadColorBufferDma/);
     assert.match(event.evidence, /nenhum caso de permissão foi contado/);
-    assert.equal(android.instrumentationAudit.passed, 40);
+    assert.equal(android.instrumentationAudit.passed, 44);
     assert.equal(android.instrumentationAudit.failed, 1);
     assert.equal(area.status, 'pending');
     assert.equal(statusData.androidHomologation.formalSignoff, 'pending');
@@ -294,8 +295,8 @@ test('portal records Android API 24 and 35 connectivity callback validation with
     assert.ok(event);
     assert.equal(event.status, 'completed');
     assert.match(event.evidence, /passou 3\/3 em PHONE\/API 35 e 3\/3 em PHONE\/API 24/);
-    assert.equal(android.instrumentationAudit.passed, 40);
-    assert.equal(android.instrumentationAudit.total, 41);
+    assert.equal(android.instrumentationAudit.passed, 44);
+    assert.equal(android.instrumentationAudit.total, 45);
     assert.equal(android.instrumentationAudit.failed, 1);
     assert.equal(checklist.checked, 228);
     assert.equal(checklist.unchecked, 47);
@@ -318,10 +319,10 @@ test('portal mirrors the Home cache URL-scope fix without closing formal homolog
     const area = statusData.androidHomologation.areas.find(item => item.id === 'APK-H04');
     const event = statusData.events.find(item => item.id === 'android-home-cache-default-port-normalization-2026-10-13');
 
-    assert.match(statusData.generatedAt, /^2026-10-14T14:\d{2}:\d{2}-03:00$/);
-    assert.equal(android.testAudit.passed, 1741);
-    assert.equal(android.testAudit.total, 1741);
-    assert.match(android.testAudit.label, /1\.741 aprovados/);
+    assert.match(statusData.generatedAt, /^2026-10-15T\d{2}:\d{2}:\d{2}-03:00$/);
+    assert.equal(android.testAudit.passed, 1776);
+    assert.equal(android.testAudit.total, 1776);
+    assert.match(android.testAudit.label, /1\.776 aprovados/);
     assert.ok(event, 'portal must record the verified Android cache-scope fix');
     assert.ok(Date.parse(event.updatedAt) <= Date.parse(statusData.generatedAt));
     assert.equal(event.status, 'completed');
@@ -345,12 +346,48 @@ test('portal records Home cache DataStore persistence tests without closing form
     assert.match(event.evidence, /HomeFeedCacheRepositoryPersistenceTest passou 4\/4/);
     assert.match(event.evidence, /não possuem RED\/GREEN comportamental/);
     assert.match(android.instrumentationAudit.label, /HomeFeedCacheRepositoryPersistenceTest 4\/4/);
-    assert.equal(android.instrumentationAudit.passed, 40);
-    assert.equal(android.instrumentationAudit.total, 41);
+    assert.equal(android.instrumentationAudit.passed, 44);
+    assert.equal(android.instrumentationAudit.total, 45);
     assert.equal(android.instrumentationAudit.failed, 1);
     assert.match(area.evidence, /recriar DataStore\/repositório/);
     assert.equal(statusData.androidHomologation.formalSignoff, 'pending');
     assert.equal(statusData.androidHomologation.areas.filter(item => item.status === 'completed').length, 10);
     assert.equal(statusData.androidHomologation.areas.filter(item => item.status === 'in_progress').length, 2);
     assert.equal(statusData.androidHomologation.areas.filter(item => item.status === 'pending').length, 9);
+});
+
+test('portal mirrors Android progress from 2026-10-15 without promoting formal acceptance', async () => {
+    const android = statusData.tracks.find(track => track.id === 'android');
+    const matrix = statusData.androidHomologation;
+    const area = id => matrix.areas.find(item => item.id === id);
+    const event = id => statusData.events.find(item => item.id === id);
+
+    assert.match(statusData.generatedAt, /^2026-10-15T\d{2}:\d{2}:\d{2}-03:00$/);
+    assert.equal(android.testAudit.passed, 1776);
+    assert.equal(android.testAudit.total, 1776);
+    assert.match(android.testAudit.label, /Suíte JVM integral reexecutada.*256 XML/);
+    assert.equal(android.instrumentationAudit.passed, 44);
+    assert.equal(android.instrumentationAudit.total, 45);
+    assert.equal(android.instrumentationAudit.failed, 1);
+    assert.match(area('APK-H02').evidence, /Na repetição de 14 casos, 12 passaram.*2 cenários exclusivos TV.*AssumptionViolatedException/);
+    assert.equal(area('APK-H02').status, 'in_progress');
+    assert.match(area('APK-H09').evidence, /PlaybackInfo.*LiveStreams\/Open/);
+    assert.match(area('APK-H10').evidence, /limpar sala.*trocar para outra conta ou servidor/);
+    assert.match(area('APK-H21').evidence, /busca OCR PDF.*PHONE.*TABLET/);
+    assert.ok(event('android-syncplay-server-session-isolation-2026-10-15'));
+    assert.ok(event('android-live-tv-player-journey-2026-10-15'));
+    assert.ok(event('android-pdf-ocr-cancel-retry-2026-10-15'));
+    assert.ok(event('android-full-jvm-gate-2026-10-15'));
+    assert.equal(matrix.areas.filter(item => item.status === 'completed').length, 10);
+    assert.equal(matrix.areas.filter(item => item.status === 'in_progress').length, 2);
+    assert.equal(matrix.areas.filter(item => item.status === 'pending').length, 9);
+    assert.equal(matrix.formalSignoff, 'pending');
+
+    const dashboard = createDashboard();
+    await settleDashboard();
+    const activity = dashboard.getElement('event-list').innerHTML;
+    assert.match(activity, /Isolar a sessão SyncPlay ao trocar conta ou servidor/);
+    assert.match(activity, /Validar a navegação da TV ao vivo até PlaybackInfo/);
+    assert.match(activity, /Validar cancelamento e nova tentativa de busca OCR de PDF/);
+    assert.match(activity, /Revalidar o gate JVM e a compilação Android/);
 });

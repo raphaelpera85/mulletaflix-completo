@@ -29,10 +29,18 @@ internal data class PlainTextBookLinkSpan(
     val targetOffset: Int = 0,
 )
 
+internal data class PlainTextBookInlineImage(
+    val textOffset: Int,
+    val mimeType: String,
+    val description: String,
+    val bytes: ByteArray,
+)
+
 internal class PlainTextBookDocument private constructor(
     val chunks: List<String>,
     val chapters: List<PlainTextBookChapter> = emptyList(),
     val linksByChunk: Map<Int, List<PlainTextBookLinkSpan>> = emptyMap(),
+    val inlineImagesByChunk: Map<Int, List<PlainTextBookInlineImage>> = emptyMap(),
 ) {
     val chunkCount: Int get() = chunks.size
 
@@ -66,8 +74,11 @@ internal class PlainTextBookDocument private constructor(
         const val CONTENT_TYPE = "text/plain"
         const val MAX_TEXT_BYTES = 8L * 1024L * 1024L
         const val MAX_HTML_BYTES = 2L * 1024L * 1024L
+        const val MAX_INLINE_IMAGE_BYTES = EmbeddedBookImageDecoder.DEFAULT_MAX_BYTES
         private const val MAX_HTML_HEADINGS = 10_000
         private const val MAX_HTML_LINK_MARKERS = 10_000
+        private const val MAX_HTML_INLINE_IMAGES = 128
+        private const val MAX_HTML_INLINE_IMAGE_TOTAL_BYTES = 4 * 1024 * 1024
         private const val HTML_MARKER_START = "\uE000MFLIX"
         private const val HTML_MARKER_END = "\uE001"
         private const val HTML_CONTENT_TYPE = "text/html"
@@ -190,7 +201,12 @@ internal class PlainTextBookDocument private constructor(
                 val chapters = parsed.headings.map { heading ->
                     PlainTextBookChapter(heading.title, heading.depth, chunkIndexForOffset(chunks, heading.textOffset))
                 }
-                return PlainTextBookDocument(chunks, chapters, mapHtmlLinksToChunks(chunks, parsed))
+                return PlainTextBookDocument(
+                    chunks,
+                    chapters,
+                    mapHtmlLinksToChunks(chunks, parsed),
+                    mapHtmlImagesToChunks(chunks, parsed),
+                )
             }
             if (OdtBookTextExtractor.supports(contentType) || OdtBookTextExtractor.hasOpenDocumentTextPackage(file)) {
                 val content = OdtBookTextExtractor.extractContent(file)
@@ -278,6 +294,7 @@ internal class PlainTextBookDocument private constructor(
                 chunks,
                 chapters,
                 htmlDocument?.let { mapHtmlLinksToChunks(chunks, it) }.orEmpty(),
+                htmlDocument?.let { mapHtmlImagesToChunks(chunks, it) }.orEmpty(),
             )
         }
 
@@ -566,6 +583,13 @@ internal class PlainTextBookDocument private constructor(
             val text: String,
             val headings: List<HtmlBookHeading>,
             val links: List<HtmlBookLink>,
+            val images: List<HtmlBookInlineImage>,
+        )
+        private data class HtmlBookInlineImage(
+            val textOffset: Int,
+            val mimeType: String,
+            val description: String,
+            val bytes: ByteArray,
         )
         private data class HtmlBookLink(
             val start: Int,
@@ -584,8 +608,9 @@ internal class PlainTextBookDocument private constructor(
             val token: String,
             val kind: Kind,
             val value: String = "",
+            val image: HtmlBookInlineImage? = null,
         ) {
-            enum class Kind { ANCHOR, LINK_START, LINK_END }
+            enum class Kind { ANCHOR, LINK_START, LINK_END, IMAGE }
         }
         private data class ActiveHtmlLink(val targetId: String, val textOffset: Int)
         private data class ActiveHtmlHeading(
@@ -614,6 +639,7 @@ internal class PlainTextBookDocument private constructor(
             val anchors = linkedMapOf<String, Int>()
             val activeLinks = mutableListOf<ActiveHtmlLink>()
             val links = mutableListOf<HtmlBookLink>()
+            val images = mutableListOf<HtmlBookInlineImage>()
             val eventsByToken = buildMap {
                 markers.forEach { marker ->
                     put(marker.start, HtmlMarkerEvent(marker, opening = true))
@@ -658,6 +684,10 @@ internal class PlainTextBookDocument private constructor(
                                 links += HtmlBookLink(active.textOffset, text.length, active.targetId)
                             }
                         }
+                        HtmlInlineMarker.Kind.IMAGE -> inlineEvent.image?.let { image ->
+                            images += image.copy(textOffset = text.length)
+                            text.append('\uFFFC')
+                        }
                     }
                 }
                 cursor = tokenEnd
@@ -673,6 +703,7 @@ internal class PlainTextBookDocument private constructor(
                         link.copy(targetOffset = targetOffset)
                     }
                 },
+                images = images,
             )
         }
 
@@ -735,6 +766,25 @@ internal class PlainTextBookDocument private constructor(
                             inlineMarkers += link
                             activeInlineLinks += link
                             output.append(link.token)
+                        }
+                    }
+                    if (tag.name == "img" && inlineMarkers.count { it.kind == HtmlInlineMarker.Kind.IMAGE } < MAX_HTML_INLINE_IMAGES) {
+                        val source = tag.attributes["src"]?.let { decodeHtmlAttribute(it, decodedEntities) }
+                        val retainedBytes = inlineMarkers.sumOf { it.image?.bytes?.size ?: 0 }
+                        val remainingBytes = MAX_HTML_INLINE_IMAGE_TOTAL_BYTES - retainedBytes
+                        val image = source?.let {
+                            decodeEmbeddedHtmlImage(
+                                it,
+                                tag.attributes["alt"].orEmpty(),
+                                minOf(MAX_INLINE_IMAGE_BYTES, remainingBytes),
+                            )
+                        }
+                        if (image != null) {
+                            inlineMarkers += HtmlInlineMarker(
+                                token = "$HTML_MARKER_START${namespace}I${inlineMarkers.size}$HTML_MARKER_END",
+                                kind = HtmlInlineMarker.Kind.IMAGE,
+                                image = image,
+                            ).also { output.append(it.token) }
                         }
                     }
                 }
@@ -820,6 +870,40 @@ internal class PlainTextBookDocument private constructor(
                 }
             }
             return spans
+        }
+
+        private fun mapHtmlImagesToChunks(
+            chunks: List<String>,
+            document: HtmlBookDocument,
+        ): Map<Int, List<PlainTextBookInlineImage>> {
+            if (document.images.isEmpty()) return emptyMap()
+            val result = mutableMapOf<Int, MutableList<PlainTextBookInlineImage>>()
+            document.images.forEach { image ->
+                val chunkIndex = chunkIndexForOffset(chunks, image.textOffset)
+                var chunkStart = 0
+                repeat(chunkIndex) { chunkStart += chunks[it].length }
+                result.getOrPut(chunkIndex, ::mutableListOf) += PlainTextBookInlineImage(
+                    textOffset = image.textOffset - chunkStart,
+                    mimeType = image.mimeType,
+                    description = image.description,
+                    bytes = image.bytes,
+                )
+            }
+            return result
+        }
+
+        private fun decodeEmbeddedHtmlImage(
+            source: String,
+            description: String,
+            maxBytes: Int,
+        ): HtmlBookInlineImage? {
+            val image = EmbeddedBookImageDecoder.decodeDataUri(source, description, maxBytes) ?: return null
+            return HtmlBookInlineImage(
+                textOffset = 0,
+                mimeType = image.mimeType,
+                description = image.description,
+                bytes = image.bytes,
+            )
         }
 
         private fun appendHtmlLineBreak(output: StringBuilder, blankLine: Boolean) {

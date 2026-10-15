@@ -1,0 +1,9 @@
+<?xml version='1.0' encoding='UTF-8' ?>
+<testsuites tests="1" failures="0" errors="0" skipped="0" time="0.000" timestamp="2026-10-15T02:52:59" hostname="localhost">
+  <testsuite name="org.mulletaflix.feature.itemdetail.BookTextSearchDialogTest" tests="1" failures="0" errors="0" skipped="0" time="7.791" timestamp="2026-10-15T02:52:59" hostname="localhost">
+    <properties>
+      <property name="device" value="emulator-5576" />
+    </properties>
+    <testcase name="cancelingComicOcrSearchReturnsToIdleAndIgnoresLateRecognitionBeforeRetry" classname="org.mulletaflix.feature.itemdetail.BookTextSearchDialogTest" time="7.791" />
+  </testsuite>
+</testsuites>

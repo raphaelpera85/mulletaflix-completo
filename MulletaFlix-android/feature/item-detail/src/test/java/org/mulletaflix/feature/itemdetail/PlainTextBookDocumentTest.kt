@@ -463,6 +463,41 @@ class PlainTextBookDocumentTest {
     }
 
     @Test
+    fun `preserves bounded embedded raster images in readable HTML`() = withTempDirectory { directory ->
+        val imageBytes = android.util.Base64.decode(
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/F5sAAAAASUVORK5CYII=",
+            android.util.Base64.NO_WRAP,
+        )
+        val encodedImage = android.util.Base64.encodeToString(imageBytes, android.util.Base64.NO_WRAP)
+        val file = directory.resolve("illustrated.html").apply {
+            writeText("<p>Before</p><img alt='Diagram' src='data:image/png;base64,$encodedImage'><p>After</p>")
+        }
+
+        val document = PlainTextBookDocument.open(file, "text/html")
+
+        assertEquals("Before\n\n\uFFFC\n\nAfter", document.chunks.joinToString(""))
+        val image = document.inlineImagesByChunk.getValue(0).single()
+        assertEquals("image/png", image.mimeType)
+        assertEquals("Diagram", image.description)
+        assertEquals(imageBytes.toList(), image.bytes.toList())
+        assertEquals(document.chunks[0].indexOf('\uFFFC'), image.textOffset)
+    }
+
+    @Test
+    fun `ignores remote and oversized HTML images instead of loading them`() = withTempDirectory { directory ->
+        val file = directory.resolve("untrusted-images.html").apply {
+            writeText("<p>Visible text.</p><img alt='remote' src='https://example.test/image.png'>")
+        }
+
+        val document = PlainTextBookDocument.open(file, "text/html")
+
+        assertTrue(document.inlineImagesByChunk.isEmpty())
+        assertFalse(document.chunks.joinToString("").contains("https://"))
+        val overLimit = android.util.Base64.encodeToString(ByteArray(9), android.util.Base64.NO_WRAP)
+        assertNull(EmbeddedBookImageDecoder.decodeDataUri("data:image/png;base64,$overLimit", "", maxBytes = 8))
+    }
+
+    @Test
     fun `removes hidden HTML elements including nested and inline styles`() = withTempDirectory { directory ->
         val file = directory.resolve("hidden.html").apply {
             writeText(

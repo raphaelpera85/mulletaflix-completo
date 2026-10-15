@@ -320,7 +320,39 @@ internal object MobiBookTextExtractor {
                     charset = charset,
                 )
                 if (html.isBlank()) throw IOException("O livro AZW3 não contém texto para leitura.")
-                return@use html
+                val firstImageRecord = Kf8ImageResources.firstImageRecord(
+                    headerImageIndex = unsignedInt(bookHeader, 108),
+                    headerRecordOffset = selectedHeaderIndex,
+                    firstTextRecordIndex = textRecordStart,
+                    textRecordCount = textRecordCount,
+                    totalRecordCount = recordCount,
+                )
+                val precedingResourceRanges = if (hybridKf8Index != null && firstRecord.size >= 116) {
+                    val legacyImageStart = unsignedInt(firstRecord, 108)
+                    val boundaryRecordIndex = hybridKf8Index - 1
+                    Kf8ImageResources.precedingResourceRanges(
+                        legacyFirstImageIndex = legacyImageStart,
+                        legacyTextRecordCount = unsignedShort(firstRecord, 8),
+                        boundaryRecordIndex = boundaryRecordIndex,
+                        totalRecordCount = recordCount,
+                    )
+                } else {
+                    emptyList()
+                }
+                return@use Kf8ImageResources.inlineReferences(
+                    html = html,
+                    firstImageRecord = firstImageRecord,
+                    recordCount = recordCount,
+                    precedingResourceRanges = precedingResourceRanges,
+                    readRecord = { index ->
+                        val start = records[index]
+                        val end = records.getOrElse(index + 1) { input.length().toInt() }
+                        if (end <= start || end - start > 1_048_576) {
+                            throw IOException("Um recurso de imagem KF8 excede o limite de leitura.")
+                        }
+                        readAt(input, start.toLong(), end - start)
+                    },
+                )
             }
             val html = charset.newDecoder()
                 .onMalformedInput(CodingErrorAction.REPLACE)

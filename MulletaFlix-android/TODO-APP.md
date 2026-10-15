@@ -9,6 +9,10 @@
 - [x] GREEN focal e classe `MainActivitySessionNavigationTest`: 1/1 e 11/11 PHONE/API 35, sem falhas/erros/ignorados; inclui cancelamento seguido por logout e login independente.
 - [x] Quality gate: 1.762 testes JVM/255 XML, zero falhas/erros/ignorados; lint auth/app, assembleDebug e compilação AndroidTest auth/app passaram.
 - [x] Atualizar a evidência e o estado da ficha local de APK-H02 após reteste aprovado.
+- [x] Reexecutar o cenário focado de troca de servidor após reparar chave excedente em `SyncPlayViewModel.kt`: 1/1 PHONE/API 35; quality gate 1.776 JVM, lint, assembleDebug e compilação AndroidTest aprovados.
+- [x] Separar a execução por perfil de `MainActivitySessionNavigationTest`: PHONE 12/12, TABLET 12/12 e TV 2/2 com filtro `AndroidTvOnly`; o wrapper exclui as jornadas TV em PHONE/TABLET e os helpers usam controles próprios do Home compacto/amplo.
+- [ ] Repetir estabilidade do fluxo em AVDs compatíveis e validar servidor/dispositivo reais antes de fechar APK-H02.
+- APK-H02 permanece em validação formal; a cobertura local por perfil não valida servidor/dispositivo real nem converte aceite formal.
 - A homologação pública não foi alterada nesta sessão APK-only; aceite formal permanece pendente.
 - APK-H02 continua em validação formal; testes locais sintéticos não equivalem a servidor/dispositivo real nem concedem aceite.
 - Nenhuma versão, APK de produção ou release foi criada. Esta sessão não adicionou mudança ao portal ou servidor; arquivos do portal já modificados na sessão anterior foram preservados.
@@ -312,8 +316,9 @@
 - [x] Teste real com o calibre User Manual AZW3 e MIME `application/octet-stream`; o caso do ViewModel confirma texto KF8 legível no estado após HTTP mockado. Um baseline de 73,3 s foi reduzido a 24,0 s eliminando a conversão Android de HTML para spans e montando fragments sem cópias quadráticas.
 - [x] MOBI híbrido prefere o texto KF8 quando a estrutura é válida; teste `MobiBookTextExtractorTest.prefers KF8 text in a real hybrid MOBI publication` envolve a fixture AZW3 calibre e rejeita o conteúdo MOBI 7 legado. A validação com arquivos reais do usuário/servidor e variações de recursos continua pendente.
 - [x] Decodificar HUFF/CDIC com validação de registros HUFF/CDIC, limite do texto declarado, limite de tamanho/dicionário e detecção de ciclos nas frases; a cobertura atual usa fixture sintética, não comprova todos os arquivos reais.
-- [ ] Imagens, fontes e CSS em flows KF8 não são renderizados pelo leitor plain-text; validar índices/capítulos em outros arquivos reais. Links fragmentados da mesma publicação agora navegam internamente; links externos e de outros arquivos permanecem inertes.
-- [ ] Confirmar validação final por instrumento Compose após o usuário liberar o AVD reservado.
+- [x] Imagens raster locais embutidas em KF8/MOBI (PNG/JPEG/GIF/WebP) são resolvidas e renderizadas na posição original do documento completo. `hybridMobiImageRendersAtOriginalPositionInFullDocumentAfterScroll` passou 1/1 em PHONE/API 35 e 1/1 em TABLET/API 35 (14/10/2026), com descrição acessível e pixel confirmado; fixtures sintéticas, não catálogo real.
+- [ ] Fontes/CSS e fidelidade visual completa dos fluxos KF8 continuam sem suporte; validar índices, capítulos e recursos em arquivos reais autorizados. Links fragmentados da mesma publicação navegam internamente; links externos e de outros arquivos permanecem inertes.
+- [x] Integração Compose confirmada em PHONE/API 35 e TABLET/API 35 por AVDs descartáveis via wrapper; AVD reservada `MulletaflixApi35` não foi usada nem precisa ser liberada para esta evidência local.
 - [ ] Sem bump, APK de produção, release, portal ou alteração no servidor.
 
 ## Manter a tela ligada durante a leitura — Android, sem release
@@ -378,7 +383,7 @@
 - [x] Teste por Activity para logout em Ajustes: sessão autenticada → Ajustes → sair → seleção de servidor; comprova remoção persistida do token/usuário e retenção da URL.
 - [x] Definir a pilha após login em política: login normal cria apenas Home; login retomando deep link preserva Home sob o detalhe. Testes JVM RED-GREEN em `DeepLinkNavigationPolicyTest` (22 casos).
 - [x] O teste focal `crossServerDeepLinkAuthenticatesOnTargetServerAndLoadsItemWithoutRequestingOldServer` passou 1/1 em PHONE/API 35: autenticação, item e sessão persistida em B; Voltar retorna à Home; servidor A sem requisições. XML `TEST-MulletaflixCodexPhoneApi35_20261012(AVD) - 15.xml`, `emulator-5576`, 0 falhas/erros/ignorados.
-- [ ] Repetir a classe `MainActivitySessionNavigationTest` para avaliar estabilidade: duas execuções completas anteriores foram intermitentes. Uma execução focal aprovada confirma o cenário, mas não remove o risco de flakiness nem equivale à homologação formal.
+- [ ] Repetir a classe `MainActivitySessionNavigationTest` para avaliar estabilidade: duas execuções completas históricas foram intermitentes. Em 2026-10-15, uma execução completa passou 12/12 em PHONE/API 35; uma tentativa seguinte não concluiu o boot do AVD em 4 min e outra ficou sem progresso no runner por mais de 5 min, sem XML final, sendo interrompida para cleanup pelo wrapper. A causa da intermitência histórica segue desconhecida; resultado atual não fecha a pendência nem equivale à homologação formal. Evidência aprovada: `validation-evidence/2026-10-15/MainActivitySessionNavigationTest-PHONE-API35-repeat-1.xml`.
 - [x] Quality Bar completa após adicionar o deep link: `testDebugUnitTest :app:lintDebug :app:assembleDebug :app:compileDebugAndroidTestKotlin --no-daemon --console=plain` passou; 240 relatórios XML, 1.567 testes JVM, 0 falhas/erros/ignorados. Sem bump ou release.
 
 ## Conexão em LAN sem internet — Android, sem release
@@ -522,7 +527,7 @@
 - [x] Unificar a ordenação natural de CBZ/CBR e tokenizar cada nome de página uma vez por ordenação, em vez de recriar tokens em cada comparação; cobrir páginas numéricas, zeros à esquerda, desempate de caixa e números acima do limite de inteiro.
 - [x] Verificar cancelamento entre entradas durante a indexação feita pelo app e antes/depois da ordenação; propagar `CancellationException` e fechar o arquivo RAR no caminho de erro. Regressão JVM confirma que a indexação para após o cancelamento.
 - [ ] Auditoria upstream do Junrar 8.1.1 (2026-10-08): `Archive` lê os cabeçalhos durante a construção e mantém todos em `headers`; `nextFileHeader()` apenas percorre essa lista depois. O limite `MAX_ARCHIVE_ENTRIES` do APK só é aplicado após essa alocação, portanto não protege o pico de memória nem permite interromper a leitura inicial. O parser não expõe limite prévio/cancelamento nessa API; manter o risco explícito e avaliar parser mantido com leitura incremental ou contribuição upstream, sem implementar scanner RAR caseiro. Fonte: https://github.com/junrar/junrar/blob/v8.1.1/src/main/java/com/github/junrar/Archive.java
-- [ ] Validar mídia MOBI real servida pelo Mulletaflix; HUFF/CDIC tem decoder coberto por fixtures sintéticas, mas precisa de validação com exemplar real. AZW3/KF8 não protegido é aberto em texto simples; CSS, imagens e links externos/entre documentos não são renderizados. Fragmentos internos são suportados. MOBI com DRM permanece sem suporte direto; qualquer conversão no servidor está fora do escopo APK.
+- [ ] Validar mídia MOBI real servida pelo Mulletaflix; HUFF/CDIC tem decoder coberto por fixtures sintéticas, mas precisa de validação com exemplar real. AZW3/KF8 não protegido é aberto em texto com imagens raster inline e fragmentos internos; CSS/fontes e fidelidade visual completa permanecem sem suporte. Links externos/entre documentos ficam inertes. MOBI com DRM permanece sem suporte direto; qualquer conversão no servidor está fora do escopo APK.
 - [ ] Sem bump de versão, APK de produção, portal ou publicação.
 
 Este documento rastreia o status de implementação de todas as funcionalidades, módulos, telas e componentes do aplicativo oficial **MulletaFlix Android**.
@@ -3800,6 +3805,7 @@ Pendências relacionadas:
 - [x] Revalidar OCR/busca sintéticos em PHONE/API 35: CBR e CBZ passaram 2/2; PDF digitalizado passou 1/1. A AVD temporária foi encerrada pelo wrapper; isso não homologa mídia real ou TV.
 - [ ] Validar OCR e busca CBR com fixture licenciada/autorizada real; a fixture sintética atual valida narração e navegação, não diversidade de mídia de usuário.
 - [ ] Validar anúncio TalkBack e atualização visual do progresso em PHONE. Cancelar a busca não interrompe a inferência nativa ML Kit já iniciada: ela continua em segundo plano até a Task concluir, mantendo bitmap/recognizer vivos nesse intervalo.
+- [x] Integrar em AndroidTest o cancelamento do diálogo durante OCR em andamento e nova consulta serializada; PHONE/API 35 e TABLET/API 35 passaram 1/1 cada em 14/10/2026. Confirma preservação/liberação de Bitmap e rejeição do resultado obsoleto; XMLs preservados em `validation-evidence/2026-10-14/comic-ocr-search-cancel-{phone,tablet}-api35.xml`.
 - [ ] Homologar reconhecimento com arquivos CBZ/CBR reais em PHONE/TABLET/TV, incluindo cancelamento durante OCR e medição de latência/bateria em arquivo extenso; OCR Latin pode não reconhecer outros alfabetos.
 
 ## Busca de texto em PDF (APK local; sem release)
@@ -3810,6 +3816,7 @@ Pendências relacionadas:
 - [x] Testes: `BookPdfTextSearchTest` (4 casos); `BookReaderScreenIntegrationTest` 14/14 em PHONE/API 35; extração, busca e navegação reais sobre fixture PDF aprovadas.
 - [x] PDF somente imagem: fallback OCR Latin local integrado à extração e busca por página; teste unitário de disponibilidade e instrumentação em TABLET/API 35 validam disponibilidade, reconhecimento offline e localização do resultado.
 - [x] Cancelamento da espera do OCR PDF retorna sem aguardar a Task ML Kit em andamento; bitmap e recognizer permanecem válidos até a conclusão e só então são liberados. Coberto por `PdfBookDocumentOcrTest`; RED/GREEN, PHONE/API 35 e gate em `TDD-PLAN.md` (2026-10-12).
+- [x] Cobrir cancelamento e nova busca no fluxo Compose de PDF digitalizado: idle após cancelar, bitmap protegido durante a Task, retry serializado e resultado obsoleto ignorado. `BookTextSearchDialogTest.cancelingPdfOcrSearchReturnsToIdleAndIgnoresLateRecognitionBeforeRetry` passou 1/1 em PHONE/API 35 e 1/1 em TABLET/API 35 (2026-10-15); XMLs em `validation-evidence/2026-10-15/`. Conteúdo e recognizer sintéticos; não equivale a validação OCR real.
 - [ ] Validar PDFs e quadrinhos variados, idiomas não Latin, orientação/resolução e documentos extensos sob memória limitada.
 - [ ] Sem bump, APK de produção, portal ou publicação; alteração exclusivamente local do APK.
 
@@ -3860,9 +3867,32 @@ Pendências relacionadas:
 - [x] Validar o carregamento assíncrono do arquivo AZW3 real no `BookReaderViewModel` e conferir texto no estado final, erro nulo, sem publicação/pageBook.
 - [x] Otimizar reconstrução KF8 com buffer de segmentos e conversão HTML linear; preservar caracteres HTML, limites de parágrafo, capítulos visíveis e texto de fixture real. Teste ViewModel real: 24,0 s após ajuste, sem elevar o limite do `runTest`.
 - [x] Implementar navegação por fragmentos internos no HTML/KF8 textual: `id` e `a[name]` (incluindo entidades HTML) resolvem para o offset de texto/chunk do alvo; ao tocar, o leitor rola até a linha correta mesmo dentro do mesmo chunk. Destino ausente, URL externa ou outro arquivo não vira link acionável; links são limitados a 10.000 marcadores e spans divididos entre chunks preservam o destino. Testes JVM cobrem parsing/offset; Compose instrumentado cobre interação e rolagem, mas execução em dispositivo permanece pendente.
+- [x] Preservar imagens raster locais KF8 `kindle:embed` em linha no leitor; mapear IDs híbridos com recursos MOBI anteriores, ajustar `first_image_index` pelo índice do cabeçalho KF8 e tratar sentinel legado. Referências remotas não são carregadas. Limites: 128 referências, 512 KiB por imagem, dimensões até 8192 px/40 MP, 4 MiB de bytes únicos e 8 MiB de URIs expandidas.
+- [x] Exibir imagens HTML locais `data:image` com texto alternativo acessível e tamanho limitado; ignorar recursos externos e payloads acima de 512 KiB.
+- [x] Executar `embeddedBookImageIsRenderedInlineWithAccessibleDescription` em PHONE/API 35 e TABLET/API 35 (1/1 em cada) em 14/10/2026; o teste confirma a composição inline e descrição acessível para HTML servido por fixture local.
+- [x] Complementar evidência visual sintética: `embeddedBookImagePixelsAreRenderedInlineWithAccessibleDescription` verifica pixel decodificado de PNG 96×64, texto e descrição; passou 1/1 em PHONE/API 35 e TABLET/API 35 em 14/10/2026.
+- [x] Isolar Compose para imagem `kindle:embed`: `PlainTextBookReaderIntegrationTest.kf8EmbeddedImageIsResolvedAndRenderedInlineInSingleChunk` percorre resolver de recurso sintético → parser HTML → documento → Compose em um único chunk e espera o pixel magenta após a carga Coil; 1/1 PHONE/API 35 em 14/10/2026.
+- [x] Integração AndroidTest focal: MOBI híbrido construído sobre a fixture AZW3 calibre, PNG sintético injetado na faixa de recursos legado, `PlainTextBookDocument.open` extrai os bytes e o Compose confirma os mesmos bytes, pixel magenta, texto e descrição acessível. Passou 1/1 em PHONE/API 35 e 1/1 em TABLET/API 35 em 14/10/2026; XMLs separados em `validation-evidence/2026-10-14/`.
+- [x] O teste focal de excerto HTML continua cobrindo o caminho mínimo; o teste complementar `PlainTextBookReaderIntegrationTest.hybridMobiImageRendersAtOriginalPositionInFullDocumentAfterScroll` agora mantém o MOBI híbrido completo, percorre a imagem na posição original e a revela pela rolagem virtualizada. Passou 1/1 em PHONE/API 35 e 1/1 em TABLET/API 35 em 2026-10-14; XMLs em `validation-evidence/2026-10-14/hybrid-mobi-full-document-{phone,tablet}-api35.xml`. A tentativa exploratória de 103,372 s permanece histórico do harness, não evidência de defeito. Acessibilidade/hardware/arquivos autorizados continuam nos itens pendentes abaixo.
+- [ ] Validar aparência das imagens e acessibilidade em PHONE/TABLET/TV com interação instrumentada e arquivos autorizados variados; fixture de integração atual serve à regressão técnica, não homologação de dispositivo/servidor real.
 - [ ] Validar toque e TalkBack em PHONE/TABLET e foco/OK por D-pad na TV quando houver perfis/AVDs liberados; validar também com arquivos KF8 reais autorizados. O AVD `MulletaflixApi35` permanece reservado.
-- [ ] Recursos de imagem, fontes e CSS do KF8 continuam sem renderização; validar também com arquivos reais autorizados do usuário antes de declarar compatibilidade ampla.
+- [ ] Fontes e CSS do KF8 continuam sem renderização completa; validar dimensões/formatos diversos com arquivos autorizados do usuário antes de declarar compatibilidade ampla.
 - [ ] Sem bump, APK de produção ou publicação; alteração exclusivamente local do APK.
+
+## KF8 imagens raster embutidas — 2026-10-14
+
+- [x] `Kf8ImageResourcesTest` cobre imagem direta, CONT/CRES, IDs após faixa MOBI, sentinel de índice legado, teto de bytes únicos e teto de expansão por referências repetidas.
+- [x] Integração do extrator com fixture AZW3 híbrida confirma texto KF8 e imagem localizada na faixa de recursos MOBI anterior.
+- [x] RED-GREEN e quality gate Android constam em `TDD-PLAN.md`; teste focal, suíte JVM global (470 tarefas) e lint/assemble/compilação AndroidTest passaram na árvore final.
+- [ ] Homologação visual/áudio-descrição e leitura de arquivos do usuário em dispositivos continuam pendentes; APK-H21 e aceite formal não são alterados por fixtures locais.
+
+## Integração de MOBI híbrido até imagem Compose (validação local; sem release) — 2026-10-14
+
+- [x] Testar o extrator híbrido real e a renderização Compose com os bytes da mesma imagem raster sintética; PHONE/API 35 1/1 e TABLET/API 35 1/1.
+- [x] XMLs instrumentados preservados em `validation-evidence/2026-10-14/hybrid-mobi-compose-phone-api35.xml` e `hybrid-mobi-compose-tablet-api35.xml`.
+- [x] Renderizar a imagem do MOBI híbrido em sua posição original no documento completo: `hybridMobiImageRendersAtOriginalPositionInFullDocumentAfterScroll` percorre o documento sem reconstruir excerto, rola até nó virtualizado e confirma descrição/pixel; PHONE/API 35 1/1 (91,837 s, repetição arquivada; primeira execução 104,924 s) e TABLET/API 35 1/1 (91,720 s), XMLs individuais em `validation-evidence/2026-10-14/`.
+- [x] Fixture AZW3 GPL-3.0 fica no APK AndroidTest apenas; confirmar no empacotamento final que inexiste no APK de produção.
+- [x] Sem mudança de código de produção, versão, assinatura, release, servidor ou portal. APK-H21/formalSignoff não mudam.
 
 ## Integridade de payload binário no leitor RTF (APK local; sem release)
 
@@ -3890,3 +3920,29 @@ Pendências relacionadas:
 - Fixture usa MockWebServer e IDs/sessão/metadados UUID isolados; suporta `Range`/`206 Partial Content`. Duas execuções iniciais falharam por setup do teste (ID incorreto no argumento e ausência de Range na fixture); após corrigir o harness, a execução final passou. Nenhuma falha atribuída à implementação.
 - Quality gate 13/10: suíte JVM global 1.734/1.734, 252 relatórios, 0 falhas/erros/ignorados; lint de `:feature:downloads` e `:app`, `:app:assembleDebug` e compilação AndroidTest de downloads/app — `BUILD SUCCESSFUL`.
 - Limites: sem servidor real, rede instável, dispositivo físico ou armazenamento limitado; Downloads não está disponível na Android TV. APK-H17 permanece pendente. Sem bump, APK de produção, assinatura, release ou publicação.
+
+## IDs de reprodução da TV ao vivo (APK local; sem release) — verificado em 2026-10-15
+
+- [x] Caracterizar na `LiveTvScreen` real que o callback de reprodução recebe o ID do canal selecionado e o ID da gravação selecionada.
+- [x] `LiveTvPlaybackNavigationTest`: 2/2 em Android TV/API 34, 0 falhas/erros/ignorados; fixture de ViewModel/repositório/sessão/rede sintéticos.
+- [x] `MainActivitySessionNavigationTest.liveTvChannelSelectionReachesPlaybackAndOpenStreamWithTheChannelId` e `.liveTvRecordingSelectionReachesPlaybackInfoWithTheRecordingId`: 2/2 em TV/API 34; Home → TV ao vivo → player; ambos chegaram ao `POST /Items/{id}/PlaybackInfo`; canal com `RequiresOpening=true` enviou o mesmo ID a `POST /LiveStreams/Open`; gravação não abriu tuner. Relatórios: `validation-evidence/2026-10-15/live-tv-channel-player-journey-tv-api34.xml` e `.../live-tv-recording-player-journey-tv-api34.xml`.
+- [ ] Reproduzir stream e validar áudio/vídeo/progresso contra servidor de teste autorizado e Android TV físico. A fixture para em `PlaybackInfo`/abertura do tuner; não decodifica mídia real.
+- [x] Nenhum bug de produção foi reproduzido nem houve alteração de runtime. As falhas intermediárias foram da fixture (endereço do MockWebServer apontava para host errado), seletor Compose ambíguo, import faltante e um timeout de boot antes do Gradle; nenhuma contou como RED funcional.
+- [x] Sem bump, APK de produção, assinatura, release, publicação ou mudança do servidor/portal.
+
+## Isolamento do SyncPlay ao trocar de servidor (APK local; sem release) — 2026-10-15
+
+- [x] Reproduzir via TDD que trocar de servidor mantendo o mesmo userId deixava a sala antiga ativa; o teste focal falhou com `activeGroupId=g1` antes da correção.
+- [x] ViewModel observa o snapshot de sessão completo e usa `RemotePlaybackIdentity.matches()`: servidor diferente encerra realtime, cancela refresh anterior, avança geração e limpa sala/estado obsoleto.
+- [x] Regressão complementar garante que mudar entre endereço público e LAN com o mesmo `serverId` não encerra a sala. `SyncPlayViewModelTest` 23/23.
+- [x] Relatórios JVM disponíveis totalizam 1.776 testes em 256 XML, zero falhas/erros/ignorados; `SyncPlayViewModelTest` foi executado 23/23 e tarefas dos outros módulos estavam `UP-TO-DATE`. Lint SyncPlay/app, assembleDebug e compilação de AndroidTests SyncPlay/app passaram.
+- [ ] Validar troca com WebSocket e contas/salas reais, rede alternando e player conectado em dispositivos físicos; não promover homologação formal só com fakes.
+- [x] Sem mudança do servidor, portal, versão, assinatura, release ou publicação.
+
+## Confirmação de logout e troca de perfil (APK local; sem release) — 2026-10-14
+
+- [x] `ProfileSessionConfirmationTest` percorre `ProfileScreen` Compose real e verifica cancelar e confirmar logout, além de cancelar e confirmar a alternância para outro usuário; 4/4 em PHONE/API 35, zero falhas/erros/ignorados.
+- [x] Fixture usa autenticação e sessão sintéticas. Confirma que Cancelar não faz logout/login e que confirmação aciona a operação esperada; não prova troca persistida, autenticação em servidor ou navegação Activity completa.
+- [x] Integrar troca rápida de usuário com DataStore real pelo fluxo Activity; `MainActivitySessionNavigationTest.profileQuickSwitchPersistsSelectedAccountAndKeepsServerAndDevice` passou 1/1 em PHONE/API 35 em 2026-10-14. URL, identidade do mesmo servidor e deviceId permanecem; conta/nome/token passam a ser os selecionados.
+- [ ] Validar alternância com autenticação em servidor real e aparelho físico; a fixture usa MockWebServer e não homologa login remoto.
+- [x] APK-H02 e aceite formal não foram promovidos por testes locais. Sem bump, release, publicação, portal ou alteração do servidor.
