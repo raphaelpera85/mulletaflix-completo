@@ -1,5 +1,13 @@
 # Homologação formal — MulletaFlix Android
 
+### Limite da repetição offline TABLET — crash do runner antes da fixture — 2026-10-16
+
+O reteste de `DownloadProcessRestartIntegrationTest` terminou na preparação porque o AndroidJUnitRunner reportou `Process crashed` antes de qualquer requisição HTTP à fixture; a limpeza isolada passou. O diagnóstico ampliado confirmou início do runner e crash informado por ActivityManager, mas não capturou stack trace nem causa. Isto é execução inconclusiva de infraestrutura, não aprovação nem falha atribuível ao player. APK-H07/H17 e matriz formal permanecem inalterados: 10/21 concluídas, 2 em validação, 9 pendentes e `formalSignoff=pending`.
+
+### Revalidação focal de APK-H02 — troca de servidor — 2026-10-16
+
+`MainActivitySessionNavigationTest#switchingServerFromProfileDoesNotRestorePreviousProfileOnBackAfterLogin` passou três vezes em PHONE/API 35 e três em TABLET/API 35, 1/1 por execução, sem falhas, erros ou skips. Os seis XMLs estão em `validation-evidence/2026-10-16/server-switch-{PHONE,TABLET}-API35-repeat-{1,2,3}.xml`. AVDs descartáveis usaram NVIDIA RTX 3050 e foram encerrados pelos wrappers. Esta repetição eleva evidência técnica sintética após o ajuste da asserção, mas não esclarece a falha TABLET repeat 2 anterior nem valida backend, aparelho real ou critérios de aceite. APK-H02 continua em validação; matriz formal permanece 10/21 concluídas, 2 em validação, 9 pendentes e `formalSignoff=pending`.
+
 ### Correção da sequência do fixture offline — 2026-10-16
 
 O diagnóstico da falha TABLET em ~89,4% encontrou corrida do próprio harness: o script bloqueava a origem quando o servidor HTTP terminava de escrever a resposta, antes de o Media3 reportar `Download.STATE_COMPLETED`. O AndroidTest passou a bloquear a origem somente após confirmar `COMPLETED`, todos os bytes e MIME; a chamada é feita pelo app de teste contra a fixture. Duas execuções TABLET/API 35 completas passaram consecutivamente após o ajuste; a preparação, verificação visual offline e limpeza passaram 1/1 cada. A reprodução começou após o bloqueio da origem, avançou, e a auditoria confirmou zero requests a essa origem. Uma terceira tentativa não iniciou emulador/teste e foi excluída da contagem. É uma correção do teste, sem mudança no APK de runtime; explica as falhas observadas pelo timing do fixture e não prova ausência de outras intermitências.

@@ -1,0 +1,9 @@
+<?xml version='1.0' encoding='UTF-8' ?>
+<testsuites tests="1" failures="0" errors="0" skipped="0" time="0.000" timestamp="2026-10-16T15:48:28" hostname="localhost">
+  <testsuite name="org.mulletaflix.android.MainActivitySessionNavigationTest" tests="1" failures="0" errors="0" skipped="0" time="8.833" timestamp="2026-10-16T15:48:28" hostname="localhost">
+    <properties>
+      <property name="device" value="emulator-5558" />
+    </properties>
+    <testcase name="switchingServerFromProfileDoesNotRestorePreviousProfileOnBackAfterLogin" classname="org.mulletaflix.android.MainActivitySessionNavigationTest" time="8.833" />
+  </testsuite>
+</testsuites>

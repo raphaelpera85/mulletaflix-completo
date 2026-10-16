@@ -16,8 +16,17 @@ $testClass = 'org.mulletaflix.android.service.DownloadProcessRestartIntegrationT
 $testId = [guid]::NewGuid().ToString()
 $serial = "emulator-$Port"
 $tempDirectory = Join-Path ([System.IO.Path]::GetTempPath()) "mulletaflix-process-restart-$testId"
+$diagnosticEvidenceDirectory = Join-Path $projectRoot "validation-evidence/$(Get-Date -Format yyyy-MM-dd)/download-process-restart-diagnostics/$testId"
 $fixtureProcess = $null
 $testApksInstalled = $false
+$primaryFailure = $null
+$cleanupFailures = [System.Collections.Generic.List[string]]::new()
+$diagnosticLogSelector = Join-Path $PSScriptRoot 'Get-AndroidDownloadDiagnosticLogLines.ps1'
+$diagnosticEvidenceWriter = Join-Path $PSScriptRoot 'Save-AndroidDownloadFailureEvidence.ps1'
+$cleanupCompleter = Join-Path $PSScriptRoot 'Complete-AndroidDownloadHarnessCleanup.ps1'
+. $diagnosticLogSelector
+. $diagnosticEvidenceWriter
+. $cleanupCompleter
 $ErrorActionPreference = 'Stop'
 
 function Invoke-GradlePhase {
@@ -48,17 +57,37 @@ function Invoke-GradlePhase {
     $runnerText = $runnerOutput -join [Environment]::NewLine
     Write-Host $runnerText
     if ($runnerExitCode -ne 0 -or $runnerText -notmatch 'OK \(1 test\)' -or $runnerText -match 'FAILURES!!!|INSTRUMENTATION_FAILED') {
+        $fixtureStatusJson = ''
         try {
             $fixtureStatus = Invoke-RestMethod -Uri "http://127.0.0.1:$script:fixturePort/status" -TimeoutSec 5
-            Write-Host "Fixture status at instrumentation failure: $(ConvertTo-Json -InputObject $fixtureStatus -Depth 5 -Compress)"
+            $fixtureStatusJson = ConvertTo-Json -InputObject $fixtureStatus -Depth 5 -Compress
+            Write-Host "Fixture status at instrumentation failure: $fixtureStatusJson"
         } catch {
             Write-Warning "Could not read fixture status after instrumentation failure: $_"
         }
-        $diagnosticLogLines = @(& $adb -s $serial logcat -d -v time -t 1000 2>$null |
-            Select-String 'DownloadManager|DownloadService|DownloadTask|ExoPlayerImplInternal|CacheDataSource|CacheWriter|MediaCodec|FATAL EXCEPTION')
+        $mainLogLines = @(& $adb -s $serial logcat -d -v time -t 1000 2>$null)
+        $mainLogExitCode = $LASTEXITCODE
+        $crashBufferLines = @(& $adb -s $serial logcat -b crash -d -v time 2>$null)
+        $crashLogExitCode = $LASTEXITCODE
+        $captureStatus = "mainLogcatExitCode=$mainLogExitCode; crashBufferExitCode=$crashLogExitCode"
+        $diagnosticLogLines = @(Get-AndroidDownloadDiagnosticLogLines -LogLines @($mainLogLines + $crashBufferLines)) |
+            Select-Object -Last 200
         if ($diagnosticLogLines.Count -gt 0) {
             Write-Host 'Android download/player logcat at instrumentation failure:'
-            $diagnosticLogLines | Select-Object -Last 100 | ForEach-Object { Write-Host $_.Line }
+            $diagnosticLogLines | ForEach-Object { Write-Host $_ }
+        }
+        try {
+            $evidencePath = Save-AndroidDownloadFailureEvidence `
+                -Directory $diagnosticEvidenceDirectory `
+                -Phase $Method `
+                -RunnerExitCode $runnerExitCode `
+                -RunnerOutput $runnerOutput `
+                -FixtureStatusJson $fixtureStatusJson `
+                -CaptureStatus $captureStatus `
+                -DiagnosticLines $diagnosticLogLines
+            Write-Host "Failure evidence preserved outside temporary cleanup: $diagnosticEvidenceDirectory"
+        } catch {
+            Write-Warning "Could not persist Android instrumentation failure evidence: $_"
         }
         throw "Instrumentation phase '$Method' did not report exactly one passing test (adb exit=$runnerExitCode)."
     }
@@ -157,16 +186,23 @@ try {
     # AndroidTest disables the fixture only after Media3 reports STATE_COMPLETED.
     Invoke-GradlePhase -Method 'verifyPartialDownloadResumedByFreshApplicationProcess' -ResumedOffset $resumedOffset -CompletedBytes $completedBytes -FixtureBytes $script:fixtureBytes
     Write-Host "Process restart resumed at byte $resumedOffset and completed $completedBytes bytes."
+} catch {
+    $primaryFailure = $_
+    throw
 }
 finally {
     if ($testApksInstalled) {
         try { Invoke-GradlePhase -Method 'cleanupIsolatedHostProcessFixture' }
-        catch { Write-Warning "Isolated download cleanup runner failed: $_" }
+        catch { $cleanupFailures.Add("Isolated download cleanup runner failed: $_") }
     }
     if ($fixtureProcess -and -not $fixtureProcess.HasExited) {
         Stop-Process -Id $fixtureProcess.Id -Force -ErrorAction SilentlyContinue
     }
     if (Test-Path -LiteralPath $tempDirectory) {
-        Remove-Item -LiteralPath $tempDirectory -Recurse -Force
+        try { Remove-Item -LiteralPath $tempDirectory -Recurse -Force }
+        catch { $cleanupFailures.Add("Temporary fixture directory cleanup failed: $_") }
     }
+    Complete-AndroidDownloadHarnessCleanup `
+        -PrimaryFailureOccurred ($null -ne $primaryFailure) `
+        -CleanupFailures @($cleanupFailures.ToArray())
 }

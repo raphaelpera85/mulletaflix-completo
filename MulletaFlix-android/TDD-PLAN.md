@@ -1,10 +1,47 @@
 # Plano de TDD do MulletaFlix Android
 
+## Evidência persistente de falha do runner de retomada offline — 2026-10-16
+
+- `INTENÇÃO`: manter fora do diretório temporário, após erro AndroidTest, a saída do runner, o estado JSON da fixture e somente as linhas de logcat associadas a download/player/runtime/instrumentação; capturar também o buffer `crash`, sem bugreport amplo.
+- `RED`: o novo teste Pester falhou ao carregar porque `Save-AndroidDownloadFailureEvidence.ps1` ainda não existia (`CommandNotFoundException`); nenhuma falha de parser/configuração Kotlin envolvida.
+- `GREEN`: helper implementado e `Save-AndroidDownloadFailureEvidence.Tests.ps1` verifica os três artefatos, o código do runner, snapshot vazio e log filtrado. Pester focal (gravador + filtro) 3/3.
+- `INTEGRAÇÃO`: jornada TABLET/API 35 passou preparação, retomada visual e cleanup 1/1 cada; Range 1.040.640 + 3.847.015 bytes, `READY`, avanço offline e nenhuma requisição após desabilitar origem. A nova execução não falhou, portanto a gravação do ramo de falha foi coberta por Pester, não exercitada numa falha Android real.
+- `QUALITY`: instalação dos APKs debug/AndroidTest `BUILD SUCCESSFUL` (431 tarefas; 2 executadas/429 `UP-TO-DATE`); `Invoke-Pester -Path .\tools` 37/37. O gate Gradle completo está sendo executado nesta sessão; registrar seu resultado depois de concluído.
+- `LIMITES`: nenhuma alteração de produção. O helper grava apenas os logs filtrados, não `bugreport`, não revela causa do crash anterior e não muda a homologação formal. Ainda falta observar uma falha real e conferir os arquivos que o harness preservará.
+
+## Diagnóstico exercitado — crash do AndroidJUnitRunner antes da fixture offline — 2026-10-16
+
+- `OBSERVADO`: repetição TABLET/API 35 executada pelo wrapper iniciou a instalação, mas `preparePartialDownloadForHostProcessRestart` reportou `INSTRUMENTATION_RESULT: shortMsg=Process crashed` com `INSTRUMENTATION_CODE: 0`. A fixture confirmou zero requests/ranges. Logcat registrou `AndroidJUnitRunner` em `newApplication`/`onCreate` e `ActivityManager: Crash of app ... AndroidJUnitRunner`, sem stack trace ou causa raiz identificável.
+- `CLEANUP`: a chamada separada `cleanupIsolatedHostProcessFixture` passou `OK (1 test)`. O harness detectou corretamente que a fase de preparação não passou e encerrou com erro; saída zero do ADB não foi tomada como aprovação.
+- `TDD`: diagnóstico de infraestrutura, sem mudança de código ou RED/GREEN produtivo. Nenhum teste de download/player foi executado nessa tentativa; ela não é falha funcional do APK.
+- `AMBIENTE`: AVD descartável TABLET/API 35, NVIDIA confirmada e encerramento pelo wrapper. A primeira invocação incorreta falhou antes de executar teste e foi excluída.
+- `PRÓXIMO`: coletar tombstone/bugreport ou mais logcat antes do runner em nova falha; a causa continua pendente. Não alterar runtime até o crash ser localizado e uma falha produtiva ser reproduzida.
+
+## Revalidação — estabilidade da troca de servidor — PHONE/TABLET — 2026-10-16
+
+- `INTENÇÃO`: conferir que o login após trocar servidor pelo Perfil mantém a identidade do servidor novo e que Voltar não restaura a Home antiga.
+- `TESTE`: `MainActivitySessionNavigationTest#switchingServerFromProfileDoesNotRestorePreviousProfileOnBackAfterLogin` passou em PHONE/API 35 e TABLET/API 35, três execuções por perfil; cada XML registra 1 teste, 0 falhas, 0 erros e 0 ignorados.
+- `EVIDÊNCIA`: `validation-evidence/2026-10-16/server-switch-{PHONE,TABLET}-API35-repeat-{1,2,3}.xml`.
+- `AMBIENTE`: wrappers NVIDIA confirmada; cada AVD descartável foi encerrado. ADB terminou sem dispositivos.
+- `TDD`: reexecução de teste existente; sem mudança de código ou RED/GREEN nesta rodada. Com as repetições 3 e 4 anteriores, há cinco aprovações após o ajuste de asserção; a falha TABLET repeat 2 anterior continua preservada e sem causa identificada.
+- `LIMITES`: sessão e endpoints MockWebServer; não valida autenticação/servidor real, aparelho físico ou aceite formal. APK-H02 continua em validação.
+- `ESCOPO`: somente APK, testes e documentação; sem release, versão, portal ou servidor.
+
+## RED-GREEN — capturar crash do AndroidTest no diagnóstico da retomada offline — 2026-10-16
+
+- `OBSERVADO`: uma tentativa TABLET/API 35 terminou `preparePartialDownloadForHostProcessRestart` com `INSTRUMENTATION_RESULT: shortMsg=Process crashed`; `/status` da fixture mostrou `requests=[]`. Cleanup isolado passou. O filtro antigo selecionou apenas downloads/player e exibiu um aviso de início de serviço bloqueado, sem sinais suficientes para identificar a saída do runner. Não é falha de playback nem evidência suficiente de defeito produtivo.
+- RED: `Invoke-Pester -Path .\tools\Get-AndroidDownloadDiagnosticLogLines.Tests.ps1` falhou porque a linha de processo do pacote AndroidTest não era selecionada pelo filtro limitado a Media3.
+- GREEN: helper `Get-AndroidDownloadDiagnosticLogLines.ps1` inclui logs AndroidRuntime/FATAL, sinais nativos, AndroidJUnitRunner/Instrumentation, morte do processo e bloqueio de início do serviço, preservando os filtros de download/player. Pester passou 1/1; parser PowerShell sem erros.
+- `ROBUSTEZ`: teste de logcat vazio falhou primeiro com `ParameterBindingValidationException`; `[AllowEmptyCollection()]` passou a preservar a falha original quando não há linhas. Suíte Pester `tools/` passou 36/36.
+- Integração: repetição TABLET/API 35 posterior passou prepare/verify/cleanup 1/1 por fase; Range 1.034.880 + 3.852.775 bytes, reprodução offline avançou e a origem bloqueada não recebeu pedidos. Naquele registro, o ramo do novo filtro ainda não havia sido exercitado; o reteste pré-fixture acima agora verificou sua captura, mas não trouxe stack trace nem causa raiz.
+- Escopo: apenas ferramenta e teste PowerShell; sem alteração de código Android produtivo, contratos, dependências, versão ou release. AVD temporário via wrapper/GPU NVIDIA, desligado ao final; ADB sem dispositivos.
+- Limite: o crash isolado anterior ocorreu antes da fixture e sua causa não foi capturada pelo filtro anterior. Falhas históricas de playback em 0 ms continuam sem causa. Não alterar runtime nem homologação formal sem reprodução diagnóstica.
+
 ## Diagnóstico de timeout da retomada Range antes do player — TABLET — 2026-10-16
 
 - `OBSERVADO`: uma execução de `verifyPartialDownloadResumedByFreshApplicationProcess` expirou após 120 s em `awaitDownload(STATE_COMPLETED)`: Media3 `QUEUED`, 3.989.823/4.887.655 bytes, 81,63%, sem stop/failure reason. A tela/player não foi alcançada. O host da fixture registrou término da resposta Range antes de invocar esta fase; isso não demonstra que o cliente persistiu cada byte.
 - `HIPÓTESES`: transferência/socket, fila/serviço Media3, ou discrepância entre evento `finish` do servidor e leitura/indexação pelo cliente. Ainda não discriminadas. Não atribuir ao player nem mudar runtime.
-- `INSTRUMENTAÇÃO`: o harness agora coleta `/status` da fixture e logcat filtrado de DownloadService/Media3 somente se o AndroidTest falhar; sintaxe PowerShell passou. A ramificação de diagnóstico ainda não foi exercitada após a alteração.
+- `INSTRUMENTAÇÃO`: o harness coleta `/status` e logs de DownloadService/Media3, AndroidRuntime/runner, sinais nativos, processo e bloqueios do serviço somente quando uma fase falha. Pester cobre o filtro (1/1). Na anotação original, ainda faltava exercitar o filtro em falha AndroidTest; o reteste pré-fixture acima o exercitou, sem identificar a causa do crash.
 - `GREEN`: repetição integrada subsequente no TABLET/API 35 passou prepare/verify/cleanup 1/1 por fase, Range 1.041.184 + 3.846.471 bytes e playback offline avançando. A passagem não invalida a falha intermitente.
 - `GATE`: wrapper confirmou GPU NVIDIA; Gradle instalou os APKs debug e AndroidTest (`BUILD SUCCESSFUL`, 431 tarefas; 2 executadas, 429 `UP-TO-DATE`). Parser PowerShell sem erros. Em seguida, `testDebugUnitTest --rerun-tasks --no-daemon --console=plain` executou 470 tarefas e passou: 1.785 testes/256 XML, 0 falhas/erros/ignorados. Lint, assemble e compilação AndroidTest passaram no gate anterior, com tarefas em sua maioria `UP-TO-DATE`.
 - `LIMITE`: fixture, sessão e AVD sintéticos. Falhas anteriores de playback parado em 0 ms/30 s continuam sem causa. Nenhum runtime, módulo, contrato, dependência ou comportamento do APK foi alterado. Sem promoção de homologação.
@@ -1898,3 +1935,11 @@ Verificação instrumentada adicional de Livros na Android TV em 2026-10-08: `Tv
 - `DEVICE`: `BookReaderProgressActionsTest` passou 4/4 em Android TV/API 34, sem falhas, erros ou skips. Três jornadas específicas TV enviam `Key.DirectionCenter` e verificam foco, confirmação de reinício e operações de marcadores; o teste restante valida cancelamento.
 - `EVIDÊNCIA`: XML `validation-evidence/2026-10-16/BookReaderProgressActionsTest-TV-API34.xml`; wrapper confirmou GPU NVIDIA e encerrou AVD temporário.
 - `LIMITE`: teclado D-pad sintético do Compose/AVD; controle físico, acessibilidade TalkBack audível, fluxo de leitura com arquivo real e servidor real não foram verificados. Sem mudança em runtime; APK-H21/formalSignoff não avançam.
+## Revalidação — refresh integrado da Home Android TV — 2026-10-16
+
+- `INTENÇÃO`: confirmar no APK atual a atualização do feed ao retornar à Home na TV e a ausência da biblioteca de livros.
+- `TESTE`: `TvHomeRefreshIntegrationTest` — 2/2, 0 falhas/erros/ignorados, AVD `MulletaflixCodexTvApi34_20261015`, TV/API 34. XML em `feature/home/build/outputs/androidTest-results/connected/debug/TEST-MulletaflixCodexTvApi34_20261015(AVD) - 14.xml`.
+- `AMBIENTE`: executado com `tools/with-emulator.ps1`; NVIDIA RTX 3050 verificada e ADB terminou sem dispositivos.
+- `TDD`: revalidação de cobertura preexistente; nenhum RED/GREEN ou alteração Android atribuível a esta rodada.
+- `LIMITES`: feed sintético e ciclo de retorno à Home; não mede refresh prolongado, servidor real, TV física, aceite formal ou homologação.
+- `ESCOPO`: APK/teste/documentação somente; sem versão, release, assinatura, servidor, portal ou publicação.
