@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-10-16T17:47:31-03:00",
+  "generatedAt": "2026-10-16T18:10:36-03:00",
   "source": {
     "roadmap": "https://github.com/raphaelpera85/mulletaflix-completo/blob/main/docs/roadmap-evolucao-tecnologica-servidor-e-web.md",
     "repository": "https://github.com/raphaelpera85/mulletaflix-completo"
@@ -2952,8 +2952,8 @@
       "status": "blocked",
       "progressPercent": null,
       "startedAt": "2026-10-16T17:35:00-03:00",
-      "updatedAt": "2026-10-16T17:47:31-03:00",
-      "evidence": "TDD RED/GREEN: helper de evidência Pester 3/3; wrapper persiste status, propriedades, serviços e logcat filtrado com redaction antes de fechar AVD. Integração API 37 expirou no boot: surfaceflinger recebeu SIGABRT na thread RegionSampling, reiniciou quatro vezes e system_server morreu; sys.system_server.start_count=13. sys.boot_completed/Package Manager não prontos na captura. Tentativa corrigida com expectedDeviceProfile=PHONE não iniciou AndroidJUnit; zero testes, zero XML. A primeira invocação sem perfil foi rejeitada pelo wrapper antes do Gradle e também não conta. AVD encerrado sem wipe. Pester tools completo e parser PowerShell ainda precisam ser reexecutados após ajuste final de captura do stack. APK-H14 permanece pendente; matriz formal 10/21 concluídas, 2 em validação, 9 pendentes e formalSignoff=pending. Sem alteração/release do APK; status é do checkout, deploy público ainda não confirmado."
+      "updatedAt": "2026-10-16T18:10:36-03:00",
+      "evidence": "TDD RED/GREEN: helper de evidência Pester 3/3; wrapper persiste status, propriedades, serviços e logcat filtrado com redaction e contexto de stack antes de fechar AVD. Integração API 37 expirou no boot: surfaceflinger recebeu SIGABRT na thread RegionSampling, reiniciou quatro vezes e system_server morreu; sys.system_server.start_count=13. sys.boot_completed/Package Manager não prontos na captura. Tentativa corrigida com expectedDeviceProfile=PHONE não iniciou AndroidJUnit; zero testes, zero XML. A primeira invocação sem perfil foi rejeitada pelo wrapper antes do Gradle e também não conta. AVD encerrado sem wipe. Verificações posteriores: Pester 51/51, parser PowerShell 24/24, portal Node 27/27; suíte JVM forçada BUILD SUCCESSFUL, 1.788 testes/256 XML, 0 falhas/erros/ignorados. APK-H14 permanece pendente; matriz formal 10/21 concluídas, 2 em validação, 9 pendentes e formalSignoff=pending. Sem alteração/release do APK; implantação pública não confirmada."
     },
     {
       "id": "android-api37-avd-boot-inconclusive-2026-10-16",

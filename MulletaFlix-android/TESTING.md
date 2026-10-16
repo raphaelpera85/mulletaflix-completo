@@ -8,6 +8,10 @@ Como o requisito de certificado HTTPS válido na LAN foi confirmado, foram adici
 
 `LocalServerDiscoveryPermissionTest` não iniciou: no AVD isolado `MulletaFlixAndroid17Api37_20261016`, `sys.boot_completed` permaneceu vazio apesar de serviços do Package Manager iniciarem parcialmente. O wrapper foi interrompido antes do Gradle/AndroidJUnit; zero casos contabilizáveis, sem XML novo. AVD encerrado sem limpeza dos dados. Classificação: bloqueio de infraestrutura, não falha do app nem aprovação. Android 17/API 37 e a permissão `ACCESS_LOCAL_NETWORK` continuam sem cobertura instrumentada verificada. Registro de rodada adicionado ao JSON local do portal; a implantação pública não foi confirmada.
 
+### Gate geral após diagnóstico de boot API 37 — 2026-10-16
+
+`testDebugUnitTest --rerun-tasks --no-daemon --console=plain` terminou `BUILD SUCCESSFUL` em 11m10s: 1.788 testes em 256 XML, zero falhas, erros ou ignorados (470 tarefas executadas). `Invoke-Pester -Path .\tools -PassThru`: 51/51; parser PowerShell: 24 scripts limpos. Testes do portal: 27/27. Isso verifica regressão JVM/harness/portal, mas não desbloqueia `LocalServerDiscoveryPermissionTest`, não executado por falha de boot do AVD. Sem alteração de runtime, versão ou release.
+
 
 ### Android 17/API 37 — repetição isolada com Vulkan desativado — 2026-10-16
 

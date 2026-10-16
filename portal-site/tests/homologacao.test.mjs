@@ -324,6 +324,8 @@ test('portal mirrors persisted SurfaceFlinger boot failure without counting inst
     assert.equal(event.status, 'blocked');
     assert.match(event.evidence, /SIGABRT na thread RegionSampling/);
     assert.match(event.evidence, /zero testes, zero XML/);
+    assert.match(event.evidence, /Pester 51\/51.*parser PowerShell 24\/24.*portal Node 27\/27/);
+    assert.match(event.evidence, /1\.788 testes\/256 XML, 0 falhas\/erros\/ignorados/);
     assert.equal(android.testAudit.passed, 1788);
     assert.equal(android.testAudit.total, 1788);
     assert.equal(area.status, 'pending');
