@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-10-16T18:10:36-03:00",
+  "generatedAt": "2026-10-16T20:15:00-03:00",
   "source": {
     "roadmap": "https://github.com/raphaelpera85/mulletaflix-completo/blob/main/docs/roadmap-evolucao-tecnologica-servidor-e-web.md",
     "repository": "https://github.com/raphaelpera85/mulletaflix-completo"
@@ -28,12 +28,12 @@
         "label": "Homologação formal não consolidada; testes parciais e bloqueios continuam em investigação."
       },
       "testAudit": {
-        "passed": null,
-        "total": null,
-        "skipped": null,
-        "failed": null,
-        "percent": null,
-        "label": "Resultados das suites da rodada registrados por projeto no evento ativo; relatório TRX agregado e auditável ainda não consolidado."
+        "passed": 1437,
+        "total": 1497,
+        "skipped": 60,
+        "failed": 0,
+        "percent": 96.0,
+        "label": "Suíte Jellyfin.Server.Implementations.Tests final em Release: 1.437 aprovados, 60 ignorados, 0 falhas; NebulaDownloaderEngineTests 43/43. Build Release Jellyfin.Server: 0 avisos/erros; portal 31/31. Gate agregado prévio da solução passou 4.384/4.449; repetição final inconclusiva no testhost de integração (>5 min). Sem validação em produção."
       }
     },
     {
@@ -2940,6 +2940,21 @@
     }
   ],
   "events": [
+    {
+      "id": "server-nebula-configured-monitor-paths-2026-10-16",
+      "title": "Nebula restrito às pastas de biblioteca configuradas",
+      "agent": "Codex",
+      "front": "server",
+      "featureIds": [],
+      "local": "D:\\Users\\Raphael\\Documents\\Projetos\\mulletaflix",
+      "location": "MulletaFlix-master/Jellyfin.Server.Implementations/Nebula e docs/releases/12.1.21.md",
+      "scope": "Validar todo o gate local do servidor e preparar a release que impede o downloader Nebula de monitorar pastas fora de MonitorPaths ou usar raiz de volume como staging.",
+      "status": "in_progress",
+      "progressPercent": null,
+      "startedAt": "2026-10-16T19:44:00-03:00",
+      "updatedAt": "2026-10-16T20:15:00-03:00",
+      "evidence": "Suíte Jellyfin.Server.Implementations.Tests final: 1.437 aprovados, 60 ignorados, 0 falhas; NebulaDownloaderEngineTests 43/43. Build Release Jellyfin.Server: 0 avisos/erros; portal 31/31. Gate agregado anterior da solução passou 4.384 testes e 65 ignorados, excluindo LiveIntegration; repetição agregada final ficou sem progresso no testhost de integração ASP.NET por mais de cinco minutos e foi interrompida (inconclusiva). Pacotes de produção Windows e Linux x64 12.1.21 compilados e hasheados. Publicação GitHub/Vercel ainda pendente; sem smoke test no servidor ativo."
+    },
     {
       "id": "android-api37-surfaceflinger-boot-diagnostics-2026-10-16",
       "title": "Diagnosticar boot Android 17 antes da instrumentação",

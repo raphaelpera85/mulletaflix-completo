@@ -2623,11 +2623,11 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable, IAsyncDis
             return false;
         }
 
-        var monitorSources = (config.MonitorPaths ?? Array.Empty<string>()).Where(s => !string.IsNullOrWhiteSpace(s)).ToList();
+        var monitorSources = NebulaDownloaderEngine.GetValidMonitorSources(config.MonitorPaths);
         if (monitorSources.Count == 0)
         {
             _downloaderLock.Release();
-            AddDownloaderLog("[ERRO] Nenhuma pasta de monitoramento configurada.");
+            AddDownloaderLog("[ERRO] Nenhuma pasta de monitoramento válida encontrada em MonitorPaths.");
             return false;
         }
 
@@ -2734,6 +2734,13 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable, IAsyncDis
             NebulaCategoryOrder.ApplyCustomOrder(config.CategoryDownloadOrder);
 
             _downloaderEngine.Start(config);
+            if (!_downloaderEngine.IsRunning)
+            {
+                _isDownloaderRunning = false;
+                AddDownloaderLog("[ERRO] Downloader não iniciou: nenhuma pasta válida de MonitorPaths foi aceita.");
+                return false;
+            }
+
             _isDownloaderRunning = true;
             AddDownloaderLog("Iniciando STRM Downloader (1 mídia por vez)...");
 

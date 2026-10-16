@@ -96,7 +96,7 @@
   };
   const renderEvents = data => {
     const events = Array.isArray(data.events) ? data.events : [];
-    byId('event-list').innerHTML = events.length ? events.slice(0, 12).map(event => { const progress = Number.isFinite(Number(event.progressPercent)) ? ` · ${Number(event.progressPercent)}%` : ''; return `<li><span class="event-dot ${statusClass(event.status)}"></span><div><strong>${escapeHtml(event.title)}</strong><p>${escapeHtml(event.location || 'Local não informado')} · ${escapeHtml(statusText[event.status] || event.status)}${progress} · ${date(event.updatedAt)}</p></div></li>`; }).join('') : '<li class="empty-event"><strong>Nenhum evento de homologação publicado</strong><p>Quando um agente iniciar um teste, registre-o em <code>portal-site/homologacao-status.json</code> com local, status, percentual e evidência.</p></li>';
+    byId('event-list').innerHTML = events.length ? events.slice(0, 20).map(event => { const progress = Number.isFinite(Number(event.progressPercent)) ? ` · ${Number(event.progressPercent)}%` : ''; return `<li><span class="event-dot ${statusClass(event.status)}"></span><div><strong>${escapeHtml(event.title)}</strong><p>${escapeHtml(event.location || 'Local não informado')} · ${escapeHtml(statusText[event.status] || event.status)}${progress} · ${date(event.updatedAt)}</p></div></li>`; }).join('') : '<li class="empty-event"><strong>Nenhum evento de homologação publicado</strong><p>Quando um agente iniciar um teste, registre-o em <code>portal-site/homologacao-status.json</code> com local, status, percentual e evidência.</p></li>';
   };
   const load = async () => {
     const [data, runs, releases] = await Promise.all([

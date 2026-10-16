@@ -339,8 +339,52 @@ public sealed class NebulaDownloaderEngine : IAsyncDisposable, IDisposable
             return;
         }
 
+        var monitorSources = GetValidMonitorSources(config.MonitorPaths);
+
+        if (monitorSources.Count == 0)
+        {
+            LogError("Nenhuma pasta de monitoramento válida configurada em MonitorPaths; downloader não iniciado.");
+            return;
+        }
+
         _isRunning = true;
-        _workerTask = Task.Run(() => WorkerLoopAsync(config, _cts.Token));
+        _workerTask = Task.Run(() => WorkerLoopAsync(config, monitorSources, _cts.Token));
+    }
+
+    internal static List<string> GetValidMonitorSources(IEnumerable<string>? configuredPaths)
+    {
+        var comparer = OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal;
+        var seen = new HashSet<string>(comparer);
+        var sources = new List<string>();
+
+        foreach (var path in configuredPaths ?? Array.Empty<string>())
+        {
+            if (string.IsNullOrWhiteSpace(path))
+            {
+                continue;
+            }
+
+            try
+            {
+                var fullPath = Path.GetFullPath(path);
+                if (!Directory.Exists(fullPath) || NebulaStagingWatcher.IsFileSystemRoot(fullPath))
+                {
+                    continue;
+                }
+
+                var normalizedPath = Path.TrimEndingDirectorySeparator(fullPath);
+                if (seen.Add(normalizedPath))
+                {
+                    sources.Add(normalizedPath);
+                }
+            }
+            catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
+            {
+                // Invalid configured entries are excluded; the caller remains stopped if no usable source remains.
+            }
+        }
+
+        return sources;
     }
 
     /// <summary>
@@ -375,30 +419,8 @@ public sealed class NebulaDownloaderEngine : IAsyncDisposable, IDisposable
         LogInfo("STRM Downloader encerrado.");
     }
 
-    private async Task WorkerLoopAsync(NebulaFtpConfiguration config, CancellationToken cancellationToken)
+    private async Task WorkerLoopAsync(NebulaFtpConfiguration config, List<string> monitorSources, CancellationToken cancellationToken)
     {
-        var monitorSources = (config.MonitorPaths ?? Array.Empty<string>())
-            .Where(p => !string.IsNullOrWhiteSpace(p)
-                && Directory.Exists(p)
-                && !NebulaStagingWatcher.IsFileSystemRoot(p))
-            .ToList();
-
-        // Garante inclusão de D:\midias e D:\midias2 se existirem no sistema e não estiverem na lista
-        foreach (var defaultPath in new[] { @"D:\midias", @"D:\midias2" })
-        {
-            if (Directory.Exists(defaultPath) && !monitorSources.Any(s => string.Equals(Path.GetFullPath(s), Path.GetFullPath(defaultPath), StringComparison.OrdinalIgnoreCase)))
-            {
-                monitorSources.Add(defaultPath);
-            }
-        }
-
-        if (monitorSources.Count == 0)
-        {
-            LogError("Nenhuma pasta de monitoramento válida configurada em MonitorPaths.");
-            _isRunning = false;
-            return;
-        }
-
         var stageRoots = (config.StagePaths ?? Array.Empty<string>())
             .Where(p => !string.IsNullOrWhiteSpace(p)
                 && !NebulaStagingWatcher.IsFileSystemRoot(p))
@@ -2233,6 +2255,13 @@ public sealed class NebulaDownloaderEngine : IAsyncDisposable, IDisposable
                 var fullPath = Path.GetFullPath(root);
                 var driveRoot = Path.GetPathRoot(fullPath) ?? string.Empty;
 
+                if (!string.IsNullOrEmpty(driveRoot)
+                    && string.Equals(fullPath, driveRoot, StringComparison.OrdinalIgnoreCase))
+                {
+                    logger?.LogWarning("[NEBULA-STAGE] Raiz de filesystem {Root} rejeitada como diretório de staging.", root);
+                    continue;
+                }
+
                 // A inspeção vem antes de criar o diretório: com um inspetor
                 // injetado (testes) ou um volume ainda não provisionado, falhar
                 // aqui descartava um candidato que o inspetor consideraria válido.
@@ -2269,9 +2298,7 @@ public sealed class NebulaDownloaderEngine : IAsyncDisposable, IDisposable
 
         if (candidates.Count == 0)
         {
-            var fallback = stageRoots[0];
-            try { Directory.CreateDirectory(fallback); } catch { }
-            return fallback;
+            throw new InvalidOperationException("Nenhum diretório de staging válido foi encontrado.");
         }
 
         // Regra dos 10%: Um disco é elegível se tiver >= 10% de espaço livre E pelo menos 5 GB (ou requiredBytes se maior)

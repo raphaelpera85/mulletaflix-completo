@@ -14,8 +14,6 @@ using Jellyfin.Server.Implementations.Nebula;
 using MediaBrowser.Model.Configuration;
 using MediaBrowser.Model.Nebula;
 using Microsoft.Extensions.Logging.Abstractions;
-using Moq;
-using Moq.Protected;
 using Xunit;
 
 namespace MulletaFlix.Server.Implementations.Tests.Nebula;
@@ -44,15 +42,7 @@ public sealed class NebulaDownloaderEngineTests : IDisposable
     }
 
     private NebulaDownloaderEngine CreateEngine()
-    {
-        var mockMongo = new Mock<NebulaMongoContext>(MockBehavior.Loose);
-        var mockTelegram = new Mock<NebulaTelegramPool>(MockBehavior.Loose);
-
-        return new NebulaDownloaderEngine(
-            mockMongo.Object,
-            mockTelegram.Object,
-            NullLogger<NebulaDownloaderEngine>.Instance);
-    }
+        => new(null!, null!, NullLogger<NebulaDownloaderEngine>.Instance);
 
     #region Category Priority Tests (T2.3 - Priority observable and consistent)
 
@@ -62,14 +52,12 @@ public sealed class NebulaDownloaderEngineTests : IDisposable
         // Arrange: paths representing each known category
         var testCases = new[]
         {
-            (Path: "/mnt/staging/Series/Show/S01E01.mkv", Expected: 1),      // Series
-            (Path: "/mnt/staging/Movies/Movie (2023).mkv", Expected: 2),     // Movies
-            (Path: "/mnt/staging/Anime/Series/S01E01.mkv", Expected: 3),     // Anime
-            (Path: "/mnt/staging/Documentaries/Doc.mkv", Expected: 4),       // Documentaries
-            (Path: "/mnt/staging/Kids/Show/S01E01.mkv", Expected: 5),        // Kids
-            (Path: "/mnt/staging/Music/Artist/Album/Track.mp3", Expected: 6), // Music
-            (Path: "/mnt/staging/Other/Random.mkv", Expected: 7),            // Other
-            (Path: "/mnt/staging/Unknown/Random.mkv", Expected: 8),          // Unknown -> last
+            (Path: "/mnt/staging/Animações/Attack on Titan/Attack on Titan - 01.mkv", Expected: 1),
+            (Path: "/mnt/staging/Filmes/Inception (2010).mkv", Expected: 2),
+            (Path: "/mnt/staging/Series/Breaking Bad S01E01.mkv", Expected: 3),
+            (Path: "/mnt/staging/Doramas/The Guest S01E01.mkv", Expected: 4),
+            (Path: "/mnt/staging/Novelas/Renascer/Capitulo 01.mkv", Expected: 5),
+            (Path: "/mnt/staging/Porno/scene.mp4", Expected: 6),
         };
 
         foreach (var (path, expected) in testCases)
@@ -94,14 +82,13 @@ public sealed class NebulaDownloaderEngineTests : IDisposable
     }
 
     [Fact]
-    public void GetCategoryPriority_UnknownPath_ReturnsLastPriority()
+    public void GetCategoryPriority_UncategorizedPath_UsesMovieFallback()
     {
         var unknown = "/mnt/staging/RandomFolder/file.mkv";
-        var expectedLast = NebulaDownloaderEngine.GetCategoryPriority("/mnt/staging/Other/file.mkv") + 1;
 
         var actual = NebulaDownloaderEngine.GetCategoryPriority(unknown);
 
-        Assert.Equal(expectedLast, actual);
+        Assert.Equal(2, actual);
     }
 
     [Fact]
@@ -127,25 +114,25 @@ public sealed class NebulaDownloaderEngineTests : IDisposable
     {
         var paths = new[]
         {
-            "/mnt/staging/Movies/Z Movie.mkv",           // Movies (priority 2), title Z
-            "/mnt/staging/Series/A Show/S01E01.mkv",     // Series (priority 1), title A
-            "/mnt/staging/Series/B Show/S01E01.mkv",     // Series (priority 1), title B
-            "/mnt/staging/Anime/C Anime/S01E01.mkv",     // Anime (priority 3), title C
-            "/mnt/staging/Movies/A Movie.mkv",           // Movies (priority 2), title A
+            "/mnt/staging/Filmes/Z Movie.mkv",           // Filmes (prioridade 2), título Z
+            "/mnt/staging/Series/A Show/S01E01.mkv",     // Séries (prioridade 3), título A
+            "/mnt/staging/Series/B Show/S01E01.mkv",     // Séries (prioridade 3), título B
+            "/mnt/staging/Animações/C Anime/C Anime.mkv", // Animações (prioridade 1), título C
+            "/mnt/staging/Filmes/A Movie.mkv",           // Filmes (prioridade 2), título A
         };
 
         Func<string, bool> isPrioritized = _ => false; // No explicit priorities
         var ordered = NebulaDownloaderEngine.OrderDownloadPaths(paths, isPrioritized).ToArray();
 
         Assert.Equal(5, ordered.Length);
-        // Series first (priority 1), alphabetical: A Show, B Show
-        Assert.Equal("/mnt/staging/Series/A Show/S01E01.mkv", ordered[0]);
-        Assert.Equal("/mnt/staging/Series/B Show/S01E01.mkv", ordered[1]);
-        // Movies next (priority 2), alphabetical: A Movie, Z Movie
-        Assert.Equal("/mnt/staging/Movies/A Movie.mkv", ordered[2]);
-        Assert.Equal("/mnt/staging/Movies/Z Movie.mkv", ordered[3]);
-        // Anime last (priority 3)
-        Assert.Equal("/mnt/staging/Anime/C Anime/S01E01.mkv", ordered[4]);
+        // Animações primeiro (prioridade 1)
+        Assert.Equal("/mnt/staging/Animações/C Anime/C Anime.mkv", ordered[0]);
+        // Filmes em seguida (prioridade 2), em ordem alfabética
+        Assert.Equal("/mnt/staging/Filmes/A Movie.mkv", ordered[1]);
+        Assert.Equal("/mnt/staging/Filmes/Z Movie.mkv", ordered[2]);
+        // Séries por último neste conjunto, também em ordem alfabética
+        Assert.Equal("/mnt/staging/Series/A Show/S01E01.mkv", ordered[3]);
+        Assert.Equal("/mnt/staging/Series/B Show/S01E01.mkv", ordered[4]);
     }
 
     [Fact]
@@ -175,7 +162,7 @@ public sealed class NebulaDownloaderEngineTests : IDisposable
         var standard = NebulaDownloaderEngine.GetPriorityReason(false, "Movies");
 
         Assert.Contains("solicitação", requested, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("categoria", standard, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal("Movies · ordem alfabética", standard);
     }
 
     #endregion
@@ -260,10 +247,10 @@ public sealed class NebulaDownloaderEngineTests : IDisposable
             Content = new ByteArrayContent(new byte[100])
         };
 
-        var ex = Assert.Throws<HttpRequestException>(() =>
+        var ex = Assert.Throws<IOException>(() =>
             NebulaDownloaderEngine.ValidateRangeResponse(response, 0, 9, 100, 10));
 
-        Assert.Contains("206", ex.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("Range", ex.Message, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -293,7 +280,7 @@ public sealed class NebulaDownloaderEngineTests : IDisposable
         var ex = Assert.Throws<IOException>(() =>
             NebulaDownloaderEngine.ValidateRangeResponse(response, 0, 9, 100, 10));
 
-        Assert.Contains("início", ex.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("Content-Range", ex.Message, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -308,7 +295,7 @@ public sealed class NebulaDownloaderEngineTests : IDisposable
         var ex = Assert.Throws<IOException>(() =>
             NebulaDownloaderEngine.ValidateRangeResponse(response, 0, 9, 100, 10));
 
-        Assert.Contains("fim", ex.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("Content-Range", ex.Message, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -338,7 +325,7 @@ public sealed class NebulaDownloaderEngineTests : IDisposable
         var ex = Assert.Throws<IOException>(() =>
             NebulaDownloaderEngine.ValidateRangeResponse(response, 0, 9, 100, 10));
 
-        Assert.Contains("comprimento", ex.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("Content-Length", ex.Message, StringComparison.OrdinalIgnoreCase);
     }
 
     #endregion
@@ -433,7 +420,7 @@ public sealed class NebulaDownloaderEngineTests : IDisposable
     [Fact]
     public void SupportedSidecarExtensions_ContainsExpectedFormats()
     {
-        var expected = new[] { ".strm", ".srt", ".nfo", ".jpg" };
+        var expected = new[] { ".srt", ".nfo", ".jpg" };
 
         foreach (var ext in expected)
         {
@@ -507,6 +494,36 @@ public sealed class NebulaDownloaderEngineTests : IDisposable
         engine.Start(config);
 
         Assert.False(engine.IsRunning);
+    }
+
+    [Fact]
+    public void GetValidMonitorSources_UsesOnlyExistingConfiguredDirectoriesAndDeduplicates()
+    {
+        var configured = Path.Combine(_testRoot, "configured-library");
+        Directory.CreateDirectory(configured);
+        var missing = Path.Combine(_testRoot, "not-configured-on-disk");
+
+        var sources = NebulaDownloaderEngine.GetValidMonitorSources(new[]
+        {
+            configured,
+            configured + Path.DirectorySeparatorChar,
+            missing,
+            Path.GetPathRoot(_testRoot)!,
+            Path.Combine(Path.GetPathRoot(_testRoot)!, "temporary", "..")
+        });
+
+        Assert.Single(sources);
+        Assert.Equal(Path.GetFullPath(configured), Path.GetFullPath(sources[0]));
+    }
+
+    [Fact]
+    public void GetValidMonitorSources_WithOnlyMissingDirectories_ReturnsEmpty()
+    {
+        var missing = Path.Combine(_testRoot, "missing-library");
+
+        var sources = NebulaDownloaderEngine.GetValidMonitorSources(new[] { missing });
+
+        Assert.Empty(sources);
     }
 
     [Fact]

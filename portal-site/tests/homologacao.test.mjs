@@ -600,3 +600,24 @@ test('portal mirrors offline download fixture race correction without formal pro
     await settleDashboard();
     assert.match(dashboard.getElement('event-list').innerHTML, /Corrigir a sequência do fixture de retomada offline/);
 });
+
+test('portal reports the server Nebula release gate without claiming production validation', async () => {
+    const event = statusData.events.find(item => item.id === 'server-nebula-configured-monitor-paths-2026-10-16');
+    const audit = statusData.tracks.find(track => track.id === 'server').testAudit;
+
+    assert.ok(event, 'portal should include the current server validation/release event');
+    assert.equal(event.front, 'server');
+    assert.equal(event.status, 'in_progress');
+    assert.match(event.evidence, /1\.437 aprovados, 60 ignorados, 0 falhas/);
+    assert.match(event.evidence, /repetição agregada final.*inconclusiva/i);
+    assert.match(event.evidence, /produção/i);
+    assert.equal(audit.passed, 1437);
+    assert.equal(audit.total, 1497);
+    assert.equal(audit.skipped, 60);
+    assert.equal(audit.failed, 0);
+    assert.match(audit.label, /sem validação em produção/i);
+
+    const dashboard = createDashboard();
+    await settleDashboard();
+    assert.match(dashboard.getElement('event-list').innerHTML, /Nebula restrito às pastas de biblioteca configuradas/);
+});
