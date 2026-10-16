@@ -1,0 +1,6 @@
+capturedAt=2026-10-16T17:45:35.0336422-03:00
+avd=MulletaFlixAndroid17Api37_20261016
+serial=emulator-5560
+bootCompleted=False
+packageManagerReady=False
+captureStatus=getprop=0; services=0; logcat=0

@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-10-16T17:23:19-03:00",
+  "generatedAt": "2026-10-16T17:47:31-03:00",
   "source": {
     "roadmap": "https://github.com/raphaelpera85/mulletaflix-completo/blob/main/docs/roadmap-evolucao-tecnologica-servidor-e-web.md",
     "repository": "https://github.com/raphaelpera85/mulletaflix-completo"
@@ -2940,6 +2940,21 @@
     }
   ],
   "events": [
+    {
+      "id": "android-api37-surfaceflinger-boot-diagnostics-2026-10-16",
+      "title": "Diagnosticar boot Android 17 antes da instrumentação",
+      "agent": "Codex",
+      "front": "android",
+      "featureIds": ["APK-H14"],
+      "local": "D:\\Users\\Raphael\\Documents\\Projetos\\mulletaflix",
+      "location": "MulletaFlix-android/tools/with-emulator.ps1 e validation-evidence/2026-10-16/emulator-boot-diagnostics",
+      "scope": "Capturar sinais e logcat do AVD antes do shutdown para diagnosticar a ausência de sys.boot_completed; sem mudar runtime do APK ou critérios de homologação.",
+      "status": "blocked",
+      "progressPercent": null,
+      "startedAt": "2026-10-16T17:35:00-03:00",
+      "updatedAt": "2026-10-16T17:47:31-03:00",
+      "evidence": "TDD RED/GREEN: helper de evidência Pester 3/3; wrapper persiste status, propriedades, serviços e logcat filtrado com redaction antes de fechar AVD. Integração API 37 expirou no boot: surfaceflinger recebeu SIGABRT na thread RegionSampling, reiniciou quatro vezes e system_server morreu; sys.system_server.start_count=13. sys.boot_completed/Package Manager não prontos na captura. Tentativa corrigida com expectedDeviceProfile=PHONE não iniciou AndroidJUnit; zero testes, zero XML. A primeira invocação sem perfil foi rejeitada pelo wrapper antes do Gradle e também não conta. AVD encerrado sem wipe. Pester tools completo e parser PowerShell ainda precisam ser reexecutados após ajuste final de captura do stack. APK-H14 permanece pendente; matriz formal 10/21 concluídas, 2 em validação, 9 pendentes e formalSignoff=pending. Sem alteração/release do APK; status é do checkout, deploy público ainda não confirmado."
+    },
     {
       "id": "android-api37-avd-boot-inconclusive-2026-10-16",
       "title": "Tentativa inconclusiva de instrumentação Android 17 / API 37",

@@ -315,6 +315,21 @@ test('portal records this round API 37 boot blocker without inflating tests or f
     assert.equal(statusData.androidHomologation.formalSignoff, 'pending');
 });
 
+test('portal mirrors persisted SurfaceFlinger boot failure without counting instrumentation', () => {
+    const android = statusData.tracks.find(track => track.id === 'android');
+    const area = statusData.androidHomologation.areas.find(item => item.id === 'APK-H14');
+    const event = statusData.events.find(item => item.id === 'android-api37-surfaceflinger-boot-diagnostics-2026-10-16');
+
+    assert.ok(event);
+    assert.equal(event.status, 'blocked');
+    assert.match(event.evidence, /SIGABRT na thread RegionSampling/);
+    assert.match(event.evidence, /zero testes, zero XML/);
+    assert.equal(android.testAudit.passed, 1788);
+    assert.equal(android.testAudit.total, 1788);
+    assert.equal(area.status, 'pending');
+    assert.equal(statusData.androidHomologation.formalSignoff, 'pending');
+});
+
 test('portal records Android API 24 and 35 connectivity callback validation without closing APK-H14', () => {
     const android = statusData.tracks.find(track => track.id === 'android');
     const checklist = statusData.androidHomologation.taskChecklist;

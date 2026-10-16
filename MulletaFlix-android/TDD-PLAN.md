@@ -1,5 +1,12 @@
 # Plano de TDD do MulletaFlix Android
 
+### Captura de diagnóstico do boot incompleto do AVD — 2026-10-16
+
+- RED: `Save-AndroidEmulatorBootEvidence.Tests.ps1` falhou porque o helper de persistência ainda não existia; após criar a primeira versão, o teste de stack também falhou porque frames vizinhos de `SIGABRT` não eram guardados.
+- GREEN: `Save-AndroidEmulatorBootEvidence.ps1` filtra propriedades/serviços de boot, preserva contexto antes/depois de aborts e redige tokens conhecidos. Três testes Pester passaram, incluindo ADB sem dados e redaction. Wrapper salva arquivos antes do shutdown quando boot/Package Manager não ficam prontos, inclusive no `finally`.
+- Integração: execução PHONE/API 37 expirou no boot e criou `boot-status.txt`, `boot-properties.txt`, `boot-services.txt` e `boot-logcat.txt`. Log identificou `surfaceflinger` SIGABRT em `RegionSampling`, quatro reinicializações e morte de `system_server` (contador 13). Nenhum AndroidJUnit foi iniciado; zero casos contabilizáveis. AVD fechado sem wipe.
+- Limite: mudança somente em ferramenta de diagnóstico/testes; não corrige sistema operacional/emulador, não valida permissão ou runtime do APK, não promove APK-H14. Primeira chamada integrou sem perfil e foi rejeitada antes do runner; chamada corrigida alcançou o critério PHONE.
+
 ### Caracterização HTTPS LAN na descoberta automática — 2026-10-16
 
 - Intenção do usuário: o servidor pode oferecer HTTPS com certificado válido também na LAN. Inspeção de `parseDiscoveryResponse`, `normalizeServerUrl`, `automaticServerCandidate` e `selectAuthenticatedLanServer` mostrou que o app preserva o esquema anunciado e permite selecionar URL privada HTTPS; o fluxo já existia, mas não tinha cobertura explícita para HTTPS LAN.

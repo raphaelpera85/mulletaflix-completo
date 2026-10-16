@@ -2,7 +2,7 @@
 
 ## Validação Android 17 e TLS de servidor LAN — 2026-10-16
 
-- [ ] Repetir `LocalServerDiscoveryPermissionTest` em API 37: a tentativa no AVD `MulletaFlixAndroid17Api37_20261016` não chegou a `sys.boot_completed`; wrapper interrompido antes do runner, zero testes/XML. AVD preservado sem wipe; tentativa está registrada como inconclusiva e não altera homologação.
+- [ ] Repetir `LocalServerDiscoveryPermissionTest` em API 37 após resolver o bloqueio do emulador: diagnóstico `validation-evidence/2026-10-16/emulator-boot-diagnostics/MulletaFlixAndroid17Api37_20261016-5560-174534/` confirma `surfaceflinger` SIGABRT em `RegionSampling`, 4 falhas antes do boot e queda de `system_server`; zero testes/XML. Captura não altera aceitação do APK.
 - [x] Cobrir preservação e seleção automática de um endpoint HTTPS LAN anunciado para a identidade autenticada; 54 testes focais e gate JVM completo aprovados. É caracterização de regra/URL, não validação de certificado ou TLS real.
 - [ ] Reexecutar `LocalServerDiscoveryPermissionTest` em API 37 somente quando o AVD estiver estável: no AVD isolado Google APIs com Vulkan desativado, o boot chegou a completar, mas Package Manager oscilou e `system_server.start_count` chegou a 28; não houve XML JUnit nem teste contabilizável. AVD preservado em `D:\Android\avd\MulletaFlixAndroid17Api37VulkanOff_20261016.avd` para inspeção.
 - [ ] Homologar HTTPS na LAN em rede/dispositivo reais com certificado válido e nome/IP correspondente; manter validação TLS e cobrir autenticação, metadados e playback sem fallback indevido para HTTP. O responsável confirmou suporte HTTPS válido também na LAN; não altera a política do servidor.

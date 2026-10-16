@@ -1,5 +1,9 @@
 # Homologação formal — MulletaFlix Android
 
+### API 37 — diagnóstico persistido do boot do AVD — 2026-10-16
+
+O wrapper preservou o diagnóstico antes de fechar o AVD: `surfaceflinger` abortou com `SIGABRT` na thread `RegionSampling`, reiniciou quatro vezes e o `system_server` morreu; `sys.system_server.start_count=13`. `sys.boot_completed` e Package Manager não ficaram prontos na captura. `LocalServerDiscoveryPermissionTest` não iniciou; zero testes/XML. A primeira invocação instrumentada foi rejeitada pelo wrapper por faltar perfil PHONE e não conta; a invocação corrigida expirou no boot. AVD encerrado, sem wipe. Causa confirmada do bloqueio é inicialização gráfica/sistêmica do emulador, não falha do APK. APK-H14 permanece pendente; matriz 10/21, 2 em validação, 9 pendentes; `formalSignoff=pending`.
+
 ### Tentativa inconclusiva de Android 17 / API 37 — 2026-10-16
 
 O AVD isolado `MulletaFlixAndroid17Api37_20261016` iniciou parcialmente, mas `sys.boot_completed` não foi atingido na janela observada. O wrapper foi interrompido antes do Gradle/AndroidJUnit: zero testes e nenhum XML novo; AVD encerrado sem apagar dados. Bloqueio de infraestrutura, sem inferir falha ou aprovação do APK. APK-H14 segue pendente; matriz 10/21 concluídas, 2 em validação, 9 pendentes; `formalSignoff=pending`. Registro correspondente em `portal-site/homologacao-status.json`; publicação pública não foi possível verificar nesta rodada.

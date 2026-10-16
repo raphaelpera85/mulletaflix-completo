@@ -25,11 +25,14 @@ $emulator = Join-Path $sdkRoot "emulator\emulator.exe"
 $serial = "emulator-$Port"
 $startedHere = $false
 $emulatorProcess = $null
+$emulatorReady = $false
+$bootDiagnosticsSaved = $false
 $androidProjectRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 . (Join-Path $PSScriptRoot 'Assert-AndroidInstrumentationResults.ps1')
 . (Join-Path $PSScriptRoot 'Assert-AndroidDeviceProfile.ps1')
 . (Join-Path $PSScriptRoot 'EmulatorProcessTree.ps1')
 . (Join-Path $PSScriptRoot 'Resolve-AndroidAvdHome.ps1')
+. (Join-Path $PSScriptRoot 'Save-AndroidEmulatorBootEvidence.ps1')
 
 $avdSearchDirectories = Get-AndroidAvdSearchDirectories `
     -AndroidAvdHome $env:ANDROID_AVD_HOME `
@@ -95,6 +98,39 @@ function Get-PackageManagerReady {
     } catch {
         return $false
     }
+}
+
+function Save-CurrentEmulatorBootDiagnostics {
+    if (-not $startedHere) { return }
+
+    $propertyLines = @(& $adb -s $serial shell getprop 2>&1)
+    $propertyExitCode = $LASTEXITCODE
+    $serviceLines = @(& $adb -s $serial shell service list 2>&1)
+    $serviceExitCode = $LASTEXITCODE
+    $logcatLines = @(& $adb -s $serial logcat -b all -d -t 3000 2>&1)
+    $logcatExitCode = $LASTEXITCODE
+    $captureStatus = "getprop=$propertyExitCode; services=$serviceExitCode; logcat=$logcatExitCode"
+    $directory = Join-Path $androidProjectRoot (
+        'validation-evidence\{0}\emulator-boot-diagnostics\{1}-{2}-{3}' -f `
+            (Get-Date -Format 'yyyy-MM-dd'),
+            $AvdName,
+            $Port,
+            (Get-Date -Format 'HHmmss')
+    )
+
+    $evidence = Save-AndroidEmulatorBootEvidence `
+        -Directory $directory `
+        -AvdName $AvdName `
+        -Serial $serial `
+        -BootCompleted (Get-BootState) `
+        -PackageManagerReady (Get-PackageManagerReady) `
+        -CaptureStatus $captureStatus `
+        -PropertyLines $propertyLines `
+        -ServiceLines $serviceLines `
+        -LogcatLines $logcatLines
+    $script:bootDiagnosticsSaved = $true
+    Write-Host "Saved emulator boot diagnostics: $directory"
+    return $evidence
 }
 
 function Set-HighPerformanceGpuPreference {
@@ -234,6 +270,7 @@ try {
     if (-not $packageManagerReady) {
         throw "Emulator $AvdName booted, but Package Manager did not become ready on $serial."
     }
+    $emulatorReady = $true
     if ($GpuMode -eq 'host') {
         Assert-EmulatorUsesHighPerformanceNvidiaGpu -AvdName $AvdName -Port $Port -RootProcess $emulatorProcess
     }
@@ -287,6 +324,13 @@ try {
 }
 finally {
     if ($startedHere) {
+        if (-not $emulatorReady -and -not $bootDiagnosticsSaved) {
+            try {
+                Save-CurrentEmulatorBootDiagnostics | Out-Null
+            } catch {
+                Write-Warning "Could not save emulator boot diagnostics before shutdown: $($_.Exception.Message)"
+            }
+        }
         Stop-StartedEmulatorTree -RootProcess $emulatorProcess
     }
 }

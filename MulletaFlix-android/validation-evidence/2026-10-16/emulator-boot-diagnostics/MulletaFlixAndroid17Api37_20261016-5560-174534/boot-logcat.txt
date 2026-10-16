@@ -1,0 +1,106 @@
+10-16 20:45:29.702 10906 10915 I system_server: Background concurrent mark compact GC freed 23MB AllocSpace bytes, 24(928KB) LOS objects, 49% free, 22MB/45MB, paused 7.785ms,57.523ms total 922.354ms
+10-16 20:45:29.706 10906 10906 W Looper  : Slow dispatch took 127ms main app=system_server main=true group=FOREGROUND h=android.app.ActivityThread$H c=android.app.LoadedApk$ReceiverDispatcher$Args$$ExternalSyntheticLambda0@df0c722 m=0
+10-16 20:45:29.732 10906 11144 W system_server: Long monitor contention with owner main (10906) at void com.android.server.am.BroadcastController.finishReceiver(android.os.IBinder, int, java.lang.String, android.os.Bundle, boolean, int)(BroadcastController.java:1931) waiters=1 in android.app.ContentProviderHolder com.android.server.am.ContentProviderHelper.getContentProviderImpl(android.app.IApplicationThread, java.lang.String, android.os.IBinder, int, int, java.lang.String, java.lang.String, boolean, int) for 131ms
+10-16 20:45:29.732 10906 11144 I dvm_lock_sample: [system_server,1,binder:10906_5,131,ContentProviderHelper.java,194,android.app.ContentProviderHolder com.android.server.am.ContentProviderHelper.getContentProviderImpl(android.app.IApplicationThread, java.lang.String, android.os.IBinder, int, int, java.lang.String, java.lang.String, boolean, int),BroadcastController.java,1931,void com.android.server.am.BroadcastController.finishReceiver(android.os.IBinder, int, java.lang.String, android.os.Bundle, boolean, int),26]
+10-16 20:45:29.825 10906 10938 W ActivityManager: com.google.android.cellbroadcastreceiver inode == 0 or app uninstalled with keep-data
+10-16 20:45:29.825 10906 10938 W ActivityManager: com.google.android.gms inode == 0 or app uninstalled with keep-data
+10-16 20:45:29.864 10906 10938 W ActivityManager: Slow operation: 56ms so far, now at startProcess: returned from zygote!
+10-16 20:45:29.871 10906 11073 V WifiLastResortWatchdog: clearAllFailureCounts.
+10-16 20:45:29.874 10906 10928 I DropBoxManagerService: add tag=system_server_strictmode isTagEnabled=true flags=0x2
+10-16 20:45:29.887 10906 10938 W ActivityManager: Slow operation: 79ms so far, now at startProcess: done updating battery stats
+10-16 20:45:29.887 10906 10938 W ActivityManager: Slow operation: 79ms so far, now at startProcess: building log message
+10-16 20:45:29.887 10906 10938 I ActivityManager: Start proc 11491:com.google.android.cellbroadcastreceiver/u0a207 for broadcast {com.google.android.cellbroadcastreceiver/com.android.cellbroadcastreceiver.CellBroadcastReceiver}
+10-16 20:45:29.887 10906 10938 W ActivityManager: Slow operation: 79ms so far, now at startProcess: starting to update pids map
+10-16 20:45:29.887 10906 10938 W ActivityManager: Slow operation: 79ms so far, now at startProcess: done updating pids map
+10-16 20:45:29.891 10812 10965 W SurfaceFlinger: getDisplayDecorationSupport is UNSUPPORTED
+10-16 20:45:29.891 10812 10965 W SurfaceFlinger: getDisplayDecorationSupport is UNSUPPORTED for display 4619827259835644672
+10-16 20:45:29.905 10906 10928 I DropBoxManagerService: add tag=system_server_strictmode isTagEnabled=true flags=0x2
+10-16 20:45:30.025 10906 11144 W system_server: Long monitor contention with owner PackageManager (10971) at void com.android.server.pm.PackageManagerService.writeSettings(boolean)(PackageManagerService.java:1799) waiters=0 in com.android.server.pm.Computer com.android.server.pm.PackageManagerService.snapshotComputer(boolean) for 106ms
+10-16 20:45:30.026 10906 11144 I dvm_lock_sample: [system_server,1,binder:10906_5,106,PackageManagerService.java,1312,com.android.server.pm.Computer com.android.server.pm.PackageManagerService.snapshotComputer(boolean),-,1799,void com.android.server.pm.PackageManagerService.writeSettings(boolean),21]
+10-16 20:45:30.035 10906 11462 W ActivityManager: Slow operation: 117ms so far, now at attachApplicationLocked: before bindApplication
+10-16 20:45:30.037 10906 10930 W system_server: Long monitor contention with owner binder:10906_9 (11461) at android.view.AddWindowResult com.android.server.wm.WindowManagerService.addWindow(com.android.server.wm.Session, android.view.IWindow, android.view.WindowManager$LayoutParams, int, int, int, int)(WindowManagerService.java:2099) waiters=0 in void com.android.server.wm.WindowAnimator.lambda$new$1(android.view.Choreographer$FrameData) for 114ms
+10-16 20:45:30.037 10906 10930 I dvm_lock_sample: [system_server,1,android.anim,114,WindowAnimator.java,116,void com.android.server.wm.WindowAnimator.lambda$new$1(android.view.Choreographer$FrameData),WindowManagerService.java,2099,android.view.AddWindowResult com.android.server.wm.WindowManagerService.addWindow(com.android.server.wm.Session, android.view.IWindow, android.view.WindowManager$LayoutParams, int, int, int, int),22]
+10-16 20:45:30.038 10906 11468 I dvm_lock_sample: [system_server,1,binder:10906_B,96,PackageManagerService.java,1299,com.android.server.pm.Computer com.android.server.pm.PackageManagerService.snapshotComputer(boolean),-,1325,com.android.server.pm.Computer com.android.server.pm.PackageManagerService.snapshotComputer(boolean),19]
+10-16 20:45:30.038 10906 11462 W ActivityManager: Slow operation: 120ms so far, now at attachApplicationLocked: immediately before bindApplication
+10-16 20:45:30.067 10906 11462 W ActivityManager: Slow operation: 149ms so far, now at attachApplicationLocked: immediately after bindApplication
+10-16 20:45:30.067 10906 11462 W ActivityManager: Slow operation: 149ms so far, now at attachApplicationLocked: after updateLruProcessLocked
+10-16 20:45:30.115 10906 10906 W Looper  : Slow dispatch took 165ms main app=system_server main=true group=FOREGROUND h=android.app.ActivityThread$H c=android.app.LoadedApk$ServiceDispatcher$RunConnection@43c6879 m=0
+10-16 20:45:30.152 10906 11462 W ActivityManager: Slow operation: 234ms so far, now at attachApplicationLocked: after updateOomAdjLocked
+10-16 20:45:30.320 10906 10906 W Looper  : Slow dispatch took 132ms main app=system_server main=true group=FOREGROUND h=android.app.ActivityThread$H c=android.app.LoadedApk$ServiceDispatcher$RunConnection@9b055ad m=0
+10-16 20:45:30.344 10906 10906 I ExplicitHealthCheckController: Explicit health check service is connected ComponentInfo{com.google.android.ext.services/android.ext.services.watchdog.ExplicitHealthCheckServiceImpl}
+10-16 20:45:30.408 10906 10929 I dvm_lock_sample: [system_server,1,android.display,8,WindowManagerService.java,4370,void com.android.server.wm.WindowManagerService.performEnableScreen(),,0,null,1]
+10-16 20:45:30.518 10906 10906 W Looper  : Slow dispatch took 163ms main app=system_server main=true group=FOREGROUND h=com.android.server.pm.UserManagerService$MainHandler c=com.android.server.pm.UserManagerService$4@c707324 m=0
+10-16 20:45:30.540 10906 11033 V BluetoothSystemServer: BluetoothRestriction: Ignore change to same mode: true
+10-16 20:45:30.546 10906 11033 V BluetoothSystemServer: SharingRestriction: Enable
+10-16 20:45:30.547 10906 11033 V BluetoothSystemServer: SharingRestriction: Ignore UserHandle{0} change to same mode: 1
+10-16 20:45:30.602 10906 11461 W ActivityManager: Skipping manifest association check for null package. SourceUid: -1, SourcePkg: null, TargetUid: 10187, TargetPkg: com.android.systemui
+10-16 20:45:30.606 10906 10937 W ActivityManager: Skipping manifest association check for null package. SourceUid: -1, SourcePkg: null, TargetUid: 10187, TargetPkg: com.android.systemui
+10-16 20:45:30.793 10906 10938 W ActivityManager: com.google.android.gms inode == 0 or app uninstalled with keep-data
+10-16 20:45:30.825 10906 10938 I ActivityManager: Start proc 11528:com.google.android.gms.persistent/u0a223 for broadcast {com.google.android.gms/com.google.android.gms.chimera.GmsIntentOperationService$PersistentTrustedReceiver}
+10-16 20:45:30.860 10906 10906 W Looper  : Slow dispatch took 251ms main app=system_server main=true group=FOREGROUND h=android.app.ActivityThread$H c=android.app.LoadedApk$ReceiverDispatcher$Args$$ExternalSyntheticLambda0@3a94e47 m=0
+10-16 20:45:30.942 10906 10937 I dvm_lock_sample: [system_server,1,ActivityManager,72,BroadcastQueueImpl.java,499,void com.android.server.am.BroadcastQueueImpl.updateRunningList(),,0,null,14]
+10-16 20:45:31.113 10906 10906 I PackageWatchdog: Syncing health check requests for packages: {}
+10-16 20:45:31.123 10906 10906 W ActivityManager: Unable to start service Intent { act=android.service.contentcapture.ContentCaptureService xflg=0x4 cmp=com.google.android.as/com.google.android.apps.miphone.aiai.app.AiAiContentCaptureService } U=0: not found
+10-16 20:45:31.159 10906 11144 D PackageWatchdog: Received supported packages [PackageConfig{com.google.android.networkstack, 86400000}]
+10-16 20:45:31.212 10906 10926 W Looper  : Slow dispatch took 129ms android.fg app=system_server main=false group=FOREGROUND h=android.os.Handler c=com.android.server.am.SameProcessApplicationThread$$ExternalSyntheticLambda1@26a68cc m=0
+10-16 20:45:31.259 10906 10906 W Looper  : Slow dispatch took 136ms main app=system_server main=true group=FOREGROUND h=android.os.Handler c=com.android.internal.util.function.pooled.PooledLambdaImpl@c4d05c4 m=1
+10-16 20:45:31.260 10906 10906 W ActivityManager: Unbind failed: could not find connection for android.app.LoadedApk$ServiceDispatcher$InnerConnection@e255cad
+10-16 20:45:31.271 10906 10906 W ActivityManager: Unable to start service Intent { act=android.service.contentcapture.ContentCaptureService xflg=0x4 cmp=com.google.android.as/com.google.android.apps.miphone.aiai.app.AiAiContentCaptureService } U=0: not found
+10-16 20:45:31.315 10906 10906 W ActivityManager: Unbind failed: could not find connection for android.app.LoadedApk$ServiceDispatcher$InnerConnection@ba0853a
+10-16 20:45:31.334 10906 11177 W system_server: Long monitor contention with owner MusicRecognitionManagerServicePkgMonitorThread (11067) at android.content.res.ApkAssets[] android.content.res.AssetManager.getApkAssets()(AssetManager.java:491) waiters=2 in void android.content.res.AssetManager.setOverlayConstraints(int, int) for 111ms
+10-16 20:45:31.334 10906 11177 I dvm_lock_sample: [system_server,0,com.android.server.healthconnect.jarjar.modules.utils.BackgroundThread,111,AssetManager.java,1713,void android.content.res.AssetManager.setOverlayConstraints(int, int),-,491,android.content.res.ApkAssets[] android.content.res.AssetManager.getApkAssets(),22]
+10-16 20:45:31.387 10906 11041 W system_server: Long monitor contention with owner android.imms2 (11037) at android.util.Pair android.app.ResourcesManager.updateResourceImplAssetsWithRegisteredLibs(android.content.res.AssetManager, boolean)(ResourcesManager.java:203) waiters=1 in android.content.res.Resources android.app.ResourcesManager.createResources(android.content.res.ResourcesKey, java.lang.ClassLoader, android.app.ResourcesManager$ApkAssetsSupplier) for 117ms
+10-16 20:45:31.388 10906 11041 I dvm_lock_sample: [system_server,0,AccessibilityManagerService PackageMonitor,117,ResourcesManager.java,1277,android.content.res.Resources android.app.ResourcesManager.createResources(android.content.res.ResourcesKey, java.lang.ClassLoader, android.app.ResourcesManager$ApkAssetsSupplier),-,203,android.util.Pair android.app.ResourcesManager.updateResourceImplAssetsWithRegisteredLibs(android.content.res.AssetManager, boolean),23]
+10-16 20:45:31.513 10906 10938 W ActivityManager: com.google.android.permissioncontroller inode == 0 or app uninstalled with keep-data
+10-16 20:45:31.513 10906 10938 W ActivityManager: com.google.android.gms inode == 0 or app uninstalled with keep-data
+10-16 20:45:31.538 10906 10938 I ActivityManager: Start proc 11558:com.google.android.permissioncontroller/u0a221 for bound-service {com.google.android.permissioncontroller/com.android.permissioncontroller.permission.service.PermissionControllerServiceImpl}
+10-16 20:45:31.554 10906 11037 I dvm_lock_sample: [system_server,0,android.imms2,35,ResourcesManager.java,1277,android.content.res.Resources android.app.ResourcesManager.createResources(android.content.res.ResourcesKey, java.lang.ClassLoader, android.app.ResourcesManager$ApkAssetsSupplier),-,203,android.util.Pair android.app.ResourcesManager.updateResourceImplAssetsWithRegisteredLibs(android.content.res.AssetManager, boolean),7]
+10-16 20:45:31.615 10906 10906 W Looper  : Slow dispatch took 112ms main app=system_server main=true group=FOREGROUND h=android.app.job.JobServiceEngine$JobHandler c=null m=2
+10-16 20:45:31.751 10906 11462 V BluetoothSystemServer: BluetoothManagerService: IBluetoothCallback.onAdapterAddressChange: XX:XX:XX:XX:BB:BB
+10-16 20:45:31.753 10906 11033 D BluetoothSystemServer: BluetoothManagerService: storeAddress(XX:XX:XX:XX:BB:BB): Success
+10-16 20:45:31.771 10906 10920 V BluetoothSystemServer: BluetoothManagerService: IBluetoothCallback.onBluetoothStateChange: prevState=BLE_TURNING_ON newState=BLE_ON
+10-16 20:45:31.771 10906 11033 D BluetoothSystemServer: BluetoothManagerService: MESSAGE_BLUETOOTH_STATE_CHANGE: prevState=BLE_TURNING_ON newState=BLE_ON
+10-16 20:45:31.771 10906 11033 D BluetoothSystemServer: ActivityHistory: 10-16 20:45:31.771 State transition: -> BLE_ON
+10-16 20:45:31.771 10906 11033 D BluetoothSystemServer: BluetoothManagerService: broadcastIntentStateChange: action=BLE_STATE_CHANGED prevState=BLE_TURNING_ON newState=BLE_ON
+10-16 20:45:31.772 10906 11033 I BluetoothSystemServer: BluetoothManagerService: continueFromBleOnState: initiate transition to ON
+10-16 20:45:31.772 10906 11033 V BluetoothSystemServer: BluetoothManagerService: bleOnToOn: sending request with mQuietEnableOptional.empty
+10-16 20:45:31.775 10906 11033 D BluetoothSystemServer: ActivityHistory: 10-16 20:45:31.775 State transition: -> TURNING_ON
+10-16 20:45:31.776 10906 11033 D BluetoothSystemServer: BluetoothManagerService: broadcastIntentStateChange: action=BLE_STATE_CHANGED prevState=BLE_ON newState=TURNING_ON
+10-16 20:45:31.783 10906 11033 D BluetoothSystemServer: BluetoothManagerService: broadcastIntentStateChange: action=STATE_CHANGED prevState=OFF newState=TURNING_ON
+10-16 20:45:31.785 10906 11033 I BluetoothSystemServer: BluetoothServerProxy: setBluetoothPersistedState(1)
+10-16 20:45:31.809 10906 10920 W ActivityManager: Unable to start service Intent { act=com.google.android.chimera.BoundService.START dat=chimera-action: xflg=0x4 cmp=com.google.android.gms/.chimera.PersistentApiService } U=0: not found
+10-16 20:45:31.810 10906 11462 I ActivityManager: Process com.google.android.nfc (pid 11345) has died: pers PER 
+10-16 20:45:31.815 10906 10906 W Looper  : Slow dispatch took 146ms main app=system_server main=true group=FOREGROUND h=com.android.server.pm.UserManagerService$MainHandler c=null m=1
+10-16 20:45:31.828 10906 11462 W ActivityManager: Re-adding persistent process ProcessRecord{a099127 11345:com.google.android.nfc/1027}
+10-16 20:45:31.834 10906 10938 W ActivityManager: com.google.android.nfc inode == 0 or app uninstalled with keep-data
+10-16 20:45:31.834 10906 10938 W ActivityManager: com.google.android.gms inode == 0 or app uninstalled with keep-data
+10-16 20:45:31.834 10906 11468 W ActivityManager: Unbind failed: could not find connection for android.os.BinderProxy@977951e
+10-16 20:45:31.882 10906 10938 I ActivityManager: Start proc 11582:com.google.android.nfc/1027 for restart com.google.android.nfc
+10-16 20:45:31.884 10906 10938 W ActivityManager: Slow operation: 51ms so far, now at startProcess: starting to update pids map
+10-16 20:45:31.884 10906 10938 W ActivityManager: Slow operation: 51ms so far, now at startProcess: done updating pids map
+10-16 20:45:31.886 10812 10879 F libc    : Fatal signal 6 (SIGABRT), code -1 (SI_QUEUE) in tid 10879 (RegionSampling), pid 10812 (surfaceflinger)
+10-16 20:45:31.948   564   564 I adbd    : adbd service requested 'shell,v2,TERM=dumb,raw:getprop sys.boot_completed'
+10-16 20:45:32.000 10906 11468 W ActivityManager: Slow operation: 73ms so far, now at attachApplicationLocked: after updateOomAdjLocked
+10-16 20:45:32.118 10906 11144 W ActivityManager: Skipping manifest association check for null package. SourceUid: -1, SourcePkg: null, TargetUid: 10223, TargetPkg: com.google.android.gms
+10-16 20:45:32.350 11599 11599 F DEBUG   : Executable: /system/bin/surfaceflinger
+10-16 20:45:32.350 11599 11599 F DEBUG   : Cmdline: /system/bin/surfaceflinger
+10-16 20:45:32.350 11599 11599 F DEBUG   : pid: 10812, ppid: 1, tid: 10879, name: RegionSampling  >>> /system/bin/surfaceflinger <<<
+10-16 20:45:32.350 11599 11599 F DEBUG   : signal 6 (SIGABRT), code -1 (SI_QUEUE), fault addr --------
+10-16 20:45:32.350 11599 11599 F DEBUG   :       #09 pc 000000000038348e  /system/bin/surfaceflinger (android::RegionSamplingThread::sampleBuffer(android::sp<android::GraphicBuffer> const&, android::Point const&, std::__1::vector<android::RegionSamplingThread::Descriptor, std::__1::allocator<android::RegionSamplingThread::Descriptor>> const&)+78) (BuildId: da157d0c68158e3a12253b5faca40d3a)
+10-16 20:45:32.350 11599 11599 F DEBUG   :       #10 pc 0000000000382d2c  /system/bin/surfaceflinger (android::RegionSamplingThread::threadMain()+1660) (BuildId: da157d0c68158e3a12253b5faca40d3a)
+10-16 20:45:32.350 11599 11599 F DEBUG   :       #11 pc 0000000000579bf7  /system/bin/surfaceflinger (void* std::__1::__thread_proxy[abi:nn220000]<std::__1::tuple<std::__1::unique_ptr<std::__1::__thread_struct, std::__1::default_delete<std::__1::__thread_struct>>, android::RegionSamplingThread::RegionSamplingThread(android::SurfaceFlinger&, android::RegionSamplingThread::TimingTunables const&)::$_2>>(void*) (.__uniq.22835156453571511455795338659787558893)+39) (BuildId: da157d0c68158e3a12253b5faca40d3a)
+10-16 20:45:32.403 11624 11624 W libbinder.BackendUnifiedServiceManager: Thread Pool max thread count is 0. Cannot cache binder as linkToDeath cannot be implemented. serviceName: SurfaceFlinger
+10-16 20:45:32.406 11624 11624 W libbinder.BackendUnifiedServiceManager: Thread Pool max thread count is 0. Cannot cache binder as linkToDeath cannot be implemented. serviceName: SurfaceFlingerAIDL
+10-16 20:45:32.464 11366 11555 W SurfaceComposerClient: ComposerService aidl remote (surfaceflinger) died [0x761d008361b0]
+10-16 20:45:32.465 10906 10982 W SurfaceComposerClient: ComposerService remote (surfaceflinger) died [0x761d0084bce0]
+10-16 20:45:32.466 10906 11461 W SurfaceComposerClient: ComposerService aidl remote (surfaceflinger) died [0x761d00833450]
+10-16 20:45:32.467 11184 11193 W SurfaceComposerClient: ComposerService aidl remote (surfaceflinger) died [0x761d00837d30]
+10-16 20:45:32.436     0     0 I init    : Service 'surfaceflinger' (pid 10812) received SIGABRT
+10-16 20:45:32.467 11184 11487 W SurfaceComposerClient: ComposerService remote (surfaceflinger) died [0x761d0084b970]
+10-16 20:45:32.464 11366 11579 W SurfaceComposerClient: ComposerService remote (surfaceflinger) died [0x761d0084c7e0]
+10-16 20:45:32.438     0     0 I init    : Sending SIGKILL to service 'surfaceflinger' (pid 10812) process group...
+10-16 20:45:32.451     0     0 E init    : process with updatable components 'surfaceflinger' exited 4 times before boot completed
+10-16 20:45:32.992 10810 10875 E ResourceManagerMetrics: UidObserver: ActivityManager has died
+10-16 20:45:33.001 11147 11147 F ot-daemon: [CRIT]-BINDER--: system_server is dead, removing configs and callbacks...
+10-16 20:45:33.621     0     0 I init    : Untracked process (pid: 10906 name: (system_server) ppid: 1 pgrp: 10807 state: Z) received SIGKILL
+10-16 20:45:33.626     0     0 I init    : Untracked process (pid: 10906 name: (system_server) ppid: 1 pgrp: 10807 state: Z) did not have an associated service entry and will not be reaped

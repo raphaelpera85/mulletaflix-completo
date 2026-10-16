@@ -1,0 +1,3 @@
+[init.svc.surfaceflinger]: [running]
+[sys.bootstat.first_boot_completed]: [0]
+[sys.system_server.start_count]: [13]
