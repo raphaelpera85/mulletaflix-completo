@@ -1,0 +1,9 @@
+<?xml version='1.0' encoding='UTF-8' ?>
+<testsuites tests="1" failures="0" errors="0" skipped="0" time="0.000" timestamp="2026-10-16T02:50:24" hostname="localhost">
+  <testsuite name="org.mulletaflix.android.service.DownloadProcessRestartIntegrationTest" tests="1" failures="0" errors="0" skipped="0" time="8.817" timestamp="2026-10-16T02:50:24" hostname="localhost">
+    <properties>
+      <property name="device" value="emulator-5556" />
+    </properties>
+    <testcase name="offlinePlaybackHostKeepsComposeContentWhenOrientationChanges" classname="org.mulletaflix.android.service.DownloadProcessRestartIntegrationTest" time="8.817" />
+  </testsuite>
+</testsuites>

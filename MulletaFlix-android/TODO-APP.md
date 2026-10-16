@@ -1,5 +1,15 @@
 # MulletaFlix Android - Plano de Desenvolvimento & Checklist de Funcionalidades (TODO)
 
+## Em andamento: jornada visual de retomada offline após morte do processo — revalidada em 16/10/2026
+
+- [x] Comprovar que o host Compose de AndroidTest sobreviva à orientação solicitada por `VideoPlayerScreen`; RED por perda da hierarquia Compose e GREEN após alinhar `configChanges` do host debug ao contrato já existente na `MainActivity`. O teste confirma texto visível e um único início de `LaunchedEffect`; XML: `validation-evidence/2026-10-15/offline-player-host-orientation-PHONE-API35.xml`.
+- [x] Executar a jornada coordenada: processo novo retomou Range no byte 1.046.701; preparação e limpeza UUID passaram e o fixture completou o payload.
+- [x] Corrigir o harness: usar `createAndroidComposeRule` clássico para que `MediaRouteButton`/MediaRouter opere com a Activity na thread principal e remover o segundo `setContent` inválido do `finally`.
+- [x] Reexecutar a jornada integral: título visível, player `READY`, posição avançando pelo menos 500 ms e nenhuma requisição à origem bloqueada; preparação, retomada e limpeza passaram 1/1 por fase no PHONE/API 35. Repetir após o novo ajuste de teardown do `ViewModelStore`.
+- [ ] Repetir estabilidade e validar mídia/servidor/dispositivo reais quando disponíveis; fixture sintética não fecha aceite formal.
+- Evidência de instrumentação direta via ADB não produz XML individual; resultados e limites foram anotados em `TESTING.md`/`TDD-PLAN.md` e na sessão do Vault. A fixture sintética PHONE não fecha aceite formal nem promove APK-H07/H17.
+- Escopo desta fatia: configuração de Activity exclusiva debug e AndroidTest. Nenhuma alteração de runtime/produção, versão, assinatura, APK/release, servidor ou portal. Detalhes em `TESTING.md` e `TDD-PLAN.md`; sessão no Vault.
+
 ## Em andamento: regressão de autenticação ao trocar servidor pelo Perfil — 14/10/2026
 
 - [x] Adicionar teste instrumentado em PHONE/API 35 para sessão existente → Perfil → selecionar novo servidor → login → Voltar.
@@ -3746,6 +3756,8 @@ Pendências relacionadas:
 - [x] Testar fila pausada com índice SQLite/cache isolados: recriar o `DownloadManager`, confirmar que a entrada sobrevive e retomar até completar sem requisições antecipadas.
 - [x] `DownloadManagerCleartextIntegrationTest` PHONE API 35: 2/2; wrapper confirmou QEMU na NVIDIA RTX 3050 e encerrou o AVD.
 - [x] Validar morte real/reinício do processo e retomada de download parcial via fixture HTTP host e runner Android em duas fases: 1) fila isolada persistida e pausada em ~6.6 MB; 2) host aplica `force-stop`, relança o app e observa HTTP Range a partir do offset persistido, transferindo todos os bytes restantes. Limpeza remove somente o request UUID do teste pelo `DownloadService`.
+- [x] Completar a prova offline após retomada: fixture audiovisual Matroska H.264/AAC de 20 s; em processo novo, o ViewModel carrega o download em `READY`, e um ExoPlayer cache-only (cache de produção compartilhado + `FileDataSource`) avança a posição sem upstream de rede. A origem HTTP foi desativada e o endpoint de auditoria confirmou que não houve novos pedidos de mídia. PHONE/API 35, Range no byte 1.029.421 + 3.858.234 bytes restantes; preparação, verificação e cleanup 1/1 cada; wrapper confirmou RTX 3050 e fechou o AVD temporário. Primeira fixture somente vídeo e player sem Activity não demonstraram avanço; o ensaio foi fortalecido com áudio AAC e player cache-only. Isso valida os bytes/cache e a leitura offline, não a jornada de tela `PlayerView` nem saída audiovisual em hardware.
+- [x] Completar a jornada visual integrada após cold start: em 16/10, `VideoPlayerScreen` passou no PHONE/API 35 com título visível, `READY`, avanço ≥500 ms e endpoint sem tráfego à origem bloqueada. A causa observada era o harness Compose v2; a regra clássica resolveu a thread Cast. Preparação, jornada e cleanup passaram 1/1 por fase. Reteste obrigatório após o ajuste posterior de limpeza do store manual. Evidência/limites em `TDD-PLAN.md` e `TESTING.md`.
 - [x] Corrigir a restauração da fila no cold start: injetar `DownloadRepository` na Application para construir o repositório e reanexar o Media3 `DownloadService` logo que o processo inicia, não apenas ao abrir a tela de downloads.
 - [x] Teste end-to-end PHONE/API 35 no AVD `MulletaflixApi35`; wrapper verificou QEMU na NVIDIA RTX 3050 e fechou o AVD ao final. Runner e force-stop foram coordenados no host; nenhum dado do app foi limpo.
 - [ ] Sem bump, APK de produção ou publicação; mudança exclusivamente do APK.
@@ -3997,3 +4009,11 @@ Pendências relacionadas:
 - [x] Preservar XML em `validation-evidence/2026-10-15/hybrid-mobi-full-document-tv-api34.xml`; execução pelo wrapper confirmou GPU NVIDIA e desligou o AVD temporário. `MulletaflixApi35` não foi usado.
 - [ ] Isso amplia cobertura automatizada sintética para PHONE/TABLET/TV, mas não comprova foco/OK por D-pad, TalkBack audível, toque manual, arquivos autorizados variados, TV física ou servidor real. APK-H21 e aceite formal seguem pendentes.
 - [x] Nenhuma mudança de runtime, versão, assinatura, release, servidor ou portal.
+
+## Continuação — tela PlayerView após cold start offline — atualização 2026-10-16
+
+- [x] Timeout de download agora inclui estado, bytes, `contentLength`, progresso, `stopReason`, `failureReason` e MIME; prazo de conclusão integral é 120 s, mantendo os asserts `COMPLETED` e bytes totais.
+- [x] Reteste em 16/10 passou a jornada visual de `VideoPlayerScreen` com Range retomado, título visível, `READY`, avanço de posição e zero requests à origem bloqueada; regras e resultados detalhados em `TESTING.md`.
+- [x] Revisão adversarial identificou que o `ViewModelStore` era manual. O teardown agora remove o conteúdo por estado Compose, espera `waitForIdle()`, chama `clear()` na main thread e verifica que o ViewModel foi removido. A execução instrumentada precisa ser repetida após esta correção de recurso.
+- [ ] Repetir estabilidade do cenário depois da correção de teardown e validar mídia/servidor reais e outros dispositivos aplicáveis.
+- [ ] A jornada local não promove APK-H07/H17 nem aceite formal. Sem alteração de runtime, versão, assinatura, release, servidor ou portal.

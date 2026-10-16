@@ -22,7 +22,8 @@ function Invoke-GradlePhase {
     param(
         [string] $Method,
         [long] $ResumedOffset = 0,
-        [long] $CompletedBytes = 0
+        [long] $CompletedBytes = 0,
+        [long] $FixtureBytes = 0
     )
 
     $arguments = @(
@@ -31,7 +32,8 @@ function Invoke-GradlePhase {
         '-e', 'expectedDeviceProfile', 'PHONE',
         '-e', 'deviceSerial', $serial,
         '-e', 'downloadRestartTestId', $testId,
-        '-e', 'downloadRestartMediaUrl', "http://10.0.2.2:$script:fixturePort/media"
+        '-e', 'downloadRestartMediaUrl', "http://10.0.2.2:$script:fixturePort/media",
+        '-e', 'downloadRestartFixtureBytes', [string]$FixtureBytes
     )
     if ($Method -eq 'verifyPartialDownloadResumedByFreshApplicationProcess') {
         $arguments += @('-e', 'downloadRestartObservedOffset', [string]$ResumedOffset,
@@ -57,8 +59,10 @@ try {
     $listener.Stop()
 
     $fixtureLog = Join-Path $tempDirectory 'fixture.log'
+    $mediaFixture = Join-Path $projectRoot 'app\src\androidTest\assets\offline-process-restart.mkv'
+    if (-not (Test-Path -LiteralPath $mediaFixture)) { throw "The playable offline fixture is missing: $mediaFixture" }
     $fixtureProcess = Start-Process -FilePath $node `
-        -ArgumentList @("`"$(Join-Path $PSScriptRoot 'DownloadProcessRestartFixture.mjs')`"", [string]$script:fixturePort) `
+        -ArgumentList @("`"$(Join-Path $PSScriptRoot 'DownloadProcessRestartFixture.mjs')`"", [string]$script:fixturePort, "`"$mediaFixture`"") `
         -RedirectStandardOutput $fixtureLog -RedirectStandardError (Join-Path $tempDirectory 'fixture-error.log') `
         -WindowStyle Hidden -PassThru
     $fixtureReady = $false
@@ -70,11 +74,30 @@ try {
         } catch { Start-Sleep -Milliseconds 250 }
     } while (-not $fixtureReady -and (Get-Date) -lt $readyDeadline)
     if (-not $fixtureReady) { throw 'The local streaming fixture did not become ready.' }
+    $fixtureStatus = Invoke-RestMethod -Uri "http://127.0.0.1:$script:fixturePort/status" -TimeoutSec 5
+    $script:fixtureBytes = [long]$fixtureStatus.size
+    if ($script:fixtureBytes -le 524288) { throw "The fixture must exceed the partial-download threshold; size=$script:fixtureBytes." }
 
     $gradle = Join-Path $projectRoot 'gradlew.bat'
     Write-Host 'Installing only the debug app and its instrumentation APK; no test-runner cleanup or data wipe.'
-    & $gradle ':app:installDebug' ':app:installDebugAndroidTest' '--no-daemon' '--console=plain'
-    if ($LASTEXITCODE -ne 0) { throw "Gradle install tasks failed with code $LASTEXITCODE." }
+    $connectedSerials = @(& $adb devices | Select-String '^emulator-\d+\s+device$' | ForEach-Object { ($_ -split '\s+')[0] })
+    if ($LASTEXITCODE -ne 0 -or $connectedSerials.Count -ne 1 -or $connectedSerials[0] -ne $serial) {
+        throw "Refusing Gradle install: expected only $serial connected; found $($connectedSerials -join ', ')."
+    }
+    $reportedAvd = @(& $adb -s $serial emu avd name 2>$null) |
+        Where-Object { $_ -and $_.Trim() -notin @('OK') } |
+        Select-Object -Last 1
+    if ($LASTEXITCODE -ne 0 -or $reportedAvd.Trim() -ne $AvdName) {
+        throw "Refusing Gradle install: expected AVD '$AvdName' on $serial; device reported '$reportedAvd'."
+    }
+    $previousAndroidSerial = $env:ANDROID_SERIAL
+    try {
+        $env:ANDROID_SERIAL = $serial
+        & $gradle ':app:installDebug' ':app:installDebugAndroidTest' '--no-daemon' '--console=plain'
+        if ($LASTEXITCODE -ne 0) { throw "Gradle install tasks failed with code $LASTEXITCODE." }
+    } finally {
+        $env:ANDROID_SERIAL = $previousAndroidSerial
+    }
     $testApksInstalled = $true
 
     $device = @(& $adb -s $serial shell getprop ro.kernel.qemu)
@@ -86,7 +109,7 @@ try {
     $actualProfile = Get-AndroidDeviceProfile -FeatureLines $features -DisplaySizeLines $size -DisplayDensityLines $density
     Assert-AndroidDeviceProfile -Expected PHONE -Actual $actualProfile
 
-    Invoke-GradlePhase -Method 'preparePartialDownloadForHostProcessRestart'
+    Invoke-GradlePhase -Method 'preparePartialDownloadForHostProcessRestart' -FixtureBytes $script:fixtureBytes
 
     & $adb -s $serial shell am force-stop $packageName
     if ($LASTEXITCODE -ne 0) { throw 'Could not force-stop the isolated debug app after the first Gradle runner exited.' }
@@ -114,10 +137,11 @@ try {
         if ($finishedRange.Count -gt 0) { $completedBytes = [long]$finishedRange[0].bytes; break }
         Start-Sleep -Seconds 1
     } while ((Get-Date) -lt $completionDeadline)
-    $expectedRemainingBytes = 16MB - $resumedOffset
+    $expectedRemainingBytes = $script:fixtureBytes - $resumedOffset
     if ($completedBytes -ne $expectedRemainingBytes) { throw "Resumed media response did not complete; rangeOffset=$resumedOffset, expectedBytes=$expectedRemainingBytes, actualBytes=$completedBytes." }
 
-    Invoke-GradlePhase -Method 'verifyPartialDownloadResumedByFreshApplicationProcess' -ResumedOffset $resumedOffset -CompletedBytes $completedBytes
+    Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:$script:fixturePort/disable-media" -TimeoutSec 5 | Out-Null
+    Invoke-GradlePhase -Method 'verifyPartialDownloadResumedByFreshApplicationProcess' -ResumedOffset $resumedOffset -CompletedBytes $completedBytes -FixtureBytes $script:fixtureBytes
     Write-Host "Process restart resumed at byte $resumedOffset and completed $completedBytes bytes."
 }
 finally {
