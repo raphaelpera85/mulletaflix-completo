@@ -1,5 +1,9 @@
 # Homologação formal — MulletaFlix Android
 
+### Tentativa inconclusiva de Android 17 / API 37 — 2026-10-16
+
+O AVD isolado `MulletaFlixAndroid17Api37_20261016` iniciou parcialmente, mas `sys.boot_completed` não foi atingido na janela observada. O wrapper foi interrompido antes do Gradle/AndroidJUnit: zero testes e nenhum XML novo; AVD encerrado sem apagar dados. Bloqueio de infraestrutura, sem inferir falha ou aprovação do APK. APK-H14 segue pendente; matriz 10/21 concluídas, 2 em validação, 9 pendentes; `formalSignoff=pending`. Registro correspondente em `portal-site/homologacao-status.json`; publicação pública não foi possível verificar nesta rodada.
+
 ### Evidência técnica de HTTPS LAN na descoberta automática — 2026-10-16
 
 Três testes de caracterização passaram: parse da resposta UDP preserva `https`, porta, caminho e identidade (4/4 na classe); escolha automática mantém o endpoint privado HTTPS da identidade salva (23/23); recuperação autenticada aceita o endpoint LAN HTTPS sem downgrade (27/27). A suíte JVM forçada passou 1.788/1.788 em 256 XML; lint auth/app, assembleDebug e compilação AndroidTest auth/app passaram. Não houve handshake TLS nem servidor/certificado/dispositivo reais. Evidência local de URL/roteamento; não concede aceite formal, não altera 10/21 concluídas, 2 em validação, 9 pendentes, `formalSignoff=pending`.

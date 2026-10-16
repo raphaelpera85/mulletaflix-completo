@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-10-16T08:10:22-03:00",
+  "generatedAt": "2026-10-16T17:23:19-03:00",
   "source": {
     "roadmap": "https://github.com/raphaelpera85/mulletaflix-completo/blob/main/docs/roadmap-evolucao-tecnologica-servidor-e-web.md",
     "repository": "https://github.com/raphaelpera85/mulletaflix-completo"
@@ -51,12 +51,12 @@
         "label": "10 de 21 áreas com evidência técnica local; 2 em validação e 9 pendentes. Autenticação/troca de servidor reaberta após falha instrumentada; aceite formal continua aberto."
       },
       "testAudit": {
-        "passed": 1785,
-        "total": 1785,
+        "passed": 1788,
+        "total": 1788,
         "skipped": 0,
         "failed": 0,
         "percent": 100,
-        "label": "Suíte JVM integral forçada em 16/10/2026: 1.785 testes em 256 XML, 0 falhas/erros/ignorados; lint SyncPlay/app, assembleDebug e compilação AndroidTest BUILD SUCCESSFUL, 881 tarefas executadas. Instrumentação por perfil está registrada em eventos separados."
+        "label": "Suíte JVM integral forçada em 16/10/2026: 1.788 testes em 256 XML, 0 falhas/erros/ignorados; lint auth/app, assembleDebug e compilação AndroidTest auth/app BUILD SUCCESSFUL. Tentativa Android 17/API 37 para permissão ACCESS_LOCAL_NETWORK ficou inconclusiva antes do runner: sys.boot_completed não foi atingido; não contabilizar como teste. Instrumentação por perfil está registrada em eventos separados."
       },
       "instrumentationAudit": {
         "passed": 44,
@@ -2940,6 +2940,21 @@
     }
   ],
   "events": [
+    {
+      "id": "android-api37-avd-boot-inconclusive-2026-10-16",
+      "title": "Tentativa inconclusiva de instrumentação Android 17 / API 37",
+      "agent": "Codex",
+      "front": "android",
+      "featureIds": ["APK-H14"],
+      "local": "D:\\Users\\Raphael\\Documents\\Projetos\\mulletaflix",
+      "location": "MulletaFlix-android/app/src/androidTest/java/org/mulletaflix/android/LocalServerDiscoveryPermissionTest.kt e tools/with-emulator.ps1",
+      "scope": "Verificar ACCESS_LOCAL_NETWORK em Android 17/API 37 sem alterar o comportamento do APK nem promover aceite formal.",
+      "status": "blocked",
+      "progressPercent": null,
+      "startedAt": "2026-10-16T17:14:25-03:00",
+      "updatedAt": "2026-10-16T17:23:19-03:00",
+      "evidence": "Tentativa no AVD isolado MulletaFlixAndroid17Api37_20261016: emulator-5560 iniciou, mas sys.boot_completed permaneceu vazio durante a janela observada, apesar da inicialização parcial do Package Manager. O wrapper foi interrompido de forma controlada antes de iniciar Gradle/AndroidJUnit; zero casos executados e nenhum XML novo. AVD foi encerrado sem limpeza de dados. Resultado é bloqueio de infraestrutura, não aprovação nem falha atribuível ao APK. APK-H14 permanece pendente; matriz 10/21 concluídas, 2 em validação, 9 pendentes; formalSignoff=pending."
+    },
     {
       "id": "android-offline-download-completion-race-2026-10-16",
       "title": "Corrigir a sequência do fixture de retomada offline",

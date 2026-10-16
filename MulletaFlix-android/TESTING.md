@@ -4,6 +4,10 @@
 
 Como o requisito de certificado HTTPS válido na LAN foi confirmado, foram adicionados três testes de caracterização sem mudar código produtivo: `LocalServerDiscoveryTest` preserva esquema HTTPS, porta, caminho e `serverId` da resposta de descoberta; `ServerSelectionPolicyTest` seleciona automaticamente o endpoint HTTPS LAN apenas para a identidade salva; `LanServerRecoveryPolicyTest` mantém esse endpoint elegível para recuperação autenticada. Resultado focal: 4/4, 23/23 e 27/27 (54 no total; zero falhas/erros/ignorados). Quality gate: `testDebugUnitTest :feature:auth:lintDebug :app:lintDebug :app:assembleDebug :feature:auth:compileDebugAndroidTestKotlin :app:compileDebugAndroidTestKotlin` BUILD SUCCESSFUL (881 tarefas; 8 executadas, 873 `UP-TO-DATE`). Reexecução forçada de `testDebugUnitTest --rerun-tasks`: 1.788 testes em 256 XML, 0 falhas/erros/ignorados (470 tarefas executadas). Isto valida preservação e seleção de URL em regras puras; não faz handshake TLS, não verifica certificado, nem comprova tráfego em LAN física. HTTPS real segue pendente.
 
+### Tentativa inconclusiva Android 17/API 37 — 2026-10-16
+
+`LocalServerDiscoveryPermissionTest` não iniciou: no AVD isolado `MulletaFlixAndroid17Api37_20261016`, `sys.boot_completed` permaneceu vazio apesar de serviços do Package Manager iniciarem parcialmente. O wrapper foi interrompido antes do Gradle/AndroidJUnit; zero casos contabilizáveis, sem XML novo. AVD encerrado sem limpeza dos dados. Classificação: bloqueio de infraestrutura, não falha do app nem aprovação. Android 17/API 37 e a permissão `ACCESS_LOCAL_NETWORK` continuam sem cobertura instrumentada verificada. Registro de rodada adicionado ao JSON local do portal; a implantação pública não foi confirmada.
+
 
 ### Android 17/API 37 — repetição isolada com Vulkan desativado — 2026-10-16
 
