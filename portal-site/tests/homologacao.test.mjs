@@ -607,10 +607,12 @@ test('portal reports the server Nebula release gate without claiming production 
 
     assert.ok(event, 'portal should include the current server validation/release event');
     assert.equal(event.front, 'server');
-    assert.equal(event.status, 'in_progress');
+    assert.equal(event.status, 'completed');
     assert.match(event.evidence, /1\.437 aprovados, 60 ignorados, 0 falhas/);
-    assert.match(event.evidence, /repetição agregada final.*inconclusiva/i);
+    assert.match(event.evidence, /repetição final inconclusiva/i);
     assert.match(event.evidence, /produção/i);
+    assert.match(event.evidence, /dpl_22RZqxXtpqbAwL9EUW2Ys5sw6HQ1 READY/);
+    assert.match(event.evidence, /HTTP 200/);
     assert.equal(audit.passed, 1437);
     assert.equal(audit.total, 1497);
     assert.equal(audit.skipped, 60);

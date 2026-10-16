@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-10-16T20:15:00-03:00",
+  "generatedAt": "2026-10-16T20:24:20-03:00",
   "source": {
     "roadmap": "https://github.com/raphaelpera85/mulletaflix-completo/blob/main/docs/roadmap-evolucao-tecnologica-servidor-e-web.md",
     "repository": "https://github.com/raphaelpera85/mulletaflix-completo"
@@ -2949,11 +2949,11 @@
       "local": "D:\\Users\\Raphael\\Documents\\Projetos\\mulletaflix",
       "location": "MulletaFlix-master/Jellyfin.Server.Implementations/Nebula e docs/releases/12.1.21.md",
       "scope": "Validar todo o gate local do servidor e preparar a release que impede o downloader Nebula de monitorar pastas fora de MonitorPaths ou usar raiz de volume como staging.",
-      "status": "in_progress",
+      "status": "completed",
       "progressPercent": null,
       "startedAt": "2026-10-16T19:44:00-03:00",
-      "updatedAt": "2026-10-16T20:15:00-03:00",
-      "evidence": "Suíte Jellyfin.Server.Implementations.Tests final: 1.437 aprovados, 60 ignorados, 0 falhas; NebulaDownloaderEngineTests 43/43. Build Release Jellyfin.Server: 0 avisos/erros; portal 31/31. Gate agregado anterior da solução passou 4.384 testes e 65 ignorados, excluindo LiveIntegration; repetição agregada final ficou sem progresso no testhost de integração ASP.NET por mais de cinco minutos e foi interrompida (inconclusiva). Pacotes de produção Windows e Linux x64 12.1.21 compilados e hasheados. Publicação GitHub/Vercel ainda pendente; sem smoke test no servidor ativo."
+      "updatedAt": "2026-10-16T20:24:20-03:00",
+      "evidence": "Release GitHub v12.1.21 publicada em https://github.com/raphaelpera85/mulletaflix-completo/releases/tag/v12.1.21, commit do servidor e7222044; update ZIP e instalador Windows mais pacote Linux x64 anexados. Portal independente publicado no commit 04a9e0777643b79d1ffb124fc72b1564ef2e29dd; Vercel deployment dpl_22RZqxXtpqbAwL9EUW2Ys5sw6HQ1 READY em produção. /updates e /homologacao-status.json responderam HTTP 200 e o conteúdo público mostra 12.1.21. Jellyfin.Server.Implementations.Tests: 1.437 aprovados, 60 ignorados, 0 falhas; NebulaDownloaderEngineTests 43/43; build Release Jellyfin.Server: 0 avisos/erros; portal 31/31 na cópia e 17/17 no repositório independente. Gate agregado prévio passou 4.384 e ignorou 65, excluindo LiveIntegration; repetição final inconclusiva após testhost ASP.NET sem progresso por mais de cinco minutos. Sem smoke test no servidor ativo."
     },
     {
       "id": "android-api37-surfaceflinger-boot-diagnostics-2026-10-16",
