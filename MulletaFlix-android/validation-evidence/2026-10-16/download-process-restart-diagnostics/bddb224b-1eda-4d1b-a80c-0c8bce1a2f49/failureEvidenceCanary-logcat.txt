@@ -1,0 +1,79 @@
+﻿captureStatus=mainLogcatExitCode=0; crashBufferExitCode=0
+10-16 17:36:06.113 D/ActivityThread( 1232): Package [org.mulletaflix.android.debug.test] reported as REPLACED, but missing application info. Assuming REMOVED.
+10-16 17:36:06.114 D/ActivityThread( 2160): Package [org.mulletaflix.android.debug.test] reported as REPLACED, but missing application info. Assuming REMOVED.
+10-16 17:36:06.114 D/ActivityThread( 1593): Package [org.mulletaflix.android.debug.test] reported as REPLACED, but missing application info. Assuming REMOVED.
+10-16 17:36:06.114 D/ActivityThread( 3063): Package [org.mulletaflix.android.debug.test] reported as REPLACED, but missing application info. Assuming REMOVED.
+10-16 17:36:06.114 D/ActivityThread( 1821): Package [org.mulletaflix.android.debug.test] reported as REPLACED, but missing application info. Assuming REMOVED.
+10-16 17:36:06.114 D/ActivityThread(  930): Package [org.mulletaflix.android.debug.test] reported as REPLACED, but missing application info. Assuming REMOVED.
+10-16 17:36:06.114 D/ActivityThread( 2770): Package [org.mulletaflix.android.debug.test] reported as REPLACED, but missing application info. Assuming REMOVED.
+10-16 17:36:06.114 D/ActivityThread( 1912): Package [org.mulletaflix.android.debug.test] reported as REPLACED, but missing application info. Assuming REMOVED.
+10-16 17:36:06.114 D/ActivityThread( 1171): Package [org.mulletaflix.android.debug.test] reported as REPLACED, but missing application info. Assuming REMOVED.
+10-16 17:36:06.114 D/ActivityThread( 1294): Package [org.mulletaflix.android.debug.test] reported as REPLACED, but missing application info. Assuming REMOVED.
+10-16 17:36:06.114 D/ActivityThread( 1417): Package [org.mulletaflix.android.debug.test] reported as REPLACED, but missing application info. Assuming REMOVED.
+10-16 17:36:06.114 D/ActivityThread( 1250): Package [org.mulletaflix.android.debug.test] reported as REPLACED, but missing application info. Assuming REMOVED.
+10-16 17:36:06.114 D/ActivityThread(  817): Package [org.mulletaflix.android.debug.test] reported as REPLACED, but missing application info. Assuming REMOVED.
+10-16 17:36:06.114 D/ActivityThread( 2302): Package [org.mulletaflix.android.debug.test] reported as REPLACED, but missing application info. Assuming REMOVED.
+10-16 17:36:06.114 D/ActivityThread( 1571): Package [org.mulletaflix.android.debug.test] reported as REPLACED, but missing application info. Assuming REMOVED.
+10-16 17:36:06.115 D/ActivityThread( 1347): Package [org.mulletaflix.android.debug.test] reported as REPLACED, but missing application info. Assuming REMOVED.
+10-16 17:36:06.115 D/ActivityThread( 2349): Package [org.mulletaflix.android.debug.test] reported as REPLACED, but missing application info. Assuming REMOVED.
+10-16 17:36:06.115 D/ActivityThread(  943): Package [org.mulletaflix.android.debug.test] reported as REPLACED, but missing application info. Assuming REMOVED.
+10-16 17:36:06.115 D/ActivityThread( 1629): Package [org.mulletaflix.android.debug.test] reported as REPLACED, but missing application info. Assuming REMOVED.
+10-16 17:36:06.115 D/ActivityThread( 1744): Package [org.mulletaflix.android.debug.test] reported as REPLACED, but missing application info. Assuming REMOVED.
+10-16 17:36:06.115 D/ActivityThread( 2106): Package [org.mulletaflix.android.debug.test] reported as REPLACED, but missing application info. Assuming REMOVED.
+10-16 17:36:06.115 D/ActivityThread( 1214): Package [org.mulletaflix.android.debug.test] reported as REPLACED, but missing application info. Assuming REMOVED.
+10-16 17:36:06.115 D/ActivityThread(  857): Package [org.mulletaflix.android.debug.test] reported as REPLACED, but missing application info. Assuming REMOVED.
+10-16 17:36:06.115 D/ActivityThread(  857): Package [org.mulletaflix.android.debug.test] reported as REPLACED, but missing application info. Assuming REMOVED.
+10-16 17:36:06.115 D/ActivityThread( 1283): Package [org.mulletaflix.android.debug.test] reported as REPLACED, but missing application info. Assuming REMOVED.
+10-16 17:36:06.116 D/ActivityThread(  881): Package [org.mulletaflix.android.debug.test] reported as REPLACED, but missing application info. Assuming REMOVED.
+10-16 17:36:06.116 D/ActivityThread(  817): Package [org.mulletaflix.android.debug.test] reported as REPLACED, but missing application info. Assuming REMOVED.
+10-16 17:36:06.116 D/ActivityThread( 1189): Package [org.mulletaflix.android.debug.test] reported as REPLACED, but missing application info. Assuming REMOVED.
+10-16 17:36:06.116 D/ActivityThread(  919): Package [org.mulletaflix.android.debug.test] reported as REPLACED, but missing application info. Assuming REMOVED.
+10-16 17:36:06.116 D/ActivityThread( 1294): Package [org.mulletaflix.android.debug.test] reported as REPLACED, but missing application info. Assuming REMOVED.
+10-16 17:36:06.116 D/ActivityThread( 1283): Package [org.mulletaflix.android.debug.test] reported as REPLACED, but missing application info. Assuming REMOVED.
+10-16 17:36:06.117 D/ActivityThread(  881): Package [org.mulletaflix.android.debug.test] reported as REPLACED, but missing application info. Assuming REMOVED.
+10-16 17:36:06.117 D/ActivityThread(  919): Package [org.mulletaflix.android.debug.test] reported as REPLACED, but missing application info. Assuming REMOVED.
+10-16 17:36:06.118 D/ActivityThread( 1360): Package [org.mulletaflix.android.debug.test] reported as REPLACED, but missing application info. Assuming REMOVED.
+10-16 17:36:06.119 I/SdkSandboxManager(  577): No SDKs used. Skipping SDK data reconcilation for CallingInfo{mUid=10213, mPackageName='org.mulletaflix.android.debug.test, mAppProcessToken='null'}
+10-16 17:36:06.122 D/ActivityThread(  577): Package [org.mulletaflix.android.debug.test] reported as REPLACED, but missing application info. Assuming REMOVED.
+10-16 17:36:06.123 W/AlarmManager(  577): Package org.mulletaflix.android.debug.test, uid 10213 lost permission to set exact alarms!
+10-16 17:36:06.123 D/ActivityThread(  577): Package [org.mulletaflix.android.debug.test] reported as REPLACED, but missing application info. Assuming REMOVED.
+10-16 17:36:06.622 I/Finsky:background( 3063): [48] IQ:PSL: skipping onPackageRemoved(replacing=true) for untracked package=org.mulletaflix.android.debug.test
+10-16 17:36:06.632 I/Finsky  ( 1821): [105] Asset module broadcast after update successful for package org.mulletaflix.android.debug.test.
+10-16 17:36:06.657 W/SQLiteLog( 1011): (28) double-quoted string literal: "org.mulletaflix.android.debug.test"
+10-16 17:36:06.672 I/ProximityAuth( 1011): [RecentAppsMediator] Package added: (user=UserHandle{0}) org.mulletaflix.android.debug.test
+10-16 17:36:22.610 D/AndroidRuntime( 3352): >>>>>> START com.android.internal.os.RuntimeInit uid 2000 <<<<<<
+10-16 17:36:22.613 I/AndroidRuntime( 3352): Using default boot image
+10-16 17:36:22.613 I/AndroidRuntime( 3352): Leaving lock profiling enabled
+10-16 17:36:22.722 D/AndroidRuntime( 3352): Calling main entry com.android.commands.am.Am
+10-16 17:36:22.790 W/ActivityThread( 3362): Package uses different ABI(s) than its instrumentation: package[org.mulletaflix.android.debug]: x86_64, null instrumentation[org.mulletaflix.android.debug.test]: null, null
+10-16 17:36:22.791 W/ziparchive( 3362): Unable to open '/data/app/~~H7w46iIj9Q-aWj0rdMTK1Q==/org.mulletaflix.android.debug.test-ZdGq_O4OPPY07Sfmcb0VUg==/base.dm': No such file or directory
+10-16 17:36:22.792 W/ziparchive( 3362): Unable to open '/data/app/~~H7w46iIj9Q-aWj0rdMTK1Q==/org.mulletaflix.android.debug.test-ZdGq_O4OPPY07Sfmcb0VUg==/base.dm': No such file or directory
+10-16 17:36:23.320 D/nativeloader( 3362): Configuring clns-7 for other apk /data/app/~~H7w46iIj9Q-aWj0rdMTK1Q==/org.mulletaflix.android.debug.test-ZdGq_O4OPPY07Sfmcb0VUg==/base.apk:/data/app/~~ar0VqtXnaANZA9N780JtVg==/org.mulletaflix.android.debug-Q5g_C_-JmkObnPR8Qnv59Q==/base.apk. target_sdk_version=37, uses_libraries=, library_path=/data/app/~~H7w46iIj9Q-aWj0rdMTK1Q==/org.mulletaflix.android.debug.test-ZdGq_O4OPPY07Sfmcb0VUg==/lib/x86_64:/data/app/~~ar0VqtXnaANZA9N780JtVg==/org.mulletaflix.android.debug-Q5g_C_-JmkObnPR8Qnv59Q==/lib/x86_64:/data/app/~~H7w46iIj9Q-aWj0rdMTK1Q==/org.mulletaflix.android.debug.test-ZdGq_O4OPPY07Sfmcb0VUg==/base.apk!/lib/x86_64:/data/app/~~ar0VqtXnaANZA9N780JtVg==/org.mulletaflix.android.debug-Q5g_C_-JmkObnPR8Qnv59Q==/base.apk!/lib/x86_64, permitted_path=/data:/mnt/expand:/data/user/0/org.mulletaflix.android.debug
+10-16 17:36:23.336 W/ziparchive( 3362): Unable to open '/data/app/~~H7w46iIj9Q-aWj0rdMTK1Q==/org.mulletaflix.android.debug.test-ZdGq_O4OPPY07Sfmcb0VUg==/base.dm': No such file or directory
+10-16 17:36:23.336 W/ziparchive( 3362): Unable to open '/data/app/~~H7w46iIj9Q-aWj0rdMTK1Q==/org.mulletaflix.android.debug.test-ZdGq_O4OPPY07Sfmcb0VUg==/base.dm': No such file or directory
+10-16 17:36:23.838 I/AndroidJUnitRunner( 3362): newApplication org.mulletaflix.android.MulletaFlixApp
+10-16 17:36:23.966 I/AndroidJUnitRunner( 3362): onCreate Bundle[mParcelledData.dataSize=784]
+10-16 17:36:23.967 D/AndroidJUnitRunner( 3362): Use the raw file system for managing file I/O.
+10-16 17:36:24.043 D/AndroidJUnitRunner( 3362): onStart is called.
+10-16 17:36:24.062 D/ActivityThread( 2553): Package [org.mulletaflix.android.debug.test] reported as REPLACED, but missing application info. Assuming REMOVED.
+10-16 17:36:24.062 D/ActivityThread( 2553): Package [org.mulletaflix.android.debug.test] reported as REPLACED, but missing application info. Assuming REMOVED.
+10-16 17:36:24.185 W/ActivityManager(  577): Background start not allowed: service Intent { act=androidx.media3.exoplayer.downloadService.action.RESUME_DOWNLOADS cmp=org.mulletaflix.android.debug/org.mulletaflix.android.service.DownloadService (has extras) } to org.mulletaflix.android.debug/org.mulletaflix.android.service.DownloadService from pid=3362 uid=10212 pkg=org.mulletaflix.android.debug startFg?=false
+10-16 17:36:24.292 W/x.android.debug( 3362): ClassLoaderContext classpath size mismatch. expected=1, found=2 (DLC[];PCL[base.apk*826418211]{PCL[/system/framework/org.apache.http.legacy.jar*437079508]#PCL[/system/framework/com.android.location.provider.jar*3414091812]#PCL[/system/framework/com.android.media.remotedisplay.jar*2042759013]#PCL[/system_ext/framework/androidx.window.extensions.jar*1060046784]#PCL[/system_ext/framework/androidx.window.sidecar.jar*2147524027]} | DLC[];PCL[/data/app/~~H7w46iIj9Q-aWj0rdMTK1Q==/org.mulletaflix.android.debug.test-ZdGq_O4OPPY07Sfmcb0VUg==/base.apk*987301123:/data/app/~~ar0VqtXnaANZA9N780JtVg==/org.mulletaflix.android.debug-Q5g_C_-JmkObnPR8Qnv59Q==/base.apk*2953298523]{PCL[/system_ext/framework/androidx.window.extensions.jar*1060046784]#PCL[/system_ext/framework/androidx.window.sidecar.jar*2147524027]})
+10-16 17:36:24.379 I/AndroidRuntime( 3352): VM exiting with result code 0.
+10-16 17:36:24.384 I/ActivityManager(  577):   Force stopping service ServiceRecord{7385e50 u0 org.mulletaflix.android.debug/org.mulletaflix.android.service.DownloadService c:org.mulletaflix.android.debug}
+10-16 17:35:21.258 E/AndroidRuntime( 2337): FATAL EXCEPTION: Thread-2
+10-16 17:35:21.258 E/AndroidRuntime( 2337): Process: com.android.hotwordenrollment.okgoogle, PID: 2337
+10-16 17:35:21.258 E/AndroidRuntime( 2337): java.lang.NoClassDefFoundError: Failed resolution of: Lcom/android/hotwordenrollment/common/EnrollmentUtil;
+10-16 17:35:21.258 E/AndroidRuntime( 2337): 	at com.android.hotwordenrollment.common.StartupReceiver.updateSoundModel(StartupReceiver.java:56)
+10-16 17:35:21.258 E/AndroidRuntime( 2337): 	at com.android.hotwordenrollment.common.StartupReceiver.-$$Nest$smupdateSoundModel(StartupReceiver.java:0)
+10-16 17:35:21.258 E/AndroidRuntime( 2337): 	at com.android.hotwordenrollment.common.StartupReceiver$1.run(StartupReceiver.java:48)
+10-16 17:35:21.258 E/AndroidRuntime( 2337): Caused by: java.lang.ClassNotFoundException: com.android.hotwordenrollment.common.EnrollmentUtil
+10-16 17:35:21.258 E/AndroidRuntime( 2337): 	... 3 more
+10-16 17:35:21.399 E/AndroidRuntime( 2393): FATAL EXCEPTION: Thread-2
+10-16 17:35:21.399 E/AndroidRuntime( 2393): Process: com.android.hotwordenrollment.xgoogle, PID: 2393
+10-16 17:35:21.399 E/AndroidRuntime( 2393): java.lang.NoClassDefFoundError: Failed resolution of: Lcom/android/hotwordenrollment/common/EnrollmentUtil;
+10-16 17:35:21.399 E/AndroidRuntime( 2393): 	at com.android.hotwordenrollment.common.StartupReceiver.updateSoundModel(StartupReceiver.java:56)
+10-16 17:35:21.399 E/AndroidRuntime( 2393): 	at com.android.hotwordenrollment.common.StartupReceiver.-$$Nest$smupdateSoundModel(StartupReceiver.java:0)
+10-16 17:35:21.399 E/AndroidRuntime( 2393): 	at com.android.hotwordenrollment.common.StartupReceiver$1.run(StartupReceiver.java:48)
+10-16 17:35:21.399 E/AndroidRuntime( 2393): Caused by: java.lang.ClassNotFoundException: com.android.hotwordenrollment.common.EnrollmentUtil
+10-16 17:35:21.399 E/AndroidRuntime( 2393): 	... 3 more

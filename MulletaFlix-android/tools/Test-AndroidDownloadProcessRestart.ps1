@@ -2,7 +2,8 @@ param(
     [string] $AvdName = 'MulletaflixApi35',
     [int] $Port = 5556,
     [ValidateSet('PHONE', 'TABLET', 'TV')]
-    [string] $ExpectedProfile = 'PHONE'
+    [string] $ExpectedProfile = 'PHONE',
+    [switch] $ExerciseFailureEvidenceCanary
 )
 
 $ErrorActionPreference = 'Stop'
@@ -23,9 +24,11 @@ $primaryFailure = $null
 $cleanupFailures = [System.Collections.Generic.List[string]]::new()
 $diagnosticLogSelector = Join-Path $PSScriptRoot 'Get-AndroidDownloadDiagnosticLogLines.ps1'
 $diagnosticEvidenceWriter = Join-Path $PSScriptRoot 'Save-AndroidDownloadFailureEvidence.ps1'
+$phaseEvidenceWriter = Join-Path $PSScriptRoot 'Save-AndroidDownloadPhaseEvidence.ps1'
 $cleanupCompleter = Join-Path $PSScriptRoot 'Complete-AndroidDownloadHarnessCleanup.ps1'
 . $diagnosticLogSelector
 . $diagnosticEvidenceWriter
+. $phaseEvidenceWriter
 . $cleanupCompleter
 $ErrorActionPreference = 'Stop'
 
@@ -50,45 +53,54 @@ function Invoke-GradlePhase {
         $arguments += @('-e', 'downloadRestartObservedOffset', [string]$ResumedOffset,
             '-e', 'downloadRestartCompletedBytes', [string]$CompletedBytes)
     }
+    if ($Method -eq 'failureEvidenceCanaryFailsOnlyWhenExplicitlyRequested') {
+        $arguments += @('-e', 'downloadRestartFailureEvidenceCanary', 'true')
+    }
     $arguments += "$testPackageName/$testRunner"
     Write-Host "Running Android instrumentation phase via ADB: $Method"
     $runnerOutput = @(& $adb @arguments)
     $runnerExitCode = $LASTEXITCODE
     $runnerText = $runnerOutput -join [Environment]::NewLine
     Write-Host $runnerText
-    if ($runnerExitCode -ne 0 -or $runnerText -notmatch 'OK \(1 test\)' -or $runnerText -match 'FAILURES!!!|INSTRUMENTATION_FAILED') {
-        $fixtureStatusJson = ''
-        try {
-            $fixtureStatus = Invoke-RestMethod -Uri "http://127.0.0.1:$script:fixturePort/status" -TimeoutSec 5
-            $fixtureStatusJson = ConvertTo-Json -InputObject $fixtureStatus -Depth 5 -Compress
-            Write-Host "Fixture status at instrumentation failure: $fixtureStatusJson"
-        } catch {
-            Write-Warning "Could not read fixture status after instrumentation failure: $_"
-        }
-        $mainLogLines = @(& $adb -s $serial logcat -d -v time -t 1000 2>$null)
-        $mainLogExitCode = $LASTEXITCODE
-        $crashBufferLines = @(& $adb -s $serial logcat -b crash -d -v time 2>$null)
-        $crashLogExitCode = $LASTEXITCODE
-        $captureStatus = "mainLogcatExitCode=$mainLogExitCode; crashBufferExitCode=$crashLogExitCode"
-        $diagnosticLogLines = @(Get-AndroidDownloadDiagnosticLogLines -LogLines @($mainLogLines + $crashBufferLines)) |
-            Select-Object -Last 200
-        if ($diagnosticLogLines.Count -gt 0) {
-            Write-Host 'Android download/player logcat at instrumentation failure:'
-            $diagnosticLogLines | ForEach-Object { Write-Host $_ }
-        }
-        try {
-            $evidencePath = Save-AndroidDownloadFailureEvidence `
-                -Directory $diagnosticEvidenceDirectory `
-                -Phase $Method `
-                -RunnerExitCode $runnerExitCode `
-                -RunnerOutput $runnerOutput `
-                -FixtureStatusJson $fixtureStatusJson `
-                -CaptureStatus $captureStatus `
-                -DiagnosticLines $diagnosticLogLines
-            Write-Host "Failure evidence preserved outside temporary cleanup: $diagnosticEvidenceDirectory"
-        } catch {
-            Write-Warning "Could not persist Android instrumentation failure evidence: $_"
-        }
+    $phasePassed = $runnerExitCode -eq 0 -and
+        $runnerText -match 'OK \(1 test\)' -and
+        $runnerText -notmatch 'FAILURES!!!|INSTRUMENTATION_FAILED'
+    $outcome = if ($phasePassed) { 'passed' } else { 'failed' }
+    $fixtureStatusJson = ''
+    try {
+        $fixtureStatus = Invoke-RestMethod -Uri "http://127.0.0.1:$script:fixturePort/status" -TimeoutSec 5
+        $fixtureStatusJson = ConvertTo-Json -InputObject $fixtureStatus -Depth 5 -Compress
+        Write-Host "Fixture status after instrumentation phase: $fixtureStatusJson"
+    } catch {
+        Write-Warning "Could not read fixture status after instrumentation phase: $_"
+    }
+    $mainLogLines = @(& $adb -s $serial logcat -d -v time -t 1000 2>$null)
+    $mainLogExitCode = $LASTEXITCODE
+    $crashBufferLines = @(& $adb -s $serial logcat -b crash -d -v time 2>$null)
+    $crashLogExitCode = $LASTEXITCODE
+    $captureStatus = "mainLogcatExitCode=$mainLogExitCode; crashBufferExitCode=$crashLogExitCode"
+    $diagnosticLogLines = @(Get-AndroidDownloadDiagnosticLogLines -LogLines @($mainLogLines + $crashBufferLines)) |
+        Select-Object -Last 200
+    if ($diagnosticLogLines.Count -gt 0) {
+        Write-Host 'Filtered Android download/player logcat for instrumentation phase:'
+        $diagnosticLogLines | ForEach-Object { Write-Host $_ }
+    }
+    try {
+        $phaseEvidence = Save-AndroidDownloadPhaseEvidence `
+            -Directory $diagnosticEvidenceDirectory `
+            -Phase $Method `
+            -Outcome $outcome `
+            -RunnerExitCode $runnerExitCode `
+            -RunnerOutput $runnerOutput `
+            -FixtureStatusJson $fixtureStatusJson `
+            -CaptureStatus $captureStatus `
+            -DiagnosticLines $diagnosticLogLines
+        Write-Host "Instrumentation phase evidence ($outcome) preserved: $diagnosticEvidenceDirectory"
+    } catch {
+        if ($phasePassed) { throw "Could not persist passing instrumentation evidence: $_" }
+        Write-Warning "Could not persist failing instrumentation evidence: $_"
+    }
+    if (-not $phasePassed) {
         throw "Instrumentation phase '$Method' did not report exactly one passing test (adb exit=$runnerExitCode)."
     }
 }
@@ -152,40 +164,74 @@ try {
     $actualProfile = Get-AndroidDeviceProfile -FeatureLines $features -DisplaySizeLines $size -DisplayDensityLines $density
     Assert-AndroidDeviceProfile -Expected $ExpectedProfile -Actual $actualProfile
 
-    Invoke-GradlePhase -Method 'preparePartialDownloadForHostProcessRestart' -FixtureBytes $script:fixtureBytes
+    if ($ExerciseFailureEvidenceCanary) {
+        try {
+            Invoke-GradlePhase -Method 'failureEvidenceCanaryFailsOnlyWhenExplicitlyRequested' -FixtureBytes $script:fixtureBytes
+            throw 'Failure-evidence canary unexpectedly passed; expected its opt-in assertion failure.'
+        } catch {
+            $expectedRunnerFailure = $_.Exception.Message -match "Instrumentation phase 'failureEvidenceCanaryFailsOnlyWhenExplicitlyRequested' did not report exactly one passing test"
+            if (-not $expectedRunnerFailure) { throw }
 
-    & $adb -s $serial shell am force-stop $packageName
-    if ($LASTEXITCODE -ne 0) { throw 'Could not force-stop the isolated debug app after the first Gradle runner exited.' }
-    & $adb -s $serial shell monkey -p $packageName -c android.intent.category.LAUNCHER 1
-    if ($LASTEXITCODE -ne 0) { throw 'Could not relaunch the debug app after process death.' }
+            $evidencePrefix = 'failureEvidenceCanaryFailsOnlyWhenExplicitlyRequested'
+            $runnerEvidence = Join-Path $diagnosticEvidenceDirectory "$evidencePrefix-runner.txt"
+            $fixtureEvidence = Join-Path $diagnosticEvidenceDirectory "$evidencePrefix-fixture.json"
+            $logEvidence = Join-Path $diagnosticEvidenceDirectory "$evidencePrefix-logcat.txt"
+            foreach ($evidenceFile in @($runnerEvidence, $fixtureEvidence, $logEvidence)) {
+                if (-not (Test-Path -LiteralPath $evidenceFile -PathType Leaf)) {
+                    throw "Expected failure evidence file was not preserved: $evidenceFile"
+                }
+            }
+            if ((Get-Content -LiteralPath $runnerEvidence -Raw) -notmatch 'Intentional failure-evidence canary; no production code is under test') {
+                throw 'The preserved runner evidence does not contain the expected opt-in assertion.'
+            }
+            if ((Get-Content -LiteralPath $runnerEvidence -Raw) -notmatch 'Tests run:\s*1,\s*Failures:\s*1') {
+                throw 'The preserved runner evidence must contain exactly one executed test and one intentional failure.'
+            }
+            $fixtureSnapshot = Get-Content -LiteralPath $fixtureEvidence -Raw | ConvertFrom-Json -ErrorAction Stop
+            if ($fixtureSnapshot.PSObject.Properties.Name -notcontains 'requests') {
+                throw 'The preserved fixture snapshot is missing its request audit.'
+            }
+            if (@($fixtureSnapshot.requests).Count -ne 0) {
+                throw 'The failure-evidence canary unexpectedly issued media fixture requests.'
+            }
+            Write-Host "Verified opt-in failure evidence: runner, fixture snapshot, and filtered logcat preserved at $diagnosticEvidenceDirectory."
+        }
+    } else {
+        Invoke-GradlePhase -Method 'preparePartialDownloadForHostProcessRestart' -FixtureBytes $script:fixtureBytes
 
-    $restartDeadline = (Get-Date).AddSeconds(35)
-    $restartStatus = $null
-    do {
-        $restartStatus = Invoke-RestMethod -Uri "http://127.0.0.1:$script:fixturePort/status" -TimeoutSec 5
-        if (@($restartStatus.rangeStarts).Count -gt 0) { break }
-        Start-Sleep -Seconds 1
-    } while ((Get-Date) -lt $restartDeadline)
-    if ($restartStatus) {
-        Write-Host "Fixture after app relaunch: requestStarts=$(@($restartStatus.requests | ForEach-Object { $_.rangeStart }) -join ', '); resumedOffsets=$(@($restartStatus.rangeStarts) -join ', ')."
+        & $adb -s $serial shell am force-stop $packageName
+        if ($LASTEXITCODE -ne 0) { throw 'Could not force-stop the isolated debug app after the first Gradle runner exited.' }
+        & $adb -s $serial shell monkey -p $packageName -c android.intent.category.LAUNCHER 1
+        if ($LASTEXITCODE -ne 0) { throw 'Could not relaunch the debug app after process death.' }
+
+        $restartDeadline = (Get-Date).AddSeconds(35)
+        $restartStatus = $null
+        do {
+            $restartStatus = Invoke-RestMethod -Uri "http://127.0.0.1:$script:fixturePort/status" -TimeoutSec 5
+            if (@($restartStatus.rangeStarts).Count -gt 0) { break }
+            Start-Sleep -Seconds 1
+        } while ((Get-Date) -lt $restartDeadline)
+        if ($restartStatus) {
+            Write-Host "Fixture after app relaunch: requestStarts=$(@($restartStatus.requests | ForEach-Object { $_.rangeStart }) -join ', '); resumedOffsets=$(@($restartStatus.rangeStarts) -join ', ')."
+        }
+        $resumedOffset = [long](@($restartStatus.rangeStarts | Select-Object -Last 1)[0])
+        if ($resumedOffset -lt 524288) { throw "No partial byte range was resumed after process death; observed offset=$resumedOffset." }
+
+        $completedBytes = 0L
+        $completionDeadline = (Get-Date).AddSeconds(90)
+        do {
+            $status = Invoke-RestMethod -Uri "http://127.0.0.1:$script:fixturePort/status" -TimeoutSec 5
+            $finishedRange = @($status.completedRequests | Where-Object { [long]$_.rangeStart -eq $resumedOffset } | Select-Object -Last 1)
+            if ($finishedRange.Count -gt 0) { $completedBytes = [long]$finishedRange[0].bytes; break }
+            Start-Sleep -Seconds 1
+        } while ((Get-Date) -lt $completionDeadline)
+        $expectedRemainingBytes = $script:fixtureBytes - $resumedOffset
+        if ($completedBytes -ne $expectedRemainingBytes) { throw "Resumed media response did not complete; rangeOffset=$resumedOffset, expectedBytes=$expectedRemainingBytes, actualBytes=$completedBytes." }
+
+        # AndroidTest disables the fixture only after Media3 reports STATE_COMPLETED.
+        Invoke-GradlePhase -Method 'verifyPartialDownloadResumedByFreshApplicationProcess' -ResumedOffset $resumedOffset -CompletedBytes $completedBytes -FixtureBytes $script:fixtureBytes
+        Write-Host "Process restart resumed at byte $resumedOffset and completed $completedBytes bytes."
     }
-    $resumedOffset = [long](@($restartStatus.rangeStarts | Select-Object -Last 1)[0])
-    if ($resumedOffset -lt 524288) { throw "No partial byte range was resumed after process death; observed offset=$resumedOffset." }
-
-    $completedBytes = 0L
-    $completionDeadline = (Get-Date).AddSeconds(90)
-    do {
-        $status = Invoke-RestMethod -Uri "http://127.0.0.1:$script:fixturePort/status" -TimeoutSec 5
-        $finishedRange = @($status.completedRequests | Where-Object { [long]$_.rangeStart -eq $resumedOffset } | Select-Object -Last 1)
-        if ($finishedRange.Count -gt 0) { $completedBytes = [long]$finishedRange[0].bytes; break }
-        Start-Sleep -Seconds 1
-    } while ((Get-Date) -lt $completionDeadline)
-    $expectedRemainingBytes = $script:fixtureBytes - $resumedOffset
-    if ($completedBytes -ne $expectedRemainingBytes) { throw "Resumed media response did not complete; rangeOffset=$resumedOffset, expectedBytes=$expectedRemainingBytes, actualBytes=$completedBytes." }
-
-    # AndroidTest disables the fixture only after Media3 reports STATE_COMPLETED.
-    Invoke-GradlePhase -Method 'verifyPartialDownloadResumedByFreshApplicationProcess' -ResumedOffset $resumedOffset -CompletedBytes $completedBytes -FixtureBytes $script:fixtureBytes
-    Write-Host "Process restart resumed at byte $resumedOffset and completed $completedBytes bytes."
 } catch {
     $primaryFailure = $_
     throw

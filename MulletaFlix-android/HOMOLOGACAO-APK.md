@@ -1,5 +1,14 @@
 # Homologação formal — MulletaFlix Android
 
+### Evidência técnica de HTTPS LAN na descoberta automática — 2026-10-16
+
+Três testes de caracterização passaram: parse da resposta UDP preserva `https`, porta, caminho e identidade (4/4 na classe); escolha automática mantém o endpoint privado HTTPS da identidade salva (23/23); recuperação autenticada aceita o endpoint LAN HTTPS sem downgrade (27/27). A suíte JVM forçada passou 1.788/1.788 em 256 XML; lint auth/app, assembleDebug e compilação AndroidTest auth/app passaram. Não houve handshake TLS nem servidor/certificado/dispositivo reais. Evidência local de URL/roteamento; não concede aceite formal, não altera 10/21 concluídas, 2 em validação, 9 pendentes, `formalSignoff=pending`.
+
+
+### Reexecução da regressão de Home Android TV — 2026-10-16
+
+`TvHomeRefreshIntegrationTest` passou 2/2 em TV/API 34: a biblioteca de livros do feed carregado não aparece na tela real da Home, e retornar à Home substitui o feed visível pelo atualizado. XML preservado em `validation-evidence/2026-10-16/tv-home-refresh-library-hidden-TV-API34.xml`; 0 falhas/erros/ignorados. NVIDIA RTX 3050 confirmada pelo wrapper; AVD encerrado e ADB sem dispositivos. Fixture sintética, sem servidor ou TV física. Evidência local repetida; não altera a matriz formal (10/21 concluídas, 2 em validação, 9 pendentes) nem `formalSignoff=pending`.
+
 ### Limite da repetição offline TABLET — crash do runner antes da fixture — 2026-10-16
 
 O reteste de `DownloadProcessRestartIntegrationTest` terminou na preparação porque o AndroidJUnitRunner reportou `Process crashed` antes de qualquer requisição HTTP à fixture; a limpeza isolada passou. O diagnóstico ampliado confirmou início do runner e crash informado por ActivityManager, mas não capturou stack trace nem causa. Isto é execução inconclusiva de infraestrutura, não aprovação nem falha atribuível ao player. APK-H07/H17 e matriz formal permanecem inalterados: 10/21 concluídas, 2 em validação, 9 pendentes e `formalSignoff=pending`.
@@ -243,3 +252,13 @@ O teste `PlainTextBookReaderIntegrationTest.htmlBookExplicitNormalStyleResetsInh
 ## Fechamento
 
 Para concluir, executar e registrar os nove gates abertos, revisar todas as evidências e obter aprovação explícita do responsável. Não criar ou publicar release como parte desta homologação. As notas/artefatos de release ficam para uma solicitação futura e devem corresponder apenas a mudanças realmente testadas.
+# Reteste de permissão de rede local Android 17 inconclusivo — 2026-10-16
+
+Foi preparado um AVD descartável novo com Android 17/API 37.2 e imagem `google_apis_ps16k`. O boot chegou a completar, mas `system_server` reiniciou repetidamente; Gradle terminou sem XML/relatório novo para `LocalServerDiscoveryPermissionTest`. Não há testes AndroidJUnit contabilizáveis nesta tentativa. É bloqueio de infraestrutura, não aprovação nem falha funcional atribuível ao APK. H14 e descoberta/permissão API 37 permanecem pendentes; matriz formal 10/21 concluídas, 2 em validação, 9 pendentes e `formalSignoff=pending` não mudam. O AVD Android 17 foi criado separadamente; AVDs preexistentes foram preservados.
+### Tentativa de AVD Android 17/API 37 Play Store — 2026-10-16
+
+O system image Play Store `android-37.2;google_apis_playstore_ps16k;x86_64` foi instalado e AVD descartável foi criado para retestar `LocalServerDiscoveryPermissionTest`. A execução não chegou ao instrumentador: ADB reportou `offline` e depois não listou dispositivo; não houve XML novo nem processo de teste. Resultado inconclusivo de infraestrutura, zero testes executados. Não promove nem reprova critério de homologação. AVD parado e entrada ADB órfã desconectada. Investigar boot/QEMU antes de repetir. Matriz formal e `formalSignoff=pending` inalterados.
+### Descoberta local API 37 e HTTPS na LAN — 2026-10-16
+
+A repetição de `LocalServerDiscoveryPermissionTest` em AVD Android 17/API 37 isolado não gerou XML JUnit: apesar do boot concluído, Package Manager ficou intermitente e `system_server.start_count` chegou a 28. Execução interrompida com zero testes contabilizáveis; inconclusiva de infraestrutura, não aprovação nem defeito do APK. O AVD foi desligado e preservado para inspeção. O responsável confirmou que o servidor pode fornecer HTTPS com certificado válido também na LAN. TLS real ainda não foi verificado. APK-H02/área de descoberta, matriz formal (10/21 concluídas, 2 em validação, 9 pendentes) e `formalSignoff=pending` não mudam.
+

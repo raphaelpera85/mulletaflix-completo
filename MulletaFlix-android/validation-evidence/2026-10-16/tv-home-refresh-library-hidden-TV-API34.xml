@@ -1,0 +1,10 @@
+<?xml version='1.0' encoding='UTF-8' ?>
+<testsuites tests="2" failures="0" errors="0" skipped="0" time="0.000" timestamp="2026-10-16T18:48:49" hostname="localhost">
+  <testsuite name="org.mulletaflix.feature.home.TvHomeRefreshIntegrationTest" tests="2" failures="0" errors="0" skipped="0" time="8.316" timestamp="2026-10-16T18:48:49" hostname="localhost">
+    <properties>
+      <property name="device" value="emulator-5560" />
+    </properties>
+    <testcase name="booksLibraryFromLoadedFeedIsHiddenByRealTvHomeScreen" classname="org.mulletaflix.feature.home.TvHomeRefreshIntegrationTest" time="5.812" />
+    <testcase name="returning_to_tv_home_replaces_visible_media_with_refreshed_feed" classname="org.mulletaflix.feature.home.TvHomeRefreshIntegrationTest" time="2.504" />
+  </testsuite>
+</testsuites>

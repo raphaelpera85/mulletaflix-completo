@@ -63,6 +63,24 @@ class ServerSelectionPolicyTest {
     }
 
     @Test
+    fun `automatic selection keeps HTTPS on the authenticated LAN endpoint`() {
+        val unrelated = ServerInfo("Other LAN", "https://192.168.1.10:8443/other", serverId = "other-server")
+        val lan = ServerInfo("MulletaFlix LAN", "https://192.168.1.20:8443/mulletaflix", serverId = "mulletaflix")
+        val saved = ServerInfo("MulletaFlix Internet", DEFAULT_MULLETAFLIX_SERVER_URL, serverId = "mulletaflix")
+        val state = AuthState(
+            serverUrl = saved.url,
+            discoveredServers = listOf(unrelated, lan),
+            savedServers = listOf(saved),
+            savedServersLoaded = true,
+        )
+
+        assertEquals(
+            lan.url,
+            automaticServerCandidate(state, manuallyEdited = false, connectionStarted = false),
+        )
+    }
+
+    @Test
     fun `saved endpoint is used when discovery has no results`() {
         val saved = ServerInfo("Saved", "http://mulletaflix.duckdns.org:8096")
 

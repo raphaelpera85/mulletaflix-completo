@@ -1,0 +1,3 @@
+﻿phase=cleanupIsolatedHostProcessFixture
+outcome=passed
+runnerExitCode=0

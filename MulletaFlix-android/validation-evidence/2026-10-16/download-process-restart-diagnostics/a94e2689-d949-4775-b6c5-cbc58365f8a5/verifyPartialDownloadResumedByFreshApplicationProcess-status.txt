@@ -1,0 +1,3 @@
+﻿phase=verifyPartialDownloadResumedByFreshApplicationProcess
+outcome=passed
+runnerExitCode=0

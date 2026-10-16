@@ -22,6 +22,15 @@ class LanServerRecoveryPolicyTest {
     }
 
     @Test
+    fun `authenticated HTTPS endpoint remains eligible for automatic LAN recovery`() {
+        val unrelated = ServerInfo("Outro", "https://192.168.1.10:8443/other", serverId = "other-server")
+        val lan = ServerInfo("MulletaFlix LAN", "https://192.168.1.20:8443/mulletaflix", serverId = "mulletaflix")
+
+        assertTrue(selectAuthenticatedLanServer(listOf(unrelated, lan), "mulletaflix") == lan)
+        assertTrue(shouldSwitchToLan("https://mulletaflix.duckdns.org", lan.url))
+    }
+
+    @Test
     fun `does not rewrite the same or blank endpoint`() {
         assertFalse(shouldSwitchToLan("http://192.168.1.20:8096/", "HTTP://192.168.1.20:8096"))
         assertFalse(shouldSwitchToLan("http://server:8096", ""))

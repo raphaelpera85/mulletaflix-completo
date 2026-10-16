@@ -22,6 +22,16 @@ class LocalServerDiscoveryTest {
     }
 
     @Test
+    fun `preserves HTTPS scheme port and installation path from LAN discovery`() {
+        val server = parseDiscoveryResponse(
+            """{"Address":"HTTPS://192.168.1.20:8443/mulletaflix/","Id":"mulletaflix"}""",
+        )
+
+        assertEquals("https://192.168.1.20:8443/mulletaflix", server?.url)
+        assertEquals("mulletaflix", server?.serverId)
+    }
+
+    @Test
     fun `ignores malformed or unsafe discovery payloads`() {
         assertNull(parseDiscoveryResponse("not-json"))
         assertNull(parseDiscoveryResponse("""{"Address":"ftp://192.168.1.20:8096"}"""))

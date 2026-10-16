@@ -1,5 +1,27 @@
 # MulletaFlix Android - Plano de Desenvolvimento & Checklist de Funcionalidades (TODO)
 
+## Validação Android 17 e TLS de servidor LAN — 2026-10-16
+
+- [x] Cobrir preservação e seleção automática de um endpoint HTTPS LAN anunciado para a identidade autenticada; 54 testes focais e gate JVM completo aprovados. É caracterização de regra/URL, não validação de certificado ou TLS real.
+- [ ] Reexecutar `LocalServerDiscoveryPermissionTest` em API 37 somente quando o AVD estiver estável: no AVD isolado Google APIs com Vulkan desativado, o boot chegou a completar, mas Package Manager oscilou e `system_server.start_count` chegou a 28; não houve XML JUnit nem teste contabilizável. AVD preservado em `D:\Android\avd\MulletaFlixAndroid17Api37VulkanOff_20261016.avd` para inspeção.
+- [ ] Homologar HTTPS na LAN em rede/dispositivo reais com certificado válido e nome/IP correspondente; manter validação TLS e cobrir autenticação, metadados e playback sem fallback indevido para HTTP. O responsável confirmou suporte HTTPS válido também na LAN; não altera a política do servidor.
+- [x] Confirmar que o experimento foi executado com GPU host e NVIDIA RTX 3050 visível; o AVD foi desligado e ADB terminou vazio.
+
+## Atualização de evidência de teste — 2026-10-16
+
+- [x] Persistir resultados e insumos de cada fase da jornada de retomada, não só falhas; rejeitar status divergente do runner AndroidJUnit. Testes Pester 48/48 e integração TABLET/API 35 3/3 fases passaram. Evidências em `validation-evidence/2026-10-16/download-process-restart-diagnostics/a94e2689-d949-4775-b6c5-cbc58365f8a5`.
+- [x] Gate Gradle completo em 16/10: JVM, lintDebug, assembleDebug e compileDebugAndroidTestKotlin com --rerun-tasks; BUILD SUCCESSFUL (871 tarefas executadas).
+- [ ] Investigar a falha histórica TABLET `failureReason=1`/0 bytes/zero requests; causa permanece desconhecida.
+- [ ] Validar retomada em dispositivo, rede e servidor reais e executar estabilidade prolongada antes de alterar homologação formal.
+
+## Validação do caminho de evidência em falha instrumentada — 2026-10-16
+
+- [x] Reproduzir falha AndroidJUnit controlada com canário opt-in e confirmar saída do runner, snapshot da fixture e logcat filtrado persistidos fora do temporário; o harness exige exatamente 1 teste/1 falha e zero requests. App instrumentado iniciou `DownloadService`/`RESUME_DOWNLOADS`; usar somente AVD descartável.
+- [x] Confirmar cleanup UUID 1/1 e fechar AVD TABLET pelo wrapper, com GPU NVIDIA e ADB vazio.
+- [x] Repetir a jornada de retomada offline TABLET/API 35: prepare, verify e cleanup 1/1 cada; Range 1.034.976 + 3.852.679 bytes, tela visível, Media3 `READY`, avanço offline e zero requests depois do bloqueio da origem. A falha histórica `failureReason=1`/0 bytes não se reproduziu; causa segue desconhecida.
+- [ ] Investigar separadamente a falha intermitente Media3 `failureReason=1`/0 bytes/zero requests; causa ainda desconhecida. Não inferir bug do player sem stack/evidência.
+- Evidência detalhada em `TESTING.md` e `TDD-PLAN.md`; sem release, servidor ou homologação formal.
+
 ## Em andamento: jornada visual de retomada offline após morte do processo — PHONE/TABLET/TV em AVD — 16/10/2026
 
 - [x] Comprovar que o host Compose de AndroidTest sobreviva à orientação solicitada por `VideoPlayerScreen`; RED por perda da hierarquia Compose e GREEN após alinhar `configChanges` do host debug ao contrato já existente na `MainActivity`. O teste confirma texto visível e um único início de `LaunchedEffect`; XML: `validation-evidence/2026-10-15/offline-player-host-orientation-PHONE-API35.xml`.
@@ -8,13 +30,17 @@
 - [x] Reexecutar a jornada integral após corrigir o teardown manual do `ViewModelStore`: tela removida por estado Compose, store limpo na main thread e chave confirmada ausente; título visível, player `READY`, posição avançando ≥500 ms e nenhuma requisição à origem bloqueada. Preparação, retomada e limpeza passaram 1/1 por fase no PHONE/API 35.
 - [x] Repetir estabilidade do fluxo sintético PHONE/API 35: duas execuções integradas independentes em 16/10 passaram com preparação, verificação visual e limpeza UUID 1/1 por fase.
 - [x] Validar a mesma jornada em TABLET/API 35 e TV/API 34; preparação, retomada visual e cleanup UUID passaram 1/1 por fase em cada perfil. O harness agora recebe o perfil e serial escolhidos, sem fixar PHONE ou a porta 5556.
+- [x] Repetir TABLET/API 35: preparação, retomada após morte do processo e limpeza passaram 1/1 por fase; Range no byte 1.039.501 + 3.848.154 bytes, título visível, Media3 `READY`, avanço offline e origem bloqueada sem requests. Wrapper NVIDIA encerrou o AVD.
+- [x] Repetir TABLET/API 35 em 16/10: Range retomou em 1.038.304 e completou 3.849.351 bytes; tela visível, Media3 `READY`, progresso offline ≥500 ms e nenhuma requisição após bloquear a origem. Preparação, verificação e cleanup 1/1; wrapper NVIDIA e AVD encerrado.
 - [x] Repetir a estabilidade TABLET/API 35 mais uma vez: preparação, retomada visual offline após morte do processo e limpeza passaram 1/1 por fase; Range 1.032.992 + 3.854.663 bytes, Media3 `READY`, avanço ≥500 ms e origem bloqueada sem requisições. A intermitência anterior (0 ms/30 s) continua sem causa; isto não fecha estabilidade prolongada.
 - [x] Registrar diagnóstico de falha anterior à UI: uma repetição ficou `QUEUED` em 81,63% por 120 s antes do player, embora a fixture registrasse fim da resposta Range; tentativa seguinte passou. A anotação original dizia que faltava exercitar a coleta; o reteste pré-fixture registrado abaixo exercitou-a em falha posterior, sem revelar a causa raiz.
 - [x] Reexecutar suíte JVM completa sem cache após o diagnóstico: 1.785 testes/256 XML, zero falhas, erros ou ignorados (`testDebugUnitTest --rerun-tasks`, 470 tarefas executadas).
 - [x] Cobrir no diagnóstico do harness crashes do AndroidRuntime/runner e logcat vazio; suíte Pester passou 36/36. Repetição TABLET/API 35 subsequente passou prepare, retomada offline e cleanup, 1/1 por fase.
 - [x] Exercitar o filtro ampliado numa nova falha TABLET/API 35: `AndroidJUnitRunner` reportou `Process crashed` antes de qualquer request à fixture; o helper preservou eventos do runner/ActivityManager e cleanup UUID passou 1/1. A saída do runner não contém stack trace; causa permanece desconhecida e não atribuída ao APK.
 - [x] Fazer com que falhas instrumentadas preservem a saída do runner, snapshot JSON da fixture e logcat filtrado (inclui buffer `crash`) fora da pasta temporária; teste Pester cobre gravação dos artefatos. A repetição TABLET/API 35 posterior passou, então o ramo de persistência ainda não foi exercitado por falha Android real.
-- [ ] Conferir artefatos preservados quando uma falha instrumentada real voltar a ocorrer; não coletar bugreport amplo nem atribuir o crash ao player sem stack/evidência reproduzível.
+- [x] Endurecer o harness para tratar falha no runner Android, falha das capturas ADB, cleanup do request UUID e remoção temporária sem mascarar a falha primária; Pester valida os resultados de cleanup e distingue log vazio de erro de captura.
+- [ ] Conferir artefatos preservados em uma falha instrumentada real após a correção de string vazia; a repetição final passou, portanto essa integração ainda não foi exercitada em runtime.
+- [ ] Investigar a repetição TABLET que chegou a `FAILED`/`failureReason=1` com 0 bytes e zero requests à fixture; causa não identificada e não atribuída ao player. Não coletar bugreport amplo nem mudar runtime sem RED reproduzível.
 - [ ] Validar mídia/servidor/dispositivo reais quando disponíveis; fixture sintética não fecha aceite formal. TalkBack, estabilidade prolongada e aparelhos físicos permanecem sem evidência para esta jornada.
 - Evidência de instrumentação direta via ADB não produz XML individual; resultados e limites estão em `TESTING.md`/`TDD-PLAN.md` e na sessão do Vault. A cobertura PHONE/TABLET/TV em AVDs sintéticos não promove APK-H07/H17 nem aceite formal.
 - Escopo desta fatia: configuração de Activity exclusiva debug e AndroidTest. Nenhuma alteração de runtime/produção, versão, assinatura, APK/release, servidor ou portal. Detalhes em `TESTING.md` e `TDD-PLAN.md`; sessão no Vault.
@@ -504,6 +530,7 @@
 - [x] Revalidação Android TV API 34 em 2026-10-08: `HomeLibraryNavigationTest` 3/3 e `TvHomeRefreshIntegrationTest` 2/2; confirmou biblioteca Livros ausente e livros filtrados das linhas da Home mesmo após feed carregado/atualizado. Reexecutado `HomeLibraryNavigationTest` 3/3 agora; AVD executado na GPU NVIDIA e encerrado pelo wrapper.
 - [x] Revalidação focada Android TV API 34 em 2026-10-13: `HomeLibraryNavigationTest#books_libraryIsNotRenderedOnAndroidTv` passou 1/1 no AVD `MulletaflixTvApi34`; confirmou perfil TV, ausência de Livros e presença de Filmes na composição real de `LibraryTiles` com feed sintético. Wrapper confirmou GPU NVIDIA e encerrou o AVD; `adb devices -l` ficou vazio. Teste já existente; sem alteração de código.
 - [x] Revalidação integrada Android TV API 34 em 2026-10-13: `TvHomeRefreshIntegrationTest` passou 2/2 na `HomeScreen` real com `HomeViewModel`; confirmou livros ausentes nas faixas/biblioteca e atualização do feed ao retornar ao primeiro plano. XML `TEST-MulletaflixTvApi34(AVD) - 14.xml`, 0 falhas/erros/ignorados; wrapper confirmou RTX 3050, encerrou o AVD e deixou ADB vazio. Testes existentes; sem mudança de código.
+- [x] Reexecução independente em 2026-10-16: `TvHomeRefreshIntegrationTest` passou 2/2 em `MulletaflixCodexTvApi34_20261015` (TV/API 34). XML: `validation-evidence/2026-10-16/tv-home-refresh-library-hidden-TV-API34.xml`; zero falhas, erros ou ignorados. Wrapper verificou NVIDIA RTX 3050, encerrou o AVD e ADB ficou vazio. Feed sintético; TV física e servidor real continuam sem validação.
 - [x] `:feature:item-detail:testDebugUnitTest`: 162 testes, 0 falhas/erros/ignorados; `:feature:item-detail:compileDebugAndroidTestKotlin`, `:feature:item-detail:lintDebug`, `:app:lintDebug` e `:app:assembleDebug`: `BUILD SUCCESSFUL`.
 - [ ] Validar visualmente em uma Android TV física conectada ao servidor real; os instrumentados usam feed controlado.
 - [ ] Sem bump de versão, APK de produção, portal ou publicação.
@@ -4059,3 +4086,7 @@ Pendências relacionadas:
 - [x] Gate forçado: 1.784 testes JVM em 256 XML, 0 falhas/erros/ignorados; `:feature:player:lintDebug`, `:app:lintDebug`, `:app:assembleDebug`, compilação AndroidTest do app e player: `BUILD SUCCESSFUL` (881 tarefas).
 - [ ] Confirmar com servidor autorizado, mídia SyncPlay real e aparelhos físicos; AVD + MockWebServer + WAV sintético não equivalem a homologação de rede/servidor real.
 - [x] Sem mudança de API/dependência, versão, assinatura, APK de produção, release ou servidor. A evidência foi espelhada no JSON local de homologação do portal e validada pela suíte do portal (24/24); sem deploy. Matriz formal não é promovida.
+- [ ] 2026-10-16: reteste API 37.2 com AVD novo `MulletaFlixAndroid17Api37_20261016` não produziu relatório de instrumentação. O boot completou, mas `system_server` reiniciou repetidamente e o Gradle encerrou; não contar como teste passado/falhado do app. Imagem `google_apis_ps16k` instalada localmente. Repetir após estabilizar o emulador; manter H14/API 37 pendente.
+### Rede local Android 17/API 37
+
+- [ ] Repetir `LocalServerDiscoveryPermissionTest` em Android 17/API 37 Play Store após diagnosticar inicialização do AVD `MulletaFlixAndroid17PlayApi37_20261016`; a primeira tentativa encerrou antes do runner, com ADB offline/desconectado (0 testes, infraestrutura inconclusiva; 2026-10-16). Não marcar como falha do APK.

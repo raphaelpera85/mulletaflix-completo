@@ -89,6 +89,18 @@ class DownloadProcessRestartIntegrationTest {
     }
 
     @Test
+    fun failureEvidenceCanaryFailsOnlyWhenExplicitlyRequested() {
+        assertDebugApplication()
+        val requested = InstrumentationRegistry.getArguments()
+            .getString("downloadRestartFailureEvidenceCanary")
+            ?.toBooleanStrictOrNull() ?: false
+        if (requested) {
+            throw AssertionError("Intentional failure-evidence canary; no production code is under test")
+        }
+        assertTrue("The failure-evidence canary must stay inert unless explicitly enabled", !requested)
+    }
+
+    @Test
     fun offlinePlaybackHostKeepsComposeContentWhenOrientationChanges() {
         val launchedEffectStarts = AtomicInteger()
         composeRule.setContent {

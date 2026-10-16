@@ -1,0 +1,9 @@
+﻿exitCode=0
+
+org.mulletaflix.android.service.DownloadProcessRestartIntegrationTest:.
+
+Time: 1.979
+
+OK (1 test)
+
+

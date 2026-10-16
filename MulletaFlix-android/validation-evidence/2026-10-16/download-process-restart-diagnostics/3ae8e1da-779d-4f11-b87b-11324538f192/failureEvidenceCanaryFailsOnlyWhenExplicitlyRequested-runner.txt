@@ -1,0 +1,18 @@
+﻿exitCode=0
+
+org.mulletaflix.android.service.DownloadProcessRestartIntegrationTest:
+Error in failureEvidenceCanaryFailsOnlyWhenExplicitlyRequested(org.mulletaflix.android.service.DownloadProcessRestartIntegrationTest):
+java.lang.AssertionError: Intentional failure-evidence canary; no production code is under test
+	at org.mulletaflix.android.service.DownloadProcessRestartIntegrationTest.failureEvidenceCanaryFailsOnlyWhenExplicitlyRequested(DownloadProcessRestartIntegrationTest.kt:98)
+
+
+Time: 1.504
+There was 1 failure:
+1) failureEvidenceCanaryFailsOnlyWhenExplicitlyRequested(org.mulletaflix.android.service.DownloadProcessRestartIntegrationTest)
+java.lang.AssertionError: Intentional failure-evidence canary; no production code is under test
+	at org.mulletaflix.android.service.DownloadProcessRestartIntegrationTest.failureEvidenceCanaryFailsOnlyWhenExplicitlyRequested(DownloadProcessRestartIntegrationTest.kt:98)
+
+FAILURES!!!
+Tests run: 1,  Failures: 1
+
+

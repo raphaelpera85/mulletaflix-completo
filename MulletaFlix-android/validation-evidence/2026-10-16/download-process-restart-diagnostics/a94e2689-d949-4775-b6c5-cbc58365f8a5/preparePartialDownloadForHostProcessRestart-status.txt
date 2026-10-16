@@ -1,0 +1,3 @@
+﻿phase=preparePartialDownloadForHostProcessRestart
+outcome=passed
+runnerExitCode=0

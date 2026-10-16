@@ -1,13 +1,40 @@
 # Plano de TDD do MulletaFlix Android
 
+### Caracterização HTTPS LAN na descoberta automática — 2026-10-16
+
+- Intenção do usuário: o servidor pode oferecer HTTPS com certificado válido também na LAN. Inspeção de `parseDiscoveryResponse`, `normalizeServerUrl`, `automaticServerCandidate` e `selectAuthenticatedLanServer` mostrou que o app preserva o esquema anunciado e permite selecionar URL privada HTTPS; o fluxo já existia, mas não tinha cobertura explícita para HTTPS LAN.
+- Adicionados testes de caracterização em `LocalServerDiscoveryTest`, `ServerSelectionPolicyTest` e `LanServerRecoveryPolicyTest`: endereço anunciado HTTPS conserva esquema/porta/caminho/identidade; a seleção automática e recuperação LAN mantêm HTTPS para a identidade autenticada. Resultado focal 54/54, zero falhas/erros/ignorados.
+- Sem alteração de runtime: não existe ciclo RED/GREEN de correção a alegar. Quality gate focal seguido da suíte JVM forçada completa (1.788 testes/256 XML, 0 falhas/erros/ignorados), lint auth/app, assembleDebug e compilação AndroidTest auth/app; detalhes em `TESTING.md`.
+- Limite: URL/política pura, sem certificado apresentado, handshake TLS, fluxo de login, servidor real ou dispositivo/rede LAN; não promove homologação.
+
+### Harness de retomada: evidência auditável também em fases verdes — 2026-10-16
+
+- [x] RED: testes do gravador falham sem helper e quando runner com falha tenta declarar sucesso; GREEN: helper persiste saída, fixture, logcat filtrado e status por fase, validando o resultado AndroidJUnit.
+- [x] Jornada TABLET/API 35: prepare, verify e cleanup passaram 1/1; os três resultados brutos, fixtures, capturas de logcat e status foram preservados em `validation-evidence/2026-10-16/download-process-restart-diagnostics/a94e2689-d949-4775-b6c5-cbc58365f8a5`.
+- [x] Pester tools 48/48; parser PowerShell 22 arquivos sem erro. Gate Gradle `testDebugUnitTest :app:lintDebug :app:assembleDebug :app:compileDebugAndroidTestKotlin --rerun-tasks --no-daemon` passou: BUILD SUCCESSFUL, 871/871 tarefas executadas; avisos de depreciação Kotlin/Compose sem falhas.
+- Limite: logcat selecionado pode conter ruído de sistema antigo; execução fixture/AVD não valida servidor ou dispositivo real nem altera estado de homologação.
+
+## Repetição diagnóstica — retomada offline TABLET — 2026-10-16
+
+- `OBJETIVO`: repetir a jornada existente no AVD TABLET/API 35 para verificar se a falha intermitente Media3 `failureReason=1`/0 bytes/zero requests se reproduzia com o harness atual.
+- `RESULTADO`: preparação, retomada visual após morte do processo e cleanup UUID passaram 1/1 cada. Range retomou em 1.034.976 e completou 3.852.679 bytes; título visível, Media3 `READY`, posição avançou e a origem bloqueada não recebeu requests.
+- `INTERPRETAÇÃO`: a falha não se reproduziu nesta execução. Isso não identifica nem elimina sua causa; sem RED observado não houve correção de runtime ou alegação TDD. Não prova estabilidade prolongada.
+- `GATE`: instalação debug/AndroidTest `BUILD SUCCESSFUL` (431 tarefas, 2 executadas/429 `UP-TO-DATE`); instrumentação direta via harness: prepare/verify/cleanup 1/1. Wrapper confirmou NVIDIA RTX 3050 e desligou o AVD.
+- `LIMITES`: fixture sintética; não valida servidor, mídia ou dispositivo físicos, não altera APK-H07/H17 nem homologação formal. Sem mudança de código de produção, versão ou release.
+
 ## Evidência persistente de falha do runner de retomada offline — 2026-10-16
 
+- `TDD RED`: foi acrescentado canário AndroidJUnit default-off que lança `AssertionError` apenas com argumento explícito. Execução inicial pelo harness mostrou `OK (0 tests)`: filtro apontava para método abreviado; depois de corrigir o filtro, o teste ficou inerte porque o argumento ainda não era encaminhado. Pester foi adicionado para travar o nome do método, argumento opt-in e assertion gate.
+- `GREEN`: terceira execução TABLET/API 35 reportou falha intencional de exatamente 1 teste; três arquivos foram preservados fora do diretório temporário. A verificação de prefixos agora coincide com o helper de gravação. Cleanup por UUID passou 1/1. O harness exige `Tests run: 1, Failures: 1` antes de aceitar evidência. O canário não executa jornada de player/download, porém o app instrumentado iniciou `DownloadService`/`RESUME_DOWNLOADS`; a fixture não recebeu requests e só foi usado AVD descartável.
+- `GATE`: `Test-AndroidDownloadFailureEvidenceCanary.Tests.ps1` passou 4/4; Pester de `tools` passou 46/46; parser PowerShell sem erros; evidência runner validada como 1 teste/1 falha e fixture com zero requests. `:app:compileDebugAndroidTestKotlin` concluiu sem falhas. Execução integrada recompilou/instalou debug e AndroidTest (431 tarefas, 2 executadas/429 `UP-TO-DATE`), exercitou falha e cleanup. Wrapper confirmou NVIDIA RTX 3050, encerrou TABLET e ADB ficou vazio.
+- `LIMITES`: confirma a captura/controlada persistência no caminho de falha do runner, não explica a falha anterior do Media3 (`failureReason=1`, sem requests) nem cobre stack de produção. Artefatos da execução: `MulletaFlix-android/validation-evidence/2026-10-16/download-process-restart-diagnostics/3ae8e1da-779d-4f11-b87b-11324538f192/`. Não houve alteração de módulo, runtime de produção, API, dependência, versão ou release.
+
 - `INTENÇÃO`: manter fora do diretório temporário, após erro AndroidTest, a saída do runner, o estado JSON da fixture e somente as linhas de logcat associadas a download/player/runtime/instrumentação; capturar também o buffer `crash`, sem bugreport amplo.
-- `RED`: o novo teste Pester falhou ao carregar porque `Save-AndroidDownloadFailureEvidence.ps1` ainda não existia (`CommandNotFoundException`); nenhuma falha de parser/configuração Kotlin envolvida.
-- `GREEN`: helper implementado e `Save-AndroidDownloadFailureEvidence.Tests.ps1` verifica os três artefatos, o código do runner, snapshot vazio e log filtrado. Pester focal (gravador + filtro) 3/3.
-- `INTEGRAÇÃO`: jornada TABLET/API 35 passou preparação, retomada visual e cleanup 1/1 cada; Range 1.040.640 + 3.847.015 bytes, `READY`, avanço offline e nenhuma requisição após desabilitar origem. A nova execução não falhou, portanto a gravação do ramo de falha foi coberta por Pester, não exercitada numa falha Android real.
-- `QUALITY`: instalação dos APKs debug/AndroidTest `BUILD SUCCESSFUL` (431 tarefas; 2 executadas/429 `UP-TO-DATE`); `Invoke-Pester -Path .\tools` 37/37. O gate Gradle completo está sendo executado nesta sessão; registrar seu resultado depois de concluído.
-- `LIMITES`: nenhuma alteração de produção. O helper grava apenas os logs filtrados, não `bugreport`, não revela causa do crash anterior e não muda a homologação formal. Ainda falta observar uma falha real e conferir os arquivos que o harness preservará.
+- `RED/GREEN`: o primeiro teste do gravador falhou porque o helper ainda não existia. Uma falha instrumentada posterior revelou também que saída vazia como string era rejeitada (`ParameterBindingValidationException`); teste Pester reproduziu esse caso e passou após permitir string vazia.
+- `GREEN`: Pester cobre gravação de runner, snapshot da fixture, status de cada captura logcat, logs filtrados/redigidos, saída do runner vazia e fixture indisponível. Cleanup tem testes para sucesso, falha isolada e preservação de falha primária. `Invoke-Pester -Path .\tools`: 42/42.
+- `INTEGRAÇÃO`: primeiro TABLET/API 35 passou, Range 1.040.640 + 3.847.015 bytes, `READY`, avanço offline. A repetição seguinte falhou antes da rede: Media3 `FAILED` (`failureReason=1`, 0 bytes), fixture sem pedidos; cleanup UUID passou. O gravador tentou persistir, mas a chamada com string vazia foi rejeitada. Repetições após corrigir o helper passaram; a mais recente em TABLET/API 35 retomou Range no byte 1.039.501 e recebeu 3.848.154 bytes, com título visível, Media3 `READY`, avanço offline e origem bloqueada sem requests. Preparação, retomada e cleanup passaram 1/1 cada.
+- `QUALITY`: instalação debug/AndroidTest pelo wrapper: `BUILD SUCCESSFUL` em 4m30s, 431 tarefas (2 executadas, 429 `UP-TO-DATE`). Não reexecutou suíte JVM, lint ou build integral nesta repetição.
+- `LIMITES`: a repetição verde não exercitou persistência de uma falha instrumentada real depois da correção do parâmetro vazio. A falha de download sem request e o crash anterior do runner continuam sem causa atribuída; logs de GMS observados não provam relação causal. Fixture sintética não valida servidor/mídia/hardware reais. Nenhum runtime de produção, versão ou homologação formal mudou.
 
 ## Diagnóstico exercitado — crash do AndroidJUnitRunner antes da fixture offline — 2026-10-16
 
