@@ -1,0 +1,12 @@
+<?xml version='1.0' encoding='UTF-8' ?>
+<testsuites tests="4" failures="0" errors="0" skipped="0" time="0.000" timestamp="2026-10-16T12:36:59" hostname="localhost">
+  <testsuite name="org.mulletaflix.feature.itemdetail.BookReaderProgressActionsTest" tests="4" failures="0" errors="0" skipped="0" time="24.629" timestamp="2026-10-16T12:36:59" hostname="localhost">
+    <properties>
+      <property name="device" value="emulator-5556" />
+    </properties>
+    <testcase name="tvRemoteCanRenameSavedBookmark" classname="org.mulletaflix.feature.itemdetail.BookReaderProgressActionsTest" time="9.762" />
+    <testcase name="restartRequiresConfirmationAndCanBeCancelled" classname="org.mulletaflix.feature.itemdetail.BookReaderProgressActionsTest" time="3.603" />
+    <testcase name="tvRemoteCanConfirmRestartFromTheMenu" classname="org.mulletaflix.feature.itemdetail.BookReaderProgressActionsTest" time="3.367" />
+    <testcase name="tvRemoteCanSaveBookmarkAndOpenBookmarkList" classname="org.mulletaflix.feature.itemdetail.BookReaderProgressActionsTest" time="7.897" />
+  </testsuite>
+</testsuites>

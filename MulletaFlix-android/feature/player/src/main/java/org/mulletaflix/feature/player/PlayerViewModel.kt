@@ -285,6 +285,9 @@ class PlayerViewModel @Inject constructor(
                 if (playbackState == Player.STATE_BUFFERING || playbackState == Player.STATE_READY) {
                     enqueueSyncPlayPlaybackStatus(playbackState == Player.STATE_BUFFERING)
                 }
+                if (playbackState == Player.STATE_READY) {
+                    applyPendingSyncPlayback()
+                }
                 if (playbackState == Player.STATE_ENDED) {
                     val keys = listOfNotNull(localPlaybackKey, legacyLocalPlaybackKey)
                     if (keys.isNotEmpty()) {
@@ -1143,15 +1146,10 @@ class PlayerViewModel @Inject constructor(
                 .takeIf { it > 0L }
                 ?.let(player::seekTo)
 
-            val syncPositionMs = pendingSyncPositionMs
-            val syncIsPlaying = pendingSyncIsPlaying
-            if (syncPositionMs != null) player.seekTo(syncPositionMs)
-            pendingSyncPositionMs = null
-            pendingSyncIsPlaying = null
-            when (syncIsPlaying) {
-                true -> player.play()
-                false -> player.pause()
-                null -> if (autoPlayEnabled) player.play()
+            if (pendingSyncPositionMs != null || pendingSyncIsPlaying != null) {
+                if (player.playbackState == Player.STATE_READY) applyPendingSyncPlayback()
+            } else if (autoPlayEnabled) {
+                player.play()
             }
 
             // Report start to server
@@ -1343,6 +1341,21 @@ class PlayerViewModel @Inject constructor(
         enqueueSyncPlayPlaybackStatus(player.playbackState == Player.STATE_BUFFERING)
     }
 
+    /** Retain a queue/command correction until Media3 can seek the prepared timeline. */
+    private fun applyPendingSyncPlayback() {
+        val positionMs = pendingSyncPositionMs
+        val isPlaying = pendingSyncIsPlaying
+        if (positionMs == null && isPlaying == null) return
+        pendingSyncPositionMs = null
+        pendingSyncIsPlaying = null
+        if (positionMs != null) player.seekTo(positionMs)
+        when (isPlaying) {
+            true -> player.play()
+            false -> player.pause()
+            null -> Unit
+        }
+    }
+
     private fun enqueueSyncPlayPlaybackStatus(isBuffering: Boolean) {
         val groupId = syncPlayRealtimeClient.activeGroupId
         val playlistItemId = currentPlaylistItemId
@@ -1391,6 +1404,17 @@ class PlayerViewModel @Inject constructor(
                     currentPlaylistItemId = currentPlaylistItemId,
                 )
             ) return@schedule
+            // A queue change can be loading while realtime commands arrive. ExoPlayer
+            // cannot retain a seek issued before its new MediaItem is installed, so
+            // fold the latest command into the pending queue state as well.
+            if (pendingSyncPositionMs != null) {
+                syncPlayCommandPositionMs(event.command, event.positionTicks)
+                    ?.let { pendingSyncPositionMs = it }
+                when (event.command.lowercase()) {
+                    "pause" -> pendingSyncIsPlaying = false
+                    "unpause" -> pendingSyncIsPlaying = true
+                }
+            }
             when (event.command.lowercase()) {
                 "pause" -> {
                     syncPlayCommandPositionMs(event.command, event.positionTicks)?.let(player::seekTo)

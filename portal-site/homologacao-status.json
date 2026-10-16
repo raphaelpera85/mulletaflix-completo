@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-10-15T17:34:23-03:00",
+  "generatedAt": "2026-10-16T08:10:22-03:00",
   "source": {
     "roadmap": "https://github.com/raphaelpera85/mulletaflix-completo/blob/main/docs/roadmap-evolucao-tecnologica-servidor-e-web.md",
     "repository": "https://github.com/raphaelpera85/mulletaflix-completo"
@@ -51,12 +51,12 @@
         "label": "10 de 21 áreas com evidência técnica local; 2 em validação e 9 pendentes. Autenticação/troca de servidor reaberta após falha instrumentada; aceite formal continua aberto."
       },
       "testAudit": {
-        "passed": 1784,
-        "total": 1784,
+        "passed": 1785,
+        "total": 1785,
         "skipped": 0,
         "failed": 0,
         "percent": 100,
-        "label": "Suíte JVM integral forçada em 15/10/2026: 1.784 testes em 256 XML, 0 falhas/erros/ignorados; gate final de lint módulo/app, assembleDebug e compilação AndroidTest BUILD SUCCESSFUL, 881 tarefas executadas. Instrumentação por perfil está registrada em eventos separados."
+        "label": "Suíte JVM integral forçada em 16/10/2026: 1.785 testes em 256 XML, 0 falhas/erros/ignorados; lint SyncPlay/app, assembleDebug e compilação AndroidTest BUILD SUCCESSFUL, 881 tarefas executadas. Instrumentação por perfil está registrada em eventos separados."
       },
       "instrumentationAudit": {
         "passed": 44,
@@ -2941,6 +2941,36 @@
   ],
   "events": [
     {
+      "id": "android-offline-download-completion-race-2026-10-16",
+      "title": "Corrigir a sequência do fixture de retomada offline",
+      "agent": "Codex",
+      "front": "android",
+      "featureIds": ["APK-H07"],
+      "local": "D:\\Users\\Raphael\\Documents\\Projetos\\mulletaflix",
+      "location": "MulletaFlix-android/app/src/androidTest e tools/Test-AndroidDownloadProcessRestart.ps1",
+      "scope": "Desativar a origem HTTP de teste somente depois que Media3 confirmar o download integral e verificar retomada/reprodução sem origem; não mudar runtime nem aceite formal.",
+      "status": "completed",
+      "progressPercent": null,
+      "startedAt": "2026-10-16T07:37:17-03:00",
+      "updatedAt": "2026-10-16T08:10:22-03:00",
+      "evidence": "TDD RED reproduziu corrida do harness TABLET/API 35: a origem era desativada quando o host HTTP terminava a resposta, com Media3 em 89,4% (4.368.544/4.887.655 bytes), antes de STATE_COMPLETED; não houve falha HTTP nem failureReason. GREEN moveu POST /disable-media ao AndroidTest após estado COMPLETED, tamanho total e MIME, e removeu a desativação antecipada do PowerShell. Sem alteração no player de produção e sem relaxar asserts. Duas execuções integradas consecutivas passaram em TABLET/API 35: retomada Range nos bytes 1.042.381 e 1.042.925, download COMPLETED (3.845.274 e 3.844.730 bytes restantes), playback offline avançando e zero requests à origem desativada; preparação/verificação/cleanup passaram 1/1 cada. Terceira tentativa não iniciou AVD/teste e não entra na contagem. Fixture HTTP/Matroska e AVD sintéticos; hardware, servidor/mídia reais e estabilidade prolongada seguem pendentes. APK-H07/H17, matriz 10/21 concluídas, 2 em validação, 9 pendentes e formalSignoff=pending não mudam. Sem bump, release ou publicação; atualização local do status do portal, sem deploy."
+    },
+    {
+      "id": "android-syncplay-player-realtime-2026-10-16",
+      "title": "Comandos SyncPlay aplicados ao Media3 durante preparação da mídia",
+      "agent": "Codex",
+      "front": "android",
+      "featureIds": ["APK-H10"],
+      "local": "D:\\Users\\Raphael\\Documents\\Projetos\\mulletaflix",
+      "location": "MulletaFlix-android/feature/player e validation-evidence/2026-10-16/syncplay-player-realtime",
+      "scope": "Preservar posição e estado play/pause recebidos pelo SyncPlay enquanto a próxima mídia é preparada no Media3, sem alterar o servidor ou promover homologação formal.",
+      "status": "completed",
+      "progressPercent": null,
+      "startedAt": "2026-10-16T05:25:53-03:00",
+      "updatedAt": "2026-10-16T05:25:53-03:00",
+      "evidence": "TDD RED reproduziu perda da posição de Pause recebida enquanto a fila carregava: Media3 chegava a READY pausado em 0 ms em vez da posição SyncPlay. GREEN conserva a posição e intenção mais recentes e aplica seek/play-pause quando a timeline fica pronta. SyncPlayPlayerRealtimeIntegrationTest passou 1/1 em PHONE/API 35, TABLET/API 35 e TV/API 34; XMLs em MulletaFlix-android/validation-evidence/2026-10-16/syncplay-player-realtime/{phone-api35,tablet-api35,tv-api34}. Quality gate forçado: 1.784 testes JVM/256 XML, zero falhas/erros/ignorados; lint player/app, assembleDebug e compilação AndroidTest aprovados (881 tarefas). MockWebServer, sessão/sala sintéticas e WAV local; servidor autorizado, autenticação/DI reais, stream de vídeo e hardware não cobertos. Evidência técnica complementar não fecha APK-H10 nem homologação formal: matriz 10/21 concluídas, 2 em validação, 9 pendentes, formalSignoff=pending. AVDs temporários NVIDIA encerrados pelo wrapper. Sem release, versão, alteração do servidor ou deploy do portal; sincronização apenas local."
+    },
+    {
       "id": "android-kf8-nested-style-reset-decoration-2026-10-15",
       "title": "Estilos aninhados e decoração CSS propagada no leitor HTML/KF8",
       "agent": "Codex",
@@ -5163,6 +5193,21 @@
       "startedAt": "2026-10-12T06:45:00-03:00",
       "updatedAt": "2026-10-12T06:55:00-03:00",
       "evidence": "Autorização explícita do usuário para fluxo de release registrada como exceção pontual no roadmap. Pré-validação: testes LibraryMonitorTests 2/2 e build Release de Emby.Server.Implementations com 0 avisos/0 erros. Release estável publicada: https://github.com/raphaelpera85/mulletaflix-completo/releases/tag/v12.1.19, tag v12.1.19 no commit 8f9f630b951ee21fa91081797b0c2c8d52926652; API GitHub confirmou draft=false, prerelease=false e os assets `mulletaflix-update-win-x64.zip` (388518979 bytes, SHA-256 6ECF5F42947C074D3B011EA4FECFF88CA9EC15CBFF4465D86C3BE36FC1895E06) e `mulletaflix_12.1.19_windows-x64.exe` (423401347 bytes, SHA-256 1F3B52DC7CCDF02D2019E9087F6E773C50F9EBE657537A1A135BE1437F95C612). O instalador foi criado por NSIS em configuração Release/self-contained; a verificação Authenticode é NotSigned, igual ao instalador oficial 12.1.18, pois o projeto não possui assinatura Authenticode configurada — não foi usada assinatura ou chave de desenvolvimento. Portal: commit daa51e8, deploy Vercel de produção READY dpl_HXMRb2AV4HxjSPtnkqcEC3CqVjAa; /, /docs, /downloads, /updates, /homologacao e /sitemap.xml retornaram HTTP 200, e /docs e /updates exibem a versão/correção. APK fora do escopo da exceção; roadmap permanece em andamento."
+    },
+    {
+      "id": "android-syncplay-reconnection-ui-2026-10-16",
+      "title": "Feedback visual da reconexão realtime do SyncPlay",
+      "agent": "Codex",
+      "front": "android",
+      "featureIds": ["APK-H10"],
+      "local": "D:\\Users\\Raphael\\Documents\\Projetos\\mulletaflix",
+      "location": "MulletaFlix-android/feature/sync-play e app/src/androidTest",
+      "scope": "Distinguir conexão inicial, conexão ativa e reconexão na interface SyncPlay, evitando estados e notificações duplicados sem alterar o servidor nem promover aceite formal.",
+      "status": "completed",
+      "progressPercent": null,
+      "startedAt": "2026-10-16T04:57:33-03:00",
+      "updatedAt": "2026-10-16T04:57:33-03:00",
+      "evidence": "TDD RED reproduziu timeout ao esperar o estado visual de reconexão depois do WebSocket remoto fechar; havia status genérico e nós/notificação de conexão duplicados. GREEN separa INACTIVE/CONNECTING/CONNECTED/RECONNECTING no SyncPlayUiState e renderiza status uma vez, reservando snackbar a eventos de conteúdo. SyncPlayScreenRealtimeJourneyTest passou 2/2 em PHONE/API 35, TABLET/API 35 e TV/API 34 (MockWebServer/fixtures locais). O XML individual final persistido é o da TV em MulletaFlix-android/validation-evidence/2026-10-16/syncplay-reconnection-ui/tv-api34-class.xml; resultados de PHONE/TABLET foram confirmados pelo Gradle, sem XML individual preservado. Quality gate forçado: 1.785 testes JVM/256 XML, zero falhas/erros/ignorados; lint SyncPlay/app, assembleDebug e compilação AndroidTest aprovados (881 tarefas). Sessão/repositório sintéticos; servidor, autenticação/DI e hardware reais não cobertos. Evidência técnica não fecha APK-H10 nem a homologação formal: matriz 10/21 concluídas, 2 em validação, 9 pendentes, formalSignoff=pending. AVDs temporários encerrados pelo wrapper. Sem release, alteração de versão ou servidor. Atualização somente local; sem deploy."
     },
     {
       "id": "android-kf8-css-important-order-2026-10-15",

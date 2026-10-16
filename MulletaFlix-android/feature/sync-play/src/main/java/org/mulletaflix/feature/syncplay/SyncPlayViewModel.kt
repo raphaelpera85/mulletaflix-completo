@@ -22,6 +22,13 @@ import org.mulletaflix.core.api.SyncPlayRealtimeClient
 import org.mulletaflix.core.api.SyncPlayRealtimeEvent
 import javax.inject.Inject
 
+enum class SyncPlayRealtimeConnectionStatus {
+    INACTIVE,
+    CONNECTING,
+    CONNECTED,
+    RECONNECTING,
+}
+
 data class SyncPlayUiState(
     val groups: List<SyncPlayGroup> = emptyList(),
     val isLoading: Boolean = false,
@@ -30,6 +37,8 @@ data class SyncPlayUiState(
     val error: String? = null,
     val activeGroupId: String? = null,
     val realtimeConnected: Boolean = false,
+    val realtimeConnectionStatus: SyncPlayRealtimeConnectionStatus =
+        SyncPlayRealtimeConnectionStatus.INACTIVE,
     val lastRealtimeEvent: String? = null,
     /** Changes for every server event, including repeated messages. */
     val realtimeEventSequence: Long = 0L,
@@ -74,14 +83,16 @@ class SyncPlayViewModel @Inject constructor(
                     SyncPlayRealtimeEvent.Connected -> _state.update {
                         it.copy(
                             realtimeConnected = true,
-                            lastRealtimeEvent = syncPlayRealtimeNotification(event),
+                            realtimeConnectionStatus = SyncPlayRealtimeConnectionStatus.CONNECTED,
+                            lastRealtimeEvent = null,
                             realtimeEventSequence = it.realtimeEventSequence + 1,
                         )
                     }
                     SyncPlayRealtimeEvent.Disconnected -> _state.update {
                         it.copy(
                             realtimeConnected = false,
-                            lastRealtimeEvent = syncPlayRealtimeNotification(event),
+                            realtimeConnectionStatus = SyncPlayRealtimeConnectionStatus.RECONNECTING,
+                            lastRealtimeEvent = null,
                             realtimeEventSequence = it.realtimeEventSequence + 1,
                         )
                     }
@@ -141,6 +152,7 @@ class SyncPlayViewModel @Inject constructor(
                                 error = null,
                                 activeGroupId = null,
                                 realtimeConnected = false,
+                                realtimeConnectionStatus = SyncPlayRealtimeConnectionStatus.INACTIVE,
                                 lastRealtimeEvent = null,
                             )
                         }
@@ -231,7 +243,15 @@ class SyncPlayViewModel @Inject constructor(
             manageSyncPlayUseCase.joinGroup(groupId)
                 .onSuccess {
                     if (!isCurrentSession(userId, generation)) return@onSuccess
-                    _state.update { it.copy(isSubmitting = false, activeGroupId = groupId) }
+                    _state.update {
+                        it.copy(
+                            isSubmitting = false,
+                            activeGroupId = groupId,
+                            realtimeConnected = false,
+                            realtimeConnectionStatus = SyncPlayRealtimeConnectionStatus.CONNECTING,
+                            lastRealtimeEvent = null,
+                        )
+                    }
                     realtimeClient?.start(groupId)
                     refresh()
                 }
@@ -252,7 +272,15 @@ class SyncPlayViewModel @Inject constructor(
             manageSyncPlayUseCase.leaveGroup()
                 .onSuccess {
                     if (!isCurrentSession(userId, generation)) return@onSuccess
-                    _state.update { it.copy(isSubmitting = false, activeGroupId = null) }
+                    _state.update {
+                        it.copy(
+                            isSubmitting = false,
+                            activeGroupId = null,
+                            realtimeConnected = false,
+                            realtimeConnectionStatus = SyncPlayRealtimeConnectionStatus.INACTIVE,
+                            lastRealtimeEvent = null,
+                        )
+                    }
                     realtimeClient?.stop()
                     refresh()
                 }
@@ -310,11 +338,18 @@ class SyncPlayViewModel @Inject constructor(
 }
 
 internal fun syncPlayRealtimeNotification(event: SyncPlayRealtimeEvent): String = when (event) {
-    SyncPlayRealtimeEvent.Connected -> "Sincronização em tempo real conectada"
-    SyncPlayRealtimeEvent.Disconnected -> "Sincronização desconectada; tentando reconectar…"
+    SyncPlayRealtimeEvent.Connected -> syncPlayRealtimeConnectionLabel(SyncPlayRealtimeConnectionStatus.CONNECTED)
+    SyncPlayRealtimeEvent.Disconnected -> syncPlayRealtimeConnectionLabel(SyncPlayRealtimeConnectionStatus.RECONNECTING)
     is SyncPlayRealtimeEvent.Command -> "${event.command} recebido pelo grupo"
     is SyncPlayRealtimeEvent.GroupUpdate -> "Sala atualizada: ${event.type}"
     is SyncPlayRealtimeEvent.QueueUpdate -> "Mídia da sala atualizada"
+}
+
+internal fun syncPlayRealtimeConnectionLabel(status: SyncPlayRealtimeConnectionStatus): String = when (status) {
+    SyncPlayRealtimeConnectionStatus.INACTIVE -> "Sincronização em tempo real inativa"
+    SyncPlayRealtimeConnectionStatus.CONNECTING -> "Conectando à sincronização em tempo real…"
+    SyncPlayRealtimeConnectionStatus.CONNECTED -> "Sincronização em tempo real conectada"
+    SyncPlayRealtimeConnectionStatus.RECONNECTING -> "Reconectando à sincronização em tempo real…"
 }
 
 internal fun shouldHandleSyncPlayRealtimeEvent(

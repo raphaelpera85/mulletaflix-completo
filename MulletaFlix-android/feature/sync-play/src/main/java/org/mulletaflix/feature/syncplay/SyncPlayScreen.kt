@@ -54,7 +54,61 @@ fun SyncPlayScreen(onBack: () -> Unit = {}, viewModel: SyncPlayViewModel = hiltV
                     onJoin = { viewModel.joinGroup(group.groupId) },
                 )
             }
-            if (state.activeGroupId != null) item { Column(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) { Text("Controles da sala", style = MaterialTheme.typography.titleMedium); Text(if (state.realtimeConnected) "Sincronização em tempo real conectada" else "Conectando à sincronização em tempo real…", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant); state.lastRealtimeEvent?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary) }; Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) { OutlinedButton(onClick = { viewModel.sendPlaybackCommand(SyncPlayPlaybackCommand.PAUSE) }, enabled = !state.isSubmitting, modifier = Modifier.weight(1f)) { Icon(Icons.Default.Pause, null); Spacer(Modifier.width(4.dp)); Text("Pausar") }; OutlinedButton(onClick = { viewModel.sendPlaybackCommand(SyncPlayPlaybackCommand.UNPAUSE) }, enabled = !state.isSubmitting, modifier = Modifier.weight(1f)) { Icon(Icons.Default.PlayArrow, null); Spacer(Modifier.width(4.dp)); Text("Retomar") } }; OutlinedButton(onClick = { viewModel.sendPlaybackCommand(SyncPlayPlaybackCommand.STOP) }, enabled = !state.isSubmitting, modifier = Modifier.fillMaxWidth()) { Icon(Icons.Default.Stop, null); Spacer(Modifier.width(8.dp)); Text("Parar reprodução do grupo") }; OutlinedButton(onClick = viewModel::leaveGroup, enabled = !state.isSubmitting, modifier = Modifier.fillMaxWidth()) { Text("Sair da sala atual") } } }
+            if (state.activeGroupId != null) item {
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text("Controles da sala", style = MaterialTheme.typography.titleMedium)
+                    Text(
+                        syncPlayRealtimeConnectionLabel(state.realtimeConnectionStatus),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    state.lastRealtimeEvent?.let {
+                        Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
+                    }
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        OutlinedButton(
+                            onClick = { viewModel.sendPlaybackCommand(SyncPlayPlaybackCommand.PAUSE) },
+                            enabled = !state.isSubmitting,
+                            modifier = Modifier.weight(1f),
+                        ) {
+                            Icon(Icons.Default.Pause, null)
+                            Spacer(Modifier.width(4.dp))
+                            Text("Pausar")
+                        }
+                        OutlinedButton(
+                            onClick = { viewModel.sendPlaybackCommand(SyncPlayPlaybackCommand.UNPAUSE) },
+                            enabled = !state.isSubmitting,
+                            modifier = Modifier.weight(1f),
+                        ) {
+                            Icon(Icons.Default.PlayArrow, null)
+                            Spacer(Modifier.width(4.dp))
+                            Text("Retomar")
+                        }
+                    }
+                    OutlinedButton(
+                        onClick = { viewModel.sendPlaybackCommand(SyncPlayPlaybackCommand.STOP) },
+                        enabled = !state.isSubmitting,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Icon(Icons.Default.Stop, null)
+                        Spacer(Modifier.width(8.dp))
+                        Text("Parar reprodução do grupo")
+                    }
+                    OutlinedButton(
+                        onClick = viewModel::leaveGroup,
+                        enabled = !state.isSubmitting,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text("Sair da sala atual")
+                    }
+                }
+            }
         }
     }
     if (showCreateDialog) { var name by remember { mutableStateOf("") }; AlertDialog(onDismissRequest = { if (!state.isSubmitting) showCreateDialog = false }, title = { Text("Criar sala SyncPlay") }, text = { OutlinedTextField(value = name, onValueChange = { name = it }, singleLine = true, label = { Text("Nome da sala") }, modifier = Modifier.fillMaxWidth()) }, dismissButton = { TextButton(onClick = { showCreateDialog = false }, enabled = !state.isSubmitting) { Text("Cancelar") } }, confirmButton = { Button(onClick = { viewModel.createGroup(name) { showCreateDialog = false } }, enabled = name.isNotBlank() && !state.isSubmitting) { Text("Criar") } }) }

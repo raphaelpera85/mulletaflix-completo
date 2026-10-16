@@ -39,7 +39,18 @@ class SyncPlayViewModelTest {
         val second = syncPlayRealtimeNotification(SyncPlayRealtimeEvent.Disconnected)
 
         assertEquals("Mídia da sala atualizada", first)
-        assertEquals("Sincronização desconectada; tentando reconectar…", second)
+        assertEquals("Reconectando à sincronização em tempo real…", second)
+    }
+
+    @Test fun `connection labels distinguish initial connection from recovery`() {
+        assertEquals(
+            "Conectando à sincronização em tempo real…",
+            syncPlayRealtimeConnectionLabel(SyncPlayRealtimeConnectionStatus.CONNECTING),
+        )
+        assertEquals(
+            "Reconectando à sincronização em tempo real…",
+            syncPlayRealtimeConnectionLabel(SyncPlayRealtimeConnectionStatus.RECONNECTING),
+        )
     }
 
     @Test fun `realtime content events are limited to the active room`() {

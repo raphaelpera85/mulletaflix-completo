@@ -1,6 +1,8 @@
 param(
     [string] $AvdName = 'MulletaflixApi35',
-    [int] $Port = 5556
+    [int] $Port = 5556,
+    [ValidateSet('PHONE', 'TABLET', 'TV')]
+    [string] $ExpectedProfile = 'PHONE'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -29,7 +31,7 @@ function Invoke-GradlePhase {
     $arguments = @(
         '-s', $serial, 'shell', 'am', 'instrument', '-w',
         '-e', 'class', "$testClass#$Method",
-        '-e', 'expectedDeviceProfile', 'PHONE',
+        '-e', 'expectedDeviceProfile', $ExpectedProfile,
         '-e', 'deviceSerial', $serial,
         '-e', 'downloadRestartTestId', $testId,
         '-e', 'downloadRestartMediaUrl', "http://10.0.2.2:$script:fixturePort/media",
@@ -46,6 +48,18 @@ function Invoke-GradlePhase {
     $runnerText = $runnerOutput -join [Environment]::NewLine
     Write-Host $runnerText
     if ($runnerExitCode -ne 0 -or $runnerText -notmatch 'OK \(1 test\)' -or $runnerText -match 'FAILURES!!!|INSTRUMENTATION_FAILED') {
+        try {
+            $fixtureStatus = Invoke-RestMethod -Uri "http://127.0.0.1:$script:fixturePort/status" -TimeoutSec 5
+            Write-Host "Fixture status at instrumentation failure: $(ConvertTo-Json -InputObject $fixtureStatus -Depth 5 -Compress)"
+        } catch {
+            Write-Warning "Could not read fixture status after instrumentation failure: $_"
+        }
+        $diagnosticLogLines = @(& $adb -s $serial logcat -d -v time -t 1000 2>$null |
+            Select-String 'DownloadManager|DownloadService|DownloadTask|ExoPlayerImplInternal|CacheDataSource|CacheWriter|MediaCodec|FATAL EXCEPTION')
+        if ($diagnosticLogLines.Count -gt 0) {
+            Write-Host 'Android download/player logcat at instrumentation failure:'
+            $diagnosticLogLines | Select-Object -Last 100 | ForEach-Object { Write-Host $_.Line }
+        }
         throw "Instrumentation phase '$Method' did not report exactly one passing test (adb exit=$runnerExitCode)."
     }
 }
@@ -107,7 +121,7 @@ try {
     $density = @(& $adb -s $serial shell wm density)
     . (Join-Path $PSScriptRoot 'Assert-AndroidDeviceProfile.ps1')
     $actualProfile = Get-AndroidDeviceProfile -FeatureLines $features -DisplaySizeLines $size -DisplayDensityLines $density
-    Assert-AndroidDeviceProfile -Expected PHONE -Actual $actualProfile
+    Assert-AndroidDeviceProfile -Expected $ExpectedProfile -Actual $actualProfile
 
     Invoke-GradlePhase -Method 'preparePartialDownloadForHostProcessRestart' -FixtureBytes $script:fixtureBytes
 
@@ -140,7 +154,7 @@ try {
     $expectedRemainingBytes = $script:fixtureBytes - $resumedOffset
     if ($completedBytes -ne $expectedRemainingBytes) { throw "Resumed media response did not complete; rangeOffset=$resumedOffset, expectedBytes=$expectedRemainingBytes, actualBytes=$completedBytes." }
 
-    Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:$script:fixturePort/disable-media" -TimeoutSec 5 | Out-Null
+    # AndroidTest disables the fixture only after Media3 reports STATE_COMPLETED.
     Invoke-GradlePhase -Method 'verifyPartialDownloadResumedByFreshApplicationProcess' -ResumedOffset $resumedOffset -CompletedBytes $completedBytes -FixtureBytes $script:fixtureBytes
     Write-Host "Process restart resumed at byte $resumedOffset and completed $completedBytes bytes."
 }

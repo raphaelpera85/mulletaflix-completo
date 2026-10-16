@@ -31,6 +31,8 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import okhttp3.OkHttpClient
+import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
@@ -191,6 +193,7 @@ class DownloadProcessRestartIntegrationTest {
         }
         assertEquals("Every fixture byte must be persisted by Media3", expectedFixtureBytes, completed.bytesDownloaded)
         assertEquals("The player fixture must use a supported Matroska container", "video/x-matroska", completed.request.mimeType)
+        disableMediaOrigin(mediaUrl)
 
         val testContext = isolatedContext(testId)
         val sessionRepository = SessionRepositoryImpl(testContext)
@@ -357,7 +360,8 @@ class DownloadProcessRestartIntegrationTest {
 
     private fun assertDebugApplication() {
         assertTrue("This test must never use the production package", context.packageName.endsWith(".debug"))
-        assertEquals("Only the expected emulator can run the host-process test", "emulator-5556", InstrumentationRegistry.getArguments().getString("deviceSerial"))
+        val deviceSerial = requireNotNull(InstrumentationRegistry.getArguments().getString("deviceSerial"))
+        assertTrue("The host-process test must run on the explicitly selected emulator", deviceSerial.matches(Regex("emulator-\\d+")))
     }
 
     private fun assertQueueIsNotUserPaused() {
@@ -446,23 +450,38 @@ class DownloadProcessRestartIntegrationTest {
             initialPositionMs = player.currentPosition
         }
         val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(20)
+        val samples = mutableListOf<String>()
+        var nextSampleAtNanos = System.nanoTime()
         var isAdvancing = false
         var currentPositionMs = initialPositionMs
         var isPlaying = false
         var playWhenReady = false
+        var finalSnapshot = "unavailable"
         while (System.nanoTime() < deadline && !isAdvancing) {
+            val sampleHostTimeMs = TimeUnit.NANOSECONDS.toMillis(System.nanoTime())
             InstrumentationRegistry.getInstrumentation().runOnMainSync {
                 isPlaying = player.isPlaying
                 playWhenReady = player.playWhenReady
                 currentPositionMs = player.currentPosition
                 isAdvancing = isPlaying && currentPositionMs >= initialPositionMs + MIN_PLAYBACK_ADVANCE_MS
+                finalSnapshot = "state=${player.playbackState}, durationMs=${player.duration}, " +
+                    "positionMs=$currentPositionMs, contentPositionMs=${player.contentPosition}, " +
+                    "bufferedPositionMs=${player.bufferedPosition}, speed=${player.playbackParameters.speed}, " +
+                    "timelineEmpty=${player.currentTimeline.isEmpty}, live=${player.isCurrentMediaItemLive}, " +
+                    "item=${player.currentMediaItem?.localConfiguration?.uri}"
+            }
+            if (System.nanoTime() >= nextSampleAtNanos && samples.size < 10) {
+                samples += "hostElapsedMs=$sampleHostTimeMs $finalSnapshot"
+                nextSampleAtNanos = System.nanoTime() + TimeUnit.SECONDS.toNanos(2)
             }
             if (!isAdvancing) Thread.sleep(100)
         }
         assertTrue(
             "Offline playback must advance media position, not only reach READY; " +
                 "isPlaying=$isPlaying, playWhenReady=$playWhenReady, " +
-                "positionMs=$currentPositionMs, startMs=$initialPositionMs",
+                "positionMs=$currentPositionMs, startMs=$initialPositionMs, " +
+                "systemElapsedRealtimeMs=${android.os.SystemClock.elapsedRealtime()}, " +
+                "finalSnapshot=[$finalSnapshot], samples=${samples.joinToString(separator = "; ")}",
             isAdvancing,
         )
     }
@@ -474,6 +493,18 @@ class DownloadProcessRestartIntegrationTest {
             Thread.sleep(50)
         }
         assertNull("The isolated download request must be removed by the service", manager.downloadIndex.getDownload(requestId))
+    }
+
+    private fun disableMediaOrigin(mediaUrl: String) {
+        val disableUrl = Uri.parse(mediaUrl).buildUpon().encodedPath("/disable-media").build().toString()
+        OkHttpClient().newCall(
+            Request.Builder()
+                .url(disableUrl)
+                .post(ByteArray(0).toRequestBody(null))
+                .build(),
+        ).execute().use { response ->
+            assertEquals("The fixture must disable its media origin after Media3 completes the download", 200, response.code)
+        }
     }
 
     private fun isolatedDataDirectory(testId: String) = File(context.cacheDir, "download-process-restart-session/$testId")

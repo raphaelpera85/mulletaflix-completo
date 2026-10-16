@@ -1,0 +1,10 @@
+<?xml version='1.0' encoding='UTF-8' ?>
+<testsuites tests="2" failures="0" errors="0" skipped="0" time="0.000" timestamp="2026-10-16T07:33:17" hostname="localhost">
+  <testsuite name="org.mulletaflix.android.SyncPlayScreenRealtimeJourneyTest" tests="2" failures="0" errors="0" skipped="0" time="6.139" timestamp="2026-10-16T07:33:17" hostname="localhost">
+    <properties>
+      <property name="device" value="emulator-5556" />
+    </properties>
+    <testcase name="remoteSocketCloseShowsReconnectStateUntilTheClientConnectsAgain" classname="org.mulletaflix.android.SyncPlayScreenRealtimeJourneyTest" time="4.481" />
+    <testcase name="joiningRoomRendersCommandReceivedByRealWebSocketClient" classname="org.mulletaflix.android.SyncPlayScreenRealtimeJourneyTest" time="1.658" />
+  </testsuite>
+</testsuites>

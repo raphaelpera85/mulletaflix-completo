@@ -1,0 +1,19 @@
+<?xml version='1.0' encoding='UTF-8' ?>
+<testsuites tests="11" failures="0" errors="0" skipped="0" time="0.000" timestamp="2026-10-16T12:13:17" hostname="localhost">
+  <testsuite name="org.mulletaflix.feature.itemdetail.BookReaderReadiumIntegrationTest" tests="11" failures="0" errors="0" skipped="0" time="37.732" timestamp="2026-10-16T12:13:17" hostname="localhost">
+    <properties>
+      <property name="device" value="emulator-5558" />
+    </properties>
+    <testcase name="reflowableRenditionRestoresSavedLocationAfterRecreation" classname="org.mulletaflix.feature.itemdetail.BookReaderReadiumIntegrationTest" time="13.535" />
+    <testcase name="fontSizePreferencePersistsAndIsIsolatedByAccountAndServer" classname="org.mulletaflix.feature.itemdetail.BookReaderReadiumIntegrationTest" time="1.997" />
+    <testcase name="readingProgressPersistsAcrossStoreInstancesAndIsolatedByAccountAndServer" classname="org.mulletaflix.feature.itemdetail.BookReaderReadiumIntegrationTest" time="3.188" />
+    <testcase name="reflowableRenditionAppliesFontSizeDynamicallyWithoutLosingLocation" classname="org.mulletaflix.feature.itemdetail.BookReaderReadiumIntegrationTest" time="3.498" />
+    <testcase name="activeRenditionNavigatesToSavedBookmark" classname="org.mulletaflix.feature.itemdetail.BookReaderReadiumIntegrationTest" time="2.927" />
+    <testcase name="legacyComicLocatorIsMigratedToAValidReadiumUrlAndKeepsPageIndex" classname="org.mulletaflix.feature.itemdetail.BookReaderReadiumIntegrationTest" time="1.732" />
+    <testcase name="convertsMalformedEpubParserAssertionIntoReaderFailure" classname="org.mulletaflix.feature.itemdetail.BookReaderReadiumIntegrationTest" time="2.425" />
+    <testcase name="bookmarksPersistPerAccountAndServerCanBeRemovedAndStayBounded" classname="org.mulletaflix.feature.itemdetail.BookReaderReadiumIntegrationTest" time="2.720" />
+    <testcase name="appearancePreferencePersistsAcrossReaderInstancesAndIsIsolatedByAccountAndServer" classname="org.mulletaflix.feature.itemdetail.BookReaderReadiumIntegrationTest" time="2.504" />
+    <testcase name="opensValidEpubAndReadsItsMetadataWithProductionParser" classname="org.mulletaflix.feature.itemdetail.BookReaderReadiumIntegrationTest" time="2.014" />
+    <testcase name="comicPageProgressPersistsAndRemainsScopedToItsAccountAndServer" classname="org.mulletaflix.feature.itemdetail.BookReaderReadiumIntegrationTest" time="1.192" />
+  </testsuite>
+</testsuites>

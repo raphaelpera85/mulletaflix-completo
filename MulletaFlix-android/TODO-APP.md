@@ -1,13 +1,18 @@
 # MulletaFlix Android - Plano de Desenvolvimento & Checklist de Funcionalidades (TODO)
 
-## Em andamento: jornada visual de retomada offline após morte do processo — revalidada em 16/10/2026
+## Em andamento: jornada visual de retomada offline após morte do processo — PHONE/TABLET/TV em AVD — 16/10/2026
 
 - [x] Comprovar que o host Compose de AndroidTest sobreviva à orientação solicitada por `VideoPlayerScreen`; RED por perda da hierarquia Compose e GREEN após alinhar `configChanges` do host debug ao contrato já existente na `MainActivity`. O teste confirma texto visível e um único início de `LaunchedEffect`; XML: `validation-evidence/2026-10-15/offline-player-host-orientation-PHONE-API35.xml`.
-- [x] Executar a jornada coordenada: processo novo retomou Range no byte 1.046.701; preparação e limpeza UUID passaram e o fixture completou o payload.
+- [x] Executar a jornada coordenada: processo novo retomou Range no byte 1.040.096; preparação e limpeza UUID passaram e o fixture completou o payload.
 - [x] Corrigir o harness: usar `createAndroidComposeRule` clássico para que `MediaRouteButton`/MediaRouter opere com a Activity na thread principal e remover o segundo `setContent` inválido do `finally`.
-- [x] Reexecutar a jornada integral: título visível, player `READY`, posição avançando pelo menos 500 ms e nenhuma requisição à origem bloqueada; preparação, retomada e limpeza passaram 1/1 por fase no PHONE/API 35. Repetir após o novo ajuste de teardown do `ViewModelStore`.
-- [ ] Repetir estabilidade e validar mídia/servidor/dispositivo reais quando disponíveis; fixture sintética não fecha aceite formal.
-- Evidência de instrumentação direta via ADB não produz XML individual; resultados e limites foram anotados em `TESTING.md`/`TDD-PLAN.md` e na sessão do Vault. A fixture sintética PHONE não fecha aceite formal nem promove APK-H07/H17.
+- [x] Reexecutar a jornada integral após corrigir o teardown manual do `ViewModelStore`: tela removida por estado Compose, store limpo na main thread e chave confirmada ausente; título visível, player `READY`, posição avançando ≥500 ms e nenhuma requisição à origem bloqueada. Preparação, retomada e limpeza passaram 1/1 por fase no PHONE/API 35.
+- [x] Repetir estabilidade do fluxo sintético PHONE/API 35: duas execuções integradas independentes em 16/10 passaram com preparação, verificação visual e limpeza UUID 1/1 por fase.
+- [x] Validar a mesma jornada em TABLET/API 35 e TV/API 34; preparação, retomada visual e cleanup UUID passaram 1/1 por fase em cada perfil. O harness agora recebe o perfil e serial escolhidos, sem fixar PHONE ou a porta 5556.
+- [x] Repetir a estabilidade TABLET/API 35 mais uma vez: preparação, retomada visual offline após morte do processo e limpeza passaram 1/1 por fase; Range 1.032.992 + 3.854.663 bytes, Media3 `READY`, avanço ≥500 ms e origem bloqueada sem requisições. A intermitência anterior (0 ms/30 s) continua sem causa; isto não fecha estabilidade prolongada.
+- [x] Registrar diagnóstico de falha anterior à UI: uma repetição ficou `QUEUED` em 81,63% por 120 s antes do player, embora a fixture registrasse fim da resposta Range; tentativa seguinte passou. Harness agora coleta status da fixture e logcat filtrado somente em falha; ainda falta exercitar a coleta quando o erro se reproduzir.
+- [x] Reexecutar suíte JVM completa sem cache após o diagnóstico: 1.785 testes/256 XML, zero falhas, erros ou ignorados (`testDebugUnitTest --rerun-tasks`, 470 tarefas executadas).
+- [ ] Validar mídia/servidor/dispositivo reais quando disponíveis; fixture sintética não fecha aceite formal. TalkBack, estabilidade prolongada e aparelhos físicos permanecem sem evidência para esta jornada.
+- Evidência de instrumentação direta via ADB não produz XML individual; resultados e limites estão em `TESTING.md`/`TDD-PLAN.md` e na sessão do Vault. A cobertura PHONE/TABLET/TV em AVDs sintéticos não promove APK-H07/H17 nem aceite formal.
 - Escopo desta fatia: configuração de Activity exclusiva debug e AndroidTest. Nenhuma alteração de runtime/produção, versão, assinatura, APK/release, servidor ou portal. Detalhes em `TESTING.md` e `TDD-PLAN.md`; sessão no Vault.
 
 ## Em andamento: regressão de autenticação ao trocar servidor pelo Perfil — 14/10/2026
@@ -77,6 +82,7 @@
 - [x] Integrações verificam falha HTTP 503 (`Disconnected` → `Connected`), fechamento remoto com status (`Connected` → `Disconnected` → `Connected`), frame sem status pelo peer TCP (resposta mascarada 1000) e `stop()` cancelando retry efetivamente agendado, sem segunda requisição.
 - [x] A sincronização do teste de cancelamento observa que o job de conexão inicial terminou e que o retry está ativo, sem depender de pausa arbitrária.
 - [x] RED/GREEN e quality gate registrados em `TDD-PLAN.md`; 1.740 testes JVM/252 relatórios, zero falhas/erros/ignorados. Lint de `:core:api` e `:app`, `assembleDebug` e compilação AndroidTest de ambos passaram em 13/10/2026.
+- [x] Extensão da cobertura do fluxo até o player Media3: comando `Pause` recebido durante carregamento da fila conserva posição e intenção mais recentes após `STATE_READY`; repetição independente PHONE/API 35 passou 1/1 em 2026-10-16. Gate forçado: 1.785 testes JVM/256 XML, zero falhas/erros/ignorados; lint player/SyncPlay/app, `assembleDebug` e compilação AndroidTest passaram.
 - [ ] Validar comportamento SyncPlay com servidor real autorizado e aparelhos físicos; integração local não é aceite de produção nem fecha a homologação formal.
 - Escopo restrito ao APK/testes/documentação. Sem bump, APK/release de produção, assinatura, publicação ou alteração do servidor.
 
@@ -543,7 +549,7 @@
 - [x] Atualizar a dependência existente Junrar 8.1.1 para 8.1.2, publicada upstream em 2026-10-09. A versão upstream corrige o destino de symlinks RAR5 com `..` e extração de entradas RAR5 com tamanho desconhecido; confirmar compatibilidade com os testes locais de CBR antes de encerrar.
 - [x] Confirmar Junrar 8.1.2 em `debugRuntimeClasspath`; `CbrBookArchiveTest` 5/5, jornada instrumentada de leitura/navegação CBR no AVD TV API 34 1/1 e gate JVM/lint/build/compilação AndroidTest aprovado em 2026-10-15.
 - [x] Auditoria upstream do Junrar 8.1.2 (2026-10-15): o APK usa `Archive(File, ArchiveOptions)`, não o construtor `InputStream` citado no antigo problema upstream de carregar o arquivo inteiro em memória. Ainda assim, `Archive` chama `setVolume`/`setChannel`/`readHeaders` na construção e mantém blocos numa lista interna; o limite local `MAX_ARCHIVE_ENTRIES` só é aplicado depois que `nextFileHeader()` começa. Portanto o caminho de leitura integral via `InputStream` não foi reproduzido no APK, mas o custo de indexação de cabeçalhos e o limite tardio seguem confirmados no fonte v8.1.2.
-- [ ] Definir mitigação segura para limitar a memória/quantidade de cabeçalhos antes da indexação Junrar. A API consumida não expõe limite de cabeçalhos; não inventar máximo de tamanho de arquivo/páginas nem implementar scanner RAR próprio sem requisito aprovado. Avaliar suporte upstream ou alternativa mantida com compatibilidade RAR4/RAR5 demonstrada.
+- [ ] Definir mitigação segura para limitar a memória/quantidade de cabeçalhos antes da indexação Junrar. Rechecagem 2026-10-16: upstream lista v8.1.2 como release mais recente; `ArchiveOptions` local expõe senha, `maxDictionarySize` e callback, mas nenhum teto de cabeçalhos, e `Archive` mantém blocos na lista interna. O limite do app de 10.000 entradas só roda após `Archive(file, options)` terminar. Não inventar máximo de tamanho de arquivo/páginas nem implementar scanner RAR próprio sem requisito aprovado. Próximo: obter política de recursos do produto e medir fixtures autorizadas; reavaliar suporte upstream/alternativa mantida com compatibilidade RAR4/RAR5 demonstrada.
 - [ ] Validar mídia MOBI real servida pelo Mulletaflix; HUFF/CDIC tem decoder coberto por fixtures sintéticas, mas precisa de validação com exemplar real. AZW3/KF8 não protegido é aberto em texto com imagens raster inline e fragmentos internos; CSS/fontes e fidelidade visual completa permanecem sem suporte. Links externos/entre documentos ficam inertes. MOBI com DRM permanece sem suporte direto; qualquer conversão no servidor está fora do escopo APK.
 - [ ] Sem bump de versão, APK de produção, portal ou publicação.
 
@@ -895,7 +901,7 @@ Quando a sessão não possui `serverId`, `HomeFeedCacheRepositoryImpl` usa a URL
   - [x] Testar a fila real do WorkManager: substituição imediata na troca de sessão, cancelamento no logout, coalesce de três falhas e execução única do follow-up mais recente (4/4 instrumentados no `MulletaflixApi35`).
   - [x] Validar `:app:testDebugUnitTest` (150 testes, 0 falhas/erros/ignorados), `:app:lintDebug` e `:app:compileDebugAndroidTestKotlin`: `BUILD SUCCESSFUL`.
   - [x] Exercitar o pipeline OkHttp e o `ClientIdentityInterceptor`: requisições marcadas com a sessão antiga mantêm token e dispositivo dessa sessão mesmo após troca; nenhuma dependência ou conexão externa. Suíte APK: 151 testes, 0 falhas/erros/ignorados.
-  - [ ] Downloads legados sem proprietário continuam ignorados para evitar atribuição à conta errada.
+  - [x] Downloads legados sem proprietário continuam ignorados para evitar atribuição à conta errada; `OfflineSubtitleRecoveryPolicyTest` cobre explicitamente entrada legada sem proprietário (8/8 testes da classe passaram em 2026-10-16).
 - [ ] Sem bump ou release até a assinatura de produção corresponder ao certificado oficial; verificar a release APK anterior antes de planejar versão nova.
 
 ## Fallback de envio UDP para descoberta LAN (APK sem release)
@@ -3757,7 +3763,7 @@ Pendências relacionadas:
 - [x] `DownloadManagerCleartextIntegrationTest` PHONE API 35: 2/2; wrapper confirmou QEMU na NVIDIA RTX 3050 e encerrou o AVD.
 - [x] Validar morte real/reinício do processo e retomada de download parcial via fixture HTTP host e runner Android em duas fases: 1) fila isolada persistida e pausada em ~6.6 MB; 2) host aplica `force-stop`, relança o app e observa HTTP Range a partir do offset persistido, transferindo todos os bytes restantes. Limpeza remove somente o request UUID do teste pelo `DownloadService`.
 - [x] Completar a prova offline após retomada: fixture audiovisual Matroska H.264/AAC de 20 s; em processo novo, o ViewModel carrega o download em `READY`, e um ExoPlayer cache-only (cache de produção compartilhado + `FileDataSource`) avança a posição sem upstream de rede. A origem HTTP foi desativada e o endpoint de auditoria confirmou que não houve novos pedidos de mídia. PHONE/API 35, Range no byte 1.029.421 + 3.858.234 bytes restantes; preparação, verificação e cleanup 1/1 cada; wrapper confirmou RTX 3050 e fechou o AVD temporário. Primeira fixture somente vídeo e player sem Activity não demonstraram avanço; o ensaio foi fortalecido com áudio AAC e player cache-only. Isso valida os bytes/cache e a leitura offline, não a jornada de tela `PlayerView` nem saída audiovisual em hardware.
-- [x] Completar a jornada visual integrada após cold start: em 16/10, `VideoPlayerScreen` passou no PHONE/API 35 com título visível, `READY`, avanço ≥500 ms e endpoint sem tráfego à origem bloqueada. A causa observada era o harness Compose v2; a regra clássica resolveu a thread Cast. Preparação, jornada e cleanup passaram 1/1 por fase. Reteste obrigatório após o ajuste posterior de limpeza do store manual. Evidência/limites em `TDD-PLAN.md` e `TESTING.md`.
+- [x] Completar a jornada visual integrada após cold start: em 16/10, `VideoPlayerScreen` passou no PHONE/API 35 com título visível, `READY`, avanço ≥500 ms e endpoint sem tráfego à origem bloqueada. A regra Compose clássica resolveu o acesso Cast/MediaRouter; teardown remove a tela, limpa e verifica o `ViewModelStore` manual. Reteste final após a revisão de recursos: preparação, jornada e cleanup 1/1 por fase. Evidência/limites em `TDD-PLAN.md` e `TESTING.md`.
 - [x] Corrigir a restauração da fila no cold start: injetar `DownloadRepository` na Application para construir o repositório e reanexar o Media3 `DownloadService` logo que o processo inicia, não apenas ao abrir a tela de downloads.
 - [x] Teste end-to-end PHONE/API 35 no AVD `MulletaflixApi35`; wrapper verificou QEMU na NVIDIA RTX 3050 e fechou o AVD ao final. Runner e force-stop foram coordenados no host; nenhum dado do app foi limpo.
 - [ ] Sem bump, APK de produção ou publicação; mudança exclusivamente do APK.
@@ -3815,11 +3821,18 @@ Pendências relacionadas:
 - [ ] TalkBack manual não executado.
 - [ ] Sem bump, APK de produção ou publicação; melhoria exclusivamente do APK.
 
+## Ações do menu do leitor por D-pad na Android TV — 2026-10-16
+
+- [x] `BookReaderProgressActionsTest` passou 4/4 em TV/API 34, sem falhas/erros/skips. As três jornadas TV enviam `Key.DirectionCenter` para confirmar reinício e salvar/renomear/abrir marcadores; a quarta testa cancelar confirmação.
+- [ ] É input sintético de Compose em AVD, não teste com controle físico, TalkBack falado, arquivo real ou servidor; APK-H21 e aceite formal permanecem pendentes.
+- [ ] Sem bump, APK de produção ou publicação.
+
 ## Busca no conteúdo EPUB (APK local; sem release)
 
 - [x] Integrar a busca textual ao `SearchService` da publicação Readium; resultados usam Locator do toolkit, navegam para o local encontrado e fecham o iterator mesmo em falha.
 - [x] Executar a busca fora da thread principal; busca case/diacrítico-insensível, máximo de 100 resultados e mensagem recuperável se ocorrer erro.
 - [x] Cobrir interação e navegação entre capítulos com EPUB de fixture em PHONE/API 35; manter cobertura existente para busca e salto em livros de texto.
+- [x] Reexecutar `BookReaderReadiumIntegrationTest` em TABLET/API 35 e TV/API 34: 11/11 por perfil. A jornada visual `BookReaderScreenIntegrationTest.epubSearchFindsAndNavigatesToMatchingText` passou 1/1 em cada perfil. XMLs preservados em `validation-evidence/2026-10-16/`. Fixtures EPUB sintéticas; navegação visual é por semântica Compose, não valida controle remoto físico, TalkBack ou EPUB real.
 - [ ] Validar com EPUB real do usuário/servidor e em tablet/TV; sem essa evidência, não afirmar compatibilidade com todos os EPUBs.
 - [x] Busca local em páginas CBZ/CBR: OCR Latin offline sob demanda, leitura sequencial e resultado navegável pelo locator da página; cache LRU limitado a 3 páginas e bitmap até 2048 px por lado.
 - [x] Mostrar páginas concluídas na busca paginada, com barra acessível e no máximo 100 checkpoints periódicos (+ início/fim quando não coincidem) para evitar recomposição excessiva em arquivos extensos.
@@ -4012,8 +4025,32 @@ Pendências relacionadas:
 
 ## Continuação — tela PlayerView após cold start offline — atualização 2026-10-16
 
+- [x] Corrigir a corrida do harness: bloquear a origem somente depois de Media3 reportar `STATE_COMPLETED` e o teste verificar todos os bytes/MIME. As duas execuções TABLET verdes confirmam a sequência; nenhuma mudança no runtime.
 - [x] Timeout de download agora inclui estado, bytes, `contentLength`, progresso, `stopReason`, `failureReason` e MIME; prazo de conclusão integral é 120 s, mantendo os asserts `COMPLETED` e bytes totais.
 - [x] Reteste em 16/10 passou a jornada visual de `VideoPlayerScreen` com Range retomado, título visível, `READY`, avanço de posição e zero requests à origem bloqueada; regras e resultados detalhados em `TESTING.md`.
-- [x] Revisão adversarial identificou que o `ViewModelStore` era manual. O teardown agora remove o conteúdo por estado Compose, espera `waitForIdle()`, chama `clear()` na main thread e verifica que o ViewModel foi removido. A execução instrumentada precisa ser repetida após esta correção de recurso.
-- [ ] Repetir estabilidade do cenário depois da correção de teardown e validar mídia/servidor reais e outros dispositivos aplicáveis.
-- [ ] A jornada local não promove APK-H07/H17 nem aceite formal. Sem alteração de runtime, versão, assinatura, release, servidor ou portal.
+- [x] Revisão adversarial identificou que o `ViewModelStore` era manual. O teardown remove o conteúdo por estado Compose, espera `waitForIdle()`, chama `clear()` na main thread e verifica que o ViewModel foi removido; reteste passou 1/1 após a correção.
+- [x] Repetir em PHONE/TABLET: PHONE passou 1/1. Antes do ajuste do harness, TABLET parou duas vezes em 89,4% porque a origem era desligada antes de Media3 concluir; após a correção de sequência, TABLET passou 2/2 execuções completas. A origem do sintoma de 0 ms é compatível com o fixture interrompido antes de `COMPLETED`; isso não elimina outros riscos de estabilidade.
+- [ ] Executar mais repetições estáveis e validar mídia/servidor reais e aparelhos físicos/outros dispositivos aplicáveis. Uma terceira tentativa local não chegou a iniciar um AVD/teste e não conta como execução.
+- [ ] A jornada local não promove APK-H07/H17 nem aceite formal. Sem alteração de runtime, versão, assinatura, release ou servidor; homologação do portal atualizada apenas no checkout local, sem deploy.
+
+## Jornada realtime e recuperação visual de conexão do SyncPlay — 2026-10-16 (APK local; sem release)
+
+- [x] Caracterizar a cadeia “Entrar na sala” → WebSocket real → evento `SyncPlayCommand` → `SyncPlayUiState` → estado visível em `SyncPlayScreen`; `SyncPlayScreenRealtimeJourneyTest` passou 1/1 por perfil em PHONE/API 35, TABLET/API 35 e TV/API 34.
+- [x] Usar MockWebServer e sessão/repositório de sala sintéticos, sem nova dependência ou mudança no servidor; confirmar `activeGroupId`, `realtimeConnected`, mensagem do comando no estado e conexão visível na UI.
+- [x] XMLs individuais preservados em `validation-evidence/2026-10-16/SyncPlayScreenRealtimeJourneyTest-{phone-api35,tablet-api35,tv-api34}.xml`; os retestes finais após correção do teardown passaram nos três perfis.
+- [x] Gate pós-ajuste `testDebugUnitTest :app:lintDebug :app:assembleDebug :app:compileDebugAndroidTestKotlin --no-daemon --console=plain`: BUILD SUCCESSFUL, 871 tarefas (3 executadas, 868 UP-TO-DATE). Suíte JVM não reexecutada neste gate; execução forçada anterior: 1.784/1.784 em 256 XML, zero falhas/erros/ignorados. AndroidTest compilou e a instrumentação passou separadamente nos três perfis.
+- [x] Cobrir fechamento remoto e reabertura do WebSocket: UI muda para “Reconectando à sincronização em tempo real…” e só volta ao status conectado após o socket substituto conectar; exatamente um status por estado, sem duplicar snackbar/evento.
+- [x] TDD RED: o teste de jornada expirou esperando o rótulo de reconexão; a tela mantinha “Conectando…” e recebia cópias do mesmo status. GREEN: status explícito `INACTIVE/CONNECTING/CONNECTED/RECONNECTING` no estado de UI e renderização única, com eventos de conexão fora do snackbar de conteúdo.
+- [x] Retestar a classe de jornada em PHONE/API 35, TABLET/API 35 e TV/API 34: 2/2 por perfil, sem falhas/erros/ignorados. O wrapper persistiu apenas o XML final da TV; resultado dos outros perfis foi confirmado na saída Gradle desta sessão.
+- [ ] Integrar autenticação/DI de produção, validar com servidor autorizado e aparelhos físicos; MockWebServer e AVDs não fecham homologação real. Estado efetivo do player é coberto separadamente por `SyncPlayPlayerRealtimeIntegrationTest` sintético.
+- [x] Gate forçado integral `testDebugUnitTest :feature:sync-play:lintDebug :app:lintDebug :app:assembleDebug :feature:sync-play:compileDebugAndroidTestKotlin :app:compileDebugAndroidTestKotlin --rerun-tasks`: BUILD SUCCESSFUL, 1.785 testes JVM/256 XML, 0 falhas/erros/ignorados; 881 tarefas executadas.
+- [x] Sem bump de versão, APK de produção, assinatura, release, publicação ou alteração do servidor; homologação formal permanece pendente. Status incremental sincronizado só no JSON local do portal.
+
+## Sincronização de posição SyncPlay durante carregamento do player — 2026-10-16 (APK local; sem release)
+
+- [x] TDD AndroidTest reproduziu que `Pause` recebido durante o carregamento do item de fila mantinha `playWhenReady=false`, mas a posição autoritativa de 7.000 ms terminava em 0 após `Media3.STATE_READY`.
+- [x] `PlayerViewModel` conserva posição e intenção SyncPlay pendentes enquanto a timeline não está pronta; aplica seek/play/pause em `STATE_READY`. Comandos remotos mais recentes atualizam o estado pendente e prevalecem sobre posição/intenção antigas da fila.
+- [x] `SyncPlayPlayerRealtimeIntegrationTest` percorre fila e comandos `Unpause`/`Pause` via WebSocket MockWebServer, `PlayerViewModel` real e Media3 reproduzindo WAV local sintético. GREEN: 1/1 em PHONE/API 35, TABLET/API 35 e TV/API 34; XMLs em `validation-evidence/2026-10-16/syncplay-player-realtime/`.
+- [x] Gate forçado: 1.784 testes JVM em 256 XML, 0 falhas/erros/ignorados; `:feature:player:lintDebug`, `:app:lintDebug`, `:app:assembleDebug`, compilação AndroidTest do app e player: `BUILD SUCCESSFUL` (881 tarefas).
+- [ ] Confirmar com servidor autorizado, mídia SyncPlay real e aparelhos físicos; AVD + MockWebServer + WAV sintético não equivalem a homologação de rede/servidor real.
+- [x] Sem mudança de API/dependência, versão, assinatura, APK de produção, release ou servidor. A evidência foi espelhada no JSON local de homologação do portal e validada pela suíte do portal (24/24); sem deploy. Matriz formal não é promovida.

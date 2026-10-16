@@ -1,0 +1,9 @@
+<?xml version='1.0' encoding='UTF-8' ?>
+<testsuites tests="1" failures="0" errors="0" skipped="0" time="0.000" timestamp="2026-10-16T04:58:16" hostname="localhost">
+  <testsuite name="org.mulletaflix.android.SyncPlayScreenRealtimeJourneyTest" tests="1" failures="0" errors="0" skipped="0" time="9.585" timestamp="2026-10-16T04:58:16" hostname="localhost">
+    <properties>
+      <property name="device" value="emulator-5556" />
+    </properties>
+    <testcase name="joiningRoomRendersCommandReceivedByRealWebSocketClient" classname="org.mulletaflix.android.SyncPlayScreenRealtimeJourneyTest" time="9.585" />
+  </testsuite>
+</testsuites>
