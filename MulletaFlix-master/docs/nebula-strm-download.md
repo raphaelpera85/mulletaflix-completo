@@ -1,8 +1,18 @@
 # Nebula STRM Downloader
 
+## Downloader STRM bloqueado por runtime instalado desatualizado — 2026-10-17 09:34 (-03)
+
+Revalidação da reclamação atual: a API local respondeu 12.1.21 e a tela Nebula mostrou o Downloader parado. O histórico registra que o worker iniciou às 00:24:21 e começou a varrer às 00:24:26; não há registro visível de primeiro download antes do encerramento às 00:30:19. O status HTTP 200 da ação não prova transferência.
+
+O `strm_downloader.py` instalado não contém `get_categorized_scan_batches`, `get_title_scan_roots`, nem as mensagens de progresso por categoria que existem na fonte atual. A raiz monitorada tinha cinco entradas imediatas, mas o worker instalado permaneceu na varredura integral sem indicar progresso por título. A fonte atual separa a varredura por categoria e título para iniciar trabalho antes de percorrer categorias inferiores. Isso explica a espera observada com maior probabilidade, mas não prova o primeiro download: o worker foi encerrado antes de uma transferência observável.
+
+Retificação de escopo: a ausência de `tools.mongo_admission.py` no runtime também é real, mas `main.py` importa esse módulo para o processo Python de upload. Essa ausência, isoladamente, **não explica a falha do Downloader STRM**. O runtime ativo precisa receber um pacote completo compatível; não foi instalado nem reiniciado nesta sessão, e nenhum download real foi disparado.
+
+Testes da fonte executados nesta sessão: suíte `Tools/NebulaPython/tests` **586/586**, `NebulaDownloaderStartupTests` Release **11/11**. Não houve teste ponta a ponta com MongoDB/Telegram. A fonte e os testes estão prontos; a correção ainda não está ativa em produção. A instalação/release permanece bloqueada pelo gate global do roadmap. Próximo passo: autorizar uma release hotfix fora do gate global ou aguardar a conclusão do roadmap; depois instalar em janela operacional e observar o primeiro arquivo avançar.
+
 ## Runtime instalado ainda sem o módulo de admissão Mongo — 2026-10-17 09:22 (-03)
 
-Rechecagem somente leitura do servidor local: `/System/Info/Public` retorna 12.1.21. O `main.py` instalado importa `tools.mongo_admission.acquire_upload_admission`, mas `Tools/NebulaPython/tools/mongo_admission.py` está ausente no diretório instalado; Python 3.10 confirmou `find_spec("tools.mongo_admission") == None`. A fonte inclui o módulo, `build-stage-and-installer.ps1` o copia e `Assert-StageIntegrity.ps1` exige sua presença. Portanto, a falha atual da execução manual é explicada por runtime incompleto/desatualizado, não por ausência do arquivo na fonte.
+Rechecagem somente leitura do servidor local: `/System/Info/Public` retorna 12.1.21. O `main.py` instalado importa `tools.mongo_admission.acquire_upload_admission`, mas `Tools/NebulaPython/tools/mongo_admission.py` está ausente no diretório instalado; Python 3.10 confirmou `find_spec("tools.mongo_admission") == None`. A fonte inclui o módulo, `build-stage-and-installer.ps1` o copia e `Assert-StageIntegrity.ps1` exige sua presença. **Retificação de 09:34:** isso é um defeito do runtime de upload Python; não atribuir a ele a falha do Downloader STRM.
 
 Validação da fonte desta sessão: `NebulaDownloaderStartupTests` Release **11/11**; `test_strm_downloader.py` + `test_strm_downloader_helpers.py` em Python 3.10 **89/89**. Não houve início do worker, download, instalação, restart nem alteração de configuração. O teste não inclui Mongo/Telegram real. Correção em produção continua pendente: empacotar/instalar o runtime íntegro em janela operacional e observar um item real avançar para download.
 

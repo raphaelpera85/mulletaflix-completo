@@ -839,3 +839,18 @@ test('portal keeps the active Nebula runtime mismatch and release gate explicit'
     assert.match(event.evidence, /HTTP 403 Resource not accessible by integration/);
     assert.match(event.evidence, /Causa operacional confirmada: runtime anterior/);
 });
+
+test('portal distinguishes the stale STRM scan runtime from the Python upload module issue', () => {
+    const uploadEvent = statusData.events.find(item => item.id === 'server-nebula-missing-mongo-admission-runtime-2026-10-17-0922');
+    const downloadEvent = statusData.events.find(item => item.id === 'server-nebula-download-runtime-stale-scan-2026-10-17-0934');
+
+    assert.ok(uploadEvent);
+    assert.match(uploadEvent.title, /upload/i);
+    assert.match(uploadEvent.evidence, /não explica o Downloader STRM/i);
+    assert.ok(downloadEvent);
+    assert.equal(downloadEvent.status, 'in_progress');
+    assert.match(downloadEvent.evidence, /get_categorized_scan_batches/);
+    assert.match(downloadEvent.evidence, /586\/586/);
+    assert.match(downloadEvent.evidence, /11\/11/);
+    assert.match(downloadEvent.evidence, /gate global de release do roadmap permanece ativo/);
+});
