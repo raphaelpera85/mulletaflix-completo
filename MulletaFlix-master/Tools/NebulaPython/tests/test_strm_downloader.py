@@ -180,7 +180,7 @@ def test_run_downloader_prioritizes_partial_downloads_and_skips_recent_failures(
     assert sleeps == [1]
 
 
-def test_run_downloader_waits_for_filesystem_scan_before_signaling_ready(tmp_path, monkeypatch, caplog):
+def test_run_downloader_signals_worker_ready_before_mongo_refresh_and_scan(tmp_path, monkeypatch, caplog):
     events = []
 
     class Validator:
@@ -189,6 +189,7 @@ def test_run_downloader_waits_for_filesystem_scan_before_signaling_ready(tmp_pat
 
         def refresh_cache(self, *, force):
             assert force is True
+            assert "worker-ready" in events
             assert "[STRM-WORKER-MONGO-READY]" not in caplog.text
             assert "[STRM-SCAN-STARTED]" not in caplog.text
             events.append("mongo-refresh-complete")
@@ -214,7 +215,9 @@ def test_run_downloader_waits_for_filesystem_scan_before_signaling_ready(tmp_pat
     original_info = strm_downloader.logger.info
 
     def record_info(message, *args, **kwargs):
-        if "[STRM-WORKER-MONGO-READY]" in message:
+        if "[STRM-WORKER-READY]" in message:
+            events.append("worker-ready")
+        elif "[STRM-WORKER-MONGO-READY]" in message:
             events.append("mongo-ready")
         elif "[STRM-SCAN-STARTED]" in message:
             events.append("scan-started")
@@ -224,7 +227,7 @@ def test_run_downloader_waits_for_filesystem_scan_before_signaling_ready(tmp_pat
     caplog.set_level("INFO", logger="STRMDownloader")
 
     assert strm_downloader.run_downloader(_run_args(tmp_path)) == 0
-    assert events == ["mongo-refresh-complete", "mongo-ready", "filesystem-scan-started", "scan-started"]
+    assert events == ["worker-ready", "mongo-refresh-complete", "mongo-ready", "filesystem-scan-started", "scan-started"]
 
 
 def test_run_downloader_fails_closed_when_mongo_index_refresh_fails(tmp_path, monkeypatch, caplog):
@@ -240,8 +243,8 @@ def test_run_downloader_fails_closed_when_mongo_index_refresh_fails(tmp_path, mo
     caplog.set_level("INFO", logger="STRMDownloader")
 
     assert strm_downloader.run_downloader(_run_args(tmp_path)) == 1
+    assert "[STRM-WORKER-READY]" in caplog.text
     assert "[STRM-WORKER-STARTUP-FAILED]" in caplog.text
-    assert "[STRM-WORKER-READY]" not in caplog.text
     assert "[STRM-SCAN-STARTED]" not in caplog.text
 
 

@@ -5819,12 +5819,13 @@ CREATE POLICY nebula_bot_tokens_service_role_all
             throw;
         }
 
-        AddDownloaderLog($"[NEBULA-STRM] STRM Downloader iniciou o scan real da biblioteca (PID {process.Id}, {config.DownloadParts} partes multipart).");
+        AddDownloaderLog($"[NEBULA-STRM] STRM Downloader iniciou a preparação do índice e da fila (PID {process.Id}, {config.DownloadParts} partes multipart).");
         return true;
     }
 
     internal static bool IsPythonDownloaderReadyOutput(string line)
-        => line.Contains("[STRM-SCAN-STARTED]", StringComparison.OrdinalIgnoreCase);
+        => line.Contains("[STRM-WORKER-READY]", StringComparison.OrdinalIgnoreCase)
+            || line.Contains("[STRM-SCAN-STARTED]", StringComparison.OrdinalIgnoreCase);
 
     internal static async Task WaitForWorkerReadinessAsync(
         Task readinessTask,
@@ -5961,6 +5962,15 @@ CREATE POLICY nebula_bot_tokens_service_role_all
         if (string.IsNullOrWhiteSpace(line))
         {
             return false;
+        }
+
+        if (line.Contains("[STRM-WORKER-READY]", StringComparison.OrdinalIgnoreCase))
+        {
+            status.Name = "Preparando fila de download";
+            status.StageStep = "Downloader iniciado; preparando índice Mongo...";
+            status.Percentage = 0;
+            status.DetailText = "O processo está ativo; a varredura começa após preparar o índice.";
+            return true;
         }
 
         if (line.Contains("[STRM-WORKER-MONGO-READY]", StringComparison.OrdinalIgnoreCase))

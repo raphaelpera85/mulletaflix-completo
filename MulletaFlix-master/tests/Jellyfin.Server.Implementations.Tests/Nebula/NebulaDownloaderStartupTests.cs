@@ -10,8 +10,9 @@ namespace MulletaFlix.Server.Implementations.Tests.Nebula;
 public sealed class NebulaDownloaderStartupTests
 {
     [Theory]
+    [InlineData("[STRM-WORKER-READY] Worker iniciado")]
     [InlineData("[STRM-SCAN-STARTED] Varredura iniciada")]
-    public void IsPythonDownloaderReadyOutput_AcceptsOnlyActualScanStart(string line)
+    public void IsPythonDownloaderReadyOutput_AcceptsWorkerAndScanMarkers(string line)
     {
         Assert.True(NebulaFtpManager.IsPythonDownloaderReadyOutput(line));
     }
@@ -21,6 +22,21 @@ public sealed class NebulaDownloaderStartupTests
     {
         Assert.False(NebulaFtpManager.IsPythonDownloaderReadyOutput("Escaneando e priorizando arquivos .strm..."));
         Assert.False(NebulaFtpManager.IsPythonDownloaderReadyOutput("[STRM-WORKER-MONGO-READY] Índice Mongo preparado."));
+    }
+
+    [Fact]
+    public void TryApplyPythonDownloaderProgressOutput_ReportsWorkerStartupBeforeMongoPreparation()
+    {
+        var status = new NebulaDownloadStatusDto();
+
+        var handled = NebulaFtpManager.TryApplyPythonDownloaderProgressOutput(
+            "[STRM-WORKER-READY] Worker iniciado; preparando índice Mongo e fila.",
+            status);
+
+        Assert.True(handled);
+        Assert.Equal("Preparando fila de download", status.Name);
+        Assert.Equal("Downloader iniciado; preparando índice Mongo...", status.StageStep);
+        Assert.Equal("O processo está ativo; a varredura começa após preparar o índice.", status.DetailText);
     }
 
     [Fact]

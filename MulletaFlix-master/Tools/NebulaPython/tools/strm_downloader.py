@@ -1857,6 +1857,9 @@ def run_downloader(args: argparse.Namespace) -> int:
     logger.info("Pastas de Stage detectadas: %s", [str(d) for d in staging_dirs])
     logger.info("Fontes STRM: %s", [str(s) for s in sources])
 
+    # Let the server acknowledge a live worker before the potentially slow
+    # full Mongo duplicate-index refresh. This marker is not scan/download proof.
+    logger.info("[STRM-WORKER-READY] Worker iniciado; preparando índice Mongo e fila.")
     validator = MediaValidator(mongo_uri=mongo_uri, db_name=db_name, library_user=library_user)
     if not validator.refresh_cache(force=True):
         logger.error("[STRM-WORKER-STARTUP-FAILED] Índice Mongo indisponível; download não iniciado para evitar duplicidades.")
