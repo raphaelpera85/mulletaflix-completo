@@ -47,7 +47,7 @@ RUNTIME_REQUIRED: tuple[tuple[str, str], ...] = (
     ("aiohttp", "aiohttp"),
     # Pyrofork keeps the public ``pyrogram`` namespace.
     ("pyrogram", "pyrofork"),
-    ("tgcrypto", "tgcrypto"),
+    ("tgcrypto", "tgcrypto-pyrofork"),
     ("pyaes", "pyaes"),
     # PySocks distribui como ``pysocks`` mas expõe ``import socks``;
     # alinhamos o módulo real aqui, e mantemos o nome pip em lowercase

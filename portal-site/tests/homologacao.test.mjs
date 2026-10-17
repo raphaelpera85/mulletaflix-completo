@@ -855,6 +855,23 @@ test('portal distinguishes the stale STRM scan runtime from the Python upload mo
     assert.match(downloadEvent.evidence, /gate global de release do roadmap permanece ativo/);
 });
 
+test('portal records CPython 3.12 dependency fix and keeps release blocked by GitHub billing', () => {
+    const event = statusData.events.find(item => item.id === 'server-nebula-cp312-wheel-validation-2026-10-17-1045');
+
+    assert.ok(event);
+    assert.equal(event.front, 'server');
+    assert.equal(event.status, 'in_progress');
+    assert.deepEqual(event.featureIds, ['T2.1']);
+    assert.match(event.evidence, /NebulaPython 587\/587/);
+    assert.match(event.evidence, /NebulaDownloaderStartupTests Release 11\/11/);
+    assert.match(event.evidence, /1\.464 aprovados, 62 ignorados, 0 falhas/);
+    assert.match(event.evidence, /407\/407 testes/);
+    assert.match(event.evidence, /portal independente 57\/57, espelho 43\/43/);
+    assert.match(event.evidence, /conta bloqueada por cobrança/);
+    assert.match(event.evidence, /Sem tag\/release/);
+    assert.match(event.evidence, /produção 12\.1\.21/);
+});
+
 test('public homologation data contains no absolute Windows user-profile paths', () => {
     const matchingFields = [];
     const userProfilePath = /[A-Za-z]:\\Users\\/i;

@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-10-17T10:27:00-03:00",
+  "generatedAt": "2026-10-17T10:45:00-03:00",
   "source": {
     "roadmap": "https://github.com/raphaelpera85/mulletaflix-completo/blob/main/docs/roadmap-evolucao-tecnologica-servidor-e-web.md",
     "repository": "https://github.com/raphaelpera85/mulletaflix-completo"
@@ -5608,6 +5608,23 @@
       "startedAt": "2026-10-17T10:25:00-03:00",
       "updatedAt": "2026-10-17T10:27:00-03:00",
       "evidence": "Commits 3716b04c e 3b68caf8 no main contêm a correção e release notes 12.1.24. Runs GitHub Actions 39036436583 e 39036616551 terminaram em failure em ~9 s; em ambos, 11 jobs sem etapas executadas. Não classificar como falha dos testes: CI não executou validações. Em local: NebulaPython 89/89, NebulaDownloaderStartupTests Release 11/11, empacotamento Bash/PowerShell e portal 55/55 passaram; candidatos Windows/Linux construídos e runtime confirmado no tarball Linux. Release/tag ainda não publicada. Produção permanece 12.1.21; nenhum worker, instalação, restart ou download real executado."
+    },
+    {
+      "id": "server-nebula-cp312-wheel-validation-2026-10-17-1045",
+      "title": "Nebula 12.1.24: wheel Linux CPython 3.12 corrigido; CI bloqueada",
+      "agent": "Codex",
+      "front": "server",
+      "featureIds": [
+        "T2.1"
+      ],
+      "local": "checkout local e portal público",
+      "location": "MulletaFlix-master/Tools/NebulaPython/requirements.txt; workflow de release; testes e homologação",
+      "scope": "Validar o requisito Python do pacote Linux e atualizar a evidência pública; não instalar nem iniciar worker em produção.",
+      "status": "in_progress",
+      "progressPercent": null,
+      "startedAt": "2026-10-17T10:29:00-03:00",
+      "updatedAt": "2026-10-17T10:45:00-03:00",
+      "evidence": "A resolução cruzada para CPython 3.12/manylinux confirmou que tgcrypto antigo não tem wheel e tgcrypto-pyrofork 1.2.8 tem wheel compatível; instalação local em ambiente isolado importou pyrogram/tgcrypto e passou round-trip AES-IGE. Fonte substitui a distribuição e inclui gate Ubuntu 24.04 sem compilador. Testes: NebulaPython 587/587; NebulaDownloaderStartupTests Release 11/11; Jellyfin.Server.Implementations.Tests 1.464 aprovados, 62 ignorados, 0 falhas (1.526 total); Web TypeScript/build e 407/407 testes; portal independente 57/57, espelho 43/43; payload Linux e análise Bash passaram. Verificação de artefatos web validou 1.927 arquivos e bundle inicial de 294,3 KB gzip. Instalação Ubuntu não foi executada neste Windows. GitHub Actions run 39036753498 não iniciou jobs: conta bloqueada por cobrança; `gh auth status` sem sessão. Sem tag/release; produção 12.1.21; nenhum worker/download real, instalação ou restart executado."
     }
   ]
 }

@@ -36,3 +36,5 @@ sudo journalctl -u mulletaflix -f
 The package does not migrate an existing Windows installation or its database automatically. Back up and migrate data separately before switching platforms. DuckDNS and Let's Encrypt require a public DNS name, a DuckDNS token, and router/firewall forwarding of TCP ports 80 and 443 to this server; the installer cannot change the router automatically.
 
 The installer also creates a Python virtual environment for the Nebula workers from the bundled `Tools/NebulaPython/requirements.txt`. The server points Nebula to that isolated interpreter; no system-wide Python packages are installed with `pip`.
+
+The Nebula runtime uses the Pyrofork-compatible `tgcrypto-pyrofork` distribution. The release workflow verifies its CPython 3.12 Linux wheel and installs the runtime requirements in a clean Ubuntu 24.04 virtual environment without a native compiler.

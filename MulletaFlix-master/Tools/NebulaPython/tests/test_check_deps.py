@@ -25,6 +25,15 @@ def test_read_pinned_specs_missing_file_returns_empty_mapping(tmp_path):
     assert check_deps._read_pinned_specs(str(tmp_path / "missing.txt")) == {}
 
 
+def test_tgcrypto_runtime_import_uses_pyrofork_binary_wheel_distribution():
+    requirements = check_deps._read_pinned_specs(
+        str(check_deps.os.path.join(check_deps.os.path.dirname(__file__), "..", "requirements.txt"))
+    )
+
+    assert ("tgcrypto", "tgcrypto-pyrofork") in check_deps.RUNTIME_REQUIRED
+    assert requirements["tgcrypto-pyrofork"] == ">=1.2.8,<1.3"
+
+
 @pytest.mark.parametrize(
     ("find_spec_result", "find_spec_error", "import_error", "expected"),
     [

@@ -46,6 +46,9 @@ jobs:
           tar -tzf "$package" | grep -q '/server/Tools/NebulaPython/tools/strm_downloader.py$'
           tar -tzf "$package" | grep -q '/server/Tools/NebulaPython/requirements.txt$'
 
+      - name: Install Nebula Python dependencies without native compiler
+        run: bash tools/release/tests/linux-nebula-python-dependencies.test.sh
+
       - name: Upload Linux package artifact
         uses: actions/upload-artifact@v4
         with:
