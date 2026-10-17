@@ -17,6 +17,7 @@
 - Teste do empacotamento Linux: runtime obrigatório presente e downloader byte a byte igual à fonte.
 - Teste do helper PowerShell de empacotamento: 1/1 passou; workflow exige ambos os arquivos no pacote Linux.
 - Build Linux concluído; inspeção do tarball confirmou `Tools/NebulaPython/tools/strm_downloader.py` e `requirements.txt`. SHA-256 do downloader no pacote igual à fonte: `2A671AFCA11BF06B48AAAEAA0DA49032F0A7FAD96F4963F6FEFEBD08B0B9CDBA`.
+- Commit da correção enviado ao `main` (`3716b04c`). A execução CI GitHub `39036436583` terminou em falha em cerca de 9 segundos; os jobs retornaram sem etapas executadas. CI/release automatizada permanecem bloqueadas, não contar esse resultado como teste.
 
 ## Homologação pendente
 
