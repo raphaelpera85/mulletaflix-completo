@@ -3874,20 +3874,7 @@ public sealed class NebulaMongoContext : IDisposable
 
     internal static bool IsPathWithinRoot(string path, string root)
     {
-        try
-        {
-            var fullPath = Path.GetFullPath(path);
-            var fullRoot = Path.GetFullPath(root).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar) + Path.DirectorySeparatorChar;
-            return fullPath.StartsWith(fullRoot, StringComparison.OrdinalIgnoreCase);
-        }
-        catch (ArgumentException)
-        {
-            return false;
-        }
-        catch (IOException)
-        {
-            return false;
-        }
+        return NebulaPathSafety.IsPathWithinRoot(path, root);
     }
 
     /// <summary>

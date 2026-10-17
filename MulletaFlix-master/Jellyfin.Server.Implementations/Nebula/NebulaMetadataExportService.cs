@@ -272,23 +272,7 @@ public sealed class NebulaMetadataExportService : IHostedService, IDisposable
 
     internal static bool IsPathWithinRoot(string path, string root)
     {
-        if (string.IsNullOrWhiteSpace(path) || string.IsNullOrWhiteSpace(root))
-        {
-            return false;
-        }
-
-        try
-        {
-            var fullPath = Path.GetFullPath(path).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-            var fullRoot = Path.GetFullPath(root).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-            return fullPath.Equals(fullRoot, StringComparison.OrdinalIgnoreCase)
-                || fullPath.StartsWith(fullRoot + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)
-                || fullPath.StartsWith(fullRoot + Path.AltDirectorySeparatorChar, StringComparison.OrdinalIgnoreCase);
-        }
-        catch (ArgumentException)
-        {
-            return false;
-        }
+        return NebulaPathSafety.IsPathWithinRoot(path, root);
     }
 
     private async Task ExportNfoAsync(BaseItem item, string stageDirectory, CancellationToken cancellationToken)
