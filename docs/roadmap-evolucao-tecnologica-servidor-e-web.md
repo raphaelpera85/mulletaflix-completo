@@ -3220,6 +3220,13 @@ Este documento é backlog em execução; não autoriza publicar uma release ante
 - Conclusão: o runtime não recebeu as correções de fonte. `Enabled=false` foi verificado anteriormente às 04:29 e impede autostart do pipeline global; esta configuração não foi relida nem alterada nesta rechecagem. Instalar exige pacote integral e janela segura; primeiro download real continua pendente. Homologação T2.1 `in_progress`; nenhuma release criada.
 - Mapa técnico conferido; módulos, APIs, classes, dependências e fluxo estrutural permaneceram iguais. Sessão: [[Sessões/2026-10-17-MulletaFlix-nebula-download-runtime-recheck-0544]].
 
+### 17/10/2026 09:22 -03 — Módulo obrigatório ausente no runtime instalado (T2.1 parcial)
+
+- Rechecagem somente leitura: `GET http://127.0.0.1:8096/System/Info/Public` respondeu 12.1.21. `C:\Program Files\MulletaFlix\Server\Tools\NebulaPython\main.py` importa `tools.mongo_admission`, mas `tools\mongo_admission.py` não está instalado; Python 3.10 confirmou que o módulo não pode ser resolvido no runtime instalado.
+- A fonte atual inclui `Tools/NebulaPython/tools/mongo_admission.py`; o empacotador copia explicitamente o arquivo e `Assert-StageIntegrity.ps1` reprova pacotes sem ele. A causa observada é divergência entre runtime 12.1.21 instalado e pacote/fonte, não correção ausente no checkout.
+- Testes da fonte executados: `NebulaDownloaderStartupTests` Release 11/11; scanner/helpers Python 3.10 89/89. Nenhum worker ou download foi iniciado, nem ocorreu instalação, restart, alteração de configuração ou arquivo de mídia.
+- Próximo gate: reconstruir/publicar o pacote íntegro e instalá-lo em janela operacional; confirmar em log que o worker passa pelo refresh Mongo, varredura e início de item real. Não afirmar produção corrigida nem concluir T2.1 antes disso. Mapa técnico conferido; sem mudança estrutural. Sessão: [[2026-10-17-MulletaFlix-nebula-download-runtime-missing-module]].
+
 ## Referências técnicas
 
 Fontes oficiais consultadas em 28/09/2026. Disponibilidade, suporte e requisitos de hardware devem ser revalidados antes de qualquer implementação.

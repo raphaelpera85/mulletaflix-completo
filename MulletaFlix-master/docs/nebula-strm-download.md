@@ -1,5 +1,11 @@
 # Nebula STRM Downloader
 
+## Runtime instalado ainda sem o módulo de admissão Mongo — 2026-10-17 09:22 (-03)
+
+Rechecagem somente leitura do servidor local: `/System/Info/Public` retorna 12.1.21. O `main.py` instalado importa `tools.mongo_admission.acquire_upload_admission`, mas `Tools/NebulaPython/tools/mongo_admission.py` está ausente no diretório instalado; Python 3.10 confirmou `find_spec("tools.mongo_admission") == None`. A fonte inclui o módulo, `build-stage-and-installer.ps1` o copia e `Assert-StageIntegrity.ps1` exige sua presença. Portanto, a falha atual da execução manual é explicada por runtime incompleto/desatualizado, não por ausência do arquivo na fonte.
+
+Validação da fonte desta sessão: `NebulaDownloaderStartupTests` Release **11/11**; `test_strm_downloader.py` + `test_strm_downloader_helpers.py` em Python 3.10 **89/89**. Não houve início do worker, download, instalação, restart nem alteração de configuração. O teste não inclui Mongo/Telegram real. Correção em produção continua pendente: empacotar/instalar o runtime íntegro em janela operacional e observar um item real avançar para download.
+
 ## Correção da confirmação de início do worker — 2026-10-17 08:59 (-03)
 
 A fonte tinha uma regressão: o manager só aceitava `[STRM-SCAN-STARTED]`, emitido depois de `MediaValidator.refresh_cache(force=True)`. Como essa atualização lê o índice Mongo inteiro, se demorasse mais que o timeout de startup de 60 segundos o manager encerrava um worker ainda ativo antes de iniciar o scan/download. Agora o worker emite `[STRM-WORKER-READY]` após preparar argumentos e raízes e antes do refresh; o manager aceita esse marcador e mantém `[STRM-SCAN-STARTED]` como fallback. A interface mostra “preparando índice Mongo” nessa fase. O marcador não significa scan iniciado nem mídia baixada; erros de Mongo continuam fail-closed e aparecem depois no log do worker.

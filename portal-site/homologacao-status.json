@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-10-17T02:23:27-03:00",
+  "generatedAt": "2026-10-17T09:24:13-03:00",
   "source": {
     "roadmap": "https://github.com/raphaelpera85/mulletaflix-completo/blob/main/docs/roadmap-evolucao-tecnologica-servidor-e-web.md",
     "repository": "https://github.com/raphaelpera85/mulletaflix-completo"
@@ -5444,6 +5444,21 @@
       "startedAt": "2026-10-17T02:12:00-03:00",
       "updatedAt": "2026-10-17T02:20:04-03:00",
       "evidence": "GET read-only a /System/Info/Public retornou HTTP 200 e versão 12.1.21. O downloader instalado (08/10/2026) não contém [STRM-WORKER-READY], [STRM-SCAN-STARTED] nem get_title_scan_roots. Fonte e stage têm SHA-256 C588DD2006A182440A57AC02D33730531E1FD0575FB3B971B6441D459FDAA88F. Testes: NebulaDownloaderStartupTests Release 10/10; Python scanner/helpers 86/86 em Python 3.10; validate-stage.ps1 passou. GitHub CLI não autenticado; a tentativa de publicar este evento pela integração GitHub recebeu HTTP 403 Resource not accessible by integration, então esta atualização permanece somente local. Nenhum worker, download, instalação, restart ou configuração foi alterada. Causa operacional confirmada: runtime anterior; publicação/instalação e smoke test do primeiro item continuam pendentes."
+    },
+    {
+      "id": "server-nebula-missing-mongo-admission-runtime-2026-10-17-0922",
+      "title": "Nebula: módulo obrigatório ausente no runtime instalado",
+      "agent": "Codex",
+      "front": "server",
+      "featureIds": ["T2.1"],
+      "local": "D:\\Users\\Raphael\\Documents\\Projetos\\mulletaflix",
+      "location": "MulletaFlix-master/Tools/NebulaPython/tools/mongo_admission.py; pacote instalado; testes Nebula e homologação",
+      "scope": "Reproduzir por leitura a causa do downloader não iniciar, comparar o worker instalado com a fonte e validar os testes focados sem tocar em produção.",
+      "status": "in_progress",
+      "progressPercent": null,
+      "startedAt": "2026-10-17T09:24:13-03:00",
+      "updatedAt": "2026-10-17T09:24:13-03:00",
+      "evidence": "A API local somente leitura retornou 12.1.21. O main.py instalado importa tools.mongo_admission, mas tools\\mongo_admission.py não existe no runtime; Python 3.10 confirmou find_spec('tools.mongo_admission') = None. A fonte tem o módulo e o empacotador o inclui; o validador de integridade exige o arquivo. Testes da fonte: NebulaDownloaderStartupTests Release 11/11 e scanner/helpers Python 89/89. Não foi iniciado worker, download, instalação ou restart; nenhuma mídia/configuração foi alterada. Homologação segue in_progress: corrigir exige pacote instalado em janela operacional e smoke test de item real."
     }
   ]
 }
