@@ -131,7 +131,7 @@ fi
 
 export DEBIAN_FRONTEND=noninteractive
 apt-get update
-packages=(mariadb-server mariadb-client ffmpeg ca-certificates openssl curl)
+packages=(mariadb-server mariadb-client ffmpeg ca-certificates openssl curl python3 python3-venv)
 if [[ "$skip_https" != "1" && -n "$public_host" ]]; then
   packages+=(nginx certbot)
 fi
@@ -187,6 +187,11 @@ EOF
 install -d -m 0755 /opt/mulletaflix/server
 cp -a "$package_root/server/." /opt/mulletaflix/server/
 chmod 0755 /opt/mulletaflix/server/MulletaFlix
+nebula_python_dir=/opt/mulletaflix/server/Tools/NebulaPython
+python_venv="$nebula_python_dir/.venv"
+python3 -m venv "$python_venv"
+"$python_venv/bin/python3" -m pip install --disable-pip-version-check -r "$nebula_python_dir/requirements.txt"
+printf '%s\n' "$python_venv/bin/python3" | atomic_write_file "$nebula_python_dir/python.path" 0644 root:mulletaflix
 chown -R root:root /opt/mulletaflix
 install -m 0644 "$package_root/mulletaflix.service" /etc/systemd/system/mulletaflix.service
 systemctl daemon-reload

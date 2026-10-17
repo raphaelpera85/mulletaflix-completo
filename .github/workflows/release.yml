@@ -43,6 +43,8 @@ jobs:
           tar -tzf "$package" | grep -q '/server/MulletaFlix$'
           tar -tzf "$package" | grep -q '/install.sh$'
           tar -tzf "$package" | grep -q '/server/MulletaFlix-web/index.html$'
+          tar -tzf "$package" | grep -q '/server/Tools/NebulaPython/tools/strm_downloader.py$'
+          tar -tzf "$package" | grep -q '/server/Tools/NebulaPython/requirements.txt$'
 
       - name: Upload Linux package artifact
         uses: actions/upload-artifact@v4

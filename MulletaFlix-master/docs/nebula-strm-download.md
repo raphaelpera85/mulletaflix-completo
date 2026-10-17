@@ -1,5 +1,13 @@
 # Nebula STRM Downloader
 
+## Candidato de release 12.1.24 construído — 2026-10-17 10:19 (-03)
+
+O pacote Windows e o pacote Linux foram reconstruídos para a versão 12.1.24. Os dois builders Linux (Bash usado no workflow e PowerShell cross-publish) incluem `Tools/NebulaPython` (scripts, módulos FTP/tools e `requirements.txt`); o instalador adiciona `python3`/`python3-venv`, instala os requisitos em venv próprio e grava `python.path`, que o manager usa para localizar o interpretador. A checagem do arquivo Linux confirmou o `strm_downloader.py` dentro do tarball e o mesmo SHA-256 da fonte (`2A671AFCA11BF06B48AAAEAA0DA49032F0A7FAD96F4963F6FEFEBD08B0B9CDBA`). O workflow de release verifica esses arquivos antes de publicar.
+
+Verificações: teste do empacotamento Linux passou; Pester helper PowerShell 1/1; `bash -n` passou nos scripts alterados; Python Nebula 89/89; `NebulaDownloaderStartupTests` Release 11/11; build Windows/installer e build Linux concluídos. Build web incluiu os avisos existentes (15 dependências reportadas pelo `npm audit`, além de avisos Vite); não foram tratados neste hotfix. Isso não é homologação da integração real: MongoDB/Telegram não foram usados e o servidor de produção continua em 12.1.21. GitHub CLI sem autenticação; release ainda não publicada. Próximos gates: publicar os artefatos e instalar/reiniciar em janela controlada, então comprovar um download real de início a conclusão.
+
+O fluxo de distribuição passou a ter uma etapa de inclusão do runtime Nebula e bootstrap de venv somente no instalador Linux; topologia do worker e APIs do servidor permaneceram iguais. Ver mapa técnico no vault e registro desta sessão.
+
 ## Revalidação visual: runtime de download antigo e sem progresso por título — 2026-10-17 10:00 (-03)
 
 O painel autenticado do servidor confirma MulletaFlix **12.1.21**, Downloader parado, uma raiz de monitoramento configurada e dois stages com espaço disponível. Os registros de execuções anteriores mostram a inicialização do worker e a mensagem genérica de varredura, mas não mostram título indexado nem início de transferência antes de o processo parar. Não foi disparado um novo scan/transferência para evitar gravar arquivos de mídia e registros no servidor.

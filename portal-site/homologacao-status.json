@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-10-17T10:00:00-03:00",
+  "generatedAt": "2026-10-17T10:23:00-03:00",
   "source": {
     "roadmap": "https://github.com/raphaelpera85/mulletaflix-completo/blob/main/docs/roadmap-evolucao-tecnologica-servidor-e-web.md",
     "repository": "https://github.com/raphaelpera85/mulletaflix-completo"
@@ -2954,8 +2954,8 @@
       "status": "in_progress",
       "progressPercent": null,
       "startedAt": "2026-10-17T09:50:00-03:00",
-      "updatedAt": "2026-10-17T10:00:00-03:00",
-      "evidence": "Painel autenticado: servidor 12.1.21, Downloader parado; fontes e stages configurados e espaço de stage disponível. Logs históricos param na mensagem genérica de varredura, sem título indexado ou transferência observada. O downloader instalado (08/10/2026, SHA-256 3D41354345B79EAB19CB7A1FE0C01A02D0579130F18301D156CAF1C3221664C5) não tem os helpers de scan incremental por categoria/título presentes na fonte atual (SHA-256 D812F36ED102085A21D826EA684ED95A270C0E3903F0EE474C6E395D9F054938). Testes da fonte: NebulaPython 586/586 e NebulaDownloaderStartupTests Release 11/11. A diferença explica a falta de progresso granular e pode explicar a demora, mas não comprova um download específico. Nenhum worker/transferência foi iniciado e produção não foi alterada. Rebuild 12.1.24, publicação, instalação controlada e smoke test do primeiro item pendentes."
+      "updatedAt": "2026-10-17T10:23:00-03:00",
+      "evidence": "Candidato 12.1.24 reconstruído localmente para Windows e Linux. A inspeção do tarball Linux confirmou Tools/NebulaPython/tools/strm_downloader.py e requirements.txt; SHA-256 do downloader empacotado corresponde à fonte (2A671AFCA11BF06B48AAAEAA0DA49032F0A7FAD96F4963F6FEFEBD08B0B9CDBA). Testes: empacotamento Linux, helper PowerShell Pester 1/1, bash -n, NebulaPython 89/89 e NebulaDownloaderStartupTests Release 11/11; os dois builders Linux (Bash e PowerShell) incluem o runtime e o workflow de release confere os arquivos obrigatórios. Builds Windows e Linux concluídos. A primeira inspeção revelou que o builder Linux omitia todo o runtime Python; ambos os builders e o instalador foram corrigidos para empacotar o runtime e criar um venv dedicado. Produção continua 12.1.21; nenhum worker/download foi iniciado. GitHub CLI sem autenticação; publicação, instalação controlada e smoke test permanecem pendentes."
     },
     {
       "id": "server-nebula-download-first-title-revalidation-2026-10-16-2248",

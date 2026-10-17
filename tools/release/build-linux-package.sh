@@ -27,6 +27,10 @@ dotnet publish "$repo_root/MulletaFlix-master/Jellyfin.Server/Jellyfin.Server.cs
   --output "$app_dir/server" -p:DebugSymbols=false -p:DebugType=none \
   -p:GenerateDocumentationFile=false -p:RunAnalyzersDuringBuild=false -p:RunAnalyzers=false
 
+bash "$repo_root/tools/release/copy-nebula-python-runtime.sh" \
+  "$repo_root/MulletaFlix-master/Tools/NebulaPython" \
+  "$app_dir/server/Tools/NebulaPython"
+
 plugin_version='3.0.1.0'
 plugin_archive="$work_dir/file-transformation.zip"
 plugin_source='https://github.com/IAmParadox27/jellyfin-plugin-file-transformation/releases/download/3.0.1.0/Release-12.1.0.zip'
