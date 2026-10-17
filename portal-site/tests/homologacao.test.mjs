@@ -724,5 +724,8 @@ test('server Nebula download scan progress records production reproduction and s
     assert.match(event.evidence, /571\/571 passou/);
     assert.match(event.evidence, /processa uma categoria por vez/);
     assert.match(event.evidence, /1\.077 avisos de analisadores/);
-    assert.match(event.evidence, /Smoke test com binário atualizado.*pendentes/);
+    assert.match(event.evidence, /tag v12\.1\.22.*bloqueio de cobrança na conta GitHub/);
+    assert.match(event.evidence, /não existe GitHub Release baixável/);
+    assert.match(event.evidence, /binário de produção continua 12\.1\.21/);
+    assert.match(event.evidence, /Smoke test ponta a ponta.*pendentes/);
 });

@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-10-16T22:00:00-03:00",
+  "generatedAt": "2026-10-16T22:06:00-03:00",
   "source": {
     "roadmap": "https://github.com/raphaelpera85/mulletaflix-completo/blob/main/docs/roadmap-evolucao-tecnologica-servidor-e-web.md",
     "repository": "https://github.com/raphaelpera85/mulletaflix-completo"
@@ -5355,8 +5355,8 @@
       "status": "in_progress",
       "progressPercent": null,
       "startedAt": "2026-10-16T21:38:09-03:00",
-      "updatedAt": "2026-10-16T22:00:00-03:00",
-      "evidence": "Em produção 12.1.21, o início manual criou o worker Python, mas ele permaneceu em 'Escaneando e priorizando arquivos .strm...' por 11m55 sem iniciar mídia; o painel exibiu Download executando no badge e 'Downloader parado' / 0% no cartão. O processo de teste desta sessão foi parado sem baixar/excluir mídia e o estado voltou a Parado. A fonte agora detecta fontes com subpastas categorizadas e varre/ordena/processa uma categoria por vez na prioridade configurada, antes de escanear categorias inferiores; fontes mistas mantêm fallback para scan integral. A varredura emite contagem a cada 5.000 mídias, mostrada no cartão. O caminho real D:\\midias foi detectado com Animações, Filmes, Series, Doramas e Novelas como categorias diretas. Suíte NebulaPython: 571/571 passou em Python 3.10. Build Release Jellyfin.Server.Implementations: 0 erros, 1.077 avisos de analisadores/estilo. Testes de portal: 34/34 no espelho e 21/21 no checkout independente. Smoke test com binário atualizado e download ponta a ponta continuam pendentes; release 12.1.22 ainda será publicada pelo fluxo automatizado."
+      "updatedAt": "2026-10-16T22:06:00-03:00",
+      "evidence": "Em produção 12.1.21, o início manual criou o worker Python, mas ele permaneceu em 'Escaneando e priorizando arquivos .strm...' por 11m55 sem iniciar mídia; o painel exibiu Download executando no badge e 'Downloader parado' / 0% no cartão. O processo de teste desta sessão foi parado sem baixar/excluir mídia e o estado voltou a Parado. A fonte agora detecta fontes com subpastas categorizadas e varre/ordena/processa uma categoria por vez na prioridade configurada, antes de escanear categorias inferiores; fontes mistas mantêm fallback para scan integral. A varredura emite contagem a cada 5.000 mídias, mostrada no cartão. O caminho real D:\\midias foi detectado com Animações, Filmes, Series, Doramas e Novelas como categorias diretas. Suíte NebulaPython: 571/571 passou em Python 3.10. Build Release Jellyfin.Server.Implementations: 0 erros, 1.077 avisos de analisadores/estilo. Testes de portal: 34/34 no espelho e 21/21 no checkout independente. Commit 86dd4125 e tag v12.1.22 foram enviados; o workflow 38989227346 falhou antes de iniciar os jobs por bloqueio de cobrança na conta GitHub. O teste de integração do downloader com binário atualizado e assets da release não foram produzidos; não existe GitHub Release baixável. O binário de produção continua 12.1.21. Smoke test ponta a ponta e release baixável pendentes; homologação permanece in_progress."
     }
   ]
 }
