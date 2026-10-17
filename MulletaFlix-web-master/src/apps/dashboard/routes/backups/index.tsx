@@ -27,13 +27,15 @@ import { TaskState } from '@jellyfin/sdk/lib/generated-client/models/task-state'
 import ConfirmDialog from 'components/ConfirmDialog';
 import ScheduleBackupDialog from 'apps/dashboard/features/backups/components/ScheduleBackupDialog';
 import BackupHistory from 'apps/dashboard/features/backups/components/BackupHistory';
-import BackupOperationalSummary from 'apps/dashboard/features/backups/components/BackupOperationalSummary';
+import BackupOperationalSummary, { getLatestBackupRun } from 'apps/dashboard/features/backups/components/BackupOperationalSummary';
 import BackupCoverageSummary from 'apps/dashboard/features/backups/components/BackupCoverageSummary';
 import { useSupabaseBackupStatus } from 'apps/dashboard/features/backups/api/useSupabaseBackupStatus';
+import { useBackupHistory } from 'apps/dashboard/features/backups/api/useBackupHistory';
 
 export const Component = () => {
     const { api } = useApi();
     const supabaseStatus = useSupabaseBackupStatus();
+    const { data: backupHistory } = useBackupHistory();
     const retrySupabaseStatus = useCallback(() => {
         void supabaseStatus.refetch();
     }, [ supabaseStatus ]);
@@ -63,6 +65,8 @@ export const Component = () => {
         isError: isTasksError,
         refetch: refetchTasks
     } = useLiveTasks({ isHidden: false });
+    const scheduledBackupTask = tasks?.find(task => task.Key === 'BackupScheduledTask');
+    const latestBackupRun = getLatestBackupRun(backupHistory, scheduledBackupTask?.LastExecutionResult);
 
     const handleRetryLoad = useCallback(() => {
         void Promise.all([refetchBackups(), refetchTasks()]).catch((error: unknown) => {
@@ -299,8 +303,9 @@ export const Component = () => {
                         </Typography>
 
                         <BackupOperationalSummary
-                            task={tasks?.find(task => task.Key === 'BackupScheduledTask')}
+                            task={scheduledBackupTask}
                             latestBackup={backups[0]}
+                            latestRun={latestBackupRun}
                         />
                         <BackupCoverageSummary
                             latestBackup={backups[0]}

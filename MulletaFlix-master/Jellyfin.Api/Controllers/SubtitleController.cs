@@ -140,11 +140,13 @@ public class SubtitleController : BaseMulletaFlixApiController
     /// <param name="subtitleId">The subtitle id.</param>
     /// <response code="204">Subtitle downloaded.</response>
     /// <response code="404">Item not found.</response>
+    /// <response code="500">Subtitle download failed.</response>
     /// <returns>A <see cref="NoContentResult"/>.</returns>
     [HttpPost("Items/{itemId}/RemoteSearch/Subtitles/{subtitleId}")]
     [Authorize(Policy = Policies.SubtitleManagement)]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status500InternalServerError)]
     public async Task<ActionResult> DownloadRemoteSubtitles(
         [FromRoute, Required] Guid itemId,
         [FromRoute, Required] string subtitleId)
@@ -165,6 +167,7 @@ public class SubtitleController : BaseMulletaFlixApiController
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error downloading subtitles");
+            return StatusCode(StatusCodes.Status500InternalServerError);
         }
 
         return NoContent();

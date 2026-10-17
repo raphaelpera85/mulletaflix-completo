@@ -32,6 +32,7 @@ namespace MulletaFlix.Server.Implementations.Nebula;
 public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable, IAsyncDisposable
 {
     public const string MeterName = "MulletaFlix.Nebula.Cleanup";
+    private static readonly TimeSpan DownloaderStartupTimeout = TimeSpan.FromSeconds(60);
 
     private static readonly Meter CleanupMeter = new(MeterName);
     private static readonly Counter<long> CleanupCycleCounter = CleanupMeter.CreateCounter<long>("mulletaflix.nebula.cleanup.cycles");
@@ -90,6 +91,9 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable, IAsyncDis
         RegexOptions.Compiled | RegexOptions.IgnoreCase);
     private static readonly Regex DownloaderScanCategoryRegex = new(
         @"Iniciando varredura da categoria prioritária:\s*(?<category>.+)",
+        RegexOptions.Compiled | RegexOptions.IgnoreCase);
+    private static readonly Regex DownloaderTitleScanRegex = new(
+        @"Indexando título:\s*(?<title>.+)",
         RegexOptions.Compiled | RegexOptions.IgnoreCase);
     private NebulaPythonCacheLeaseHost? _pythonCacheLeaseHost;
     private CancellationTokenSource? _cleanupCts;
@@ -2773,7 +2777,7 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable, IAsyncDis
         {
             _logger.LogError(ex, "Failed to start STRM Downloader");
             AddDownloaderLog($"[ERRO] Falha ao iniciar Downloader: {ex.Message}");
-            _isDownloaderRunning = false;
+            _isDownloaderRunning = _pythonDownloaderProcess is { HasExited: false };
             return false;
         }
         finally
@@ -5784,25 +5788,84 @@ CREATE POLICY nebula_bot_tokens_service_role_all
             throw new InvalidOperationException("Não foi possível iniciar o STRM Downloader Python.");
         }
 
+        var workerReady = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         _pythonDownloaderProcess = process;
         _pythonDownloaderStdoutTask = DrainMountOutputAsync(process.StandardOutput, line =>
         {
             AddDownloaderLog(line);
             HandlePythonDownloaderOutput(line);
+            if (IsPythonDownloaderReadyOutput(line))
+            {
+                workerReady.TrySetResult();
+            }
         });
         _pythonDownloaderStderrTask = DrainMountOutputAsync(process.StandardError, line =>
         {
             AddDownloaderLog($"[ERRO-STRM] {line}");
         });
 
-        _isDownloaderRunning = true;
-        AddDownloaderLog($"[NEBULA-STRM] STRM Downloader Python ativo (PID {process.Id}, {config.DownloadParts} partes multipart).");
+        try
+        {
+            await WaitForWorkerReadinessAsync(
+                workerReady.Task,
+                process.WaitForExitAsync(cancellationToken),
+                () => process.ExitCode,
+                DownloaderStartupTimeout,
+                cancellationToken).ConfigureAwait(false);
+        }
+        catch
+        {
+            await StopPythonDownloaderAsync().ConfigureAwait(false);
+            throw;
+        }
+
+        AddDownloaderLog($"[NEBULA-STRM] STRM Downloader iniciou o scan real da biblioteca (PID {process.Id}, {config.DownloadParts} partes multipart).");
         return true;
+    }
+
+    internal static bool IsPythonDownloaderReadyOutput(string line)
+        => line.Contains("[STRM-SCAN-STARTED]", StringComparison.OrdinalIgnoreCase);
+
+    internal static async Task WaitForWorkerReadinessAsync(
+        Task readinessTask,
+        Task processExitTask,
+        Func<int> getExitCode,
+        TimeSpan timeout,
+        CancellationToken cancellationToken)
+    {
+        var timeoutTask = Task.Delay(timeout, cancellationToken);
+        var completedTask = await Task.WhenAny(readinessTask, processExitTask, timeoutTask).ConfigureAwait(false);
+        cancellationToken.ThrowIfCancellationRequested();
+
+        if (completedTask == readinessTask)
+        {
+            await readinessTask.ConfigureAwait(false);
+            if (processExitTask.IsCompleted)
+            {
+                await processExitTask.ConfigureAwait(false);
+                throw new InvalidOperationException($"Worker Python encerrou durante a inicialização (código {getExitCode()}).");
+            }
+
+            return;
+        }
+
+        if (completedTask == processExitTask)
+        {
+            await processExitTask.ConfigureAwait(false);
+            throw new InvalidOperationException($"Worker Python encerrou antes de iniciar o scan (código {getExitCode()}).");
+        }
+
+        throw new TimeoutException($"Worker Python não iniciou o scan STRM dentro de {timeout.TotalSeconds:0} segundos.");
     }
 
     private void HandlePythonDownloaderOutput(string line)
     {
         if (string.IsNullOrWhiteSpace(line))
+        {
+            return;
+        }
+
+        if (TryApplyPythonDownloaderProgressOutput(line, _currentDownload))
         {
             return;
         }
@@ -5893,10 +5956,71 @@ CREATE POLICY nebula_bot_tokens_service_role_all
         }
     }
 
+    internal static bool TryApplyPythonDownloaderProgressOutput(string line, NebulaDownloadStatusDto status)
+    {
+        if (string.IsNullOrWhiteSpace(line))
+        {
+            return false;
+        }
+
+        if (line.Contains("[STRM-WORKER-MONGO-READY]", StringComparison.OrdinalIgnoreCase))
+        {
+            status.Name = "Preparando fila de download";
+            status.StageStep = "Índice Mongo preparado; descobrindo bibliotecas...";
+            status.Percentage = 0;
+            status.DetailText = "O scan ainda não começou; localizando pastas e títulos elegíveis.";
+            return true;
+        }
+
+        if (line.Contains("[STRM-SCAN-STARTED]", StringComparison.OrdinalIgnoreCase))
+        {
+            status.Name = "Preparando fila de download";
+            status.StageStep = "Varredura da biblioteca iniciada";
+            status.Percentage = 0;
+            status.DetailText = "O worker começou a percorrer as pastas monitoradas.";
+            return true;
+        }
+
+        var titleScan = DownloaderTitleScanRegex.Match(line);
+        if (titleScan.Success)
+        {
+            var title = titleScan.Groups["title"].Value.Trim();
+            status.Name = "Preparando fila de download";
+            status.StageStep = $"Indexando título: {title}";
+            status.Percentage = 0;
+            status.DetailText = "O downloader verifica um título por vez e inicia os itens elegíveis sem aguardar o scan global.";
+            return true;
+        }
+
+        var scanCount = DownloaderScanCountRegex.Match(line);
+        if (!scanCount.Success || !int.TryParse(scanCount.Groups["count"].Value, out var count))
+        {
+            return false;
+        }
+
+        const string titlePrefix = "Indexando título: ";
+        if (!status.StageStep.StartsWith(titlePrefix, StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        var indexedTitle = status.StageStep[titlePrefix.Length..];
+        status.Name = count == 0 ? "Preparando fila de download" : "Fila de download preparada";
+        status.StageStep = count == 0
+            ? "Título sem mídia elegível; seguindo para o próximo..."
+            : $"Título indexado: {indexedTitle}";
+        status.QueueCount = count;
+        status.QueuePosition = 0;
+        status.Percentage = 0;
+        status.DetailText = count == 0
+            ? $"{indexedTitle} não contém arquivos elegíveis."
+            : $"{count} arquivo(s) elegível(is); iniciando este título antes do próximo.";
+        return true;
+    }
+
     private async Task StopPythonDownloaderAsync()
     {
         var process = _pythonDownloaderProcess;
-        _pythonDownloaderProcess = null;
         if (process == null)
         {
             return;
@@ -5912,9 +6036,25 @@ CREATE POLICY nebula_bot_tokens_service_role_all
         }
         catch (Exception ex) when (ex is InvalidOperationException or System.ComponentModel.Win32Exception or TimeoutException)
         {
-            _logger.LogWarning(ex, "Falha ao encerrar STRM Downloader Python.");
+            if (!process.HasExited)
+            {
+                _isDownloaderRunning = true;
+                AddDownloaderLog("[ERRO] O STRM Downloader Python continua ativo; a referência foi preservada para evitar outro worker duplicado.");
+                throw new InvalidOperationException("Não foi possível confirmar o encerramento do STRM Downloader Python.", ex);
+            }
+
+            _logger.LogWarning(ex, "O STRM Downloader Python já encerrou durante a solicitação de parada.");
         }
-        finally
+
+        if (!process.HasExited)
+        {
+            _isDownloaderRunning = true;
+            AddDownloaderLog("[ERRO] O STRM Downloader Python não confirmou encerramento; a referência foi preservada.");
+            throw new TimeoutException("O STRM Downloader Python continua ativo após a solicitação de parada.");
+        }
+
+        _pythonDownloaderProcess = null;
+        try
         {
             var drainTasks = new[] { _pythonDownloaderStdoutTask, _pythonDownloaderStderrTask }.Where(task => task != null).Cast<Task>();
             try
@@ -5926,6 +6066,9 @@ CREATE POLICY nebula_bot_tokens_service_role_all
             }
             _pythonDownloaderStdoutTask = null;
             _pythonDownloaderStderrTask = null;
+        }
+        finally
+        {
             process.Dispose();
         }
     }

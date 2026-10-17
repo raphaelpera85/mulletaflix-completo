@@ -153,6 +153,22 @@ From the workspace root, the maintained build script prepares the stage, validat
 powershell -ExecutionPolicy Bypass -File .\MulletaFlix-packaging-master\build-stage-and-installer.ps1 -NoPause
 ```
 
+Custom `-StageDirectory` builds are honored by the installer compiler. Stage
+and build outputs must be separate descendants of the repository's `.build`
+directory; the builder rejects source-tree destinations and symbolic-link or
+junction traversal before performing cleanup. Use unique subdirectories for
+parallel or repeatable candidate builds, for example:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\MulletaFlix-packaging-master\build-stage-and-installer.ps1 `
+  -StageDirectory .\.build\candidate-12.1.23\stage `
+  -BuildDirectory .\.build\candidate-12.1.23\build `
+  -NoPause
+```
+
+The installer and release assets still use the configured release output
+locations; do not reuse a version already present there.
+
 To validate an existing stage without rebuilding it:
 
 ```powershell

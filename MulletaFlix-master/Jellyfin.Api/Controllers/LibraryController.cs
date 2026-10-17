@@ -385,10 +385,12 @@ public class LibraryController : BaseMulletaFlixApiController
     /// Starts a library scan.
     /// </summary>
     /// <response code="204">Library scan started.</response>
+    /// <response code="500">Library scan failed.</response>
     /// <returns>A <see cref="NoContentResult"/>.</returns>
     [HttpPost("Library/Refresh")]
     [Authorize(Policy = Policies.RequiresElevation)]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status500InternalServerError)]
     public async Task<ActionResult> RefreshLibrary()
     {
         try
@@ -398,6 +400,7 @@ public class LibraryController : BaseMulletaFlixApiController
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error refreshing library");
+            return StatusCode(StatusCodes.Status500InternalServerError);
         }
 
         return NoContent();

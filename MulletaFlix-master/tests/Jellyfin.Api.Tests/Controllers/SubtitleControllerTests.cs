@@ -2,6 +2,7 @@ using System;
 using System.Linq;
 using System.Reflection;
 using System.Security.Claims;
+using System.Threading;
 using System.Threading.Tasks;
 using MulletaFlix.Api.Constants;
 using MulletaFlix.Api.Controllers;
@@ -54,6 +55,32 @@ public class SubtitleControllerTests
             0);
 
         Assert.IsType<NotFoundResult>(result);
+    }
+
+    [Fact]
+    public async Task DownloadRemoteSubtitles_WhenDownloadFails_ReturnsInternalServerError()
+    {
+        var itemId = Guid.NewGuid();
+        var subtitleId = "remote-subtitle";
+        var userId = Guid.NewGuid();
+        var item = new Video { Id = itemId };
+        var libraryManager = new Mock<ILibraryManager>();
+        libraryManager.Setup(manager => manager.GetItemById<Video>(itemId, userId)).Returns(item);
+        var subtitleManager = new Mock<ISubtitleManager>();
+        subtitleManager
+            .Setup(manager => manager.DownloadSubtitles(item, subtitleId, It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new InvalidOperationException("simulated subtitle failure"));
+        var controller = CreateController(libraryManager: libraryManager.Object, subtitleManager: subtitleManager.Object);
+        controller.ControllerContext.HttpContext.User = new ClaimsPrincipal(
+            new ClaimsIdentity(
+                new[] { new Claim(InternalClaimTypes.UserId, userId.ToString("N")) },
+                "test"));
+
+        var result = await controller.DownloadRemoteSubtitles(itemId, subtitleId);
+
+        var statusResult = Assert.IsType<StatusCodeResult>(result);
+        Assert.Equal(StatusCodes.Status500InternalServerError, statusResult.StatusCode);
+        subtitleManager.VerifyAll();
     }
 
     [Fact]
@@ -145,12 +172,13 @@ public class SubtitleControllerTests
     private static SubtitleController CreateController(
         ILibraryManager? libraryManager = null,
         IServerConfigurationManager? configManager = null,
-        IFileSystem? fileSystem = null)
+        IFileSystem? fileSystem = null,
+        ISubtitleManager? subtitleManager = null)
     {
         return new SubtitleController(
             configManager ?? Mock.Of<IServerConfigurationManager>(),
             libraryManager ?? Mock.Of<ILibraryManager>(),
-            Mock.Of<ISubtitleManager>(),
+            subtitleManager ?? Mock.Of<ISubtitleManager>(),
             Mock.Of<ISubtitleEncoder>(),
             Mock.Of<IMediaSourceManager>(),
             Mock.Of<IProviderManager>(),

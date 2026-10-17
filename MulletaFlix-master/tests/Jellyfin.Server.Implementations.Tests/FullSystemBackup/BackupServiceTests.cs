@@ -10,6 +10,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using MediaBrowser.Controller;
 using MediaBrowser.Controller.SystemBackupService;
+using MediaBrowser.Model.Tasks;
 using MediaBrowser.Model.System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Hosting;
@@ -250,9 +251,247 @@ public class BackupServiceTests
             Assert.False(manifest.Options.Database);
             Assert.Empty(manifest.DatabaseTables);
 
+            var history = await service.GetBackupHistory();
+            var execution = Assert.Single(history);
+            Assert.Equal("FullSystemBackup", execution.Key);
+            Assert.Equal(TaskCompletionStatus.Completed, execution.Status);
+            Assert.Equal(result.Path, execution.Path);
+            Assert.True(execution.EndTimeUtc >= execution.StartTimeUtc);
+
             dbContextFactory.Verify(factory => factory.CreateDbContext(), Times.Never);
             dbContextFactory.Verify(factory => factory.CreateDbContextAsync(It.IsAny<CancellationToken>()), Times.Never);
             _databaseProviderMock.Verify(provider => provider.RunScheduledOptimisation(It.IsAny<CancellationToken>()), Times.Never);
+        }
+        finally
+        {
+            if (Directory.Exists(isolatedRoot))
+            {
+                Directory.Delete(isolatedRoot, recursive: true);
+            }
+        }
+    }
+
+    [Fact]
+    public async Task CreateScheduledBackupAsync_RecordsScheduledTaskIdentityInPersistentHistory()
+    {
+        var isolatedRoot = Path.Combine(Path.GetTempPath(), $"mulletaflix-scheduled-backup-history-{Guid.NewGuid():N}");
+        var configurationPath = Path.Combine(isolatedRoot, "config");
+        var dataPath = Path.Combine(isolatedRoot, "data");
+        Directory.CreateDirectory(configurationPath);
+        Directory.CreateDirectory(dataPath);
+
+        try
+        {
+            await File.WriteAllTextAsync(Path.Combine(configurationPath, "server.json"), "{}");
+            _applicationPathsMock.Setup(paths => paths.BackupPath).Returns(Path.Combine(isolatedRoot, "backups"));
+            _applicationPathsMock.Setup(paths => paths.ConfigurationDirectoryPath).Returns(configurationPath);
+            _applicationPathsMock.Setup(paths => paths.DataPath).Returns(dataPath);
+            _applicationPathsMock.Setup(paths => paths.RootFolderPath).Returns(Path.Combine(isolatedRoot, "root"));
+            _applicationPathsMock.Setup(paths => paths.InternalMetadataPath).Returns(Path.Combine(isolatedRoot, "metadata"));
+            _applicationPathsMock.Setup(paths => paths.DefaultInternalMetadataPath).Returns(Path.Combine(isolatedRoot, "metadata-default"));
+
+            var service = CreateService();
+            var manifest = await service.CreateScheduledBackupAsync(new BackupOptionsDto
+            {
+                Database = false,
+                Metadata = false,
+                Subtitles = false,
+                Trickplay = false
+            });
+
+            var execution = Assert.Single(await service.GetBackupHistory());
+            Assert.Equal("BackupScheduledTask", execution.Key);
+            Assert.Equal("Scheduled backup", execution.Name);
+            Assert.Equal(TaskCompletionStatus.Completed, execution.Status);
+            Assert.Equal(manifest.Path, execution.Path);
+        }
+        finally
+        {
+            if (Directory.Exists(isolatedRoot))
+            {
+                Directory.Delete(isolatedRoot, recursive: true);
+            }
+        }
+    }
+
+    [Fact]
+    public async Task CreateBackupAsync_RecordsSanitizedFailureInPersistentHistory()
+    {
+        var isolatedRoot = Path.Combine(Path.GetTempPath(), $"mulletaflix-backup-failed-history-{Guid.NewGuid():N}");
+        var dataPath = Path.Combine(isolatedRoot, "data");
+        Directory.CreateDirectory(dataPath);
+
+        try
+        {
+            _applicationPathsMock.Setup(paths => paths.BackupPath).Returns(Path.Combine(isolatedRoot, "backups"));
+            _applicationPathsMock.Setup(paths => paths.ConfigurationDirectoryPath).Returns(Path.Combine(isolatedRoot, "missing-config"));
+            _applicationPathsMock.Setup(paths => paths.DataPath).Returns(dataPath);
+            _applicationPathsMock.Setup(paths => paths.RootFolderPath).Returns(Path.Combine(isolatedRoot, "root"));
+            _applicationPathsMock.Setup(paths => paths.InternalMetadataPath).Returns(Path.Combine(isolatedRoot, "metadata"));
+            _applicationPathsMock.Setup(paths => paths.DefaultInternalMetadataPath).Returns(Path.Combine(isolatedRoot, "metadata-default"));
+
+            var service = CreateService();
+            await Assert.ThrowsAnyAsync<Exception>(() => service.CreateBackupAsync(new BackupOptionsDto
+            {
+                Database = false,
+                Metadata = false,
+                Subtitles = false,
+                Trickplay = false
+            }));
+
+            var execution = Assert.Single(await service.GetBackupHistory());
+            Assert.Equal(TaskCompletionStatus.Failed, execution.Status);
+            Assert.Equal("FullSystemBackup", execution.Key);
+            Assert.Empty(execution.Path);
+            Assert.Equal("Backup failed. Check the server log for details.", execution.ErrorMessage);
+            Assert.DoesNotContain(isolatedRoot, execution.ErrorMessage, StringComparison.OrdinalIgnoreCase);
+        }
+        finally
+        {
+            if (Directory.Exists(isolatedRoot))
+            {
+                Directory.Delete(isolatedRoot, recursive: true);
+            }
+        }
+    }
+
+    [Fact]
+    public async Task GetBackupHistory_MergesLegacyScheduledResultWithoutDuplicates()
+    {
+        var isolatedRoot = Path.Combine(Path.GetTempPath(), $"mulletaflix-backup-history-merge-{Guid.NewGuid():N}");
+        var dataPath = Path.Combine(isolatedRoot, "data");
+        var scheduledPath = Path.Combine(dataPath, "ScheduledTasks");
+        Directory.CreateDirectory(scheduledPath);
+
+        try
+        {
+            _applicationPathsMock.Setup(paths => paths.DataPath).Returns(dataPath);
+            var endTime = DateTime.UtcNow;
+            var persisted = new BackupExecutionHistoryDto
+            {
+                Path = "archive.zip",
+                StartTimeUtc = endTime.AddMinutes(-1),
+                EndTimeUtc = endTime,
+                Status = TaskCompletionStatus.Completed,
+                Name = "Scheduled backup",
+                Key = "BackupScheduledTask",
+                Id = "persisted-run",
+                ErrorMessage = string.Empty,
+                LongErrorMessage = string.Empty
+            };
+            await File.WriteAllTextAsync(
+                Path.Combine(dataPath, "BackupExecutionHistory.json"),
+                JsonSerializer.Serialize(new[] { persisted }));
+            await File.WriteAllTextAsync(
+                Path.Combine(scheduledPath, "BackupScheduledTask.js"),
+                JsonSerializer.Serialize(new TaskResult
+                {
+                    StartTimeUtc = endTime.AddMinutes(-1),
+                    EndTimeUtc = endTime.AddSeconds(1),
+                    Status = TaskCompletionStatus.Completed,
+                    Name = "Scheduled Backup",
+                    Key = "BackupScheduledTask",
+                    Id = "legacy-run"
+                }));
+
+            var history = await CreateService().GetBackupHistory();
+
+            Assert.Single(history);
+            Assert.Equal("persisted-run", history[0].Id);
+        }
+        finally
+        {
+            if (Directory.Exists(isolatedRoot))
+            {
+                Directory.Delete(isolatedRoot, recursive: true);
+            }
+        }
+    }
+
+    [Fact]
+    public async Task GetBackupHistory_DoesNotMergeDistinctScheduledRunsWithinOneMinute()
+    {
+        var isolatedRoot = Path.Combine(Path.GetTempPath(), $"mulletaflix-backup-history-close-runs-{Guid.NewGuid():N}");
+        var dataPath = Path.Combine(isolatedRoot, "data");
+        var scheduledPath = Path.Combine(dataPath, "ScheduledTasks");
+        Directory.CreateDirectory(scheduledPath);
+
+        try
+        {
+            _applicationPathsMock.Setup(paths => paths.DataPath).Returns(dataPath);
+            var previousRunEnd = DateTime.UtcNow;
+            var previousRun = new BackupExecutionHistoryDto
+            {
+                Path = "previous.zip",
+                StartTimeUtc = previousRunEnd.AddMinutes(-1),
+                EndTimeUtc = previousRunEnd,
+                Status = TaskCompletionStatus.Completed,
+                Name = "Scheduled backup",
+                Key = "BackupScheduledTask",
+                Id = "previous-run",
+                ErrorMessage = string.Empty,
+                LongErrorMessage = string.Empty
+            };
+            await File.WriteAllTextAsync(
+                Path.Combine(dataPath, "BackupExecutionHistory.json"),
+                JsonSerializer.Serialize(new[] { previousRun }));
+            await File.WriteAllTextAsync(
+                Path.Combine(scheduledPath, "BackupScheduledTask.js"),
+                JsonSerializer.Serialize(new TaskResult
+                {
+                    StartTimeUtc = previousRunEnd.AddSeconds(1),
+                    EndTimeUtc = previousRunEnd.AddSeconds(30),
+                    Status = TaskCompletionStatus.Completed,
+                    Name = "Scheduled Backup",
+                    Key = "BackupScheduledTask",
+                    Id = "next-run"
+                }));
+
+            var history = await CreateService().GetBackupHistory();
+
+            Assert.Equal(2, history.Length);
+            Assert.Contains(history, item => item.Id == "previous-run");
+            Assert.Contains(history, item => item.Id == "next-run");
+        }
+        finally
+        {
+            if (Directory.Exists(isolatedRoot))
+            {
+                Directory.Delete(isolatedRoot, recursive: true);
+            }
+        }
+    }
+
+    [Fact]
+    public async Task CreateBackupAsync_DoesNotOverwriteUnreadableHistoryFile()
+    {
+        var isolatedRoot = Path.Combine(Path.GetTempPath(), $"mulletaflix-backup-history-corrupt-{Guid.NewGuid():N}");
+        var dataPath = Path.Combine(isolatedRoot, "data");
+        var configurationPath = Path.Combine(isolatedRoot, "config");
+        Directory.CreateDirectory(dataPath);
+        Directory.CreateDirectory(configurationPath);
+        var historyFile = Path.Combine(dataPath, "BackupExecutionHistory.json");
+        const string preservedContent = "{not-valid-json";
+        await File.WriteAllTextAsync(historyFile, preservedContent);
+
+        try
+        {
+            _applicationPathsMock.Setup(paths => paths.BackupPath).Returns(Path.Combine(isolatedRoot, "backups"));
+            _applicationPathsMock.Setup(paths => paths.ConfigurationDirectoryPath).Returns(configurationPath);
+            _applicationPathsMock.Setup(paths => paths.DataPath).Returns(dataPath);
+            _applicationPathsMock.Setup(paths => paths.RootFolderPath).Returns(Path.Combine(isolatedRoot, "root"));
+            _applicationPathsMock.Setup(paths => paths.InternalMetadataPath).Returns(Path.Combine(isolatedRoot, "metadata"));
+            _applicationPathsMock.Setup(paths => paths.DefaultInternalMetadataPath).Returns(Path.Combine(isolatedRoot, "metadata-default"));
+
+            await CreateService().CreateBackupAsync(new BackupOptionsDto
+            {
+                Database = false,
+                Metadata = false,
+                Subtitles = false,
+                Trickplay = false
+            });
+
+            Assert.Equal(preservedContent, await File.ReadAllTextAsync(historyFile));
         }
         finally
         {

@@ -7,6 +7,7 @@ using MulletaFlix.Tools.IntroSkipperMigration;
 using Microsoft.EntityFrameworkCore;
 using MySqlConnector;
 using Xunit;
+using MulletaFlix.Testing;
 
 namespace IntroSkipper.Integration.Tests;
 
@@ -26,17 +27,11 @@ public sealed class SqliteToMariaDbMigrationTests
     /// <summary>Schema used only by this fixture, so it cannot touch the plugin's schema.</summary>
     private const string TargetDatabase = "mulletaflix_introskipper_migration_test";
 
-    private const string ConnectionString =
-        "Server=127.0.0.1;Port=3306;User ID=root;Password=;CharSet=utf8mb4;Connection Timeout=5;";
-
-    public SqliteToMariaDbMigrationTests()
-    {
-        DropTarget();
-    }
-
     [Fact]
     public async Task MigratesEveryTablePreservingIdsAndUserIntent()
     {
+        MariaDbTestEnvironment.SkipUnlessConfigured();
+        DropTarget();
         using var legacy = LegacySqliteBuilder.Create();
         legacy.CreateSegmentDatabase();
 
@@ -95,6 +90,8 @@ public sealed class SqliteToMariaDbMigrationTests
     [Fact]
     public async Task MigratesThePreVersioningShape()
     {
+        MariaDbTestEnvironment.SkipUnlessConfigured();
+        DropTarget();
         using var legacy = LegacySqliteBuilder.Create();
 
         // The initial schema: no AnalyzedItems.FileVersion, no SeasonAnalysisOverrides, and
@@ -121,6 +118,8 @@ public sealed class SqliteToMariaDbMigrationTests
     [Fact]
     public async Task SkipsRowsThatViolateTheRangeInvariant()
     {
+        MariaDbTestEnvironment.SkipUnlessConfigured();
+        DropTarget();
         using var legacy = LegacySqliteBuilder.Create();
         legacy.CreateSegmentDatabase();
 
@@ -147,6 +146,8 @@ public sealed class SqliteToMariaDbMigrationTests
     [Fact]
     public async Task IsIdempotentAndNeverOverwritesTheTarget()
     {
+        MariaDbTestEnvironment.SkipUnlessConfigured();
+        DropTarget();
         using var legacy = LegacySqliteBuilder.Create();
         legacy.CreateSegmentDatabase();
 
@@ -181,6 +182,8 @@ public sealed class SqliteToMariaDbMigrationTests
     [Fact]
     public async Task JournalsEveryAffectedItemForProjection()
     {
+        MariaDbTestEnvironment.SkipUnlessConfigured();
+        DropTarget();
         using var legacy = LegacySqliteBuilder.Create();
         legacy.CreateSegmentDatabase();
 
@@ -206,6 +209,8 @@ public sealed class SqliteToMariaDbMigrationTests
     [Fact]
     public async Task MigratesTheDetectionCacheOnlyWhenAskedAndUsesItsOwnContext()
     {
+        MariaDbTestEnvironment.SkipUnlessConfigured();
+        DropTarget();
         using var legacy = LegacySqliteBuilder.Create();
         legacy.CreateSegmentDatabase();
         legacy.CreateCacheDatabase();
@@ -238,6 +243,8 @@ public sealed class SqliteToMariaDbMigrationTests
     [Fact]
     public async Task DryRunWritesNothing()
     {
+        MariaDbTestEnvironment.SkipUnlessConfigured();
+        DropTarget();
         using var legacy = LegacySqliteBuilder.Create();
         legacy.CreateSegmentDatabase();
 
@@ -256,6 +263,8 @@ public sealed class SqliteToMariaDbMigrationTests
     [Fact]
     public async Task FailsClearlyWhenTheSourceIsMissing()
     {
+        MariaDbTestEnvironment.SkipUnlessConfigured();
+        DropTarget();
         using var legacy = LegacySqliteBuilder.Create();
         var options = new Options
         {
@@ -280,30 +289,34 @@ public sealed class SqliteToMariaDbMigrationTests
             CacheDatabasePath = includeCache ? legacy.CacheDatabasePath : null,
             IncludeCache = includeCache,
             DatabaseName = TargetDatabase,
+            Server = MariaDbTestEnvironment.GetAdminConnection().Server,
+            Port = MariaDbTestEnvironment.GetAdminConnection().Port.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            User = MariaDbTestEnvironment.GetAdminConnection().UserID,
+            Password = MariaDbTestEnvironment.GetAdminConnection().Password,
             DryRun = dryRun,
         };
 
     private static IntroSkipperDbContext OpenTarget()
     {
         var builder = new Microsoft.EntityFrameworkCore.DbContextOptionsBuilder<IntroSkipperDbContext>();
-        builder.UseMySql(
-            $"Server=127.0.0.1;Port=3306;User ID=root;Password=;Database={TargetDatabase};CharSet=utf8mb4;SslMode=None;",
-            new MariaDbServerVersion(new Version(11, 4, 2)));
+        var connection = MariaDbTestEnvironment.GetAdminConnection();
+        connection.Database = TargetDatabase;
+        builder.UseMySql(connection.ConnectionString, new MariaDbServerVersion(new Version(11, 4, 2)));
         return new IntroSkipperDbContext(builder.Options);
     }
 
     private static DetectionCacheDbContext OpenCache()
     {
         var builder = new Microsoft.EntityFrameworkCore.DbContextOptionsBuilder<DetectionCacheDbContext>();
-        builder.UseMySql(
-            $"Server=127.0.0.1;Port=3306;User ID=root;Password=;Database={TargetDatabase};CharSet=utf8mb4;SslMode=None;",
-            new MariaDbServerVersion(new Version(11, 4, 2)));
+        var connection = MariaDbTestEnvironment.GetAdminConnection();
+        connection.Database = TargetDatabase;
+        builder.UseMySql(connection.ConnectionString, new MariaDbServerVersion(new Version(11, 4, 2)));
         return new DetectionCacheDbContext(builder.Options);
     }
 
     private static void DropTarget()
     {
-        using var connection = new MySqlConnection(ConnectionString);
+        using var connection = new MySqlConnection(MariaDbTestEnvironment.GetAdminConnection().ConnectionString);
         connection.Open();
         using var command = connection.CreateCommand();
         command.CommandText = $"DROP DATABASE IF EXISTS `{TargetDatabase}`;";
@@ -312,7 +325,7 @@ public sealed class SqliteToMariaDbMigrationTests
 
     private static bool SchemaExists(string databaseName)
     {
-        using var connection = new MySqlConnection(ConnectionString);
+        using var connection = new MySqlConnection(MariaDbTestEnvironment.GetAdminConnection().ConnectionString);
         connection.Open();
         using var command = connection.CreateCommand();
         command.CommandText = "SELECT COUNT(*) FROM information_schema.schemata WHERE schema_name = @name;";

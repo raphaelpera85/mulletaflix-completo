@@ -145,6 +145,7 @@ def test_run_downloader_prioritizes_partial_downloads_and_skips_recent_failures(
 
         def refresh_cache(self, *, force):
             assert force is True
+            return True
 
     class Tracker:
         def reset_cycle(self):
@@ -179,6 +180,71 @@ def test_run_downloader_prioritizes_partial_downloads_and_skips_recent_failures(
     assert sleeps == [1]
 
 
+def test_run_downloader_waits_for_filesystem_scan_before_signaling_ready(tmp_path, monkeypatch, caplog):
+    events = []
+
+    class Validator:
+        def __init__(self, **_kwargs):
+            pass
+
+        def refresh_cache(self, *, force):
+            assert force is True
+            assert "[STRM-WORKER-MONGO-READY]" not in caplog.text
+            assert "[STRM-SCAN-STARTED]" not in caplog.text
+            events.append("mongo-refresh-complete")
+            return True
+
+    class Tracker:
+        def reset_cycle(self):
+            pass
+
+        def should_skip(self, *_args):
+            return False, ""
+
+    monkeypatch.setattr(strm_downloader, "MediaValidator", Validator)
+    monkeypatch.setattr(strm_downloader, "FailureTracker", Tracker)
+    monkeypatch.setattr(strm_downloader, "get_configured_staging_dirs", lambda: [])
+    def scan(*_args, **_kwargs):
+        events.append("filesystem-scan-started")
+        strm_downloader.logger.info("[STRM-SCAN-STARTED] Varredura iniciada")
+        return []
+
+    monkeypatch.setattr(strm_downloader, "iter_strm_files_prioritized", scan)
+    monkeypatch.setattr(strm_downloader.time, "sleep", lambda *_args: None)
+    original_info = strm_downloader.logger.info
+
+    def record_info(message, *args, **kwargs):
+        if "[STRM-WORKER-MONGO-READY]" in message:
+            events.append("mongo-ready")
+        elif "[STRM-SCAN-STARTED]" in message:
+            events.append("scan-started")
+        original_info(message, *args, **kwargs)
+
+    monkeypatch.setattr(strm_downloader.logger, "info", record_info)
+    caplog.set_level("INFO", logger="STRMDownloader")
+
+    assert strm_downloader.run_downloader(_run_args(tmp_path)) == 0
+    assert events == ["mongo-refresh-complete", "mongo-ready", "filesystem-scan-started", "scan-started"]
+
+
+def test_run_downloader_fails_closed_when_mongo_index_refresh_fails(tmp_path, monkeypatch, caplog):
+    class Validator:
+        def __init__(self, **_kwargs):
+            pass
+
+        def refresh_cache(self, *, force):
+            assert force is True
+            return False
+
+    monkeypatch.setattr(strm_downloader, "MediaValidator", Validator)
+    caplog.set_level("INFO", logger="STRMDownloader")
+
+    assert strm_downloader.run_downloader(_run_args(tmp_path)) == 1
+    assert "[STRM-WORKER-STARTUP-FAILED]" in caplog.text
+    assert "[STRM-WORKER-READY]" not in caplog.text
+    assert "[STRM-SCAN-STARTED]" not in caplog.text
+
+
 def test_run_downloader_processes_each_category_before_scanning_lower_priority(tmp_path, monkeypatch):
     source = tmp_path / "source"
     animation = source / "Animações" / "A Title.strm"
@@ -195,6 +261,7 @@ def test_run_downloader_processes_each_category_before_scanning_lower_priority(t
 
         def refresh_cache(self, *, force):
             assert force is True
+            return True
 
     class Tracker:
         def reset_cycle(self):
@@ -231,6 +298,60 @@ def test_run_downloader_processes_each_category_before_scanning_lower_priority(t
     ]
 
 
+def test_run_downloader_processes_alphabetical_title_before_scanning_next_title(tmp_path, monkeypatch):
+    source = tmp_path / "source"
+    alpha = source / "Animações" / "Alpha"
+    zulu = source / "Animações" / "Zulu"
+    alpha_media = alpha / "Alpha.S01E01.strm"
+    zulu_media = zulu / "Zulu.S01E01.strm"
+    alpha.mkdir(parents=True)
+    zulu.mkdir(parents=True)
+    alpha_media.touch()
+    zulu_media.touch()
+    events = []
+
+    class Validator:
+        def __init__(self, **_kwargs):
+            pass
+
+        def refresh_cache(self, *, force):
+            assert force is True
+            return True
+
+    class Tracker:
+        def reset_cycle(self):
+            pass
+
+        def should_skip(self, *_args):
+            return False, ""
+
+    def scan(_sources, _exclude, **kwargs):
+        _root, scan_root = kwargs["scan_roots"][0]
+        events.append(f"scan:{scan_root.name}")
+        media = alpha_media if scan_root == alpha else zulu_media
+        return [(source, media, "animacoes", 0)]
+
+    def process(**kwargs):
+        events.append(f"process:{kwargs['strm_path'].parent.name}")
+        return False
+
+    monkeypatch.setattr(strm_downloader, "MediaValidator", Validator)
+    monkeypatch.setattr(strm_downloader, "FailureTracker", Tracker)
+    monkeypatch.setattr(strm_downloader, "get_configured_staging_dirs", lambda: [])
+    monkeypatch.setattr(strm_downloader, "iter_strm_files_prioritized", scan)
+    monkeypatch.setattr(strm_downloader, "process_strm_item", process)
+    monkeypatch.setattr(strm_downloader, "has_partial_download_on_disk", lambda *_args: False)
+    monkeypatch.setattr(strm_downloader.time, "sleep", lambda *_args: None)
+
+    assert strm_downloader.run_downloader(_run_args(source)) == 0
+    assert events == [
+        "scan:Alpha",
+        "process:Alpha",
+        "scan:Zulu",
+        "process:Zulu",
+    ]
+
+
 def test_run_downloader_prune_only_returns_without_starting_download_scan(tmp_path, monkeypatch):
     observed = []
 
@@ -240,6 +361,7 @@ def test_run_downloader_prune_only_returns_without_starting_download_scan(tmp_pa
 
         def refresh_cache(self, *, force):
             observed.append(("refresh", force))
+            return True
 
     monkeypatch.setattr(strm_downloader, "MediaValidator", Validator)
     monkeypatch.setattr(strm_downloader, "FailureTracker", lambda: object())
@@ -274,7 +396,7 @@ def test_run_downloader_returns_failure_when_scan_raises_in_one_shot_mode(tmp_pa
             pass
 
         def refresh_cache(self, *, force):
-            pass
+            return True
 
     monkeypatch.setattr(strm_downloader, "MediaValidator", Validator)
     monkeypatch.setattr(strm_downloader, "FailureTracker", lambda: object())

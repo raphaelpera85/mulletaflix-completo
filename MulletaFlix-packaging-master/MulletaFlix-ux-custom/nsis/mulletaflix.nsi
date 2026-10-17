@@ -56,7 +56,11 @@ Unicode True
 !getdllversion "${InstallLocation}\\MulletaFlix.dll" ver_ ;Align installer version with MulletaFlix.dll version
 
 Name "MulletaFlix Server ${ver_1}.${ver_2}.${ver_3}" ; This is referred in various header text labels
-OutFile "mulletaflix_${ver_1}.${ver_2}.${ver_3}_windows-x64.exe" ; Naming convention mulletaflix_{version}_windows-x64.exe
+!ifdef INSTALLER_OUTFILE
+    OutFile "${INSTALLER_OUTFILE}"
+!else
+    OutFile "mulletaflix_${ver_1}.${ver_2}.${ver_3}_windows-x64.exe" ; Naming convention mulletaflix_{version}_windows-x64.exe
+!endif
 BrandingText "MulletaFlix Server ${ver_1}.${ver_2}.${ver_3} Installer" ; This shows in just over the buttons
 
 ; installer attributes, these show up in details tab on installer properties
@@ -343,6 +347,21 @@ Section "!MulletaFlix Server (required)" InstallMulletaFlixServer
         ${EndIf}
     ${Else}
         MessageBox MB_OK|MB_ICONSTOP "O instalador nao contem o verificador do MongoDB. Gere o instalador novamente."
+        Abort
+    ${EndIf}
+
+    ; -------------------------------------------------------------
+    ; Verificação e instalação do rclone (necessário para montagem da unidade N:)
+    ; -------------------------------------------------------------
+    DetailPrint "Verificando o rclone, requisito da montagem da unidade N:..."
+    ${If} ${FileExists} "$INSTDIR\install-rclone-if-missing.ps1"
+        ExecWait 'powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$INSTDIR\install-rclone-if-missing.ps1"' $0
+        ${If} $0 <> 0
+            MessageBox MB_OK|MB_ICONSTOP "O rclone é necessário para montar a unidade N:. Instalação interrompida."
+            Abort
+        ${EndIf}
+    ${Else}
+        MessageBox MB_OK|MB_ICONSTOP "O instalador não contém o instalador do rclone. Gere o instalador novamente."
         Abort
     ${EndIf}
 

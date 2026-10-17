@@ -577,6 +577,19 @@ public sealed class NebulaUploadEngine : IAsyncDisposable, IDisposable
         string? parentId,
         int workerId,
         CancellationToken cancellationToken = default)
+        => await ProcessFileUploadAsync(localFilePath, targetFileName, parentId, workerId, null, cancellationToken).ConfigureAwait(false);
+
+    /// <summary>
+    /// Processes an upload using an admission lease acquired before the MongoDB staging claim.
+    /// The caller owns and must dispose the lease after the claim and transfer are both complete.
+    /// </summary>
+    internal async Task<bool> ProcessFileUploadAsync(
+        string localFilePath,
+        string targetFileName,
+        string? parentId,
+        int workerId,
+        NebulaMongoAdmissionLease? admission,
+        CancellationToken cancellationToken = default)
     {
         if (!TryEnterOperation())
         {
@@ -587,10 +600,18 @@ public sealed class NebulaUploadEngine : IAsyncDisposable, IDisposable
         activity?.SetTag("nebula.operation", "upload");
         var started = Stopwatch.GetTimestamp();
         var outcome = "failure";
+        var ownsAdmission = admission is null && _mongoContext is not null;
 
         try
         {
-            using var linkedCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, _cts.Token);
+            if (ownsAdmission)
+            {
+                admission = await _mongoContext.AcquireUploadAdmissionAsync(cancellationToken).ConfigureAwait(false);
+            }
+
+            using var linkedCancellation = admission is null
+                ? CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, _cts.Token)
+                : CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, _cts.Token, admission.LeaseLostToken);
             var succeeded = await ProcessFileUploadCoreAsync(
                 localFilePath,
                 targetFileName,
@@ -601,7 +622,7 @@ public sealed class NebulaUploadEngine : IAsyncDisposable, IDisposable
             activity?.SetTag("nebula.result", outcome);
             return succeeded;
         }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested || _cts.IsCancellationRequested)
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested || _cts.IsCancellationRequested || admission?.LeaseLostToken.IsCancellationRequested == true)
         {
             outcome = "cancelled";
             activity?.SetTag("nebula.result", "cancelled");
@@ -622,10 +643,20 @@ public sealed class NebulaUploadEngine : IAsyncDisposable, IDisposable
         }
         finally
         {
-            var tags = new KeyValuePair<string, object?>("outcome", outcome);
-            UploadCounter.Add(1, tags);
-            UploadDuration.Record(Stopwatch.GetElapsedTime(started).TotalSeconds, tags);
-            ExitOperation();
+            try
+            {
+                if (ownsAdmission && admission is not null)
+                {
+                    await admission.DisposeAsync().ConfigureAwait(false);
+                }
+            }
+            finally
+            {
+                var tags = new KeyValuePair<string, object?>("outcome", outcome);
+                UploadCounter.Add(1, tags);
+                UploadDuration.Record(Stopwatch.GetElapsedTime(started).TotalSeconds, tags);
+                ExitOperation();
+            }
         }
     }
 

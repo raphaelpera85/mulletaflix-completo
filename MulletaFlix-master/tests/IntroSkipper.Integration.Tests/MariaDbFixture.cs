@@ -12,6 +12,7 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Moq;
 using Xunit;
+using MulletaFlix.Testing;
 
 namespace IntroSkipper.Integration.Tests;
 
@@ -52,9 +53,15 @@ public sealed class MariaDbFixture : IAsyncLifetime
     /// <inheritdoc/>
     public async ValueTask InitializeAsync()
     {
+        if (!MariaDbTestEnvironment.IsConfigured)
+        {
+            return;
+        }
+
+        var adminConnection = MariaDbTestEnvironment.GetAdminConnection();
         // A cold schema: nothing may assume a previous run created anything.
-        Drop();
-        _services = BuildServices();
+        Drop(adminConnection);
+        _services = BuildServices(adminConnection);
 
         // Startup runs this from the hosted-service list. Resolving it by name keeps the
         // fixture to the database path: the plugin's other hosted services need Jellyfin
@@ -79,7 +86,12 @@ public sealed class MariaDbFixture : IAsyncLifetime
     /// </summary>
     public static void Drop()
     {
-        using var connection = new MySqlConnector.MySqlConnection(ConnectionString());
+        Drop(MariaDbTestEnvironment.GetAdminConnection());
+    }
+
+    private static void Drop(MySqlConnector.MySqlConnectionStringBuilder adminConnection)
+    {
+        using var connection = new MySqlConnector.MySqlConnection(adminConnection.ConnectionString);
         connection.Open();
         using var command = connection.CreateCommand();
         command.CommandText = $"DROP DATABASE IF EXISTS `{DatabaseName}`;";
@@ -91,7 +103,7 @@ public sealed class MariaDbFixture : IAsyncLifetime
     /// <returns>Whether the schema exists.</returns>
     public static bool SchemaExists(string databaseName)
     {
-        using var connection = new MySqlConnector.MySqlConnection(ConnectionString());
+        using var connection = new MySqlConnector.MySqlConnection(MariaDbTestEnvironment.GetAdminConnection().ConnectionString);
         connection.Open();
         using var command = connection.CreateCommand();
         command.CommandText = "SELECT COUNT(*) FROM information_schema.schemata WHERE schema_name = @name;";
@@ -104,7 +116,7 @@ public sealed class MariaDbFixture : IAsyncLifetime
     /// <returns>The table names.</returns>
     public static IReadOnlyList<string> Tables(string databaseName)
     {
-        using var connection = new MySqlConnector.MySqlConnection(ConnectionString());
+        using var connection = new MySqlConnector.MySqlConnection(MariaDbTestEnvironment.GetAdminConnection().ConnectionString);
         connection.Open();
         using var command = connection.CreateCommand();
         command.CommandText = "SELECT table_name FROM information_schema.tables WHERE table_schema = @name ORDER BY table_name;";
@@ -119,10 +131,7 @@ public sealed class MariaDbFixture : IAsyncLifetime
         return tables;
     }
 
-    private static string ConnectionString()
-        => "Server=127.0.0.1;Port=3306;User ID=root;Password=;CharSet=utf8mb4;Connection Timeout=5;";
-
-    private static ServiceProvider BuildServices()
+    private static ServiceProvider BuildServices(MySqlConnector.MySqlConnectionStringBuilder adminConnection)
     {
         var services = new ServiceCollection();
         services.AddLogging(builder => builder.SetMinimumLevel(LogLevel.Warning));
@@ -138,10 +147,10 @@ public sealed class MariaDbFixture : IAsyncLifetime
                 ConnectionString = string.Empty,
                 Options =
                 [
-                    new CustomDatabaseOption { Key = "server", Value = "127.0.0.1" },
-                    new CustomDatabaseOption { Key = "port", Value = "3306" },
-                    new CustomDatabaseOption { Key = "user", Value = "root" },
-                    new CustomDatabaseOption { Key = "password", Value = string.Empty },
+                    new CustomDatabaseOption { Key = "server", Value = adminConnection.Server },
+                    new CustomDatabaseOption { Key = "port", Value = adminConnection.Port.ToString(System.Globalization.CultureInfo.InvariantCulture) },
+                    new CustomDatabaseOption { Key = "user", Value = adminConnection.UserID },
+                    new CustomDatabaseOption { Key = "password", Value = adminConnection.Password },
                 ],
             },
         };

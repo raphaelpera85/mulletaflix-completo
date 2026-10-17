@@ -18,6 +18,13 @@ public interface IBackupService
     Task<BackupManifestDto> CreateBackupAsync(BackupOptionsDto backupOptions);
 
     /// <summary>
+    /// Creates a scheduled backup and records it with its scheduled-task identity.
+    /// </summary>
+    /// <param name="backupOptions">The backup options.</param>
+    /// <returns>The created backup manifest.</returns>
+    Task<BackupManifestDto> CreateScheduledBackupAsync(BackupOptionsDto backupOptions);
+
+    /// <summary>
     /// Gets a list of backups that are available to be restored from.
     /// </summary>
     /// <returns>A list of backup paths.</returns>

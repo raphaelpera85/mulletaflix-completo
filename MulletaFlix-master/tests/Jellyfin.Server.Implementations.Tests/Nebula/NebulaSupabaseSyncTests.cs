@@ -329,6 +329,42 @@ public class NebulaSupabaseSyncTests
         Assert.Equal(-1, count);
     }
 
+    [Theory]
+    [InlineData("sync-node")]
+    [InlineData("get-bot-tokens")]
+    [InlineData("get-file-count")]
+    public async Task SupabaseHttpHelpers_PropagateCallerCancellation(string operation)
+    {
+        using var service = new NebulaSupabaseSyncService(
+            null!,
+            NullLogger<NebulaSupabaseSyncService>.Instance,
+            null,
+            new CancellationAwareHandler());
+        using var cancellation = new CancellationTokenSource();
+        cancellation.Cancel();
+
+        Func<Task> action = operation switch
+        {
+            "sync-node" => async () => _ = await service.SyncSingleNodeAsync(
+                "https://supabase.invalid",
+                "sb_secret_test",
+                new BsonDocument { ["_id"] = ObjectId.GenerateNewId(), ["name"] = "media.mkv" },
+                cancellation.Token),
+            "get-bot-tokens" => async () => _ = await service.GetBotTokensAsync(
+                "https://supabase.invalid",
+                "sb_secret_test",
+                "bot_tokens",
+                cancellation.Token),
+            "get-file-count" => async () => _ = await service.GetSupabaseFileCountAsync(
+                "https://supabase.invalid",
+                "sb_secret_test",
+                cancellation.Token),
+            _ => throw new ArgumentOutOfRangeException(nameof(operation), operation, "Unknown Supabase operation.")
+        };
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(action);
+    }
+
     [Fact]
     public async Task GetLastRemoteFileTimestampAsync_UsesFullSyncWhenCatalogIsEmptyButHistoryHadFiles()
     {
@@ -1035,6 +1071,15 @@ public class NebulaSupabaseSyncTests
         {
             Methods.Add(request.Method);
             return Task.FromResult(responses[_nextResponse++]);
+        }
+    }
+
+    private sealed class CancellationAwareHandler : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK));
         }
     }
 }

@@ -1,7 +1,6 @@
 // SPDX-FileCopyrightText: 2026 MulletaFlix
 // SPDX-License-Identifier: GPL-3.0-only
 
-using System.Net;
 using MediaBrowser.Common.Configuration;
 using MediaBrowser.Controller;
 using MediaBrowser.Controller.Configuration;
@@ -20,6 +19,7 @@ using MulletaFlix.Server.Implementations.Extensions;
 using MulletaFlix.Server.Implementations.FullSystemBackup;
 using MySqlConnector;
 using Xunit;
+using MulletaFlix.Testing;
 
 namespace IntroSkipper.Integration.Tests;
 
@@ -27,7 +27,7 @@ namespace IntroSkipper.Integration.Tests;
 [Collection(ServerPersistenceCollection.Name)]
 public sealed class BackupRestoreMariaDbTests
 {
-    private const string ConnectionStringVariable = "MULLETAFLIX_TEST_MARIADB_CONNECTION_STRING";
+    private const string ConnectionStringVariable = MariaDbTestEnvironment.ConnectionStringVariable;
 
     [Fact]
     public async Task RestoreBackupAsync_RestoresDatabaseRowsOnDisposableMariaDb()
@@ -168,22 +168,7 @@ public sealed class BackupRestoreMariaDbTests
     }
 
     private static MySqlConnectionStringBuilder CreateDisposableConnection(string connectionString)
-    {
-        var adminConnection = new MySqlConnectionStringBuilder(connectionString)
-        {
-            Database = string.Empty,
-            ConnectionTimeout = 5
-        };
-        var isLoopback = string.Equals(adminConnection.Server, "localhost", StringComparison.OrdinalIgnoreCase)
-            || (IPAddress.TryParse(adminConnection.Server, out var address) && IPAddress.IsLoopback(address));
-        if (!isLoopback || adminConnection.Port == 3306)
-        {
-            throw new InvalidOperationException(
-                $"{ConnectionStringVariable} must target a loopback MariaDB on a non-default port; refusing database creation on '{adminConnection.Server}:{adminConnection.Port}'.");
-        }
-
-        return adminConnection;
-    }
+        => MariaDbTestEnvironment.Validate(connectionString);
 
     private static IServerApplicationPaths CreatePaths(
         string configurationPath,

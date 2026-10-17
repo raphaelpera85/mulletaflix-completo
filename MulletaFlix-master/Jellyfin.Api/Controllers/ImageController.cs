@@ -215,11 +215,13 @@ public class ImageController : BaseMulletaFlixApiController
     /// <param name="userId">User Id.</param>
     /// <response code="204">Image deleted.</response>
     /// <response code="403">User does not have permission to delete the image.</response>
+    /// <response code="500">Image could not be deleted.</response>
     /// <returns>A <see cref="NoContentResult"/>.</returns>
     [HttpDelete("UserImage")]
     [Authorize]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(StatusCodes.Status500InternalServerError)]
     public async Task<ActionResult> DeleteUserImage(
         [FromQuery] Guid? userId)
     {
@@ -242,11 +244,12 @@ public class ImageController : BaseMulletaFlixApiController
 
         try
         {
-            System.IO.File.Delete(user.ProfileImage.Path);
+            _fileSystem.DeleteFile(user.ProfileImage.Path);
         }
         catch (IOException e)
         {
             _logger.LogError(e, "Error deleting user profile image:");
+            return StatusCode(StatusCodes.Status500InternalServerError, "Image could not be deleted.");
         }
 
         await _userManager.ClearProfileImageAsync(user).ConfigureAwait(false);

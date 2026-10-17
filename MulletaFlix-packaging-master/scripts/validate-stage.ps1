@@ -1,7 +1,8 @@
 [CmdletBinding()]
 param(
     [string]$StageDirectory,
-    [string]$ProjectRoot
+    [string]$ProjectRoot,
+    [string]$PublishDirectory
 )
 
 $ErrorActionPreference = 'Stop'
@@ -15,5 +16,5 @@ if ([string]::IsNullOrWhiteSpace($ProjectRoot)) {
 }
 
 . (Join-Path $PSScriptRoot 'Assert-StageIntegrity.ps1')
-Assert-StageIntegrity -StageDirectory $StageDirectory -ProjectRoot $ProjectRoot
+Assert-StageIntegrity -StageDirectory $StageDirectory -ProjectRoot $ProjectRoot -PublishDirectory $PublishDirectory
 Write-Host "Stage integrity validation passed: $StageDirectory" -ForegroundColor Green

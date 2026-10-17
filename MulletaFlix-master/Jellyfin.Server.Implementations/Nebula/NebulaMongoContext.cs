@@ -24,6 +24,10 @@ namespace Jellyfin.Server.Implementations.Nebula;
 public sealed class NebulaMongoContext : IDisposable
 {
     public const string ActivitySourceName = "MulletaFlix.Nebula.MongoContext";
+    internal const string AdmissionGateId = "supabase_sync_admission";
+    internal static readonly TimeSpan AdmissionLeaseDuration = TimeSpan.FromMinutes(5);
+    internal static readonly TimeSpan AdmissionHeartbeatInterval = TimeSpan.FromSeconds(30);
+    internal static readonly TimeSpan AdmissionPollInterval = TimeSpan.FromSeconds(1);
     private static readonly ActivitySource MongoActivitySource = new(ActivitySourceName);
     /// <summary>
     /// Estados de um arquivo que ainda não foi enviado ao Telegram. Eles entram
@@ -43,6 +47,7 @@ public sealed class NebulaMongoContext : IDisposable
     private readonly MongoClient _client;
     private readonly IMongoDatabase _database;
     private readonly IMongoCollection<BsonDocument> _filesCollection;
+    private readonly IMongoCollection<BsonDocument> _admissionCollection;
     private readonly IMongoCollection<BsonDocument> _usersCollection;
     private readonly IMongoCollection<BsonDocument> _botTokensCollection;
     private readonly IMongoCollection<BsonDocument> _operationReplaysCollection;
@@ -79,6 +84,7 @@ public sealed class NebulaMongoContext : IDisposable
         _client = new MongoClient(settings);
         _database = _client.GetDatabase(dbName);
         _filesCollection = _database.GetCollection<BsonDocument>("files");
+        _admissionCollection = _database.GetCollection<BsonDocument>("nebula_admission");
         _usersCollection = _database.GetCollection<BsonDocument>("users");
         _botTokensCollection = _database.GetCollection<BsonDocument>("bot_tokens");
         _operationReplaysCollection = _database.GetCollection<BsonDocument>("operation_replays");
@@ -92,7 +98,7 @@ public sealed class NebulaMongoContext : IDisposable
     /// </summary>
     public async Task EnsureSchemaAsync(CancellationToken cancellationToken = default)
     {
-        foreach (var collectionName in new[] { "files", "users", "bot_tokens", "operation_replays" })
+        foreach (var collectionName in new[] { "files", "users", "bot_tokens", "operation_replays", "nebula_admission" })
         {
             try
             {
@@ -1932,6 +1938,205 @@ public sealed class NebulaMongoContext : IDisposable
         }
     }
 
+    /// <summary>
+    /// Atomically admits an upload unless a Supabase backup has reserved the shared gate.
+    /// The returned lease must cover the complete external upload operation.
+    /// </summary>
+    internal async Task<NebulaMongoAdmissionLease> AcquireUploadAdmissionAsync(CancellationToken cancellationToken = default)
+    {
+        await EnsureAdmissionDocumentAsync(cancellationToken).ConfigureAwait(false);
+        var leaseId = Guid.NewGuid().ToString("N");
+        while (true)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+            await RemoveExpiredUploadLeasesAsync(now, cancellationToken).ConfigureAwait(false);
+
+            var filter = Builders<BsonDocument>.Filter.And(
+                Builders<BsonDocument>.Filter.Eq("_id", AdmissionGateId),
+                Builders<BsonDocument>.Filter.Or(
+                    Builders<BsonDocument>.Filter.Eq("backup_expires_at", BsonNull.Value),
+                    Builders<BsonDocument>.Filter.Lte("backup_expires_at", now)));
+            var lease = new BsonDocument
+            {
+                { "lease_id", leaseId },
+                { "expires_at", now + (long)AdmissionLeaseDuration.TotalSeconds }
+            };
+            var admitted = await _admissionCollection.FindOneAndUpdateAsync(
+                filter,
+                Builders<BsonDocument>.Update.Push("active_upload_leases", lease),
+                new FindOneAndUpdateOptions<BsonDocument> { ReturnDocument = ReturnDocument.After },
+                cancellationToken).ConfigureAwait(false);
+            if (admitted is not null)
+            {
+                return CreateUploadAdmissionLease(leaseId);
+            }
+
+            await Task.Delay(AdmissionPollInterval, cancellationToken).ConfigureAwait(false);
+        }
+    }
+
+    /// <summary>
+    /// Reserves backup admission first, blocking new uploads, then drains leases already in flight.
+    /// </summary>
+    internal async Task<NebulaMongoAdmissionLease> AcquireBackupAdmissionAsync(
+        Action<string>? progressAction,
+        CancellationToken cancellationToken = default)
+    {
+        await EnsureAdmissionDocumentAsync(cancellationToken).ConfigureAwait(false);
+        var ownerId = Guid.NewGuid().ToString("N");
+        while (true)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+            var filter = Builders<BsonDocument>.Filter.And(
+                Builders<BsonDocument>.Filter.Eq("_id", AdmissionGateId),
+                Builders<BsonDocument>.Filter.Or(
+                    Builders<BsonDocument>.Filter.Eq("backup_expires_at", BsonNull.Value),
+                    Builders<BsonDocument>.Filter.Lte("backup_expires_at", now)));
+            var owner = await _admissionCollection.FindOneAndUpdateAsync(
+                filter,
+                Builders<BsonDocument>.Update
+                    .Set("backup_owner", ownerId)
+                    .Set("backup_expires_at", now + (long)AdmissionLeaseDuration.TotalSeconds),
+                new FindOneAndUpdateOptions<BsonDocument> { ReturnDocument = ReturnDocument.After },
+                cancellationToken).ConfigureAwait(false);
+            if (owner is not null)
+            {
+                break;
+            }
+
+            await Task.Delay(AdmissionPollInterval, cancellationToken).ConfigureAwait(false);
+        }
+
+        var admission = CreateBackupAdmissionLease(ownerId);
+        var lastProgressAt = DateTimeOffset.UtcNow;
+        try
+        {
+            while (true)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+                var activeUploadFilter = Builders<BsonDocument>.Filter.And(
+                    Builders<BsonDocument>.Filter.Eq("_id", AdmissionGateId),
+                    Builders<BsonDocument>.Filter.Eq("backup_owner", ownerId),
+                    Builders<BsonDocument>.Filter.ElemMatch<BsonValue>(
+                        "active_upload_leases",
+                        Builders<BsonValue>.Filter.Gt("expires_at", now)));
+                var hasActiveUpload = await _admissionCollection.Find(activeUploadFilter)
+                    .Limit(1)
+                    .AnyAsync(cancellationToken)
+                    .ConfigureAwait(false);
+                if (!hasActiveUpload)
+                {
+                    await _admissionCollection.UpdateOneAsync(
+                        Builders<BsonDocument>.Filter.And(
+                            Builders<BsonDocument>.Filter.Eq("_id", AdmissionGateId),
+                            Builders<BsonDocument>.Filter.Eq("backup_owner", ownerId)),
+                        Builders<BsonDocument>.Update.Set("active_upload_leases", new BsonArray()),
+                        cancellationToken: cancellationToken).ConfigureAwait(false);
+                    return admission;
+                }
+
+                if (DateTimeOffset.UtcNow - lastProgressAt >= TimeSpan.FromSeconds(30))
+                {
+                    const string message = "[SUPABASE-AUTO-SYNC] Reserva ativa; aguardando uploads Nebula em andamento antes do backup.";
+                    progressAction?.Invoke(message);
+                    lastProgressAt = DateTimeOffset.UtcNow;
+                }
+
+                await Task.Delay(AdmissionPollInterval, cancellationToken).ConfigureAwait(false);
+            }
+        }
+        catch
+        {
+            await admission.DisposeAsync().ConfigureAwait(false);
+            throw;
+        }
+    }
+
+    private async Task EnsureAdmissionDocumentAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            await _admissionCollection.UpdateOneAsync(
+                Builders<BsonDocument>.Filter.Eq("_id", AdmissionGateId),
+                Builders<BsonDocument>.Update.SetOnInsert("_id", AdmissionGateId),
+                new UpdateOptions { IsUpsert = true },
+                cancellationToken).ConfigureAwait(false);
+        }
+        catch (MongoWriteException ex) when (ex.WriteError?.Category == ServerErrorCategory.DuplicateKey)
+        {
+            // Concurrent C# and Python workers may initialize the singleton at once.
+        }
+    }
+
+    private Task RemoveExpiredUploadLeasesAsync(long now, CancellationToken cancellationToken)
+    {
+        return _admissionCollection.UpdateOneAsync(
+            Builders<BsonDocument>.Filter.Eq("_id", AdmissionGateId),
+            new BsonDocumentUpdateDefinition<BsonDocument>(new BsonDocument(
+                "$pull",
+                new BsonDocument("active_upload_leases", new BsonDocument("expires_at", new BsonDocument("$lte", now))))),
+            cancellationToken: cancellationToken);
+    }
+
+    private NebulaMongoAdmissionLease CreateUploadAdmissionLease(string leaseId)
+    {
+        return new NebulaMongoAdmissionLease(
+            async cancellationToken =>
+            {
+                var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+                var result = await _admissionCollection.UpdateOneAsync(
+                    Builders<BsonDocument>.Filter.And(
+                        Builders<BsonDocument>.Filter.Eq("_id", AdmissionGateId),
+                        Builders<BsonDocument>.Filter.Eq("active_upload_leases.lease_id", leaseId)),
+                    Builders<BsonDocument>.Update.Set(
+                        "active_upload_leases.$.expires_at",
+                        now + (long)AdmissionLeaseDuration.TotalSeconds),
+                    cancellationToken: cancellationToken).ConfigureAwait(false);
+                return result.MatchedCount == 1;
+            },
+            async cancellationToken =>
+            {
+                await _admissionCollection.UpdateOneAsync(
+                    Builders<BsonDocument>.Filter.Eq("_id", AdmissionGateId),
+                    new BsonDocumentUpdateDefinition<BsonDocument>(new BsonDocument(
+                        "$pull",
+                        new BsonDocument("active_upload_leases", new BsonDocument("lease_id", leaseId)))),
+                    cancellationToken: cancellationToken).ConfigureAwait(false);
+            },
+            AdmissionHeartbeatInterval);
+    }
+
+    private NebulaMongoAdmissionLease CreateBackupAdmissionLease(string ownerId)
+    {
+        return new NebulaMongoAdmissionLease(
+            async cancellationToken =>
+            {
+                var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+                var result = await _admissionCollection.UpdateOneAsync(
+                    Builders<BsonDocument>.Filter.And(
+                        Builders<BsonDocument>.Filter.Eq("_id", AdmissionGateId),
+                        Builders<BsonDocument>.Filter.Eq("backup_owner", ownerId)),
+                    Builders<BsonDocument>.Update.Set("backup_expires_at", now + (long)AdmissionLeaseDuration.TotalSeconds),
+                    cancellationToken: cancellationToken).ConfigureAwait(false);
+                return result.MatchedCount == 1;
+            },
+            async cancellationToken =>
+            {
+                await _admissionCollection.UpdateOneAsync(
+                    Builders<BsonDocument>.Filter.And(
+                        Builders<BsonDocument>.Filter.Eq("_id", AdmissionGateId),
+                        Builders<BsonDocument>.Filter.Eq("backup_owner", ownerId)),
+                    Builders<BsonDocument>.Update
+                        .Unset("backup_owner")
+                        .Unset("backup_expires_at"),
+                    cancellationToken: cancellationToken).ConfigureAwait(false);
+            },
+            AdmissionHeartbeatInterval);
+    }
+
     public async Task<NebulaUploadQueueSummaryDto> GetUploadQueueSummaryAsync(CancellationToken cancellationToken = default)
     {
         using var activity = StartMongoActivity("mongodb.get_upload_queue_summary");
@@ -3683,6 +3888,35 @@ public sealed class NebulaMongoContext : IDisposable
         {
             return false;
         }
+    }
+
+    /// <summary>
+    /// Libera a reivindicação deste worker sem descartar as partes já confirmadas, permitindo nova tentativa.
+    /// </summary>
+    /// <param name="id">ID do arquivo.</param>
+    /// <param name="workerId">Número do worker.</param>
+    /// <param name="cancellationToken">Token de cancelamento.</param>
+    /// <returns><see langword="true"/> se a reivindicação foi liberada.</returns>
+    public async Task<bool> ReleaseUploadClaimForRetryAsync(ObjectId id, int workerId, CancellationToken cancellationToken = default)
+    {
+        var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+        var filter = Builders<BsonDocument>.Filter.And(
+            Builders<BsonDocument>.Filter.Eq("_id", id),
+            Builders<BsonDocument>.Filter.Eq("status", "uploading"),
+            Builders<BsonDocument>.Filter.Exists("cancel_requested_at", false),
+            BuildWorkerOwnershipFilter(workerId.ToString(System.Globalization.CultureInfo.InvariantCulture)));
+        var update = Builders<BsonDocument>.Update
+            .Set("status", "queued")
+            .Set("queued_at", now)
+            .Set("modified_at", now)
+            .Unset("worker_id")
+            .Unset("lease_id")
+            .Unset("lease_until")
+            .Unset("heartbeat_at")
+            .Unset("attempt_started_at")
+            .Unset("started_at");
+        var result = await _filesCollection.UpdateOneAsync(filter, update, cancellationToken: cancellationToken).ConfigureAwait(false);
+        return result.ModifiedCount > 0;
     }
 
     /// <summary>

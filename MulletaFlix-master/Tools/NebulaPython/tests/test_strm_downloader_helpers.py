@@ -258,12 +258,146 @@ def test_categorized_scan_batches_follow_priority_and_keep_original_source_root(
     ]
 
 
-def test_categorized_scan_batches_fall_back_for_mixed_source_layout(tmp_path):
+def test_categorized_scan_batches_keep_unknown_folders_and_loose_media_incremental(tmp_path):
     source = tmp_path / "library"
-    (source / "Filmes").mkdir(parents=True)
-    (source / "Misc").mkdir()
+    films = source / "Filmes"
+    unknown = source / "Extras"
+    films.mkdir(parents=True)
+    unknown.mkdir()
+    loose_media = source / "Loose.mkv"
+    loose_media.touch()
+
+    assert downloader.get_categorized_scan_batches([source]) == [
+        ("filmes", [(source, films)]),
+        ("other", [(source, unknown), (source, loose_media)]),
+    ]
+
+
+def test_strm_scan_handles_single_file_scan_root(tmp_path, caplog):
+    source = tmp_path / "library"
+    category = source / "Extras"
+    category.mkdir(parents=True)
+    loose_media = category / "Loose.mkv"
+    loose_media.touch()
+    caplog.set_level("INFO", logger="STRMDownloader")
+
+    items = downloader.iter_strm_files_prioritized(
+        [source], scan_roots=[(source, loose_media)]
+    )
+
+    assert [(item[1], item[2]) for item in items] == [(loose_media, "other")]
+    assert "[STRM-SCAN-STARTED]" in caplog.text
+
+
+def test_title_scan_roots_split_category_into_alphabetical_titles(tmp_path):
+    source = tmp_path / "library"
+    category = source / "Animações"
+    roots = [category / title for title in ("Zulu", "Alpha", "Beta")]
+    for root in roots:
+        root.mkdir(parents=True)
+
+    assert downloader.get_title_scan_roots([(source, category)]) == [
+        (source, category / "Alpha"),
+        (source, category / "Beta"),
+        (source, category / "Zulu"),
+    ]
+
+
+def test_title_scan_roots_split_direct_media_and_skip_excluded_titles(tmp_path):
+    source = tmp_path / "library"
+    category = source / "Filmes"
+    (category / "Zulu").mkdir(parents=True)
+    (category / "Temp").mkdir()
+    direct_media = category / "Loose.mkv"
+    direct_media.touch()
+
+    assert downloader.get_title_scan_roots([(source, category)]) == [
+        (source, direct_media),
+        (source, category / "Temp"),
+        (source, category / "Zulu"),
+    ]
+
+    direct_media.unlink()
+    assert downloader.get_title_scan_roots(
+        [(source, category)], exclude_dirs={"Temp"}
+    ) == [(source, category / "Zulu")]
+
+
+def _create_directory_symlink(link: Path, target: Path) -> None:
+    try:
+        link.symlink_to(target, target_is_directory=True)
+    except (NotImplementedError, OSError) as exc:
+        pytest.skip(f"O host não permite criar symlink de diretório: {exc}")
+
+
+def test_categorized_scan_batches_do_not_promote_linked_category_roots(tmp_path):
+    source = tmp_path / "library"
+    external = tmp_path / "outside" / "Animações"
+    source.mkdir()
+    external.mkdir(parents=True)
+    _create_directory_symlink(source / "Animações", external)
 
     assert downloader.get_categorized_scan_batches([source]) is None
+
+
+@pytest.mark.parametrize("target_kind", ["outside", "ancestor"])
+def test_title_scan_roots_skip_symlinks_to_outside_or_ancestor(tmp_path, target_kind):
+    source = tmp_path / "library"
+    category = source / "Animações"
+    normal_title = category / "Alpha"
+    normal_title.mkdir(parents=True)
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    link_target = outside if target_kind == "outside" else source
+    _create_directory_symlink(category / "Linked", link_target)
+
+    assert downloader.get_title_scan_roots([(source, category)]) == [(source, normal_title)]
+
+
+def test_strm_scan_rejects_symlink_scan_root_outside_monitor_path(tmp_path):
+    source = tmp_path / "library"
+    external = tmp_path / "outside"
+    source.mkdir()
+    external.mkdir()
+    (external / "outside.strm").write_text("https://example.invalid/media", encoding="utf-8")
+    linked_root = source / "linked"
+    _create_directory_symlink(linked_root, external)
+
+    found = downloader.iter_strm_files_prioritized(
+        [source], scan_roots=[(source, linked_root)]
+    )
+
+    assert found == []
+
+
+def test_strm_scan_logs_readiness_when_filesystem_walk_begins(tmp_path, caplog):
+    source = tmp_path / "library"
+    source.mkdir()
+    caplog.set_level("INFO", logger="STRMDownloader")
+
+    assert downloader.iter_strm_files_prioritized(
+        [source], scan_roots=[(source, source)]
+    ) == []
+    assert "[STRM-SCAN-STARTED]" in caplog.text
+
+
+def test_strm_scan_does_not_report_start_when_root_cannot_be_enumerated(tmp_path, caplog, monkeypatch):
+    source = tmp_path / "library"
+    source.mkdir()
+    caplog.set_level("INFO", logger="STRMDownloader")
+
+    def inaccessible_walk(_root, onerror=None):
+        if onerror is not None:
+            onerror(PermissionError("access denied"))
+        return iter(())
+
+    monkeypatch.setattr(downloader.os, "walk", inaccessible_walk)
+
+    assert downloader.iter_strm_files_prioritized(
+        [source], scan_roots=[(source, source)]
+    ) == []
+    assert "[STRM-SCAN-ERROR]" in caplog.text
+    assert "[STRM-SCAN-STARTED]" not in caplog.text
 
 
 def test_wait_for_disk_capacity_sleeps_and_rechecks_until_capacity_is_available(tmp_path, monkeypatch):
@@ -425,7 +559,7 @@ def test_media_validator_indexes_completed_movies_episodes_and_active_items(tmp_
 
     monkeypatch.setattr(downloader, "MongoClient", create_client)
     validator = downloader.MediaValidator("mongodb://mongo.example")
-    validator.refresh_cache(force=True)
+    assert validator.refresh_cache(force=True) is True
 
     assert clients[0].closed is True
     assert validator.completed_movies == {("arrival", "2016")}
@@ -473,8 +607,8 @@ def test_media_validator_matches_exact_destination_and_reuses_cache(tmp_path, mo
     monkeypatch.setattr(downloader, "MongoClient", create_client)
     monkeypatch.setattr(downloader.time, "time", lambda: 50_000.0)
     validator = downloader.MediaValidator("mongodb://mongo.example")
-    validator.refresh_cache(force=True)
-    validator.refresh_cache()
+    assert validator.refresh_cache(force=True) is True
+    assert validator.refresh_cache() is True
 
     assert len(clients) == 1
     destination_root = tmp_path / "library"
@@ -486,6 +620,43 @@ def test_media_validator_matches_exact_destination_and_reuses_cache(tmp_path, mo
     )
     assert duplicate is True
     assert "já concluído no Nebula" in reason
+
+
+def test_media_validator_throttles_retry_after_mongo_index_failure(monkeypatch):
+    calls = []
+
+    class Files:
+        def find(self, *_args, **_kwargs):
+            def fail_during_iteration():
+                yield {"parent": "/raphael/Filmes", "name": "partial.mkv", "status": "completed"}
+                raise RuntimeError("simulated Mongo cursor interruption")
+
+            return fail_during_iteration()
+
+    class Database:
+        files = Files()
+
+    class Client:
+        def __getitem__(self, _name):
+            return Database()
+
+        def close(self):
+            pass
+
+    def create_client(*_args, **_kwargs):
+        calls.append("connect")
+        return Client()
+
+    monkeypatch.setattr(downloader, "MongoClient", create_client)
+    monkeypatch.setattr(downloader.time, "time", lambda: 50_000.0)
+    validator = downloader.MediaValidator("mongodb://mongo.example")
+
+    assert validator.refresh_cache(force=True) is False
+    assert validator.refresh_cache() is False
+
+    assert calls == ["connect"]
+    assert validator.last_cache_time == 0.0
+    assert validator.last_cache_attempt_time == 50_000.0
 
 
 @pytest.mark.parametrize(

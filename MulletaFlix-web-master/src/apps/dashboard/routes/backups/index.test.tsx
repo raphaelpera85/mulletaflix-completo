@@ -3,12 +3,14 @@ import { createRoot, type Root } from 'react-dom/client';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { listBackupsMock, getTasksMock, toApiMock, useActionDataMock, useNavigationMock } = vi.hoisted(() => ({
+const { listBackupsMock, getTasksMock, toApiMock, useActionDataMock, useNavigationMock, backupHistoryMock, summaryPropsMock } = vi.hoisted(() => ({
     listBackupsMock: vi.fn(),
     getTasksMock: vi.fn(),
     toApiMock: vi.fn(),
     useActionDataMock: vi.fn(),
-    useNavigationMock: vi.fn()
+    useNavigationMock: vi.fn(),
+    backupHistoryMock: vi.fn(),
+    summaryPropsMock: vi.fn()
 }));
 
 vi.mock('@jellyfin/sdk/lib/utils/api/backup-api', () => ({
@@ -30,6 +32,9 @@ vi.mock('apps/dashboard/features/backups/api/useCreateBackup', () => ({
 vi.mock('apps/dashboard/features/backups/api/useRestoreBackup', () => ({
     useRestoreBackup: () => ({ mutate: vi.fn() })
 }));
+vi.mock('apps/dashboard/features/backups/api/useBackupHistory', () => ({
+    useBackupHistory: () => ({ data: backupHistoryMock() })
+}));
 vi.mock('apps/dashboard/features/backups/components/BackupProgressDialog', () => ({ default: () => null }));
 vi.mock('apps/dashboard/features/backups/components/RestoreProgressDialog', () => ({ default: () => null }));
 vi.mock('apps/dashboard/features/backups/components/ConfirmDialog', () => ({ default: () => null }));
@@ -39,7 +44,16 @@ vi.mock('apps/dashboard/features/backups/components/RestoreConfirmationDialog', 
 vi.mock('apps/dashboard/features/backups/components/ScheduleBackupDialog', () => ({ default: () => null }));
 vi.mock('apps/dashboard/features/backups/components/Backup', () => ({ default: () => null }));
 vi.mock('apps/dashboard/features/backups/components/BackupHistory', () => ({ default: () => null }));
-vi.mock('apps/dashboard/features/backups/components/BackupOperationalSummary', () => ({ default: () => null }));
+vi.mock('apps/dashboard/features/backups/components/BackupOperationalSummary', async (importOriginal) => {
+    const actual = await importOriginal<typeof import('apps/dashboard/features/backups/components/BackupOperationalSummary')>();
+    return {
+        ...actual,
+        default: (props: unknown) => {
+            summaryPropsMock(props);
+            return null;
+        }
+    };
+});
 vi.mock('apps/dashboard/features/backups/components/BackupCoverageSummary', () => ({ default: () => null }));
 vi.mock('components/SimpleAlert', () => ({ default: () => null }));
 vi.mock('components/Page', () => ({
@@ -88,6 +102,7 @@ describe('BackupsPage API connection state', () => {
         toApiMock.mockReturnValue(api);
         listBackupsMock.mockResolvedValue({ data: [] });
         getTasksMock.mockResolvedValue({ data: [] });
+        backupHistoryMock.mockReturnValue([]);
         useActionDataMock.mockReturnValue(undefined);
         useNavigationMock.mockReturnValue({ state: 'idle' });
         queryClient = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 60_000 } } });
@@ -124,6 +139,8 @@ describe('BackupsPage API connection state', () => {
     });
 
     it('loads backup data after ApiProvider receives a sign-in event', async () => {
+        const manualRun = { Id: 'manual-backup-run', Status: 'Completed' };
+        backupHistoryMock.mockReturnValue([manualRun]);
         await act(async () => root.render(renderPage()));
         expect(container.textContent).toContain('Servidor indisponível');
 
@@ -139,5 +156,6 @@ describe('BackupsPage API connection state', () => {
         await act(async () => new Promise(resolve => setTimeout(resolve, 0)));
         expect(container.textContent).toContain('Criar backup');
         expect(container.querySelector('[data-testid="loading"]')).toBeNull();
+        expect(summaryPropsMock).toHaveBeenLastCalledWith(expect.objectContaining({ latestRun: manualRun }));
     });
 });

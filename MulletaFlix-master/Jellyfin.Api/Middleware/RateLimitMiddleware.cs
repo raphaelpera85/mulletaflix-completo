@@ -31,6 +31,7 @@ public class RateLimitMiddleware
     private static readonly ConcurrentDictionary<string, RateLimitEntry> _clientLogRequests = new(StringComparer.OrdinalIgnoreCase);
     private static readonly SemaphoreSlim _heavyBackupOperations = new(1, 1);
     private static readonly SemaphoreSlim _catalogScans = new(1, 1);
+    private static readonly SemaphoreSlim _libraryRefreshes = new(1, 1);
 
     private static readonly TimeSpan LoginWindow = TimeSpan.FromMinutes(15);
     private const int MaxFailedLogins = 10;
@@ -157,6 +158,8 @@ public class RateLimitMiddleware
         var isPublicBootstrap = path is not null && IsPublicBootstrapPath(path);
         var isLoginAttempt = path is not null && (
             IsPathOrDescendant(path, "/Users/Authenticate")
+            || IsPathOrDescendant(path, "/Users/AuthenticateByName")
+            || IsPathOrDescendant(path, "/Users/AuthenticateWithQuickConnect")
             || IsPathOrDescendant(path, "/Users/Register"));
         var selectiveCategory = path is not null
             ? GetSelectiveRateLimitCategory(context.Request.Method, path)
@@ -264,7 +267,9 @@ public class RateLimitMiddleware
 
         return string.Equals(normalizedPath, "/NebulaFtp/Actions/ScanNovelas", StringComparison.OrdinalIgnoreCase)
             ? _catalogScans
-            : null;
+            : string.Equals(normalizedPath, "/Library/Refresh", StringComparison.OrdinalIgnoreCase)
+                ? _libraryRefreshes
+                : null;
     }
 
     private static string GetSelectiveClientKey(HttpContext context, string ip)
@@ -319,7 +324,8 @@ public class RateLimitMiddleware
         }
 
         if (string.Equals(method, "POST", StringComparison.OrdinalIgnoreCase)
-            && (IsItemMetadataRefreshPath(path)
+            && (IsPathOrDescendant(path, "/Library/Refresh")
+                || IsItemMetadataRefreshPath(path)
                 || IsItemUpdatePath(path)
                 || IsAudioLyricsMutationPath(path)
                 || IsVideoSubtitleUploadPath(path)))

@@ -24,6 +24,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
 using Xunit;
+using MulletaFlix.Testing;
 
 namespace IntroSkipper.Integration.Tests;
 
@@ -60,9 +61,6 @@ public sealed class ServerPersistenceMariaDbTests : IAsyncLifetime
     /// <summary>Throwaway schema, never the server's own database.</summary>
     private const string TestDatabase = "mulletaflix_integration_persistence";
 
-    private static readonly string ConnectionString =
-        "Server=127.0.0.1;Port=3306;User ID=root;Password=;CharSet=utf8mb4;Connection Timeout=5;";
-
     private ServiceProvider? _services;
 
     private IDbContextFactory<MulletaFlixDbContext> Contexts
@@ -71,8 +69,13 @@ public sealed class ServerPersistenceMariaDbTests : IAsyncLifetime
     /// <inheritdoc/>
     public async ValueTask InitializeAsync()
     {
+        if (!MariaDbTestEnvironment.IsConfigured)
+        {
+            return;
+        }
+
         DropTestDatabase();
-        _services = BuildServices();
+        _services = BuildServices(MariaDbTestEnvironment.GetAdminConnection());
 
         // BaseItem.LibraryManager is a static, and the persistence path dereferences it through
         // GetAncestorIds() -> LibraryManager.GetCollectionFolders(this). Items built by hand in a test
@@ -112,6 +115,7 @@ public sealed class ServerPersistenceMariaDbTests : IAsyncLifetime
     [Fact]
     public async Task SaveItems_ReSavingAnExistingItem_RewritesItWithoutTrackingConflict()
     {
+        MariaDbTestEnvironment.SkipUnlessConfigured();
         var persistence = new ItemPersistenceService(
             Contexts,
             CreateAppHost(),
@@ -139,6 +143,7 @@ public sealed class ServerPersistenceMariaDbTests : IAsyncLifetime
     [Fact]
     public async Task SaveItems_SavingTwoDistinctItems_KeepsBothRows()
     {
+        MariaDbTestEnvironment.SkipUnlessConfigured();
         var persistence = new ItemPersistenceService(
             Contexts,
             CreateAppHost(),
@@ -194,6 +199,7 @@ public sealed class ServerPersistenceMariaDbTests : IAsyncLifetime
     [Fact]
     public async Task SaveItems_RefreshingAnExistingEpisodeUnderASavedSeries_RewritesTheChildRows()
     {
+        MariaDbTestEnvironment.SkipUnlessConfigured();
         var persistence = new ItemPersistenceService(
             Contexts,
             CreateAppHost(),
@@ -253,6 +259,7 @@ public sealed class ServerPersistenceMariaDbTests : IAsyncLifetime
     [Fact]
     public void UpdatePeople_WithAPersonThatAlreadyExists_DoesNotFailWhileEvaluatingTheQuery()
     {
+        MariaDbTestEnvironment.SkipUnlessConfigured();
         var persistence = new ItemPersistenceService(
             Contexts,
             CreateAppHost(),
@@ -369,14 +376,14 @@ public sealed class ServerPersistenceMariaDbTests : IAsyncLifetime
 
     private static void DropTestDatabase()
     {
-        using var connection = new MySqlConnector.MySqlConnection(ConnectionString);
+        using var connection = new MySqlConnector.MySqlConnection(MariaDbTestEnvironment.GetAdminConnection().ConnectionString);
         connection.Open();
         using var command = connection.CreateCommand();
         command.CommandText = $"DROP DATABASE IF EXISTS `{TestDatabase}`;";
         command.ExecuteNonQuery();
     }
 
-    private static ServiceProvider BuildServices()
+    private static ServiceProvider BuildServices(MySqlConnector.MySqlConnectionStringBuilder adminConnection)
     {
         var services = new ServiceCollection();
         services.AddLogging(builder => builder.SetMinimumLevel(LogLevel.Warning));
@@ -392,10 +399,10 @@ public sealed class ServerPersistenceMariaDbTests : IAsyncLifetime
                 ConnectionString = string.Empty,
                 Options =
                 [
-                    new CustomDatabaseOption { Key = "server", Value = "127.0.0.1" },
-                    new CustomDatabaseOption { Key = "port", Value = "3306" },
-                    new CustomDatabaseOption { Key = "user", Value = "root" },
-                    new CustomDatabaseOption { Key = "password", Value = string.Empty },
+                    new CustomDatabaseOption { Key = "server", Value = adminConnection.Server },
+                    new CustomDatabaseOption { Key = "port", Value = adminConnection.Port.ToString(CultureInfo.InvariantCulture) },
+                    new CustomDatabaseOption { Key = "user", Value = adminConnection.UserID },
+                    new CustomDatabaseOption { Key = "password", Value = adminConnection.Password },
 
                     // Keeps the tests off the server's own schema. Without this the provider defaults
                     // to DatabaseNames.Main, which is the live database.

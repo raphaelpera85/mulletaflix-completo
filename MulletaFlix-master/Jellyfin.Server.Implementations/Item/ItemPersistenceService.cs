@@ -2,6 +2,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Net.Sockets;
 using System.Text;
@@ -503,11 +504,16 @@ public class ItemPersistenceService : IItemPersistenceService
                 // 1040 = Too many connections, 1042 = Unable to connect to host,
                 // 1043 = Bad handshake, 2002/2003 = can't connect, 2006 = server gone away,
                 // 2013 = lost connection during query.
-                return mySqlException.IsTransient
-                    || mySqlException.Number is 1040 or 1042 or 1043 or 2002 or 2003 or 2006 or 2013;
+                if (mySqlException.IsTransient
+                    || mySqlException.Number is 1040 or 1042 or 1043 or 2002 or 2003 or 2006 or 2013
+                    || mySqlException.Message.Contains("timeout", StringComparison.OrdinalIgnoreCase)
+                    || mySqlException.Message.Contains("timed out", StringComparison.OrdinalIgnoreCase))
+                {
+                    return true;
+                }
             }
 
-            if (current is SocketException or TimeoutException)
+            if (current is IOException or SocketException or TimeoutException)
             {
                 return true;
             }

@@ -21,6 +21,7 @@ using Moq;
 using Serilog;
 using Serilog.Core;
 using MySqlConnector;
+using MulletaFlix.Testing;
 
 namespace MulletaFlix.Server.Integration.Tests
 {
@@ -33,6 +34,9 @@ namespace MulletaFlix.Server.Integration.Tests
         private readonly ConcurrentBag<IDisposable> _disposableComponents = new ConcurrentBag<IDisposable>();
         private readonly string _testDatabaseName = "mulletaflix_test_" + Guid.NewGuid().ToString("N", CultureInfo.InvariantCulture)[..12];
         private string? _webHostPathRoot;
+        private string? _originalMariaDbPort;
+        private string? _originalPrefixedMariaDbPort;
+        private bool _mariaDbPortEnvironmentOverridden;
 
         /// <summary>
         /// Initializes static members of the <see cref="MulletaFlixApplicationFactory"/> class.
@@ -49,25 +53,22 @@ namespace MulletaFlix.Server.Integration.Tests
         /// <inheritdoc/>
         protected override IHostBuilder CreateHostBuilder()
         {
+            // CreateHostBuilder is reached from a test when its client/server is first requested.
+            // Skipping here keeps fixture construction side-effect free without a test database.
+            MariaDbTestEnvironment.SkipUnlessConfigured();
+            _ = MariaDbTestEnvironment.GetAdminConnection();
             return new HostBuilder();
         }
 
-        private static void ResetTestDatabase(string databaseName)
+        private static void ResetTestDatabase(string databaseName, MySqlConnectionStringBuilder adminConnection)
         {
-            // The production MariaDB may not be running during CI; this reset is best-effort.
-            // If the connection fails, the server startup will surface the real error.
-            try
-            {
-                using var connection = new MySqlConnection("Server=127.0.0.1;Port=3306;User ID=root;Password=;CharSet=utf8mb4;Connection Timeout=2;");
-                connection.Open();
-                using var command = connection.CreateCommand();
-                command.CommandText = $"CREATE DATABASE IF NOT EXISTS `{databaseName}` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;";
-                command.ExecuteNonQuery();
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"ResetTestDatabase failed (continuing): {ex.Message}");
-            }
+            // The integration test database must be explicitly provided and reachable.
+            // Fail closed instead of falling through to any app default (including production).
+            using var connection = new MySqlConnection(adminConnection.ConnectionString);
+            connection.Open();
+            using var command = connection.CreateCommand();
+            command.CommandText = $"CREATE DATABASE IF NOT EXISTS `{databaseName}` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;";
+            command.ExecuteNonQuery();
         }
 
         /// <inheritdoc/>
@@ -76,10 +77,17 @@ namespace MulletaFlix.Server.Integration.Tests
             // Skip ffmpeg check for testing
             Environment.SetEnvironmentVariable("MulletaFlix_FFMPEG__NOVALIDATION", "true");
             Environment.SetEnvironmentVariable("MulletaFlix_DISABLE_RUNTIME_METRICS", "true");
+            var adminConnection = MariaDbTestEnvironment.GetAdminConnection();
+            _originalMariaDbPort = Environment.GetEnvironmentVariable("MULLETAFLIX_DB_PORT");
+            _originalPrefixedMariaDbPort = Environment.GetEnvironmentVariable("MulletaFlix_DB_PORT");
+            var testPort = adminConnection.Port.ToString(CultureInfo.InvariantCulture);
+            Environment.SetEnvironmentVariable("MULLETAFLIX_DB_PORT", testPort);
+            Environment.SetEnvironmentVariable("MulletaFlix_DB_PORT", testPort);
+            _mariaDbPortEnvironmentOverridden = true;
             // Isolate tests from any production MulletaFlix database: tests run
             // against their own database that is dropped/recreated per run.
             Environment.SetEnvironmentVariable("MulletaFlix_DATABASE_NAME", _testDatabaseName);
-            ResetTestDatabase(_testDatabaseName);
+            ResetTestDatabase(_testDatabaseName, adminConnection);
             // Specify the startup command line options
             var commandLineOpts = new StartupOptions();
 
@@ -112,8 +120,6 @@ namespace MulletaFlix.Server.Integration.Tests
 
             // Create a copy of the application configuration to use for startup
             var startupConfig = Program.CreateAppConfiguration(commandLineOpts, appPaths);
-
-            MariaDbProcessManager.StartMariaDbAsync(appPaths, NullLogger.Instance).GetAwaiter().GetResult();
 
             // The host owns the logger factory registered during service setup.
             // Reusing a disposable SerilogLoggerFactory here allowed the test host
@@ -184,8 +190,17 @@ namespace MulletaFlix.Server.Integration.Tests
             // _disposableComponents here would dispose the same host twice.
             base.Dispose(disposing);
 
-            MariaDbProcessManager.StopMariaDb(NullLogger.Instance);
-            DropTestDatabase(_testDatabaseName);
+            if (MariaDbTestEnvironment.IsConfigured)
+            {
+                DropTestDatabase(_testDatabaseName);
+            }
+
+            if (_mariaDbPortEnvironmentOverridden)
+            {
+                Environment.SetEnvironmentVariable("MULLETAFLIX_DB_PORT", _originalMariaDbPort);
+                Environment.SetEnvironmentVariable("MulletaFlix_DB_PORT", _originalPrefixedMariaDbPort);
+                _mariaDbPortEnvironmentOverridden = false;
+            }
             _disposableComponents.Clear();
 
             if (_webHostPathRoot is not null)
@@ -212,7 +227,7 @@ namespace MulletaFlix.Server.Integration.Tests
         {
             try
             {
-                using var connection = new MySqlConnection("Server=127.0.0.1;Port=3306;User ID=root;Password=;CharSet=utf8mb4;Connection Timeout=2;");
+                using var connection = new MySqlConnection(MariaDbTestEnvironment.GetAdminConnection().ConnectionString);
                 connection.Open();
                 using var command = connection.CreateCommand();
                 command.CommandText = $"DROP DATABASE IF EXISTS `{databaseName}`;";

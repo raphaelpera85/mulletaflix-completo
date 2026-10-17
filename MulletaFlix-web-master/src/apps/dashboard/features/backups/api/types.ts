@@ -32,7 +32,7 @@ export interface BackupExecutionHistoryDto {
 }
 
 export enum TaskCompletionStatus {
-    Success = 'Success',
+    Completed = 'Completed',
     Failed = 'Failed',
     Aborted = 'Aborted',
     Cancelled = 'Cancelled'

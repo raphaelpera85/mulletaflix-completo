@@ -78,6 +78,15 @@ from ftp.common import UPLOAD_QUEUE
 from ftp.pathio import MongoDBMemoryIO, Node, is_uploadable_name, movie_folder_score
 from ftp.range import parse_range as _parse_range
 from ftp.tg import close_upload_sessions, install_reliable_upload, send_document_bot_api
+from tools.mongo_admission import acquire_upload_admission
+
+
+async def acquire_worker_upload_admission(mongo, owner):
+    """Acquire a shared lease for each upload running against the Motor database."""
+    get_collection = getattr(mongo, "get_collection", None)
+    if not callable(get_collection):
+        return None
+    return await acquire_upload_admission(get_collection("nebula_admission"), owner, logger)
 
 for stream in (sys.stdout, sys.stderr):
     if hasattr(stream, "reconfigure"):
@@ -1297,7 +1306,7 @@ async def staging_scanner(mongo, staging_dirs):
         await asyncio.sleep(5)
 
 
-async def upload_part_with_retries(worker_id, bots, target_chat_id, local_path, file_uuid, part_num, chunk_data=None, bot_index_offset=0, caption=""):
+async def upload_part_with_retries(worker_id, bots, target_chat_id, local_path, file_uuid, part_num, chunk_data=None, bot_index_offset=0, caption="", admission=None):
     """Upload a single part with bot rotation on FloodWait.
 
     Instead of being pinned to one bot, this function accepts the full bots
@@ -1327,6 +1336,8 @@ async def upload_part_with_retries(worker_id, bots, target_chat_id, local_path, 
         bot_number = bot_index_offset + (current_bot_idx % len(bots)) + 1
         bot_name = getattr(part_bot, "name", None)
         try:
+            if admission is not None:
+                admission.ensure_active()
             started_at = time.monotonic()
             logger.info("[UPLOAD] W%s parte=%s bot=#%s iniciando", worker_id, part_num, bot_number)
             sent_msg = await _send_part_on_idle_bot(
@@ -1431,6 +1442,7 @@ async def upload_worker(bot, target_chat_id, mongo, worker_id, bot_index=0):
 
         # --- LOCK: Bloqueia o arquivo para o GC não apagar ---
         ACTIVE_UPLOADS.add(local_path)
+        admission = None
         # -----------------------------------------------------
 
         try:
@@ -1467,6 +1479,8 @@ async def upload_worker(bot, target_chat_id, mongo, worker_id, bot_index=0):
                 logger.warning(f"⚠️ [W{worker_id}] Metadados não encontrados: {filename}")
                 continue
 
+            admission = await acquire_worker_upload_admission(mongo, f"legacy:{worker_id}:{filename}")
+
             claimed_doc = await mongo.files.find_one_and_update(
                 {"_id": file_doc["_id"], "status": {"$in": ["queued", "staging"]}},
                 {"$set": {"parent": parent, "status": "uploading", "worker_id": worker_id, "bot_index": bot_index + 1, "started_at": int(time.time())}},
@@ -1500,6 +1514,8 @@ async def upload_worker(bot, target_chat_id, mongo, worker_id, bot_index=0):
 
                         for attempt in range(1, MAX_RETRIES + 1):
                             try:
+                                if admission is not None:
+                                    admission.ensure_active()
                                 mem_file.seek(0)
                                 sent_msg = await bot.send_document(
                                     chat_id=target_chat_id,
@@ -1595,9 +1611,13 @@ async def upload_worker(bot, target_chat_id, mongo, worker_id, bot_index=0):
         except Exception as e:
             logger.error(f"❌ [W{worker_id}] Crítico: {e}")
         finally:
-            # --- UNLOCK: Libera o arquivo ---
-            ACTIVE_UPLOADS.discard(local_path)
-            UPLOAD_QUEUE.task_done()
+            try:
+                if admission is not None:
+                    await admission.close()
+            finally:
+                # --- UNLOCK: Libera o arquivo ---
+                ACTIVE_UPLOADS.discard(local_path)
+                UPLOAD_QUEUE.task_done()
 
 async def upload_worker_parallel(bots, target_chat_id, mongo, worker_id):
     """Upload worker with bot rotation and read-ahead.
@@ -1623,6 +1643,7 @@ async def upload_worker_parallel(bots, target_chat_id, mongo, worker_id):
         parent = task["parent"]
         ACTIVE_UPLOADS.add(local_path)
         producer_task = None
+        admission = None
         try:
             if filename.endswith(".partial") or not os.path.exists(local_path):
                 continue
@@ -1638,6 +1659,8 @@ async def upload_worker_parallel(bots, target_chat_id, mongo, worker_id):
             if not file_doc:
                 logger.warning(f"[W{worker_id}] Metadados nao encontrados: {filename}")
                 continue
+
+            admission = await acquire_worker_upload_admission(mongo, f"parallel:{worker_id}:{filename}")
 
             file_doc = await mongo.files.find_one_and_update(
                 {"_id": file_doc["_id"], "status": {"$in": ["queued", "staging"]}},
@@ -1716,7 +1739,8 @@ async def upload_worker_parallel(bots, target_chat_id, mongo, worker_id):
                     chunk_data = chunk_map.get(pn)
                     caption = build_part_caption(media_type, filename, pn, total_parts, file_uuid, real_size)
                     return await upload_part_with_retries(
-                        worker_id, bots, target_chat_id, local_path, file_uuid, pn, chunk_data, 1, caption=caption
+                        worker_id, bots, target_chat_id, local_path, file_uuid, pn, chunk_data, 1,
+                        caption=caption, admission=admission
                     )
 
                 results = await asyncio.gather(
@@ -1787,12 +1811,18 @@ async def upload_worker_parallel(bots, target_chat_id, mongo, worker_id):
                 )
             await log_queue_state(mongo, f"falha:{filename}")
         finally:
-            if producer_task is not None and not producer_task.done():
-                producer_task.cancel()
-                with contextlib.suppress(asyncio.CancelledError):
-                    await producer_task
-            ACTIVE_UPLOADS.discard(local_path)
-            UPLOAD_QUEUE.task_done()
+            try:
+                if producer_task is not None and not producer_task.done():
+                    producer_task.cancel()
+                    with contextlib.suppress(asyncio.CancelledError):
+                        await producer_task
+            finally:
+                try:
+                    if admission is not None:
+                        await admission.close()
+                finally:
+                    ACTIVE_UPLOADS.discard(local_path)
+                    UPLOAD_QUEUE.task_done()
 
 
 async def upload_small_file_worker(bots, target_chat_id, mongo, worker_id):
@@ -1816,6 +1846,7 @@ async def upload_small_file_worker(bots, target_chat_id, mongo, worker_id):
         filename = task["filename"]
         parent = task["parent"]
         ACTIVE_UPLOADS.add(local_path)
+        admission = None
         try:
             if filename.endswith(".partial") or not os.path.exists(local_path):
                 continue
@@ -1837,6 +1868,8 @@ async def upload_small_file_worker(bots, target_chat_id, mongo, worker_id):
                 logger.warning(f"[SmallW{worker_id}] Metadados nao encontrados: {filename}")
                 continue
 
+            admission = await acquire_worker_upload_admission(mongo, f"small:{worker_id}:{filename}")
+
             file_doc = await mongo.files.find_one_and_update(
                 {"_id": file_doc["_id"], "status": {"$in": ["queued", "staging"]}},
                 {"$set": {"parent": parent, "status": "uploading", "worker_id": f"small_{worker_id}", "started_at": int(time.time())}},
@@ -1854,7 +1887,8 @@ async def upload_small_file_worker(bots, target_chat_id, mongo, worker_id):
 
             caption = build_part_caption(media_type, filename, 0, 1, file_uuid, real_size)
             part_result = await upload_part_with_retries(
-                f"S{worker_id}", bots, target_chat_id, local_path, file_uuid, 0, chunk_data, 1, caption=caption
+                f"S{worker_id}", bots, target_chat_id, local_path, file_uuid, 0, chunk_data, 1,
+                caption=caption, admission=admission
             )
 
             parts_metadata = [part_result]
@@ -1894,8 +1928,12 @@ async def upload_small_file_worker(bots, target_chat_id, mongo, worker_id):
                 )
             await log_queue_state(mongo, f"falha:{filename}")
         finally:
-            ACTIVE_UPLOADS.discard(local_path)
-            UPLOAD_QUEUE.task_done()
+            try:
+                if admission is not None:
+                    await admission.close()
+            finally:
+                ACTIVE_UPLOADS.discard(local_path)
+                UPLOAD_QUEUE.task_done()
 
 
 async def resolve_channel(bot):

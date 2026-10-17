@@ -65,6 +65,9 @@ public sealed class NebulaQueueConcurrencyMongoTests : IDisposable
     private IMongoCollection<BsonDocument> Files
         => _client!.GetDatabase(_databaseName).GetCollection<BsonDocument>("files");
 
+    private IMongoCollection<BsonDocument> Admission
+        => _client!.GetDatabase(_databaseName).GetCollection<BsonDocument>("nebula_admission");
+
     private async Task<ObjectId> InsertQueuedFileAsync()
     {
         var id = ObjectId.GenerateNewId();
@@ -606,13 +609,14 @@ public sealed class NebulaQueueConcurrencyMongoTests : IDisposable
             cancellationToken: TestContext.Current.CancellationToken);
 
         using var context = CreateContext();
+        await using var activeUpload = await context.AcquireUploadAdmissionAsync(TestContext.Current.CancellationToken);
         using var handler = new UnexpectedHttpHandler();
         using var service = new NebulaSupabaseSyncService(
             context,
             NullLogger<NebulaSupabaseSyncService>.Instance,
             null!,
             handler);
-        using var cancellation = new CancellationTokenSource(TimeSpan.FromMilliseconds(100));
+        using var cancellation = new CancellationTokenSource(TimeSpan.FromSeconds(1));
 
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => service.PerformAutomaticBackupWhenIdleAsync(
             "https://supabase.invalid",
@@ -620,6 +624,89 @@ public sealed class NebulaQueueConcurrencyMongoTests : IDisposable
             progressAction: null,
             cancellation.Token));
         Assert.Equal(0, handler.RequestCount);
+    }
+
+    [Fact]
+    public async Task BackupAdmission_DrainsCurrentUploadsAndBlocksNewOnes()
+    {
+        Assert.SkipUnless(_available, _skipReason);
+
+        using var context = CreateContext();
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        await using var currentUpload = await context.AcquireUploadAdmissionAsync(timeout.Token);
+
+        var backupTask = context.AcquireBackupAdmissionAsync(null, timeout.Token);
+        try
+        {
+            var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(5);
+            while (DateTime.UtcNow < deadline)
+            {
+                var state = await Admission.Find(Builders<BsonDocument>.Filter.Eq("_id", NebulaMongoContext.AdmissionGateId))
+                    .FirstOrDefaultAsync(timeout.Token);
+                if (state is not null && state.Contains("backup_owner"))
+                {
+                    break;
+                }
+
+                await Task.Delay(25, timeout.Token);
+            }
+
+            var backupState = await Admission.Find(Builders<BsonDocument>.Filter.Eq("_id", NebulaMongoContext.AdmissionGateId))
+                .FirstOrDefaultAsync(timeout.Token);
+            Assert.NotNull(backupState);
+            Assert.True(backupState.Contains("backup_owner"), "Backup deve reservar novas admissões antes de drenar uploads ativos.");
+
+            var waitingUpload = context.AcquireUploadAdmissionAsync(timeout.Token);
+            await Task.Delay(100, timeout.Token);
+            Assert.False(backupTask.IsCompleted, "Backup não pode iniciar antes do upload existente terminar.");
+            Assert.False(waitingUpload.IsCompleted, "Novos uploads devem aguardar enquanto o backup possui a reserva.");
+
+            await currentUpload.DisposeAsync();
+            await using var backup = await backupTask;
+            Assert.False(waitingUpload.IsCompleted, "A reserva continua bloqueando uploads durante o backup.");
+
+            await backup.DisposeAsync();
+            await using var nextUpload = await waitingUpload;
+        }
+        finally
+        {
+            if (!backupTask.IsCompleted)
+            {
+                timeout.Cancel();
+                try
+                {
+                    await backupTask;
+                }
+                catch (OperationCanceledException)
+                {
+                }
+            }
+        }
+    }
+
+    [Fact]
+    public async Task BackupAdmission_RemovesExpiredUploadLeases()
+    {
+        Assert.SkipUnless(_available, _skipReason);
+
+        var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+        await Admission.InsertOneAsync(new BsonDocument
+        {
+            { "_id", NebulaMongoContext.AdmissionGateId },
+            { "backup_expires_at", now - 1 },
+            { "active_upload_leases", new BsonArray
+                {
+                    new BsonDocument { { "lease_id", "expired" }, { "expires_at", now - 1 } }
+                }
+            }
+        });
+
+        using var context = CreateContext();
+        await using var backup = await context.AcquireBackupAdmissionAsync(null, TestContext.Current.CancellationToken);
+
+        var state = await Admission.Find(Builders<BsonDocument>.Filter.Eq("_id", NebulaMongoContext.AdmissionGateId))
+            .FirstAsync(TestContext.Current.CancellationToken);
+        Assert.Empty(state["active_upload_leases"].AsBsonArray);
     }
 
     public void Dispose()

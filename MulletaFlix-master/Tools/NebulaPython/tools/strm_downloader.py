@@ -22,6 +22,7 @@ import queue
 import re
 import shutil
 import socket
+import stat
 import sys
 import threading
 import time
@@ -49,6 +50,7 @@ UPLOADABLE_EXTENSIONS = {
 }
 MONITORED_EXTENSIONS = UPLOADABLE_EXTENSIONS | {".strm"}
 ACTIVE_STATUSES = ("staging", "queued", "uploading")
+CACHE_REFRESH_MAX_TIME_MS = 15_000
 EPISODE_RE = re.compile(
     r"(?i)(?P<prefix>.*?)(?:[.\s_-]+)?"
     r"(?:s(?P<season>\d{1,2})[.\s_-]*e(?P<episode>\d{1,3})|"
@@ -76,6 +78,28 @@ CATEGORY_PRIORITY = ["animacoes", "filmes", "series", "doramas", "novelas", "por
 SCAN_PROGRESS_EVERY_MEDIA = 5000
 
 logger = logging.getLogger("STRMDownloader")
+
+
+def is_reparse_point(path: Path) -> bool:
+    """Return true for symlinks and Windows reparse points.
+
+    MonitorPaths are explicit scan boundaries. Child links must not turn into
+    additional roots that let the incremental scanner escape those boundaries.
+    """
+    try:
+        metadata = path.lstat()
+    except OSError:
+        return True
+
+    if stat.S_ISLNK(metadata.st_mode):
+        return True
+
+    if os.name == "nt":
+        reparse_attribute = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0)
+        file_attributes = getattr(metadata, "st_file_attributes", 0)
+        return bool(reparse_attribute and file_attributes & reparse_attribute)
+
+    return False
 
 
 @dataclass
@@ -689,15 +713,20 @@ class MediaValidator:
         self.stem_completed: set[tuple[str, str]] = set()
         self.active_paths_or_names: set[str] = set()
         self.last_cache_time = 0.0
+        self.last_cache_attempt_time = 0.0
 
-    def refresh_cache(self, force: bool = False) -> None:
+    def refresh_cache(self, force: bool = False) -> bool:
         """Atualiza os índices de mídias concluídas e em andamento do MongoDB."""
         now = time.time()
-        if not force and now - self.last_cache_time < 120:
-            return
+        if not force and now - max(self.last_cache_time, self.last_cache_attempt_time) < 120:
+            return self.last_cache_time > 0
 
-        if not self.mongo_uri or "mongodb://test" in self.mongo_uri:
-            return
+        self.last_cache_attempt_time = now
+
+        if not self.mongo_uri:
+            return False
+        if "mongodb://test" in self.mongo_uri:
+            return True
 
         client = None
         try:
@@ -710,10 +739,13 @@ class MediaValidator:
             episodes: set[tuple[str, int, int]] = set()
             active: set[str] = set()
 
-            for doc in db.files.find(
+            cursor = db.files.find(
                 {"type": "file"},
                 {"parent": 1, "name": 1, "status": 1, "local_path": 1},
-            ):
+            )
+            if callable(getattr(cursor, "max_time_ms", None)):
+                cursor = cursor.max_time_ms(CACHE_REFRESH_MAX_TIME_MS)
+            for doc in cursor:
                 parent = str(doc.get("parent", "")).casefold()
                 name = str(doc.get("name", ""))
                 status = doc.get("status")
@@ -761,8 +793,12 @@ class MediaValidator:
                 "Índice Mongo atualizado: %d filmes concl., %d eps concl., %d ativos.",
                 len(movies), len(episodes), len(active)
             )
+            return True
         except Exception as exc:
+            # Don't retry a failed full scan once per STRM item: that turns a
+            # transient Mongo/query failure into a queue-wide startup stall.
             logger.warning("Falha ao atualizar índice Mongo: %s", exc)
+            return False
         finally:
             if client is not None:
                 with contextlib.suppress(Exception):
@@ -1239,7 +1275,30 @@ def iter_strm_files_prioritized(
             continue
         if not scan_root.exists():
             continue
-        for root, dirs, files in os.walk(scan_root):
+        if scan_root != source:
+            if is_reparse_point(scan_root):
+                logger.warning("[STRM-SCAN-SKIP] Ignorando raiz de varredura ligada: %s", scan_root)
+                continue
+            try:
+                if not scan_root.resolve().is_relative_to(source.resolve()):
+                    logger.warning("[STRM-SCAN-SKIP] Raiz fora de MonitorPaths: %s", scan_root)
+                    continue
+            except OSError as exc:
+                logger.warning("[STRM-SCAN-SKIP] Não foi possível validar a raiz %s: %s", scan_root, exc)
+                continue
+
+        def log_walk_error(error: OSError) -> None:
+            logger.warning("[STRM-SCAN-ERROR] Falha ao enumerar %s: %s", error.filename or scan_root, error)
+
+        scan_started = False
+        if scan_root.is_file():
+            walk_entries = [(str(scan_root.parent), [], [scan_root.name])]
+        else:
+            walk_entries = os.walk(scan_root, onerror=log_walk_error)
+        for root, dirs, files in walk_entries:
+            if not scan_started:
+                logger.info("[STRM-SCAN-STARTED] Varredura iniciada em: %s", scan_root)
+                scan_started = True
             scanned_directories += 1
             root_path = Path(root)
             try:
@@ -1250,6 +1309,10 @@ def iter_strm_files_prioritized(
                 pass
 
             for name in files:
+                media_path = root_path / name
+                if is_reparse_point(media_path):
+                    logger.warning("[STRM-SCAN-SKIP] Ignorando arquivo ligado fora da biblioteca: %s", media_path)
+                    continue
                 ext = Path(name).suffix.lower()
                 if ext not in MONITORED_EXTENSIONS:
                     continue
@@ -1328,15 +1391,15 @@ def get_categorized_scan_batches(
 ) -> list[tuple[str, list[tuple[Path, Path]]]] | None:
     """Return category subtrees for incremental scans, or None for mixed layouts.
 
-    When each configured source contains only direct category folders, scanning
-    one priority bucket at a time lets its sorted queue start before lower
-    priority categories are traversed. Mixed/flat source layouts keep the
-    original full-tree scan to avoid skipping or reclassifying media.
+    Direct category folders are scanned in priority order. Unknown child
+    folders and loose media are kept in a final A-Z batch instead of forcing a
+    full-tree scan before higher-priority categories can start.
     """
     excluded = {name.casefold() for name in (exclude_dirs or set())}
     roots_by_category: dict[str, list[tuple[Path, Path]]] = {
         category: [] for category in CATEGORY_PRIORITY
     }
+    other_roots: list[tuple[Path, Path]] = []
 
     for source in sources:
         if not source.is_dir():
@@ -1351,12 +1414,16 @@ def get_categorized_scan_batches(
         try:
             children = list(source.iterdir())
         except OSError:
-            return None
+            other_roots.append((source, source))
+            continue
 
-        category_children: list[tuple[str, Path]] = []
         for child in children:
-            if child.is_file() and child.suffix.lower() in MONITORED_EXTENSIONS:
-                return None
+            if is_reparse_point(child):
+                continue
+            if child.is_file():
+                if child.suffix.lower() in MONITORED_EXTENSIONS:
+                    other_roots.append((source, child))
+                continue
             if not child.is_dir():
                 continue
 
@@ -1364,20 +1431,62 @@ def get_categorized_scan_batches(
                 continue
             category = get_category_from_path(child, source)
             if category not in roots_by_category:
-                return None
-            category_children.append((category, child))
-
-        if not category_children:
-            continue
-        for category, child in category_children:
-            roots_by_category[category].append((source, child))
+                other_roots.append((source, child))
+            else:
+                roots_by_category[category].append((source, child))
 
     batches = [
         (category, roots_by_category[category])
         for category in CATEGORY_PRIORITY
         if roots_by_category[category]
     ]
+    if other_roots:
+        batches.append(("other", sorted(other_roots, key=lambda item: item[1].name.casefold())))
     return batches or None
+
+
+def get_title_scan_roots(
+    scan_roots: list[tuple[Path, Path]],
+    exclude_dirs: set[str] | None = None,
+) -> list[tuple[Path, Path]]:
+    """Split category trees into sorted title roots to begin work sooner.
+
+    A category containing title folders and/or direct media is split into
+    sorted child roots, allowing the first eligible download to start without
+    indexing the whole category first.
+    """
+    excluded = {name.casefold() for name in (exclude_dirs or set())}
+    title_roots: list[tuple[Path, Path]] = []
+
+    for source, category_root in scan_roots:
+        if category_root != source and is_reparse_point(category_root):
+            logger.warning("[STRM-SCAN-SKIP] Ignorando categoria ligada: %s", category_root)
+            continue
+        try:
+            children = list(category_root.iterdir())
+        except OSError:
+            title_roots.append((source, category_root))
+            continue
+
+        direct_media = [
+            child for child in children
+            if child.is_file()
+            and not is_reparse_point(child)
+            and child.suffix.lower() in MONITORED_EXTENSIONS
+        ]
+        title_dirs = [
+            child for child in children
+            if child.is_dir()
+            and not is_reparse_point(child)
+            and child.name.casefold() not in excluded
+        ]
+
+        if title_dirs or direct_media:
+            title_roots.extend((source, child) for child in [*title_dirs, *direct_media])
+        else:
+            title_roots.append((source, category_root))
+
+    return sorted(title_roots, key=lambda item: (item[1].name.casefold(), str(item[1]).casefold()))
 
 
 # =====================================================================
@@ -1749,7 +1858,12 @@ def run_downloader(args: argparse.Namespace) -> int:
     logger.info("Fontes STRM: %s", [str(s) for s in sources])
 
     validator = MediaValidator(mongo_uri=mongo_uri, db_name=db_name, library_user=library_user)
-    validator.refresh_cache(force=True)
+    if not validator.refresh_cache(force=True):
+        logger.error("[STRM-WORKER-STARTUP-FAILED] Índice Mongo indisponível; download não iniciado para evitar duplicidades.")
+        return 1
+    # This marker is progress only. The manager confirms startup after the
+    # filesystem walker emits STRM-SCAN-STARTED, not while roots are discovered.
+    logger.info("[STRM-WORKER-MONGO-READY] Índice Mongo preparado; descobrindo raízes STRM.")
 
     failure_tracker = FailureTracker()
     if getattr(args, "reset_failures", False):
@@ -1776,49 +1890,53 @@ def run_downloader(args: argparse.Namespace) -> int:
             category_batches = get_categorized_scan_batches(sources, exclude_dirs)
             scan_batches = category_batches or [("todas", [(source, source) for source in sources])]
 
-            for category, scan_roots in scan_batches:
+            for category, category_roots in scan_batches:
                 logger.info("Iniciando varredura da categoria prioritária: %s", category)
-                items = iter_strm_files_prioritized(
-                    sources,
-                    exclude_dirs,
-                    progress_callback=progress_callback,
-                    scan_roots=scan_roots,
-                )
-                # Prioriza retomadas dentro da categoria atual sem furar a ordem entre categorias.
-                items.sort(key=lambda item: not has_partial_download_on_disk(item[1].stem, staging_dirs))
-                logger.info("Total de arquivos .strm encontrados: %d na categoria %s", len(items), category)
-
-                for source_root, strm_path, item_category, year in items:
-                    stats.scanned += 1
-
-                    # Checagem contra loop de mídias que falharam recentemente (401/404/erros)
-                    should_skip, skip_reason = failure_tracker.should_skip(strm_path, staging_dirs)
-                    if should_skip:
-                        logger.debug("Pulando mídia com falha recente: %s (%s)", strm_path.name, skip_reason)
-                        continue
-
-                    success = process_strm_item(
-                        source_root=source_root,
-                        strm_path=strm_path,
-                        category=item_category,
-                        year=year,
-                        dest_root=dest_root,
-                        staging_dirs=staging_dirs,
-                        validator=validator,
-                        mongo_uri=mongo_uri,
-                        db_name=db_name,
-                        library_user=library_user,
-                        parts_count=args.parts,
-                        min_free_percent=args.min_free_percent,
-                        dry_run=args.dry_run,
-                        failure_tracker=failure_tracker,
+                title_roots = get_title_scan_roots(category_roots, exclude_dirs)
+                for title_root in title_roots:
+                    logger.info("Indexando título: %s", title_root[1].name)
+                    items = iter_strm_files_prioritized(
+                        sources,
+                        exclude_dirs,
+                        progress_callback=progress_callback,
+                        scan_roots=[title_root],
                     )
-                    if success:
-                        stats.downloaded += 1
-                        stats.queued += 1
-                        time.sleep(1)
-                    else:
-                        stats.failed += 1
+                    # Prioriza retomadas dentro do título atual, preservando
+                    # a ordem A-Z entre títulos e a prioridade entre categorias.
+                    items.sort(key=lambda item: not has_partial_download_on_disk(item[1].stem, staging_dirs))
+                    logger.info("Total de arquivos .strm encontrados: %d no título %s", len(items), title_root[1].name)
+
+                    for source_root, strm_path, item_category, year in items:
+                        stats.scanned += 1
+
+                        # Checagem contra loop de mídias que falharam recentemente (401/404/erros)
+                        should_skip, skip_reason = failure_tracker.should_skip(strm_path, staging_dirs)
+                        if should_skip:
+                            logger.debug("Pulando mídia com falha recente: %s (%s)", strm_path.name, skip_reason)
+                            continue
+
+                        success = process_strm_item(
+                            source_root=source_root,
+                            strm_path=strm_path,
+                            category=item_category,
+                            year=year,
+                            dest_root=dest_root,
+                            staging_dirs=staging_dirs,
+                            validator=validator,
+                            mongo_uri=mongo_uri,
+                            db_name=db_name,
+                            library_user=library_user,
+                            parts_count=args.parts,
+                            min_free_percent=args.min_free_percent,
+                            dry_run=args.dry_run,
+                            failure_tracker=failure_tracker,
+                        )
+                        if success:
+                            stats.downloaded += 1
+                            stats.queued += 1
+                            time.sleep(1)
+                        else:
+                            stats.failed += 1
 
             if not args.watch:
                 break

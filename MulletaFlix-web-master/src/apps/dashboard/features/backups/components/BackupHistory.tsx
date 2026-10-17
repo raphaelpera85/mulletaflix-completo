@@ -19,7 +19,7 @@ import { TaskCompletionStatus, type BackupExecutionHistoryDto } from 'apps/dashb
 
 const getStatusIcon = (status: TaskCompletionStatus) => {
     switch (status) {
-        case TaskCompletionStatus.Success:
+        case TaskCompletionStatus.Completed:
             return <CheckCircleIcon color='success' fontSize='small' />;
         case TaskCompletionStatus.Failed:
             return <ErrorIcon color='error' fontSize='small' />;
@@ -33,7 +33,7 @@ const getStatusIcon = (status: TaskCompletionStatus) => {
 
 const getStatusChip = (status: TaskCompletionStatus) => {
     switch (status) {
-        case TaskCompletionStatus.Success:
+        case TaskCompletionStatus.Completed:
             return <Chip label={globalize.translate('LabelSuccess')} color='success' size='small' variant='outlined' />;
         case TaskCompletionStatus.Failed:
             return <Chip label={globalize.translate('LabelFailed')} color='error' size='small' variant='outlined' />;

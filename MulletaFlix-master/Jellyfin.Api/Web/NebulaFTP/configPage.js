@@ -285,7 +285,17 @@ export default function (view, params) {
         btnStartDl.onclick = function (e) {
             e.preventDefault();
             apiRequest('POST', 'NebulaFtp/Actions/StartDownloader')
-                .then(function () { pollStatusAndLogs(); })
+                .then(function (started) {
+                    if (started !== true) {
+                        var message = 'O servidor não confirmou o início do downloader. Verifique os caminhos monitorados e os logs do Nebula.';
+                        if (typeof Dashboard !== 'undefined' && Dashboard.alert) {
+                            Dashboard.alert(message);
+                        } else {
+                            alert(message);
+                        }
+                    }
+                    pollStatusAndLogs();
+                })
                 .catch(function (err) { alert('Erro ao iniciar downloader: ' + (err.message || err)); });
         };
     }

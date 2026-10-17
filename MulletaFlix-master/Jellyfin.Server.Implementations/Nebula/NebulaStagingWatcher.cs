@@ -652,6 +652,8 @@ public sealed class NebulaStagingWatcher : IAsyncDisposable, IDisposable
             if (item != null)
             {
                 var requeued = false;
+                NebulaMongoAdmissionLease? uploadAdmission = null;
+                CancellationTokenSource? admissionCancellation = null;
                 try
                 {
                     if (IsMetadataSidecar(item.FilePath) && HasPendingMetadataMarker(item.FilePath))
@@ -675,6 +677,17 @@ public sealed class NebulaStagingWatcher : IAsyncDisposable, IDisposable
 
                     if (File.Exists(item.FilePath) && await IsFileReadyAsync(item.FilePath, cancellationToken).ConfigureAwait(false))
                     {
+                        // Reserve shared Mongo admission before changing the queue record to
+                        // Uploading. Otherwise a backup can begin in the gap between claim and
+                        // transfer and leave this file stranded until its claim expires.
+                        if (_mongoContext is not null)
+                        {
+                            uploadAdmission = await _mongoContext.AcquireUploadAdmissionAsync(cancellationToken).ConfigureAwait(false);
+                            admissionCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, uploadAdmission.LeaseLostToken);
+                        }
+
+                        var uploadCancellationToken = admissionCancellation?.Token ?? cancellationToken;
+
                         var parentId = item.ParentId;
                         if (_mongoContext != null && string.IsNullOrEmpty(parentId))
                         {
@@ -682,13 +695,13 @@ public sealed class NebulaStagingWatcher : IAsyncDisposable, IDisposable
                             var relDir = NebulaUploadEngine.RouteMediaRelativeDirectory(rawRelDir, item.FileName);
                             if (!string.IsNullOrEmpty(relDir))
                             {
-                                parentId = await _mongoContext.EnsureDirectoryStructureAsync(relDir, cancellationToken).ConfigureAwait(false);
+                                parentId = await _mongoContext.EnsureDirectoryStructureAsync(relDir, uploadCancellationToken).ConfigureAwait(false);
                             }
                         }
 
                         if (_mongoContext != null && item.NodeId.HasValue)
                         {
-                            var claimed = await _mongoContext.ClaimFileForUploadAsync(item.NodeId.Value, workerId, 0, cancellationToken).ConfigureAwait(false);
+                            var claimed = await _mongoContext.ClaimFileForUploadAsync(item.NodeId.Value, workerId, 0, uploadCancellationToken).ConfigureAwait(false);
                             if (claimed == null)
                             {
                                 _logger.LogInformation("[NEBULA-WATCHER][Worker #{Worker}] Arquivo {File} já foi reivindicado por outro worker; pulando.", workerId, item.FileName);
@@ -721,7 +734,14 @@ public sealed class NebulaStagingWatcher : IAsyncDisposable, IDisposable
                             _logger.LogInformation("[NEBULA-WATCHER][Worker #{Worker}] Processando arquivo para upload: {File} (Parent: {Parent})", workerId, item.FileName, parentId ?? "raiz");
                         }
 
-                        await _uploadEngine.ProcessFileUploadAsync(item.FilePath, item.FileName, parentId, workerId, cancellationToken).ConfigureAwait(false);
+                        if (uploadAdmission is null)
+                        {
+                            await _uploadEngine.ProcessFileUploadAsync(item.FilePath, item.FileName, parentId, workerId, uploadCancellationToken).ConfigureAwait(false);
+                        }
+                        else
+                        {
+                            await _uploadEngine.ProcessFileUploadAsync(item.FilePath, item.FileName, parentId, workerId, uploadAdmission, uploadCancellationToken).ConfigureAwait(false);
+                        }
                     }
                     else if (File.Exists(item.FilePath))
                     {
@@ -741,13 +761,48 @@ public sealed class NebulaStagingWatcher : IAsyncDisposable, IDisposable
                         }
                     }
                 }
+                catch (OperationCanceledException) when (uploadAdmission?.LeaseLostToken.IsCancellationRequested == true)
+                {
+                    _logger.LogWarning(
+                        "[NEBULA-WATCHER][Worker #{Worker}] Admissão Mongo cancelada; devolvendo {File} à fila.",
+                        workerId,
+                        item.FileName);
+                    var released = !item.NodeId.HasValue;
+                    if (item.NodeId.HasValue && _mongoContext is not null)
+                    {
+                        try
+                        {
+                            released = await _mongoContext.ReleaseUploadClaimForRetryAsync(item.NodeId.Value, workerId, CancellationToken.None).ConfigureAwait(false);
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.LogWarning(ex, "[NEBULA-WATCHER][Worker #{Worker}] Não foi possível liberar o claim de {File}; o lease Mongo recuperará o item após expirar.", workerId, item.FileName);
+                        }
+                    }
+
+                    if (released)
+                    {
+                        requeued = RequeueWorkerItem(item, prioritized: isPriorityItem || IsPathPrioritized(item.FilePath));
+                    }
+                }
                 catch (Exception ex) when (ex is not OperationCanceledException)
                 {
                     _logger.LogError(ex, "[NEBULA-WATCHER][Worker #{Worker}] Erro ao processar arquivo: {File}", workerId, item.FilePath);
                 }
                 finally
                 {
-                    ReleaseDequeuedItem(_queuedFiles, _activeFiles, item.FilePath, requeued);
+                    try
+                    {
+                        admissionCancellation?.Dispose();
+                        if (uploadAdmission is not null)
+                        {
+                            await uploadAdmission.DisposeAsync().ConfigureAwait(false);
+                        }
+                    }
+                    finally
+                    {
+                        ReleaseDequeuedItem(_queuedFiles, _activeFiles, item.FilePath, requeued);
+                    }
                 }
             }
             else

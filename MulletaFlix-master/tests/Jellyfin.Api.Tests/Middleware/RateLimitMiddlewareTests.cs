@@ -29,6 +29,44 @@ public sealed class RateLimitMiddlewareTests
     }
 
     [Theory]
+    [InlineData("/Users/AuthenticateByName")]
+    [InlineData("/Users/AuthenticateWithQuickConnect")]
+    public async Task FailedAuthenticationEndpoints_UseDedicatedLoginWindow(string path)
+    {
+        var middleware = new RateLimitMiddleware(
+            context =>
+            {
+                context.Response.StatusCode = StatusCodes.Status401Unauthorized;
+                return Task.CompletedTask;
+            },
+            NullLogger<RateLimitMiddleware>.Instance);
+        var remoteIp = new IPAddress(Guid.NewGuid().ToByteArray());
+
+        DefaultHttpContext CreateContext()
+        {
+            var context = new DefaultHttpContext();
+            context.Connection.RemoteIpAddress = remoteIp;
+            context.Request.Path = path;
+            context.Request.Method = "POST";
+            return context;
+        }
+
+        for (var attempt = 0; attempt < 10; attempt++)
+        {
+            var failedLogin = CreateContext();
+            await middleware.Invoke(failedLogin);
+            Assert.Equal(StatusCodes.Status401Unauthorized, failedLogin.Response.StatusCode);
+        }
+
+        var blockedLogin = CreateContext();
+        await middleware.Invoke(blockedLogin);
+
+        Assert.Equal(StatusCodes.Status429TooManyRequests, blockedLogin.Response.StatusCode);
+        Assert.True(int.TryParse(blockedLogin.Response.Headers.RetryAfter, out var retryAfter));
+        Assert.InRange(retryAfter, 1, 900);
+    }
+
+    [Theory]
     [InlineData("/assets/index.js", true)]
     [InlineData("/web/assets/index.js", true)]
     [InlineData("/serviceworker.js", true)]
@@ -67,6 +105,9 @@ public sealed class RateLimitMiddlewareTests
     [InlineData("/Catalog/Audit", "administration")]
     [InlineData("/Catalog/Audit/Fix", "administration")]
     [InlineData("/Items/00000000-0000-0000-0000-000000000001/Refresh", "administration")]
+    [InlineData("/Library/Refresh", "administration")]
+    [InlineData("/Library/Refresh/", "administration")]
+    [InlineData("/Library/Refresher", null)]
     [InlineData("/Items/Refresh", null)]
     [InlineData("/Items/not-a-guid/Refresh", null)]
     [InlineData("/Items/00000000-0000-0000-0000-000000000000/Refresh", null)]
@@ -99,6 +140,8 @@ public sealed class RateLimitMiddlewareTests
     [InlineData("POST", "/Providers/Lyrics/remote-lyric-id", null)]
     [InlineData("GET", "/Providers/LyricsFake/remote-lyric-id", null)]
     [InlineData("POST", "/Items/00000000-0000-0000-0000-000000000001/Refresh", "administration")]
+    [InlineData("POST", "/Library/Refresh", "administration")]
+    [InlineData("GET", "/Library/Refresh", null)]
     [InlineData("POST", "/Items/00000000-0000-0000-0000-000000000001", "administration")]
     [InlineData("POST", "/Audio/00000000-0000-0000-0000-000000000001/Lyrics", "administration")]
     [InlineData("DELETE", "/Audio/00000000-0000-0000-0000-000000000001/Lyrics", "administration")]
@@ -820,6 +863,46 @@ public sealed class RateLimitMiddlewareTests
         Assert.Equal(StatusCodes.Status200OK, firstScan.Response.StatusCode);
         Assert.Equal(StatusCodes.Status429TooManyRequests, competingScan.Response.StatusCode);
         Assert.Equal(StatusCodes.Status200OK, readOnly.Response.StatusCode);
+    }
+
+    [Fact]
+    public async Task ConcurrentLibraryRefreshes_AreRejectedWithoutBlockingPlayback()
+    {
+        var releaseRefresh = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var middleware = new RateLimitMiddleware(
+            async context =>
+            {
+                if (context.Request.Method == "POST" && context.Request.Path == "/Library/Refresh")
+                {
+                    await releaseRefresh.Task;
+                }
+
+                context.Response.StatusCode = StatusCodes.Status200OK;
+            },
+            NullLogger<RateLimitMiddleware>.Instance);
+
+        DefaultHttpContext CreateContext(string path, string method, string ip)
+        {
+            var context = new DefaultHttpContext();
+            context.Connection.RemoteIpAddress = IPAddress.Parse(ip);
+            context.Request.Path = path;
+            context.Request.Method = method;
+            return context;
+        }
+
+        var refresh = CreateContext("/Library/Refresh", "POST", "198.51.100.93");
+        var pendingRefresh = middleware.Invoke(refresh);
+        var competingRefresh = CreateContext("/Library/Refresh", "POST", "198.51.100.94");
+        await middleware.Invoke(competingRefresh);
+        var playback = CreateContext("/Videos/00000000000000000000000000000001/stream", "GET", "198.51.100.95");
+        await middleware.Invoke(playback);
+        releaseRefresh.SetResult();
+        await pendingRefresh;
+
+        Assert.Equal(StatusCodes.Status200OK, refresh.Response.StatusCode);
+        Assert.Equal(StatusCodes.Status429TooManyRequests, competingRefresh.Response.StatusCode);
+        Assert.Equal("1", competingRefresh.Response.Headers.RetryAfter.ToString());
+        Assert.Equal(StatusCodes.Status200OK, playback.Response.StatusCode);
     }
 
     [Fact]

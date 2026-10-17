@@ -1,5 +1,11 @@
 # Roadmap de evolução tecnológica — servidor e frontend web
 
+### 17/10/2026 05:51 -03 — Revalidação da barreira Supabase/Mongo de uploads
+
+- Testes focados `NebulaQueueConcurrencyMongoTests` e `SupabaseHttpHelpers_PropagateCallerCancellation`: **21/21**, usando Mongo descartável em `127.0.0.1:27099`. Suíte completa `Jellyfin.Server.Implementations.Tests`: **1.481 aprovados, 39 ignorados, 0 falhas (1.520 total)**.
+- Mongo temporário encerrado e porta 27099 fechada; Mongo de produção 27017 permaneceu intocado. Nenhum backup remoto Supabase nem transferência Telegram foram executados. Pasta de dados de teste permanece em `%TEMP%\mfx-nebula-mongo-tests-20261017` por bloqueio da política à remoção recursiva.
+- Nenhum código de produção foi alterado nesta rodada; cancelamento e admissão concorrente foram validados por testes. O downloader de produção e o primeiro download real continuam pendentes. Status de homologação permanece `in_progress`.
+
 **Data:** 28/09/2026
 **Status:** em execução progressiva; consultar “Registro de execução” para evidências e pendências.
 
@@ -71,6 +77,7 @@ Revalidação do catálogo local em 08/10/2026: as **21/21 skills especializadas
 - [ ] **T0.1 — Definir baseline de produção.** Registrar tempo de inicialização, memória, uso de disco, latências p50/p95 dos endpoints mais usados, duração das tarefas Nebula e volume de mídia processado.
   - [x] Capturar amostra inicial read-only da instância instalada: versão/ambiente, startup aproximado, memória/CPU, espaço livre e latência local de endpoints públicos.
   - [x] Repetir a amostra em 08/10 após a instalação de `12.1.16`, com 20 GETs sequenciais por endpoint; sem concorrência, autenticação ou chamadas mutáveis.
+  - [x] Atualização read-only em 17/10/2026 no servidor Windows 12.1.21: `/System/Info/Public` respondeu 20/20 HTTP 200; uma bateria sequencial teve latência do cliente p50 4,52 ms, p95 29,65 ms e máximo/p99 nearest-rank 345,98 ms. Snapshot do processo: working set 1.442,5 MiB, private bytes 1.398,7 MiB, CPU acumulada 22.626,9 s; C: com 27,8 GiB livres. Amostra única e sem carga concorrente; não representa baseline estável nem satisfaz latências de endpoints autenticados, tarefas Nebula, Linux ou janela temporal.
   - [ ] Repetir sob carga representativa e incluir métricas autenticadas de duração/volume Nebula, footprint dos dados, Linux e amostra temporal suficiente.
 - [x] **T0.2 — Mapear fluxos e dependências.** Mapa estático documentado abaixo, com fontes de código por fluxo. Lacunas operacionais e medições continuam nas tarefas correspondentes.
 - [ ] **T0.3 — Criar conjunto de cenários representativo.** Incluir biblioteca pequena/grande, mídia local e Telegram, interrupção de banco/rede, cache cheio, Windows e Linux.
@@ -84,7 +91,7 @@ Revalidação do catálogo local em 08/10/2026: as **21/21 skills especializadas
   - [x] Cobrir geração STRM com falha parcial de escrita entre destinos e cancelamento: a geração tenta os demais destinos, retorna erro explícito em vez de sucesso falso e propaga `OperationCanceledException`.
   - [x] Serializar na suíte Providers as classes de teste que compartilham `Video.RecordingsManager`: as regressões que restauram estado estático global não podem executar em paralelo com testes consumidores desse mesmo estado.
   - [x] Declarar dependências de teste do Nebula Python (`pytest`, `pytest-asyncio`, `pytest-cov`), adicionar matriz Python Linux/Windows ao CI e cobrir permissões FTP legadas, segurança HTTP, hierarquia STRM, validação e rotas HTTP do control plane, ranges HTTP, autenticação FTP, filas de upload, ciclo de vida do worker de streaming, contratos de ingestão, backup/configuração Supabase e sincronização de usuários; execução local Windows: 115/115 aprovados.
-  - [ ] Aguardar execução remota do job Python e ampliar cenários de negócio/erro em `feed_ftp`, `strm_downloader`, `supabase_sync`, `main.py`, `control_plane.py`, FTP e Mongo; suíte local Windows **547/547**, 6.626 statements instrumentados em **76% com branches**; `range.py` 100%, `pathio.py` 80%, `server.py` 86%, `ftp/tg.py` 83%, `control_plane.py` 93%, `ftp/auth.py` 100%, `feed_ftp.py` 68%, `strm_downloader.py` 72%, `main.py` 72%, `supabase_sync.py` 82%. Casos recentes cobrem deduplicação/retomada no `stats_reporter`, referências Telegram inválidas/expiradas e falha de autorização cross-DC, fallbacks de staging, entradas inválidas do parser Range, fallback bcrypt fail-closed e shutdown do control plane após falha do feeder, além de leases de reprodução, reserva/seleção de bots, limpeza periódica, resolução STRM, transcodificação HTTP, listagem FTP e persistência/rename. Integrações externas, falha física, concorrência/carga e E2E continuam simulados ou pendentes.
+  - [ ] Reexecutar a matriz CI remota após liberação da conta GitHub e ampliar cenários de negócio/erro em `feed_ftp`, `strm_downloader`, `supabase_sync`, `main.py`, `control_plane.py`, FTP e Mongo; último run `38981348548` falhou antes de iniciar jobs por bloqueio de cobrança (não é falha de teste). Suíte local Windows histórica **547/547**, 6.626 statements instrumentados em **76% com branches**; `range.py` 100%, `pathio.py` 80%, `server.py` 86%, `ftp/tg.py` 83%, `control_plane.py` 93%, `ftp/auth.py` 100%, `feed_ftp.py` 68%, `strm_downloader.py` 72%, `main.py` 72%, `supabase_sync.py` 82%. Casos recentes cobrem deduplicação/retomada no `stats_reporter`, referências Telegram inválidas/expiradas e falha de autorização cross-DC, fallbacks de staging, entradas inválidas do parser Range, fallback bcrypt fail-closed e shutdown do control plane após falha do feeder, além de leases de reprodução, reserva/seleção de bots, limpeza periódica, resolução STRM, transcodificação HTTP, listagem FTP e persistência/rename. Integrações externas, falha física, concorrência/carga e E2E continuam simulados ou pendentes.
   - [ ] Confirmar execução remota dos jobs representativos Windows/Linux e do job Mongo Linux; exige CI acionado por push, ainda não autorizado.
 - [ ] **T0.4 — Definir limites de regressão.** Fixar budgets iniciais para tempo de boot, tamanho do bundle web, latência de busca, espaço temporário e memória; calibrar com medições reais, não valores arbitrários.
   - [x] Medir o artefato web de produção e conferir o gate existente de 1.536 KiB por arquivo JS/CSS.
@@ -448,6 +455,7 @@ Limite de evidência atual: `ClaimFileForUploadAsync` realiza claim atômico, ma
   - [x] `DeviceCleanupTask` agora exporta resultado e duração por execução, execuções ativas e contadores agregados de sessões/dispositivos ativos, dispositivos examinados, mantidos e excluídos. Nenhum ID/nome de dispositivo, usuário ou sessão é dimensão. Teste offline verifica lista vazia, resultado e liberação do gauge; integração OTLP autenticada confirma exportação.
   - [x] Auditoria seletiva de `ItemUpdateController`, `LyricsController` e `SubtitleController`: `POST /Items/{guid}`, upload/download de letras e upload/download de legendas remotas passam pela cota administrativa existente (20/10 s por usuário/API key); buscas e recuperação do resultado remoto de letra/legenda passam pela cota de busca (60/10 s); GET de letras e streams/playlist de legendas não são limitados por essas regras, preservando leituras e reprodução. Os predicados validam método e GUID/segmentos de rota para não atingir rotas parecidas ou inválidas. `RateLimitMiddlewareTests` cobre rotas, métodos, identificadores inválidos e exclusão de playback.
   - [x] Cancelamento pedido pelo chamador agora se propaga também ao processar entradas em paralelo no sync agendado e manual de mídia online. A rotina não repete download M3U depois de cancelada nem inicia refresh Live TV no encerramento cancelado; o conteúdo da resposta M3U recebe o token de cancelamento.
+  - [x] `POST /Library/Refresh` agora usa cota administrativa e admissão concorrente exclusiva (uma varredura global por vez), respondendo `429` com `Retry-After: 1` se outra varredura estiver ativa. `RateLimitMiddlewareTests` confirma limites por método/rota, fronteira de rota e que GET de playback continua livre; T6.2 segue parcial por calibração com tráfego real e auditoria dos demais trabalhos.
   - [ ] T6.2 ainda requer auditoria dos outros trabalhos assíncronos e operações caras, medição/calibração sob carga representativa e validação do collector remoto de produção.
 - [x] Refresh de cache rclone após uploads agora usa um despachante único sequencial. A fila preserva uma invalidação por pasta, renova o debounce em uploads repetidos e aguarda o cancelamento do worker durante o descarte; deixa de criar uma tarefa concorrente por pasta distinta.
 - [x] A tela legada de NebulaFTP consulta `UploadQueueSummary` a cada 30 s e diferencia o total pendente persistido no MongoDB dos itens carregados no limite em memória. O limite de admissão não é removido; falhas transitórias preservam o último total conhecido. A apresentação do painel React tem regressão para 1.248 pendentes no MongoDB vs. 70 carregados, total zero e resumo indisponível; suíte focal passou 4/4. A captura ainda mostra o rótulo antigo. Evidência da instalação local: `System/Info/Public` retorna 12.1.10; o processo instalado (`C:\Program Files\MulletaFlix\Server\MulletaFlix.exe`) iniciou em 01/10 às 11:14, e os assets web da instalação foram gravados em 30/09 22:44, antes do commit `3015535` (01/10 19:55) que contém a correção. A captura, portanto, é consistente com a instalação anterior à correção; precisa receber a release final do roadmap para que o novo total apareça.
@@ -682,6 +690,37 @@ Limite de evidência atual: `ClaimFileForUploadAsync` realiza claim atômico, ma
 Este documento é backlog em execução; não autoriza publicar uma release antes do gate acima.
 
 ## Registro de execução
+
+### 16/10/2026 — Iniciar o download antes de indexar a categoria inteira (T0.3/T2.1 parcial)
+
+- Evidência read-only do painel de produção 12.1.21: o worker Python inicia e entra em `Escaneando e priorizando arquivos .strm...`, mas não chega ao primeiro download antes de a varredura acabar/ser encerrada. `MonitorPaths` aponta para uma raiz com categorias diretas; não alterei configuração nem iniciei/interrompi workers em produção.
+- O fluxo anterior concluía scan e ordenação de uma categoria inteira antes de processar qualquer mídia. O downloader agora subdivide árvores categorizadas em pastas de título A–Z e processa cada título antes de enumerar o seguinte; categorias mantêm prioridade e layouts mistos/diretos preservam fallback.
+- Validação RED/GREEN do novo contrato: 4 testes focados passaram; suíte NebulaPython completa: **574/574** aprovados (`py -3.10 -m pytest -p no:cacheprovider`). `git diff --check` passou. Não executei build .NET porque nenhum arquivo C# mudou.
+- Portal de homologação atualizado no commit `5049490dc61ec29900cda925e054541877d0d958`; Vercel Production `dpl_oUupxtwa5BMvcLW15NCQQqXEQpkS` ficou `READY`, GET público `/homologacao-status.json` HTTP 200 com evento `in_progress`. Testes do portal: **22/22** no checkout independente e **35/35** no espelho do servidor.
+- Limites: teste automatizado com filesystem temporário; a instalação de produção continua 12.1.21 e não foi retestada com a fonte corrigida. CI remoto segue bloqueado por cobrança; release/binário final continuam sujeitos ao gate ativo do roadmap. T0.3/T2.1 permanecem parciais.
+- Mapa técnico conferido e atualizado; o fluxo existente ganhou granularidade por título, sem novos módulos/APIs/classes/dependências. Sessão: [[Sessões/2026-10-16-MulletaFlix-nebula-download-first-title]].
+
+### 16/10/2026 — Revalidação do download Nebula no layout real (T0.3/T2.1 parcial)
+
+- A tela autenticada ainda mostra produção 12.1.21. Logs registram dois inícios do Python com scan sem contagem nem `Iniciando download`: 21:14:19–21:22:49 e 21:38:11–21:50:04. Não atribuí o encerramento a um agente específico e não iniciei/interrompi worker.
+- O root `D:\midias` foi inspecionado sem recursão: as cinco categorias diretas esperadas existem. O classificador/scanner do checkout atual encontrou cinco lotes, 120 títulos de Animações e um item elegível no primeiro título A–Z. Quatro testes focados passaram; suíte NebulaPython **574/574**; build Release `Jellyfin.Server.Implementations` passou com 0 avisos/erros.
+- A correção por título está validada localmente, mas não instalada; nenhum download real foi iniciado. GitHub CLI está sem autenticação, logo release não publicada nesta sessão. T0.3/T2.1 e homologação continuam parciais.
+- Mapa técnico conferido: fluxo de scan por título já descrito; nenhuma alteração estrutural nova nesta revalidação. Sessão: [[Sessões/2026-10-16-MulletaFlix-nebula-download-first-title]].
+
+### 16/10/2026 — Reteste de validação e indisponibilidade do CI remoto (T0.3 parcial)
+
+- Reexecutados testes locais no checkout `fda1d245`: `Jellyfin.Server.Implementations.Tests` **1.437 aprovados, 60 ignorados, 0 falhas**; filtro Nebula **643 aprovados, 21 ignorados, 0 falhas**. Build Release de `Jellyfin.Server`: **0 erros, 7 avisos XML** em referências `cref` da documentação.
+- A API pública do GitHub Actions mostra que o run `38981348548` para `fda1d245` terminou em `failure` antes de iniciar qualquer um dos 11 jobs: `runner_id=0`, nenhuma etapa executada. A anotação do GitHub diz que a conta está bloqueada por um problema de cobrança. Isso é bloqueio externo da execução remota, não reprovação de código/testes.
+- A versão estável `v12.1.21` e seus três artefatos já estão publicados; não há mudança de servidor posterior a ela que justifique criar versão duplicada. O CI remoto, smoke test instalado/produção e homologação formal continuam pendentes. Próxima ação: resolver o bloqueio de cobrança no GitHub e reexecutar a matriz remota.
+- A estrutura do servidor foi conferida; esta auditoria não alterou módulos, APIs, classes, dependências ou fluxos runtime.
+
+### 16/10/2026 — Suíte determinística da solução e build Release (T0.3 parcial)
+
+- Executado `dotnet test MulletaFlix.sln --configuration Release --no-build --no-restore --filter "FullyQualifiedName!~Integration" --verbosity minimal`: **4.882 aprovados, 61 ignorados, 0 falhas** (4.943 total). O filtro exclui os testes de integração, inclusive testes dependentes de serviços ou rede externa.
+- Executado novamente, após a suíte terminar, `dotnet build MulletaFlix.sln --configuration Release --no-restore --verbosity quiet`: sucesso, **0 avisos e 0 erros**. A primeira tentativa concorrente com testhosts encontrou bloqueio temporário de arquivos; a execução isolada subsequente concluiu normalmente.
+- A tag estável `v12.1.21` continua sendo a mais recente e não há diff em `MulletaFlix-master` desde a tag; portanto, nenhum pacote/release novo foi criado. A publicação de status no portal não equivale a homologação funcional.
+- Limites mantidos: testes Integration/live, CI remoto (bloqueio de cobrança GitHub), smoke test em instalação/produção e aceite formal seguem pendentes. Não foram usados mídia, banco ou serviço de produção.
+- A estrutura técnica foi conferida e permaneceu inalterada. Status detalhado publicado no portal e registrado no Segundo Cérebro em `2026-10-16-MulletaFlix-server-full-suite-portal-update.md`.
 
 ### 08/10/2026 — Backup/configuração Supabase e limpeza de clientes Mongo (T0.3 parcial)
 
@@ -2621,6 +2660,14 @@ Este documento é backlog em execução; não autoriza publicar uma release ante
 - INTENT: confirmar que a proteção declarada no endpoint Nebula realmente impede a passagem pelo pipeline HTTP para usuários anônimos e autenticados sem elevação, além do teste estático de atributos.
 - O teste sobe uma aplicação `TestServer` isolada com a rota real `GET /NebulaFtp/Status` e autenticação sintética: anônimo recebe 401; papel comum recebe 403. A autorização barra ambos antes de ativar controller/gerenciador, sem Mongo, Telegram, segredo ou servidor real.
 - Gauntlet: teste focado `NebulaAuthorizationHttpTests` Release **2/2**; suíte `Jellyfin.Api.Tests` Release **496/496**, exit 0; `dotnet format whitespace --verify-no-changes` e `git diff --check` aprovados.
+
+### 16/10/2026 — Admissão de refresh global da biblioteca e feedback do downloader (T6.2/T2.1 parcial)
+
+- INTENT: proteger `POST /Library/Refresh`, que dispara uma varredura completa sem limite por rota, e evitar que a UI apresente como iniciado um downloader cujo controller respondeu `false`.
+- `RateLimitMiddleware` aplica cota administrativa e um semáforo global exclusivo ao POST de refresh; uma segunda varredura concorrente recebe `429` e `Retry-After: 1`. Rotas GET de reprodução continuam sem essa admissão. Testes cobrem método, fronteira de rota, concorrência e reprodução paralela.
+- A tela Nebula agora verifica o booleano retornado por `StartDownloader`; resposta `false` gera aviso e atualiza o status/log em vez de aparentar sucesso. Teste de controller cobre os corpos `true` e `false`.
+- Gauntlet: filtro Release `NebulaFtpControllerTests|RateLimitMiddlewareTests` **126/126**; suíte completa Release `Jellyfin.Api.Tests` **672/672** após as alterações; página `configPage.js` passou `node --input-type=module --check`; suíte Python Nebula reexecutada **574/574**.
+- Limites: sem teste de navegador real ou produção, sem teste de carga/calibração, sem confirmação de que a varredura da biblioteca respeita todos os modos/cancelamentos. T6.2 e T2.1 seguem parciais; produção permanece 12.1.21 e release baixável não confirmada.
 - Limite: a política nomeada deste host isolado reproduz o contrato de elevação; não é teste de integração do bootstrap inteiro nem prova a autorização de todas as outras rotas. T6.1 segue parcial; nenhuma release, pacote, commit, push ou implantação.
 
 ### 04/10/2026 — Regressão de elevação das rotas de plugins (T6.1 parcial)
@@ -3091,6 +3138,86 @@ Este documento é backlog em execução; não autoriza publicar uma release ante
 - Auditoria read-only das cinco tabelas de aplicação Supabase encontrou zero registros duplicados; nenhum registro foi removido.
 - Validação Release `Jellyfin.Server.Implementations.Tests`: **1.408 aprovados, 39 ignorados, 0 falhas (1.447 total)**, incluindo Mongo isolado `127.0.0.1:27099` com 20 integrações opt-in. `build-update-package.ps1 -Version 12.1.17` compilou servidor Windows Release e web (`npm ci`, `build:check`, `build:production`), gerando ZIP e instalador EXE; `build-linux-package.ps1` gerou tarball Linux x64. Nenhum build Android pertence a esta release.
 - Limites mantidos: N: não mapeado neste ambiente; sem A/B real de upload Telegram; 68 itens do roadmap seguem pendentes. Esses pontos não são declarados homologados. Release foi solicitada explicitamente pelo usuário para estas correções concluídas.
+
+### 16/10/2026 — Atualização da auditoria de dependências (T6.4 parcial)
+
+- Reexecutado na solução inteira `MulletaFlix.sln`: `dotnet list package --vulnerable --include-transitive --no-restore --verbosity quiet` saiu com código 0 e não reportou pacotes vulneráveis. Essa evidência não fecha T6.4, que também inclui segredos, transporte e dependências legadas.
+- A consulta `--deprecated --include-transitive` ampliou a lista em relação à auditoria anterior: `zlib.net-mutliplatform 1.0.8` (produção via `MediaBrowser.MediaEncoding -> libse 4.0.12`) e `Microsoft.Testing.Platform.MSBuild 1.9.1` (runner xUnit v3/MTP v1), além de `Polly.Extensions.Http 3.0.0` e assemblies antigos de compatibilidade. O caminho `zlib` foi confirmado por `dotnet nuget why` e pelo grafo publicado de `libse`.
+- Existe `zlib.net-mutliplatform 1.1.0`, mas ainda não foi atualizada a dependência: não há teste de regressão de legendas com essa versão nem validação Linux nesta rodada. Também não se forçou MTP v2, pois os testes resolvem explicitamente o adaptador xUnit MTP v1. Próximos passos: validar em fixtures de legenda representativas Windows/Linux e revisar migração coordenada do xUnit/MTP; até lá, manter T6.4 parcial e sem alegar remediação.
+- Resultado da varredura cobre metadados NuGet atuais e o grafo restaurado local; não é auditoria de código de todas as dependências nem prova de segurança em produção. Nenhum pacote, runtime, módulo ou fluxo foi alterado; mapa técnico conferido e permaneceu inalterado.
+- O andamento foi publicado no repositório do portal pelo commit `3e06d4a4f7db0fe61f2fd650b692378ea4634130`; Vercel confirmou produção `READY` (`dpl_4QyZL8LF3GqxNBpvVhbXCDHBz3Lj`) e `https://mulletaflix-portal.vercel.app/homologacao-status.json` retornou HTTP 200 com este evento. Os 18 testes do dashboard passaram.
+
+### 16/10/2026 — Sinalizar início real do scan do downloader Nebula (T2.1 parcial)
+
+- `NebulaFtpManager.StartPythonDownloaderAsync` não considera `Process.Start()` uma confirmação suficiente. Agora aguarda o primeiro item efetivamente enumerado pelo `os.walk`, por até 60 segundos; saída antecipada e timeout retornam falha, e cancelamento tenta encerrar o worker.
+- `StopPythonDownloaderAsync` só apaga a referência ao processo depois de confirmar que ele encerrou. Se não conseguir, preserva referência/estado para evitar iniciar um worker duplicado. O Python emite `[STRM-SCAN-STARTED]` na primeira iteração e loga falha de enumeração; teste garante que pasta sem acesso não produz sinal de prontidão.
+- Validação: suíte Nebula `Jellyfin.Server.Implementations.Tests` em Release, 647 aprovados, 21 ignorados, 0 falhas; suíte NebulaPython com Python 3.10, 576/576. Build/teste foi local; analisadores não foram executados nessa rodada e warnings preexistentes permanecem fora do escopo.
+- Limite: o sinal prova apenas início de enumeração, não o primeiro arquivo, download do STRM ou entrega Telegram. Worker/produção não foram iniciados nem interrompidos; não houve download real. Código ainda não instalado; release e homologação ponta a ponta não foram concluídas.
+
+### 16/10/2026 — Produção executa versão antiga do downloader Nebula (T2.1 parcial)
+
+- A API local informa versão 12.1.21; o script instalado em `Tools/NebulaPython/tools/strm_downloader.py` é de 08/10 e não possui a varredura por título nem `[STRM-SCAN-STARTED]` presentes no checkout atual. O Git tem a tag 12.1.22, mas a API do GitHub retorna 404 para uma GitHub Release baixável; o workflow anterior ficou bloqueado por cobrança.
+- A configuração ativa tem `Enabled=false`, `UsePythonEngine=true` e `MonitorPaths` configurado. Isso explica a ausência de início automático; o endpoint manual é independente. POSTs manuais anteriores ao último start do servidor responderam HTTP 200, mas esse status não expõe o bool nem demonstra início de download. Não houve tentativa manual após o start das 23:09.
+- Verificação da fonte atual: `NebulaDownloaderStartupTests` 4/4; testes Python de scan/ordem 99/99; solução determinística Release (sem Integration) 4.898 aprovados, 61 ignorados, 0 falhas; web backup focado 8/8. Nenhum worker, download, instalação ou reinício de produção foi feito.
+- Resultado: a correção existe no checkout e passa os gates locais, mas ainda não está no binário em execução; T2.1/homologação permanecem `in_progress`. Próximo gate: produzir/instalar pacote servidor compatível com a regra de release, depois testar manualmente em janela sem uploads ativos e confirmar `Iniciando download` + mídia enfileirada. Mapa conferido: nenhum módulo, API, classe ou dependência estrutural nova.
+
+### 16/10/2026 — Revalidação do download Nebula na instalação atual (T2.1 parcial)
+
+- `System/Info/Public` continua retornando 12.1.21. O script instalado em `C:\Program Files\MulletaFlix\Server\Tools\NebulaPython\tools\strm_downloader.py` tem timestamp 08/10/2026 e não contém scan incremental por título, marcador `[STRM-SCAN-STARTED]` ou proteção de reparse points; todos existem na fonte do checkout. Causa comprovada para a divergência: a correção do scanner ainda não está no runtime instalado. Isso não prova uma tentativa nova do botão nem transferência real.
+- Validação executada: suíte NebulaPython 580/580; suíte `Jellyfin.Server.Implementations.Tests` Release, sem Integration, 1.445 aprovados/60 ignorados; `Jellyfin.Api.Tests` 674/674; `NebulaDownloaderStartupTests` 4/4; `RateLimitMiddlewareTests` 92/92; testes web 407/407; build web de produção + `verify:build` (1.927 artefatos; payload inicial 294,3 KiB gzip abaixo do limite de 420 KiB); portal 26/26; `git diff --check` passou. A tentativa inicial de compilar os testes C# encontrou CA1307 na asserção de `NebulaDownloaderStartupTests`; o uso explícito de `StringComparison.Ordinal` corrigiu o gate e a compilação focal subsequente passou. O status do portal foi publicado em `bfb5103`; Vercel Production `READY` e JSON público HTTP 200.
+- Não houve start/stop de worker, download real, upload, instalação ou reinício de produção. A publicação de release está bloqueada porque `gh auth status` não encontrou host GitHub autenticado; o bloqueio anterior de cobrança do GitHub Actions também permanece. Próximo gate: autenticar/publicar pacote, instalar em janela sem uploads ativos e confirmar no fluxo manual `Iniciando download` + item real enfileirado. T2.1/homologação continuam parciais. Mapa técnico conferido: nenhum novo módulo, API, classe ou dependência de runtime.
+
+### 16/10/2026 — Cobertura do histórico de backup agendado (T4.4 parcial)
+
+- Auditoria dos caminhos de histórico confirmou persistência própria para backup manual e merge compatível com o resultado legado de tarefa. O método `CreateScheduledBackupAsync` não tinha teste direto que comprovasse a chave, nome, status e caminho persistidos para uma execução agendada.
+- Adicionado teste isolado `CreateScheduledBackupAsync_RecordsScheduledTaskIdentityInPersistentHistory`, usando diretório temporário e excluindo banco/metadata/subtítulos/trickplay; valida que `BackupScheduledTask` retorna um resultado concluído no histórico com o mesmo caminho do manifesto.
+- Validação Release: teste novo 1/1; grupo `FullSystemBackup` 32/32; suíte completa `Jellyfin.Server.Implementations.Tests` (sem Integration) 1.446 aprovados, 60 ignorados, 0 falhas. Nenhum banco externo, serviço agendado ou produção foi acessado.
+- Limite: isto valida histórico da execução de serviço agendada, não o agendador persistido, backup multi-banco ou restauração integral. T4.4 e T4.3 permanecem parciais; mapa conferido, sem alteração de módulos, contratos, dependências ou fluxo de runtime.
+
+### 17/10/2026 — Corrigir falso timeout no início do downloader Nebula (T2.1 parcial)
+
+- Causa no código: o handshake C# aguardava `[STRM-SCAN-STARTED]`, emitido apenas depois de uma leitura integral do índice de duplicados no MongoDB. Uma carga que excedesse 60 segundos era classificada como falha e o processo Python vivo era encerrado antes do primeiro scan.
+- Correção: o worker agora emite `[STRM-WORKER-READY]` antes do refresh do índice; o manager aceita readiness do processo e preserva `[STRM-SCAN-STARTED]` como fallback. A tela/log diferencia worker iniciado de fila preparada.
+- Verificações locais: `test_strm_downloader.py` 16/16; `NebulaDownloaderStartupTests` 7/7. Processo de produção estava ausente; nenhum start, transferência, instalação ou restart foi realizado. Primeiro download real permanece pendente.
+- T2.1 e homologação continuam `in_progress`; não criar release antes dos gates planejados e do smoke test autorizado.
+
+### 17/10/2026 — Reprodução do download parado em scan (T2.1/T2.6)
+
+- Produção somente leitura antes do teste: MulletaFlix **12.1.21**, script instalado sem `get_title_scan_roots`; hash instalado `3D41354345B79EAB19CB7A1FE0C01A02D0579130F18301D156CAF1C3221664C5`, diferente da fonte corrigida.
+- Ação direta solicitada: o botão manual chamou `POST /NebulaFtp/Actions/StartDownloader`, retorno HTTP 200 em **15,74 s** após as verificações de dependências. O worker passou a `Executando`, entrou em scan global e, após **5m52s**, ainda não iniciara uma mídia. A interface permanecia em “Aguardando início”, embora o status geral dissesse “Executando”. A tentativa de diagnóstico foi encerrada sem transferência; Envio permaneceu parado e o painel mostrou N: montado.
+- Correção de fonte: já havia scan incremental por título A–Z no downloader; status C# agora representa readiness/índice Mongo, título em scan e título sem itens sem declarar a fila inteira vazia. Três testes C# novos verificam os estados.
+- Verificações: NebulaPython **581/581**; `NebulaDownloaderStartupTests` **10/10**; teste de integridade de stage aceitou o fixture atual e rejeitou downloader obsoleto. A validação do stage de produção continua bloqueada pelo artefato obsoleto.
+- Pendente: instalar/publicar a fonte atual em uma janela autorizada e verificar que o primeiro download começa; não encerrar ou reiniciar a instância com o worker atual em execução. Não declarar correção validada em produção nem criar release ainda.
+
+### 17/10/2026 — Rebuild e gate do stage Nebula (T2.1 parcial)
+
+- O stage Windows foi recompilado do checkout atual por `build-stage-and-installer.ps1 -SkipWebBuild -SkipTrayBuild -SkipInstaller -NoPause`. O publish Release do servidor terminou; a rotina preservou e restaurou os payloads locais definidos pelo próprio builder. Nenhum instalador foi emitido.
+- `validate-stage.ps1` passou após o rebuild. SHA-256 do `strm_downloader.py` no stage e na fonte coincide (`C588DD2006A182440A57AC02D33730531E1FD0575FB3B971B6441D459FDAA88F`). A divergência de versão foi corrigida: `VersionPrefix`, `SharedVersion`, FileVersion e ProductVersion agora são 12.1.22.
+- Após o rebuild: NebulaPython **581/581**, `NebulaDownloaderStartupTests` Release **10/10**. O builder avisou que `rclone.exe` não está no stage; o bootstrap pelo instalador ainda precisa de validação.
+- Limite: stage é artefato local, construído do checkout com mudanças preexistentes; web/tray não foram recompilados e o instalador foi pulado. O resumo final do builder agora informa “Stage build finished successfully” e omite instaladores preexistentes quando `-SkipInstaller` está ativo; verificado executando o builder com todos os componentes pesados pulados. Homologação publicada no portal (commit `cb046989`, Vercel Production `READY`, evento público confirmado; testes 29/29). Produção continua em 12.1.21 com script antigo. Não houve instalação, restart, transferência ou teste com mídia real. T2.1 e homologação continuam `in_progress`; release segue proibida pelos gates ativos do roadmap.
+- Mapa técnico conferido em 17/10: mesma topologia; sem novos módulos, endpoints ou dependências. Sessão: [[Sessões/2026-10-17-MulletaFlix-nebula-stage-build]].
+
+### 17/10/2026 — Homologação ampla do servidor (parcial; release ainda bloqueada)
+
+- A suíte Release da solução foi repetida com o filtro previsto `FullyQualifiedName!~Integration`. Projetos determinísticos reportados sem falhas: Implementations 1.452 aprovados/60 ignorados; Providers 775/775; API 679/679; Server 73/1 ignorado; Controller 63/63; Naming 681/681; Model 684/684; Networking 124/124; MediaEncoding 71/71; LiveTv 75/75; XbmcMetadata 39/39; Common 31/31; HLS 18/18; Extensions 144/144; Keyframes 3/3. Integrações foram excluídas pelo filtro e testes dependentes de banco sem opt-in foram ignorados.
+- A execução ampla inicial com `Category!=LiveIntegration` não excluiu o teste live de DramaFinds; ele atingiu API externa e falhou numa expectativa de busca vazia. Com o filtro de nome documentado, Providers passou 775/775. A integração live não foi reescrita nem contada como aprovação; requer atualizar sua expectativa/fixture ao contrato real da API.
+- `py -3.10 -m pytest tests -q` executado no diretório `Tools/NebulaPython`: 581/581. Portal: 35/35. A primeira invocação Python fora do diretório do projeto não encontrou imports; invocação correta passou. Status Git do portal: commit final `770bf8b455ee3c9de737478045e1628b869f39e3`; Vercel Production `dpl_CPufMKYbJ6SHR7JLSxFLrboFU3aV` `READY`; JSON público HTTP 200 confirmou o evento atualizado.
+- Não houve instalação, restart, alteração de configuração, start de worker ou transferência. O runtime permanece 12.1.21 e a fonte/stage validados estão em 12.1.22; o primeiro download real, publicação/implantação e várias tarefas do roadmap continuam pendentes. Esta validação local não autoriza fechar homologação nem criar release enquanto os gates planejados permanecerem abertos.
+- Mapa técnico conferido; nenhum módulo, API, classe, dependência ou fluxo de runtime mudou. Registro da sessão: [[Sessões/2026-10-17-MulletaFlix-server-validation-suite]].
+
+### 17/10/2026 — Verificação do início do download Nebula e bootstrap do pacote (T2.1 parcial)
+
+- Evidência atual: `GET http://localhost:8096/System/Info/Public` retorna 12.1.21; stage local 12.1.22 passa integridade e inclui o downloader por título A–Z. Isso comprova descompasso de implantação, não sucesso operacional da correção.
+- Verificações executadas: comando determinístico da solução em Release terminou com exit code 0; `Jellyfin.Server.Implementations.Tests` 1.452 aprovados/60 ignorados; `NebulaDownloaderStartupTests` 10/10; suíte NebulaPython 581/581; stage validado. Os testes PowerShell estáticos do rclone e integridade passaram; portal 30/30.
+- O NSIS executa o helper de rclone com SHA-256 fixado antes do setup WinFsp, abortando se o helper faltar ou falhar. Instalador Windows 12.1.22 compilado localmente: `dist/mulletaflix_12.1.22_windows-x64.exe`, 403,72 MiB, SHA-256 `BED442E38FA4B3113C63A2B65713853CBB374515B9BE8E42A810A41B51000F3D`. Stage passou integridade. Não foi baixado rclone real, instalado pacote, iniciado worker nem feita transferência. Nenhum release publicado nesta etapa.
+- T2.1 permanece parcial até pacote final, implantação em janela autorizada e smoke test que observe primeiro item começando. O roadmap ainda contém tarefas planejadas pendentes; a regra vigente não permite release antes de concluir os gates aplicáveis.
+
+### 17/10/2026 05:44 -03 — Rechecagem do downloader Nebula sem início
+
+- Runtime local respondeu `12.1.21`; `strm_downloader.py` instalado (08/10) SHA-256 `3D41354345B79EAB19CB7A1FE0C01A02D0579130F18301D156CAF1C3221664C5` difere da fonte atual `EC7ABF827990C3992A7E3F926D09C189161BF6DFCCA6457E8C78899081DFAD79`. Snapshot não mostrou worker Python/rclone filho do servidor; o único filho observado foi `conhost.exe`. Log Nebula permanece sem atualização desde 11/10 23:22.
+- Testes da fonte passaram: startup/configuração C# 25/25; Python 3.10 scanner/helpers 87/87. Sem mudança em produção, instalação, configuração, worker ou mídia. Isso não comprova uma transferência real.
+- Conclusão: o runtime não recebeu as correções de fonte. `Enabled=false` foi verificado anteriormente às 04:29 e impede autostart do pipeline global; esta configuração não foi relida nem alterada nesta rechecagem. Instalar exige pacote integral e janela segura; primeiro download real continua pendente. Homologação T2.1 `in_progress`; nenhuma release criada.
+- Mapa técnico conferido; módulos, APIs, classes, dependências e fluxo estrutural permaneceram iguais. Sessão: [[Sessões/2026-10-17-MulletaFlix-nebula-download-runtime-recheck-0544]].
 
 ## Referências técnicas
 

@@ -27,7 +27,7 @@ namespace MulletaFlix.Server.Implementations.FullSystemBackup;
 /// <summary>
 /// Contains methods for creating and restoring backups.
 /// </summary>
-public class BackupService : IBackupService
+public class BackupService : IBackupService, IDisposable
 {
     public const string MeterName = "MulletaFlix.Server.Backup";
     private static readonly Meter BackupMeter = new(MeterName);
@@ -45,12 +45,15 @@ public class BackupService : IBackupService
         description: "Currently admitted full-system backup operations.");
 
     private const string ManifestEntryName = "manifest.json";
+    private const string BackupHistoryFileName = "BackupExecutionHistory.json";
+    private const int MaxBackupHistoryEntries = 50;
     private readonly ILogger<BackupService> _logger;
     private readonly IDbContextFactory<MulletaFlixDbContext> _dbProvider;
     private readonly IServerApplicationHost _applicationHost;
     private readonly IServerApplicationPaths _applicationPaths;
     private readonly IMulletaFlixDatabaseProvider _MulletaFlixDatabaseProvider;
     private readonly IHostApplicationLifetime _hostApplicationLifetime;
+    private readonly SemaphoreSlim _backupHistoryLock = new(1, 1);
     private int _backupOperationInProgress;
     private static readonly JsonSerializerOptions _serializerSettings = new JsonSerializerOptions(JsonSerializerDefaults.General)
     {
@@ -83,6 +86,25 @@ public class BackupService : IBackupService
         _applicationPaths = applicationPaths;
         _MulletaFlixDatabaseProvider = MulletaFlixDatabaseProvider;
         _hostApplicationLifetime = applicationLifetime;
+    }
+
+    /// <inheritdoc/>
+    public void Dispose()
+    {
+        Dispose(disposing: true);
+        GC.SuppressFinalize(this);
+    }
+
+    /// <summary>
+    /// Releases resources used by this instance.
+    /// </summary>
+    /// <param name="disposing">Whether managed resources should be released.</param>
+    protected virtual void Dispose(bool disposing)
+    {
+        if (disposing)
+        {
+            _backupHistoryLock.Dispose();
+        }
     }
 
     /// <inheritdoc/>
@@ -329,6 +351,13 @@ public class BackupService : IBackupService
 
     /// <inheritdoc/>
     public async Task<BackupManifestDto> CreateBackupAsync(BackupOptionsDto backupOptions)
+        => await CreateBackupWithHistoryAsync(backupOptions, "Full system backup", "FullSystemBackup").ConfigureAwait(false);
+
+    /// <inheritdoc/>
+    public async Task<BackupManifestDto> CreateScheduledBackupAsync(BackupOptionsDto backupOptions)
+        => await CreateBackupWithHistoryAsync(backupOptions, "Scheduled backup", "BackupScheduledTask").ConfigureAwait(false);
+
+    private async Task<BackupManifestDto> CreateBackupWithHistoryAsync(BackupOptionsDto backupOptions, string name, string key)
     {
         const string operation = "create";
         var startedAt = Stopwatch.GetTimestamp();
@@ -338,14 +367,34 @@ public class BackupService : IBackupService
         }
 
         var result = "failure";
+        var startedAtUtc = DateTime.UtcNow;
+        BackupManifestDto? manifest = null;
+        var errorMessage = string.Empty;
         try
         {
-            var manifest = await CreateBackupCoreAsync(backupOptions).ConfigureAwait(false);
+            manifest = await CreateBackupCoreAsync(backupOptions).ConfigureAwait(false);
             result = "success";
             return manifest;
         }
+        catch
+        {
+            errorMessage = "Backup failed. Check the server log for details.";
+            throw;
+        }
         finally
         {
+            await RecordBackupExecutionAsync(new BackupExecutionHistoryDto
+            {
+                Path = manifest?.Path ?? string.Empty,
+                StartTimeUtc = startedAtUtc,
+                EndTimeUtc = DateTime.UtcNow,
+                Status = result == "success" ? TaskCompletionStatus.Completed : TaskCompletionStatus.Failed,
+                Name = name,
+                Key = key,
+                Id = Guid.NewGuid().ToString("N"),
+                ErrorMessage = errorMessage,
+                LongErrorMessage = string.Empty
+            }).ConfigureAwait(false);
             CompleteOperation(operation, result, startedAt);
         }
     }
@@ -725,52 +774,139 @@ public class BackupService : IBackupService
     /// <inheritdoc/>
     public async Task<BackupExecutionHistoryDto[]> GetBackupHistory()
     {
-        // For now, we'll read the ScheduledTask history file for the BackupScheduledTask
-        // The history is stored in the ScheduledTasks data directory
-        var historyPath = Path.Combine(_applicationPaths.DataPath, "ScheduledTasks");
+        await _backupHistoryLock.WaitAsync().ConfigureAwait(false);
+        try
+        {
+            var historyFile = GetBackupHistoryFilePath();
+            var results = await ReadPersistedBackupHistoryAsync(historyFile).ConfigureAwait(false) ?? [];
+            var scheduledResult = await ReadScheduledBackupResultAsync().ConfigureAwait(false);
+            if (scheduledResult is not null && !results.Any(item =>
+                    item.Key == scheduledResult.Key
+                    && item.Status == scheduledResult.Status
+                    && item.StartTimeUtc < scheduledResult.EndTimeUtc
+                    && scheduledResult.StartTimeUtc < item.EndTimeUtc))
+            {
+                results.Add(scheduledResult);
+            }
 
-        if (!Directory.Exists(historyPath))
+            return results
+                .OrderByDescending(item => item.EndTimeUtc)
+                .Take(MaxBackupHistoryEntries)
+                .ToArray();
+        }
+        finally
+        {
+            _backupHistoryLock.Release();
+        }
+    }
+
+    private string GetBackupHistoryFilePath() => Path.Combine(_applicationPaths.DataPath, BackupHistoryFileName);
+
+    private async Task RecordBackupExecutionAsync(BackupExecutionHistoryDto execution)
+    {
+        await _backupHistoryLock.WaitAsync().ConfigureAwait(false);
+        string? temporaryFile = null;
+        try
+        {
+            var historyFile = GetBackupHistoryFilePath();
+            var historyDirectory = Path.GetDirectoryName(historyFile)!;
+            Directory.CreateDirectory(historyDirectory);
+
+            var results = await ReadPersistedBackupHistoryAsync(historyFile).ConfigureAwait(false);
+            if (results is null)
+            {
+                _logger.LogError("Cannot append backup execution because persisted history could not be read");
+                return;
+            }
+
+            results.Add(execution);
+            var retainedResults = results
+                .OrderByDescending(item => item.EndTimeUtc)
+                .Take(MaxBackupHistoryEntries)
+                .ToArray();
+
+            temporaryFile = historyFile + "." + Guid.NewGuid().ToString("N") + ".tmp";
+            await File.WriteAllTextAsync(temporaryFile, JsonSerializer.Serialize(retainedResults, _serializerSettings)).ConfigureAwait(false);
+            File.Move(temporaryFile, historyFile, overwrite: true);
+            temporaryFile = null;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to persist backup execution history");
+        }
+        finally
+        {
+            if (temporaryFile is not null)
+            {
+                try
+                {
+                    File.Delete(temporaryFile);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to remove temporary backup history file");
+                }
+            }
+
+            _backupHistoryLock.Release();
+        }
+    }
+
+    private async Task<List<BackupExecutionHistoryDto>?> ReadPersistedBackupHistoryAsync(string historyFile)
+    {
+        if (!File.Exists(historyFile))
         {
             return [];
         }
 
-        var backupTaskId = "BackupScheduledTask"; // This should match the task key
-        var historyFile = Path.Combine(historyPath, $"{backupTaskId}.js");
-
-        var results = new List<BackupExecutionHistoryDto>();
-
-        if (File.Exists(historyFile))
+        try
         {
-            try
-            {
-                var json = await File.ReadAllTextAsync(historyFile).ConfigureAwait(false);
-                if (!string.IsNullOrWhiteSpace(json))
-                {
-                    var taskResult = JsonSerializer.Deserialize<TaskResult>(json, _serializerSettings);
-                    if (taskResult != null)
-                    {
-                        results.Add(new BackupExecutionHistoryDto
-                        {
-                            Path = "", // Not stored in task result
-                            StartTimeUtc = taskResult.StartTimeUtc,
-                            EndTimeUtc = taskResult.EndTimeUtc,
-                            Status = taskResult.Status,
-                            Name = taskResult.Name,
-                            Key = taskResult.Key,
-                            Id = taskResult.Id,
-                            ErrorMessage = taskResult.ErrorMessage,
-                            LongErrorMessage = taskResult.LongErrorMessage
-                        });
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Failed to read backup task history from {Path}", historyFile);
-            }
+            var json = await File.ReadAllTextAsync(historyFile).ConfigureAwait(false);
+            return string.IsNullOrWhiteSpace(json)
+                ? []
+                : JsonSerializer.Deserialize<List<BackupExecutionHistoryDto>>(json, _serializerSettings) ?? [];
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to read persisted backup history from {Path}", historyFile);
+            return null;
+        }
+    }
+
+    private async Task<BackupExecutionHistoryDto?> ReadScheduledBackupResultAsync()
+    {
+        var historyFile = Path.Combine(_applicationPaths.DataPath, "ScheduledTasks", "BackupScheduledTask.js");
+        if (!File.Exists(historyFile))
+        {
+            return null;
         }
 
-        return results.ToArray();
+        try
+        {
+            var json = await File.ReadAllTextAsync(historyFile).ConfigureAwait(false);
+            var taskResult = string.IsNullOrWhiteSpace(json)
+                ? null
+                : JsonSerializer.Deserialize<TaskResult>(json, _serializerSettings);
+            return taskResult is null
+                ? null
+                : new BackupExecutionHistoryDto
+                {
+                    Path = string.Empty,
+                    StartTimeUtc = taskResult.StartTimeUtc,
+                    EndTimeUtc = taskResult.EndTimeUtc,
+                    Status = taskResult.Status,
+                    Name = taskResult.Name,
+                    Key = taskResult.Key,
+                    Id = taskResult.Id,
+                    ErrorMessage = taskResult.ErrorMessage,
+                    LongErrorMessage = taskResult.LongErrorMessage
+                };
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to read scheduled backup history from {Path}", historyFile);
+            return null;
+        }
     }
 
     /// <inheritdoc/>

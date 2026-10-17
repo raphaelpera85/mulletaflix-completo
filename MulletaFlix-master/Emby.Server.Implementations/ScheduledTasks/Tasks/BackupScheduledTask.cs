@@ -61,7 +61,7 @@ public class BackupScheduledTask : IScheduledTask, IConfigurableScheduledTask
             Trickplay = false
         };
 
-        var manifest = await _backupService.CreateBackupAsync(options).ConfigureAwait(false);
+        var manifest = await _backupService.CreateScheduledBackupAsync(options).ConfigureAwait(false);
 
         _logger.LogInformation("Scheduled backup completed: {Path}", manifest.Path);
     }

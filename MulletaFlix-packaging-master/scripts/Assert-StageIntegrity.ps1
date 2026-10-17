@@ -37,7 +37,8 @@ function Assert-WebBuildIntegrity {
 function Assert-StageIntegrity {
     param(
         [string]$StageDirectory,
-        [string]$ProjectRoot
+        [string]$ProjectRoot,
+        [string]$PublishDirectory
     )
 
     $requiredFiles = @(
@@ -51,8 +52,10 @@ function Assert-StageIntegrity {
         'Tools\NebulaPython\stream_service.py',
         'Tools\NebulaPython\generate_strm.py',
         'Tools\NebulaPython\tools\strm_downloader.py',
+        'Tools\NebulaPython\tools\mongo_admission.py',
         'Tools\NebulaPython\ftp\pathio.py',
         'Tools\NebulaPython\requirements.txt',
+        'install-rclone-if-missing.ps1',
         'nssm.exe',
         'mulletaflix-windows-tray\MulletaFlix.Windows.Tray.exe'
     )
@@ -61,10 +64,26 @@ function Assert-StageIntegrity {
         Assert-Path (Join-Path $StageDirectory $relativePath) "Required stage artifact ($relativePath)"
     }
 
+    # The staged downloader is executable production logic, not an opaque
+    # optional asset. Fail packaging if a stale or mixed stage contains a
+    # different copy than the server source tree.
+    $sourceDownloader = Join-Path $ProjectRoot 'MulletaFlix-master\Tools\NebulaPython\tools\strm_downloader.py'
+    $stagedDownloader = Join-Path $StageDirectory 'Tools\NebulaPython\tools\strm_downloader.py'
+    Assert-Path $sourceDownloader 'Nebula STRM downloader source'
+    $sourceDownloaderHash = (Get-FileHash -LiteralPath $sourceDownloader -Algorithm SHA256).Hash
+    $stagedDownloaderHash = (Get-FileHash -LiteralPath $stagedDownloader -Algorithm SHA256).Hash
+    if ($sourceDownloaderHash -ne $stagedDownloaderHash) {
+        throw 'Stage Nebula STRM downloader differs from the current server source.'
+    }
+
     # Catch mixed/stale .NET publishes before NSIS packages them. The Nebula
     # implementation and model must come from the same publish operation;
     # otherwise startup can fail with MissingMethodException.
-    $publishDirectory = Join-Path $ProjectRoot '.build\server-publish'
+    $publishDirectory = if ([string]::IsNullOrWhiteSpace($PublishDirectory)) {
+        Join-Path $ProjectRoot '.build\server-publish'
+    } else {
+        $PublishDirectory
+    }
     if (Test-Path -LiteralPath $publishDirectory -PathType Container) {
         foreach ($assemblyName in @('MediaBrowser.Model.dll', 'MulletaFlix.Server.Implementations.dll', 'MulletaFlix.dll')) {
             $publishedAssembly = Join-Path $publishDirectory $assemblyName

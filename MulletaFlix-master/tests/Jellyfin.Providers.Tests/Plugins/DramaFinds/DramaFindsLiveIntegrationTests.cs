@@ -62,10 +62,11 @@ namespace Jellyfin.Providers.Tests.Plugins.DramaFinds
                     drama.EpisodeCount),
                 drama.Episodes[drama.EpisodeCount - 1].Url);
 
-            // A search that matches nothing is a normal answer on this platform, not a failure.
+            // The API may return fuzzy candidates even when they are not a usable match.
+            // They must not arm the transport failure cooldown or be accepted automatically.
             var none = await client.SearchAsync("Abandonei o Rei dos Deuses no Altar", 10, CancellationToken.None);
-            Assert.Empty(none);
-            Assert.False(client.IsInFailureCooldown, "An empty result set must not arm the failure cooldown.");
+            Assert.DoesNotContain(none, match => match.Score >= 0.92);
+            Assert.False(client.IsInFailureCooldown, "A valid search response with no strong candidate must not arm the failure cooldown.");
 
             // And the fuzzy rows the endpoint returns for a shared word must never be usable as an
             // automatic identification.

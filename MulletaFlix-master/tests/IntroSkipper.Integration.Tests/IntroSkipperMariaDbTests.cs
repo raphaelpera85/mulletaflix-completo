@@ -4,6 +4,7 @@
 using IntroSkipper.Data;
 using Microsoft.EntityFrameworkCore;
 using Xunit;
+using MulletaFlix.Testing;
 
 namespace IntroSkipper.Integration.Tests;
 
@@ -40,6 +41,7 @@ public sealed class IntroSkipperMariaDbTests : IClassFixture<MariaDbFixture>
     [Fact]
     public async Task SchemaCreationTargetsTheDedicatedDatabase()
     {
+        MariaDbTestEnvironment.SkipUnlessConfigured();
         // Segment first: the cache must still be able to create its own table afterwards.
         await _fixture.Database.InitializeAsync();
         Assert.True(_fixture.Cache.TryInitialize());
@@ -66,6 +68,7 @@ public sealed class IntroSkipperMariaDbTests : IClassFixture<MariaDbFixture>
     [Fact]
     public async Task CacheCreationFirstStillLeavesTheSegmentSchema()
     {
+        MariaDbTestEnvironment.SkipUnlessConfigured();
         // The reverse order of the test above. EF's EnsureCreated only creates tables
         // when the schema holds none, so an ordering-independent creation is the only
         // way both contexts can live in one schema.
@@ -80,6 +83,7 @@ public sealed class IntroSkipperMariaDbTests : IClassFixture<MariaDbFixture>
     [Fact]
     public async Task SchemaCreationLeavesTheMainDatabaseAlone()
     {
+        MariaDbTestEnvironment.SkipUnlessConfigured();
         await _fixture.Database.InitializeAsync();
         Assert.True(_fixture.Cache.TryInitialize());
 
@@ -92,6 +96,7 @@ public sealed class IntroSkipperMariaDbTests : IClassFixture<MariaDbFixture>
     [Fact]
     public async Task AutoSegmentsRoundTrip()
     {
+        MariaDbTestEnvironment.SkipUnlessConfigured();
         await _fixture.Database.InitializeAsync();
         var itemId = Guid.NewGuid();
 
@@ -115,6 +120,7 @@ public sealed class IntroSkipperMariaDbTests : IClassFixture<MariaDbFixture>
     [Fact]
     public async Task EraseItemsBindsTheIdSetAsOneParameter()
     {
+        MariaDbTestEnvironment.SkipUnlessConfigured();
         await _fixture.Database.InitializeAsync();
         var erased = Guid.NewGuid();
         var kept = Guid.NewGuid();
@@ -133,6 +139,7 @@ public sealed class IntroSkipperMariaDbTests : IClassFixture<MariaDbFixture>
     [Fact]
     public async Task StaleTimestampLookupKeepsTheRetainedSetAsOneParameter()
     {
+        MariaDbTestEnvironment.SkipUnlessConfigured();
         await _fixture.Database.InitializeAsync();
         var retained = Guid.NewGuid();
         var stale = Guid.NewGuid();
@@ -149,6 +156,7 @@ public sealed class IntroSkipperMariaDbTests : IClassFixture<MariaDbFixture>
     [Fact]
     public async Task StaleSeasonAndItemStateLookupsSurviveLargeRetainedSets()
     {
+        MariaDbTestEnvironment.SkipUnlessConfigured();
         await _fixture.Database.InitializeAsync();
         var seasonId = Guid.NewGuid();
         var episodeIds = Enumerable.Range(0, 250).Select(_ => Guid.NewGuid()).ToArray();
@@ -177,6 +185,7 @@ public sealed class IntroSkipperMariaDbTests : IClassFixture<MariaDbFixture>
     [Fact]
     public async Task DeleteSegmentsByModeJournalsTheProjection()
     {
+        MariaDbTestEnvironment.SkipUnlessConfigured();
         await _fixture.Database.InitializeAsync();
         var itemId = Guid.NewGuid();
         await WriteIntroductionAsync(itemId);
@@ -195,6 +204,7 @@ public sealed class IntroSkipperMariaDbTests : IClassFixture<MariaDbFixture>
     [Fact]
     public async Task DetectionCacheUpsertFindsAndDeletesOnMariaDb()
     {
+        MariaDbTestEnvironment.SkipUnlessConfigured();
         Assert.True(_fixture.Cache.TryInitialize());
 
         var itemId = Guid.NewGuid();
@@ -221,6 +231,7 @@ public sealed class IntroSkipperMariaDbTests : IClassFixture<MariaDbFixture>
     [Fact]
     public async Task PluginRegistrationPublishesFactoriesThatReachThePluginSchema()
     {
+        MariaDbTestEnvironment.SkipUnlessConfigured();
         // The registration under test is the plugin's own; this pins the connection the
         // factories actually open, so the schema asserted everywhere else is the schema
         // production would use.

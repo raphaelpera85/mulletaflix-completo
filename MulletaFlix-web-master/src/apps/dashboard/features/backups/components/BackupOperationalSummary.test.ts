@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { getIncludedBackupOptionKeys, getNextRun, getNextRunLabel } from './BackupOperationalSummary';
+import { getIncludedBackupOptionKeys, getLatestBackupRun, getNextRun, getNextRunLabel } from './BackupOperationalSummary';
+import { TaskCompletionStatus, type BackupExecutionHistoryDto } from 'apps/dashboard/features/backups/api/types';
+import type { TaskInfo } from '@jellyfin/sdk/lib/generated-client/models/task-info';
 
 describe('getIncludedBackupOptionKeys', () => {
     it('reports only the contents enabled in the archive manifest', () => {
@@ -27,5 +29,19 @@ describe('getNextRun', () => {
         expect(getNextRun({ NextExecutionTimeUtc: null })).toBeNull();
         expect(getNextRun({ NextExecutionTimeUtc: 'not-a-date' })).toBeNull();
         expect(getNextRun()).toBeNull();
+    });
+});
+
+describe('backup history status contract', () => {
+    it('uses the server TaskCompletionStatus.Completed value for successful backups', () => {
+        expect(TaskCompletionStatus.Completed).toBe('Completed');
+    });
+
+    it('prefers the newest persisted execution and falls back to scheduled task history', () => {
+        const manualRun = { Id: 'manual' } as BackupExecutionHistoryDto;
+        const scheduledRun = { Id: 'scheduled' } as NonNullable<TaskInfo['LastExecutionResult']>;
+
+        expect(getLatestBackupRun([manualRun], scheduledRun)).toBe(manualRun);
+        expect(getLatestBackupRun([], scheduledRun)).toBe(scheduledRun);
     });
 });

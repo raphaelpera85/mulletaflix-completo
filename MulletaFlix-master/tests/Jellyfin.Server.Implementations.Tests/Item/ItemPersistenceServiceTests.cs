@@ -1,4 +1,5 @@
 using System;
+using System.IO;
 using System.Linq;
 using System.Net.Sockets;
 using MediaBrowser.Model.Entities;
@@ -279,8 +280,19 @@ public class ItemPersistenceServiceTests
     {
         Assert.True(ItemPersistenceService.IsTransientConnectionFailure(new SocketException(10054)));
         Assert.True(ItemPersistenceService.IsTransientConnectionFailure(new TimeoutException()));
+        Assert.True(ItemPersistenceService.IsTransientConnectionFailure(new IOException("database stream read failed")));
         Assert.True(ItemPersistenceService.IsTransientConnectionFailure(
             new InvalidOperationException("wrapped", new SocketException(10054))));
+    }
+
+    [Fact]
+    public void IsTransientConnectionFailure_RecognizesMySqlConnectTimeoutMessage()
+    {
+        var exception = new InvalidOperationException(
+            "An exception has been raised that is likely due to a transient failure.",
+            CreateMySqlException(0, "Connect Timeout expired."));
+
+        Assert.True(ItemPersistenceService.IsTransientConnectionFailure(exception));
     }
 
     [Fact]
@@ -291,7 +303,7 @@ public class ItemPersistenceServiceTests
             new DbUpdateException("duplicate", CreateMySqlException(1062))));
     }
 
-    private static MySqlConnector.MySqlException CreateMySqlException(int errorCode)
+    private static MySqlConnector.MySqlException CreateMySqlException(int errorCode, string message = "Test error message")
     {
         var ctor = typeof(MySqlConnector.MySqlException).GetConstructor(
             System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance,
@@ -299,7 +311,7 @@ public class ItemPersistenceServiceTests
             new[] { typeof(MySqlConnector.MySqlErrorCode), typeof(string) },
             null);
 
-        return (MySqlConnector.MySqlException)ctor!.Invoke(new object[] { (MySqlConnector.MySqlErrorCode)errorCode, "Test error message" });
+        return (MySqlConnector.MySqlException)ctor!.Invoke(new object[] { (MySqlConnector.MySqlErrorCode)errorCode, message });
     }
 
     private static BaseItemProvider[] CreateMappedProviders(Guid itemId)

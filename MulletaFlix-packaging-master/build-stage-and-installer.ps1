@@ -8,7 +8,10 @@ param(
     [switch]$SkipServerBuild,
     [switch]$SkipTrayBuild,
     [switch]$SkipInstaller,
-    [switch]$NoPause
+    [switch]$NoPause,
+    [string]$StageDirectory,
+    [string]$BuildDirectory,
+    [string]$InstallerOutputDirectory
 )
 
 $ErrorActionPreference = 'Stop'
@@ -18,14 +21,75 @@ $projectRoot = Split-Path -Parent $PSScriptRoot
 $serverRoot = Join-Path $projectRoot 'MulletaFlix-master'
 $webRoot = Join-Path $projectRoot 'MulletaFlix-web-master'
 $packagingRoot = Join-Path $projectRoot 'MulletaFlix-packaging-master'
-$stageDir = Join-Path $projectRoot 'stage'
-$buildDir = Join-Path $projectRoot '.build'
+$projectRootFullPath = [System.IO.Path]::GetFullPath($projectRoot).TrimEnd([System.IO.Path]::DirectorySeparatorChar, [System.IO.Path]::AltDirectorySeparatorChar)
+$buildRoot = [System.IO.Path]::GetFullPath((Join-Path $projectRoot '.build')).TrimEnd([System.IO.Path]::DirectorySeparatorChar, [System.IO.Path]::AltDirectorySeparatorChar)
+$defaultStageDir = [System.IO.Path]::GetFullPath((Join-Path $projectRoot 'stage')).TrimEnd([System.IO.Path]::DirectorySeparatorChar, [System.IO.Path]::AltDirectorySeparatorChar)
+$stageDir = if ([string]::IsNullOrWhiteSpace($StageDirectory)) {
+    Join-Path $projectRoot 'stage'
+} else {
+    [System.IO.Path]::GetFullPath($StageDirectory)
+}
+$buildDir = if ([string]::IsNullOrWhiteSpace($BuildDirectory)) {
+    Join-Path $projectRoot '.build'
+} else {
+    [System.IO.Path]::GetFullPath($BuildDirectory)
+}
+$installerOutputDir = if ([string]::IsNullOrWhiteSpace($InstallerOutputDirectory)) {
+    Join-Path $buildDir 'installer-output'
+} else {
+    [System.IO.Path]::GetFullPath($InstallerOutputDirectory)
+}
+if ((Test-Path -LiteralPath $buildRoot) -and ((Get-Item -LiteralPath $buildRoot -Force).Attributes -band [System.IO.FileAttributes]::ReparsePoint)) {
+    throw "Build root must not be a symbolic link or junction: $buildRoot"
+}
+$normalizedStageDir = [System.IO.Path]::GetFullPath($stageDir).TrimEnd([System.IO.Path]::DirectorySeparatorChar, [System.IO.Path]::AltDirectorySeparatorChar)
+$normalizedBuildDir = [System.IO.Path]::GetFullPath($buildDir).TrimEnd([System.IO.Path]::DirectorySeparatorChar, [System.IO.Path]::AltDirectorySeparatorChar)
+$normalizedInstallerOutputDir = [System.IO.Path]::GetFullPath($installerOutputDir).TrimEnd([System.IO.Path]::DirectorySeparatorChar, [System.IO.Path]::AltDirectorySeparatorChar)
+$stageInsideBuild = $normalizedStageDir.StartsWith($buildRoot + [System.IO.Path]::DirectorySeparatorChar, [System.StringComparison]::OrdinalIgnoreCase)
+$buildInsideBuild = $normalizedBuildDir.Equals($buildRoot, [System.StringComparison]::OrdinalIgnoreCase) -or
+    $normalizedBuildDir.StartsWith($buildRoot + [System.IO.Path]::DirectorySeparatorChar, [System.StringComparison]::OrdinalIgnoreCase)
+if (-not $stageInsideBuild -and -not $normalizedStageDir.Equals($defaultStageDir, [System.StringComparison]::OrdinalIgnoreCase)) {
+    throw "Stage output must use the dedicated default stage directory or stay inside .build: $normalizedStageDir"
+}
+if (-not $buildInsideBuild) {
+    throw "Build output must stay inside .build: $normalizedBuildDir"
+}
+if (-not $normalizedInstallerOutputDir.StartsWith($normalizedBuildDir + [System.IO.Path]::DirectorySeparatorChar, [System.StringComparison]::OrdinalIgnoreCase)) {
+    throw "Installer output must stay inside the selected build directory: $normalizedInstallerOutputDir"
+}
+foreach ($outputPath in @($normalizedStageDir, $normalizedBuildDir, $normalizedInstallerOutputDir)) {
+    if ($outputPath.Equals($buildRoot, [System.StringComparison]::OrdinalIgnoreCase)) {
+        continue
+    }
+
+    if ($outputPath.Equals($defaultStageDir, [System.StringComparison]::OrdinalIgnoreCase)) {
+        $currentPath = $projectRootFullPath
+        $relativeSegments = @('stage')
+    } else {
+        $currentPath = $buildRoot
+        $relativeSegments = $outputPath.Substring($buildRoot.Length + 1).Split([System.IO.Path]::DirectorySeparatorChar)
+    }
+
+    foreach ($segment in $relativeSegments) {
+        $currentPath = Join-Path $currentPath $segment
+        if ((Test-Path -LiteralPath $currentPath) -and ((Get-Item -LiteralPath $currentPath -Force).Attributes -band [System.IO.FileAttributes]::ReparsePoint)) {
+            throw "Output path must not traverse a symbolic link or junction: $currentPath"
+        }
+    }
+}
+if ($normalizedStageDir.Equals($normalizedBuildDir, [System.StringComparison]::OrdinalIgnoreCase) -or
+    $normalizedStageDir.StartsWith($normalizedBuildDir + [System.IO.Path]::DirectorySeparatorChar, [System.StringComparison]::OrdinalIgnoreCase) -or
+    $normalizedBuildDir.StartsWith($normalizedStageDir + [System.IO.Path]::DirectorySeparatorChar, [System.StringComparison]::OrdinalIgnoreCase)) {
+    throw 'StageDirectory and BuildDirectory must be separate, non-overlapping directories.'
+}
 $serverPublishDir = Join-Path $buildDir 'server-publish'
 $installerScript = Join-Path $projectRoot 'build-mulletaflix-installer.ps1'
 $trayProject = Join-Path $packagingRoot 'jellyfin-server-windows\Jellyfin.Windows.Tray\Jellyfin.Windows.Tray.csproj'
 $trayProjectDir = Split-Path -Parent $trayProject
 $webDist = Join-Path $webRoot 'dist'
 $stageIntegrityScript = Join-Path $packagingRoot 'scripts\Assert-StageIntegrity.ps1'
+$stageBackupRoot = Join-Path $buildRoot 'stage-preserve-backups'
+$stageBackupHelper = Join-Path $packagingRoot 'scripts\StageBackup.ps1'
 
 function Write-Step {
     param([string]$Message)
@@ -59,6 +123,9 @@ if (-not (Test-Path -LiteralPath $stageIntegrityScript)) {
     throw "Stage integrity validator not found: $stageIntegrityScript"
 }
 . $stageIntegrityScript
+Assert-Path $stageBackupHelper 'Stage backup safety helpers'
+. $stageBackupHelper
+$stageBackupRoot = Initialize-StageBackupRoot -BuildRoot $buildRoot -StageDirectory $stageDir
 
 function Copy-DirectoryContents {
     param(
@@ -121,14 +188,14 @@ function Build-Server {
 
     $backupItems = @()
     $preserves = @('mariadb', 'MulletaFlix-web', 'mulletaflix-windows-tray', 'ffmpeg.exe', 'ffprobe.exe', 'nssm.exe', 'icon.ico', 'LICENSE', 'nginx', 'win-acme', 'configure-https.ps1')
+    $backupRunDirectory = New-StageBackupRunDirectory -BackupRoot $stageBackupRoot
+    Restore-OrphanedStageBackups -BackupRoot $stageBackupRoot -StageDirectory $stageDir -Items $preserves -CurrentRunDirectory $backupRunDirectory
 
     foreach ($item in $preserves) {
         $sourcePath = Join-Path $stageDir $item
         if (Test-Path -LiteralPath $sourcePath) {
-            $tempBackupPath = Join-Path $projectRoot "stage-backup-$item"
-            if (Test-Path -LiteralPath $tempBackupPath) {
-                Remove-Item -LiteralPath $tempBackupPath -Recurse -Force -ErrorAction SilentlyContinue
-            }
+            Assert-NoStageBackupReparsePoints -Path $sourcePath
+            $tempBackupPath = Join-Path $backupRunDirectory "stage-backup-$item"
             Copy-Item -LiteralPath $sourcePath -Destination $tempBackupPath -Recurse -Force
             $backupItems += [PSCustomObject]@{
                 Item = $item
@@ -224,26 +291,9 @@ function Build-Server {
         }
     }
 
-    # Safety net: if a preserve item had a backup folder already on disk from a
-    # previous interrupted build, restore it even when it wasn't present at the
-    # beginning of this run.
-        foreach ($item in $preserves) {
-            $destPath = Join-Path $stageDir $item
-            $tempBackupPath = Join-Path $projectRoot "stage-backup-$item"
-            if ((Test-Path -LiteralPath $tempBackupPath) -and (-not (Test-Path -LiteralPath $destPath))) {
-                try {
-                    if (Test-Path -LiteralPath $tempBackupPath -PathType Container) {
-                        Copy-DirectoryContents -Source $tempBackupPath -Destination $destPath
-                    } else {
-                        Copy-Item -LiteralPath $tempBackupPath -Destination $destPath -Force -ErrorAction Stop
-                    }
-                    Remove-Item -LiteralPath $tempBackupPath -Recurse -Force -ErrorAction SilentlyContinue
-                    Write-Host "Recovered $item from previous backup." -ForegroundColor Yellow
-                }
-                catch {
-                    Write-Host "Notice: Could not recover $item from previous backup." -ForegroundColor Yellow
-                }
-            }
+        if ((Test-Path -LiteralPath $backupRunDirectory) -and
+            -not (Get-ChildItem -LiteralPath $backupRunDirectory -Force | Select-Object -First 1)) {
+            Remove-Item -LiteralPath $backupRunDirectory -Force -ErrorAction SilentlyContinue
         }
     }
 }
@@ -323,7 +373,7 @@ function Copy-RuntimeExtras {
         Copy-Item -Destination $stagePythonFtp -Force
     $stagePythonTools = Join-Path $nebulaPythonStage 'tools'
     New-Item -ItemType Directory -Force -Path $stagePythonTools | Out-Null
-    foreach ($runtimeTool in @('__init__.py', 'check_deps.py', 'strm_downloader.py', 'feed_ftp.py', 'supabase_sync.py')) {
+    foreach ($runtimeTool in @('__init__.py', 'check_deps.py', 'strm_downloader.py', 'feed_ftp.py', 'supabase_sync.py', 'mongo_admission.py')) {
         $runtimeToolPath = Join-Path $nebulaPythonSource (Join-Path 'tools' $runtimeTool)
         if (Test-Path -LiteralPath $runtimeToolPath -PathType Leaf) {
             Copy-Item -LiteralPath $runtimeToolPath -Destination $stagePythonTools -Force
@@ -401,7 +451,7 @@ function Copy-RuntimeExtras {
                 Write-Host "Copied $binary to stage." -ForegroundColor Green
             } else {
                 if ($binary -eq 'rclone.exe') {
-                    Write-Warning 'rclone.exe não foi encontrado. O instalador fará o download automático no primeiro arranque.'
+                    Write-Warning 'rclone.exe não foi encontrado. O instalador fará o download durante a instalação.'
                 } else {
                     Write-Warning "$binary was not found in stage and could not be resolved."
                 }
@@ -496,7 +546,7 @@ function Copy-RuntimeExtras {
 function Build-Installer {
     Write-Step 'Creating installer'
     Assert-Path $installerScript 'Installer script'
-    & $installerScript
+    & $installerScript -StageDirectory $stageDir -OutputDirectory $installerOutputDir
 }
 
 function Prepare-HttpsTools {
@@ -550,52 +600,59 @@ Write-Host '   MulletaFlix Stage + Installer Release Builder   ' -ForegroundColo
 Write-Host '==================================================' -ForegroundColor Cyan
 
 Assert-Path $projectRoot 'Project root'
+New-Item -ItemType Directory -Force -Path $stageDir | Out-Null
 Assert-Path $stageDir 'Stage directory'
 
 $dotnet = Resolve-DotNet
 Write-Host "Using dotnet: $dotnet" -ForegroundColor Green
 
-if (-not $SkipServerBuild) {
-    Build-Server -DotNet $dotnet
-} else {
-    Write-Host 'Skipping server build.' -ForegroundColor Yellow
+$backupLock = Enter-StageBackupLock -BackupRoot $buildRoot
+try {
+    if (-not $SkipServerBuild) {
+        Build-Server -DotNet $dotnet
+    } else {
+        Write-Host 'Skipping server build.' -ForegroundColor Yellow
+    }
+
+    if (-not $SkipWebBuild) {
+        Build-Web
+    } else {
+        Write-Host 'Skipping web build.' -ForegroundColor Yellow
+    }
+
+    if (-not $SkipTrayBuild) {
+        Build-Tray -DotNet $dotnet
+    } else {
+        Write-Host 'Skipping tray build.' -ForegroundColor Yellow
+    }
+
+    Copy-RuntimeExtras
+    Prepare-HttpsTools
+    Write-Step 'Validating stage integrity'
+    Assert-StageIntegrity -StageDirectory $stageDir -ProjectRoot $projectRoot -PublishDirectory $serverPublishDir
+
+    if (-not $SkipInstaller) {
+        Build-Installer
+    } else {
+        Write-Host 'Skipping installer creation.' -ForegroundColor Yellow
+    }
+
+    $stageExe = Join-Path $stageDir 'MulletaFlix.exe'
+    $installer = Get-ChildItem -LiteralPath $installerOutputDir -Filter 'mulletaflix_*_windows-x64.exe' -ErrorAction SilentlyContinue |
+        Sort-Object LastWriteTime -Descending |
+        Select-Object -First 1
+
+    Write-Host ''
+    Write-Host '==================================================' -ForegroundColor Green
+    Write-Host 'Stage build finished successfully.' -ForegroundColor Green
+    Write-Host "Stage executable: $stageExe" -ForegroundColor Green
+    if (-not $SkipInstaller -and $installer) {
+        Write-Host "Installer: $($installer.FullName)" -ForegroundColor Green
+        Write-Host "Installer size: $([Math]::Round($installer.Length / 1MB, 2)) MB" -ForegroundColor Green
+    }
+    Write-Host 'To run stage with visible logs: .\stage\MulletaFlix.exe --datadir .\stage-data' -ForegroundColor Green
+    Write-Host '==================================================' -ForegroundColor Green
 }
-
-if (-not $SkipWebBuild) {
-    Build-Web
-} else {
-    Write-Host 'Skipping web build.' -ForegroundColor Yellow
+finally {
+    $backupLock.Dispose()
 }
-
-if (-not $SkipTrayBuild) {
-    Build-Tray -DotNet $dotnet
-} else {
-    Write-Host 'Skipping tray build.' -ForegroundColor Yellow
-}
-
-Copy-RuntimeExtras
-Prepare-HttpsTools
-Write-Step 'Validating stage integrity'
-Assert-StageIntegrity -StageDirectory $stageDir -ProjectRoot $projectRoot
-
-if (-not $SkipInstaller) {
-    Build-Installer
-} else {
-    Write-Host 'Skipping installer creation.' -ForegroundColor Yellow
-}
-
-$stageExe = Join-Path $stageDir 'MulletaFlix.exe'
-$installer = Get-ChildItem -LiteralPath (Join-Path $packagingRoot 'jellyfin-server-windows\nsis') -Filter 'mulletaflix_*_windows-x64.exe' -ErrorAction SilentlyContinue |
-    Sort-Object LastWriteTime -Descending |
-    Select-Object -First 1
-
-Write-Host ''
-Write-Host '==================================================' -ForegroundColor Green
-Write-Host 'Release build finished.' -ForegroundColor Green
-Write-Host "Stage executable: $stageExe" -ForegroundColor Green
-if ($installer) {
-    Write-Host "Installer: $($installer.FullName)" -ForegroundColor Green
-    Write-Host "Installer size: $([Math]::Round($installer.Length / 1MB, 2)) MB" -ForegroundColor Green
-}
-Write-Host 'To run stage with visible logs: .\stage\MulletaFlix.exe --datadir .\stage-data' -ForegroundColor Green
-Write-Host '==================================================' -ForegroundColor Green

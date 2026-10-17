@@ -7,6 +7,7 @@ import Typography from '@mui/material/Typography';
 import type { BackupManifestDto } from '@jellyfin/sdk/lib/generated-client/models/backup-manifest-dto';
 import type { BackupOptionsDto } from '@jellyfin/sdk/lib/generated-client/models/backup-options-dto';
 import type { TaskInfo } from '@jellyfin/sdk/lib/generated-client/models/task-info';
+import type { BackupExecutionHistoryDto } from 'apps/dashboard/features/backups/api/types';
 import { TaskTriggerInfoType } from '@jellyfin/sdk/lib/generated-client/models/task-trigger-info-type';
 import globalize from 'lib/globalize';
 import { getReadableSize } from 'utils/file';
@@ -80,13 +81,19 @@ const formatBackupContents = (contents: string[]) => {
     return globalize.translate('LabelNoBackupContents');
 };
 
+export const getLatestBackupRun = (
+    history?: BackupExecutionHistoryDto[],
+    scheduledResult?: TaskInfo['LastExecutionResult']
+) => history?.[0] ?? scheduledResult;
+
 type Props = {
     task?: TaskInfo;
     latestBackup?: BackupWithSize;
+    latestRun?: BackupExecutionHistoryDto | NonNullable<TaskInfo['LastExecutionResult']>;
 };
 
-const BackupOperationalSummary = ({ task, latestBackup }: Props) => {
-    const lastRun = task?.LastExecutionResult;
+const BackupOperationalSummary = ({ task, latestBackup, latestRun }: Props) => {
+    const lastRun = latestRun ?? task?.LastExecutionResult;
     const nextRun = getNextRun(task);
     const backupContents = latestBackup?.Options;
     const includedBackupContents = getIncludedBackupOptionKeys(backupContents)

@@ -24,6 +24,26 @@ namespace MulletaFlix.Api.Tests.Controllers;
 
 public sealed class NebulaFtpControllerTests
 {
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task StartDownloader_ReturnsTheManagerResult(bool started)
+    {
+        var manager = new Mock<INebulaFtpManager>(MockBehavior.Strict);
+        var configuration = new Mock<IServerConfigurationManager>(MockBehavior.Strict);
+        manager.Setup(m => m.StartDownloaderAsync(It.IsAny<CancellationToken>())).ReturnsAsync(started);
+        var controller = new NebulaFtpController(manager.Object, configuration.Object)
+        {
+            ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() }
+        };
+
+        var result = await controller.StartDownloader(CancellationToken.None);
+
+        var response = Assert.IsType<OkResult<bool>>(result.Result);
+        Assert.Equal(started, response.Value);
+        manager.VerifyAll();
+    }
+
     [Fact]
     public void BackupSupabase_WhenBackgroundBackupIsRunning_Returns429WithRetryAfter()
     {

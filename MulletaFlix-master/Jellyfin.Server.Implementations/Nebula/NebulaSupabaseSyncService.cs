@@ -257,14 +257,9 @@ public sealed class NebulaSupabaseSyncService : IDisposable
         Action<string>? progressAction,
         CancellationToken cancellationToken)
     {
-        while (await _mongoContext.HasActiveUploadsAsync(cancellationToken).ConfigureAwait(false))
-        {
-            const string deferredMessage = "[SUPABASE-AUTO-SYNC] Backup automático adiado enquanto há uploads Telegram ativos; nova verificação em 30 segundos.";
-            _logger.LogInformation("{Message}", deferredMessage);
-            progressAction?.Invoke(deferredMessage);
-            await Task.Delay(AutomaticBackupUploadIdleCheckInterval, cancellationToken).ConfigureAwait(false);
-        }
-
+        // Admission is reserved atomically inside PerformBackupCoreAsync. The gate
+        // blocks new uploads before draining existing upload leases, closing the
+        // check-idle/claim race that a status poll cannot prevent.
         return await PerformBackupAsync(supabaseUrl, supabaseKey, progressAction, cancellationToken).ConfigureAwait(false);
     }
 
@@ -395,6 +390,10 @@ public sealed class NebulaSupabaseSyncService : IDisposable
             _logger.LogWarning("[SUPABASE-SYNC] Falha ao sincronizar nó '{Name}': HTTP {Code} - {Body}", record.Name, resp.StatusCode, errorBody);
             return false;
         }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
         catch (Exception ex)
         {
             _logger.LogError(ex, "[SUPABASE-SYNC] Erro ao sincronizar nó individual.");
@@ -435,6 +434,10 @@ public sealed class NebulaSupabaseSyncService : IDisposable
                     .Select(value => value.GetString()!.Trim())
                     .Distinct(StringComparer.OrdinalIgnoreCase)
                     .ToList();
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
         }
         catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException or UriFormatException)
         {
@@ -481,6 +484,10 @@ public sealed class NebulaSupabaseSyncService : IDisposable
             }
 
             return -1;
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
         }
         catch (Exception ex)
         {
@@ -692,8 +699,13 @@ public sealed class NebulaSupabaseSyncService : IDisposable
         }
 
         await _backupGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        NebulaMongoAdmissionLease? admission = null;
         try
         {
+            admission = await _mongoContext.AcquireBackupAdmissionAsync(progressAction, cancellationToken).ConfigureAwait(false);
+            using var linkedCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, admission.LeaseLostToken);
+            cancellationToken = linkedCancellation.Token;
+
             // Este é o fluxo do Nebula: MongoDB (arquivos, usuários FTP e tokens).
             // Usuários do aplicativo ficam exclusivamente na tela Usuários > Backup & Restore.
             _logger.LogInformation("[SUPABASE-SYNC] Backup do MongoDB iniciado; usuários do aplicativo ignorados.");
@@ -771,6 +783,10 @@ public sealed class NebulaSupabaseSyncService : IDisposable
             progressAction?.Invoke($"[SUPABASE] {result.Message}");
             return result;
         }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
         catch (Exception ex)
         {
             _logger.LogError(ex, "[SUPABASE-SYNC] Erro durante a sincronização com o Supabase.");
@@ -781,7 +797,17 @@ public sealed class NebulaSupabaseSyncService : IDisposable
         }
         finally
         {
-            _backupGate.Release();
+            try
+            {
+                if (admission is not null)
+                {
+                    await admission.DisposeAsync().ConfigureAwait(false);
+                }
+            }
+            finally
+            {
+                _backupGate.Release();
+            }
         }
     }
 
@@ -1014,6 +1040,10 @@ public sealed class NebulaSupabaseSyncService : IDisposable
             _logger.LogInformation("[SUPABASE-RESTORE] {Message}", result.Message);
             progressAction?.Invoke($"[SUPABASE-RESTORE] {result.Message}");
             return result;
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
         }
         catch (Exception ex)
         {
@@ -1252,6 +1282,10 @@ public sealed class NebulaSupabaseSyncService : IDisposable
             _logger.LogInformation("[SUPABASE-USERS] {Message}", result.Message);
             return result;
         }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
         catch (Exception ex)
         {
             result.Message = $"Erro: {ex.Message}";
@@ -1320,6 +1354,10 @@ public sealed class NebulaSupabaseSyncService : IDisposable
             result.Message = $"Restauração de usuários concluída! ({count} usuários; mídia não alterada)";
             progressAction?.Invoke($"[SUPABASE-USERS] {result.Message}");
             return result;
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
         }
         catch (Exception ex)
         {

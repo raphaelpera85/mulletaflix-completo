@@ -6,6 +6,7 @@ import { useApi } from 'hooks/useApi';
 import { queryClient } from 'utils/query/queryClient';
 
 import { QUERY_KEY } from './useBackups';
+import { BACKUP_HISTORY_QUERY_KEY } from './useBackupHistory';
 
 export const useCreateBackup = () => {
     const { api } = useApi();
@@ -19,6 +20,9 @@ export const useCreateBackup = () => {
         onSuccess: () => {
             void queryClient.invalidateQueries({
                 queryKey: [ QUERY_KEY, api?.basePath ]
+            });
+            void queryClient.invalidateQueries({
+                queryKey: [ BACKUP_HISTORY_QUERY_KEY, api?.basePath ]
             });
         }
     });
