@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-10-17T09:46:00-03:00",
+  "generatedAt": "2026-10-17T09:46:34-03:00",
   "source": {
     "roadmap": "https://github.com/raphaelpera85/mulletaflix-completo/blob/main/docs/roadmap-evolucao-tecnologica-servidor-e-web.md",
     "repository": "https://github.com/raphaelpera85/mulletaflix-completo"
@@ -5572,8 +5572,8 @@
       "status": "completed",
       "progressPercent": 100,
       "startedAt": "2026-10-17T09:42:53-03:00",
-      "updatedAt": "2026-10-17T09:46:00-03:00",
-      "evidence": "Auditoria encontrou 163 ocorrências de caminhos de perfil no snapshot anterior do portal e 153 no espelho do repositório principal. Caminhos locais redigidos sem alterar o histórico de homologação. Testes após redação: portal independente 54/54 e espelho 42/42. A publicação e o endpoint público ainda serão verificados após o push."
+      "updatedAt": "2026-10-17T09:46:34-03:00",
+      "evidence": "Auditoria encontrou 163 ocorrências de caminhos de perfil no snapshot anterior do portal e 153 no espelho do repositório principal. Caminhos locais redigidos sem alterar o histórico de homologação. Testes após redação: portal independente 54/54 e espelho 42/42. Commit 0c392bf5 auto-publicado no Vercel com estado READY; endpoint público HTTP verificado: 193 eventos e zero caminhos absolutos de perfis locais."
     }
   ]
 }
