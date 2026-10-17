@@ -29,7 +29,7 @@ import unicodedata
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 from urllib.parse import parse_qs, urlsplit
 from urllib.request import Request, urlopen
 import urllib.error
@@ -73,6 +73,7 @@ def is_incomplete_filename(name: str) -> bool:
 
 # Prioridade de categorias do Nebula: Animações > Filmes > Séries > Doramas > Novelas > Porno (A–Z)
 CATEGORY_PRIORITY = ["animacoes", "filmes", "series", "doramas", "novelas", "porno"]
+SCAN_PROGRESS_EVERY_MEDIA = 5000
 
 logger = logging.getLogger("STRMDownloader")
 
@@ -1211,6 +1212,8 @@ def register_in_nebula_queue(
 def iter_strm_files_prioritized(
     sources: list[Path],
     exclude_dirs: set[str] | None = None,
+    progress_callback: Callable[[int, int], None] | None = None,
+    scan_roots: list[tuple[Path, Path]] | None = None,
 ) -> list[tuple[Path, Path, str, int]]:
     """
     Varre as fontes e retorna lista de tuplas (source_root, media_path, category, year)
@@ -1222,11 +1225,22 @@ def iter_strm_files_prioritized(
     exclude = {d.lower() for d in (exclude_dirs or set())}
     categorized: dict[str, list[tuple[Path, Path, str, int]]] = {cat: [] for cat in CATEGORY_PRIORITY}
     categorized["other"] = []
+    # A biblioteca pode conter centenas de milhares de arquivos, mas poucos
+    # diretórios. A categoria depende da hierarquia, não do nome do arquivo;
+    # calcule-a uma vez por diretório em vez de normalizar o caminho para cada
+    # mídia encontrada.
+    category_by_directory: dict[tuple[Path, Path], str] = {}
+    scanned_directories = 0
+    scanned_media = 0
 
-    for source in sources:
+    roots_to_scan = scan_roots or [(source, source) for source in sources]
+    for source, scan_root in roots_to_scan:
         if not source.exists():
             continue
-        for root, dirs, files in os.walk(source):
+        if not scan_root.exists():
+            continue
+        for root, dirs, files in os.walk(scan_root):
+            scanned_directories += 1
             root_path = Path(root)
             try:
                 rel_parts = root_path.relative_to(source).parts
@@ -1242,8 +1256,16 @@ def iter_strm_files_prioritized(
                 if is_incomplete_filename(name):
                     continue
 
+                scanned_media += 1
+                if progress_callback and scanned_media % SCAN_PROGRESS_EVERY_MEDIA == 0:
+                    progress_callback(scanned_directories, scanned_media)
+
                 media_path = root_path / name
-                cat = get_category_from_path(media_path, source)
+                directory_key = (source, root_path)
+                cat = category_by_directory.get(directory_key)
+                if cat is None:
+                    cat = get_category_from_path(root_path, source)
+                    category_by_directory[directory_key] = cat
                 year = extract_media_year(media_path.name, media_path.parent.name)
 
                 item = (source, media_path, cat, year)
@@ -1251,6 +1273,9 @@ def iter_strm_files_prioritized(
                     categorized[cat].append(item)
                 else:
                     categorized["other"].append(item)
+
+    if progress_callback and scanned_media % SCAN_PROGRESS_EVERY_MEDIA:
+        progress_callback(scanned_directories, scanned_media)
 
     # 1. Animações: séries por título/temporada/episódio; demais títulos A-Z.
     def animacoes_sort_key(it: tuple[Path, Path, str, int]):
@@ -1295,6 +1320,64 @@ def iter_strm_files_prioritized(
     results.extend(categorized["other"])
 
     return results
+
+
+def get_categorized_scan_batches(
+    sources: list[Path],
+    exclude_dirs: set[str] | None = None,
+) -> list[tuple[str, list[tuple[Path, Path]]]] | None:
+    """Return category subtrees for incremental scans, or None for mixed layouts.
+
+    When each configured source contains only direct category folders, scanning
+    one priority bucket at a time lets its sorted queue start before lower
+    priority categories are traversed. Mixed/flat source layouts keep the
+    original full-tree scan to avoid skipping or reclassifying media.
+    """
+    excluded = {name.casefold() for name in (exclude_dirs or set())}
+    roots_by_category: dict[str, list[tuple[Path, Path]]] = {
+        category: [] for category in CATEGORY_PRIORITY
+    }
+
+    for source in sources:
+        if not source.is_dir():
+            continue
+
+        source_category = get_category_from_path(source, source.parent)
+        if source_category in roots_by_category:
+            if source.name.casefold() not in excluded:
+                roots_by_category[source_category].append((source, source))
+            continue
+
+        try:
+            children = list(source.iterdir())
+        except OSError:
+            return None
+
+        category_children: list[tuple[str, Path]] = []
+        for child in children:
+            if child.is_file() and child.suffix.lower() in MONITORED_EXTENSIONS:
+                return None
+            if not child.is_dir():
+                continue
+
+            if child.name.casefold() in excluded:
+                continue
+            category = get_category_from_path(child, source)
+            if category not in roots_by_category:
+                return None
+            category_children.append((category, child))
+
+        if not category_children:
+            continue
+        for category, child in category_children:
+            roots_by_category[category].append((source, child))
+
+    batches = [
+        (category, roots_by_category[category])
+        for category in CATEGORY_PRIORITY
+        if roots_by_category[category]
+    ]
+    return batches or None
 
 
 # =====================================================================
@@ -1685,49 +1768,57 @@ def run_downloader(args: argparse.Namespace) -> int:
             if failure_tracker:
                 failure_tracker.reset_cycle()
             logger.info("Escaneando e priorizando arquivos .strm...")
-            items = iter_strm_files_prioritized(sources, exclude_dirs)
-            # Prioriza mídias que já tenham partes baixadas em stage para que continuem e terminem imediatamente
-            def item_has_partial(it):
-                _, m_path, _, _ = it
-                return not has_partial_download_on_disk(m_path.stem, staging_dirs)
+            progress_callback = lambda directories, media: logger.info(
+                "Progresso da varredura STRM: %d diretórios, %d mídias encontradas",
+                directories,
+                media,
+            )
+            category_batches = get_categorized_scan_batches(sources, exclude_dirs)
+            scan_batches = category_batches or [("todas", [(source, source) for source in sources])]
 
-            items.sort(key=item_has_partial)
-            logger.info("Total de arquivos .strm encontrados: %d", len(items))
-
-            processed_any = False
-            for source_root, strm_path, category, year in items:
-                stats.scanned += 1
-
-                # Checagem contra loop de mídias que falharam recentemente (401/404/erros)
-                should_skip, skip_reason = failure_tracker.should_skip(strm_path, staging_dirs)
-                if should_skip:
-                    logger.debug("Pulando mídia com falha recente: %s (%s)", strm_path.name, skip_reason)
-                    continue
-
-                success = process_strm_item(
-                    source_root=source_root,
-                    strm_path=strm_path,
-                    category=category,
-                    year=year,
-                    dest_root=dest_root,
-                    staging_dirs=staging_dirs,
-                    validator=validator,
-                    mongo_uri=mongo_uri,
-                    db_name=db_name,
-                    library_user=library_user,
-                    parts_count=args.parts,
-                    min_free_percent=args.min_free_percent,
-                    dry_run=args.dry_run,
-                    failure_tracker=failure_tracker,
+            for category, scan_roots in scan_batches:
+                logger.info("Iniciando varredura da categoria prioritária: %s", category)
+                items = iter_strm_files_prioritized(
+                    sources,
+                    exclude_dirs,
+                    progress_callback=progress_callback,
+                    scan_roots=scan_roots,
                 )
-                if success:
-                    stats.downloaded += 1
-                    stats.queued += 1
-                    processed_any = True
-                    # Breve pausa para o Nebula consumir/respirar
-                    time.sleep(1)
-                else:
-                    stats.failed += 1
+                # Prioriza retomadas dentro da categoria atual sem furar a ordem entre categorias.
+                items.sort(key=lambda item: not has_partial_download_on_disk(item[1].stem, staging_dirs))
+                logger.info("Total de arquivos .strm encontrados: %d na categoria %s", len(items), category)
+
+                for source_root, strm_path, item_category, year in items:
+                    stats.scanned += 1
+
+                    # Checagem contra loop de mídias que falharam recentemente (401/404/erros)
+                    should_skip, skip_reason = failure_tracker.should_skip(strm_path, staging_dirs)
+                    if should_skip:
+                        logger.debug("Pulando mídia com falha recente: %s (%s)", strm_path.name, skip_reason)
+                        continue
+
+                    success = process_strm_item(
+                        source_root=source_root,
+                        strm_path=strm_path,
+                        category=item_category,
+                        year=year,
+                        dest_root=dest_root,
+                        staging_dirs=staging_dirs,
+                        validator=validator,
+                        mongo_uri=mongo_uri,
+                        db_name=db_name,
+                        library_user=library_user,
+                        parts_count=args.parts,
+                        min_free_percent=args.min_free_percent,
+                        dry_run=args.dry_run,
+                        failure_tracker=failure_tracker,
+                    )
+                    if success:
+                        stats.downloaded += 1
+                        stats.queued += 1
+                        time.sleep(1)
+                    else:
+                        stats.failed += 1
 
             if not args.watch:
                 break

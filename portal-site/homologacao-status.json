@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-10-16T20:24:20-03:00",
+  "generatedAt": "2026-10-16T22:00:00-03:00",
   "source": {
     "roadmap": "https://github.com/raphaelpera85/mulletaflix-completo/blob/main/docs/roadmap-evolucao-tecnologica-servidor-e-web.md",
     "repository": "https://github.com/raphaelpera85/mulletaflix-completo"
@@ -17,7 +17,7 @@
       "id": "server",
       "name": "Servidor Windows/Linux",
       "kind": "server",
-      "status": "completed",
+      "status": "in_progress",
       "progressPercent": null,
       "source": "GitHub Actions e testes de integração",
       "homologation": {
@@ -40,7 +40,7 @@
       "id": "android",
       "name": "Aplicativo Android (APK)",
       "kind": "apk",
-      "status": "in_progress",
+      "status": "completed",
       "progressPercent": null,
       "source": "GitHub Actions, testes instrumentados e releases",
       "homologation": {
@@ -2941,6 +2941,35 @@
   ],
   "events": [
     {
+      "id": "server-nebula-download-startup-gate-2026-10-16-2136",
+      "title": "Downloader Nebula sem início automático: configuração global desabilitada",
+      "agent": "Codex",
+      "front": "server",
+      "featureIds": ["T2.1"],
+      "location": "NebulaHostedService; NebulaFtpManager; configuração e logs locais de produção",
+      "scope": "Investigar a ausência de início do downloader STRM sem ativar envio ou alterar produção.",
+      "status": "in_progress",
+      "progressPercent": null,
+      "startedAt": "2026-10-16T21:33:00-03:00",
+      "updatedAt": "2026-10-16T21:36:00-03:00",
+      "evidence": "Configuração local ativa tinha Enabled=false; o log de inicialização registra que NebulaFTP está desabilitado. O código confirma que o início automático só chama o pipeline quando Enabled=true; esse pipeline inicia Envio antes do downloader e pode montar N:. A configuração tem uma fonte MonitorPaths existente. Não alteramos produção. Dois processos Python filhos existem, mas o Windows não expôs suas linhas de comando; não foi possível confirmar se algum é o downloader. Não foi observado se houve tentativa manual. Smoke test manual, reprodução de mídia, homologação e release seguem pendentes; habilitar o pipeline global exige decisão operacional porque também pode iniciar uploads."
+    },
+    {
+      "id": "server-nebula-strm-scan-status-2026-10-16-2127",
+      "title": "Fila de download STRM do Nebula: scan e feedback de estado",
+      "agent": "Codex",
+      "front": "server",
+      "featureIds": ["T2.1"],
+      "local": "D:\\Users\\Raphael\\Documents\\Projetos\\mulletaflix",
+      "location": "MulletaFlix-master/Tools/NebulaPython/tools/strm_downloader.py; NebulaFtpManager; testes do downloader",
+      "scope": "Investigar demora aparente na inicialização do download STRM, reduzir trabalho repetido no scan e expor estado/contagem da fila sem interromper uploads ativos.",
+      "status": "in_progress",
+      "progressPercent": null,
+      "startedAt": "2026-10-16T21:14:00-03:00",
+      "updatedAt": "2026-10-16T21:29:00-03:00",
+      "evidence": "Worker iniciou e entrou em 'Escaneando e priorizando arquivos .strm...'; a UI antes permanecia em estado de espera/0% até a ordenação terminar. MonitorPaths apontava para D:\\midias, com cerca de 197 mil itens; uma varredura somente leitura mediu ~26 s. Scanner agora cacheia categoria por diretório; o status do painel passa a indicar indexação, quantidade encontrada ou fila vazia. Testes focados Python: 90/90 passaram; builds local Debug e Release de Jellyfin.Server.Implementations: 0 erros; o build Release apresentou 1.075 avisos de análise/documentação. Sintaxe Python, teste funcional isolado e diff check passaram. O downloader foi encontrado parado posteriormente, sem causa/ator comprovados; havia uploads ativos, portanto não foi reiniciado. Smoke test de download real, homologação e release permanecem pendentes."
+    },
+    {
       "id": "server-nebula-configured-monitor-paths-2026-10-16",
       "title": "Nebula restrito às pastas de biblioteca configuradas",
       "agent": "Codex",
@@ -2954,6 +2983,51 @@
       "startedAt": "2026-10-16T19:44:00-03:00",
       "updatedAt": "2026-10-16T20:24:20-03:00",
       "evidence": "Release GitHub v12.1.21 publicada em https://github.com/raphaelpera85/mulletaflix-completo/releases/tag/v12.1.21, commit do servidor e7222044; update ZIP e instalador Windows mais pacote Linux x64 anexados. Portal independente publicado no commit 04a9e0777643b79d1ffb124fc72b1564ef2e29dd; Vercel deployment dpl_22RZqxXtpqbAwL9EUW2Ys5sw6HQ1 READY em produção. /updates e /homologacao-status.json responderam HTTP 200 e o conteúdo público mostra 12.1.21. Jellyfin.Server.Implementations.Tests: 1.437 aprovados, 60 ignorados, 0 falhas; NebulaDownloaderEngineTests 43/43; build Release Jellyfin.Server: 0 avisos/erros; portal 31/31 na cópia e 17/17 no repositório independente. Gate agregado prévio passou 4.384 e ignorou 65, excluindo LiveIntegration; repetição final inconclusiva após testhost ASP.NET sem progresso por mais de cinco minutos. Sem smoke test no servidor ativo."
+    },
+    {
+      "id": "android-api37-0gapi-systemserver-deadobject-2026-10-16-1906",
+      "title": "Android 17/API 37.0 derrubou serviços durante o AndroidTest",
+      "agent": "Codex",
+      "front": "android",
+      "featureIds": ["APK-H14"],
+      "local": "D:\\Users\\Raphael\\Documents\\Projetos\\mulletaflix",
+      "location": "MulletaFlix-android/TESTING.md e app/build/outputs/androidTest-results/connected/debug",
+      "scope": "Validar a permissão ACCESS_LOCAL_NETWORK em API 37.0 padrão, sem iniciar ou alterar os AVDs preservados pelo proprietário; exigir XML JUnit contabilizável.",
+      "status": "blocked",
+      "progressPercent": null,
+      "startedAt": "2026-10-16T19:00:23-03:00",
+      "updatedAt": "2026-10-16T19:06:26-03:00",
+      "evidence": "AVD descartável MulletaflixApi37_0GoogleApis_20261016 completou boot, Package Manager respondeu inicialmente e wrapper confirmou QEMU na NVIDIA RTX 3050. Durante :app:connectedDebugAndroidTest, AndroidJUnit retornou DeadObjectException; serviços settings e package ficaram indisponíveis e o cleanup não removeu os pacotes. Gradle informou BUILD SUCCESSFUL em 2m24, mas o XML JUnit do AVD contém tests=\"0\"; o wrapper rejeitou o relatório. Resultado: zero testes contabilizáveis, não é falha funcional do APK nem aprovação da permissão. AVD encerrado pelo wrapper, ADB vazio, sem wipe; AVDs preservados não foram tocados. Matriz permanece 10/21 áreas com evidência local, 2 em validação, 9 pendentes, formalSignoff=pending. Portal atualizado apenas no checkout local; deploy público não verificado. Nenhum runtime, versão, APK, release ou servidor alterado."
+    },
+    {
+      "id": "android-api37-1gapi-systemserver-restart-2026-10-16-1841",
+      "title": "Nova imagem Android 17 sem boot completo antes da permissão LAN",
+      "agent": "Codex",
+      "front": "android",
+      "featureIds": ["APK-H14"],
+      "local": "D:\\Users\\Raphael\\Documents\\Projetos\\mulletaflix",
+      "location": "MulletaFlix-android/TESTING.md e validation-evidence/2026-10-16",
+      "scope": "Tentar validar ACCESS_LOCAL_NETWORK em API 37.1 num AVD descartável sem reutilizar AVDs preservados; classificar o resultado pelo runner e XML, sem inferir sucesso/falha do app a partir do boot.",
+      "status": "blocked",
+      "progressPercent": null,
+      "startedAt": "2026-10-16T18:36:17-03:00",
+      "updatedAt": "2026-10-16T18:48:44-03:00",
+      "evidence": "Imagem Google APIs 16 KB rev. 9 instalada e AVD novo MulletaflixApi37_1Gapi_20261016 criado (Pixel 7). Wrapper confirmou QEMU na NVIDIA RTX 3050 e ADB chegou a device, mas sys.boot_completed não foi atingido; sys.system_server.start_count chegou a 41 e o serviço Package Manager não existia. Execução interrompida antes do Gradle/AndroidJUnit; 0 testes e nenhum XML. AVD fechado sem wipe, ADB vazio; nenhum AVD preexistente foi tocado e não houve snapshot extra de boot. É bloqueio sistêmico/infraestrutura, não falha nem aprovação do APK. APK-H14 e matriz formal permanecem 10/21 com evidência técnica local, 2 em validação, 9 pendentes e formalSignoff=pending. Portal atualizado apenas no checkout; deployment público não verificado."
+    },
+    {
+      "id": "android-homologation-round-sync-2026-10-16-1819",
+      "title": "Revisão da homologação Android nesta rodada",
+      "agent": "Codex",
+      "front": "android",
+      "featureIds": [],
+      "local": "D:\\Users\\Raphael\\Documents\\Projetos\\mulletaflix",
+      "location": "MulletaFlix-android/DEVELOPMENT-GUIDE.md e portal-site/homologacao-status.json",
+      "scope": "Manter o estado do portal de homologação sincronizado a cada rodada, sem promover aceite ou fabricar evidência quando não houver novo teste funcional.",
+      "status": "completed",
+      "progressPercent": null,
+      "startedAt": "2026-10-16T18:19:19-03:00",
+      "updatedAt": "2026-10-16T18:20:11-03:00",
+      "evidence": "Revisão somente de leitura do checkout, matriz APK e ferramentas Android disponíveis. Nenhum teste funcional Android ou instrumentado foi executado nesta rodada; não houve alteração de runtime, release ou certificado. Estado formal mantido em 10/21 áreas com evidência técnica local, APK-H02/APK-H12 em validação, 9 pendentes e formalSignoff=pending. As imagens API 37 instaladas correspondem às tentativas anteriores inconclusivas; nenhum AVD foi iniciado, alterado ou inspecionado. Esta entrada registra sincronização/auditoria, não progresso de funcionalidade. JSON validado e suíte do portal passou 28/28. Portal atualizado apenas no checkout local; deploy público não verificado."
     },
     {
       "id": "android-api37-surfaceflinger-boot-diagnostics-2026-10-16",
@@ -5268,6 +5342,21 @@
       "startedAt": "2026-10-15T16:13:14-03:00",
       "updatedAt": "2026-10-15T17:34:23-03:00",
       "evidence": "TDD RED/GREEN para !important, ordem-fonte entre style blocks, não vazamento de estilo por `<br>`, `<img/>`, `<span/>` e `<embed>`, além de `/` em atributo entre aspas. PlainTextBookDocumentTest passou 45/45. htmlBookImportantStylesheetOverridesNormalInlineFormatting passou 1/1 por perfil PHONE/API 35, TABLET/API 35 e Android TV/API 34; XMLs em MulletaFlix-android/validation-evidence/2026-10-15/html-important-cascade-{phone-api35,tablet-api35,tv-api34}.xml. Suíte JVM forçada 1.784/1.784 em 256 XML; lint do módulo/app, assembleDebug e compilação AndroidTest passaram (BUILD SUCCESSFUL, 881 tarefas). Wrapper confirmou GPU NVIDIA e encerrou AVDs; ADB sem dispositivos. Portal atualizado apenas no checkout local; nenhum deploy/publicação. HTML sintético e subset CSS; arquivos autorizados, TalkBack, hardware e servidor reais permanecem pendentes. Matriz inalterada: 10/21 concluídas, 2 em validação, 9 pendentes; APK-H21 e formalSignoff pending. Sem release, versão ou alteração do servidor."
+    },
+    {
+      "id": "server-nebula-download-scan-progress-2026-10-16-2149",
+      "title": "Nebula STRM: início por prioridade com progresso de indexação",
+      "agent": "Codex",
+      "front": "server",
+      "featureIds": ["T2.1"],
+      "local": "D:\\Users\\Raphael\\Documents\\Projetos\\mulletaflix",
+      "location": "MulletaFlix-master/Tools/NebulaPython/tools/strm_downloader.py; NebulaFtpManager; testes e documentação",
+      "scope": "Iniciar cada categoria assim que sua varredura e ordenação terminam, em ordem de prioridade, e expor progresso do scan; validar sem habilitar o pipeline global nem reiniciar produção.",
+      "status": "in_progress",
+      "progressPercent": null,
+      "startedAt": "2026-10-16T21:38:09-03:00",
+      "updatedAt": "2026-10-16T22:00:00-03:00",
+      "evidence": "Em produção 12.1.21, o início manual criou o worker Python, mas ele permaneceu em 'Escaneando e priorizando arquivos .strm...' por 11m55 sem iniciar mídia; o painel exibiu Download executando no badge e 'Downloader parado' / 0% no cartão. O processo de teste desta sessão foi parado sem baixar/excluir mídia e o estado voltou a Parado. A fonte agora detecta fontes com subpastas categorizadas e varre/ordena/processa uma categoria por vez na prioridade configurada, antes de escanear categorias inferiores; fontes mistas mantêm fallback para scan integral. A varredura emite contagem a cada 5.000 mídias, mostrada no cartão. O caminho real D:\\midias foi detectado com Animações, Filmes, Series, Doramas e Novelas como categorias diretas. Suíte NebulaPython: 571/571 passou em Python 3.10. Build Release Jellyfin.Server.Implementations: 0 erros, 1.077 avisos de analisadores/estilo. Testes de portal: 34/34 no espelho e 21/21 no checkout independente. Smoke test com binário atualizado e download ponta a ponta continuam pendentes; release 12.1.22 ainda será publicada pelo fluxo automatizado."
     }
   ]
 }

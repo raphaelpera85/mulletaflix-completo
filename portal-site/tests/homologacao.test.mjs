@@ -601,6 +601,71 @@ test('portal mirrors offline download fixture race correction without formal pro
     assert.match(dashboard.getElement('event-list').innerHTML, /Corrigir a sequência do fixture de retomada offline/);
 });
 
+test('portal records each Android work-round review without fabricating homologation progress', async () => {
+    const event = statusData.events.find(item => item.id === 'android-homologation-round-sync-2026-10-16-1819');
+    const matrix = statusData.androidHomologation;
+
+    assert.match(statusData.generatedAt, /^2026-10-16T\d{2}:\d{2}:\d{2}-03:00$/);
+    assert.ok(event, 'portal should include the current round review');
+    assert.equal(event.status, 'completed');
+    assert.deepEqual(event.featureIds, []);
+    assert.match(event.evidence, /Nenhum teste funcional Android ou instrumentado foi executado nesta rodada/);
+    assert.match(event.evidence, /suíte do portal passou 28\/28/);
+    assert.match(event.evidence, /Portal atualizado apenas no checkout local/);
+    assert.equal(matrix.formalSignoff, 'pending');
+    assert.equal(matrix.areas.filter(area => area.status === 'completed').length, 10);
+    assert.equal(matrix.areas.filter(area => area.status === 'in_progress').length, 2);
+    assert.equal(matrix.areas.filter(area => area.status === 'pending').length, 9);
+
+    const dashboard = createDashboard();
+    await settleDashboard();
+    assert.match(dashboard.getElement('event-list').innerHTML, /Revisão da homologação Android nesta rodada/);
+});
+
+test('portal records the API 37.1 boot blocker without counting tests or closing APK-H14', async () => {
+    const event = statusData.events.find(item => item.id === 'android-api37-1gapi-systemserver-restart-2026-10-16-1841');
+    const matrix = statusData.androidHomologation;
+
+    assert.match(statusData.generatedAt, /^2026-10-16T\d{2}:\d{2}:\d{2}-03:00$/);
+    assert.ok(event, 'portal should record the latest API 37.1 attempt');
+    assert.equal(event.status, 'blocked');
+    assert.deepEqual(event.featureIds, ['APK-H14']);
+    assert.match(event.evidence, /system_server\.start_count chegou a 41/);
+    assert.match(event.evidence, /0 testes e nenhum XML/);
+    assert.match(event.evidence, /não falha nem aprovação do APK/);
+    assert.equal(matrix.areas.find(area => area.id === 'APK-H14').status, 'pending');
+    assert.equal(matrix.areas.filter(area => area.status === 'completed').length, 10);
+    assert.equal(matrix.areas.filter(area => area.status === 'in_progress').length, 2);
+    assert.equal(matrix.areas.filter(area => area.status === 'pending').length, 9);
+    assert.equal(matrix.formalSignoff, 'pending');
+
+    const dashboard = createDashboard();
+    await settleDashboard();
+    assert.match(dashboard.getElement('event-list').innerHTML, /Nova imagem Android 17 sem boot completo/);
+});
+
+test('portal records API 37.0 system-server death with zero Android tests and no formal promotion', async () => {
+    const event = statusData.events.find(item => item.id === 'android-api37-0gapi-systemserver-deadobject-2026-10-16-1906');
+    const matrix = statusData.androidHomologation;
+
+    assert.match(statusData.generatedAt, /^2026-10-16T\d{2}:\d{2}:\d{2}-03:00$/);
+    assert.ok(event, 'portal should record the API 37.0 instrumentation attempt');
+    assert.equal(event.status, 'blocked');
+    assert.deepEqual(event.featureIds, ['APK-H14']);
+    assert.match(event.evidence, /DeadObjectException/);
+    assert.match(event.evidence, /XML JUnit do AVD contém tests="0"/);
+    assert.match(event.evidence, /não é falha funcional do APK/);
+    assert.equal(matrix.areas.find(area => area.id === 'APK-H14').status, 'pending');
+    assert.equal(matrix.areas.filter(area => area.status === 'completed').length, 10);
+    assert.equal(matrix.areas.filter(area => area.status === 'in_progress').length, 2);
+    assert.equal(matrix.areas.filter(area => area.status === 'pending').length, 9);
+    assert.equal(matrix.formalSignoff, 'pending');
+
+    const dashboard = createDashboard();
+    await settleDashboard();
+    assert.match(dashboard.getElement('event-list').innerHTML, /Android 17\/API 37\.0 derrubou serviços durante o AndroidTest/);
+});
+
 test('portal reports the server Nebula release gate without claiming production validation', async () => {
     const event = statusData.events.find(item => item.id === 'server-nebula-configured-monitor-paths-2026-10-16');
     const audit = statusData.tracks.find(track => track.id === 'server').testAudit;
@@ -622,4 +687,42 @@ test('portal reports the server Nebula release gate without claiming production 
     const dashboard = createDashboard();
     await settleDashboard();
     assert.match(dashboard.getElement('event-list').innerHTML, /Nebula restrito às pastas de biblioteca configuradas/);
+});
+
+test('server Nebula STRM download scan records tests without claiming production homologation', () => {
+    const event = statusData.events.find(item => item.id === 'server-nebula-strm-scan-status-2026-10-16-2127');
+
+    assert.ok(event);
+    assert.equal(event.status, 'in_progress');
+    assert.match(event.evidence, /90\/90 passaram/);
+    assert.match(event.evidence, /Smoke test de download real.*pendentes/);
+});
+
+test('server Nebula startup audit records the disabled global gate without claiming manual validation', async () => {
+    const event = statusData.events.find(item => item.id === 'server-nebula-download-startup-gate-2026-10-16-2136');
+
+    assert.ok(event);
+    assert.equal(event.front, 'server');
+    assert.equal(event.status, 'in_progress');
+    assert.match(event.evidence, /Enabled=false/);
+    assert.match(event.evidence, /Não foi observado se houve tentativa manual/);
+    assert.match(event.evidence, /Smoke test manual.*pendentes/);
+    assert.match(event.evidence, /não expôs suas linhas de comando/);
+
+    const dashboard = createDashboard();
+    await settleDashboard();
+    assert.match(dashboard.getElement('event-list').innerHTML, /Downloader Nebula sem início automático/);
+});
+
+test('server Nebula download scan progress records production reproduction and source validation', () => {
+    const event = statusData.events.find(item => item.id === 'server-nebula-download-scan-progress-2026-10-16-2149');
+
+    assert.ok(event);
+    assert.equal(event.front, 'server');
+    assert.equal(event.status, 'in_progress');
+    assert.match(event.evidence, /11m55 sem iniciar mídia/);
+    assert.match(event.evidence, /571\/571 passou/);
+    assert.match(event.evidence, /processa uma categoria por vez/);
+    assert.match(event.evidence, /1\.077 avisos de analisadores/);
+    assert.match(event.evidence, /Smoke test com binário atualizado.*pendentes/);
 });

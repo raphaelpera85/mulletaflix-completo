@@ -157,7 +157,7 @@ def test_run_downloader_prioritizes_partial_downloads_and_skips_recent_failures(
     monkeypatch.setattr(strm_downloader, "MediaValidator", Validator)
     monkeypatch.setattr(strm_downloader, "FailureTracker", Tracker)
     monkeypatch.setattr(strm_downloader, "get_configured_staging_dirs", lambda: [tmp_path / "stage"])
-    monkeypatch.setattr(strm_downloader, "iter_strm_files_prioritized", lambda *_args: list(items))
+    monkeypatch.setattr(strm_downloader, "iter_strm_files_prioritized", lambda *_args, **_kwargs: list(items))
     monkeypatch.setattr(
         strm_downloader,
         "has_partial_download_on_disk",
@@ -177,6 +177,58 @@ def test_run_downloader_prioritizes_partial_downloads_and_skips_recent_failures(
     assert processed == ["resume.strm", "fresh.strm"]
     assert tracker_calls == ["reset", "resume.strm", "fresh.strm", "cooldown.strm"]
     assert sleeps == [1]
+
+
+def test_run_downloader_processes_each_category_before_scanning_lower_priority(tmp_path, monkeypatch):
+    source = tmp_path / "source"
+    animation = source / "Animações" / "A Title.strm"
+    film = source / "Filmes" / "B Title.strm"
+    animation.parent.mkdir(parents=True)
+    film.parent.mkdir(parents=True)
+    animation.touch()
+    film.touch()
+    events = []
+
+    class Validator:
+        def __init__(self, **_kwargs):
+            pass
+
+        def refresh_cache(self, *, force):
+            assert force is True
+
+    class Tracker:
+        def reset_cycle(self):
+            pass
+
+        def should_skip(self, *_args):
+            return False, ""
+
+    def scan(_sources, _exclude, **kwargs):
+        root, scan_root = kwargs["scan_roots"][0]
+        category = strm_downloader.get_category_from_path(scan_root, root)
+        media_path = animation if category == "animacoes" else film
+        events.append(f"scan:{category}")
+        return [(root, media_path, category, 0)]
+
+    def process(**kwargs):
+        events.append(f"process:{kwargs['category']}")
+        return False
+
+    monkeypatch.setattr(strm_downloader, "MediaValidator", Validator)
+    monkeypatch.setattr(strm_downloader, "FailureTracker", Tracker)
+    monkeypatch.setattr(strm_downloader, "get_configured_staging_dirs", lambda: [])
+    monkeypatch.setattr(strm_downloader, "iter_strm_files_prioritized", scan)
+    monkeypatch.setattr(strm_downloader, "process_strm_item", process)
+    monkeypatch.setattr(strm_downloader, "has_partial_download_on_disk", lambda *_args: False)
+    monkeypatch.setattr(strm_downloader.time, "sleep", lambda *_args: None)
+
+    assert strm_downloader.run_downloader(_run_args(source)) == 0
+    assert events == [
+        "scan:animacoes",
+        "process:animacoes",
+        "scan:filmes",
+        "process:filmes",
+    ]
 
 
 def test_run_downloader_prune_only_returns_without_starting_download_scan(tmp_path, monkeypatch):

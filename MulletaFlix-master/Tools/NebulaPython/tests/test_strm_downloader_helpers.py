@@ -200,6 +200,72 @@ def test_iter_strm_files_skips_missing_sources_excluded_roots_and_non_media(tmp_
     ]
 
 
+def test_iter_strm_files_resolves_category_once_per_directory(tmp_path, monkeypatch):
+    source = tmp_path / "library"
+    directory = source / "Filmes" / "Same Folder"
+    media = [directory / f"Movie {index}.mkv" for index in range(3)]
+    for path in media:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.touch()
+
+    calls = []
+    original = downloader.get_category_from_path
+
+    def track_category(path, root):
+        calls.append((Path(path), Path(root)))
+        return original(path, root)
+
+    monkeypatch.setattr(downloader, "get_category_from_path", track_category)
+    items = downloader.iter_strm_files_prioritized([source])
+
+    assert [item[1] for item in items] == media
+    assert [item[2] for item in items] == ["filmes"] * len(media)
+    assert calls == [(directory, source)]
+
+
+def test_iter_strm_files_reports_scan_progress_without_changing_order(tmp_path, monkeypatch):
+    source = tmp_path / "library"
+    directory = source / "Filmes"
+    paths = [directory / f"Movie {index:02}.mkv" for index in range(5)]
+    for path in paths:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.touch()
+
+    monkeypatch.setattr(downloader, "SCAN_PROGRESS_EVERY_MEDIA", 2)
+    progress = []
+    items = downloader.iter_strm_files_prioritized(
+        [source], progress_callback=lambda directories, media: progress.append((directories, media))
+    )
+
+    assert [item[1] for item in items] == paths
+    assert progress == [(2, 2), (2, 4), (2, 5)]
+
+
+def test_categorized_scan_batches_follow_priority_and_keep_original_source_root(tmp_path):
+    source = tmp_path / "library"
+    animation = source / "Animações"
+    films = source / "Filmes"
+    series = source / "Series"
+    for path in (animation, films, series):
+        path.mkdir(parents=True)
+
+    batches = downloader.get_categorized_scan_batches([source])
+
+    assert batches == [
+        ("animacoes", [(source, animation)]),
+        ("filmes", [(source, films)]),
+        ("series", [(source, series)]),
+    ]
+
+
+def test_categorized_scan_batches_fall_back_for_mixed_source_layout(tmp_path):
+    source = tmp_path / "library"
+    (source / "Filmes").mkdir(parents=True)
+    (source / "Misc").mkdir()
+
+    assert downloader.get_categorized_scan_batches([source]) is None
+
+
 def test_wait_for_disk_capacity_sleeps_and_rechecks_until_capacity_is_available(tmp_path, monkeypatch):
     target = tmp_path / "stage" / "media.mkv"
     gib = 1024**3

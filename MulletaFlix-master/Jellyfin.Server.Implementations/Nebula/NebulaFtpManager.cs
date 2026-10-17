@@ -82,6 +82,15 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable, IAsyncDis
     private static readonly Regex DownloaderMergingRegex = new(
         @"Unindo partes do arquivo:\s+(?<name>.+)",
         RegexOptions.Compiled);
+    private static readonly Regex DownloaderScanCountRegex = new(
+        @"Total de arquivos \.strm encontrados:\s+(?<count>\d+)",
+        RegexOptions.Compiled | RegexOptions.IgnoreCase);
+    private static readonly Regex DownloaderScanProgressRegex = new(
+        @"Progresso da varredura STRM:\s*(?<directories>\d+) diretórios,\s*(?<media>\d+) mídias encontradas",
+        RegexOptions.Compiled | RegexOptions.IgnoreCase);
+    private static readonly Regex DownloaderScanCategoryRegex = new(
+        @"Iniciando varredura da categoria prioritária:\s*(?<category>.+)",
+        RegexOptions.Compiled | RegexOptions.IgnoreCase);
     private NebulaPythonCacheLeaseHost? _pythonCacheLeaseHost;
     private CancellationTokenSource? _cleanupCts;
     private Task? _cleanupTask;
@@ -5795,6 +5804,47 @@ CREATE POLICY nebula_bot_tokens_service_role_all
     {
         if (string.IsNullOrWhiteSpace(line))
         {
+            return;
+        }
+
+        if (line.Contains("Escaneando e priorizando arquivos .strm", StringComparison.OrdinalIgnoreCase))
+        {
+            _currentDownload.Name = "Preparando fila de download";
+            _currentDownload.StageStep = "Indexando e priorizando arquivos da biblioteca...";
+            _currentDownload.Percentage = 0;
+            _currentDownload.DetailText = "A fila será iniciada após a varredura e ordenação por prioridade";
+            return;
+        }
+
+        var scanCategory = DownloaderScanCategoryRegex.Match(line);
+        if (scanCategory.Success)
+        {
+            _currentDownload.Name = "Preparando fila de download";
+            _currentDownload.StageStep = $"Indexando categoria prioritária: {scanCategory.Groups["category"].Value.Trim()}";
+            _currentDownload.Percentage = 0;
+            _currentDownload.DetailText = "O download desta categoria começa antes da próxima categoria da fila";
+            return;
+        }
+
+        var scanProgress = DownloaderScanProgressRegex.Match(line);
+        if (scanProgress.Success)
+        {
+            _currentDownload.Name = "Preparando fila de download";
+            _currentDownload.StageStep = $"Indexando biblioteca: {scanProgress.Groups["directories"].Value} diretórios";
+            _currentDownload.Percentage = 0;
+            _currentDownload.DetailText = $"{scanProgress.Groups["media"].Value} mídias localizadas; ordenando por prioridade após a varredura";
+            return;
+        }
+
+        var scanCount = DownloaderScanCountRegex.Match(line);
+        if (scanCount.Success && int.TryParse(scanCount.Groups["count"].Value, out var count))
+        {
+            _currentDownload.Name = count == 0 ? "Nenhuma mídia elegível encontrada" : "Fila de download preparada";
+            _currentDownload.StageStep = count == 0 ? "Fila vazia" : "Aguardando o primeiro download...";
+            _currentDownload.QueueCount = count;
+            _currentDownload.QueuePosition = 0;
+            _currentDownload.Percentage = 0;
+            _currentDownload.DetailText = $"{count} arquivo(s) de mídia encontrados";
             return;
         }
 
