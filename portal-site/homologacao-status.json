@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-10-17T10:25:00-03:00",
+  "generatedAt": "2026-10-17T10:27:00-03:00",
   "source": {
     "roadmap": "https://github.com/raphaelpera85/mulletaflix-completo/blob/main/docs/roadmap-evolucao-tecnologica-servidor-e-web.md",
     "repository": "https://github.com/raphaelpera85/mulletaflix-completo"
@@ -5591,6 +5591,23 @@
       "startedAt": "2026-10-17T09:42:53-03:00",
       "updatedAt": "2026-10-17T09:46:34-03:00",
       "evidence": "Auditoria encontrou 163 ocorrências de caminhos de perfil no snapshot anterior do portal e 153 no espelho do repositório principal. Caminhos locais redigidos sem alterar o histórico de homologação. Testes após redação: portal independente 54/54 e espelho 42/42. Commit 0c392bf5 auto-publicado no Vercel com estado READY; endpoint público HTTP verificado: 193 eventos e zero caminhos absolutos de perfis locais."
+    },
+    {
+      "id": "server-nebula-release-ci-block-2026-10-17-1027",
+      "title": "CI bloqueado no candidato de correção do Downloader Nebula 12.1.24",
+      "agent": "Codex",
+      "front": "server",
+      "featureIds": [
+        "T2.1"
+      ],
+      "local": "GitHub Actions e validação local",
+      "location": "CI do servidor, release candidate e testes Nebula",
+      "scope": "Registrar resultado do CI e testes locais; sem iniciar worker, transferência ou alterar produção.",
+      "status": "in_progress",
+      "progressPercent": null,
+      "startedAt": "2026-10-17T10:25:00-03:00",
+      "updatedAt": "2026-10-17T10:27:00-03:00",
+      "evidence": "Commits 3716b04c e 3b68caf8 no main contêm a correção e release notes 12.1.24. Runs GitHub Actions 39036436583 e 39036616551 terminaram em failure em ~9 s; em ambos, 11 jobs sem etapas executadas. Não classificar como falha dos testes: CI não executou validações. Em local: NebulaPython 89/89, NebulaDownloaderStartupTests Release 11/11, empacotamento Bash/PowerShell e portal 55/55 passaram; candidatos Windows/Linux construídos e runtime confirmado no tarball Linux. Release/tag ainda não publicada. Produção permanece 12.1.21; nenhum worker, instalação, restart ou download real executado."
     }
   ]
 }
