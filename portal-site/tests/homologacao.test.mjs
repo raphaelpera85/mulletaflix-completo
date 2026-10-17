@@ -854,3 +854,26 @@ test('portal distinguishes the stale STRM scan runtime from the Python upload mo
     assert.match(downloadEvent.evidence, /11\/11/);
     assert.match(downloadEvent.evidence, /gate global de release do roadmap permanece ativo/);
 });
+
+test('public homologation data contains no absolute Windows user-profile paths', () => {
+    const matchingFields = [];
+    const userProfilePath = /[A-Za-z]:\\Users\\/i;
+    const visit = (value, fieldPath = '$') => {
+        if (typeof value === 'string') {
+            if (userProfilePath.test(value)) matchingFields.push(fieldPath);
+            return;
+        }
+
+        if (Array.isArray(value)) {
+            value.forEach((entry, index) => visit(entry, `${fieldPath}[${index}]`));
+            return;
+        }
+
+        if (value && typeof value === 'object') {
+            for (const [key, entry] of Object.entries(value)) visit(entry, `${fieldPath}.${key}`);
+        }
+    };
+
+    visit(statusData);
+    assert.deepEqual(matchingFields, []);
+});
