@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-10-16T22:06:00-03:00",
+  "generatedAt": "2026-10-17T02:23:27-03:00",
   "source": {
     "roadmap": "https://github.com/raphaelpera85/mulletaflix-completo/blob/main/docs/roadmap-evolucao-tecnologica-servidor-e-web.md",
     "repository": "https://github.com/raphaelpera85/mulletaflix-completo"
@@ -2941,6 +2941,48 @@
   ],
   "events": [
     {
+      "id": "server-nebula-download-first-title-revalidation-2026-10-16-2248",
+      "title": "Revalidar o início do primeiro download Nebula",
+      "agent": "Codex",
+      "front": "server",
+      "featureIds": ["T0.3", "T2.1"],
+      "location": "D:\\midias; Tools/NebulaPython/tools/strm_downloader.py; testes Nebula",
+      "scope": "Confirmar a causa do scan longo no layout real e validar a correção local sem alterar workers de produção.",
+      "status": "in_progress",
+      "progressPercent": null,
+      "startedAt": "2026-10-16T22:44:00-03:00",
+      "updatedAt": "2026-10-16T22:53:06-03:00",
+      "evidence": "Produção segue 12.1.21. Logs autenticados mostram duas varreduras sem contagem ou Iniciando download (21:14:19–21:22:49 e 21:38:11–21:50:04), sem atribuir quem encerrou. Inspeção read-only do root D:\\midias confirmou cinco categorias; o scanner do checkout encontrou cinco lotes, 120 títulos em Animações e um item elegível no primeiro título A–Z. Testes focados 4/4; suíte NebulaPython 574/574; build Release Jellyfin.Server.Implementations 0 avisos/erros. Nenhum download, Mongo/Telegram, worker ou configuração de produção foi alterado. Correção local não instalada; release não criada, GitHub CLI sem autenticação e CI remota ainda bloqueada por cobrança. T0.3/T2.1 e homologação permanecem parciais."
+    },
+    {
+      "id": "server-library-refresh-nebula-start-feedback-2026-10-16-2233",
+      "title": "Admissão de refresh global e feedback do downloader Nebula",
+      "agent": "Codex",
+      "front": "server",
+      "featureIds": ["T2.1", "T6.2"],
+      "location": "Jellyfin.Api/Middleware/RateLimitMiddleware.cs; Jellyfin.Api/Web/NebulaFTP/configPage.js; testes de API",
+      "scope": "Limitar varreduras completas de biblioteca concorrentes e avisar quando StartDownloader retorna false, sem interferir playback nem alterar produção.",
+      "status": "in_progress",
+      "progressPercent": null,
+      "startedAt": "2026-10-16T22:30:00-03:00",
+      "updatedAt": "2026-10-16T22:33:01-03:00",
+      "evidence": "POST /Library/Refresh agora tem cota administrativa e admissão global single-flight; requests concorrentes recebem 429/Retry-After: 1 e GET playback segue sem bloqueio. A interface Nebula verifica a resposta booleana: false gera aviso e refresh de status/logs. Filtro Release RateLimitMiddlewareTests + NebulaFtpControllerTests: 126/126; node --input-type=module --check configPage.js passou; suíte NebulaPython reexecutada 574/574. Revisão independente do diff não encontrou problemas. Sem navegador real, teste de carga, download/worker de produção, instalação ou release. T6.2 permanece parcial; homologação de produção pendente."
+    },
+    {
+      "id": "server-nebula-first-title-download-2026-10-16-2214",
+      "title": "Nebula inicia o download após indexar o primeiro título",
+      "agent": "Codex",
+      "front": "server",
+      "featureIds": ["T0.3", "T2.1"],
+      "location": "Tools/NebulaPython/tools/strm_downloader.py; testes do downloader; documentação de operação",
+      "scope": "Reduzir a espera até a primeira mídia sem quebrar a prioridade de categoria/título nem alterar a produção ativa.",
+      "status": "in_progress",
+      "progressPercent": null,
+      "startedAt": "2026-10-16T22:07:00-03:00",
+      "updatedAt": "2026-10-16T22:28:31-03:00",
+      "evidence": "O painel local da instalação 12.1.21 mostrou o downloader parado; os logs anteriores registram o worker Python entrando na varredura da biblioteca sem evidência de que alcançou o primeiro download. Causa na fonte: o worker indexava e ordenava toda a categoria antes de processar mídia. Correção local agora subdivide categorias diretas em pastas de título ordenadas A–Z e processa cada título antes de varrer o próximo, preservando prioridade entre categorias e fallback para layout misto. Validação repetida em 2026-10-16 22:19: suíte completa NebulaPython 574/574 aprovada (25,18 s, Python 3.10); testes do portal no espelho 35/35; git diff --check passou. Testes usam filesystem temporário; nenhum arquivo real foi baixado e nenhum worker de produção foi iniciado/parado. Em 2026-10-16, a suíte .NET Release da solução terminou com código 0 usando --filter 'FullyQualifiedName!~Integration': Model.Tests 684/684; Server.Tests 73 aprovados, 1 ignorado; Server.Implementations.Tests 1.437 aprovados, 60 ignorados; zero falhas nos projetos reportados. Integrações dependentes de Mongo/serviços externos foram ignoradas; não é validação de ponta a ponta. Reexecução da suíte completa NebulaPython em 2026-10-16: 574 passaram em 18,27 s (Python 3.10). A instalação segue 12.1.21; correção ainda não está empacotada/instalada. GitHub CLI sem autenticação nesta sessão e o workflow/tag v12.1.22 previamente falhou antes dos jobs por bloqueio de cobrança; não há GitHub Release baixável confirmada. Gate do roadmap continua pendente; homologação real e release permanecem pendentes."
+    },
+    {
       "id": "server-nebula-download-startup-gate-2026-10-16-2136",
       "title": "Downloader Nebula sem início automático: configuração global desabilitada",
       "agent": "Codex",
@@ -5357,6 +5399,51 @@
       "startedAt": "2026-10-16T21:38:09-03:00",
       "updatedAt": "2026-10-16T22:06:00-03:00",
       "evidence": "Em produção 12.1.21, o início manual criou o worker Python, mas ele permaneceu em 'Escaneando e priorizando arquivos .strm...' por 11m55 sem iniciar mídia; o painel exibiu Download executando no badge e 'Downloader parado' / 0% no cartão. O processo de teste desta sessão foi parado sem baixar/excluir mídia e o estado voltou a Parado. A fonte agora detecta fontes com subpastas categorizadas e varre/ordena/processa uma categoria por vez na prioridade configurada, antes de escanear categorias inferiores; fontes mistas mantêm fallback para scan integral. A varredura emite contagem a cada 5.000 mídias, mostrada no cartão. O caminho real D:\\midias foi detectado com Animações, Filmes, Series, Doramas e Novelas como categorias diretas. Suíte NebulaPython: 571/571 passou em Python 3.10. Build Release Jellyfin.Server.Implementations: 0 erros, 1.077 avisos de analisadores/estilo. Testes de portal: 34/34 no espelho e 21/21 no checkout independente. Commit 86dd4125 e tag v12.1.22 foram enviados; o workflow 38989227346 falhou antes de iniciar os jobs por bloqueio de cobrança na conta GitHub. O teste de integração do downloader com binário atualizado e assets da release não foram produzidos; não existe GitHub Release baixável. O binário de produção continua 12.1.21. Smoke test ponta a ponta e release baixável pendentes; homologação permanece in_progress."
+    },
+    {
+      "id": "server-nebula-worker-startup-readiness-2026-10-16-2308",
+      "title": "Nebula: confirmar início real do scan STRM",
+      "agent": "Codex",
+      "front": "server",
+      "featureIds": ["T2.1"],
+      "local": "D:\\Users\\Raphael\\Documents\\Projetos\\mulletaflix",
+      "location": "MulletaFlix-master/Jellyfin.Server.Implementations/Nebula/NebulaFtpManager.cs; Tools/NebulaPython/tools/strm_downloader.py; testes e documentação",
+      "scope": "Evitar falso sucesso ao iniciar o downloader Python: aguardar o primeiro os.walk, detectar saída antecipada/timeout/cancelamento e manter referência a processo cujo encerramento não foi confirmado.",
+      "status": "in_progress",
+      "progressPercent": null,
+      "startedAt": "2026-10-16T22:53:00-03:00",
+      "updatedAt": "2026-10-16T23:08:55-03:00",
+      "evidence": "O manager agora só confirma início após o primeiro item efetivamente enumerado pelo os.walk; erro de acesso não sinaliza prontidão. Saída antecipada ou timeout de 60 s falha e tenta encerrar o worker. A referência é mantida se o encerramento não for confirmado. Suíte Nebula em Release: 647 aprovados, 21 ignorados, 0 falhas; suíte NebulaPython 576/576. A validação local comprova inicialização do scan, não o primeiro download. Produção e download Telegram reais não foram exercitados; release e homologação ponta a ponta continuam pendentes."
+    },
+    {
+      "id": "server-nebula-stage-rebuilt-2026-10-17-0042",
+      "title": "Nebula: stage Windows recompilado e validado",
+      "agent": "Codex",
+      "front": "server",
+      "featureIds": ["T2.1"],
+      "local": "D:\\Users\\Raphael\\Documents\\Projetos\\mulletaflix",
+      "location": "MulletaFlix-packaging-master/build-stage-and-installer.ps1; stage; MulletaFlix-master/Tools/NebulaPython/tools/strm_downloader.py",
+      "scope": "Reconstruir o stage local de servidor com o downloader incremental atual e verificar a integridade do pacote sem criar instalador, publicar release ou alterar produção.",
+      "status": "in_progress",
+      "progressPercent": null,
+      "startedAt": "2026-10-17T00:32:00-03:00",
+      "updatedAt": "2026-10-17T00:42:31-03:00",
+      "evidence": "O publish Release concluiu e o stage Windows foi reconstruído com as fontes atuais. `validate-stage.ps1` passou; hash SHA-256 do downloader no stage coincide com a fonte (`C588DD2006A182440A57AC02D33730531E1FD0575FB3B971B6441D459FDAA88F`). FileVersion/ProductVersion e VersionPrefix/SharedVersion estão alinhados em 12.1.22. NebulaPython passou 581/581 e `NebulaDownloaderStartupTests` passou 10/10. Teste do builder confirmou saída correta de stage-only sem anunciar instalador antigo quando `-SkipInstaller` está ativo. Web, tray e installer foram pulados; nenhum release foi emitido. O stage alertou que rclone.exe não estava presente. Produção segue 12.1.21 com script antigo; não houve instalação, restart ou transferência. Primeiro download real continua pendente; T2.1 segue in_progress. Revalidação em 2026-10-17: HTTP local continua retornando 12.1.21 (checagem 00:48); NebulaPython repetido 581/581, startup .NET 10/10 e `validate-stage.ps1` passou com hash stage/fonte igual. Rechecagem posterior em 02:20 (-03): GET HTTP 200 confirmou 12.1.21; instalado != fonte == stage; downloader instalado ainda não possui readiness nem scan incremental. `NebulaDownloaderStartupTests` 10/10, Python scanner/helpers 86/86 e integridade do stage passaram. GitHub CLI sem autenticação; não houve início/parada do worker, instalação, restart ou transferência. Correção não está ativa em produção e primeiro download real segue pendente de publicação e janela controlada."
+    }
+    ,{
+      "id": "server-nebula-download-runtime-still-stale-2026-10-17-0220",
+      "title": "Nebula: correção validada ainda não está instalada no servidor ativo",
+      "agent": "Codex",
+      "front": "server",
+      "featureIds": ["T2.1"],
+      "local": "D:\\Users\\Raphael\\Documents\\Projetos\\mulletaflix",
+      "location": "MulletaFlix-master/Jellyfin.Server.Implementations/Nebula/NebulaFtpManager.cs; Tools/NebulaPython/tools/strm_downloader.py; stage; homologação",
+      "scope": "Revalidar a falha de início do download e distinguir o estado testado em source/stage do runtime ativo, sem iniciar nem parar workers de produção.",
+      "status": "in_progress",
+      "progressPercent": null,
+      "startedAt": "2026-10-17T02:12:00-03:00",
+      "updatedAt": "2026-10-17T02:20:04-03:00",
+      "evidence": "GET read-only a /System/Info/Public retornou HTTP 200 e versão 12.1.21. O downloader instalado (08/10/2026) não contém [STRM-WORKER-READY], [STRM-SCAN-STARTED] nem get_title_scan_roots. Fonte e stage têm SHA-256 C588DD2006A182440A57AC02D33730531E1FD0575FB3B971B6441D459FDAA88F. Testes: NebulaDownloaderStartupTests Release 10/10; Python scanner/helpers 86/86 em Python 3.10; validate-stage.ps1 passou. GitHub CLI não autenticado; a tentativa de publicar este evento pela integração GitHub recebeu HTTP 403 Resource not accessible by integration, então esta atualização permanece somente local. Nenhum worker, download, instalação, restart ou configuração foi alterada. Causa operacional confirmada: runtime anterior; publicação/instalação e smoke test do primeiro item continuam pendentes."
     }
   ]
 }

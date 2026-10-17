@@ -77,7 +77,6 @@ test('renders every roadmap item and matching coverage counters', async () => {
     assert.equal((dashboard.getElement('feature-table').innerHTML.match(/<tr>/g) || []).length, 25);
     assert.equal(dashboard.getElement('feature-page-number').textContent, `Página 1 de ${Math.ceil(statusData.features.length / 25)}`);
 });
-
 test('search, status filter and pagination expose the matching roadmap rows', async () => {
     const dashboard = createDashboard();
     await settleDashboard();
@@ -138,7 +137,7 @@ test('portal publishes current per-download pause and resume evidence without cl
     const downloads = statusData.androidHomologation.areas.find(area => area.id === 'APK-H07');
     const event = statusData.events.find(item => item.id === 'android-per-download-pause-resume-2026-10-13');
 
-    assert.match(statusData.generatedAt, /^2026-10-16T\d{2}:\d{2}:\d{2}-03:00$/);
+    assert.match(statusData.generatedAt, /^2026-10-\d{2}T\d{2}:\d{2}:\d{2}-03:00$/);
     assert.equal(android.testAudit.passed, 1788);
     assert.equal(android.testAudit.total, 1788);
     assert.equal(android.instrumentationAudit.passed, 44);
@@ -173,7 +172,7 @@ test('portal records update-effect test isolation without changing formal homolo
     const android = statusData.tracks.find(track => track.id === 'android');
     const event = statusData.events.find(item => item.id === 'android-update-effect-test-isolation-2026-10-13');
 
-    assert.match(statusData.generatedAt, /^2026-10-16T\d{2}:\d{2}:\d{2}-03:00$/);
+    assert.match(statusData.generatedAt, /^2026-10-\d{2}T\d{2}:\d{2}:\d{2}-03:00$/);
     assert.match(event.evidence, /Activity não intercepta sockets GitHub ponta a ponta/);
     assert.match(event.evidence, /AppUpdateCheckEffectTest-PHONE-API35\.xml/);
     assert.equal(android.testAudit.passed, 1788);
@@ -210,7 +209,7 @@ test('portal mirrors SyncPlay remote-close progress without granting formal acce
     const area = statusData.androidHomologation.areas.find(item => item.id === 'APK-H10');
     const event = statusData.events.find(item => item.id === 'android-syncplay-remote-close-2026-10-13');
 
-    assert.match(statusData.generatedAt, /^2026-10-16T\d{2}:\d{2}:\d{2}-03:00$/);
+    assert.match(statusData.generatedAt, /^2026-10-\d{2}T\d{2}:\d{2}:\d{2}-03:00$/);
     assert.equal(android.testAudit.passed, 1788);
     assert.equal(android.testAudit.total, 1788);
     assert.match(android.testAudit.label, /256 XML/);
@@ -248,7 +247,7 @@ test('portal reports the latest server-switch login regression as in progress, n
     const area = statusData.androidHomologation.areas.find(item => item.id === 'APK-H02');
     const event = statusData.events.find(item => item.id === 'android-profile-server-switch-login-investigation-2026-10-14');
 
-    assert.match(statusData.generatedAt, /^2026-10-16T\d{2}:\d{2}:\d{2}-03:00$/);
+    assert.match(statusData.generatedAt, /^2026-10-\d{2}T\d{2}:\d{2}:\d{2}-03:00$/);
     assert.equal(area.status, 'in_progress');
     assert.match(area.evidence, /MainActivitySessionNavigationTest passou 12\/12 em PHONE.*12\/12 em TABLET/);
     assert.match(area.evidence, /repeat 2 TABLET.*sem causa raiz determinada/i);
@@ -269,7 +268,7 @@ test('portal reflects reader cold-start evidence without closing APK-H21', async
     const area = statusData.androidHomologation.areas.find(item => item.id === 'APK-H21');
     const event = statusData.events.find(item => item.id === 'android-book-reader-cold-start-harness-2026-10-13');
 
-    assert.match(statusData.generatedAt, /^2026-10-16T\d{2}:\d{2}:\d{2}-03:00$/);
+    assert.match(statusData.generatedAt, /^2026-10-\d{2}T\d{2}:\d{2}:\d{2}-03:00$/);
     assert.equal(android.instrumentationAudit.passed, 44);
     assert.match(android.instrumentationAudit.label, /cold start da Activity principal 4\/4 fases/);
     assert.equal(area.status, 'pending');
@@ -369,7 +368,7 @@ test('portal mirrors the Home cache URL-scope fix without closing formal homolog
     const area = statusData.androidHomologation.areas.find(item => item.id === 'APK-H04');
     const event = statusData.events.find(item => item.id === 'android-home-cache-default-port-normalization-2026-10-13');
 
-    assert.match(statusData.generatedAt, /^2026-10-16T\d{2}:\d{2}:\d{2}-03:00$/);
+    assert.match(statusData.generatedAt, /^2026-10-\d{2}T\d{2}:\d{2}:\d{2}-03:00$/);
     assert.equal(android.testAudit.passed, 1788);
     assert.equal(android.testAudit.total, 1788);
     assert.match(android.testAudit.label, /1\.788 testes.*256 XML/);
@@ -412,7 +411,7 @@ test('portal mirrors Android progress from 2026-10-15 without promoting formal a
     const area = id => matrix.areas.find(item => item.id === id);
     const event = id => statusData.events.find(item => item.id === id);
 
-    assert.match(statusData.generatedAt, /^2026-10-16T\d{2}:\d{2}:\d{2}-03:00$/);
+    assert.match(statusData.generatedAt, /^2026-10-\d{2}T\d{2}:\d{2}:\d{2}-03:00$/);
     assert.equal(android.testAudit.passed, 1788);
     assert.equal(android.testAudit.total, 1788);
     assert.match(android.testAudit.label, /1\.788 testes.*256 XML/);
@@ -453,7 +452,7 @@ test('portal mirrors the latest Android reader validation without promoting form
     const matrix = statusData.androidHomologation;
     const event = statusData.events.find(item => item.id === 'android-kf8-embedded-css-emphasis-2026-10-15');
 
-    assert.match(statusData.generatedAt, /^2026-10-16T\d{2}:\d{2}:\d{2}-03:00$/);
+    assert.match(statusData.generatedAt, /^2026-10-\d{2}T\d{2}:\d{2}:\d{2}-03:00$/);
     assert.equal(android.testAudit.passed, 1788);
     assert.equal(android.testAudit.total, 1788);
     assert.match(android.testAudit.label, /1\.788 testes.*256 XML/);
@@ -474,7 +473,7 @@ test('portal mirrors accessible paginated PDF OCR progress without promoting APK
     const matrix = statusData.androidHomologation;
     const event = statusData.events.find(item => item.id === 'android-book-text-search-accessible-progress-2026-10-15');
 
-    assert.match(statusData.generatedAt, /^2026-10-16T\d{2}:\d{2}:\d{2}-03:00$/);
+    assert.match(statusData.generatedAt, /^2026-10-\d{2}T\d{2}:\d{2}:\d{2}-03:00$/);
     assert.ok(event, 'portal should record the latest accessible paginated OCR progress validation');
     assert.equal(event.status, 'completed');
     assert.deepEqual(event.featureIds, ['APK-H21']);
@@ -582,7 +581,7 @@ test('portal mirrors offline download fixture race correction without formal pro
     const matrix = statusData.androidHomologation;
     const event = statusData.events.find(item => item.id === 'android-offline-download-completion-race-2026-10-16');
 
-    assert.match(statusData.generatedAt, /^2026-10-16T\d{2}:\d{2}:\d{2}-03:00$/);
+    assert.match(statusData.generatedAt, /^2026-10-\d{2}T\d{2}:\d{2}:\d{2}-03:00$/);
     assert.ok(event, 'portal should record why the offline download fixture was disabled early');
     assert.equal(event.status, 'completed');
     assert.deepEqual(event.featureIds, ['APK-H07']);
@@ -605,7 +604,7 @@ test('portal records each Android work-round review without fabricating homologa
     const event = statusData.events.find(item => item.id === 'android-homologation-round-sync-2026-10-16-1819');
     const matrix = statusData.androidHomologation;
 
-    assert.match(statusData.generatedAt, /^2026-10-16T\d{2}:\d{2}:\d{2}-03:00$/);
+    assert.match(statusData.generatedAt, /^2026-10-\d{2}T\d{2}:\d{2}:\d{2}-03:00$/);
     assert.ok(event, 'portal should include the current round review');
     assert.equal(event.status, 'completed');
     assert.deepEqual(event.featureIds, []);
@@ -626,7 +625,7 @@ test('portal records the API 37.1 boot blocker without counting tests or closing
     const event = statusData.events.find(item => item.id === 'android-api37-1gapi-systemserver-restart-2026-10-16-1841');
     const matrix = statusData.androidHomologation;
 
-    assert.match(statusData.generatedAt, /^2026-10-16T\d{2}:\d{2}:\d{2}-03:00$/);
+    assert.match(statusData.generatedAt, /^2026-10-\d{2}T\d{2}:\d{2}:\d{2}-03:00$/);
     assert.ok(event, 'portal should record the latest API 37.1 attempt');
     assert.equal(event.status, 'blocked');
     assert.deepEqual(event.featureIds, ['APK-H14']);
@@ -648,7 +647,7 @@ test('portal records API 37.0 system-server death with zero Android tests and no
     const event = statusData.events.find(item => item.id === 'android-api37-0gapi-systemserver-deadobject-2026-10-16-1906');
     const matrix = statusData.androidHomologation;
 
-    assert.match(statusData.generatedAt, /^2026-10-16T\d{2}:\d{2}:\d{2}-03:00$/);
+    assert.match(statusData.generatedAt, /^2026-10-\d{2}T\d{2}:\d{2}:\d{2}-03:00$/);
     assert.ok(event, 'portal should record the API 37.0 instrumentation attempt');
     assert.equal(event.status, 'blocked');
     assert.deepEqual(event.featureIds, ['APK-H14']);
@@ -728,4 +727,115 @@ test('server Nebula download scan progress records production reproduction and s
     assert.match(event.evidence, /não existe GitHub Release baixável/);
     assert.match(event.evidence, /binário de produção continua 12\.1\.21/);
     assert.match(event.evidence, /Smoke test ponta a ponta.*pendentes/);
+});
+
+test('portal records title-level Nebula download startup without claiming production homologation', async () => {
+    const event = statusData.events.find(item => item.id === 'server-nebula-first-title-download-2026-10-16-2214');
+    const server = statusData.tracks.find(track => track.id === 'server');
+
+    assert.ok(event);
+    assert.equal(event.status, 'in_progress');
+    assert.match(event.evidence, /subdivide categorias diretas em pastas de título ordenadas A–Z/);
+    assert.match(event.evidence, /574\/574 aprovad[oa]/);
+    assert.match(event.evidence, /Model\.Tests 684\/684/);
+    assert.match(event.evidence, /Server\.Implementations\.Tests 1\.437 aprovados, 60 ignorados/);
+    assert.match(event.evidence, /zero falhas nos projetos reportados/);
+    assert.match(event.evidence, /Integrações dependentes de Mongo.*foram ignoradas/);
+    assert.match(event.evidence, /testes do portal no espelho 35\/35/);
+    assert.match(event.evidence, /GitHub CLI sem autenticação/);
+    assert.match(event.evidence, /nenhum worker de produção foi iniciado\/parado/);
+    assert.match(event.evidence, /instalação segue 12\.1\.21/);
+    assert.match(event.evidence, /homologação real e release permanecem pendentes/);
+    assert.equal(server.status, 'in_progress');
+    assert.equal(statusData.androidHomologation.formalSignoff, 'pending');
+
+    const dashboard = createDashboard();
+    await settleDashboard();
+    assert.match(dashboard.getElement('event-list').innerHTML, /Nebula inicia o download após indexar o primeiro título/);
+});
+
+test('portal records real-library Nebula scan revalidation as partial', async () => {
+    const event = statusData.events.find(item => item.id === 'server-nebula-download-first-title-revalidation-2026-10-16-2248');
+
+    assert.ok(event);
+    assert.equal(event.front, 'server');
+    assert.deepEqual(event.featureIds, ['T0.3', 'T2.1']);
+    assert.equal(event.status, 'in_progress');
+    assert.match(event.evidence, /Produção segue 12\.1\.21/);
+    assert.match(event.evidence, /duas varreduras sem contagem ou Iniciando download/);
+    assert.match(event.evidence, /120 títulos em Animações e um item elegível no primeiro título A–Z/);
+    assert.match(event.evidence, /suíte NebulaPython 574\/574/);
+    assert.match(event.evidence, /Nenhum download, Mongo\/Telegram, worker ou configuração de produção foi alterado/);
+    assert.match(event.evidence, /Correção local não instalada/);
+
+    const dashboard = createDashboard();
+    await settleDashboard();
+    assert.match(dashboard.getElement('event-list').innerHTML, /Revalidar o início do primeiro download Nebula/);
+});
+
+test('portal records library refresh admission and downloader false-response feedback as partial', async () => {
+    const event = statusData.events.find(item => item.id === 'server-library-refresh-nebula-start-feedback-2026-10-16-2233');
+
+    assert.ok(event);
+    assert.equal(event.front, 'server');
+    assert.equal(event.status, 'in_progress');
+    assert.deepEqual(event.featureIds, ['T2.1', 'T6.2']);
+    assert.match(event.evidence, /POST \/Library\/Refresh.*single-flight/);
+    assert.match(event.evidence, /429\/Retry-After: 1/);
+    assert.match(event.evidence, /false gera aviso/);
+    assert.match(event.evidence, /126\/126/);
+    assert.match(event.evidence, /574\/574/);
+    assert.match(event.evidence, /Sem navegador real, teste de carga, download\/worker de produção/);
+
+    const dashboard = createDashboard();
+    await settleDashboard();
+    assert.match(dashboard.getElement('event-list').innerHTML, /Admissão de refresh global e feedback do downloader Nebula/);
+});
+
+test('portal records Nebula worker scan readiness without claiming first download or production homologation', async () => {
+    const event = statusData.events.find(item => item.id === 'server-nebula-worker-startup-readiness-2026-10-16-2308');
+
+    assert.ok(event);
+    assert.equal(event.front, 'server');
+    assert.equal(event.status, 'in_progress');
+    assert.deepEqual(event.featureIds, ['T2.1']);
+    assert.match(event.evidence, /primeiro item efetivamente enumerado pelo os\.walk/);
+    assert.match(event.evidence, /647 aprovados, 21 ignorados, 0 falhas/);
+    assert.match(event.evidence, /NebulaPython 576\/576/);
+    assert.match(event.evidence, /não o primeiro download/);
+    assert.match(event.evidence, /Produção e download Telegram reais não foram exercitados/);
+
+});
+
+test('portal records a rebuilt Nebula stage without claiming an installer or production fix', () => {
+    const event = statusData.events.find(item => item.id === 'server-nebula-stage-rebuilt-2026-10-17-0042');
+
+    assert.ok(event);
+    assert.equal(event.front, 'server');
+    assert.equal(event.status, 'in_progress');
+    assert.deepEqual(event.featureIds, ['T2.1']);
+    assert.match(event.evidence, /validate-stage\.ps1` passou/);
+    assert.match(event.evidence, /C588DD2006A182440A57AC02D33730531E1FD0575FB3B971B6441D459FDAA88F/);
+    assert.match(event.evidence, /581\/581/);
+    assert.match(event.evidence, /10\/10/);
+    assert.match(event.evidence, /Web, tray e installer foram pulados/);
+    assert.match(event.evidence, /Produção segue 12\.1\.21/);
+    assert.match(event.evidence, /Primeiro download real continua pendente/);
+    assert.match(event.evidence, /rclone\.exe não estava presente/);
+    assert.match(event.evidence, /Revalidação em 2026-10-17: HTTP local continua retornando 12\.1\.21/);
+    assert.match(event.evidence, /startup \.NET 10\/10 e `validate-stage\.ps1` passou/);
+});
+
+test('portal keeps the active Nebula runtime mismatch and release gate explicit', () => {
+    const event = statusData.events.find(item => item.id === 'server-nebula-download-runtime-still-stale-2026-10-17-0220');
+
+    assert.ok(event);
+    assert.equal(event.front, 'server');
+    assert.equal(event.status, 'in_progress');
+    assert.match(event.evidence, /HTTP 200 e versão 12\.1\.21/);
+    assert.match(event.evidence, /fonte e stage têm SHA-256/i);
+    assert.match(event.evidence, /NebulaDownloaderStartupTests Release 10\/10/);
+    assert.match(event.evidence, /GitHub CLI não autenticado/);
+    assert.match(event.evidence, /HTTP 403 Resource not accessible by integration/);
+    assert.match(event.evidence, /Causa operacional confirmada: runtime anterior/);
 });
