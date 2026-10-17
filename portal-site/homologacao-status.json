@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-10-17T09:46:34-03:00",
+  "generatedAt": "2026-10-17T10:00:00-03:00",
   "source": {
     "roadmap": "https://github.com/raphaelpera85/mulletaflix-completo/blob/main/docs/roadmap-evolucao-tecnologica-servidor-e-web.md",
     "repository": "https://github.com/raphaelpera85/mulletaflix-completo"
@@ -2940,6 +2940,23 @@
     }
   ],
   "events": [
+    {
+      "id": "server-nebula-stale-downloader-runtime-2026-10-17-1000",
+      "title": "Diagnosticar Downloader STRM sem início de transferência",
+      "agent": "Codex",
+      "front": "server",
+      "featureIds": [
+        "T2.1"
+      ],
+      "local": "checkout local e painel de produção (somente leitura)",
+      "location": "Nebula Downloader, runtime instalado, fonte e testes de startup",
+      "scope": "Comparar runtime ativo com a fonte e validar a varredura; sem iniciar transferência, instalar ou reiniciar produção.",
+      "status": "in_progress",
+      "progressPercent": null,
+      "startedAt": "2026-10-17T09:50:00-03:00",
+      "updatedAt": "2026-10-17T10:00:00-03:00",
+      "evidence": "Painel autenticado: servidor 12.1.21, Downloader parado; fontes e stages configurados e espaço de stage disponível. Logs históricos param na mensagem genérica de varredura, sem título indexado ou transferência observada. O downloader instalado (08/10/2026, SHA-256 3D41354345B79EAB19CB7A1FE0C01A02D0579130F18301D156CAF1C3221664C5) não tem os helpers de scan incremental por categoria/título presentes na fonte atual (SHA-256 D812F36ED102085A21D826EA684ED95A270C0E3903F0EE474C6E395D9F054938). Testes da fonte: NebulaPython 586/586 e NebulaDownloaderStartupTests Release 11/11. A diferença explica a falta de progresso granular e pode explicar a demora, mas não comprova um download específico. Nenhum worker/transferência foi iniciado e produção não foi alterada. Rebuild 12.1.24, publicação, instalação controlada e smoke test do primeiro item pendentes."
+    },
     {
       "id": "server-nebula-download-first-title-revalidation-2026-10-16-2248",
       "title": "Revalidar o início do primeiro download Nebula",

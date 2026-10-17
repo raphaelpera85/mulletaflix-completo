@@ -1,5 +1,13 @@
 # Nebula STRM Downloader
 
+## Revalidação visual: runtime de download antigo e sem progresso por título — 2026-10-17 10:00 (-03)
+
+O painel autenticado do servidor confirma MulletaFlix **12.1.21**, Downloader parado, uma raiz de monitoramento configurada e dois stages com espaço disponível. Os registros de execuções anteriores mostram a inicialização do worker e a mensagem genérica de varredura, mas não mostram título indexado nem início de transferência antes de o processo parar. Não foi disparado um novo scan/transferência para evitar gravar arquivos de mídia e registros no servidor.
+
+Comparação de runtime: `strm_downloader.py` instalado em 08/10/2026, SHA-256 `3D41354345B79EAB19CB7A1FE0C01A02D0579130F18301D156CAF1C3221664C5`; a fonte contém `get_categorized_scan_batches` e `get_title_scan_roots`, ausentes na instalação, SHA-256 `D812F36ED102085A21D826EA684ED95A270C0E3903F0EE474C6E395D9F054938`. A ausência dos helpers faz o runtime antigo percorrer a árvore inteira antes de expor progresso granular e pode explicar a demora observada; não prova, por si só, que um título específico seja baixável.
+
+Validação da fonte: suíte NebulaPython **586/586**; `NebulaDownloaderStartupTests` Release **11/11**. O runtime de produção não foi iniciado, parado, instalado nem reiniciado nesta rodada; nenhum download real foi confirmado. A fonte está na versão 12.1.23, porém o candidato local 12.1.23 documentado anteriormente contém outro hash e não inclui esta revisão da varredura; reconstruir/publicar pacote **12.1.24** é o próximo passo, seguido de instalação controlada e verificação de um primeiro item. O portal foi publicado no Git no commit `5749a6b06559891e791c33142f527246af187775`; deployment Production Vercel `READY` (`dpl_6npaAu9dLkv1dvgzEVXp4WsRYF12`), e o endpoint público retornou HTTP 200 com o evento `in_progress`. A homologação permanece aberta.
+
 ## Downloader STRM bloqueado por runtime instalado desatualizado — 2026-10-17 09:34 (-03)
 
 Revalidação da reclamação atual: a API local respondeu 12.1.21 e a tela Nebula mostrou o Downloader parado. O histórico registra que o worker iniciou às 00:24:21 e começou a varrer às 00:24:26; não há registro visível de primeiro download antes do encerramento às 00:30:19. O status HTTP 200 da ação não prova transferência.
