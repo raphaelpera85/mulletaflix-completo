@@ -175,6 +175,78 @@ public sealed class NebulaSupabaseRestoreMongoTests : IDisposable
         Assert.Equal("app-hash-fixture", restoredAppUser.Password);
     }
 
+    [Fact]
+    public async Task Restore_ReservesExclusiveAdmissionUntilActiveUploadCompletes()
+    {
+        Assert.SkipUnless(_mongoAvailable, _skipReason);
+
+        var userOptions = new DbContextOptionsBuilder<UsersDbContext>()
+            .UseInMemoryDatabase(Guid.NewGuid().ToString("N"))
+            .Options;
+        var usersFactory = new Mock<IDbContextFactory<UsersDbContext>>();
+        usersFactory.Setup(factory => factory.CreateDbContextAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(() => new UsersDbContext(userOptions, NullLogger<UsersDbContext>.Instance));
+
+        var handler = new RestoreResponseHandler(
+            new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("[]") },
+            new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("[]") },
+            new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("[]") },
+            new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("[]") });
+        using var mongoContext = new NebulaMongoContext(
+            _testConnectionString,
+            _databaseName,
+            NullLogger<NebulaMongoContext>.Instance);
+        using var service = new NebulaSupabaseSyncService(
+            mongoContext,
+            NullLogger<NebulaSupabaseSyncService>.Instance,
+            usersFactory.Object,
+            handler);
+        var cancellationToken = TestContext.Current.CancellationToken;
+        var uploadLease = await mongoContext.AcquireUploadAdmissionAsync(cancellationToken);
+        var restoreTask = service.PerformRestoreAsync(
+            "https://supabase.invalid",
+            "sb_secret_test",
+            progressAction: null,
+            forceFullRestore: true,
+            cancellationToken);
+
+        var admissionCollection = _mongoClient!
+            .GetDatabase(_databaseName)
+            .GetCollection<BsonDocument>("nebula_admission");
+        var admissionReserved = false;
+        var restoreStartedBeforeUploadReleased = false;
+        for (var attempt = 0; attempt < 200; attempt++)
+        {
+            var gate = await admissionCollection.Find(
+                    Builders<BsonDocument>.Filter.Eq("_id", "supabase_sync_admission"))
+                .FirstOrDefaultAsync(cancellationToken);
+            if (gate is not null
+                && gate.TryGetValue("backup_owner", out var owner)
+                && owner.IsString
+                && !string.IsNullOrWhiteSpace(owner.AsString))
+            {
+                admissionReserved = true;
+                break;
+            }
+
+            if (handler.FirstRequestObserved.Task.IsCompleted)
+            {
+                restoreStartedBeforeUploadReleased = true;
+                break;
+            }
+
+            await Task.Delay(TimeSpan.FromMilliseconds(25), cancellationToken);
+        }
+
+        await uploadLease.DisposeAsync();
+        var result = await restoreTask;
+
+        Assert.True(admissionReserved, "Restore did not reserve the shared Mongo admission gate.");
+        Assert.False(restoreStartedBeforeUploadReleased, "Restore reached Supabase while an upload lease remained active.");
+        Assert.True(result.Success, result.Message);
+        Assert.True(handler.FirstRequestObserved.Task.IsCompleted);
+    }
+
     public void Dispose()
     {
         if (_mongoAvailable && _mongoClient is not null)
@@ -188,6 +260,7 @@ public sealed class NebulaSupabaseRestoreMongoTests : IDisposable
         private int _nextResponse;
 
         public List<CapturedRequest> Requests { get; } = [];
+        public TaskCompletionSource<bool> FirstRequestObserved { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
@@ -198,6 +271,7 @@ public sealed class NebulaSupabaseRestoreMongoTests : IDisposable
             }
 
             Requests.Add(new CapturedRequest(request.Method, request.RequestUri!.PathAndQuery, headers));
+            FirstRequestObserved.TrySetResult(true);
             return Task.FromResult(responses[_nextResponse++]);
         }
     }

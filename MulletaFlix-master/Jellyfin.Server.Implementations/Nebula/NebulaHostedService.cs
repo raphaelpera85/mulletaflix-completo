@@ -269,21 +269,33 @@ public sealed class NebulaHostedService : IHostedService, IDisposable
 
     private async Task StartComponentsAsync(NebulaFtpConfiguration config, CancellationToken startupCancellationToken)
     {
-        _logger.LogInformation("[NEBULA-STARTUP] Servidor MulletaFlix inicializado. Iniciando Envio, Downloader e montagem do disco N em sequência...");
+        _logger.LogInformation("[NEBULA-STARTUP] Servidor MulletaFlix inicializado. Iniciando Envio e Downloader; a montagem do disco N depende do FTP...");
 
         if (!_running)
         {
-            _running = await StartWithRetryAsync(
-                () => _nebulaManager.StartEnvioAsync(streamOnly: false, startupCancellationToken),
-                "Envio",
-                startupCancellationToken).ConfigureAwait(false);
+            try
+            {
+                _running = await StartWithRetryAsync(
+                    () => _nebulaManager.StartEnvioAsync(streamOnly: false, startupCancellationToken),
+                    "Envio",
+                    startupCancellationToken).ConfigureAwait(false);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                // Envio and the STRM downloader are separate services. A failed
+                // FTP bind must not prevent the downloader from being attempted.
+                _logger.LogError(ex, "[NEBULA-STARTUP] Envio falhou durante a inicialização; o Downloader STRM será tentado mesmo assim.");
+                _running = false;
+            }
+
             if (!_running)
             {
                 _logger.LogWarning("[NEBULA-STARTUP] Falha ao iniciar modo Envio do Nebula.");
-                return;
             }
-
-            _logger.LogInformation("[NEBULA-STARTUP] Modo Envio iniciado com sucesso.");
+            else
+            {
+                _logger.LogInformation("[NEBULA-STARTUP] Modo Envio iniciado com sucesso.");
+            }
         }
 
         // Start the downloader in the same server lifecycle. The
@@ -304,6 +316,12 @@ public sealed class NebulaHostedService : IHostedService, IDisposable
         else
         {
             _logger.LogWarning("[NEBULA-STARTUP] Downloader STRM não foi iniciado. Verifique as pastas de monitoramento configuradas.");
+        }
+
+        if (!_running)
+        {
+            _logger.LogWarning("[NEBULA-STARTUP] Montagem do disco N: ignorada porque o serviço FTP/Envio não iniciou. O Downloader foi tentado de forma independente.");
+            return;
         }
 
         if (!config.UseMappedDrive)

@@ -1939,7 +1939,7 @@ public sealed class NebulaMongoContext : IDisposable
     }
 
     /// <summary>
-    /// Atomically admits an upload unless a Supabase backup has reserved the shared gate.
+    /// Atomically admits an upload unless a Supabase backup or restore has reserved the shared gate.
     /// The returned lease must cover the complete external upload operation.
     /// </summary>
     internal async Task<NebulaMongoAdmissionLease> AcquireUploadAdmissionAsync(CancellationToken cancellationToken = default)
@@ -1977,9 +1977,9 @@ public sealed class NebulaMongoContext : IDisposable
     }
 
     /// <summary>
-    /// Reserves backup admission first, blocking new uploads, then drains leases already in flight.
+    /// Reserves exclusive Supabase sync admission first, blocking new uploads, then drains leases already in flight.
     /// </summary>
-    internal async Task<NebulaMongoAdmissionLease> AcquireBackupAdmissionAsync(
+    internal async Task<NebulaMongoAdmissionLease> AcquireExclusiveSyncAdmissionAsync(
         Action<string>? progressAction,
         CancellationToken cancellationToken = default)
     {
@@ -2040,7 +2040,7 @@ public sealed class NebulaMongoContext : IDisposable
 
                 if (DateTimeOffset.UtcNow - lastProgressAt >= TimeSpan.FromSeconds(30))
                 {
-                    const string message = "[SUPABASE-AUTO-SYNC] Reserva ativa; aguardando uploads Nebula em andamento antes do backup.";
+                    const string message = "[SUPABASE-SYNC] Reserva ativa; aguardando uploads Nebula em andamento antes da operação.";
                     progressAction?.Invoke(message);
                     lastProgressAt = DateTimeOffset.UtcNow;
                 }
