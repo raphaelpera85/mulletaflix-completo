@@ -161,13 +161,23 @@ parallel or repeatable candidate builds, for example:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\MulletaFlix-packaging-master\build-stage-and-installer.ps1 `
-  -StageDirectory .\.build\candidate-12.1.23\stage `
-  -BuildDirectory .\.build\candidate-12.1.23\build `
+  -StageDirectory .\.build\candidate-unique-id\stage `
+  -BuildDirectory .\.build\candidate-unique-id\build `
   -NoPause
 ```
 
 The installer and release assets still use the configured release output
 locations; do not reuse a version already present there.
+
+The Linux package builder writes to `dist` by default and refuses to replace an
+existing versioned archive. For a local candidate, direct the output into a
+unique `.build` directory, for example:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\tools\release\build-linux-package.ps1 `
+  -WebDist .\.build\candidate-unique-id\stage\MulletaFlix-web `
+  -OutputDirectory .\.build\candidate-unique-id\dist
+```
 
 To validate an existing stage without rebuilding it:
 
