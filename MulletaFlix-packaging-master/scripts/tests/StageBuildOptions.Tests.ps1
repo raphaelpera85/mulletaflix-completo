@@ -71,10 +71,15 @@ if ($installerSource -notmatch '\[System\.IO\.Path\]::GetFullPath\(\$StageDirect
 }
 $versionSource = [System.IO.File]::ReadAllText((Join-Path $repositoryRoot 'MulletaFlix-master\SharedVersion.cs'))
 $buildProps = [System.IO.File]::ReadAllText((Join-Path $repositoryRoot 'MulletaFlix-master\Directory.Build.props'))
-if ($versionSource -notmatch 'AssemblyVersion\("12\.1\.23"\)' -or
-    $versionSource -notmatch 'AssemblyFileVersion\("12\.1\.23"\)' -or
-    $buildProps -notmatch '<VersionPrefix>12\.1\.23</VersionPrefix>') {
-    throw 'Server assembly and package version metadata are not aligned at 12.1.23.'
+$assemblyVersion = [regex]::Match($versionSource, 'AssemblyVersion\("([^\"]+)"\)')
+$assemblyFileVersion = [regex]::Match($versionSource, 'AssemblyFileVersion\("([^\"]+)"\)')
+$packageVersion = [regex]::Match($buildProps, '<VersionPrefix>([^<]+)</VersionPrefix>')
+if (-not $assemblyVersion.Success -or
+    -not $assemblyFileVersion.Success -or
+    -not $packageVersion.Success -or
+    $assemblyVersion.Groups[1].Value -ne $assemblyFileVersion.Groups[1].Value -or
+    $assemblyVersion.Groups[1].Value -ne $packageVersion.Groups[1].Value) {
+    throw 'Server assembly and package version metadata are missing or misaligned.'
 }
 
 $validatorPath = Join-Path $repositoryRoot 'MulletaFlix-packaging-master\scripts\validate-stage.ps1'

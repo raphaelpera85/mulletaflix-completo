@@ -38,8 +38,9 @@ try {
     [System.IO.File]::WriteAllText((Join-Path $webAssets 'app.js'), 'fixture')
     [void][System.IO.Directory]::CreateDirectory((Split-Path -Parent $sourceDownloader))
     [void][System.IO.Directory]::CreateDirectory((Split-Path -Parent $stagedDownloader))
-    [System.IO.File]::WriteAllText($sourceDownloader, 'current-source')
-    [System.IO.File]::WriteAllText($stagedDownloader, 'current-source')
+    $validDownloader = 'logger.info("[STRM-WORKER-MONGO-READY]")'
+    [System.IO.File]::WriteAllText($sourceDownloader, $validDownloader)
+    [System.IO.File]::WriteAllText($stagedDownloader, $validDownloader)
     $sourceAdmission = Join-Path $projectRoot 'MulletaFlix-master\Tools\NebulaPython\tools\mongo_admission.py'
     $stagedAdmission = Join-Path $stageDirectory 'Tools\NebulaPython\tools\mongo_admission.py'
     [void][System.IO.Directory]::CreateDirectory((Split-Path -Parent $sourceAdmission))
@@ -67,6 +68,37 @@ try {
     if (-not $mismatchRejected) {
         throw 'Stage integrity accepted a stale Nebula STRM downloader.'
     }
+    [System.IO.File]::WriteAllText($stagedDownloader, $validDownloader)
+
+    $invalidDownloader = 'logger.info("[STRM-WORKER-READY]")'
+    [System.IO.File]::WriteAllText($sourceDownloader, $invalidDownloader)
+    [System.IO.File]::WriteAllText($stagedDownloader, $invalidDownloader)
+    $missingReadinessContractRejected = $false
+    try {
+        Assert-StageIntegrity -StageDirectory $stageDirectory -ProjectRoot $projectRoot -PublishDirectory $publishDirectory
+    } catch {
+        $missingReadinessContractRejected = $_.Exception.Message -like '*Mongo readiness contract*'
+        if (-not $missingReadinessContractRejected) { throw }
+    }
+    if (-not $missingReadinessContractRejected) {
+        throw 'Stage integrity accepted a downloader without the Mongo readiness contract.'
+    }
+    [System.IO.File]::WriteAllText($sourceDownloader, $validDownloader)
+    [System.IO.File]::WriteAllText($stagedDownloader, $validDownloader)
+
+    $stagedGenerator = Join-Path $stageDirectory 'Tools\NebulaPython\generate_strm.py'
+    [System.IO.File]::Delete($stagedGenerator)
+    $missingGeneratorRejected = $false
+    try {
+        Assert-StageIntegrity -StageDirectory $stageDirectory -ProjectRoot $projectRoot -PublishDirectory $publishDirectory
+    } catch {
+        $missingGeneratorRejected = $_.Exception.Message -like '*generate_strm.py*'
+        if (-not $missingGeneratorRejected) { throw }
+    }
+    if (-not $missingGeneratorRejected) {
+        throw 'Stage integrity accepted a Python worker package missing generate_strm.py.'
+    }
+    [System.IO.File]::WriteAllText($stagedGenerator, 'current-generator')
 
     [System.IO.File]::Delete($stagedAdmission)
     $missingAdmissionRejected = $false
@@ -80,7 +112,7 @@ try {
         throw 'Stage integrity accepted a Python worker package missing mongo_admission.py.'
     }
 
-    Write-Host 'Stage integrity accepted matching Nebula modules and rejected stale downloader or missing admission module.'
+    Write-Host 'Stage integrity accepted matching Nebula modules and rejected stale downloader, missing readiness contract, or missing STRM generator or admission module.'
 }
 finally {
     if ([System.IO.Directory]::Exists($fixtureRoot)) {

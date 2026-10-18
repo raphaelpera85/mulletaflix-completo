@@ -1,11 +1,40 @@
 # Cross-publish a production Linux package from Windows using an already built web payload.
 [CmdletBinding()]
-param([string]$WebDist = 'stage/MulletaFlix-web')
+param(
+    [string]$WebDist = 'stage/MulletaFlix-web',
+    [string]$OutputDirectory = 'dist'
+)
 $ErrorActionPreference = 'Stop'
 $repoRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../..'))
 $versionText = [System.IO.File]::ReadAllText((Join-Path $repoRoot 'MulletaFlix-master/SharedVersion.cs'))
 $version = [regex]::Match($versionText, 'AssemblyFileVersion\("([^"]+)"\)').Groups[1].Value
 if (-not $version) { throw 'Server version not found.' }
+$buildRoot = [System.IO.Path]::GetFullPath((Join-Path $repoRoot '.build')).TrimEnd('\', '/')
+$defaultDist = [System.IO.Path]::GetFullPath((Join-Path $repoRoot 'dist')).TrimEnd('\', '/')
+$dist = if ([System.IO.Path]::IsPathRooted($OutputDirectory)) {
+    [System.IO.Path]::GetFullPath($OutputDirectory)
+} else {
+    [System.IO.Path]::GetFullPath((Join-Path $repoRoot $OutputDirectory))
+}
+$dist = $dist.TrimEnd('\', '/')
+$insideBuild = $dist.StartsWith($buildRoot + [System.IO.Path]::DirectorySeparatorChar, [System.StringComparison]::OrdinalIgnoreCase)
+if (-not $dist.Equals($defaultDist, [System.StringComparison]::OrdinalIgnoreCase) -and -not $insideBuild) {
+    throw "Linux package output must be the default dist directory or stay inside .build: $dist"
+}
+if ($insideBuild -and (Test-Path -LiteralPath $buildRoot) -and ((Get-Item -LiteralPath $buildRoot -Force).Attributes -band [System.IO.FileAttributes]::ReparsePoint)) {
+    throw "Build root must not be a symbolic link or junction: $buildRoot"
+}
+if ($insideBuild) {
+    $currentPath = $buildRoot
+    foreach ($segment in $dist.Substring($buildRoot.Length + 1).Split([System.IO.Path]::DirectorySeparatorChar)) {
+        $currentPath = Join-Path $currentPath $segment
+        if ((Test-Path -LiteralPath $currentPath) -and ((Get-Item -LiteralPath $currentPath -Force).Attributes -band [System.IO.FileAttributes]::ReparsePoint)) {
+            throw "Linux package output must not traverse a symbolic link or junction: $currentPath"
+        }
+    }
+}
+$expectedArchive = Join-Path $dist "mulletaflix_${version}_linux-x64.tar.gz"
+if (Test-Path -LiteralPath $expectedArchive) { throw "Refusing to overwrite an existing Linux package: $expectedArchive" }
 $webPath = [System.IO.Path]::GetFullPath((Join-Path $repoRoot $WebDist))
 if (-not (Test-Path -LiteralPath (Join-Path $webPath 'index.html'))) { throw 'Built production web payload required.' }
 $workDir = Join-Path ([System.IO.Path]::GetTempPath()) ('mulletaflix-linux-package-' + [guid]::NewGuid().ToString('N'))
@@ -26,9 +55,9 @@ try {
         $content = [System.IO.File]::ReadAllText((Join-Path $PSScriptRoot $mapping[0])).Replace("`r`n", "`n")
         [System.IO.File]::WriteAllText((Join-Path $appDir $mapping[1]), $content, [System.Text.UTF8Encoding]::new($false))
     }
-    $dist = Join-Path $repoRoot 'dist'
     New-Item -ItemType Directory -Path $dist -Force | Out-Null
     $archive = Join-Path $dist "mulletaflix_${version}_linux-x64.tar.gz"
+    if (Test-Path -LiteralPath $archive) { throw "Refusing to overwrite an existing Linux package: $archive" }
     $output = [System.IO.File]::Create($archive)
     $gzip = [System.IO.Compression.GZipStream]::new($output, [System.IO.Compression.CompressionLevel]::Optimal)
     $writer = [System.Formats.Tar.TarWriter]::new($gzip, $true)
