@@ -1,8 +1,14 @@
 # MulletaFlix Android - Plano de Desenvolvimento & Checklist de Funcionalidades (TODO)
 
+## Revalidação API 37.0 da permissão LAN — 2026-10-16
+
+- [ ] Repetir `LocalServerDiscoveryPermissionTest` somente após estabilizar o system server do emulador e preservar um diagnóstico seguro do crash pós-boot. AVD descartável Google APIs API 37.0 completou o boot, mas AndroidJUnit retornou `DeadObjectException`; `settings`/`package` sumiram e o XML contém `tests="0"`. Gradle `BUILD SUCCESSFUL` não equivale a teste executado; o wrapper rejeitou o relatório. Nenhum caso H14 foi contabilizado, e o defeito não foi atribuído ao APK.
+- [x] Testar mais uma imagem API 37 sem usar AVDs reservados: AVD `MulletaflixApi37_0GoogleApis_20261016`, perfil PHONE, QEMU confirmado na NVIDIA RTX 3050; wrapper encerrou AVD e ADB terminou vazio, sem wipe. Matriz continua inalterada.
+
 ## Validação Android 17 e TLS de servidor LAN — 2026-10-16
 
 - [ ] Repetir `LocalServerDiscoveryPermissionTest` em API 37 após resolver o bloqueio do emulador: diagnóstico `validation-evidence/2026-10-16/emulator-boot-diagnostics/MulletaFlixAndroid17Api37_20261016-5560-174534/` confirma `surfaceflinger` SIGABRT em `RegionSampling`, 4 falhas antes do boot e queda de `system_server`; zero testes/XML. Captura não altera aceitação do APK.
+- [ ] Reteste em imagem Google APIs 16 KB rev. 9, AVD novo `MulletaflixApi37_1Gapi_20261016`: QEMU confirmado na NVIDIA, ADB `device`, mas `sys.boot_completed` vazio, `system_server.start_count=41` e serviço Package Manager ausente. Interrompido antes do Gradle/runner; zero testes/XML e nenhum snapshot adicional de boot. AVD fechado sem wipe. É evidência de instabilidade de boot em mais uma imagem API 37, não bug/aprovação do APK; investigar sistema/emulador antes de repetir.
 - [x] Cobrir preservação e seleção automática de um endpoint HTTPS LAN anunciado para a identidade autenticada; 54 testes focais e gate JVM completo aprovados. É caracterização de regra/URL, não validação de certificado ou TLS real.
 - [ ] Reexecutar `LocalServerDiscoveryPermissionTest` em API 37 somente quando o AVD estiver estável: no AVD isolado Google APIs com Vulkan desativado, o boot chegou a completar, mas Package Manager oscilou e `system_server.start_count` chegou a 28; não houve XML JUnit nem teste contabilizável. AVD preservado em `D:\Android\avd\MulletaFlixAndroid17Api37VulkanOff_20261016.avd` para inspeção.
 - [ ] Homologar HTTPS na LAN em rede/dispositivo reais com certificado válido e nome/IP correspondente; manter validação TLS e cobrir autenticação, metadados e playback sem fallback indevido para HTTP. O responsável confirmou suporte HTTPS válido também na LAN; não altera a política do servidor.

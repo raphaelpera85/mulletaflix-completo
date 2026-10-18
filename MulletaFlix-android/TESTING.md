@@ -1,5 +1,9 @@
 # Testes do MulletaFlix Android
 
+### Android 17/API 37.0 — instrumentação abortada pelo system_server — 2026-10-16
+
+Executado `tools/with-emulator.ps1 -AvdName MulletaflixApi37_0GoogleApis_20261016 -Port 5562 -BootTimeoutMinutes 8` envolvendo `:app:connectedDebugAndroidTest` com `LocalServerDiscoveryPermissionTest` e perfil PHONE. O AVD Google APIs API 37.0 padrão completou boot; o wrapper confirmou a GPU dedicada NVIDIA RTX 3050. Durante AndroidJUnit houve `android.os.DeadObjectException`; depois `settings` e `package` não existiam e o cleanup do Android Test falhou ao restaurar animações/remover APKs. O Gradle retornou `BUILD SUCCESSFUL` em 2m24, mas o wrapper encontrou `TEST-MulletaflixApi37_0GoogleApis_20261016(AVD) - 17.xml` com `tests="0"` e encerrou com erro. Portanto não houve teste contabilizável nem resultado funcional. ADB terminou sem dispositivos; wrapper fechou o AVD, sem wipe. Nenhum AVD reservado foi iniciado ou alterado. Não foi capturado logcat de crash pós-boot; próxima tentativa precisa preservar evidência sem gravar tokens/dados de sessão. APK-H14 continua pendente.
+
 ### Caracterização de descoberta e recuperação HTTPS na LAN — 2026-10-16
 
 Como o requisito de certificado HTTPS válido na LAN foi confirmado, foram adicionados três testes de caracterização sem mudar código produtivo: `LocalServerDiscoveryTest` preserva esquema HTTPS, porta, caminho e `serverId` da resposta de descoberta; `ServerSelectionPolicyTest` seleciona automaticamente o endpoint HTTPS LAN apenas para a identidade salva; `LanServerRecoveryPolicyTest` mantém esse endpoint elegível para recuperação autenticada. Resultado focal: 4/4, 23/23 e 27/27 (54 no total; zero falhas/erros/ignorados). Quality gate: `testDebugUnitTest :feature:auth:lintDebug :app:lintDebug :app:assembleDebug :feature:auth:compileDebugAndroidTestKotlin :app:compileDebugAndroidTestKotlin` BUILD SUCCESSFUL (881 tarefas; 8 executadas, 873 `UP-TO-DATE`). Reexecução forçada de `testDebugUnitTest --rerun-tasks`: 1.788 testes em 256 XML, 0 falhas/erros/ignorados (470 tarefas executadas). Isto valida preservação e seleção de URL em regras puras; não faz handshake TLS, não verifica certificado, nem comprova tráfego em LAN física. HTTPS real segue pendente.
@@ -653,6 +657,13 @@ Comando: `:app:testDebugUnitTest --tests "org.mulletaflix.android.service.Offlin
 ### Revalidação Android TV: Home atualizada e livros ocultos — 2026-10-16
 
 Comando: `tools/with-emulator.ps1 -AvdName MulletaflixCodexTvApi34_20261015 -Port 5560 -BootTimeoutMinutes 4 -Command gradlew.bat -CommandArgument @(':feature:home:connectedDebugAndroidTest', '-Pandroid.testInstrumentationRunnerArguments.expectedDeviceProfile=TV', '-Pandroid.testInstrumentationRunnerArguments.class=org.mulletaflix.feature.home.TvHomeRefreshIntegrationTest', '--no-daemon', '--console=plain')`. Resultado `BUILD SUCCESSFUL`; relatório preservado em `validation-evidence/2026-10-16/tv-home-refresh-library-hidden-TV-API34.xml`: 2 testes, 0 falhas/erros/ignorados. `booksLibraryFromLoadedFeedIsHiddenByRealTvHomeScreen` e `returning_to_tv_home_replaces_visible_media_with_refreshed_feed` passaram. Wrapper confirmou QEMU na NVIDIA RTX 3050, encerrou o AVD e ADB terminou sem dispositivos. A Home e feed são reais no app, mas os dados são sintéticos; não valida TV física, servidor remoto, duração prolongada ou aceite formal.
+### Android 17/API 37.1 — nova tentativa com imagem Google APIs — 2026-10-16
+
+- Instalado `system-images;android-37.1;google_apis_ps16k;x86_64` rev. 9 e criado o AVD descartável `MulletaflixApi37_1Gapi_20261016` (Pixel 7). Nenhum AVD preexistente foi reutilizado.
+- O wrapper abriu o emulador em `emulator-5556`; NVIDIA RTX 3050 confirmada. ADB chegou a `device`, mas boot não completou; em observação `sys.system_server.start_count=41`, serviço Package Manager ausente e `sys.boot_completed` vazio.
+- `LocalServerDiscoveryPermissionTest` não chegou a iniciar: Gradle/AndroidJUnit não foram executados, zero casos/XML. A tentativa foi interrompida após a repetição dos reinícios sistêmicos. O AVD foi encerrado, ADB ficou vazio; nenhum snapshot de diagnóstico foi preservado nesta interrupção.
+- Resultado inconclusivo de infraestrutura, não falha do APK nem aprovação. APK-H14 permanece pendente. Não repetir a mesma imagem; investigar boot do emulador antes de nova execução.
+
 ### Android 17/API 37 Play Store — tentativa de validação de rede local — 2026-10-16
 
 - Instalado o system image `system-images;android-37.2;google_apis_playstore_ps16k;x86_64` e criado AVD isolado `MulletaFlixAndroid17PlayApi37_20261016`; configuração Play Store habilitada, GPU host/NVIDIA e RAM 4 GiB. Nenhum AVD anterior foi alterado.

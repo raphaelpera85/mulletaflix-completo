@@ -1,5 +1,13 @@
 # Homologação formal — MulletaFlix Android
 
+### Android 17/API 37.0 — serviços do sistema morreram durante a instrumentação — 2026-10-16
+
+AVD descartável `MulletaflixApi37_0GoogleApis_20261016` completou boot e o Package Manager respondeu inicialmente; o wrapper confirmou QEMU na NVIDIA RTX 3050. Durante `:app:connectedDebugAndroidTest`, AndroidJUnit retornou `DeadObjectException`; `settings` e `package` ficaram indisponíveis. Gradle terminou `BUILD SUCCESSFUL`, porém o XML do runner contém `tests="0"` e o wrapper rejeitou o resultado. Contagem válida: zero testes. AVD encerrado pelo wrapper, ADB vazio e sem wipe; AVDs reservados pelo proprietário não foram tocados. É bloqueio sistêmico, não falha nem aprovação do APK. APK-H14 permanece pendente; matriz 10/21, 2 em validação, 9 pendentes, `formalSignoff=pending`.
+
+### Android 17/API 37.1 — boot sistêmico instável em nova imagem — 2026-10-16
+
+Foi instalada a imagem Google APIs 16 KB rev. 9 e criado o AVD descartável `MulletaflixApi37_1Gapi_20261016` (Pixel 7). QEMU usou a NVIDIA RTX 3050 e ADB chegou a `device`, mas `sys.boot_completed` permaneceu vazio, `sys.system_server.start_count` chegou a 41 e `service package` não existia. A execução foi interrompida antes do Gradle/AndroidJUnit após a repetição de reinícios sistêmicos; zero testes e nenhum XML. AVD ficou fechado, sem wipe; nenhum outro AVD foi tocado. Não foi salvo snapshot adicional de boot nesta interrupção. Isso é bloqueio de infraestrutura reproduzido em outra imagem, não falha nem aprovação do APK. APK-H14 continua pendente; matriz formal segue 10/21, 2 em validação, 9 pendentes e `formalSignoff=pending`.
+
 ### API 37 — diagnóstico persistido do boot do AVD — 2026-10-16
 
 O wrapper preservou o diagnóstico antes de fechar o AVD: `surfaceflinger` abortou com `SIGABRT` na thread `RegionSampling`, reiniciou quatro vezes e o `system_server` morreu; `sys.system_server.start_count=13`. `sys.boot_completed` e Package Manager não ficaram prontos na captura. `LocalServerDiscoveryPermissionTest` não iniciou; zero testes/XML. A primeira invocação instrumentada foi rejeitada pelo wrapper por faltar perfil PHONE e não conta; a invocação corrigida expirou no boot. AVD encerrado, sem wipe. Causa confirmada do bloqueio é inicialização gráfica/sistêmica do emulador, não falha do APK. APK-H14 permanece pendente; matriz 10/21, 2 em validação, 9 pendentes; `formalSignoff=pending`.

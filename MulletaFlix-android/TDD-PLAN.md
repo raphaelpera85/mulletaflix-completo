@@ -1,5 +1,12 @@
 # Plano de TDD do MulletaFlix Android
 
+### Repetição de permissão LAN API 37.0 — bloqueio sistêmico, sem alteração produtiva — 2026-10-16
+
+- A tarefa foi diagnóstica; não houve mudança de comportamento nem RED/GREEN de produção. Rodado o teste já existente `LocalServerDiscoveryPermissionTest` via wrapper em AVD novo Google APIs API 37.0/PHONE.
+- O sistema respondeu inicialmente, mas o início do AndroidJUnit retornou `DeadObjectException`. Em seguida os serviços `settings` e `package` sumiram. Gradle disse `BUILD SUCCESSFUL` em 2m24, porém o relatório XML continha zero testes e o wrapper falhou de forma correta ao exigir execução contabilizável.
+- Resultado: **0 testes Android**. Isso não demonstra defeito no APK nem valida `ACCESS_LOCAL_NETWORK`; APK-H14 permanece pendente. Sem mudança em código produtivo, dependências, versão ou release.
+- Limite diagnóstico: wrapper encerrou o AVD antes de persistir logcat de falha pós-boot; próxima tentativa deve capturar sinais de crash com sanitização, sem registrar tokens ou dados de sessão.
+
 ### Captura de diagnóstico do boot incompleto do AVD — 2026-10-16
 
 - RED: `Save-AndroidEmulatorBootEvidence.Tests.ps1` falhou porque o helper de persistência ainda não existia; após criar a primeira versão, o teste de stack também falhou porque frames vizinhos de `SIGABRT` não eram guardados.

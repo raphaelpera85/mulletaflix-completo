@@ -82,6 +82,19 @@ duplicado por conveniência.
    projeto e em uma sessão durável do vault. O dashboard reúne links, não é uma
    segunda lista de tarefas.
 
+## Sincronização do portal de homologação por rodada
+
+- Ao concluir cada rodada de trabalho Android, atualize
+  `../portal-site/homologacao-status.json` com a evidência verificada mais
+  recente; se nenhum teste/evidência funcional novo foi obtido, registre isso
+  explicitamente sem simular avanço nem alterar a matriz formal.
+- Rode `node --test portal-site/tests/homologacao.test.mjs` e valide o JSON
+  antes de encerrar a rodada. Mantenha totais, áreas, riscos e aceite formal
+  consistentes com `HOMOLOGACAO-APK.md` e os relatórios atuais.
+- Atualizar o arquivo no checkout não significa que o portal hospedado foi
+  publicado. Deploy exige credenciais/acesso disponíveis e autorização
+  específica; informe quando a atualização é somente local.
+
 Estados sugeridos para curadoria: `pendente`, `em andamento`, `bloqueado` e
 `concluído`. Só use concluído com evidência. A prioridade segue P0 crítica, P1
 alta, P2 normal, P3 baixa; prazo só quando realmente acordado. Mantenha no máximo

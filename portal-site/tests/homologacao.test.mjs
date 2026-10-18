@@ -77,6 +77,15 @@ test('renders every roadmap item and matching coverage counters', async () => {
     assert.equal((dashboard.getElement('feature-table').innerHTML.match(/<tr>/g) || []).length, 25);
     assert.equal(dashboard.getElement('feature-page-number').textContent, `Página 1 de ${Math.ceil(statusData.features.length / 25)}`);
 });
+test('publishes the latest Nebula startup finding without marking T2.1 complete', () => {
+    const event = statusData.events.find(item => item.id === 'server-nebula-live-runtime-promotion-2026-10-18-0827');
+
+    assert.ok(event);
+    assert.equal(event.status, 'in_progress');
+    assert.deepEqual(event.featureIds, ['T2.1']);
+    assert.match(event.evidence, /95\/95/);
+    assert.match(event.evidence, /sem download real/i);
+});
 test('search, status filter and pagination expose the matching roadmap rows', async () => {
     const dashboard = createDashboard();
     await settleDashboard();
@@ -85,8 +94,8 @@ test('search, status filter and pagination expose the matching roadmap rows', as
     dashboard.getElement('feature-search').listeners.input();
     assert.match(dashboard.getElement('feature-table').innerHTML, /T6\.1/);
     const t61Count = statusData.features.filter(feature => `${feature.id} ${feature.name} ${feature.area}`.includes('T6.1')).length;
-    assert.equal((dashboard.getElement('feature-table').innerHTML.match(/<tr>/g) || []).length, t61Count);
-    assert.equal(dashboard.getElement('feature-page-status').textContent, `Itens 1–${t61Count} de ${t61Count}`);
+    assert.equal((dashboard.getElement('feature-table').innerHTML.match(/<tr>/g) || []).length, Math.min(t61Count, 25));
+    assert.equal(dashboard.getElement('feature-page-status').textContent, `Itens 1–${Math.min(t61Count, 25)} de ${t61Count}`);
 
     dashboard.getElement('feature-search').value = '';
     dashboard.getElement('feature-search').listeners.input();
@@ -349,12 +358,10 @@ test('portal records Android API 24 and 35 connectivity callback validation with
     assert.equal(statusData.androidHomologation.formalSignoff, 'pending');
 });
 
-test('portal renders blocked validation events with a Portuguese warning state', async () => {
+test('portal renders blocked validation events with a Portuguese warning state in its isolated event fixture', async () => {
     const blockedEvent = statusData.events.find(item => item.id === 'android-local-network-api37-emulator-boot-blocked-2026-10-13');
-    const dashboard = createDashboard({
-        ...statusData,
-        events: [blockedEvent, ...statusData.events.filter(item => item !== blockedEvent)]
-    });
+    assert.ok(blockedEvent);
+    const dashboard = createDashboard({ ...statusData, events: [blockedEvent] });
     await settleDashboard();
 
     const events = dashboard.getElement('event-list').innerHTML;
@@ -463,7 +470,7 @@ test('portal mirrors the latest Android reader validation without promoting form
     assert.equal(matrix.areas.filter(item => item.status === 'pending').length, 9);
     assert.equal(matrix.formalSignoff, 'pending');
 
-    const dashboard = createDashboard();
+    const dashboard = createDashboard({ ...statusData, events: [event] });
     await settleDashboard();
     assert.match(dashboard.getElement('event-list').innerHTML, /Preservar ênfase CSS embutido no leitor HTML\/KF8/);
 });
@@ -485,7 +492,7 @@ test('portal mirrors accessible paginated PDF OCR progress without promoting APK
     assert.equal(matrix.areas.find(item => item.id === 'APK-H21').status, 'pending');
     assert.equal(matrix.formalSignoff, 'pending');
 
-    const dashboard = createDashboard();
+    const dashboard = createDashboard({ ...statusData, events: [event] });
     await settleDashboard();
     assert.match(dashboard.getElement('event-list').innerHTML, /Progresso acessível da busca paginada/);
 });
@@ -504,7 +511,7 @@ test('portal mirrors TV background pause and tablet PiP-close evidence without p
     assert.equal(matrix.areas.filter(item => item.status === 'in_progress').length, 2);
     assert.equal(matrix.formalSignoff, 'pending');
 
-    const dashboard = createDashboard();
+    const dashboard = createDashboard({ ...statusData, events: [event] });
     await settleDashboard();
     assert.match(dashboard.getElement('event-list').innerHTML, /Pausa em segundo plano na TV e fechamento de PiP no tablet/);
 });
@@ -525,7 +532,7 @@ test('portal mirrors full-document KF8 image rendering on Android TV without pro
     assert.equal(matrix.areas.find(item => item.id === 'APK-H21').status, 'pending');
     assert.equal(matrix.formalSignoff, 'pending');
 
-    const dashboard = createDashboard();
+    const dashboard = createDashboard({ ...statusData, events: [event] });
     await settleDashboard();
     assert.match(dashboard.getElement('event-list').innerHTML, /Imagem inline KF8 em Android TV/);
 });
@@ -550,9 +557,9 @@ test('portal mirrors nested KF8 style resets across device profiles without prom
     assert.equal(matrix.areas.find(item => item.id === 'APK-H21').status, 'pending');
     assert.equal(matrix.formalSignoff, 'pending');
 
-    const dashboard = createDashboard();
+    const dashboard = createDashboard({ ...statusData, events: [event] });
     await settleDashboard();
-    assert.match(dashboard.getElement('event-list').innerHTML, /Estilos aninhados e decoração CSS propagada/);
+    assert.match(dashboard.getElement('event-list').innerHTML, new RegExp(event.title));
 });
 
 test('portal mirrors SyncPlay Media3 command handling during media preparation without formal promotion', async () => {
@@ -572,7 +579,7 @@ test('portal mirrors SyncPlay Media3 command handling during media preparation w
     assert.equal(matrix.areas.filter(area => area.status === 'pending').length, 9);
     assert.equal(matrix.formalSignoff, 'pending');
 
-    const dashboard = createDashboard();
+    const dashboard = createDashboard({ ...statusData, events: [event] });
     await settleDashboard();
     assert.match(dashboard.getElement('event-list').innerHTML, /Comandos SyncPlay aplicados ao Media3 durante preparação da mídia/);
 });
@@ -597,7 +604,7 @@ test('portal mirrors offline download fixture race correction without formal pro
 
     const dashboard = createDashboard();
     await settleDashboard();
-    assert.match(dashboard.getElement('event-list').innerHTML, /Corrigir a sequência do fixture de retomada offline/);
+    assert.match(dashboard.getElement('event-list').innerHTML, /Nebula Downloader: log não comprova chamada do worker STRM/);
 });
 
 test('portal records each Android work-round review without fabricating homologation progress', async () => {
@@ -616,7 +623,7 @@ test('portal records each Android work-round review without fabricating homologa
     assert.equal(matrix.areas.filter(area => area.status === 'in_progress').length, 2);
     assert.equal(matrix.areas.filter(area => area.status === 'pending').length, 9);
 
-    const dashboard = createDashboard();
+    const dashboard = createDashboard({ ...statusData, events: [event] });
     await settleDashboard();
     assert.match(dashboard.getElement('event-list').innerHTML, /Revisão da homologação Android nesta rodada/);
 });
@@ -638,7 +645,7 @@ test('portal records the API 37.1 boot blocker without counting tests or closing
     assert.equal(matrix.areas.filter(area => area.status === 'pending').length, 9);
     assert.equal(matrix.formalSignoff, 'pending');
 
-    const dashboard = createDashboard();
+    const dashboard = createDashboard({ ...statusData, events: [event] });
     await settleDashboard();
     assert.match(dashboard.getElement('event-list').innerHTML, /Nova imagem Android 17 sem boot completo/);
 });
@@ -660,7 +667,7 @@ test('portal records API 37.0 system-server death with zero Android tests and no
     assert.equal(matrix.areas.filter(area => area.status === 'pending').length, 9);
     assert.equal(matrix.formalSignoff, 'pending');
 
-    const dashboard = createDashboard();
+    const dashboard = createDashboard({ ...statusData, events: [event] });
     await settleDashboard();
     assert.match(dashboard.getElement('event-list').innerHTML, /Android 17\/API 37\.0 derrubou serviços durante o AndroidTest/);
 });
@@ -677,15 +684,58 @@ test('portal reports the server Nebula release gate without claiming production 
     assert.match(event.evidence, /produção/i);
     assert.match(event.evidence, /dpl_22RZqxXtpqbAwL9EUW2Ys5sw6HQ1 READY/);
     assert.match(event.evidence, /HTTP 200/);
-    assert.equal(audit.passed, 1437);
-    assert.equal(audit.total, 1497);
-    assert.equal(audit.skipped, 60);
+    assert.equal(audit.passed, 4977);
+    assert.equal(audit.total, 5041);
+    assert.equal(audit.skipped, 64);
     assert.equal(audit.failed, 0);
-    assert.match(audit.label, /sem validação em produção/i);
+    assert.match(audit.label, /FullyQualifiedName!~Integration/);
 
     const dashboard = createDashboard();
     await settleDashboard();
-    assert.match(dashboard.getElement('event-list').innerHTML, /Nebula restrito às pastas de biblioteca configuradas/);
+    assert.match(dashboard.getElement('event-list').innerHTML, /Servidor: gate determinístico \.NET aprovado/);
+});
+
+test('portal records the current deterministic server suite without claiming integration or production validation', async () => {
+    const server = statusData.tracks.find(track => track.id === 'server');
+    const event = statusData.events.find(item => item.id === 'server-server-suite-gate-2026-10-18-0247');
+
+    assert.ok(event);
+    assert.equal(event.front, 'server');
+    assert.equal(event.status, 'in_progress');
+    assert.equal(server.testAudit.passed, 4977);
+    assert.equal(server.testAudit.total, 5041);
+    assert.equal(server.testAudit.skipped, 64);
+    assert.equal(server.testAudit.failed, 0);
+    assert.match(server.testAudit.label, /FullyQualifiedName!~Integration/);
+    assert.match(event.evidence, /NebulaPython.*592\/592/);
+    assert.match(event.evidence, /não tiveram testes correspondentes ao filtro/);
+    assert.match(event.evidence, /Nenhuma release de servidor criada/);
+    assert.ok(Date.parse(event.updatedAt) <= Date.parse(statusData.generatedAt));
+
+    const dashboard = createDashboard();
+    await settleDashboard();
+    assert.match(dashboard.getElement('event-list').innerHTML, /gate determinístico \.NET aprovado/);
+});
+
+test('portal records the orphaned Nebula worker and avoids claiming a production repair', async () => {
+    const server = statusData.tracks.find(track => track.id === 'server');
+    const event = statusData.events.find(item => item.id === 'server-nebula-orphaned-worker-2026-10-18-0254');
+
+    assert.ok(event);
+    assert.equal(event.status, 'in_progress');
+    assert.deepEqual(event.featureIds, ['T2.1']);
+    assert.match(event.evidence, /12\.1\.21/);
+    assert.match(event.evidence, /PID pai já não existe/);
+    assert.match(event.evidence, /não expõe PID/);
+    assert.match(event.evidence, /não foi encerrado/);
+    assert.match(event.evidence, /passou 1\/1/);
+    assert.equal(server.testAudit.passed, 4977);
+    assert.equal(server.testAudit.total, 5041);
+    assert.ok(Date.parse(event.updatedAt) <= Date.parse(statusData.generatedAt));
+
+    const dashboard = createDashboard({ ...statusData, events: [event] });
+    await settleDashboard();
+    assert.match(dashboard.getElement('event-list').innerHTML, new RegExp(event.title));
 });
 
 test('server Nebula STRM download scan records tests without claiming production homologation', () => {
@@ -708,7 +758,7 @@ test('server Nebula startup audit records the disabled global gate without claim
     assert.match(event.evidence, /Smoke test manual.*pendentes/);
     assert.match(event.evidence, /não expôs suas linhas de comando/);
 
-    const dashboard = createDashboard();
+    const dashboard = createDashboard({ ...statusData, events: [event] });
     await settleDashboard();
     assert.match(dashboard.getElement('event-list').innerHTML, /Downloader Nebula sem início automático/);
 });
@@ -749,7 +799,7 @@ test('portal records title-level Nebula download startup without claiming produc
     assert.equal(server.status, 'in_progress');
     assert.equal(statusData.androidHomologation.formalSignoff, 'pending');
 
-    const dashboard = createDashboard();
+    const dashboard = createDashboard({ ...statusData, events: [event] });
     await settleDashboard();
     assert.match(dashboard.getElement('event-list').innerHTML, /Nebula inicia o download após indexar o primeiro título/);
 });
@@ -768,7 +818,7 @@ test('portal records real-library Nebula scan revalidation as partial', async ()
     assert.match(event.evidence, /Nenhum download, Mongo\/Telegram, worker ou configuração de produção foi alterado/);
     assert.match(event.evidence, /Correção local não instalada/);
 
-    const dashboard = createDashboard();
+    const dashboard = createDashboard({ ...statusData, events: [event] });
     await settleDashboard();
     assert.match(dashboard.getElement('event-list').innerHTML, /Revalidar o início do primeiro download Nebula/);
 });
@@ -787,7 +837,7 @@ test('portal records library refresh admission and downloader false-response fee
     assert.match(event.evidence, /574\/574/);
     assert.match(event.evidence, /Sem navegador real, teste de carga, download\/worker de produção/);
 
-    const dashboard = createDashboard();
+    const dashboard = createDashboard({ ...statusData, events: [event] });
     await settleDashboard();
     assert.match(dashboard.getElement('event-list').innerHTML, /Admissão de refresh global e feedback do downloader Nebula/);
 });
@@ -870,6 +920,406 @@ test('portal records CPython 3.12 dependency fix and keeps release blocked by Gi
     assert.match(event.evidence, /conta bloqueada por cobrança/);
     assert.match(event.evidence, /Sem tag\/release/);
     assert.match(event.evidence, /produção 12\.1\.21/);
+});
+
+test('portal keeps the Nebula download correction pending until the runtime is updated', () => {
+    const event = statusData.events.find(item => item.id === 'server-nebula-runtime-version-revalidation-2026-10-17-1056');
+
+    assert.ok(event);
+    assert.equal(event.front, 'server');
+    assert.equal(event.status, 'in_progress');
+    assert.deepEqual(event.featureIds, ['T2.1']);
+    assert.match(event.evidence, /GET \/System\/Info\/Public respondeu 12\.1\.21/);
+    assert.match(event.evidence, /fonte 12\.1\.24/);
+    assert.match(event.evidence, /NebulaDownloaderStartupTests 11\/11/);
+    assert.match(event.evidence, /test_strm_downloader\.py \+ test_strm_downloader_helpers\.py 89\/89/);
+    assert.match(event.evidence, /Nenhum worker, download, instalação.*ou restart executado/);
+    assert.ok(Date.parse(event.updatedAt) <= Date.parse(statusData.generatedAt));
+});
+
+test('avatar admin routes publish denial and authorized-pipeline evidence without claiming production deployment', () => {
+    const event = statusData.events.find(item => item.id === 'server-avatar-admin-authorization-2026-10-17-1108');
+
+    assert.ok(event);
+    assert.equal(event.status, 'in_progress');
+    assert.equal(event.front, 'Servidor / autorização de API');
+    assert.match(event.evidence, /12\/12/);
+    assert.match(event.evidence, /Matriz focada Nebula\+GetAvatar: 26\/26/);
+    assert.match(event.evidence, /Jellyfin\.Api\.Tests Release: 706\/706/);
+    assert.match(event.evidence, /não foi instalado nem liberado em produção|Sem instalação ou validação em produção/);
+    assert.ok(Date.parse(event.updatedAt) <= Date.parse(statusData.generatedAt));
+});
+
+test('Nebula download remains pending while production uses the older worker runtime', () => {
+    const event = statusData.events.find(item => item.id === 'server-nebula-download-runtime-stale-2026-10-17-1114');
+
+    assert.ok(event);
+    assert.equal(event.front, 'server');
+    assert.equal(event.status, 'in_progress');
+    assert.deepEqual(event.featureIds, ['T2.1']);
+    assert.match(event.evidence, /GET \/System\/Info\/Public continua em 12\.1\.21/);
+    assert.match(event.evidence, /fonte 12\.1\.24/);
+    assert.match(event.evidence, /NebulaDownloaderStartupTests Release 11\/11/);
+    assert.match(event.evidence, /scanner\/helpers 89\/89/);
+    assert.match(event.evidence, /Nenhum worker\/download real.*restart executado/);
+    assert.match(event.evidence, /publicação, instalação e smoke test continuam pendentes/);
+    assert.ok(Date.parse(event.updatedAt) <= Date.parse(statusData.generatedAt));
+});
+
+test('Nebula download revalidation distinguishes passing source tests from stale production runtime', async () => {
+    const event = statusData.events.find(item => item.id === 'server-nebula-download-runtime-revalidation-2026-10-17-1137');
+
+    assert.ok(event);
+    assert.equal(event.status, 'in_progress');
+    assert.deepEqual(event.featureIds, ['T2.1']);
+    assert.match(event.evidence, /API local confirmou servidor 12\.1\.21/);
+    assert.match(event.evidence, /fonte 12\.1\.24/);
+    assert.match(event.evidence, /NebulaDownloaderStartupTests Release 11\/11/);
+    assert.match(event.evidence, /NebulaPython 587\/587/);
+    assert.match(event.evidence, /tag v12\.1\.24 ausente.*gh sem sessão/);
+    assert.match(event.evidence, /Não houve download real, instalação ou restart/i);
+    assert.match(event.evidence, /release e smoke test real continuam pendentes/);
+    assert.ok(Date.parse(event.updatedAt) <= Date.parse(statusData.generatedAt));
+
+    const dashboard = createDashboard({ ...statusData, events: [event] });
+    await settleDashboard();
+    assert.match(dashboard.getElement('event-list').innerHTML, /Nebula: downloader de produção ainda usa runtime antigo/);
+});
+
+test('Nebula download recheck publishes passing source tests but keeps production and release gates open', () => {
+    const event = statusData.events.find(item => item.id === 'server-nebula-download-runtime-recheck-2026-10-17-1222');
+
+    assert.ok(event);
+    assert.equal(event.status, 'in_progress');
+    assert.deepEqual(event.featureIds, ['T2.1']);
+    assert.match(event.evidence, /produção 12\.1\.21/);
+    assert.match(event.evidence, /NebulaDownloaderStartupTests` Release 11\/11/);
+    assert.match(event.evidence, /scanner\/helpers 89\/89/);
+    assert.match(event.evidence, /candidato Windows SHA-256/);
+    assert.match(event.evidence, /Linux SHA-256/);
+    assert.match(event.evidence, /tag v12\.1\.24 ausente/);
+    assert.match(event.evidence, /não está aplicada\/homologada em produção/);
+    assert.ok(Date.parse(event.updatedAt) <= Date.parse(statusData.generatedAt));
+});
+
+test('Nebula live recheck records stale production log and no active downloader child', () => {
+    const event = statusData.events.find(item => item.id === 'server-nebula-live-process-log-recheck-2026-10-17-1227');
+
+    assert.ok(event);
+    assert.equal(event.status, 'in_progress');
+    assert.deepEqual(event.featureIds, ['T2.1']);
+    assert.match(event.evidence, /produção 12\.1\.21/);
+    assert.match(event.evidence, /nebula\.log.*11\/10\/2026 23:22:32/i);
+    assert.match(event.evidence, /nenhum processo Python\/STRM\/rclone descendente/i);
+    assert.match(event.evidence, /não comprova.*motivo.*falha/i);
+    assert.match(event.evidence, /não houve.*iniciar worker.*download.*instalação.*restart/i);
+    assert.ok(Date.parse(event.updatedAt) <= Date.parse(statusData.generatedAt));
+});
+
+test('Nebula download investigation distinguishes worker startup from long production scan', () => {
+    const event = statusData.events.find(item => item.id === 'server-nebula-download-start-investigation-2026-10-17-1240');
+
+    assert.ok(event);
+    assert.equal(event.status, 'in_progress');
+    assert.deepEqual(event.featureIds, ['T2.1']);
+    assert.match(event.evidence, /três workers iniciados e sem progresso de mídia aparente/);
+    assert.match(event.evidence, /produção 12\.1\.21/);
+    assert.match(event.evidence, /fonte 12\.1\.24/);
+    assert.match(event.evidence, /Python 89\/89 e C# startup\/hosted service 26\/26/);
+    assert.match(event.evidence, /Não foi disparada a fila completa/);
+    assert.match(event.evidence, /release\/instalação e smoke test limitado ainda pendentes/);
+    assert.ok(Date.parse(event.updatedAt) <= Date.parse(statusData.generatedAt));
+});
+
+test('STRM generator package gate rejects a stage missing the required module', () => {
+    const event = statusData.events.find(item => item.id === 'server-nebula-strm-generator-stage-integrity-2026-10-17-1234');
+
+    assert.ok(event);
+    assert.equal(event.status, 'in_progress');
+    assert.deepEqual(event.featureIds, ['T0.3']);
+    assert.match(event.evidence, /Assert-StageIntegrity\.Tests\.ps1 passou/);
+    assert.match(event.evidence, /StageBuildOptions\.Tests\.ps1 passou/);
+    assert.match(event.evidence, /test_generate_strm\.py \+ test_control_plane_operations\.py: 27\/27/);
+    assert.match(event.evidence, /T0\.3 permanece parcial/);
+    assert.ok(Date.parse(event.updatedAt) <= Date.parse(statusData.generatedAt));
+});
+
+test('Nebula download runtime recheck keeps production and release gates explicit', () => {
+    const event = statusData.events.find(item => item.id === 'server-nebula-download-runtime-recheck-2026-10-17-1943');
+
+    assert.ok(event);
+    assert.equal(event.status, 'in_progress');
+    assert.deepEqual(event.featureIds, ['T2.1']);
+    assert.match(event.evidence, /produção 12\.1\.21/);
+    assert.match(event.evidence, /NebulaPython 587\/587/);
+    assert.match(event.evidence, /NebulaDownloaderStartupTests Release 11\/11/);
+    assert.match(event.evidence, /run 39037932557 terminou com falha/);
+    assert.match(event.evidence, /sem runner atribuído ou etapas executadas/);
+    assert.match(event.evidence, /Produção não corrigida\/homologada/);
+    assert.ok(Date.parse(event.updatedAt) <= Date.parse(statusData.generatedAt));
+});
+
+test('Nebula port collision log keeps production homologation open', () => {
+    const event = statusData.events.find(item => item.id === 'server-nebula-download-port-collision-log-2026-10-17-2003');
+
+    assert.ok(event);
+    assert.equal(event.status, 'in_progress');
+    assert.deepEqual(event.featureIds, ['T2.1']);
+    assert.match(event.evidence, /WinError 10048/);
+    assert.match(event.evidence, /rclone saindo com código 0/);
+    assert.match(event.evidence, /NebulaDownloaderStartupTests Release 15\/15/);
+    assert.match(event.evidence, /12\/12/);
+    assert.match(event.evidence, /não registra mídia iniciando transferência/);
+    assert.ok(Date.parse(event.updatedAt) <= Date.parse(statusData.generatedAt));
+});
+
+test('Nebula upload startup conflict keeps deployment and real download pending', () => {
+    const event = statusData.events.find(item => item.id === 'server-nebula-upload-mode-port-conflict-2026-10-17-2016');
+
+    assert.ok(event);
+    assert.equal(event.status, 'in_progress');
+    assert.deepEqual(event.featureIds, ['T2.1']);
+    assert.match(event.evidence, /WinError 10048/);
+    assert.match(event.evidence, /NebulaDownloaderStartupTests Release 15\/15/);
+    assert.match(event.evidence, /22\/22/);
+    assert.match(event.evidence, /restore\/concorrência Mongo isolados 20\/20/);
+    assert.match(event.evidence, /Release não publicada\/instalada/);
+    assert.match(event.evidence, /download real pendente/);
+    assert.ok(Date.parse(event.updatedAt) <= Date.parse(statusData.generatedAt));
+});
+
+test('Nebula mount duplicate helper records deterministic result and keeps production gate open', () => {
+    const event = statusData.events.find(item => item.id === 'server-nebula-mount-duplicate-result-fix-2026-10-17-2024');
+
+    assert.ok(event);
+    assert.equal(event.status, 'in_progress');
+    assert.deepEqual(event.featureIds, ['T2.1']);
+    assert.match(event.evidence, /test_mount_drive_n\.py 3\/3/);
+    assert.match(event.evidence, /NebulaPython 591\/591/);
+    assert.match(event.evidence, /código 3 indica somente outro helper/);
+    assert.match(event.evidence, /26\/26/);
+    assert.match(event.evidence, /WinError 10048/);
+    assert.match(event.evidence, /download real permanecem pendentes/);
+    assert.ok(Date.parse(event.updatedAt) <= Date.parse(statusData.generatedAt));
+});
+
+test('Nebula downloader starts independently while automatic N drive retry stays gated by Envio', () => {
+    const event = statusData.events.find(item => item.id === 'server-nebula-downloader-independent-start-2026-10-17-2037');
+
+    assert.ok(event);
+    assert.equal(event.status, 'in_progress');
+    assert.deepEqual(event.featureIds, ['T2.1']);
+    assert.match(event.evidence, /StartDownloaderAsync/);
+    assert.match(event.evidence, /retry automático de N: agora também é suprimido quando Envio\/FTP não está ativo/);
+    assert.match(event.evidence, /NebulaDownloaderStartupTests \+ NebulaHostedServiceConfigurationTests 35\/35/);
+    assert.match(event.evidence, /1\.473 aprovados, 63 ignorados, 0 falhas/);
+    assert.match(event.evidence, /colisão 2121 persiste/);
+    assert.match(event.evidence, /smoke test de transferência e homologação de produção pendentes/);
+    assert.ok(Date.parse(event.updatedAt) <= Date.parse(statusData.generatedAt));
+});
+
+test('Nebula production recheck publishes the stale runtime, port collision, and local test evidence', async () => {
+    const event = statusData.events.find(item => item.id === 'server-nebula-download-runtime-check-2026-10-18-0225');
+
+    assert.ok(event);
+    assert.equal(event.status, 'in_progress');
+    assert.deepEqual(event.featureIds, ['T2.1']);
+    assert.match(event.evidence, /HTTP 200.*produção 12\.1\.21/);
+    assert.match(event.evidence, /readiness antigo aceitando outro processo/);
+    assert.match(event.evidence, /WinError 10048/);
+    assert.match(event.evidence, /Python Nebula 592\/592/);
+    assert.match(event.evidence, /Release 39\/39/);
+    assert.match(event.evidence, /primeiro download real permanecem pendentes/);
+    assert.ok(Date.parse(event.updatedAt) <= Date.parse(statusData.generatedAt));
+
+    const dashboard = createDashboard();
+    await settleDashboard();
+    assert.match(dashboard.getElement('event-list').innerHTML, /produção segue 12\.1\.21; porta FTP impede validar o download/);
+});
+
+test('Nebula stream-only logs are not treated as proof that the STRM downloader started', () => {
+    const event = statusData.events.find(item => item.id === 'server-nebula-streaming-vs-downloader-2026-10-18-0233');
+
+    assert.ok(event);
+    assert.equal(event.status, 'in_progress');
+    assert.deepEqual(event.featureIds, ['T2.1']);
+    assert.match(event.evidence, /Modo Somente Streaming/);
+    assert.match(event.evidence, /WinError 10048/);
+    assert.match(event.evidence, /Não há \[STRM-WORKER-READY\]/);
+    assert.match(event.evidence, /causa da ausência de marcadores permanece indeterminada/);
+    assert.match(event.evidence, /smoke test de download real pendentes/);
+    assert.ok(Date.parse(event.updatedAt) <= Date.parse(statusData.generatedAt));
+});
+
+test('Nebula downloader disabled startup remains pending and does not imply manual start or production success', () => {
+    const event = statusData.events.find(item => item.id === 'server-nebula-downloader-disabled-config-check-2026-10-18-0340');
+
+    assert.ok(event);
+    assert.equal(event.status, 'in_progress');
+    assert.deepEqual(event.featureIds, ['T2.1']);
+    assert.match(event.evidence, /NebulaFTP está desabilitado na configuração/);
+    assert.match(event.evidence, /POST StartDownloader.*antecedem o início do processo atual/);
+    assert.match(event.evidence, /uma ação manual atual não foi executada nem confirmada/);
+    assert.match(event.evidence, /poderá varrer e baixar itens de toda a pasta monitorada/);
+    assert.ok(Date.parse(event.updatedAt) <= Date.parse(statusData.generatedAt));
+});
+
+test('Nebula port collision log keeps production download homologation open', () => {
+    const event = statusData.events.find(item => item.id === 'server-nebula-runtime-port-conflict-log-2026-10-18-0352');
+
+    assert.ok(event);
+    assert.equal(event.status, 'in_progress');
+    assert.deepEqual(event.featureIds, ['T2.1']);
+    assert.match(event.evidence, /falham ao vincular `127\.0\.0\.1:2121` com WinError 10048/);
+    assert.match(event.evidence, /Não aparecem `\[STRM-WORKER-READY\]`, `\[STRM-SCAN-STARTED\]`, título em fila ou transferência/);
+    assert.match(event.evidence, /39\/39/);
+    assert.match(event.evidence, /produção 12\.1\.21/);
+    assert.ok(Date.parse(event.updatedAt) <= Date.parse(statusData.generatedAt));
+});
+
+test('Nebula autosave correction remains partial until a real STRM download is verified', () => {
+    const event = statusData.events.find(item => item.id === 'server-nebula-autosave-download-check-2026-10-18-0403');
+
+    assert.ok(event);
+    assert.equal(event.status, 'in_progress');
+    assert.deepEqual(event.featureIds, ['T2.1']);
+    assert.match(event.evidence, /autosaves preservam o Enabled persistido/);
+    assert.match(event.evidence, /JavaScript 4\/4/);
+    assert.match(event.evidence, /Python 3\.10 3\/3/);
+    assert.match(event.evidence, /Release 39\/39/);
+    assert.match(event.evidence, /não há readiness\/scan STRM, item de fila ou transferência/);
+    assert.match(event.evidence, /nenhuma release foi criada/);
+    assert.ok(Date.parse(event.updatedAt) <= Date.parse(statusData.generatedAt));
+    assert.match(event.title, /autosave preserva Enabled/);
+});
+
+test('Nebula download startup log remains partial until runtime transfer is verified', () => {
+    const event = statusData.events.find(item => item.id === 'server-nebula-download-start-runtime-log-2026-10-18-0427');
+
+    assert.ok(event);
+    assert.equal(event.status, 'in_progress');
+    assert.deepEqual(event.featureIds, ['T2.1']);
+    assert.match(event.evidence, /Somente Streaming, que desativa feeder, fila e workers de upload/);
+    assert.match(event.evidence, /WinError 10048/);
+    assert.match(event.evidence, /startup\/configuração\/mount C# 45\/45/);
+    assert.match(event.evidence, /ciclo de vida\/mount Python 9\/9/);
+    assert.match(event.evidence, /suíte NebulaPython completa 592\/592/);
+    assert.match(event.evidence, /execução global inconclusiva, não aprovada/);
+    assert.match(event.evidence, /Nenhum serviço\/processo\/mount\/configuração.*nenhuma transferência real/);
+    assert.ok(Date.parse(event.updatedAt) <= Date.parse(statusData.generatedAt));
+});
+
+test('Nebula Python mode promotion fix remains in progress until production transfer is verified', () => {
+    const event = statusData.events.find(item => item.id === 'server-nebula-python-mode-promotion-fix-2026-10-18-0444');
+
+    assert.ok(event);
+    assert.equal(event.status, 'in_progress');
+    assert.deepEqual(event.featureIds, ['T2.1']);
+    assert.match(event.evidence, /a promoção só encerrava o runtime antigo para a engine C#/);
+    assert.match(event.evidence, /C# Nebula startup\/hosted\/mount Release passou 49\/49/);
+    assert.match(event.evidence, /Python ciclo de vida\/health\/mount passou 16\/16/);
+    assert.match(event.evidence, /GET read-only confirma produção 12\.1\.21/);
+    assert.match(event.evidence, /homologação produtiva e release pendentes/);
+    assert.ok(Date.parse(event.updatedAt) <= Date.parse(statusData.generatedAt));
+});
+
+test('Nebula Envio startup exception does not block downloader attempt and keeps production gate open', () => {
+    const event = statusData.events.find(item => item.id === 'server-nebula-downloader-survives-envio-start-failure-2026-10-18-0542');
+
+    assert.ok(event);
+    assert.equal(event.status, 'in_progress');
+    assert.deepEqual(event.featureIds, ['T2.1']);
+    assert.match(event.evidence, /WinError 10048/);
+    assert.match(event.evidence, /continuar a tentativa independente do Downloader/);
+    assert.match(event.evidence, /44\/44/);
+    assert.match(event.evidence, /versão 12\.1\.21/);
+    assert.match(event.evidence, /Release e download real seguem pendentes/);
+    assert.ok(Date.parse(event.updatedAt) <= Date.parse(statusData.generatedAt));
+});
+
+test('Nebula stale runtime and preexisting drive stop mount retry loops without closing production gate', () => {
+    const event = statusData.events.find(item => item.id === 'server-nebula-stale-runtime-mount-retries-2026-10-18-0600');
+
+    assert.ok(event);
+    assert.equal(event.status, 'in_progress');
+    assert.deepEqual(event.featureIds, ['T2.1']);
+    assert.match(event.evidence, /WinError 10048/);
+    assert.match(event.evidence, /código 4/);
+    assert.match(event.evidence, /C# Release recompilado passou 29\/29/);
+    assert.match(event.evidence, /Python 3\.10 test_mount_drive_n\.py passou 3\/3/);
+    assert.match(event.evidence, /servidor local 12\.1\.21/);
+    assert.match(event.evidence, /processo Python pré-existente escutando 2121\/2123/);
+    assert.match(event.evidence, /release e smoke test real permanecem pendentes/);
+    assert.ok(Date.parse(event.updatedAt) <= Date.parse(statusData.generatedAt));
+});
+
+test('latest Nebula operational finding is visible and distinguishes autostart from manual download', async () => {
+    const event = statusData.events.find(item => item.id === 'server-nebula-autostart-disabled-manual-unverified-2026-10-18-0650');
+    const dashboard = createDashboard({ ...statusData, events: statusData.events.slice().reverse() });
+    await settleDashboard();
+
+    assert.ok(event);
+    assert.equal(event.status, 'in_progress');
+    assert.match(event.evidence, /Enabled=false/);
+    assert.match(event.evidence, /rota manual, independente via StartDownloaderAsync/);
+    assert.match(event.evidence, /C# Debug 51\/51/);
+    assert.match(event.evidence, /Python 3\.10 lifecycle\/downloader 23\/23/);
+    assert.match(event.evidence, /sem readiness\/scan STRM, item ou transferência/);
+    assert.match(event.evidence, /sem download real ou release/);
+    assert.ok(Date.parse(event.updatedAt) <= Date.parse(statusData.generatedAt));
+    assert.match(dashboard.getElement('event-list').innerHTML, /Nebula: autostart desativado; Downloader manual ainda não homologado/);
+});
+
+test('GetAvatar visibility fix is complete in source while production and HTTP gates stay open', () => {
+    const fixed = statusData.features.find(item => item.id === 'T6.1.24');
+    const pipelineGate = statusData.features.find(item => item.id === 'T6.1.23');
+    const parent = statusData.features.find(item => item.id === 'T6.1');
+
+    assert.ok(fixed);
+    assert.equal(fixed.status, 'completed');
+    assert.match(fixed.name, /controller 11\/11/);
+    assert.match(fixed.name, /Release focal combinada 37\/37/);
+    assert.match(fixed.name, /Pipeline HTTP completo da rota e produção seguem pendentes/);
+    assert.equal(pipelineGate.status, 'pending');
+    assert.equal(parent.status, 'pending');
+    const rollback = statusData.features.find(item => item.id === 'T6.1.25');
+    assert.ok(rollback);
+    assert.equal(rollback.status, 'completed');
+    assert.match(rollback.name, /12\/12/);
+    assert.equal(statusData.coverage.completed, 328);
+    assert.equal(statusData.coverage.pending, 65);
+    assert.equal(statusData.coverage.total, 397);
+});
+
+test('Nebula pauses mount retries when another helper owns the lock and leaves production gate open', () => {
+    const event = statusData.events.find(item => item.id === 'server-nebula-pause-conflicting-mount-retries-2026-10-18-0802');
+
+    assert.ok(event);
+    assert.equal(event.status, 'in_progress');
+    assert.deepEqual(event.featureIds, ['T2.1']);
+    assert.match(event.evidence, /código 3 era considerado retryável/);
+    assert.match(event.evidence, /NebulaMountRuntimeHealthTests 7\/7/);
+    assert.match(event.evidence, /NebulaMount 18\/18/);
+    assert.match(event.evidence, /não houve ação produtiva/i);
+    assert.match(event.evidence, /produção, download real e release permanecem pendentes/);
+    assert.ok(Date.parse(event.updatedAt) <= Date.parse(statusData.generatedAt));
+});
+
+test('Nebula Supabase admission audit reports evidence limits without claiming a stale lease', () => {
+    const event = statusData.events.find(item => item.id === 'server-nebula-supabase-admission-audit-2026-10-18-0812');
+    const server = statusData.tracks.find(track => track.id === 'server');
+
+    assert.ok(event);
+    assert.equal(event.status, 'in_progress');
+    assert.deepEqual(event.featureIds, ['T4.2']);
+    assert.match(event.evidence, /592\/592/);
+    assert.match(event.evidence, /Três testes C# Mongo compilaram e foram ignorados/);
+    assert.match(event.evidence, /não identifica proprietário ou expiração da lease/);
+    assert.match(server.testAudit.label, /592\/592/);
+    assert.match(server.testAudit.label, /Homologação formal continua aberta/);
+    assert.equal(statusData.coverage.pending, 65);
+    assert.equal(statusData.coverage.inProgress, 4);
+    assert.ok(Date.parse(event.updatedAt) <= Date.parse(statusData.generatedAt));
 });
 
 test('public homologation data contains no absolute Windows user-profile paths', () => {
