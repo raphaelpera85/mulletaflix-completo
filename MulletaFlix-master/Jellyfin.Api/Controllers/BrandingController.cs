@@ -3,6 +3,7 @@ using MediaBrowser.Controller.Configuration;
 using MediaBrowser.Model.Branding;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+using MulletaFlix.Api.Constants;
 
 namespace MulletaFlix.Api.Controllers;
 
@@ -40,7 +41,7 @@ public class BrandingController : BaseMulletaFlixApiController
             DefaultTheme = brandingOptions.DefaultTheme,
             SplashscreenEnabled = brandingOptions.SplashscreenEnabled,
             IntroEnabled = brandingOptions.IntroEnabled,
-            IntroPath = brandingOptions.IntroPath,
+            IntroPath = User.IsInRole(UserRoles.Administrator) ? brandingOptions.IntroPath : null,
             PrebufferEnabled = brandingOptions.PrebufferEnabled,
             PrebufferSizeMb = brandingOptions.PrebufferSizeMb,
             AdSenseEnabled = brandingOptions.AdSenseEnabled,
