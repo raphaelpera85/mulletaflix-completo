@@ -4,12 +4,20 @@ using System.IO;
 using System.Linq;
 using System.Net.Mime;
 using System.Reflection;
+using System.Security.Claims;
 using System.Text.Json;
 using System.Threading.Tasks;
 using MulletaFlix.Plugin.GetAvatar.Services;
 using MediaBrowser.Common.Api;
+using MediaBrowser.Common.Extensions;
+using MediaBrowser.Common.Net;
+using MediaBrowser.Controller.Configuration;
+using MediaBrowser.Controller.Devices;
 using MediaBrowser.Controller.Library;
+using MediaBrowser.Model.Configuration;
+using MulletaFlix.Data;
 using MulletaFlix.Database.Implementations.Entities;
+using MulletaFlix.Database.Implementations.Enums;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
@@ -28,6 +36,9 @@ namespace MulletaFlix.Plugin.GetAvatar.Controllers
         private readonly AvatarService _avatarService;
         private readonly OnlinePackService _onlinePackService;
         private readonly IUserManager _userManager;
+        private readonly IServerConfigurationManager _serverConfigurationManager;
+        private readonly INetworkManager _networkManager;
+        private readonly IDeviceManager _deviceManager;
         private readonly ILogger<AvatarController> _logger;
 
         /// <summary>
@@ -36,16 +47,25 @@ namespace MulletaFlix.Plugin.GetAvatar.Controllers
         /// <param name="avatarService">The avatar service.</param>
         /// <param name="onlinePackService">The online pack service.</param>
         /// <param name="userManager">The user manager.</param>
+        /// <param name="serverConfigurationManager">The server configuration manager.</param>
+        /// <param name="networkManager">The network manager.</param>
+        /// <param name="deviceManager">The device manager.</param>
         /// <param name="logger">The logger instance.</param>
         public AvatarController(
             AvatarService avatarService,
             OnlinePackService onlinePackService,
             IUserManager userManager,
+            IServerConfigurationManager serverConfigurationManager,
+            INetworkManager networkManager,
+            IDeviceManager deviceManager,
             ILogger<AvatarController> logger)
         {
             _avatarService = avatarService;
             _onlinePackService = onlinePackService;
             _userManager = userManager;
+            _serverConfigurationManager = serverConfigurationManager;
+            _networkManager = networkManager;
+            _deviceManager = deviceManager;
             _logger = logger;
         }
 
@@ -146,7 +166,7 @@ namespace MulletaFlix.Plugin.GetAvatar.Controllers
         /// <param name="category">The optional category for the avatar.</param>
         /// <returns>The created avatar info.</returns>
         [HttpPost("Upload")]
-        [Authorize(Policy = Policies.LocalAccessOrRequiresElevation)]
+        [Authorize(Roles = "Administrator")]
         public async Task<IActionResult> UploadAvatar(IFormFile file, [FromQuery] string category = "")
         {
             try
@@ -200,7 +220,7 @@ namespace MulletaFlix.Plugin.GetAvatar.Controllers
         /// <param name="avatarId">The avatar ID.</param>
         /// <returns>Status of deletion.</returns>
         [HttpDelete("Delete/{avatarId}")]
-        [Authorize(Policy = Policies.LocalAccessOrRequiresElevation)]
+        [Authorize(Roles = "Administrator")]
         public IActionResult DeleteAvatar(string avatarId)
         {
             try
@@ -236,6 +256,12 @@ namespace MulletaFlix.Plugin.GetAvatar.Controllers
                     return BadRequest("Invalid user ID");
                 }
 
+                var targetUser = _userManager.GetUserById(userGuid);
+                if (targetUser == null || !CanViewUserAvatar(targetUser))
+                {
+                    return NotFound();
+                }
+
                 var avatarId = _avatarService.GetUserAvatarId(userGuid);
                 if (string.IsNullOrEmpty(avatarId))
                 {
@@ -258,6 +284,7 @@ namespace MulletaFlix.Plugin.GetAvatar.Controllers
                     _ => "application/octet-stream"
                 };
 
+                Response.Headers.CacheControl = "no-store";
                 var image = System.IO.File.OpenRead(avatarPath);
                 return File(image, contentType);
             }
@@ -267,6 +294,56 @@ namespace MulletaFlix.Plugin.GetAvatar.Controllers
                 return StatusCode(500, "Failed to retrieve user avatar");
             }
         }
+
+        private bool CanViewUserAvatar(User targetUser)
+        {
+            var caller = HttpContext.User;
+            if (caller.Identity?.IsAuthenticated != true)
+            {
+                return IsPubliclyVisibleUser(targetUser);
+            }
+
+            if (HasBooleanClaim(caller, "MulletaFlix-IsApiKey"))
+            {
+                return true;
+            }
+
+            if (!Guid.TryParse(caller.FindFirstValue("MulletaFlix-UserId"), out var callerUserId))
+            {
+                return false;
+            }
+
+            var callerUser = _userManager.GetUserById(callerUserId);
+            return callerUser != null
+                && (callerUser.HasPermission(PermissionKind.IsAdministrator)
+                    || callerUserId == targetUser.Id
+                    || IsPubliclyVisibleUser(targetUser));
+        }
+
+        private bool IsPubliclyVisibleUser(User user)
+        {
+            if (user.HasPermission(PermissionKind.IsHidden) || user.HasPermission(PermissionKind.IsDisabled))
+            {
+                return false;
+            }
+
+            if (!_serverConfigurationManager.Configuration.IsStartupWizardCompleted)
+            {
+                return true;
+            }
+
+            var deviceId = HttpContext.User.FindFirstValue("MulletaFlix-DeviceId");
+            if (!string.IsNullOrWhiteSpace(deviceId) && !_deviceManager.CanAccessDevice(user, deviceId))
+            {
+                return false;
+            }
+
+            return _networkManager.IsInLocalNetwork(HttpContext.GetNormalizedRemoteIP())
+                || user.HasPermission(PermissionKind.EnableRemoteAccess);
+        }
+
+        private static bool HasBooleanClaim(ClaimsPrincipal principal, string claimType)
+            => bool.TryParse(principal.FindFirstValue(claimType), out var value) && value;
 
         /// <summary>
         /// Sets an avatar for the current user.
@@ -356,7 +433,7 @@ namespace MulletaFlix.Plugin.GetAvatar.Controllers
         /// <param name="request">The request containing the user ID.</param>
         /// <returns>Status of operation.</returns>
         [HttpPost("RemoveUserAvatar")]
-        [Authorize(Policy = Policies.LocalAccessOrRequiresElevation)]
+        [Authorize(Roles = "Administrator")]
         public async Task<IActionResult> RemoveUserAvatar([FromBody] RemoveAvatarRequest request)
         {
             try
@@ -387,7 +464,7 @@ namespace MulletaFlix.Plugin.GetAvatar.Controllers
         /// </summary>
         /// <returns>Validation results.</returns>
         [HttpPost("ValidateAvatars")]
-        [Authorize(Policy = Policies.LocalAccessOrRequiresElevation)]
+        [Authorize(Roles = "Administrator")]
         public async Task<IActionResult> ValidateAvatars()
         {
             try
@@ -414,7 +491,7 @@ namespace MulletaFlix.Plugin.GetAvatar.Controllers
         /// </summary>
         /// <returns>Cleanup results.</returns>
         [HttpPost("CleanupOrphans")]
-        [Authorize(Policy = Policies.LocalAccessOrRequiresElevation)]
+        [Authorize(Roles = "Administrator")]
         public IActionResult CleanupOrphanedFiles()
         {
             try
@@ -440,7 +517,7 @@ namespace MulletaFlix.Plugin.GetAvatar.Controllers
         /// </summary>
         /// <returns>Status information for all users with avatars.</returns>
         [HttpGet("AvatarStatus")]
-        [Authorize(Policy = Policies.LocalAccessOrRequiresElevation)]
+        [Authorize(Roles = "Administrator")]
         public IActionResult GetAvatarStatus()
         {
             try
