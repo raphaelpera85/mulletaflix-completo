@@ -1,5 +1,292 @@
 # Nebula STRM Downloader
 
+## Worker órfão mantém portas FTP/stream — 2026-10-18 13:28 (-03)
+
+- Nova inspeção read-only do host encontrou PID Python 6080 ouvindo em 2121 e 2123 desde 16/10 21:16:16; PID pai 19764 não existe. Serviço `MulletaFlixServer` não está instalado/registrado e API 8096 não responde. A identidade binária do processo não pôde ser lida, mas o timestamp coincide com o worker mostrado no log e com os binds em conflito. Isso confirma um worker órfão; não prova que ele seja a única causa de ausência de downloads.
+- O log mostra o worker em `STREAM_ONLY` desativando fila/workers de upload; tentativa posterior de modo completo falha ao vincular 127.0.0.1:2121 com WinError 10048. O runtime não chega a ativar os workers nessa tentativa.
+- Correção na fonte: o host TCP local já usado por cache lease agora aceita heartbeat autenticado. `main.py` consulta o lease a cada 5 s; após 3 falhas seguidas, sinaliza shutdown e libera FTP/HTTP. O contrato usa o socket/token efêmero existente; nenhum endpoint público ou dependência nova.
+- Verificações: implementação C# 1.499 aprovados/63 ignorados/0 falhas; NebulaPython 595/595. Mongo real, CI remota, instalação, Downloader no runtime e transferência seguem não verificados. O worker PID 6080 roda fonte antiga sem watchdog e permanece intocado para não interromper possíveis streams. Release não autorizada/validada nesta rodada; requer janela controlada para encerrar o órfão e instalar a candidata.
+- Homologação publicada no Git do portal: commit `f223be2963bf1b6beeecf4efb88c24a54bec2db8`; Vercel Production `READY` (`dpl_6PBRGHmru4SUbj7CaFqiUzSHdEQz`). O alias público `/homologacao-status.json` confirmou HTTP 200, `generatedAt=2026-10-18T13:30:00-03:00` e o evento desta auditoria como `in_progress`. Testes do portal 105/105. O URL individual do deployment exige autenticação; confirmação foi feita pelo alias público.
+
+## Revalidação focal pós-watchdog — 2026-10-18 13:35 (-03)
+
+- Reexecução local: `NebulaPlaybackCacheTests` Release 59/59; `test_main_lifecycle.py` com Python 3.10 9/9. Revisão do caminho de shutdown confirmou que `stop_event` leva ao `finally` que fecha FTP/HTTP, control plane, tasks e bots.
+- Snapshot read-only continua com PID Python 6080 escutando em 2121/2123; iniciado em 16/10 21:16:16, pai 19764 ausente. Serviço MulletaFlixServer e API 8096 seguem indisponíveis. PID não foi encerrado.
+- Revisão cavecrew independente indisponível por limite de agentes. Mapa técnico rechecado; protocolo/fluxo não mudou nesta rodada além do watchdog já mapeado. Nenhuma produção alterada; download real, instalação, Mongo e release pendentes.
+- Homologação publicada no Git do portal: commit `77d93202025d0d8b7c5f4a1f684f4e729b4b4fc5`; Vercel Production READY (`dpl_Dj3CUvw9Ej9DW1mymew6Yi8WExG8`). Alias público `/homologacao-status.json` respondeu HTTP 200, timestamp 13:35 (-03), evento `in_progress` e novos testes confirmados.
+
+## Cobertura da rota alternativa stream_service — 2026-10-18 13:39 (-03)
+
+- Revisão encontrou a rota de fallback `stream_service.py`: ela é lançada pelo mesmo `StartPythonStreamServiceAsync`, importa `main` para playback mas aguardava `serve_forever()` sem chamar o watchdog. Um servidor pai encerrado abruptamente poderia deixar o HTTP worker órfão.
+- Correção: `stream_service.py` agora lê o lease local configurado, executa `_watch_server_owner` junto ao loop HTTP, cancela e aguarda as tasks no encerramento. Sem porta/token de lease, preserva o comportamento legado.
+- Testes de lifecycle cobrem perda do supervisor, encerramento normal do servidor e compatibilidade sem lease. `test_main_lifecycle.py`: 12/12; suíte NebulaPython 598/598. C# `NebulaPlaybackCacheTests` Release 59/59.
+- Sem runtime/produção alterado. PID legado 6080 continua sem watchdog e permanece preservado; serviço MulletaFlixServer ausente, API 8096 indisponível. Transferência real, instalação, Mongo integration e release pendentes.
+- O mapa técnico foi atualizado para documentar ambas as rotas de execução. Homologação publicada no Git do portal no commit `ae1fa054fe1d331f087e5f3eca8af6fac8f7c12b`; Vercel Production READY (`dpl_79TCLc47WriiebBiWvz7C8pJPxss`). Alias público HTTP 200 confirmou `generatedAt=2026-10-18T13:39:00-03:00`, o evento `in_progress` e evidência dos testes/fallback.
+
+## Processo legado tem conexões ativas — 2026-10-18 13:42 (-03)
+
+- Novo snapshot de PID 6080 mostrou 37 conexões TCP estabelecidas, incluindo cinco para Mongo local, 28 conexões HTTPS externas e um par de sockets locais. Isso indica possível atividade real; não prova reprodução ou Downloader, mas contradiz tratá-lo como worker inativo.
+- A definição segura é “processo Python sem pai conhecido, ainda com conexões ativas”. Mantido sem alteração para evitar interromper tráfego; não encerrar sem janela/confirmar que não há uso.
+- O log ainda mostra `STREAM_ONLY` desativando upload workers e o modo full falhando ao vincular FTP 2121. Downloader não comprovado; API 8096 e serviço principal seguem ausentes.
+- Homologação atualizada no Git do portal, commit `3c18e5231d8ddc26d54b61bfed5106770fe421dc`; Vercel Production READY (`dpl_6PdkBZd7ufVTC9FxTfxtg59KaDAj`). Alias público respondeu HTTP 200 com `generatedAt=2026-10-18T13:42:00-03:00`, status `in_progress` e evidência das conexões ativas.
+
+## Regressão ampla do servidor — 2026-10-18 13:14 (-03)
+
+- `dotnet test MulletaFlix.sln --configuration Release --no-restore --filter "FullyQualifiedName!~Integration"` terminou com exit 0. `Jellyfin.Server.Implementations.Tests`: 1.498 aprovados, 63 ignorados, 0 falhas; `Jellyfin.Server.Tests`: 73 aprovados, 1 ignorado; `Jellyfin.Api.Tests`: 730/730; `Jellyfin.Providers.Tests`: 777/777. Demais projetos executados sem falhas reportadas. Integrações foram excluídas pelo filtro; ignorados não contam como aprovação.
+- `py -3.10 -m pytest tests -q`, dentro de `Tools/NebulaPython`, passou 592/592. Tentativa inicial no diretório pai não coletou testes por resolução de imports; execução corrigida no diretório do projeto passou.
+- Sem mudanças de runtime nesta rodada. API 8096 indisponível no snapshot read-only; testes locais não validam instalação nem transferência. Integrações Mongo, CI remota, smoke test e release permanecem pendentes. Mapa técnico conferido, sem mudança estrutural.
+- Homologação publicada no Git do portal, commit `9451bf5e146586c6e19b0dd2cc9828ca09805e2e`; Vercel Production `READY` (`dpl_DUU8P8dKSHWtVxgm32ZGM9Sj8ZF8`). Testes do portal 105/105; endpoint público HTTP 200 confirma evidências e status `in_progress`.
+
+### Reauditoria do serviço instalado — 2026-10-18 13:18 (-03)
+
+- Pasta do servidor, `MulletaFlix.exe` versão de produto 12.1.21 (mtime 16/10) e `nssm.exe` existem em `C:\Program Files\MulletaFlix\Server`; serviço `MulletaFlixServer` não está registrado. `MulletaFlixNginx` está ativo, mas API 8096 não responde. Consulta de 14 dias ao Service Control Manager encontrou evento de criação do Nginx em 05/10 e nenhum evento de criação MulletaFlixServer; isso não prova como/por que o serviço sumiu.
+- O NSIS atual contém os comandos NSSM de registro e início; `Test-CleanInstaller.ps1` verifica serviço `Running` e `/ready`. Não executei o teste: ele instala serviço do Windows e requer VM/ambiente isolado. GitHub CLI não está autenticada, então CI remota não pôde ser consultada.
+- Sem alteração de produção. Próximo gate é smoke test de instalação em VM isolada, diagnóstico da ausência do serviço e download STRM real. Release do servidor permanece bloqueada. Mapa técnico sem mudança estrutural.
+
+## Gate de compatibilidade do worker no pacote — 2026-10-18 11:14 (-03)
+
+- A instalação inspecionada contém `strm_downloader.py` de 08/10, sem `[STRM-WORKER-MONGO-READY]` nem `[STRM-SCAN-STARTED]`; a fonte atual emite o marcador Mongo que `StartPythonDownloaderAsync` exige para considerar o processo pronto. Isso torna a divergência fonte/produção uma causa provável para o botão retornar falha/timeout, mas o log anexado não registra a chamada manual nem o stdout do worker e não prova causalidade sozinho.
+- O gate `Assert-StageIntegrity` agora rejeita a fonte do downloader se ela não contiver o contrato `[STRM-WORKER-MONGO-READY]`, além de já comparar o hash da cópia staged com a fonte. Regressão valida stage correto, cópia desatualizada e worker idêntico sem o marcador.
+- Validação local: teste PowerShell de integridade de stage passou; `NebulaDownloaderStartupTests` + `NebulaHostedServiceConfigurationTests` Debug 47/47; `git diff --check` sem erros. Não foram executados download/scan real, instalação, endpoint manual ou restart.
+- A API local está indisponível e os listeners/processos em produção foram preservados. A correção em fonte impede novo pacote incompatível, mas não atualiza o servidor já instalado; requer build/instalação em janela controlada e smoke test do botão + primeiro título STRM. Sem release nesta rodada.
+- Mapa técnico conferido contra o fluxo existente `NebulaFtpManager.StartDownloaderAsync` → `StartPythonDownloaderAsync` → `strm_downloader.py` e o gate de stage; nenhum módulo/API/dependência ou topologia runtime nova. Registro de sessão: `2026-10-18-MulletaFlix-nebula-downloader-package-readiness-contract.md`.
+
+## Propriedade do sincronizador durante falha de startup — 2026-10-18 11:05 (-03)
+
+- `StartEnvioAsync` pode reutilizar o sincronizador Supabase já iniciado pelo modo streaming. A rotina de rollback agora descarta esse serviço somente quando foi criado pela tentativa de startup que falhou, evitando parar a sincronização de um runtime anterior.
+- Testes de startup/HostedService/cleanup: 57/57; suíte completa de Implementations: 1.496 aprovados, 63 ignorados, 0 falhas. Ocorrências similares em `StopEnvioAsync` e descarte do manager permanecem intencionais.
+- A alteração não resolve o runtime de produção: a API está indisponível e o listener antigo continua ativo. Sem teste de promoção em runtime, download real ou release.
+- Atualização de homologação publicada no portal Git: `Mulletaflix-Portal` commit `9e1484aada74ff807ef757719b8f4d7a598be019`; Vercel Production `READY`, JSON público HTTP 200 com status `in_progress`.
+
+## Reanálise do log e validação ampliada — 2026-10-18 10:44 (-03)
+
+- O anexo (16–17/10) confirma runtime `Somente Streaming` em 16/10, que desativa feeder/fila/workers, e falha posterior de bind FTP `127.0.0.1:2121` (WinError 10048) ao iniciar modo Envio; há retries do mount após o helper indicar outra montagem. Não há chamada `StartDownloader`, marcador STRM, item enfileirado ou transferência no trecho.
+- A interpretação permanece limitada: o log demonstra o conflito de porta e que aquela inicialização não ativou upload nesse processo; não demonstra que a ação separada do Downloader tenha sido chamada ou falhado.
+- Validação da fonte: suíte Python 3.10 `Tools/NebulaPython/tests` 592/592; `.NET` Release da solução com filtro `FullyQualifiedName!~Integration` terminou com exit 0; `Jellyfin.Server.Implementations.Tests` reportou 1.496 aprovados, 63 ignorados, 0 falhas; startup Nebula focal (Downloader + HostedService) 47/47. As falhas de coleta Python na primeira tentativa foram apenas por diretório de trabalho incorreto; a execução correta passou.
+- Nenhum serviço, processo, configuração, disco, mídia ou banco de produção foi alterado. Não houve início de worker nem transferência real. A homologação de T2.1 e a release continuam pendentes de runtime candidato em janela segura, readiness/scan comprovados e transferência limitada.
+- Evidência publicada no portal `Mulletaflix-Portal`, commit `2218a32`; endpoint público HTTP 200 confirmou o evento `server-nebula-log-validation-2026-10-18-1044` como `in_progress`.
+
+## Log de download sem início — 2026-10-18 10:33 (-03)
+
+- O log anexado é histórico (16–17/10): no primeiro trecho, o runtime inicia em `Modo Somente Streaming`, desativando feeder, fila e workers; em tentativas posteriores de `Modo Envio`, o bind `127.0.0.1:2121` falha com WinError 10048 e o mount entra em retries. Não há chamada `StartDownloader`, readiness/scan STRM, título em fila ou transferência.
+- Rechecagem local read-only: API MulletaFlix em `127.0.0.1:8096` recusou conexão; processo Python PID 6080 mantém 2121/2123 em LISTEN desde 16/10, com processo pai ausente. Pode ser worker órfão, mas também pode estar servindo playback; foi preservado. Nenhuma ação de produção foi executada.
+- Testes Release focados C#: 54/54. Python não executou porque `pytest` não está instalado no Python 3.14 disponível. Testes não validam instalação nem transferência real.
+- Conclusão: o log aponta início em modo que não baixa e conflito de runtime/porta, não falha comprovada do endpoint do Downloader. Para retestar, primeiro é necessária janela segura para resolver o listener; em seguida validar start/readiness/scan e uma transferência em raízes isoladas. T2.1 e release permanecem pendentes.
+- Homologação publicada no portal: Git `Mulletaflix-Portal` commit `030b0bd`; JSON público retornou HTTP 200 e contém o evento `server-nebula-download-log-followup-2026-10-18-1033`.
+
+## Interface em espera e versão de produção — 2026-10-18 10:26 (-03)
+
+- A página autenticada do Nebula mostra `Download: Parado`, botão `Iniciar Downloader STRM` habilitado e `Aguardando início do downloader`. O handler da fonte envia `POST NebulaFtp/Actions/StartDownloader`; o controller retorna o resultado de `StartDownloaderAsync`. O log fornecido não contém evidência de que a ação tenha sido chamada.
+- GET local somente leitura em `/System/Info/Public` respondeu HTTP 200 e confirmou a versão instalada 12.1.21, anterior à fonte candidata 12.1.24. `python.exe` PID 6080 mantém listeners 2121/2123; não foi encerrado para preservar playback potencial.
+- `NebulaDownloaderStartupTests` + `NebulaHostedServiceConfigurationTests` Release: 47/47. A ação manual usa todas as raízes `MonitorPaths`, atualmente incluindo `D:\midias`; nenhum start foi disparado para evitar scan/download amplo. Não houve alteração ou restart produtivo, Mongo/Telegram ou transferência real.
+- Não há correção adicional reproduzida nesta rechecagem: o caminho UI/API existente está ligado na fonte. A pendência é provar que a ação chega ao runtime atualizado e completar transferência limitada. T2.1 e release seguem abertos. Homologação publicada no portal: evento `server-nebula-download-ui-runtime-recheck-2026-10-18-1026`.
+- Publicação confirmada: portal Git `Mulletaflix-Portal` commit `1bc4c163b63e82b76b66bb09cb9f0d96256a089f`; Vercel Production `READY` (`dpl_433VYMHVNvegP941AjDYza2EZymZ`). GET público do JSON HTTP 200 confirmou o evento e cobertura 329/398, com 65 pendentes e 4 em andamento.
+
+## Handshake antes da descoberta de raízes — 2026-10-18 10:06 (-03)
+
+- `StartPythonDownloaderAsync` agora reconhece `[STRM-WORKER-MONGO-READY]` após `MediaValidator.refresh_cache(force=True)` e antes da enumeração da biblioteca; `[STRM-SCAN-STARTED]` permanece como marcador de progresso. O timeout de 60 s não precisa aguardar a descoberta completa de pastas.
+- Testes Release: `NebulaDownloaderStartupTests` 30/30; Python 3.10 `tests/test_strm_downloader.py` 17/17. Sem evidência de teste com serviços reais ou transferência completa.
+- Publicação de homologação: Git `Mulletaflix-Portal` commit `7482a90ea98ca76a2cb34771be0684910084ac07`; Vercel Production `READY` (`dpl_4JqgM5VikACtE6tq6bZHWCyAJcME`); endpoint público do status HTTP 200 confirmou o evento da rodada.
+- Produção local consultada por GET está em 12.1.21. Nenhum start, download, restart ou instalação foi acionado; o gate T2.1 e a release continuam pendentes de smoke test limitado em ambiente isolado/janela segura.
+
+## Auditoria do runtime instalado — 2026-10-18 09:12 (-03)
+
+Consulta somente leitura confirmou a instância local em `12.1.21` enquanto a fonte do servidor é candidata `12.1.24`. O `strm_downloader.py` instalado tem SHA-256 `3D41354345B79EAB19CB7A1FE0C01A02D0579130F18301D156CAF1C3221664C5` e não contém os marcadores de worker/scan; a fonte tem SHA-256 `2A671AFCA11BF06B48AAAEAA0DA49032F0A7FAD96F4963F6FEFEBD08B0B9CDBA` e os contém. Portas `2121` e `2123` estão abertas pelo mesmo processo Python; a consulta não pôde ler sua linha de comando. Não foram enviados comandos, encerrados processos, alteradas configurações ou iniciados downloads. Isso prova divergência de instalação, não causa da colisão 2121 nem sucesso/falha de transferência. Atualizar runtime e observar transferência requer janela de produção autorizada. Andamento publicado no portal, commit `4caad5d419f49a1c8697f2125c45eb8921465444`; Vercel Production `READY`, endpoint público HTTP 200 confirmou o evento como `in_progress`.
+
+## Critério de prontidão do downloader — 2026-10-18
+
+`[STRM-WORKER-READY]` informa apenas que o processo Python iniciou; é emitido antes da validação do índice Mongo e não pode representar sucesso de `StartDownloaderAsync`. A prontidão agora exige `[STRM-WORKER-MONGO-READY]`, emitido após a validação do índice e antes da descoberta das raízes STRM. Essa etapa pode ser demorada em bibliotecas grandes ou montadas remotamente; não deve consumir o timeout de startup nem encerrar um worker válido. `[STRM-SCAN-STARTED]` continua indicando que a varredura alcançou uma raiz e é evento de progresso, não gate de inicialização. Validação local: C# `NebulaDownloaderStartupTests` 30/30 e Python `test_strm_downloader.py` 17/17; isso valida o contrato em teste, não um download ou instalação em produção.
+
+## Alcance da ação manual StartDownloader — 2026-10-18 07:04 (-03)
+
+Inspeção estática da rota atual: `NebulaFtpController.StartDownloader` encaminha a chamada diretamente a `StartDownloaderAsync`; não consulta `NebulaFtpConfiguration.Enabled`. Esse flag controla o autostart no `NebulaHostedService`, não bloqueia a ação manual. A tela também deixa o botão habilitado quando `IsDownloaderRunning` é falso.
+
+O método manual valida todas as raízes configuradas em `MonitorPaths`, prepara dependências/runtime e Mongo, pode restaurar Mongo do Supabase quando vazio e inicia o Python passando todas as raízes por `--sources`, com `--watch`. Portanto, iniciar o endpoint não equivale a baixar um único título: o worker pode indexar as raízes inteiras e manter o monitoramento; o comportamento subsequente de fila depende da implementação do worker. Não foi feita chamada HTTP nem executado worker. Para teste estritamente unitário de um título, primeiro deve-se configurar um `MonitorPaths` isolado ou usar ambiente descartável, validar que não compartilha Mongo/pool/FTP e só então executar a transferência de teste.
+
+Testes anteriores desta rodada continuam sendo de fonte: C# 51/51 Debug, Python 3.10 23/23 e portal 82/82. Sem prova de instalação/readiness/transferência em produção; T2.1 e gate global de release continuam abertos. Portal de homologação atualizado no Git (`Mulletaflix-Portal`, commit `e32e4e9`); GET público HTTP 200 confirmou a evidência em 07:04. Mapa técnico conferido: fluxo existente, sem mudança estrutural. Sessão [[Sessões/2026-10-18-MulletaFlix-nebula-manual-route-scope-0704]].
+
+## Revalidação do autostart e do worker — 2026-10-18 06:50 (-03)
+
+O estado observado no host tem `Enabled=false` em `nebulaftp.xml`, e a raiz configurada de `MonitorPaths` existe. O log da inicialização do servidor em 17/10 também diz que o serviço estava desabilitado. Isso bloqueia o autostart de `NebulaHostedService`; não prova falha no endpoint manual `POST /NebulaFtp/Actions/StartDownloader`, que invoca `StartDownloaderAsync` independentemente desse gate. Não foi feita chamada manual nesta rechecagem.
+
+Não havia listener nas portas FTP 2121 e HTTP 2123 no snapshot de processos/conexões. O arquivo colado continua sendo o mesmo log histórico de 16–17/10 e relata WinError 10048 e retries de mount; sem evento atual, readiness/scan STRM, item em fila ou transferência. A fonte passou novamente 51 testes focados C# (Debug) e 23 testes Python 3.10 (lifecycle + downloader). Isso não valida produção.
+
+Nenhuma configuração, serviço, processo, mount, banco ou mídia foi alterado; nenhum download real foi iniciado. Para homologar a ação manual, obter autorização para testar um único item e registrar o booleano de `StartDownloader`, status e logs do worker. Para autostart, reativar NebulaFTP pela configuração administrativa. Não confundir as duas ações; a habilitação global também inicia componentes de Envio/FTP. T2.1 e o gate de release permanecem abertos.
+
+## Rechecagem do mesmo log e dos gates focados — 2026-10-18 06:32 (-03)
+
+O arquivo recebido novamente tem 54.444 bytes, 516 linhas e timestamp de 17/10/2026 19:52:55; é o mesmo log histórico já analisado, não uma nova amostra do runtime. Repete modo Somente Streaming, depois conflito de bind `127.0.0.1:2121` (WinError 10048) e retries do helper de montagem. Não contém chamada `StartDownloader`, readiness/scan STRM, título em fila ou transferência. Nenhuma correção adicional pode ser inferida desse anexo.
+
+Revalidação da fonte atual: build Release do projeto de testes de Implementations concluído com 0 avisos/erros; testes `NebulaDownloaderStartupTests` 27/27 e `NebulaHostedServiceConfigurationTests` + `NebulaMountRuntimeHealthTests` 24/24; Python 3.10 `test_mount_drive_n.py` 3/3; `git diff --check` sem erros (apenas avisos preexistentes de CRLF). Um primeiro comando .NET que combinava filtros ficou sem progresso visível e foi interrompido; a repetição com classes separadas passou. Nada foi instalado, reiniciado ou executado no runtime de produção; nenhum download real foi iniciado. O teste valida fonte, não operação produtiva. Sem nova release.
+
+O mapa técnico foi conferido e permanece estruturalmente igual: `NebulaHostedService`/`NebulaFtpManager` e `mount_drive_n.py`, sem módulo, endpoint ou dependência novos. T2.1 continua pendente até uma janela segura, identificação do listener e smoke test real limitado a um título.
+
+O andamento foi publicado no Git do portal (`Mulletaflix-Portal`, commit `7ef835c`, `main`); endpoint público confirmou `generatedAt`/`updatedAt` em 06:32 e o evento `in_progress`.
+
+## Rechecagem do log de download — 2026-10-18 06:18 (-03)
+
+O anexo recebido contém 516 linhas da operação de 16–17/10. Ele mostra `main.py` em “Somente Streaming” (que desativa feeder, fila e workers de upload), depois uma tentativa de modo Envio que falha ao abrir FTP `127.0.0.1:2121` com WinError 10048, seguida por retries de montagem. Não há chamada registrada de `NebulaFtp/Actions/StartDownloader`, `[STRM-WORKER-READY]`, `[STRM-SCAN-STARTED]`, título na fila ou transferência. Portanto, o log não permite afirmar que o Downloader STRM foi acionado nem localizar uma falha interna dele. Também há 248 adiamentos do backup Supabase por uploads Telegram ativos; o trecho não prova se essas leases correspondem a transferências efetivamente em andamento.
+
+Na fonte atual, `NebulaHostedService.StartComponentsAsync` tenta Downloader mesmo quando Envio falha, e o fluxo de startup valida readiness do worker. Regressões focadas recompiladas nesta rechecagem passaram: C# Release `NebulaDownloaderStartupTests`, `NebulaHostedServiceConfigurationTests` e `NebulaMountRuntimeHealthTests`, 51/51; Python 3.10 `test_mount_drive_n.py`, 3/3. Isso valida a fonte, não o runtime instalado.
+
+Inspeção somente leitura em 18/10: `/System/Info/Public` HTTP 200 reporta produção 12.1.21. `python.exe` antigo continua escutando HTTP 2123; FTP 2121 não aparece em estado Listening nesta coleta. Processo preservado. Nenhum POST, worker, instalação, restart, mount ou transferência foi iniciado. Não há release nem smoke test produtivo; T2.1 continua pendente até janela segura, instalação aprovada e transferência controlada de um item. O mapa técnico foi conferido e permanece estruturalmente correto; não houve mudança de fluxo nesta rechecagem. Portal de homologação atualizado no Git `Mulletaflix-Portal`, commit `886c253`; endpoint público HTTP 200 confirmou evento `in_progress`.
+
+## Estado real do runtime e retries da montagem N: — 2026-10-18 06:08 (-03)
+
+O novo log registra que o helper Python de montagem encerrou repetidamente com código 0 enquanto o serviço não considerava N: acessível. Na fonte anterior, `mount_drive_n.py` retornava 0 apenas porque `Path('N:\\')` existia na sessão do helper; isso não provava que o serviço MulletaFlix podia usar a montagem. O fluxo de `MountDriveNAsync` também confiava em `_isEnvioRunning` para decidir se deveria iniciar FTP, embora essa flag possa sobreviver à saída inesperada do worker Python. O log ainda mostra tentativas de bind em `127.0.0.1:2121` com WinError 10048.
+
+Correção: a decisão de recuperar o runtime verifica somente `NebulaFtpServerHost.IsRunning` ou o processo Python ainda vivo. Se a unidade preexistir antes do helper, ele retorna código 4 em vez de alegar sucesso; o manager pausa retries automáticos nos códigos 0 e 4 quando N: continua inacessível, evitando um ciclo de tentativas contra uma unidade visível em outra sessão. Saída 3 significa que outro helper já possui o lock global de montagem; retries automáticos também são pausados nesse caso, pois reiniciar a cada três segundos apenas cria novas tentativas que falham no mesmo lock. Após a tentativa proprietária terminar, a montagem pode ser solicitada novamente explicitamente. Falhas reais continuam sujeitas ao retry existente.
+
+### Retry concorrente pausado após lock pertencente a outro helper — 2026-10-18 08:02 (-03)
+
+O log de 17/10 mostra repetidas chamadas de montagem N: retornando imediatamente porque outro helper detinha o lock global. A política anterior classificava o código de saída 3 como retryável, então cada nova tentativa relançava um helper que falhava no mesmo lock. Agora código 3 pausa retries automáticos, assim como saídas 0 e 4; falhas reais continuam podendo ser repetidas. O log é antigo e não prova estado atual do host nem download STRM.
+
+`NebulaMountRuntimeHealthTests` passou 7/7 após recompilação Release; as classes `NebulaMount*` passaram 18/18 sem recompilar. `git diff --check` passou. Não houve operação em produção, identificação do processo externo, restart, mount, instalação ou transferência. O owner do lock precisa terminar antes de um novo mount explícito; homologação e release permanecem pendentes.
+
+Regressões: `NebulaMountRuntimeHealthTests`, startup e ownership C# Release compilaram e passaram 29/29 após corrigir o namespace do teste. `Tools/NebulaPython/tests/test_mount_drive_n.py` passou 3/3 com Python 3.10. O teste `--no-build` anterior executou um assembly stale e não conta como evidência; a repetição com recompilação validou a fonte atual. O log continua sem `[STRM-WORKER-READY]`, `[STRM-SCAN-STARTED]`, título na fila ou transferência; não comprova que a função de download tenha sido iniciada. Inspeção somente leitura do host confirma versão 12.1.21 e o mesmo processo Python iniciado em 16/10 ainda escutando 2121/2123; ele foi preservado, não encerrado. Nenhum processo, serviço, configuração, mount, instalação, banco ou mídia de produção foi alterado. Identificação/resolução operacional do listener, instalação e smoke test real continuam pendentes.
+
+## Proteção do estado Enabled contra autosave — 2026-10-18 04:03 (-03)
+
+Os salvamentos silenciosos de campos secundários no painel Nebula agora preservam o valor `Enabled` já carregado do servidor. Apenas o salvamento explícito da configuração usa o checkbox e aciona a confirmação existente para habilitar/desabilitar o serviço. Isso evita que um autosave de outro controle inicie ou interrompa Envio/Downloader sem consentimento explícito.
+
+Regressões: `tests/Jellyfin.Api.Tests/NebulaConfigPage.test.mjs` passou 4/4; sintaxe de `configPage.js` validada com Node 26.7.0; `test_mount_drive_n.py` passou 3/3 com Python 3.10; testes Release `NebulaDownloaderStartupTests` + `NebulaHostedServiceConfigurationTests` passaram 39/39. O teste foi localizado na árvore de testes versionada fora das pastas ignoradas pela regra genérica `web/`. A tentativa Python 3.12 não foi executada porque o runtime não está instalado. GET público local `/System/Info/Public` respondeu HTTP 200 e confirmou servidor 12.1.21; nenhum estado foi alterado. O log enviado nesta sessão é de 16–17/10 e não contém `[STRM-WORKER-READY]`, `[STRM-SCAN-STARTED]`, item em fila ou transferência. O fluxo de download real segue pendente de homologação.
+
+## Rechecagem do log: runtime antigo e colisão FTP repetida — 2026-10-18 03:52 (-03)
+
+O log anexado cobre 16–17/10. Às 21:14, o fluxo inicia `main.py` em Somente Streaming e o mount N: informa sucesso. Às 19:49 e 19:50, novas inicializações em modo Envio falham no bind `127.0.0.1:2121` com WinError 10048. Depois, o helper informa que outra montagem está em execução; o código 0 do helper não comprova mount pronto. O trecho não contém marcadores `[STRM-WORKER-READY]`/`[STRM-SCAN-STARTED]`, título em fila ou transferência concluída.
+
+A leitura somente GET de `/System/Info/Public` respondeu HTTP 200 e confirmou produção 12.1.21. A fonte atual tem readiness Python vinculada ao PID recém-criado, tentativa independente do Downloader após falha do Envio e serialização do mount. `NebulaDownloaderStartupTests` + `NebulaHostedServiceConfigurationTests` Release passaram 39/39 nesta rechecagem. Isso valida a fonte, não o runtime 12.1.21 nem uma transferência real. Nenhum processo, configuração, serviço, mount, mídia ou download de produção foi alterado; nenhum release foi criado. T2.1 permanece aberto até publicar/instalar pacote aprovado e resolver a porta em janela controlada, preservando possíveis sessões ativas.
+
+## Rechecagem do acionamento: serviço desabilitado — 2026-10-18 03:40 (-03)
+
+O log local de produção mostra o servidor 12.1.21 iniciando às 20:35:46 de 17/10 com `[NEBULA-STARTUP] NebulaFTP está desabilitado na configuração`. A página administrativa consultada somente para leitura também mostra Envio/Downloader parados, `Aguardando início do Downloader` e contexto Mongo não inicializado. As duas chamadas históricas `POST /NebulaFtp/Actions/StartDownloader` (00:24 e 19:51 de 17/10) são anteriores ao início desse processo; não demonstram tentativa após o reinício. O serviço Windows MongoDB está `Running`, mas isso não confirma conectividade do banco.
+
+`D:\midias` e as pastas configuradas de stage existem no host; não foi verificada a permissão da conta do serviço. O log anexado também registra colisão FTP `127.0.0.1:2121`, sem marcador `[STRM-WORKER-READY]` ou `[STRM-SCAN-STARTED]`. A causa confirmada para o autostart ausente é `Enabled=false`; ainda não foi reproduzida falha na ação manual atual. Nenhum start, mudança de configuração, serviço, processo, MongoDB, Telegram ou transferência foi executado. Ativar o serviço ou iniciar manualmente pode varrer e baixar toda a pasta configurada; isso permanece pendente de autorização operacional.
+
+Não houve mudança de código nesta rechecagem, portanto nenhum teste de implementação foi executado. O item T2.1 continua em homologação; não declarar corrigido nem criar release.
+
+## Rechecagem do runtime e do acionamento web — 2026-10-18 03:29 (-03)
+
+O log anexado permanece sem chamada da ação `POST /NebulaFtp/Actions/StartDownloader` e sem marcadores `[STRM-WORKER-READY]` / `[STRM-SCAN-STARTED]`, fila ou transferência. A página `Jellyfin.Api/Web/NebulaFTP/configPage.js` está ligada à ação correta e trata retorno `false`/erro; isto confirma o caminho da interface na fonte, não que a solicitação tenha chegado à produção.
+
+Rechecagem read-only às 03:29: `/System/Info/Public` retornou 12.1.21; `python.exe` PID 6080 (iniciado em 16/10 21:16) continua escutando 2121/2123. Testes repetidos: startup/host C# Release **39/39**; `test_strm_downloader.py` Python 3.10 **17/17**. Sem POST, Mongo/Telegram, instalação, parada/reinício de processo ou transferência real. Não foi identificada correção adicional reproduzível na fonte 12.1.24; produção permanece não homologada.
+
+Próximo gate segue sendo janela operacional controlada: liberar as portas sem interromper reprodução, instalar pacote aprovado, registrar resposta do endpoint/status e logs STRM, e completar uma mídia de teste. Nenhuma release do servidor foi criada.
+
+Andamento de homologação publicado no Git do portal: commit `77e043af9cf1b803d22d31d708d83a887e0b6e55`; status Vercel `success`. Endpoint público `/homologacao-status.json` respondeu HTTP 200 e confirmou o evento atualizado às 03:29 (-03). Testes do portal: checkout publicado **75/75**, espelho do servidor **60/60**.
+
+## Rechecagem do runtime após solicitação de correção — 2026-10-18 03:22 (-03)
+
+O log fornecido é de 16–17/10 e não mostra chamada do Downloader STRM: mostra `main.py` em “Somente Streaming”, depois falha de bind FTP `127.0.0.1:2121` (WinError 10048), sem `[STRM-WORKER-READY]`, `[STRM-SCAN-STARTED]`, item de fila ou transferência. A verificação read-only atual confirmou servidor 12.1.21. O PID 6080 (`python.exe`, iniciado em 16/10 21:16) continua escutando em 2121 e 2123; o PID pai 19764 não existe no snapshot. O processo não foi encerrado para evitar interromper streams.
+
+A fonte 12.1.24 contém a tentativa de `StartDownloaderAsync` independente do Envio em `NebulaHostedService.StartComponentsAsync`; o endpoint manual devolve o booleano de startup. Testes repetidos nesta sessão: `NebulaDownloaderStartupTests` + `NebulaHostedServiceConfigurationTests` Release **39/39** e `test_strm_downloader.py` com Python 3.10 **17/17**. Isso comprova os testes/código local, não o runtime instalado nem download real. O anexo não contém retorno do endpoint manual nem logs do processo STRM; portanto não demonstra que o clique de início ocorreu. Não foi feita chamada POST, operação Mongo/Telegram, instalação ou restart.
+
+Conclusão: runtime defasado e listener legado nas portas 2121/2123 confirmados; o PID pai não foi encontrado no snapshot. Não há evidência suficiente para atribuir a ausência de download a defeito adicional na fonte 12.1.24. Próximo gate é janela controlada: resolver o worker legado sem afetar streams, instalar pacote aprovado, capturar retorno do `StartDownloader`, `/NebulaFtp/Status`, logs STRM e concluir transferência de uma mídia. T2.1 permanece aberto e não se declara produção corrigida.
+
+## Revalidação de startup após log operacional — 2026-10-18 03:14 (-03)
+
+O anexo de 16/10 inicia `main.py` em modo “Somente Streaming”; a própria saída informa que feeder, fila e workers de upload estão desativados. Também há colisão de bind FTP em `127.0.0.1:2121` em uma execução posterior. Não aparecem marcadores do processo separado `strm_downloader.py`, inclusão de item na fila nem transferência. Portanto, o log não permite atribuir a falha ao downloader nem comprova que ele recebeu uma solicitação de início.
+
+A fonte atual inicia o Downloader separadamente do Envio no `NebulaHostedService`, aguarda readiness e registra falha de startup; o endpoint manual também retorna um booleano de resultado. Testes locais desta rodada: API Release **718/718**, `NebulaDownloaderStartupTests` + `NebulaHostedServiceConfigurationTests` Release **39/39**, `test_strm_downloader.py` **17/17**. Nenhum processo, banco, Telegram, instalação ou download real foi acionado nesta revalidação.
+
+Leitura somente de `http://localhost:8096/System/Info/Public` nesta rechecagem respondeu HTTP 200 e confirmou produção 12.1.21, enquanto a fonte registrada é 12.1.24. Próximo gate: em janela controlada após publicação/instalação autorizada, capturar o booleano de `POST /NebulaFtp/Actions/StartDownloader`, `/NebulaFtp/Status`, logs próprios `[STRM-*]`, primeiro título/fila e progresso de uma transferência. T2.1 e homologação continuam abertos; nenhuma release foi criada.
+
+## Distinção entre worker de streaming e downloader STRM — 2026-10-18
+
+O log operacional recebido começa com um worker `main.py` iniciado em **Modo Somente Streaming**. Essa instância confirma FTP/HTTP de streaming e desativa feeder/fila/workers de upload; ela não é o processo `strm_downloader.py`. Mais tarde, o modo Envio tenta abrir `127.0.0.1:2121` e falha com WinError 10048. O trecho não contém `[STRM-WORKER-READY]`, `[STRM-SCAN-STARTED]`, item na fila ou transferência, então não comprova que o downloader foi chamado.
+
+Na fonte atual, o serviço hospedado tenta `StartDownloaderAsync` mesmo após falha de Envio; o downloader executa em processo separado e aguarda readiness próprio. Testes locais confirmam esse contrato, não a atividade da instalação 12.1.21. A causa exata de ausência do processo STRM neste log permanece indeterminada: verificar logs dedicados do Downloader, valor booleano da ação manual e estado `IsDownloaderRunning` numa homologação controlada. Não inferir que desativar os workers de upload no modo streaming desativa o processo de download STRM.
+
+## Rechecagem do log anterior — 2026-10-17 21:51 (-03)
+
+O anexo mais recente registra o worker iniciado como **Somente Streaming**, que explicitamente desativa feeder, fila e workers de upload. Mais tarde, tentativa de Envio completo falha ao vincular `127.0.0.1:2121` com WinError 10048, seguida por tentativas repetidas do mount. O trecho não contém marcadores de startup do Downloader (`[STRM-WORKER-READY]`/`[STRM-SCAN-STARTED]`), nem item ou transferência; portanto não demonstra que o Downloader foi acionado. Os backups Supabase concluídos não indicam falha de download.
+
+Na fonte atual, `NebulaHostedService.StartComponentsAsync` tenta `StartDownloaderAsync` mesmo se Envio falhar; `StartDownloaderAsync` inicia um processo independente e aguarda marcador de readiness. Testes focados executados nesta rechecagem: `NebulaHostedServiceConfigurationTests` + `NebulaDownloaderStartupTests` Release **39/39**. Isso confirma o comportamento da fonte, não o runtime instalado nem uma transferência real. O log não identifica o PID que ocupa a porta; não iniciar/parar produção sem janela controlada. Sem alteração de código nesta rechecagem; release e smoke test continuam pendentes.
+
+Mapa técnico conferido em 2026-10-17: sem mudança de módulo, API, classe, dependência ou fluxo de runtime nesta rechecagem. Sessão: `2026-10-17-MulletaFlix-nebula-download-log-recheck-2151.md`.
+
+## Transição de streaming para modo completo — 2026-10-17
+
+`NebulaFtpManager.StartEnvioAsync` serializa as inicializações e compara o modo solicitado com o ativo. Um worker iniciado para `Somente Streaming` não satisfaz uma solicitação de Envio completo. Na engine nativa, listeners FTP/HTTP existentes são liberados antes da recriação; a instância Supabase é mantida. O host de lease do cache Python é descartado mesmo se o processo do worker já não existir.
+
+Validação local: testes focados de startup em Release passaram 39/39. O log operacional registra WinError 10048 em `127.0.0.1:2121` e retries de mount, sem determinar a identidade do listener. Sem encerramento de processos, instalação, restart ou transferência real; publicação e smoke test controlado permanecem pendentes.
+
+## Nota da auditoria de API — 2026-10-17
+
+Auditoria paralela do backend encontrou que `GET /Branding/Configuration` incluía caminho local da intro para qualquer cliente. O endpoint mantém as opções visuais públicas; a projeção agora inclui `IntroPath` somente para administradores. Testes focados verificam as duas classes de usuário. Isso não altera o fluxo interno `NativeIntroProvider` nem a configuração persistida.
+
+## Correção do resultado de mount duplicado — 2026-10-17 20:31 (-03)
+
+O helper Python agora reconhece `N:` já acessível antes de tentar adquirir o lock de instância e retorna sucesso nesse caso. Se outro helper ainda possuir o lock e `N:` não estiver acessível, retorna código distinto (`3`), não sucesso falso. O C# verifica primeiro se a unidade ficou acessível e distingue o helper concorrente de uma falha prematura real, mantendo a tentativa externa intacta e agendando nova verificação.
+
+Testes executados: `test_mount_drive_n.py` 3/3; suíte NebulaPython 591/591; testes .NET `NebulaMountOwnershipTests`, `NebulaMountRetryTests` e `NebulaDownloaderStartupTests` 26/26. Revisão encontrou e corrigiu a classificação genérica de erros ao abrir/adquirir o lock: somente conflito de lock retorna 3; falha operacional retorna 2 com log explícito. A colisão FTP `127.0.0.1:2121` segue confirmada pelo log e exige identificar/parar o worker concorrente em janela controlada; não foi resolvida por encerrar processos. Nenhum processo produtivo ou montagem foi tocado. A mudança não prova que uploads ou downloads funcionem no runtime instalado.
+
+Mapa conferido: fluxo de montagem existente em `NebulaFtpManager.MountDriveNAsync` → `mount_drive_n.py`; sem novo módulo de runtime, endpoint ou dependência. Registro: `2026-10-17-MulletaFlix-nebula-mount-duplicate-result-fix.md`.
+
+## Log novo: porta FTP ocupada e tentativas repetidas — 2026-10-17 20:03 (-03)
+
+O log fornecido mostra que uma execução do worker subiu em modo somente streaming e montou `N:`, mas uma inicialização posterior (modo de envio, 19:49:05) falhou ao abrir `127.0.0.1:2121` com WinError 10048. Depois, o servidor repetiu tentativas de mount, recebeu `Outro processo de montagem de N: já está em execução` e `rclone encerrou prematuramente (código: 0)`. Portanto, esse trecho não demonstra que o Downloader iniciou nem que uma mídia foi baixada; demonstra colisão com outro listener e retries de montagem sem recuperação.
+
+A fonte atual valida que o endpoint `/health` pertence ao PID Python recém-criado; a instalação que gerou o log não deve ser considerada corrigida, pois a evidência de produção existente identifica 12.1.21, anterior a essa alteração. Os testes de fonte executados nesta rechecagem foram `NebulaDownloaderStartupTests` Release (**15/15**) e `test_http_stream_security.py` + `test_main_lifecycle.py` (**12/12**). Nenhum processo foi encerrado, mount alterado, download iniciado ou serviço reiniciado. A próxima validação produtiva requer publicar/instalar a fonte corrigida em janela controlada e confirmar que só o worker proprietário atende 2121/2123 e que o primeiro item entra em transferência.
+
+O mapa técnico foi conferido: não houve mudança de módulos, endpoints ou dependências nesta rechecagem; o PID é acrescentado ao health já existente. Registro: `2026-10-17-MulletaFlix-nebula-download-port-collision-log.md`.
+
+## Revalidação: download não inicia na instalação ativa — 2026-10-17 19:43 (-03)
+
+O painel autenticado mostra a instalação **12.1.21**, downloader parado, raiz `D:\midias` e dois diretórios Stage disponíveis. O histórico visível contém inícios antigos que entraram na varredura global, mas não registraram título nem transferência antes do encerramento. A API pública local também retorna 12.1.21. O `strm_downloader.py` instalado continua com SHA-256 `3D41354345B79EAB19CB7A1FE0C01A02D0579130F18301D156CAF1C3221664C5`, diferente da fonte 12.1.24 (`2A671AFCA11BF06B48AAAEAA0DA49032F0A7FAD96F4963F6FEFEBD08B0B9CDBA`), que contém o handshake e a varredura incremental por título. A causa comprovada é runtime desatualizado; a transferência não foi reproduzida.
+
+Nesta revalidação, NebulaPython passou **587/587** e `NebulaDownloaderStartupTests` Release passou **11/11**. A release pública segue `v12.1.21`; o run GitHub Actions `39037932557` terminou com falha e jobs sem runner atribuído/etapas executadas. O bloqueio de cobrança registrado anteriormente não foi confirmado diretamente nesta consulta. `gh auth status` continua sem sessão. Os pacotes candidatos Windows/Linux 12.1.24 existem localmente, mas não foram instalados. Não houve start de worker, download, alteração de configuração ou restart. Produção continua sem correção/homologação; publicar 12.1.24 e instalar em janela controlada são gates pendentes.
+
+O mapa técnico foi conferido contra `NebulaFtpManager.StartDownloaderAsync` → `StartPythonDownloaderAsync` → `strm_downloader.py`; módulos, APIs, classes, dependências e topologia não mudaram. Registro: `2026-10-17-MulletaFlix-nebula-download-runtime-recheck-1943.md`.
+
+## Revalidação da execução atual — 2026-10-17 19:35 (-03)
+
+A API local confirmou MulletaFlix **12.1.21**. Comparação direta dos arquivos comprovou que `strm_downloader.py` instalado não é o mesmo runtime corrigido da fonte: SHA-256 instalado `3D41354345B79EAB19CB7A1FE0C01A02D0579130F18301D156CAF1C3221664C5`; fonte 12.1.24 `2A671AFCA11BF06B48AAAEAA0DA49032F0A7FAD96F4963F6FEFEBD08B0B9CDBA`. O instalado não contém os marcadores `[STRM-WORKER-READY]` / `[STRM-WORKER-MONGO-READY]` nem os helpers `get_categorized_scan_batches` / `get_title_scan_roots` existentes na fonte. Isso confirma que a correção de startup e varredura ainda não chegou à instância ativa; não prova um defeito de transferência MongoDB/Telegram.
+
+Validação executada nesta sessão: `py -3.10 -m pytest tests -q` (**587/587**) e `NebulaDownloaderStartupTests` em Release (**11/11**). GitHub latest release continua `v12.1.21`, `v12.1.24` ainda sem tag, e `gh auth status` não tem sessão. O workflow de release também está bloqueado por cobrança, conforme anotação do run já registrada. Nenhum worker, download real, instalação ou restart foi executado; produção segue pendente. Não alterei código de produto nesta revalidação. O mapa técnico foi conferido e permanece igual.
+
+## Revalidação solicitada: download continua sem iniciar — 2026-10-17 12:47 (-03)
+
+Inspeção somente leitura do painel local: servidor **12.1.21**, `Download: Parado`, botão de iniciar habilitado e botão de parar desabilitado. O histórico visível registra workers antigos iniciando e chegando a `Escaneando e priorizando arquivos .strm...`, sem título ou transferência registrados antes do encerramento. A fonte atual 12.1.24 contém handshake e scan incremental por título; o runtime instalado não contém esses marcadores/helpers (hashes da revalidação anterior abaixo). Isso confirma divergência de runtime e explica a ausência de progresso observável; não prova que o worker atual consiga baixar do MongoDB/Telegram.
+
+Testes repetidos nesta sessão: `py -3.10 -m pytest tests -q` em `Tools/NebulaPython`: **587/587**; `NebulaDownloaderStartupTests` Release: **11/11**. A API pública local confirmou versão 12.1.21. GitHub informa latest release `v12.1.21`; a tag `v12.1.24` não existe. `gh auth status` sem sessão. Não houve alteração no código de produto, início da fila completa, download real, instalação ou reinício. Portanto, a correção da fonte ainda não está ativa em produção; release e smoke test de um item continuam pendentes.
+
+O andamento foi publicado no portal Git `Mulletaflix-Portal`, commit `40dd2169bd33a1bdae17566b990477e43eff1563`; Vercel Production deployment `dpl_5WZGKVFWyYAHzjHqV12mxZ97R6Yn` está `READY`. O endpoint público `/homologacao-status.json` respondeu com evento atualizado e status `in_progress`. Testes do portal: **65/65** no checkout de publicação e **51/51** no espelho do servidor; JSON e diff check passaram. Isto atualiza a homologação, não instala nem publica o servidor.
+
+## Revalidação solicitada: download Nebula não inicia — 2026-10-17 11:37 (-03)
+
+GET `http://localhost:8096/System/Info/Public` respondeu **12.1.21**. O `strm_downloader.py` instalado conserva SHA-256 `3D41354345B79EAB19CB7A1FE0C01A02D0579130F18301D156CAF1C3221664C5`; a fonte 12.1.24 tem SHA-256 `2A671AFCA11BF06B48AAAEAA0DA49032F0A7FAD96F4963F6FEFEBD08B0B9CDBA`. A instalação não contém `[STRM-WORKER-READY]`; nenhum processo downloader estava ativo.
+
+Fonte revalidada: `NebulaDownloaderStartupTests` Release **11/11** e NebulaPython **587/587**. O hand-shake já presente na fonte informa ao manager que o worker iniciou antes do refresh potencialmente lento do índice Mongo. O runtime 12.1.21 é anterior a essa correção. Não houve download, instalação, configuração nem restart; nenhum teste atingiu MongoDB/Telegram reais. Portanto, o problema de produção continua aberto até publicar/instalar runtime atualizado em janela controlada e confirmar um arquivo real em transferência.
+
+Tentativa preliminar `python -m pytest tests -q` com Python 3.14 falhou na coleta porque esse interpretador não tem `pytest`; não conta como teste. A suíte foi executada com Python 3.10 e passou 587/587.
+
+Homologação atualizada no repositório do portal pelo commit `915f49dfe782b3ae1db93ba42a3eb385a2a88a3b`; os testes do portal passaram 61/61 no checkout de publicação e 47/47 no espelho do servidor. O endpoint público `/homologacao-status.json` respondeu HTTP 200 e mostrou o evento `server-nebula-download-runtime-revalidation-2026-10-17-1137` como `in_progress`. Esta atualização não representa release do servidor nem smoke test.
+
+## Revalidação: worker de produção ainda é anterior à correção — 2026-10-17 11:23 (-03)
+
+A API local respondeu **12.1.21**. O `strm_downloader.py` instalado tem SHA-256 `3D41354345B79EAB19CB7A1FE0C01A02D0579130F18301D156CAF1C3221664C5`; a fonte 12.1.24 tem SHA-256 `2A671AFCA11BF06B48AAAEAA0DA49032F0A7FAD96F4963F6FEFEBD08B0B9CDBA` e inclui o marcador `[STRM-WORKER-READY]` antes da atualização do índice Mongo e os helpers de varredura por título. O arquivo instalado não contém esses marcadores/helpers.
+
+No momento da checagem, nenhum processo `strm_downloader.py` estava ativo. O arquivo `C:\ProgramData\MulletaFlix\nebula\nebula.log` é do processo de upload e não comprova tentativa do downloader; sua última atualização observada foi em 11/10/2026. Portanto, a causa confirmada é runtime de produção desatualizado; não há evidência suficiente para diagnosticar uma tentativa de transferência atual.
+
+Validação da fonte nesta rodada: `NebulaDownloaderStartupTests` Release **11/11**; testes Python do downloader (scanner, helpers, fila Mongo e processamento) **105/105**. Isso não valida MongoDB/Telegram nem um download real. Nenhum worker foi iniciado, e não houve instalação, mudança de configuração ou reinício. A correção continua pendente de release/instalação em janela operacional e smoke test de um arquivo real.
+
+O estado de homologação foi publicado no portal Git `Mulletaflix-Portal` pelo commit `62655eb`; as duas suítes de portal passaram (47/47 no espelho do projeto e 61/61 no checkout de publicação). O endpoint público retornou HTTP 200 com o evento mais recente visível. Isso publica o andamento, não conclui o gate de produção.
+
+## Nova confirmação: worker de produção desatualizado — 2026-10-17 11:14 (-03)
+
+A checagem read-only de `http://localhost:8096/System/Info/Public` retornou **12.1.21**. O worker instalado tem SHA-256 `3D41354345B79EAB19CB7A1FE0C01A02D0579130F18301D156CAF1C3221664C5`; o arquivo-fonte 12.1.24 tem SHA-256 `2A671AFCA11BF06B48AAAEAA0DA49032F0A7FAD96F4963F6FEFEBD08B0B9CDBA`. Busca por `[STRM-WORKER-READY]`, `[STRM-WORKER-MONGO-READY]` e helpers do scan incremental não encontrou os marcadores no worker instalado, mas encontrou todos na fonte.
+
+Revalidação executada: `NebulaDownloaderStartupTests` Release **11/11**; testes Python 3.10 (`test_strm_downloader.py` e `test_strm_downloader_helpers.py`) **89/89**. Isso confirma os testes da fonte, não uma transferência MongoDB/Telegram. Nenhum worker/download foi iniciado, e não houve instalação, configuração ou restart. `gh auth status` informa que não há sessão GitHub. Causa atual: runtime de produção está anterior à correção já presente na fonte; portanto, a correção ainda não está ativa em produção. Publicação/instalação e smoke test de um item seguem pendentes.
+
+O mapa técnico foi conferido: o fluxo `NebulaFtpManager` → worker Python → MongoDB/Telegram não mudou. Registro: `2026-10-17-MulletaFlix-nebula-download-runtime-stale-1114.md`.
+
+## Revalidação: correção ainda não instalada — 2026-10-17 10:56 (-03)
+
+O endpoint local `/System/Info/Public` respondeu **12.1.21**. O `Tools/NebulaPython/tools/strm_downloader.py` instalado tem SHA-256 `3D41354345B79EAB19CB7A1FE0C01A02D0579130F18301D156CAF1C3221664C5`; não contém os marcadores de worker pronto nem os helpers de varredura incremental presentes na fonte 12.1.24 (SHA-256 atual `2A671AFCA11BF06B48AAAEAA0DA49032F0A7FAD96F4963F6FEFEBD08B0B9CDBA`). O log instalado está sem atualização desde 11/10/2026. Isso confirma runtime desatualizado; não identifica falha de transferência de um item específico.
+
+Revalidação da fonte: `NebulaDownloaderStartupTests` Release **11/11** e NebulaPython **587/587**. Nenhum worker/download foi iniciado; não houve alteração de configuração, instalação ou reinicialização. Portanto, download real não foi comprovado e a produção não está corrigida. Próximo passo permanece publicar e instalar 12.1.24 após liberar o CI GitHub bloqueado por cobrança; então observar um item sair da fila e concluir. Portal Git atualizado no commit `d418da35004ce197791b730accd9f75ff12975bc`; Vercel deployment Production `READY` (`dpl_7NkeUDuyS6LGj6iZ5fXq4v8sdidb`), e o endpoint público respondeu HTTP 200 com este evento `in_progress`.
+
 ## Candidato de release 12.1.24 construído — 2026-10-17 10:19 (-03)
 
 O pacote Windows e o pacote Linux foram reconstruídos para a versão 12.1.24. Os dois builders Linux (Bash usado no workflow e PowerShell cross-publish) incluem `Tools/NebulaPython` (scripts, módulos FTP/tools e `requirements.txt`); o instalador adiciona `python3`/`python3-venv`, instala os requisitos em venv próprio e grava `python.path`, que o manager usa para localizar o interpretador. A checagem do arquivo Linux confirmou o `strm_downloader.py` dentro do tarball e o mesmo SHA-256 da fonte (`2A671AFCA11BF06B48AAAEAA0DA49032F0A7FAD96F4963F6FEFEBD08B0B9CDBA`). O workflow de release verifica esses arquivos antes de publicar.
@@ -370,3 +657,180 @@ Após nova auditoria, a API ativa ainda responde **12.1.21** e não havia worker
 - Pendências: reconstruir pacote integral a partir do HEAD atual (o candidato anterior é anterior à última correção), superar o bloqueio de cobrança da CI GitHub, publicar a release conforme os gates do projeto e agendar instalação/restart controlados; depois verificar primeiro item e transferência real. Homologação permanece `in_progress`.
 - Mapa técnico conferido em 2026-10-17; sem alteração em módulos, APIs, classes, dependências ou fluxo estrutural. Registro: `2026-10-17-MulletaFlix-nebula-download-runtime-stale-0908.md`.
 - Homologação publicada no portal pelo commit `8f34d05`; testes do portal 52/52 e GET público HTTP 200 confirmou `generatedAt=2026-10-17T09:08:00-03:00`.
+
+### Revalidação solicitada — download Nebula sem início — 2026-10-17 11:02 (-03)
+
+- Comparação read-only confirma produção 12.1.21 e worker instalado sem os marcadores `[STRM-WORKER-READY]`/`[STRM-SCAN-STARTED]`; SHA-256 instalado `3D41354345B79EAB19CB7A1FE0C01A02D0579130F18301D156CAF1C3221664C5`. Fonte 12.1.24 SHA-256 `2A671AFCA11BF06B48AAAEAA0DA49032F0A7FAD96F4963F6FEFEBD08B0B9CDBA` contém o handshake e helpers correspondentes. A divergência runtime/fonte permanece causa confirmada; a instalação não foi alterada.
+- Testes repetidos nesta sessão: `NebulaDownloaderStartupTests` Release 11/11; Python 3.10 (`test_strm_downloader.py` + `test_strm_downloader_helpers.py`) 89/89. Os testes confirmam fonte, não uma transferência real.
+- `gh auth status` continua sem sessão; não foi possível publicar uma release. Nenhum worker foi iniciado, nenhuma configuração alterada e nenhum serviço reiniciado; portanto o download não está confirmado como corrigido em produção. Próximo passo: autenticar/publicar o candidato e, em janela operacional controlada, instalar/reiniciar e verificar o primeiro item.
+- Mapa técnico conferido contra `NebulaFtpManager`, worker STRM e testes; módulos, contratos, dependências e topologia sem mudança.
+- Teste do portal independente 58/58 e espelho local 44/44; `git diff --check` passou. Portal externo atualizado no Git (`Mulletaflix-Portal` commit `79c8f60`); GET público HTTP 200 confirmou o evento. Release do servidor permanece bloqueada por `gh auth status` sem sessão; nenhuma release ou homologação de download real.
+
+### Pacotes candidatos reconstruídos e validados — 2026-10-17 12:06 (-03)
+
+- A fonte da versão 12.1.24 já contém o handshake de prontidão do worker e a varredura incremental; esta rodada não encontrou nova falha no código de execução. O runtime ativo ainda é 12.1.21 e não foi modificado.
+- Reconstruídos em diretório isolado o pacote Linux (`.build/candidate-nebula-download-20261017-1200/dist/mulletaflix_12.1.24_linux-x64.tar.gz`, SHA-256 `142D3B9EF33FBABDD189A1D11665970F0B84FE877BFD543695793F2F3119464F`) e o instalador Windows (`.build/candidate-nebula-download-20261017-1200/build/installer-output/mulletaflix_12.1.24_windows-x64.exe`, SHA-256 `F100E72EC8761DD87B972975F521AC411F30F553A2AD51C748A5111E1E7C7B66`). O tar contém 2.544 entradas e o `strm_downloader.py` empacotado coincide byte a byte com a fonte (SHA-256 `2A671AFCA11BF06B48AAAEAA0DA49032F0A7FAD96F4963F6FEFEBD08B0B9CDBA`). O instalador foi compilado, mas não foi executado para instalação.
+- O teste de packaging que estava fixado em 12.1.23 foi atualizado para verificar a versão definida pelos metadados atuais sem relaxar a igualdade das versões. O builder Linux agora aceita saída isolada sob `.build`, mantendo `dist` como padrão e recusando sobrescrita/caminho reanalisado; testes estáticos e guarda de não sobrescrita passaram. O artefato anterior em `dist` permaneceu inalterado.
+- Verificações de fonte: NebulaDownloaderStartupTests 11/11; NebulaPython 587/587; Implementations sem integrações 1.464 aprovados, 62 ignorados, 0 falhas; testes PowerShell de packaging e verificações Bash passaram. Nenhum download real foi iniciado ou observado.
+- Gate de release continua bloqueado: a execução Actions 39037932557 falhou antes de iniciar steps; `gh auth status` não possui sessão. Não existe release publicada nesta rodada. Produção 12.1.21 não foi instalada/reiniciada e a correção ainda não foi homologada pelo primeiro download.
+- Homologação/testes publicados no Git do portal (`Mulletaflix-Portal` commits `2871dc5` e `a927815`); portal: 61/61 testes, espelho do projeto: 47/47; GET público HTTP 200 confirmou `generatedAt=2026-10-17T12:06:00-03:00` e evento `in_progress`.
+- Mapa técnico conferido em 2026-10-17: nenhum módulo, API, classe, dependência do runtime ou fluxo Nebula alterado nesta rodada; alterações restritas a scripts/testes/documentação de packaging.
+
+### Revalidação atual do download Nebula — 2026-10-17 12:22 (-03)
+
+- Leitura HTTP pública local de `/System/Info/Public` confirma servidor **12.1.21**. A tag `v12.1.24` não existe localmente nem em `origin`; `gh auth status` informa sessão ausente. Não há publicação de release confirmada.
+- O stage isolado atual contém `strm_downloader.py` idêntico à fonte: SHA-256 `2A671AFCA11BF06B48AAAEAA0DA49032F0A7FAD96F4963F6FEFEBD08B0B9CDBA`. Os candidatos já construídos existem: instalador Windows SHA-256 `F100E72EC8761DD87B972975F521AC411F30F553A2AD51C748A5111E1E7C7B66`; pacote Linux SHA-256 `142D3B9EF33FBABDD189A1D11665970F0B84FE877BFD543695793F2F3119464F`.
+- Regressão repetida agora: `NebulaDownloaderStartupTests` Release **11/11**; Python 3.10, `test_strm_downloader.py` + `test_strm_downloader_helpers.py`, **89/89**. Esses resultados validam a fonte e os testes, não uma transferência real.
+- Nenhum worker/download foi iniciado, nem configuração, instalação ou serviço alterado. Causa atual continua sendo divergência entre runtime e fonte; a correção não está comprovada na produção. Gates pendentes: autenticação/publicação da release, janela aprovada para instalação/restart e smoke test com o primeiro item.
+
+### Revalidação do processo ativo e log Nebula — 2026-10-17 12:27 (-03)
+
+- Reconsulta read-only: `/System/Info/Public` respondeu 12.1.21; processo MulletaFlix.exe PID 16928. O `nebula.log` tem 82.510 bytes e última gravação em 11/10/2026 23:22:32 (-03), sem atividade recente registrada.
+- Snapshot de processos por ancestralidade não encontrou `python`, `strm_downloader` ou `rclone` descendente do processo MulletaFlix. Isso confirma ausência de worker filho naquele instante, não prova por si só por que o comando de início falha; o estado autenticado do downloader continua indisponível.
+- Pacotes candidatos, hashes e testes de fonte permanecem conforme a validação de 12:22. Não houve tentativa de iniciar worker, download, instalação ou restart. Release e primeiro download real continuam não homologados; GitHub não autenticado e gate global de release ainda aberto.
+- O mapa técnico foi conferido; nenhuma alteração de módulos, APIs, classes, dependências ou topologia nesta revalidação. Registro: `2026-10-17-MulletaFlix-nebula-live-process-log-recheck-1227.md`.
+
+### Auditoria do gerador STRM no pacote — 2026-10-17 12:34 (-03)
+
+- Confirmação no checkout atual: `Tools/NebulaPython/generate_strm.py` existe; control plane chama essa implementação real e os testes cobrem pais Mongo legados/ObjectId e saída STRM. O builder inclui o arquivo e `Assert-StageIntegrity.ps1` já o declara obrigatório.
+- Adicionada regressão explícita ao teste de integridade para remover `generate_strm.py` do stage e exigir rejeição. Testes do validador PowerShell, builder PowerShell e Python (gerador + control plane) passaram; detalhes na sessão `2026-10-17-MulletaFlix-nebula-strm-generator-stage-integrity-1234.md`.
+- O stage candidato Windows tem SHA-256 igual à fonte (`A123B90D083DD39B964795E0A6DA70E4F26723046FBA4FFD8E8360BB216B8CFD`). Isso cobre o candidato local, não o artefato instalado nem geração E2E com Mongo/Telegram. T0.3 e homologação de runtime permanecem parciais.
+
+### Reteste visual do início do download — 2026-10-17 12:40 (-03)
+
+- O painel local autenticado mostra versão 12.1.21 e estado atual `Envio: Parado`, `Download: Parado`. Os logs visíveis registram três inicializações do worker Python (21:14, 21:38 e 00:24), cada uma chegando a “Escaneando e priorizando arquivos .strm...”; depois disso, o trecho não mostra progresso de mídia antes do encerramento. Isso indica demora/falta de progresso observável na varredura, não falha do clique/API: as sessões chegaram a iniciar o worker.
+- O script instalado (SHA-256 `3D41354345B79EAB19CB7A1FE0C01A02D0579130F18301D156CAF1C3221664C5`) não contém `get_title_scan_roots` nem os marcadores de progresso incremental. A fonte 12.1.24 (SHA-256 `2A671AFCA11BF06B48AAAEAA0DA49032F0A7FAD96F4963F6FEFEBD08B0B9CDBA`) divide a varredura por categoria/título e processa cada lote antes de avançar.
+- Revalidação local: `test_strm_downloader.py` + `test_strm_downloader_helpers.py` passaram 89/89; `NebulaDownloaderStartupTests` + `NebulaHostedServiceConfigurationTests` passaram 26/26. Não foi iniciada a fila de produção, porque ela pode baixar toda a biblioteca; sem release/instalação não há comprovação de correção ativa.
+- `/System/Info/Public` confirma produção 12.1.21. `gh auth status` está sem sessão e a tag remota `v12.1.24` não foi encontrada. A causa operacional segue sendo runtime instalado antigo; nenhuma nova falha na lógica da fonte foi reproduzida. Pendem autenticação GitHub, execução de CI/publicação, instalação em janela controlada e smoke test limitado a um item.
+- Homologação publicada no Git `Mulletaflix-Portal` (commits `fadadb3` e revisão `44180ab`); deploy Vercel Production mais recente `dpl_DWtqX8T5zH5HsPwPwwPk65zFSCd9` ficou `READY`; endpoint público `/homologacao-status.json` retornou HTTP 200 com o evento/texto revisado.
+- Mapa conferido: sem mudança de módulo, API, dependência ou topologia. Registro: `2026-10-17-MulletaFlix-nebula-download-start-investigation-1240.md`.
+
+### Prontidão do runtime e conflito de portas — 2026-10-17
+
+- O log recebido mostra que o Python novo falha ao abrir FTP `:2121` (WinError 10048), mas o C# considerava o runtime pronto ao receber qualquer resposta saudável em HTTP `:2123`. Se um processo antigo ainda responder nessa porta, a sonda confundia esse processo com o filho recém-criado.
+- O `/health` agora informa o PID do processo servidor; o C# só aceita prontidão quando o PID corresponde ao `Process.Id` lançado por ele. A resposta de um worker alheio deixa de mascarar o erro de bind do processo novo.
+- Verificações: NebulaDownloaderStartupTests 15/15; NebulaPython 588/588; teste de segurança HTTP 7/7; falha de download remoto de imagem 2/2. A suíte completa Providers foi interrompida após permanecer sem saída por mais de um minuto; resultado inconclusivo, não contado como aprovação.
+- Consulta read-only do host identificou `python.exe` PID 6080 escutando simultaneamente em 2121 e 2123 desde 2026-10-16 21:16; PID pai 19764 já não está presente. O processo mantém 37 conexões TCP estabelecidas, então foi preservado para evitar interromper sessões. Ainda é necessária janela de manutenção para substituir o worker e confirmar um download real.
+
+### Rechecagem do log: porta FTP ocupada e montagem repetida — 2026-10-17
+
+- O log de 17/10 comprova que o novo worker de modo Envio não consegue vincular `127.0.0.1:2121` (WinError 10048), depois de uma sessão anterior em modo Somente Streaming ter iniciado outro processo. Em seguida, chamadas repetidas de montagem N: reportam montagem já em execução e retorno do helper rclone com código 0; isso não comprova que o worker de envio nem o downloader estejam ativos.
+- A fonte atual recusa marcar o worker como pronto usando somente um `/health` de `:2123`: exige que `pid` corresponda ao processo Python recém-criado. Se o worker próprio termina durante startup, `StartEnvioAsync` retorna falso; o `NebulaHostedService` atual ainda tenta iniciar o Downloader de forma independente e pula a montagem automática se o Envio/FTP falhar. A instalação vista nos logs ainda pode aceitar um serviço antigo na porta e, portanto, precisa receber a release antes de validar esse comportamento.
+- Validação local desta sessão: `NebulaDownloaderStartupTests` + `NebulaHostedServiceConfigurationTests` Release 39/39; Python 3.10, suíte `Tools/NebulaPython/tests` 592/592, incluindo regressão de bind FTP ocupado. `/System/Info/Public` respondeu HTTP 200 e confirmou produção 12.1.21. Não foram iniciados worker, transferência nem processo de produção. Release, janela de manutenção e primeiro download real permanecem pendentes.
+- A causa operacional observada não autoriza encerrar arbitrariamente o listener: a porta pertence a processo com sessões ativas. Só substituir/liberar o worker numa janela controlada e depois validar que Envio, Downloader e N: sobem uma única vez.
+
+### Rechecagem de produção e regressão do bind FTP — 2026-10-18
+
+- No log anexado, `/health` foi reportado como pronto em `:2123` antes de aparecer nova inicialização de bots; logo depois, o worker registra WinError 10048 ao abrir `127.0.0.1:2121`. A sequência é compatível com a sonda antiga aceitar um serviço HTTP que não era o processo recém-criado, mas o proprietário do listener não está identificado e isso segue como hipótese, não certeza.
+- A leitura HTTP de `/System/Info/Public` confirmou produção 12.1.21; portanto a alteração de prontidão por PID da fonte não está demonstrada como instalada. Não há no log marcador de início do Downloader STRM, título ou transferência.
+- Adicionada regressão Python: bind FTP ocupado deve retornar falha, parar bots já iniciados e não iniciar HTTP. Suíte Python completa 592/592; testes C# de hosted service/startup Release 39/39. Sem alteração no serviço, processos, configuração, mount ou biblioteca de produção.
+- Mapa técnico consultado: fluxo e módulos existentes, sem alteração de arquitetura; esta sessão apenas acrescenta cobertura do tratamento de erro já implementado. Homologação de runtime e primeiro download continuam pendentes. Registro: [[Sessões/2026-10-18-MulletaFlix-nebula-download-port-recheck]].
+
+### Validação do log de startup e regressões de fonte — 2026-10-18 04:29 (-03)
+
+- Revisão integral do log anexado: `main.py` inicia em Somente Streaming, modo que explicitamente desativa feeder, fila e workers de upload. Mais tarde, inicialização em modo Envio não consegue abrir `127.0.0.1:2121` (WinError 10048); tentativas subsequentes encontram outro helper de montagem. O retorno 0 do helper antigo não confirma que N: esteja acessível. O trecho não contém `[STRM-WORKER-READY]`, `[STRM-SCAN-STARTED]`, título na fila ou transferência. Isso não prova que o processo STRM separado tenha sido chamado.
+- A fonte atual inicia o Downloader independentemente do Envio, aguarda readiness do processo Python recém-criado e trata lock de mount ocupado como concorrência (código 3). Isso não altera retroativamente a instalação antiga. A verificação read-only realizada nesta auditoria confirmou servidor 12.1.21 e worker Python instalado diferente da fonte; o processo ativo manteve conexões e foi preservado.
+- Testes: `NebulaDownloaderStartupTests` + `NebulaHostedServiceConfigurationTests` + `NebulaMountRetryTests` Release 45/45; ciclo de vida/mount Python 9/9; suíte NebulaPython 592/592; portal independente 79/79 e espelho 64/64. A suíte .NET completa passou pelos projetos iniciais sem falhas observadas, mas parou sem progresso em Providers por mais de cinco minutos; encerrada manualmente e classificada inconclusiva, não como aprovação global.
+- Nenhuma mudança funcional de código nesta rechecagem; nenhum serviço, processo, mount, configuração, banco, Telegram, instalação ou mídia de produção foi alterado. Não houve transferência real. Nenhuma release criada; validação produtiva requer publicação/instalação do worker atual e janela segura para resolução do listener, seguida de smoke test de um item. Mapa técnico conferido e inalterado. Portal atualizado no Git `Mulletaflix-Portal`, commit `bd3434e`; GET público do JSON retornou HTTP 200 e evento `in_progress`. Testes do portal: independente 79/79, espelho 64/64. Registro: `2026-10-18-MulletaFlix-nebula-download-log-runtime-recheck-0429.md`.
+
+### Correção da promoção Python de Somente Streaming para Envio — 2026-10-18 04:42 (-03)
+
+- O log mostra inicialização em Somente Streaming seguida por tentativa de Envio que colide no FTP `127.0.0.1:2121` (WinError 10048). Causa encontrada na fonte: a transição encerrava o worker anterior apenas quando a engine C# estava configurada; com engine Python, o processo stream-only permanecia vivo enquanto outro `main.py` tentava abrir a mesma porta.
+- `StartEnvioAsync` agora encerra o worker Python anterior ao promover o modo; a engine nativa também libera seus listeners antes de recriar o serviço. Foi acrescentado teste da condição de reinício da promoção.
+- Testes locais: `NebulaDownloaderStartupTests` + `NebulaHostedServiceConfigurationTests` + `NebulaMountRetryTests` Release 49/49; Python 3.10 — casos de ciclo de vida, HTTP health e mount 16/16. A primeira chamada Python não coletou testes por `PYTHONPATH` ausente; repetição no diretório correto passou. `git diff --check` aprovado.
+- Produção consultada somente por GET: versão 12.1.21; listener atual em 2121/2123 preservado. Sem restart, instalação ou transferência real. Promoção corrigida na fonte, mas não homologada em produção; release 12.1.24 continua bloqueada pelos gates pendentes do roadmap e do primeiro download controlado.
+- Mapa técnico conferido: fluxo interno existente em `NebulaFtpManager`, sem módulo/API/dependência nova. Portal atualizado no commit `e2ce7ee663372d2e0635d57f29ac6f307c280c41`; GET público HTTP 200 confirmou o evento `in_progress`, portal 80/80 e espelho 65/65. Registro: [[Sessões/2026-10-18-MulletaFlix-nebula-streaming-to-full-python-promotion]].
+
+### Parada segura do worker Python antes de liberar as portas — 2026-10-18 05:27 (-03)
+
+- A leitura do log confirma colisões repetidas de bind FTP em `127.0.0.1:2121` ao tentar ativar Envio completo. Não há nele marcador `[STRM-WORKER-READY]`, `[STRM-SCAN-STARTED]`, título baixando ou transferência; a ausência do Downloader nesse trecho não pode ser concluída.
+- Revisão da rotina de promoção achou falha de lifecycle: `StopPythonStreamServiceAsync` apagava o handle e descartava o processo mesmo quando `Kill`/espera falhava, podendo perder controle de um worker que ainda segurava a porta. A rotina agora preserva o handle e aborta a transição enquanto o processo continuar ativo; só libera as referências e o lease depois da saída confirmada.
+- Testes de Nebula startup/host Release: **43/43**. Testes direcionados de autorização de avatar: **17/17**. A execução integral de `Jellyfin.Api.Tests` está registrada na sessão, incluindo qualquer falha remanescente; warnings de analyzer já existentes não são tratados como aprovação.
+- Não houve interação com os endpoints de produção, encerramento de processo alheio, instalação, mudança de configuração, mount ou download. A alteração é fonte local, sem homologação de runtime e sem release. Para comprovar o início real do Downloader ainda são necessários status/logs dele e um download controlado.
+
+### Falha de Envio não deve bloquear o Downloader — 2026-10-18 05:42 (-03)
+
+- O log anexado mostra tentativa do modo Envio encerrada por WinError 10048 na porta FTP `127.0.0.1:2121`. O `NebulaHostedService.StartComponentsAsync` chama Envio e Downloader em sequência, mas `StartWithRetryAsync` só trata `TimeoutException` e `IOException`; uma `InvalidOperationException` de worker que encerra no bind escapava e interrompia o fluxo antes da chamada do Downloader.
+- O startup agora captura falhas não relacionadas a cancelamento no componente Envio, registra que Downloader será tentado e continua para `StartDownloaderAsync`. Cancelamento segue propagado. Teste regressivo `EnvioStartupException_DoesNotPreventDownloaderFromStarting` verifica a exceção, chamada única do Downloader e ausência de mount quando Envio não ficou ativo.
+- Verificação: testes Release `NebulaHostedServiceConfigurationTests` + `NebulaDownloaderStartupTests`, 44/44; build compilou os projetos envolvidos. A API local `/System/Info/Public` respondeu HTTP 200 com servidor 12.1.21, anterior à fonte atual. O log antigo não prova que a versão instalada contenha a correção nem que houve início do processo STRM ou transferência.
+- Nenhum processo, listener, serviço, configuração, mount ou mídia de produção foi alterado. Primeiro download real, instalação e release permanecem pendentes; requer janela controlada de manutenção e smoke test de um item.
+- Mapa técnico conferido e atualizado porque o fluxo de falha entre Envio e Downloader mudou. Registro: `2026-10-18-MulletaFlix-nebula-downloader-survives-envio-start-failure.md`.
+
+### Reanálise do log anexado e estado atual — 2026-10-18 07:34 (-03)
+
+- O anexo recebido repete o log histórico de 16–17/10: inicia explicitamente em Somente Streaming (fila e workers de upload desligados), depois tenta modo Envio e falha ao vincular FTP `127.0.0.1:2121` com WinError 10048. Os retries subsequentes do helper de montagem dizem que já existe outro processo e retornam antes de confirmar N:. Não há nele marcador de chamada do Downloader STRM, readiness, varredura, título na fila ou transferência.
+- Reconsulta read-only atual: servidor 12.1.21; listeners 2121/2123 ativos em processo preexistente; worker separado `strm_downloader.py --watch` presente. Isso confirma processos/listeners, não progresso de scan nem download concluído. Preservados serviços/processos e conexões; sem POST, restart, mount, escrita em banco ou mídia.
+- As regressões locais já registradas para promoção de modo e falha de Envio continuam na fonte, mas não são prova de instalação: produção está na 12.1.21. Não houve nova correção de código nem release nesta reanálise. T2.1 permanece em andamento até versão candidata instalada e transferência real observada com escopo seguro.
+- Testes da fonte não foram repetidos nesta reanálise (nenhuma alteração de código); os resultados históricos são 592 testes Python, 729 testes API e 689 aprovados/24 ignorados na bateria de Implementations focada em Nebula. Portal de homologação commit `3f201786139f89ca4a3cf46b70faf61c9743b5c6`, GET público HTTP 200 confirmou evento T2.1 `in_progress`; testes 83/83 no portal independente e 69/69 no espelho. Mapa técnico conferido contra o fluxo existente; estrutura inalterada. Registro: `2026-10-18-MulletaFlix-nebula-log-runtime-recheck-0734.md`.
+
+### Reanálise do log e estado de runtime no startup — 2026-10-18 08:27 (-03)
+
+- O log anexado é histórico (16–17/10): `main.py` anuncia `Modo somente streaming`, que explicitamente desativa fila e workers de upload; numa tentativa posterior o modo Envio falha ao abrir `127.0.0.1:2121` com WinError 10048. Depois, o helper de N: relata outro processo de montagem. Não há marcadores `[STRM-WORKER-READY]`, `[STRM-SCAN-STARTED]`, mídia em fila ou transferência; o log não prova se `strm_downloader.py` foi acionado.
+- Na fonte, `StartEnvioAsync` promovia o modo considerando `_isEnvioRunning`. Se a flag estivesse atrasada enquanto o host/processo ainda vivia, a chamada podia tentar criar uma segunda instância. A decisão agora usa o runtime realmente vivo sob o lock, restaura a flag lógica para um runtime reutilizável e promove stream-only antes de recriar o serviço completo.
+- Testes Release focados `NebulaDownloaderStartupTests` + `NebulaHostedServiceConfigurationTests` + `NebulaSupabaseSyncTests`: 95/95, 0 ignorados/falhas. Cobertos runtime vivo/reuso/promoção, `500→200`, 503 persistente e 401 sem retry. `git diff --check` limpo. A revisão independente não identificou defeito demonstrado, mas apontou que a corrida em serviço completo não foi executada com runtime real.
+- Nenhum processo, listener, serviço, configuração, mount, Mongo/Telegram, instalação ou mídia de produção foi alterado. Não houve transferência real; a colisão de porta continua exigindo identificar/solucionar o listener numa janela segura. T2.1 permanece aberto; sem release nesta rodada.
+
+### Reauditoria da admissão de backup Supabase e uploads Nebula — 2026-10-18 08:12 (-03)
+
+- O anexo desta rodada é a mesma amostra histórica de 516 linhas de 16–17/10. A mensagem de adiamento a cada 30 segundos não demonstra lease órfã: a fonte atual reserva o gate e aguarda leases Mongo válidas; o heartbeat Python renova a cada 30 s e a lease expira em 5 min. O log não contém IDs/donos/vencimentos para distinguir upload real de lease antiga.
+- Revalidação: suíte NebulaPython 3.10 completa **592/592**; os testes C# focados em admissão compilaram, porém **3/3 foram ignorados** porque não há Mongo isolado em `127.0.0.1:27099`. Não foi usado banco de produção. A coordenação cruzada C#/Python no mesmo Mongo continua sem teste end-to-end.
+- Sem alteração de código runtime, acesso ao Supabase/Telegram, produção, instalação ou release. Pendente: executar os testes de interleaving com Mongo descartável e validar uma transferência real em janela controlada. Registro: `2026-10-18-MulletaFlix-nebula-supabase-admission-audit.md`.
+
+### Gate Mongo dos testes de release — 2026-10-18 08:54 (-03)
+
+- O workflow de tag agora executa a validação .NET/Python/frontend em `validate-release-source` com MongoDB 7 efêmero na porta isolada 27099. O job de pacote Linux depende da validação e a publicação Windows depende do pacote Linux.
+- O ambiente local não tinha serviço Mongo em 27099; por isso, embora a suíte .NET tenha encerrado com exit 0, os testes `RequiresMongo` foram ignorados. A validação completa contra Mongo é pendente do GitHub Actions; não considerar os testes de concorrência/backup Mongo comprovados por esta rodada.
+- NebulaPython 592/592 e os testes web 418/418 passaram; `npm run build:check` passou. Nenhuma alteração de runtime, produção ou transferência real. O log histórico segue insuficiente para comprovar início do Downloader STRM.
+
+### Revalidação ampla do Downloader e mount — 2026-10-18 12:00 (-03)
+
+- Releitura do anexo de 16–17/10: `main.py` iniciou em `STREAM_ONLY`, desativando fila e workers de upload; depois houve conflito no bind FTP `127.0.0.1:2121` e repetição de mount com outro helper ativo. O trecho não inclui chamada do endpoint `StartDownloader`, saída do `strm_downloader.py`, readiness, scan da biblioteca, item enfileirado ou transferência.
+- A fonte atual mantém o Downloader STRM como processo separado do serviço FTP. `mount_drive_n.py` retorna código 3 quando outro helper possui o lock; `NebulaFtpManager` pausa retry nesse caso. A discrepância do log antigo com esse contrato reforça que o runtime/log não corresponde à fonte atual, mas não prova a causa do botão de download.
+- Validação Release: suíte completa da solução .NET, filtro `FullyQualifiedName!~Integration`, exit 0. Implementations 1.498 aprovados/63 ignorados; API 730/730; Providers 777/777; Server 73 aprovados/1 ignorado. NebulaPython completo 592/592. Focal Nebula mount/Downloader C# 48/48; Python (`test_mount_drive_n.py`, downloader e helpers) 92/92. Integrações Mongo sem banco descartável não foram validadas.
+- Estado live read-only nesta sessão: `http://127.0.0.1:2123/health` retornou `ready`; API Jellyfin em 8096 recusou conexão. Health do stream não comprova Downloader. Nenhum serviço, processo, banco, configuração, mount ou mídia produtiva foi alterado; nenhum clique/transferência real foi observado. Instalação candidata, confirmação da versão atual e smoke test controlado seguem pendentes; não criar release antes dos gates.
+- Mapa técnico conferido contra manager, controller, worker e helper: nenhum módulo, rota, classe, dependência ou fluxo mudou nesta sessão.
+
+### Compatibilidade com worker STRM legado — 2026-10-18 12:05 (-03)
+
+- Inspeção read-only do runtime encontrou `C:\Program Files\MulletaFlix\Server\Tools\NebulaPython\tools\strm_downloader.py`, datado de 08/10/2026, SHA-256 `3D41354345B79EAB19CB7A1FE0C01A02D0579130F18301D156CAF1C3221664C5`; a cópia da fonte tem SHA-256 `557DFF0CD6D5D1C3D1AB5806C9C86DA764690FB9378A02D17697DCBBB8942300`. A instalada não emite os marcadores atuais, mas emite `Escaneando e priorizando arquivos .strm...` após `validator.refresh_cache(force=True)`. O manager procura primeiro a cópia instalada e aguardava somente marcadores novos: incompatibilidade compatível com timeout, mas não causa comprovada pelo log sem chamada/saída do Downloader.
+- `IsPythonDownloaderReadyOutput` agora aceita a mensagem legada além dos marcadores atuais. O teste regressivo falhou antes da mudança e passou depois. Suíte Release `Jellyfin.Server.Implementations.Tests`: 1.498 aprovados, 63 ignorados, 0 falhas. NebulaPython completo: 592/592. Suíte .NET da solução (pré-alteração pontual) terminou com exit 0; integrações Mongo não foram executadas localmente.
+- API 8096 indisponível; health de streaming 2123 respondeu `ready`, sem provar Downloader. Nenhuma instalação, reinicialização ou transferência produtiva foi feita. Smoke test e release seguem pendentes.
+
+### Backend indisponível no host — 2026-10-18 12:20 (-03)
+
+- `sc.exe query MulletaFlixServer` respondeu erro 1060; instalador NSIS registra o serviço via NSSM e o inicia (`mulletaflix.nsi`, linhas 417 e 487). Não havia processo Jellyfin/MulletaFlix nem listener 8096. O processo Python mantém 2121/2123; `2123/health` HTTP 200 verifica apenas a engine.
+- Motivo da ausência do serviço não determinado. Nenhum start/reparo foi executado. Downloader e release aguardam restauração do backend em janela segura e smoke test real.
+- Homologação documentada no portal em `Mulletaflix-Portal:main`, commit `453da6d4ca4ea9d94818dfba155cfa43e07b7cf8`; Vercel Production `READY` (`dpl_A9YSDUkFpRHfADr9qpJe3o2tU4ce`), testes do portal 105/105 e endpoint público HTTP 200. Essa publicação não constitui release do servidor.
+
+### Revalidação do mesmo log e dos testes de mount — 2026-10-18 13:06 (-03)
+
+- O arquivo recebido tem 54.444 bytes, 516 linhas, timestamp 17/10/2026 19:52:55 e SHA-256 `68137C7A9B1846B15486441DC8435AF944874B4FEDB13DAD4EABFEDDD1188079`, igual ao anexo histórico já documentado. Não contém evidência nova de `StartDownloader`, readiness/scan STRM ou transferência.
+- Reexecutados os testes focados atuais: `NebulaMountRuntimeHealthTests`, `NebulaDownloaderStartupTests` e `NebulaHostedServiceConfigurationTests` Release passaram 54/54; `Tools/NebulaPython/tests/test_mount_drive_n.py` Python 3.10 passou 3/3. Isso valida a fonte, não o runtime instalado.
+- Observação local somente leitura: serviço `MulletaFlixServer` ausente, `MulletaFlixNginx` em execução, sem listener/API em 8096; Python escuta 2121/2123 e `/health` em 2123 retorna HTTP 200 `ready`. A saúde do stream não confirma o backend ou Downloader. Nenhum serviço/processo foi iniciado, encerrado, instalado ou configurado.
+- Mapa técnico conferido contra `NebulaHostedService`, `NebulaFtpManager`, `mount_drive_n.py` e testes: sem mudança de módulos, rotas, classes, dependências ou fluxo. Próxima ação segue sendo recuperar backend e validar transferência isolada em janela operacional autorizada; sem release nesta rodada.
+### Regressão ampla do servidor — 2026-10-18 13:14 (-03)
+
+- `dotnet test MulletaFlix.sln --configuration Release --no-restore --filter "FullyQualifiedName!~Integration"` terminou com exit 0. `Jellyfin.Server.Implementations.Tests`: 1.498 aprovados, 63 ignorados, 0 falhas; `Jellyfin.Server.Tests`: 73 aprovados, 1 ignorado; `Jellyfin.Api.Tests`: 730/730; `Jellyfin.Providers.Tests`: 777/777. Demais projetos executados sem falhas reportadas. Integrações foram excluídas pelo filtro; ignorados não contam como aprovação.
+- `py -3.10 -m pytest tests -q`, dentro de `Tools/NebulaPython`, passou 592/592. Tentativa inicial no diretório pai não coletou testes por resolução de imports; execução corrigida no diretório do projeto passou.
+- Sem mudanças de runtime nesta rodada. API 8096 indisponível no snapshot read-only; testes locais não validam instalação nem transferência. Integrações Mongo, CI remota, smoke test e release permanecem pendentes. Mapa técnico conferido, sem mudança estrutural.
+## Revalidação do log de download anexado — 2026-10-18 13:47 (-03)
+
+- O anexo recebido nesta rodada tem 54.444 bytes, 516 linhas e o mesmo SHA-256 `68137C7A9B1846B15486441DC8435AF944874B4FEDB13DAD4EABFEDDD1188079` do log de 16–17/10 já registrado. Não acrescenta evidência de clique/endpoint `StartDownloader`, readiness, scan STRM, item na fila ou transferência.
+- O código da interface aponta para `POST NebulaFtp/Actions/StartDownloader`; `NebulaHostedService.StartComponentsAsync` também tenta `StartDownloaderAsync` independentemente de falha do Envio. Isso verifica apenas o contrato da fonte, não o runtime instalado nem se a requisição ocorreu.
+- Testes focados atuais: `NebulaDownloaderStartupTests` + `NebulaHostedServiceConfigurationTests` Release 47/47; `test_main_lifecycle.py` com Python 3.10 12/12. Uma tentativa inicial de pytest a partir da raiz do servidor falhou na coleta por diretório de import incorreto; repetida no diretório `Tools/NebulaPython`, passou.
+- O registro histórico de `STREAM_ONLY` e colisão `WinError 10048` permanece; nenhuma causa nova pode ser atribuída ao clique sem log atual da ação. Nenhum código de produto, processo, serviço, configuração, montagem, banco ou mídia foi alterado. Release e smoke test real seguem pendentes.
+
+### Regressão ampla do servidor — 2026-10-18 14:04 (-03)
+
+- Solução .NET Release com filtro `FullyQualifiedName!~Integration` terminou com exit 0. Suíte `MulletaFlix.Server.Implementations.Tests`: 1.499 aprovados, 63 ignorados, 0 falhas (1.562 total). NebulaPython 3.10: `py -3.10 -m pytest tests -q`, 598/598.
+- A suíte confirma somente os testes automatizados executados. Testes Mongo ignorados e projetos de integração excluídos não contam como validação integrada; ainda é necessário CI com Mongo descartável.
+- Nenhum runtime/serviço foi alterado, e não foi observada chamada do Downloader ou transferência real nesta rodada. Produção e release permanecem não homologadas; smoke test controlado continua pendente.
+- Mapa técnico conferido: sem alteração de módulos, APIs, classes, dependências ou fluxo nesta sessão. Sessão: `2026-10-18-MulletaFlix-server-broad-regression-1404.md`.
+
+### Auditoria do fluxo de imagens — 2026-10-18 14:04 (-03)
+
+- Rastreamento da fonte: provedores de metadata retornam `RemoteImages`; `MetadataService.SaveRemoteResultImages` grava essas imagens em série, e o `ImageSaver` persiste caminho e atualiza `ImageInfos`. Metadados e imagens percorrem caminhos de resultado distintos, portanto campos textuais podem persistir mesmo quando a arte falha.
+- Defeito potencial de sobrescrita confirmado: o filtro seleciona todas as imagens remotas antes de iniciar gravações e não limita imagens singulares por tipo. Para `Primary`, o `ImageSaver` resolve índice 0; portanto múltiplas capas `Primary` no mesmo resultado do provedor gravam repetidamente o mesmo arquivo lógico e a última substitui as anteriores. Há provedores de livros que podem retornar múltiplas capas `Primary`.
+- Defeito de observabilidade confirmado: após até três tentativas, a falha do download da imagem é capturada e apenas registrada como warning; não incrementa `RefreshResult.Failures`. Isso permite atualizar metadados e concluir a atualização sem sinalizar a falha de imagem neste estágio.
+- Limite da confirmação: não havia log de produção atual nem resposta de imagem/API para os títulos do screenshot. Assim, os defeitos de fonte explicam casos compatíveis, mas não atribuo a eles todos os posters azuis nem confirmo que cada item afetado tenha recebido múltiplas imagens. Nenhuma produção, item ou imagem foi alterado.
+- Verificações: fluxo percorrido em `MetadataService`, `ProviderManager`, `ImageSaver`, `ItemImageProvider` e `BaseItem.ValidateImages`; suítes servidor/Python já concluídas nesta sessão. Testes de regressão específicos de múltiplas imagens Primary e falha remota ainda não existem. Mapa técnico conferido: sem mudança de estrutura. Detalhes: `docs/image-metadata-flow-audit.md`.

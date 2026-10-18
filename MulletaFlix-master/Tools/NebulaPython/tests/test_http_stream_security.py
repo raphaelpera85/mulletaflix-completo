@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import importlib
+import json
 import sys
 
 import pytest
@@ -98,6 +99,22 @@ async def test_non_loopback_stream_accepts_legacy_strm_query_token(monkeypatch):
     await main.handle_http_client(reader, writer, Mongo(None), [])
 
     assert bytes(writer.data).startswith(b"HTTP/1.1 400 Bad Request")
+
+
+@pytest.mark.asyncio
+async def test_health_reports_pid_for_the_worker_serving_the_endpoint(monkeypatch):
+    monkeypatch.setattr(main, "STREAM_TOKEN", "")
+    reader = asyncio.StreamReader()
+    reader.feed_data(b"GET /health HTTP/1.1\r\nHost: localhost\r\n\r\n")
+    reader.feed_eof()
+    writer = Writer("127.0.0.1")
+
+    await main.handle_http_client(reader, writer, Mongo(None), [])
+
+    response = bytes(writer.data)
+    assert response.startswith(b"HTTP/1.1 200 OK")
+    payload = json.loads(body_after_headers(response))
+    assert payload["pid"] == main.os.getpid()
 
 
 @pytest.mark.asyncio

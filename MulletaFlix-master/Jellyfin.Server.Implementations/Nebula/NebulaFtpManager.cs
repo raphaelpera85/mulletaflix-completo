@@ -939,6 +939,7 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable, IAsyncDis
 
         var status = new NebulaStatusDto
         {
+            NebulaEnabled = config.Enabled,
             IsEnvioRunning = _isEnvioRunning && ((_ftpServerHost != null && _ftpServerHost.IsRunning) || (_pythonStreamProcess is { HasExited: false })),
             StreamOnly = _streamOnly,
             IsDownloaderRunning = _isDownloaderRunning && ((_downloaderEngine != null && _downloaderEngine.IsRunning) || (_pythonDownloaderProcess is { HasExited: false })),
@@ -1481,30 +1482,21 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable, IAsyncDis
         }
 
         if (_isEnvioRunning
+            && CanReuseRunningEnvio(_streamOnly, streamOnly)
             && ((_ftpServerHost?.IsRunning == true) || (_pythonStreamProcess is { HasExited: false })))
         {
             return true;
         }
 
-        if (!await _envioLock.WaitAsync(0, cancellationToken).ConfigureAwait(false))
-        {
-            AddServerLog("[NEBULA] Inicialização do Envio já está em andamento. Aguarde a autenticação dos bots...");
-            // Never report success while another startup still owns the lock.
-            // Mount/watchdog callers must wait for the real FTP startup result.
-            await _envioLock.WaitAsync(cancellationToken).ConfigureAwait(false);
-            try
-            {
-                return _isEnvioRunning && ((_ftpServerHost?.IsRunning == true) || (_pythonStreamProcess is { HasExited: false }));
-            }
-            finally
-            {
-                _envioLock.Release();
-            }
-        }
+        // Serialize all starts, then re-check the active mode under the lock. A
+        // stream-only mount may have won the race; a full-mode caller must not
+        // mistake that worker for a ready upload service.
+        await _envioLock.WaitAsync(cancellationToken).ConfigureAwait(false);
 
         var createdMongoContext = false;
         var createdTelegramPool = false;
         var createdPlaybackCache = false;
+        var createdSupabaseSyncService = false;
 
         try
         {
@@ -1513,8 +1505,14 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable, IAsyncDis
                 return false;
             }
 
-            if (_isEnvioRunning && ((_ftpServerHost != null && _ftpServerHost.IsRunning) || (_pythonStreamProcess is { HasExited: false })))
+            var hasLiveRuntime = HasLiveFtpRuntime(
+                _ftpServerHost?.IsRunning == true,
+                _pythonStreamProcess is { HasExited: false });
+            if (ShouldReuseRunningEnvio(hasLiveRuntime, _streamOnly, streamOnly))
             {
+                // The owned process is authoritative. A stale logical flag must
+                // not cause a second instance to bind the same FTP/HTTP ports.
+                _isEnvioRunning = true;
                 if (_pythonStreamProcess is not { HasExited: false })
                 {
                     try
@@ -1535,8 +1533,31 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable, IAsyncDis
                 return true;
             }
 
+            if (ShouldRestartRuntimeForModePromotion(hasLiveRuntime, _streamOnly, streamOnly))
+            {
+                AddServerLog("[NEBULA] Atualizando o worker de Somente Streaming para modo completo, habilitando fila e workers de transferência.");
+            }
+
             await EnsureRuntimeDependenciesAsync(cancellationToken).ConfigureAwait(false);
             var config = EnsureRuntimeConfigurationNormalizedAndImported();
+            if (ShouldRestartRuntimeForModePromotion(hasLiveRuntime, _streamOnly, streamOnly))
+            {
+                AddServerLog("[NEBULA] Encerrando o runtime de Somente Streaming antes de ativar o Envio completo.");
+                await StopPythonStreamServiceAsync().ConfigureAwait(false);
+                if (!config.UsePythonEngine && _ftpServerHost != null)
+                {
+                    await _ftpServerHost.StopAsync(cancellationToken).ConfigureAwait(false);
+                    await _ftpServerHost.DisposeAsync().ConfigureAwait(false);
+                    _ftpServerHost = null;
+                }
+
+                if (!config.UsePythonEngine && _httpStreamServer != null)
+                {
+                    await _httpStreamServer.DisposeAsync().ConfigureAwait(false);
+                    _httpStreamServer = null;
+                }
+            }
+
             if (!config.AllowInsecureRemoteFtp && !IsLoopbackHost(config.ServerHost))
             {
                 throw new InvalidOperationException(
@@ -1585,10 +1606,17 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable, IAsyncDis
             // 1.1 Sincronizador com Supabase e verificação de prioridade do banco (restauração se Mongo estiver vazio)
             if (!string.IsNullOrWhiteSpace(config.SupabaseUrl) && !string.IsNullOrWhiteSpace(config.SupabaseKey))
             {
-                _supabaseSyncService = new NebulaSupabaseSyncService(
-                    _mongoContext,
-                    _loggerFactory.CreateLogger<NebulaSupabaseSyncService>(),
-                    _usersDbProvider);
+                // A transição stream-only -> completo reutiliza o runtime Mongo.
+                // Preserve o sincronizador já ativo em vez de perder sua referência
+                // e deixar loops/HttpClient antigos sem proprietário.
+                if (_supabaseSyncService == null)
+                {
+                    _supabaseSyncService = new NebulaSupabaseSyncService(
+                        _mongoContext,
+                        _loggerFactory.CreateLogger<NebulaSupabaseSyncService>(),
+                        _usersDbProvider);
+                    createdSupabaseSyncService = true;
+                }
 
                 if (!string.IsNullOrWhiteSpace(config.SupabaseProjectRef)
                     && !string.IsNullOrWhiteSpace(config.SupabaseManagementToken))
@@ -1883,8 +1911,7 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable, IAsyncDis
             {
                 await StopPythonStreamServiceAsync().ConfigureAwait(false);
 
-                _supabaseSyncService?.Dispose();
-                _supabaseSyncService = null;
+                DisposeSupabaseSyncServiceOnStartupFailure(createdSupabaseSyncService);
                 if (_stagingWatcher != null)
                 {
                     await _stagingWatcher.StopAsync().ConfigureAwait(false);
@@ -1951,6 +1978,24 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable, IAsyncDis
         finally
         {
             _envioLock.Release();
+        }
+    }
+
+    internal static bool CanReuseRunningEnvio(bool currentStreamOnly, bool requestedStreamOnly)
+        => !currentStreamOnly || requestedStreamOnly;
+
+    internal static bool ShouldReuseRunningEnvio(bool runtimeAlive, bool currentStreamOnly, bool requestedStreamOnly)
+        => runtimeAlive && CanReuseRunningEnvio(currentStreamOnly, requestedStreamOnly);
+
+    internal static bool ShouldRestartRuntimeForModePromotion(bool runtimeAlive, bool currentStreamOnly, bool requestedStreamOnly)
+        => runtimeAlive && currentStreamOnly && !requestedStreamOnly;
+
+    internal void DisposeSupabaseSyncServiceOnStartupFailure(bool createdByAttempt)
+    {
+        if (createdByAttempt && _supabaseSyncService != null)
+        {
+            _supabaseSyncService.Dispose();
+            _supabaseSyncService = null;
         }
     }
 
@@ -2687,14 +2732,7 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable, IAsyncDis
                         StartContinuousCleanup(config);
                     }
 
-                    if (!IsDriveNAccessible() && config.UseMappedDrive)
-                    {
-                        _mountRetry.Schedule(TimeSpan.Zero);
-                    }
-                    else if (!config.UseMappedDrive)
-                    {
-                        AddDownloaderLog("[NEBULA-MOUNT] UseMappedDrive=false: pulando montagem automática da unidade N:. Downloader opera via caminhos locais.");
-                    }
+                    ScheduleMountRetryAfterDownloaderStart(config);
 
                     return true;
                 }
@@ -2762,14 +2800,7 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable, IAsyncDis
                 StartContinuousCleanup(config);
             }
 
-            if (!IsDriveNAccessible() && config.UseMappedDrive)
-            {
-                _mountRetry.Schedule(TimeSpan.Zero);
-            }
-            else if (!config.UseMappedDrive)
-            {
-                AddDownloaderLog("[NEBULA-MOUNT] UseMappedDrive=false: pulando montagem automática da unidade N:. Downloader opera via caminhos locais.");
-            }
+            ScheduleMountRetryAfterDownloaderStart(config);
 
             return true;
         }
@@ -3128,91 +3159,103 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable, IAsyncDis
 
     private async Task RunContinuousCleanupLoopAsync(List<string> sources, CancellationToken cancellationToken)
     {
-        while (!cancellationToken.IsCancellationRequested)
+        using var timer = new PeriodicTimer(TimeSpan.FromMinutes(15));
+        try
         {
-            try
-            {
-                // A cleanup cycle walks every monitored source recursively AND materialises the full
-                // set of completed documents from Mongo just to build a path HashSet. At the previous
-                // 30 second interval that was 2,880 full library walks plus 2,880 full BSON result
-                // sets per day, which was the largest single driver of the host's page-file pressure
-                // on a 15.7 GB machine. Leftovers only need to be reclaimed eventually, so a much
-                // longer interval costs nothing real.
-                await Task.Delay(TimeSpan.FromMinutes(15), cancellationToken).ConfigureAwait(false);
-                if (_mongoContext != null && !_streamOnly)
+            await NebulaPeriodicLoop.RunImmediatelyThenPeriodicallyAsync(
+                async token =>
                 {
-                    await RunCleanupCycleAsync(sources, cancellationToken).ConfigureAwait(false);
-                }
-
-                // Watchdog: Auto-monta N: apenas se UseMappedDrive=true (compatibilidade legada)
-                var cfg = NormalizeRuntimeConfiguration(Config);
-                // Telegram pool is created early during startup. It is not proof
-                // that FTP/upload/download services are ready. Waiting for the
-                // explicit running flags prevents the watchdog from mounting N:
-                // while StartEnvioAsync still authenticates bots.
-                if (cfg.UseMappedDrive && (_isEnvioRunning || _isDownloaderRunning) && !IsDriveNAccessible())
-                {
-                    var nowTicks = DateTime.UtcNow.Ticks;
-                    var nextAttemptTicks = Interlocked.Read(ref _nextAutomaticMountAttemptUtcTicks);
-                    if (nowTicks >= nextAttemptTicks
-                        && Interlocked.CompareExchange(ref _automaticMountAttemptInProgress, 1, 0) == 0)
+                    try
                     {
-                        _logger.LogWarning("[NEBULA-WATCHDOG] Unidade N: inacessível (UseMappedDrive=true). Iniciando auto-recuperação...");
-                        AddServerLog("[NEBULA-WATCHDOG] Unidade N: inacessível. Remontando automaticamente...");
-                        _automaticMountTask = Task.Run(
-                            async () =>
+                        // A cleanup cycle walks every monitored source recursively AND materialises the full
+                        // set of completed documents from Mongo just to build a path HashSet. At the previous
+                        // 30 second interval that was 2,880 full library walks plus 2,880 full BSON result
+                        // sets per day, which was the largest single driver of the host's page-file pressure
+                        // on a 15.7 GB machine. Leftovers only need to be reclaimed eventually, so a much
+                        // longer interval costs nothing real. The first pass runs immediately in this
+                        // background task; a PeriodicTimer schedules later passes every 15 minutes and
+                        // coalesces ticks if one traversal takes longer, so cleanup never overlaps itself.
+                        if (_mongoContext != null && !_streamOnly)
+                        {
+                            await RunCleanupCycleAsync(sources, token).ConfigureAwait(false);
+                        }
+
+                        // Watchdog: Auto-monta N: apenas se UseMappedDrive=true (compatibilidade legada)
+                        var cfg = NormalizeRuntimeConfiguration(Config);
+                        // Telegram pool is created early during startup. It is not proof
+                        // that FTP/upload/download services are ready. Waiting for the
+                        // explicit running flags prevents the watchdog from mounting N:
+                        // while StartEnvioAsync still authenticates bots.
+                        if (cfg.UseMappedDrive && (_isEnvioRunning || _isDownloaderRunning) && !IsDriveNAccessible())
+                        {
+                            var nowTicks = DateTime.UtcNow.Ticks;
+                            var nextAttemptTicks = Interlocked.Read(ref _nextAutomaticMountAttemptUtcTicks);
+                            if (nowTicks >= nextAttemptTicks
+                                && Interlocked.CompareExchange(ref _automaticMountAttemptInProgress, 1, 0) == 0)
                             {
-                                try
-                                {
-                                    var mounted = await MountDriveNAsync(cancellationToken).ConfigureAwait(false);
-                                    if (mounted)
+                                _logger.LogWarning("[NEBULA-WATCHDOG] Unidade N: inacessível (UseMappedDrive=true). Iniciando auto-recuperação...");
+                                AddServerLog("[NEBULA-WATCHDOG] Unidade N: inacessível. Remontando automaticamente...");
+                                _automaticMountTask = Task.Run(
+                                    async () =>
                                     {
-                                        Interlocked.Exchange(ref _automaticMountFailures, 0);
-                                        Interlocked.Exchange(ref _nextAutomaticMountAttemptUtcTicks, 0);
-                                    }
-                                    else
-                                    {
-                                        var failures = Interlocked.Increment(ref _automaticMountFailures);
-                                        var delaySeconds = Math.Min(600, 30 * (1 << Math.Min(failures, 4)));
-                                        Interlocked.Exchange(
-                                            ref _nextAutomaticMountAttemptUtcTicks,
-                                            DateTime.UtcNow.AddSeconds(delaySeconds).Ticks);
-                                        _logger.LogWarning(
-                                            "[NEBULA-WATCHDOG] Auto-recuperação da unidade N: não concluída. Nova tentativa em aproximadamente {DelaySeconds}s.",
-                                            delaySeconds);
-                                    }
-                                }
-                                catch (Exception ex)
-                                {
-                                    var failures = Interlocked.Increment(ref _automaticMountFailures);
-                                    var delaySeconds = Math.Min(600, 30 * (1 << Math.Min(failures, 4)));
-                                    Interlocked.Exchange(
-                                        ref _nextAutomaticMountAttemptUtcTicks,
-                                        DateTime.UtcNow.AddSeconds(delaySeconds).Ticks);
-                                    _logger.LogError(ex, "[NEBULA-WATCHDOG] Erro ao auto-remontar unidade N:. Nova tentativa em aproximadamente {DelaySeconds}s.", delaySeconds);
-                                }
-                                finally
-                                {
-                                    Interlocked.Exchange(ref _automaticMountAttemptInProgress, 0);
-                                }
-                            },
-                            CancellationToken.None);
+                                        try
+                                        {
+                                            var mounted = await MountDriveNAsync(token).ConfigureAwait(false);
+                                            if (mounted)
+                                            {
+                                                Interlocked.Exchange(ref _automaticMountFailures, 0);
+                                                Interlocked.Exchange(ref _nextAutomaticMountAttemptUtcTicks, 0);
+                                            }
+                                            else
+                                            {
+                                                var failures = Interlocked.Increment(ref _automaticMountFailures);
+                                                var delaySeconds = Math.Min(600, 30 * (1 << Math.Min(failures, 4)));
+                                                Interlocked.Exchange(
+                                                    ref _nextAutomaticMountAttemptUtcTicks,
+                                                    DateTime.UtcNow.AddSeconds(delaySeconds).Ticks);
+                                                _logger.LogWarning(
+                                                    "[NEBULA-WATCHDOG] Auto-recuperação da unidade N: não concluída. Nova tentativa em aproximadamente {DelaySeconds}s.",
+                                                    delaySeconds);
+                                            }
+                                        }
+                                        catch (Exception ex)
+                                        {
+                                            var failures = Interlocked.Increment(ref _automaticMountFailures);
+                                            var delaySeconds = Math.Min(600, 30 * (1 << Math.Min(failures, 4)));
+                                            Interlocked.Exchange(
+                                                ref _nextAutomaticMountAttemptUtcTicks,
+                                                DateTime.UtcNow.AddSeconds(delaySeconds).Ticks);
+                                            _logger.LogError(ex, "[NEBULA-WATCHDOG] Erro ao auto-remontar unidade N:. Nova tentativa em aproximadamente {DelaySeconds}s.", delaySeconds);
+                                        }
+                                        finally
+                                        {
+                                            Interlocked.Exchange(ref _automaticMountAttemptInProgress, 0);
+                                        }
+                                    },
+                                    CancellationToken.None);
+                            }
+                        }
+                        else if (!cfg.UseMappedDrive && !IsDriveNAccessible())
+                        {
+                            // Log apenas em debug para não poluir - N: desmontado é o comportamento esperado
+                            _logger.LogDebug("[NEBULA-WATCHDOG] Unidade N: desmontada (UseMappedDrive=false). Streaming via HTTP/FTP direto.");
+                        }
                     }
-                }
-                else if (!cfg.UseMappedDrive && !IsDriveNAccessible())
-                {
-                    // Log apenas em debug para não poluir - N: desmontado é o comportamento esperado
-                    _logger.LogDebug("[NEBULA-WATCHDOG] Unidade N: desmontada (UseMappedDrive=false). Streaming via HTTP/FTP direto.");
-                }
-            }
-            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-            {
-                break;
-            }
-            catch (Exception ex)
-            {
-                _logger.LogDebug(ex, "Erro no ciclo contínuo de monitoramento do Nebula.");
-            }
+                    catch (OperationCanceledException) when (token.IsCancellationRequested)
+                    {
+                        throw;
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogDebug(ex, "Erro no ciclo contínuo de monitoramento do Nebula.");
+                    }
+                },
+                timer.WaitForNextTickAsync,
+                cancellationToken).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            // The periodic cleanup loop shares the Nebula runtime cancellation token.
         }
     }
 
@@ -5109,8 +5152,13 @@ CREATE POLICY nebula_bot_tokens_service_role_all
             return false;
         }
 
-        if ((_ftpServerHost == null || !_ftpServerHost.IsRunning) && !_isEnvioRunning)
+        if (!HasLiveFtpRuntime(_ftpServerHost?.IsRunning == true, _pythonStreamProcess is { HasExited: false }))
         {
+            if (_isEnvioRunning)
+            {
+                AddServerLog("[NEBULA-MOUNT-AVISO] Estado antigo indicava Envio ativo, mas nenhum processo FTP está vivo. Recuperando o runtime antes da montagem.");
+            }
+
             AddServerLog("[NEBULA-MOUNT] Servidor FTP não está ativo. Inicializando modo Streaming para montar a unidade N:...");
             var started = await StartEnvioAsync(streamOnly: true, cancellationToken).ConfigureAwait(false);
             if (!started)
@@ -5290,18 +5338,39 @@ CREATE POLICY nebula_bot_tokens_service_role_all
                     break;
                 }
 
-                if (_rcloneProcess != null && _rcloneProcess.HasExited)
-                {
-                    AddServerLog($"[NEBULA-MOUNT-ERRO] rclone encerrou prematuramente (código: {_rcloneProcess.ExitCode}). Consulte {logFile}");
-                    StopOwnedRcloneProcess();
-                    ScheduleMountRetry();
-                    return false;
-                }
-
                 if (IsDriveNAccessible())
                 {
                     EmitRawLog("Unidade N: montada automaticamente.");
                     return true;
+                }
+
+                if (_rcloneProcess != null && _rcloneProcess.HasExited)
+                {
+                    var helperExitCode = _rcloneProcess.ExitCode;
+                    if (helperExitCode == 3)
+                    {
+                        AddServerLog("[NEBULA-MOUNT] Outro helper possui o lock da montagem; retries automáticos pausados para evitar disputa. Tente novamente após a outra tentativa terminar.");
+                    }
+                    else if (helperExitCode == 4)
+                    {
+                        AddServerLog("[NEBULA-MOUNT-ERRO] N: está ocupada por uma montagem visível ao helper, mas inacessível ao serviço. Tentativas automáticas pausadas; verifique a sessão Windows e libere a letra antes de tentar novamente.");
+                    }
+                    else if (helperExitCode == 0)
+                    {
+                        AddServerLog("[NEBULA-MOUNT-ERRO] Helper encerrou sem erro, mas N: não está acessível pelo serviço. Tentativas automáticas pausadas para evitar ciclo de montagem.");
+                    }
+                    else
+                    {
+                        AddServerLog($"[NEBULA-MOUNT-ERRO] Helper de montagem encerrou prematuramente (código: {helperExitCode}). Consulte {logFile}");
+                    }
+
+                    StopOwnedRcloneProcess();
+                    if (ShouldRetryMountAfterHelperExit(helperExitCode))
+                    {
+                        ScheduleMountRetry();
+                    }
+
+                    return false;
                 }
 
                 await Task.Delay(1000, cancellationToken).ConfigureAwait(false);
@@ -5336,6 +5405,15 @@ CREATE POLICY nebula_bot_tokens_service_role_all
             _mountLock.Release();
         }
     }
+
+    internal static bool HasLiveFtpRuntime(bool ftpHostRunning, bool pythonStreamProcessRunning)
+        => ftpHostRunning || pythonStreamProcessRunning;
+
+    internal static bool ShouldRetryMountAfterHelperExit(int exitCode)
+        // Exit code 3 means another helper already owns the global mount lock.
+        // Retrying every three seconds only launches more helpers that fail on
+        // the same lock; wait for an explicit retry after that owner finishes.
+        => exitCode is not (0 or 3 or 4);
 
     public async Task<bool> UnmountDriveNAsync(CancellationToken cancellationToken = default)
     {
@@ -5662,8 +5740,12 @@ CREATE POLICY nebula_bot_tokens_service_role_all
                 using var response = await client.GetAsync(healthUrl, cancellationToken).ConfigureAwait(false);
                 if (response.IsSuccessStatusCode)
                 {
-                    AddServerLog($"[NEBULA-PYTHON] Runtime Python pronto na porta {port}.");
-                    return;
+                    var healthPayload = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+                    if (IsExpectedPythonWorkerHealth(healthPayload, process.Id))
+                    {
+                        AddServerLog($"[NEBULA-PYTHON] Runtime Python pronto na porta {port} (PID {process.Id}).");
+                        return;
+                    }
                 }
             }
             catch (HttpRequestException)
@@ -5681,12 +5763,56 @@ CREATE POLICY nebula_bot_tokens_service_role_all
         throw new TimeoutException("Worker Python do Nebula não ficou pronto em 45 segundos.");
     }
 
+    internal static bool IsExpectedPythonWorkerHealth(string payload, int expectedProcessId)
+    {
+        try
+        {
+            using var document = JsonDocument.Parse(payload);
+            return document.RootElement.TryGetProperty("pid", out var pid)
+                && pid.TryGetInt32(out var actualProcessId)
+                && actualProcessId == expectedProcessId;
+        }
+        catch (JsonException)
+        {
+            return false;
+        }
+    }
+
+    internal static bool ShouldScheduleMountRetryAfterDownloaderStart(bool useMappedDrive, bool envioRunning)
+        => useMappedDrive && envioRunning;
+
+    private void ScheduleMountRetryAfterDownloaderStart(NebulaFtpConfiguration config)
+    {
+        if (IsDriveNAccessible())
+        {
+            return;
+        }
+
+        if (ShouldScheduleMountRetryAfterDownloaderStart(config.UseMappedDrive, _isEnvioRunning))
+        {
+            _mountRetry.Schedule(TimeSpan.Zero);
+        }
+        else if (config.UseMappedDrive)
+        {
+            AddDownloaderLog("[NEBULA-MOUNT] Retry automático do disco N: ignorado porque o Envio/FTP não está ativo.");
+        }
+        else
+        {
+            AddDownloaderLog("[NEBULA-MOUNT] UseMappedDrive=false: pulando montagem automática da unidade N:. Downloader opera via caminhos locais.");
+        }
+    }
+
     private async Task StopPythonStreamServiceAsync()
     {
         var process = _pythonStreamProcess;
-        _pythonStreamProcess = null;
         if (process == null)
         {
+            if (_pythonCacheLeaseHost != null)
+            {
+                await _pythonCacheLeaseHost.DisposeAsync().ConfigureAwait(false);
+                _pythonCacheLeaseHost = null;
+            }
+
             return;
         }
 
@@ -5700,19 +5826,36 @@ CREATE POLICY nebula_bot_tokens_service_role_all
         }
         catch (Exception ex) when (ex is InvalidOperationException or System.ComponentModel.Win32Exception or TimeoutException)
         {
-            _logger.LogWarning(ex, "Falha ao encerrar worker Python do Nebula.");
+            if (!process.HasExited)
+            {
+                _logger.LogError(ex, "O worker Python do Nebula continua ativo; a referência foi preservada para impedir uma segunda instância na mesma porta.");
+                throw new InvalidOperationException("Não foi possível confirmar o encerramento do worker Python do Nebula.", ex);
+            }
+
+            _logger.LogWarning(ex, "O worker Python do Nebula já havia encerrado durante a solicitação de parada.");
+        }
+
+        if (!process.HasExited)
+        {
+            _logger.LogError("O worker Python do Nebula não confirmou encerramento; a referência foi preservada.");
+            throw new TimeoutException("O worker Python do Nebula continua ativo após a solicitação de parada.");
+        }
+
+        // A identidade da instância só pode ser liberada depois que o processo
+        // realmente terminou. Caso contrário, a próxima inicialização disputa
+        // as portas FTP/HTTP com o worker órfão e falha com WinError 10048.
+        _pythonStreamProcess = null;
+        var drainTasks = new[] { _pythonStreamStdoutTask, _pythonStreamStderrTask }.Where(task => task != null).Cast<Task>();
+        try
+        {
+            await Task.WhenAll(drainTasks).WaitAsync(TimeSpan.FromSeconds(2)).ConfigureAwait(false);
+        }
+        catch (TimeoutException)
+        {
+            // A janela de leitura é limitada; o processo já foi confirmado como encerrado.
         }
         finally
         {
-            var drainTasks = new[] { _pythonStreamStdoutTask, _pythonStreamStderrTask }.Where(task => task != null).Cast<Task>();
-            try
-            {
-                await Task.WhenAll(drainTasks).WaitAsync(TimeSpan.FromSeconds(2)).ConfigureAwait(false);
-            }
-            catch (TimeoutException)
-            {
-                // Process streams are disposed below after the bounded drain window.
-            }
             _pythonStreamStdoutTask = null;
             _pythonStreamStderrTask = null;
             process.Dispose();
@@ -5824,8 +5967,13 @@ CREATE POLICY nebula_bot_tokens_service_role_all
     }
 
     internal static bool IsPythonDownloaderReadyOutput(string line)
-        => line.Contains("[STRM-WORKER-READY]", StringComparison.OrdinalIgnoreCase)
-            || line.Contains("[STRM-SCAN-STARTED]", StringComparison.OrdinalIgnoreCase);
+        // Worker startup is ready after Mongo validation succeeds. Enumerating
+        // all configured library roots can take longer than the startup timeout.
+        // Older installed workers emit the scan message after refresh_cache returns
+        // but do not emit the newer explicit Mongo/scan markers.
+        => line.Contains("[STRM-WORKER-MONGO-READY]", StringComparison.OrdinalIgnoreCase)
+            || line.Contains("[STRM-SCAN-STARTED]", StringComparison.OrdinalIgnoreCase)
+            || line.Contains("Escaneando e priorizando arquivos .strm", StringComparison.OrdinalIgnoreCase);
 
     internal static async Task WaitForWorkerReadinessAsync(
         Task readinessTask,
@@ -5856,7 +6004,7 @@ CREATE POLICY nebula_bot_tokens_service_role_all
             throw new InvalidOperationException($"Worker Python encerrou antes de iniciar o scan (código {getExitCode()}).");
         }
 
-        throw new TimeoutException($"Worker Python não iniciou o scan STRM dentro de {timeout.TotalSeconds:0} segundos.");
+        throw new TimeoutException($"Worker Python não confirmou prontidão após preparar o índice Mongo dentro de {timeout.TotalSeconds:0} segundos.");
     }
 
     private void HandlePythonDownloaderOutput(string line)

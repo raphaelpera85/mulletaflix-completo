@@ -8,6 +8,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Diagnostics.Metrics;
 using System.Globalization;
+using System.IO;
 using System.Linq;
 using System.Net.Http;
 using System.Net.Http.Headers;
@@ -577,17 +578,52 @@ public sealed class NebulaSupabaseSyncService : IDisposable
         try
         {
             var uri = $"{supabaseUrl.TrimEnd('/')}/rest/v1/nebula_files?select=updated_at&order=updated_at.desc.nullslast&limit=1";
-            using var req = new HttpRequestMessage(HttpMethod.Get, uri);
-            req.Headers.Add("apikey", supabaseKey);
-            req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", supabaseKey);
-
-            using var resp = await _httpClient.SendAsync(req, cancellationToken).ConfigureAwait(false);
-            if (!resp.IsSuccessStatusCode)
+            string? body = null;
+            for (var attempt = 1; attempt <= 3; attempt++)
             {
-                throw new InvalidOperationException($"Falha ao consultar o cursor do Supabase: HTTP {(int)resp.StatusCode} {resp.ReasonPhrase}.");
+                var retry = false;
+                try
+                {
+                    using var req = new HttpRequestMessage(HttpMethod.Get, uri);
+                    req.Headers.Add("apikey", supabaseKey);
+                    req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", supabaseKey);
+
+                    using var resp = await _httpClient.SendAsync(req, cancellationToken).ConfigureAwait(false);
+                    if (!resp.IsSuccessStatusCode)
+                    {
+                        var retryableStatus = resp.StatusCode == HttpStatusCode.TooManyRequests || (int)resp.StatusCode >= 500;
+                        if (!retryableStatus || attempt == 3)
+                        {
+                            throw new InvalidOperationException($"Falha ao consultar o cursor do Supabase: HTTP {(int)resp.StatusCode} {resp.ReasonPhrase}.");
+                        }
+
+                        _logger.LogWarning("[SUPABASE-TIMESTAMP] Falha transitória ao consultar o cursor (tentativa {Attempt}/3): HTTP {StatusCode}.", attempt, (int)resp.StatusCode);
+                        retry = true;
+                    }
+                    else
+                    {
+                        body = await resp.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+                    }
+                }
+                catch (Exception ex) when (attempt < 3 && !cancellationToken.IsCancellationRequested && (ex is HttpRequestException or IOException or TaskCanceledException))
+                {
+                    _logger.LogWarning(ex, "[SUPABASE-TIMESTAMP] Erro transitório ao consultar o cursor (tentativa {Attempt}/3).", attempt);
+                    retry = true;
+                }
+
+                if (!retry)
+                {
+                    break;
+                }
+
+                await Task.Delay(TimeSpan.FromMilliseconds(250 * attempt), cancellationToken).ConfigureAwait(false);
             }
 
-            var body = await resp.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+            if (body is null)
+            {
+                throw new InvalidOperationException("Não foi possível consultar o cursor do Supabase após 3 tentativas.");
+            }
+
             using var doc = JsonDocument.Parse(body);
             if (doc.RootElement.ValueKind != JsonValueKind.Array)
             {
@@ -702,7 +738,7 @@ public sealed class NebulaSupabaseSyncService : IDisposable
         NebulaMongoAdmissionLease? admission = null;
         try
         {
-            admission = await _mongoContext.AcquireBackupAdmissionAsync(progressAction, cancellationToken).ConfigureAwait(false);
+            admission = await _mongoContext.AcquireExclusiveSyncAdmissionAsync(progressAction, cancellationToken).ConfigureAwait(false);
             using var linkedCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, admission.LeaseLostToken);
             cancellationToken = linkedCancellation.Token;
 
@@ -902,8 +938,22 @@ public sealed class NebulaSupabaseSyncService : IDisposable
         }
 
         await _backupGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        NebulaMongoAdmissionLease? admission = null;
         try
         {
+            if (_mongoContext is not null)
+            {
+                admission = await _mongoContext.AcquireExclusiveSyncAdmissionAsync(progressAction, cancellationToken).ConfigureAwait(false);
+            }
+
+            using var linkedCancellation = admission is null
+                ? null
+                : CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, admission.LeaseLostToken);
+            if (linkedCancellation is not null)
+            {
+                cancellationToken = linkedCancellation.Token;
+            }
+
             _logger.LogInformation("[SUPABASE-RESTORE] Restauração do catálogo Nebula iniciada; mídias locais serão mescladas, não removidas.");
             progressAction?.Invoke("[SUPABASE-RESTORE] Restaurando catálogo Nebula do Supabase.");
 
@@ -1055,7 +1105,17 @@ public sealed class NebulaSupabaseSyncService : IDisposable
         }
         finally
         {
-            _backupGate.Release();
+            try
+            {
+                if (admission is not null)
+                {
+                    await admission.DisposeAsync().ConfigureAwait(false);
+                }
+            }
+            finally
+            {
+                _backupGate.Release();
+            }
         }
     }
 

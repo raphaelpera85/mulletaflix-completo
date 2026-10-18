@@ -234,6 +234,46 @@ public sealed class NebulaHostedServiceConfigurationTests
     }
 
     [Fact]
+    public async Task EnvioStartupException_DoesNotPreventDownloaderFromStarting()
+    {
+        var config = new NebulaFtpConfiguration { Enabled = true, UseMappedDrive = false };
+        var configuration = CreateConfigManager(config);
+        var manager = new Mock<INebulaFtpManager>();
+        manager.Setup(m => m.StartEnvioAsync(false, It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new InvalidOperationException("FTP port is already in use"));
+        manager.Setup(m => m.StartDownloaderAsync(It.IsAny<CancellationToken>())).ReturnsAsync(true);
+
+        using var lifetime = new TestLifetime();
+        using var service = CreateService(manager, configuration, lifetime);
+        await service.StartAsync(CancellationToken.None);
+        lifetime.TriggerStarted();
+        await service.WaitForPendingWorkAsync();
+
+        manager.Verify(m => m.StartEnvioAsync(false, It.IsAny<CancellationToken>()), Times.Once);
+        manager.Verify(m => m.StartDownloaderAsync(It.IsAny<CancellationToken>()), Times.Once);
+        manager.Verify(m => m.MountDriveNAsync(It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task EnvioFailure_DoesNotPreventIndependentDownloaderStartup_AndSkipsDriveMount()
+    {
+        var config = new NebulaFtpConfiguration { Enabled = true, UseMappedDrive = true };
+        var manager = new Mock<INebulaFtpManager>();
+        manager.Setup(m => m.StartEnvioAsync(false, It.IsAny<CancellationToken>())).ReturnsAsync(false);
+        manager.Setup(m => m.StartDownloaderAsync(It.IsAny<CancellationToken>())).ReturnsAsync(true);
+        using var lifetime = new TestLifetime();
+        using var service = CreateService(manager, CreateConfigManager(config), lifetime);
+
+        await service.StartAsync(CancellationToken.None);
+        lifetime.TriggerStarted();
+        await service.WaitForPendingWorkAsync();
+
+        manager.Verify(m => m.StartEnvioAsync(false, It.IsAny<CancellationToken>()), Times.Exactly(3));
+        manager.Verify(m => m.StartDownloaderAsync(It.IsAny<CancellationToken>()), Times.Once);
+        manager.Verify(m => m.MountDriveNAsync(It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
     public async Task InternalUnchangedConfigurationSave_DoesNotRescheduleFailedPipeline()
     {
         var config = new NebulaFtpConfiguration { Enabled = true, UseMappedDrive = false };

@@ -10,18 +10,82 @@ namespace MulletaFlix.Server.Implementations.Tests.Nebula;
 public sealed class NebulaDownloaderStartupTests
 {
     [Theory]
-    [InlineData("[STRM-WORKER-READY] Worker iniciado")]
-    [InlineData("[STRM-SCAN-STARTED] Varredura iniciada")]
-    public void IsPythonDownloaderReadyOutput_AcceptsWorkerAndScanMarkers(string line)
+    [InlineData(true, false, false)]
+    [InlineData(true, true, true)]
+    [InlineData(false, false, true)]
+    [InlineData(false, true, true)]
+    public void CanReuseRunningEnvio_RequiresPromotionWhenFullModeIsRequested(bool currentStreamOnly, bool requestedStreamOnly, bool expected)
     {
-        Assert.True(NebulaFtpManager.IsPythonDownloaderReadyOutput(line));
+        Assert.Equal(expected, NebulaFtpManager.CanReuseRunningEnvio(currentStreamOnly, requestedStreamOnly));
+    }
+
+    [Theory]
+    [InlineData(true, false, false, true)]
+    [InlineData(true, true, true, true)]
+    [InlineData(true, true, false, false)]
+    [InlineData(false, false, false, false)]
+    public void ShouldReuseRunningEnvio_UsesLiveRuntimeAndPromotesStreamOnlyWorker(
+        bool runtimeAlive,
+        bool currentStreamOnly,
+        bool requestedStreamOnly,
+        bool expected)
+    {
+        Assert.Equal(expected, NebulaFtpManager.ShouldReuseRunningEnvio(runtimeAlive, currentStreamOnly, requestedStreamOnly));
+    }
+
+    [Theory]
+    [InlineData(true, true, false, true)]
+    [InlineData(true, true, true, false)]
+    [InlineData(true, false, false, false)]
+    [InlineData(false, true, false, false)]
+    public void ShouldRestartRuntimeForModePromotion_StopsStreamOnlyWorkerBeforeFullMode(
+        bool runtimeAlive,
+        bool currentStreamOnly,
+        bool requestedStreamOnly,
+        bool expected)
+    {
+        Assert.Equal(
+            expected,
+            NebulaFtpManager.ShouldRestartRuntimeForModePromotion(runtimeAlive, currentStreamOnly, requestedStreamOnly));
+    }
+
+    [Theory]
+    [InlineData(true, true, true)]
+    [InlineData(true, false, false)]
+    [InlineData(false, true, false)]
+    [InlineData(false, false, false)]
+    public void ShouldScheduleMountRetryAfterDownloaderStart_RequiresMappedDriveAndHealthyEnvio(bool useMappedDrive, bool envioRunning, bool expected)
+    {
+        Assert.Equal(expected, NebulaFtpManager.ShouldScheduleMountRetryAfterDownloaderStart(useMappedDrive, envioRunning));
+    }
+
+    [Theory]
+    [InlineData("{\"status\":\"ready\",\"engine\":\"python\",\"pid\":42}", 42, true)]
+    [InlineData("{\"status\":\"ready\",\"engine\":\"python\",\"pid\":7}", 42, false)]
+    [InlineData("{\"status\":\"ready\",\"engine\":\"python\"}", 42, false)]
+    [InlineData("not-json", 42, false)]
+    public void IsExpectedPythonWorkerHealth_OnlyAcceptsHealthFromOwnedProcess(string payload, int expectedProcessId, bool expected)
+    {
+        Assert.Equal(expected, NebulaFtpManager.IsExpectedPythonWorkerHealth(payload, expectedProcessId));
+    }
+
+    [Fact]
+    public void IsPythonDownloaderReadyOutput_RequiresMongoIndexBeforeLibraryDiscovery()
+    {
+        Assert.False(NebulaFtpManager.IsPythonDownloaderReadyOutput(
+            "[STRM-WORKER-READY] Worker iniciado; preparando índice Mongo e fila."));
+        Assert.True(NebulaFtpManager.IsPythonDownloaderReadyOutput(
+            "[STRM-WORKER-MONGO-READY] Índice Mongo preparado; descobrindo raízes STRM."));
+        Assert.True(NebulaFtpManager.IsPythonDownloaderReadyOutput(
+            "[STRM-SCAN-STARTED] Varredura iniciada"));
+        Assert.True(NebulaFtpManager.IsPythonDownloaderReadyOutput(
+            "Escaneando e priorizando arquivos .strm..."));
     }
 
     [Fact]
     public void IsPythonDownloaderReadyOutput_IgnoresUnrelatedOutput()
     {
-        Assert.False(NebulaFtpManager.IsPythonDownloaderReadyOutput("Escaneando e priorizando arquivos .strm..."));
-        Assert.False(NebulaFtpManager.IsPythonDownloaderReadyOutput("[STRM-WORKER-MONGO-READY] Índice Mongo preparado."));
+        Assert.False(NebulaFtpManager.IsPythonDownloaderReadyOutput("Conectando ao Telegram..."));
     }
 
     [Fact]
@@ -124,7 +188,7 @@ public sealed class NebulaDownloaderStartupTests
     }
 
     [Fact]
-    public async Task WaitForWorkerReadinessAsync_FailsWhenWorkerNeverStartsScan()
+    public async Task WaitForWorkerReadinessAsync_TimesOutBeforeMongoIndexIsReady()
     {
         var ready = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var exited = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);

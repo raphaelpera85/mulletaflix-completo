@@ -2268,7 +2268,7 @@ async def handle_http_client(reader, writer, mongo, bots):
             await writer.drain()
             return
         if url.path == "/health":
-            await http_write_json(writer, {"status": "ready", "engine": "python"}, head_only=head_only)
+            await http_write_json(writer, {"status": "ready", "engine": "python", "pid": os.getpid()}, head_only=head_only)
         elif url.path == "/api/files":
             await http_write_json(
                 writer,
@@ -2370,6 +2370,44 @@ async def folder_watcher(mongo):
     """Watch staging directories for new files and enqueue them for upload.
     Delegates to the stats_reporter coroutine which already implements this logic."""
     await stats_reporter(mongo)
+
+
+async def _supervisor_lease_is_alive(port: int, token: str) -> bool:
+    """Check that the owning MulletaFlix process still supervises this worker."""
+    writer = None
+    try:
+        reader, writer = await asyncio.wait_for(
+            asyncio.open_connection("127.0.0.1", port), timeout=2
+        )
+        writer.write(json.dumps({"action": "heartbeat", "token": token}).encode() + b"\n")
+        await writer.drain()
+        response = await asyncio.wait_for(reader.readline(), timeout=2)
+        return bool(json.loads(response).get("ok"))
+    except (OSError, asyncio.TimeoutError, json.JSONDecodeError, ValueError):
+        return False
+    finally:
+        if writer is not None:
+            writer.close()
+            with contextlib.suppress(OSError, RuntimeError):
+                await writer.wait_closed()
+
+
+async def _watch_server_owner(stop_event: asyncio.Event, port: int, token: str, interval: float = 5) -> None:
+    """Stop orphaned FTP/stream workers after their owning server disappears."""
+    missed_heartbeats = 0
+    while not stop_event.is_set():
+        if await _supervisor_lease_is_alive(port, token):
+            missed_heartbeats = 0
+        else:
+            missed_heartbeats += 1
+            if missed_heartbeats >= 3:
+                logger.error(
+                    "[NEBULA-SUPERVISOR] Processo servidor não responde ao lease; encerrando worker órfão."
+                )
+                stop_event.set()
+                return
+
+        await asyncio.sleep(interval)
 
 
 async def setup_database_indexes(db) -> None:
@@ -2550,11 +2588,18 @@ async def main():
     except OSError as exc:
         logger.warning("HTTP Stream nao iniciado em %s:%s: %s", STREAM_HOST, STREAM_PORT, exc)
 
+    stop_event = asyncio.Event()
     background_tasks = [
         asyncio.create_task(garbage_collector(mongo)),
         asyncio.create_task(stats_reporter(mongo)),
         asyncio.create_task(staging_scanner(mongo, STAGING_DIRS)),
     ]
+    lease_port = int(environ.get("NEBULA_CACHE_LEASE_PORT", "0") or "0")
+    lease_token = environ.get("NEBULA_CACHE_LEASE_TOKEN", "")
+    if lease_port > 0 and lease_token:
+        background_tasks.append(
+            asyncio.create_task(_watch_server_owner(stop_event, lease_port, lease_token))
+        )
     folder_task = None
     # Initialize upload semaphore with correct bot count
     import os
@@ -2593,7 +2638,6 @@ async def main():
             )
 
     ftp_server_task = asyncio.create_task(server.serve_forever())
-    stop_event = asyncio.Event()
     control_plane = None
 
     async def drain_and_stop():

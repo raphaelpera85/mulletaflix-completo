@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import contextlib
+import errno
 import os
 import signal
 from pathlib import Path
@@ -25,14 +26,21 @@ def acquire_instance_lock() -> bool:
     """Ensure only one mount_drive_n process runs at a time."""
     global _lock_file
     if sys.platform == "win32":
+        import msvcrt
+
+        lock_path = Path(tempfile.gettempdir()) / "mulletaflix_mount_n.lock"
+        _lock_file = open(lock_path, "a+")
+        _lock_file.seek(0)
         try:
-            import msvcrt
-            lock_path = Path(tempfile.gettempdir()) / "mulletaflix_mount_n.lock"
-            _lock_file = open(lock_path, "w")
             msvcrt.locking(_lock_file.fileno(), msvcrt.LK_NBLCK, 1)
             return True
-        except (OSError, ImportError):
-            return False
+        except OSError as exc:
+            _lock_file.close()
+            _lock_file = None
+            if exc.errno in (errno.EACCES, errno.EDEADLK):
+                return False
+
+            raise
     return True
 
 
@@ -193,9 +201,24 @@ async def run_rclone_mount(
 
 
 async def mount(args: argparse.Namespace) -> int:
-    if not acquire_instance_lock():
+    drive = Path(args.drive + "\\")
+    if drive.exists():
+        print(
+            f"[NEBULA-MOUNT-PY-ERRO] Unidade {args.drive} já existe nesta sessão; "
+            "não é possível confirmar que a montagem pertence a este helper.",
+            flush=True,
+        )
+        return 4
+
+    try:
+        lock_acquired = acquire_instance_lock()
+    except (OSError, ImportError) as exc:
+        print(f"[NEBULA-MOUNT-PY-ERRO] Não foi possível adquirir o lock de montagem: {exc}", flush=True)
+        return 2
+
+    if not lock_acquired:
         print("[NEBULA-MOUNT-PY] Outro processo de montagem de N: já está em execução.", flush=True)
-        return 0
+        return 3
 
     rclone = args.rclone if Path(args.rclone).is_file() else shutil.which(args.rclone)
     if not rclone:
@@ -206,11 +229,6 @@ async def mount(args: argparse.Namespace) -> int:
     if not config.is_file():
         print(f"[NEBULA-MOUNT-PY-ERRO] Configuração não encontrada: {config}", flush=True)
         return 2
-
-    drive = Path(args.drive + "\\")
-    if drive.exists():
-        print(f"[NEBULA-MOUNT-PY] Unidade {args.drive} já está acessível.", flush=True)
-        return 0
 
     print(
         f"[NEBULA-MOUNT-PY] Aguardando FTP {args.host}:{args.port} por {args.ftp_timeout:.0f}s...",

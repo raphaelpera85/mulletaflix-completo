@@ -635,7 +635,7 @@ public sealed class NebulaQueueConcurrencyMongoTests : IDisposable
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
         await using var currentUpload = await context.AcquireUploadAdmissionAsync(timeout.Token);
 
-        var backupTask = context.AcquireBackupAdmissionAsync(null, timeout.Token);
+        var backupTask = context.AcquireExclusiveSyncAdmissionAsync(null, timeout.Token);
         try
         {
             var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(5);
@@ -702,7 +702,7 @@ public sealed class NebulaQueueConcurrencyMongoTests : IDisposable
         });
 
         using var context = CreateContext();
-        await using var backup = await context.AcquireBackupAdmissionAsync(null, TestContext.Current.CancellationToken);
+        await using var backup = await context.AcquireExclusiveSyncAdmissionAsync(null, TestContext.Current.CancellationToken);
 
         var state = await Admission.Find(Builders<BsonDocument>.Filter.Eq("_id", NebulaMongoContext.AdmissionGateId))
             .FirstAsync(TestContext.Current.CancellationToken);
