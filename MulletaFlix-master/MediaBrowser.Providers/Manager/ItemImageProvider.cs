@@ -255,6 +255,7 @@ namespace MediaBrowser.Providers.Manager
             catch (Exception ex)
             {
                 result.ErrorMessage = ex.Message;
+                result.Failures++;
                 _logger.LogError(ex, "Error in {Provider} for {Item}", provider.Name, item.Path ?? item.Name);
             }
         }
@@ -339,6 +340,7 @@ namespace MediaBrowser.Providers.Manager
             catch (Exception ex)
             {
                 result.ErrorMessage = ex.Message;
+                result.Failures++;
                 _logger.LogError(ex, "Error in {Provider} for {Item}", provider.Name, item.Path ?? item.Name);
             }
         }
@@ -584,6 +586,7 @@ namespace MediaBrowser.Providers.Manager
                     if (!response.IsSuccessStatusCode)
                     {
                         _logger.LogWarning("{Url} returned {StatusCode}, skipping all remaining requests", url, response.StatusCode);
+                        result.Failures++;
                         break;
                     }
 
@@ -608,8 +611,10 @@ namespace MediaBrowser.Providers.Manager
                     result.UpdateType |= ItemUpdateType.ImageUpdate;
                     return true;
                 }
-                catch (HttpRequestException)
+                catch (HttpRequestException ex)
                 {
+                    result.ErrorMessage = ex.Message;
+                    result.Failures++;
                     break;
                 }
             }
@@ -699,6 +704,7 @@ namespace MediaBrowser.Providers.Manager
                     if (!response.IsSuccessStatusCode)
                     {
                         _logger.LogWarning("{Url} returned {StatusCode}, skipping all remaining requests", url, response.StatusCode);
+                        result.Failures++;
                         break;
                     }
 
@@ -739,8 +745,10 @@ namespace MediaBrowser.Providers.Manager
 
                     result.UpdateType |= ItemUpdateType.ImageUpdate;
                 }
-                catch (HttpRequestException)
+                catch (HttpRequestException ex)
                 {
+                    result.ErrorMessage = ex.Message;
+                    result.Failures++;
                     break;
                 }
             }

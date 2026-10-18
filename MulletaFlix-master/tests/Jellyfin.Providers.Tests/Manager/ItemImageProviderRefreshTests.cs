@@ -380,6 +380,47 @@ namespace MulletaFlix.Providers.Tests.Manager
             Assert.Equal(expectedToUpdate, result.UpdateType.HasFlag(ItemUpdateType.ImageUpdate));
         }
 
+        [Theory]
+        [InlineData(false)]
+        [InlineData(true)]
+        public async Task RefreshImages_RemoteImageDownloadFailure_IsReportedForRetry(bool throwRequestException)
+        {
+            var item = new Video { Path = "non-empty path" };
+            BaseItem.MediaSourceManager = Mock.Of<IMediaSourceManager>();
+            var libraryOptions = GetLibraryOptions(item, ImageType.Primary, 1);
+            var remoteProvider = new Mock<IRemoteImageProvider>(MockBehavior.Strict);
+            remoteProvider.Setup(provider => provider.Name).Returns("MockRemoteProvider");
+            remoteProvider.Setup(provider => provider.GetSupportedImages(item)).Returns(new[] { ImageType.Primary });
 
+            if (throwRequestException)
+            {
+                remoteProvider.Setup(provider => provider.GetImageResponse("image url", It.IsAny<CancellationToken>()))
+                    .ThrowsAsync(new HttpRequestException("Remote image request failed."));
+            }
+            else
+            {
+                remoteProvider.Setup(provider => provider.GetImageResponse("image url", It.IsAny<CancellationToken>()))
+                    .ReturnsAsync(new HttpResponseMessage(HttpStatusCode.BadGateway));
+            }
+
+            var providerManager = new Mock<IProviderManager>(MockBehavior.Strict);
+            providerManager.Setup(manager => manager.GetAvailableRemoteImages(
+                    item,
+                    It.IsAny<RemoteImageQuery>(),
+                    It.IsAny<CancellationToken>()))
+                .ReturnsAsync(new[] { new RemoteImageInfo { Type = ImageType.Primary, Url = "image url" } });
+
+            var imageProvider = GetItemImageProvider(providerManager.Object, null);
+            var result = await imageProvider.RefreshImages(
+                item,
+                libraryOptions,
+                new List<IImageProvider> { remoteProvider.Object },
+                new ImageRefreshOptions(Mock.Of<IDirectoryService>()),
+                CancellationToken.None);
+
+            Assert.True(result.Failures > 0);
+            Assert.False(result.UpdateType.HasFlag(ItemUpdateType.ImageUpdate));
+            Assert.False(item.HasImage(ImageType.Primary));
+        }
     }
 }
