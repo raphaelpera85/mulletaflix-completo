@@ -20,11 +20,10 @@ internal static class NebulaCompletedMediaRefresh
         Func<CancellationToken, ValueTask<bool>> waitForNextTick,
         CancellationToken cancellationToken)
     {
-        await refresh(cancellationToken).ConfigureAwait(false);
-        while (await waitForNextTick(cancellationToken).ConfigureAwait(false))
-        {
-            await refresh(cancellationToken).ConfigureAwait(false);
-        }
+        await NebulaPeriodicLoop.RunImmediatelyThenPeriodicallyAsync(
+            refresh,
+            waitForNextTick,
+            cancellationToken).ConfigureAwait(false);
     }
 
     public static IReadOnlyCollection<string> GetVirtualDirectories(

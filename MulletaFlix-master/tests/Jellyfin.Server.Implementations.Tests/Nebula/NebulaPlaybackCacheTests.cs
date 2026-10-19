@@ -67,6 +67,45 @@ public sealed class NebulaPlaybackCacheTests
     }
 
     [Fact]
+    public async Task PythonCacheLeaseHostAcceptsAuthenticatedSupervisorHeartbeat()
+    {
+        var root = CreateTempDirectory();
+        try
+        {
+            using var cache = new NebulaPlaybackCache(root, NullLogger<NebulaPlaybackCache>.Instance);
+            var accessor = new NebulaPlaybackCacheAccessor();
+            accessor.Set(cache);
+            await using var host = new NebulaPythonCacheLeaseHost(accessor, NullLogger<NebulaPythonCacheLeaseHost>.Instance);
+            host.Start();
+
+            using var client = new TcpClient();
+            await client.ConnectAsync(System.Net.IPAddress.Loopback, host.Port);
+            await using var stream = client.GetStream();
+            using var reader = new StreamReader(stream);
+            await using var writer = new StreamWriter(stream) { AutoFlush = true };
+            await writer.WriteLineAsync(JsonSerializer.Serialize(new { action = "heartbeat", token = host.Token }));
+
+            using var response = JsonDocument.Parse(await reader.ReadLineAsync());
+            Assert.True(response.RootElement.GetProperty("ok").GetBoolean());
+            Assert.Equal(0, cache.ActiveLeasesCount);
+
+            using var unauthorizedClient = new TcpClient();
+            await unauthorizedClient.ConnectAsync(System.Net.IPAddress.Loopback, host.Port);
+            await using var unauthorizedStream = unauthorizedClient.GetStream();
+            using var unauthorizedReader = new StreamReader(unauthorizedStream);
+            await using var unauthorizedWriter = new StreamWriter(unauthorizedStream) { AutoFlush = true };
+            await unauthorizedWriter.WriteLineAsync(JsonSerializer.Serialize(new { action = "heartbeat", token = "invalid" }));
+
+            using var unauthorizedResponse = JsonDocument.Parse(await unauthorizedReader.ReadLineAsync());
+            Assert.False(unauthorizedResponse.RootElement.GetProperty("ok").GetBoolean());
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task IntroPrefetchKeepsChunkedStreamAliveUntilCacheCompletes()
     {
         var root = CreateTempDirectory();

@@ -84,7 +84,11 @@ public sealed class NebulaPythonCacheLeaseHost : IAsyncDisposable
                     }
 
                     var action = root.TryGetProperty("action", out var actionValue) ? actionValue.GetString() : null;
-                    if (string.Equals(action, "acquire", StringComparison.Ordinal)
+                    if (string.Equals(action, "heartbeat", StringComparison.Ordinal))
+                    {
+                        await writer.WriteLineAsync("{\"ok\":true}").ConfigureAwait(false);
+                    }
+                    else if (string.Equals(action, "acquire", StringComparison.Ordinal)
                         && root.TryGetProperty("mediaId", out var idValue)
                         && idValue.GetString() is { Length: 24 } mediaId
                         && ObjectIdTextIsValid(mediaId))

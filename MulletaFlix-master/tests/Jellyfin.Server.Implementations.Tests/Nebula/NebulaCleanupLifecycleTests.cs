@@ -19,6 +19,52 @@ namespace MulletaFlix.Server.Implementations.Tests.Nebula;
 public sealed class NebulaCleanupLifecycleTests
 {
     [Fact]
+    public async Task StartupFailureCleanup_PreservesSupabaseSyncServiceOwnedByPreviousRuntime()
+    {
+        var manager = CreateManager();
+        using var mongo = new NebulaMongoContext(
+            "mongodb://127.0.0.1:27099",
+            "ftp",
+            NullLogger<NebulaMongoContext>.Instance);
+        var service = new NebulaSupabaseSyncService(mongo, NullLogger<NebulaSupabaseSyncService>.Instance);
+        SetField(manager, "_supabaseSyncService", service);
+
+        try
+        {
+            manager.DisposeSupabaseSyncServiceOnStartupFailure(createdByAttempt: false);
+
+            Assert.Same(service, GetField(manager, "_supabaseSyncService"));
+        }
+        finally
+        {
+            await manager.DisposeAsync();
+        }
+    }
+
+    [Fact]
+    public async Task StartupFailureCleanup_DisposesSupabaseSyncServiceCreatedByFailedAttempt()
+    {
+        var manager = CreateManager();
+        using var mongo = new NebulaMongoContext(
+            "mongodb://127.0.0.1:27099",
+            "ftp",
+            NullLogger<NebulaMongoContext>.Instance);
+        var service = new NebulaSupabaseSyncService(mongo, NullLogger<NebulaSupabaseSyncService>.Instance);
+        SetField(manager, "_supabaseSyncService", service);
+
+        try
+        {
+            manager.DisposeSupabaseSyncServiceOnStartupFailure(createdByAttempt: true);
+
+            Assert.Null(GetField(manager, "_supabaseSyncService"));
+        }
+        finally
+        {
+            await manager.DisposeAsync();
+        }
+    }
+
+    [Fact]
     public async Task CleanupCycle_ReportsBoundedMetricsWhenSkipped()
     {
         var measurements = new List<(string Name, double Value, KeyValuePair<string, object?>[] Tags)>();

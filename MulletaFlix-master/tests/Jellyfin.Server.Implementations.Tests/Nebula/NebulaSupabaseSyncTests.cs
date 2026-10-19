@@ -265,17 +265,54 @@ public class NebulaSupabaseSyncTests
     [Fact]
     public async Task GetLastRemoteFileTimestampAsync_ThrowsWhenSupabaseIsUnavailableInsteadOfTriggeringFullSync()
     {
-        var handler = new StaticResponseHandler(new HttpResponseMessage(HttpStatusCode.ServiceUnavailable)
-        {
-            Content = new StringContent("temporary failure")
-        });
+        var handler = new SequenceResponseHandler(
+            new HttpResponseMessage(HttpStatusCode.ServiceUnavailable) { Content = new StringContent("temporary failure") },
+            new HttpResponseMessage(HttpStatusCode.ServiceUnavailable) { Content = new StringContent("temporary failure") },
+            new HttpResponseMessage(HttpStatusCode.ServiceUnavailable) { Content = new StringContent("temporary failure") });
         using var service = new NebulaSupabaseSyncService(null!, NullLogger<NebulaSupabaseSyncService>.Instance, null, handler);
 
         var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
             service.GetLastRemoteFileTimestampAsync("https://supabase.invalid", "sb_secret_test"));
 
         Assert.Contains("HTTP 503", exception.Message, StringComparison.Ordinal);
-        Assert.Equal(HttpMethod.Get, handler.LastMethod);
+        Assert.Equal(3, handler.Methods.Count);
+        Assert.All(handler.Methods, method => Assert.Equal(HttpMethod.Get, method));
+    }
+
+    [Fact]
+    public async Task GetLastRemoteFileTimestampAsync_RetriesTransientServerErrorThenReturnsTimestamp()
+    {
+        var expected = new DateTime(2026, 10, 18, 12, 30, 0, DateTimeKind.Utc);
+        var handler = new SequenceResponseHandler(
+            new HttpResponseMessage(HttpStatusCode.InternalServerError) { Content = new StringContent("temporary failure") },
+            new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent($"[{{\"updated_at\":\"{expected:O}\"}}]")
+            });
+        using var service = new NebulaSupabaseSyncService(null!, NullLogger<NebulaSupabaseSyncService>.Instance, null, handler);
+
+        var timestamp = await service.GetLastRemoteFileTimestampAsync("https://supabase.invalid", "sb_secret_test");
+
+        Assert.Equal(expected, timestamp);
+        Assert.Equal(new[] { HttpMethod.Get, HttpMethod.Get }, handler.Methods);
+    }
+
+    [Fact]
+    public async Task GetLastRemoteFileTimestampAsync_DoesNotRetryUnauthorizedResponse()
+    {
+        var handler = new SequenceResponseHandler(
+            new HttpResponseMessage(HttpStatusCode.Unauthorized) { Content = new StringContent("unauthorized") },
+            new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent("[{\"updated_at\":\"2026-10-18T12:30:00Z\"}]")
+            });
+        using var service = new NebulaSupabaseSyncService(null!, NullLogger<NebulaSupabaseSyncService>.Instance, null, handler);
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.GetLastRemoteFileTimestampAsync("https://supabase.invalid", "sb_secret_test"));
+
+        Assert.Contains("HTTP 401", exception.Message, StringComparison.Ordinal);
+        Assert.Equal(new[] { HttpMethod.Get }, handler.Methods);
     }
 
     [Fact]

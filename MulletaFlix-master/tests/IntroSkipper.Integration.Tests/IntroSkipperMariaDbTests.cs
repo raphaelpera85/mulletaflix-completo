@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 using IntroSkipper.Data;
+using IntroSkipper.SegmentChanges;
 using Microsoft.EntityFrameworkCore;
 using Xunit;
 using MulletaFlix.Testing;
@@ -137,6 +138,59 @@ public sealed class IntroSkipperMariaDbTests : IClassFixture<MariaDbFixture>
     }
 
     [Fact]
+    public async Task ResetItemsForReanalysisBindsModeSetWithoutSpanEvaluation()
+    {
+        MariaDbTestEnvironment.SkipUnlessConfigured();
+        await _fixture.Database.InitializeAsync();
+        var cancellationToken = TestContext.Current.CancellationToken;
+        var changed = Guid.NewGuid();
+        var kept = Guid.NewGuid();
+        await WriteIntroductionAsync(changed, cancellationToken);
+        await WriteIntroductionAsync(kept, cancellationToken);
+        await _fixture.Database.ApplyChangeAsync(
+            new AddUserSegmentIntent(
+                changed,
+                AnalysisMode.Introduction,
+                TimeSpan.FromSeconds(90).Ticks,
+                TimeSpan.FromSeconds(105).Ticks),
+            cancellationToken: cancellationToken);
+        await _fixture.Database.ReplaceAutoSegmentsAsync(
+            changed,
+            AnalysisMode.Credits,
+            [new Segment(changed, new TimeRange(50, 75))],
+            SegmentSource.Chromaprint,
+            "hash-credits",
+            cancellationToken);
+        await _fixture.Database.MarkItemsAnalyzedAsync(AnalysisMode.Introduction, [(changed, (long?)null), (kept, null)], "hash-intro", cancellationToken);
+        await _fixture.Database.MarkItemsAnalyzedAsync(AnalysisMode.Credits, [(changed, (long?)null)], "hash-credits", cancellationToken);
+
+        // Reset only Credits so Introduction remains analyzed. The mode set must
+        // remain a normal EF query parameter instead of using ReadOnlySpan.Contains.
+        await _fixture.Database.ResetItemsForReanalysisAsync([changed], [AnalysisMode.Credits], cancellationToken);
+
+        var changedSegments = await _fixture.Database.GetSegmentsAsync(changed, cancellationToken: cancellationToken);
+        Assert.Contains(changedSegments, segment => segment.Source == SegmentSource.User);
+        Assert.Contains(changedSegments, segment => segment.Type == AnalysisMode.Introduction && segment.Source == SegmentSource.Chromaprint);
+        Assert.DoesNotContain(changedSegments, segment => segment.Type == AnalysisMode.Credits);
+        Assert.Single(await _fixture.Database.GetSegmentsAsync(kept, cancellationToken: cancellationToken));
+
+        using var db = _fixture.IntroSkipperContexts.CreateDbContext();
+        Assert.Contains(await db.AnalyzedItems.ToListAsync(cancellationToken), item => item.ItemId == changed && item.Type == AnalysisMode.Introduction);
+        Assert.DoesNotContain(await db.AnalyzedItems.ToListAsync(cancellationToken), item => item.ItemId == changed && item.Type == AnalysisMode.Credits);
+        Assert.Single(await db.AnalyzedItems.Where(item => item.ItemId == kept).ToListAsync(cancellationToken));
+
+        // Reanalyzing Introduction must retain the user's segment and its matching
+        // automatic segment while clearing only that mode's analyzed marker.
+        await _fixture.Database.ResetItemsForReanalysisAsync([changed], [AnalysisMode.Introduction], cancellationToken);
+
+        changedSegments = await _fixture.Database.GetSegmentsAsync(changed, cancellationToken: cancellationToken);
+        Assert.Contains(changedSegments, segment => segment.Source == SegmentSource.User);
+        Assert.Contains(changedSegments, segment => segment.Type == AnalysisMode.Introduction && segment.Source == SegmentSource.Chromaprint);
+        Assert.Empty(await db.AnalyzedItems.Where(item => item.ItemId == changed).ToListAsync(cancellationToken));
+        Assert.Single(await db.AnalyzedItems.Where(item => item.ItemId == kept).ToListAsync(cancellationToken));
+    }
+
+    [Fact]
     public async Task StaleTimestampLookupKeepsTheRetainedSetAsOneParameter()
     {
         MariaDbTestEnvironment.SkipUnlessConfigured();
@@ -243,11 +297,12 @@ public sealed class IntroSkipperMariaDbTests : IClassFixture<MariaDbFixture>
         Assert.Contains($"Database={MariaDbFixture.DatabaseName}", options, StringComparison.Ordinal);
     }
 
-    private Task WriteIntroductionAsync(Guid itemId)
+    private Task WriteIntroductionAsync(Guid itemId, CancellationToken cancellationToken = default)
         => _fixture.Database.ReplaceAutoSegmentsAsync(
             itemId,
             AnalysisMode.Introduction,
             [new Segment(itemId, new TimeRange(10, 40))],
             SegmentSource.Chromaprint,
-            "hash-a");
+            "hash-a",
+            cancellationToken);
 }

@@ -185,13 +185,20 @@ namespace MulletaFlix.Plugin.GetAvatar.Services
         {
             try
             {
+                var plugin = Plugin.Instance;
+                if (plugin == null)
+                {
+                    _logger.LogError("Plugin instance is null, cannot save avatar to configuration");
+                    throw new InvalidOperationException("Plugin not initialized");
+                }
+
+                var config = Plugin.Config;
+                var previousAvatars = config.AvailableAvatars;
+                var avatars = previousAvatars ?? new List<AvatarInfo>();
                 var avatarId = Guid.NewGuid().ToString();
                 var fileExtension = Path.GetExtension(fileName);
                 var savedFileName = $"{avatarId}{fileExtension}";
                 var filePath = Path.Combine(_avatarDirectory, savedFileName);
-
-                await File.WriteAllBytesAsync(filePath, imageData);
-
                 var avatarInfo = new AvatarInfo
                 {
                     Id = avatarId,
@@ -202,17 +209,32 @@ namespace MulletaFlix.Plugin.GetAvatar.Services
                     Origin = category
                 };
 
-                // Add to configuration
-                if (Plugin.Instance == null)
+                try
                 {
-                    _logger.LogError("Plugin instance is null, cannot save avatar to configuration");
-                    throw new InvalidOperationException("Plugin not initialized");
+                    await File.WriteAllBytesAsync(filePath, imageData);
+                    config.AvailableAvatars = avatars;
+                    avatars.Add(avatarInfo);
+                    plugin.SaveConfiguration();
                 }
+                catch
+                {
+                    avatars.Remove(avatarInfo);
+                    config.AvailableAvatars = previousAvatars ?? new List<AvatarInfo>();
 
-                var config = Plugin.Config;
-                config.AvailableAvatars ??= new List<AvatarInfo>();
-                config.AvailableAvatars.Add(avatarInfo);
-                Plugin.Instance.SaveConfiguration();
+                    try
+                    {
+                        if (File.Exists(filePath))
+                        {
+                            File.Delete(filePath);
+                        }
+                    }
+                    catch (Exception cleanupException)
+                    {
+                        _logger.LogWarning(cleanupException, "Failed to remove incomplete avatar file: {Path}", filePath);
+                    }
+
+                    throw;
+                }
 
                 _logger.LogInformation("Saved avatar: {Name} ({Id})", avatarInfo.Name, avatarInfo.Id);
 

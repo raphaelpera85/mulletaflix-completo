@@ -180,7 +180,7 @@ def test_run_downloader_prioritizes_partial_downloads_and_skips_recent_failures(
     assert sleeps == [1]
 
 
-def test_run_downloader_signals_worker_ready_before_mongo_refresh_and_scan(tmp_path, monkeypatch, caplog):
+def test_run_downloader_marks_mongo_ready_before_root_discovery_and_scan(tmp_path, monkeypatch, caplog):
     events = []
 
     class Validator:
@@ -205,6 +205,14 @@ def test_run_downloader_signals_worker_ready_before_mongo_refresh_and_scan(tmp_p
     monkeypatch.setattr(strm_downloader, "MediaValidator", Validator)
     monkeypatch.setattr(strm_downloader, "FailureTracker", Tracker)
     monkeypatch.setattr(strm_downloader, "get_configured_staging_dirs", lambda: [])
+
+    def discover_roots(*_args, **_kwargs):
+        assert "mongo-ready" in events
+        events.append("root-discovery-started")
+        return []
+
+    monkeypatch.setattr(strm_downloader, "get_categorized_scan_batches", discover_roots)
+
     def scan(*_args, **_kwargs):
         events.append("filesystem-scan-started")
         strm_downloader.logger.info("[STRM-SCAN-STARTED] Varredura iniciada")
@@ -227,7 +235,7 @@ def test_run_downloader_signals_worker_ready_before_mongo_refresh_and_scan(tmp_p
     caplog.set_level("INFO", logger="STRMDownloader")
 
     assert strm_downloader.run_downloader(_run_args(tmp_path)) == 0
-    assert events == ["worker-ready", "mongo-refresh-complete", "mongo-ready", "filesystem-scan-started", "scan-started"]
+    assert events == ["worker-ready", "mongo-refresh-complete", "mongo-ready", "root-discovery-started", "filesystem-scan-started", "scan-started"]
 
 
 def test_run_downloader_fails_closed_when_mongo_index_refresh_fails(tmp_path, monkeypatch, caplog):

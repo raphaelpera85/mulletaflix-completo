@@ -1864,8 +1864,8 @@ def run_downloader(args: argparse.Namespace) -> int:
     if not validator.refresh_cache(force=True):
         logger.error("[STRM-WORKER-STARTUP-FAILED] Índice Mongo indisponível; download não iniciado para evitar duplicidades.")
         return 1
-    # This marker is progress only. The manager confirms startup after the
-    # filesystem walker emits STRM-SCAN-STARTED, not while roots are discovered.
+    # The manager confirms worker readiness after Mongo validation succeeds.
+    # STRM-SCAN-STARTED remains a progress signal for filesystem enumeration.
     logger.info("[STRM-WORKER-MONGO-READY] Índice Mongo preparado; descobrindo raízes STRM.")
 
     failure_tracker = FailureTracker()

@@ -1,3 +1,8 @@
+export function resolveNebulaEnabledForSave(silent, enabledControl, baseConfig) {
+    var persistedEnabled = !baseConfig || baseConfig.Enabled !== false;
+    return !silent && enabledControl ? enabledControl.checked : persistedEnabled;
+}
+
 export default function (view, params) {
     'use strict';
 
@@ -73,6 +78,14 @@ export default function (view, params) {
 
     if (btnToggle && drawer) {
         btnToggle.onclick = function (e) { e.preventDefault(); drawer.classList.toggle('open'); };
+    }
+    var btnOpenSettingsFromNotice = view.querySelector('#btnOpenSettingsFromNotice');
+    if (btnOpenSettingsFromNotice && drawer) {
+        btnOpenSettingsFromNotice.onclick = function (e) {
+            e.preventDefault();
+            drawer.classList.add('open');
+            drawer.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        };
     }
     if (btnClose && drawer) {
         btnClose.onclick = function (e) { e.preventDefault(); drawer.classList.remove('open'); };
@@ -622,6 +635,9 @@ export default function (view, params) {
             var chkTurbo = view.querySelector('#chkTurboMode');
             if (chkTurbo) chkTurbo.checked = config.TurboEnabled !== false;
 
+            var chkNebulaEnabled = view.querySelector('#cfgNebulaEnabled');
+            if (chkNebulaEnabled) chkNebulaEnabled.checked = config.Enabled !== false;
+
             setVal('spinTurboMinutes', config.TurboIdleMinutes || 10);
             setVal('spinDownloadParts', config.DownloadParts || 32);
 
@@ -645,9 +661,21 @@ export default function (view, params) {
             return el ? el.value : '';
         };
         var baseConfig = currentConfig || {};
+        var enabledControl = view.querySelector('#cfgNebulaEnabled');
+        var nebulaEnabled = resolveNebulaEnabledForSave(silent, enabledControl, baseConfig);
+        var wasNebulaEnabled = baseConfig.Enabled !== false;
+        if (!silent && nebulaEnabled !== wasNebulaEnabled) {
+            var confirmation = nebulaEnabled
+                ? 'Habilitar o Nebula iniciará Envio e Downloader. O Downloader pode varrer todas as pastas MonitorPaths e iniciar downloads. Deseja continuar?'
+                : 'Desabilitar o Nebula encerrará Envio e Downloader em execução. Deseja continuar?';
+            if (!window.confirm(confirmation)) {
+                if (enabledControl) enabledControl.checked = wasNebulaEnabled;
+                return;
+            }
+        }
 
         var config = {
-            Enabled: baseConfig.Enabled !== false,
+            Enabled: nebulaEnabled,
             RaiDriveDownloadUrl: baseConfig.RaiDriveDownloadUrl || 'https://www.raidrive.com/download',
             ServerHost: baseConfig.ServerHost || '0.0.0.0',
             MongoDbConnectionString: getVal('cfgMongoUri'),
@@ -692,6 +720,7 @@ export default function (view, params) {
         };
 
         apiRequest('POST', 'NebulaFtp/Config', config).then(function () {
+            currentConfig = Object.assign({}, currentConfig || {}, config);
             if (!silent) {
                 var drawer = view.querySelector('#settingsDrawer');
                 if (drawer) drawer.classList.remove('open');
@@ -702,6 +731,7 @@ export default function (view, params) {
                 }
             }
             updateSupabaseStatusDisplay(config);
+            pollStatusAndLogs();
         }).catch(function (err) {
             if (!silent) alert('Erro ao salvar: ' + (err.message || err));
         });
@@ -875,6 +905,12 @@ export default function (view, params) {
 
     function pollStatusAndLogs() {
         apiRequest('GET', 'NebulaFtp/Status').then(function (status) {
+            var disabledNotice = view.querySelector('#nebulaDisabledNotice');
+            var nebulaEnabled = typeof status.NebulaEnabled === 'boolean'
+                ? status.NebulaEnabled
+                : !(currentConfig && currentConfig.Enabled === false);
+            if (disabledNotice) disabledNotice.style.display = nebulaEnabled ? 'none' : 'block';
+
             var badge = view.querySelector('#globalStatusBadge');
             if (badge) {
                 var rawText = status.GlobalStatusText || '';

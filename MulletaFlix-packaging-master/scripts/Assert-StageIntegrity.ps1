@@ -70,6 +70,10 @@ function Assert-StageIntegrity {
     $sourceDownloader = Join-Path $ProjectRoot 'MulletaFlix-master\Tools\NebulaPython\tools\strm_downloader.py'
     $stagedDownloader = Join-Path $StageDirectory 'Tools\NebulaPython\tools\strm_downloader.py'
     Assert-Path $sourceDownloader 'Nebula STRM downloader source'
+    $sourceDownloaderContent = Get-Content -LiteralPath $sourceDownloader -Raw
+    if ($sourceDownloaderContent -notmatch '\[STRM-WORKER-MONGO-READY\]') {
+        throw 'Nebula STRM downloader source does not implement the Mongo readiness contract required by the server.'
+    }
     $sourceDownloaderHash = (Get-FileHash -LiteralPath $sourceDownloader -Algorithm SHA256).Hash
     $stagedDownloaderHash = (Get-FileHash -LiteralPath $stagedDownloader -Algorithm SHA256).Hash
     if ($sourceDownloaderHash -ne $stagedDownloaderHash) {

@@ -24,6 +24,8 @@ public sealed class NebulaAnimacaoMigrationResult
 
 public class NebulaStatusDto
 {
+    public bool NebulaEnabled { get; set; }
+
     public bool IsEnvioRunning { get; set; }
 
     public bool StreamOnly { get; set; }

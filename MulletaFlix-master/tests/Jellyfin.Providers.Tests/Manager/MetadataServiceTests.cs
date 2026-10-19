@@ -1,13 +1,25 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
+using System.Net.Http;
+using System.Threading;
+using System.Threading.Tasks;
+using MediaBrowser.Controller.Configuration;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Entities.Audio;
 using MediaBrowser.Controller.Entities.Movies;
 using MediaBrowser.Controller.Entities.TV;
+using MediaBrowser.Controller.IO;
+using MediaBrowser.Controller.Library;
+using MediaBrowser.Controller.Persistence;
 using MediaBrowser.Controller.Providers;
 using MediaBrowser.Model.Entities;
+using MediaBrowser.Model.IO;
 using MediaBrowser.Providers.Manager;
+using MediaBrowser.Providers.Movies;
+using Microsoft.Extensions.Logging;
+using Moq;
 using Xunit;
 
 namespace MulletaFlix.Providers.Tests.Manager
@@ -31,6 +43,267 @@ namespace MulletaFlix.Providers.Tests.Manager
             lookup.ProviderIds["GoodShort"] = " ";
 
             Assert.False(MetadataService<Series, SeriesInfo>.HasProviderId(lookup, "GoodShort"));
+        }
+
+        [Fact]
+        public async Task SaveRemoteResultImages_SingularType_StopsAfterFirstSuccessfulCandidate()
+        {
+            var item = new Movie();
+            var providerManager = new Mock<IProviderManager>(MockBehavior.Strict);
+            providerManager.Setup(manager => manager.SaveImage(item, "primary-one", ImageType.Primary, null, It.IsAny<CancellationToken>()))
+                .Returns(Task.CompletedTask);
+
+            var service = CreateMovieMetadataService(providerManager.Object);
+            var result = new MetadataResult<Movie>();
+            result.RemoteImages.Add(("primary-one", ImageType.Primary));
+            result.RemoteImages.Add(("primary-two", ImageType.Primary));
+            var refreshResult = new RefreshResult();
+
+            var foundImageTypes = await service.SaveRemoteResultImages(
+                item,
+                result,
+                new MetadataRefreshOptions(Mock.Of<IDirectoryService>()),
+                "MockProvider",
+                false,
+                refreshResult,
+                new HashSet<ImageType>(),
+                null,
+                null,
+                CancellationToken.None);
+
+            providerManager.Verify(manager => manager.SaveImage(item, "primary-one", ImageType.Primary, null, It.IsAny<CancellationToken>()), Times.Once);
+            providerManager.Verify(manager => manager.SaveImage(item, "primary-two", ImageType.Primary, null, It.IsAny<CancellationToken>()), Times.Never);
+            Assert.Equal(new[] { ImageType.Primary }, foundImageTypes);
+            Assert.Equal(0, refreshResult.Failures);
+        }
+
+        [Fact]
+        public async Task SaveRemoteResultImages_SingularType_TriesNextCandidateWhenFirstFails()
+        {
+            var item = new Movie();
+            var providerManager = new Mock<IProviderManager>(MockBehavior.Strict);
+            providerManager.Setup(manager => manager.SaveImage(item, "primary-unavailable", ImageType.Primary, null, It.IsAny<CancellationToken>()))
+                .ThrowsAsync(new HttpRequestException("Image unavailable."));
+            providerManager.Setup(manager => manager.SaveImage(item, "primary-fallback", ImageType.Primary, null, It.IsAny<CancellationToken>()))
+                .Returns(Task.CompletedTask);
+
+            var service = CreateMovieMetadataService(providerManager.Object);
+            var result = new MetadataResult<Movie>();
+            result.RemoteImages.Add(("primary-unavailable", ImageType.Primary));
+            result.RemoteImages.Add(("primary-fallback", ImageType.Primary));
+            var refreshResult = new RefreshResult();
+
+            var foundImageTypes = await service.SaveRemoteResultImages(
+                item,
+                result,
+                new MetadataRefreshOptions(Mock.Of<IDirectoryService>()),
+                "MockProvider",
+                false,
+                refreshResult,
+                new HashSet<ImageType>(),
+                null,
+                null,
+                CancellationToken.None);
+
+            providerManager.Verify(manager => manager.SaveImage(item, "primary-unavailable", ImageType.Primary, null, It.IsAny<CancellationToken>()), Times.Exactly(3));
+            providerManager.Verify(manager => manager.SaveImage(item, "primary-fallback", ImageType.Primary, null, It.IsAny<CancellationToken>()), Times.Once);
+            Assert.Equal(new[] { ImageType.Primary }, foundImageTypes);
+            Assert.Equal(0, refreshResult.Failures);
+        }
+
+        [Fact]
+        public async Task SaveRemoteResultImages_FinalSingularImageFailure_IsReported()
+        {
+            var item = new Movie();
+            var providerManager = new Mock<IProviderManager>(MockBehavior.Strict);
+            providerManager.Setup(manager => manager.SaveImage(item, "primary-unavailable", ImageType.Primary, null, It.IsAny<CancellationToken>()))
+                .ThrowsAsync(new HttpRequestException("Image unavailable."));
+
+            var service = CreateMovieMetadataService(providerManager.Object);
+            var result = new MetadataResult<Movie>();
+            result.RemoteImages.Add(("primary-unavailable", ImageType.Primary));
+            result.RemoteImages.Add(("primary-also-unavailable", ImageType.Primary));
+            providerManager.Setup(manager => manager.SaveImage(item, "primary-also-unavailable", ImageType.Primary, null, It.IsAny<CancellationToken>()))
+                .ThrowsAsync(new HttpRequestException("Fallback image unavailable."));
+            var refreshResult = new RefreshResult();
+
+            var foundImageTypes = await service.SaveRemoteResultImages(
+                item,
+                result,
+                new MetadataRefreshOptions(Mock.Of<IDirectoryService>()),
+                "MockProvider",
+                false,
+                refreshResult,
+                new HashSet<ImageType>(),
+                null,
+                null,
+                CancellationToken.None);
+
+            Assert.Empty(foundImageTypes);
+            Assert.Equal(1, refreshResult.Failures);
+            Assert.Equal("Fallback image unavailable.", refreshResult.ErrorMessage);
+        }
+
+        [Fact]
+        public async Task SaveRemoteResultImages_MultipleImageType_SavesEveryCandidate()
+        {
+            var item = new Movie();
+            var providerManager = new Mock<IProviderManager>(MockBehavior.Strict);
+            providerManager.Setup(manager => manager.SaveImage(item, "backdrop-one", ImageType.Backdrop, null, It.IsAny<CancellationToken>()))
+                .Returns(Task.CompletedTask);
+            providerManager.Setup(manager => manager.SaveImage(item, "backdrop-two", ImageType.Backdrop, null, It.IsAny<CancellationToken>()))
+                .Returns(Task.CompletedTask);
+
+            var service = CreateMovieMetadataService(providerManager.Object);
+            var result = new MetadataResult<Movie>();
+            result.RemoteImages.Add(("backdrop-one", ImageType.Backdrop));
+            result.RemoteImages.Add(("backdrop-two", ImageType.Backdrop));
+            var refreshResult = new RefreshResult();
+
+            var foundImageTypes = await service.SaveRemoteResultImages(
+                item,
+                result,
+                new MetadataRefreshOptions(Mock.Of<IDirectoryService>()),
+                "MockProvider",
+                false,
+                refreshResult,
+                new HashSet<ImageType>(),
+                null,
+                null,
+                CancellationToken.None);
+
+            providerManager.Verify(manager => manager.SaveImage(item, "backdrop-one", ImageType.Backdrop, null, It.IsAny<CancellationToken>()), Times.Once);
+            providerManager.Verify(manager => manager.SaveImage(item, "backdrop-two", ImageType.Backdrop, null, It.IsAny<CancellationToken>()), Times.Once);
+            Assert.Equal(2, foundImageTypes.Count);
+            Assert.All(foundImageTypes, imageType => Assert.Equal(ImageType.Backdrop, imageType));
+            Assert.Equal(0, refreshResult.Failures);
+        }
+
+        [Fact]
+        public async Task SaveRemoteResultImages_SingularFailureRecoveredByNextProvider_DoesNotRemainFailed()
+        {
+            var item = new Movie();
+            var providerManager = new Mock<IProviderManager>(MockBehavior.Strict);
+            providerManager.Setup(manager => manager.SaveImage(item, "primary-unavailable", ImageType.Primary, null, It.IsAny<CancellationToken>()))
+                .ThrowsAsync(new HttpRequestException("Image unavailable."));
+            providerManager.Setup(manager => manager.SaveImage(item, "primary-recovered", ImageType.Primary, null, It.IsAny<CancellationToken>()))
+                .Returns(Task.CompletedTask);
+
+            var service = CreateMovieMetadataService(providerManager.Object);
+            var options = new MetadataRefreshOptions(Mock.Of<IDirectoryService>());
+            var refreshResult = new RefreshResult();
+            var pendingSingleFailures = new Dictionary<ImageType, string>();
+            var pendingMultipleFailures = new List<string>();
+            var successfullySavedImageTypes = new HashSet<ImageType>();
+            var failedProviderResult = new MetadataResult<Movie>();
+            failedProviderResult.RemoteImages.Add(("primary-unavailable", ImageType.Primary));
+            var successfulProviderResult = new MetadataResult<Movie>();
+            successfulProviderResult.RemoteImages.Add(("primary-recovered", ImageType.Primary));
+
+            await service.SaveRemoteResultImages(item, failedProviderResult, options, "ProviderOne", false, refreshResult, successfullySavedImageTypes, pendingSingleFailures, pendingMultipleFailures, CancellationToken.None);
+            await service.SaveRemoteResultImages(item, successfulProviderResult, options, "ProviderTwo", false, refreshResult, successfullySavedImageTypes, pendingSingleFailures, pendingMultipleFailures, CancellationToken.None);
+
+            Assert.Empty(pendingSingleFailures);
+            Assert.Empty(pendingMultipleFailures);
+            Assert.Equal(0, refreshResult.Failures);
+        }
+
+        [Fact]
+        public async Task SaveRemoteResultImages_IdentifiedProvider_CanReplacePreviouslySavedSingularImage()
+        {
+            var item = new Movie();
+            var providerManager = new Mock<IProviderManager>(MockBehavior.Strict);
+            providerManager.Setup(manager => manager.SaveImage(item, "identified-primary", ImageType.Primary, null, It.IsAny<CancellationToken>()))
+                .Returns(Task.CompletedTask);
+
+            var service = CreateMovieMetadataService(providerManager.Object);
+            var options = new MetadataRefreshOptions(Mock.Of<IDirectoryService>())
+            {
+                ImageRefreshMode = MetadataRefreshMode.FullRefresh,
+                ReplaceAllImages = true
+            };
+            var result = new MetadataResult<Movie>();
+            result.RemoteImages.Add(("identified-primary", ImageType.Primary));
+            result.RemoteImages.Add(("identified-primary-duplicate", ImageType.Primary));
+            var refreshResult = new RefreshResult();
+
+            var foundImageTypes = await service.SaveRemoteResultImages(
+                item,
+                result,
+                options,
+                "IdentifiedProvider",
+                true,
+                refreshResult,
+                new HashSet<ImageType> { ImageType.Primary },
+                null,
+                null,
+                CancellationToken.None);
+
+            Assert.Equal(new[] { ImageType.Primary }, foundImageTypes);
+            providerManager.Verify(manager => manager.SaveImage(item, "identified-primary", ImageType.Primary, null, It.IsAny<CancellationToken>()), Times.Once);
+            providerManager.Verify(manager => manager.SaveImage(item, "identified-primary-duplicate", ImageType.Primary, null, It.IsAny<CancellationToken>()), Times.Never);
+        }
+
+        [Fact]
+        public async Task SaveRemoteResultImages_RejectsPartialFailureStateEvenWhenNoImagesExist()
+        {
+            var service = CreateMovieMetadataService(Mock.Of<IProviderManager>());
+
+            await Assert.ThrowsAsync<ArgumentException>(() => service.SaveRemoteResultImages(
+                new Movie(),
+                new MetadataResult<Movie>(),
+                new MetadataRefreshOptions(Mock.Of<IDirectoryService>()),
+                "MockProvider",
+                false,
+                new RefreshResult(),
+                new HashSet<ImageType>(),
+                new Dictionary<ImageType, string>(),
+                null,
+                CancellationToken.None));
+        }
+
+        [Fact]
+        public async Task RefreshWithProviders_LocalSingularImage_FallsBackAndDoesNotRetainRecoveredFailure()
+        {
+            var item = new Movie();
+            var localResult = new MetadataResult<Movie>
+            {
+                HasMetadata = true,
+                Item = new Movie { Name = "Local metadata" }
+            };
+            localResult.RemoteImages.Add(("local-unavailable", ImageType.Primary));
+            localResult.RemoteImages.Add(("local-fallback", ImageType.Primary));
+
+            var localProvider = new Mock<ILocalMetadataProvider<Movie>>(MockBehavior.Strict);
+            localProvider.SetupGet(provider => provider.Name).Returns("LocalProvider");
+            localProvider.Setup(provider => provider.GetMetadata(It.IsAny<ItemInfo>(), It.IsAny<IDirectoryService>(), It.IsAny<CancellationToken>()))
+                .ReturnsAsync(localResult);
+
+            var providerManager = new Mock<IProviderManager>(MockBehavior.Strict);
+            providerManager.Setup(manager => manager.SaveImage(item, "local-unavailable", ImageType.Primary, null, It.IsAny<CancellationToken>()))
+                .ThrowsAsync(new IOException("Local image unavailable."));
+            providerManager.Setup(manager => manager.SaveImage(item, "local-fallback", ImageType.Primary, null, It.IsAny<CancellationToken>()))
+                .Returns(Task.CompletedTask);
+
+            var service = new TestableMovieMetadataService(providerManager.Object);
+            var options = new MetadataRefreshOptions(Mock.Of<IDirectoryService>());
+            var refreshResult = await service.Refresh(item, options, localProvider.Object);
+
+            Assert.Equal(0, refreshResult.Failures);
+            providerManager.Verify(manager => manager.SaveImage(item, "local-unavailable", ImageType.Primary, null, It.IsAny<CancellationToken>()), Times.Once);
+            providerManager.Verify(manager => manager.SaveImage(item, "local-fallback", ImageType.Primary, null, It.IsAny<CancellationToken>()), Times.Once);
+        }
+
+        private static MovieMetadataService CreateMovieMetadataService(IProviderManager providerManager)
+        {
+            return new MovieMetadataService(
+                Mock.Of<IServerConfigurationManager>(),
+                Mock.Of<ILogger<MovieMetadataService>>(),
+                providerManager,
+                Mock.Of<IFileSystem>(),
+                Mock.Of<ILibraryManager>(),
+                Mock.Of<IExternalDataManager>(),
+                Mock.Of<IItemRepository>());
         }
 
         [Theory]
@@ -401,6 +674,26 @@ namespace MulletaFlix.Providers.Tests.Manager
 
             actualValue = property.GetValue(target.Item);
             return newValue?.Equals(actualValue) ?? actualValue is null;
+        }
+
+        private sealed class TestableMovieMetadataService : MovieMetadataService
+        {
+            public TestableMovieMetadataService(IProviderManager providerManager)
+                : base(
+                    Mock.Of<IServerConfigurationManager>(),
+                    Mock.Of<ILogger<MovieMetadataService>>(),
+                    providerManager,
+                    Mock.Of<IFileSystem>(),
+                    Mock.Of<ILibraryManager>(),
+                    Mock.Of<IExternalDataManager>(),
+                    Mock.Of<IItemRepository>())
+            {
+            }
+
+            public Task<RefreshResult> Refresh(Movie item, MetadataRefreshOptions options, IMetadataProvider provider)
+            {
+                return RefreshWithProviders(new MetadataResult<Movie> { Item = item }, null!, options, new[] { provider }, ImageProvider, false, CancellationToken.None);
+            }
         }
     }
 }
