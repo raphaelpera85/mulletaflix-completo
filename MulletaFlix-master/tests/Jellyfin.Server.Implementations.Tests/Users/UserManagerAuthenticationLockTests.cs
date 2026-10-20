@@ -128,6 +128,31 @@ public sealed class UserManagerAuthenticationLockTests : IDisposable
     }
 
     [Fact]
+    public async Task AcquireProfileImageUpdateLockAsync_SerializesSameUserWithoutBlockingAnotherUser()
+    {
+        using var userManager = CreateUserManager(_defaultAuthenticationProvider);
+        var firstUserId = Guid.NewGuid();
+        var otherUserId = Guid.NewGuid();
+        var firstLease = await userManager.AcquireProfileImageUpdateLockAsync(firstUserId);
+
+        var sameUserTask = userManager.AcquireProfileImageUpdateLockAsync(firstUserId);
+        bool wasSameUserBlocked;
+        try
+        {
+            using var otherUserLease = await userManager.AcquireProfileImageUpdateLockAsync(otherUserId)
+                .WaitAsync(TimeSpan.FromSeconds(5));
+            wasSameUserBlocked = !sameUserTask.IsCompleted;
+        }
+        finally
+        {
+            firstLease.Dispose();
+        }
+
+        using var secondLease = await sameUserTask.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.True(wasSameUserBlocked);
+    }
+
+    [Fact]
     public async Task AuthenticateUser_ExceedingLoginAttemptsBeforeLockout_DisablesTheAccount()
     {
         // Reproduces the real production lockout flow: UserManager.AuthenticateUser ->

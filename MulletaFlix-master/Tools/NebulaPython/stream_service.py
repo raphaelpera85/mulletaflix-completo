@@ -13,6 +13,34 @@ from pyrogram import Client
 from pyrogram.errors import FloodWait
 
 
+async def _serve_until_owner_stops(server) -> None:
+    lease_port = int(os.environ.get("NEBULA_CACHE_LEASE_PORT", "0") or "0")
+    lease_token = os.environ.get("NEBULA_CACHE_LEASE_TOKEN", "")
+    if lease_port <= 0 or not lease_token:
+        await server.serve_forever()
+        return
+
+    stop_event = asyncio.Event()
+    serve_task = asyncio.create_task(server.serve_forever())
+    stop_task = asyncio.create_task(stop_event.wait())
+    watchdog_task = asyncio.create_task(
+        nebula._watch_server_owner(stop_event, lease_port, lease_token)
+    )
+    tasks = (serve_task, stop_task, watchdog_task)
+    try:
+        done, _ = await asyncio.wait(
+            (serve_task, stop_task), return_when=asyncio.FIRST_COMPLETED
+        )
+        if serve_task in done:
+            await serve_task
+    finally:
+        stop_event.set()
+        for task in tasks:
+            if not task.done():
+                task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
+
+
 async def run() -> int:
     try:
         api_id, api_hash, tokens = nebula.get_required_config()
@@ -67,7 +95,7 @@ async def run() -> int:
         nebula.MongoDBPathIO.tg = active_bots
         server = await nebula.start_http_stream_server(database, active_bots)
         nebula.logger.info("Worker Python de playback pronto em %s:%s", nebula.STREAM_HOST, nebula.STREAM_PORT)
-        await server.serve_forever()
+        await _serve_until_owner_stops(server)
         return 0
     finally:
         if server:

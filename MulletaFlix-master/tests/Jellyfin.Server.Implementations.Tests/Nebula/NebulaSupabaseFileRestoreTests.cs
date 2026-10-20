@@ -48,9 +48,10 @@ public sealed class NebulaSupabaseFileRestoreTests
         Assert.Equal(NebulaSupabaseSyncService.SupabaseRestorePageSize + 1, count);
         Assert.Equal(count, restored.Count);
         Assert.Equal(3, handler.Requests.Count);
-        Assert.Contains("offset=0", handler.Requests[0].Uri, StringComparison.Ordinal);
-        Assert.Contains($"offset={NebulaSupabaseSyncService.SupabaseRestorePageSize}", handler.Requests[1].Uri, StringComparison.Ordinal);
-        Assert.Contains($"offset={NebulaSupabaseSyncService.SupabaseRestorePageSize + 1}", handler.Requests[2].Uri, StringComparison.Ordinal);
+        Assert.DoesNotContain("offset=", handler.Requests[0].Uri, StringComparison.Ordinal);
+        Assert.Contains("order=id.asc", handler.Requests[0].Uri, StringComparison.Ordinal);
+        Assert.Contains("id=gt.%22file-0099%22", handler.Requests[1].Uri, StringComparison.Ordinal);
+        Assert.Contains("id=gt.%22file-last%22", handler.Requests[2].Uri, StringComparison.Ordinal);
         Assert.All(handler.Requests, request =>
         {
             Assert.Equal(HttpMethod.Get, request.Method);
@@ -97,10 +98,68 @@ public sealed class NebulaSupabaseFileRestoreTests
         Assert.Equal(101, count);
         Assert.Equal(101, persisted.Count);
         Assert.Equal(3, handler.Requests.Count);
-        Assert.Contains("offset=0", handler.Requests[0].Uri, StringComparison.Ordinal);
-        Assert.Contains("offset=100", handler.Requests[1].Uri, StringComparison.Ordinal);
-        Assert.Contains("offset=101", handler.Requests[2].Uri, StringComparison.Ordinal);
+        Assert.DoesNotContain("offset=", handler.Requests[0].Uri, StringComparison.Ordinal);
+        Assert.Contains("id=gt.%22capped-099%22", handler.Requests[1].Uri, StringComparison.Ordinal);
+        Assert.Contains("id=gt.%22capped-last%22", handler.Requests[2].Uri, StringComparison.Ordinal);
         Assert.Contains(persisted, item => item["_id"] == "capped-last");
+    }
+
+    [Fact]
+    public async Task RestoreFilesFromSupabaseAsync_EscapesReservedCharactersInCursorId()
+    {
+        var firstPage = "[" + string.Join(',', Enumerable.Range(0, NebulaSupabaseSyncService.SupabaseRestorePageSize - 1)
+            .Select(index => CreateRow($"file-{index:D3}", $"media-{index}.mkv")))
+            + "," + CreateRow("file.name,one", "cursor.mkv") + "]";
+        var handler = new QueueResponseHandler(
+            new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(firstPage) },
+            new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("[]") });
+
+        using var mongo = new NebulaMongoContext(
+            "mongodb://127.0.0.1:1/?serverSelectionTimeoutMS=100",
+            "nebula_restore_unit_" + Guid.NewGuid().ToString("N"),
+            NullLogger<NebulaMongoContext>.Instance);
+        using var service = new NebulaSupabaseSyncService(mongo, NullLogger<NebulaSupabaseSyncService>.Instance, null!, handler);
+
+        await service.RestoreFilesFromSupabaseAsync(
+            "https://supabase.invalid",
+            "sb_secret_fixture",
+            (batch, _) => Task.FromResult(batch.Count),
+            progressAction: null,
+            CancellationToken.None);
+
+        Assert.Equal(2, handler.Requests.Count);
+        Assert.Contains("id=gt.%22file.name%2Cone%22", handler.Requests[1].Uri, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task RestoreFilesFromSupabaseAsync_RejectsRepeatedCursorBeforePersistingPage()
+    {
+        var firstPage = "[" + string.Join(',', Enumerable.Range(0, NebulaSupabaseSyncService.SupabaseRestorePageSize)
+            .Select(index => CreateRow($"repeat-{index:D3}", $"media-{index}.mkv"))) + "]";
+        var handler = new QueueResponseHandler(
+            new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(firstPage) },
+            new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("[" + CreateRow("repeat-099", "duplicate.mkv") + "]") });
+
+        using var mongo = new NebulaMongoContext(
+            "mongodb://127.0.0.1:1/?serverSelectionTimeoutMS=100",
+            "nebula_restore_unit_" + Guid.NewGuid().ToString("N"),
+            NullLogger<NebulaMongoContext>.Instance);
+        using var service = new NebulaSupabaseSyncService(mongo, NullLogger<NebulaSupabaseSyncService>.Instance, null!, handler);
+        var persistCalls = 0;
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => service.RestoreFilesFromSupabaseAsync(
+            "https://supabase.invalid",
+            "sb_secret_fixture",
+            (batch, _) =>
+            {
+                persistCalls++;
+                return Task.FromResult(batch.Count);
+            },
+            progressAction: null,
+            CancellationToken.None));
+
+        Assert.Equal(1, persistCalls);
+        Assert.Equal(2, handler.Requests.Count);
     }
 
     [Theory]
@@ -151,6 +210,42 @@ public sealed class NebulaSupabaseFileRestoreTests
             (_, _) => Task.FromResult(0),
             progressAction: null,
             CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task RestoreFilesFromSupabaseAsync_PropagatesHttpFailureAfterPersistingEarlierPage()
+    {
+        var firstPage = "[" + string.Join(',', Enumerable.Range(0, NebulaSupabaseSyncService.SupabaseRestorePageSize)
+            .Select(index => CreateRow($"partial-{index:D3}", $"media-{index}.mkv"))) + "]";
+        var handler = new QueueResponseHandler(
+            new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(firstPage) },
+            new HttpResponseMessage(HttpStatusCode.InternalServerError) { Content = new StringContent("database unavailable") });
+
+        using var mongo = new NebulaMongoContext(
+            "mongodb://127.0.0.1:1/?serverSelectionTimeoutMS=100",
+            "nebula_restore_unit_" + Guid.NewGuid().ToString("N"),
+            NullLogger<NebulaMongoContext>.Instance);
+        using var service = new NebulaSupabaseSyncService(mongo, NullLogger<NebulaSupabaseSyncService>.Instance, null!, handler);
+        var persistedCount = 0;
+        var persistCalls = 0;
+
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(() => service.RestoreFilesFromSupabaseAsync(
+            "https://supabase.invalid",
+            "sb_secret_fixture",
+            (batch, _) =>
+            {
+                persistCalls++;
+                persistedCount += batch.Count;
+                return Task.FromResult(batch.Count);
+            },
+            progressAction: null,
+            CancellationToken.None));
+
+        Assert.Contains("HTTP 500", error.Message, StringComparison.Ordinal);
+        Assert.Equal(NebulaSupabaseSyncService.SupabaseRestorePageSize, persistedCount);
+        Assert.Equal(1, persistCalls);
+        Assert.Equal(2, handler.Requests.Count);
+        Assert.Contains("id=gt.%22partial-099%22", handler.Requests[1].Uri, StringComparison.Ordinal);
     }
 
     private static string CreateRow(string id, string name)

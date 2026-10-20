@@ -128,8 +128,8 @@ internal sealed partial class IntroSkipperDatabase
         CancellationToken cancellationToken = default)
     {
         IReadOnlySet<Guid> ids = itemIds.ToHashSet();
-        var modeArray = modes.ToArray();
-        if (ids.Count == 0 || modeArray.Length == 0)
+        IReadOnlySet<AnalysisMode> modeSet = modes.ToHashSet();
+        if (ids.Count == 0 || modeSet.Count == 0)
         {
             return;
         }
@@ -142,7 +142,7 @@ internal sealed partial class IntroSkipperDatabase
         {
             var doomedRows = db.Segments
                 .Where(s => ids.Contains(s.ItemId)
-                    && modeArray.Contains(s.Type)
+                    && modeSet.Contains(s.Type)
                     && s.Source != SegmentSource.User
                     && s.State == SegmentState.Active
                     && !db.Segments.Any(u => u.ItemId == s.ItemId
@@ -156,7 +156,7 @@ internal sealed partial class IntroSkipperDatabase
             // Without their records the items are NotAnalyzed on this pass (or a later
             // one) instead of being stranded as NoSegments.
             await db.AnalyzedItems
-                .Where(a => ids.Contains(a.ItemId) && modeArray.Contains(a.Type))
+                .Where(a => ids.Contains(a.ItemId) && modeSet.Contains(a.Type))
                 .ExecuteDeleteAsync(cancellationToken)
                 .ConfigureAwait(false);
             await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);

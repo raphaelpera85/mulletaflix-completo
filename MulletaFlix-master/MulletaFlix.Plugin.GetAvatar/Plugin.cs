@@ -12,6 +12,7 @@ namespace MulletaFlix.Plugin.GetAvatar
     /// </summary>
     public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     {
+        private static readonly object ConfigurationLock = new();
         private readonly ILogger<Plugin> _logger;
 
         /// <summary>
@@ -50,6 +51,50 @@ namespace MulletaFlix.Plugin.GetAvatar
         /// </summary>
         public static Plugin? Instance { get; private set; }
 
+        internal static IDisposable AcquireConfigurationLock()
+        {
+            var scope = new ConfigurationLockScope();
+            var lockTaken = false;
+            try
+            {
+                System.Threading.Monitor.Enter(ConfigurationLock, ref lockTaken);
+                return scope;
+            }
+            catch
+            {
+                if (lockTaken)
+                {
+                    try
+                    {
+                    }
+                    finally
+                    {
+                        System.Threading.Monitor.Exit(ConfigurationLock);
+                    }
+                }
+
+                throw;
+            }
+        }
+
+        /// <inheritdoc />
+        public override void SaveConfiguration(PluginConfiguration config)
+        {
+            lock (ConfigurationLock)
+            {
+                base.SaveConfiguration(config);
+            }
+        }
+
+        /// <inheritdoc />
+        public override void UpdateConfiguration(BasePluginConfiguration configuration)
+        {
+            lock (ConfigurationLock)
+            {
+                base.UpdateConfiguration(configuration);
+            }
+        }
+
         /// <inheritdoc />
         public IEnumerable<PluginPageInfo> GetPages()
         {
@@ -78,6 +123,14 @@ namespace MulletaFlix.Plugin.GetAvatar
                 MenuSection = "user",
                 MenuIcon = "person"
             };
+        }
+
+        private sealed class ConfigurationLockScope : IDisposable
+        {
+            // The caller's using block releases the monitor even when its body throws.
+#pragma warning disable MT1013 // Lock lifetime intentionally spans this IDisposable scope.
+            public void Dispose() => System.Threading.Monitor.Exit(ConfigurationLock);
+#pragma warning restore MT1013
         }
     }
 }

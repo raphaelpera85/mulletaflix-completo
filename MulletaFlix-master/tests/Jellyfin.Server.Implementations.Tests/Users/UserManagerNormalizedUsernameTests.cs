@@ -24,16 +24,12 @@ namespace MulletaFlix.Server.Implementations.Tests.Users
 {
     public sealed class UserManagerNormalizedUsernameTests : IDisposable
     {
-        private readonly DbContextOptions<UsersDbContext> _dbOptions;
+        private readonly UsersMariaDbTestDatabase _database;
         private readonly UserManager _userManager;
 
         public UserManagerNormalizedUsernameTests()
         {
-            Assert.SkipUnless(false, "Requires an isolated MySQL integration database.");
-
-            _dbOptions = new DbContextOptionsBuilder<UsersDbContext>()
-                .UseInMemoryDatabase(Guid.NewGuid().ToString("N"))
-                .Options;
+            _database = new UsersMariaDbTestDatabase();
 
             // Create the schema
             using var ctx = CreateDbContext();
@@ -75,13 +71,12 @@ namespace MulletaFlix.Server.Implementations.Tests.Users
         public void Dispose()
         {
             _userManager.Dispose();
+            _database.Dispose();
         }
 
         private UsersDbContext CreateDbContext()
         {
-            return new UsersDbContext(
-                _dbOptions,
-                NullLogger<UsersDbContext>.Instance);
+            return _database.CreateDbContext();
         }
 
         // ----- GetUserByName tests -----
@@ -176,6 +171,61 @@ namespace MulletaFlix.Server.Implementations.Tests.Users
             Assert.NotEqual(first.Id, second.Id);
         }
 
+        [Fact]
+        public async Task EnsureSchemaCreated_UsesEfMappedUsersTableWithBinaryUsernameCollations()
+        {
+            await using (var environmentContext = CreateDbContext())
+            {
+                await environmentContext.Database.OpenConnectionAsync();
+                try
+                {
+                    var environmentCommand = environmentContext.Database.GetDbConnection().CreateCommand();
+                    environmentCommand.CommandText = "SELECT @@lower_case_table_names;";
+                    var lowerCaseTableNames = Convert.ToInt32(
+                        await environmentCommand.ExecuteScalarAsync(),
+                        System.Globalization.CultureInfo.InvariantCulture);
+                    Assert.SkipUnless(
+                        lowerCaseTableNames == 0,
+                        "This regression must run against MariaDB on a case-sensitive Linux filesystem.");
+                }
+                finally
+                {
+                    await environmentContext.Database.CloseConnectionAsync();
+                }
+            }
+
+            await _userManager.CreateUserAsync("no\u00F1o");
+
+            await using var context = CreateDbContext();
+            await context.Database.OpenConnectionAsync();
+            try
+            {
+                var connection = context.Database.GetDbConnection();
+                await using var command = connection.CreateCommand();
+                command.CommandText = """
+                    SELECT `COLUMN_NAME`, `COLLATION_NAME`
+                    FROM `information_schema`.`COLUMNS`
+                    WHERE `TABLE_SCHEMA` = DATABASE()
+                      AND BINARY `TABLE_NAME` = BINARY 'Users'
+                      AND `COLUMN_NAME` IN ('Username', 'NormalizedUsername');
+                    """;
+
+                var collations = new System.Collections.Generic.Dictionary<string, string>(StringComparer.Ordinal);
+                await using var reader = await command.ExecuteReaderAsync();
+                while (await reader.ReadAsync())
+                {
+                    collations.Add(reader.GetString(0), reader.GetString(1));
+                }
+
+                Assert.Equal("utf8mb4_bin", collations["Username"]);
+                Assert.Equal("utf8mb4_bin", collations["NormalizedUsername"]);
+            }
+            finally
+            {
+                await context.Database.CloseConnectionAsync();
+            }
+        }
+
         // ----- RenameUser tests -----
 
         [Theory]
@@ -222,14 +272,12 @@ namespace MulletaFlix.Server.Implementations.Tests.Users
         [Fact]
         public async Task InitializeAsync_WhenUsersTableIsMissing_CreatesTheSchemaAndFirstUser()
         {
-            var dbOptions = new DbContextOptionsBuilder<UsersDbContext>()
-                .UseInMemoryDatabase(Guid.NewGuid().ToString("N"))
-                .Options;
+            using var database = new UsersMariaDbTestDatabase();
 
             var factory = new Mock<IDbContextFactory<UsersDbContext>>();
-            factory.Setup(f => f.CreateDbContext()).Returns(() => new UsersDbContext(dbOptions, NullLogger<UsersDbContext>.Instance));
+            factory.Setup(f => f.CreateDbContext()).Returns(database.CreateDbContext);
             factory.Setup(f => f.CreateDbContextAsync(It.IsAny<CancellationToken>()))
-                .ReturnsAsync(() => new UsersDbContext(dbOptions, NullLogger<UsersDbContext>.Instance));
+                .ReturnsAsync(database.CreateDbContext);
 
             var cryptoProvider = new Mock<ICryptoProvider>();
             var configManager = new Mock<IServerConfigurationManager>();
@@ -246,7 +294,7 @@ namespace MulletaFlix.Server.Implementations.Tests.Users
                 configManager.Object,
                 appHost.Object);
 
-            var userManager = new UserManager(
+            using var userManager = new UserManager(
                 factory.Object,
                 new NoopEventManager(),
                 new Mock<INetworkManager>().Object,
@@ -266,7 +314,6 @@ namespace MulletaFlix.Server.Implementations.Tests.Users
             Assert.NotNull(firstUser);
             Assert.False(string.IsNullOrWhiteSpace(firstUser!.Username));
 
-            userManager.Dispose();
         }
 
         private sealed class NoopEventManager : IEventManager

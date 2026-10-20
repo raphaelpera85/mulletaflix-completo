@@ -54,7 +54,9 @@ function Assert-StageIntegrity {
         'Tools\NebulaPython\tools\strm_downloader.py',
         'Tools\NebulaPython\tools\mongo_admission.py',
         'Tools\NebulaPython\ftp\pathio.py',
+        'Tools\NebulaPython\requirements.in',
         'Tools\NebulaPython\requirements.txt',
+        'Tools\NebulaPython\requirements.lock',
         'install-rclone-if-missing.ps1',
         'nssm.exe',
         'mulletaflix-windows-tray\MulletaFlix.Windows.Tray.exe'
@@ -70,10 +72,22 @@ function Assert-StageIntegrity {
     $sourceDownloader = Join-Path $ProjectRoot 'MulletaFlix-master\Tools\NebulaPython\tools\strm_downloader.py'
     $stagedDownloader = Join-Path $StageDirectory 'Tools\NebulaPython\tools\strm_downloader.py'
     Assert-Path $sourceDownloader 'Nebula STRM downloader source'
+    $sourceDownloaderContent = Get-Content -LiteralPath $sourceDownloader -Raw
+    if ($sourceDownloaderContent -notmatch '\[STRM-WORKER-MONGO-READY\]') {
+        throw 'Nebula STRM downloader source does not implement the Mongo readiness contract required by the server.'
+    }
     $sourceDownloaderHash = (Get-FileHash -LiteralPath $sourceDownloader -Algorithm SHA256).Hash
     $stagedDownloaderHash = (Get-FileHash -LiteralPath $stagedDownloader -Algorithm SHA256).Hash
     if ($sourceDownloaderHash -ne $stagedDownloaderHash) {
         throw 'Stage Nebula STRM downloader differs from the current server source.'
+    }
+
+    $sourceRequirementsLock = Join-Path $ProjectRoot 'MulletaFlix-master\Tools\NebulaPython\requirements.lock'
+    $stagedRequirementsLock = Join-Path $StageDirectory 'Tools\NebulaPython\requirements.lock'
+    $sourceRequirementsLockHash = (Get-FileHash -LiteralPath $sourceRequirementsLock -Algorithm SHA256).Hash
+    $stagedRequirementsLockHash = (Get-FileHash -LiteralPath $stagedRequirementsLock -Algorithm SHA256).Hash
+    if ($sourceRequirementsLockHash -ne $stagedRequirementsLockHash) {
+        throw 'Stage Nebula dependency lock differs from the current server source.'
     }
 
     # Catch mixed/stale .NET publishes before NSIS packages them. The Nebula

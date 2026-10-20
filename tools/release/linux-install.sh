@@ -190,7 +190,7 @@ chmod 0755 /opt/mulletaflix/server/MulletaFlix
 nebula_python_dir=/opt/mulletaflix/server/Tools/NebulaPython
 python_venv="$nebula_python_dir/.venv"
 python3 -m venv "$python_venv"
-"$python_venv/bin/python3" -m pip install --disable-pip-version-check -r "$nebula_python_dir/requirements.txt"
+"$python_venv/bin/python3" -m pip install --disable-pip-version-check --require-hashes -r "$nebula_python_dir/requirements.lock"
 printf '%s\n' "$python_venv/bin/python3" | atomic_write_file "$nebula_python_dir/python.path" 0644 root:mulletaflix
 chown -R root:root /opt/mulletaflix
 install -m 0644 "$package_root/mulletaflix.service" /etc/systemd/system/mulletaflix.service

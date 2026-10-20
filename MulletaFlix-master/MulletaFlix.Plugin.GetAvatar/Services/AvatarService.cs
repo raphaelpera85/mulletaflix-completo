@@ -2,7 +2,9 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
+using MediaBrowser.Controller.IO;
 using MulletaFlix.Plugin.GetAvatar.Configuration;
 using MediaBrowser.Common.Configuration;
 using MediaBrowser.Controller.Configuration;
@@ -16,14 +18,17 @@ namespace MulletaFlix.Plugin.GetAvatar.Services
     /// <summary>
     /// Service for managing user avatars.
     /// </summary>
-    public class AvatarService
+    public sealed class AvatarService : IDisposable
     {
+        private static readonly SemaphoreSlim UserAvatarUpdateLock = new(1, 1);
+
         private readonly IUserManager _userManager;
         private readonly IProviderManager _providerManager;
         private readonly IApplicationPaths _appPaths;
         private readonly ILogger<AvatarService> _logger;
         private readonly IServerConfigurationManager _serverConfigurationManager;
         private readonly string _avatarDirectory;
+        private readonly AvatarFileStore _avatarFileStore;
 
         /// <summary>
         /// Initializes a new instance of the <see cref="AvatarService"/> class.
@@ -84,6 +89,8 @@ namespace MulletaFlix.Plugin.GetAvatar.Services
                 _logger.LogError(ex, "Failed to create avatar directory at {Path}", _avatarDirectory);
                 throw;
             }
+
+            _avatarFileStore = new AvatarFileStore(_avatarDirectory);
         }
 
         /// <summary>
@@ -97,45 +104,48 @@ namespace MulletaFlix.Plugin.GetAvatar.Services
         /// <returns>List of available avatars.</returns>
         public List<AvatarInfo> GetAvailableAvatars()
         {
-            if (Plugin.Instance == null)
+            using (Plugin.AcquireConfigurationLock())
             {
-                _logger.LogError("Plugin instance is null in GetAvailableAvatars");
-                return new List<AvatarInfo>();
-            }
-
-            var config = Plugin.Instance.Configuration;
-            if (config == null)
-            {
-                _logger.LogError("Plugin configuration is null");
-                return new List<AvatarInfo>();
-            }
-
-            var avatars = config.AvailableAvatars ?? new List<AvatarInfo>();
-
-            // Clean up null entries from corrupted config
-            var removed = avatars.RemoveAll(a => a == null);
-            if (removed > 0)
-            {
-                _logger.LogWarning("Removed {Count} null avatar entries from configuration", removed);
-                Plugin.Instance.SaveConfiguration();
-            }
-
-            if (avatars.Count == 0)
-            {
-                var recoveredAvatars = RebuildAvailableAvatarsFromDisk();
-                if (recoveredAvatars.Count > 0)
+                if (Plugin.Instance == null)
                 {
-                    config.AvailableAvatars = recoveredAvatars;
-                    Plugin.Instance.SaveConfiguration();
-                    _logger.LogWarning(
-                        "Recovered {Count} avatars from disk because the configuration list was empty",
-                        recoveredAvatars.Count);
-                    return recoveredAvatars;
+                    _logger.LogError("Plugin instance is null in GetAvailableAvatars");
+                    return new List<AvatarInfo>();
                 }
-            }
 
-            _logger.LogInformation("Returning {Count} avatars from configuration", avatars.Count);
-            return avatars;
+                var config = Plugin.Instance.Configuration;
+                if (config == null)
+                {
+                    _logger.LogError("Plugin configuration is null");
+                    return new List<AvatarInfo>();
+                }
+
+                var avatars = config.AvailableAvatars ?? new List<AvatarInfo>();
+
+                // Clean up null entries from corrupted config
+                var removed = avatars.RemoveAll(a => a == null);
+                if (removed > 0)
+                {
+                    _logger.LogWarning("Removed {Count} null avatar entries from configuration", removed);
+                    Plugin.Instance.SaveConfiguration();
+                }
+
+                if (avatars.Count == 0)
+                {
+                    var recoveredAvatars = RebuildAvailableAvatarsFromDisk();
+                    if (recoveredAvatars.Count > 0)
+                    {
+                        config.AvailableAvatars = recoveredAvatars;
+                        Plugin.Instance.SaveConfiguration();
+                        _logger.LogWarning(
+                            "Recovered {Count} avatars from disk because the configuration list was empty",
+                            recoveredAvatars.Count);
+                        return recoveredAvatars;
+                    }
+                }
+
+                _logger.LogInformation("Returning {Count} avatars from configuration", avatars.Count);
+                return avatars;
+            }
         }
 
         private List<AvatarInfo> RebuildAvailableAvatarsFromDisk()
@@ -185,13 +195,16 @@ namespace MulletaFlix.Plugin.GetAvatar.Services
         {
             try
             {
+                var plugin = Plugin.Instance;
+                if (plugin == null)
+                {
+                    _logger.LogError("Plugin instance is null, cannot save avatar to configuration");
+                    throw new InvalidOperationException("Plugin not initialized");
+                }
+
                 var avatarId = Guid.NewGuid().ToString();
                 var fileExtension = Path.GetExtension(fileName);
                 var savedFileName = $"{avatarId}{fileExtension}";
-                var filePath = Path.Combine(_avatarDirectory, savedFileName);
-
-                await File.WriteAllBytesAsync(filePath, imageData);
-
                 var avatarInfo = new AvatarInfo
                 {
                     Id = avatarId,
@@ -202,17 +215,45 @@ namespace MulletaFlix.Plugin.GetAvatar.Services
                     Origin = category
                 };
 
-                // Add to configuration
-                if (Plugin.Instance == null)
+                try
                 {
-                    _logger.LogError("Plugin instance is null, cannot save avatar to configuration");
-                    throw new InvalidOperationException("Plugin not initialized");
-                }
+                    await using (var stream = _avatarFileStore.CreateNew(savedFileName))
+                    {
+                        await stream.WriteAsync(imageData).ConfigureAwait(false);
+                    }
 
-                var config = Plugin.Config;
-                config.AvailableAvatars ??= new List<AvatarInfo>();
-                config.AvailableAvatars.Add(avatarInfo);
-                Plugin.Instance.SaveConfiguration();
+                    using (Plugin.AcquireConfigurationLock())
+                    {
+                        var config = plugin.Configuration;
+                        var previousAvatars = config.AvailableAvatars;
+                        var avatars = previousAvatars ?? new List<AvatarInfo>();
+                        try
+                        {
+                            config.AvailableAvatars = avatars;
+                            avatars.Add(avatarInfo);
+                            plugin.SaveConfiguration();
+                        }
+                        catch
+                        {
+                            avatars.Remove(avatarInfo);
+                            config.AvailableAvatars = previousAvatars ?? new List<AvatarInfo>();
+                            throw;
+                        }
+                    }
+                }
+                catch
+                {
+                    try
+                    {
+                        _avatarFileStore.TryDelete(savedFileName);
+                    }
+                    catch (Exception cleanupException)
+                    {
+                        _logger.LogWarning(cleanupException, "Failed to remove incomplete avatar file: {FileName}", savedFileName);
+                    }
+
+                    throw;
+                }
 
                 _logger.LogInformation("Saved avatar: {Name} ({Id})", avatarInfo.Name, avatarInfo.Id);
 
@@ -236,50 +277,104 @@ namespace MulletaFlix.Plugin.GetAvatar.Services
         {
             try
             {
-                if (Plugin.Instance == null)
+                var plugin = Plugin.Instance;
+                if (plugin == null)
                 {
                     _logger.LogError("Plugin instance is null");
                     return false;
                 }
 
-                var config = Plugin.Config;
-                var avatar = config.AvailableAvatars?.FirstOrDefault(a => a != null && a.Id == avatarId);
-
-                if (avatar == null)
+                using (Plugin.AcquireConfigurationLock())
                 {
-                    _logger.LogWarning("Avatar not found: {Id}", avatarId);
-                    return false;
+                    var config = plugin.Configuration;
+                    var avatar = config.AvailableAvatars?.FirstOrDefault(a => a != null && a.Id == avatarId);
+
+                    if (avatar == null)
+                    {
+                        _logger.LogWarning("Avatar not found: {Id}", avatarId);
+                        return false;
+                    }
+
+                    var previousAvatars = config.AvailableAvatars;
+                    var previousAvatarEntries = previousAvatars?.ToArray();
+                    var previousMappings = config.UserAvatars;
+                    var previousMappingEntries = previousMappings?.ToArray();
+                    var previousConfigurationFile = new Dictionary<string, byte[]?>();
+                    CaptureFile(previousConfigurationFile, plugin.ConfigurationFilePath);
+                    var configurationPersisted = false;
+
+                    AvatarFileDeleteResult fileDeleteResult;
+                    try
+                    {
+                        fileDeleteResult = _avatarFileStore.TryDelete(avatar.FileName, () =>
+                        {
+                            var usersWithAvatar = config.UserAvatars?.Where(u => u.AvatarId == avatarId).ToList() ?? new List<UserAvatarMapping>();
+                            if (usersWithAvatar.Count > 0)
+                            {
+                                _logger.LogWarning(
+                                    "Avatar {AvatarId} is currently used by {UserCount} user(s). " +
+                                    "Removing from pool but keeping user profile images intact.",
+                                    avatarId,
+                                    usersWithAvatar.Count);
+
+                                config.UserAvatars?.RemoveAll(u => u.AvatarId == avatarId);
+                            }
+
+                            config.AvailableAvatars?.Remove(avatar);
+                            plugin.SaveConfiguration();
+                            configurationPersisted = true;
+                        });
+                    }
+                    catch
+                    {
+                        if (!configurationPersisted)
+                        {
+                            if (previousAvatars is not null && previousAvatarEntries is not null)
+                            {
+                                previousAvatars.Clear();
+                                previousAvatars.AddRange(previousAvatarEntries);
+                            }
+
+                            if (previousMappings is not null && previousMappingEntries is not null)
+                            {
+                                previousMappings.Clear();
+                                previousMappings.AddRange(previousMappingEntries);
+                            }
+
+                            RestoreFiles(previousConfigurationFile);
+                            throw;
+                        }
+
+                        _logger.LogWarning(
+                            "Avatar {AvatarId} was removed from the persisted pool, but its file cleanup failed",
+                            avatarId);
+                        return true;
+                    }
+
+                    if (fileDeleteResult == AvatarFileDeleteResult.Unsafe)
+                    {
+                        if (configurationPersisted)
+                        {
+                            _logger.LogWarning("Avatar {AvatarId} was removed from the pool, but its file changed before cleanup", avatarId);
+                            return true;
+                        }
+
+                        _logger.LogWarning("Refusing to delete unsafe avatar file for {AvatarId}", avatarId);
+                        return false;
+                    }
+
+                    if (fileDeleteResult == AvatarFileDeleteResult.Deleted)
+                    {
+                        _logger.LogInformation("Deleted avatar file for {AvatarId}", avatarId);
+                    }
+                    else
+                    {
+                        _logger.LogInformation("Removing stale avatar catalog entry {AvatarId}; file is already missing", avatarId);
+                    }
+
+                    _logger.LogInformation("Deleted avatar from pool: {Name} ({Id})", avatar.Name, avatarId);
+                    return true;
                 }
-
-                // Check if any user is currently using this avatar
-                var usersWithAvatar = config.UserAvatars?.Where(u => u.AvatarId == avatarId).ToList() ?? new List<UserAvatarMapping>();
-                if (usersWithAvatar.Count > 0)
-                {
-                    _logger.LogWarning(
-                        "Avatar {AvatarId} is currently used by {UserCount} user(s). " +
-                        "Removing from pool but keeping user profile images intact.",
-                        avatarId,
-                        usersWithAvatar.Count);
-
-                    // Remove the mapping from config (users will keep their current profile image)
-                    // This decouples the pool avatar from the user assignment
-                    config.UserAvatars?.RemoveAll(u => u.AvatarId == avatarId);
-                }
-
-                // Delete the avatar file from the pool
-                var filePath = Path.Combine(_avatarDirectory, avatar.FileName);
-                if (File.Exists(filePath))
-                {
-                    File.Delete(filePath);
-                    _logger.LogInformation("Deleted avatar file: {FilePath}", filePath);
-                }
-
-                // Remove from available avatars list
-                config.AvailableAvatars?.Remove(avatar);
-                Plugin.Instance.SaveConfiguration();
-
-                _logger.LogInformation("Deleted avatar from pool: {Name} ({Id})", avatar.Name, avatarId);
-                return true;
             }
             catch (Exception ex)
             {
@@ -289,26 +384,37 @@ namespace MulletaFlix.Plugin.GetAvatar.Services
         }
 
         /// <summary>
-        /// Gets the path to an avatar image.
+        /// Opens an avatar by resolving its catalog entry relative to the pinned catalog directory.
         /// </summary>
         /// <param name="avatarId">The avatar ID.</param>
-        /// <returns>The file path, or null if not found.</returns>
-        public string? GetAvatarPath(string avatarId)
+        /// <returns>The opened file and name, or <see langword="null"/> if it is missing or unsafe.</returns>
+        public AvatarFileRead? OpenAvatarRead(string avatarId)
         {
             if (Plugin.Instance == null)
             {
-                _logger.LogError("Plugin instance is null");
+                _logger.LogError("Plugin instance is null in OpenAvatarRead");
                 return null;
             }
 
-            var avatar = Plugin.Config.AvailableAvatars?.FirstOrDefault(a => a != null && a.Id == avatarId);
-            if (avatar == null)
+            using (Plugin.AcquireConfigurationLock())
             {
-                return null;
-            }
+                var avatar = Plugin.Config.AvailableAvatars?.FirstOrDefault(a => a != null && a.Id == avatarId);
+                if (avatar == null)
+                {
+                    return null;
+                }
 
-            var filePath = Path.Combine(_avatarDirectory, avatar.FileName);
-            return File.Exists(filePath) ? filePath : null;
+                var stream = _avatarFileStore.TryOpenRead(avatar.FileName);
+                if (stream == null)
+                {
+                    _logger.LogWarning(
+                        "Refusing to open missing or unsafe avatar file for {AvatarId}",
+                        avatarId);
+                    return null;
+                }
+
+                return new AvatarFileRead(avatar.FileName, stream);
+            }
         }
 
         /// <summary>
@@ -319,6 +425,20 @@ namespace MulletaFlix.Plugin.GetAvatar.Services
         /// <returns>Task representing the operation.</returns>
         public async Task SetUserAvatarAsync(Guid userId, string avatarId)
         {
+            await UserAvatarUpdateLock.WaitAsync().ConfigureAwait(false);
+            try
+            {
+                await SetUserAvatarCoreAsync(userId, avatarId).ConfigureAwait(false);
+            }
+            finally
+            {
+                UserAvatarUpdateLock.Release();
+            }
+        }
+
+        private async Task SetUserAvatarCoreAsync(Guid userId, string avatarId)
+        {
+            using var profileImageUpdateLock = await _userManager.AcquireProfileImageUpdateLockAsync(userId).ConfigureAwait(false);
             _logger.LogInformation("SetUserAvatarAsync called: userId={UserId}, avatarId={AvatarId}", userId, avatarId);
 
             var user = _userManager.GetUserById(userId);
@@ -330,17 +450,23 @@ namespace MulletaFlix.Plugin.GetAvatar.Services
 
             _logger.LogInformation("Found user: {UserName}", user.Username);
 
-            var avatarPath = GetAvatarPath(avatarId);
-            if (avatarPath == null)
+            using var avatarFile = OpenAvatarRead(avatarId);
+            if (avatarFile == null)
             {
                 _logger.LogError("Avatar not found: {AvatarId}", avatarId);
                 throw new ArgumentException($"Avatar not found: {avatarId}");
             }
 
-            _logger.LogInformation("Avatar path: {Path}", avatarPath);
+            _logger.LogInformation("Avatar file opened from catalog: {FileName}", avatarFile.FileName);
+
+            var plugin = Plugin.Instance;
+            if (plugin == null)
+            {
+                throw new InvalidOperationException("Plugin not initialized");
+            }
 
             // Determine file extension and MIME type
-            var extension = Path.GetExtension(avatarPath).ToLowerInvariant();
+            var extension = Path.GetExtension(avatarFile.FileName).ToLowerInvariant();
             var mimeType = extension switch
             {
                 ".jpg" or ".jpeg" => "image/jpeg",
@@ -360,64 +486,233 @@ namespace MulletaFlix.Plugin.GetAvatar.Services
 
             _logger.LogInformation("User profile image directory: {Path}", userDataPath);
 
-            Directory.CreateDirectory(userDataPath);
-
             var profileImagePath = Path.Combine(userDataPath, "profile" + extension);
             _logger.LogInformation("Profile image path: {Path}", profileImagePath);
 
+            var previousProfileImage = user.ProfileImage;
+            var previousProfilePath = previousProfileImage?.Path;
+            var previousFiles = new Dictionary<string, byte[]?>();
+            if (FileSystemHelper.IsPathWithinRoot(previousProfilePath ?? string.Empty, userDataPath))
+            {
+                CaptureFile(previousFiles, previousProfilePath);
+            }
+
+            if (FileSystemHelper.IsPathWithinRoot(profileImagePath, userDataPath))
+            {
+                CaptureFile(previousFiles, profileImagePath);
+            }
+
+            var profileClearAttempted = false;
+            var previousImageRemoved = false;
+            var profileUpdateAttempted = false;
+
             try
             {
+                Directory.CreateDirectory(userDataPath);
                 if (user.ProfileImage is not null)
                 {
+                    profileClearAttempted = true;
                     await _userManager.ClearProfileImageAsync(user).ConfigureAwait(false);
+                    previousImageRemoved = true;
                     _logger.LogInformation("Cleared existing profile image for user {UserName}", user.Username);
                 }
 
                 user.ProfileImage = new ImageInfo(profileImagePath);
 
-                await using var stream = File.OpenRead(avatarPath);
                 await _providerManager
-                    .SaveImage(stream, mimeType, profileImagePath)
+                    .SaveImage(avatarFile.Stream, mimeType, profileImagePath)
                     .ConfigureAwait(false);
 
+                profileUpdateAttempted = true;
                 await _userManager.UpdateUserAsync(user).ConfigureAwait(false);
 
                 _logger.LogInformation("Updated profile image via Jellyfin image pipeline: {Path}", profileImagePath);
+                SaveUserAvatarMapping(plugin, userId, avatarId);
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Failed to save/update profile image via Jellyfin image pipeline");
 
+                var restoreProfileMetadata = previousImageRemoved || profileUpdateAttempted;
+                if (profileClearAttempted && !restoreProfileMetadata)
+                {
+                    // ClearProfileImageAsync can commit the row deletion and still throw before it
+                    // updates the in-memory user. Read persisted state before deciding whether to
+                    // insert a replacement ImageInfo, which avoids duplicate rows on pre-commit failures.
+                    try
+                    {
+                        var persistedUser = _userManager.GetUserById(userId);
+                        restoreProfileMetadata = persistedUser is not null && persistedUser.ProfileImage is null;
+                    }
+                    catch (Exception inspectionException)
+                    {
+                        _logger.LogWarning(
+                            inspectionException,
+                            "Failed to inspect profile metadata after clearing failed for user {UserId}",
+                            userId);
+                    }
+                }
+
+                if (restoreProfileMetadata)
+                {
+                    // ClearProfileImageAsync deletes the old ImageInfo row. Recreate it with Id=0
+                    // so UpdateUserAsync inserts a replacement row instead of updating a deleted one.
+                    user.ProfileImage = previousProfileImage == null
+                        ? null
+                        : new ImageInfo(previousProfileImage.Path)
+                        {
+                            LastModified = previousProfileImage.LastModified
+                        };
+                    try
+                    {
+                        await _userManager.UpdateUserAsync(user).ConfigureAwait(false);
+                    }
+                    catch (Exception rollbackException)
+                    {
+                        _logger.LogWarning(rollbackException, "Failed to restore profile metadata for user {UserId}", userId);
+                    }
+                }
+                else
+                {
+                    // The existing profile row was not removed; retain its tracked entity and avoid
+                    // an unnecessary update that could create a duplicate relationship.
+                    user.ProfileImage = previousProfileImage;
+                }
+
+                RestoreFiles(previousFiles);
+
                 throw;
             }
 
-            // Store the mapping in plugin config
-            if (Plugin.Instance == null)
+            if (!string.IsNullOrWhiteSpace(previousProfilePath)
+                && !FileSystemHelper.PathsEqual(previousProfilePath, profileImagePath)
+                && FileSystemHelper.IsPathWithinRoot(previousProfilePath, userDataPath))
             {
-                _logger.LogError("Plugin instance is null, cannot save avatar mapping");
-                throw new InvalidOperationException("Plugin not initialized");
+                TryDeleteObsoleteProfileImage(previousProfilePath, userId);
             }
-
-            var config = Plugin.Config;
-            config.UserAvatars ??= new List<UserAvatarMapping>();
-
-            var existingMapping = config.UserAvatars.FirstOrDefault(x => x.UserId == userId.ToString());
-            if (existingMapping != null)
-            {
-                existingMapping.AvatarId = avatarId;
-            }
-            else
-            {
-                config.UserAvatars.Add(new UserAvatarMapping
-                {
-                    UserId = userId.ToString(),
-                    AvatarId = avatarId
-                });
-            }
-
-            Plugin.Instance.SaveConfiguration();
 
             _logger.LogInformation("Successfully set avatar {AvatarId} for user {UserName} ({UserId})", avatarId, user.Username, userId);
+        }
+
+        private void TryDeleteObsoleteProfileImage(string path, Guid userId)
+        {
+            try
+            {
+                File.Delete(path);
+            }
+            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+            {
+                _logger.LogWarning(exception, "Failed to remove obsolete profile image file for user {UserId}", userId);
+            }
+        }
+
+        private void SaveUserAvatarMapping(Plugin plugin, Guid userId, string avatarId)
+        {
+            using (Plugin.AcquireConfigurationLock())
+            {
+                var config = plugin.Configuration;
+                var previousMappings = config.UserAvatars;
+                var previousMappingEntries = previousMappings?.ToArray();
+                var previousMappingValues = previousMappingEntries?
+                    .Select(mapping => (Mapping: mapping, mapping.UserId, mapping.AvatarId))
+                    .ToArray();
+                var previousConfigurationFile = new Dictionary<string, byte[]?>();
+                CaptureFile(previousConfigurationFile, plugin.ConfigurationFilePath);
+
+                try
+                {
+                    config.UserAvatars ??= new List<UserAvatarMapping>();
+                    var existingMapping = config.UserAvatars.FirstOrDefault(x => x.UserId == userId.ToString());
+                    if (existingMapping != null)
+                    {
+                        existingMapping.AvatarId = avatarId;
+                    }
+                    else
+                    {
+                        config.UserAvatars.Add(new UserAvatarMapping
+                        {
+                            UserId = userId.ToString(),
+                            AvatarId = avatarId
+                        });
+                    }
+
+                    plugin.SaveConfiguration();
+                }
+                catch
+                {
+                    RestoreMappings(config, previousMappings, previousMappingEntries, previousMappingValues);
+                    RestoreFiles(previousConfigurationFile);
+                    throw;
+                }
+            }
+        }
+
+        private static void CaptureFile(IDictionary<string, byte[]?> snapshots, string? path)
+        {
+            if (!string.IsNullOrEmpty(path) && !snapshots.ContainsKey(path))
+            {
+                snapshots[path] = File.Exists(path) ? File.ReadAllBytes(path) : null;
+            }
+        }
+
+        private void RestoreFiles(IDictionary<string, byte[]?> snapshots)
+        {
+            foreach (var (path, contents) in snapshots)
+            {
+                try
+                {
+                    if (contents == null)
+                    {
+                        if (File.Exists(path))
+                        {
+                            File.Delete(path);
+                        }
+                    }
+                    else
+                    {
+                        var directory = Path.GetDirectoryName(path)!;
+                        Directory.CreateDirectory(directory);
+                        var temporaryPath = Path.Combine(directory, $".{Path.GetFileName(path)}.{Guid.NewGuid():N}.rollback");
+                        try
+                        {
+                            File.WriteAllBytes(temporaryPath, contents);
+                            File.Move(temporaryPath, path, overwrite: true);
+                        }
+                        finally
+                        {
+                            if (File.Exists(temporaryPath))
+                            {
+                                File.Delete(temporaryPath);
+                            }
+                        }
+                    }
+                }
+                catch (Exception rollbackException)
+                {
+                    _logger.LogWarning(rollbackException, "Failed to restore avatar state file {Path}", path);
+                }
+            }
+        }
+
+        private static void RestoreMappings(
+            PluginConfiguration config,
+            List<UserAvatarMapping>? previousMappings,
+            UserAvatarMapping[]? previousEntries,
+            (UserAvatarMapping Mapping, string UserId, string AvatarId)[]? previousValues)
+        {
+            if (previousMappings != null && previousEntries != null && previousValues != null)
+            {
+                foreach (var (mapping, userId, avatarId) in previousValues)
+                {
+                    mapping.UserId = userId;
+                    mapping.AvatarId = avatarId;
+                }
+
+                previousMappings.Clear();
+                previousMappings.AddRange(previousEntries);
+            }
+
+            config.UserAvatars = previousMappings ?? new List<UserAvatarMapping>();
         }
 
         /// <summary>
@@ -441,14 +736,17 @@ namespace MulletaFlix.Plugin.GetAvatar.Services
                 return null;
             }
 
-            var config = Plugin.Config;
-            if (config.UserAvatars == null)
+            using (Plugin.AcquireConfigurationLock())
             {
-                return null;
-            }
+                var config = Plugin.Config;
+                if (config.UserAvatars == null)
+                {
+                    return null;
+                }
 
-            var mapping = config.UserAvatars.FirstOrDefault(x => x.UserId == userId.ToString());
-            return mapping?.AvatarId;
+                var mapping = config.UserAvatars.FirstOrDefault(x => x.UserId == userId.ToString());
+                return mapping?.AvatarId;
+            }
         }
 
         /// <summary>
@@ -464,24 +762,31 @@ namespace MulletaFlix.Plugin.GetAvatar.Services
                 return 0;
             }
 
-            var config = Plugin.Config;
-            if (config.UserAvatars == null || config.UserAvatars.Count == 0)
+            UserAvatarMapping[] mappings;
+            using (Plugin.AcquireConfigurationLock())
+            {
+                mappings = Plugin.Config.UserAvatars?
+                    .Select(mapping => new UserAvatarMapping { UserId = mapping.UserId, AvatarId = mapping.AvatarId })
+                    .ToArray() ?? Array.Empty<UserAvatarMapping>();
+            }
+
+            if (mappings.Length == 0)
             {
                 _logger.LogInformation("No user avatars to validate");
                 return 0;
             }
 
             var repairedCount = 0;
-            var mappingsToRemove = new List<UserAvatarMapping>();
+            var mappingsToRemove = new HashSet<(string UserId, string AvatarId)>();
 
-            foreach (var mapping in config.UserAvatars.ToList())
+            foreach (var mapping in mappings)
             {
                 try
                 {
                     if (!Guid.TryParse(mapping.UserId, out var userId))
                     {
                         _logger.LogWarning("Invalid user ID in mapping: {UserId}", mapping.UserId);
-                        mappingsToRemove.Add(mapping);
+                        mappingsToRemove.Add((mapping.UserId, mapping.AvatarId));
                         continue;
                     }
 
@@ -489,7 +794,7 @@ namespace MulletaFlix.Plugin.GetAvatar.Services
                     if (user == null)
                     {
                         _logger.LogWarning("User not found for avatar mapping: {UserId}", mapping.UserId);
-                        mappingsToRemove.Add(mapping);
+                        mappingsToRemove.Add((mapping.UserId, mapping.AvatarId));
                         continue;
                     }
 
@@ -508,22 +813,17 @@ namespace MulletaFlix.Plugin.GetAvatar.Services
                         user.Username,
                         user.ProfileImage?.Path ?? "null");
 
-                    var avatarPath = GetAvatarPath(mapping.AvatarId);
-                    if (avatarPath == null)
+                    using var avatarFile = OpenAvatarRead(mapping.AvatarId);
+                    if (avatarFile == null)
                     {
                         _logger.LogError(
                             "Cannot repair avatar for user {UserName}: Avatar {AvatarId} no longer exists in pool",
                             user.Username,
                             mapping.AvatarId);
 
-                        mappingsToRemove.Add(mapping);
+                        mappingsToRemove.Add((mapping.UserId, mapping.AvatarId));
 
-                        if (user.ProfileImage != null)
-                        {
-                            user.ProfileImage = null;
-                            await _userManager.UpdateUserAsync(user).ConfigureAwait(false);
-                            _logger.LogInformation("Cleared profile image reference for user {UserName}", user.Username);
-                        }
+                        await ClearProfileImageForStaleAvatarMappingAsync(userId, mapping.AvatarId).ConfigureAwait(false);
 
                         continue;
                     }
@@ -538,23 +838,60 @@ namespace MulletaFlix.Plugin.GetAvatar.Services
                 }
             }
 
-            foreach (var mapping in mappingsToRemove)
+            var removedCount = 0;
+            using (Plugin.AcquireConfigurationLock())
             {
-                config.UserAvatars?.Remove(mapping);
+                var config = Plugin.Config;
+                removedCount = config.UserAvatars?.RemoveAll(mapping => mappingsToRemove.Contains((mapping.UserId, mapping.AvatarId))) ?? 0;
+                if (removedCount > 0)
+                {
+                    Plugin.Instance.SaveConfiguration();
+                }
             }
 
-            if (mappingsToRemove.Count > 0)
+            if (removedCount > 0)
             {
-                Plugin.Instance.SaveConfiguration();
-                _logger.LogInformation("Removed {Count} invalid avatar mappings", mappingsToRemove.Count);
+                _logger.LogInformation("Removed {Count} invalid avatar mappings", removedCount);
             }
 
             _logger.LogInformation(
                 "Avatar validation complete. Repaired: {Repaired}, Removed invalid: {Removed}",
                 repairedCount,
-                mappingsToRemove.Count);
+                removedCount);
 
             return repairedCount;
+        }
+
+        private async Task ClearProfileImageForStaleAvatarMappingAsync(Guid userId, string avatarId)
+        {
+            await UserAvatarUpdateLock.WaitAsync().ConfigureAwait(false);
+            try
+            {
+                using var profileImageUpdateLock = await _userManager.AcquireProfileImageUpdateLockAsync(userId).ConfigureAwait(false);
+                using (Plugin.AcquireConfigurationLock())
+                {
+                    var currentMapping = Plugin.Config.UserAvatars?
+                        .FirstOrDefault(mapping => mapping.UserId == userId.ToString());
+                    if (currentMapping?.AvatarId != avatarId)
+                    {
+                        return;
+                    }
+                }
+
+                var user = _userManager.GetUserById(userId);
+                if (user?.ProfileImage == null)
+                {
+                    return;
+                }
+
+                user.ProfileImage = null;
+                await _userManager.UpdateUserAsync(user).ConfigureAwait(false);
+                _logger.LogInformation("Cleared profile image reference for user {UserName}", user.Username);
+            }
+            finally
+            {
+                UserAvatarUpdateLock.Release();
+            }
         }
 
         /// <summary>
@@ -573,8 +910,10 @@ namespace MulletaFlix.Plugin.GetAvatar.Services
                 {
                     try
                     {
-                        var userDataPath = Path.Combine(_appPaths.DataPath, "users", user.Id.ToString("N"));
-                        if (!Directory.Exists(userDataPath))
+                        var usersRoot = Path.Combine(_appPaths.DataPath, "users");
+                        var userDataPath = Path.Combine(usersRoot, user.Id.ToString("N"));
+                        if (!Directory.Exists(userDataPath)
+                            || !FileSystemHelper.IsPathWithinRoot(userDataPath, usersRoot))
                         {
                             continue;
                         }
@@ -586,6 +925,12 @@ namespace MulletaFlix.Plugin.GetAvatar.Services
                         {
                             if (string.Equals(file, currentProfilePath, StringComparison.OrdinalIgnoreCase))
                             {
+                                continue;
+                            }
+
+                            if (!FileSystemHelper.IsPathWithinRoot(file, userDataPath))
+                            {
+                                _logger.LogWarning("Skipping profile image outside the managed user directory: {File}", file);
                                 continue;
                             }
 
@@ -623,14 +968,17 @@ namespace MulletaFlix.Plugin.GetAvatar.Services
         /// <returns>A random avatar info, or null if no avatars exist.</returns>
         public AvatarInfo? GetRandomAvatar()
         {
-            var avatars = Plugin.Config.AvailableAvatars;
-            if (avatars == null || avatars.Count == 0)
+            using (Plugin.AcquireConfigurationLock())
             {
-                return null;
-            }
+                var avatars = Plugin.Config.AvailableAvatars;
+                if (avatars == null || avatars.Count == 0)
+                {
+                    return null;
+                }
 
-            var index = Random.Shared.Next(avatars.Count);
-            return avatars[index];
+                var index = Random.Shared.Next(avatars.Count);
+                return avatars[index];
+            }
         }
 
         /// <summary>
@@ -641,9 +989,17 @@ namespace MulletaFlix.Plugin.GetAvatar.Services
         /// <returns>True if an avatar was assigned.</returns>
         public async Task<bool> AssignRandomAvatarAsync(User user, bool forceAssign = false)
         {
-            if (Plugin.Instance == null || (!forceAssign && !Plugin.Config.EnableAutoAssign))
+            if (Plugin.Instance == null)
             {
                 return false;
+            }
+
+            using (Plugin.AcquireConfigurationLock())
+            {
+                if (!forceAssign && !Plugin.Config.EnableAutoAssign)
+                {
+                    return false;
+                }
             }
 
             var hasProfileImage = user.ProfileImage != null
@@ -661,8 +1017,6 @@ namespace MulletaFlix.Plugin.GetAvatar.Services
                 return false;
             }
 
-            Plugin.Config.UserAvatars?.RemoveAll(x => x.UserId == user.Id.ToString());
-
             await SetUserAvatarAsync(user.Id, target.Id).ConfigureAwait(false);
             _logger.LogInformation("Auto-assigned random avatar {AvatarId} to user {UserName}", target.Id, user.Username);
             return true;
@@ -679,15 +1033,16 @@ namespace MulletaFlix.Plugin.GetAvatar.Services
                 return 0;
             }
 
-            var avatars = Plugin.Config.AvailableAvatars;
-            if (avatars == null || avatars.Count == 0)
+            bool hasAvatars;
+            bool autoAssignEnabled;
+            using (Plugin.AcquireConfigurationLock())
             {
-                return 0;
+                var config = Plugin.Config;
+                hasAvatars = config.AvailableAvatars is { Count: > 0 };
+                autoAssignEnabled = config.EnableAutoAssign;
             }
 
-            var config = Plugin.Config;
-
-            if (!config.EnableAutoAssign)
+            if (!hasAvatars || !autoAssignEnabled)
             {
                 return 0;
             }
@@ -721,55 +1076,86 @@ namespace MulletaFlix.Plugin.GetAvatar.Services
         /// <returns>True if successful.</returns>
         public async Task<bool> RemoveUserAvatarAsync(Guid userId)
         {
+            await UserAvatarUpdateLock.WaitAsync().ConfigureAwait(false);
             try
             {
-                if (Plugin.Instance == null)
+                using var profileImageUpdateLock = await _userManager.AcquireProfileImageUpdateLockAsync(userId).ConfigureAwait(false);
+                try
                 {
-                    _logger.LogError("Plugin instance is null");
+                    if (Plugin.Instance == null)
+                    {
+                        _logger.LogError("Plugin instance is null");
+                        return false;
+                    }
+
+                    var user = _userManager.GetUserById(userId);
+                    if (user == null)
+                    {
+                        _logger.LogWarning("User not found: {UserId}", userId);
+                        return false;
+                    }
+
+                    var oldProfileImagePath = user.ProfileImage?.Path;
+
+                    user.ProfileImage = null;
+                    await _userManager.UpdateUserAsync(user).ConfigureAwait(false);
+
+                    if (!string.IsNullOrEmpty(oldProfileImagePath) && File.Exists(oldProfileImagePath))
+                    {
+                        var userDataPath = Path.Combine(
+                            _serverConfigurationManager.ApplicationPaths.UserConfigurationDirectoryPath,
+                            user.Username);
+                        if (!FileSystemHelper.IsPathWithinRoot(oldProfileImagePath, userDataPath))
+                        {
+                            _logger.LogWarning(
+                                "Retaining profile image outside the user's configuration directory for user {UserId}",
+                                userId);
+                        }
+                        else
+                        {
+                            try
+                            {
+                                File.Delete(oldProfileImagePath);
+                                _logger.LogInformation("Deleted profile image for user {UserId}", userId);
+                            }
+                            catch (Exception ex)
+                            {
+                                _logger.LogWarning(ex, "Could not delete profile image file for user {UserId}", userId);
+                            }
+                        }
+                    }
+
+                    using (Plugin.AcquireConfigurationLock())
+                    {
+                        var config = Plugin.Config;
+                        var mapping = config.UserAvatars?.FirstOrDefault(x => x.UserId == userId.ToString());
+                        if (mapping != null)
+                        {
+                            config.UserAvatars?.Remove(mapping);
+                            Plugin.Instance.SaveConfiguration();
+                        }
+                    }
+
+                    _logger.LogInformation("Removed avatar assignment for user {UserName}", user.Username);
+                    return true;
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Failed to remove avatar for user {UserId}", userId);
                     return false;
                 }
-
-                var user = _userManager.GetUserById(userId);
-                if (user == null)
-                {
-                    _logger.LogWarning("User not found: {UserId}", userId);
-                    return false;
-                }
-
-                var oldProfileImagePath = user.ProfileImage?.Path;
-
-                user.ProfileImage = null;
-                await _userManager.UpdateUserAsync(user).ConfigureAwait(false);
-
-                if (!string.IsNullOrEmpty(oldProfileImagePath) && File.Exists(oldProfileImagePath))
-                {
-                    try
-                    {
-                        File.Delete(oldProfileImagePath);
-                        _logger.LogInformation("Deleted profile image for user {UserName}", user.Username);
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.LogWarning(ex, "Could not delete profile image file");
-                    }
-                }
-
-                var config = Plugin.Config;
-                var mapping = config.UserAvatars?.FirstOrDefault(x => x.UserId == userId.ToString());
-                if (mapping != null)
-                {
-                    config.UserAvatars?.Remove(mapping);
-                    Plugin.Instance.SaveConfiguration();
-                }
-
-                _logger.LogInformation("Removed avatar assignment for user {UserName}", user.Username);
-                return true;
             }
-            catch (Exception ex)
+            finally
             {
-                _logger.LogError(ex, "Failed to remove avatar for user {UserId}", userId);
-                return false;
+                UserAvatarUpdateLock.Release();
             }
+        }
+
+        /// <inheritdoc />
+        public void Dispose()
+        {
+            _avatarFileStore.Dispose();
+            GC.SuppressFinalize(this);
         }
     }
 }

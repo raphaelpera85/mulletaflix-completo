@@ -133,13 +133,13 @@ namespace MulletaFlix.Plugin.GetAvatar.Controllers
         {
             try
             {
-                var avatarPath = _avatarService.GetAvatarPath(avatarId);
-                if (avatarPath == null || !System.IO.File.Exists(avatarPath))
+                var avatarFile = _avatarService.OpenAvatarRead(avatarId);
+                if (avatarFile == null)
                 {
                     return NotFound();
                 }
 
-                var extension = Path.GetExtension(avatarPath).ToLowerInvariant();
+                var extension = Path.GetExtension(avatarFile.FileName).ToLowerInvariant();
                 var contentType = extension switch
                 {
                     ".jpg" or ".jpeg" => "image/jpeg",
@@ -149,8 +149,7 @@ namespace MulletaFlix.Plugin.GetAvatar.Controllers
                     _ => "application/octet-stream"
                 };
 
-                var image = System.IO.File.OpenRead(avatarPath);
-                return File(image, contentType);
+                return File(avatarFile.Stream, contentType);
             }
             catch (Exception ex)
             {
@@ -268,13 +267,13 @@ namespace MulletaFlix.Plugin.GetAvatar.Controllers
                     return NotFound(new { message = "No custom avatar set for this user" });
                 }
 
-                var avatarPath = _avatarService.GetAvatarPath(avatarId);
-                if (avatarPath == null || !System.IO.File.Exists(avatarPath))
+                var avatarFile = _avatarService.OpenAvatarRead(avatarId);
+                if (avatarFile == null)
                 {
                     return NotFound(new { message = "Avatar file not found" });
                 }
 
-                var extension = Path.GetExtension(avatarPath).ToLowerInvariant();
+                var extension = Path.GetExtension(avatarFile.FileName).ToLowerInvariant();
                 var contentType = extension switch
                 {
                     ".jpg" or ".jpeg" => "image/jpeg",
@@ -285,8 +284,7 @@ namespace MulletaFlix.Plugin.GetAvatar.Controllers
                 };
 
                 Response.Headers.CacheControl = "no-store";
-                var image = System.IO.File.OpenRead(avatarPath);
-                return File(image, contentType);
+                return File(avatarFile.Stream, contentType);
             }
             catch (Exception ex)
             {
@@ -566,7 +564,10 @@ namespace MulletaFlix.Plugin.GetAvatar.Controllers
         [Authorize(Policy = Policies.LocalAccessOrRequiresElevation)]
         public IActionResult GetSettings()
         {
-            return Ok(new { enableAutoAssign = Plugin.Config.EnableAutoAssign });
+            using (Plugin.AcquireConfigurationLock())
+            {
+                return Ok(new { enableAutoAssign = Plugin.Config.EnableAutoAssign });
+            }
         }
 
         /// <summary>
@@ -583,9 +584,12 @@ namespace MulletaFlix.Plugin.GetAvatar.Controllers
                 return StatusCode(500, "Plugin not initialized");
             }
 
-            var config = Plugin.Config;
-            config.EnableAutoAssign = request.EnableAutoAssign;
-            Plugin.Instance.SaveConfiguration();
+            using (Plugin.AcquireConfigurationLock())
+            {
+                var config = Plugin.Config;
+                config.EnableAutoAssign = request.EnableAutoAssign;
+                Plugin.Instance.SaveConfiguration();
+            }
 
             return Ok(new { message = "Settings saved" });
         }

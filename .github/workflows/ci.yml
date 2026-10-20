@@ -88,9 +88,9 @@ jobs:
           --verbosity minimal
 
   nebula-mongo-integration-tests:
-    name: Nebula Mongo persistence, recovery, and restore tests
+    name: Nebula Mongo persistence, recovery, backup, and topology tests
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 15
     services:
       mongodb:
         image: mongo:7.0
@@ -116,13 +116,81 @@ jobs:
       - name: Restore server solution
         run: dotnet restore MulletaFlix.sln
 
-      - name: Test Mongo queue persistence, playback recovery, and Supabase restore
+      - name: Test every Mongo-backed scenario
         run: >
           dotnet test tests/Jellyfin.Server.Implementations.Tests/Jellyfin.Server.Implementations.Tests.csproj
           --configuration Release
           --no-restore
-          --filter "FullyQualifiedName~NebulaQueueConcurrencyMongoTests|FullyQualifiedName~NebulaPlaybackRecoveryMongoTests|FullyQualifiedName~NebulaSupabaseRestoreMongoTests"
+          --filter "Category=RequiresMongo"
           --verbosity minimal
+
+  user-mariadb-linux-tests:
+    name: User schema MariaDB Linux (case-sensitive)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      mariadb:
+        image: mariadb:11.4
+        env:
+          MARIADB_ROOT_PASSWORD: mfx_ci_mariadb_test
+        ports:
+          - 33099:3306
+        options: >-
+          --health-cmd="healthcheck.sh --connect --innodb_initialized"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      MULLETAFLIX_TEST_MARIADB_CONNECTION_STRING: "Server=127.0.0.1;Port=33099;User ID=root;Password=mfx_ci_mariadb_test;CharSet=utf8mb4;"
+    defaults:
+      run:
+        working-directory: MulletaFlix-master
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ env.SDK_VERSION }}
+
+      - name: Restore server test project
+        run: dotnet restore tests/Jellyfin.Server.Implementations.Tests/Jellyfin.Server.Implementations.Tests.csproj
+
+      - name: Verify MariaDB Linux case-sensitive username schema
+        run: >
+          dotnet test tests/Jellyfin.Server.Implementations.Tests/Jellyfin.Server.Implementations.Tests.csproj
+          --configuration Release
+          --no-restore
+          --filter "FullyQualifiedName~UserManagerNormalizedUsernameTests|FullyQualifiedName~BillingDatabaseTests"
+          --verbosity minimal
+
+  windows-packaging-script-tests:
+    name: Windows packaging integrity scripts
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run Windows packaging integrity checks
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $tests = @(
+            'Assert-StageIntegrity.Tests.ps1',
+            'RcloneBootstrap.Tests.ps1',
+            'ServiceDataAcl.Tests.ps1',
+            'StageBackup.Tests.ps1',
+            'StageBuildOptions.Tests.ps1'
+          )
+
+          foreach ($test in $tests) {
+            $testPath = Join-Path $env:GITHUB_WORKSPACE "MulletaFlix-packaging-master/scripts/tests/$test"
+            if (-not (Test-Path -LiteralPath $testPath -PathType Leaf)) {
+              throw "Required packaging test was not found: $testPath"
+            }
+
+            Write-Host "Running $test"
+            & $testPath
+          }
 
   nebula-python-tests:
     name: Nebula Python unit tests (${{ matrix.os }})
@@ -144,7 +212,9 @@ jobs:
           cache-dependency-path: MulletaFlix-master/Tools/NebulaPython/requirements-test.txt
 
       - name: Install runtime and test dependencies
-        run: python -m pip install -r requirements-test.txt
+        run: |
+          python -m pip install --require-hashes -r requirements.lock
+          python -m pip install -r requirements-test.txt
 
       - name: Run Nebula Python tests
         run: python -m pytest tests --cov=. --cov-report=term-missing --cov-report=xml:coverage.xml
@@ -170,6 +240,9 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
           cache-dependency-path: MulletaFlix-web-master/package-lock.json
+
+      - name: Verify database integration CI coverage
+        run: node --test ../tools/release/tests/ci-mongo-coverage.test.mjs ../tools/release/tests/ci-mariadb-linux-coverage.test.mjs ../tools/release/tests/ci-packaging-coverage.test.mjs
 
       - name: Install dependencies
         run: npm ci

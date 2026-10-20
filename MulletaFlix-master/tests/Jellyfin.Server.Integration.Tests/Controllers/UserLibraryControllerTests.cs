@@ -75,7 +75,7 @@ public sealed class UserLibraryControllerTests : IClassFixture<MulletaFlixApplic
         Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
     }
 
-    [Fact(Skip = "Disabled for flaky execution after refactor.")]
+    [Fact]
     public async Task GetItem_UserIdAndItemId_Valid()
     {
         var client = _factory.CreateClient();
@@ -90,7 +90,7 @@ public sealed class UserLibraryControllerTests : IClassFixture<MulletaFlixApplic
         Assert.NotNull(rootDto);
     }
 
-    [Fact(Skip = "Disabled for flaky execution after refactor.")]
+    [Fact]
     public async Task GetIntros_UserIdAndItemId_Valid()
     {
         var client = _factory.CreateClient();
@@ -105,7 +105,7 @@ public sealed class UserLibraryControllerTests : IClassFixture<MulletaFlixApplic
         Assert.NotNull(rootDto);
     }
 
-    [Theory(Skip = "Disabled for flaky execution after refactor.")]
+    [Theory]
     [InlineData("Users/{0}/Items/{1}/LocalTrailers")]
     [InlineData("Users/{0}/Items/{1}/SpecialFeatures")]
     public async Task LocalTrailersAndSpecialFeatures_UserIdAndItemId_Valid(string format)

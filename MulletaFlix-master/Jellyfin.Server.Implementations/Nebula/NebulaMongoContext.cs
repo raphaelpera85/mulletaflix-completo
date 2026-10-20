@@ -2797,6 +2797,41 @@ public sealed class NebulaMongoContext : IDisposable
     }
 
     /// <summary>
+    /// Restores legacy FTP user fields without replacing ACLs or fields absent from the backup row.
+    /// </summary>
+    /// <param name="login">The FTP login used as the MongoDB id.</param>
+    /// <param name="passwordHash">The backed-up password hash.</param>
+    /// <param name="createdAt">Creation timestamp applied only when inserting a missing user.</param>
+    /// <param name="cancellationToken">Token used to cancel the operation.</param>
+    /// <returns>A task that completes when the legacy user fields have been merged.</returns>
+    public async Task UpsertLegacyFtpUserAsync(
+        string login,
+        string passwordHash,
+        long? createdAt,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(login))
+        {
+            return;
+        }
+
+        var filter = Builders<BsonDocument>.Filter.Eq("_id", login);
+        var update = Builders<BsonDocument>.Update
+            .Set("login", login)
+            .Set("password_hash", passwordHash ?? string.Empty);
+        if (createdAt.HasValue)
+        {
+            update = update.SetOnInsert("created_at", createdAt.Value);
+        }
+
+        await _usersCollection.UpdateOneAsync(
+            filter,
+            update,
+            new UpdateOptions { IsUpsert = true },
+            cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>
     /// Carrega todos os documentos de token de bot (habilitados e desabilitados) para backup
     /// completo no Supabase. Diferente de <see cref="GetBotTokensAsync"/>, não filtra por
     /// <c>enabled</c> nem reduz o resultado a apenas a string do token: preserva índice e
@@ -2839,6 +2874,23 @@ public sealed class NebulaMongoContext : IDisposable
     {
         if (doc == null)
         {
+            return;
+        }
+
+        if (doc.TryGetValue("index", out var index) && index.IsNumeric)
+        {
+            var indexFilter = Builders<BsonDocument>.Filter.Eq("index", index);
+            if (doc.TryGetValue("token", out var indexedToken) && indexedToken.IsString)
+            {
+                await _botTokensCollection.ReplaceOneAsync(indexFilter, doc, new ReplaceOptions { IsUpsert = true }, cancellationToken).ConfigureAwait(false);
+                var staleTokenFilter = Builders<BsonDocument>.Filter.And(
+                    indexFilter,
+                    Builders<BsonDocument>.Filter.Ne("token", indexedToken.AsString));
+                await _botTokensCollection.DeleteManyAsync(staleTokenFilter, cancellationToken).ConfigureAwait(false);
+                return;
+            }
+
+            await _botTokensCollection.ReplaceOneAsync(indexFilter, doc, new ReplaceOptions { IsUpsert = true }, cancellationToken).ConfigureAwait(false);
             return;
         }
 

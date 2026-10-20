@@ -9,15 +9,10 @@ function Get-PythonPath {
         (Join-Path $env:ProgramFiles 'Python313\python.exe'),
         (Join-Path $env:ProgramFiles 'Python312\python.exe'),
         (Join-Path $env:ProgramFiles 'Python311\python.exe'),
-        (Join-Path $env:LocalAppData 'Programs\Python\Python313\python.exe'),
-        (Join-Path $env:LocalAppData 'Programs\Python\Python312\python.exe'),
-        (Join-Path $env:LocalAppData 'Programs\Python\Python311\python.exe')
+        'C:\Python313\python.exe',
+        'C:\Python312\python.exe',
+        'C:\Python311\python.exe'
     )
-
-    $command = Get-Command python.exe -ErrorAction SilentlyContinue
-    if ($command -and (Test-Path -LiteralPath $command.Source)) {
-        $candidates += $command.Source
-    }
 
     foreach ($candidate in ($candidates | Select-Object -Unique)) {
         if (Test-Path -LiteralPath $candidate -PathType Leaf) {
@@ -44,24 +39,35 @@ function Assert-ValidAuthenticodeSignature {
 function Install-NebulaRuntimeDependencies {
     param([Parameter(Mandatory = $true)][string] $Python)
 
-    $requirements = Join-Path $PSScriptRoot 'Tools\NebulaPython\requirements.txt'
-    if (-not (Test-Path -LiteralPath $requirements -PathType Leaf)) {
-        throw "Dependências Python do Nebula não encontradas: $requirements"
+    $requirementsLock = Join-Path $PSScriptRoot 'Tools\NebulaPython\requirements.lock'
+    if (-not (Test-Path -LiteralPath $requirementsLock -PathType Leaf)) {
+        throw "Lock de dependências Python do Nebula não encontrado: $requirementsLock"
     }
 
-    Write-Host '[INFO] Preparando dependências Python do Nebula para inicialização sem instalação tardia...' -ForegroundColor Yellow
-    & $Python -m pip install --disable-pip-version-check --quiet -r $requirements
+    $runtimeDirectory = Join-Path $PSScriptRoot 'Tools\NebulaPython'
+    $venvDirectory = Join-Path $runtimeDirectory '.venv'
+    $venvPython = Join-Path $venvDirectory 'Scripts\python.exe'
+    New-Item -ItemType Directory -Force -Path $runtimeDirectory | Out-Null
+
+    if (-not (Test-Path -LiteralPath $venvPython -PathType Leaf)) {
+        Write-Host '[INFO] Criando ambiente Python isolado do Nebula...' -ForegroundColor Yellow
+        & $Python -m venv $venvDirectory
+        if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $venvPython -PathType Leaf)) {
+            throw "Não foi possível criar a venv do Nebula (código $LASTEXITCODE)."
+        }
+    }
+
+    Write-Host '[INFO] Instalando dependências no ambiente isolado do Nebula...' -ForegroundColor Yellow
+    & $venvPython -m pip install --disable-pip-version-check --quiet --require-hashes -r $requirementsLock
     if ($LASTEXITCODE -ne 0) {
         throw "A instalação das dependências Python do Nebula falhou (código $LASTEXITCODE)."
     }
 
-    $runtimeDirectory = Join-Path $PSScriptRoot 'Tools\NebulaPython'
-    New-Item -ItemType Directory -Force -Path $runtimeDirectory | Out-Null
     [System.IO.File]::WriteAllText(
         (Join-Path $runtimeDirectory 'python.path'),
-        $Python,
+        $venvPython,
         [System.Text.UTF8Encoding]::new($false))
-    Write-Host '[OK] Dependências Python do Nebula instaladas.' -ForegroundColor Green
+    Write-Host '[OK] Dependências Python do Nebula instaladas pelo lock com hashes.' -ForegroundColor Green
 }
 
 $python = Get-PythonPath

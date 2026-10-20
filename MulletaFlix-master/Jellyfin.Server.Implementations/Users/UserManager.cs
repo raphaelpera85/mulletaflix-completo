@@ -58,6 +58,7 @@ namespace MulletaFlix.Server.Implementations.Users
         private readonly PasswordResetService _passwordResetService;
 
         private readonly AsyncKeyedLocker<Guid> _userLock = new();
+        private readonly AsyncKeyedLocker<Guid> _profileImageUpdateLock = new();
         private readonly SemaphoreSlim _schemaInitializationLock = new(1, 1);
         private readonly SemaphoreSlim _userInitializationLock = new(1, 1);
         private bool _schemaInitialized;
@@ -314,6 +315,10 @@ namespace MulletaFlix.Server.Implementations.Users
                 await UpdateUserInternalAsync(user).ConfigureAwait(false);
             }
         }
+
+        /// <inheritdoc />
+        public async Task<IDisposable> AcquireProfileImageUpdateLockAsync(Guid userId)
+            => await _profileImageUpdateLock.LockAsync(userId).ConfigureAwait(false);
 
         internal async Task<User> CreateUserInternalAsync(string name, UsersDbContext dbContext)
         {
@@ -704,10 +709,10 @@ namespace MulletaFlix.Server.Implementations.Users
                 string[] statements =
                 [
                     """
-                    CREATE TABLE IF NOT EXISTS `users` (
+                    CREATE TABLE IF NOT EXISTS `Users` (
                         `Id` char(36) CHARACTER SET ascii COLLATE ascii_general_ci NOT NULL,
-                        `Username` varchar(255) NOT NULL,
-                        `NormalizedUsername` varchar(255) NOT NULL,
+                        `Username` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL,
+                        `NormalizedUsername` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL,
                         `Password` longtext NULL,
                         `PhoneNumber` varchar(20) NULL,
                         `MustUpdatePassword` tinyint(1) NOT NULL,
@@ -751,7 +756,7 @@ namespace MulletaFlix.Server.Implementations.Users
                         `LastModified` datetime(6) NOT NULL,
                         CONSTRAINT `PK_ImageInfo` PRIMARY KEY (`Id`),
                         CONSTRAINT `AK_ImageInfo_UserId` UNIQUE (`UserId`),
-                        CONSTRAINT `FK_ImageInfo_Users_UserId` FOREIGN KEY (`UserId`) REFERENCES `users` (`Id`) ON DELETE CASCADE
+                        CONSTRAINT `FK_ImageInfo_Users_UserId` FOREIGN KEY (`UserId`) REFERENCES `Users` (`Id`) ON DELETE CASCADE
                     );
                     """,
                     """
@@ -763,7 +768,7 @@ namespace MulletaFlix.Server.Implementations.Users
                         `RowVersion` int unsigned NOT NULL,
                         CONSTRAINT `PK_mulletaflix_users_permissions` PRIMARY KEY (`Id`),
                         CONSTRAINT `AK_mulletaflix_users_permissions_UserId_Kind` UNIQUE (`UserId`, `Kind`),
-                        CONSTRAINT `FK_mulletaflix_users_permissions_Users_UserId` FOREIGN KEY (`UserId`) REFERENCES `users` (`Id`) ON DELETE CASCADE
+                        CONSTRAINT `FK_mulletaflix_users_permissions_Users_UserId` FOREIGN KEY (`UserId`) REFERENCES `Users` (`Id`) ON DELETE CASCADE
                     );
                     """,
                     """
@@ -775,7 +780,7 @@ namespace MulletaFlix.Server.Implementations.Users
                         `RowVersion` int unsigned NOT NULL,
                         CONSTRAINT `PK_mulletaflix_users_preferences` PRIMARY KEY (`Id`),
                         CONSTRAINT `AK_mulletaflix_users_preferences_UserId_Kind` UNIQUE (`UserId`, `Kind`),
-                        CONSTRAINT `FK_mulletaflix_users_preferences_Users_UserId` FOREIGN KEY (`UserId`) REFERENCES `users` (`Id`) ON DELETE CASCADE
+                        CONSTRAINT `FK_mulletaflix_users_preferences_Users_UserId` FOREIGN KEY (`UserId`) REFERENCES `Users` (`Id`) ON DELETE CASCADE
                     );
                     """,
                     """
@@ -786,7 +791,7 @@ namespace MulletaFlix.Server.Implementations.Users
                         `StartHour` double NOT NULL,
                         `EndHour` double NOT NULL,
                         CONSTRAINT `PK_mulletaflix_users_accessschedules` PRIMARY KEY (`Id`),
-                        CONSTRAINT `FK_mulletaflix_users_accessschedules_Users_UserId` FOREIGN KEY (`UserId`) REFERENCES `users` (`Id`) ON DELETE CASCADE
+                        CONSTRAINT `FK_mulletaflix_users_accessschedules_Users_UserId` FOREIGN KEY (`UserId`) REFERENCES `Users` (`Id`) ON DELETE CASCADE
                     );
                     """,
                     """
@@ -803,7 +808,7 @@ namespace MulletaFlix.Server.Implementations.Users
                         `UpdatedAt` datetime(6) NOT NULL,
                         CONSTRAINT `PK_mulletaflix_users_userlicenses` PRIMARY KEY (`Id`),
                         CONSTRAINT `AK_mulletaflix_users_userlicenses_UserId` UNIQUE (`UserId`),
-                        CONSTRAINT `FK_mulletaflix_users_userlicenses_Users_UserId` FOREIGN KEY (`UserId`) REFERENCES `users` (`Id`) ON DELETE CASCADE
+                        CONSTRAINT `FK_mulletaflix_users_userlicenses_Users_UserId` FOREIGN KEY (`UserId`) REFERENCES `Users` (`Id`) ON DELETE CASCADE
                     );
                     """,
                     """
@@ -865,6 +870,8 @@ namespace MulletaFlix.Server.Implementations.Users
                 {
                     await dbContext.Database.ExecuteSqlRawAsync(statement, CancellationToken.None).ConfigureAwait(false);
                 }
+
+                await EnsureUsernameCollationsAsync(dbContext).ConfigureAwait(false);
             }
             else
             {
@@ -873,6 +880,58 @@ namespace MulletaFlix.Server.Implementations.Users
 
             // Compatibility section for legacy schema-prefixed tables is no longer needed.
             // All entities now use the default database directly with SchemaBehavior.Exclude.
+        }
+
+        private static async Task EnsureUsernameCollationsAsync(UsersDbContext dbContext)
+        {
+            await dbContext.Database.OpenConnectionAsync(CancellationToken.None).ConfigureAwait(false);
+            try
+            {
+                var connection = dbContext.Database.GetDbConnection();
+                await using var collationCommand = connection.CreateCommand();
+                collationCommand.CommandText = """
+                    SELECT `COLUMN_NAME`, `COLLATION_NAME`
+                    FROM `information_schema`.`COLUMNS`
+                    WHERE `TABLE_SCHEMA` = DATABASE()
+                      AND BINARY `TABLE_NAME` = BINARY 'Users'
+                      AND `COLUMN_NAME` IN ('Username', 'NormalizedUsername');
+                    """;
+
+                var hasBinaryCollation = true;
+                await using (var reader = await collationCommand.ExecuteReaderAsync(CancellationToken.None).ConfigureAwait(false))
+                {
+                    var columnsFound = 0;
+                    while (await reader.ReadAsync(CancellationToken.None).ConfigureAwait(false))
+                    {
+                        columnsFound++;
+                        hasBinaryCollation &= string.Equals(
+                            reader.GetString(1),
+                            "utf8mb4_bin",
+                            StringComparison.OrdinalIgnoreCase);
+                    }
+
+                    hasBinaryCollation &= columnsFound == 2;
+                }
+
+                if (hasBinaryCollation)
+                {
+                    return;
+                }
+
+                await using var alterCommand = connection.CreateCommand();
+                alterCommand.CommandText = """
+                    ALTER TABLE `Users`
+                    MODIFY COLUMN `Username` varchar(255)
+                    CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL,
+                    MODIFY COLUMN `NormalizedUsername` varchar(255)
+                    CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL;
+                    """;
+                await alterCommand.ExecuteNonQueryAsync(CancellationToken.None).ConfigureAwait(false);
+            }
+            finally
+            {
+                await dbContext.Database.CloseConnectionAsync().ConfigureAwait(false);
+            }
         }
 
         private static bool IsMissingTableException(Exception exception)
@@ -1083,6 +1142,7 @@ namespace MulletaFlix.Server.Implementations.Users
             if (disposing)
             {
                 _userLock.Dispose();
+                _profileImageUpdateLock.Dispose();
                 _userInitializationLock.Dispose();
             }
         }

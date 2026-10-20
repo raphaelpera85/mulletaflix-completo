@@ -83,17 +83,20 @@ public sealed class NebulaSupabaseRestoreMongoTests : IDisposable
             new HttpResponseMessage(HttpStatusCode.OK)
             {
                 Content = new StringContent(
-                    "[{\"doc_data\":{\"_id\":\"restore-ftp-user\",\"password_hash\":\"ftp-hash-fixture\",\"permissions\":\"elradfmwM\",\"fixture_marker\":\"preserved\"}}]")
+                    "[{\"login\":\"legacy-ftp-user\",\"password_hash\":\"legacy-new-hash\"},{\"login\":\"restore-ftp-user\",\"doc_data\":{\"_id\":\"restore-ftp-user\",\"password_hash\":\"ftp-hash-fixture\",\"permissions\":\"elradfmwM\",\"fixture_marker\":\"preserved\"}}]")
             },
+            new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("[]") },
             new HttpResponseMessage(HttpStatusCode.OK)
             {
                 Content = new StringContent(
                     $"[{{\"id\":\"{appUserId:D}\",\"username\":\"restore-app-user\",\"normalized_username\":\"RESTORE-APP-USER\",\"password\":\"app-hash-fixture\",\"authentication_provider_id\":\"default\",\"password_reset_provider_id\":\"default\",\"enable_local_password\":true,\"enable_user_preference_access\":true,\"permissions\":[],\"license\":null}}]")
             },
+            new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("[]") },
             new HttpResponseMessage(HttpStatusCode.OK)
             {
                 Content = new StringContent("[{\"index\":2,\"token\":\"restore-bot-token-fixture\",\"enabled\":true}]")
-            });
+            },
+            new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("[]") });
 
         using var mongoContext = new NebulaMongoContext(
             _testConnectionString,
@@ -104,6 +107,35 @@ public sealed class NebulaSupabaseRestoreMongoTests : IDisposable
             {
                 { "_id", "restore-file-fixture" },
                 { "local_only_marker", "keep-local" }
+            },
+            TestContext.Current.CancellationToken);
+        await mongoContext.UpsertRawUserDocAsync(
+            new BsonDocument
+            {
+                { "_id", "legacy-ftp-user" },
+                { "login", "legacy-ftp-user" },
+                { "password_hash", "legacy-old-hash" },
+                {
+                    "permissions",
+                    new BsonArray
+                    {
+                        new BsonDocument
+                        {
+                            { "path", "/legacy-ftp-user/Movies" },
+                            { "readable", true },
+                            { "writable", false }
+                        }
+                    }
+                },
+                { "local_acl_marker", "keep-acl" }
+            },
+            TestContext.Current.CancellationToken);
+        await mongoContext.UpsertRawTokenDocAsync(
+            new BsonDocument
+            {
+                { "index", 2 },
+                { "token", "rotated-bot-token-old" },
+                { "enabled", true }
             },
             TestContext.Current.CancellationToken);
         using var service = new NebulaSupabaseSyncService(
@@ -120,8 +152,8 @@ public sealed class NebulaSupabaseRestoreMongoTests : IDisposable
             TestContext.Current.CancellationToken);
         Assert.True(result.Success, result.Message);
         Assert.Equal(1, result.FilesRestored);
-        Assert.Equal(2, result.UsersRestored);
-        Assert.Equal(1, result.FtpUsersRestored);
+        Assert.Equal(3, result.UsersRestored);
+        Assert.Equal(2, result.FtpUsersRestored);
         Assert.Equal(1, result.AppUsersRestored);
         Assert.Equal(1, result.BotTokensRestored);
         Assert.True(double.IsFinite(result.ElapsedSeconds));
@@ -131,18 +163,21 @@ public sealed class NebulaSupabaseRestoreMongoTests : IDisposable
             result.UsersRestored,
             result.ElapsedSeconds);
         Assert.NotNull(service.LastSuccessfulRestoreTime);
-        Assert.Equal(5, handler.Requests.Count);
+        Assert.Equal(8, handler.Requests.Count);
         Assert.All(handler.Requests, request =>
         {
             Assert.Equal(HttpMethod.Get, request.Method);
             Assert.Contains("apikey", request.Headers.Keys);
             Assert.Equal("Bearer sb_secret_test", request.Headers["Authorization"]);
         });
-        Assert.Contains("/rest/v1/nebula_files?select=id,name,parent,size,status,parts,uploaded_at,doc_data&order=id.asc&limit=100&offset=0", Uri.UnescapeDataString(handler.Requests[0].Uri), StringComparison.Ordinal);
-        Assert.Contains("/rest/v1/nebula_files?select=id,name,parent,size,status,parts,uploaded_at,doc_data&order=id.asc&limit=100&offset=1", Uri.UnescapeDataString(handler.Requests[1].Uri), StringComparison.Ordinal);
-        Assert.Contains("/rest/v1/nebula_users?select=*", handler.Requests[2].Uri, StringComparison.Ordinal);
-        Assert.Contains("/rest/v1/mulletaflix_users?select=*&order=username.asc", handler.Requests[3].Uri, StringComparison.Ordinal);
-        Assert.Contains("/rest/v1/nebula_bot_tokens?select=*&order=index.asc", handler.Requests[4].Uri, StringComparison.Ordinal);
+        Assert.Contains("/rest/v1/nebula_files?select=id,name,parent,size,status,parts,uploaded_at,doc_data&order=id.asc&limit=100", Uri.UnescapeDataString(handler.Requests[0].Uri), StringComparison.Ordinal);
+        Assert.Contains("id=gt.%22restore-file-fixture%22", handler.Requests[1].Uri, StringComparison.Ordinal);
+        Assert.Contains("/rest/v1/nebula_users?select=*&order=login.asc&limit=100", Uri.UnescapeDataString(handler.Requests[2].Uri), StringComparison.Ordinal);
+        Assert.Contains("login=gt.%22restore-ftp-user%22", handler.Requests[3].Uri, StringComparison.Ordinal);
+        Assert.Contains("/rest/v1/mulletaflix_users?select=*&order=id.asc&limit=100", Uri.UnescapeDataString(handler.Requests[4].Uri), StringComparison.Ordinal);
+        Assert.Contains($"id=gt.%22{appUserId:D}%22", handler.Requests[5].Uri, StringComparison.Ordinal);
+        Assert.Contains("/rest/v1/nebula_bot_tokens?select=*&order=index.asc&limit=100", Uri.UnescapeDataString(handler.Requests[6].Uri), StringComparison.Ordinal);
+        Assert.Contains("index=gt.2", Uri.UnescapeDataString(handler.Requests[7].Uri), StringComparison.Ordinal);
 
         var restoredFiles = await mongoContext.GetAllFilesForSyncAsync(TestContext.Current.CancellationToken);
         var restoredFile = Assert.Single(restoredFiles);
@@ -157,14 +192,24 @@ public sealed class NebulaSupabaseRestoreMongoTests : IDisposable
         Assert.Equal(1, await mongoContext.CountFilesAsync(TestContext.Current.CancellationToken));
 
         var ftpUsers = await mongoContext.GetAllUsersForSyncAsync(TestContext.Current.CancellationToken);
-        var ftpUser = Assert.Single(ftpUsers);
+        Assert.Equal(2, ftpUsers.Count);
+        var ftpUser = Assert.Single(ftpUsers, user => user["_id"].AsString == "restore-ftp-user");
         Assert.Equal("restore-ftp-user", ftpUser["_id"].AsString);
         Assert.Equal("ftp-hash-fixture", ftpUser["password_hash"].AsString);
         Assert.Equal("preserved", ftpUser["fixture_marker"].AsString);
-        Assert.Equal(1, await mongoContext.CountUsersAsync(TestContext.Current.CancellationToken));
+        var legacyFtpUser = Assert.Single(ftpUsers, user => user["_id"].AsString == "legacy-ftp-user");
+        Assert.Equal("legacy-new-hash", legacyFtpUser["password_hash"].AsString);
+        Assert.Equal("keep-acl", legacyFtpUser["local_acl_marker"].AsString);
+        Assert.Equal("/legacy-ftp-user/Movies", legacyFtpUser["permissions"][0]["path"].AsString);
+        Assert.True(legacyFtpUser["permissions"][0]["readable"].AsBoolean);
+        Assert.False(legacyFtpUser["permissions"][0]["writable"].AsBoolean);
+        Assert.Equal(2, await mongoContext.CountUsersAsync(TestContext.Current.CancellationToken));
 
         var botTokens = await mongoContext.GetBotTokensAsync(cancellationToken: TestContext.Current.CancellationToken);
         Assert.Equal(["restore-bot-token-fixture"], botTokens);
+        var botTokenDocs = await mongoContext.GetAllBotTokenDocsAsync(TestContext.Current.CancellationToken);
+        var restoredTokenAtIndex = Assert.Single(botTokenDocs, token => token["index"].ToInt32() == 2);
+        Assert.Equal("restore-bot-token-fixture", restoredTokenAtIndex["token"].AsString);
 
         await using var usersContext = new UsersDbContext(userOptions, NullLogger<UsersDbContext>.Instance);
         var restoredAppUser = await usersContext.Users.SingleAsync(

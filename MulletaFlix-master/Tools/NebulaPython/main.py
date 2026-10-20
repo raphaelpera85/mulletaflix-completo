@@ -6,8 +6,8 @@ except RuntimeError:
     asyncio.set_event_loop(asyncio.new_event_loop())
 
 # Garante runtime dependencies antes de qualquer import de pyrogram/motor/
-# bson abaixo. Importar `tools.check_deps` é seguro porque o módulo só
-# usa stdlib (importlib/subprocess) — não toca em runtime libs.
+# bson abaixo. Importar `tools.check_deps` não carrega módulos de runtime;
+# o guard usa packaging para comparar pins e só então verifica os imports.
 try:
     from tools.check_deps import ensure_runtime_dependencies as _ensure_deps
     _ensure_deps()

@@ -1,6 +1,5 @@
 using System;
 using System.IO;
-using System.Linq;
 using System.Reflection;
 using Xunit;
 
@@ -26,18 +25,11 @@ public class DeprecatedDependencyResolutionTests
     [InlineData("Microsoft.AspNetCore.Http.Features", 10)]
     public void RuntimeResolvesDeprecatedTransitivePackagesToCurrentMajor(string assemblyName, int minimumMajor)
     {
-        // O assembly é procurado ao lado do assembly de teste, que reflete o
-        // conjunto efetivamente copiado pela build.
-        var baseDirectory = Path.GetDirectoryName(typeof(DeprecatedDependencyResolutionTests).Assembly.Location)!;
-        var candidate = Path.Combine(baseDirectory, assemblyName + ".dll");
-
-        if (!File.Exists(candidate))
-        {
-            Assert.Skip($"{assemblyName}.dll não está presente na saída de teste; nada a verificar aqui.");
-            return;
-        }
-
-        var version = AssemblyName.GetAssemblyName(candidate).Version;
+        // Load pelo runtime, não por um caminho ao lado do assembly de teste:
+        // assemblies do shared framework (ex.: AspNetCore.App) não são copiados
+        // para essa pasta, embora estejam disponíveis e resolvidos em execução.
+        var resolvedAssembly = Assembly.Load(new AssemblyName(assemblyName));
+        var version = resolvedAssembly.GetName().Version;
 
         Assert.NotNull(version);
         Assert.True(

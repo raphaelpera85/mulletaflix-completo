@@ -64,7 +64,7 @@ namespace Jellyfin.Providers.Tests.Plugins.DramaFinds
 
             // The API may return fuzzy candidates even when they are not a usable match.
             // They must not arm the transport failure cooldown or be accepted automatically.
-            var none = await client.SearchAsync("Abandonei o Rei dos Deuses no Altar", 10, CancellationToken.None);
+            var none = await client.SearchAsync("Drama Totalmente Inexistente Sem Correspondente 2026", 10, CancellationToken.None);
             Assert.DoesNotContain(none, match => match.Score >= 0.92);
             Assert.False(client.IsInFailureCooldown, "A valid search response with no strong candidate must not arm the failure cooldown.");
 

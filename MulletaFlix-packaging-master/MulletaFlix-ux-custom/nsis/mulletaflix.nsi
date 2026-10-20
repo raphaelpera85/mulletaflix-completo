@@ -119,6 +119,7 @@ CRCCheck on ; make sure the installer wasn't corrupted while downloading
 
 ; Data folder Page
     !define MUI_PAGE_CUSTOMFUNCTION_PRE HideDataDirectoryPage ; Controls when to hide / show
+    !define MUI_PAGE_CUSTOMFUNCTION_LEAVE ValidateDataDirectory
     !define MUI_PAGE_HEADER_TEXT "Choose Data Location"
     !define MUI_PAGE_HEADER_SUBTEXT "Choose the folder in which to install the MulletaFlix Server data."
     !define MUI_DIRECTORYPAGE_TEXT_TOP "Setup will set the following folder for MulletaFlix Server data.$\nDo not choose the server install folder."
@@ -256,11 +257,13 @@ Section "!MulletaFlix Server (required)" InstallMulletaFlixServer
     ; service. Ensure a custom/basic data path is writable by that user;
     ; service installs receive the service-account ACL in the service section.
     ${If} $_INSTALLSERVICE_ == "No"
+        Call ValidateDataDirectory
         CreateDirectory "$_MULLETAFLIXDATADIR_"
+        Call RejectReparseDataDirectory
         CreateDirectory "$_MULLETAFLIXDATADIR_\data"
         CreateDirectory "$_MULLETAFLIXDATADIR_\config"
         CreateDirectory "$_MULLETAFLIXDATADIR_\cache"
-        ExecWait 'icacls "$_MULLETAFLIXDATADIR_" /inheritance:e /grant "$%USERDOMAIN%\$%USERNAME%":(OI)(CI)M /T /C' $0
+        ExecWait 'icacls "$_MULLETAFLIXDATADIR_" /inheritance:e /grant "$%USERDOMAIN%\$%USERNAME%":(OI)(CI)M /Q' $0
         ${If} $0 <> 0
             MessageBox MB_OK|MB_ICONSTOP "Could not grant the current user access to the MulletaFlix data folder."
             Abort
@@ -397,11 +400,13 @@ ${If} $_INSTALLSERVICE_ == "Yes" ; Only run this if we're going to install the s
     ; subdirectories explicitly because migrations write config/system.xml
     ; during the first startup. Grant all supported service identities so an
     ; existing service account cannot leave the installation unwritable.
+    Call ValidateDataDirectory
     CreateDirectory "$_MULLETAFLIXDATADIR_"
+    Call RejectReparseDataDirectory
     CreateDirectory "$_MULLETAFLIXDATADIR_\data"
     CreateDirectory "$_MULLETAFLIXDATADIR_\config"
     CreateDirectory "$_MULLETAFLIXDATADIR_\cache"
-    ExecWait 'icacls "$_MULLETAFLIXDATADIR_" /inheritance:e /grant *S-1-5-20:(OI)(CI)M /grant *S-1-5-18:(OI)(CI)M /grant *S-1-5-19:(OI)(CI)M /T /C' $0
+    ExecWait 'icacls "$_MULLETAFLIXDATADIR_" /inheritance:r /remove:g *S-1-5-32-545 *S-1-1-0 *S-1-5-11 /grant *S-1-5-32-544:(OI)(CI)F /grant *S-1-5-18:(OI)(CI)F /grant *S-1-5-20:(OI)(CI)M /grant *S-1-5-19:(OI)(CI)M /Q' $0
     ${If} $0 <> 0
         MessageBox MB_OK|MB_ICONSTOP "Could not grant the MulletaFlix service access to the data folder."
         Abort
@@ -897,6 +902,34 @@ FunctionEnd
 
 Function HideDataDirectoryPage
     ${If} $_EXISTINGINSTALLATION_ == "Yes" ; Existing installation detected, so don't ask for DataFolder
+        Abort
+    ${EndIf}
+FunctionEnd
+
+Function ValidateDataDirectory
+    ; Never let a recursive or protected ACL operation target a volume/share root.
+    GetFullPathName $R1 "$_MULLETAFLIXDATADIR_"
+    ${GetRoot} "$R1" $R0
+    StrCmp $R0 "" InvalidDataDirectory
+    StrCpy $R0 "$R0\"
+    System::Call 'kernel32::lstrcmpiW(t "$R1", t "$R0")i.r2'
+    ${If} $R2 == 0
+        Goto InvalidDataDirectory
+    ${EndIf}
+    Goto ValidDataDirectory
+
+    InvalidDataDirectory:
+        MessageBox MB_OK|MB_ICONSTOP "Choose a data folder below the drive or network share root."
+        Abort
+
+    ValidDataDirectory:
+FunctionEnd
+
+Function RejectReparseDataDirectory
+    ; icacls must not follow a selected data-folder junction or symbolic link.
+    ${GetFileAttributes} "$_MULLETAFLIXDATADIR_" "REPARSE_POINT" $R2
+    ${If} $R2 == 1
+        MessageBox MB_OK|MB_ICONSTOP "The data folder cannot be a junction or symbolic link. Choose a regular folder."
         Abort
     ${EndIf}
 FunctionEnd

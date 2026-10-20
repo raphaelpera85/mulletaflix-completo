@@ -26,6 +26,7 @@ using MediaBrowser.Controller.Configuration;
 using MediaBrowser.Controller.Devices;
 using MediaBrowser.Controller.Drawing;
 using MediaBrowser.Controller.Entities;
+using MediaBrowser.Controller.IO;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.Providers;
 using MediaBrowser.Model.Branding;
@@ -143,22 +144,131 @@ public class ImageController : BaseMulletaFlixApiController
         var stream = GetFromBase64Stream(Request.Body);
         await using (stream.ConfigureAwait(false))
         {
-            // Handle image/png; charset=utf-8
-            var mimeType = Request.ContentType?.Split(';').FirstOrDefault();
-            var userDataPath = Path.Combine(_serverConfigurationManager.ApplicationPaths.UserConfigurationDirectoryPath, user.Username);
-            if (user.ProfileImage is not null)
+            using (await _userManager.AcquireProfileImageUpdateLockAsync(requestUserId).ConfigureAwait(false))
             {
-                await _userManager.ClearProfileImageAsync(user).ConfigureAwait(false);
+                user = _userManager.GetUserById(requestUserId);
+                if (user is null)
+                {
+                    return NotFound();
+                }
+
+                if (!RequestHelpers.AssertCanUpdateUser(HttpContext.User, user, true))
+                {
+                    return StatusCode(StatusCodes.Status403Forbidden, "User is not allowed to update the image.");
+                }
+
+                // Handle image/png; charset=utf-8
+                var mimeType = Request.ContentType?.Split(';').FirstOrDefault();
+                var userDataPath = Path.Combine(_serverConfigurationManager.ApplicationPaths.UserConfigurationDirectoryPath, user.Username);
+                Directory.CreateDirectory(userDataPath);
+                var previousProfileImage = user.ProfileImage;
+                var newProfileImagePath = Path.Combine(userDataPath, "profile-" + Guid.NewGuid().ToString("N") + extension);
+                var profileClearAttempted = false;
+
+                try
+                {
+                    // Save to a unique path before changing the persisted image reference. A failed
+                    // write must not destroy the current image or overwrite a file another request uses.
+                    await _providerManager
+                        .SaveImage(stream, mimeType, newProfileImagePath)
+                        .ConfigureAwait(false);
+
+                    user = _userManager.GetUserById(requestUserId);
+                    if (user is null)
+                    {
+                        TryDeleteProfileImageFile(newProfileImagePath, requestUserId);
+                        return NotFound();
+                    }
+
+                    if (!RequestHelpers.AssertCanUpdateUser(HttpContext.User, user, true))
+                    {
+                        TryDeleteProfileImageFile(newProfileImagePath, requestUserId);
+                        return StatusCode(StatusCodes.Status403Forbidden, "User is not allowed to update the image.");
+                    }
+
+                    previousProfileImage = user.ProfileImage;
+                    if (previousProfileImage is not null)
+                    {
+                        profileClearAttempted = true;
+                        await _userManager.ClearProfileImageAsync(user).ConfigureAwait(false);
+                    }
+
+                    user.ProfileImage = new Database.Implementations.Entities.ImageInfo(newProfileImagePath);
+                    await _userManager.UpdateUserAsync(user).ConfigureAwait(false);
+                }
+                catch
+                {
+                    User? persistedUser = null;
+                    var persistedStateKnown = true;
+                    try
+                    {
+                        persistedUser = _userManager.GetUserById(requestUserId);
+                    }
+                    catch (Exception inspectionException)
+                    {
+                        persistedStateKnown = false;
+                        _logger.LogWarning(inspectionException, "Failed to inspect profile image after upload failure for user {UserId}", requestUserId);
+                    }
+
+                    var replacementWasCommitted = persistedUser?.ProfileImage is not null
+                        && string.Equals(persistedUser.ProfileImage.Path, newProfileImagePath, StringComparison.Ordinal);
+
+                    if (!replacementWasCommitted && profileClearAttempted && previousProfileImage is not null && persistedUser?.ProfileImage is null)
+                    {
+                        // ClearProfileImageAsync can commit before throwing. Recreate the relation
+                        // with a fresh key if the previous relation is now absent.
+                        persistedUser.ProfileImage = new Database.Implementations.Entities.ImageInfo(previousProfileImage.Path)
+                        {
+                            LastModified = previousProfileImage.LastModified
+                        };
+                        try
+                        {
+                            await _userManager.UpdateUserAsync(persistedUser).ConfigureAwait(false);
+                        }
+                        catch (Exception rollbackException)
+                        {
+                            _logger.LogWarning(rollbackException, "Failed to restore profile image metadata for user {UserId}", requestUserId);
+                        }
+                    }
+
+                    if (!replacementWasCommitted)
+                    {
+                        if (persistedStateKnown)
+                        {
+                            TryDeleteProfileImageFile(newProfileImagePath, requestUserId);
+                        }
+                        else
+                        {
+                            _logger.LogWarning(
+                                "Retaining staged profile image because persistence state is unknown for user {UserId}",
+                                requestUserId);
+                        }
+
+                        throw;
+                    }
+                }
+
+                if (previousProfileImage is not null
+                    && !FileSystemHelper.PathsEqual(previousProfileImage.Path, newProfileImagePath)
+                    && FileSystemHelper.IsPathWithinRoot(previousProfileImage.Path, userDataPath))
+                {
+                    TryDeleteProfileImageFile(previousProfileImage.Path, requestUserId);
+                }
+
+                return NoContent();
             }
+        }
+    }
 
-            user.ProfileImage = new Database.Implementations.Entities.ImageInfo(Path.Combine(userDataPath, "profile" + extension));
-
-            await _providerManager
-                .SaveImage(stream, mimeType, user.ProfileImage.Path)
-                .ConfigureAwait(false);
-            await _userManager.UpdateUserAsync(user).ConfigureAwait(false);
-
-            return NoContent();
+    private void TryDeleteProfileImageFile(string path, Guid userId)
+    {
+        try
+        {
+            _fileSystem.DeleteFile(path);
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            _logger.LogWarning(exception, "Failed to remove stale profile image file for user {UserId}", userId);
         }
     }
 
@@ -237,23 +347,48 @@ public class ImageController : BaseMulletaFlixApiController
             return StatusCode(StatusCodes.Status403Forbidden, "User is not allowed to delete the image.");
         }
 
-        if (user.ProfileImage is null)
+        using (await _userManager.AcquireProfileImageUpdateLockAsync(requestUserId).ConfigureAwait(false))
         {
+            user = _userManager.GetUserById(requestUserId);
+            if (user is null)
+            {
+                return NotFound();
+            }
+
+            if (!RequestHelpers.AssertCanUpdateUser(HttpContext.User, user, true))
+            {
+                return StatusCode(StatusCodes.Status403Forbidden, "User is not allowed to delete the image.");
+            }
+
+            if (user.ProfileImage is null)
+            {
+                return NoContent();
+            }
+
+            var userDataPath = Path.Combine(
+                _serverConfigurationManager.ApplicationPaths.UserConfigurationDirectoryPath,
+                user.Username);
+            if (!FileSystemHelper.IsPathWithinRoot(user.ProfileImage.Path, userDataPath))
+            {
+                _logger.LogWarning(
+                    "Refusing to delete profile image outside the user's configuration directory for user {UserId}",
+                    requestUserId);
+                return StatusCode(StatusCodes.Status500InternalServerError, "Image could not be deleted.");
+            }
+
+            try
+            {
+                _fileSystem.DeleteFile(user.ProfileImage.Path);
+            }
+            catch (IOException e)
+            {
+                _logger.LogError(e, "Error deleting user profile image:");
+                return StatusCode(StatusCodes.Status500InternalServerError, "Image could not be deleted.");
+            }
+
+            await _userManager.ClearProfileImageAsync(user).ConfigureAwait(false);
             return NoContent();
         }
-
-        try
-        {
-            _fileSystem.DeleteFile(user.ProfileImage.Path);
-        }
-        catch (IOException e)
-        {
-            _logger.LogError(e, "Error deleting user profile image:");
-            return StatusCode(StatusCodes.Status500InternalServerError, "Image could not be deleted.");
-        }
-
-        await _userManager.ClearProfileImageAsync(user).ConfigureAwait(false);
-        return NoContent();
     }
 
     /// <summary>

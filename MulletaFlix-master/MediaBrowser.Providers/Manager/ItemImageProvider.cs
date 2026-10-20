@@ -568,6 +568,8 @@ namespace MediaBrowser.Providers.Manager
                 return true;
             }
 
+            var failedCandidates = 0;
+            string? lastCandidateError = null;
             foreach (var image in eligibleImages)
             {
                 var url = image.Url;
@@ -580,14 +582,17 @@ namespace MediaBrowser.Providers.Manager
                     if (response.StatusCode == HttpStatusCode.NotFound || response.StatusCode == HttpStatusCode.Forbidden)
                     {
                         _logger.LogDebug("{Url} returned {StatusCode}, ignoring", url, response.StatusCode);
+                        failedCandidates++;
+                        lastCandidateError = $"{provider.Name} returned HTTP {(int)response.StatusCode}";
                         continue;
                     }
 
                     if (!response.IsSuccessStatusCode)
                     {
-                        _logger.LogWarning("{Url} returned {StatusCode}, skipping all remaining requests", url, response.StatusCode);
-                        result.Failures++;
-                        break;
+                        _logger.LogWarning("{Url} returned {StatusCode}, trying the next image candidate", url, response.StatusCode);
+                        failedCandidates++;
+                        lastCandidateError = $"{provider.Name} returned HTTP {(int)response.StatusCode}";
+                        continue;
                     }
 
                     var stream = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
@@ -613,10 +618,16 @@ namespace MediaBrowser.Providers.Manager
                 }
                 catch (HttpRequestException ex)
                 {
-                    result.ErrorMessage = ex.Message;
-                    result.Failures++;
-                    break;
+                    _logger.LogWarning(ex, "Failed to retrieve image candidate from {Provider}; trying the next candidate", provider.Name);
+                    failedCandidates++;
+                    lastCandidateError = ex.Message;
                 }
+            }
+
+            if (failedCandidates > 0)
+            {
+                result.ErrorMessage = lastCandidateError;
+                result.Failures++;
             }
 
             return false;
@@ -703,9 +714,10 @@ namespace MediaBrowser.Providers.Manager
 
                     if (!response.IsSuccessStatusCode)
                     {
-                        _logger.LogWarning("{Url} returned {StatusCode}, skipping all remaining requests", url, response.StatusCode);
+                        _logger.LogWarning("{Url} returned {StatusCode}, trying the next image candidate", url, response.StatusCode);
+                        result.ErrorMessage = $"{provider.Name} returned HTTP {(int)response.StatusCode}";
                         result.Failures++;
-                        break;
+                        continue;
                     }
 
                     // If there's already an image of the same file size, skip it unless doing a full refresh
@@ -747,9 +759,9 @@ namespace MediaBrowser.Providers.Manager
                 }
                 catch (HttpRequestException ex)
                 {
+                    _logger.LogWarning(ex, "Failed to retrieve image candidate from {Provider}; trying the next candidate", provider.Name);
                     result.ErrorMessage = ex.Message;
                     result.Failures++;
-                    break;
                 }
             }
         }

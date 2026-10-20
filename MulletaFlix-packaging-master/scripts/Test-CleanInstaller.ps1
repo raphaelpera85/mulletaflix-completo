@@ -49,6 +49,36 @@ function Test-ModifyAccess {
     return $false
 }
 
+function Test-NoBroadWriteAccess {
+    param([Parameter(Mandatory = $true)][string] $Path)
+
+    $broadSids = @('S-1-1-0', 'S-1-5-11', 'S-1-5-32-545')
+    $writeRights = [System.Security.AccessControl.FileSystemRights]::Write -bor
+        [System.Security.AccessControl.FileSystemRights]::WriteData -bor
+        [System.Security.AccessControl.FileSystemRights]::AppendData -bor
+        [System.Security.AccessControl.FileSystemRights]::Delete -bor
+        [System.Security.AccessControl.FileSystemRights]::ChangePermissions -bor
+        [System.Security.AccessControl.FileSystemRights]::TakeOwnership
+
+    foreach ($rule in (Get-Acl -LiteralPath $Path).Access) {
+        $identitySid = $null
+        try {
+            $identitySid = $rule.IdentityReference.Translate([System.Security.Principal.SecurityIdentifier]).Value
+        } catch {
+            $identitySid = $rule.IdentityReference.Value
+        }
+
+        $rights = [System.Security.AccessControl.FileSystemRights]$rule.FileSystemRights
+        if ($identitySid -in $broadSids -and
+            $rule.AccessControlType -eq 'Allow' -and
+            (($rights -band $writeRights) -ne 0)) {
+            return $false
+        }
+    }
+
+    return $true
+}
+
 function Test-NebulaUrlAcl {
     $urlAcl = & netsh.exe http show urlacl url=http://+:2123/ 2>&1
     if ($LASTEXITCODE -ne 0) {
@@ -170,9 +200,11 @@ try {
     Write-Host "Service account: $($serviceDetails.StartName) [$serviceSid]"
 
     Assert-Condition (Test-ModifyAccess -Path $dataDirectory -ExpectedSid $serviceSid) "service account $($serviceDetails.StartName) does not have Modify access to the data directory."
+    Assert-Condition (Test-NoBroadWriteAccess -Path $dataDirectory) 'the data directory grants write access to Everyone, Authenticated Users, or BUILTIN Users.'
     $configFile = Join-Path $dataDirectory 'config\system.xml'
     Assert-Condition (Test-Path -LiteralPath $configFile) 'config/system.xml was not created during first startup.'
     Assert-Condition (Test-ModifyAccess -Path $configFile -ExpectedSid $serviceSid) "service account $($serviceDetails.StartName) does not have Modify access to config/system.xml."
+    Assert-Condition (Test-NoBroadWriteAccess -Path $configFile) 'config/system.xml grants write access to Everyone, Authenticated Users, or BUILTIN Users.'
     Assert-Condition (Test-NebulaUrlAcl) 'Nebula HTTP URL ACL is missing, too broad, or does not grant all supported service identities.'
     Assert-Condition (-not (Get-NetFirewallRule -DisplayName 'MulletaFlix MariaDB' -ErrorAction SilentlyContinue)) 'embedded MariaDB must not have an inbound firewall rule.'
     Assert-Condition (-not (Get-NetFirewallRule -DisplayName 'MulletaFlix MongoDB' -ErrorAction SilentlyContinue)) 'local MongoDB must not have an inbound firewall rule.'

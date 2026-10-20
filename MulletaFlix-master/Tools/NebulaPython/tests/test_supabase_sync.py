@@ -731,3 +731,144 @@ def test_connection_check_treats_authenticated_404_as_reachable(monkeypatch):
 def test_connection_check_rejects_missing_credentials_without_network():
     assert supabase_sync.test_supabase_connection("", "key") is False
     assert supabase_sync.test_supabase_connection("https://example.test", "") is False
+
+
+def test_supabase_cli_sql_schema_prints_schema_without_network(monkeypatch, capsys):
+    monkeypatch.setattr(supabase_sync.sys, "argv", ["supabase_sync.py", "--sql-schema"])
+    monkeypatch.setattr(
+        supabase_sync,
+        "test_supabase_connection",
+        lambda *_args: pytest.fail("SQL schema output must not connect to Supabase"),
+    )
+
+    supabase_sync.main()
+
+    output = capsys.readouterr().out
+    assert "CREATE TABLE IF NOT EXISTS nebula_files" in output
+    assert "ALTER TABLE nebula_backups DISABLE ROW LEVEL SECURITY" in output
+
+
+@pytest.mark.parametrize(("reachable", "exit_code"), [(True, 0), (False, 1)])
+def test_supabase_cli_test_mode_uses_explicit_credentials_and_exit_status(
+    monkeypatch, reachable, exit_code
+):
+    connection_args = []
+    monkeypatch.setattr(
+        supabase_sync.sys,
+        "argv",
+        ["supabase_sync.py", "--test", "--url", "https://cli.example", "--key", "cli-key"],
+    )
+    monkeypatch.setenv("SUPABASE_URL", "https://environment.example")
+    monkeypatch.setenv("SUPABASE_KEY", "environment-key")
+    monkeypatch.setattr(
+        supabase_sync,
+        "test_supabase_connection",
+        lambda url, key: connection_args.append((url, key)) or reachable,
+    )
+
+    with pytest.raises(SystemExit) as exit_info:
+        supabase_sync.main()
+
+    assert exit_info.value.code == exit_code
+    assert connection_args == [("https://cli.example", "cli-key")]
+
+
+def test_supabase_cli_backup_uses_mongo_database_environment_when_flag_is_absent(
+    monkeypatch,
+):
+    backup_args = []
+    monkeypatch.setattr(supabase_sync.sys, "argv", ["supabase_sync.py", "--backup"])
+    monkeypatch.setenv("MONGO_DATABASE", "nebula-production-name")
+    monkeypatch.setenv("MONGODB", "mongodb://mongo.example")
+    monkeypatch.setenv("SUPABASE_URL", "https://supabase.example")
+    monkeypatch.setenv("SUPABASE_KEY", "service-key")
+    monkeypatch.setattr(supabase_sync, "test_supabase_connection", lambda *_args: True)
+
+    async def capture_backup(*args):
+        backup_args.append(args)
+
+    monkeypatch.setattr(supabase_sync, "backup_mongo_to_supabase", capture_backup)
+
+    supabase_sync.main()
+
+    assert backup_args == [(
+        "mongodb://mongo.example",
+        "nebula-production-name",
+        "https://supabase.example",
+        "service-key",
+    )]
+
+
+@pytest.mark.parametrize("mode", ["--backup", "--restore"])
+def test_supabase_cli_does_not_start_transfer_when_connection_check_fails(
+    monkeypatch, mode
+):
+    monkeypatch.setattr(supabase_sync.sys, "argv", ["supabase_sync.py", mode])
+    monkeypatch.setattr(supabase_sync, "test_supabase_connection", lambda *_args: False)
+    monkeypatch.setattr(
+        supabase_sync,
+        "backup_mongo_to_supabase",
+        lambda *_args: pytest.fail("backup must not start when connection check fails"),
+    )
+    monkeypatch.setattr(
+        supabase_sync,
+        "restore_supabase_to_mongo",
+        lambda *_args: pytest.fail("restore must not start when connection check fails"),
+    )
+
+    with pytest.raises(SystemExit) as exit_info:
+        supabase_sync.main()
+
+    assert exit_info.value.code == 1
+
+
+def test_supabase_cli_restore_forwards_explicit_database_name(monkeypatch):
+    restore_args = []
+    monkeypatch.setattr(
+        supabase_sync.sys,
+        "argv",
+        [
+            "supabase_sync.py", "--restore", "--url", "https://cli.example", "--key", "cli-key",
+            "--mongo-uri", "mongodb://cli.example", "--db-name", "cli-database",
+        ],
+    )
+    monkeypatch.setenv("MONGO_DATABASE", "environment-database")
+    monkeypatch.setattr(supabase_sync, "test_supabase_connection", lambda *_args: True)
+
+    async def capture_restore(*args):
+        restore_args.append(args)
+
+    monkeypatch.setattr(supabase_sync, "restore_supabase_to_mongo", capture_restore)
+
+    supabase_sync.main()
+
+    assert restore_args == [(
+        "mongodb://cli.example", "cli-database", "https://cli.example", "cli-key"
+    )]
+
+
+def test_supabase_cli_defaults_database_to_ftp_when_environment_is_missing(monkeypatch):
+    backup_args = []
+    monkeypatch.setattr(supabase_sync.sys, "argv", ["supabase_sync.py", "--backup"])
+    monkeypatch.delenv("MONGO_DATABASE", raising=False)
+    monkeypatch.setenv("MONGODB", "mongodb://mongo.example")
+    monkeypatch.setenv("SUPABASE_URL", "https://supabase.example")
+    monkeypatch.setenv("SUPABASE_KEY", "service-key")
+    monkeypatch.setattr(supabase_sync, "test_supabase_connection", lambda *_args: True)
+
+    async def capture_backup(*args):
+        backup_args.append(args)
+
+    monkeypatch.setattr(supabase_sync, "backup_mongo_to_supabase", capture_backup)
+
+    supabase_sync.main()
+
+    assert backup_args == [(
+        "mongodb://mongo.example", "ftp", "https://supabase.example", "service-key"
+    )]
+
+
+def test_supabase_cli_without_mode_prints_help(monkeypatch, capsys):
+    monkeypatch.setattr(supabase_sync.sys, "argv", ["supabase_sync.py"])
+    supabase_sync.main()
+    assert "Nebula Supabase Backup & Restore Tool" in capsys.readouterr().out

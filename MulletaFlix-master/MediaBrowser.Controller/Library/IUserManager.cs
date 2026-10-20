@@ -81,6 +81,13 @@ namespace MediaBrowser.Controller.Library
         Task UpdateUserAsync(User user);
 
         /// <summary>
+        /// Acquires the per-user lock used to serialize profile image mutations across server components.
+        /// </summary>
+        /// <param name="userId">The user whose profile image is being changed.</param>
+        /// <returns>A disposable lock lease that must be disposed after the mutation.</returns>
+        Task<IDisposable> AcquireProfileImageUpdateLockAsync(Guid userId);
+
+        /// <summary>
         /// Creates a user with the specified name.
         /// </summary>
         /// <param name="name">The name of the new user.</param>

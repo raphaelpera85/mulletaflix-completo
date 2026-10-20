@@ -241,6 +241,368 @@ def test_completed_destination_matches_identity_index_without_mongo(
     ) is expected
 
 
+def test_completed_destination_without_mongo_uri_returns_false(monkeypatch, tmp_path):
+    monkeypatch.setattr(
+        feed_ftp,
+        "MongoClient",
+        lambda *_args, **_kwargs: pytest.fail("empty Mongo URI must not connect"),
+    )
+
+    assert feed_ftp.is_completed_destination(
+        "", tmp_path / "library", tmp_path / "library" / "Filmes" / "Arrival.mkv"
+    ) is False
+
+
+def test_mongo_parent_for_returns_user_root_for_destination_root(monkeypatch, tmp_path):
+    monkeypatch.delenv("NEBULA_LIBRARY_USER", raising=False)
+    destination_root = tmp_path / "library"
+
+    assert feed_ftp.mongo_parent_for(destination_root, destination_root) == "/raphael"
+
+
+@pytest.mark.parametrize("matched_name", ["Arrival.mkv", "Arrival.mp4"])
+def test_completed_destination_matches_cached_exact_name_or_stem_without_mongo(
+    monkeypatch, tmp_path, matched_name
+):
+    monkeypatch.setattr(
+        feed_ftp,
+        "MongoClient",
+        lambda *_args, **_kwargs: pytest.fail("cached name hit must not query Mongo"),
+    )
+    destination = tmp_path / "library" / "Filmes" / "Arrival (2016)" / "Arrival.mkv"
+    parent = "/raphael/filmes/arrival (2016)"
+    completed_index = (
+        {(parent, matched_name.casefold())} if matched_name == "Arrival.mkv" else set(),
+        {(parent, Path(matched_name).stem.casefold())},
+        set(),
+        set(),
+    )
+
+    assert feed_ftp.is_completed_destination(
+        "mongodb://test", tmp_path / "library", destination, completed_index=completed_index
+    ) is True
+
+
+def test_completed_destination_cached_episode_identity_falls_back_to_source_name(
+    monkeypatch, tmp_path
+):
+    monkeypatch.setattr(
+        feed_ftp,
+        "MongoClient",
+        lambda *_args, **_kwargs: pytest.fail("cached episode identity must not query Mongo"),
+    )
+    destination_root = tmp_path / "library"
+    destination = destination_root / "Series/The Agency/Season 01/unknown.mkv"
+    source = Path("The Agency S01E02.strm")
+
+    assert feed_ftp.is_completed_destination(
+        "mongodb://test",
+        destination_root,
+        destination,
+        src=source,
+        completed_index=(set(), set(), set(), {("the agency", 1, 2)}),
+    ) is True
+
+
+def test_completed_destination_cached_episode_identity_matches_destination_name(
+    monkeypatch, tmp_path
+):
+    monkeypatch.setattr(
+        feed_ftp,
+        "MongoClient",
+        lambda *_args, **_kwargs: pytest.fail("cached episode identity must not query Mongo"),
+    )
+    destination_root = tmp_path / "library"
+    destination = destination_root / "Series/The Agency/Season 01/The Agency S01E02.mkv"
+
+    assert feed_ftp.is_completed_destination(
+        "mongodb://test",
+        destination_root,
+        destination,
+        completed_index=(set(), set(), set(), {("the agency", 1, 2)}),
+    ) is True
+
+
+def test_completed_destination_cached_index_miss_returns_false_without_mongo(
+    monkeypatch, tmp_path
+):
+    monkeypatch.setattr(
+        feed_ftp,
+        "MongoClient",
+        lambda *_args, **_kwargs: pytest.fail("a cache miss must not query Mongo"),
+    )
+    destination_root = tmp_path / "library"
+    destination = destination_root / "Filmes/Arrival (2016)/Arrival.mkv"
+
+    assert feed_ftp.is_completed_destination(
+        "mongodb://test",
+        destination_root,
+        destination,
+        completed_index=(set(), set(), set(), set()),
+    ) is False
+
+
+def test_completed_destination_cached_movie_identity_uses_stem_when_path_resolve_fails(
+    monkeypatch, tmp_path
+):
+    monkeypatch.setattr(feed_ftp, "mongo_parent_for", lambda *_args: "/raphael/filmes/unknown")
+    monkeypatch.setattr(
+        Path,
+        "resolve",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(OSError("simulated resolve failure")),
+    )
+    monkeypatch.setattr(
+        feed_ftp,
+        "MongoClient",
+        lambda *_args, **_kwargs: pytest.fail("cached movie identity must not query Mongo"),
+    )
+    destination = Path("Filmes/Unknown/Arrival (2016).mkv")
+
+    assert feed_ftp.is_completed_destination(
+        "mongodb://test",
+        tmp_path / "library",
+        destination,
+        completed_index=(set(), set(), {("arrival", "2016")}, set()),
+    ) is True
+
+
+def test_completed_destination_direct_mongo_identity_fallback_when_path_resolve_fails(
+    monkeypatch, tmp_path
+):
+    monkeypatch.setattr(feed_ftp, "mongo_parent_for", lambda *_args: "/raphael/filmes/arrival (2016)")
+    monkeypatch.setattr(
+        Path,
+        "resolve",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(OSError("simulated resolve failure")),
+    )
+
+    class Files:
+        def find(self, *_args, **_kwargs):
+            return iter(())
+
+    client = _FakeMongoClient(Files())
+    monkeypatch.setattr(feed_ftp, "MongoClient", lambda *_args, **_kwargs: client)
+    destination = Path("Filmes/Arrival (2016)/movie.mkv")
+
+    assert feed_ftp.is_completed_destination(
+        "mongodb://test",
+        tmp_path / "library",
+        destination,
+        completed_identities=({("arrival", "2016")}, set()),
+    ) is True
+    assert client.closed is True
+
+
+@pytest.mark.parametrize(
+    ("file_id", "stored_id_kind", "expected"),
+    [
+        ("507f1f77bcf86cd799439011", "object", True),
+        ("507f1f77bcf86cd799439011", "string", True),
+        ("not-an-object-id", "string", True),
+        ("507f1f77bcf86cd799439011", "missing", False),
+    ],
+)
+def test_completed_destination_resolves_strm_url_id_and_closes_client(
+    tmp_path, monkeypatch, file_id, stored_id_kind, expected
+):
+    destination_root = tmp_path / "library"
+    destination = destination_root / "Filmes" / "Arrival (2016)" / "Arrival.mkv"
+    queries = []
+
+    class Files:
+        def find_one(self, query, projection):
+            assert query["status"] == "completed"
+            assert projection == {"_id": 1}
+            queries.append(query["_id"])
+            if stored_id_kind == "object" and isinstance(query["_id"], feed_ftp.ObjectId):
+                return {"_id": query["_id"]}
+            if stored_id_kind == "string" and query["_id"] == file_id:
+                return {"_id": file_id}
+            return None
+
+    class Client:
+        closed = False
+
+        def __getitem__(self, _name):
+            return SimpleNamespace(files=Files())
+
+        def close(self):
+            self.closed = True
+
+    client = Client()
+    monkeypatch.setattr(feed_ftp, "MongoClient", lambda *_args, **_kwargs: client)
+
+    result = feed_ftp.is_completed_destination(
+        "mongodb://test",
+        destination_root,
+        destination,
+        url=f"https://media.invalid/stream?id={file_id}",
+        completed_index=(set(), set(), set(), set()),
+    )
+
+    assert result is expected
+    assert client.closed is True
+    if stored_id_kind == "object":
+        assert len(queries) == 1 and isinstance(queries[0], feed_ftp.ObjectId)
+    elif len(file_id) == 24:
+        assert len(queries) == 2
+        assert isinstance(queries[0], feed_ftp.ObjectId)
+        assert queries[1] == file_id
+    else:
+        assert len(queries) == 1 and queries[0] == file_id
+
+
+@pytest.mark.parametrize(
+    ("relative_destination", "source_name", "records", "completed_movies", "completed_episodes", "expected"),
+    [
+        (Path("Filmes/Arrival (2016)/Arrival.mkv"), None, [{"name": "Arrival.mkv"}], set(), set(), True),
+        (Path("Filmes/Arrival (2016)/Arrival.mkv"), None, [{"name": "Arrival.mp4"}], set(), set(), True),
+        (Path("Filmes/Arrival (2016)/movie.mkv"), None, [], {("arrival", "2016")}, set(), True),
+        (Path("Filmes/Unknown/Arrival (2016).mkv"), None, [], {("arrival", "2016")}, set(), True),
+        (
+            Path("Series/The Agency/Season 01/The Agency S01E02.mkv"),
+            None,
+            [],
+            set(),
+            {("the agency", 1, 2)},
+            True,
+        ),
+        (
+            Path("Series/The Agency/Season 01/episode.mkv"),
+            "The Agency S01E02.strm",
+            [],
+            set(),
+            {("the agency", 1, 2)},
+            True,
+        ),
+        (Path("Filmes/Arrival (2016)/Arrival.mkv"), None, [], set(), set(), False),
+    ],
+)
+def test_completed_destination_without_cache_queries_mongo_and_matches_identities(
+    tmp_path,
+    monkeypatch,
+    relative_destination,
+    source_name,
+    records,
+    completed_movies,
+    completed_episodes,
+    expected,
+):
+    destination_root = tmp_path / "library"
+    destination = destination_root / relative_destination
+    source = tmp_path / source_name if source_name else None
+    observed_queries = []
+
+    class Files:
+        def find(self, query, projection):
+            observed_queries.append((query, projection))
+            return iter(records)
+
+    client = _FakeMongoClient(Files())
+    monkeypatch.setattr(feed_ftp, "MongoClient", lambda *_args, **_kwargs: client)
+    completed_identities = (completed_movies, completed_episodes)
+
+    assert feed_ftp.is_completed_destination(
+        "mongodb://test",
+        destination_root,
+        destination,
+        src=source,
+        completed_identities=completed_identities,
+    ) is expected
+    assert observed_queries == [
+        (
+            {
+                "parent": f"/raphael/{'/'.join(part.casefold() for part in relative_destination.parts[:-1])}",
+                "status": "completed",
+            },
+            {"name": 1},
+        )
+    ]
+    assert client.closed is True
+
+
+def test_completed_destination_loads_media_identities_when_cache_is_not_supplied(
+    tmp_path, monkeypatch
+):
+    destination_root = tmp_path / "library"
+    destination = destination_root / "Series/The Agency/Season 01/The Agency S01E02.mkv"
+
+    class Files:
+        def find(self, *_args, **_kwargs):
+            return iter(())
+
+    client = _FakeMongoClient(Files())
+    identity_calls = []
+
+    monkeypatch.setattr(feed_ftp, "MongoClient", lambda *_args, **_kwargs: client)
+    monkeypatch.setattr(
+        feed_ftp,
+        "completed_media_identities",
+        lambda uri: (identity_calls.append(uri) or (set(), {("the agency", 1, 2)})),
+    )
+
+    assert feed_ftp.is_completed_destination(
+        "mongodb://test", destination_root, destination
+    ) is True
+    assert identity_calls == ["mongodb://test"]
+    assert client.closed is True
+
+
+def test_completed_destination_returns_false_and_closes_client_when_direct_query_fails(monkeypatch, tmp_path):
+    class Files:
+        def find(self, *_args, **_kwargs):
+            raise feed_ftp.PyMongoError("simulated completed-file query failure")
+
+    client = _FakeMongoClient(Files())
+    monkeypatch.setattr(feed_ftp, "MongoClient", lambda *_args, **_kwargs: client)
+    destination_root = tmp_path / "library"
+
+    assert feed_ftp.is_completed_destination(
+        "mongodb://test",
+        destination_root,
+        destination_root / "Filmes" / "Arrival (2016)" / "Arrival.mkv",
+    ) is False
+    assert client.closed is True
+
+
+def test_completed_destination_continues_to_mongo_index_when_url_parsing_fails(monkeypatch, tmp_path):
+    def fail_parse(_url):
+        raise ValueError("simulated malformed media URL")
+
+    monkeypatch.setattr(feed_ftp, "urlsplit", fail_parse)
+    client = _FakeMongoClient(_FakeFiles())
+    monkeypatch.setattr(feed_ftp, "MongoClient", lambda *_args, **_kwargs: client)
+    destination_root = tmp_path / "library"
+
+    assert feed_ftp.is_completed_destination(
+        "mongodb://test",
+        destination_root,
+        destination_root / "Filmes" / "Arrival (2016)" / "Arrival.mkv",
+        url="not a valid URL",
+    ) is False
+    assert client.closed is True
+
+
+def test_completed_destination_returns_false_and_closes_client_on_unexpected_mongo_error(
+    monkeypatch, tmp_path
+):
+    client = _FakeMongoClient(_FakeFiles())
+    monkeypatch.setattr(feed_ftp, "MongoClient", lambda *_args, **_kwargs: client)
+    monkeypatch.setattr(
+        feed_ftp,
+        "mongo_database",
+        lambda *_args: (_ for _ in ()).throw(RuntimeError("simulated unexpected error")),
+    )
+    destination_root = tmp_path / "library"
+
+    assert feed_ftp.is_completed_destination(
+        "mongodb://test",
+        destination_root,
+        destination_root / "Filmes" / "Arrival (2016)" / "Arrival.mkv",
+    ) is False
+    assert client.closed is True
+
+
 def test_completed_media_identities_reads_movie_and_episode_records_and_closes_client(monkeypatch):
     records = [
         {"parent": "/raphael/Filmes/Arrival (2016)", "name": "Arrival.mkv", "type": "file"},
@@ -511,6 +873,122 @@ def test_register_one_deduplicates_completed_and_active_local_path(tmp_path, mon
         ({"_id": "existing-id"}, {"$set": {"delete_source": True, "name": "renamed.mkv", "parent": "/library"}}),
         {},
     )]
+    assert client.closed is True
+
+
+@pytest.mark.parametrize("status", ["completed", "queued", "staging", "uploading"])
+def test_register_one_deduplicates_legacy_destination_name(tmp_path, monkeypatch, status):
+    source = tmp_path / "source.mkv"
+    source.write_bytes(b"media bytes")
+    destination = tmp_path / "library" / "title.mkv"
+    files = _FakeFiles(by_name={"status": status, "local_path": "legacy-source.mkv"})
+    client = _FakeMongoClient(files)
+    monkeypatch.setattr(feed_ftp, "ensure_nebula_metadata", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(feed_ftp, "mongo_parent_for", lambda *_args, **_kwargs: "/library")
+    monkeypatch.setattr(feed_ftp, "MongoClient", lambda *_args, **_kwargs: client)
+
+    result = feed_ftp.register_one(source, destination, tmp_path, "mongodb://fake", False, True)
+
+    assert result == feed_ftp.RegistrationResult(0, status)
+    assert files.updates == [(
+        ({"parent": "/library", "name": "title.mkv"}, {"$set": {"delete_source": True}}),
+        {},
+    )]
+    assert client.closed is True
+
+
+def test_ensure_nebula_metadata_creates_and_reuses_nested_directory_chain(tmp_path, monkeypatch):
+    dest_root = tmp_path / "library"
+    destination_parent = dest_root / "Series" / "Example" / "Season 01"
+    records = {}
+
+    class Files:
+        def find_one(self, query, _projection):
+            return records.get((query["parent"], query["name"]))
+
+        def insert_one(self, document):
+            records[(document["parent"], document["name"])] = document
+
+    client = _FakeMongoClient(Files())
+    monkeypatch.setattr(feed_ftp, "MongoClient", lambda *_args, **_kwargs: client)
+    monkeypatch.setenv("NEBULA_LIBRARY_USER", "media-user")
+    monkeypatch.setattr(feed_ftp.time, "time", lambda: 1234)
+
+    feed_ftp.ensure_nebula_metadata("mongodb://fake", dest_root, destination_parent)
+    feed_ftp.ensure_nebula_metadata("mongodb://fake", dest_root, destination_parent)
+
+    assert [(document["name"], document["parent"]) for document in records.values()] == [
+        ("Series", "/media-user"),
+        ("Example", "/media-user/Series"),
+        ("Season 01", "/media-user/Series/Example"),
+    ]
+    assert all(document["type"] == "dir" and document["ctime"] == 1234 for document in records.values())
+    assert client.closed is True
+
+
+def test_ensure_nebula_metadata_returns_for_paths_outside_destination_root(tmp_path, monkeypatch):
+    monkeypatch.setattr(
+        feed_ftp,
+        "MongoClient",
+        lambda *_args, **_kwargs: pytest.fail("outside path must not connect to Mongo"),
+    )
+
+    feed_ftp.ensure_nebula_metadata(
+        "mongodb://fake", tmp_path / "library", tmp_path / "unrelated" / "Season 01"
+    )
+
+
+def test_ensure_nebula_metadata_does_not_create_destination_root_record(tmp_path, monkeypatch):
+    monkeypatch.setattr(
+        feed_ftp,
+        "MongoClient",
+        lambda *_args, **_kwargs: pytest.fail("destination root has no parent directory record"),
+    )
+
+    dest_root = tmp_path / "library"
+    feed_ftp.ensure_nebula_metadata("mongodb://fake", dest_root, dest_root)
+
+
+def test_ensure_nebula_metadata_tolerates_concurrent_directory_insert(tmp_path, monkeypatch):
+    dest_root = tmp_path / "library"
+    destination_parent = dest_root / "Series" / "Example"
+    records = {}
+    raced = False
+
+    class Files:
+        def find_one(self, query, _projection):
+            return records.get((query["parent"], query["name"]))
+
+        def insert_one(self, document):
+            nonlocal raced
+            key = (document["parent"], document["name"])
+            records[key] = document
+            if not raced:
+                raced = True
+                raise feed_ftp.DuplicateKeyError("directory inserted concurrently")
+
+    client = _FakeMongoClient(Files())
+    monkeypatch.setattr(feed_ftp, "MongoClient", lambda *_args, **_kwargs: client)
+    monkeypatch.setenv("NEBULA_LIBRARY_USER", "media-user")
+
+    feed_ftp.ensure_nebula_metadata("mongodb://fake", dest_root, destination_parent)
+
+    assert set(records) == {("/media-user", "Series"), ("/media-user/Series", "Example")}
+    assert client.closed is True
+
+
+def test_ensure_nebula_metadata_closes_client_when_mongo_fails(tmp_path, monkeypatch):
+    class Files:
+        def find_one(self, *_args, **_kwargs):
+            raise feed_ftp.PyMongoError("simulated query failure")
+
+    client = _FakeMongoClient(Files())
+    monkeypatch.setattr(feed_ftp, "MongoClient", lambda *_args, **_kwargs: client)
+
+    feed_ftp.ensure_nebula_metadata(
+        "mongodb://fake", tmp_path / "library", tmp_path / "library" / "Series"
+    )
+
     assert client.closed is True
 
 

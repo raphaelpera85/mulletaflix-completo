@@ -752,7 +752,11 @@ def main():
     parser.add_argument("--url", help="URL do Supabase (ex: https://xxx.supabase.co)")
     parser.add_argument("--key", help="API Key do Supabase")
     parser.add_argument("--mongo-uri", help="MongoDB URI")
-    parser.add_argument("--db-name", default="ftp", help="Nome do banco MongoDB (padrão: ftp)")
+    parser.add_argument(
+        "--db-name",
+        default=None,
+        help="Nome do banco MongoDB (padrão: MONGO_DATABASE ou ftp)",
+    )
     
     args = parser.parse_args()
     

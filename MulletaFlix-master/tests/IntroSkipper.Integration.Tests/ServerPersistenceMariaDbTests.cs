@@ -2,21 +2,29 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 using System.Globalization;
+using System.IO;
+using MediaBrowser.Common;
+using MediaBrowser.Common.Net;
 using MediaBrowser.Controller;
 using MediaBrowser.Controller.Configuration;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Entities.TV;
+using MediaBrowser.Controller.Drawing;
+using MediaBrowser.Controller.Events;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.LiveTv;
 using MediaBrowser.Controller.Persistence;
 using MediaBrowser.Model.Configuration;
+using MediaBrowser.Model.Cryptography;
 using MediaBrowser.Model.Entities;
 using MulletaFlix.Data.Enums;
 using MulletaFlix.Database.Implementations;
 using MulletaFlix.Database.Implementations.DbConfiguration;
 using MulletaFlix.Database.Implementations.Entities;
+using MulletaFlix.Database.Implementations.Contexts;
 using MulletaFlix.Server.Implementations.Extensions;
 using MulletaFlix.Server.Implementations.Item;
+using MulletaFlix.Server.Implementations.Users;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -66,6 +74,9 @@ public sealed class ServerPersistenceMariaDbTests : IAsyncLifetime
     private IDbContextFactory<MulletaFlixDbContext> Contexts
         => _services!.GetRequiredService<IDbContextFactory<MulletaFlixDbContext>>();
 
+    private IDbContextFactory<UsersDbContext> UserContexts
+        => _services!.GetRequiredService<IDbContextFactory<UsersDbContext>>();
+
     /// <inheritdoc/>
     public async ValueTask InitializeAsync()
     {
@@ -102,6 +113,10 @@ public sealed class ServerPersistenceMariaDbTests : IAsyncLifetime
         // The real migrations create the schema objects, exactly as server startup does.
         await using var context = await Contexts.CreateDbContextAsync();
         await context.Database.MigrateAsync();
+
+        // User tables are bootstrapped by UserManager rather than the main EF migrations.
+        // Exercise that production initialization path before profile-image persistence tests.
+        InitializeUserSchema();
     }
 
     /// <inheritdoc/>
@@ -174,6 +189,63 @@ public sealed class ServerPersistenceMariaDbTests : IAsyncLifetime
         // the reported bug.
         Assert.Equal(new int?[] { 2020, 2024 }, years);
         Assert.Equal(2, rows.Select(e => e.Path).Distinct(StringComparer.Ordinal).Count());
+    }
+
+    [Fact]
+    public async Task UserProfileImage_CanBeDeletedAndRecreatedWithGeneratedIdentity()
+    {
+        MariaDbTestEnvironment.SkipUnlessConfigured();
+
+        var userId = Guid.NewGuid();
+        int originalImageId;
+        var username = "avatar-rollback-" + userId.ToString("N", CultureInfo.InvariantCulture);
+
+        await using (var context = await UserContexts.CreateDbContextAsync())
+        {
+            var user = new User(username, "test-authentication", "test-password-reset")
+            {
+                ProfileImage = new ImageInfo("avatars/original.png"),
+            };
+            user.Id = userId;
+            context.Users.Add(user);
+            await context.SaveChangesAsync();
+            originalImageId = user.ProfileImage!.Id;
+        }
+
+        await using (var context = await UserContexts.CreateDbContextAsync())
+        {
+            var user = await context.Users.Include(entity => entity.ProfileImage)
+                .SingleAsync(entity => entity.Id == userId);
+            Assert.NotNull(user.ProfileImage);
+
+            context.Remove(user.ProfileImage);
+            await context.SaveChangesAsync();
+            user.ProfileImage = null;
+            await context.SaveChangesAsync();
+        }
+
+        await using (var context = await UserContexts.CreateDbContextAsync())
+        {
+            var user = await context.Users.Include(entity => entity.ProfileImage)
+                .SingleAsync(entity => entity.Id == userId);
+            Assert.Null(user.ProfileImage);
+
+            user.ProfileImage = new ImageInfo("avatars/restored.png");
+            await context.SaveChangesAsync();
+        }
+
+        await using (var context = await UserContexts.CreateDbContextAsync())
+        {
+            var restoredUser = await context.Users.Include(entity => entity.ProfileImage)
+                .SingleAsync(entity => entity.Id == userId);
+
+            Assert.NotNull(restoredUser.ProfileImage);
+            Assert.NotEqual(originalImageId, restoredUser.ProfileImage.Id);
+            Assert.True(restoredUser.ProfileImage.Id > 0);
+            Assert.Equal("avatars/restored.png", restoredUser.ProfileImage.Path);
+            Assert.Equal(userId, restoredUser.ProfileImage.UserId);
+            Assert.False(await context.Set<ImageInfo>().AnyAsync(image => image.Id == originalImageId));
+        }
     }
 
     /// <summary>
@@ -412,6 +484,9 @@ public sealed class ServerPersistenceMariaDbTests : IAsyncLifetime
         };
 
         var configurationManager = new Mock<IServerConfigurationManager>();
+        var applicationPaths = new Mock<IServerApplicationPaths>();
+        applicationPaths.Setup(paths => paths.ProgramDataPath).Returns(Path.GetTempPath());
+        configurationManager.Setup(manager => manager.ApplicationPaths).Returns(applicationPaths.Object);
         configurationManager.Setup(manager => manager.GetConfiguration("database")).Returns(configuration);
         configurationManager.Setup(manager => manager.Configuration).Returns(new ServerConfiguration());
         services.AddSingleton(configurationManager.Object);
@@ -421,5 +496,28 @@ public sealed class ServerPersistenceMariaDbTests : IAsyncLifetime
             new ConfigurationBuilder().Build());
 
         return services.BuildServiceProvider();
+    }
+
+    private void InitializeUserSchema()
+    {
+        var configurationManager = _services!.GetRequiredService<IServerConfigurationManager>();
+        var appHost = new Mock<IApplicationHost>();
+        var passwordResetProvider = new DefaultPasswordResetProvider(configurationManager, appHost.Object);
+        var authenticationProvider = new DefaultAuthenticationProvider(
+            NullLogger<DefaultAuthenticationProvider>.Instance,
+            Mock.Of<ICryptoProvider>());
+
+        using var userManager = new UserManager(
+            UserContexts,
+            Mock.Of<IEventManager>(),
+            Mock.Of<INetworkManager>(),
+            appHost.Object,
+            Mock.Of<IImageProcessor>(),
+            NullLogger<UserManager>.Instance,
+            configurationManager,
+            [passwordResetProvider],
+            [authenticationProvider, new InvalidAuthProvider()]);
+
+        _ = userManager.GetFirstUser();
     }
 }

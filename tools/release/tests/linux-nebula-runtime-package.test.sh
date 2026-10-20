@@ -16,7 +16,7 @@ destination_dir="$temporary_root/server/Tools/NebulaPython"
 bash "$repo_root/tools/release/copy-nebula-python-runtime.sh" "$source_dir" "$destination_dir"
 
 for required_file in \
-  main.py stream_service.py control_plane.py generate_strm.py requirements.txt \
+  main.py stream_service.py control_plane.py generate_strm.py requirements.in requirements.txt requirements.lock \
   ftp/__init__.py tools/__init__.py tools/strm_downloader.py tools/mongo_admission.py; do
   test -f "$destination_dir/$required_file"
 done

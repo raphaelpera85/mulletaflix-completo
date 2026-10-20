@@ -413,22 +413,16 @@ public sealed class NebulaSupabaseSyncService : IDisposable
         {
             // Supabase uses the canonical `token` column. Requesting the optional
             // legacy `bot_token` column makes PostgREST reject the entire query.
-            var uri = $"{supabaseUrl.TrimEnd('/')}/rest/v1/{Uri.EscapeDataString(tableName)}?select=token,enabled&order=index.asc";
-            using var request = new HttpRequestMessage(HttpMethod.Get, uri);
-            request.Headers.Add("apikey", supabaseKey);
-            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", supabaseKey);
-            using var response = await _httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
-            if (!response.IsSuccessStatusCode)
-            {
-                _logger.LogWarning("[SUPABASE-TOKENS] Falha ao carregar tokens: HTTP {Code}.", response.StatusCode);
-                return [];
-            }
-
-            await using var content = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
-            using var json = await JsonDocument.ParseAsync(content, cancellationToken: cancellationToken).ConfigureAwait(false);
-            return json.RootElement.ValueKind != JsonValueKind.Array
-                ? []
-                : json.RootElement.EnumerateArray()
+            var tokens = await FetchSupabaseRowsPagedAsync(
+                supabaseUrl,
+                supabaseKey,
+                tableName,
+                "index,token,enabled",
+                "index.asc",
+                "index",
+                "Falha ao carregar tokens de bot",
+                cancellationToken).ConfigureAwait(false);
+            return tokens
                     .Where(item => !item.TryGetProperty("enabled", out var enabled) || enabled.ValueKind != JsonValueKind.False)
                     .Select(item => item.TryGetProperty("token", out var token) ? token : item.TryGetProperty("bot_token", out var botToken) ? botToken : default)
                     .Where(value => value.ValueKind == JsonValueKind.String && !string.IsNullOrWhiteSpace(value.GetString()))
@@ -440,7 +434,7 @@ public sealed class NebulaSupabaseSyncService : IDisposable
         {
             throw;
         }
-        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException or UriFormatException)
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException or UriFormatException or InvalidOperationException)
         {
             _logger.LogWarning(ex, "[SUPABASE-TOKENS] Não foi possível carregar tokens da tabela {Table}.", tableName);
             return [];
@@ -977,26 +971,17 @@ public sealed class NebulaSupabaseSyncService : IDisposable
             var restoredUsers = 0;
             try
             {
-                var uriUsers = $"{supabaseUrl.TrimEnd('/')}/rest/v1/nebula_users?select=*";
-                using var reqUsers = new HttpRequestMessage(HttpMethod.Get, uriUsers);
-                reqUsers.Headers.Add("apikey", supabaseKey);
-                reqUsers.Headers.Authorization = new AuthenticationHeaderValue("Bearer", supabaseKey);
+                var users = await FetchSupabaseRowsPagedAsync(
+                    supabaseUrl,
+                    supabaseKey,
+                    "nebula_users",
+                    "*",
+                    "login.asc",
+                    "login",
+                    "Supabase rejeitou a restauração de usuários FTP",
+                    cancellationToken).ConfigureAwait(false);
 
-                using var respUsers = await _httpClient.SendAsync(reqUsers, cancellationToken).ConfigureAwait(false);
-                if (!respUsers.IsSuccessStatusCode)
-                {
-                    var errorBody = await respUsers.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
-                    throw new InvalidOperationException($"Supabase rejeitou a restauração de usuários FTP: HTTP {(int)respUsers.StatusCode} - {errorBody}");
-                }
-
-                var bodyUsers = await respUsers.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
-                using var docUsers = JsonDocument.Parse(bodyUsers);
-                if (docUsers.RootElement.ValueKind != JsonValueKind.Array)
-                {
-                    throw new InvalidOperationException("A resposta de usuários FTP do Supabase não é uma lista JSON.");
-                }
-
-                foreach (var item in docUsers.RootElement.EnumerateArray())
+                foreach (var item in users)
                 {
                     if (item.TryGetProperty("doc_data", out var userDocData) && userDocData.ValueKind == JsonValueKind.Object)
                     {
@@ -1008,14 +993,8 @@ public sealed class NebulaSupabaseSyncService : IDisposable
                     {
                         var login = loginProp.GetString()!;
                         var passHash = item.TryGetProperty("password_hash", out var pProp) ? pProp.GetString() ?? string.Empty : string.Empty;
-                        var userBson = new BsonDocument
-                        {
-                            { "_id", login },
-                            { "password_hash", passHash },
-                            { "permissions", "elradfmwM" },
-                            { "created_at", DateTimeOffset.UtcNow.ToUnixTimeSeconds() }
-                        };
-                        await _mongoContext.UpsertRawUserDocAsync(userBson, cancellationToken).ConfigureAwait(false);
+                        var createdAt = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+                        await _mongoContext.UpsertLegacyFtpUserAsync(login, passHash, createdAt, cancellationToken).ConfigureAwait(false);
                         restoredUsers++;
                     }
                 }
@@ -1035,26 +1014,17 @@ public sealed class NebulaSupabaseSyncService : IDisposable
             var restoredTokens = 0;
             try
             {
-                var uriTokens = $"{supabaseUrl.TrimEnd('/')}/rest/v1/nebula_bot_tokens?select=*&order=index.asc";
-                using var reqTokens = new HttpRequestMessage(HttpMethod.Get, uriTokens);
-                reqTokens.Headers.Add("apikey", supabaseKey);
-                reqTokens.Headers.Authorization = new AuthenticationHeaderValue("Bearer", supabaseKey);
+                var tokens = await FetchSupabaseRowsPagedAsync(
+                    supabaseUrl,
+                    supabaseKey,
+                    "nebula_bot_tokens",
+                    "*",
+                    "index.asc",
+                    "index",
+                    "Supabase rejeitou a restauração de tokens de bot",
+                    cancellationToken).ConfigureAwait(false);
 
-                using var respTokens = await _httpClient.SendAsync(reqTokens, cancellationToken).ConfigureAwait(false);
-                if (!respTokens.IsSuccessStatusCode)
-                {
-                    var errorBody = await respTokens.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
-                    throw new InvalidOperationException($"Supabase rejeitou a restauração de tokens de bot: HTTP {(int)respTokens.StatusCode} - {errorBody}");
-                }
-
-                var bodyTokens = await respTokens.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
-                using var docTokens = JsonDocument.Parse(bodyTokens);
-                if (docTokens.RootElement.ValueKind != JsonValueKind.Array)
-                {
-                    throw new InvalidOperationException("A resposta de tokens de bot do Supabase não é uma lista JSON.");
-                }
-
-                foreach (var item in docTokens.RootElement.EnumerateArray())
+                foreach (var item in tokens)
                 {
                     var token = item.TryGetProperty("token", out var tProp) ? tProp.GetString() : (item.TryGetProperty("bot_token", out var btProp) ? btProp.GetString() : null);
                     if (!string.IsNullOrWhiteSpace(token))
@@ -1129,10 +1099,13 @@ public sealed class NebulaSupabaseSyncService : IDisposable
         ArgumentNullException.ThrowIfNull(persistBatch);
 
         var restored = 0;
-        long offset = 0;
+        string? cursorValue = null;
         while (true)
         {
-            var uri = $"{supabaseUrl.TrimEnd('/')}/rest/v1/nebula_files?select=id,name,parent,size,status,parts,uploaded_at,doc_data&order=id.asc&limit={SupabaseRestorePageSize}&offset={offset}";
+            var cursorFilter = cursorValue is null
+                ? string.Empty
+                : $"&id=gt.{EscapePostgrestStringFilterValue(cursorValue)}";
+            var uri = $"{supabaseUrl.TrimEnd('/')}/rest/v1/nebula_files?select=id,name,parent,size,status,parts,uploaded_at,doc_data&order=id.asc&limit={SupabaseRestorePageSize}{cursorFilter}";
             using var request = new HttpRequestMessage(HttpMethod.Get, uri);
             request.Headers.Add("apikey", supabaseKey);
             request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", supabaseKey);
@@ -1152,6 +1125,7 @@ public sealed class NebulaSupabaseSyncService : IDisposable
             }
 
             var batch = new List<BsonDocument>();
+            string? nextCursorValue = null;
             foreach (var row in document.RootElement.EnumerateArray())
             {
                 if (row.ValueKind != JsonValueKind.Object
@@ -1164,8 +1138,9 @@ public sealed class NebulaSupabaseSyncService : IDisposable
                     throw new InvalidOperationException("A resposta nebula_files contém registro sem id ou doc_data válido.");
                 }
 
+                nextCursorValue = idElement.GetString();
                 var bson = MongoDB.Bson.Serialization.BsonSerializer.Deserialize<BsonDocument>(dataElement.GetRawText());
-                bson["_id"] = idElement.GetString()!;
+                bson["_id"] = nextCursorValue!;
                 foreach (var field in new[] { "name", "parent", "size", "status", "parts", "uploaded_at" })
                 {
                     if (row.TryGetProperty(field, out var value))
@@ -1184,18 +1159,105 @@ public sealed class NebulaSupabaseSyncService : IDisposable
                 break;
             }
 
+            if (string.Equals(nextCursorValue, cursorValue, StringComparison.Ordinal))
+            {
+                throw new InvalidOperationException("A resposta nebula_files repetiu a chave id do cursor de restauração.");
+            }
+
             restored += await persistBatch(batch, cancellationToken).ConfigureAwait(false);
+            cursorValue = nextCursorValue!;
             var restoreBatchMsg = $"[SUPABASE-RESTORE] Catálogo Nebula: {restored} registros mesclados.";
             _logger.LogInformation("{Message}", restoreBatchMsg);
             progressAction?.Invoke(restoreBatchMsg);
 
             // PostgREST may enforce a server-side max_rows lower than the
-            // requested limit. Advance by what it actually returned instead
-            // of treating a short page as the end of the table.
-            offset = checked(offset + batch.Count);
+            // requested limit. Continue from the last primary key returned,
+            // not from an offset that can shift during concurrent mutations.
         }
 
         return restored;
+    }
+
+    internal async Task<List<JsonElement>> FetchSupabaseRowsPagedAsync(
+        string supabaseUrl,
+        string supabaseKey,
+        string tableName,
+        string select,
+        string orderBy,
+        string cursorColumn,
+        string operationDescription,
+        CancellationToken cancellationToken)
+    {
+        var rows = new List<JsonElement>();
+        string? cursorValue = null;
+        while (true)
+        {
+            var tablePath = Uri.EscapeDataString(tableName);
+            var cursorFilter = cursorValue is null
+                ? string.Empty
+                : $"&{Uri.EscapeDataString(cursorColumn)}=gt.{cursorValue}";
+            var query = $"select={Uri.EscapeDataString(select)}&order={Uri.EscapeDataString(orderBy)}&limit={SupabaseRestorePageSize}{cursorFilter}";
+            var uri = $"{supabaseUrl.TrimEnd('/')}/rest/v1/{tablePath}?{query}";
+            using var request = new HttpRequestMessage(HttpMethod.Get, uri);
+            request.Headers.Add("apikey", supabaseKey);
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", supabaseKey);
+
+            using var response = await _httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
+            if (!response.IsSuccessStatusCode)
+            {
+                var errorBody = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+                throw new InvalidOperationException($"{operationDescription}: HTTP {(int)response.StatusCode} - {errorBody}");
+            }
+
+            using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false));
+            if (document.RootElement.ValueKind != JsonValueKind.Array)
+            {
+                throw new InvalidOperationException($"A resposta de {tableName} do Supabase não é uma lista JSON.");
+            }
+
+            var pageCount = 0;
+            foreach (var row in document.RootElement.EnumerateArray())
+            {
+                rows.Add(row.Clone());
+                pageCount++;
+            }
+
+            if (pageCount == 0)
+            {
+                break;
+            }
+
+            // Use the last unique key rather than an offset: a concurrent insert/delete
+            // before the current position must not shift later records between pages.
+            var lastRow = rows[^1];
+            if (!lastRow.TryGetProperty(cursorColumn, out var cursorProperty))
+            {
+                throw new InvalidOperationException($"A resposta paginada de {tableName} não contém a chave {cursorColumn}.");
+            }
+
+            var nextCursor = cursorProperty.ValueKind switch
+            {
+                JsonValueKind.String => EscapePostgrestStringFilterValue(cursorProperty.GetString()!),
+                JsonValueKind.Number => Uri.EscapeDataString(cursorProperty.GetRawText()),
+                _ => null
+            };
+            if (string.IsNullOrWhiteSpace(nextCursor) || string.Equals(nextCursor, cursorValue, StringComparison.Ordinal))
+            {
+                throw new InvalidOperationException($"A resposta paginada de {tableName} contém uma chave {cursorColumn} inválida ou repetida.");
+            }
+
+            cursorValue = nextCursor;
+        }
+
+        return rows;
+    }
+
+    private static string EscapePostgrestStringFilterValue(string value)
+    {
+        var escapedValue = value
+            .Replace("\\", "\\\\", StringComparison.Ordinal)
+            .Replace("\"", "\\\"", StringComparison.Ordinal);
+        return Uri.EscapeDataString($"\"{escapedValue}\"");
     }
 
     private static async Task<T> MeasureOperationAsync<T>(
@@ -1586,20 +1648,16 @@ public sealed class NebulaSupabaseSyncService : IDisposable
     /// </summary>
     public async Task<int> GetMulletaFlixUserBackupCountAsync(string supabaseUrl, string supabaseKey, CancellationToken cancellationToken = default)
     {
-        var uri = $"{supabaseUrl.TrimEnd('/')}/rest/v1/mulletaflix_users?select=id";
-        using var request = new HttpRequestMessage(HttpMethod.Get, uri);
-        request.Headers.Add("apikey", supabaseKey);
-        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", supabaseKey);
-        using var response = await _httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
-        if (!response.IsSuccessStatusCode)
-        {
-            return 0;
-        }
-
-        using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false));
-        return document.RootElement.ValueKind == JsonValueKind.Array
-            ? document.RootElement.GetArrayLength()
-            : 0;
+        var users = await FetchSupabaseRowsPagedAsync(
+            supabaseUrl,
+            supabaseKey,
+            "mulletaflix_users",
+            "id",
+            "id.asc",
+            "id",
+            "Falha ao contar usuários do MulletaFlix no Supabase",
+            cancellationToken).ConfigureAwait(false);
+        return users.Count;
     }
 
     private async Task<int> BackupMulletaFlixUsersAsync(string supabaseUrl, string supabaseKey, CancellationToken cancellationToken)
@@ -1696,25 +1754,18 @@ public sealed class NebulaSupabaseSyncService : IDisposable
             .Select(doc => doc.GetValue("_id", string.Empty).ToString())
             .Where(static login => !string.IsNullOrWhiteSpace(login))
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
-        var uri = $"{supabaseUrl.TrimEnd('/')}/rest/v1/nebula_users?select=login";
-        using var request = new HttpRequestMessage(HttpMethod.Get, uri);
-        request.Headers.Add("apikey", supabaseKey);
-        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", supabaseKey);
-        using var response = await _httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
-        if (!response.IsSuccessStatusCode)
-        {
-            var responseBody = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
-            throw new InvalidOperationException($"Falha ao listar usuários FTP remotos para reconciliação: HTTP {(int)response.StatusCode} {response.ReasonPhrase}. {responseBody}");
-        }
-
-        using var json = JsonDocument.Parse(await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false));
-        if (json.RootElement.ValueKind != JsonValueKind.Array)
-        {
-            throw new InvalidOperationException("A resposta de usuários FTP do Supabase não é uma lista JSON.");
-        }
+        var remoteUsers = await FetchSupabaseRowsPagedAsync(
+            supabaseUrl,
+            supabaseKey,
+            "nebula_users",
+            "login",
+            "login.asc",
+            "login",
+            "Falha ao listar usuários FTP remotos para reconciliação",
+            cancellationToken).ConfigureAwait(false);
 
         var deleted = 0;
-        foreach (var item in json.RootElement.EnumerateArray())
+        foreach (var item in remoteUsers)
         {
             if (!item.TryGetProperty("login", out var loginProperty) || loginProperty.ValueKind != JsonValueKind.String)
             {
@@ -1753,25 +1804,18 @@ public sealed class NebulaSupabaseSyncService : IDisposable
             return 0;
         }
 
-        var uri = $"{supabaseUrl.TrimEnd('/')}/rest/v1/mulletaflix_users?select=id";
-        using var request = new HttpRequestMessage(HttpMethod.Get, uri);
-        request.Headers.Add("apikey", supabaseKey);
-        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", supabaseKey);
-        using var response = await _httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
-        if (!response.IsSuccessStatusCode)
-        {
-            var responseBody = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
-            throw new InvalidOperationException($"Falha ao listar usuários MulletaFlix remotos para reconciliação: HTTP {(int)response.StatusCode} {response.ReasonPhrase}. {responseBody}");
-        }
-
-        using var json = JsonDocument.Parse(await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false));
-        if (json.RootElement.ValueKind != JsonValueKind.Array)
-        {
-            throw new InvalidOperationException("A resposta de usuários MulletaFlix do Supabase não é uma lista JSON.");
-        }
+        var remoteUsers = await FetchSupabaseRowsPagedAsync(
+            supabaseUrl,
+            supabaseKey,
+            "mulletaflix_users",
+            "id",
+            "id.asc",
+            "id",
+            "Falha ao listar usuários MulletaFlix remotos para reconciliação",
+            cancellationToken).ConfigureAwait(false);
 
         var deleted = 0;
-        foreach (var item in json.RootElement.EnumerateArray())
+        foreach (var item in remoteUsers)
         {
             if (!item.TryGetProperty("id", out var idProperty) || idProperty.ValueKind != JsonValueKind.String || !Guid.TryParse(idProperty.GetString(), out var id) || localIds.Contains(id))
             {
@@ -1813,19 +1857,20 @@ public sealed class NebulaSupabaseSyncService : IDisposable
             throw new InvalidOperationException("A origem relacional dos usuários não está configurada.");
         }
 
-        var uri = $"{supabaseUrl.TrimEnd('/')}/rest/v1/mulletaflix_users?select=*&order=username.asc";
-        using var request = new HttpRequestMessage(HttpMethod.Get, uri);
-        request.Headers.Add("apikey", supabaseKey);
-        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", supabaseKey);
-        using var response = await _httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
-        if (!response.IsSuccessStatusCode)
-        {
-            var errorBody = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
-            throw new InvalidOperationException($"Supabase rejeitou a restauração dos usuários: HTTP {(int)response.StatusCode} - {errorBody}");
-        }
-
-        var body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
-        var records = JsonSerializer.Deserialize<List<MulletaFlixUserRecord>>(body) ?? [];
+        var userRows = await FetchSupabaseRowsPagedAsync(
+            supabaseUrl,
+            supabaseKey,
+            "mulletaflix_users",
+            "*",
+            "id.asc",
+            "id",
+            "Supabase rejeitou a restauração dos usuários",
+            cancellationToken).ConfigureAwait(false);
+        var records = userRows
+            .Select(row => JsonSerializer.Deserialize<MulletaFlixUserRecord>(row.GetRawText()))
+            .Where(static record => record is not null)
+            .Select(static record => record!)
+            .ToList();
         await using var db = await _usersDbProvider.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
         var restored = 0;
 

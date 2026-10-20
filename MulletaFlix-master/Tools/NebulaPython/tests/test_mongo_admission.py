@@ -87,3 +87,90 @@ async def test_expired_upload_lease_is_removed_before_new_admission(monkeypatch)
         assert [item["lease_id"] for item in collection.document["active_upload_leases"]] == [lease.lease_id]
     finally:
         await lease.close()
+
+
+@pytest.mark.asyncio
+async def test_heartbeat_marks_lease_lost_when_mongo_no_longer_matches_it(monkeypatch):
+    monkeypatch.setattr(mongo_admission, "ADMISSION_HEARTBEAT_SECONDS", 0.001)
+
+    class LostLeaseCollection:
+        def __init__(self):
+            self.closed = False
+
+        async def update_one(self, query, update, upsert=False):
+            if "$pull" in update:
+                self.closed = True
+                return SimpleNamespace(matched_count=1)
+            assert query["active_upload_leases.lease_id"] == "removed-lease"
+            return SimpleNamespace(matched_count=0)
+
+    collection = LostLeaseCollection()
+    lease = mongo_admission.MongoAdmissionLease(collection, "removed-lease")
+    try:
+        await asyncio.wait_for(lease._lost.wait(), timeout=1)
+        assert lease.lost is True
+        with pytest.raises(RuntimeError, match="lease was lost"):
+            lease.ensure_active()
+    finally:
+        await lease.close()
+
+    assert collection.closed is True
+
+
+@pytest.mark.asyncio
+async def test_heartbeat_marks_lease_lost_when_mongo_update_raises(monkeypatch):
+    monkeypatch.setattr(mongo_admission, "ADMISSION_HEARTBEAT_SECONDS", 0.001)
+
+    class FailingHeartbeatCollection:
+        async def update_one(self, _query, update, upsert=False):
+            if "$pull" in update:
+                return SimpleNamespace(matched_count=1)
+            raise RuntimeError("simulated Mongo heartbeat failure")
+
+    lease = mongo_admission.MongoAdmissionLease(FailingHeartbeatCollection(), "lease-1")
+    try:
+        await asyncio.wait_for(lease._lost.wait(), timeout=1)
+        assert lease.lost is True
+        with pytest.raises(RuntimeError, match="lease was lost"):
+            lease.ensure_active()
+    finally:
+        await lease.close()
+
+
+@pytest.mark.asyncio
+async def test_upload_admission_tolerates_concurrent_singleton_initialization():
+    class ConcurrentInitializerCollection(FakeAdmissionCollection):
+        def __init__(self):
+            super().__init__()
+            self.duplicate_raised = False
+
+        async def update_one(self, query, update, upsert=False):
+            if upsert and not self.duplicate_raised:
+                self.duplicate_raised = True
+                self.document = {"_id": query["_id"], "active_upload_leases": []}
+                raise mongo_admission.DuplicateKeyError("singleton initialized concurrently")
+            return await super().update_one(query, update, upsert)
+
+    collection = ConcurrentInitializerCollection()
+    lease = await mongo_admission.acquire_upload_admission(collection, "worker-race")
+    try:
+        assert collection.duplicate_raised is True
+        assert collection.document["active_upload_leases"][0]["lease_id"] == lease.lease_id
+    finally:
+        await lease.close()
+
+    assert collection.document["active_upload_leases"] == []
+
+
+@pytest.mark.asyncio
+async def test_upload_admission_context_manager_releases_lease_and_close_is_idempotent():
+    collection = FakeAdmissionCollection()
+    lease = await mongo_admission.acquire_upload_admission(collection, "worker-context")
+
+    async with lease as active_lease:
+        assert active_lease is lease
+        assert collection.document["active_upload_leases"][0]["lease_id"] == lease.lease_id
+
+    assert collection.document["active_upload_leases"] == []
+    await lease.close()
+    assert collection.document["active_upload_leases"] == []

@@ -5,6 +5,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Net;
 using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
@@ -761,6 +762,10 @@ namespace MediaBrowser.Providers.Manager
             temp.Item.PreferredMetadataLanguage = item.PreferredMetadataLanguage;
 
             var foundImageTypes = new List<ImageType>();
+            var successfullySavedImageTypes = new HashSet<ImageType>();
+            var failedLocalSingleImageTypes = new Dictionary<ImageType, string>();
+            var failedLocalMultipleImageCount = 0;
+            string? lastLocalImageError = null;
 
             // Do not execute local providers if we are identifying or replacing with local metadata saving enabled
             if (options.SearchResult is null && !(isSavingMetadata && options.ReplaceAllMetadata))
@@ -780,6 +785,11 @@ namespace MediaBrowser.Providers.Manager
                         {
                             foreach (var remoteImage in localItem.RemoteImages)
                             {
+                                if (!item.AllowsMultipleImages(remoteImage.Type) && successfullySavedImageTypes.Contains(remoteImage.Type))
+                                {
+                                    continue;
+                                }
+
                                 try
                                 {
                                     if (item.ImageInfos.Any(x => x.Type == remoteImage.Type)
@@ -793,10 +803,25 @@ namespace MediaBrowser.Providers.Manager
 
                                     // remember imagetype that has just been downloaded
                                     foundImageTypes.Add(remoteImage.Type);
+                                    successfullySavedImageTypes.Add(remoteImage.Type);
                                 }
-                                catch (HttpRequestException ex)
+                                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
                                 {
-                                    Logger.LogError(ex, "Could not save {ImageType} image: {Url}", Enum.GetName(remoteImage.Type), remoteImage.Url);
+                                    throw;
+                                }
+                                catch (Exception ex)
+                                {
+                                    lastLocalImageError = ex.Message;
+                                    if (item.AllowsMultipleImages(remoteImage.Type))
+                                    {
+                                        failedLocalMultipleImageCount++;
+                                    }
+                                    else
+                                    {
+                                        failedLocalSingleImageTypes[remoteImage.Type] = ex.Message;
+                                    }
+
+                                    Logger.LogError(ex, "Could not save {ImageType} image from {Provider}", Enum.GetName(remoteImage.Type), providerName);
                                 }
                             }
 
@@ -844,12 +869,21 @@ namespace MediaBrowser.Providers.Manager
                         options,
                         imageService,
                         providers.OfType<IRemoteMetadataProvider<TItemType, TIdType>>(),
+                        successfullySavedImageTypes,
                         cancellationToken)
                     .ConfigureAwait(false);
 
                 refreshResult.UpdateType |= remoteResult.UpdateType;
                 refreshResult.ErrorMessage = remoteResult.ErrorMessage;
                 refreshResult.Failures += remoteResult.Failures;
+            }
+
+            var localImageFailures = failedLocalMultipleImageCount
+                + failedLocalSingleImageTypes.Count(failure => !successfullySavedImageTypes.Contains(failure.Key));
+            if (localImageFailures > 0)
+            {
+                refreshResult.Failures += localImageFailures;
+                refreshResult.ErrorMessage ??= lastLocalImageError;
             }
 
             if (providers.Any(i => i is not ICustomMetadataProvider))
@@ -917,6 +951,7 @@ namespace MediaBrowser.Providers.Manager
             MetadataRefreshOptions options,
             ItemImageProvider imageService,
             IEnumerable<IRemoteMetadataProvider<TItemType, TIdType>> providers,
+            HashSet<ImageType> successfullySavedImageTypes,
             CancellationToken cancellationToken)
         {
             var refreshResult = new RefreshResult();
@@ -966,6 +1001,9 @@ namespace MediaBrowser.Providers.Manager
             // identified by a provider id, that provider is authoritative for the
             // title and image set. Other providers may still enrich missing fields,
             // but must not replace the identified title or its artwork.
+            var failedRemoteSingleImageTypes = new Dictionary<ImageType, string>();
+            var failedRemoteMultipleImageErrors = new List<string>();
+
             foreach (var (_, provider, result, error) in providerResults.OrderBy(r => r.index))
             {
                 if (error is not null)
@@ -985,9 +1023,20 @@ namespace MediaBrowser.Providers.Manager
 
                 var isIdentifiedProvider = HasProviderId(id, provider.Name);
 
-                var foundImageTypes = await SaveRemoteResultImages(item, result, options, provider.Name, isIdentifiedProvider, cancellationToken).ConfigureAwait(false);
+                var foundImageTypes = await SaveRemoteResultImages(
+                    item,
+                    result,
+                    options,
+                    provider.Name,
+                    isIdentifiedProvider,
+                    refreshResult,
+                    successfullySavedImageTypes,
+                    failedRemoteSingleImageTypes,
+                    failedRemoteMultipleImageErrors,
+                    cancellationToken).ConfigureAwait(false);
                 if (foundImageTypes.Count > 0)
                 {
+                    successfullySavedImageTypes.UnionWith(foundImageTypes);
                     imageService.UpdateReplaceImages(options, foundImageTypes);
                     refreshResult.UpdateType |= ItemUpdateType.ImageUpdate;
                 }
@@ -996,6 +1045,13 @@ namespace MediaBrowser.Providers.Manager
                 MergeNewData(temp.Item, id);
 
                 refreshResult.UpdateType |= ItemUpdateType.MetadataDownload;
+            }
+
+            refreshResult.Failures += failedRemoteSingleImageTypes.Count + failedRemoteMultipleImageErrors.Count;
+            if (refreshResult.ErrorMessage is null)
+            {
+                refreshResult.ErrorMessage = failedRemoteSingleImageTypes.Values.LastOrDefault()
+                    ?? failedRemoteMultipleImageErrors.LastOrDefault();
             }
 
             return refreshResult;
@@ -1008,14 +1064,31 @@ namespace MediaBrowser.Providers.Manager
                 && !string.IsNullOrWhiteSpace(providerId);
         }
 
-        private async Task<List<ImageType>> SaveRemoteResultImages(
+        private static bool IsTransientImageRequestFailure(HttpRequestException exception)
+        {
+            return exception.StatusCode is null
+                || exception.StatusCode == HttpStatusCode.RequestTimeout
+                || exception.StatusCode == HttpStatusCode.TooManyRequests
+                || ((int)exception.StatusCode.Value >= 500 && (int)exception.StatusCode.Value <= 599);
+        }
+
+        internal async Task<List<ImageType>> SaveRemoteResultImages(
             TItemType item,
             MetadataResult<TItemType> result,
             MetadataRefreshOptions options,
             string providerName,
             bool isIdentifiedProvider,
+            RefreshResult refreshResult,
+            HashSet<ImageType> successfullySavedImageTypes,
+            Dictionary<ImageType, string>? pendingFailedSingleImageTypes,
+            List<string>? pendingFailedMultipleImageErrors,
             CancellationToken cancellationToken)
         {
+            if ((pendingFailedSingleImageTypes is null) != (pendingFailedMultipleImageErrors is null))
+            {
+                throw new ArgumentException("Both pending image failure collections must be supplied together.");
+            }
+
             if (result.RemoteImages.Count == 0)
             {
                 return [];
@@ -1036,11 +1109,24 @@ namespace MediaBrowser.Providers.Manager
             }
 
             var foundImageTypes = new List<ImageType>();
+            var replacedImageTypes = new HashSet<ImageType>();
+            var ownsPendingFailures = pendingFailedSingleImageTypes is null;
+            pendingFailedSingleImageTypes ??= new Dictionary<ImageType, string>();
+            pendingFailedMultipleImageErrors ??= [];
+            string? lastImageError = null;
 
             foreach (var remoteImage in imagesToDownload)
             {
+                if (!item.AllowsMultipleImages(remoteImage.Type)
+                    && successfullySavedImageTypes.Contains(remoteImage.Type)
+                    && (!(isIdentifiedProvider && options.IsReplacingImage(remoteImage.Type))
+                        || replacedImageTypes.Contains(remoteImage.Type)))
+                {
+                    continue;
+                }
+
                 var saved = false;
-                var sawRateLimit = false;
+                var sawRetryableFailure = false;
                 for (var attempt = 1; attempt <= 3 && !saved; attempt++)
                 {
                     try
@@ -1049,27 +1135,49 @@ namespace MediaBrowser.Providers.Manager
                         foundImageTypes.Add(remoteImage.Type);
                         saved = true;
                     }
-                    catch (HttpRequestException ex) when (attempt < 3 && !cancellationToken.IsCancellationRequested)
+                    catch (HttpRequestException ex) when (attempt < 3 && !cancellationToken.IsCancellationRequested && IsTransientImageRequestFailure(ex))
                     {
-                        sawRateLimit = true;
+                        sawRetryableFailure = true;
                         Logger.LogWarning(
                             ex,
-                            "Retrying {ImageType} image from {Provider} ({Attempt}/3): {Url}",
+                            "Retrying {ImageType} image from {Provider} ({Attempt}/3)",
                             Enum.GetName(remoteImage.Type),
                             providerName,
-                            attempt,
-                            remoteImage.Url);
+                            attempt);
                         await Task.Delay(TimeSpan.FromMilliseconds(250 * attempt), cancellationToken).ConfigureAwait(false);
+                    }
+                    catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                    {
+                        throw;
                     }
                     catch (Exception ex)
                     {
                         Logger.LogWarning(
                             ex,
-                            "Could not save {ImageType} image from {Provider}: {Url}",
+                            "Could not save {ImageType} image from {Provider}",
                             Enum.GetName(remoteImage.Type),
-                            providerName,
-                            remoteImage.Url);
+                            providerName);
+                        lastImageError = ex.Message;
+                        if (item.AllowsMultipleImages(remoteImage.Type))
+                        {
+                            pendingFailedMultipleImageErrors.Add(ex.Message);
+                        }
+                        else
+                        {
+                            pendingFailedSingleImageTypes[remoteImage.Type] = ex.Message;
+                        }
+
                         break;
+                    }
+                }
+
+                if (saved && !item.AllowsMultipleImages(remoteImage.Type))
+                {
+                    pendingFailedSingleImageTypes.Remove(remoteImage.Type);
+                    successfullySavedImageTypes.Add(remoteImage.Type);
+                    if (isIdentifiedProvider && options.IsReplacingImage(remoteImage.Type))
+                    {
+                        replacedImageTypes.Add(remoteImage.Type);
                     }
                 }
 
@@ -1079,10 +1187,16 @@ namespace MediaBrowser.Providers.Manager
                 // _refreshConcurrency slots for the whole time. Images that save on the first try are
                 // already paced by their own network round trip, and the retry backoff above still
                 // protects the provider when it does push back.
-                if (sawRateLimit && !cancellationToken.IsCancellationRequested)
+                if (sawRetryableFailure && !cancellationToken.IsCancellationRequested)
                 {
                     await Task.Delay(100, cancellationToken).ConfigureAwait(false);
                 }
+            }
+
+            if (ownsPendingFailures)
+            {
+                refreshResult.Failures += pendingFailedMultipleImageErrors.Count + pendingFailedSingleImageTypes.Count;
+                refreshResult.ErrorMessage ??= lastImageError;
             }
 
             return foundImageTypes;

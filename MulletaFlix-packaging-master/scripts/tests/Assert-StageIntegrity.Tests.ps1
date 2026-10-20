@@ -20,7 +20,9 @@ $requiredFiles = @(
     'Tools\NebulaPython\generate_strm.py',
     'Tools\NebulaPython\ftp\pathio.py',
     'Tools\NebulaPython\tools\mongo_admission.py',
+    'Tools\NebulaPython\requirements.in',
     'Tools\NebulaPython\requirements.txt',
+    'Tools\NebulaPython\requirements.lock',
     'install-rclone-if-missing.ps1',
     'nssm.exe',
     'mulletaflix-windows-tray\MulletaFlix.Windows.Tray.exe'
@@ -47,6 +49,10 @@ try {
     [void][System.IO.Directory]::CreateDirectory((Split-Path -Parent $stagedAdmission))
     [System.IO.File]::WriteAllText($sourceAdmission, 'current-admission')
     [System.IO.File]::WriteAllText($stagedAdmission, 'current-admission')
+    $sourceRequirementsLock = Join-Path $projectRoot 'MulletaFlix-master\Tools\NebulaPython\requirements.lock'
+    [void][System.IO.Directory]::CreateDirectory((Split-Path -Parent $sourceRequirementsLock))
+    [System.IO.File]::WriteAllText($sourceRequirementsLock, 'locked dependency fixture')
+    [System.IO.File]::WriteAllText((Join-Path $stageDirectory 'Tools\NebulaPython\requirements.lock'), 'locked dependency fixture')
     [void][System.IO.Directory]::CreateDirectory($publishDirectory)
     [void][System.IO.Directory]::CreateDirectory((Join-Path $projectRoot '.build\server-publish'))
     foreach ($assemblyName in @('MediaBrowser.Model.dll', 'MulletaFlix.Server.Implementations.dll', 'MulletaFlix.dll')) {
@@ -86,6 +92,20 @@ try {
     [System.IO.File]::WriteAllText($sourceDownloader, $validDownloader)
     [System.IO.File]::WriteAllText($stagedDownloader, $validDownloader)
 
+    $stagedRequirementsLock = Join-Path $stageDirectory 'Tools\NebulaPython\requirements.lock'
+    [System.IO.File]::WriteAllText($stagedRequirementsLock, 'stale dependency lock')
+    $lockMismatchRejected = $false
+    try {
+        Assert-StageIntegrity -StageDirectory $stageDirectory -ProjectRoot $projectRoot -PublishDirectory $publishDirectory
+    } catch {
+        $lockMismatchRejected = $_.Exception.Message -like '*dependency lock differs*'
+        if (-not $lockMismatchRejected) { throw }
+    }
+    if (-not $lockMismatchRejected) {
+        throw 'Stage integrity accepted a stale Nebula dependency lock.'
+    }
+    [System.IO.File]::WriteAllText($stagedRequirementsLock, 'locked dependency fixture')
+
     $stagedGenerator = Join-Path $stageDirectory 'Tools\NebulaPython\generate_strm.py'
     [System.IO.File]::Delete($stagedGenerator)
     $missingGeneratorRejected = $false
@@ -112,7 +132,7 @@ try {
         throw 'Stage integrity accepted a Python worker package missing mongo_admission.py.'
     }
 
-    Write-Host 'Stage integrity accepted matching Nebula modules and rejected stale downloader, missing readiness contract, or missing STRM generator or admission module.'
+    Write-Host 'Stage integrity accepted matching Nebula modules and dependency lock, and rejected stale downloader or lock, missing readiness contract, generator, or admission module.'
 }
 finally {
     if ([System.IO.Directory]::Exists($fixtureRoot)) {

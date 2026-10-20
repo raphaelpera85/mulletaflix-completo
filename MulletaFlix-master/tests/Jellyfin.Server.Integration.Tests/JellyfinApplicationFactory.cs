@@ -34,8 +34,12 @@ namespace MulletaFlix.Server.Integration.Tests
         private readonly ConcurrentBag<IDisposable> _disposableComponents = new ConcurrentBag<IDisposable>();
         private readonly string _testDatabaseName = "mulletaflix_test_" + Guid.NewGuid().ToString("N", CultureInfo.InvariantCulture)[..12];
         private string? _webHostPathRoot;
+        private string? _originalMariaDbServer;
         private string? _originalMariaDbPort;
         private string? _originalPrefixedMariaDbPort;
+        private string? _originalDatabaseName;
+        private string? _originalMariaDbUser;
+        private string? _originalMariaDbPassword;
         private bool _mariaDbPortEnvironmentOverridden;
 
         /// <summary>
@@ -78,11 +82,18 @@ namespace MulletaFlix.Server.Integration.Tests
             Environment.SetEnvironmentVariable("MulletaFlix_FFMPEG__NOVALIDATION", "true");
             Environment.SetEnvironmentVariable("MulletaFlix_DISABLE_RUNTIME_METRICS", "true");
             var adminConnection = MariaDbTestEnvironment.GetAdminConnection();
+            _originalMariaDbServer = Environment.GetEnvironmentVariable("MULLETAFLIX_DB_SERVER");
             _originalMariaDbPort = Environment.GetEnvironmentVariable("MULLETAFLIX_DB_PORT");
             _originalPrefixedMariaDbPort = Environment.GetEnvironmentVariable("MulletaFlix_DB_PORT");
+            _originalDatabaseName = Environment.GetEnvironmentVariable("MulletaFlix_DATABASE_NAME");
+            _originalMariaDbUser = Environment.GetEnvironmentVariable("MULLETAFLIX_DB_USER");
+            _originalMariaDbPassword = Environment.GetEnvironmentVariable("MULLETAFLIX_DB_PASSWORD");
             var testPort = adminConnection.Port.ToString(CultureInfo.InvariantCulture);
+            Environment.SetEnvironmentVariable("MULLETAFLIX_DB_SERVER", adminConnection.Server);
             Environment.SetEnvironmentVariable("MULLETAFLIX_DB_PORT", testPort);
             Environment.SetEnvironmentVariable("MulletaFlix_DB_PORT", testPort);
+            Environment.SetEnvironmentVariable("MULLETAFLIX_DB_USER", adminConnection.UserID);
+            Environment.SetEnvironmentVariable("MULLETAFLIX_DB_PASSWORD", adminConnection.Password);
             _mariaDbPortEnvironmentOverridden = true;
             // Isolate tests from any production MulletaFlix database: tests run
             // against their own database that is dropped/recreated per run.
@@ -197,8 +208,12 @@ namespace MulletaFlix.Server.Integration.Tests
 
             if (_mariaDbPortEnvironmentOverridden)
             {
+                Environment.SetEnvironmentVariable("MULLETAFLIX_DB_SERVER", _originalMariaDbServer);
                 Environment.SetEnvironmentVariable("MULLETAFLIX_DB_PORT", _originalMariaDbPort);
                 Environment.SetEnvironmentVariable("MulletaFlix_DB_PORT", _originalPrefixedMariaDbPort);
+                Environment.SetEnvironmentVariable("MulletaFlix_DATABASE_NAME", _originalDatabaseName);
+                Environment.SetEnvironmentVariable("MULLETAFLIX_DB_USER", _originalMariaDbUser);
+                Environment.SetEnvironmentVariable("MULLETAFLIX_DB_PASSWORD", _originalMariaDbPassword);
                 _mariaDbPortEnvironmentOverridden = false;
             }
             _disposableComponents.Clear();

@@ -94,6 +94,82 @@ public class NebulaSupabaseSyncTests
     }
 
     [Fact]
+    public async Task FetchSupabaseRowsPagedAsync_ContinuesAfterServerCapsPageBelowRequestedLimit()
+    {
+        var handler = new SequenceResponseHandler(
+            new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("[{\"id\":\"one\"},{\"id\":\"two\"}]") },
+            new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("[{\"id\":\"three\"}]") },
+            new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("[]") });
+        using var service = new NebulaSupabaseSyncService(null!, NullLogger<NebulaSupabaseSyncService>.Instance, null, handler);
+
+        var rows = await service.FetchSupabaseRowsPagedAsync(
+            "https://supabase.invalid",
+            "sb_secret_fixture",
+            "mulletaflix_users",
+            "id",
+            "id.asc",
+            "id",
+            "fixture query",
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(["one", "two", "three"], rows.Select(row => row.GetProperty("id").GetString()));
+        Assert.Equal(3, handler.RequestUris.Count);
+        Assert.Contains("limit=100", handler.RequestUris[0], StringComparison.Ordinal);
+        Assert.Contains("id=gt.%22two%22", handler.RequestUris[1], StringComparison.Ordinal);
+        Assert.Contains("id=gt.%22three%22", handler.RequestUris[2], StringComparison.Ordinal);
+        Assert.All(handler.RequestUris, uri =>
+        {
+            Assert.Contains("order=id.asc", uri, StringComparison.Ordinal);
+            Assert.Contains("select=id", uri, StringComparison.Ordinal);
+        });
+    }
+
+    [Fact]
+    public async Task FetchSupabaseRowsPagedAsync_FailsInsteadOfReturningPartialDataWhenLaterPageFails()
+    {
+        var handler = new SequenceResponseHandler(
+            new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("[{\"id\":\"first\"}]") },
+            new HttpResponseMessage(HttpStatusCode.InternalServerError) { Content = new StringContent("temporary failure") });
+        using var service = new NebulaSupabaseSyncService(null!, NullLogger<NebulaSupabaseSyncService>.Instance, null, handler);
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => service.FetchSupabaseRowsPagedAsync(
+            "https://supabase.invalid",
+            "sb_secret_fixture",
+            "mulletaflix_users",
+            "id",
+            "id.asc",
+            "id",
+            "fixture query",
+            TestContext.Current.CancellationToken));
+
+        Assert.Contains("HTTP 500", exception.Message, StringComparison.Ordinal);
+        Assert.Equal(2, handler.RequestUris.Count);
+        Assert.Contains("id=gt.%22first%22", handler.RequestUris[1], StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task FetchSupabaseRowsPagedAsync_QuotesReservedCharactersInStringCursor()
+    {
+        var handler = new SequenceResponseHandler(
+            new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("[{\"login\":\"user.name,one\"}]") },
+            new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("[]") });
+        using var service = new NebulaSupabaseSyncService(null!, NullLogger<NebulaSupabaseSyncService>.Instance, null, handler);
+
+        var rows = await service.FetchSupabaseRowsPagedAsync(
+            "https://supabase.invalid",
+            "sb_secret_fixture",
+            "nebula_users",
+            "login",
+            "login.asc",
+            "login",
+            "fixture query",
+            TestContext.Current.CancellationToken);
+
+        Assert.Single(rows);
+        Assert.Contains("login=gt.%22user.name%2Cone%22", handler.RequestUris[1], StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void StartContinuousSync_DoesNotStartAnotherCycleWhilePreviousCallbackIsStillRunning()
     {
         using var callbackStarted = new ManualResetEventSlim();
@@ -265,17 +341,54 @@ public class NebulaSupabaseSyncTests
     [Fact]
     public async Task GetLastRemoteFileTimestampAsync_ThrowsWhenSupabaseIsUnavailableInsteadOfTriggeringFullSync()
     {
-        var handler = new StaticResponseHandler(new HttpResponseMessage(HttpStatusCode.ServiceUnavailable)
-        {
-            Content = new StringContent("temporary failure")
-        });
+        var handler = new SequenceResponseHandler(
+            new HttpResponseMessage(HttpStatusCode.ServiceUnavailable) { Content = new StringContent("temporary failure") },
+            new HttpResponseMessage(HttpStatusCode.ServiceUnavailable) { Content = new StringContent("temporary failure") },
+            new HttpResponseMessage(HttpStatusCode.ServiceUnavailable) { Content = new StringContent("temporary failure") });
         using var service = new NebulaSupabaseSyncService(null!, NullLogger<NebulaSupabaseSyncService>.Instance, null, handler);
 
         var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
             service.GetLastRemoteFileTimestampAsync("https://supabase.invalid", "sb_secret_test"));
 
         Assert.Contains("HTTP 503", exception.Message, StringComparison.Ordinal);
-        Assert.Equal(HttpMethod.Get, handler.LastMethod);
+        Assert.Equal(3, handler.Methods.Count);
+        Assert.All(handler.Methods, method => Assert.Equal(HttpMethod.Get, method));
+    }
+
+    [Fact]
+    public async Task GetLastRemoteFileTimestampAsync_RetriesTransientServerErrorThenReturnsTimestamp()
+    {
+        var expected = new DateTime(2026, 10, 18, 12, 30, 0, DateTimeKind.Utc);
+        var handler = new SequenceResponseHandler(
+            new HttpResponseMessage(HttpStatusCode.InternalServerError) { Content = new StringContent("temporary failure") },
+            new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent($"[{{\"updated_at\":\"{expected:O}\"}}]")
+            });
+        using var service = new NebulaSupabaseSyncService(null!, NullLogger<NebulaSupabaseSyncService>.Instance, null, handler);
+
+        var timestamp = await service.GetLastRemoteFileTimestampAsync("https://supabase.invalid", "sb_secret_test");
+
+        Assert.Equal(expected, timestamp);
+        Assert.Equal(new[] { HttpMethod.Get, HttpMethod.Get }, handler.Methods);
+    }
+
+    [Fact]
+    public async Task GetLastRemoteFileTimestampAsync_DoesNotRetryUnauthorizedResponse()
+    {
+        var handler = new SequenceResponseHandler(
+            new HttpResponseMessage(HttpStatusCode.Unauthorized) { Content = new StringContent("unauthorized") },
+            new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent("[{\"updated_at\":\"2026-10-18T12:30:00Z\"}]")
+            });
+        using var service = new NebulaSupabaseSyncService(null!, NullLogger<NebulaSupabaseSyncService>.Instance, null, handler);
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.GetLastRemoteFileTimestampAsync("https://supabase.invalid", "sb_secret_test"));
+
+        Assert.Contains("HTTP 401", exception.Message, StringComparison.Ordinal);
+        Assert.Equal(new[] { HttpMethod.Get }, handler.Methods);
     }
 
     [Fact]
@@ -525,10 +638,12 @@ public class NebulaSupabaseSyncTests
             .Options;
         var factory = CreateUsersContextFactory(options);
         var restoredId = Guid.NewGuid();
-        var handler = new StaticResponseHandler(new HttpResponseMessage(HttpStatusCode.OK)
-        {
-            Content = new StringContent($"[{{\"id\":\"{restoredId}\",\"username\":\"restored-user\",\"normalized_username\":\"RESTORED-USER\",\"password\":\"hash-value\",\"authentication_provider_id\":\"default\",\"password_reset_provider_id\":\"default\",\"permissions\":[],\"license\":null}}]")
-        });
+        var handler = new SequenceResponseHandler(
+            new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent($"[{{\"id\":\"{restoredId}\",\"username\":\"restored-user\",\"normalized_username\":\"RESTORED-USER\",\"password\":\"hash-value\",\"authentication_provider_id\":\"default\",\"password_reset_provider_id\":\"default\",\"permissions\":[],\"license\":null}}]")
+            },
+            new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("[]") });
         using var service = new NebulaSupabaseSyncService(
             null!,
             NullLogger<NebulaSupabaseSyncService>.Instance,
@@ -550,8 +665,8 @@ public class NebulaSupabaseSyncTests
         Assert.Equal("restored-user", restoredUser.Username);
         Assert.Equal("RESTORED-USER", restoredUser.NormalizedUsername);
         Assert.Equal("hash-value", restoredUser.Password);
-        Assert.Equal(1, handler.RequestCount);
-        Assert.Equal(HttpMethod.Get, handler.LastMethod);
+        Assert.Equal(2, handler.Methods.Count);
+        Assert.All(handler.Methods, method => Assert.Equal(HttpMethod.Get, method));
     }
 
     [Fact]
@@ -570,6 +685,7 @@ public class NebulaSupabaseSyncTests
                 Content = new StringContent(
                     $"[{{\"id\":\"{restoredId:D}\",\"username\":\"full-restore-user\",\"normalized_username\":\"FULL-RESTORE-USER\",\"password\":\"fixture-hash\",\"phone_number\":\"5550100\",\"must_update_password\":true,\"authentication_provider_id\":\"default\",\"password_reset_provider_id\":\"default\",\"enable_local_password\":true,\"enable_user_preference_access\":true,\"permissions\":[],\"license\":null}}]")
             },
+            new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("[]") },
             new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("[]") });
         using var service = new NebulaSupabaseSyncService(
             null!,
@@ -594,7 +710,7 @@ public class NebulaSupabaseSyncTests
             result.FilesRestored,
             result.ElapsedSeconds);
         Assert.NotNull(service.LastSuccessfulRestoreTime);
-        Assert.Equal([HttpMethod.Get, HttpMethod.Get, HttpMethod.Get, HttpMethod.Get], handler.Methods);
+        Assert.Equal([HttpMethod.Get, HttpMethod.Get, HttpMethod.Get, HttpMethod.Get, HttpMethod.Get], handler.Methods);
 
         await using var verificationDb = new UsersDbContext(options, NullLogger<UsersDbContext>.Instance);
         var restoredUser = await verificationDb.Users.SingleAsync(
@@ -852,6 +968,7 @@ public class NebulaSupabaseSyncTests
             {
                 Content = new StringContent($"[{{\"id\":\"{staleRemoteId}\"}}]")
             },
+            new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("[]") },
             new HttpResponseMessage(HttpStatusCode.Forbidden)
             {
                 Content = new StringContent("delete forbidden")
@@ -867,7 +984,7 @@ public class NebulaSupabaseSyncTests
         Assert.False(result.Success);
         Assert.Contains("remover registro antigo", result.Message, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("HTTP 403", result.Message, StringComparison.Ordinal);
-        Assert.Equal(new[] { HttpMethod.Post, HttpMethod.Get, HttpMethod.Delete }, handler.Methods);
+        Assert.Equal(new[] { HttpMethod.Post, HttpMethod.Get, HttpMethod.Get, HttpMethod.Delete }, handler.Methods);
     }
 
     [Fact]
@@ -1067,9 +1184,12 @@ public class NebulaSupabaseSyncTests
 
         public List<HttpMethod> Methods { get; } = new();
 
+        public List<string> RequestUris { get; } = new();
+
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
             Methods.Add(request.Method);
+            RequestUris.Add(request.RequestUri!.PathAndQuery);
             return Task.FromResult(responses[_nextResponse++]);
         }
     }

@@ -422,5 +422,80 @@ namespace MulletaFlix.Providers.Tests.Manager
             Assert.False(result.UpdateType.HasFlag(ItemUpdateType.ImageUpdate));
             Assert.False(item.HasImage(ImageType.Primary));
         }
+
+        [Theory]
+        [InlineData(ImageType.Primary, false)]
+        [InlineData(ImageType.Primary, true)]
+        [InlineData(ImageType.Backdrop, false)]
+        [InlineData(ImageType.Backdrop, true)]
+        public async Task RefreshImages_RemoteImageFailure_UsesNextCandidate(ImageType imageType, bool throwRequestException)
+        {
+            var item = new Video { Path = "non-empty path" };
+            BaseItem.MediaSourceManager = Mock.Of<IMediaSourceManager>();
+            var libraryOptions = GetLibraryOptions(item, imageType, 1);
+            var remoteProvider = new Mock<IRemoteImageProvider>(MockBehavior.Strict);
+            remoteProvider.Setup(provider => provider.Name).Returns("MockRemoteProvider");
+            remoteProvider.Setup(provider => provider.GetSupportedImages(item)).Returns(new[] { imageType });
+            if (throwRequestException)
+            {
+                remoteProvider.Setup(provider => provider.GetImageResponse("unavailable image url", It.IsAny<CancellationToken>()))
+                    .ThrowsAsync(new HttpRequestException("Remote image request failed."));
+            }
+            else
+            {
+                remoteProvider.Setup(provider => provider.GetImageResponse("unavailable image url", It.IsAny<CancellationToken>()))
+                    .ReturnsAsync(new HttpResponseMessage(HttpStatusCode.BadGateway));
+            }
+
+            remoteProvider.Setup(provider => provider.GetImageResponse("fallback image url", It.IsAny<CancellationToken>()))
+                .ReturnsAsync(new HttpResponseMessage
+                {
+                    StatusCode = HttpStatusCode.OK,
+                    RequestMessage = new HttpRequestMessage(HttpMethod.Get, "https://images.example/poster.jpg"),
+                    Content = new StringContent("image content", Encoding.UTF8, MediaTypeNames.Image.Jpeg)
+                });
+
+            var providerManager = new Mock<IProviderManager>(MockBehavior.Strict);
+            providerManager.Setup(manager => manager.GetAvailableRemoteImages(
+                    item,
+                    It.IsAny<RemoteImageQuery>(),
+                    It.IsAny<CancellationToken>()))
+                .ReturnsAsync(new[]
+                {
+                    new RemoteImageInfo { Type = imageType, Url = "unavailable image url" },
+                    new RemoteImageInfo { Type = imageType, Url = "fallback image url" }
+                });
+            providerManager.Setup(manager => manager.SaveImage(
+                    item,
+                    It.IsAny<Stream>(),
+                    It.IsAny<string>(),
+                    imageType,
+                    null,
+                    It.IsAny<CancellationToken>()))
+                .Returns(Task.CompletedTask);
+
+            var imageProvider = GetItemImageProvider(providerManager.Object, null);
+            var result = await imageProvider.RefreshImages(
+                item,
+                libraryOptions,
+                new List<IImageProvider> { remoteProvider.Object },
+                new ImageRefreshOptions(Mock.Of<IDirectoryService>()),
+                CancellationToken.None);
+
+            remoteProvider.Verify(
+                provider => provider.GetImageResponse("fallback image url", It.IsAny<CancellationToken>()),
+                Times.Once);
+            providerManager.Verify(
+                manager => manager.SaveImage(
+                    item,
+                    It.IsAny<Stream>(),
+                    It.IsAny<string>(),
+                    imageType,
+                    null,
+                    It.IsAny<CancellationToken>()),
+                Times.Once);
+            Assert.True(result.UpdateType.HasFlag(ItemUpdateType.ImageUpdate));
+            Assert.Equal(imageType == ImageType.Primary ? 0 : 1, result.Failures);
+        }
     }
 }

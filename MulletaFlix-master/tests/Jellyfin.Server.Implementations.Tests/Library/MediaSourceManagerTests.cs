@@ -10,14 +10,17 @@ using Castle.Components.DictionaryAdapter;
 using Emby.Server.Implementations.IO;
 using Emby.Server.Implementations.Library;
 using MediaBrowser.Common.Extensions;
+using MediaBrowser.Controller;
 using MulletaFlix.Database.Implementations.Entities;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Library;
+using MediaBrowser.Controller.LiveTv;
 using MediaBrowser.Controller.MediaEncoding;
 using MediaBrowser.Model.Dto;
 using MediaBrowser.Model.Entities;
 using MediaBrowser.Model.Globalization;
 using MediaBrowser.Model.IO;
+using MediaBrowser.Model.LiveTv;
 using MediaBrowser.Model.MediaInfo;
 using Moq;
 using Xunit;
@@ -28,6 +31,7 @@ namespace MulletaFlix.Server.Implementations.Tests.Library
     {
         private readonly MediaSourceManager _mediaSourceManager;
         private readonly Mock<IMediaEncoder> _mockMediaEncoder;
+        private readonly Mock<IServerApplicationHost> _mockApplicationHost;
         private readonly Mock<IUserDataManager> _mockUserDataManager;
         private readonly Mock<IUserManager> _mockUserManager;
         private readonly Mock<ILibraryManager> _mockLibraryManager;
@@ -44,6 +48,7 @@ namespace MulletaFlix.Server.Implementations.Tests.Library
             fixture.Inject<IFileSystem>(fixture.Create<ManagedFileSystem>());
 
             _mockMediaEncoder = fixture.Freeze<Mock<IMediaEncoder>>();
+            _mockApplicationHost = fixture.Freeze<Mock<IServerApplicationHost>>();
             _mockUserDataManager = fixture.Freeze<Mock<IUserDataManager>>();
             _mockUserManager = fixture.Freeze<Mock<IUserManager>>();
             _mockLibraryManager = fixture.Freeze<Mock<ILibraryManager>>();
@@ -62,6 +67,41 @@ namespace MulletaFlix.Server.Implementations.Tests.Library
                 Id = Guid.NewGuid()
             };
             _mockUserManager.Setup(manager => manager.GetUserById(_user.Id)).Returns(_user);
+        }
+
+        [Fact]
+        public async Task GetRecordingStreamMediaSources_UsesStreamCapabilityInEncoderPath()
+        {
+            const string localApiUrl = "http://127.0.0.1:8096";
+            const string timerId = "timer-id-exposed-to-clients";
+            const string streamCapability = "recording-scoped-stream-capability";
+            const string recordingPath = "recordings/example.ts";
+            _mockApplicationHost
+                .Setup(host => host.GetApiUrlForLocalAccess(null, true))
+                .Returns(localApiUrl);
+            _mockMediaEncoder
+                .Setup(encoder => encoder.GetMediaInfo(It.IsAny<MediaInfoRequest>(), It.IsAny<CancellationToken>()))
+                .ReturnsAsync(new MediaInfo { MediaStreams = new List<MediaStream>() });
+
+            var recordingInfo = new ActiveRecordingInfo
+            {
+                Id = timerId,
+                StreamId = streamCapability,
+                Path = recordingPath,
+                Timer = new TimerInfo()
+            };
+
+            var sources = await _mediaSourceManager.GetRecordingStreamMediaSources(recordingInfo, CancellationToken.None);
+
+            var source = Assert.Single(sources);
+            Assert.Equal($"{localApiUrl}/LiveTv/LiveRecordings/{streamCapability}/stream", source.EncoderPath);
+            Assert.Equal(recordingPath, source.Path);
+            Assert.Equal(timerId, source.Id);
+            Assert.DoesNotContain(timerId, source.EncoderPath, StringComparison.Ordinal);
+            Assert.Equal(MediaProtocol.Http, source.EncoderProtocol);
+            _mockMediaEncoder.Verify(
+                encoder => encoder.GetMediaInfo(It.IsAny<MediaInfoRequest>(), It.IsAny<CancellationToken>()),
+                Times.Once);
         }
 
         [Theory]

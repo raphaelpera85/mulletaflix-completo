@@ -121,6 +121,36 @@ def test_cli_main_rejects_invalid_numeric_option_before_starting_downloader(monk
     assert error.value.code == 2
 
 
+def test_run_downloader_uses_mongo_database_environment_when_cli_flag_is_absent(
+    tmp_path, monkeypatch
+):
+    observed = []
+    monkeypatch.setenv("MONGO_DATABASE", "nebula-strm")
+    monkeypatch.setenv("MONGODB", "mongodb://mongo.example")
+    args = strm_downloader.build_parser().parse_args(
+        ["--sources", str(tmp_path / "source"), "--dest", str(tmp_path / "library")]
+    )
+
+    class Validator:
+        def __init__(self, **kwargs):
+            observed.append(kwargs)
+
+        def refresh_cache(self, *, force):
+            assert force is True
+            return False
+
+    monkeypatch.setattr(strm_downloader, "setup_logger", lambda *_args: None)
+    monkeypatch.setattr(strm_downloader, "get_configured_staging_dirs", lambda: [])
+    monkeypatch.setattr(strm_downloader, "MediaValidator", Validator)
+
+    assert strm_downloader.run_downloader(args) == 1
+    assert observed == [{
+        "mongo_uri": "mongodb://mongo.example",
+        "db_name": "nebula-strm",
+        "library_user": "raphael",
+    }]
+
+
 def test_run_downloader_prioritizes_partial_downloads_and_skips_recent_failures(tmp_path, monkeypatch):
     source = tmp_path / "source"
     resume = source / "resume.strm"
@@ -180,7 +210,7 @@ def test_run_downloader_prioritizes_partial_downloads_and_skips_recent_failures(
     assert sleeps == [1]
 
 
-def test_run_downloader_signals_worker_ready_before_mongo_refresh_and_scan(tmp_path, monkeypatch, caplog):
+def test_run_downloader_marks_mongo_ready_before_root_discovery_and_scan(tmp_path, monkeypatch, caplog):
     events = []
 
     class Validator:
@@ -205,6 +235,14 @@ def test_run_downloader_signals_worker_ready_before_mongo_refresh_and_scan(tmp_p
     monkeypatch.setattr(strm_downloader, "MediaValidator", Validator)
     monkeypatch.setattr(strm_downloader, "FailureTracker", Tracker)
     monkeypatch.setattr(strm_downloader, "get_configured_staging_dirs", lambda: [])
+
+    def discover_roots(*_args, **_kwargs):
+        assert "mongo-ready" in events
+        events.append("root-discovery-started")
+        return []
+
+    monkeypatch.setattr(strm_downloader, "get_categorized_scan_batches", discover_roots)
+
     def scan(*_args, **_kwargs):
         events.append("filesystem-scan-started")
         strm_downloader.logger.info("[STRM-SCAN-STARTED] Varredura iniciada")
@@ -227,7 +265,92 @@ def test_run_downloader_signals_worker_ready_before_mongo_refresh_and_scan(tmp_p
     caplog.set_level("INFO", logger="STRMDownloader")
 
     assert strm_downloader.run_downloader(_run_args(tmp_path)) == 0
-    assert events == ["worker-ready", "mongo-refresh-complete", "mongo-ready", "filesystem-scan-started", "scan-started"]
+    assert events == ["worker-ready", "mongo-refresh-complete", "mongo-ready", "root-discovery-started", "filesystem-scan-started", "scan-started"]
+
+
+def test_run_downloader_scans_downloads_and_registers_first_strm_after_readiness(
+    tmp_path, monkeypatch, caplog
+):
+    source = tmp_path / "source"
+    strm_path = source / "Filmes" / "Alpha (2024)" / "Alpha (2024).strm"
+    strm_path.parent.mkdir(parents=True)
+    strm_path.write_text("https://media.invalid/alpha.mp4", encoding="utf-8")
+    staging_root = tmp_path / "stage"
+    events = []
+
+    class Validator:
+        def __init__(self, **_kwargs):
+            pass
+
+        def refresh_cache(self, *, force):
+            assert force is True
+            events.append("mongo-index-ready")
+            return True
+
+        def is_already_completed_or_active(self, **_kwargs):
+            events.append("duplicate-check")
+            return False, "not found"
+
+    class Tracker:
+        def reset_cycle(self):
+            pass
+
+        def should_skip(self, *_args):
+            return False, ""
+
+        def record_success(self, _path):
+            events.append("failure-tracker-success")
+
+    monkeypatch.setattr(strm_downloader, "MediaValidator", Validator)
+    monkeypatch.setattr(strm_downloader, "FailureTracker", Tracker)
+    monkeypatch.setattr(strm_downloader, "get_configured_staging_dirs", lambda: [staging_root])
+    monkeypatch.setattr(strm_downloader, "remote_content_size", lambda _url: 4)
+    monkeypatch.setattr(
+        strm_downloader,
+        "get_best_staging_root",
+        lambda *_args: staging_root,
+    )
+
+    def download(*, url, target_path, **_kwargs):
+        assert url == "https://media.invalid/alpha.mp4"
+        target_path.write_bytes(b"data")
+        events.append("download-complete")
+        return target_path
+
+    def register(*, downloaded_file, **_kwargs):
+        assert downloaded_file.is_file()
+        assert downloaded_file.read_bytes() == b"data"
+        events.append("queue-registered")
+        return True
+
+    monkeypatch.setattr(strm_downloader, "download_strm_multipart", download)
+    monkeypatch.setattr(strm_downloader, "register_in_nebula_queue", register)
+    monkeypatch.setattr(strm_downloader.time, "sleep", lambda *_args: None)
+
+    original_info = strm_downloader.logger.info
+
+    def record_info(message, *args, **kwargs):
+        if "[STRM-WORKER-READY]" in message:
+            events.append("worker-ready")
+        elif "[STRM-WORKER-MONGO-READY]" in message:
+            events.append("mongo-ready")
+        elif "[STRM-SCAN-STARTED]" in message:
+            events.append("filesystem-scan-started")
+        original_info(message, *args, **kwargs)
+
+    monkeypatch.setattr(strm_downloader.logger, "info", record_info)
+    caplog.set_level("INFO", logger="STRMDownloader")
+
+    assert strm_downloader.run_downloader(_run_args(source)) == 0
+
+    assert events.index("worker-ready") < events.index("mongo-index-ready")
+    assert events.index("mongo-ready") < events.index("filesystem-scan-started")
+    assert events.index("filesystem-scan-started") < events.index("duplicate-check")
+    assert events.index("duplicate-check") < events.index("download-complete")
+    assert events.index("download-complete") < events.index("queue-registered")
+    assert not strm_path.exists()
+    assert list(staging_root.rglob("Alpha (2024).mp4"))
+    assert "Escaneados=1 | Baixados/Enfileirados=1 | Falhas=0" in caplog.text
 
 
 def test_run_downloader_fails_closed_when_mongo_index_refresh_fails(tmp_path, monkeypatch, caplog):
@@ -542,7 +665,7 @@ def test_multipart_download_resumes_interrupted_partial_part_and_preserves_good_
     assert target.read_bytes() == b"previous-good-media"
     assert partial.read_bytes() == b"ab"
     assert completed.read_bytes() == b"efgh"
-    assert first_attempt_ranges == ["bytes=0-3", "bytes=4-7"]
+    assert sorted(first_attempt_ranges) == ["bytes=0-3", "bytes=4-7"]
 
     retry_ranges = []
 
