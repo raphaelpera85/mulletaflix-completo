@@ -8,6 +8,7 @@ using System.Threading.Tasks;
 using MediaBrowser.Controller;
 using MediaBrowser.Controller.BaseItemManager;
 using MediaBrowser.Controller.Configuration;
+using MediaBrowser.Controller.Drawing;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Entities.Movies;
 using MediaBrowser.Controller.Library;
@@ -180,7 +181,9 @@ namespace MulletaFlix.Providers.Tests.Manager
         private static ProviderManager GetProviderManager(
             ServerConfiguration? serverConfiguration = null,
             LibraryOptions? libraryOptions = null,
-            IBaseItemManager? baseItemManager = null)
+            IBaseItemManager? baseItemManager = null,
+            IServerApplicationPaths? appPaths = null,
+            IImageEncoder? imageEncoder = null)
         {
             var serverConfigurationManager = new Mock<IServerConfigurationManager>(MockBehavior.Strict);
             serverConfigurationManager.Setup(i => i.Configuration)
@@ -197,13 +200,14 @@ namespace MulletaFlix.Providers.Tests.Manager
                 Mock.Of<ILibraryMonitor>(),
                 _logger,
                 Mock.Of<IFileSystem>(),
-                Mock.Of<IServerApplicationPaths>(),
+                appPaths ?? Mock.Of<IServerApplicationPaths>(),
                 libraryManager.Object,
                 baseItemManager!,
                 Mock.Of<ILyricManager>(),
                 Mock.Of<IMemoryCache>(),
                 Mock.Of<IMediaSegmentManager>(),
-                Mock.Of<ISimilarItemsManager>());
+                Mock.Of<ISimilarItemsManager>(),
+                imageEncoder ?? Mock.Of<IImageEncoder>());
 
             return providerManager;
         }

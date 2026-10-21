@@ -21,6 +21,7 @@ using MediaBrowser.Controller;
 using MediaBrowser.Controller.BaseItemManager;
 using MediaBrowser.Controller.Configuration;
 using MediaBrowser.Controller.Dto;
+using MediaBrowser.Controller.Drawing;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Entities.Audio;
 using MediaBrowser.Controller.Entities.Movies;
@@ -74,11 +75,13 @@ namespace MediaBrowser.Providers.Manager
         private readonly SemaphoreSlim _refreshConcurrency = new(_refreshConcurrencyCount, _refreshConcurrencyCount);
         private readonly IMediaSegmentManager _mediaSegmentManager;
         private readonly ISimilarItemsManager _similarItemsManager;
+        private readonly IImageEncoder _imageEncoder;
         private readonly AsyncKeyedLocker<string> _imageSaveLock = new(o =>
         {
             o.PoolSize = 20;
             o.PoolInitialFill = 1;
         });
+        private static readonly SemaphoreSlim _remoteImageDownloadConcurrency = new(4, 4);
 
         /// <summary>
         /// Cache for ordered metadata providers per library/item type combination.
@@ -112,6 +115,7 @@ namespace MediaBrowser.Providers.Manager
         /// <param name="memoryCache">The memory cache.</param>
         /// <param name="mediaSegmentManager">The media segment manager.</param>
         /// <param name="similarItemsManager">The similar items manager.</param>
+        /// <param name="imageEncoder">The image encoder.</param>
         public ProviderManager(
             IHttpClientFactory httpClientFactory,
             ISubtitleManager subtitleManager,
@@ -125,7 +129,8 @@ namespace MediaBrowser.Providers.Manager
             ILyricManager lyricManager,
             IMemoryCache memoryCache,
             IMediaSegmentManager mediaSegmentManager,
-            ISimilarItemsManager similarItemsManager)
+            ISimilarItemsManager similarItemsManager,
+            IImageEncoder imageEncoder)
         {
             _logger = logger;
             _httpClientFactory = httpClientFactory;
@@ -140,6 +145,7 @@ namespace MediaBrowser.Providers.Manager
             _memoryCache = memoryCache;
             _mediaSegmentManager = mediaSegmentManager;
             _similarItemsManager = similarItemsManager;
+            _imageEncoder = imageEncoder;
 
             CollectionFolder.LibraryOptionsUpdated += OnLibraryOptionsUpdated;
         }
@@ -193,11 +199,11 @@ namespace MediaBrowser.Providers.Manager
         {
             using (await _imageSaveLock.LockAsync(url, cancellationToken).ConfigureAwait(false))
             {
-                if (_memoryCache.TryGetValue(url, out (string ContentType, byte[] ImageContents)? cachedValue)
+                if (_memoryCache.TryGetValue(url, out (string ContentType, byte[] ImageContents, int Length)? cachedValue)
                     && cachedValue is not null)
                 {
                     var imageContents = cachedValue.Value.ImageContents;
-                    var cacheStream = new MemoryStream(imageContents, 0, imageContents.Length, false);
+                    var cacheStream = new MemoryStream(imageContents, 0, cachedValue.Value.Length, false);
                     await using (cacheStream.ConfigureAwait(false))
                     {
                         await SaveImage(
@@ -211,57 +217,80 @@ namespace MediaBrowser.Providers.Manager
                     }
                 }
 
-                var httpClient = _httpClientFactory.CreateClient(NamedClient.Default);
-                using var response = await httpClient.GetAsync(url, cancellationToken).ConfigureAwait(false);
-
-                response.EnsureSuccessStatusCode();
-
-                var contentType = response.Content.Headers.ContentType?.MediaType;
-
-                // Workaround for tvheadend channel icons
-                // TODO: Isolate this hack into the tvh plugin
-                if (string.IsNullOrEmpty(contentType))
+                await _remoteImageDownloadConcurrency.WaitAsync(cancellationToken).ConfigureAwait(false);
+                try
                 {
-                    // Special case for imagecache
-                    if (url.Contains("/imagecache/", StringComparison.OrdinalIgnoreCase))
+                    var httpClient = _httpClientFactory.CreateClient(NamedClient.Default);
+                    using var response = await httpClient.GetAsync(url, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
+
+                    response.EnsureSuccessStatusCode();
+
+                    var contentType = response.Content.Headers.ContentType?.MediaType;
+
+                    // Workaround for tvheadend channel icons
+                    // TODO: Isolate this hack into the tvh plugin
+                    if (string.IsNullOrEmpty(contentType))
                     {
-                        contentType = MediaTypeNames.Image.Png;
+                        // Special case for imagecache
+                        if (url.Contains("/imagecache/", StringComparison.OrdinalIgnoreCase))
+                        {
+                            contentType = MediaTypeNames.Image.Png;
+                        }
+                    }
+
+                    // some providers don't correctly report media type, extract from url if no extension found
+                    if (contentType is null || contentType.Equals(MediaTypeNames.Application.Octet, StringComparison.OrdinalIgnoreCase))
+                    {
+                        // Strip query parameters from url to get actual path.
+                        contentType = MimeTypes.GetMimeType(new Uri(url).GetLeftPart(UriPartial.Path));
+                    }
+
+                    if (!contentType.StartsWith("image/", StringComparison.OrdinalIgnoreCase))
+                    {
+                        throw new HttpRequestException($"Request returned '{contentType}' instead of an image type", null, HttpStatusCode.NotFound);
+                    }
+
+                    var responseBytes = await RemoteImagePayloadValidator.ReadBoundedAsync(response.Content, cancellationToken).ConfigureAwait(false);
+                    var stream = new MemoryStream(responseBytes.Buffer, 0, responseBytes.Length, false);
+                    await using (stream.ConfigureAwait(false))
+                    {
+                        await SaveImage(
+                            item,
+                            stream,
+                            contentType,
+                            type,
+                            imageIndex,
+                            cancellationToken).ConfigureAwait(false);
+
+                        if (responseBytes.Length <= RemoteImagePayloadValidator.MaximumCachedPayloadBytes)
+                        {
+                            _memoryCache.Set(url, (contentType, responseBytes.Buffer, responseBytes.Length), TimeSpan.FromSeconds(10));
+                        }
                     }
                 }
-
-                // some providers don't correctly report media type, extract from url if no extension found
-                if (contentType is null || contentType.Equals(MediaTypeNames.Application.Octet, StringComparison.OrdinalIgnoreCase))
+                finally
                 {
-                    // Strip query parameters from url to get actual path.
-                    contentType = MimeTypes.GetMimeType(new Uri(url).GetLeftPart(UriPartial.Path));
-                }
-
-                if (!contentType.StartsWith("image/", StringComparison.OrdinalIgnoreCase))
-                {
-                    throw new HttpRequestException($"Request returned '{contentType}' instead of an image type", null, HttpStatusCode.NotFound);
-                }
-
-                var responseBytes = await response.Content.ReadAsByteArrayAsync(cancellationToken).ConfigureAwait(false);
-                var stream = new MemoryStream(responseBytes, 0, responseBytes.Length, false);
-                await using (stream.ConfigureAwait(false))
-                {
-                    _memoryCache.Set(url, (contentType, responseBytes), TimeSpan.FromSeconds(10));
-
-                    await SaveImage(
-                        item,
-                        stream,
-                        contentType,
-                        type,
-                        imageIndex,
-                        cancellationToken).ConfigureAwait(false);
+                    _remoteImageDownloadConcurrency.Release();
                 }
             }
         }
 
         /// <inheritdoc/>
-        public Task SaveImage(BaseItem item, Stream source, string mimeType, ImageType type, int? imageIndex, CancellationToken cancellationToken)
+        public async Task SaveImage(BaseItem item, Stream source, string mimeType, ImageType type, int? imageIndex, CancellationToken cancellationToken)
         {
-            return new ImageSaver(_configurationManager, _libraryMonitor, _fileSystem, _logger).SaveImage(item, source, mimeType, type, imageIndex, cancellationToken);
+            var preparedSource = await RemoteImagePayloadValidator.PrepareAsync(
+                source,
+                mimeType,
+                _imageEncoder,
+                _appPaths.TempDirectory,
+                cancellationToken).ConfigureAwait(false);
+
+            await using (preparedSource.ConfigureAwait(false))
+            {
+                await new ImageSaver(_configurationManager, _libraryMonitor, _fileSystem, _logger)
+                    .SaveImage(item, preparedSource, mimeType, type, imageIndex, cancellationToken)
+                    .ConfigureAwait(false);
+            }
         }
 
         /// <inheritdoc/>
@@ -275,9 +304,19 @@ namespace MediaBrowser.Providers.Manager
             try
             {
                 var fileStream = AsyncFile.OpenRead(source);
-                await new ImageSaver(_configurationManager, _libraryMonitor, _fileSystem, _logger)
-                    .SaveImage(item, fileStream, mimeType, type, imageIndex, saveLocallyWithMedia, cancellationToken)
-                    .ConfigureAwait(false);
+                var preparedSource = await RemoteImagePayloadValidator.PrepareAsync(
+                    fileStream,
+                    mimeType,
+                    _imageEncoder,
+                    _appPaths.TempDirectory,
+                    cancellationToken).ConfigureAwait(false);
+
+                await using (preparedSource.ConfigureAwait(false))
+                {
+                    await new ImageSaver(_configurationManager, _libraryMonitor, _fileSystem, _logger)
+                        .SaveImage(item, preparedSource, mimeType, type, imageIndex, saveLocallyWithMedia, cancellationToken)
+                        .ConfigureAwait(false);
+                }
             }
             finally
             {
