@@ -53,6 +53,7 @@ public class BackupService : IBackupService, IDisposable
     private readonly IServerApplicationPaths _applicationPaths;
     private readonly IMulletaFlixDatabaseProvider _MulletaFlixDatabaseProvider;
     private readonly IHostApplicationLifetime _hostApplicationLifetime;
+    private readonly IStorageSpaceProvider _storageSpaceProvider;
     private readonly SemaphoreSlim _backupHistoryLock = new(1, 1);
     private int _backupOperationInProgress;
     private static readonly JsonSerializerOptions _serializerSettings = new JsonSerializerOptions(JsonSerializerDefaults.General)
@@ -78,7 +79,8 @@ public class BackupService : IBackupService, IDisposable
         IServerApplicationHost applicationHost,
         IServerApplicationPaths applicationPaths,
         IMulletaFlixDatabaseProvider MulletaFlixDatabaseProvider,
-        IHostApplicationLifetime applicationLifetime)
+        IHostApplicationLifetime applicationLifetime,
+        IStorageSpaceProvider storageSpaceProvider)
     {
         _logger = logger;
         _dbProvider = dbProvider;
@@ -86,6 +88,7 @@ public class BackupService : IBackupService, IDisposable
         _applicationPaths = applicationPaths;
         _MulletaFlixDatabaseProvider = MulletaFlixDatabaseProvider;
         _hostApplicationLifetime = applicationLifetime;
+        _storageSpaceProvider = storageSpaceProvider;
     }
 
     /// <inheritdoc/>
@@ -533,7 +536,7 @@ public class BackupService : IBackupService, IDisposable
             Directory.CreateDirectory(backupFolder);
         }
 
-        var backupStorageSpace = StorageHelper.GetFreeSpaceOf(_applicationPaths.BackupPath);
+        var backupStorageSpace = _storageSpaceProvider.GetFreeSpaceOf(_applicationPaths.BackupPath);
 
         const long FiveGigabyte = 5_368_709_115;
         if (backupStorageSpace.FreeSpace < FiveGigabyte)

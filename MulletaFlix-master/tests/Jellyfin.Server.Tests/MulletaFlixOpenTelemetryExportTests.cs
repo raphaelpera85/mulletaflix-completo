@@ -194,6 +194,7 @@ public sealed class MulletaFlixOpenTelemetryExportTests
                 null!,
                 null!,
                 null!,
+                null!,
                 null!);
 
             await Assert.ThrowsAsync<FileNotFoundException>(() => backupService.RestoreBackupAsync(privatePath));

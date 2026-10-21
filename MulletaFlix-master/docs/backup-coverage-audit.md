@@ -114,6 +114,18 @@ em `127.0.0.1:27099`. Scripts Node de release/packaging passaram 23/23. Estes
 gates não comprovam cobertura de todos os contextos/coleções nem um restore
 integral de ponta a ponta.
 
+Em 2026-10-21, a regressão ampla em Windows revelou três testes de criação de
+backup dependentes do espaço livre real do disco do agente: o host tinha menos
+de 5 GiB, então casos que não deveriam exercitar capacidade falharam antes de
+validar seu comportamento. `BackupService` agora consulta `IStorageSpaceProvider`,
+registrado no container e implementado por `StorageSpaceProvider` via
+`StorageHelper`; os testes usam um provedor controlado e um caso verifica a
+recusa real abaixo do limite sem depender do disco. `FullSystemBackup` passou
+40/40. A suíte Release com filtro `FullyQualifiedName!~Integration` passou
+5.091 casos, ignorou 68 opt-in/plataforma e teve zero falhas. A validação não
+altera o diagnóstico anterior de cobertura parcial dos demais contextos e
+coleções nem equivale a restore integral.
+
 Antes de chamar o recurso de backup integral novamente, executar nesta ordem:
 
 1. Mapear propriedade física de cada tabela/schema e cada coleção externa,

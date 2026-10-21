@@ -47,6 +47,7 @@ using MulletaFlix.Networking.Udp;
 using MulletaFlix.Server.Implementations.FullSystemBackup;
 using MulletaFlix.Server.Implementations.Item;
 using MulletaFlix.Server.Implementations.MediaSegments;
+using MulletaFlix.Server.Implementations.StorageHelpers;
 using MediaBrowser.Common;
 using MediaBrowser.Common.Configuration;
 using MediaBrowser.Common.Events;
@@ -501,6 +502,7 @@ namespace Emby.Server.Implementations
             serviceCollection.AddSingleton<IApplicationHost>(this);
             serviceCollection.AddSingleton<IPluginManager>(_pluginManager);
             serviceCollection.AddSingleton<IApplicationPaths>(ApplicationPaths);
+            serviceCollection.AddSingleton<IStorageSpaceProvider, StorageSpaceProvider>();
             serviceCollection.AddSingleton<IBackupService, BackupService>();
             serviceCollection.AddSingleton<ICatalogAuditService, CatalogAuditService>();
 

@@ -33,6 +33,7 @@ public class BackupServiceTests
     private readonly Mock<IServerApplicationPaths> _applicationPathsMock;
     private readonly Mock<IMulletaFlixDatabaseProvider> _databaseProviderMock;
     private readonly Mock<IHostApplicationLifetime> _applicationLifetimeMock;
+    private readonly Mock<IStorageSpaceProvider> _storageSpaceProviderMock;
 
     public BackupServiceTests()
     {
@@ -41,6 +42,18 @@ public class BackupServiceTests
         _applicationPathsMock = new Mock<IServerApplicationPaths>();
         _databaseProviderMock = new Mock<IMulletaFlixDatabaseProvider>();
         _applicationLifetimeMock = new Mock<IHostApplicationLifetime>();
+        _storageSpaceProviderMock = new Mock<IStorageSpaceProvider>();
+        _storageSpaceProviderMock
+            .Setup(provider => provider.GetFreeSpaceOf(It.IsAny<string>()))
+            .Returns((string path) => new FolderStorageInfo
+            {
+                Path = path,
+                ResolvedPath = path,
+                FreeSpace = 10_737_418_240,
+                UsedSpace = 1_073_741_824,
+                StorageType = "Fixed",
+                DeviceId = "test"
+            });
 
         _applicationHostMock.Setup(x => x.ApplicationVersion).Returns(new Version(10, 0, 0));
         _applicationPathsMock.Setup(x => x.BackupPath).Returns(Path.Combine(Path.GetTempPath(), "MulletaFlixTestBackups"));
@@ -66,7 +79,8 @@ public class BackupServiceTests
             _applicationHostMock.Object,
             _applicationPathsMock.Object,
             _databaseProviderMock.Object,
-            _applicationLifetimeMock.Object);
+            _applicationLifetimeMock.Object,
+            _storageSpaceProviderMock.Object);
     }
 
     [Fact]
@@ -195,7 +209,8 @@ public class BackupServiceTests
             _applicationHostMock.Object,
             _applicationPathsMock.Object,
             _databaseProviderMock.Object,
-            _applicationLifetimeMock.Object);
+            _applicationLifetimeMock.Object,
+            _storageSpaceProviderMock.Object);
 
         // Since we can't easily mock the static StorageHelper, we'll skip this test
         // and just verify the service construction works
@@ -232,7 +247,8 @@ public class BackupServiceTests
                 _applicationHostMock.Object,
                 _applicationPathsMock.Object,
                 _databaseProviderMock.Object,
-                _applicationLifetimeMock.Object);
+                _applicationLifetimeMock.Object,
+                _storageSpaceProviderMock.Object);
 
             var result = await service.CreateBackupAsync(new BackupOptionsDto
             {
@@ -261,6 +277,54 @@ public class BackupServiceTests
             dbContextFactory.Verify(factory => factory.CreateDbContext(), Times.Never);
             dbContextFactory.Verify(factory => factory.CreateDbContextAsync(It.IsAny<CancellationToken>()), Times.Never);
             _databaseProviderMock.Verify(provider => provider.RunScheduledOptimisation(It.IsAny<CancellationToken>()), Times.Never);
+        }
+        finally
+        {
+            if (Directory.Exists(isolatedRoot))
+            {
+                Directory.Delete(isolatedRoot, recursive: true);
+            }
+        }
+    }
+
+    [Fact]
+    public async Task CreateBackupAsync_RejectsBackupDirectoryBelowMinimumFreeSpace()
+    {
+        var isolatedRoot = Path.Combine(Path.GetTempPath(), $"mulletaflix-backup-low-space-{Guid.NewGuid():N}");
+        var backupPath = Path.Combine(isolatedRoot, "backups");
+        var dataPath = Path.Combine(isolatedRoot, "data");
+        Directory.CreateDirectory(backupPath);
+        Directory.CreateDirectory(dataPath);
+
+        try
+        {
+            _applicationPathsMock.Setup(paths => paths.BackupPath).Returns(backupPath);
+            _applicationPathsMock.Setup(paths => paths.DataPath).Returns(dataPath);
+            _storageSpaceProviderMock
+                .Setup(provider => provider.GetFreeSpaceOf(backupPath))
+                .Returns(new FolderStorageInfo
+                {
+                    Path = backupPath,
+                    ResolvedPath = backupPath,
+                    FreeSpace = 5_368_709_114,
+                    UsedSpace = 0,
+                    StorageType = "Fixed",
+                    DeviceId = "test"
+                });
+
+            var service = CreateService();
+
+            var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => service.CreateBackupAsync(new BackupOptionsDto
+            {
+                Database = false,
+                Metadata = false,
+                Subtitles = false,
+                Trickplay = false
+            }));
+
+            Assert.Contains("does not have at least '5GiB' free space", exception.Message, StringComparison.Ordinal);
+            var execution = Assert.Single(await service.GetBackupHistory());
+            Assert.Equal(TaskCompletionStatus.Failed, execution.Status);
         }
         finally
         {
@@ -834,7 +898,8 @@ public class BackupServiceTests
                 _applicationHostMock.Object,
                 _applicationPathsMock.Object,
                 _databaseProviderMock.Object,
-                _applicationLifetimeMock.Object);
+                _applicationLifetimeMock.Object,
+                _storageSpaceProviderMock.Object);
 
             var exception = await Assert.ThrowsAsync<InvalidDataException>(() => service.RestoreBackupAsync(archivePath));
 
@@ -915,7 +980,8 @@ public class BackupServiceTests
                 _applicationHostMock.Object,
                 _applicationPathsMock.Object,
                 _databaseProviderMock.Object,
-                _applicationLifetimeMock.Object);
+                _applicationLifetimeMock.Object,
+                _storageSpaceProviderMock.Object);
 
             await Assert.ThrowsAsync<InvalidDataException>(() => service.RestoreBackupAsync(archivePath));
 
