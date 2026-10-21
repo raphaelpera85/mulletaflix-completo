@@ -1,5 +1,23 @@
 # Matriz de evidências da auditoria
 
+## Release 12.1.33 — identidade visual das notificações — 2026-10-21
+
+- Notificações do frontend agora sempre usam o ícone e badge oficial do
+  MulletaFlix, inclusive notificações de mídia que antes substituíam o ícone do
+  produto pela capa. Ícones de ações também usam o mesmo asset de marca.
+- O asset legado `notificationicon.png`, que continha a marca Jellyfin, foi
+  removido após busca confirmar ausência de outras referências ativas. Ícones
+  do servidor e tray, favicon, login, toolbar e screensaver foram inspecionados;
+  os arquivos visuais são da marca MulletaFlix. Alguns nomes de recursos
+  internos ainda contêm `Jellyfin`, mas apontam para o mesmo `.ico` correto.
+- Regressão focada: 1/1; suíte web: 419/419 em 76 arquivos; TypeScript,
+  `build:production` e `verify:build` passaram. Build de produção gerou 1.924
+  arquivos; bundle inicial 294,3 KiB gzip (orçamento 420 KiB). Vite relatou
+  avisos de diretivas em dependências e imports dinâmicos.
+- GitHub Actions e geração dos pacotes Windows/Linux serão verificados no
+  fluxo da tag. Confirmação visual em cliente atualizado, instalação, produção
+  e execução Linux nativa permanecem pendentes até homologação real.
+
 ## Release 12.1.31 — rejeição de backup relacional incompleto — 2026-10-21
 
 - `BackupService` agora valida a lista `DatabaseTables` e todas as entradas JSON relacionais esperadas antes de copiar Config/Data/Root ou abrir o banco. Tabela não declarada, entrada ausente ou nome não suportado causa `InvalidDataException`.
