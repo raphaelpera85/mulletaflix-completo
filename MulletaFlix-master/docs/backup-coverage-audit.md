@@ -11,14 +11,33 @@ Estado: cobertura integral ainda parcial; pré-validação CRC implementada para
 esse mesmo contexto. As entradas ausentes para tabelas são ignoradas, exceto o
 histórico de migrations, que é obrigatório.
 
-Além de `MulletaFlixDbContext`, a aplicação registra `UsersDbContext`,
-`MoviesDbContext`, `SeriesDbContext`, `ChannelsDbContext`, `BooksDbContext` e
-`SystemDbContext`. Essas fábricas usam o provider/configuração EF central; não
-se deve inferir um banco físico separado para cada contexto. Seus modelos não
-são enumerados pelo `BackupService` e precisam ser reconciliados por tabela
-física antes de ampliar o formato. A extensão IntroSkipper registra ainda
-`IntroSkipperDbContext` e `DetectionCacheDbContext` no schema separado
-`mulletaflix_introskipper`; esses dados também não aparecem no backup geral.
+### Reconciliação dos contextos EF e bancos
+
+Foram identificados nove contextos EF Core de produção: `MulletaFlixDbContext`,
+`UsersDbContext`, `MoviesDbContext`, `SeriesDbContext`, `ChannelsDbContext`,
+`BooksDbContext`, `SystemDbContext`, `IntroSkipperDbContext` e
+`DetectionCacheDbContext`. `ServiceCollectionExtensions.AddMulletaFlixDbContext`
+registra os sete primeiros com a mesma instância de `efCoreConfiguration`; o
+backup geral enumera apenas propriedades do contexto central. `UsersDbContext`
+e `SystemDbContext` contêm entidades cujas tabelas também estão no modelo
+central, portanto não devem ser adicionados como exportações duplicadas sem
+antes definir a propriedade física e a fonte de verdade.
+
+Os quatro modelos de domínio (`MoviesDbContext`, `SeriesDbContext`,
+`ChannelsDbContext` e `BooksDbContext`) mapeiam tabelas próprias que não são
+enumeradas pelo backup central. `DomainSchemaInitializer` usa explicitamente
+`DatabaseNames.Main` para criá-las, e a rotina de migração chama esse
+inicializador com os contextos de domínio. O setup MariaDB também cria bancos
+com nomes `mulletaflix_users`, `mulletaflix_movies`, `mulletaflix_series`,
+`mulletaflix_channels` e `mulletaflix_books`, mas os factories observados não
+selecionam esses nomes individualmente. Isso prova a configuração no código,
+não a topologia física de uma instalação nem o provider ativo em produção.
+
+IntroSkipper registra `IntroSkipperDbContext` e `DetectionCacheDbContext` com a
+opção de banco `mulletaflix_introskipper`; seus nove conjuntos de tabelas não
+aparecem no backup central. A confirmação de cobertura requer declarar o
+ownership por banco/tabela e testar a combinação real de provider e migração;
+não se deve tratar nomes dos contextos como prova de bancos independentes.
 
 O banco MongoDB do Nebula também é externo ao `BackupService`. A fonte identifica
 seis coleções usadas pelo servidor: `files`, `nebula_admission`, `users`,
@@ -63,6 +82,13 @@ criação do ZIP.
   de ferramentas, consistência, portabilidade e semântica de restauração.
 
 ## Evidência e próximos gates
+
+Reconciliação estática dos contextos, factories e inicializador feita em
+2026-10-21: `ServiceCollectionExtensions.cs`, `DomainDbContexts.cs`,
+`UsersDbContext.cs`, `DomainSchemaInitializer.cs`,
+`MariaDbProcessManager.cs` e `PluginServiceRegistrator.cs`. Nenhum banco ativo,
+provider de produção ou instalação foi consultado; a inferência sobre bancos
+físicos efetivos continua pendente.
 
 Em 2026-10-21, `FullSystemBackup` passou 33/33 testes Release, incluindo a
 regressão `RestoreBackupAsync_RejectsCorruptedArchiveBeforeOverwritingFiles`.
