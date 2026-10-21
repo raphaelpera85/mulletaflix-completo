@@ -84,7 +84,7 @@ namespace MediaBrowser.Providers.Plugins.Tmdb
         /// <returns>The TMDb movie or null if not found.</returns>
         public async Task<Movie?> GetMovieAsync(int tmdbId, string? language, string? imageLanguages, string? countryCode, CancellationToken cancellationToken)
         {
-            var key = $"movie-{tmdbId.ToString(CultureInfo.InvariantCulture)}-{language}";
+            var key = CreateImageAwareCacheKey("movie", tmdbId, language, imageLanguages, countryCode);
             if (_memoryCache.TryGetValue(key, out Movie? movie))
             {
                 return movie;
@@ -125,7 +125,7 @@ namespace MediaBrowser.Providers.Plugins.Tmdb
         /// <returns>The TMDb collection or null if not found.</returns>
         public async Task<Collection?> GetCollectionAsync(int tmdbId, string? language, string? imageLanguages, string? countryCode, CancellationToken cancellationToken)
         {
-            var key = $"collection-{tmdbId.ToString(CultureInfo.InvariantCulture)}-{language}";
+            var key = CreateImageAwareCacheKey("collection", tmdbId, language, imageLanguages, countryCode);
             if (_memoryCache.TryGetValue(key, out Collection? collection))
             {
                 return collection;
@@ -160,7 +160,7 @@ namespace MediaBrowser.Providers.Plugins.Tmdb
         /// <returns>The TMDb tv show information or null if not found.</returns>
         public async Task<TvShow?> GetSeriesAsync(int tmdbId, string? language, string? imageLanguages, string? countryCode, CancellationToken cancellationToken)
         {
-            var key = $"series-{tmdbId.ToString(CultureInfo.InvariantCulture)}-{language}";
+            var key = CreateImageAwareCacheKey("series", tmdbId, language, imageLanguages, countryCode);
             if (_memoryCache.TryGetValue(key, out TvShow? series))
             {
                 return series;
@@ -259,7 +259,12 @@ namespace MediaBrowser.Providers.Plugins.Tmdb
         /// <returns>The TMDb tv season information or null if not found.</returns>
         public async Task<TvSeason?> GetSeasonAsync(int tvShowId, int seasonNumber, string? language, string? imageLanguages, string? countryCode, CancellationToken cancellationToken)
         {
-            var key = $"season-{tvShowId.ToString(CultureInfo.InvariantCulture)}-s{seasonNumber.ToString(CultureInfo.InvariantCulture)}-{language}";
+            var key = CreateImageAwareCacheKey(
+                $"season-s{seasonNumber.ToString(CultureInfo.InvariantCulture)}",
+                tvShowId,
+                language,
+                imageLanguages,
+                countryCode);
             if (_memoryCache.TryGetValue(key, out TvSeason? season))
             {
                 return season;
@@ -298,7 +303,12 @@ namespace MediaBrowser.Providers.Plugins.Tmdb
         /// <returns>The TMDb tv episode information or null if not found.</returns>
         public async Task<TvEpisode?> GetEpisodeAsync(int tvShowId, int seasonNumber, long episodeNumber, string displayOrder, string? language, string? imageLanguages, string? countryCode, CancellationToken cancellationToken)
         {
-            var key = $"episode-{tvShowId.ToString(CultureInfo.InvariantCulture)}-s{seasonNumber.ToString(CultureInfo.InvariantCulture)}e{episodeNumber.ToString(CultureInfo.InvariantCulture)}-{displayOrder}-{language}";
+            var key = CreateImageAwareCacheKey(
+                $"episode-s{seasonNumber.ToString(CultureInfo.InvariantCulture)}e{episodeNumber.ToString(CultureInfo.InvariantCulture)}-{displayOrder}",
+                tvShowId,
+                language,
+                imageLanguages,
+                countryCode);
             if (_memoryCache.TryGetValue(key, out TvEpisode? episode))
             {
                 return episode;
@@ -791,6 +801,17 @@ namespace MediaBrowser.Providers.Plugins.Tmdb
         {
             Dispose(true);
             GC.SuppressFinalize(this);
+        }
+
+        internal static string CreateImageAwareCacheKey(string entityType, int tmdbId, string? language, string? imageLanguages, string? countryCode)
+        {
+            return string.Join(
+                '-',
+                entityType,
+                tmdbId.ToString(CultureInfo.InvariantCulture),
+                TmdbUtils.NormalizeLanguage(language, countryCode) ?? string.Empty,
+                imageLanguages ?? string.Empty,
+                countryCode ?? string.Empty);
         }
 
         /// <summary>

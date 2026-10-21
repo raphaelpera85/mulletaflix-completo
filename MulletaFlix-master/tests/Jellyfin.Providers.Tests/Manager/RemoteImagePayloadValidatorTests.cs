@@ -16,6 +16,42 @@ namespace MulletaFlix.Providers.Tests.Manager;
 public class RemoteImagePayloadValidatorTests
 {
     [Fact]
+    public async Task OpenStagedPayloadAsync_RetriesTransientWindowsSharingViolation()
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        var temporaryDirectory = CreateTemporaryDirectory();
+        var path = Path.Combine(temporaryDirectory, "remote-image-test.jpg");
+        await File.WriteAllBytesAsync(path, new byte[] { 1, 2, 3 }, TestContext.Current.CancellationToken);
+        var exclusiveLock = new FileStream(path, FileMode.Open, FileAccess.ReadWrite, FileShare.None);
+
+        try
+        {
+            async Task ReleaseLockAsync()
+            {
+                await Task.Delay(80, TestContext.Current.CancellationToken);
+                await exclusiveLock.DisposeAsync();
+            }
+
+            var releaseLock = Task.Run(ReleaseLockAsync, TestContext.Current.CancellationToken);
+
+            await using var staged = await RemoteImagePayloadValidator.OpenStagedPayloadAsync(path, TestContext.Current.CancellationToken);
+            await releaseLock;
+
+            Assert.True(staged.CanRead);
+            Assert.Equal(new byte[] { 1, 2, 3 }, await ReadAllBytesAsync(staged));
+        }
+        finally
+        {
+            await exclusiveLock.DisposeAsync();
+            Directory.Delete(temporaryDirectory, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task PrepareAsync_ValidImage_ReturnsValidatedSeekablePayloadAndCleansTemporaryFile()
     {
         var image = File.ReadAllBytes(Path.Combine(AppContext.BaseDirectory, "Test Data", "Images", "blank0.jpg"));
@@ -208,9 +244,18 @@ public class RemoteImagePayloadValidatorTests
         return path;
     }
 
+    private static async Task<byte[]> ReadAllBytesAsync(Stream stream)
+    {
+        using var destination = new MemoryStream();
+        await stream.CopyToAsync(destination, TestContext.Current.CancellationToken);
+        return destination.ToArray();
+    }
+
     private sealed class OversizedSeekableStream(long length) : Stream
     {
         public bool IsDisposed { get; private set; }
+
+        public override bool CanRead => !IsDisposed;
 
         public override bool CanSeek => true;
 
@@ -239,7 +284,5 @@ public class RemoteImagePayloadValidatorTests
 
             base.Dispose(disposing);
         }
-
-        public override bool CanRead => !IsDisposed;
     }
 }

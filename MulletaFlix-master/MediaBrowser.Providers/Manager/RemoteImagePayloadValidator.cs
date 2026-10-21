@@ -19,6 +19,7 @@ internal static class RemoteImagePayloadValidator
     internal const long MaximumPixelCount = 16_777_216;
     internal const int MaximumCachedPayloadBytes = 8 * 1024 * 1024;
     private static readonly SemaphoreSlim _imageDecodeConcurrency = new(2, 2);
+    private static readonly int[] _sharingViolationRetryDelaysMs = [50, 100, 200];
 
     /// <summary>
     /// Copies the payload into a bounded temporary file and fully decodes it when a
@@ -106,13 +107,7 @@ internal static class RemoteImagePayloadValidator
                 }
             }
 
-            return new FileStream(
-                temporaryPath,
-                FileMode.Open,
-                FileAccess.Read,
-                FileShare.Read,
-                81920,
-                FileOptions.Asynchronous | FileOptions.SequentialScan | FileOptions.DeleteOnClose);
+            return await OpenStagedPayloadAsync(temporaryPath, cancellationToken).ConfigureAwait(false);
         }
         catch
         {
@@ -134,6 +129,37 @@ internal static class RemoteImagePayloadValidator
 
             throw;
         }
+    }
+
+    internal static async Task<FileStream> OpenStagedPayloadAsync(string path, CancellationToken cancellationToken)
+    {
+        // Antivirus and indexing software may briefly open a newly written image without
+        // sharing access. Retry only Windows sharing/lock violations; other I/O errors are
+        // permanent for this request and should surface immediately.
+        for (var attempt = 0; ; attempt++)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            try
+            {
+                return new FileStream(
+                    path,
+                    FileMode.Open,
+                    FileAccess.Read,
+                    FileShare.Read,
+                    81920,
+                    FileOptions.Asynchronous | FileOptions.SequentialScan | FileOptions.DeleteOnClose);
+            }
+            catch (IOException exception) when (attempt < _sharingViolationRetryDelaysMs.Length && IsWindowsSharingViolation(exception))
+            {
+                await Task.Delay(_sharingViolationRetryDelaysMs[attempt], cancellationToken).ConfigureAwait(false);
+            }
+        }
+    }
+
+    private static bool IsWindowsSharingViolation(IOException exception)
+    {
+        var errorCode = exception.HResult & 0xFFFF;
+        return errorCode is 32 or 33;
     }
 
     /// <summary>

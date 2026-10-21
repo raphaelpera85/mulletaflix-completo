@@ -37,6 +37,23 @@ namespace MulletaFlix.Providers.Tests.Tmdb
         }
 
         [Fact]
+        public static void GetImageLanguagesParam_PrioritizesBrazilianPortugueseAndKeepsFallbacks()
+        {
+            Assert.Equal("pt-BR,null,en", TmdbUtils.GetImageLanguagesParam("pt-BR", "BR"));
+        }
+
+        [Fact]
+        public static void TmdbImageCacheKey_DoesNotReuseResultsAcrossImageLanguagesOrCountries()
+        {
+            var portugueseBrazil = TmdbClientManager.CreateImageAwareCacheKey("movie", 42, "pt", "pt-BR,null,en", "BR");
+            var portuguesePortugal = TmdbClientManager.CreateImageAwareCacheKey("movie", 42, "pt", "pt-PT,null,en", "PT");
+            var english = TmdbClientManager.CreateImageAwareCacheKey("movie", 42, "en", "en,null", "US");
+
+            Assert.NotEqual(portugueseBrazil, portuguesePortugal);
+            Assert.NotEqual(portugueseBrazil, english);
+        }
+
+        [Fact]
         public static void BuildSearchNameVariants_StripsLeadingArticles_AndDiacritics()
         {
             var variants = TmdbUtils.BuildSearchNameVariants("A Fada dos Dentes").ToArray();
