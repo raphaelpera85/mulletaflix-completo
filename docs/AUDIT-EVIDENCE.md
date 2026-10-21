@@ -1,5 +1,12 @@
 # Matriz de evidências da auditoria
 
+## Identidade visual — ícone das notificações de nova mídia — 2026-10-20 22:04 (-03)
+
+- Busca no código fonte do servidor, frontend web e packaging por `notificationicon`, `jellyfin-icon`, `jellyfin_logo`, ícones de app e favicons identificou um uso incorreto: `MulletaFlix-web-master/src/components/notifications/notifications.ts` usava `src/components/notifications/notificationicon.png`, que contém a marca Jellyfin, como ícone/badge padrão.
+- O fallback agora usa `src/assets/branding/icon.png` (marca MulletaFlix) para `icon`, `badge` e notificações de ação/instalação; a capa individual da mídia continua sendo usada como ícone principal de notificação quando disponível. A busca não encontrou outras referências de código ao arquivo antigo. Favicon, manifest, tela de login, botão de servidor, screensaver e tray foram conferidos e já apontam para branding MulletaFlix.
+- `npm run build:check`: passou. `npm test -- --run`: 75 arquivos e 418 testes passaram, sem falhas; jsdom emitiu mensagens não fatais sobre `getComputedStyle`/pseudo-elementos. `git diff --check`: passou com aviso de conversão LF→CRLF do Git. Nenhuma validação visual de notificação real, instalação, runtime de produção ou release foi executada; a confirmação no cliente após atualizar os assets permanece pendente.
+- Alteração limitada a import de branding já existente no frontend; nenhum módulo, API, classe de servidor, dependência ou fluxo de servidor mudou. Mapa técnico conferido e permaneceu igual. Não criada release.
+
 ## Nebula — regressão focal de lifecycle, cache e backup — 2026-10-20 09:56 (-03)
 
 - Comando Release focal em `Jellyfin.Server.Implementations.Tests`, cobrindo `NebulaPeriodicLoopTests`, `NebulaMountRuntimeHealthTests`, `NebulaCleanupLifecycleTests`, `NebulaPlaybackCacheTests`, `NebulaSupabaseSyncTests`, `NebulaSupabaseRestoreMongoTests` e `NebulaSupabaseFileRestoreTests`: 137 aprovados, 2 ignorados, 0 falhas/139. Os dois ignorados são casos Mongo-backed da classe RestoreMongo; não foram executados contra banco.
