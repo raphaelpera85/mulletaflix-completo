@@ -1,5 +1,14 @@
 # Matriz de evidências da auditoria
 
+## Revalidação do fluxo de release do servidor — 2026-10-21
+
+- O usuário solicitou executar o fluxo de release com todas as correções do servidor. `main` estava limpa em `8f429f580762d8011845710a3207030c54b8ebbb`; o `VersionPrefix` da fonte é `12.1.26`. A tag publicada `v12.1.26` aponta para `7e463a26cb0e4d4f3204c86aff6a0e755619322f`, e a diferença entre a tag e `main` no momento da conferência se limitava a documentação de release (`docs/AUDIT-EVIDENCE.md`, `docs/releases/12.1.26.md`), sem mudança de código do servidor.
+- A API pública do GitHub confirmou release não-draft/não-prerelease e os três assets: instalador Windows x64 (423.470.953 bytes; SHA-256 `d3cac5acc362b7e834c3d23917061ad136eec212c26f492e28fcce87102e737a`), ZIP de atualização Windows x64 (388.893.687 bytes; SHA-256 `1fbbfe31fbf85945339b138fa7a1b64ef26a8d5dc4359497af4965957c70199a`) e tar.gz Linux x64 (137.177.201 bytes; SHA-256 `26bad83b20c719fe27114bb1670dc218108bd0e47ed9a633e4315330d173e465`); os valores coincidem com `docs/releases/12.1.26.md`.
+- Não foi criada `v12.1.27`: não há correção de código posterior à release para empacotar, e incrementar a versão sem alteração de servidor criaria uma release redundante. Isso confirma o estado da publicação, mas não encerra os itens ainda abertos da auditoria geral.
+- A homologação desse resultado foi registrada no portal em `Mulletaflix-Portal:main`, commit `0f80a12efedf1e03eb0a5feb086ecef67ca1d730`. `node --test tests/homologacao.test.mjs`: 194/194; `node --check homologacao.js`, parse do JSON e `git diff --check` passaram. `git ls-remote` confirmou `main` nesse SHA e o endpoint público `/homologacao-status.json` respondeu HTTP 200 contendo o evento. Isso confirma publicação Git e leitura do snapshot público, não instalação/produção nem o estado de deploy do Vercel.
+- A validação de código da v12.1.26 permanece a registrada em `docs/releases/12.1.26.md`: testes focais de imagens 97/97, regressão ampla sem Integration com `Jellyfin.Server.Implementations.Tests` 1.508 aprovados/64 ignorados/0 falhas, pacotes conferidos estruturalmente; Linux cross-publish em Windows. Não houve nova execução .NET, construção de pacotes, instalação, host Linux nativo ou alteração em produção nesta revalidação.
+- O mapa técnico foi conferido contra a documentação e a fonte atuais; nenhum módulo, API, classe, dependência ou fluxo mudou nesta sessão.
+
 ## Identidade visual — ícone das notificações de nova mídia — 2026-10-20 22:04 (-03)
 
 - Busca no código fonte do servidor, frontend web e packaging por `notificationicon`, `jellyfin-icon`, `jellyfin_logo`, ícones de app e favicons identificou um uso incorreto: `MulletaFlix-web-master/src/components/notifications/notifications.ts` usava `src/components/notifications/notificationicon.png`, que contém a marca Jellyfin, como ícone/badge padrão.
