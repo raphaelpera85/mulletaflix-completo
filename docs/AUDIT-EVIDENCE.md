@@ -14,9 +14,12 @@
   `build:production` e `verify:build` passaram. Build de produção gerou 1.924
   arquivos; bundle inicial 294,3 KiB gzip (orçamento 420 KiB). Vite relatou
   avisos de diretivas em dependências e imports dinâmicos.
-- GitHub Actions e geração dos pacotes Windows/Linux serão verificados no
-  fluxo da tag. Confirmação visual em cliente atualizado, instalação, produção
-  e execução Linux nativa permanecem pendentes até homologação real.
+- Pacotes Windows e Linux x64 foram gerados localmente e publicados na release
+  GitHub `v12.1.33`, commit `29bb2fc0385c527e63410f2ff95a9f459c76f733`; três
+  tamanhos e digests constam em `MulletaFlix-master/docs/releases/12.1.33.md`.
+  GitHub Actions falhou antes de iniciar jobs: conta bloqueada por cobrança.
+  Suíte ampla .NET/Nebula remota não executada. Confirmação visual em cliente
+  atualizado, instalação, produção e execução Linux nativa seguem pendentes.
 
 ## Release 12.1.31 — rejeição de backup relacional incompleto — 2026-10-21
 
