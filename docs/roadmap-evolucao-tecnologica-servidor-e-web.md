@@ -3704,3 +3704,8 @@ Fontes oficiais consultadas em 28/09/2026. Disponibilidade, suporte e requisitos
 - NebulaPython Python 3.10 reexecutado no checkout atual: 646/646 aprovados em 119,00 s com `--cov-branch`; agregado 88% incluindo testes (14.440 statements, 1.285 ausentes; 2.744 branches, 497 parciais). `tools/strm_downloader.py` 77%; `tools/supabase_sync.py` 89%.
 - `Jellyfin.Server.Implementations.Tests` Release com filtro `FullyQualifiedName~Nebula`: 705 aprovados, 24 ignorados, 0 falhas (729 total). Os skips são integrações Mongo; a porta descartável 27099 não está ouvindo, e `mongod`/Docker não estão disponíveis no PATH.
 - Não houve acesso a Mongo/Supabase/Telegram reais, runtime instalado, instalação, mídia ou produção. CI remota e integração MongoDB 7.0 seguem pendentes. Nenhum código runtime ou Release alterado/criado. Atualização pública de homologação está na nota de sessão correspondente.
+### Imagens remotas — validação do Content-Type (2026-10-20)
+
+- [x] Rejeitar respostas remotas HTTP 200 cujo MIME efetivo não seja `image/*` para imagens principais e fundos; seguir para a próxima candidata em vez de gravar HTML como imagem.
+- [x] Cobrir pôster e backdrop com regressão de rejeição de `text/html` e fallback para imagem válida (`ItemImageProviderRefreshTests`).
+- [ ] Validar com provider/CDN real e runtime instalado, incluindo bytes de imagem corrompidos apesar de MIME `image/*`; homologação de mídia real segue pendente.

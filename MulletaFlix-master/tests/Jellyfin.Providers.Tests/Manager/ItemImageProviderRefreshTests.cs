@@ -497,5 +497,72 @@ namespace MulletaFlix.Providers.Tests.Manager
             Assert.True(result.UpdateType.HasFlag(ItemUpdateType.ImageUpdate));
             Assert.Equal(imageType == ImageType.Primary ? 0 : 1, result.Failures);
         }
+
+        [Theory]
+        [InlineData(ImageType.Primary)]
+        [InlineData(ImageType.Backdrop)]
+        public async Task RefreshImages_RemoteResponseWithNonImageContentType_UsesNextCandidate(ImageType imageType)
+        {
+            var item = new Video { Path = "non-empty path" };
+            BaseItem.MediaSourceManager = Mock.Of<IMediaSourceManager>();
+            var libraryOptions = GetLibraryOptions(item, imageType, 1);
+            var remoteProvider = new Mock<IRemoteImageProvider>(MockBehavior.Strict);
+            remoteProvider.Setup(provider => provider.Name).Returns("MockRemoteProvider");
+            remoteProvider.Setup(provider => provider.GetSupportedImages(item)).Returns([imageType]);
+            remoteProvider.Setup(provider => provider.GetImageResponse("html image url", It.IsAny<CancellationToken>()))
+                .ReturnsAsync(new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    RequestMessage = new HttpRequestMessage(HttpMethod.Get, "https://images.example/error"),
+                    Content = new StringContent("<html>not an image</html>", Encoding.UTF8, MediaTypeNames.Text.Html)
+                });
+            remoteProvider.Setup(provider => provider.GetImageResponse("valid image url", It.IsAny<CancellationToken>()))
+                .ReturnsAsync(new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    RequestMessage = new HttpRequestMessage(HttpMethod.Get, "https://images.example/poster.jpg"),
+                    Content = new StringContent("image content", Encoding.UTF8, MediaTypeNames.Image.Jpeg)
+                });
+
+            var providerManager = new Mock<IProviderManager>(MockBehavior.Strict);
+            providerManager.Setup(manager => manager.GetAvailableRemoteImages(
+                    item,
+                    It.IsAny<RemoteImageQuery>(),
+                    It.IsAny<CancellationToken>()))
+                .ReturnsAsync(new[]
+                {
+                    new RemoteImageInfo { Type = imageType, Url = "html image url" },
+                    new RemoteImageInfo { Type = imageType, Url = "valid image url" }
+                });
+            providerManager.Setup(manager => manager.SaveImage(
+                    item,
+                    It.IsAny<Stream>(),
+                    MediaTypeNames.Image.Jpeg,
+                    imageType,
+                    null,
+                    It.IsAny<CancellationToken>()))
+                .Returns(Task.CompletedTask);
+
+            var imageProvider = GetItemImageProvider(providerManager.Object, null);
+            var result = await imageProvider.RefreshImages(
+                item,
+                libraryOptions,
+                [remoteProvider.Object],
+                new ImageRefreshOptions(Mock.Of<IDirectoryService>()),
+                CancellationToken.None);
+
+            remoteProvider.Verify(
+                provider => provider.GetImageResponse("valid image url", It.IsAny<CancellationToken>()),
+                Times.Once);
+            providerManager.Verify(
+                manager => manager.SaveImage(
+                    item,
+                    It.IsAny<Stream>(),
+                    MediaTypeNames.Image.Jpeg,
+                    imageType,
+                    null,
+                    It.IsAny<CancellationToken>()),
+                Times.Once);
+            Assert.True(result.UpdateType.HasFlag(ItemUpdateType.ImageUpdate));
+            Assert.Equal(imageType == ImageType.Primary ? 0 : 1, result.Failures);
+        }
     }
 }

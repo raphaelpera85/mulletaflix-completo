@@ -604,6 +604,14 @@ namespace MediaBrowser.Providers.Manager
                             mimetype = MimeTypes.GetMimeType(response.RequestMessage.RequestUri.GetLeftPart(UriPartial.Path));
                         }
 
+                        if (!IsImageMimeType(mimetype))
+                        {
+                            throw new HttpRequestException(
+                                $"Request returned '{mimetype ?? "unknown"}' instead of an image type",
+                                null,
+                                HttpStatusCode.NotFound);
+                        }
+
                         await _providerManager.SaveImage(
                             item,
                             stream,
@@ -746,6 +754,14 @@ namespace MediaBrowser.Providers.Manager
                             mimetype = MimeTypes.GetMimeType(response.RequestMessage.RequestUri.GetLeftPart(UriPartial.Path));
                         }
 
+                        if (!IsImageMimeType(mimetype))
+                        {
+                            throw new HttpRequestException(
+                                $"Request returned '{mimetype ?? "unknown"}' instead of an image type",
+                                null,
+                                HttpStatusCode.NotFound);
+                        }
+
                         await _providerManager.SaveImage(
                             item,
                             stream,
@@ -765,5 +781,9 @@ namespace MediaBrowser.Providers.Manager
                 }
             }
         }
+
+        private static bool IsImageMimeType(string? mimeType)
+            => !string.IsNullOrWhiteSpace(mimeType)
+                && mimeType.StartsWith("image/", StringComparison.OrdinalIgnoreCase);
     }
 }
