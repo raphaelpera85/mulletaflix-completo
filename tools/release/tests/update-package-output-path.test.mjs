@@ -16,3 +16,15 @@ test('update package output path is rooted before changing to the temporary arch
     assert.match(builder, /GetFullPath\(\(Join-Path \$projectRoot \$OutputDir\)\)/);
     assert.match(builder, /\$zipPath = Join-Path \$OutputDir \$zipName/);
 });
+
+test('update package uses the curated Nebula runtime copier and replaces staged scratch files', () => {
+    const destinationCleanup = builder.indexOf('Remove-Item -LiteralPath $nebulaPythonDest -Recurse -Force');
+    const runtimeCopy = builder.indexOf("tools\\release\\copy-nebula-python-runtime.ps1");
+
+    assert.notEqual(destinationCleanup, -1, 'stale staged runtime files must be removed before copying');
+    assert.ok(runtimeCopy > destinationCleanup, 'the curated copier must run after removing stale runtime files');
+    assert.match(builder, /-SourceDirectory \$nebulaPythonSource/);
+    assert.match(builder, /-DestinationDirectory \$nebulaPythonDest/);
+    assert.doesNotMatch(builder, /robocopy\.exe \$nebulaPythonSource/);
+    assert.match(builder, /\.ruff_cache\/\.coverage/);
+});

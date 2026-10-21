@@ -187,17 +187,19 @@ if (Test-Path -LiteralPath $toolsSource) {
     # fresh/updated install was missing it entirely -- NebulaFtpManager.StartPythonStreamServiceAsync
     # throws FileNotFoundException("Runtime Python do Nebula de playback nao foi encontrado.") the
     # first time an operator starts Envio, with no earlier warning. Bundle the script sources (not
-    # __pycache__/.pytest_cache/tests/staging scratch dirs) so FindPythonStreamScript's
+    # __pycache__/.pytest_cache/.ruff_cache/.coverage/tests/staging scratch dirs) so FindPythonStreamScript's
     # Tools/NebulaPython/stream_service.py candidate resolves on a clean install. The Python
     # interpreter itself is still resolved at runtime via python.path marker / PATH / well-known
     # paths (FindPythonExe) -- this script does not install Python or pip dependencies.
     $nebulaPythonSource = Join-Path $toolsSource 'NebulaPython'
     if (Test-Path -LiteralPath $nebulaPythonSource) {
         $nebulaPythonDest = Join-Path $toolsDest 'NebulaPython'
-        & robocopy.exe $nebulaPythonSource $nebulaPythonDest /E /XD '__pycache__' '.pytest_cache' 'tests' 'staging' /XF '*.pyc' 'nebula.log' /NFL /NDL /NJH /NJS /NP | Out-Null
-        if ($LASTEXITCODE -ge 8) {
-            throw "Could not stage Tools/NebulaPython (robocopy exit code $LASTEXITCODE)."
+        if (Test-Path -LiteralPath $nebulaPythonDest) {
+            Remove-Item -LiteralPath $nebulaPythonDest -Recurse -Force
         }
+        & (Join-Path $projectRoot 'tools\release\copy-nebula-python-runtime.ps1') `
+            -SourceDirectory $nebulaPythonSource `
+            -DestinationDirectory $nebulaPythonDest
 
         Write-Host "Synced Tools/NebulaPython to stage." -ForegroundColor Green
     }

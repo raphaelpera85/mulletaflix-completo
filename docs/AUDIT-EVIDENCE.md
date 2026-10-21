@@ -1,5 +1,13 @@
 # Matriz de evidências da auditoria
 
+## Release 12.1.30 — Vite patch e stage Nebula sem cache de testes — 2026-10-21
+
+- Versão da fonte incrementada de 12.1.29 para 12.1.30, respeitando o formato de versionamento. `main` partiu de `415f3091df771b8dbecfa5ab95c78468ad68a185`; desde a v12.1.29, não havia correção adicional de runtime do servidor. Esta release inclui Vite 7.3.7 para assets web empacotados e evita que `.coverage`/`.ruff_cache` do workspace contaminem o ZIP de atualização.
+- Validação local: `npm audit --omit=dev` sem vulnerabilidades; audit geral 11 alertas dev (1 moderado/10 altos); TypeScript passou; Vitest 418/418 em 75 arquivos; `build:production` e `verify:build` passaram (1.926 artefatos, bundle inicial 294,3 KiB gzip/420 KiB orçamento). Suite .NET Release terminou exit 0 com os skips documentados em `docs/frontend-dependency-security-audit.md`.
+- Packaging: `copy-nebula-python-runtime` Pester 1/1 e contrato do builder Node 2/2. Stage validado; tray compilado com 0 avisos/0 erros; ZIP reinspecionado com `MulletaFlix.dll`, web, tray, `requirements.in` e sem `.coverage`/`.ruff_cache`; Linux tar inclui servidor, web e `install.sh`. Todos os artefatos foram cross-published em Windows; Linux nativo, instalação/upgrade, CI remota, produção e playback não foram testados.
+- Artefatos e SHA-256 constam em `MulletaFlix-master/docs/releases/12.1.30.md`. Os assets estão prontos para publicação, mas tag/GitHub Release e publicação do portal ainda pendentes neste registro.
+- A auditoria ampla/homologação formal do servidor continua aberta. Mapa técnico conferido; houve mudança no fluxo de packaging (helper de runtime Nebula e filtro de scratch no ZIP), sem alteração em APIs/runtime C#.
+
 ## Revalidação do fluxo de release do servidor — 2026-10-21
 
 - O usuário solicitou executar o fluxo de release com todas as correções do servidor. `main` estava limpa em `8f429f580762d8011845710a3207030c54b8ebbb`; o `VersionPrefix` da fonte é `12.1.26`. A tag publicada `v12.1.26` aponta para `7e463a26cb0e4d4f3204c86aff6a0e755619322f`, e a diferença entre a tag e `main` no momento da conferência se limitava a documentação de release (`docs/AUDIT-EVIDENCE.md`, `docs/releases/12.1.26.md`), sem mudança de código do servidor.
