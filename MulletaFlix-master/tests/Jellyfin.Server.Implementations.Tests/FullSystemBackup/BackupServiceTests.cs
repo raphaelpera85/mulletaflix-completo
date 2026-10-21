@@ -520,7 +520,7 @@ public class BackupServiceTests
 
         try
         {
-            await optimizationStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            await optimizationStarted.Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
             await Assert.ThrowsAsync<BackupOperationInProgressException>(
                 () => service.CreateBackupAsync(new BackupOptionsDto { Database = false }));
             await Assert.ThrowsAsync<BackupOperationInProgressException>(

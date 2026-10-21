@@ -120,7 +120,7 @@ public sealed class NebulaCleanupLifecycleTests
         Assert.Same(refreshQueue, GetField(manager, "_directoryRefreshQueue"));
 
         SetField(manager, "_rcloneProcess", null);
-        await manager.DisposeAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(5));
+        await manager.DisposeAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
         Assert.Null(GetField(manager, "_mongoContext"));
     }
 
@@ -141,7 +141,7 @@ public sealed class NebulaCleanupLifecycleTests
             Assert.False(disposal.IsCompleted);
             Assert.Same(maintenance, GetField(manager, "_maintenanceLock"));
             maintenance.Release();
-            await disposal.WaitAsync(TimeSpan.FromSeconds(5));
+            await disposal.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
         }
         finally
         {
@@ -173,7 +173,7 @@ public sealed class NebulaCleanupLifecycleTests
         finally
         {
             mount.TrySetResult();
-            await Task.WhenAll(disposal, repeatedDisposal).WaitAsync(TimeSpan.FromSeconds(5));
+            await Task.WhenAll(disposal, repeatedDisposal).WaitAsync(TimeSpan.FromSeconds(5), CancellationToken.None);
         }
 
         Assert.False(await manager.StartEnvioAsync(false, CancellationToken.None));
@@ -200,7 +200,7 @@ public sealed class NebulaCleanupLifecycleTests
         finally
         {
             cleanup.TrySetResult();
-            await manager.DisposeAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(5));
+            await manager.DisposeAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(5), CancellationToken.None);
         }
 
         Assert.Null(GetField(manager, "_cleanupTask"));

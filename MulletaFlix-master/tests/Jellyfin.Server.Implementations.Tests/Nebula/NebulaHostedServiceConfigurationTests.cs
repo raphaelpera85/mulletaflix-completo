@@ -391,10 +391,10 @@ public sealed class NebulaHostedServiceConfigurationTests
         await service.WaitForPendingWorkAsync();
         config.Enabled = true;
         configuration.Raise(m => m.NamedConfigurationUpdated += null, new ConfigurationUpdateEventArgs("nebulaftp", config));
-        await entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        await entered.Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
         try
         {
-            await service.StopAsync(CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(5));
+            await service.StopAsync(CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
             Assert.False(stoppedDuringStartup);
             Assert.False(starting);
             manager.Verify(m => m.StartDownloaderAsync(It.IsAny<CancellationToken>()), Times.Never);
@@ -428,7 +428,7 @@ public sealed class NebulaHostedServiceConfigurationTests
         await service.WaitForPendingWorkAsync();
         config.Enabled = true;
         configuration.Raise(m => m.NamedConfigurationUpdated += null, new ConfigurationUpdateEventArgs("nebulaftp", config));
-        await entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        await entered.Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
         using var deadline = new CancellationTokenSource(TimeSpan.FromMilliseconds(200));
         try
         {

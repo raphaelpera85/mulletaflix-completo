@@ -23,7 +23,7 @@ public sealed class NebulaMountRetryTests
         typeof(NebulaFtpManager).GetMethod("ScheduleMountRetry", flags)!.Invoke(manager, null);
         var retry = (NebulaMountRetry)typeof(NebulaFtpManager).GetField("_mountRetry", flags)!.GetValue(manager)!;
         manager.Dispose();
-        await retry.WaitForIdleAsync().WaitAsync(TimeSpan.FromSeconds(5));
+        await retry.WaitForIdleAsync().WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
         configuration.Verify(m => m.GetConfiguration("nebulaftp"), Times.Never);
         Assert.False(await manager.MountDriveNAsync(CancellationToken.None));
         configuration.Verify(m => m.GetConfiguration("nebulaftp"), Times.Never);
@@ -42,10 +42,10 @@ public sealed class NebulaMountRetryTests
             NullLogger<NebulaMountRetry>.Instance);
         retry.Schedule(TimeSpan.FromMinutes(1));
         retry.Cancel();
-        await retry.WaitForIdleAsync().WaitAsync(TimeSpan.FromSeconds(5));
+        await retry.WaitForIdleAsync().WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
         Assert.Equal(0, calls);
         retry.Schedule(TimeSpan.Zero);
-        await retry.WaitForIdleAsync().WaitAsync(TimeSpan.FromSeconds(5));
+        await retry.WaitForIdleAsync().WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
         Assert.Equal(1, calls);
     }
 
@@ -63,7 +63,7 @@ public sealed class NebulaMountRetryTests
         retry.Schedule(TimeSpan.FromMinutes(1));
         retry.Dispose();
         retry.Schedule(TimeSpan.Zero);
-        await retry.WaitForIdleAsync().WaitAsync(TimeSpan.FromSeconds(5));
+        await retry.WaitForIdleAsync().WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
         Assert.Equal(0, calls);
     }
 
@@ -81,14 +81,14 @@ public sealed class NebulaMountRetryTests
             },
             NullLogger<NebulaMountRetry>.Instance);
         retry.Schedule(TimeSpan.Zero);
-        await entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        await entered.Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
         for (var index = 0; index < 5; index++)
         {
             retry.Schedule(TimeSpan.Zero);
         }
 
         retry.Cancel();
-        await retry.WaitForIdleAsync().WaitAsync(TimeSpan.FromSeconds(5));
+        await retry.WaitForIdleAsync().WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
         Assert.Equal(1, calls);
     }
 
@@ -110,7 +110,7 @@ public sealed class NebulaMountRetryTests
             NullLogger<NebulaMountRetry>.Instance);
 
         retry.Schedule(TimeSpan.Zero);
-        await entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        await entered.Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
         retry.Schedule(TimeSpan.Zero);
         for (var index = 0; index < 5; index++)
         {
@@ -118,7 +118,7 @@ public sealed class NebulaMountRetryTests
         }
 
         release.SetResult();
-        await retry.WaitForIdleAsync().WaitAsync(TimeSpan.FromSeconds(5));
+        await retry.WaitForIdleAsync().WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
         Assert.Equal(2, calls);
     }
 
@@ -137,10 +137,10 @@ public sealed class NebulaMountRetryTests
             NullLogger<NebulaMountRetry>.Instance);
 
         retry.Schedule(TimeSpan.Zero);
-        await entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        await entered.Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
         retry.Schedule(TimeSpan.Zero);
         retry.Cancel();
-        await retry.WaitForIdleAsync().WaitAsync(TimeSpan.FromSeconds(5));
+        await retry.WaitForIdleAsync().WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
         Assert.Equal(1, calls);
     }
 }

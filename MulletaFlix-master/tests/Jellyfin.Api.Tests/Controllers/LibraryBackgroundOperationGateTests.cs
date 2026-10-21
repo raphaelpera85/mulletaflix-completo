@@ -94,7 +94,7 @@ public sealed class LibraryBackgroundOperationGateTests
         var result = controller.AddMediaPath(new MediaPathDto { Name = "Movies", Path = "D:\\Movies" }, refreshLibrary: true);
 
         Assert.IsType<NoContentResult>(result);
-        await monitorRestarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        await monitorRestarted.Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
         monitor.Verify(libraryMonitor => libraryMonitor.Start(), Times.Once);
         libraryManager.VerifyAll();
         using var nextLease = LibraryBackgroundOperationGate.TryAcquire();

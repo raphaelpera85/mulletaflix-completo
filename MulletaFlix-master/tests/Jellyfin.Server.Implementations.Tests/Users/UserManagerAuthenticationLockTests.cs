@@ -87,7 +87,7 @@ public sealed class UserManagerAuthenticationLockTests : IDisposable
         var firstTask = userManager.AuthenticateUser("missing-user-one", "password", "127.0.0.1", isUserSession: true);
         var secondTask = userManager.AuthenticateUser("missing-user-two", "password", "127.0.0.1", isUserSession: true);
 
-        await authProvider.SecondCallStarted.WaitAsync(TimeSpan.FromSeconds(5));
+        await authProvider.SecondCallStarted.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
 
         Assert.Equal(2, authProvider.MaxConcurrentCalls);
 
@@ -110,7 +110,7 @@ public sealed class UserManagerAuthenticationLockTests : IDisposable
         var firstTask = userManager.AuthenticateUser("existing-user", string.Empty, "127.0.0.1", isUserSession: true);
         var secondTask = userManager.AuthenticateUser("existing-user", string.Empty, "127.0.0.1", isUserSession: true);
 
-        await authProvider.FirstCallStarted.WaitAsync(TimeSpan.FromSeconds(5));
+        await authProvider.FirstCallStarted.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
 
         Assert.False(authProvider.SecondCallStarted.IsCompleted);
         Assert.Equal(1, authProvider.MaxConcurrentCalls);
@@ -140,7 +140,7 @@ public sealed class UserManagerAuthenticationLockTests : IDisposable
         try
         {
             using var otherUserLease = await userManager.AcquireProfileImageUpdateLockAsync(otherUserId)
-                .WaitAsync(TimeSpan.FromSeconds(5));
+                .WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
             wasSameUserBlocked = !sameUserTask.IsCompleted;
         }
         finally
@@ -148,7 +148,7 @@ public sealed class UserManagerAuthenticationLockTests : IDisposable
             firstLease.Dispose();
         }
 
-        using var secondLease = await sameUserTask.WaitAsync(TimeSpan.FromSeconds(5));
+        using var secondLease = await sameUserTask.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
         Assert.True(wasSameUserBlocked);
     }
 

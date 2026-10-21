@@ -25,12 +25,12 @@ public sealed class NebulaDirectoryRefreshQueueTests
             TimeSpan.FromMilliseconds(100));
 
         queue.Enqueue("/Series/One");
-        await Task.Delay(25);
+        await Task.Delay(25, TestContext.Current.CancellationToken);
         queue.Enqueue("/Series/One");
         queue.Enqueue("/Series/One");
 
-        await completed.Task.WaitAsync(TimeSpan.FromSeconds(2));
-        await Task.Delay(150);
+        await completed.Task.WaitAsync(TimeSpan.FromSeconds(2), TestContext.Current.CancellationToken);
+        await Task.Delay(150, TestContext.Current.CancellationToken);
 
         Assert.Equal(new[] { "/Series/One" }, refreshed.ToArray());
     }
@@ -70,7 +70,7 @@ public sealed class NebulaDirectoryRefreshQueueTests
             queue.Enqueue($"/Series/{index}");
         }
 
-        await completed.Task.WaitAsync(TimeSpan.FromSeconds(3));
+        await completed.Task.WaitAsync(TimeSpan.FromSeconds(3), TestContext.Current.CancellationToken);
 
         Assert.Equal(directoryCount, refreshed.Count);
         Assert.Equal(1, maximumActiveRefreshes);
@@ -102,13 +102,13 @@ public sealed class NebulaDirectoryRefreshQueueTests
             TimeSpan.FromMilliseconds(25));
 
         queue.Enqueue("/Series/One");
-        await firstRefreshStarted.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        await firstRefreshStarted.Task.WaitAsync(TimeSpan.FromSeconds(2), TestContext.Current.CancellationToken);
         queue.Enqueue("/Series/One");
         queue.Enqueue("/Series/One");
         releaseFirstRefresh.TrySetResult();
 
-        await twoRefreshesCompleted.Task.WaitAsync(TimeSpan.FromSeconds(2));
-        await Task.Delay(100);
+        await twoRefreshesCompleted.Task.WaitAsync(TimeSpan.FromSeconds(2), TestContext.Current.CancellationToken);
+        await Task.Delay(100, TestContext.Current.CancellationToken);
 
         Assert.Equal(2, refreshCount);
     }
@@ -136,10 +136,10 @@ public sealed class NebulaDirectoryRefreshQueueTests
             TimeSpan.FromMilliseconds(10));
 
         queue.Enqueue("/Series/One");
-        await firstFailureObserved.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        await firstFailureObserved.Task.WaitAsync(TimeSpan.FromSeconds(2), TestContext.Current.CancellationToken);
         queue.Enqueue("/Series/Two");
 
-        await secondRefreshCompleted.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        await secondRefreshCompleted.Task.WaitAsync(TimeSpan.FromSeconds(2), TestContext.Current.CancellationToken);
 
         Assert.Equal(2, refreshed.Count);
     }
@@ -158,9 +158,9 @@ public sealed class NebulaDirectoryRefreshQueueTests
             TimeSpan.FromMilliseconds(10));
 
         queue.Enqueue("/Series/One");
-        await refreshStarted.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        await refreshStarted.Task.WaitAsync(TimeSpan.FromSeconds(2), TestContext.Current.CancellationToken);
 
-        await queue.DisposeAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(2));
+        await queue.DisposeAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(2), TestContext.Current.CancellationToken);
 
         queue.Enqueue("/Series/Two");
     }

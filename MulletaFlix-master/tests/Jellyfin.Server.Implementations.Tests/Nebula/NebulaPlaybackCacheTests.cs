@@ -24,6 +24,7 @@ public sealed class NebulaPlaybackCacheTests
     [Fact]
     public async Task PythonCacheLeaseProtectsPlaybackCacheUntilReleased()
     {
+        var cancellationToken = TestContext.Current.CancellationToken;
         var root = CreateTempDirectory();
         try
         {
@@ -34,28 +35,30 @@ public sealed class NebulaPlaybackCacheTests
             host.Start();
 
             using var client = new TcpClient();
-            await client.ConnectAsync(System.Net.IPAddress.Loopback, host.Port);
+            await client.ConnectAsync(System.Net.IPAddress.Loopback, host.Port, cancellationToken);
             await using var stream = client.GetStream();
             using var reader = new StreamReader(stream);
             await using var writer = new StreamWriter(stream) { AutoFlush = true };
-            await writer.WriteLineAsync(JsonSerializer.Serialize(new
+            var acquireMessage = JsonSerializer.Serialize(new
             {
                 action = "acquire",
                 mediaId = "0123456789abcdef01234567",
                 token = host.Token
-            }));
-            using var acquired = JsonDocument.Parse(await reader.ReadLineAsync());
+            });
+            await writer.WriteLineAsync(acquireMessage.AsMemory(), cancellationToken);
+            using var acquired = JsonDocument.Parse(await reader.ReadLineAsync(cancellationToken));
             var leaseId = acquired.RootElement.GetProperty("leaseId").GetString();
 
             Assert.True(acquired.RootElement.GetProperty("ok").GetBoolean());
             Assert.Equal(1, cache.ActiveLeasesCount);
-            await writer.WriteLineAsync(JsonSerializer.Serialize(new
+            var releaseMessage = JsonSerializer.Serialize(new
             {
                 action = "release",
                 leaseId,
                 token = host.Token
-            }));
-            using var released = JsonDocument.Parse(await reader.ReadLineAsync());
+            });
+            await writer.WriteLineAsync(releaseMessage.AsMemory(), cancellationToken);
+            using var released = JsonDocument.Parse(await reader.ReadLineAsync(cancellationToken));
 
             Assert.True(released.RootElement.GetProperty("ok").GetBoolean());
             Assert.Equal(0, cache.ActiveLeasesCount);
@@ -69,6 +72,7 @@ public sealed class NebulaPlaybackCacheTests
     [Fact]
     public async Task PythonCacheLeaseHostAcceptsAuthenticatedSupervisorHeartbeat()
     {
+        var cancellationToken = TestContext.Current.CancellationToken;
         var root = CreateTempDirectory();
         try
         {
@@ -79,24 +83,26 @@ public sealed class NebulaPlaybackCacheTests
             host.Start();
 
             using var client = new TcpClient();
-            await client.ConnectAsync(System.Net.IPAddress.Loopback, host.Port);
+            await client.ConnectAsync(System.Net.IPAddress.Loopback, host.Port, cancellationToken);
             await using var stream = client.GetStream();
             using var reader = new StreamReader(stream);
             await using var writer = new StreamWriter(stream) { AutoFlush = true };
-            await writer.WriteLineAsync(JsonSerializer.Serialize(new { action = "heartbeat", token = host.Token }));
+            var heartbeatMessage = JsonSerializer.Serialize(new { action = "heartbeat", token = host.Token });
+            await writer.WriteLineAsync(heartbeatMessage.AsMemory(), cancellationToken);
 
-            using var response = JsonDocument.Parse(await reader.ReadLineAsync());
+            using var response = JsonDocument.Parse(await reader.ReadLineAsync(cancellationToken));
             Assert.True(response.RootElement.GetProperty("ok").GetBoolean());
             Assert.Equal(0, cache.ActiveLeasesCount);
 
             using var unauthorizedClient = new TcpClient();
-            await unauthorizedClient.ConnectAsync(System.Net.IPAddress.Loopback, host.Port);
+            await unauthorizedClient.ConnectAsync(System.Net.IPAddress.Loopback, host.Port, cancellationToken);
             await using var unauthorizedStream = unauthorizedClient.GetStream();
             using var unauthorizedReader = new StreamReader(unauthorizedStream);
             await using var unauthorizedWriter = new StreamWriter(unauthorizedStream) { AutoFlush = true };
-            await unauthorizedWriter.WriteLineAsync(JsonSerializer.Serialize(new { action = "heartbeat", token = "invalid" }));
+            var unauthorizedHeartbeatMessage = JsonSerializer.Serialize(new { action = "heartbeat", token = "invalid" });
+            await unauthorizedWriter.WriteLineAsync(unauthorizedHeartbeatMessage.AsMemory(), cancellationToken);
 
-            using var unauthorizedResponse = JsonDocument.Parse(await unauthorizedReader.ReadLineAsync());
+            using var unauthorizedResponse = JsonDocument.Parse(await unauthorizedReader.ReadLineAsync(cancellationToken));
             Assert.False(unauthorizedResponse.RootElement.GetProperty("ok").GetBoolean());
         }
         finally
@@ -135,7 +141,7 @@ public sealed class NebulaPlaybackCacheTests
                     return await releaseFetch.Task.WaitAsync(cancellationToken);
                 });
 
-            var cleanup = NebulaHttpStreamServer.DisposePrefetchStreamWhenCompleteAsync(stream);
+            var cleanup = NebulaHttpStreamServer.DisposePrefetchStreamWhenCompleteAsync(stream, TestContext.Current.CancellationToken);
             await fetchStarted.Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
 
             Assert.True(stream.CanRead);
@@ -196,7 +202,7 @@ public sealed class NebulaPlaybackCacheTests
                     return Array.Empty<byte>();
                 });
 
-            var cleanup = NebulaHttpStreamServer.DisposePrefetchStreamWhenCompleteAsync(stream);
+            var cleanup = NebulaHttpStreamServer.DisposePrefetchStreamWhenCompleteAsync(stream, TestContext.Current.CancellationToken);
             await fetchStarted.Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
             Assert.Equal(1, cache.ActiveLeasesCount);
 
@@ -303,7 +309,7 @@ public sealed class NebulaPlaybackCacheTests
                 cacheAccessor,
                 mediaKey,
                 acquirePlaybackLease: false);
-            var resumedCleanup = NebulaHttpStreamServer.DisposePrefetchStreamWhenCompleteAsync(resumedStream);
+            var resumedCleanup = NebulaHttpStreamServer.DisposePrefetchStreamWhenCompleteAsync(resumedStream, TestContext.Current.CancellationToken);
             oldLifecycle.Cancel();
 
             Assert.False(fetchCanceled.Task.IsCompleted);
@@ -381,7 +387,7 @@ public sealed class NebulaPlaybackCacheTests
                 acquirePlaybackLease: false,
                 (_, _, _) => Task.FromResult<byte[]>([1, 2, 3, 4, 5]));
 
-            await NebulaHttpStreamServer.DisposePrefetchStreamWhenCompleteAsync(oldStream)
+            await NebulaHttpStreamServer.DisposePrefetchStreamWhenCompleteAsync(oldStream, TestContext.Current.CancellationToken)
                 .WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
             Assert.True(cache.ClearCache());
 
@@ -402,7 +408,7 @@ public sealed class NebulaPlaybackCacheTests
                     fetchStarted.TrySetResult();
                     return await releaseFetch.Task.WaitAsync(cancellationToken);
                 });
-            var replacementCleanup = NebulaHttpStreamServer.DisposePrefetchStreamWhenCompleteAsync(replacementStream);
+            var replacementCleanup = NebulaHttpStreamServer.DisposePrefetchStreamWhenCompleteAsync(replacementStream, TestContext.Current.CancellationToken);
             await fetchStarted.Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
 
             Assert.False(oldStream.CancelWholeMediaPrefetch());
@@ -483,8 +489,8 @@ public sealed class NebulaPlaybackCacheTests
                 });
             }
 
-            await firstTwoStarted.Task.WaitAsync(TimeSpan.FromSeconds(2));
-            await Task.Delay(100);
+            await firstTwoStarted.Task.WaitAsync(TimeSpan.FromSeconds(2), TestContext.Current.CancellationToken);
+            await Task.Delay(100, TestContext.Current.CancellationToken);
             Assert.Equal(2, Volatile.Read(ref maximumActive));
             Assert.Equal(2, startedMedia.Count);
             Assert.Equal(6, cache.PendingPrefetchCount);
@@ -492,8 +498,8 @@ public sealed class NebulaPlaybackCacheTests
             Assert.Equal(4, cache.QueuedPrefetchCount);
 
             releaseDownloads.TrySetResult();
-            await allAdmittedStarted.Task.WaitAsync(TimeSpan.FromSeconds(2));
-            await allAdmittedCompleted.Task.WaitAsync(TimeSpan.FromSeconds(2));
+            await allAdmittedStarted.Task.WaitAsync(TimeSpan.FromSeconds(2), TestContext.Current.CancellationToken);
+            await allAdmittedCompleted.Task.WaitAsync(TimeSpan.FromSeconds(2), TestContext.Current.CancellationToken);
             await WaitUntilAsync(() => cache.PendingPrefetchCount == 0);
 
             Assert.Equal(6, startedMedia.Count);
@@ -525,10 +531,10 @@ public sealed class NebulaPlaybackCacheTests
             });
             _ = cache.StartPrefetch("media-to-keep", async token => await Task.Delay(Timeout.Infinite, token));
 
-            await started.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            await started.Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
             Assert.True(cache.CancelPrefetch("media-to-stop"));
             Assert.False(cache.CancelPrefetch("media-missing"));
-            await canceled.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            await canceled.Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
             await WaitUntilAsync(() => cache.PendingPrefetchCount == 1);
 
             Assert.Equal(1, cache.PendingPrefetchCount);
@@ -555,7 +561,7 @@ public sealed class NebulaPlaybackCacheTests
                 using var registration = token.Register(() => canceled.TrySetResult());
                 await Task.Delay(Timeout.Infinite, token);
             });
-            await started.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            await started.Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
 
             Assert.True(cache.CancelPrefetch("active-media"));
             Assert.False(canceled.Task.IsCompleted);
@@ -563,7 +569,7 @@ public sealed class NebulaPlaybackCacheTests
 
             lease.Dispose();
 
-            await canceled.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            await canceled.Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
             await WaitUntilAsync(() => cache.PendingPrefetchCount == 0);
         }
         finally
@@ -588,7 +594,7 @@ public sealed class NebulaPlaybackCacheTests
                 using var registration = token.Register(() => canceled.TrySetResult());
                 await Task.Delay(Timeout.Infinite, token);
             });
-            await started.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            await started.Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
             Assert.True(cache.CancelPrefetch("resumed-media"));
 
             var resumedLease = cache.Acquire("resumed-media");
@@ -626,9 +632,9 @@ public sealed class NebulaPlaybackCacheTests
                 await Task.Delay(Timeout.Infinite, token);
             });
 
-            await started.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            await started.Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
             Assert.True(cache.CancelPrefetch("callback-media"));
-            await callbackCompleted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            await callbackCompleted.Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
             await WaitUntilAsync(() => cache.PendingPrefetchCount == 0);
         }
         finally
@@ -668,12 +674,12 @@ public sealed class NebulaPlaybackCacheTests
                 }
             });
 
-            await started.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            await started.Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
             try
             {
-                Assert.True(await Task.Run(() => cache.CancelPrefetch("blocking-callback-media"))
-                    .WaitAsync(TimeSpan.FromSeconds(5)));
-                await callbackStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+                Assert.True(await Task.Run(() => cache.CancelPrefetch("blocking-callback-media"), TestContext.Current.CancellationToken)
+                    .WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken));
+                await callbackStarted.Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
                 Assert.Equal(1, cache.PendingPrefetchCount);
                 Assert.False(callbackCompleted.Task.IsCompleted);
             }
@@ -682,7 +688,7 @@ public sealed class NebulaPlaybackCacheTests
                 releaseCallback.TrySetResult();
             }
 
-            await callbackCompleted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            await callbackCompleted.Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
             await WaitUntilAsync(() => cache.PendingPrefetchCount == 0);
         }
         finally
@@ -745,8 +751,8 @@ public sealed class NebulaPlaybackCacheTests
                 },
                 CancellationToken.None)).ToArray();
 
-            await firstTwoStarted.Task.WaitAsync(TimeSpan.FromSeconds(2));
-            await Task.Delay(100);
+            await firstTwoStarted.Task.WaitAsync(TimeSpan.FromSeconds(2), TestContext.Current.CancellationToken);
+            await Task.Delay(100, TestContext.Current.CancellationToken);
             Assert.Equal(2, Volatile.Read(ref maximumActive));
             Assert.Equal(2, Volatile.Read(ref started));
 
@@ -756,7 +762,7 @@ public sealed class NebulaPlaybackCacheTests
                 0,
                 1,
                 _ => Task.FromResult(new byte[] { 9 }),
-                CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(1));
+                CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(1), TestContext.Current.CancellationToken);
             Assert.Equal(new byte[] { 9 }, foregroundChunk);
             var sharedReader = cache.GetOrFetchChunkAsync(
                 "ahead-1",
@@ -767,8 +773,8 @@ public sealed class NebulaPlaybackCacheTests
                 CancellationToken.None);
 
             releaseDownloads.TrySetResult();
-            var results = await Task.WhenAll(downloads).WaitAsync(TimeSpan.FromSeconds(2));
-            var sharedResult = await sharedReader.WaitAsync(TimeSpan.FromSeconds(2));
+            var results = await Task.WhenAll(downloads).WaitAsync(TimeSpan.FromSeconds(2), TestContext.Current.CancellationToken);
+            var sharedResult = await sharedReader.WaitAsync(TimeSpan.FromSeconds(2), TestContext.Current.CancellationToken);
 
             Assert.Equal(2, Volatile.Read(ref maximumActive));
             Assert.Equal(3, results.Length);
@@ -792,7 +798,7 @@ public sealed class NebulaPlaybackCacheTests
         {
             var mediaPath = Path.Combine(root, "media.bin");
             var expected = new byte[] { 1, 2, 3, 4 };
-            await File.WriteAllBytesAsync(mediaPath, expected);
+            await File.WriteAllBytesAsync(mediaPath, expected, TestContext.Current.CancellationToken);
             using var cache = new NebulaPlaybackCache(root, NullLogger<NebulaPlaybackCache>.Instance);
             var accessor = new NebulaPlaybackCacheAccessor();
             accessor.Set(cache);
@@ -812,7 +818,7 @@ public sealed class NebulaPlaybackCacheTests
                 "shared-media");
 
             var actual = new byte[expected.Length];
-            var read = await stream.ReadAsync(actual.AsMemory());
+            var read = await stream.ReadAsync(actual.AsMemory(), TestContext.Current.CancellationToken);
 
             Assert.Equal(expected.Length, read);
             Assert.Equal(expected, actual);
@@ -904,10 +910,10 @@ public sealed class NebulaPlaybackCacheTests
                 });
 
             var buffer = new byte[firstChunk.Length];
-            var readTask = stream.ReadAsync(buffer.AsMemory()).AsTask();
-            await nextChunkStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            var readTask = stream.ReadAsync(buffer.AsMemory(), TestContext.Current.CancellationToken).AsTask();
+            await nextChunkStarted.Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
 
-            var completed = await Task.WhenAny(readTask, Task.Delay(TimeSpan.FromSeconds(5)));
+            var completed = await Task.WhenAny(readTask, Task.Delay(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken));
             Assert.Same(readTask, completed);
             Assert.Equal(firstChunk.Length, await readTask);
             Assert.Equal(firstChunk, buffer);
@@ -1078,7 +1084,7 @@ public sealed class NebulaPlaybackCacheTests
                 PlaySessionId = "play-current",
                 Item = new Movie { Path = "N:/Series/Current.mkv" }
             });
-        await cancelStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        await cancelStarted.Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
 
         var stopTask = monitor.StopAsync(CancellationToken.None);
         Assert.False(stopTask.IsCompleted);
@@ -1135,10 +1141,10 @@ public sealed class NebulaPlaybackCacheTests
                 PlaySessionId = "play-current",
                 Item = new Movie { Path = "N:/Series/Current.mkv" }
             });
-        await cancelStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        await cancelStarted.Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
 
         await monitor.StopAsync(CancellationToken.None);
-        await tokenCancelled.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        await tokenCancelled.Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
 
         manager.Verify(
             mock => mock.StartPlaybackPrefetchAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()),
@@ -1223,7 +1229,7 @@ public sealed class NebulaPlaybackCacheTests
 
         await monitor.TrackPlaybackStartAsync("session-a", "play-old", "N:/Series/Resumed.mkv");
         var stopTask = monitor.TrackPlaybackStoppedAsync("session-a", "play-old");
-        await cancelStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        await cancelStarted.Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
         await monitor.TrackPlaybackStartAsync("session-a", "play-new", "N:/Series/Resumed.mkv");
         completeCancel.TrySetResult();
         await stopTask;
@@ -1411,8 +1417,8 @@ public sealed class NebulaPlaybackCacheTests
 
             var firstBuffer = new byte[firstBytes.Length];
             var secondBuffer = new byte[secondBytes.Length];
-            Assert.Equal(firstBytes.Length, await firstStream.ReadAsync(firstBuffer.AsMemory()));
-            Assert.Equal(secondBytes.Length, await secondStream.ReadAsync(secondBuffer.AsMemory()));
+            Assert.Equal(firstBytes.Length, await firstStream.ReadAsync(firstBuffer.AsMemory(), TestContext.Current.CancellationToken));
+            Assert.Equal(secondBytes.Length, await secondStream.ReadAsync(secondBuffer.AsMemory(), TestContext.Current.CancellationToken));
 
             Assert.Equal(firstBytes, firstBuffer);
             Assert.Equal(secondBytes, secondBuffer);
@@ -1496,7 +1502,7 @@ public sealed class NebulaPlaybackCacheTests
             }
 
             File.Delete(chunkPath);
-            await File.WriteAllBytesAsync(chunkPath + ".partial", new byte[] { 1, 2 });
+            await File.WriteAllBytesAsync(chunkPath + ".partial", new byte[] { 1, 2 }, TestContext.Current.CancellationToken);
 
             var fetchCalls = 0;
             using var restartedCache = new NebulaPlaybackCache(root, NullLogger<NebulaPlaybackCache>.Instance);
@@ -1543,7 +1549,7 @@ public sealed class NebulaPlaybackCacheTests
                 var completePath = Directory.GetFiles(initialCache.CachePath, "*.bin", SearchOption.AllDirectories).Single();
                 partialPath = completePath + ".partial";
                 File.Move(completePath, partialPath);
-                await File.WriteAllBytesAsync(partialPath, new byte[] { 1, 2 });
+                await File.WriteAllBytesAsync(partialPath, new byte[] { 1, 2 }, TestContext.Current.CancellationToken);
                 File.SetLastWriteTimeUtc(partialPath, DateTime.UtcNow.AddHours(-2));
             }
 
@@ -1645,7 +1651,7 @@ public sealed class NebulaPlaybackCacheTests
             "missing-part",
             (_, _, _) => Task.FromResult(Array.Empty<byte>()));
 
-        await Assert.ThrowsAsync<IOException>(async () => await stream.ReadAsync(new byte[4].AsMemory()));
+        await Assert.ThrowsAsync<IOException>(async () => await stream.ReadAsync(new byte[4].AsMemory(), TestContext.Current.CancellationToken));
     }
 
     [Fact]
@@ -1847,7 +1853,7 @@ public sealed class NebulaPlaybackCacheTests
                     return originalBytes;
                 });
 
-            await originalFetchStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            await originalFetchStarted.Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
             Assert.Equal(1, originalCache.ActiveLeasesCount);
             accessor.Set(replacementCache);
             await using var newStream = new NebulaChunkedStream(
@@ -1860,7 +1866,7 @@ public sealed class NebulaPlaybackCacheTests
                 (_, _, _) => Task.FromResult(replacementBytes));
 
             var replacementBuffer = new byte[replacementBytes.Length];
-            Assert.Equal(replacementBytes.Length, await newStream.ReadAsync(replacementBuffer.AsMemory()));
+            Assert.Equal(replacementBytes.Length, await newStream.ReadAsync(replacementBuffer.AsMemory(), TestContext.Current.CancellationToken));
             Assert.Equal(replacementBytes, replacementBuffer);
             Assert.Equal(replacementBytes.Length, replacementCache.GetCacheSizeBytes());
             Assert.Equal(1, originalCache.ActiveLeasesCount);
@@ -1868,7 +1874,7 @@ public sealed class NebulaPlaybackCacheTests
 
             releaseOriginalFetch.TrySetResult();
             var originalBuffer = new byte[originalBytes.Length];
-            Assert.Equal(originalBytes.Length, await existingStream.ReadAsync(originalBuffer.AsMemory()));
+            Assert.Equal(originalBytes.Length, await existingStream.ReadAsync(originalBuffer.AsMemory(), TestContext.Current.CancellationToken));
             Assert.Equal(originalBytes, originalBuffer);
             Assert.Equal(originalBytes.Length, originalCache.GetCacheSizeBytes());
         }
@@ -1900,7 +1906,7 @@ public sealed class NebulaPlaybackCacheTests
                 },
                 CancellationToken.None);
 
-            await fetchStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            await fetchStarted.Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
             cache.ClearCache();
             Assert.Equal(1, cache.CacheCleanupRuns);
             Assert.Equal(0, cache.CacheCleanupFailures);
@@ -1927,7 +1933,7 @@ public sealed class NebulaPlaybackCacheTests
             var storageGate = (SemaphoreSlim)typeof(NebulaPlaybackCache)
                 .GetField("_storageGate", BindingFlags.Instance | BindingFlags.NonPublic)!
                 .GetValue(cache)!;
-            Assert.True(storageGate.Wait(0));
+            Assert.True(storageGate.Wait(0, TestContext.Current.CancellationToken));
             try
             {
                 cache.CleanupExpiredEntries();
@@ -1975,7 +1981,7 @@ public sealed class NebulaPlaybackCacheTests
                     return await completeFetch.Task.WaitAsync(token);
                 },
                 cancellation.Token);
-            await fetchStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            await fetchStarted.Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
 
             var second = cache.GetOrFetchChunkAsync(
                 "concurrent-media",
@@ -2040,11 +2046,11 @@ public sealed class NebulaPlaybackCacheTests
                 },
                 cancellation.Token);
 
-            await fetchStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            await fetchStarted.Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
             cancellation.Cancel();
 
             await Assert.ThrowsAnyAsync<OperationCanceledException>(() => request);
-            await fetchCanceled.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            await fetchCanceled.Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
             await WaitUntilAsync(() => cache.TelegramFetchCancellations == 1);
             Assert.Equal(1, cache.TelegramFetchCancellations);
             Assert.Equal(0, cache.TelegramFetchFailures);
@@ -2101,11 +2107,11 @@ public sealed class NebulaPlaybackCacheTests
                 },
                 CancellationToken.None);
 
-            await fetchStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            await fetchStarted.Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
             cache.Dispose();
 
             await Assert.ThrowsAnyAsync<OperationCanceledException>(() => request);
-            await fetchCanceled.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            await fetchCanceled.Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
         }
         finally
         {
@@ -2141,17 +2147,17 @@ public sealed class NebulaPlaybackCacheTests
                 },
                 CancellationToken.None);
 
-            await fetchStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
-            var dispose = Task.Run(cache.Dispose);
-            await callbackStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            await fetchStarted.Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+            var dispose = Task.Run(cache.Dispose, TestContext.Current.CancellationToken);
+            await callbackStarted.Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
             // Callback start does not establish that the Dispose task's caller
             // has resumed. Prove completion while the callback stays blocked.
-            await dispose.WaitAsync(TimeSpan.FromSeconds(5));
+            await dispose.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
             Assert.False(releaseCallback.IsSet);
             Assert.True(dispose.IsCompleted);
 
             releaseCallback.Set();
-            await dispose.WaitAsync(TimeSpan.FromSeconds(5));
+            await dispose.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
             await Assert.ThrowsAnyAsync<OperationCanceledException>(() => request);
         }
         finally

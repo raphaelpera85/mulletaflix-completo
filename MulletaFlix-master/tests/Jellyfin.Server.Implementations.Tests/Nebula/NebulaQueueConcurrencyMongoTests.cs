@@ -138,7 +138,7 @@ public sealed class NebulaQueueConcurrencyMongoTests : IDisposable
         // `uploading` com lease vigente e é rejeitado pelo filtro.
         Assert.Single(winners);
 
-        var document = await Files.Find(Builders<BsonDocument>.Filter.Eq("_id", id)).FirstAsync();
+        var document = await Files.Find(Builders<BsonDocument>.Filter.Eq("_id", id)).FirstAsync(TestContext.Current.CancellationToken);
         Assert.Equal("uploading", document["status"].AsString);
         Assert.Equal(winners[0], document["worker_id"].AsString);
         Assert.True(document.Contains("lease_id"), "O claim deve gravar lease_id.");
@@ -166,7 +166,7 @@ public sealed class NebulaQueueConcurrencyMongoTests : IDisposable
         Assert.False(intruderWrote, "Worker sem posse não pode gravar progresso.");
 
         // E as partes do dono continuam intactas.
-        var document = await Files.Find(Builders<BsonDocument>.Filter.Eq("_id", id)).FirstAsync();
+        var document = await Files.Find(Builders<BsonDocument>.Filter.Eq("_id", id)).FirstAsync(TestContext.Current.CancellationToken);
         Assert.Equal("1", document["worker_id"].AsString);
         Assert.Equal(512L, document["uploaded_bytes"].ToInt64());
         Assert.Single(document["parts"].AsBsonArray);
@@ -193,16 +193,17 @@ public sealed class NebulaQueueConcurrencyMongoTests : IDisposable
 
         // O worker travou e a recuperação devolveu o item à fila.
         await context.RequeueInterruptedUploadsAsync(CancellationToken.None);
-        var requeued = await Files.Find(Builders<BsonDocument>.Filter.Eq("_id", id)).FirstAsync();
+        var requeued = await Files.Find(Builders<BsonDocument>.Filter.Eq("_id", id)).FirstAsync(TestContext.Current.CancellationToken);
 
         // Só é requeuado se o lease tiver expirado; para o teste, força a expiração.
         if (requeued["status"].AsString != "queued")
         {
             await Files.UpdateOneAsync(
                 Builders<BsonDocument>.Filter.Eq("_id", id),
-                Builders<BsonDocument>.Update.Set("lease_until", DateTimeOffset.UtcNow.ToUnixTimeSeconds() - 10));
+                Builders<BsonDocument>.Update.Set("lease_until", DateTimeOffset.UtcNow.ToUnixTimeSeconds() - 10),
+                cancellationToken: TestContext.Current.CancellationToken);
             await context.RequeueInterruptedUploadsAsync(CancellationToken.None);
-            requeued = await Files.Find(Builders<BsonDocument>.Filter.Eq("_id", id)).FirstAsync();
+            requeued = await Files.Find(Builders<BsonDocument>.Filter.Eq("_id", id)).FirstAsync(TestContext.Current.CancellationToken);
         }
 
         Assert.Equal("queued", requeued["status"].AsString);
@@ -232,7 +233,7 @@ public sealed class NebulaQueueConcurrencyMongoTests : IDisposable
 
         Assert.False(zombieWrote, "Worker zumbi não pode readotar documento já reivindicado.");
 
-        var final = await Files.Find(Builders<BsonDocument>.Filter.Eq("_id", id)).FirstAsync();
+        var final = await Files.Find(Builders<BsonDocument>.Filter.Eq("_id", id)).FirstAsync(TestContext.Current.CancellationToken);
         Assert.Equal("2", final["worker_id"].AsString);
         Assert.Equal(900L, final["uploaded_bytes"].ToInt64());
     }
@@ -263,7 +264,7 @@ public sealed class NebulaQueueConcurrencyMongoTests : IDisposable
         var reclaim = await context.ClaimFileForUploadAsync(id, 2, 0, CancellationToken.None);
         Assert.Null(reclaim);
 
-        var document = await Files.Find(Builders<BsonDocument>.Filter.Eq("_id", id)).FirstAsync();
+        var document = await Files.Find(Builders<BsonDocument>.Filter.Eq("_id", id)).FirstAsync(TestContext.Current.CancellationToken);
         Assert.Equal("completed", document["status"].AsString);
         Assert.False(document.Contains("lease_id"), "A conclusão deve limpar o lease.");
     }
@@ -284,7 +285,7 @@ public sealed class NebulaQueueConcurrencyMongoTests : IDisposable
             CancellationToken.None,
             "1"));
 
-        var failed = await Files.Find(Builders<BsonDocument>.Filter.Eq("_id", id)).FirstAsync();
+        var failed = await Files.Find(Builders<BsonDocument>.Filter.Eq("_id", id)).FirstAsync(TestContext.Current.CancellationToken);
         Assert.Equal("failed", failed["status"].AsString);
         Assert.True(failed.Contains("retry_after"), "Falha transitória deve agendar retry.");
 
@@ -294,7 +295,8 @@ public sealed class NebulaQueueConcurrencyMongoTests : IDisposable
         // Vencido o backoff, o item volta a ser elegível.
         await Files.UpdateOneAsync(
             Builders<BsonDocument>.Filter.Eq("_id", id),
-            Builders<BsonDocument>.Update.Set("retry_after", DateTimeOffset.UtcNow.ToUnixTimeSeconds() - 1));
+            Builders<BsonDocument>.Update.Set("retry_after", DateTimeOffset.UtcNow.ToUnixTimeSeconds() - 1),
+            cancellationToken: TestContext.Current.CancellationToken);
         Assert.NotNull(await context.ClaimFileForUploadAsync(id, 2, 0, CancellationToken.None));
     }
 
@@ -313,10 +315,10 @@ public sealed class NebulaQueueConcurrencyMongoTests : IDisposable
         // solicitado voltava a concorrer como trabalho comum.
         Assert.True(await context.SetUploadPriorityAsync(requested, true, CancellationToken.None));
 
-        var persisted = await Files.Find(Builders<BsonDocument>.Filter.Eq("_id", requested)).FirstAsync();
+        var persisted = await Files.Find(Builders<BsonDocument>.Filter.Eq("_id", requested)).FirstAsync(TestContext.Current.CancellationToken);
         Assert.True(persisted.GetValue("is_priority", false).ToBoolean());
 
-        var untouched = await Files.Find(Builders<BsonDocument>.Filter.Eq("_id", regular)).FirstAsync();
+        var untouched = await Files.Find(Builders<BsonDocument>.Filter.Eq("_id", regular)).FirstAsync(TestContext.Current.CancellationToken);
         Assert.False(untouched.GetValue("is_priority", false).ToBoolean());
 
         // Reconciliação após restart: a consulta de pendentes precisa devolver os
@@ -346,7 +348,7 @@ public sealed class NebulaQueueConcurrencyMongoTests : IDisposable
         Assert.True(await context.SetUploadPriorityAsync(id, true, CancellationToken.None));
         Assert.True(await context.SetUploadPriorityAsync(id, false, CancellationToken.None));
 
-        var document = await Files.Find(Builders<BsonDocument>.Filter.Eq("_id", id)).FirstAsync();
+        var document = await Files.Find(Builders<BsonDocument>.Filter.Eq("_id", id)).FirstAsync(TestContext.Current.CancellationToken);
 
         // Remover a prioridade apaga o campo em vez de gravar `false`: manter
         // documentos com o campo sempre presente impediria o índice esparso e
@@ -405,7 +407,7 @@ public sealed class NebulaQueueConcurrencyMongoTests : IDisposable
         Assert.True(await source.SetUploadPriorityAsync(pendingId, true, CancellationToken.None));
 
         // "Backup": exporta a coleção inteira como documentos BSON.
-        var exported = await Files.Find(Builders<BsonDocument>.Filter.Empty).ToListAsync();
+        var exported = await Files.Find(Builders<BsonDocument>.Filter.Empty).ToListAsync(TestContext.Current.CancellationToken);
         Assert.Equal(2, exported.Count);
 
         // "Restauração": grava num banco vazio, como faria uma recuperação.
@@ -413,17 +415,17 @@ public sealed class NebulaQueueConcurrencyMongoTests : IDisposable
         var restored = _client!.GetDatabase(restoredDatabaseName).GetCollection<BsonDocument>("files");
         try
         {
-            await restored.InsertManyAsync(exported);
+            await restored.InsertManyAsync(exported, cancellationToken: TestContext.Current.CancellationToken);
 
             // Contagem preservada.
-            Assert.Equal(2, await restored.CountDocumentsAsync(Builders<BsonDocument>.Filter.Empty));
+            Assert.Equal(2, await restored.CountDocumentsAsync(Builders<BsonDocument>.Filter.Empty, cancellationToken: TestContext.Current.CancellationToken));
 
             // Consulta crítica: a mídia concluída precisa continuar recuperável
             // com os identificadores Telegram, senão a restauração devolve um
             // catálogo que aponta para lugar nenhum.
             var completedDoc = await restored
                 .Find(Builders<BsonDocument>.Filter.Eq("_id", completedId))
-                .FirstAsync();
+                .FirstAsync(TestContext.Current.CancellationToken);
             Assert.Equal("completed", completedDoc["status"].AsString);
             Assert.Equal("file-ref-abc", completedDoc["tg_file_id"].AsString);
             Assert.Equal(4096L, completedDoc["size"].ToInt64());
@@ -433,7 +435,7 @@ public sealed class NebulaQueueConcurrencyMongoTests : IDisposable
             // restaurada perderia a preferência do usuário.
             var pendingDoc = await restored
                 .Find(Builders<BsonDocument>.Filter.Eq("_id", pendingId))
-                .FirstAsync();
+                .FirstAsync(TestContext.Current.CancellationToken);
             Assert.True(pendingDoc.GetValue("is_priority", false).ToBoolean());
 
             // Mídia concluída restaurada não pode ser reivindicada de novo.
@@ -451,7 +453,8 @@ public sealed class NebulaQueueConcurrencyMongoTests : IDisposable
         }
         finally
         {
-            await _client.DropDatabaseAsync(restoredDatabaseName);
+            // A cancelled test must still remove its isolated restoration database.
+            await _client.DropDatabaseAsync(restoredDatabaseName, CancellationToken.None);
         }
     }
 
@@ -463,13 +466,13 @@ public sealed class NebulaQueueConcurrencyMongoTests : IDisposable
         using var source = CreateContext();
         var pendingId = await InsertQueuedFileAsync();
 
-        var exported = await Files.Find(Builders<BsonDocument>.Filter.Eq("_id", pendingId)).ToListAsync();
+        var exported = await Files.Find(Builders<BsonDocument>.Filter.Eq("_id", pendingId)).ToListAsync(TestContext.Current.CancellationToken);
 
         var restoredDatabaseName = _databaseName + "_claimable";
         var restored = _client!.GetDatabase(restoredDatabaseName).GetCollection<BsonDocument>("files");
         try
         {
-            await restored.InsertManyAsync(exported);
+            await restored.InsertManyAsync(exported, cancellationToken: TestContext.Current.CancellationToken);
 
             // Trabalho pendente precisa voltar reivindicável: uma restauração que
             // deixasse a fila travada exigiria intervenção manual para retomar.
@@ -484,7 +487,8 @@ public sealed class NebulaQueueConcurrencyMongoTests : IDisposable
         }
         finally
         {
-            await _client.DropDatabaseAsync(restoredDatabaseName);
+            // A cancelled test must still remove its isolated restoration database.
+            await _client.DropDatabaseAsync(restoredDatabaseName, CancellationToken.None);
         }
     }
 
@@ -495,8 +499,9 @@ public sealed class NebulaQueueConcurrencyMongoTests : IDisposable
 
         var rootId = ObjectId.GenerateNewId();
         var categoryId = ObjectId.GenerateNewId();
-        await Files.InsertManyAsync(new[]
-        {
+        await Files.InsertManyAsync(
+            new[]
+            {
             new BsonDocument
             {
                 ["_id"] = rootId,
@@ -513,7 +518,8 @@ public sealed class NebulaQueueConcurrencyMongoTests : IDisposable
                 ["type"] = "dir",
                 ["parent"] = rootId
             }
-        });
+            },
+            cancellationToken: TestContext.Current.CancellationToken);
 
         using var context = CreateContext();
         var entries = await context.GetChildrenAsync(null, "/", TestContext.Current.CancellationToken);
@@ -529,8 +535,9 @@ public sealed class NebulaQueueConcurrencyMongoTests : IDisposable
 
         var categoryId = ObjectId.GenerateNewId();
         var titleId = ObjectId.GenerateNewId();
-        await Files.InsertManyAsync(new[]
-        {
+        await Files.InsertManyAsync(
+            new[]
+            {
             new BsonDocument
             {
                 ["_id"] = titleId,
@@ -548,7 +555,8 @@ public sealed class NebulaQueueConcurrencyMongoTests : IDisposable
                 ["parent"] = titleId,
                 ["parts"] = new BsonArray { new BsonDocument("tg_file_id", "test-file") }
             }
-        });
+            },
+            cancellationToken: TestContext.Current.CancellationToken);
 
         using var context = CreateContext();
 
@@ -690,8 +698,9 @@ public sealed class NebulaQueueConcurrencyMongoTests : IDisposable
         Assert.SkipUnless(_available, _skipReason);
 
         var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
-        await Admission.InsertOneAsync(new BsonDocument
-        {
+        await Admission.InsertOneAsync(
+            new BsonDocument
+            {
             { "_id", NebulaMongoContext.AdmissionGateId },
             { "backup_expires_at", now - 1 },
             { "active_upload_leases", new BsonArray
@@ -699,7 +708,8 @@ public sealed class NebulaQueueConcurrencyMongoTests : IDisposable
                     new BsonDocument { { "lease_id", "expired" }, { "expires_at", now - 1 } }
                 }
             }
-        });
+            },
+            cancellationToken: TestContext.Current.CancellationToken);
 
         using var context = CreateContext();
         await using var backup = await context.AcquireExclusiveSyncAdmissionAsync(null, TestContext.Current.CancellationToken);

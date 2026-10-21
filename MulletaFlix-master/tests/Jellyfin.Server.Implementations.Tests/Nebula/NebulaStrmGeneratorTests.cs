@@ -16,12 +16,13 @@ public class NebulaStrmGeneratorTests
     [Fact]
     public async Task GenerateFilesAsync_ReportsPartialWriteFailureAfterContinuingOtherRoots()
     {
+        var testCancellationToken = TestContext.Current.CancellationToken;
         var tempRoot = Path.Combine(Path.GetTempPath(), $"mulletraflix-strm-{Guid.NewGuid():N}");
         Directory.CreateDirectory(tempRoot);
         var validRoot = Path.Combine(tempRoot, "valid");
         var blockedRoot = Path.Combine(tempRoot, "blocked");
         Directory.CreateDirectory(validRoot);
-        await File.WriteAllTextAsync(blockedRoot, "not a directory");
+        await File.WriteAllTextAsync(blockedRoot, "not a directory", testCancellationToken);
 
         try
         {
@@ -44,12 +45,16 @@ public class NebulaStrmGeneratorTests
                     config,
                     new Dictionary<string, string>(),
                     files,
-                    NullLogger<NebulaStrmGenerator>.Instance));
+                    NullLogger<NebulaStrmGenerator>.Instance,
+                    cancellationToken: testCancellationToken));
 
             Assert.Contains("1 generated/updated; 1 failed", exception.Message, StringComparison.Ordinal);
             var generatedFiles = Directory.GetFiles(validRoot, "*.strm", SearchOption.AllDirectories);
             Assert.Single(generatedFiles);
-            Assert.Contains("/stream?id=", await File.ReadAllTextAsync(generatedFiles[0]), StringComparison.Ordinal);
+            Assert.Contains(
+                "/stream?id=",
+                await File.ReadAllTextAsync(generatedFiles[0], testCancellationToken),
+                StringComparison.Ordinal);
         }
         finally
         {

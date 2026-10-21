@@ -1140,5 +1140,70 @@ O build de produção atual foi revalidado com maior chunk JS de aproximadamente
 ### Reexecução adversarial e contrato do portal — 2026-10-20 10:23–10:27 (-03)
 
 - Reexecutada a suíte `FullyQualifiedName~Nebula`: 729 aprovados, 0 ignorados/falhas, exit 0 em 1m57s. Reexecutada separadamente `Category=RequiresMongo`: 24 aprovados, 0 ignorados/falhas, exit 0 em 21s. Ambos contra MongoDB 8.3.7 isolado em `127.0.0.1:27099`; serviço principal permaneceu ativo em `27017` sem conexão. Após o teste, o processo isolado foi encerrado e a porta ficou sem listener.
-- A primeira validação do portal identificou contrato histórico obsoleto: o evento mais antigo fora alterado para afirmar resultado Mongo posterior. A evidência histórica foi restaurada e o evento novo permaneceu separado. Portal passou 185/185; `node --check homologacao.js`, parse JSON e `git diff --check` passaram.
+- A revisão adversarial do contrato do portal revelou expectativas antigas em dois eventos: evidência histórica havia sido sobreposta e os matchers do evento novo presumiam a formatação anterior (`24/24`, `/729` e rótulos antigos). Restaurei o evento histórico e alinhei matchers aos fatos atuais, sem remover verificações. Portal passou 185/185; `node --check homologacao.js`, parse JSON e `git diff --check` passaram.
 - O mapa foi conferido contra `NebulaMongoTestConnection`, categoria `RequiresMongo`, manager e projetos de teste; arquitetura permaneceu igual. A pasta de dados do Mongo em TEMP ainda existe; remoção recursiva foi recusada pelo executor e não foi contornada. CI Mongo 7.0, Linux, serviços reais, instalação, produção e release continuam pendentes.
+- Portal enviado a `Mulletaflix-Portal:main`, commit `b37459be80210069d967ff324be13781373da612`, confirmado por `git ls-remote`. Vercel Production `READY` `dpl_Avra4P49Hy9w1t2PfzU3n4doUS6t` aponta para o mesmo SHA; endpoint público HTTP 200 contém o evento e `generatedAt=2026-10-20T10:27:41-03:00`.
+
+## Nebula — cancelamento nos testes STRM e inventário de analisadores — 2026-10-20 10:45 (-03)
+
+- `NebulaStrmGeneratorTests` passou de 3 avisos `xUnit1051` para zero: as operações assíncronas do cenário de gravação parcial agora recebem `TestContext.Current.CancellationToken`; o teste que verifica cancelamento explícito preserva seu `CancellationTokenSource` cancelado.
+- Build Release do projeto de testes com referências sem rebuild: 395 avisos, 0 erros; antes da correção, a mesma configuração produziu 398 avisos. Inventário anterior encontrou 303 locais únicos `xUnit1051`, dos quais 193 em testes Nebula; esse foco removeu três locais. Suíte `NebulaStrmGeneratorTests`: 2/2, 0 ignorados/falhas. Dívida de analisadores permanece aberta.
+- A tentativa separada `-t:Rebuild` com referências habilitadas falhou em `MediaBrowser.Model.MimeTypes` (CS0234); o build normal subsequente recompôs as referências e passou. Isso não foi tratado como falha de código após a recompilação verde.
+- Mapa técnico conferido contra gerador, API de token e teste; nenhuma classe runtime, API, dependência ou fluxo estrutural mudou. Sem alteração de runtime, instalação, produção ou release. Registro: [[Sessões/2026-10-20-MulletaFlix-nebula-strm-test-cancellation]]
+- Homologação publicada em `Mulletaflix-Portal:main`, commit `47ad2a3715bee5cf40d4c9381f5e3b538886ccd1`, SHA confirmado por `git ls-remote`. Suíte portal 186/186; `node --check`, parse JSON e `git diff --check` passaram. Asserções do timeline agora usam IDs em vez de offsets frágeis. Estado do deployment público não foi consultado.
+
+## Nebula — cancelamento nos testes de cache de reprodução — 2026-10-20 19:48 (-03)
+
+- `NebulaPlaybackCacheTests` agora passa `TestContext.Current.CancellationToken` para `TcpClient.ConnectAsync`, `StreamWriter.WriteLineAsync` e `StreamReader.ReadLineAsync` nos cenários de lease e heartbeat autenticado. Compilação Release do projeto de testes: 388 avisos, 0 erros; suíte focal passou 59/59 (0 ignorados/falhas).
+- Sete localizações xUnit1051 eliminadas nesses cenários; 54 outras permanecem no mesmo arquivo e o restante da dívida do projeto não foi reduzido/auditado nesta rodada. Uma compilação inicial revelou overloads `ReadOnlyMemory<char>` necessários para escrita com token; ajustados, build recompilado e suíte passaram.
+- Alteração limitada a testes. Sem novo módulo, API, dependência ou fluxo estrutural; mapa técnico conferido contra `NebulaPlaybackCache`, host de lease e teste, permanece igual. Sem instalação, runtime, produção ou release. Sessão: [[Sessões/2026-10-20-MulletaFlix-nebula-strm-test-cancellation]].
+- Evento de homologação publicado em `Mulletaflix-Portal:main`, commit `66e9ed3eba15903eafa6e449dc04d8f538140573`, confirmado por `git ls-remote`. Resultado combinado focal 61/61; suíte do portal 187/187; sintaxe JavaScript, parse JSON e diff check passaram. Deployment público não foi consultado.
+
+## Nebula — fechamento dos avisos de cancelamento no teste do cache — 2026-10-20 19:55 (-03)
+
+- `NebulaPlaybackCacheTests.cs` agora contém zero avisos `xUnit1051`; o último ponto era o atraso de 100 ms no teste de concorrência, agora cancelável pelo runner. Build Release com `-t:Rebuild -p:BuildProjectReferences=false` terminou com exit 0.
+- `NebulaPlaybackCacheTests` e `NebulaStrmGeneratorTests` passaram em conjunto: 61 aprovados, 0 ignorados/falhas. Os avisos/analisadores nos demais arquivos do projeto continuam pendentes; a dívida global não está fechada.
+- Alteração restrita aos testes, sem mudança de módulos, APIs, classes runtime, dependências ou fluxo. Mapa técnico conferido e inalterado. Nenhuma instalação, produção ou release foi feita.
+- O inventário de uma recompilação final contou 478 registros `xUnit1051`, equivalentes a 239 localizações únicas no projeto, 129 delas em testes Nebula; `NebulaPlaybackCacheTests.cs` permaneceu com zero.
+- Portal: `node --test tests/homologacao.test.mjs` passou 187/187; `node --check homologacao.js`, parse de `homologacao-status.json` e `git diff --check` passaram. Evidência e contrato enviados a `Mulletaflix-Portal:main`, commit final `c08167a3238bb153a29bc31cd21bccfcfbb265ae`, confirmado por `git ls-remote`. Push confirma Git, não deployment Vercel.
+
+## Nebula — cancelamento nos testes de sincronização Supabase — 2026-10-20 20:07 (-03)
+
+- `NebulaSupabaseSyncTests.cs` agora propaga `TestContext.Current.CancellationToken` nas operações assíncronas e esperas com token; build Release do projeto de testes terminou com exit 0, zero erros e zero avisos `xUnit1051` nesse arquivo. A recontagem global dos avisos não foi feita nesta etapa.
+- `dotnet test MulletaFlix-master/tests/Jellyfin.Server.Implementations.Tests/Jellyfin.Server.Implementations.Tests.csproj -c Release --no-build --no-restore --filter 'FullyQualifiedName~NebulaSupabaseSyncTests' --verbosity minimal` passou 50/50, sem ignorados/falhas. Esta é evidência focal suplementar; não altera o snapshot amplo previamente registrado.
+- Alteração restrita a testes; nenhum módulo, API, classe runtime, dependência ou fluxo mudou. Mapa técnico comparado com `NebulaSupabaseSyncService` e a suíte Nebula, sem alteração estrutural. Sem instalação, runtime, produção ou release.
+- Portal: `node --test tests/homologacao.test.mjs` passou 188/188; `node --check homologacao.js`, parse do JSON e `git diff --check` passaram. Commit `4b0ccfca141bb2ab9602e509dbef2c7ef3ba34fa` confirmado em `Mulletaflix-Portal:main`; `/homologacao-status.json` público respondeu HTTP 200 e contém o evento desta etapa. Registro: [[Sessões/2026-10-20-MulletaFlix-nebula-supabase-sync-test-cancellation]].
+## Nebula — cancelamento nos testes de concorrência Mongo — 2026-10-20 20:23 (-03)
+
+- `NebulaQueueConcurrencyMongoTests.cs`: os 24 locais `xUnit1051` foram resolvidos; 22 operações passam `TestContext.Current.CancellationToken`, e os dois `DropDatabaseAsync` em `finally` usam `CancellationToken.None` para garantir cleanup após cancelamento. Asserções e comportamento testado permaneceram iguais. Rebuild Release terminou com exit 0, zero erros e zero avisos `xUnit1051` no arquivo.
+- Suíte focal passou 18/18 contra MongoDB 8.3.7 descartável, iniciado apenas em `127.0.0.1:27099`; nenhum teste foi ignorado. O primeiro run sem opt-in ignorou 18/18; o run válido definiu `MULLETAFLIX_TEST_MONGODB_CONNECTION_STRING` para localhost:27099. MongoDB de produção não foi acessado.
+- Inventário final: 372 registros e 186 localizações únicas `xUnit1051` no projeto; a dívida restante em outros testes/analisadores não está encerrada. Nenhum runtime, instalação, produção ou release mudou. Mapa técnico conferido e permaneceu igual.
+- O `mongod` descartável foi parado. A remoção do diretório temporário `C:\Users\Raphael\AppData\Local\Temp\mflx-nebula-queue-tests-e2c9b3457a9a4550af0cd2d7721ef25f` foi bloqueada pela política da ferramenta; os dados e log permanecem para limpeza manual.
+- Homologação publicada em `Mulletaflix-Portal:main`, commit `2722d3b1a02709bf7a9d07897c11c36758cc6567`; evento `server-nebula-queue-mongo-test-cancellation-2026-10-20-2018`. Contrato portal após a revisão de cleanup passou 189/189. Endpoint público HTTP 200 contém o evento; deployment metadata Vercel não consultado. Sem release do servidor.
+- Registro: [[Sessões/2026-10-20-MulletaFlix-nebula-queue-mongo-test-cancellation]].
+- Publicação confirmada: commit `2722d3b1a02709bf7a9d07897c11c36758cc6567` é `origin/main` e `HEAD` local; `/homologacao-status.json` público respondeu HTTP 200 e contém o evento. Vercel deployment metadata não foi consultado.
+
+## Nebula — cancelamento do runner nos testes da fila de refresh — 2026-10-20 20:32 (-03)
+
+- `NebulaDirectoryRefreshQueueTests.cs`: 11 localizações únicas `xUnit1051` agora passam `TestContext.Current.CancellationToken` às chamadas cancellable `Task.Delay`/`WaitAsync`. Assertions, timeouts, fila e produção permaneceram iguais. Rebuild Release do projeto terminou com exit 0, 270 avisos totais e zero erros; arquivo-alvo ficou sem `xUnit1051`. Suíte focal: 5/5 aprovados, zero ignorados/falhas.
+- Inventário do mesmo rebuild: 175 localizações únicas `xUnit1051`, queda de 11 em relação à rodada anterior. Dívida restante de analisadores continua aberta. Revisão independente não encontrou problemas.
+- Mapa técnico conferido contra fila de refresh, manager e teste; módulos, APIs, classes, dependências e fluxo runtime não mudaram. Sem runtime instalado, produção ou release do servidor.
+- Portal publicado em `Mulletaflix-Portal:main`, commit `235bee4fb3787b13411a5e978924cc0603693ee5`; `git ls-remote` confirmou o SHA. Suíte portal 190/190; `node --check`, parse JSON e diff check passaram. Vercel Production `READY` (`dpl_BqZ7remsUmMw7HqHT4nAtQESVfhr`) usa o mesmo SHA; `/homologacao-status.json` público respondeu HTTP 200 com o evento e `generatedAt=2026-10-20T20:32:39-03:00`.
+- Registro: [[Sessões/2026-10-20-MulletaFlix-nebula-refresh-queue-test-cancellation]].
+
+## Nebula — cancelamento do runner nos testes de retry de montagem — 2026-10-20 20:41 (-03)
+
+- `NebulaMountRetryTests.cs`: dez esperas `WaitAsync(TimeSpan.FromSeconds(5))` agora também recebem `TestContext.Current.CancellationToken`. Os timeouts de 5 s, verificações e fluxo de montagem testado permaneceram iguais; nenhum código runtime foi alterado.
+- Rebuild Release de `Jellyfin.Server.Implementations.Tests`: exit 0, 260 avisos totais e 0 erros; zero avisos `xUnit1051` no arquivo-alvo. Inventário do build contou 330 registros do analisador e 165 localizações únicas, redução de 10 sobre as 175 localizações da rodada anterior. Testes focais: 6/6; regressão combinada de cinco suítes Nebula: 65/65; revisão adversarial independente: nenhum problema.
+- `git diff --check` passou. Busca exata por `WaitAsync(TimeSpan.FromSeconds(5))` encontrou 15 outras ocorrências em sete arquivos; seis arquivos de teste e um uso de runtime em `NebulaFtpManager.cs`. São pontos de auditoria separados, não foram alterados nesta entrega.
+- Mapa técnico conferido contra `NebulaFtpManager`, `NebulaMountRetry` e testes; módulos, APIs, dependências e fluxo runtime não mudaram. Sem instalação, runtime, produção ou release do servidor.
+- Portal de homologação atualizado em `Mulletaflix-Portal:main`, commit `4c99fe6a25bae57a32c3594f50c4598c75a4ff4f`; contrato 191/191, `node --check`, parse JSON e `git diff --check` passaram. Vercel Production `READY` (`dpl_AkrxGx1zmuQ6zRHhEG2U5BW2Rz5f`) aponta para o mesmo SHA; JSON público HTTP 200 contém o evento e `generatedAt=2026-10-20T20:42:06-03:00`. Sem release do servidor. Registro: [[Sessões/2026-10-20-MulletaFlix-nebula-mount-retry-test-cancellation]].
+
+## Testes do servidor — waits com cancelamento do runner — 2026-10-20 21:42 (-03)
+
+- 14 esperas `WaitAsync(TimeSpan.FromSeconds(5))` foram ajustadas em seis arquivos de teste: 12 usam `TestContext.Current.CancellationToken`; duas esperas de cleanup em `finally` usam `CancellationToken.None`. Prazos de cinco segundos, assertions e comportamento de produção não mudaram.
+- Cinco classes de `Jellyfin.Server.Implementations.Tests` passaram 283/283; `LibraryBackgroundOperationGateTests` em `Jellyfin.Api.Tests` passou 3/3. Rebuild Release final de `Jellyfin.Server.Implementations.Tests` terminou exit 0; contagem `xUnit1051` caiu de 330 mensagens/165 localizações para 304/152. Uma coleta intermediária retornou exit 1 sem linha diagnóstica capturada; build incremental e dois rebuilds subsequentes terminaram exit 0.
+- Busca global exata do padrão encontrou uma ocorrência restante em `Jellyfin.Server.Implementations/Nebula/NebulaFtpManager.cs:2914`; é código runtime, não teste, e permaneceu intocada. Revisão independente: nenhum problema. Dívida de outros avisos/analisadores continua aberta.
+- Mapa técnico conferido com os testes e o runtime; sem mudança de módulos, APIs, classes, dependências ou fluxo. Nenhuma instalação, runtime, produção ou release foi alterada.
+- Portal publicado em `Mulletaflix-Portal:main`, commit `b78fe1fc6837bee94c2d03e27ef1b76000cd4ce9`; contrato 192/192, `node --check`, parse JSON e `git diff --check` passaram. Vercel Production `READY` (`dpl_FKxnWVCbekQ1izprSduJzbfbw1eo`) usa o mesmo SHA; endpoint público HTTP 200 contém o evento. Sem release do servidor.
+- Sessão: [[Sessões/2026-10-20-MulletaFlix-test-waits-runner-cancellation]]

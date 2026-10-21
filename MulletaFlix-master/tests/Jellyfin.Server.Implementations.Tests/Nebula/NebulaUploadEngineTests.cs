@@ -90,7 +90,7 @@ public class NebulaUploadEngineTests
             var disposal = engine.DisposeAsync().AsTask();
             Assert.False(await engine.ProcessFileUploadAsync(path, Path.GetFileName(path)));
             await Assert.ThrowsAnyAsync<OperationCanceledException>(() => upload);
-            await disposal.WaitAsync(TimeSpan.FromSeconds(5));
+            await disposal.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
         }
         finally
         {

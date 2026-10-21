@@ -193,11 +193,11 @@ public class NebulaSupabaseSyncTests
         try
         {
             service.StartContinuousSync("https://supabase.invalid", "sb_secret_test", usersBackupCompleted: callback);
-            Assert.True(callbackStarted.Wait(TimeSpan.FromSeconds(10)));
+            Assert.True(callbackStarted.Wait(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken));
 
             service.StartContinuousSync("https://supabase.invalid", "sb_secret_test", usersBackupCompleted: callback);
 
-            Assert.False(secondCallbackStarted.Wait(TimeSpan.FromMilliseconds(250)));
+            Assert.False(secondCallbackStarted.Wait(TimeSpan.FromMilliseconds(250), TestContext.Current.CancellationToken));
             Assert.Equal(1, Volatile.Read(ref callbackCount));
         }
         finally
@@ -212,7 +212,7 @@ public class NebulaSupabaseSyncTests
     {
         using var service = new NebulaSupabaseSyncService(null!, NullLogger<NebulaSupabaseSyncService>.Instance);
 
-        var result = await service.PerformUsersBackupAsync("https://supabase.invalid", "sb_secret_test");
+        var result = await service.PerformUsersBackupAsync("https://supabase.invalid", "sb_secret_test", cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.False(result.Success);
         Assert.Contains("origem relacional", result.Message, StringComparison.OrdinalIgnoreCase);
@@ -237,8 +237,8 @@ public class NebulaSupabaseSyncTests
         listener.Start();
 
         using var service = new NebulaSupabaseSyncService(null!, NullLogger<NebulaSupabaseSyncService>.Instance);
-        var result = await service.PerformBackupAsync("https://supabase.invalid", "sb_publishable_test", progressAction: null);
-        var userBackupResult = await service.PerformUsersBackupAsync("https://supabase.invalid", "sb_secret_test");
+        var result = await service.PerformBackupAsync("https://supabase.invalid", "sb_publishable_test", progressAction: null, TestContext.Current.CancellationToken);
+        var userBackupResult = await service.PerformUsersBackupAsync("https://supabase.invalid", "sb_secret_test", cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.False(result.Success);
         Assert.False(userBackupResult.Success);
@@ -268,7 +268,7 @@ public class NebulaSupabaseSyncTests
     {
         using var service = new NebulaSupabaseSyncService(null!, NullLogger<NebulaSupabaseSyncService>.Instance);
 
-        var result = await service.PerformUsersRestoreAsync("https://supabase.invalid", "sb_secret_test");
+        var result = await service.PerformUsersRestoreAsync("https://supabase.invalid", "sb_secret_test", cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.False(result.Success);
         Assert.Contains("origem relacional", result.Message, StringComparison.OrdinalIgnoreCase);
@@ -293,7 +293,7 @@ public class NebulaSupabaseSyncTests
             factory.Object,
             handler);
 
-        var result = await service.PerformUsersBackupAsync("https://supabase.invalid", "sb_secret_test");
+        var result = await service.PerformUsersBackupAsync("https://supabase.invalid", "sb_secret_test", cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.False(result.Success);
         Assert.Contains("tabela mulletaflix_users não existe", result.Message, StringComparison.OrdinalIgnoreCase);
@@ -315,7 +315,7 @@ public class NebulaSupabaseSyncTests
         };
 
         var exception = await Assert.ThrowsAsync<InvalidOperationException>(
-            () => service.BackupNebulaUsersAsync("https://supabase.invalid", "sb_secret_test", users));
+            () => service.BackupNebulaUsersAsync("https://supabase.invalid", "sb_secret_test", users, TestContext.Current.CancellationToken));
 
         Assert.Contains("HTTP 503", exception.Message, StringComparison.Ordinal);
         Assert.Contains("temporary write failure", exception.Message, StringComparison.Ordinal);
@@ -332,7 +332,7 @@ public class NebulaSupabaseSyncTests
             new BsonDocument { ["_id"] = "ftp-user", ["password_hash"] = "hash" }
         };
 
-        var count = await service.BackupNebulaUsersAsync("https://supabase.invalid", "sb_secret_test", users);
+        var count = await service.BackupNebulaUsersAsync("https://supabase.invalid", "sb_secret_test", users, TestContext.Current.CancellationToken);
 
         Assert.Equal(1, count);
         Assert.Equal(HttpMethod.Post, handler.LastMethod);
@@ -348,7 +348,7 @@ public class NebulaSupabaseSyncTests
         using var service = new NebulaSupabaseSyncService(null!, NullLogger<NebulaSupabaseSyncService>.Instance, null, handler);
 
         var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
-            service.GetLastRemoteFileTimestampAsync("https://supabase.invalid", "sb_secret_test"));
+            service.GetLastRemoteFileTimestampAsync("https://supabase.invalid", "sb_secret_test", TestContext.Current.CancellationToken));
 
         Assert.Contains("HTTP 503", exception.Message, StringComparison.Ordinal);
         Assert.Equal(3, handler.Methods.Count);
@@ -367,7 +367,7 @@ public class NebulaSupabaseSyncTests
             });
         using var service = new NebulaSupabaseSyncService(null!, NullLogger<NebulaSupabaseSyncService>.Instance, null, handler);
 
-        var timestamp = await service.GetLastRemoteFileTimestampAsync("https://supabase.invalid", "sb_secret_test");
+        var timestamp = await service.GetLastRemoteFileTimestampAsync("https://supabase.invalid", "sb_secret_test", TestContext.Current.CancellationToken);
 
         Assert.Equal(expected, timestamp);
         Assert.Equal(new[] { HttpMethod.Get, HttpMethod.Get }, handler.Methods);
@@ -385,7 +385,7 @@ public class NebulaSupabaseSyncTests
         using var service = new NebulaSupabaseSyncService(null!, NullLogger<NebulaSupabaseSyncService>.Instance, null, handler);
 
         var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
-            service.GetLastRemoteFileTimestampAsync("https://supabase.invalid", "sb_secret_test"));
+            service.GetLastRemoteFileTimestampAsync("https://supabase.invalid", "sb_secret_test", TestContext.Current.CancellationToken));
 
         Assert.Contains("HTTP 401", exception.Message, StringComparison.Ordinal);
         Assert.Equal(new[] { HttpMethod.Get }, handler.Methods);
@@ -400,7 +400,7 @@ public class NebulaSupabaseSyncTests
         });
         using var service = new NebulaSupabaseSyncService(null!, NullLogger<NebulaSupabaseSyncService>.Instance, null, handler);
 
-        var timestamp = await service.GetLastRemoteFileTimestampAsync("https://supabase.invalid", "sb_secret_test");
+        var timestamp = await service.GetLastRemoteFileTimestampAsync("https://supabase.invalid", "sb_secret_test", TestContext.Current.CancellationToken);
 
         Assert.Equal(new DateTime(2026, 10, 9, 5, 0, 0, DateTimeKind.Utc), timestamp);
         Assert.Contains("order=updated_at.desc.nullslast", handler.LastUri, StringComparison.Ordinal);
@@ -420,7 +420,7 @@ public class NebulaSupabaseSyncTests
             null,
             new StaticResponseHandler(response));
 
-        var count = await service.GetSupabaseFileCountAsync("https://supabase.invalid", "sb_secret_test");
+        var count = await service.GetSupabaseFileCountAsync("https://supabase.invalid", "sb_secret_test", TestContext.Current.CancellationToken);
 
         Assert.Equal(136136, count);
     }
@@ -437,7 +437,7 @@ public class NebulaSupabaseSyncTests
                 Content = new StringContent(string.Empty)
             }));
 
-        var count = await service.GetSupabaseFileCountAsync("https://supabase.invalid", "sb_secret_test");
+        var count = await service.GetSupabaseFileCountAsync("https://supabase.invalid", "sb_secret_test", TestContext.Current.CancellationToken);
 
         Assert.Equal(-1, count);
     }
@@ -490,7 +490,7 @@ public class NebulaSupabaseSyncTests
             });
         using var service = new NebulaSupabaseSyncService(null!, NullLogger<NebulaSupabaseSyncService>.Instance, null, handler);
 
-        var watermark = await service.GetLastRemoteFileTimestampAsync("https://supabase.invalid", "sb_secret_test");
+        var watermark = await service.GetLastRemoteFileTimestampAsync("https://supabase.invalid", "sb_secret_test", TestContext.Current.CancellationToken);
 
         Assert.Null(watermark);
         Assert.Equal(new[] { HttpMethod.Get, HttpMethod.Get }, handler.Methods);
@@ -508,7 +508,7 @@ public class NebulaSupabaseSyncTests
             });
         using var service = new NebulaSupabaseSyncService(null!, NullLogger<NebulaSupabaseSyncService>.Instance, null, handler);
 
-        var watermark = await service.GetLastRemoteFileTimestampAsync("https://supabase.invalid", "sb_secret_test");
+        var watermark = await service.GetLastRemoteFileTimestampAsync("https://supabase.invalid", "sb_secret_test", TestContext.Current.CancellationToken);
 
         Assert.Null(watermark);
         Assert.Equal(new[] { HttpMethod.Get, HttpMethod.Get }, handler.Methods);
@@ -522,7 +522,7 @@ public class NebulaSupabaseSyncTests
             new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("[]") });
         using var service = new NebulaSupabaseSyncService(null!, NullLogger<NebulaSupabaseSyncService>.Instance, null, handler);
 
-        var watermark = await service.GetLastRemoteFileTimestampAsync("https://supabase.invalid", "sb_secret_test");
+        var watermark = await service.GetLastRemoteFileTimestampAsync("https://supabase.invalid", "sb_secret_test", TestContext.Current.CancellationToken);
 
         Assert.Null(watermark);
         Assert.Equal(2, handler.Methods.Count);
@@ -537,7 +537,7 @@ public class NebulaSupabaseSyncTests
         using var service = new NebulaSupabaseSyncService(null!, NullLogger<NebulaSupabaseSyncService>.Instance, null, handler);
 
         var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
-            service.GetLastRemoteFileTimestampAsync("https://supabase.invalid", "sb_secret_test"));
+            service.GetLastRemoteFileTimestampAsync("https://supabase.invalid", "sb_secret_test", TestContext.Current.CancellationToken));
 
         Assert.Contains("HTTP 503", exception.Message, StringComparison.Ordinal);
         Assert.Equal(2, handler.Methods.Count);
@@ -583,7 +583,7 @@ public class NebulaSupabaseSyncTests
         using var service = new NebulaSupabaseSyncService(null!, NullLogger<NebulaSupabaseSyncService>.Instance, null, handler);
 
         var exception = await Assert.ThrowsAsync<InvalidOperationException>(
-            () => service.RecordBackupHistoryAsync("https://supabase.invalid", "sb_secret_test", new { status = "success" }));
+            () => service.RecordBackupHistoryAsync("https://supabase.invalid", "sb_secret_test", new { status = "success" }, TestContext.Current.CancellationToken));
 
         Assert.Contains("HTTP 503", exception.Message, StringComparison.Ordinal);
         Assert.DoesNotContain("history write unavailable", exception.Message, StringComparison.Ordinal);
@@ -597,7 +597,7 @@ public class NebulaSupabaseSyncTests
         var handler = new StaticResponseHandler(new HttpResponseMessage(HttpStatusCode.Created));
         using var service = new NebulaSupabaseSyncService(null!, NullLogger<NebulaSupabaseSyncService>.Instance, null, handler);
 
-        await service.RecordBackupHistoryAsync("https://supabase.invalid", "sb_secret_test", new { status = "success" });
+        await service.RecordBackupHistoryAsync("https://supabase.invalid", "sb_secret_test", new { status = "success" }, TestContext.Current.CancellationToken);
 
         Assert.Equal(1, handler.RequestCount);
         Assert.Equal(HttpMethod.Post, handler.LastMethod);
@@ -622,7 +622,7 @@ public class NebulaSupabaseSyncTests
             factory.Object,
             handler);
 
-        var result = await service.PerformUsersRestoreAsync("https://supabase.invalid", "sb_secret_test");
+        var result = await service.PerformUsersRestoreAsync("https://supabase.invalid", "sb_secret_test", cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.False(result.Success);
         Assert.Contains("HTTP 404", result.Message, StringComparison.Ordinal);
@@ -650,7 +650,7 @@ public class NebulaSupabaseSyncTests
             factory,
             handler);
 
-        var result = await service.PerformUsersRestoreAsync("https://supabase.invalid", "sb_secret_test");
+        var result = await service.PerformUsersRestoreAsync("https://supabase.invalid", "sb_secret_test", cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.True(result.Success, result.Message);
         Assert.Equal(1, result.UsersRestored);
@@ -661,7 +661,7 @@ public class NebulaSupabaseSyncTests
             result.FilesRestored,
             result.ElapsedSeconds);
         await using var verificationDb = new UsersDbContext(options, NullLogger<UsersDbContext>.Instance);
-        var restoredUser = await verificationDb.Users.SingleAsync(user => user.Id == restoredId);
+        var restoredUser = await verificationDb.Users.SingleAsync(user => user.Id == restoredId, TestContext.Current.CancellationToken);
         Assert.Equal("restored-user", restoredUser.Username);
         Assert.Equal("RESTORED-USER", restoredUser.NormalizedUsername);
         Assert.Equal("hash-value", restoredUser.Password);
@@ -907,7 +907,7 @@ public class NebulaSupabaseSyncTests
             CreateUsersContextFactory(options),
             handler);
 
-        var result = await service.PerformRestoreAsync("https://supabase.invalid", "sb_secret_test");
+        var result = await service.PerformRestoreAsync("https://supabase.invalid", "sb_secret_test", TestContext.Current.CancellationToken);
 
         Assert.True(result.Success, result.Message);
         Assert.Equal(0, result.UsersRestored);
@@ -925,7 +925,7 @@ public class NebulaSupabaseSyncTests
         await using (var seed = new UsersDbContext(options, NullLogger<UsersDbContext>.Instance))
         {
             seed.Users.Add(new User("local-user", "default", "default"));
-            await seed.SaveChangesAsync();
+            await seed.SaveChangesAsync(TestContext.Current.CancellationToken);
         }
 
         var factory = CreateUsersContextFactory(options);
@@ -941,7 +941,7 @@ public class NebulaSupabaseSyncTests
             factory,
             handler);
 
-        var result = await service.PerformUsersBackupAsync("https://supabase.invalid", "sb_secret_test");
+        var result = await service.PerformUsersBackupAsync("https://supabase.invalid", "sb_secret_test", cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.False(result.Success);
         Assert.Contains("listar usuários MulletaFlix", result.Message, StringComparison.OrdinalIgnoreCase);
@@ -957,7 +957,7 @@ public class NebulaSupabaseSyncTests
         await using (var seed = new UsersDbContext(options, NullLogger<UsersDbContext>.Instance))
         {
             seed.Users.Add(new User("local-user", "default", "default"));
-            await seed.SaveChangesAsync();
+            await seed.SaveChangesAsync(TestContext.Current.CancellationToken);
         }
 
         var factory = CreateUsersContextFactory(options);
@@ -979,7 +979,7 @@ public class NebulaSupabaseSyncTests
             factory,
             handler);
 
-        var result = await service.PerformUsersBackupAsync("https://supabase.invalid", "sb_secret_test");
+        var result = await service.PerformUsersBackupAsync("https://supabase.invalid", "sb_secret_test", cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.False(result.Success);
         Assert.Contains("remover registro antigo", result.Message, StringComparison.OrdinalIgnoreCase);
