@@ -1,7 +1,7 @@
 # Auditoria de cobertura do backup integral
 
 Data: 2026-10-21
-Estado: cobertura integral ainda parcial; restore rejeita ZIP corrompido e backup relacional semanticamente incompleto antes de sobrescrever arquivos.
+Estado: cobertura integral ainda parcial; restore rejeita ZIP corrompido e conteúdo JSON relacional inválido/incompatível antes de sobrescrever arquivos.
 
 ## Escopo verificado
 
@@ -70,12 +70,14 @@ criação do ZIP.
   validação exige que `DatabaseTables` corresponda exatamente aos DbSets
   exportados pelo `MulletaFlixDbContext` mais `HistoryRow`, e que cada entrada
   JSON correspondente exista no ZIP.
-- A restauração agora valida CRC e comprimento de todas as entradas do ZIP
-  antes de verificar espaço e antes de gravar qualquer arquivo ou banco. ZIP
-  corrompido é rejeitado sem sobrescrever a configuração existente. Isso não
-  torna a restauração transacional: erros semânticos posteriores, como JSON
-  inválido, componente ausente ou falha no banco, ainda podem deixar estado
-  parcialmente aplicado.
+- A restauração valida CRC e comprimento de todas as entradas do ZIP antes de
+  verificar espaço e antes de gravar qualquer arquivo ou banco. Também
+  desserializa em streaming as entidades JSON de cada tabela do contexto
+  relacional central antes de copiar `Config`, `Data` ou `Root` e antes de abrir
+  o banco; JSON malformado, nulo ou incompatível é rejeitado sem sobrescrever a
+  configuração existente. Isso não torna a restauração transacional: falhas de
+  constraints do banco, componentes não cobertos ou falhas durante a aplicação
+  ainda podem deixar estado parcialmente aplicado.
 - A validação semântica do componente relacional ocorre antes de copiar
   `Config`, `Data` ou `Root` e antes de abrir o banco. Declaração ausente,
   tabela não suportada ou entrada ausente produz `InvalidDataException`.
@@ -95,11 +97,12 @@ Reconciliação estática dos contextos, factories e inicializador feita em
 provider de produção ou instalação foi consultado; a inferência sobre bancos
 físicos efetivos continua pendente.
 
-Em 2026-10-21, `FullSystemBackup` passou 36/36 testes Release. Três novos casos
-provam que declaração ausente, entrada ausente e tabela desconhecida são
-rejeitadas sem sobrescrever configuração nem abrir o contexto de banco. A suíte
-completa `Jellyfin.Server.Implementations.Tests` passou 1.512, ignorou 65 casos
-opt-in/plataforma e teve zero falhas.
+Em 2026-10-21, `FullSystemBackup` passou 39/39 testes Release. Três novos casos
+provam que JSON sintaticamente inválido, item nulo e entidade incompatível são
+rejeitados sem sobrescrever configuração nem abrir o contexto de banco. Os
+casos prévios também cobrem declaração ausente, entrada ausente e tabela
+desconhecida. A suíte completa `Jellyfin.Server.Implementations.Tests` passou
+1.515, ignorou 65 casos opt-in/plataforma e teve zero falhas.
 O build de `Jellyfin.Server.Implementations` passou em Release sem erros; a
 última execução reportou quatro avisos XML em projetos referenciados. Os
 builders Windows e Linux também geraram os pacotes da release

@@ -208,6 +208,7 @@ public class BackupService : IBackupService, IDisposable
             if (manifest.Options.Database)
             {
                 ValidateDatabaseBackupEntries(manifest, zipArchive);
+                await ValidateDatabaseBackupContentAsync(zipArchive).ConfigureAwait(false);
             }
 
             void CopyDirectory(string source, string target, string[]? exclude = null)
@@ -389,6 +390,39 @@ public class BackupService : IBackupService, IDisposable
             }
 
             throw new InvalidDataException($"Cannot restore an incomplete database backup ({string.Join("; ", details)}).");
+        }
+    }
+
+    private static async Task ValidateDatabaseBackupContentAsync(ZipArchive zipArchive)
+    {
+        var entityTypes = typeof(MulletaFlixDbContext)
+            .GetProperties(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance)
+            .Where(property => property.PropertyType.IsAssignableTo(typeof(IQueryable)))
+            .Select(property => (Name: property.Name, Type: property.PropertyType.GetGenericArguments()[0]))
+            .Append((Name: nameof(HistoryRow), Type: typeof(HistoryRow)));
+
+        foreach (var entityType in entityTypes)
+        {
+            var entryPath = NormalizePathSeparator(Path.Combine("Database", $"{entityType.Name}.json"));
+            var zipEntry = zipArchive.GetEntry(entryPath)!;
+            var zipEntryStream = await zipEntry.OpenAsync().ConfigureAwait(false);
+            await using (zipEntryStream.ConfigureAwait(false))
+            {
+                try
+                {
+                    await foreach (var item in JsonSerializer.DeserializeAsyncEnumerable<JsonObject>(zipEntryStream, _serializerSettings).ConfigureAwait(false))
+                    {
+                        if (item is null || item.Deserialize(entityType.Type, _serializerSettings) is null)
+                        {
+                            throw new JsonException($"The backup entry '{entryPath}' contains a null or invalid entity.");
+                        }
+                    }
+                }
+                catch (Exception exception) when (exception is JsonException or ArgumentException)
+                {
+                    throw new InvalidDataException($"Cannot restore database table '{entityType.Name}' because its JSON content is invalid or incompatible.", exception);
+                }
+            }
         }
     }
 
