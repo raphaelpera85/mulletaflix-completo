@@ -1260,6 +1260,27 @@ O build de produção atual foi revalidado com maior chunk JS de aproximadamente
 - Nenhum teste do servidor foi executado nesta sessão: a análise foi estática e não mudou código. Nenhum provider/CDN real, biblioteca, produção ou mídia foi acessado. Mapa técnico conferido e inalterado. Evidência/fonte detalhada: `MulletaFlix-master/docs/image-metadata-flow-audit.md`; sessão do Vault `01 Projetos/MulletaFlix/Sessões/2026-10-21-MulletaFlix-remote-image-byte-validation-audit.md`.
 - Portal de homologação atualizado em `Mulletaflix-Portal:main`, commit `99ad0e4d8ab7be051096335137d34eab2c14c8ad`. `node --test tests/homologacao.test.mjs`: 195/195; `node --check homologacao.js`, JSON timestamp/order check e `git diff --check` passaram. `git ls-remote` confirmou `main` no SHA e o endpoint público `/homologacao-status.json` respondeu HTTP 200 com o evento `server-remote-image-byte-validation-audit-2026-10-21-0029` em `in_progress`.
 
+## Release 12.1.28 — validação CRC de restore e builder do pacote — 2026-10-21
+
+- `BackupService.RestoreBackupCoreAsync` agora valida CRC-32 e comprimento de
+  todas as entradas ZIP antes das verificações subsequentes e de qualquer
+  gravação. A regressão confirma rejeição de arquivo corrompido sem sobrescrever
+  o arquivo de configuração já existente. Isso não amplia os componentes
+  cobertos pelo backup nem torna o restore transacional.
+- `build-update-package.ps1` normaliza `-OutputDir` para absoluto antes de
+  `Set-Location` na pasta temporária; o novo teste Node foi incluído no job web
+  do CI.
+- Verificações locais: `FullSystemBackup` 33/33; build
+  `Jellyfin.Server.Implementations` Release sem erros (quatro avisos XML em
+  projetos referenciados); contratos Node de
+  release/packaging 23/23; `git diff --check` sem erro. EXE, ZIP e tar.gz
+  Windows/Linux foram construídos e inspecionados; nomes, tamanhos e hashes
+  constam em `docs/releases/12.1.28.md`.
+- `npm ci` informou 12 vulnerabilidades em dependências instaladas (1 moderada,
+  11 altas); build web terminou com avisos Vite. Pacote Linux foi cross-published
+  em Windows; instalação Linux nativa, CI remota, restore integral e produção
+  são gates distintos e não foram executados.
+
 ## Correção de decodificação de imagens e candidato de release 12.1.27 — 2026-10-21
 
 - Adicionado `RemoteImagePayloadValidator` ao fluxo central de `ProviderManager.SaveImage(BaseItem, ...)`: bytes staged até 64 MiB; decoder compatível rejeita falha de decodificação e mais de 16.777.216 pixels antes de persistência; limita 2 decodificações e 4 downloads URL concorrentes. HTTP usa `ResponseHeadersRead`, evita `ToArray()` e não mantém no cache TTL payloads acima de 8 MiB. Formatos sem suporte e SVG ficam sem validação de pixels, mas continuam com limite de tamanho.

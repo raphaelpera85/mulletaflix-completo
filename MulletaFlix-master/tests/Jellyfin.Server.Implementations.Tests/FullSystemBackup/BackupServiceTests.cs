@@ -687,6 +687,79 @@ public class BackupServiceTests
     }
 
     [Fact]
+    public async Task RestoreBackupAsync_RejectsCorruptedArchiveBeforeOverwritingFiles()
+    {
+        var isolatedRoot = Path.Combine(Path.GetTempPath(), $"mulletaflix-restore-corrupt-{Guid.NewGuid():N}");
+        var configPath = Path.Combine(isolatedRoot, "config");
+        var dataPath = Path.Combine(isolatedRoot, "data");
+        var cachePath = Path.Combine(isolatedRoot, "cache");
+        var programDataPath = Path.Combine(isolatedRoot, "program-data");
+        var existingConfigPath = Path.Combine(configPath, "server.json");
+        var archivePath = Path.Combine(isolatedRoot, "recovery.zip");
+        var payloadMarker = "restore-integrity-check-payload"u8.ToArray();
+        Directory.CreateDirectory(configPath);
+
+        try
+        {
+            _applicationPathsMock.Setup(paths => paths.ConfigurationDirectoryPath).Returns(configPath);
+            _applicationPathsMock.Setup(paths => paths.DataPath).Returns(dataPath);
+            _applicationPathsMock.Setup(paths => paths.CachePath).Returns(cachePath);
+            _applicationPathsMock.Setup(paths => paths.ProgramDataPath).Returns(programDataPath);
+            _applicationPathsMock.Setup(paths => paths.RootFolderPath).Returns(Path.Combine(isolatedRoot, "root"));
+            _applicationPathsMock.Setup(paths => paths.InternalMetadataPath).Returns(Path.Combine(isolatedRoot, "metadata"));
+            _applicationPathsMock.Setup(paths => paths.DefaultInternalMetadataPath).Returns(Path.Combine(isolatedRoot, "metadata-default"));
+
+            const string existingContent = "existing-config-must-survive";
+            await File.WriteAllTextAsync(existingConfigPath, existingContent);
+
+            var manifest = new BackupManifest
+            {
+                ServerVersion = new Version(10, 0, 0),
+                BackupEngineVersion = new Version(0, 2, 0),
+                DateCreated = DateTimeOffset.UtcNow,
+                DatabaseTables = Array.Empty<string>(),
+                Options = new BackupOptions
+                {
+                    Database = false,
+                    Metadata = false,
+                    Subtitles = false,
+                    Trickplay = false
+                }
+            };
+
+            using (var archive = ZipFile.Open(archivePath, ZipArchiveMode.Create))
+            {
+                await WriteArchiveEntryAsync(archive, "manifest.json", JsonSerializer.Serialize(manifest));
+                await WriteArchiveEntryAsync(archive, "Config/server.json", "corrupt-backup-config");
+                var payload = archive.CreateEntry("Data/payload.bin", CompressionLevel.NoCompression);
+                await using var payloadStream = await payload.OpenAsync();
+                await payloadStream.WriteAsync(payloadMarker);
+            }
+
+            var archiveBytes = await File.ReadAllBytesAsync(archivePath);
+            var markerOffset = archiveBytes.AsSpan().IndexOf(payloadMarker);
+            Assert.True(markerOffset >= 0, "The uncompressed test payload must be present in the archive bytes.");
+            archiveBytes[markerOffset] ^= 0x01;
+            await File.WriteAllBytesAsync(archivePath, archiveBytes);
+
+            var service = CreateService();
+            await Assert.ThrowsAsync<InvalidDataException>(() => service.RestoreBackupAsync(archivePath));
+
+            Assert.Equal(existingContent, await File.ReadAllTextAsync(existingConfigPath));
+            Assert.False(File.Exists(Path.Combine(configPath, "restored-user.json")));
+            Assert.False(Directory.Exists(Path.Combine(isolatedRoot, "data")));
+            Assert.False(Directory.Exists(Path.Combine(isolatedRoot, "root")));
+        }
+        finally
+        {
+            if (Directory.Exists(isolatedRoot))
+            {
+                Directory.Delete(isolatedRoot, recursive: true);
+            }
+        }
+    }
+
+    [Fact]
     public async Task RestoreBackupAsync_RestoresFilesIntoAnIsolatedInstanceAndReportsQueryableContent()
     {
         var isolatedRoot = Path.Combine(Path.GetTempPath(), $"mulletaflix-restore-test-{Guid.NewGuid():N}");

@@ -174,6 +174,7 @@ public class BackupService : IBackupService, IDisposable
             throw new FileNotFoundException($"Requested backup file '{archivePath}' does not exist.");
         }
 
+        await ValidateArchiveIntegrityAsync(archivePath).ConfigureAwait(false);
         StorageHelper.TestCommonPathsForStorageCapacity(_applicationPaths, _logger);
 
         var fileStream = File.OpenRead(archivePath);

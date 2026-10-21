@@ -242,7 +242,7 @@ jobs:
           cache-dependency-path: MulletaFlix-web-master/package-lock.json
 
       - name: Verify database integration CI coverage
-        run: node --test ../tools/release/tests/ci-mongo-coverage.test.mjs ../tools/release/tests/ci-mariadb-linux-coverage.test.mjs ../tools/release/tests/ci-packaging-coverage.test.mjs
+        run: node --test ../tools/release/tests/ci-mongo-coverage.test.mjs ../tools/release/tests/ci-mariadb-linux-coverage.test.mjs ../tools/release/tests/ci-packaging-coverage.test.mjs ../tools/release/tests/update-package-output-path.test.mjs
 
       - name: Install dependencies
         run: npm ci

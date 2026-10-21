@@ -36,6 +36,11 @@ if ([string]::IsNullOrWhiteSpace($Version)) {
 if (-not $OutputDir) {
     $OutputDir = Join-Path $projectRoot 'dist'
 }
+$OutputDir = if ([System.IO.Path]::IsPathRooted($OutputDir)) {
+    [System.IO.Path]::GetFullPath($OutputDir)
+} else {
+    [System.IO.Path]::GetFullPath((Join-Path $projectRoot $OutputDir))
+}
 
 $stageDir = if ([string]::IsNullOrWhiteSpace($StageDirectory)) {
     Join-Path $projectRoot 'stage'
