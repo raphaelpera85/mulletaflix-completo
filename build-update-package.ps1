@@ -12,6 +12,7 @@
 param(
     [string]$Version,
     [string]$OutputDir,
+    [string]$StageDirectory,
     [switch]$SkipBuild,
     [switch]$SkipInstaller
 )
@@ -36,7 +37,11 @@ if (-not $OutputDir) {
     $OutputDir = Join-Path $projectRoot 'dist'
 }
 
-$stageDir = Join-Path $projectRoot 'stage'
+$stageDir = if ([string]::IsNullOrWhiteSpace($StageDirectory)) {
+    Join-Path $projectRoot 'stage'
+} else {
+    [System.IO.Path]::GetFullPath($StageDirectory)
+}
 $webRoot = Join-Path $projectRoot 'MulletaFlix-web-master'
 $webDist = Join-Path $webRoot 'dist'
 $packagingRoot = Join-Path $projectRoot 'MulletaFlix-packaging-master'
