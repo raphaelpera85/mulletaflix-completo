@@ -50,6 +50,7 @@ public sealed class NebulaSupabaseSyncService : IDisposable
     private readonly ILogger<NebulaSupabaseSyncService> _logger;
     private readonly NebulaMongoContext _mongoContext;
     private readonly IDbContextFactory<UsersDbContext>? _usersDbProvider;
+    private readonly string _botTokensCollection;
     private readonly HttpClient _httpClient;
     private readonly SemaphoreSlim _backupGate = new(1, 1);
     private readonly object _continuousSyncLifecycleLock = new();
@@ -129,8 +130,9 @@ public sealed class NebulaSupabaseSyncService : IDisposable
     public NebulaSupabaseSyncService(
         NebulaMongoContext mongoContext,
         ILogger<NebulaSupabaseSyncService> logger,
-        IDbContextFactory<UsersDbContext>? usersDbProvider = null)
-        : this(mongoContext, logger, usersDbProvider, new HttpClient { Timeout = TimeSpan.FromMinutes(5) })
+        IDbContextFactory<UsersDbContext>? usersDbProvider = null,
+        string botTokensCollection = "bot_tokens")
+        : this(mongoContext, logger, usersDbProvider, new HttpClient { Timeout = TimeSpan.FromMinutes(5) }, botTokensCollection)
     {
     }
 
@@ -138,8 +140,9 @@ public sealed class NebulaSupabaseSyncService : IDisposable
         NebulaMongoContext mongoContext,
         ILogger<NebulaSupabaseSyncService> logger,
         IDbContextFactory<UsersDbContext> usersDbProvider,
-        HttpMessageHandler httpMessageHandler)
-        : this(mongoContext, logger, usersDbProvider, new HttpClient(httpMessageHandler) { Timeout = TimeSpan.FromMinutes(5) })
+        HttpMessageHandler httpMessageHandler,
+        string botTokensCollection = "bot_tokens")
+        : this(mongoContext, logger, usersDbProvider, new HttpClient(httpMessageHandler) { Timeout = TimeSpan.FromMinutes(5) }, botTokensCollection)
     {
     }
 
@@ -147,11 +150,13 @@ public sealed class NebulaSupabaseSyncService : IDisposable
         NebulaMongoContext mongoContext,
         ILogger<NebulaSupabaseSyncService> logger,
         IDbContextFactory<UsersDbContext>? usersDbProvider,
-        HttpClient httpClient)
+        HttpClient httpClient,
+        string botTokensCollection)
     {
         _mongoContext = mongoContext;
         _logger = logger;
         _usersDbProvider = usersDbProvider;
+        _botTokensCollection = string.IsNullOrWhiteSpace(botTokensCollection) ? "bot_tokens" : botTokensCollection.Trim();
         _httpClient = httpClient;
         _httpClient.DefaultRequestHeaders.Add("User-Agent", "MulletaFlix-Server/12.0");
     }
@@ -775,9 +780,9 @@ public sealed class NebulaSupabaseSyncService : IDisposable
             // O backup é espelho dos usuários FTP atuais. Usuários do app têm outro fluxo.
             var deletedFtpUsers = await RemoveDeletedNebulaUsersAsync(supabaseUrl, supabaseKey, allUsers, cancellationToken).ConfigureAwait(false);
 
-            // Tokens de bot do Telegram (ftp.bot_tokens no MongoDB) também fazem parte do
-            // backup do Nebula: sem isso, uma restauração nunca recupera os tokens configurados.
-            var botTokenDocs = await _mongoContext.GetAllBotTokenDocsAsync(cancellationToken).ConfigureAwait(false);
+            // Tokens de bot do Telegram também fazem parte do backup Nebula. Respeitar
+            // a coleção configurada é necessário para que backup e restore espelhem o runtime.
+            var botTokenDocs = await _mongoContext.GetAllBotTokenDocsAsync(cancellationToken, _botTokensCollection).ConfigureAwait(false);
             var syncedTokens = await BackupNebulaBotTokensAsync(supabaseUrl, supabaseKey, botTokenDocs, cancellationToken).ConfigureAwait(false);
             var tokensProgressMsg = $"[SUPABASE-SYNC] Lote de tokens de bot enviado com sucesso ({syncedTokens} tokens).";
             _logger.LogInformation("{Message}", tokensProgressMsg);
@@ -1038,7 +1043,7 @@ public sealed class NebulaSupabaseSyncService : IDisposable
                             { "enabled", enabled },
                             { "updated_at", DateTimeOffset.UtcNow.ToUnixTimeSeconds() }
                         };
-                        await _mongoContext.UpsertRawTokenDocAsync(tokenBson, cancellationToken).ConfigureAwait(false);
+                        await _mongoContext.UpsertRawTokenDocAsync(tokenBson, cancellationToken, _botTokensCollection).ConfigureAwait(false);
                         restoredTokens++;
                     }
                 }

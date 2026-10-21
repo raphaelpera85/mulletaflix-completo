@@ -58,8 +58,10 @@ public sealed class NebulaSupabaseBackupBotTokensMongoTests : IDisposable
         }
     }
 
-    [Fact]
-    public async Task Backup_PersistsBotTokensIntoSupabaseAndRestoreRehydratesThemIntoMongo()
+    [Theory]
+    [InlineData("bot_tokens")]
+    [InlineData("bot_tokens_custom")]
+    public async Task Backup_PersistsConfiguredBotTokenCollectionIntoSupabaseAndRestoreRehydratesItIntoMongo(string collectionName)
     {
         Assert.SkipUnless(_mongoAvailable, _skipReason);
 
@@ -79,10 +81,12 @@ public sealed class NebulaSupabaseBackupBotTokensMongoTests : IDisposable
         // writes (index/token/enabled), including one disabled token.
         await mongoContext.UpsertRawTokenDocAsync(
             new BsonDocument { { "index", 1 }, { "token", "backup-token-enabled" }, { "enabled", true } },
-            TestContext.Current.CancellationToken);
+            TestContext.Current.CancellationToken,
+            collectionName);
         await mongoContext.UpsertRawTokenDocAsync(
             new BsonDocument { { "index", 2 }, { "token", "backup-token-disabled" }, { "enabled", false } },
-            TestContext.Current.CancellationToken);
+            TestContext.Current.CancellationToken,
+            collectionName);
 
         var backupHandler = new RecordingResponseHandler(
             new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(string.Empty) },
@@ -92,7 +96,8 @@ public sealed class NebulaSupabaseBackupBotTokensMongoTests : IDisposable
             mongoContext,
             NullLogger<NebulaSupabaseSyncService>.Instance,
             usersFactory.Object,
-            backupHandler);
+            backupHandler,
+            collectionName);
 
         var backupResult = await backupService.PerformBackupAsync(
             "https://supabase.invalid",
@@ -133,7 +138,8 @@ public sealed class NebulaSupabaseBackupBotTokensMongoTests : IDisposable
             restoreMongoContext,
             NullLogger<NebulaSupabaseSyncService>.Instance,
             usersFactory.Object,
-            restoreHandler);
+            restoreHandler,
+            collectionName);
 
         var restoreResult = await restoreService.PerformRestoreAsync(
             "https://supabase.invalid",
@@ -145,7 +151,7 @@ public sealed class NebulaSupabaseBackupBotTokensMongoTests : IDisposable
         Assert.True(restoreResult.Success, restoreResult.Message);
         Assert.Equal(2, restoreResult.BotTokensRestored);
 
-        var restoredEnabledTokens = await restoreMongoContext.GetBotTokensAsync(cancellationToken: TestContext.Current.CancellationToken);
+        var restoredEnabledTokens = await restoreMongoContext.GetBotTokensAsync(collectionName, TestContext.Current.CancellationToken);
         Assert.Equal(["backup-token-enabled"], restoredEnabledTokens);
 
         _mongoClient!.DropDatabase(restoreDatabaseName);

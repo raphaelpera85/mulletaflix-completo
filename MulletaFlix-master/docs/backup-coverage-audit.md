@@ -11,15 +11,14 @@ Estado: cobertura integral ainda parcial; pré-validação CRC implementada para
 esse mesmo contexto. As entradas ausentes para tabelas são ignoradas, exceto o
 histórico de migrations, que é obrigatório.
 
-A aplicação registra outros seis contextos centrais: `UsersDbContext`,
+Além de `MulletaFlixDbContext`, a aplicação registra `UsersDbContext`,
 `MoviesDbContext`, `SeriesDbContext`, `ChannelsDbContext`, `BooksDbContext` e
-`SystemDbContext`. A extensão IntroSkipper registra ainda
-`IntroSkipperDbContext` e `DetectionCacheDbContext`, no schema separado
-`mulletaflix_introskipper`. Esses modelos não são enumerados pelo
-`BackupService`. Alguns modelos podem compartilhar nomes/tabelas com o legado;
-o impacto por tabela deve ser reconciliado com os modelos e o schema real antes
-de alterar o formato. Os dois contextos IntroSkipper e seus dados não aparecem
-no fluxo do backup geral.
+`SystemDbContext`. Essas fábricas usam o provider/configuração EF central; não
+se deve inferir um banco físico separado para cada contexto. Seus modelos não
+são enumerados pelo `BackupService` e precisam ser reconciliados por tabela
+física antes de ampliar o formato. A extensão IntroSkipper registra ainda
+`IntroSkipperDbContext` e `DetectionCacheDbContext` no schema separado
+`mulletaflix_introskipper`; esses dados também não aparecem no backup geral.
 
 O banco MongoDB do Nebula também é externo ao `BackupService`. A fonte identifica
 seis coleções usadas pelo servidor: `files`, `nebula_admission`, `users`,
@@ -29,6 +28,15 @@ também permite ler outra coleção Mongo com nome configurável. O fluxo de
 sincronização Nebula/Supabase é separado e não prova cobertura integral dessas
 coleções nem dos outros contextos relacionais. Nenhum banco remoto ou produção
 foi acessado nesta auditoria.
+
+Regressão encontrada nesta sessão: `BotTokensCollection` era usada pelo
+carregamento operacional, mas a sincronização Supabase lia e restaurava somente
+`bot_tokens`. A fonte foi alterada para propagar o nome configurado ao backup,
+restore e importação de tokens. A regressão exercita coleções padrão e
+customizada; os dois casos passaram com MongoDB 8.3.7 descartável limitado a
+`127.0.0.1:27099`. A suíte `FullyQualifiedName~Nebula` passou 730/730 com o
+mesmo fixture. Isso valida o fluxo local, não a conexão real do Supabase nem
+backup integral/produção. A correção está incluída em `12.1.29`.
 
 O ZIP também inclui arquivos XML/JSON de configuração de primeiro nível,
 `Config/users`, tarefas agendadas, `Root`, coleções e playlists; legendas,
@@ -61,11 +69,13 @@ regressão `RestoreBackupAsync_RejectsCorruptedArchiveBeforeOverwritingFiles`.
 O build de `Jellyfin.Server.Implementations` passou em Release sem erros; a
 última execução reportou quatro avisos XML em projetos referenciados. Os
 builders Windows e Linux também geraram os pacotes da release
-12.1.28; o ZIP e tar.gz foram inspecionados quanto à presença do servidor,
-frontend e worker Nebula, e hashes/tamanhos foram registrados em
-`docs/releases/12.1.28.md`. Scripts Node de release/packaging passaram 23/23.
-Estes gates não comprovam cobertura de todos os contextos/coleções nem um
-restore integral de ponta a ponta.
+12.1.29; os pacotes Windows, ZIP e tar.gz foram inspecionados quanto à presença
+do servidor, frontend e worker Nebula, e hashes/tamanhos foram registrados em
+`docs/releases/12.1.29.md`. A regressão Supabase/Mongo para coleção padrão e
+customizada passou 2/2 e a suíte Nebula passou 730/730, com Mongo descartável
+em `127.0.0.1:27099`. Scripts Node de release/packaging passaram 23/23. Estes
+gates não comprovam cobertura de todos os contextos/coleções nem um restore
+integral de ponta a ponta.
 
 Antes de chamar o recurso de backup integral novamente, executar nesta ordem:
 
@@ -81,10 +91,11 @@ Antes de chamar o recurso de backup integral novamente, executar nesta ordem:
    isolados em MariaDB/MongoDB, incluindo falha intermediária e idempotência.
 5. Expor cobertura e última execução por componente na UI/API; não confundir
    sincronização Supabase de subconjuntos com backup integral.
-6. Reexecutar regressão, restore isolado, validação dos pacotes e homologação.
-   Esta correção runtime é elegível à release 12.1.28; a release não declara
-   cobertura integral do backup. Instalação, host Linux nativo e produção ainda
-   não foram homologados.
+6. Manter os testes de restore isolado e homologação em regressão contínua. A
+   correção de coleção customizada está validada e publicada em 12.1.29. O ponto
+   de partida desta release era 12.1.28. Esta auditoria não declara cobertura
+   integral; instalação, host Linux nativo e produção não foram homologados por
+   esta sessão.
 
 ## Fontes primárias
 

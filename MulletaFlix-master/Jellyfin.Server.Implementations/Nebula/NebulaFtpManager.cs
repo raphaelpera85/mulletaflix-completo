@@ -1614,7 +1614,8 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable, IAsyncDis
                     _supabaseSyncService = new NebulaSupabaseSyncService(
                         _mongoContext,
                         _loggerFactory.CreateLogger<NebulaSupabaseSyncService>(),
-                        _usersDbProvider);
+                        _usersDbProvider,
+                        config.BotTokensCollection);
                     createdSupabaseSyncService = true;
                 }
 
@@ -2981,7 +2982,7 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable, IAsyncDis
                 if (count == 0)
                 {
                     AddServerLog("[STRM] MongoDB vazio detectado. Restaurando acervo do Supabase antes de gerar STRM...");
-                    var sync = new NebulaSupabaseSyncService(mongo, _loggerFactory.CreateLogger<NebulaSupabaseSyncService>(), _usersDbProvider);
+                    var sync = new NebulaSupabaseSyncService(mongo, _loggerFactory.CreateLogger<NebulaSupabaseSyncService>(), _usersDbProvider, config.BotTokensCollection);
                     await sync.PerformRestoreAsync(config.SupabaseUrl, config.SupabaseKey, cancellationToken).ConfigureAwait(false);
                 }
             }
@@ -4106,7 +4107,7 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable, IAsyncDis
 
                 if (mongo != null)
                 {
-                    tempSyncService = new NebulaSupabaseSyncService(mongo, _loggerFactory.CreateLogger<NebulaSupabaseSyncService>(), _usersDbProvider);
+                    tempSyncService = new NebulaSupabaseSyncService(mongo, _loggerFactory.CreateLogger<NebulaSupabaseSyncService>(), _usersDbProvider, config.BotTokensCollection);
                     syncService = tempSyncService;
                 }
             }
@@ -4331,7 +4332,7 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable, IAsyncDis
 
                 if (mongo != null)
                 {
-                    tempSyncService = new NebulaSupabaseSyncService(mongo, _loggerFactory.CreateLogger<NebulaSupabaseSyncService>(), _usersDbProvider);
+                    tempSyncService = new NebulaSupabaseSyncService(mongo, _loggerFactory.CreateLogger<NebulaSupabaseSyncService>(), _usersDbProvider, config.BotTokensCollection);
                     syncService = tempSyncService;
                 }
             }
@@ -5058,7 +5059,7 @@ CREATE POLICY nebula_bot_tokens_service_role_all
 
         if (!string.IsNullOrWhiteSpace(config.SupabaseUrl) && !string.IsNullOrWhiteSpace(config.SupabaseKey))
         {
-            _supabaseSyncService ??= new NebulaSupabaseSyncService(_mongoContext, _loggerFactory.CreateLogger<NebulaSupabaseSyncService>(), _usersDbProvider);
+            _supabaseSyncService ??= new NebulaSupabaseSyncService(_mongoContext, _loggerFactory.CreateLogger<NebulaSupabaseSyncService>(), _usersDbProvider, config.BotTokensCollection);
             var remote = await _supabaseSyncService.GetBotTokensAsync(config.SupabaseUrl, config.SupabaseKey, config.BotTokensTable, cancellationToken).ConfigureAwait(false);
             if (remote.Count > 0)
             {
@@ -5072,7 +5073,7 @@ CREATE POLICY nebula_bot_tokens_service_role_all
                         { "enabled", true },
                         { "created_at", DateTimeOffset.UtcNow.ToUnixTimeSeconds() }
                     };
-                    await _mongoContext.UpsertRawTokenDocAsync(tokenDoc, cancellationToken).ConfigureAwait(false);
+                    await _mongoContext.UpsertRawTokenDocAsync(tokenDoc, cancellationToken, config.BotTokensCollection).ConfigureAwait(false);
                 }
 
                 return remote.ToArray();
@@ -5112,7 +5113,7 @@ CREATE POLICY nebula_bot_tokens_service_role_all
                 logAction?.Invoke($"[DATABASE-INIT] Usuários locais incompletos detectados (usuários FTP: {userCount}, usuários MulletaFlix: {appUserCount}/{appUserBackupCount} no backup). Verificando Supabase...");
                 _logger.LogInformation("[DATABASE-INIT] Usuários locais incompletos detectados (FTP: {FtpUsers}, MulletaFlix: {AppUsers}/{BackupUsers}). Iniciando auto-restauração de usuários a partir do Supabase...", userCount, appUserCount, appUserBackupCount);
 
-                _supabaseSyncService ??= new NebulaSupabaseSyncService(_mongoContext, _loggerFactory.CreateLogger<NebulaSupabaseSyncService>(), _usersDbProvider);
+                _supabaseSyncService ??= new NebulaSupabaseSyncService(_mongoContext, _loggerFactory.CreateLogger<NebulaSupabaseSyncService>(), _usersDbProvider, config.BotTokensCollection);
                 var restoreResult = await _supabaseSyncService.PerformRestoreAsync(config.SupabaseUrl, config.SupabaseKey, logAction, forceFullRestore: false, cancellationToken).ConfigureAwait(false);
 
                 if (restoreResult.Success && (restoreResult.FilesRestored.GetValueOrDefault() > 0 || restoreResult.UsersRestored.GetValueOrDefault() > 0))

@@ -980,9 +980,7 @@ public sealed class NebulaMongoContext : IDisposable
     /// </summary>
     public async Task<List<string>> GetBotTokensAsync(string? collectionName = null, CancellationToken cancellationToken = default)
     {
-        var collection = string.IsNullOrWhiteSpace(collectionName) || collectionName.Equals("bot_tokens", StringComparison.OrdinalIgnoreCase)
-            ? _botTokensCollection
-            : _database.GetCollection<BsonDocument>(collectionName);
+        var collection = GetBotTokenCollection(collectionName);
 
         using var activity = StartMongoActivity("mongodb.get_bot_tokens");
         try
@@ -2838,13 +2836,15 @@ public sealed class NebulaMongoContext : IDisposable
     /// estado para que o backup/restore seja fiel ao conteúdo local.
     /// </summary>
     /// <param name="cancellationToken">Token de cancelamento.</param>
+    /// <param name="collectionName">Nome configurado da coleção; quando omitido, usa <c>bot_tokens</c>.</param>
     /// <returns>Lista de documentos BSON brutos da coleção de tokens de bot.</returns>
-    public async Task<List<BsonDocument>> GetAllBotTokenDocsAsync(CancellationToken cancellationToken = default)
+    public async Task<List<BsonDocument>> GetAllBotTokenDocsAsync(CancellationToken cancellationToken = default, string? collectionName = null)
     {
+        var collection = GetBotTokenCollection(collectionName);
         using var activity = StartMongoActivity("mongodb.get_all_bot_token_docs");
         try
         {
-            using var cursor = await _botTokensCollection.FindAsync(Builders<BsonDocument>.Filter.Empty, cancellationToken: cancellationToken).ConfigureAwait(false);
+            using var cursor = await collection.FindAsync(Builders<BsonDocument>.Filter.Empty, cancellationToken: cancellationToken).ConfigureAwait(false);
             var docs = await cursor.ToListAsync(cancellationToken).ConfigureAwait(false);
             activity?.SetTag("mongodb.result", "success");
             return docs;
@@ -2869,8 +2869,9 @@ public sealed class NebulaMongoContext : IDisposable
     /// </summary>
     /// <param name="doc">Documento BSON do token de bot.</param>
     /// <param name="cancellationToken">Token de cancelamento.</param>
+    /// <param name="collectionName">Nome configurado da coleção; quando omitido, usa <c>bot_tokens</c>.</param>
     /// <returns>Uma tarefa assíncrona.</returns>
-    public async Task UpsertRawTokenDocAsync(BsonDocument doc, CancellationToken cancellationToken = default)
+    public async Task UpsertRawTokenDocAsync(BsonDocument doc, CancellationToken cancellationToken = default, string? collectionName = null)
     {
         if (doc == null)
         {
@@ -2882,28 +2883,36 @@ public sealed class NebulaMongoContext : IDisposable
             var indexFilter = Builders<BsonDocument>.Filter.Eq("index", index);
             if (doc.TryGetValue("token", out var indexedToken) && indexedToken.IsString)
             {
-                await _botTokensCollection.ReplaceOneAsync(indexFilter, doc, new ReplaceOptions { IsUpsert = true }, cancellationToken).ConfigureAwait(false);
+                var collection = GetBotTokenCollection(collectionName);
+                await collection.ReplaceOneAsync(indexFilter, doc, new ReplaceOptions { IsUpsert = true }, cancellationToken).ConfigureAwait(false);
                 var staleTokenFilter = Builders<BsonDocument>.Filter.And(
                     indexFilter,
                     Builders<BsonDocument>.Filter.Ne("token", indexedToken.AsString));
-                await _botTokensCollection.DeleteManyAsync(staleTokenFilter, cancellationToken).ConfigureAwait(false);
+                await collection.DeleteManyAsync(staleTokenFilter, cancellationToken).ConfigureAwait(false);
                 return;
             }
 
-            await _botTokensCollection.ReplaceOneAsync(indexFilter, doc, new ReplaceOptions { IsUpsert = true }, cancellationToken).ConfigureAwait(false);
+            await GetBotTokenCollection(collectionName).ReplaceOneAsync(indexFilter, doc, new ReplaceOptions { IsUpsert = true }, cancellationToken).ConfigureAwait(false);
             return;
         }
 
         if (doc.Contains("token") && doc["token"].IsString)
         {
             var filter = Builders<BsonDocument>.Filter.Eq("token", doc["token"].AsString);
-            await _botTokensCollection.ReplaceOneAsync(filter, doc, new ReplaceOptions { IsUpsert = true }, cancellationToken).ConfigureAwait(false);
+            await GetBotTokenCollection(collectionName).ReplaceOneAsync(filter, doc, new ReplaceOptions { IsUpsert = true }, cancellationToken).ConfigureAwait(false);
         }
         else if (doc.Contains("_id"))
         {
             var filter = Builders<BsonDocument>.Filter.Eq("_id", doc["_id"]);
-            await _botTokensCollection.ReplaceOneAsync(filter, doc, new ReplaceOptions { IsUpsert = true }, cancellationToken).ConfigureAwait(false);
+            await GetBotTokenCollection(collectionName).ReplaceOneAsync(filter, doc, new ReplaceOptions { IsUpsert = true }, cancellationToken).ConfigureAwait(false);
         }
+    }
+
+    private IMongoCollection<BsonDocument> GetBotTokenCollection(string? collectionName)
+    {
+        return string.IsNullOrWhiteSpace(collectionName) || collectionName.Equals("bot_tokens", StringComparison.OrdinalIgnoreCase)
+            ? _botTokensCollection
+            : _database.GetCollection<BsonDocument>(collectionName);
     }
 
     /// <summary>
