@@ -759,6 +759,99 @@ public class BackupServiceTests
         }
     }
 
+    [Theory]
+    [InlineData("missing-declaration")]
+    [InlineData("missing-entry")]
+    [InlineData("unsupported-declaration")]
+    public async Task RestoreBackupAsync_RejectsIncompleteDatabaseBeforeOverwritingFiles(string defect)
+    {
+        var isolatedRoot = Path.Combine(Path.GetTempPath(), $"mulletaflix-restore-incomplete-{Guid.NewGuid():N}");
+        var configPath = Path.Combine(isolatedRoot, "config");
+        var existingConfigPath = Path.Combine(configPath, "server.json");
+        var archivePath = Path.Combine(isolatedRoot, "recovery.zip");
+        Directory.CreateDirectory(configPath);
+
+        try
+        {
+            _applicationPathsMock.Setup(paths => paths.ConfigurationDirectoryPath).Returns(configPath);
+            _applicationPathsMock.Setup(paths => paths.DataPath).Returns(Path.Combine(isolatedRoot, "data"));
+            _applicationPathsMock.Setup(paths => paths.CachePath).Returns(Path.Combine(isolatedRoot, "cache"));
+            _applicationPathsMock.Setup(paths => paths.ProgramDataPath).Returns(Path.Combine(isolatedRoot, "program-data"));
+            _applicationPathsMock.Setup(paths => paths.RootFolderPath).Returns(Path.Combine(isolatedRoot, "root"));
+            _applicationPathsMock.Setup(paths => paths.InternalMetadataPath).Returns(Path.Combine(isolatedRoot, "metadata"));
+            _applicationPathsMock.Setup(paths => paths.DefaultInternalMetadataPath).Returns(Path.Combine(isolatedRoot, "metadata-default"));
+
+            const string existingContent = "existing-config-must-survive";
+            await File.WriteAllTextAsync(existingConfigPath, existingContent);
+
+            var expectedTableNames = typeof(MulletaFlixDbContext)
+                .GetProperties(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance)
+                .Where(property => property.PropertyType.IsAssignableTo(typeof(IQueryable)))
+                .Select(property => property.Name)
+                .Append("HistoryRow")
+                .ToArray();
+            Assert.Contains("Users", expectedTableNames);
+
+            var declaredTableNames = defect == "missing-declaration"
+                ? expectedTableNames.Except(["Users"], StringComparer.Ordinal).ToArray()
+                : defect == "unsupported-declaration"
+                    ? expectedTableNames.Append("UnknownTable").ToArray()
+                    : expectedTableNames;
+            var manifest = new BackupManifest
+            {
+                ServerVersion = new Version(10, 0, 0),
+                BackupEngineVersion = new Version(0, 2, 0),
+                DateCreated = DateTimeOffset.UtcNow,
+                DatabaseTables = declaredTableNames,
+                Options = new BackupOptions
+                {
+                    Database = true,
+                    Metadata = false,
+                    Subtitles = false,
+                    Trickplay = false
+                }
+            };
+
+            using (var archive = ZipFile.Open(archivePath, ZipArchiveMode.Create))
+            {
+                await WriteArchiveEntryAsync(archive, "manifest.json", JsonSerializer.Serialize(manifest));
+                await WriteArchiveEntryAsync(archive, "Config/server.json", "replacement-config-must-not-be-applied");
+                foreach (var tableName in expectedTableNames)
+                {
+                    if (defect == "missing-entry" && tableName == "Users")
+                    {
+                        continue;
+                    }
+
+                    await WriteArchiveEntryAsync(archive, $"Database/{tableName}.json", "[]");
+                }
+            }
+
+            var dbContextFactory = new Mock<IDbContextFactory<MulletaFlixDbContext>>(MockBehavior.Strict);
+            var service = new BackupService(
+                _loggerMock.Object,
+                dbContextFactory.Object,
+                _applicationHostMock.Object,
+                _applicationPathsMock.Object,
+                _databaseProviderMock.Object,
+                _applicationLifetimeMock.Object);
+
+            var exception = await Assert.ThrowsAsync<InvalidDataException>(() => service.RestoreBackupAsync(archivePath));
+
+            Assert.Contains(defect == "unsupported-declaration" ? "UnknownTable" : "Users", exception.Message, StringComparison.Ordinal);
+            Assert.Equal(existingContent, await File.ReadAllTextAsync(existingConfigPath));
+            dbContextFactory.Verify(factory => factory.CreateDbContext(), Times.Never);
+            dbContextFactory.Verify(factory => factory.CreateDbContextAsync(It.IsAny<CancellationToken>()), Times.Never);
+        }
+        finally
+        {
+            if (Directory.Exists(isolatedRoot))
+            {
+                Directory.Delete(isolatedRoot, recursive: true);
+            }
+        }
+    }
+
     [Fact]
     public async Task RestoreBackupAsync_RestoresFilesIntoAnIsolatedInstanceAndReportsQueryableContent()
     {

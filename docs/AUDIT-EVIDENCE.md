@@ -1,5 +1,12 @@
 # Matriz de evidências da auditoria
 
+## Release 12.1.31 — rejeição de backup relacional incompleto — 2026-10-21
+
+- `BackupService` agora valida a lista `DatabaseTables` e todas as entradas JSON relacionais esperadas antes de copiar Config/Data/Root ou abrir o banco. Tabela não declarada, entrada ausente ou nome não suportado causa `InvalidDataException`.
+- Regressão `FullSystemBackup`: 36/36. Suíte `Jellyfin.Server.Implementations.Tests` Release: 1.512 aprovados, 65 ignorados, zero falhas. Os casos ignorados incluem integrações Mongo/MariaDB opt-in e plataformas.
+- O backup integral permanece incompleto: contextos EF independentes, Mongo/Supabase, criptografia, consistência de snapshot, restore completo e produção não foram cobertos por esta mudança. Ver `MulletaFlix-master/docs/backup-coverage-audit.md`.
+- Focal `FullSystemBackup`: 36/36; suíte `Jellyfin.Server.Implementations.Tests` Release: 1.512 aprovados, 65 ignorados, zero falhas. `git diff --check` aprovado antes do empacotamento. ZIP Windows 388.592.231 bytes, SHA-256 `585BEA0EDD2A4136EEAEEB6A2921A46F8519A8B7246ED7D910815E6B41BCB700`; instalador Windows 423.407.911 bytes, SHA-256 `1F34573B194585DC1985D8ED6E06F330F1F893356D7A30502FED0E244B17DD86`; Linux tar.gz 137.184.365 bytes, SHA-256 `B51CA184B835A0408AF0BD48905946AEF3782C768F162D3094ED3D4F9804D871`. Linux foi cross-published em Windows. Validação de conteúdo, publicação GitHub e portal ainda pendentes; não declarar release publicada.
+
 ## Release 12.1.30 — Vite patch e stage Nebula sem cache de testes — 2026-10-21
 
 - Versão da fonte incrementada de 12.1.29 para 12.1.30, respeitando o formato de versionamento. `main` partiu de `415f3091df771b8dbecfa5ab95c78468ad68a185`; desde a v12.1.29, não havia correção adicional de runtime do servidor. Esta release inclui Vite 7.3.7 para assets web empacotados e evita que `.coverage`/`.ruff_cache` do workspace contaminem o ZIP de atualização.

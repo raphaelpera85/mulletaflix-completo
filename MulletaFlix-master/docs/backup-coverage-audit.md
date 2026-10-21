@@ -1,7 +1,7 @@
 # Auditoria de cobertura do backup integral
 
 Data: 2026-10-21
-Estado: cobertura integral ainda parcial; pré-validação CRC implementada para restore.
+Estado: cobertura integral ainda parcial; restore rejeita ZIP corrompido e backup relacional semanticamente incompleto antes de sobrescrever arquivos.
 
 ## Escopo verificado
 
@@ -66,14 +66,19 @@ criação do ZIP.
 
 - O manifesto valida `BackupEngineVersion` por igualdade exata (`0.2.0`). Uma
   evolução de formato precisa manter leitura explícita dos arquivos legados;
-  apenas adicionar tabelas à versão atual pode resultar em restore parcial
-  silencioso.
+  apenas adicionar tabelas à versão atual pode resultar em incompatibilidade. A
+  validação exige que `DatabaseTables` corresponda exatamente aos DbSets
+  exportados pelo `MulletaFlixDbContext` mais `HistoryRow`, e que cada entrada
+  JSON correspondente exista no ZIP.
 - A restauração agora valida CRC e comprimento de todas as entradas do ZIP
   antes de verificar espaço e antes de gravar qualquer arquivo ou banco. ZIP
   corrompido é rejeitado sem sobrescrever a configuração existente. Isso não
   torna a restauração transacional: erros semânticos posteriores, como JSON
   inválido, componente ausente ou falha no banco, ainda podem deixar estado
   parcialmente aplicado.
+- A validação semântica do componente relacional ocorre antes de copiar
+  `Config`, `Data` ou `Root` e antes de abrir o banco. Declaração ausente,
+  tabela não suportada ou entrada ausente produz `InvalidDataException`.
 - Arquivos de configuração podem conter dados sensíveis. A ausência de
   criptografia explícita exige uma decisão de proteção e gestão de chave antes
   de incluir mais dados de usuário/operacionais no mesmo arquivo.
@@ -90,8 +95,11 @@ Reconciliação estática dos contextos, factories e inicializador feita em
 provider de produção ou instalação foi consultado; a inferência sobre bancos
 físicos efetivos continua pendente.
 
-Em 2026-10-21, `FullSystemBackup` passou 33/33 testes Release, incluindo a
-regressão `RestoreBackupAsync_RejectsCorruptedArchiveBeforeOverwritingFiles`.
+Em 2026-10-21, `FullSystemBackup` passou 36/36 testes Release. Três novos casos
+provam que declaração ausente, entrada ausente e tabela desconhecida são
+rejeitadas sem sobrescrever configuração nem abrir o contexto de banco. A suíte
+completa `Jellyfin.Server.Implementations.Tests` passou 1.512, ignorou 65 casos
+opt-in/plataforma e teve zero falhas.
 O build de `Jellyfin.Server.Implementations` passou em Release sem erros; a
 última execução reportou quatro avisos XML em projetos referenciados. Os
 builders Windows e Linux também geraram os pacotes da release
@@ -107,10 +115,10 @@ Antes de chamar o recurso de backup integral novamente, executar nesta ordem:
 
 1. Mapear propriedade física de cada tabela/schema e cada coleção externa,
    distinguindo fonte de verdade, dados duplicados e compatibilidade legada.
-2. Definir um manifesto versionado que declare componentes incluídos,
-   ausentes e hashes; manter leitor compatível com `0.2.0` e rejeitar restore
-   semanticamente incompleto antes de sobrescrever arquivos. CRC ZIP é agora
-   pré-validado, mas não substitui essa validação semântica.
+2. Evoluir o manifesto para declarar componentes relacionais, Mongo e Supabase,
+   omissões e hashes; manter compatibilidade legada de `0.2.0`. A pré-validação
+   semântica agora protege as entradas relacionais do backup central, mas ainda
+   não cobre contextos EF independentes nem coleções Mongo.
 3. Definir criptografia do arquivo, armazenamento e rotação/recuperação de
    chave; não copiar credenciais para o manifesto ou documentação.
 4. Implementar snapshots consistentes e restore por componente com testes

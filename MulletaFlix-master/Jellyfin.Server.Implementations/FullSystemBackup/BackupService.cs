@@ -205,6 +205,11 @@ public class BackupService : IBackupService, IDisposable
                 throw new NotSupportedException($"The loaded archive '{archivePath}' is made for a newer version of MulletaFlix ({manifest.ServerVersion}) and cannot be loaded in this version.");
             }
 
+            if (manifest.Options.Database)
+            {
+                ValidateDatabaseBackupEntries(manifest, zipArchive);
+            }
+
             void CopyDirectory(string source, string target, string[]? exclude = null)
             {
                 var fullSourcePath = NormalizePathSeparator(Path.GetFullPath(source) + Path.DirectorySeparatorChar);
@@ -348,6 +353,43 @@ public class BackupService : IBackupService, IDisposable
         }
 
         return false;
+    }
+
+    private static void ValidateDatabaseBackupEntries(BackupManifest manifest, ZipArchive zipArchive)
+    {
+        var expectedTableNames = typeof(MulletaFlixDbContext)
+            .GetProperties(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance)
+            .Where(property => property.PropertyType.IsAssignableTo(typeof(IQueryable)))
+            .Select(property => property.Name)
+            .Append(nameof(HistoryRow))
+            .ToHashSet(StringComparer.Ordinal);
+        var declaredTableNames = manifest.DatabaseTables?.ToHashSet(StringComparer.Ordinal) ?? [];
+        var missingDeclarations = expectedTableNames.Except(declaredTableNames, StringComparer.Ordinal).ToArray();
+        var unexpectedDeclarations = declaredTableNames.Except(expectedTableNames, StringComparer.Ordinal).ToArray();
+        var missingEntries = expectedTableNames
+            .Where(tableName => zipArchive.GetEntry(NormalizePathSeparator(Path.Combine("Database", $"{tableName}.json"))) is null)
+            .ToArray();
+
+        if (missingDeclarations.Length > 0 || unexpectedDeclarations.Length > 0 || missingEntries.Length > 0)
+        {
+            var details = new List<string>();
+            if (missingDeclarations.Length > 0)
+            {
+                details.Add($"undeclared tables: {string.Join(", ", missingDeclarations)}");
+            }
+
+            if (unexpectedDeclarations.Length > 0)
+            {
+                details.Add($"unsupported tables: {string.Join(", ", unexpectedDeclarations)}");
+            }
+
+            if (missingEntries.Length > 0)
+            {
+                details.Add($"missing entries: {string.Join(", ", missingEntries)}");
+            }
+
+            throw new InvalidDataException($"Cannot restore an incomplete database backup ({string.Join("; ", details)}).");
+        }
     }
 
     /// <inheritdoc/>
