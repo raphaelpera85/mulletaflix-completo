@@ -183,7 +183,7 @@ public class NebulaStreamEngineTests
             "test",
             NullLogger<NebulaMongoContext>.Instance);
 
-        await Assert.ThrowsAnyAsync<Exception>(() => context.GetUploadQueueSummaryAsync());
+        await Assert.ThrowsAnyAsync<Exception>(() => context.GetUploadQueueSummaryAsync(TestContext.Current.CancellationToken));
 
         var activity = Assert.Single(stopped);
         Assert.Equal("mongodb.get_upload_queue_summary", activity.OperationName);
@@ -396,7 +396,8 @@ public class NebulaStreamEngineTests
 
         var found = await NebulaMongoContext.HasFileDescendantByIdsAsync(
             [categoryId],
-            (parentIds, _) => Task.FromResult(QueryDescendants(documents, parentIds)));
+            (parentIds, _) => Task.FromResult(QueryDescendants(documents, parentIds)),
+            TestContext.Current.CancellationToken);
 
         Assert.True(found);
     }
@@ -406,7 +407,8 @@ public class NebulaStreamEngineTests
     {
         var found = await NebulaMongoContext.HasFileDescendantByIdsAsync(
             [MongoDB.Bson.ObjectId.GenerateNewId()],
-            (_, _) => Task.FromResult(new NebulaMongoContext.DescendantQueryResult(false, [])));
+            (_, _) => Task.FromResult(new NebulaMongoContext.DescendantQueryResult(false, [])),
+            TestContext.Current.CancellationToken);
 
         Assert.False(found);
     }
@@ -435,7 +437,8 @@ public class NebulaStreamEngineTests
 
         var found = await NebulaMongoContext.HasFileDescendantByIdsAsync(
             [new MongoDB.Bson.BsonString("virtual-root")],
-            (parentIds, _) => Task.FromResult(QueryDescendants(documents, parentIds)));
+            (parentIds, _) => Task.FromResult(QueryDescendants(documents, parentIds)),
+            TestContext.Current.CancellationToken);
 
         Assert.True(found);
     }
@@ -463,7 +466,8 @@ public class NebulaStreamEngineTests
 
         var found = await NebulaMongoContext.HasFileDescendantByIdsAsync(
             [new MongoDB.Bson.BsonString(directoryId.ToString())],
-            (parentIds, _) => Task.FromResult(QueryDescendants(documents, parentIds)));
+            (parentIds, _) => Task.FromResult(QueryDescendants(documents, parentIds)),
+            TestContext.Current.CancellationToken);
 
         Assert.True(found);
     }
@@ -1074,7 +1078,7 @@ public class NebulaStreamEngineTests
                 expectedBytes[i] = (byte)i;
             }
 
-            await File.WriteAllBytesAsync(tempFile, expectedBytes);
+            await File.WriteAllBytesAsync(tempFile, expectedBytes, TestContext.Current.CancellationToken);
 
             var part = new NebulaStreamPart
             {
@@ -1097,7 +1101,7 @@ public class NebulaStreamEngineTests
             Assert.Equal(10, stream.Position);
 
             var buffer = new byte[20];
-            var read = await stream.ReadAsync(buffer.AsMemory(0, 20));
+            var read = await stream.ReadAsync(buffer.AsMemory(0, 20), TestContext.Current.CancellationToken);
             Assert.Equal(20, read);
             Assert.Equal(30, stream.Position);
 

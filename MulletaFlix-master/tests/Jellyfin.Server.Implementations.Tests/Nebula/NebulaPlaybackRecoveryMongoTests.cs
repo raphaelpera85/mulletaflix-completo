@@ -200,9 +200,9 @@ public sealed class NebulaPlaybackRecoveryMongoTests : IDisposable
                 FetchChunk))
             {
                 prefetchTasks.Add(failedStream.WholeMediaPrefetchTask);
-                await firstFetchStarted.Task.WaitAsync(TimeSpan.FromSeconds(10));
+                await firstFetchStarted.Task.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
                 allowFirstFetchFailure.TrySetResult(true);
-                await failedStream.WholeMediaPrefetchTask.WaitAsync(TimeSpan.FromSeconds(10));
+                await failedStream.WholeMediaPrefetchTask.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
                 Assert.Equal(1, fetchAttempts);
 
                 Assert.Equal(0, failedStream.Position);
@@ -221,7 +221,7 @@ public sealed class NebulaPlaybackRecoveryMongoTests : IDisposable
                 FetchChunk))
             {
                 prefetchTasks.Add(cachedStream.WholeMediaPrefetchTask);
-                await cachedStream.WholeMediaPrefetchTask.WaitAsync(TimeSpan.FromSeconds(10));
+                await cachedStream.WholeMediaPrefetchTask.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
                 var cachedBytes = await ReadAllAsync(cachedStream, expectedBytes.Length);
                 Assert.Equal(expectedBytes, cachedBytes);
             }
@@ -235,7 +235,7 @@ public sealed class NebulaPlaybackRecoveryMongoTests : IDisposable
             cache.Dispose();
             try
             {
-                await Task.WhenAll(prefetchTasks).WaitAsync(TimeSpan.FromSeconds(10));
+                await Task.WhenAll(prefetchTasks).WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
             }
             catch (Exception) when (prefetchTasks.TrueForAll(static task => task.IsCompleted))
             {

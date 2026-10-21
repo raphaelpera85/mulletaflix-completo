@@ -703,7 +703,9 @@ public sealed class NebulaQueueConcurrencyMongoTests : IDisposable
             {
             { "_id", NebulaMongoContext.AdmissionGateId },
             { "backup_expires_at", now - 1 },
-            { "active_upload_leases", new BsonArray
+            {
+                "active_upload_leases",
+                new BsonArray
                 {
                     new BsonDocument { { "lease_id", "expired" }, { "expires_at", now - 1 } }
                 }

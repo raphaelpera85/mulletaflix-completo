@@ -8,7 +8,7 @@ import type { BaseItemKind } from '@jellyfin/sdk/lib/generated-client/models/bas
 import type { UserDto } from '@jellyfin/sdk/lib/generated-client';
 import type { ApiClient as JellyfinApiClient } from 'jellyfin-apiclient';
 
-import NotificationIcon from './notificationicon.png';
+import AppNotificationIcon from '../../assets/branding/icon.png';
 
 interface NotificationServerInfo {
     Id: string;
@@ -167,8 +167,8 @@ function showNotification(options: AppNotificationOptions, timeoutMs: number, ap
 
     options.data = options.data || {};
     options.data.serverId = apiClient.serverInfo().Id;
-    options.icon = options.icon || NotificationIcon;
-    options.badge = options.badge || NotificationIcon;
+    options.icon = options.icon || AppNotificationIcon;
+    options.badge = options.badge || AppNotificationIcon;
 
     resetRegistration();
 
@@ -273,7 +273,7 @@ function showPackageInstallNotification(apiClient: NotificationsApiClient, insta
                     {
                         action: 'cancel-install',
                         title: globalize.translate('ButtonCancel'),
-                        icon: NotificationIcon
+                        icon: AppNotificationIcon
                     }
                 ];
 
@@ -348,7 +348,7 @@ function subscribeToApiClient(apiClient: NotificationsApiClient): void {
                 {
                     action: 'restart',
                     title: globalize.translate('Restart'),
-                    icon: NotificationIcon
+                    icon: AppNotificationIcon
                 }
             ];
 
