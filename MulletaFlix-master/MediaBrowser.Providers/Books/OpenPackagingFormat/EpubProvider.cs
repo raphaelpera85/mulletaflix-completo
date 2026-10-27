@@ -88,7 +88,7 @@ namespace MediaBrowser.Providers.Books.OpenPackagingFormat
                 return null;
             }
 
-            using var opfStream = opf.Open();
+            using var opfStream = EpubUtils.ReadEntry(opf, EpubUtils.MaxXmlEntryBytes);
 
             var opfDocument = new XmlDocument();
             opfDocument.Load(opfStream);

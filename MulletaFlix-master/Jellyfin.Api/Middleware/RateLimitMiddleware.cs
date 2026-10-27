@@ -258,6 +258,8 @@ public class RateLimitMiddleware
 
         var normalizedPath = path.TrimEnd('/');
         if (string.Equals(normalizedPath, "/Backup/Create", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(normalizedPath, "/Backup/Restore", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(normalizedPath, "/Backup/RestorePointInTime", StringComparison.OrdinalIgnoreCase)
             || string.Equals(normalizedPath, "/NebulaFtp/Supabase/Restore", StringComparison.OrdinalIgnoreCase)
             || string.Equals(normalizedPath, "/NebulaFtp/Supabase/Users/Backup", StringComparison.OrdinalIgnoreCase)
             || string.Equals(normalizedPath, "/NebulaFtp/Supabase/Users/Restore", StringComparison.OrdinalIgnoreCase))

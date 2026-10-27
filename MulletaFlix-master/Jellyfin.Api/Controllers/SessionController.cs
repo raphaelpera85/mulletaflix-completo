@@ -4,10 +4,6 @@ using System.ComponentModel.DataAnnotations;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
-using MulletaFlix.Api.Extensions;
-using MulletaFlix.Api.Helpers;
-using MulletaFlix.Api.ModelBinders;
-using MulletaFlix.Data.Enums;
 using MediaBrowser.Common.Api;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Library;
@@ -18,6 +14,10 @@ using MediaBrowser.Model.Session;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+using MulletaFlix.Api.Extensions;
+using MulletaFlix.Api.Helpers;
+using MulletaFlix.Api.ModelBinders;
+using MulletaFlix.Data.Enums;
 
 namespace MulletaFlix.Api.Controllers;
 
@@ -495,7 +495,7 @@ public class SessionController : BaseMulletaFlixApiController
             return NotFound();
         }
 
-        _sessionManager.ReportNowViewingItem(session, parsedItemId.ToString("N"));
+        await _sessionManager.ReportNowViewingItemAsync(session, parsedItemId.ToString("N")).ConfigureAwait(false);
         return NoContent();
     }
 

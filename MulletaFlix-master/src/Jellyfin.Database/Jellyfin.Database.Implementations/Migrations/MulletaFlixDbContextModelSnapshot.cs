@@ -532,8 +532,16 @@ namespace Jellyfin.Database.Implementations.Migrations
                     b.Property<Guid>("ItemId")
                         .HasColumnType("char(36)");
 
+                    b.Property<string>("Language")
+                        .HasMaxLength(32)
+                        .HasColumnType("varchar(32)");
+
                     b.Property<string>("Path")
                         .HasColumnType("longtext");
+
+                    b.Property<string>("ProviderName")
+                        .HasMaxLength(255)
+                        .HasColumnType("varchar(255)");
 
                     b.Property<int>("Width")
                         .HasColumnType("int");

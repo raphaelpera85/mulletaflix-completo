@@ -22,6 +22,7 @@ public sealed class LimitedConcurrencyLibraryScheduler : ILimitedConcurrencyLibr
     private readonly ILogger<LimitedConcurrencyLibraryScheduler> _logger;
     private readonly IServerConfigurationManager _serverConfigurationManager;
     private readonly Dictionary<CancellationTokenSource, Task> _taskRunners = new();
+    private readonly CancellationTokenSource _cleanupCancellationTokenSource = new();
 
     private static readonly AsyncLocal<CancellationTokenSource> _deadlockDetector = new();
 
@@ -30,7 +31,7 @@ public sealed class LimitedConcurrencyLibraryScheduler : ILimitedConcurrencyLibr
     /// </summary>
     private readonly Lock _taskLock = new();
 
-    private readonly Channel<TaskQueueItem> _tasks = Channel.CreateUnbounded<TaskQueueItem>();
+    private readonly Channel<TaskQueueItem> _tasks;
 
     private volatile int _workCounter;
     private Task? _cleanupTask;
@@ -50,6 +51,12 @@ public sealed class LimitedConcurrencyLibraryScheduler : ILimitedConcurrencyLibr
         _hostApplicationLifetime = hostApplicationLifetime;
         _logger = logger;
         _serverConfigurationManager = serverConfigurationManager;
+        _tasks = Channel.CreateBounded<TaskQueueItem>(new BoundedChannelOptions(Math.Max(1, CalculateScanConcurrencyLimit()))
+        {
+            FullMode = BoundedChannelFullMode.Wait,
+            SingleReader = false,
+            SingleWriter = false
+        });
     }
 
     private void ScheduleTaskCleanup()
@@ -69,7 +76,15 @@ public sealed class LimitedConcurrencyLibraryScheduler : ILimitedConcurrencyLibr
         async Task RunCleanupTask()
         {
             _logger.LogDebug("Schedule cleanup task in {CleanupGracePerioid} sec.", CleanupGracePeriod);
-            await Task.Delay(TimeSpan.FromSeconds(CleanupGracePeriod)).ConfigureAwait(false);
+            try
+            {
+                await Task.Delay(TimeSpan.FromSeconds(CleanupGracePeriod), _cleanupCancellationTokenSource.Token).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (_cleanupCancellationTokenSource.IsCancellationRequested)
+            {
+                return;
+            }
+
             if (_disposed)
             {
                 _logger.LogDebug("Abort cleaning up, already disposed.");
@@ -195,7 +210,7 @@ public sealed class LimitedConcurrencyLibraryScheduler : ILimitedConcurrencyLibr
         finally
         {
             item.Progress.Report(100);
-            item.Done.SetResult();
+            item.Workset.CompleteItem();
         }
     }
 
@@ -215,42 +230,28 @@ public sealed class LimitedConcurrencyLibraryScheduler : ILimitedConcurrencyLibr
 
         _logger.LogDebug("Enqueue new Workset of {NoItems} items.", data.Length);
 
-        TaskQueueItem[] workItems = null!;
-
-        void UpdateProgress()
-        {
-            progress.Report(workItems.Select(e => e.ProgressValue).Average());
-        }
-
-        workItems = data.Select(item =>
+        var workset = new WorksetProgress(data.Length, progress);
+        TaskQueueItem CreateTaskQueueItem(T item, int index)
         {
             TaskQueueItem queueItem = null!;
             return queueItem = new TaskQueueItem()
             {
                 Data = item!,
-                Progress = new Progress<double>(innerPercent =>
-                    {
-                        // round the percent and only update progress if it changed to prevent excessive UpdateProgress calls
-                        var innerPercentRounded = Math.Round(innerPercent);
-                        if (queueItem.ProgressValue != innerPercentRounded)
-                        {
-                            queueItem.ProgressValue = innerPercentRounded;
-                            UpdateProgress();
-                        }
-                    }),
-                Worker = (val) => worker((T)val, queueItem.Progress),
-                CancellationToken = cancellationToken
+                Progress = new ActionProgress(innerPercent => workset.Report(index, innerPercent)),
+                Worker = val => worker((T)val, queueItem.Progress),
+                CancellationToken = cancellationToken,
+                Workset = workset
             };
-        }).ToArray();
+        }
 
         if (ShouldForceSequentialOperation() || _deadlockDetector.Value is not null)
         {
             _logger.LogDebug("Process sequentially.");
             try
             {
-                foreach (var item in workItems)
+                for (var i = 0; i < data.Length; i++)
                 {
-                    await ProcessItem(item).ConfigureAwait(false);
+                    await ProcessItem(CreateTaskQueueItem(data[i], i)).ConfigureAwait(false);
                 }
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -262,16 +263,15 @@ public sealed class LimitedConcurrencyLibraryScheduler : ILimitedConcurrencyLibr
             return;
         }
 
-        for (var i = 0; i < workItems.Length; i++)
+        Worker();
+        for (var i = 0; i < data.Length; i++)
         {
-            var item = workItems[i]!;
-            await _tasks.Writer.WriteAsync(item, CancellationToken.None).ConfigureAwait(false);
+            await _tasks.Writer.WriteAsync(CreateTaskQueueItem(data[i], i), CancellationToken.None).ConfigureAwait(false);
         }
 
-        Worker();
-        _logger.LogDebug("Wait for {NoWorkers} to complete.", workItems.Length);
-        await Task.WhenAll([.. workItems.Select(f => f.Done.Task)]).ConfigureAwait(false);
-        _logger.LogDebug("{NoWorkers} completed.", workItems.Length);
+        _logger.LogDebug("Wait for {NoWorkers} to complete.", data.Length);
+        await workset.Completion.ConfigureAwait(false);
+        _logger.LogDebug("{NoWorkers} completed.", data.Length);
         ScheduleTaskCleanup();
     }
 
@@ -284,6 +284,7 @@ public sealed class LimitedConcurrencyLibraryScheduler : ILimitedConcurrencyLibr
         }
 
         _disposed = true;
+        _cleanupCancellationTokenSource.Cancel();
         _tasks.Writer.Complete();
         foreach (var item in _taskRunners)
         {
@@ -301,14 +302,54 @@ public sealed class LimitedConcurrencyLibraryScheduler : ILimitedConcurrencyLibr
     {
         public required object Data { get; init; }
 
-        public double ProgressValue { get; set; }
-
         public required Func<object, Task> Worker { get; init; }
 
         public required IProgress<double> Progress { get; init; }
 
-        public TaskCompletionSource Done { get; } = new();
-
         public CancellationToken CancellationToken { get; init; }
+
+        public required WorksetProgress Workset { get; init; }
+    }
+
+    private sealed class WorksetProgress
+    {
+        private readonly IProgress<double> _progress;
+        private readonly double[] _itemProgress;
+        private readonly TaskCompletionSource _completion = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private long _totalProgress;
+        private int _remaining;
+
+        public WorksetProgress(int itemCount, IProgress<double> progress)
+        {
+            _itemProgress = new double[itemCount];
+            _progress = progress;
+            _remaining = itemCount;
+        }
+
+        public Task Completion => _completion.Task;
+
+        public void Report(int index, double percent)
+        {
+            var roundedPercent = Math.Round(percent);
+            var previousPercent = Interlocked.Exchange(ref _itemProgress[index], roundedPercent);
+            if (previousPercent != roundedPercent)
+            {
+                var total = Interlocked.Add(ref _totalProgress, (long)(roundedPercent - previousPercent));
+                _progress.Report(total / _itemProgress.Length);
+            }
+        }
+
+        public void CompleteItem()
+        {
+            if (Interlocked.Decrement(ref _remaining) == 0)
+            {
+                _completion.TrySetResult();
+            }
+        }
+    }
+
+    private sealed class ActionProgress(Action<double> report) : IProgress<double>
+    {
+        public void Report(double value) => report(value);
     }
 }

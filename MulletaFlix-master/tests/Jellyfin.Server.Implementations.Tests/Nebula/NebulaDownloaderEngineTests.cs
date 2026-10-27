@@ -44,6 +44,183 @@ public sealed class NebulaDownloaderEngineTests : IDisposable
     private NebulaDownloaderEngine CreateEngine()
         => new(null!, null!, NullLogger<NebulaDownloaderEngine>.Instance);
 
+    [Fact]
+    public void TryClaimProgressReport_AllowsOneConcurrentReporterPer250Milliseconds()
+    {
+        var lastReportTimestamp = 0L;
+        var now = Stopwatch.GetTimestamp();
+        var reportsClaimed = 0;
+
+        Parallel.For(0, 32, _ =>
+        {
+            if (NebulaDownloaderEngine.TryClaimProgressReport(ref lastReportTimestamp, now))
+            {
+                Interlocked.Increment(ref reportsClaimed);
+            }
+        });
+
+        Assert.Equal(1, reportsClaimed);
+        Assert.False(NebulaDownloaderEngine.TryClaimProgressReport(ref lastReportTimestamp, now + Stopwatch.Frequency / 4 - 1));
+        Assert.True(NebulaDownloaderEngine.TryClaimProgressReport(ref lastReportTimestamp, now + Stopwatch.Frequency / 4));
+    }
+
+    [Fact]
+    public async Task MultipartDownload_ReportsSerializedIndependentProgressSnapshots()
+    {
+        const int PartCount = 16;
+        const int ChunkCount = 12;
+        const int ChunkSize = 64 * 1024;
+        var totalSize = (long)PartCount * ChunkCount * ChunkSize;
+        var handler = new DelayedRangeHandler(totalSize, ChunkSize, TimeSpan.FromMilliseconds(30));
+        var engine = CreateEngine();
+        var httpClientField = typeof(NebulaDownloaderEngine).GetField("_httpClient", BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.NotNull(httpClientField);
+        httpClientField.SetValue(engine, new HttpClient(handler));
+
+        var snapshots = new List<(NebulaDownloadStatusDto Status, long Timestamp)>();
+        var snapshotsLock = new object();
+        var activeCallbacks = 0;
+        var maxConcurrentCallbacks = 0;
+        engine.OnProgressChanged += status =>
+        {
+            var active = Interlocked.Increment(ref activeCallbacks);
+            UpdateMaximum(ref maxConcurrentCallbacks, active);
+            lock (snapshotsLock)
+            {
+                snapshots.Add((status, Stopwatch.GetTimestamp()));
+            }
+
+            Thread.Sleep(5);
+            Interlocked.Decrement(ref activeCallbacks);
+        };
+
+        var downloadMethod = typeof(NebulaDownloaderEngine).GetMethod("DownloadMultipartAsync", BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.NotNull(downloadMethod);
+        var targetPath = Path.Combine(_testRoot, "multipart-progress.bin");
+        var downloadTask = (Task<bool>)downloadMethod.Invoke(engine, ["https://media.test/title.mkv", targetPath, PartCount, CancellationToken.None])!;
+
+        Assert.True(await downloadTask);
+        Assert.Equal(totalSize, new FileInfo(targetPath).Length);
+        Assert.Equal(1, maxConcurrentCallbacks);
+
+        (NebulaDownloadStatusDto Status, long Timestamp)[] recorded;
+        lock (snapshotsLock)
+        {
+            recorded = snapshots.ToArray();
+        }
+
+        Assert.Equal(recorded.Length, recorded.Select(entry => entry.Status).Distinct().Count());
+        var intermediate = recorded.Where(entry => entry.Status.Percentage is > 0 and < 100).ToArray();
+        Assert.True(intermediate.Length >= 2);
+        for (var i = 1; i < intermediate.Length; i++)
+        {
+            Assert.True(Stopwatch.GetElapsedTime(intermediate[i - 1].Timestamp, intermediate[i].Timestamp) >= TimeSpan.FromMilliseconds(230));
+        }
+    }
+
+    private static void UpdateMaximum(ref int maximum, int value)
+    {
+        int observed;
+        while (value > (observed = Volatile.Read(ref maximum))
+            && Interlocked.CompareExchange(ref maximum, value, observed) != observed)
+        {
+        }
+    }
+
+    private sealed class DelayedRangeHandler : HttpMessageHandler
+    {
+        private readonly long _totalSize;
+        private readonly int _chunkSize;
+        private readonly TimeSpan _readDelay;
+
+        public DelayedRangeHandler(long totalSize, int chunkSize, TimeSpan readDelay)
+        {
+            _totalSize = totalSize;
+            _chunkSize = chunkSize;
+            _readDelay = readDelay;
+        }
+
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            if (request.Method == HttpMethod.Head)
+            {
+                var head = new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new ByteArrayContent(Array.Empty<byte>())
+                };
+                head.Content.Headers.ContentLength = _totalSize;
+                head.Headers.AcceptRanges.Add("bytes");
+                return Task.FromResult(head);
+            }
+
+            var range = Assert.Single(request.Headers.Range!.Ranges);
+            var start = range.From!.Value;
+            var end = range.To!.Value;
+            var length = end - start + 1;
+            var response = new HttpResponseMessage(HttpStatusCode.PartialContent)
+            {
+                Content = new StreamContent(new DelayedZeroStream(length, _chunkSize, _readDelay))
+            };
+            response.Content.Headers.ContentLength = length;
+            response.Content.Headers.ContentRange = new ContentRangeHeaderValue(start, end, _totalSize);
+            return Task.FromResult(response);
+        }
+    }
+
+    private sealed class DelayedZeroStream : Stream
+    {
+        private readonly long _length;
+        private readonly int _chunkSize;
+        private readonly TimeSpan _readDelay;
+        private long _position;
+
+        public DelayedZeroStream(long length, int chunkSize, TimeSpan readDelay)
+        {
+            _length = length;
+            _chunkSize = chunkSize;
+            _readDelay = readDelay;
+        }
+
+        public override bool CanRead => true;
+        public override bool CanSeek => false;
+        public override bool CanWrite => false;
+        public override long Length => _length;
+        public override long Position { get => _position; set => throw new NotSupportedException(); }
+
+        public override async ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default)
+        {
+            if (_position >= _length)
+            {
+                return 0;
+            }
+
+            await Task.Delay(_readDelay, cancellationToken);
+            var bytesRead = (int)Math.Min(Math.Min(buffer.Length, _chunkSize), _length - _position);
+            buffer.Span[..bytesRead].Clear();
+            _position += bytesRead;
+            return bytesRead;
+        }
+
+        public override Task<int> ReadAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken)
+            => ReadAsync(buffer.AsMemory(offset, count), cancellationToken).AsTask();
+
+        public override int Read(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+        public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+        public override void SetLength(long value) => throw new NotSupportedException();
+        public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+        public override void Flush() => throw new NotSupportedException();
+    }
+
+    [Fact]
+    public void FailureTracker_UsesOperatingSystemPathCaseSemantics()
+    {
+        var tracker = new NebulaDownloaderEngine.FailureTracker();
+        tracker.RecordFailure("/library/Show.mkv", "404 not found");
+
+        Assert.True(tracker.ShouldSkip("/library/Show.mkv", out _));
+        Assert.Equal(OperatingSystem.IsWindows(), tracker.ShouldSkip("/library/show.mkv", out _));
+    }
+
     #region Category Priority Tests (T2.3 - Priority observable and consistent)
 
     [Fact]

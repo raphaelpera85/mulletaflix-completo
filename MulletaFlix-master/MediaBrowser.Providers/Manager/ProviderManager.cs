@@ -357,11 +357,35 @@ namespace MediaBrowser.Providers.Manager
 
             var preferredLanguage = item.GetPreferredMetadataLanguage();
 
-            var tasks = providers.Select(i => GetImages(item, i, preferredLanguage, query.IncludeAllLanguages, cancellationToken, query.ImageType));
+            var tasks = providers.Select(i => GetImages(item, i, preferredLanguage, cancellationToken, query.ImageType));
 
             var results = await Task.WhenAll(tasks).ConfigureAwait(false);
 
-            return results.SelectMany(i => i);
+            var remoteImages = results.SelectMany(i => i);
+            if (!string.IsNullOrWhiteSpace(preferredLanguage) && !query.IncludeAllLanguages)
+            {
+                remoteImages = remoteImages
+                    .GroupBy(image => image.Type)
+                    .SelectMany(imagesOfType =>
+                    {
+                        var localizedImages = imagesOfType
+                            .Where(image => MediaBrowser.Model.Extensions.EnumerableExtensions.MatchesLanguage(preferredLanguage, image.Language))
+                            .ToArray();
+                        if (localizedImages.Length == 0)
+                        {
+                            // English and language-neutral artwork are the only automatic fallbacks.
+                            return imagesOfType.Where(image =>
+                                string.IsNullOrWhiteSpace(image.Language)
+                                || MediaBrowser.Model.Extensions.EnumerableExtensions.MatchesLanguage("en", image.Language));
+                        }
+
+                        // Do not let unlabelled artwork from another provider outrank localized art.
+                        // Fallback is evaluated independently for each image type.
+                        return localizedImages;
+                    });
+            }
+
+            return remoteImages.OrderByLanguageDescending(preferredLanguage);
         }
 
         /// <summary>
@@ -370,7 +394,6 @@ namespace MediaBrowser.Providers.Manager
         /// <param name="item">The item.</param>
         /// <param name="provider">The provider.</param>
         /// <param name="preferredLanguage">The preferred language.</param>
-        /// <param name="includeAllLanguages">Whether to include all languages in results.</param>
         /// <param name="cancellationToken">The cancellation token.</param>
         /// <param name="type">The type.</param>
         /// <returns>Task{IEnumerable{RemoteImageInfo}}.</returns>
@@ -378,12 +401,9 @@ namespace MediaBrowser.Providers.Manager
             BaseItem item,
             IRemoteImageProvider provider,
             string preferredLanguage,
-            bool includeAllLanguages,
             CancellationToken cancellationToken,
             ImageType? type = null)
         {
-            bool hasPreferredLanguage = !string.IsNullOrWhiteSpace(preferredLanguage);
-
             try
             {
                 var result = await provider.GetImages(item, cancellationToken).ConfigureAwait(false);
@@ -393,15 +413,15 @@ namespace MediaBrowser.Providers.Manager
                     result = result.Where(i => i.Type == type.Value);
                 }
 
-                if (!includeAllLanguages && hasPreferredLanguage)
+                result = result.Select(image =>
                 {
-                    // Filter out languages that do not match the preferred languages.
-                    //
-                    // TODO: should exception case of "en" (English) eventually be removed?
-                    result = result.Where(i => string.IsNullOrWhiteSpace(i.Language) ||
-                                               string.Equals(preferredLanguage, i.Language, StringComparison.OrdinalIgnoreCase) ||
-                                               string.Equals(i.Language, "en", StringComparison.OrdinalIgnoreCase));
-                }
+                    if (string.IsNullOrWhiteSpace(image.ProviderName))
+                    {
+                        image.ProviderName = provider.Name;
+                    }
+
+                    return image;
+                });
 
                 return result.OrderByLanguageDescending(preferredLanguage);
             }

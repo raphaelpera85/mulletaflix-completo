@@ -6,7 +6,6 @@ using System.Linq;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
-using MulletaFlix.Extensions;
 using MediaBrowser.Common.Extensions;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Entities.Audio;
@@ -20,6 +19,7 @@ using MediaBrowser.Model.IO;
 using MediaBrowser.Model.Lyrics;
 using MediaBrowser.Model.Providers;
 using Microsoft.Extensions.Logging;
+using MulletaFlix.Extensions;
 
 namespace MediaBrowser.Providers.Lyric;
 
@@ -162,7 +162,11 @@ public class LyricManager : ILyricManager
                 return null;
             }
 
-            await TrySaveLyric(audio, libraryOptions, response.Format, response.Stream).ConfigureAwait(false);
+            if (!await TrySaveLyric(audio, libraryOptions, response.Format, response.Stream).ConfigureAwait(false))
+            {
+                throw new IOException("The server could not save the downloaded lyric to a safe destination.");
+            }
+
             return parsedLyrics;
         }
         catch (RateLimitExceededException)
@@ -209,7 +213,11 @@ public class LyricManager : ILyricManager
             return null;
         }
 
-        await TrySaveLyric(audio, libraryOptions, format, lyrics).ConfigureAwait(false);
+        if (!await TrySaveLyric(audio, libraryOptions, format, lyrics).ConfigureAwait(false))
+        {
+            throw new IOException("The server could not save the uploaded lyric to a safe destination.");
+        }
+
         return parsed;
     }
 
@@ -379,7 +387,7 @@ public class LyricManager : ILyricManager
         }
     }
 
-    private async Task TrySaveLyric(
+    internal async Task<bool> TrySaveLyric(
         Audio audio,
         LibraryOptions libraryOptions,
         string format,
@@ -388,10 +396,9 @@ public class LyricManager : ILyricManager
         if (!IsSafeLyricFormat(format))
         {
             _logger.LogWarning("Refusing to save lyrics with invalid format token.");
-            return;
+            await lyricStream.DisposeAsync().ConfigureAwait(false);
+            return false;
         }
-
-        var saveInMediaFolder = libraryOptions.SaveLyricsWithMedia;
 
         var memoryStream = new MemoryStream();
         await using (memoryStream.ConfigureAwait(false))
@@ -403,37 +410,50 @@ public class LyricManager : ILyricManager
                 memoryStream.Seek(0, SeekOrigin.Begin);
             }
 
-            var savePaths = new List<string>();
             var saveFileName = Path.GetFileNameWithoutExtension(audio.Path) + "." + format.ToLowerInvariant();
-
-            if (saveInMediaFolder)
-            {
-                var mediaFolderPath = Path.Combine(audio.ContainingFolderPath, saveFileName);
-                // TODO: Add some error handling to the API user: return BadRequest("Could not save lyric, bad path.");
-                if (IsPathWithinDirectory(audio.ContainingFolderPath, mediaFolderPath))
-                {
-                    savePaths.Add(mediaFolderPath);
-                }
-            }
-
-            var metadataPath = audio.GetInternalMetadataPath();
-            var internalPath = Path.Combine(metadataPath, saveFileName);
-
-            // TODO: Add some error to the user: return BadRequest("Could not save lyric, bad path.");
-            if (IsPathWithinDirectory(metadataPath, internalPath))
-            {
-                savePaths.Add(internalPath);
-            }
+            var savePaths = GetSafeLyricSavePaths(
+                audio.ContainingFolderPath,
+                audio.GetInternalMetadataPath(),
+                saveFileName,
+                libraryOptions.SaveLyricsWithMedia);
 
             if (savePaths.Count > 0)
             {
                 await TrySaveToFiles(memoryStream, savePaths).ConfigureAwait(false);
+                return true;
             }
-            else
+
+            _logger.LogError("Lyrics for {Path} could not be saved because no safe destination was available.", audio.Path);
+            return false;
+        }
+    }
+
+    internal static List<string> GetSafeLyricSavePaths(
+        string? mediaDirectory,
+        string? metadataDirectory,
+        string fileName,
+        bool saveInMediaFolder)
+    {
+        var savePaths = new List<string>();
+        if (saveInMediaFolder && !string.IsNullOrWhiteSpace(mediaDirectory))
+        {
+            var mediaPath = Path.Combine(mediaDirectory, fileName);
+            if (IsPathWithinDirectory(mediaDirectory, mediaPath))
             {
-                _logger.LogError("An uploaded lyric could not be saved because the resulting paths were invalid.");
+                savePaths.Add(mediaPath);
             }
         }
+
+        if (!string.IsNullOrWhiteSpace(metadataDirectory))
+        {
+            var metadataPath = Path.Combine(metadataDirectory, fileName);
+            if (IsPathWithinDirectory(metadataDirectory, metadataPath))
+            {
+                savePaths.Add(metadataPath);
+            }
+        }
+
+        return savePaths;
     }
 
     internal static bool IsSafeLyricFormat(string? format)
@@ -468,6 +488,11 @@ public class LyricManager : ILyricManager
         {
             var fullDirectoryPath = Path.GetFullPath(directoryPath);
             var fullCandidatePath = Path.GetFullPath(candidatePath);
+            if (IsReparsePoint(fullDirectoryPath))
+            {
+                return false;
+            }
+
             var relativePath = Path.GetRelativePath(fullDirectoryPath, fullCandidatePath);
             if (Path.IsPathRooted(relativePath)
                 || string.Equals(relativePath, ".", StringComparison.Ordinal)
@@ -528,7 +553,7 @@ public class LyricManager : ILyricManager
         }
     }
 
-    private async Task TrySaveToFiles(Stream stream, List<string> savePaths)
+    internal async Task TrySaveToFiles(Stream stream, List<string> savePaths)
     {
         List<Exception>? exs = null;
 
@@ -540,15 +565,30 @@ public class LyricManager : ILyricManager
 
             try
             {
-                Directory.CreateDirectory(Path.GetDirectoryName(savePath) ?? throw new InvalidOperationException("Path can't be a root directory."));
+                var saveDirectory = Path.GetDirectoryName(savePath) ?? throw new InvalidOperationException("Path can't be a root directory.");
+                Directory.CreateDirectory(saveDirectory);
 
-                var fileOptions = AsyncFile.WriteOptions;
-                fileOptions.Mode = FileMode.Create;
-                fileOptions.PreallocationSize = stream.Length;
-                var fs = new FileStream(savePath, fileOptions);
-                await using (fs.ConfigureAwait(false))
+                var stagingPath = Path.Combine(saveDirectory, $".{Path.GetFileName(savePath)}.{Guid.NewGuid():N}.tmp");
+                try
                 {
-                    await stream.CopyToAsync(fs).ConfigureAwait(false);
+                    var fileOptions = AsyncFile.WriteOptions;
+                    fileOptions.Mode = FileMode.CreateNew;
+                    fileOptions.PreallocationSize = stream.Length;
+                    var fs = new FileStream(stagingPath, fileOptions);
+                    await using (fs.ConfigureAwait(false))
+                    {
+                        await stream.CopyToAsync(fs).ConfigureAwait(false);
+                        await fs.FlushAsync().ConfigureAwait(false);
+                    }
+
+                    File.Move(stagingPath, savePath, overwrite: true);
+                }
+                finally
+                {
+                    if (File.Exists(stagingPath))
+                    {
+                        File.Delete(stagingPath);
+                    }
                 }
 
                 return;

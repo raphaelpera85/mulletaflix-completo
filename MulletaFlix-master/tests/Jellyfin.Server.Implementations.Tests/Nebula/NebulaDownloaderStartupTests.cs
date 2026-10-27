@@ -1,4 +1,5 @@
 using System;
+using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using MediaBrowser.Model.Nebula;
@@ -73,9 +74,9 @@ public sealed class NebulaDownloaderStartupTests
     public void IsPythonDownloaderReadyOutput_RequiresMongoIndexBeforeLibraryDiscovery()
     {
         Assert.False(NebulaFtpManager.IsPythonDownloaderReadyOutput(
-            "[STRM-WORKER-READY] Worker iniciado; preparando índice Mongo e fila."));
+            "[STRM-WORKER-READY] Worker iniciado; preparando cache de duplicidade Mongo e fila."));
         Assert.True(NebulaFtpManager.IsPythonDownloaderReadyOutput(
-            "[STRM-WORKER-MONGO-READY] Índice Mongo preparado; descobrindo raízes STRM."));
+            "[STRM-WORKER-MONGO-READY] Cache de duplicidade Mongo atualizada; descobrindo raízes STRM."));
         Assert.True(NebulaFtpManager.IsPythonDownloaderReadyOutput(
             "[STRM-SCAN-STARTED] Varredura iniciada"));
         Assert.True(NebulaFtpManager.IsPythonDownloaderReadyOutput(
@@ -94,12 +95,12 @@ public sealed class NebulaDownloaderStartupTests
         var status = new NebulaDownloadStatusDto();
 
         var handled = NebulaFtpManager.TryApplyPythonDownloaderProgressOutput(
-            "[STRM-WORKER-READY] Worker iniciado; preparando índice Mongo e fila.",
+            "[STRM-WORKER-READY] Worker iniciado; preparando cache de duplicidade Mongo e fila.",
             status);
 
         Assert.True(handled);
         Assert.Equal("Preparando fila de download", status.Name);
-        Assert.Equal("Downloader iniciado; preparando índice Mongo...", status.StageStep);
+        Assert.Equal("Downloader iniciado; preparando cache Mongo...", status.StageStep);
         Assert.Equal("O processo está ativo; a varredura começa após preparar o índice.", status.DetailText);
     }
 
@@ -109,12 +110,12 @@ public sealed class NebulaDownloaderStartupTests
         var status = new NebulaDownloadStatusDto();
 
         var handled = NebulaFtpManager.TryApplyPythonDownloaderProgressOutput(
-            "[STRM-WORKER-MONGO-READY] Índice Mongo preparado; descobrindo raízes STRM.",
+            "[STRM-WORKER-MONGO-READY] Cache de duplicidade Mongo atualizada; descobrindo raízes STRM.",
             status);
 
         Assert.True(handled);
         Assert.Equal("Preparando fila de download", status.Name);
-        Assert.Equal("Índice Mongo preparado; descobrindo bibliotecas...", status.StageStep);
+        Assert.Equal("Cache Mongo preparada; descobrindo bibliotecas...", status.StageStep);
         Assert.Contains("O scan ainda não começou", status.DetailText, StringComparison.Ordinal);
     }
 
@@ -129,10 +130,25 @@ public sealed class NebulaDownloaderStartupTests
             status);
 
         Assert.True(handled);
-        Assert.Equal("Preparando fila de download", status.Name);
+        Assert.Equal("Preparando download", status.Name);
         Assert.Equal("Título sem mídia elegível; seguindo para o próximo...", status.StageStep);
         Assert.Equal("Alpha não contém arquivos elegíveis.", status.DetailText);
         Assert.Equal(0, status.QueueCount);
+    }
+
+    [Fact]
+    public void TryApplyPythonDownloaderProgressOutput_ReportsInaccessibleRootAsError()
+    {
+        var status = new NebulaDownloadStatusDto();
+
+        var handled = NebulaFtpManager.TryApplyPythonDownloaderProgressOutput(
+            "[STRM-SCAN-ROOT-ERROR] Não foi possível descobrir títulos em /media/Series: acesso negado",
+            status);
+
+        Assert.True(handled);
+        Assert.Equal("Erro ao descobrir biblioteca", status.Name);
+        Assert.Equal("Raiz STRM inacessível", status.StageStep);
+        Assert.Contains("acesso negado", status.DetailText, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -146,10 +162,10 @@ public sealed class NebulaDownloaderStartupTests
             status);
 
         Assert.True(handled);
-        Assert.Equal("Fila de download preparada", status.Name);
+        Assert.Equal("Preparando download", status.Name);
         Assert.Equal("Título indexado: Alpha", status.StageStep);
-        Assert.Equal("3 arquivo(s) elegível(is); iniciando este título antes do próximo.", status.DetailText);
-        Assert.Equal(3, status.QueueCount);
+        Assert.Equal("3 arquivo(s) elegível(is) neste título; processamento sequencial começa agora. Isso não é uma fila global.", status.DetailText);
+        Assert.Equal(0, status.QueueCount);
     }
 
     [Fact]
@@ -176,7 +192,7 @@ public sealed class NebulaDownloaderStartupTests
         var exited = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         exited.SetResult();
 
-        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+        var exception = await Assert.ThrowsAsync<IOException>(() =>
             NebulaFtpManager.WaitForWorkerReadinessAsync(
                 ready.Task,
                 exited.Task,

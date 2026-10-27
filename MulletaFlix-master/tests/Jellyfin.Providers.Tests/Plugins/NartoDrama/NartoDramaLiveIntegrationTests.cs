@@ -3,6 +3,7 @@ using System.Linq;
 using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
+using Jellyfin.Providers.Tests.Plugins;
 using MediaBrowser.Providers.Plugins.NartoDrama;
 using Microsoft.Extensions.Logging;
 using Moq;
@@ -14,13 +15,12 @@ namespace Jellyfin.Providers.Tests.Plugins.NartoDrama
     /// Live verification against the real NartoDrama site.
     /// </summary>
     /// <remarks>
-    /// The type name deliberately contains "Integration" so the CI filter
-    /// (FullyQualifiedName!~Integration) skips it: it reaches the public internet and must never
-    /// gate a build. Run it on demand with
-    /// <c>dotnet test --filter "FullyQualifiedName~NartoDramaLiveIntegration"</c>.
+    /// Live requests require <c>MULLETAFLIX_RUN_LIVE_PROVIDER_TESTS=1</c> and must never gate a build.
+    /// Run this category on demand with <c>dotnet test --filter "Category=ExternalLive"</c>.
     /// It exists because every other test in this folder uses a captured page, and a captured page
     /// cannot prove that the parser still reads what the site serves today.
     /// </remarks>
+    [Trait("Category", "ExternalLive")]
     public sealed class NartoDramaLiveIntegrationTests
     {
         private const string Slug = "abandonei-o-rei-dos-deuses-no-altar";
@@ -28,6 +28,7 @@ namespace Jellyfin.Providers.Tests.Plugins.NartoDrama
         [Fact]
         public async Task GetSeries_ReadsTheRealPageEndToEnd()
         {
+            ProviderLiveTestEnvironment.SkipUnlessEnabled();
             var client = CreateClient();
 
             var series = await client.GetSeriesAsync(Slug, CancellationToken.None);
@@ -58,6 +59,7 @@ namespace Jellyfin.Providers.Tests.Plugins.NartoDrama
         [Fact]
         public async Task Search_FindsTheSeriesByTitle()
         {
+            ProviderLiveTestEnvironment.SkipUnlessEnabled();
             var client = CreateClient();
 
             var matches = await client.SearchAsync("Abandonei o Rei dos Deuses no Altar", 12, CancellationToken.None);
@@ -73,6 +75,7 @@ namespace Jellyfin.Providers.Tests.Plugins.NartoDrama
         [Fact]
         public async Task Search_FindsTheSeriesFromAnAccentedTerm()
         {
+            ProviderLiveTestEnvironment.SkipUnlessEnabled();
             var client = CreateClient();
 
             // The catalogue folds accents into its slugs, and the search page accepts the accented
@@ -86,6 +89,7 @@ namespace Jellyfin.Providers.Tests.Plugins.NartoDrama
         [Fact]
         public async Task GetSeries_ReturnsNullForAnUnknownSlugWithoutGoingQuiet()
         {
+            ProviderLiveTestEnvironment.SkipUnlessEnabled();
             var client = CreateClient();
 
             Assert.Null(await client.GetSeriesAsync("isto-nao-existe-zzz", CancellationToken.None));

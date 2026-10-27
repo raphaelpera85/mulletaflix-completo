@@ -12,14 +12,23 @@ namespace MulletaFlix.Testing;
 internal static class MariaDbTestEnvironment
 {
     public const string ConnectionStringVariable = "MULLETAFLIX_TEST_MARIADB_CONNECTION_STRING";
+    public const string DisposableConfirmationVariable = "MULLETAFLIX_TEST_MARIADB_CONFIRM_DISPOSABLE";
+    private const string DisposableConfirmationValue = "I_ACKNOWLEDGE_TESTS_CREATE_AND_DROP_SCHEMAS";
 
     public static bool IsConfigured
-        => !string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable(ConnectionStringVariable));
+        => !string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable(ConnectionStringVariable))
+            && IsDisposableInstanceConfirmed;
+
+    private static bool IsDisposableInstanceConfirmed
+        => string.Equals(
+            Environment.GetEnvironmentVariable(DisposableConfirmationVariable),
+            DisposableConfirmationValue,
+            StringComparison.Ordinal);
 
     public static void SkipUnlessConfigured()
         => Assert.SkipUnless(
             IsConfigured,
-            $"Set {ConnectionStringVariable} to an isolated loopback MariaDB on a non-default port.");
+            $"Set {ConnectionStringVariable} and {DisposableConfirmationVariable}={DisposableConfirmationValue} only for an isolated disposable loopback MariaDB on a non-default port.");
 
     public static MySqlConnectionStringBuilder GetAdminConnection()
     {
@@ -30,11 +39,22 @@ internal static class MariaDbTestEnvironment
                 $"{ConnectionStringVariable} is required; refusing to access any default database endpoint.");
         }
 
-        return Validate(configuredConnection);
+        if (!IsDisposableInstanceConfirmed)
+        {
+            throw new InvalidOperationException(
+                $"Set {DisposableConfirmationVariable} to {DisposableConfirmationValue} only for a disposable MariaDB instance; schema creation and deletion are destructive.");
+        }
+
+        return Validate(configuredConnection, disposableInstanceConfirmed: true);
     }
 
-    public static MySqlConnectionStringBuilder Validate(string? connectionString)
+    public static MySqlConnectionStringBuilder Validate(string? connectionString, bool disposableInstanceConfirmed = false)
     {
+        if (!disposableInstanceConfirmed)
+        {
+            throw new InvalidOperationException("An explicit confirmation of a disposable MariaDB instance is required.");
+        }
+
         if (string.IsNullOrWhiteSpace(connectionString))
         {
             throw new InvalidOperationException("An explicit disposable MariaDB connection is required.");

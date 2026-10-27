@@ -1,4 +1,5 @@
 ﻿using System;
+using MediaBrowser.Controller.Streaming;
 using MulletaFlix.Api.Controllers;
 using Xunit;
 
@@ -16,6 +17,27 @@ namespace MulletaFlix.Api.Tests.Controllers
             {
                 Assert.Equal(expected[i], res[i]);
             }
+        }
+
+        [Fact]
+        public void GetSegmentEndingPositionTicks_UsesTheCurrentRequestValues()
+        {
+            var first = new StreamingRequestDto { CurrentRuntimeTicks = 10, ActualSegmentLengthTicks = 3 };
+            var second = new StreamingRequestDto { CurrentRuntimeTicks = 40, ActualSegmentLengthTicks = 5 };
+
+            Assert.Equal(13, DynamicHlsController.GetSegmentEndingPositionTicks(first));
+            Assert.Equal(45, DynamicHlsController.GetSegmentEndingPositionTicks(second));
+        }
+
+        [Fact]
+        public void SetTranscodeStartTimeTicks_UpdatesTheCachedStateRequest()
+        {
+            var cachedStateRequest = new StreamingRequestDto { StartTimeTicks = 0 };
+            var segmentRequest = new StreamingRequestDto { CurrentRuntimeTicks = 42 };
+
+            DynamicHlsController.SetTranscodeStartTimeTicks(cachedStateRequest, segmentRequest);
+
+            Assert.Equal(42, cachedStateRequest.StartTimeTicks);
         }
 
         public static TheoryData<long, int, double[]> GetSegmentLengths_Success_TestData()

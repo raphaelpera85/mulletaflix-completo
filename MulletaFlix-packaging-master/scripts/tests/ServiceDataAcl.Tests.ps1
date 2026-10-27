@@ -19,11 +19,20 @@ if ($installer -notmatch '(?s)Function RejectReparseDataDirectory\s+.*?REPARSE_P
 $serviceSection = [regex]::Match($installer, '(?s)Section "MulletaFlix Server Service" InstallService(.*?)SectionEnd').Groups[1].Value
 if (-not $serviceSection -or
     $serviceSection -notmatch '/inheritance:r' -or
-    $serviceSection -notmatch '/remove:g\s+\*S-1-5-32-545\s+\*S-1-1-0\s+\*S-1-5-11' -or
+    $serviceSection -notmatch '/remove:g\s+\*S-1-5-32-545\s+\*S-1-1-0\s+\*S-1-5-11\s+\*S-1-5-18\s+\*S-1-5-19\s+\*S-1-5-20' -or
     $serviceSection -notmatch '\*S-1-5-32-544:\(OI\)\(CI\)F' -or
     $serviceSection -notmatch '\*S-1-5-18:\(OI\)\(CI\)F' -or
+    $serviceSection -notmatch '(?s)\$\{If\} \$_SERVICEACCOUNTTYPE_ == "NetworkService".*?\*S-1-5-20:\(OI\)\(CI\)M' -or
+    $serviceSection -notmatch '(?s)\$\{ElseIf\} \$_SERVICEACCOUNTTYPE_ == "LocalService".*?\*S-1-5-19:\(OI\)\(CI\)M' -or
     $serviceSection -match '/T') {
-    throw 'Service data ACL must remove inherited/broad grants, retain administrator/system access, and avoid recursive traversal.'
+    throw 'Service data ACL must remove stale service/broad grants, retain administrator/system access, grant the selected service identity only, and avoid recursive traversal.'
+}
+
+if ($serviceSection -notmatch '(?s)\$\{If\} \$_SERVICEACCOUNTTYPE_ == "NetworkService"\s+ConfigureNetworkServiceRetry:\s+ExecWait ''sc\.exe config MulletaFlixServer obj= "NT AUTHORITY\\NetworkService" password= ""'' \$0\s+.*?ShowError .*?ConfigureNetworkServiceRetry' -or
+    $serviceSection -notmatch '(?s)\$\{ElseIf\} \$_SERVICEACCOUNTTYPE_ == "LocalSystem"\s+ConfigureLocalSystemRetry:\s+ExecWait ''sc\.exe config MulletaFlixServer obj= LocalSystem'' \$0\s+.*?ShowError .*?ConfigureLocalSystemRetry' -or
+    $serviceSection -notmatch '(?s)\$\{ElseIf\} \$_SERVICEACCOUNTTYPE_ == "LocalService"\s+ConfigureLocalServiceRetry:\s+ExecWait ''sc\.exe config MulletaFlixServer obj= "NT AUTHORITY\\LocalService" password= ""'' \$0\s+.*?ShowError .*?ConfigureLocalServiceRetry' -or
+    $serviceSection -match 'nssm\.exe" set MulletaFlixServer Objectname') {
+    throw 'Installer must apply the selected NetworkService, LocalSystem, or legacy LocalService account through sc.exe config with its retry handler.'
 }
 
 $basicBlock = [regex]::Match($installer, '(?s)Basic installs run as the interactive user(.*?)\$\{EndIf\}').Groups[1].Value
@@ -45,7 +54,8 @@ $profileImage = Join-Path $profileDirectory 'profile.jpg'
 $outside = Join-Path $parent 'outside-sentinel'
 $currentSid = [System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value
 $broadSids = @('S-1-1-0', 'S-1-5-11', 'S-1-5-32-545')
-$serviceSids = @('S-1-5-18', 'S-1-5-19', 'S-1-5-20')
+$serviceSid = 'S-1-5-20'
+$staleServiceSid = 'S-1-5-19'
 $writeRights = [System.Security.AccessControl.FileSystemRights]::Write -bor
     [System.Security.AccessControl.FileSystemRights]::WriteData -bor
     [System.Security.AccessControl.FileSystemRights]::AppendData -bor
@@ -65,7 +75,7 @@ try {
     & icacls.exe $dataRoot '/grant' ("*$currentSid`:(OI)(CI)F") '*S-1-5-32-545:(OI)(CI)M' '*S-1-5-32-544:(OI)(CI)F' '*S-1-5-18:(OI)(CI)F' '*S-1-5-19:(OI)(CI)M' '*S-1-5-20:(OI)(CI)M' '/Q' | Out-Null
     if ($LASTEXITCODE -ne 0) { throw 'Could not seed explicit fixture ACLs.' }
 
-    & icacls.exe $dataRoot '/inheritance:r' '/remove:g' '*S-1-5-32-545' '*S-1-1-0' '*S-1-5-11' '/grant' '*S-1-5-32-544:(OI)(CI)F' '*S-1-5-18:(OI)(CI)F' '*S-1-5-20:(OI)(CI)M' '*S-1-5-19:(OI)(CI)M' '/Q' | Out-Null
+    & icacls.exe $dataRoot '/inheritance:r' '/remove:g' '*S-1-5-32-545' '*S-1-1-0' '*S-1-5-11' '*S-1-5-18' '*S-1-5-19' '*S-1-5-20' '/grant' '*S-1-5-32-544:(OI)(CI)F' '*S-1-5-18:(OI)(CI)F' ("*$serviceSid`:(OI)(CI)M") '/Q' | Out-Null
     if ($LASTEXITCODE -ne 0) { throw 'The non-recursive service ACL operation failed.' }
 
     foreach ($path in @($dataRoot, (Join-Path $dataRoot 'config'), (Join-Path $dataRoot 'config\users'), $profileDirectory, $profileImage)) {
@@ -89,9 +99,8 @@ try {
             try { $rule.IdentityReference.Translate([System.Security.Principal.SecurityIdentifier]).Value }
             catch { $rule.IdentityReference.Value }
         }
-        foreach ($sid in $serviceSids) {
-            if ($sid -notin $aclSids) { throw "Supported service SID '$sid' is missing from '$path'." }
-        }
+        if ($serviceSid -notin $aclSids) { throw "Selected service SID '$serviceSid' is missing from '$path'." }
+        if ($staleServiceSid -in $aclSids) { throw "Unselected service SID '$staleServiceSid' retained access to '$path'." }
     }
 
     $outsideSids = foreach ($rule in (Get-Acl -LiteralPath $outside).Access) {

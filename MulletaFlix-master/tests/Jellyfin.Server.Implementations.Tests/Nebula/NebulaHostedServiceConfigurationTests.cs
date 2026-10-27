@@ -1,4 +1,5 @@
 using System;
+using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using Jellyfin.Server.Implementations.Nebula;
@@ -231,6 +232,26 @@ public sealed class NebulaHostedServiceConfigurationTests
         await service.WaitForPendingWorkAsync();
         manager.Verify(m => m.StartEnvioAsync(false, It.IsAny<CancellationToken>()), Times.Exactly(2));
         manager.Verify(m => m.StartDownloaderAsync(It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task DownloaderEarlyWorkerExit_IsRetriedDuringStartup()
+    {
+        var config = new NebulaFtpConfiguration { Enabled = true, UseMappedDrive = false };
+        var manager = new Mock<INebulaFtpManager>();
+        manager.Setup(m => m.StartEnvioAsync(false, It.IsAny<CancellationToken>())).ReturnsAsync(true);
+        manager.SetupSequence(m => m.StartDownloaderAsync(It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new IOException("Worker Python encerrou antes de iniciar o scan"))
+            .ReturnsAsync(true);
+        using var lifetime = new TestLifetime();
+        using var service = CreateService(manager, CreateConfigManager(config), lifetime);
+
+        await service.StartAsync(CancellationToken.None);
+        lifetime.TriggerStarted();
+        await service.WaitForPendingWorkAsync();
+
+        manager.Verify(m => m.StartDownloaderAsync(It.IsAny<CancellationToken>()), Times.Exactly(2));
+        manager.Verify(m => m.StartEnvioAsync(false, It.IsAny<CancellationToken>()), Times.Once);
     }
 
     [Fact]

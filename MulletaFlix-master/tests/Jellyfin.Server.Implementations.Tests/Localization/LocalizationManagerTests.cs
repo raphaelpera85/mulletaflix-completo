@@ -120,11 +120,12 @@ namespace MulletaFlix.Server.Implementations.Tests.Localization
         }
 
         [Fact]
-        public async Task GetParentalRatings_Default_Success()
+        public async Task GetParentalRatings_ConfiguredUsCountry_Success()
         {
             var localizationManager = Setup(new ServerConfiguration
             {
-                UICulture = "de-DE"
+                UICulture = "de-DE",
+                MetadataCountryCode = "US"
             });
             await localizationManager.LoadAll();
             var ratings = localizationManager.GetParentalRatings().ToList();
@@ -134,6 +135,24 @@ namespace MulletaFlix.Server.Implementations.Tests.Localization
             var tvma = ratings.FirstOrDefault(x => x.Name.Equals("TV-MA", StringComparison.Ordinal));
             Assert.NotNull(tvma);
             Assert.Equal(17, tvma!.RatingScore!.Score);
+        }
+
+        [Fact]
+        public async Task GetParentalRatings_DefaultBrazilianCountry_Success()
+        {
+            var localizationManager = Setup(new ServerConfiguration
+            {
+                UICulture = "de-DE"
+            });
+            await localizationManager.LoadAll();
+            var ratings = localizationManager.GetParentalRatings().ToList();
+
+            Assert.Equal("BR", new ServerConfiguration().MetadataCountryCode);
+            Assert.Equal(42, ratings.Count);
+
+            var livre = ratings.FirstOrDefault(x => x.Name.Equals("Livre", StringComparison.Ordinal));
+            Assert.NotNull(livre);
+            Assert.Equal(0, livre!.RatingScore!.Score);
         }
 
         [Fact]

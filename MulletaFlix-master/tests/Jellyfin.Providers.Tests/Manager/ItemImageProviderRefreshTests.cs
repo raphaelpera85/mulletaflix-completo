@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
@@ -10,6 +10,7 @@ using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
+using MediaBrowser.Controller.Configuration;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.Providers;
@@ -26,6 +27,7 @@ using Xunit;
 
 namespace MulletaFlix.Providers.Tests.Manager
 {
+    [Collection("LibraryManagerTests")]
     public partial class ItemImageProviderTests
     {
         [Theory]
@@ -90,7 +92,7 @@ namespace MulletaFlix.Providers.Tests.Manager
             // Has to exist for querying DateModified time on file, results stored but not checked so not populating
             BaseItem.FileSystem = Mock.Of<IFileSystem>();
 
-            var item = new Video();
+            var item = new Video { PreferredMetadataLanguage = "pt-BR" };
 
             var libraryOptions = GetLibraryOptions(item, imageType, imageCount);
 
@@ -186,6 +188,484 @@ namespace MulletaFlix.Providers.Tests.Manager
                     Assert.DoesNotMatch("image url [0-9]", image.Path);
                 }
             }
+        }
+
+        [Fact]
+        public async Task RefreshImages_RemoteProviders_SelectLocalizedCandidateAcrossProviders()
+        {
+            var item = new Video { PreferredMetadataLanguage = "pt-BR" };
+            var libraryOptions = GetLibraryOptions(item, ImageType.Primary, 1);
+            var englishProvider = new Mock<IRemoteImageProvider>(MockBehavior.Strict);
+            englishProvider.Setup(provider => provider.Name).Returns("EnglishProvider");
+            englishProvider.Setup(provider => provider.GetSupportedImages(item)).Returns([ImageType.Primary]);
+            var portugueseProvider = new Mock<IRemoteImageProvider>(MockBehavior.Strict);
+            portugueseProvider.Setup(provider => provider.Name).Returns("PortugueseProvider");
+            portugueseProvider.Setup(provider => provider.GetSupportedImages(item)).Returns([ImageType.Primary]);
+
+            var providerManager = new Mock<IProviderManager>(MockBehavior.Strict);
+            providerManager.Setup(manager => manager.GetAvailableRemoteImages(
+                    item,
+                    It.Is<RemoteImageQuery>(query => query.IncludeAllLanguages && string.IsNullOrEmpty(query.ProviderName)),
+                    It.IsAny<CancellationToken>()))
+                .ReturnsAsync([
+                    new RemoteImageInfo
+                {
+                    ProviderName = "PortugueseProvider",
+                    Language = "pt",
+                    Type = ImageType.Primary,
+                    Url = "localized-image"
+                }
+                ]);
+
+            var itemImageProvider = GetItemImageProvider(providerManager.Object, null);
+            var result = await itemImageProvider.RefreshImages(
+                item,
+                libraryOptions,
+                [englishProvider.Object, portugueseProvider.Object],
+                new ImageRefreshOptions(Mock.Of<IDirectoryService>()),
+                CancellationToken.None);
+
+            providerManager.Verify(
+                manager => manager.GetAvailableRemoteImages(
+                item,
+                It.Is<RemoteImageQuery>(query => query.IncludeAllLanguages && string.IsNullOrEmpty(query.ProviderName)),
+                It.IsAny<CancellationToken>()),
+                Times.Once);
+            Assert.True(result.UpdateType.HasFlag(ItemUpdateType.ImageUpdate));
+            Assert.True(item.HasImage(ImageType.Primary));
+        }
+
+        [Theory]
+        [InlineData("en")]
+        [InlineData(null)]
+        public async Task RefreshImages_ReplacesKnownRemotePosterWithoutPreferredLanguageWhenPreferredLanguageIsAvailable(string existingLanguage)
+        {
+            var item = new Video
+            {
+                PreferredMetadataLanguage = "pt-BR",
+                PreferredMetadataCountryCode = "BR"
+            };
+            item.SetImage(
+                new ItemImageInfo
+                {
+                    Path = "https://images.example/english.jpg",
+                    Type = ImageType.Primary,
+                    ProviderName = "MockRemoteProvider",
+                    Language = existingLanguage
+                },
+                0);
+            var libraryOptions = GetLibraryOptions(item, ImageType.Primary, 1);
+            var remoteProvider = new Mock<IRemoteImageProvider>(MockBehavior.Strict);
+            remoteProvider.Setup(provider => provider.Name).Returns("MockRemoteProvider");
+            remoteProvider.Setup(provider => provider.GetSupportedImages(item))
+                .Returns([ImageType.Primary]);
+
+            var providerManager = new Mock<IProviderManager>(MockBehavior.Strict);
+            providerManager.Setup(manager => manager.GetAvailableRemoteImages(
+                    item,
+                    It.Is<RemoteImageQuery>(query => query.IncludeAllLanguages),
+                    It.IsAny<CancellationToken>()))
+                .ReturnsAsync([
+                    new RemoteImageInfo
+                    {
+                        ProviderName = "MockRemoteProvider",
+                        Language = "pt",
+                        Type = ImageType.Primary,
+                        Url = "https://images.example/portuguese.jpg"
+                    }
+                ]);
+
+            var result = await GetItemImageProvider(providerManager.Object, null).RefreshImages(
+                item,
+                libraryOptions,
+                new[] { remoteProvider.Object },
+                new ImageRefreshOptions(Mock.Of<IDirectoryService>()),
+                CancellationToken.None);
+
+            Assert.True(result.UpdateType.HasFlag(ItemUpdateType.ImageUpdate));
+            Assert.Equal("https://images.example/portuguese.jpg", item.GetImageInfo(ImageType.Primary, 0)!.Path);
+            Assert.Equal("pt", item.GetImageInfo(ImageType.Primary, 0)!.Language);
+            Assert.Equal("MockRemoteProvider", item.GetImageInfo(ImageType.Primary, 0)!.ProviderName);
+        }
+
+        [Fact]
+        public async Task RefreshImages_DownloadsPreferredLanguageImageAndPreservesProvenance()
+        {
+            var item = new Video { Path = "non-empty path", PreferredMetadataLanguage = "pt-BR" };
+            BaseItem.MediaSourceManager = Mock.Of<IMediaSourceManager>();
+            var libraryOptions = GetLibraryOptions(item, ImageType.Primary, 1);
+            var remoteProvider = new Mock<IRemoteImageProvider>(MockBehavior.Strict);
+            remoteProvider.Setup(provider => provider.Name).Returns("PortugueseProvider");
+            remoteProvider.Setup(provider => provider.GetSupportedImages(item)).Returns([ImageType.Primary]);
+            remoteProvider.Setup(provider => provider.GetImageResponse(
+                    "https://images.example/poster-pt.jpg",
+                    It.IsAny<CancellationToken>()))
+                .ReturnsAsync(new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    RequestMessage = new HttpRequestMessage(HttpMethod.Get, "https://images.example/poster-pt.jpg"),
+                    Content = new StringContent("image content", Encoding.UTF8, MediaTypeNames.Image.Jpeg)
+                });
+
+            var providerManager = new Mock<IProviderManager>(MockBehavior.Strict);
+            providerManager.Setup(manager => manager.GetAvailableRemoteImages(
+                    item,
+                    It.Is<RemoteImageQuery>(query => query.IncludeAllLanguages),
+                    It.IsAny<CancellationToken>()))
+                .ReturnsAsync(new[]
+                {
+                    new RemoteImageInfo
+                    {
+                        ProviderName = "PortugueseProvider",
+                        Language = "pt",
+                        Type = ImageType.Primary,
+                        Url = "https://images.example/poster-pt.jpg"
+                    }
+                });
+            providerManager.Setup(manager => manager.SaveImage(
+                    item,
+                    It.IsAny<Stream>(),
+                    MediaTypeNames.Image.Jpeg,
+                    ImageType.Primary,
+                    null,
+                    It.IsAny<CancellationToken>()))
+                .Callback<BaseItem, Stream, string, ImageType, int?, CancellationToken>((imageItem, _, _, imageType, _, _) =>
+                    imageItem.SetImage(new ItemImageInfo { Path = "C:\\metadata\\poster.jpg", Type = imageType }, 0))
+                .Returns(Task.CompletedTask);
+
+            var result = await GetItemImageProvider(providerManager.Object, null).RefreshImages(
+                item,
+                libraryOptions,
+                [remoteProvider.Object],
+                new ImageRefreshOptions(Mock.Of<IDirectoryService>()),
+                CancellationToken.None);
+
+            var savedImage = item.GetImageInfo(ImageType.Primary, 0)!;
+            Assert.True(result.UpdateType.HasFlag(ItemUpdateType.ImageUpdate));
+            Assert.Equal("C:\\metadata\\poster.jpg", savedImage.Path);
+            Assert.Equal("PortugueseProvider", savedImage.ProviderName);
+            Assert.Equal("pt", savedImage.Language);
+            remoteProvider.Verify(
+                provider => provider.GetImageResponse(
+                    "https://images.example/poster-pt.jpg",
+                    It.IsAny<CancellationToken>()),
+                Times.Once);
+        }
+
+        [Fact]
+        public async Task RefreshImages_ReplacesStaleRemoteBackdropAndPreservesManualBackdrop()
+        {
+            var item = new Video
+            {
+                PreferredMetadataLanguage = "pt-BR",
+                PreferredMetadataCountryCode = "BR",
+                Path = "non-empty path"
+            };
+            item.SetImage(
+                new ItemImageInfo
+                {
+                    Path = "https://images.example/english-backdrop.jpg",
+                    Type = ImageType.Backdrop,
+                    ProviderName = "MockRemoteProvider",
+                    Language = "en"
+                },
+                0);
+            item.SetImage(
+                new ItemImageInfo
+                {
+                    Path = "manual-backdrop.jpg",
+                    Type = ImageType.Backdrop
+                },
+                1);
+            BaseItem.MediaSourceManager = Mock.Of<IMediaSourceManager>();
+
+            var remoteProvider = new Mock<IRemoteImageProvider>(MockBehavior.Strict);
+            remoteProvider.Setup(provider => provider.Name).Returns("MockRemoteProvider");
+            remoteProvider.Setup(provider => provider.GetSupportedImages(item)).Returns([ImageType.Backdrop]);
+            remoteProvider.Setup(provider => provider.GetImageResponse("portuguese-backdrop", It.IsAny<CancellationToken>()))
+                .ReturnsAsync(new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    RequestMessage = new HttpRequestMessage(HttpMethod.Get, "https://images.example/portuguese-backdrop.jpg"),
+                    Content = new StringContent("image", Encoding.UTF8, MediaTypeNames.Image.Jpeg)
+                });
+
+            var providerManager = new Mock<IProviderManager>(MockBehavior.Strict);
+            providerManager.Setup(manager => manager.GetAvailableRemoteImages(
+                    item,
+                    It.IsAny<RemoteImageQuery>(),
+                    It.IsAny<CancellationToken>()))
+                .ReturnsAsync([
+                    new RemoteImageInfo
+                    {
+                        ProviderName = "MockRemoteProvider",
+                        Language = "pt",
+                        Type = ImageType.Backdrop,
+                        Url = "portuguese-backdrop"
+                    }
+                ]);
+            providerManager.Setup(manager => manager.SaveImage(
+                    item,
+                    It.IsAny<Stream>(),
+                    MediaTypeNames.Image.Jpeg,
+                    ImageType.Backdrop,
+                    null,
+                    It.IsAny<CancellationToken>()))
+                .Callback<BaseItem, Stream, string, ImageType, int?, CancellationToken>((savedItem, _, _, type, _, _) =>
+                    savedItem.SetImage(
+                        new ItemImageInfo
+                        {
+                            Path = "portuguese-backdrop.jpg",
+                            Type = type
+                        },
+                        savedItem.GetImages(type).Count()))
+                .Returns(Task.CompletedTask);
+
+            var result = await GetItemImageProvider(providerManager.Object, null).RefreshImages(
+                item,
+                GetLibraryOptions(item, ImageType.Backdrop, 2),
+                [remoteProvider.Object],
+                new ImageRefreshOptions(Mock.Of<IDirectoryService>()),
+                CancellationToken.None);
+
+            Assert.True(result.UpdateType.HasFlag(ItemUpdateType.ImageUpdate));
+            Assert.Equal(2, item.GetImages(ImageType.Backdrop).Count());
+            Assert.Contains(item.GetImages(ImageType.Backdrop), image => image.Path == "manual-backdrop.jpg");
+            Assert.Contains(item.GetImages(ImageType.Backdrop), image =>
+                image.ProviderName == "MockRemoteProvider" && image.Language == "pt");
+            Assert.DoesNotContain(item.GetImages(ImageType.Backdrop), image => image.Language == "en");
+        }
+
+        [Theory]
+        [InlineData("en")]
+        [InlineData(null)]
+        public async Task RefreshImages_UsesGlobalPreferredLanguageWhenReplacingKnownRemotePosterWithoutLanguage(string existingLanguage)
+        {
+            var item = new Video();
+            item.SetImage(
+                new ItemImageInfo
+                {
+                    Path = "https://images.example/english.jpg",
+                    Type = ImageType.Primary,
+                    ProviderName = "MockRemoteProvider",
+                    Language = existingLanguage
+                },
+                0);
+            var libraryOptions = GetLibraryOptions(item, ImageType.Primary, 1);
+            var previousLibraryManager = BaseItem.LibraryManager;
+            var previousConfigurationManager = BaseItem.ConfigurationManager;
+            var libraryManager = new Mock<ILibraryManager>();
+            libraryManager.Setup(manager => manager.GetCollectionFolders(item)).Returns([]);
+            libraryManager.Setup(manager => manager.GetLibraryOptions(item)).Returns(libraryOptions);
+            var configurationManager = new Mock<IServerConfigurationManager>();
+            configurationManager.SetupGet(manager => manager.Configuration).Returns(new ServerConfiguration
+            {
+                PreferredMetadataLanguage = "pt-BR",
+                MetadataCountryCode = "BR"
+            });
+            BaseItem.LibraryManager = libraryManager.Object;
+            BaseItem.ConfigurationManager = configurationManager.Object;
+
+            try
+            {
+                var remoteProvider = new Mock<IRemoteImageProvider>(MockBehavior.Strict);
+                remoteProvider.Setup(provider => provider.Name).Returns("MockRemoteProvider");
+                remoteProvider.Setup(provider => provider.GetSupportedImages(item)).Returns([ImageType.Primary]);
+                var providerManager = new Mock<IProviderManager>(MockBehavior.Strict);
+                providerManager.Setup(manager => manager.GetAvailableRemoteImages(
+                        item,
+                        It.IsAny<RemoteImageQuery>(),
+                        It.IsAny<CancellationToken>()))
+                    .ReturnsAsync([
+                        new RemoteImageInfo
+                        {
+                            ProviderName = "MockRemoteProvider",
+                            Language = "pt",
+                            Type = ImageType.Primary,
+                            Url = "https://images.example/portuguese.jpg"
+                        }
+                    ]);
+
+                var result = await GetItemImageProvider(providerManager.Object, null).RefreshImages(
+                    item,
+                    libraryOptions,
+                    [remoteProvider.Object],
+                    new ImageRefreshOptions(Mock.Of<IDirectoryService>()),
+                    CancellationToken.None);
+
+                Assert.True(result.UpdateType.HasFlag(ItemUpdateType.ImageUpdate));
+                Assert.Equal("https://images.example/portuguese.jpg", item.GetImageInfo(ImageType.Primary, 0)!.Path);
+            }
+            finally
+            {
+                BaseItem.LibraryManager = previousLibraryManager;
+                BaseItem.ConfigurationManager = previousConfigurationManager;
+            }
+        }
+
+        [Fact]
+        public async Task RefreshImages_KeepsKnownEnglishPosterWhenPreferredLanguageIsUnavailable()
+        {
+            var item = new Video
+            {
+                PreferredMetadataLanguage = "pt-BR",
+                PreferredMetadataCountryCode = "BR"
+            };
+            item.SetImage(
+                new ItemImageInfo
+                {
+                    Path = "https://images.example/english.jpg",
+                    Type = ImageType.Primary,
+                    ProviderName = "MockRemoteProvider",
+                    Language = "en"
+                },
+                0);
+            var libraryOptions = GetLibraryOptions(item, ImageType.Primary, 1);
+            var remoteProvider = new Mock<IRemoteImageProvider>(MockBehavior.Strict);
+            remoteProvider.Setup(provider => provider.Name).Returns("MockRemoteProvider");
+            remoteProvider.Setup(provider => provider.GetSupportedImages(item)).Returns([ImageType.Primary]);
+            var providerManager = new Mock<IProviderManager>(MockBehavior.Strict);
+            providerManager.Setup(manager => manager.GetAvailableRemoteImages(
+                    item,
+                    It.IsAny<RemoteImageQuery>(),
+                    It.IsAny<CancellationToken>()))
+                .ReturnsAsync([
+                    new RemoteImageInfo
+                    {
+                        ProviderName = "MockRemoteProvider",
+                        Language = "en",
+                        Type = ImageType.Primary,
+                        Url = "https://images.example/english-new.jpg"
+                    }
+                ]);
+
+            var result = await GetItemImageProvider(providerManager.Object, null).RefreshImages(
+                item,
+                libraryOptions,
+                new[] { remoteProvider.Object },
+                new ImageRefreshOptions(Mock.Of<IDirectoryService>()),
+                CancellationToken.None);
+
+            Assert.False(result.UpdateType.HasFlag(ItemUpdateType.ImageUpdate));
+            Assert.Equal("https://images.example/english.jpg", item.GetImageInfo(ImageType.Primary, 0)!.Path);
+        }
+
+        [Fact]
+        public async Task RefreshImages_ReplacesKnownNonPreferredPosterWithEnglishFallback()
+        {
+            var item = new Video
+            {
+                PreferredMetadataLanguage = "pt-BR",
+                PreferredMetadataCountryCode = "BR"
+            };
+            item.SetImage(
+                new ItemImageInfo
+                {
+                    Path = "https://images.example/korean.jpg",
+                    Type = ImageType.Primary,
+                    ProviderName = "MockRemoteProvider",
+                    Language = "ko"
+                },
+                0);
+            var libraryOptions = GetLibraryOptions(item, ImageType.Primary, 1);
+            var remoteProvider = new Mock<IRemoteImageProvider>(MockBehavior.Strict);
+            remoteProvider.Setup(provider => provider.Name).Returns("MockRemoteProvider");
+            remoteProvider.Setup(provider => provider.GetSupportedImages(item)).Returns([ImageType.Primary]);
+            remoteProvider.Setup(provider => provider.GetImageResponse("english image", It.IsAny<CancellationToken>()))
+                .ReturnsAsync(new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    RequestMessage = new HttpRequestMessage(HttpMethod.Get, "https://images.example/english.jpg"),
+                    Content = new StringContent("image content", Encoding.UTF8, MediaTypeNames.Image.Jpeg)
+                });
+
+            var providerManager = new Mock<IProviderManager>(MockBehavior.Strict);
+            providerManager.Setup(manager => manager.GetAvailableRemoteImages(
+                    item,
+                    It.Is<RemoteImageQuery>(query => query.IncludeAllLanguages),
+                    It.IsAny<CancellationToken>()))
+                .ReturnsAsync([
+                    new RemoteImageInfo
+                    {
+                        ProviderName = "MockRemoteProvider",
+                        Language = "en",
+                        Type = ImageType.Primary,
+                        Url = "english image"
+                    }
+                ]);
+            providerManager.Setup(manager => manager.SaveImage(
+                    item,
+                    It.IsAny<Stream>(),
+                    MediaTypeNames.Image.Jpeg,
+                    ImageType.Primary,
+                    null,
+                    It.IsAny<CancellationToken>()))
+                .Callback<BaseItem, Stream, string, ImageType, int?, CancellationToken>((savedItem, _, _, type, _, _) =>
+                    savedItem.SetImage(new ItemImageInfo { Path = "english.jpg", Type = type }, 0))
+                .Returns(Task.CompletedTask);
+
+            var result = await GetItemImageProvider(providerManager.Object, null).RefreshImages(
+                item,
+                libraryOptions,
+                [remoteProvider.Object],
+                new ImageRefreshOptions(Mock.Of<IDirectoryService>()),
+                CancellationToken.None);
+
+            Assert.True(result.UpdateType.HasFlag(ItemUpdateType.ImageUpdate));
+            Assert.NotEqual("https://images.example/korean.jpg", item.GetImageInfo(ImageType.Primary, 0)!.Path);
+            Assert.Equal("en", item.GetImageInfo(ImageType.Primary, 0)!.Language);
+            Assert.Equal("MockRemoteProvider", item.GetImageInfo(ImageType.Primary, 0)!.ProviderName);
+        }
+
+        [Fact]
+        public async Task RefreshImages_PreservesExistingImageWithoutKnownRemoteProvenance()
+        {
+            var item = new Video();
+            item.SetImage(
+                new ItemImageInfo
+                {
+                    Path = "manual-poster.jpg",
+                    Type = ImageType.Primary
+                },
+                0);
+            var remoteProvider = new Mock<IRemoteImageProvider>(MockBehavior.Strict);
+            remoteProvider.Setup(provider => provider.Name).Returns("MockRemoteProvider");
+            remoteProvider.Setup(provider => provider.GetSupportedImages(item)).Returns([ImageType.Primary]);
+            var providerManager = new Mock<IProviderManager>(MockBehavior.Strict);
+
+            var result = await GetItemImageProvider(providerManager.Object, null).RefreshImages(
+                item,
+                GetLibraryOptions(item, ImageType.Primary, 1),
+                new[] { remoteProvider.Object },
+                new ImageRefreshOptions(Mock.Of<IDirectoryService>()),
+                CancellationToken.None);
+
+            Assert.False(result.UpdateType.HasFlag(ItemUpdateType.ImageUpdate));
+            Assert.Equal("manual-poster.jpg", item.GetImageInfo(ImageType.Primary, 0)!.Path);
+            providerManager.VerifyNoOtherCalls();
+        }
+
+        [Fact]
+        public void SetImage_ClearsRemoteProvenanceWhenReplacingWithManualImage()
+        {
+            var item = new Video();
+            item.SetImage(
+                new ItemImageInfo
+                {
+                    Path = "downloaded-poster.jpg",
+                    Type = ImageType.Primary,
+                    ProviderName = "TheMovieDb",
+                    Language = "en"
+                },
+                0);
+
+            item.SetImage(
+                new ItemImageInfo
+                {
+                    Path = "manual-poster.jpg",
+                    Type = ImageType.Primary
+                },
+                0);
+
+            Assert.Null(item.GetImageInfo(ImageType.Primary, 0)!.ProviderName);
+            Assert.Null(item.GetImageInfo(ImageType.Primary, 0)!.Language);
         }
 
         [Theory]
@@ -496,6 +976,73 @@ namespace MulletaFlix.Providers.Tests.Manager
                 Times.Once);
             Assert.True(result.UpdateType.HasFlag(ItemUpdateType.ImageUpdate));
             Assert.Equal(imageType == ImageType.Primary ? 0 : 1, result.Failures);
+        }
+
+        [Fact]
+        public async Task RefreshImages_FailedPreferredLanguageImage_UsesEnglishFromAnotherProvider()
+        {
+            var item = new Video { Path = "non-empty path", PreferredMetadataLanguage = "pt-BR" };
+            BaseItem.MediaSourceManager = Mock.Of<IMediaSourceManager>();
+            var libraryOptions = GetLibraryOptions(item, ImageType.Primary, 1);
+            var englishProvider = new Mock<IRemoteImageProvider>(MockBehavior.Strict);
+            englishProvider.Setup(provider => provider.Name).Returns("EnglishProvider");
+            englishProvider.Setup(provider => provider.GetSupportedImages(item)).Returns([ImageType.Primary]);
+            englishProvider.Setup(provider => provider.GetImageResponse("english image", It.IsAny<CancellationToken>()))
+                .ReturnsAsync(new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    RequestMessage = new HttpRequestMessage(HttpMethod.Get, "https://images.example/english.jpg"),
+                    Content = new StringContent("image content", Encoding.UTF8, MediaTypeNames.Image.Jpeg)
+                });
+
+            var portugueseProvider = new Mock<IRemoteImageProvider>(MockBehavior.Strict);
+            portugueseProvider.Setup(provider => provider.Name).Returns("PortugueseProvider");
+            portugueseProvider.Setup(provider => provider.GetSupportedImages(item)).Returns([ImageType.Primary]);
+            portugueseProvider.Setup(provider => provider.GetImageResponse("portuguese image", It.IsAny<CancellationToken>()))
+                .ReturnsAsync(new HttpResponseMessage(HttpStatusCode.BadGateway));
+
+            var providerManager = new Mock<IProviderManager>(MockBehavior.Strict);
+            providerManager.Setup(manager => manager.GetAvailableRemoteImages(
+                    item,
+                    It.Is<RemoteImageQuery>(query => query.IncludeAllLanguages),
+                    It.IsAny<CancellationToken>()))
+                .ReturnsAsync(new[]
+                {
+                    new RemoteImageInfo { ProviderName = "EnglishProvider", Language = "en", Type = ImageType.Primary, Url = "english image" },
+                    new RemoteImageInfo { ProviderName = "PortugueseProvider", Language = "pt", Type = ImageType.Primary, Url = "portuguese image" }
+                });
+            providerManager.Setup(manager => manager.SaveImage(
+                    item,
+                    It.IsAny<Stream>(),
+                    It.IsAny<string>(),
+                    ImageType.Primary,
+                    null,
+                    It.IsAny<CancellationToken>()))
+                .Returns(Task.CompletedTask);
+
+            var imageProvider = GetItemImageProvider(providerManager.Object, null);
+            var result = await imageProvider.RefreshImages(
+                item,
+                libraryOptions,
+                [englishProvider.Object, portugueseProvider.Object],
+                new ImageRefreshOptions(Mock.Of<IDirectoryService>()),
+                CancellationToken.None);
+
+            portugueseProvider.Verify(
+                provider => provider.GetImageResponse("portuguese image", It.IsAny<CancellationToken>()),
+                Times.Once);
+            englishProvider.Verify(
+                provider => provider.GetImageResponse("english image", It.IsAny<CancellationToken>()),
+                Times.Once);
+            providerManager.Verify(
+                manager => manager.SaveImage(
+                    item,
+                    It.IsAny<Stream>(),
+                    MediaTypeNames.Image.Jpeg,
+                    ImageType.Primary,
+                    null,
+                    It.IsAny<CancellationToken>()),
+                Times.Once);
+            Assert.True(result.UpdateType.HasFlag(ItemUpdateType.ImageUpdate));
         }
 
         [Theory]

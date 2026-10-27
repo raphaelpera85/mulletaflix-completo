@@ -46,7 +46,8 @@ async def test_upload_part_sends_bytes_and_returns_resume_metadata(monkeypatch):
         caption="title part 2",
     )
 
-    assert calls == [(bot, -100, b"payload", "uuid.part_002", "title part 2")]
+    digest = main.compute_part_sha256(b"payload")
+    assert calls == [(bot, -100, b"payload", "uuid.part_002", f"title part 2 | SHA256: {digest}")]
     assert result == {
         "part_id": 2,
         "tg_file": "telegram-file",
@@ -55,9 +56,10 @@ async def test_upload_part_sends_bytes_and_returns_resume_metadata(monkeypatch):
         "chunk_name": "uuid.part_002",
         "byte_start": 2 * main.CHUNK_SIZE,
         "byte_end": 2 * main.CHUNK_SIZE + 6,
-        "caption": "title part 2",
+        "caption": f"title part 2 | SHA256: {digest}",
         "bot_index": 4,
         "bot_name": "bot-a",
+        "source_sha256": digest,
     }
 
 
@@ -80,7 +82,7 @@ async def test_upload_part_reads_requested_chunk_offset_from_local_file(monkeypa
         1, [SimpleNamespace(name="reader")], 7, str(media), "file", 2, caption="resume"
     )
 
-    assert observed == [(b"ij", "resume")]
+    assert observed == [(b"ij", f"resume | SHA256: {main.compute_part_sha256(b'ij')}")]
     assert result["byte_start"] == 8
     assert result["byte_end"] == 9
     assert result["file_size"] == 2
@@ -135,11 +137,16 @@ async def test_upload_part_rotates_after_transport_timeout_and_retries(monkeypat
     async def sleep(seconds):
         sleeps.append(seconds)
 
+    async def confirmed_absent():
+        return main.TelegramPartReconciliation(main.TelegramPartReconciliationStatus.NOT_FOUND)
+
     monkeypatch.setattr(main, "_send_part_on_idle_bot", send)
     monkeypatch.setattr(main.asyncio, "sleep", sleep)
     monkeypatch.setattr(main, "time", SimpleNamespace(monotonic=iter([1.0, 2.0, 3.0]).__next__))
 
-    result = await main.upload_part_with_retries(1, bots, 7, "unused", "file", 1, b"data")
+    result = await main.upload_part_with_retries(
+        1, bots, 7, "unused", "file", 1, b"data", reconcile=confirmed_absent
+    )
 
     assert calls == bots
     assert sleeps == [1]
@@ -172,13 +179,41 @@ async def test_upload_part_raises_after_rpc_retries_are_exhausted(monkeypatch):
     async def sleep(seconds):
         sleeps.append(seconds)
 
+    async def confirmed_absent():
+        return main.TelegramPartReconciliation(main.TelegramPartReconciliationStatus.NOT_FOUND)
+
     monkeypatch.setattr(main, "_send_part_on_idle_bot", send)
     monkeypatch.setattr(main.asyncio, "sleep", sleep)
 
     with pytest.raises(Exception, match="Falha upload parte 4"):
-        await main.upload_part_with_retries(2, [SimpleNamespace(name="bot")], 7, "unused", "file", 4, b"data")
+        await main.upload_part_with_retries(
+            2, [SimpleNamespace(name="bot")], 7, "unused", "file", 4, b"data",
+            reconcile=confirmed_absent,
+        )
 
     assert sleeps == [2, 4]
+
+
+@pytest.mark.asyncio
+async def test_ambiguous_send_never_retries_when_history_is_inconclusive(monkeypatch):
+    sends = []
+    monkeypatch.setattr(main, "MAX_RETRIES", 3)
+    monkeypatch.setattr(main, "next_upload_bot_index", lambda _count: 0)
+
+    async def send(*_args, **_kwargs):
+        sends.append(True)
+        raise TimeoutError("ack lost")
+
+    async def sleep(_seconds):
+        pytest.fail("inconclusive history must defer rather than retry")
+
+    monkeypatch.setattr(main, "_send_part_on_idle_bot", send)
+    monkeypatch.setattr(main.asyncio, "sleep", sleep)
+    with pytest.raises(main.TelegramReconciliationInconclusiveError):
+        await main.upload_part_with_retries(
+            1, [SimpleNamespace(name="bot")], 7, "unused", "file", 0, b"payload"
+        )
+    assert sends == [True]
 
 
 @pytest.mark.asyncio

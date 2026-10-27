@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
 using System.Net.Http;
@@ -31,6 +32,59 @@ namespace MulletaFlix.Providers.Tests.Manager
 {
     public partial class ProviderManagerTests
     {
+        [Fact]
+        public async Task QueueRefresh_ConcurrentProducersAndConsumerProcessEveryItem()
+        {
+            const int ProducerCount = 8;
+            const int ItemsPerProducer = 512;
+            const int ExpectedItemCount = ProducerCount * ItemsPerProducer;
+            var startProducers = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var allItemsProcessed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var processingFinished = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var processedItemIds = new ConcurrentDictionary<Guid, int>();
+            var libraryManager = new Mock<ILibraryManager>(MockBehavior.Strict);
+            libraryManager.Setup(manager => manager.ClearIgnoreRuleCache()).Callback(() =>
+            {
+                if (processedItemIds.Count == ExpectedItemCount)
+                {
+                    processingFinished.TrySetResult();
+                }
+            });
+            libraryManager.Setup(manager => manager.GetItemById(It.IsAny<Guid>())).Returns((Guid itemId) =>
+            {
+                processedItemIds.AddOrUpdate(itemId, 1, static (_, count) => count + 1);
+                if (processedItemIds.Count == ExpectedItemCount)
+                {
+                    allItemsProcessed.TrySetResult();
+                }
+
+                return null;
+            });
+
+            using var providerManager = GetProviderManager(libraryManagerMock: libraryManager);
+            var options = new MetadataRefreshOptions(Mock.Of<IDirectoryService>());
+            var producerItems = Enumerable.Range(0, ProducerCount)
+                .Select(_ => Enumerable.Range(0, ItemsPerProducer).Select(_ => Guid.NewGuid()).ToArray())
+                .ToArray();
+            var producers = producerItems.Select(items => Task.Run(async () =>
+            {
+                await startProducers.Task.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
+                foreach (var itemId in items)
+                {
+                    providerManager.QueueRefresh(itemId, options, RefreshPriority.Normal);
+                }
+            }));
+            var expectedItemIds = producerItems.SelectMany(items => items).ToHashSet();
+
+            startProducers.TrySetResult();
+            await Task.WhenAll(producers).WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
+            await allItemsProcessed.Task.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
+            await processingFinished.Task.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
+
+            Assert.Equal(expectedItemIds, processedItemIds.Keys.ToHashSet());
+            Assert.All(processedItemIds.Values, count => Assert.Equal(1, count));
+            Assert.Empty(providerManager.GetRefreshQueue());
+        }
 
         public static TheoryData<Mock<IMetadataService>[], int> RefreshSingleItemOrderData()
             => new()
@@ -112,6 +166,5 @@ namespace MulletaFlix.Providers.Tests.Manager
             var expectedResult = serviceFound ? ItemUpdateType.MetadataDownload : ItemUpdateType.None;
             Assert.Equal(expectedResult, actual);
         }
-
     }
 }

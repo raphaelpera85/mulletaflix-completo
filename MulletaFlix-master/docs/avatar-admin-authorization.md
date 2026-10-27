@@ -1,5 +1,40 @@
 # Autorização administrativa do GetAvatar
 
+## Origem confiável dos ZIPs de avatares — 2026-10-26
+
+`OnlinePackService.ImportPackAsync` agora aceita apenas URLs HTTPS do host
+`github.com`, porta padrão e caminho de assets de release em
+`cedev-1/jellyfin-avatars`. URLs para loopback, domínios parecidos, outro
+repositório, userinfo, query ou fragmento são recusadas antes da criação de
+arquivo temporário ou chamada HTTP. A verificação fica no serviço compartilhado
+pelos callers administrativo e de validação automática, pois os dados de pacote
+retornados ao navegador podem ser adulterados antes do POST de importação.
+
+`OnlinePackServiceTests` passou 13/13 em Windows/.NET 10 Release. Além dos
+redirects simulados, um teste de composição confirma que o handler do cliente
+nomeado realmente está configurado com `AllowAutoRedirect=false`. O cliente
+nomeado de download desativa redirects automáticos; o serviço segue no máximo
+cinco redirecionamentos HTTPS para `github.com` ou subdomínios de
+`githubusercontent.com`, e rejeita destinos externos antes de fazer nova
+conexão. Testes cobrem CDN confiável, loopback e limite de redirects. Não houve
+requisição real ao GitHub, execução Linux/CI remota, runtime instalado ou
+produção. A autorização da rota continua exigida; a allowlist é defesa adicional
+no ponto de saída HTTP.
+
+## Importação segura de pacotes online — 2026-10-26
+
+`OnlinePackService` lê somente entradas de imagem diretamente do ZIP baixado. O importador não extrai caminhos do archive para o disco, usa nome fixo para o ZIP temporário, limita o ZIP a 256 MiB, cada imagem a 5 MiB, cada pacote a 10.000 entradas e a 256 MiB de dados de imagem expandidos. Testes Release cobrem imagens com nomes contendo traversal, excesso de entradas, limite de expansão e `Content-Length` excessivo; 4/4 passaram em Windows/.NET 10. A autenticidade do pacote remoto não é validada por hash/assinatura.
+
+Os quatro fluxos de instalação de plugins e atualização (`InstallationManager`, bootstrap de `PluginManager`, `ServerUpdateTask` e `UpdateInfoController`) agora usam `Jellyfin.Server.Implementations.Archives.BoundedZipArchiveExtractor`. Ele limita arquivo compactado a 1 GiB, conteúdo expandido a 4 GiB, entrada individual a 1 GiB e contagem a 50.000; rejeita traversal, caminhos inválidos, duplicatas e symlinks; extrai em staging no mesmo volume e promove após validação completa. Downloads de ZIP são limitados durante a leitura e o bootstrap de plugins não mantém o pacote inteiro em memória. No bootstrap, o MD5 de 32 dígitos hexadecimais agora é obrigatório e conferido antes da extração; ausência, formato inválido ou divergência falha fechado. `BootstrapPluginCatalogTests` passou 9/9 em Windows/.NET 10 Release; `BoundedZipArchiveExtractorTests` passou 14/14 em validação anterior. Formatter direcionado passou. Linux/CI remota deste checkout, pacotes reais, crash recovery, runtime instalado e produção não foram validados. MD5 detecta divergência em relação ao manifesto, mas não prova assinatura/autenticidade forte do manifesto ou pacote. Ver `TODO-AUDITORIA.md`.
+
+## Isolamento do diretório de perfil por nome de usuário — 2026-10-23
+
+Foi identificado que a validação de username aceitava `.` e `..`, embora esses valores sejam componentes especiais de caminho. Tanto o upload/exclusão nativos (`ImageController`) quanto GetAvatar formavam o diretório de perfil concatenando o username à raiz `users`; registros antigos ou dados persistidos inválidos poderiam, portanto, resolver fora da pasta individual.
+
+`UserManager` agora recusa os dois nomes na criação/renomeação, e `FileSystemHelper.GetUserConfigurationDirectoryPath` valida username como componente único, rejeita nomes/caminhos não seguros e confirma containment sem componentes reparse antes de devolver o diretório. Os fluxos nativos e GetAvatar usam esse helper, protegendo também usuários já persistidos com nome inseguro ao falhar fechado. Testes cobrem `.`/`..`, separadores, caminho absoluto e username válido.
+
+Testes Release em Windows/.NET 10: `FileSystemHelperPathSafetyTests` + `AvatarControllerUserAvatarAuthorizationTests` passaram 44/44, incluindo link estático e aliases de ponto final do Windows; `UserManagerTests` passou 16/16. `git diff --check` passou. A regressão ampla `FullSystemBackup` iniciada nesta sessão foi interrompida para reduzir competição de builds; não tem resultado e não foi contada. Limite: isto protege a resolução lexical e links estáticos, não elimina TOCTOU contra processo concorrente capaz de alterar a árvore; o risco de operações path-based em arquivos de perfil continua em aberto. Linux, runtime instalado, produção e CI remota não foram executados; nenhuma release foi criada.
+
 ## Estado atual — implementação por handle — 2026-10-20
 
 Os arquivos do catálogo GetAvatar agora são acessados através de `AvatarFileStore`, ancorado a um handle do diretório aberto no construtor. `AvatarService.OpenAvatarRead` retorna um stream já aberto e validado; os endpoints e a cópia para o perfil não reabrem o caminho por nome. A criação usa criação exclusiva relativa ao diretório. A exclusão persiste primeiro a remoção do catálogo/mapeamentos e só então remove o arquivo; se a persistência falhar, restaura listas e snapshot do XML e mantém o arquivo. Se a exclusão posterior falhar, a remoção já persistida é mantida e um aviso registra possível arquivo órfão.
@@ -175,3 +210,11 @@ Essa validação fecha traversal estável no nome configurado, mas não a corrid
 Revisão da implementação confirmou que `FileSystemHelper.IsPathWithinRoot` rejeita componentes reparse existentes em todo o caminho, inclusive o arquivo final. O teste preexistente cobria somente symlink em diretório pai. Foram acrescentadas regressões no nível de `AvatarService`: leitura de `GetAvatarPath` e exclusão de `DeleteAvatar` recusam um arquivo do catálogo que é symlink para fora; o teste de exclusão confirma que link, alvo externo, entrada e mapping permanecem intactos. Ambos executaram sem skip no Windows desta sessão. Não houve alteração de comportamento de produção nesta rodada.
 
 O gate da solução Release (`FullyQualifiedName!~Integration`) foi reexecutado após os novos testes: 5.064 aprovados, 65 ignorados, 0 falhas em 5.129 resultados/17 TRX; API 757/757. Os dois projetos Integration não selecionaram casos. TOCTOU por troca concorrente posterior à checagem permanece aberto; o teste não prova segurança sob corrida. Também seguem pendentes ACL efetiva, integração HTTP/MariaDB, Mongo opt-in, CI remota, runtime instalado e produção.
+
+## Checksum obrigatório no bootstrap — 2026-10-26
+
+O bootstrap chama `PluginManager.VerifyBootstrapPackageChecksumAsync` após o download limitado e antes de `BoundedZipArchiveExtractor`. Checksum ausente, diferente de 32 caracteres hexadecimais ou divergente do conteúdo é rejeitado. Mantido MD5 para compatibilidade com o formato de manifesto legado; a comparação do digest usa tempo constante. A cobertura unitária não exercita HTTP, download ou extração integrados. O catálogo atual mantém `PluginIds` vazio, sem instalação automática. `BootstrapPluginCatalogTests` passou 9/9 em Windows/.NET 10 Release e formatter direcionado passou. MD5 ainda não autentica o manifesto/pacote. Linux/CI/runtime/produção seguem pendentes. Ver `TODO-AUDITORIA.md` e `portal-site/homologacao-status.json`.
+
+### Revalidação local do extrator ZIP — 2026-10-26 08:02 BRT
+
+A fonte atual continua centralizando os quatro fluxos de instalação/atualização em BoundedZipArchiveExtractor. BoundedZipArchiveExtractorTests Release Windows/.NET 10 foi reexecutado nesta sessão: 14/14, sem skips/falhas; a compilação alcançou os projetos runtime e API dos callers. Não houve alteração de runtime. Linux/CI hospedada, crash recovery, pacotes reais próximos aos limites, runtime instalado e produção seguem pendentes. A verificação de MD5 do bootstrap não constitui assinatura/autenticidade forte.

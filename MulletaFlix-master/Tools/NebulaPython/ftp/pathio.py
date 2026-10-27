@@ -41,6 +41,7 @@ except ImportError:
 
 from .common import UPLOAD_QUEUE
 from .errors import PathIOError
+from queue_identity import queue_identity
 
 try:
     from .tg import File  # requires pyrogram + ideally tgcrypto
@@ -51,6 +52,14 @@ except (ImportError, RuntimeError, OSError):
 
 logger = logging.getLogger("NebulaFTP")
 STREAM_BOT_CURSOR = count()
+VISIBLE_CATEGORY_ROOTS = frozenset({
+    "filmes", "filme", "movies", "movie",
+    "series", "serie", "série",
+    "novelas", "novela", "telenovelas", "telenovela",
+    "doramas", "dorama", "k-drama", "kdrama", "c-drama", "cdrama", "j-drama", "jdrama",
+    "animacao", "animação", "animacoes", "animações", "animation", "animations", "anime", "animes",
+    "porno", "porn", "adulto", "hentai", "erotico", "erótico", "xxx",
+})
 
 
 @asynccontextmanager
@@ -393,6 +402,7 @@ class MongoDBMemoryIO:
         }
         if should_upload:
             doc_cache["local_path"] = self.local_path
+            doc_cache["queue_identity"] = queue_identity(self.local_path)
         else:
             try:
                 os.remove(self.local_path)
@@ -436,6 +446,7 @@ class MongoDBMemoryIO:
 
         for part in parts:
             part_size = part.get("file_size", 2 * 1024 * 1024 * 1024)
+            expected_part_size = part_size if isinstance(part_size, int) and part_size > 0 else None
             part_end = current_file_pos + part_size
             if part_end <= start_read_at: current_file_pos += part_size; continue
             local_offset = max(0, start_read_at - current_file_pos)
@@ -485,11 +496,17 @@ class MongoDBMemoryIO:
                 # stay valid, so skip those bytes when calculating the remote offset.
                 start_read_at = current_file_pos + local_offset
                 local_offset = max(0, start_read_at - current_file_pos)
+            expected_read_size = (
+                expected_part_size - local_offset
+                if expected_part_size is not None
+                else None
+            )
             candidates = resolve_part_bots(part, self._tg)
             if not candidates:
                 logger.error("Cannot stream from Telegram: no bot clients configured")
-                return
+                raise OSError("No Telegram bot clients are configured")
             streamed = False
+            streamed_bytes = 0
             remaining_candidates = list(candidates)
             while remaining_candidates:
                 tg = await reserve_free_stream_bot(remaining_candidates)
@@ -551,6 +568,7 @@ class MongoDBMemoryIO:
                                 bot_number,
                             )
                         streamed = True
+                        streamed_bytes += len(chunk)
                         yield chunk
                 finally:
                     tg._nebula_streams = max(0, getattr(tg, "_nebula_streams", 1) - 1)
@@ -564,7 +582,15 @@ class MongoDBMemoryIO:
                 )
             if not streamed:
                 logger.error("Cannot stream Telegram part %s with configured bot indexes", part.get("part_id"))
-                return
+                raise OSError(
+                    f"Telegram part {part.get('part_id')} of {self._node.name!r} "
+                    "could not be read from any configured bot"
+                )
+            if expected_read_size is not None and streamed_bytes != expected_read_size:
+                raise OSError(
+                    f"Telegram part {part.get('part_id')} of {self._node.name!r} "
+                    f"was truncated ({streamed_bytes}/{expected_read_size} bytes)"
+                )
             current_file_pos += part_size; start_read_at = current_file_pos
 
 class MongoDBPathIO(AbstractPathIO):
@@ -637,6 +663,91 @@ class MongoDBPathIO(AbstractPathIO):
             if node:
                 return node
         return None
+
+    @staticmethod
+    def _has_telegram_payload(doc):
+        parts = doc.get("parts")
+        if isinstance(parts, list) and parts:
+            return all(
+                isinstance(part, dict)
+                and any(isinstance(part.get(key), str) and part[key].strip() for key in ("tg_file_id", "tg_file"))
+                for part in parts
+            )
+        return any(isinstance(doc.get(key), str) and doc[key].strip() for key in ("tg_file_id", "tg_file"))
+
+    @staticmethod
+    def _is_directory_doc(doc):
+        return doc.get("is_directory") is True or doc.get("type") == "dir"
+
+    @staticmethod
+    def _is_library_root(path):
+        user_root = "/" + environ.get("NEBULA_LIBRARY_USER", "raphael").strip("/")
+        return path == "/" or path.casefold() == user_root.casefold()
+
+    async def _published_listing_directories(self, directories):
+        """Find visible candidate directories with one Mongo query per tree level."""
+        user_root = "/" + environ.get("NEBULA_LIBRARY_USER", "raphael").strip("/")
+        frontier = {}
+        visited_ids = set()
+
+        def add_route(parent_value, root_path, current_path):
+            if parent_value is not None:
+                frontier.setdefault(parent_value, {})[root_path] = current_path
+
+        for path, doc in directories:
+            if doc.get("_id") is not None:
+                add_route(doc["_id"], path, path)
+                visited_ids.add((path, doc["_id"]))
+            aliases = [path, path.lstrip("/")]
+            if path.casefold().startswith(user_root.casefold() + "/"):
+                alias = path[len(user_root):]
+                aliases.extend((alias, alias.lstrip("/")))
+            elif path != "/":
+                alias = user_root + path
+                aliases.extend((alias, alias.lstrip("/")))
+            for alias in aliases:
+                add_route(alias, path, path)
+
+        visible = set()
+        visited = set()
+        while frontier:
+            next_frontier = {}
+            cursor = self._files.find({"parent": {"$in": list(frontier)}})
+            async for doc in cursor:
+                name = doc.get("name", "")
+                if not name or name.casefold().endswith(".partial"):
+                    continue
+                routes = frontier.get(doc.get("parent"), {})
+                if not routes:
+                    continue
+                if not self._is_directory_doc(doc):
+                    if self._has_telegram_payload(doc):
+                        visible.update(routes)
+                    continue
+
+                for root_path, parent_path in routes.items():
+                    child_path = (parent_path.rstrip("/") + "/" + name) if parent_path != "/" else "/" + name
+                    route_key = (root_path, child_path.casefold())
+                    if route_key in visited:
+                        continue
+                    child_id = doc.get("_id")
+                    if child_id is not None and (root_path, child_id) in visited_ids:
+                        continue
+                    visited.add(route_key)
+                    if child_id is not None:
+                        visited_ids.add((root_path, child_id))
+                        next_frontier.setdefault(child_id, {})[root_path] = child_path
+                    aliases = [child_path, child_path.lstrip("/")]
+                    if child_path.casefold().startswith(user_root.casefold() + "/"):
+                        alias = child_path[len(user_root):]
+                        aliases.extend((alias, alias.lstrip("/")))
+                    elif child_path != "/":
+                        alias = user_root + child_path
+                        aliases.extend((alias, alias.lstrip("/")))
+                    for alias in aliases:
+                        next_frontier.setdefault(alias, {})[root_path] = child_path
+            frontier = next_frontier
+        return visible
 
     async def get_node(self, path):
         if str(path) in ("/", "."): return Node("dir", "", 0, 0, size=0, parent="/")
@@ -750,11 +861,72 @@ class MongoDBPathIO(AbstractPathIO):
             async def __anext__(cls):
                 if cls.iter is None:
                     parent_values = await self._parent_values_for_path(search)
-                    cls.iter = self._files.find({"parent": {"$in": parent_values}, "name": {"$not": {"$regex": r"\.partial$"}}})
+                    docs_by_name = {}
+                    directories = {}
+                    listing_docs = []
+                    parent_priority = {}
+                    for index, value in enumerate(parent_values):
+                        parent_priority.setdefault(value, index)
+                    async for doc in self._files.find({"parent": {"$in": parent_values}}):
+                        name = doc.get("name", "")
+                        key = name.casefold() if isinstance(name, str) else ""
+                        if not key or key.endswith(".partial"):
+                            continue
+                        if self._is_directory_doc(doc):
+                            is_root = self._is_library_root(search)
+                            user_name = environ.get("NEBULA_LIBRARY_USER", "raphael").strip("/")
+                            if is_root and key in ("strm", user_name.casefold()):
+                                continue
+                            if not is_root and key in VISIBLE_CATEGORY_ROOTS:
+                                continue
+                            child_path = (search.rstrip("/") + "/" + name) if search != "/" else "/" + name
+                            listing_docs.append((child_path, doc))
+                            priority = parent_priority.get(doc.get("parent"), len(parent_values))
+                            selected = directories.get(child_path)
+                            if selected is None or priority < selected[0]:
+                                directories[child_path] = (priority, doc)
+                            continue
+                        if not self._has_telegram_payload(doc):
+                            continue
+                        listing_docs.append((None, doc))
+                    visible_directories = await self._published_listing_directories(
+                        (path, selected[1]) for path, selected in directories.items()
+                    )
+                    for child_path, doc in listing_docs:
+                        if child_path is not None:
+                            selected = directories.get(child_path)
+                            if selected is None or selected[1] is not doc or child_path not in visible_directories:
+                                continue
+                        key = doc.get("name", "").casefold()
+                        current = docs_by_name.get(key)
+                        if current is None:
+                            docs_by_name[key] = doc
+                        else:
+                            candidate_score = (
+                                2 * int(doc.get("status") == "completed" and self._has_telegram_payload(doc))
+                                + int(self._is_directory_doc(doc))
+                            )
+                            current_score = (
+                                2 * int(current.get("status") == "completed" and self._has_telegram_payload(current))
+                                + int(self._is_directory_doc(current))
+                            )
+                            if candidate_score > current_score:
+                                docs_by_name[key] = doc
+                    visible = []
+                    for doc in docs_by_name.values():
+                        name = doc.get("name", "")
+                        cache_name = self._sanitize(name)
+                        cache_parent = self._sanitize(search)
+                        cache_doc = dict(doc)
+                        cache_doc["parent"] = cache_parent
+                        async with self._cache_lock:
+                            self._memory_cache[f"{cache_parent}::{cache_name}"] = cache_doc
+                        visible.append(path / name)
+                    cls.iter = iter(visible)
                 try:
-                    doc = await cls.iter.__anext__()
-                    return path / doc["name"]
-                except StopAsyncIteration: raise
+                    return next(cls.iter)
+                except StopIteration:
+                    raise StopAsyncIteration
         return Lister()
 
     @universal_exception

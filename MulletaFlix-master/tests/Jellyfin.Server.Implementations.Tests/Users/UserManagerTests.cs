@@ -12,6 +12,7 @@ namespace MulletaFlix.Server.Implementations.Tests.Users
         [InlineData("0@_-' .")]
         [InlineData("Aa0@_-' .+")]
         [InlineData("thisisa+testemail@test.foo")]
+        [InlineData("raphael.pera")]
         [InlineData("------@@@--+++----@@--abcdefghijklmn---------@----_-_-___-_ .9foo+")]
         public void ThrowIfInvalidUsername_WhenValidUsername_DoesNotThrowArgumentException(string username)
         {
@@ -27,6 +28,8 @@ namespace MulletaFlix.Server.Implementations.Tests.Users
         [InlineData(" thishasaspaceatthestart")]
         [InlineData(" thishasaspaceatbothends ")]
         [InlineData(" this has a space at both ends and inbetween ")]
+        [InlineData(".")]
+        [InlineData("..")]
         public void ThrowIfInvalidUsername_WhenInvalidUsername_ThrowsArgumentException(string username)
         {
             Assert.Throws<ArgumentException>(() => UserManager.ThrowIfInvalidUsername(username));

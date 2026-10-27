@@ -4,8 +4,9 @@
 using IntroSkipper.Data;
 using IntroSkipper.SegmentChanges;
 using Microsoft.EntityFrameworkCore;
-using Xunit;
 using MulletaFlix.Testing;
+using MySqlConnector;
+using Xunit;
 
 namespace IntroSkipper.Integration.Tests;
 
@@ -40,6 +41,21 @@ public sealed class IntroSkipperMariaDbTests : IClassFixture<MariaDbFixture>
     }
 
     [Fact]
+    public void ApplicationIdentity_CannotCreateDatabaseOutsidePluginSchema()
+    {
+        MariaDbTestEnvironment.SkipUnlessConfigured();
+        var forbiddenDatabase = "mfx_forbidden_" + Guid.NewGuid().ToString("N");
+        using var connection = new MySqlConnection(_fixture.ApplicationConnectionString);
+        connection.Open();
+        using var command = connection.CreateCommand();
+        command.CommandText = $"CREATE DATABASE `{forbiddenDatabase}`;";
+
+        var exception = Assert.Throws<MySqlException>(() => command.ExecuteNonQuery());
+
+        Assert.Equal(1044, exception.Number);
+    }
+
+    [Fact]
     public async Task SchemaCreationTargetsTheDedicatedDatabase()
     {
         MariaDbTestEnvironment.SkipUnlessConfigured();
@@ -56,6 +72,7 @@ public sealed class IntroSkipperMariaDbTests : IClassFixture<MariaDbFixture>
             "SeasonStates",
             "SeasonAnalysisOverrides",
             "AnalyzedItems",
+            "ImportHistory",
             "DisabledItems",
             "ProjectionQueue",
             "ProjectionExternalOperations",

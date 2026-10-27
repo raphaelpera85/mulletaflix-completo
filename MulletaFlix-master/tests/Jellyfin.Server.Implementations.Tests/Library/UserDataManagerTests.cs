@@ -2,8 +2,10 @@ using System;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using Emby.Server.Implementations.Library;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Library;
+using MediaBrowser.Model.Entities;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.EntityFrameworkCore.Storage;
@@ -12,8 +14,6 @@ using Moq;
 using MulletaFlix.Database.Implementations;
 using MulletaFlix.Database.Implementations.Entities;
 using MulletaFlix.Database.Implementations.Locking;
-using Emby.Server.Implementations.Library;
-using MediaBrowser.Model.Entities;
 using Xunit;
 
 namespace Jellyfin.Server.Implementations.Tests.Library;
@@ -63,6 +63,7 @@ public sealed class UserDataManagerTests : IDisposable
     public void Dispose()
     {
         _context.Dispose();
+        _userDataManager.Dispose();
     }
 
     [Fact]
@@ -114,6 +115,111 @@ public sealed class UserDataManagerTests : IDisposable
         Assert.True(rows[0].IsFavorite);
     }
 
+    [Fact]
+    public async Task SaveUserDataAsync_PersistsUserDataAndRehydratesItem()
+    {
+        var user = new User("test", "auth", "reset")
+        {
+            Id = Guid.NewGuid()
+        };
+        var item = new Folder
+        {
+            Id = Guid.NewGuid(),
+            Name = "Folder"
+        };
+
+        _context.Users.Add(user);
+        _context.BaseItems.Add(new BaseItemEntity
+        {
+            Id = item.Id,
+            Type = "Folder",
+            Name = item.Name
+        });
+        await _context.SaveChangesAsync(TestContext.Current.CancellationToken);
+
+        var userData = new UserItemData
+        {
+            Key = item.Id.ToString("N"),
+            PlayCount = 3,
+            Played = true,
+            PlaybackPositionTicks = 1234
+        };
+
+        await _userDataManager.SaveUserDataAsync(
+            user,
+            item,
+            userData,
+            UserDataSaveReason.PlaybackProgress,
+            TestContext.Current.CancellationToken);
+
+        var saved = await _context.UserData.SingleAsync(
+            data => data.ItemId == item.Id && data.UserId == user.Id,
+            TestContext.Current.CancellationToken);
+        Assert.Equal(3, saved.PlayCount);
+        Assert.True(saved.Played);
+        Assert.Equal(1234, saved.PlaybackPositionTicks);
+        Assert.Contains(item.UserData!, data => data.ItemId == item.Id && data.UserId == user.Id);
+    }
+
+    [Fact]
+    public async Task SaveUserDataAsync_DoesNotBlockDifferentItemsWithSameHashStripe()
+    {
+        var user = new User("test", "auth", "reset") { Id = Guid.NewGuid() };
+        var firstItem = new Folder { Id = Guid.NewGuid(), Name = "First" };
+        var secondItem = new Folder { Id = Guid.NewGuid(), Name = "Second" };
+        while ((firstItem.Id.GetHashCode() & 7) != (secondItem.Id.GetHashCode() & 7))
+        {
+            secondItem.Id = Guid.NewGuid();
+        }
+
+        _context.Users.Add(user);
+        _context.BaseItems.AddRange(
+            new BaseItemEntity { Id = firstItem.Id, Type = "Folder", Name = firstItem.Name },
+            new BaseItemEntity { Id = secondItem.Id, Type = "Folder", Name = secondItem.Name });
+        await _context.SaveChangesAsync(TestContext.Current.CancellationToken);
+
+        var firstSaveStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseFirstSave = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        void HoldFirstSave(object? _, UserDataSaveEventArgs args)
+        {
+            if (args.Item.Id == firstItem.Id)
+            {
+                firstSaveStarted.TrySetResult();
+                releaseFirstSave.Task.GetAwaiter().GetResult();
+            }
+        }
+
+        _userDataManager.UserDataSaved += HoldFirstSave;
+        var firstSave = Task.Run(
+            () => _userDataManager.SaveUserDataAsync(
+                user,
+                firstItem,
+                new UserItemData { Key = firstItem.Id.ToString("N") },
+                UserDataSaveReason.PlaybackProgress,
+                TestContext.Current.CancellationToken),
+            TestContext.Current.CancellationToken);
+        Task secondSave;
+        try
+        {
+            await firstSaveStarted.Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+            Assert.False(firstSave.IsCompleted);
+            secondSave = _userDataManager.SaveUserDataAsync(
+                user,
+                secondItem,
+                new UserItemData { Key = secondItem.Id.ToString("N") },
+                UserDataSaveReason.PlaybackProgress,
+                TestContext.Current.CancellationToken);
+            await secondSave.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+        }
+        finally
+        {
+            releaseFirstSave.TrySetResult();
+            _userDataManager.UserDataSaved -= HoldFirstSave;
+        }
+
+        await firstSave.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+    }
+
     private sealed class InMemoryDbContextFactory : IDbContextFactory<MulletaFlixDbContext>
     {
         private readonly DbContextOptions<MulletaFlixDbContext> _options;
@@ -136,4 +242,5 @@ public sealed class UserDataManagerTests : IDisposable
         public ValueTask<MulletaFlixDbContext> CreateDbContextAsync(CancellationToken cancellationToken = default)
             => ValueTask.FromResult(CreateDbContext());
     }
+
 }

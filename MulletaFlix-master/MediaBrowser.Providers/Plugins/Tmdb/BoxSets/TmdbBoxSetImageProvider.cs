@@ -64,17 +64,15 @@ namespace MediaBrowser.Providers.Plugins.Tmdb.BoxSets
             }
 
             var language = item.GetPreferredMetadataLanguage();
+            var collection = await _tmdbClientManager.GetCollectionImagesAsync(tmdbId, cancellationToken).ConfigureAwait(false);
 
-            // TODO use image languages if All Languages isn't toggled, but there's currently no way to get that value in here
-            var collection = await _tmdbClientManager.GetCollectionAsync(tmdbId, null, null, null, cancellationToken).ConfigureAwait(false);
-
-            if (collection?.Images is null)
+            if (collection is null)
             {
                 return Enumerable.Empty<RemoteImageInfo>();
             }
 
-            var posters = collection.Images.Posters;
-            var backdrops = collection.Images.Backdrops;
+            var posters = collection.Posters;
+            var backdrops = collection.Backdrops;
             var remoteImages = new List<RemoteImageInfo>(posters?.Count ?? 0 + backdrops?.Count ?? 0);
 
             if (posters is not null)

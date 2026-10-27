@@ -65,20 +65,21 @@ namespace MediaBrowser.Providers.Plugins.Tmdb.TV
             }
 
             var language = item.GetPreferredMetadataLanguage();
+            var countryCode = item.GetPreferredMetadataCountryCode();
+            var series = await _tmdbClientManager.GetSeriesImagesAsync(
+                Convert.ToInt32(tmdbId, CultureInfo.InvariantCulture),
+                language,
+                countryCode,
+                cancellationToken).ConfigureAwait(false);
 
-            // TODO use image languages if All Languages isn't toggled, but there's currently no way to get that value in here
-            var series = await _tmdbClientManager
-                .GetSeriesAsync(Convert.ToInt32(tmdbId, CultureInfo.InvariantCulture), null, null, null, cancellationToken)
-                .ConfigureAwait(false);
-
-            if (series?.Images is null)
+            if (series is null)
             {
                 return Enumerable.Empty<RemoteImageInfo>();
             }
 
-            var posters = series.Images.Posters;
-            var backdrops = series.Images.Backdrops;
-            var logos = series.Images.Logos;
+            var posters = series.Posters;
+            var backdrops = series.Backdrops;
+            var logos = series.Logos;
             var remoteImages = new List<RemoteImageInfo>(posters?.Count ?? 0 + backdrops?.Count ?? 0 + logos?.Count ?? 0);
 
             if (posters is not null)

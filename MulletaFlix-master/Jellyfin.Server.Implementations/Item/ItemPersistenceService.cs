@@ -33,6 +33,39 @@ public class ItemPersistenceService : IItemPersistenceService
     internal static readonly IEqualityComparer<(ItemValueType MagicNumber, string Value)> ItemValueKeyComparer = new ItemValueKeyEqualityComparer();
     private static readonly SemaphoreSlim[] _updateOrInsertLocks = Enumerable.Range(0, 16).Select(_ => new SemaphoreSlim(1, 1)).ToArray();
 
+    internal static SemaphoreSlim GetItemPersistenceLock(Guid itemId) => _updateOrInsertLocks[itemId.GetHashCode() & 15];
+
+    internal static int[] GetMissingItemPersistenceLockIndices(IEnumerable<Guid> itemIds, HashSet<int> heldLockIndices)
+    {
+        return itemIds
+            .Select(id => id.GetHashCode() & 15)
+            .Distinct()
+            .Where(index => !heldLockIndices.Contains(index))
+            .Order()
+            .ToArray();
+    }
+
+    internal static int[] GetItemPersistenceLockIndices(IEnumerable<BaseItemDto> items)
+    {
+        return items
+            .SelectMany(item => new[] { item.Id, item.ParentId, item.OwnerId })
+            .Where(id => id != Guid.Empty)
+            .Select(id => id.GetHashCode() & 15)
+            .Distinct()
+            .Order()
+            .ToArray();
+    }
+
+    internal static int[] GetDeleteItemPersistenceLockIndices(IEnumerable<Guid> itemIds)
+    {
+        return itemIds
+            .Append(BaseItemRepository.PlaceholderId)
+            .Select(id => id.GetHashCode() & 15)
+            .Distinct()
+            .Order()
+            .ToArray();
+    }
+
     // Path is retained only for migrating legacy links that predate ItemId.
     private static string? GetLegacyLinkedChildPath(LinkedChild linkedChild)
     {
@@ -69,29 +102,103 @@ public class ItemPersistenceService : IItemPersistenceService
             throw new ArgumentException("Guid can't be empty or the placeholder id.", nameof(ids));
         }
 
-        using var context = _dbProvider.CreateDbContext();
-        using var transaction = context.Database.BeginTransaction();
+        var lockIndices = new HashSet<int>();
+        while (true)
+        {
+            // Discover and acquire affected item stripes before opening the delete transaction.
+            using (var readContext = _dbProvider.CreateDbContext())
+            {
+                lockIndices.UnionWith(GetDeleteItemPersistenceLockIndices(GetItemsAffectedByDelete(readContext, ids)));
+            }
 
-        var date = (DateTime?)DateTime.UtcNow;
+            var orderedLockIndices = lockIndices.Order().ToArray();
+            var acquiredCount = 0;
+            try
+            {
+                for (; acquiredCount < orderedLockIndices.Length; acquiredCount++)
+                {
+                    _updateOrInsertLocks[orderedLockIndices[acquiredCount]].Wait();
+                }
 
-        var descendantIds = DescendantQueryHelper.GetOwnedDescendantIdsBatch(context, ids);
+                // Recheck after acquiring locks; dispose the transaction before retrying a new stripe.
+                var missingLockIndices = DeleteItemsUnderLocks(ids, lockIndices);
+                if (missingLockIndices.Length == 0)
+                {
+                    return;
+                }
+
+                lockIndices.UnionWith(missingLockIndices);
+            }
+            finally
+            {
+                for (var i = acquiredCount - 1; i >= 0; i--)
+                {
+                    _updateOrInsertLocks[orderedLockIndices[i]].Release();
+                }
+            }
+        }
+    }
+
+    /// <inheritdoc />
+    public async Task<int> DeleteExpiredPlaceholderUserDataAsync(DateTime cutoff, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        var lockIndex = BaseItemRepository.PlaceholderId.GetHashCode() & 15;
+        await _updateOrInsertLocks[lockIndex].WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            await using var context = await _dbProvider.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
+            await using var databaseLock = await ItemPersistenceDatabaseLock
+                .AcquireAsync(context.Database, [lockIndex], _logger, cancellationToken)
+                .ConfigureAwait(false);
+            await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+            var deletedCount = await context.UserData
+                .Where(entry => entry.ItemId == BaseItemRepository.PlaceholderId && entry.RetentionDate < cutoff)
+                .ExecuteDeleteAsync(cancellationToken)
+                .ConfigureAwait(false);
+            await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+            return deletedCount;
+        }
+        finally
+        {
+            _updateOrInsertLocks[lockIndex].Release();
+        }
+    }
+
+    private static HashSet<Guid> GetItemsAffectedByDelete(MulletaFlixDbContext context, IReadOnlyList<Guid> ids)
+    {
+        var affectedIds = DescendantQueryHelper.GetOwnedDescendantIdsBatch(context, ids);
         foreach (var id in ids)
         {
-            descendantIds.Add(id);
+            affectedIds.Add(id);
         }
 
         var extraIds = context.BaseItems
             .Where(e => e.OwnerId.HasValue)
-            .WhereOneOrMany(descendantIds.ToList(), e => e.OwnerId!.Value)
+            .WhereOneOrMany(affectedIds.ToList(), e => e.OwnerId!.Value)
             .Select(e => e.Id)
             .ToArray();
+        affectedIds.UnionWith(extraIds);
+        return affectedIds;
+    }
 
-        foreach (var extraId in extraIds)
+    private int[] DeleteItemsUnderLocks(IReadOnlyList<Guid> ids, HashSet<int> heldLockIndices)
+    {
+        using var context = _dbProvider.CreateDbContext();
+        using var databaseLock = ItemPersistenceDatabaseLock.Acquire(
+            context.Database,
+            heldLockIndices.Order().ToArray(),
+            _logger,
+            CancellationToken.None);
+        using var transaction = context.Database.BeginTransaction();
+
+        var date = (DateTime?)DateTime.UtcNow;
+        var relatedItems = GetItemsAffectedByDelete(context, ids).ToArray();
+        var missingLockIndices = GetMissingItemPersistenceLockIndices(relatedItems, heldLockIndices);
+        if (missingLockIndices.Length > 0)
         {
-            descendantIds.Add(extraId);
+            return missingLockIndices;
         }
-
-        var relatedItems = descendantIds.ToArray();
 
         // Achado P1 / DeleteItem: chunk deletions in batches of 1,000 to avoid inlining tens
         // of thousands of GUIDs in a single query (which can generate ~65MB SQL bursts and
@@ -102,6 +209,12 @@ public class ItemPersistenceService : IItemPersistenceService
             var chunk = relatedItems.Length <= DeleteBatchSize
                 ? relatedItems
                 : relatedItems.Skip(offset).Take(DeleteBatchSize).ToArray();
+
+            // Deleting BaseItems cascades their people maps, so retain the person ids first.
+            var personIds = context.PeopleBaseItemMap.WhereOneOrMany(chunk, e => e.ItemId)
+                .Select(mapping => mapping.PeopleId)
+                .Distinct()
+                .ToArray();
 
             // When batch-deleting, multiple items may have UserData for the same (UserId, CustomDataKey).
             // Moving all of them to PlaceholderId would violate the UNIQUE constraint.
@@ -172,11 +285,10 @@ public class ItemPersistenceService : IItemPersistenceService
             context.MediaSegments.WhereOneOrMany(chunk, e => e.ItemId).ExecuteDelete();
             context.MediaStreamInfos.WhereOneOrMany(chunk, e => e.ItemId).ExecuteDelete();
 
-            var query = context.PeopleBaseItemMap.WhereOneOrMany(chunk, e => e.ItemId).Select(f => f.PeopleId).Distinct().ToArray();
             context.PeopleBaseItemMap.WhereOneOrMany(chunk, e => e.ItemId).ExecuteDelete();
-            if (query.Length > 0)
+            if (personIds.Length > 0)
             {
-                context.Peoples.WhereOneOrMany(query, e => e.Id).Where(e => e.BaseItems!.Count == 0).ExecuteDelete();
+                context.Peoples.WhereOneOrMany(personIds, e => e.Id).Where(e => e.BaseItems!.Count == 0).ExecuteDelete();
             }
 
             context.TrickplayInfos.WhereOneOrMany(chunk, e => e.ItemId).ExecuteDelete();
@@ -185,18 +297,38 @@ public class ItemPersistenceService : IItemPersistenceService
         context.ItemValues.Where(e => e.BaseItemsMap!.Count == 0).ExecuteDelete();
         context.SaveChanges();
         transaction.Commit();
+        return [];
     }
 
     /// <inheritdoc />
     public void UpdateInheritedValues()
     {
-        using var context = _dbProvider.CreateDbContext();
-        using var transaction = context.Database.BeginTransaction();
+        var lockIndices = Enumerable.Range(0, _updateOrInsertLocks.Length).ToArray();
+        var acquiredCount = 0;
+        try
+        {
+            // This global cleanup must not race item saves; acquire stripes in the same order as other writers.
+            for (; acquiredCount < lockIndices.Length; acquiredCount++)
+            {
+                _updateOrInsertLocks[lockIndices[acquiredCount]].Wait();
+            }
 
-        context.ItemValuesMap.Where(e => e.ItemValue.Type == ItemValueType.InheritedTags).ExecuteDelete();
-        context.SaveChanges();
+            using var context = _dbProvider.CreateDbContext();
+            using var databaseLock = ItemPersistenceDatabaseLock.Acquire(context.Database, lockIndices, _logger, CancellationToken.None);
+            using var transaction = context.Database.BeginTransaction();
 
-        transaction.Commit();
+            context.ItemValuesMap.Where(e => e.ItemValue.Type == ItemValueType.InheritedTags).ExecuteDelete();
+            context.SaveChanges();
+
+            transaction.Commit();
+        }
+        finally
+        {
+            for (var i = acquiredCount - 1; i >= 0; i--)
+            {
+                _updateOrInsertLocks[lockIndices[i]].Release();
+            }
+        }
     }
 
     /// <inheritdoc />
@@ -210,6 +342,22 @@ public class ItemPersistenceService : IItemPersistenceService
     {
         ArgumentNullException.ThrowIfNull(item);
 
+        // Image rows and metadata rows for an item share the same lock stripe so a library
+        // refresh cannot race another image refresh (or the item's metadata persistence).
+        var itemLock = GetItemPersistenceLock(item.Id);
+        await itemLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            await SaveImagesCoreAsync(item, cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            itemLock.Release();
+        }
+    }
+
+    private async Task SaveImagesCoreAsync(BaseItem item, CancellationToken cancellationToken)
+    {
         var images = item.ImageInfos.Select(e => BaseItemMapper.MapImageToEntity(item.Id, e)).ToArray();
 
         for (var attempt = 1; ; attempt++)
@@ -219,6 +367,9 @@ public class ItemPersistenceService : IItemPersistenceService
                 var context = await _dbProvider.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
                 await using (context.ConfigureAwait(false))
                 {
+                    await using var databaseLock = await ItemPersistenceDatabaseLock
+                        .AcquireAsync(context.Database, [item.Id.GetHashCode() & 15], _logger, cancellationToken)
+                        .ConfigureAwait(false);
                     await using var transaction = await context.Database
                         .BeginTransactionAsync(cancellationToken)
                         .ConfigureAwait(false);
@@ -239,19 +390,25 @@ public class ItemPersistenceService : IItemPersistenceService
                     bool hasChanges = existingImages.Length != images.Length;
                     if (!hasChanges)
                     {
-                        for (int i = 0; i < images.Length; i++)
+                        var unmatchedImages = existingImages.ToList();
+                        foreach (var newImg in images)
                         {
-                            var newImg = images[i];
-                            var oldImg = existingImages.FirstOrDefault(e => e.ImageType == newImg.ImageType && e.Path == newImg.Path);
-                            if (oldImg == null
-                                || oldImg.Width != newImg.Width
-                                || oldImg.Height != newImg.Height
-                                || oldImg.DateModified != newImg.DateModified
-                                || !NullableSequenceEqual(oldImg.Blurhash, newImg.Blurhash))
+                            var matchingIndex = unmatchedImages.FindIndex(oldImg =>
+                                oldImg.ImageType == newImg.ImageType
+                                && oldImg.Path == newImg.Path
+                                && oldImg.Width == newImg.Width
+                                && oldImg.Height == newImg.Height
+                                && oldImg.DateModified == newImg.DateModified
+                                && oldImg.ProviderName == newImg.ProviderName
+                                && oldImg.Language == newImg.Language
+                                && NullableSequenceEqual(oldImg.Blurhash, newImg.Blurhash));
+                            if (matchingIndex < 0)
                             {
                                 hasChanges = true;
                                 break;
                             }
+
+                            unmatchedImages.RemoveAt(matchingIndex);
                         }
                     }
 
@@ -275,14 +432,27 @@ public class ItemPersistenceService : IItemPersistenceService
 
                 return;
             }
-            catch (Exception ex) when (attempt < 3 && IsTransientImagePersistenceFailure(ex))
+            catch (Exception ex) when (attempt < (IsTransientConnectionFailure(ex) && !IsTransientImageLockFailure(ex) ? 10 : 3) && IsTransientImagePersistenceFailure(ex))
             {
                 _logger.LogWarning(
                     ex,
-                    "Transient database failure while saving images for item {ItemId}; retrying attempt {Attempt}",
+                    "Transient database failure while saving images for item {ItemId} in process {ProcessId}, assembly version {AssemblyVersion}; retrying attempt {Attempt}",
                     item.Id,
+                    Environment.ProcessId,
+                    typeof(ItemPersistenceService).Assembly.GetName().Version?.ToString(3) ?? "unknown",
                     attempt + 1);
                 await Task.Delay(TimeSpan.FromMilliseconds(attempt * 150), cancellationToken).ConfigureAwait(false);
+            }
+            catch (Exception ex) when (IsTransientImagePersistenceFailure(ex))
+            {
+                _logger.LogError(
+                    ex,
+                    "Transient database failure exhausted {AttemptCount} attempts while saving images for item {ItemId} in process {ProcessId}, assembly version {AssemblyVersion}",
+                    attempt,
+                    item.Id,
+                    Environment.ProcessId,
+                    typeof(ItemPersistenceService).Assembly.GetName().Version?.ToString(3) ?? "unknown");
+                throw;
             }
         }
     }
@@ -300,6 +470,19 @@ public class ItemPersistenceService : IItemPersistenceService
         return IsTransientConnectionFailure(exception);
     }
 
+    private static bool IsTransientImageLockFailure(Exception exception)
+    {
+        for (Exception? current = exception; current is not null; current = current.InnerException)
+        {
+            if (current is MySqlException mySqlException && mySqlException.Number is 1205 or 1213)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     /// <inheritdoc />
     public async Task ReattachUserDataAsync(BaseItemDto item, CancellationToken cancellationToken)
     {
@@ -310,9 +493,28 @@ public class ItemPersistenceService : IItemPersistenceService
 
         await using (dbContext.ConfigureAwait(false))
         {
-            var transaction = await dbContext.Database.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
-            await using (transaction.ConfigureAwait(false))
+            var lockIndices = new[] { item.Id, BaseItemRepository.PlaceholderId }
+                .Select(id => id.GetHashCode() & 15)
+                .Distinct()
+                .Order()
+                .ToArray();
+            var acquiredCount = 0;
+            try
             {
+                for (; acquiredCount < lockIndices.Length; acquiredCount++)
+                {
+                    await _updateOrInsertLocks[lockIndices[acquiredCount]].WaitAsync(cancellationToken).ConfigureAwait(false);
+                }
+
+                await using var databaseLock = await ItemPersistenceDatabaseLock
+                    .AcquireAsync(dbContext.Database, lockIndices, _logger, cancellationToken)
+                    .ConfigureAwait(false);
+                await using var transaction = await dbContext.Database.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+                if (!await dbContext.BaseItems.AnyAsync(e => e.Id == item.Id, cancellationToken).ConfigureAwait(false))
+                {
+                    return;
+                }
+
                 var userKeys = item.GetUserDataKeys().ToArray();
                 var retentionDate = (DateTime?)null;
 
@@ -333,6 +535,13 @@ public class ItemPersistenceService : IItemPersistenceService
 
                 await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
             }
+            finally
+            {
+                for (var i = acquiredCount - 1; i >= 0; i--)
+                {
+                    _updateOrInsertLocks[lockIndices[i]].Release();
+                }
+            }
         }
     }
 
@@ -341,66 +550,74 @@ public class ItemPersistenceService : IItemPersistenceService
         ArgumentNullException.ThrowIfNull(items);
         cancellationToken.ThrowIfCancellationRequested();
 
-        // Every item in the batch can hash to a different lock stripe. Picking the stripe from
-        // just items[0] let two batches that share no items but disagree only on their *first*
-        // element run UpdateOrInsertItemsCore concurrently while both touch an item that hashes
-        // to a stripe neither of them locked, risking a lost update. Instead, collect every
-        // distinct stripe touched by the batch and acquire them all, always in ascending index
-        // order, so two batches with overlapping stripe sets can never deadlock on each other.
+        // Lock each item and its direct parent/owner. Deletion locks all known descendants, so
+        // also locking parent/owner IDs prevents a concurrent scan from adding a child after the
+        // delete hierarchy was discovered. Acquire every distinct stripe in ascending order.
         var lockIndices = items.Count > 0
-            ? items.Select(e => e.Id.GetHashCode() & 15).Distinct().Order().ToArray()
+            ? GetItemPersistenceLockIndices(items)
             : [0];
 
         // This whole path is intentionally synchronous (called from library scans and scheduled
         // tasks). Use the blocking Wait instead of the async-over-sync WaitAsync().GetResult()
         // pattern to avoid spinning the async state machine and holding a thread longer than needed.
-        var acquiredCount = 0;
-        try
+        while (true)
         {
-            for (; acquiredCount < lockIndices.Length; acquiredCount++)
+            var acquiredCount = 0;
+            var missingLockIndices = Array.Empty<int>();
+            try
             {
-                _updateOrInsertLocks[lockIndices[acquiredCount]].Wait(cancellationToken);
+                for (; acquiredCount < lockIndices.Length; acquiredCount++)
+                {
+                    _updateOrInsertLocks[lockIndices[acquiredCount]].Wait(cancellationToken);
+                }
+
+                for (var attempt = 1; attempt <= 3; attempt++)
+                {
+                    try
+                    {
+                        missingLockIndices = UpdateOrInsertItemsCore(items, lockIndices, cancellationToken);
+                        break;
+                    }
+                    catch (DbUpdateException ex) when (attempt < 3 && IsTransientMetadataConflict(ex))
+                    {
+                        _logger.LogWarning(ex, "Transient metadata conflict detected on attempt {Attempt} while saving items. Retrying...", attempt);
+
+                        // Short bounded backoff for a genuinely rare path (deadlock / lock-wait timeout).
+                        // This is not on the request hot path and is reached only on transient DB conflicts.
+                        Thread.Sleep(attempt * 75);
+                    }
+                    catch (Exception ex) when (attempt < 3 && IsTransientConnectionFailure(ex))
+                    {
+                        // The MariaDB connection itself failed (pool exhausted, connect timeout, socket
+                        // reset during the TLS handshake). The statement never ran, so replaying it is
+                        // safe, and without this the whole metadata save for the item was lost and the
+                        // library scan reported "Error while performing a library operation".
+                        _logger.LogWarning(ex, "Transient MariaDB connection failure on attempt {Attempt} while saving items. Retrying...", attempt);
+
+                        // Longer than the metadata-conflict backoff: a saturated pool needs a moment to
+                        // hand a connection back.
+                        Thread.Sleep(attempt * 150);
+                    }
+                }
+            }
+            finally
+            {
+                for (var i = acquiredCount - 1; i >= 0; i--)
+                {
+                    _updateOrInsertLocks[lockIndices[i]].Release();
+                }
             }
 
-            for (var attempt = 1; attempt <= 3; attempt++)
+            if (missingLockIndices.Length == 0)
             {
-                try
-                {
-                    UpdateOrInsertItemsCore(items);
-                    return;
-                }
-                catch (DbUpdateException ex) when (attempt < 3 && IsTransientMetadataConflict(ex))
-                {
-                    _logger.LogWarning(ex, "Transient metadata conflict detected on attempt {Attempt} while saving items. Retrying...", attempt);
-
-                    // Short bounded backoff for a genuinely rare path (deadlock / lock-wait timeout).
-                    // This is not on the request hot path and is reached only on transient DB conflicts.
-                    Thread.Sleep(attempt * 75);
-                }
-                catch (Exception ex) when (attempt < 3 && IsTransientConnectionFailure(ex))
-                {
-                    // The MariaDB connection itself failed (pool exhausted, connect timeout, socket
-                    // reset during the TLS handshake). The statement never ran, so replaying it is
-                    // safe, and without this the whole metadata save for the item was lost and the
-                    // library scan reported "Error while performing a library operation".
-                    _logger.LogWarning(ex, "Transient MariaDB connection failure on attempt {Attempt} while saving items. Retrying...", attempt);
-
-                    // Longer than the metadata-conflict backoff: a saturated pool needs a moment to
-                    // hand a connection back.
-                    Thread.Sleep(attempt * 150);
-                }
+                return;
             }
-        }
-        finally
-        {
-            for (var i = acquiredCount - 1; i >= 0; i--)
-            {
-                _updateOrInsertLocks[lockIndices[i]].Release();
-            }
+
+            lockIndices = lockIndices.Concat(missingLockIndices).Distinct().Order().ToArray();
         }
     }
 
-    private void UpdateOrInsertItemsCore(IReadOnlyList<BaseItemDto> items)
+    private int[] UpdateOrInsertItemsCore(IReadOnlyList<BaseItemDto> items, int[] lockIndices, CancellationToken cancellationToken)
     {
         var tuples = new List<(BaseItemDto Item, List<Guid>? AncestorIds, BaseItemDto TopParent, IEnumerable<string> UserDataKey, List<string> InheritedTags)>();
         foreach (var item in items.GroupBy(e => e.Id).Select(e => e.Last()).Where(e => e.Id != BaseItemRepository.PlaceholderId))
@@ -418,6 +635,7 @@ public class ItemPersistenceService : IItemPersistenceService
         }
 
         using var context = _dbProvider.CreateDbContext();
+        using var databaseLock = ItemPersistenceDatabaseLock.Acquire(context.Database, lockIndices, _logger, cancellationToken);
         using var transaction = context.Database.BeginTransaction();
 
         var ids = tuples.Select(f => f.Item.Id).ToArray();
@@ -453,11 +671,47 @@ public class ItemPersistenceService : IItemPersistenceService
 
         if (folderIds.Count > 0 || videoIds.Count > 0)
         {
-            SaveLinkedChildren(context, tuples, folderIds, videoIds);
+            var missingLockIndices = SaveLinkedChildren(context, tuples, folderIds, videoIds, lockIndices);
+            if (missingLockIndices.Length > 0)
+            {
+                // SaveLinkedChildren found an orphaned alternate item outside the held stripes.
+                // Returning disposes this uncommitted transaction before the caller reacquires all stripes in order.
+                return missingLockIndices;
+            }
         }
 
         context.SaveChanges();
         transaction.Commit();
+        return [];
+    }
+
+    internal static bool HasProviderValuesChanged(
+        IReadOnlyCollection<BaseItemProvider> currentProviders,
+        IReadOnlyCollection<BaseItemProvider> oldProviders)
+    {
+        if (currentProviders.Count != oldProviders.Count)
+        {
+            return true;
+        }
+
+        var oldProviderKeys = oldProviders
+            .Select(provider => (provider.ProviderId, provider.ProviderValue))
+            .ToHashSet();
+
+        return currentProviders.Any(provider => !oldProviderKeys.Contains((provider.ProviderId, provider.ProviderValue)));
+    }
+
+    internal static bool HasLockedMetadataFieldsChanged(
+        IReadOnlyCollection<BaseItemMetadataField> currentFields,
+        IReadOnlyCollection<BaseItemMetadataField> oldFields)
+    {
+        if (currentFields.Count != oldFields.Count)
+        {
+            return true;
+        }
+
+        var oldFieldIds = oldFields.Select(field => field.Id).ToHashSet();
+        return currentFields.Any(field => !oldFieldIds.Contains(field.Id));
     }
 
     internal static bool IsTransientMetadataConflict(DbUpdateException exception)
@@ -673,8 +927,7 @@ public class ItemPersistenceService : IItemPersistenceService
 
                 // Check if Providers changed
                 var oldProviders = existingProviders.GetValueOrDefault(entity.Id) ?? new List<BaseItemProvider>();
-                bool providersChanged = currentProviders.Length != oldProviders.Count ||
-                    currentProviders.Any(cp => !oldProviders.Any(op => op.ProviderId == cp.ProviderId && op.ProviderValue == cp.ProviderValue));
+                var providersChanged = HasProviderValuesChanged(currentProviders, oldProviders);
 
                 if (providersChanged)
                 {
@@ -697,9 +950,8 @@ public class ItemPersistenceService : IItemPersistenceService
 
                 // Check if LockedFields changed
                 var oldLockedFields = existingMetadataFields.GetValueOrDefault(entity.Id) ?? new List<BaseItemMetadataField>();
-                bool lockedFieldsChanged = currentLockedFields is not null &&
-                    (currentLockedFields.Length != oldLockedFields.Count ||
-                    currentLockedFields.Any(cf => !oldLockedFields.Any(of => of.Id == cf.Id)));
+                var lockedFieldsChanged = currentLockedFields is not null
+                    && HasLockedMetadataFieldsChanged(currentLockedFields, oldLockedFields);
 
                 if (lockedFieldsChanged)
                 {
@@ -971,11 +1223,12 @@ public class ItemPersistenceService : IItemPersistenceService
         }
     }
 
-    private void SaveLinkedChildren(
+    private int[] SaveLinkedChildren(
         MulletaFlixDbContext context,
         List<(BaseItemDto Item, List<Guid>? AncestorIds, BaseItemDto TopParent, IEnumerable<string> UserDataKey, List<string> InheritedTags)> tuples,
         List<Guid> folderIds,
-        List<Guid> videoIds)
+        List<Guid> videoIds,
+        int[] heldLockIndices)
     {
         var allParentIds = folderIds.Concat(videoIds).Distinct().ToList();
         var allLinkedChildren = allParentIds.Count > 0
@@ -1119,6 +1372,14 @@ public class ItemPersistenceService : IItemPersistenceService
                 .Where(e => e.OwnerId.HasValue)
                 .ToDictionary(e => (e.Id, e.OwnerId!.Value), e => e)
             : new Dictionary<(Guid Id, Guid OwnerId), BaseItemEntity>();
+
+        var missingLockIndices = GetMissingItemPersistenceLockIndices(
+            orphanedItems.Keys.Select(key => key.Id),
+            heldLockIndices.ToHashSet());
+        if (missingLockIndices.Length > 0)
+        {
+            return missingLockIndices;
+        }
 
         // 5. Process Folder Linked Children
         foreach (var item in tuples)
@@ -1306,6 +1567,8 @@ public class ItemPersistenceService : IItemPersistenceService
                 }
             }
         }
+
+        return [];
     }
 
     private static bool NullableSequenceEqual(byte[]? a, byte[]? b)

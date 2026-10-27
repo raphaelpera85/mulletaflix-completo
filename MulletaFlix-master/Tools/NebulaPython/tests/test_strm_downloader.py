@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import json
 from pathlib import Path
 from io import BytesIO
 from types import SimpleNamespace
@@ -30,6 +32,16 @@ def _silence_network_globals(monkeypatch):
     monkeypatch.setattr(strm_downloader.socket, "setdefaulttimeout", lambda *_args: None)
     monkeypatch.setattr(strm_downloader, "wait_for_disk_capacity", lambda *_args: None)
     monkeypatch.setattr(strm_downloader.time, "sleep", lambda *_args: None)
+
+
+def _write_resume_metadata(tmp_path, url, *, total, parts_count, part_size):
+    metadata = {
+        "source_fingerprint": hashlib.sha256(url.encode("utf-8")).hexdigest(),
+        "total": total,
+        "parts_count": parts_count,
+        "part_size": part_size,
+    }
+    (tmp_path / ".episode.download.meta").write_text(json.dumps(metadata), encoding="utf-8")
 
 
 def _run_args(source, **overrides):
@@ -153,6 +165,7 @@ def test_run_downloader_uses_mongo_database_environment_when_cli_flag_is_absent(
 
 def test_run_downloader_prioritizes_partial_downloads_and_skips_recent_failures(tmp_path, monkeypatch):
     source = tmp_path / "source"
+    source.mkdir()
     resume = source / "resume.strm"
     fresh = source / "fresh.strm"
     cooldown = source / "cooldown.strm"
@@ -266,6 +279,26 @@ def test_run_downloader_marks_mongo_ready_before_root_discovery_and_scan(tmp_pat
 
     assert strm_downloader.run_downloader(_run_args(tmp_path)) == 0
     assert events == ["worker-ready", "mongo-refresh-complete", "mongo-ready", "root-discovery-started", "filesystem-scan-started", "scan-started"]
+
+
+def test_get_title_scan_roots_reports_inaccessible_directory_and_skips_it(tmp_path, monkeypatch, caplog):
+    root = tmp_path / "Series"
+    root.mkdir()
+    original_iterdir = Path.iterdir
+
+    def fail_for_root(path):
+        if path == root:
+            raise PermissionError("access denied")
+        return original_iterdir(path)
+
+    monkeypatch.setattr(Path, "iterdir", fail_for_root)
+    caplog.set_level("WARNING", logger="STRMDownloader")
+
+    result = strm_downloader.get_title_scan_roots([(root, root)])
+
+    assert result == []
+    assert "[STRM-SCAN-ROOT-ERROR]" in caplog.text
+    assert str(root) in caplog.text
 
 
 def test_run_downloader_scans_downloads_and_registers_first_strm_after_readiness(
@@ -557,6 +590,80 @@ def test_multipart_download_keeps_previous_file_if_replacement_fails(tmp_path, m
     assert target.read_bytes() == b"previous-good-media"
 
 
+@pytest.mark.parametrize(
+    ("content_length", "existing_payload"),
+    [("5", b"other"), ("5", b"stale-partial"), (None, b"stale-partial")],
+)
+def test_multipart_download_replaces_stale_target_when_range_is_unsupported(
+    tmp_path, monkeypatch, content_length, existing_payload
+):
+    target = tmp_path / "episode.mkv"
+    target.write_bytes(existing_payload)
+    _silence_network_globals(monkeypatch)
+    requests = []
+
+    def fake_urlopen(request, **_kwargs):
+        requests.append(request.get_header("Range"))
+        headers = {"Content-Length": content_length} if content_length is not None else {}
+        return _Response(b"fresh", headers=headers, status=200)
+
+    monkeypatch.setattr(strm_downloader, "urlopen", fake_urlopen)
+
+    actual = strm_downloader.download_strm_multipart(
+        "https://cdn.example/episode.mkv", target, parts_count=1
+    )
+
+    assert actual == target
+    assert target.read_bytes() == b"fresh"
+    assert requests == ["bytes=0-0"]
+
+
+def test_multipart_download_replaces_same_size_target_when_range_is_supported(tmp_path, monkeypatch):
+    target = tmp_path / "episode.mkv"
+    target.write_bytes(b"stale!")
+    _silence_network_globals(monkeypatch)
+    requested_ranges = []
+
+    def fake_urlopen(request, **_kwargs):
+        range_header = request.get_header("Range")
+        if range_header == "bytes=0-0":
+            return _Response(b"", headers={"Content-Range": "bytes 0-0/6"})
+        requested_ranges.append(range_header)
+        start, end = map(int, range_header.removeprefix("bytes=").split("-"))
+        return _Response(
+            b"fresh!"[start : end + 1],
+            headers={"Content-Range": f"bytes {start}-{end}/6"},
+        )
+
+    monkeypatch.setattr(strm_downloader, "urlopen", fake_urlopen)
+
+    actual = strm_downloader.download_strm_multipart(
+        "https://cdn.example/episode.mkv?version=next", target, parts_count=2
+    )
+
+    assert actual == target
+    assert target.read_bytes() == b"fresh!"
+    assert sorted(requested_ranges) == ["bytes=0-2", "bytes=3-5"]
+
+
+def test_multipart_download_rejects_incomplete_sequential_response_and_preserves_target(tmp_path, monkeypatch):
+    target = tmp_path / "episode.mkv"
+    target.write_bytes(b"previous-good-media")
+    _silence_network_globals(monkeypatch)
+
+    def fake_urlopen(_request, **_kwargs):
+        return _Response(b"bad", headers={"Content-Length": "5"}, status=200)
+
+    monkeypatch.setattr(strm_downloader, "urlopen", fake_urlopen)
+
+    with pytest.raises(IOError, match="Download sequencial incompleto"):
+        strm_downloader.download_strm_multipart(
+            "https://cdn.example/episode.mkv", target, parts_count=1
+        )
+
+    assert target.read_bytes() == b"previous-good-media"
+
+
 @pytest.mark.parametrize("bad_content_range", ["bytes 3-5/6", "bytes 0-2/7", "invalid range"])
 def test_multipart_download_rejects_wrong_content_range_and_preserves_previous_file(
     tmp_path, monkeypatch, bad_content_range
@@ -616,6 +723,8 @@ def test_multipart_download_joins_ranges_and_cleans_staging_files(tmp_path, monk
 
 def test_multipart_download_resumes_complete_parts_without_redownloading(tmp_path, monkeypatch):
     target = tmp_path / "episode.mkv"
+    url = "https://cdn.example/episode.mkv"
+    _write_resume_metadata(tmp_path, url, total=6, parts_count=2, part_size=3)
     (tmp_path / ".episode.download.part0").write_bytes(b"abc")
     (tmp_path / ".episode.download.part1").write_bytes(b"def")
     _silence_network_globals(monkeypatch)
@@ -631,7 +740,7 @@ def test_multipart_download_resumes_complete_parts_without_redownloading(tmp_pat
     monkeypatch.setattr(strm_downloader, "urlopen", fake_urlopen)
 
     actual = strm_downloader.download_strm_multipart(
-        "https://cdn.example/episode.mkv", target, parts_count=2
+        url, target, parts_count=2
     )
 
     assert actual == target
@@ -639,11 +748,45 @@ def test_multipart_download_resumes_complete_parts_without_redownloading(tmp_pat
     assert requested_ranges == ["bytes=0-0"]
 
 
+def test_multipart_download_discards_resume_parts_when_source_url_changes(tmp_path, monkeypatch):
+    target = tmp_path / "episode.mkv"
+    old_url = "https://cdn.example/episode.mkv?token=old-secret"
+    new_url = "https://cdn.example/episode.mkv?token=new-secret"
+    _write_resume_metadata(tmp_path, old_url, total=6, parts_count=2, part_size=3)
+    (tmp_path / ".episode.download.part0").write_bytes(b"old")
+    (tmp_path / ".episode.download.part1").write_bytes(b"old")
+    _silence_network_globals(monkeypatch)
+    requested_ranges = []
+    payload = b"fresh!"
+
+    def fake_urlopen(request, **_kwargs):
+        range_header = request.get_header("Range")
+        if range_header == "bytes=0-0":
+            return _Response(b"", headers={"Content-Range": "bytes 0-0/6"})
+        assert "old-secret" not in (tmp_path / ".episode.download.meta").read_text(encoding="utf-8")
+        assert "new-secret" not in (tmp_path / ".episode.download.meta").read_text(encoding="utf-8")
+        requested_ranges.append(range_header)
+        start, end = map(int, range_header.removeprefix("bytes=").split("-"))
+        return _Response(
+            payload[start : end + 1],
+            headers={"Content-Range": f"bytes {start}-{end}/6"},
+        )
+
+    monkeypatch.setattr(strm_downloader, "urlopen", fake_urlopen)
+
+    actual = strm_downloader.download_strm_multipart(new_url, target, parts_count=2)
+
+    assert actual == target
+    assert target.read_bytes() == payload
+    assert sorted(requested_ranges) == ["bytes=0-2", "bytes=3-5"]
+
+
 def test_multipart_download_resumes_interrupted_partial_part_and_preserves_good_target(tmp_path, monkeypatch):
     target = tmp_path / "episode.mkv"
     target.write_bytes(b"previous-good-media")
     _silence_network_globals(monkeypatch)
     first_attempt_ranges = []
+    url = "https://cdn.example/episode.mkv"
 
     def interrupted_urlopen(request, **_kwargs):
         range_header = request.get_header("Range")
@@ -657,7 +800,7 @@ def test_multipart_download_resumes_interrupted_partial_part_and_preserves_good_
     monkeypatch.setattr(strm_downloader, "urlopen", interrupted_urlopen)
     with pytest.raises(IOError, match="Parte 1 falhou após 1 tentativas"):
         strm_downloader.download_strm_multipart(
-            "https://cdn.example/episode.mkv", target, parts_count=2, max_retries=1
+            url, target, parts_count=2, max_retries=1
         )
 
     partial = tmp_path / ".episode.download.part0.tmp"
@@ -679,7 +822,7 @@ def test_multipart_download_resumes_interrupted_partial_part_and_preserves_good_
 
     monkeypatch.setattr(strm_downloader, "urlopen", resumed_urlopen)
     actual = strm_downloader.download_strm_multipart(
-        "https://cdn.example/episode.mkv", target, parts_count=2, max_retries=1
+        url, target, parts_count=2, max_retries=1
     )
 
     assert actual == target

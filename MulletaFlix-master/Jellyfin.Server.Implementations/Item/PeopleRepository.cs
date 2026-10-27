@@ -1,10 +1,12 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Persistence;
 using MediaBrowser.Model.Querying;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging.Abstractions;
 using MulletaFlix.Data.Enums;
 using MulletaFlix.Database.Implementations;
 using MulletaFlix.Database.Implementations.Entities;
@@ -97,6 +99,20 @@ public class PeopleRepository(IDbContextFactory<MulletaFlixDbContext> dbProvider
     /// <inheritdoc />
     public void UpdatePeople(Guid itemId, IReadOnlyList<PersonInfo> people)
     {
+        var itemLock = ItemPersistenceService.GetItemPersistenceLock(itemId);
+        itemLock.Wait();
+        try
+        {
+            UpdatePeopleUnderLocks(itemId, people);
+        }
+        finally
+        {
+            itemLock.Release();
+        }
+    }
+
+    private void UpdatePeopleUnderLocks(Guid itemId, IReadOnlyList<PersonInfo> people)
+    {
         foreach (var person in people)
         {
             person.Name = person.Name.Trim();
@@ -108,6 +124,16 @@ public class PeopleRepository(IDbContextFactory<MulletaFlixDbContext> dbProvider
         var personKeys = people.Select(e => e.Name.ToLowerInvariant() + "-" + e.Type).ToArray();
 
         using var context = _dbProvider.CreateDbContext();
+        using var databaseLock = ItemPersistenceDatabaseLock.Acquire(
+            context.Database,
+            [itemId.GetHashCode() & 15],
+            NullLogger.Instance,
+            CancellationToken.None);
+        if (!context.BaseItems.Any(e => e.Id == itemId))
+        {
+            return;
+        }
+
         using var transaction = context.Database.BeginTransaction();
 
         // Filter on the indexed Name column first. The previous form projected a key computed in memory

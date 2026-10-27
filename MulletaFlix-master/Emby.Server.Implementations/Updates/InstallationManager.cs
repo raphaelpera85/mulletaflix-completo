@@ -2,7 +2,6 @@
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
-using System.IO.Compression;
 using System.Linq;
 using System.Net.Http;
 using System.Net.Http.Json;
@@ -10,10 +9,8 @@ using System.Security.Cryptography;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
-using MulletaFlix.Data.Events;
-using MulletaFlix.Extensions;
-using MulletaFlix.Extensions.Json;
 using Emby.Server.Implementations.Plugins;
+using Jellyfin.Server.Implementations.Archives;
 using MediaBrowser.Common.Configuration;
 using MediaBrowser.Common.Net;
 using MediaBrowser.Common.Plugins;
@@ -25,6 +22,9 @@ using MediaBrowser.Controller.Events.Updates;
 using MediaBrowser.Model.Plugins;
 using MediaBrowser.Model.Updates;
 using Microsoft.Extensions.Logging;
+using MulletaFlix.Data.Events;
+using MulletaFlix.Extensions;
+using MulletaFlix.Extensions.Json;
 
 namespace Emby.Server.Implementations.Updates
 {
@@ -532,20 +532,34 @@ namespace Emby.Server.Implementations.Updates
                 return;
             }
 
-            // Always override the passed-in target (which is a file) and figure it out again
-            string targetDir = Path.Combine(_appPaths.PluginsPath, package.Name);
-
-            using var response = await _httpClientFactory.CreateClient(NamedClient.Default)
-                .GetAsync(new Uri(package.SourceUrl), cancellationToken).ConfigureAwait(false);
-            response.EnsureSuccessStatusCode();
-            Stream stream = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
-            await using (stream.ConfigureAwait(false))
+            Directory.CreateDirectory(_appPaths.PluginsPath);
+            var targetDir = BoundedZipArchiveExtractor.GetChildPath(_appPaths.PluginsPath, package.Name + "_" + package.Version);
+            var archivePath = Path.Combine(_appPaths.PluginsPath, ".download-" + Guid.NewGuid().ToString("N") + ".zip");
+            try
             {
+                using var response = await _httpClientFactory.CreateClient(NamedClient.Default)
+                    .GetAsync(new Uri(package.SourceUrl), HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
+                response.EnsureSuccessStatusCode();
+                if (response.Content.Headers.ContentLength > BoundedZipArchiveExtractor.MaxArchiveBytes)
+                {
+                    throw new InvalidDataException("The plugin package exceeds the download size limit.");
+                }
+
+                await using (var stream = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false))
+                await using (var fileStream = new FileStream(archivePath, FileMode.CreateNew, FileAccess.Write, FileShare.None, 81920, true))
+                {
+                    await BoundedZipArchiveExtractor.CopyBoundedAsync(
+                        stream,
+                        fileStream,
+                        BoundedZipArchiveExtractor.MaxArchiveBytes,
+                        cancellationToken).ConfigureAwait(false);
+                }
+
+                await using var archiveStream = new FileStream(archivePath, FileMode.Open, FileAccess.Read, FileShare.Read, 81920, true);
                 // CA5351: Do Not Use Broken Cryptographic Algorithms
 #pragma warning disable CA5351
-                cancellationToken.ThrowIfCancellationRequested();
-
-                var hash = Convert.ToHexString(await MD5.HashDataAsync(stream, cancellationToken).ConfigureAwait(false));
+                var hash = Convert.ToHexString(await MD5.HashDataAsync(archiveStream, cancellationToken).ConfigureAwait(false));
+#pragma warning restore CA5351
                 if (!string.Equals(package.Checksum, hash, StringComparison.OrdinalIgnoreCase))
                 {
                     _logger.LogError(
@@ -556,25 +570,19 @@ namespace Emby.Server.Implementations.Updates
                     throw new InvalidDataException("The checksum of the received data doesn't match.");
                 }
 
-                // Version folder as they cannot be overwritten in Windows.
-                targetDir += "_" + package.Version;
-
-                if (Directory.Exists(targetDir))
+                var retainedBackupPath = await BoundedZipArchiveExtractor.ExtractToDirectoryAsync(
+                    archiveStream,
+                    targetDir,
+                    _appPaths.PluginsPath,
+                    cancellationToken).ConfigureAwait(false);
+                if (retainedBackupPath is not null)
                 {
-                    try
-                    {
-                        Directory.Delete(targetDir, true);
-                    }
-#pragma warning disable CA1031 // Do not catch general exception types
-                    catch
-#pragma warning restore CA1031 // Do not catch general exception types
-                    {
-                        // Ignore any exceptions.
-                    }
+                    _logger.LogWarning("The previous plugin package could not be removed and remains at {BackupPath}.", retainedBackupPath);
                 }
-
-                stream.Position = 0;
-                await ZipFile.ExtractToDirectoryAsync(stream, targetDir, true, cancellationToken).ConfigureAwait(false);
+            }
+            finally
+            {
+                File.Delete(archivePath);
             }
 
             // Ensure we create one or populate existing ones with missing data.

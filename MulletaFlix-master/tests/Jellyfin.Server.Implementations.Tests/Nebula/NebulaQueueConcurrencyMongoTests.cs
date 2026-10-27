@@ -1,5 +1,7 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
+using System.IO;
 using System.Linq;
 using System.Net.Http;
 using System.Threading;
@@ -59,14 +61,14 @@ public sealed class NebulaQueueConcurrencyMongoTests : IDisposable
         }
     }
 
-    private NebulaMongoContext CreateContext()
-        => new(_testConnectionString, _databaseName, NullLogger<NebulaMongoContext>.Instance);
-
     private IMongoCollection<BsonDocument> Files
         => _client!.GetDatabase(_databaseName).GetCollection<BsonDocument>("files");
 
     private IMongoCollection<BsonDocument> Admission
         => _client!.GetDatabase(_databaseName).GetCollection<BsonDocument>("nebula_admission");
+
+    private NebulaMongoContext CreateContext()
+        => new(_testConnectionString, _databaseName, NullLogger<NebulaMongoContext>.Instance);
 
     private async Task<ObjectId> InsertQueuedFileAsync()
     {
@@ -84,6 +86,239 @@ public sealed class NebulaQueueConcurrencyMongoTests : IDisposable
             { "modified_at", DateTimeOffset.UtcNow.ToUnixTimeSeconds() }
         });
         return id;
+    }
+
+    [Fact]
+    public async Task EnsureIndexesAsync_PropagatesDuplicateQueueIdentityFailure()
+    {
+        Assert.SkipUnless(_available, _skipReason);
+
+        await Files.InsertManyAsync(
+            [
+                new BsonDocument { { "queue_identity", "same-path" } },
+                new BsonDocument { { "queue_identity", "same-path" } }
+            ],
+            cancellationToken: TestContext.Current.CancellationToken);
+
+        using var context = CreateContext();
+
+        await Assert.ThrowsAnyAsync<MongoException>(
+            () => context.EnsureIndexesAsync(TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
+    public async Task EnsureIndexesAsync_BackfillsLegacyQueueIdentityWithoutRemovingDocument()
+    {
+        Assert.SkipUnless(_available, _skipReason);
+
+        var id = ObjectId.GenerateNewId();
+        var whitespacePathId = ObjectId.GenerateNewId();
+        var localPath = Path.GetFullPath(Path.Combine(Path.GetTempPath(), "Nebula", "legacy-media.mkv"));
+        await Files.InsertManyAsync(
+            [
+                new BsonDocument
+                {
+                    { "_id", id },
+                    { "name", "legacy-media.mkv" },
+                    { "type", "file" },
+                    { "status", "queued" },
+                    { "local_path", localPath }
+                },
+                new BsonDocument
+                {
+                    { "_id", whitespacePathId },
+                    { "type", "file" },
+                    { "local_path", "   " }
+                }
+            ],
+            cancellationToken: TestContext.Current.CancellationToken);
+
+        using var context = CreateContext();
+        await context.EnsureIndexesAsync(TestContext.Current.CancellationToken);
+
+        var migrated = await Files.Find(Builders<BsonDocument>.Filter.Eq("_id", id))
+            .SingleAsync(TestContext.Current.CancellationToken);
+        Assert.Equal(OperatingSystem.IsWindows() ? localPath.ToUpperInvariant() : localPath, migrated["queue_identity"].AsString);
+        Assert.Equal(1, await Files.CountDocumentsAsync(
+            Builders<BsonDocument>.Filter.Eq("_id", id),
+            cancellationToken: TestContext.Current.CancellationToken));
+
+        var whitespaceDocument = await Files.Find(Builders<BsonDocument>.Filter.Eq("_id", whitespacePathId))
+            .SingleAsync(TestContext.Current.CancellationToken);
+        Assert.False(whitespaceDocument.Contains("queue_identity"));
+    }
+
+    [Fact]
+    public async Task ResolveLocalPathAsync_UpdatesQueueIdentityWithRecoveredPath()
+    {
+        Assert.SkipUnless(_available, _skipReason);
+
+        var stagingRoot = Path.Combine(Path.GetTempPath(), "nebula-queue-path-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(stagingRoot);
+        var recoveredPath = Path.Combine(stagingRoot, "episode.mkv");
+        await File.WriteAllTextAsync(recoveredPath, "media", TestContext.Current.CancellationToken);
+        var id = ObjectId.GenerateNewId();
+        var originalPath = Path.Combine(stagingRoot, "unavailable", "episode.mkv");
+        await Files.InsertOneAsync(
+            new BsonDocument
+            {
+                { "_id", id },
+                { "type", "file" },
+                { "name", "episode.mkv" },
+                { "local_path", originalPath },
+                { "queue_identity", OperatingSystem.IsWindows() ? originalPath.ToUpperInvariant() : originalPath },
+                { "status", "queued" }
+            },
+            cancellationToken: TestContext.Current.CancellationToken);
+
+        try
+        {
+            using var context = CreateContext();
+            var resolved = await context.ResolveLocalPathAsync(
+                await Files.Find(Builders<BsonDocument>.Filter.Eq("_id", id)).SingleAsync(TestContext.Current.CancellationToken),
+                [stagingRoot],
+                TestContext.Current.CancellationToken);
+
+            Assert.Equal(recoveredPath, resolved);
+            var updated = await Files.Find(Builders<BsonDocument>.Filter.Eq("_id", id))
+                .SingleAsync(TestContext.Current.CancellationToken);
+            Assert.Equal(recoveredPath, updated["local_path"].AsString);
+            Assert.Equal(OperatingSystem.IsWindows() ? recoveredPath.ToUpperInvariant() : recoveredPath, updated["queue_identity"].AsString);
+        }
+        finally
+        {
+            Directory.Delete(stagingRoot, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task EnsureIndexesAsync_FailsClosedOnLegacyPathsThatNormalizeToSameIdentity()
+    {
+        Assert.SkipUnless(_available, _skipReason);
+        Assert.SkipUnless(OperatingSystem.IsWindows(), "Case-insensitive legacy path collisions apply to Windows paths.");
+
+        var path = Path.GetFullPath(Path.Combine(Path.GetTempPath(), "Nebula", "Legacy-Media.mkv"));
+        await Files.InsertManyAsync(
+            [
+                new BsonDocument { { "type", "file" }, { "local_path", path } },
+                new BsonDocument { { "type", "file" }, { "local_path", path.ToLowerInvariant() } }
+            ],
+            cancellationToken: TestContext.Current.CancellationToken);
+
+        using var context = CreateContext();
+        await Assert.ThrowsAnyAsync<MongoException>(
+            () => context.EnsureIndexesAsync(TestContext.Current.CancellationToken));
+
+        Assert.Equal(2, await Files.CountDocumentsAsync(
+            Builders<BsonDocument>.Filter.Eq("type", "file"),
+            cancellationToken: TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
+    public async Task CSharpAndPythonInitializers_ConcurrentlyBackfillSameLegacyQueueRecord()
+    {
+        Assert.SkipUnless(_available, _skipReason);
+        var python = Environment.GetEnvironmentVariable("NEBULA_TEST_PYTHON");
+        Assert.SkipUnless(!string.IsNullOrWhiteSpace(python), "Defina NEBULA_TEST_PYTHON para habilitar o teste cruzado C#/Python.");
+
+        var id = ObjectId.GenerateNewId();
+        var localPath = Path.GetFullPath(Path.Combine(Path.GetTempPath(), "Nebula", "cross-runtime-legacy.mkv"));
+        await Files.InsertOneAsync(
+            new BsonDocument
+            {
+                { "_id", id },
+                { "type", "file" },
+                { "status", "queued" },
+                { "local_path", localPath }
+            },
+            cancellationToken: TestContext.Current.CancellationToken);
+
+        var pythonRoot = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "..", "Tools", "NebulaPython"));
+        var script = "import asyncio, os; from motor.motor_asyncio import AsyncIOMotorClient; import main\n"
+            + "async def run():\n"
+            + " client = AsyncIOMotorClient(os.environ['NEBULA_TEST_MONGO_URI'])\n"
+            + " try: await main.setup_database_indexes(client[os.environ['NEBULA_TEST_MONGO_DATABASE']])\n"
+            + " finally: client.close()\n"
+            + "asyncio.run(run())";
+
+        var startInfo = new ProcessStartInfo(python!)
+        {
+            WorkingDirectory = pythonRoot,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false
+        };
+        startInfo.ArgumentList.Add("-c");
+        startInfo.ArgumentList.Add(script);
+        startInfo.Environment["NEBULA_STREAM_SERVICE"] = "1";
+        startInfo.Environment["NEBULA_TEST_MONGO_URI"] = _testConnectionString;
+        startInfo.Environment["NEBULA_TEST_MONGO_DATABASE"] = _databaseName;
+        using var process = Process.Start(startInfo);
+        Assert.NotNull(process);
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+        using var context = CreateContext();
+        var pythonOutputTask = process!.StandardOutput.ReadToEndAsync(timeout.Token);
+        var pythonErrorTask = process.StandardError.ReadToEndAsync(timeout.Token);
+        var csharpTask = context.EnsureIndexesAsync(timeout.Token);
+        try
+        {
+        await Task.WhenAll(csharpTask, process.WaitForExitAsync(timeout.Token));
+        }
+        finally
+        {
+            if (!process.HasExited)
+            {
+                process.Kill(entireProcessTree: true);
+                await process.WaitForExitAsync(CancellationToken.None);
+            }
+        }
+        var output = await pythonOutputTask;
+        var error = await pythonErrorTask;
+        Assert.True(process.ExitCode == 0, $"Python initializer failed ({process.ExitCode}). stdout: {output} stderr: {error}");
+
+        var migrated = await Files.Find(Builders<BsonDocument>.Filter.Eq("_id", id))
+            .SingleAsync(TestContext.Current.CancellationToken);
+        Assert.Equal(OperatingSystem.IsWindows() ? localPath.ToUpperInvariant() : localPath, migrated["queue_identity"].AsString);
+        Assert.Equal(1, await Files.CountDocumentsAsync(
+            Builders<BsonDocument>.Filter.Eq("queue_identity", migrated["queue_identity"].AsString),
+            cancellationToken: TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
+    public async Task InsertFileDocIfAbsentAsync_MatchesLegacyLowercaseWindowsIdentity()
+    {
+        Assert.SkipUnless(_available, _skipReason);
+        Assert.SkipUnless(OperatingSystem.IsWindows(), "Legacy lowercase queue identities were written by Python on Windows.");
+
+        var localPath = Path.GetFullPath(Path.Combine(Path.GetTempPath(), "Nebula", "MixedCase", "Media.mkv"));
+        var legacyIdentity = localPath.ToLowerInvariant();
+        await Files.InsertOneAsync(
+            new BsonDocument
+            {
+                { "name", "Media.mkv" },
+                { "type", "file" },
+                { "status", "queued" },
+                { "local_path", localPath },
+                { "queue_identity", legacyIdentity }
+            },
+            cancellationToken: TestContext.Current.CancellationToken);
+
+        using var context = CreateContext();
+        var inserted = await context.InsertFileDocIfAbsentAsync(
+            new BsonDocument
+            {
+                { "_id", ObjectId.GenerateNewId() },
+                { "name", "Media.mkv" },
+                { "type", "file" },
+                { "status", "queued" },
+                { "local_path", localPath }
+            },
+            TestContext.Current.CancellationToken);
+
+        Assert.False(inserted);
+        Assert.Equal(1, await Files.CountDocumentsAsync(
+            Builders<BsonDocument>.Filter.Eq("local_path", localPath),
+            cancellationToken: TestContext.Current.CancellationToken));
     }
 
     [Fact]
@@ -155,9 +390,10 @@ public sealed class NebulaQueueConcurrencyMongoTests : IDisposable
 
         var claimed = await context.ClaimFileForUploadAsync(id, 1, 0, CancellationToken.None);
         Assert.NotNull(claimed);
+        var leaseId = claimed["lease_id"].AsString;
 
         var ownerParts = new BsonArray { new BsonDocument { { "part", 0 }, { "size", 512L } } };
-        var ownerWrote = await context.UpdateUploadProgressAsync(id, ownerParts, 512, 0, "1", CancellationToken.None);
+        var ownerWrote = await context.UpdateUploadProgressAsync(id, ownerParts, 512, 0, "1", CancellationToken.None, leaseId);
         Assert.True(ownerWrote, "O dono do lease deve conseguir gravar progresso.");
 
         // Worker 2 nunca reivindicou este documento.
@@ -182,14 +418,17 @@ public sealed class NebulaQueueConcurrencyMongoTests : IDisposable
         var id = await InsertQueuedFileAsync();
 
         // Worker 1 reivindica e grava progresso.
-        Assert.NotNull(await context.ClaimFileForUploadAsync(id, 1, 0, CancellationToken.None));
+        var firstClaim = await context.ClaimFileForUploadAsync(id, 1, 0, CancellationToken.None);
+        Assert.NotNull(firstClaim);
+        var firstLeaseId = firstClaim["lease_id"].AsString;
         Assert.True(await context.UpdateUploadProgressAsync(
             id,
             new BsonArray { new BsonDocument { { "part", 0 }, { "size", 512L } } },
             512,
             0,
             "1",
-            CancellationToken.None));
+            CancellationToken.None,
+            firstLeaseId));
 
         // O worker travou e a recuperação devolveu o item à fila.
         await context.RequeueInterruptedUploadsAsync(CancellationToken.None);
@@ -211,14 +450,17 @@ public sealed class NebulaQueueConcurrencyMongoTests : IDisposable
         Assert.False(requeued.Contains("lease_id"), "O requeue deve limpar o lease.");
 
         // Worker 2 assume legitimamente.
-        Assert.NotNull(await context.ClaimFileForUploadAsync(id, 2, 0, CancellationToken.None));
+        var secondClaim = await context.ClaimFileForUploadAsync(id, 2, 0, CancellationToken.None);
+        Assert.NotNull(secondClaim);
+        var secondLeaseId = secondClaim["lease_id"].AsString;
         Assert.True(await context.UpdateUploadProgressAsync(
             id,
             new BsonArray { new BsonDocument { { "part", 0 }, { "size", 900L } } },
             900,
             0,
             "2",
-            CancellationToken.None));
+            CancellationToken.None,
+            secondLeaseId));
 
         // O worker 1 volta do limbo. Esta é a corrida que corrompia os dados:
         // antes do fencing, "sem dono" o qualificava e ele sobrescrevia o
@@ -229,12 +471,77 @@ public sealed class NebulaQueueConcurrencyMongoTests : IDisposable
             512,
             0,
             "1",
-            CancellationToken.None);
+            CancellationToken.None,
+            firstLeaseId);
 
         Assert.False(zombieWrote, "Worker zumbi não pode readotar documento já reivindicado.");
 
         var final = await Files.Find(Builders<BsonDocument>.Filter.Eq("_id", id)).FirstAsync(TestContext.Current.CancellationToken);
         Assert.Equal("2", final["worker_id"].AsString);
+        Assert.Equal(900L, final["uploaded_bytes"].ToInt64());
+    }
+
+    [Fact]
+    public async Task ReclaimedUpload_RejectsPreviousLeaseFromSameWorkerId()
+    {
+        Assert.SkipUnless(_available, _skipReason);
+
+        using var context = CreateContext();
+        var id = await InsertQueuedFileAsync();
+        var firstClaim = await context.ClaimFileForUploadAsync(id, 4, 0, CancellationToken.None);
+        Assert.NotNull(firstClaim);
+        var oldLeaseId = firstClaim["lease_id"].AsString;
+
+        Assert.True(await context.UpdateUploadProgressAsync(
+            id,
+            new BsonArray { new BsonDocument { { "part", 0 }, { "size", 512L } } },
+            512,
+            0,
+            "4",
+            CancellationToken.None,
+            oldLeaseId));
+
+        await Files.UpdateOneAsync(
+            Builders<BsonDocument>.Filter.Eq("_id", id),
+            Builders<BsonDocument>.Update.Set("lease_until", DateTimeOffset.UtcNow.ToUnixTimeSeconds() - 10),
+            cancellationToken: TestContext.Current.CancellationToken);
+
+        // A delayed worker cannot resurrect its generation after the lease
+        // deadline, even if no replacement claim has committed yet.
+        Assert.False(await context.RenewUploadLeaseAsync(id, "4", oldLeaseId, CancellationToken.None));
+        Assert.False(await context.TryAcquireUploadOwnershipAsync(id, "4", CancellationToken.None, oldLeaseId));
+
+        await context.RequeueInterruptedUploadsAsync(CancellationToken.None);
+
+        var secondClaim = await context.ClaimFileForUploadAsync(id, 4, 0, CancellationToken.None);
+        Assert.NotNull(secondClaim);
+        var newLeaseId = secondClaim["lease_id"].AsString;
+        Assert.NotEqual(oldLeaseId, newLeaseId);
+        Assert.True(await context.RenewUploadLeaseAsync(id, "4", newLeaseId, CancellationToken.None));
+        Assert.False(await context.RenewUploadLeaseAsync(id, "4", oldLeaseId, CancellationToken.None));
+
+        Assert.True(await context.UpdateUploadProgressAsync(
+            id,
+            new BsonArray { new BsonDocument { { "part", 0 }, { "size", 900L } } },
+            900,
+            0,
+            "4",
+            CancellationToken.None,
+            newLeaseId));
+
+        var staleWrite = await context.UpdateUploadProgressAsync(
+            id,
+            new BsonArray { new BsonDocument { { "part", 0 }, { "size", 512L } } },
+            512,
+            0,
+            "4",
+            CancellationToken.None,
+            oldLeaseId);
+        Assert.False(staleWrite);
+
+        var final = await Files.Find(Builders<BsonDocument>.Filter.Eq("_id", id)).FirstAsync(TestContext.Current.CancellationToken);
+        Assert.Equal("4", final["worker_id"].AsString);
+        Assert.Equal(newLeaseId, final["lease_id"].AsString);
         Assert.Equal(900L, final["uploaded_bytes"].ToInt64());
     }
 
@@ -246,7 +553,8 @@ public sealed class NebulaQueueConcurrencyMongoTests : IDisposable
         using var context = CreateContext();
         var id = await InsertQueuedFileAsync();
 
-        Assert.NotNull(await context.ClaimFileForUploadAsync(id, 1, 0, CancellationToken.None));
+        var claimed = await context.ClaimFileForUploadAsync(id, 1, 0, CancellationToken.None);
+        Assert.NotNull(claimed);
         var completed = await context.CompleteFileUploadAsync(
             id,
             new BsonDocument
@@ -256,7 +564,8 @@ public sealed class NebulaQueueConcurrencyMongoTests : IDisposable
                 { "parts", new BsonArray { new BsonDocument { { "part", 0 }, { "size", 1024L } } } }
             },
             CancellationToken.None,
-            "1");
+            "1",
+            claimed["lease_id"].AsString);
         Assert.True(completed);
 
         // Mídia concluída nunca volta para a fila: é o requisito de idempotência
@@ -270,23 +579,25 @@ public sealed class NebulaQueueConcurrencyMongoTests : IDisposable
     }
 
     [Fact]
-    public async Task FailedUpload_HonoursRetryAfterBeforeBeingClaimedAgain()
+    public async Task TransientUpload_HonoursRetryAfterBeforeBeingClaimedAgain()
     {
         Assert.SkipUnless(_available, _skipReason);
 
         using var context = CreateContext();
         var id = await InsertQueuedFileAsync();
 
-        Assert.NotNull(await context.ClaimFileForUploadAsync(id, 1, 0, CancellationToken.None));
+        var claimed = await context.ClaimFileForUploadAsync(id, 1, 0, CancellationToken.None);
+        Assert.NotNull(claimed);
         Assert.True(await context.MarkUploadFailedAsync(
             id,
             "falha transitória",
             NebulaUploadFailureStages.TelegramTransfer,
             CancellationToken.None,
-            "1"));
+            "1",
+            claimed["lease_id"].AsString));
 
         var failed = await Files.Find(Builders<BsonDocument>.Filter.Eq("_id", id)).FirstAsync(TestContext.Current.CancellationToken);
-        Assert.Equal("failed", failed["status"].AsString);
+        Assert.Equal("retry_wait", failed["status"].AsString);
         Assert.True(failed.Contains("retry_after"), "Falha transitória deve agendar retry.");
 
         // Enquanto o backoff não vence, nenhum worker pode reivindicar.
@@ -296,6 +607,83 @@ public sealed class NebulaQueueConcurrencyMongoTests : IDisposable
         await Files.UpdateOneAsync(
             Builders<BsonDocument>.Filter.Eq("_id", id),
             Builders<BsonDocument>.Update.Set("retry_after", DateTimeOffset.UtcNow.ToUnixTimeSeconds() - 1),
+            cancellationToken: TestContext.Current.CancellationToken);
+        Assert.NotNull(await context.ClaimFileForUploadAsync(id, 2, 0, CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task UploadQueueSummary_CountsCurrentAndLegacyRetryStatesSeparately()
+    {
+        Assert.SkipUnless(_available, _skipReason);
+
+        using var context = CreateContext();
+        var currentRetry = await InsertQueuedFileAsync();
+        var legacyRetry = await InsertQueuedFileAsync();
+        await Files.UpdateOneAsync(
+            Builders<BsonDocument>.Filter.Eq("_id", currentRetry),
+            Builders<BsonDocument>.Update.Set("status", "retry_wait").Set("retry_after", DateTimeOffset.UtcNow.ToUnixTimeSeconds() + 120),
+            cancellationToken: TestContext.Current.CancellationToken);
+        await Files.UpdateOneAsync(
+            Builders<BsonDocument>.Filter.Eq("_id", legacyRetry),
+            Builders<BsonDocument>.Update.Set("status", "failed").Set("next_retry_at", DateTimeOffset.UtcNow.ToUnixTimeSeconds() + 120),
+            cancellationToken: TestContext.Current.CancellationToken);
+
+        var summary = await context.GetUploadQueueSummaryAsync(TestContext.Current.CancellationToken);
+
+        Assert.Equal(2, summary.RetryCount);
+        Assert.Equal(0, summary.PendingCount);
+    }
+
+    [Theory]
+    [InlineData("retry_wait", "retry_after")]
+    [InlineData("retry_wait", "next_retry_at")]
+    [InlineData("failed", "retry_after")]
+    [InlineData("failed", "next_retry_at")]
+    public async Task RetryQueue_HonoursCurrentAndLegacyRetryDeadlines(string status, string deadlineField)
+    {
+        Assert.SkipUnless(_available, _skipReason);
+
+        using var context = CreateContext();
+        var id = await InsertQueuedFileAsync();
+        var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+        await Files.UpdateOneAsync(
+            Builders<BsonDocument>.Filter.Eq("_id", id),
+            Builders<BsonDocument>.Update
+                .Set("status", status)
+                .Set(deadlineField, now + 120)
+                .Set("failure_terminal", false),
+            cancellationToken: TestContext.Current.CancellationToken);
+
+        Assert.Null(await context.ClaimFileForUploadAsync(id, 1, 0, CancellationToken.None));
+
+        await Files.UpdateOneAsync(
+            Builders<BsonDocument>.Filter.Eq("_id", id),
+            Builders<BsonDocument>.Update.Set(deadlineField, now - 1),
+            cancellationToken: TestContext.Current.CancellationToken);
+        Assert.NotNull(await context.ClaimFileForUploadAsync(id, 2, 0, CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task RetryQueue_UsesLaterDeadlineWhenPythonAndServerFieldsCoexist()
+    {
+        Assert.SkipUnless(_available, _skipReason);
+
+        using var context = CreateContext();
+        var id = await InsertQueuedFileAsync();
+        var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+        await Files.UpdateOneAsync(
+            Builders<BsonDocument>.Filter.Eq("_id", id),
+            Builders<BsonDocument>.Update
+                .Set("status", "retry_wait")
+                .Set("retry_after", now + 120)
+                .Set("next_retry_at", now - 1),
+            cancellationToken: TestContext.Current.CancellationToken);
+
+        Assert.Null(await context.ClaimFileForUploadAsync(id, 1, 0, CancellationToken.None));
+
+        await Files.UpdateOneAsync(
+            Builders<BsonDocument>.Filter.Eq("_id", id),
+            Builders<BsonDocument>.Update.Set("retry_after", now - 1),
             cancellationToken: TestContext.Current.CancellationToken);
         Assert.NotNull(await context.ClaimFileForUploadAsync(id, 2, 0, CancellationToken.None));
     }
@@ -364,12 +752,14 @@ public sealed class NebulaQueueConcurrencyMongoTests : IDisposable
         using var context = CreateContext();
         var id = await InsertQueuedFileAsync();
 
-        Assert.NotNull(await context.ClaimFileForUploadAsync(id, 1, 0, CancellationToken.None));
+        var claimed = await context.ClaimFileForUploadAsync(id, 1, 0, CancellationToken.None);
+        Assert.NotNull(claimed);
         Assert.True(await context.CompleteFileUploadAsync(
             id,
             new BsonDocument { { "status", "completed" }, { "size", 1024L } },
             CancellationToken.None,
-            "1"));
+            "1",
+            claimed["lease_id"].AsString));
 
         // Priorizar mídia já enviada não faz sentido e reabriria trabalho
         // concluído na fila restaurada.
@@ -392,7 +782,8 @@ public sealed class NebulaQueueConcurrencyMongoTests : IDisposable
         var completedId = await InsertQueuedFileAsync();
         var pendingId = await InsertQueuedFileAsync();
 
-        Assert.NotNull(await source.ClaimFileForUploadAsync(completedId, 1, 0, CancellationToken.None));
+        var sourceClaim = await source.ClaimFileForUploadAsync(completedId, 1, 0, CancellationToken.None);
+        Assert.NotNull(sourceClaim);
         Assert.True(await source.CompleteFileUploadAsync(
             completedId,
             new BsonDocument
@@ -403,7 +794,8 @@ public sealed class NebulaQueueConcurrencyMongoTests : IDisposable
                 { "parts", new BsonArray { new BsonDocument { { "part", 0 }, { "size", 4096L } } } }
             },
             CancellationToken.None,
-            "1"));
+            "1",
+            sourceClaim["lease_id"].AsString));
         Assert.True(await source.SetUploadPriorityAsync(pendingId, true, CancellationToken.None));
 
         // "Backup": exporta a coleção inteira como documentos BSON.

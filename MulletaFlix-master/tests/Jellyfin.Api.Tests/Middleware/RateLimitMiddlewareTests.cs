@@ -725,6 +725,52 @@ public sealed class RateLimitMiddlewareTests
         Assert.Equal(StatusCodes.Status200OK, afterCompletion.Response.StatusCode);
     }
 
+    [Theory]
+    [InlineData("/Backup/Restore")]
+    [InlineData("/Backup/RestorePointInTime")]
+    public async Task ConcurrentRestoreRequests_AreRejectedWithoutBlockingPlayback(string restorePath)
+    {
+        var releaseRestore = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var middleware = new RateLimitMiddleware(
+            async context =>
+            {
+                if (context.Request.Path == restorePath)
+                {
+                    await releaseRestore.Task;
+                }
+
+                context.Response.StatusCode = StatusCodes.Status200OK;
+            },
+            NullLogger<RateLimitMiddleware>.Instance);
+
+        DefaultHttpContext CreateContext(string path, string method = "POST")
+        {
+            var context = new DefaultHttpContext();
+            context.Connection.RemoteIpAddress = IPAddress.Parse("198.51.100.91");
+            context.Request.Path = path;
+            context.Request.Method = method;
+            return context;
+        }
+
+        var restore = CreateContext(restorePath);
+        var pendingRestore = middleware.Invoke(restore);
+        var competingBackup = CreateContext("/Backup/Create");
+        var competingRequest = middleware.Invoke(competingBackup);
+        var playback = CreateContext("/Videos/00000000000000000000000000000001/stream", "GET");
+        await middleware.Invoke(playback);
+        releaseRestore.SetResult();
+        await Task.WhenAll(pendingRestore, competingRequest);
+
+        Assert.Equal(StatusCodes.Status200OK, restore.Response.StatusCode);
+        Assert.Equal(StatusCodes.Status429TooManyRequests, competingBackup.Response.StatusCode);
+        Assert.Equal("1", competingBackup.Response.Headers.RetryAfter.ToString());
+        Assert.Equal(StatusCodes.Status200OK, playback.Response.StatusCode);
+
+        var afterCompletion = CreateContext(restorePath);
+        await middleware.Invoke(afterCompletion);
+        Assert.Equal(StatusCodes.Status200OK, afterCompletion.Response.StatusCode);
+    }
+
     [Fact]
     public async Task SupabaseRestoreAndFullSystemBackup_ShareHeavyOperationCapacity()
     {

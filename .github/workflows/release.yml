@@ -122,7 +122,10 @@ jobs:
           tar -tzf "$package" | grep -q '/server/Tools/NebulaPython/requirements.lock$'
 
       - name: Install Nebula Python dependencies without native compiler
-        run: bash tools/release/tests/linux-nebula-python-dependencies.test.sh
+        run: |
+          package="$(find dist -maxdepth 1 -name 'mulletaflix_*_linux-x64.tar.gz' -print -quit)"
+          test -n "$package"
+          bash tools/release/tests/linux-nebula-python-dependencies.test.sh "$package"
 
       - name: Upload Linux package artifact
         uses: actions/upload-artifact@v4

@@ -68,6 +68,202 @@ public sealed class NextUpQueryOptimizationTests : IDisposable
     }
 
     [Fact]
+    public void KeepPreferredCandidate_RetainsOnlyEarliestPositionPerSeries()
+    {
+        var first = new NextUpService.EpisodeCandidate(Guid.NewGuid(), "SeriesA", 1, 1);
+        var laterSeason = new NextUpService.EpisodeCandidate(Guid.NewGuid(), "SeriesA", 2, 1);
+        var earlierEpisode = new NextUpService.EpisodeCandidate(Guid.NewGuid(), "SeriesA", 1, 2);
+        var candidates = new Dictionary<string, NextUpService.EpisodeCandidate>();
+
+        NextUpService.KeepPreferredCandidate(candidates, laterSeason, descending: false);
+        NextUpService.KeepPreferredCandidate(candidates, earlierEpisode, descending: false);
+        NextUpService.KeepPreferredCandidate(candidates, first, descending: false);
+
+        Assert.Single(candidates);
+        Assert.Equal(first.Id, candidates["SeriesA"].Id);
+    }
+
+    [Fact]
+    public void KeepPreferredCandidate_RetainsOnlyLatestPositionPerSeries()
+    {
+        var earlier = new NextUpService.EpisodeCandidate(Guid.NewGuid(), "SeriesA", 1, 12);
+        var laterSeason = new NextUpService.EpisodeCandidate(Guid.NewGuid(), "SeriesA", 2, 1);
+        var laterEpisode = new NextUpService.EpisodeCandidate(Guid.NewGuid(), "SeriesA", 2, 2);
+        var anotherSeries = new NextUpService.EpisodeCandidate(Guid.NewGuid(), "SeriesB", 1, 1);
+        var candidates = new Dictionary<string, NextUpService.EpisodeCandidate>();
+
+        NextUpService.KeepPreferredCandidate(candidates, earlier, descending: true);
+        NextUpService.KeepPreferredCandidate(candidates, laterSeason, descending: true);
+        NextUpService.KeepPreferredCandidate(candidates, laterEpisode, descending: true);
+        NextUpService.KeepPreferredCandidate(candidates, anotherSeries, descending: true);
+
+        Assert.Equal(2, candidates.Count);
+        Assert.Equal(laterEpisode.Id, candidates["SeriesA"].Id);
+        Assert.Equal(anotherSeries.Id, candidates["SeriesB"].Id);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void KeepPreferredCandidate_MatchesStableOrderingForNullablePositions(bool descending)
+    {
+        var episodes = new[]
+        {
+            new NextUpService.EpisodeCandidate(Guid.NewGuid(), "SeriesA", null, 2),
+            new NextUpService.EpisodeCandidate(Guid.NewGuid(), "SeriesA", 1, null),
+            new NextUpService.EpisodeCandidate(Guid.NewGuid(), "SeriesA", 1, 2),
+            new NextUpService.EpisodeCandidate(Guid.NewGuid(), "SeriesA", 1, 2),
+            new NextUpService.EpisodeCandidate(Guid.NewGuid(), "SeriesA", 2, null),
+            new NextUpService.EpisodeCandidate(Guid.NewGuid(), "SeriesB", null, null),
+            new NextUpService.EpisodeCandidate(Guid.NewGuid(), "SeriesB", 1, 1)
+        };
+        var selected = new Dictionary<string, NextUpService.EpisodeCandidate>();
+
+        foreach (var episode in episodes)
+        {
+            NextUpService.KeepPreferredCandidate(selected, episode, descending);
+        }
+
+        foreach (var group in episodes.GroupBy(episode => episode.SeriesKey))
+        {
+            var ordered = descending
+                ? group.OrderByDescending(episode => episode.Season).ThenByDescending(episode => episode.Episode)
+                : group.OrderBy(episode => episode.Season).ThenBy(episode => episode.Episode);
+            Assert.Equal(ordered.First().Id, selected[group.Key].Id);
+        }
+    }
+
+    [Fact]
+    public void GetNextUpEpisodesBatch_SelectsEarliestUnplayedEpisodeWithoutBufferingAllCandidates()
+    {
+        var userId = Guid.NewGuid();
+        var seriesKey = "SeriesA";
+        var userEntity = new MulletaFlix.Database.Implementations.Entities.User("testuser", "auth", "auth")
+        {
+            Id = userId
+        };
+        var watched = CreateEpisode(seriesKey, 1, 1);
+        var expectedNext = CreateEpisode(seriesKey, 1, 2);
+        var laterEpisode = CreateEpisode(seriesKey, 1, 3);
+        _context.Users.Add(userEntity);
+        _context.BaseItems.AddRange(watched, expectedNext, laterEpisode);
+        _context.UserData.Add(new UserData
+        {
+            UserId = userId,
+            ItemId = watched.Id,
+            Item = watched,
+            User = userEntity,
+            CustomDataKey = string.Empty,
+            LastPlayedDate = DateTime.UtcNow,
+            Played = true
+        });
+        _context.SaveChanges();
+
+        _queryHelpersMock
+            .Setup(h => h.ApplyAccessFiltering(_context, It.IsAny<IQueryable<BaseItemEntity>>(), It.IsAny<InternalItemsQuery>()))
+            .Returns<MulletaFlixDbContext, IQueryable<BaseItemEntity>, InternalItemsQuery>((_, query, _) => query);
+        _queryHelpersMock
+            .Setup(h => h.ApplyNavigations(It.IsAny<IQueryable<BaseItemEntity>>(), It.IsAny<InternalItemsQuery>()))
+            .Returns<IQueryable<BaseItemEntity>, InternalItemsQuery>((query, _) => query);
+        var deserializedIds = new List<Guid>();
+        _queryHelpersMock
+            .Setup(h => h.DeserializeBaseItem(It.IsAny<BaseItemEntity>(), It.IsAny<bool>()))
+            .Callback<BaseItemEntity, bool>((entity, _) => deserializedIds.Add(entity.Id))
+            .Returns((BaseItem?)null);
+
+        var result = _service.GetNextUpEpisodesBatch(
+            new InternalItemsQuery { User = new User("testuser", "auth", "auth") { Id = userId } },
+            [seriesKey],
+            includeSpecials: false,
+            includeWatchedForRewatching: false);
+
+        Assert.Contains(expectedNext.Id, deserializedIds);
+        Assert.DoesNotContain(laterEpisode.Id, deserializedIds);
+        Assert.Contains(seriesKey, result.Keys);
+    }
+
+    [Fact]
+    public void GetNextUpEpisodesBatch_SelectsNextPlayedEpisodeAfterMostRecentlyPlayedPosition()
+    {
+        var userId = Guid.NewGuid();
+        var seriesKey = "SeriesRewatch";
+        var userEntity = new MulletaFlix.Database.Implementations.Entities.User("testuser", "auth", "auth")
+        {
+            Id = userId
+        };
+        var watchedMostRecently = CreateEpisode(seriesKey, 1, 1);
+        var watchedLater = CreateEpisode(seriesKey, 1, 3);
+        _context.Users.Add(userEntity);
+        _context.BaseItems.AddRange(watchedMostRecently, CreateEpisode(seriesKey, 1, 2), watchedLater);
+        var now = DateTime.UtcNow;
+        _context.UserData.AddRange(
+            new UserData
+            {
+                UserId = userId,
+                ItemId = watchedMostRecently.Id,
+                Item = watchedMostRecently,
+                User = userEntity,
+                CustomDataKey = string.Empty,
+                LastPlayedDate = now,
+                Played = true
+            },
+            new UserData
+            {
+                UserId = userId,
+                ItemId = watchedLater.Id,
+                Item = watchedLater,
+                User = userEntity,
+                CustomDataKey = string.Empty,
+                LastPlayedDate = now.AddMinutes(-1),
+                Played = true
+            },
+            new UserData
+            {
+                UserId = userId,
+                ItemId = watchedMostRecently.Id,
+                Item = watchedMostRecently,
+                User = userEntity,
+                CustomDataKey = "secondary",
+                LastPlayedDate = now.AddMinutes(-5),
+                Played = true
+            });
+        _context.SaveChanges();
+
+        _queryHelpersMock
+            .Setup(h => h.ApplyAccessFiltering(_context, It.IsAny<IQueryable<BaseItemEntity>>(), It.IsAny<InternalItemsQuery>()))
+            .Returns<MulletaFlixDbContext, IQueryable<BaseItemEntity>, InternalItemsQuery>((_, query, _) => query);
+        _queryHelpersMock
+            .Setup(h => h.ApplyNavigations(It.IsAny<IQueryable<BaseItemEntity>>(), It.IsAny<InternalItemsQuery>()))
+            .Returns<IQueryable<BaseItemEntity>, InternalItemsQuery>((query, _) => query);
+        var deserializedIds = new List<Guid>();
+        _queryHelpersMock
+            .Setup(h => h.DeserializeBaseItem(It.IsAny<BaseItemEntity>(), It.IsAny<bool>()))
+            .Callback<BaseItemEntity, bool>((entity, _) => deserializedIds.Add(entity.Id))
+            .Returns((BaseItem?)null);
+
+        var result = _service.GetNextUpEpisodesBatch(
+            new InternalItemsQuery { User = new User("testuser", "auth", "auth") { Id = userId } },
+            [seriesKey],
+            includeSpecials: false,
+            includeWatchedForRewatching: true);
+
+        Assert.Contains(watchedLater.Id, deserializedIds);
+        Assert.Contains(watchedMostRecently.Id, deserializedIds);
+        Assert.Equal(2, deserializedIds.Count(id => id == watchedLater.Id));
+        Assert.Null(result[seriesKey].NextUp);
+    }
+
+    private static BaseItemEntity CreateEpisode(string seriesKey, int season, int episode)
+        => new()
+        {
+            Id = Guid.NewGuid(),
+            Type = "Episode",
+            SeriesPresentationUniqueKey = seriesKey,
+            ParentIndexNumber = season,
+            IndexNumber = episode
+        };
+
+    [Fact]
     public void GetNextUpSeriesKeys_ReturnsProjectedKeys()
     {
         var userId = Guid.NewGuid();
@@ -145,6 +341,7 @@ public sealed class NextUpQueryOptimizationTests : IDisposable
         var seriesAKey = "SeriesA";
         var seriesBKey = "SeriesB";
         var topParentId = Guid.NewGuid();
+        var lastPlayedDate = DateTime.UtcNow.AddDays(-1);
 
         var episodeA = new BaseItemEntity
         {
@@ -180,7 +377,7 @@ public sealed class NextUpQueryOptimizationTests : IDisposable
                 Item = episodeA,
                 User = userEntity,
                 CustomDataKey = string.Empty,
-                LastPlayedDate = DateTime.UtcNow.AddDays(-1),
+                LastPlayedDate = lastPlayedDate,
                 Played = true
             },
             new UserData
@@ -190,7 +387,7 @@ public sealed class NextUpQueryOptimizationTests : IDisposable
                 Item = episodeB,
                 User = userEntity,
                 CustomDataKey = string.Empty,
-                LastPlayedDate = DateTime.UtcNow.AddDays(-2),
+                LastPlayedDate = lastPlayedDate,
                 Played = true
             });
 

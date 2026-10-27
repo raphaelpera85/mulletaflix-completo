@@ -79,6 +79,37 @@ namespace MulletaFlix.Providers.Tests.Manager
         }
 
         [Fact]
+        public async Task SaveRemoteResultImages_DoesNotUseMetadataLanguageAsImageLanguage()
+        {
+            var item = new Movie();
+            var providerManager = new Mock<IProviderManager>(MockBehavior.Strict);
+            providerManager.Setup(manager => manager.SaveImage(item, "localized-primary", ImageType.Primary, null, It.IsAny<CancellationToken>()))
+                .Callback<BaseItem, string, ImageType, int?, CancellationToken>((savedItem, url, type, _, _) =>
+                    savedItem.SetImage(
+                        new ItemImageInfo { Path = url, Type = type },
+                        0))
+                .Returns(Task.CompletedTask);
+            var service = CreateMovieMetadataService(providerManager.Object);
+            var result = new MetadataResult<Movie> { ResultLanguage = "pt" };
+            result.RemoteImages.Add(("localized-primary", ImageType.Primary));
+
+            await service.SaveRemoteResultImages(
+                item,
+                result,
+                new MetadataRefreshOptions(Mock.Of<IDirectoryService>()),
+                "MockProvider",
+                false,
+                new RefreshResult(),
+                new HashSet<ImageType>(),
+                null,
+                null,
+                CancellationToken.None);
+
+            Assert.Equal("MockProvider", item.GetImageInfo(ImageType.Primary, 0)!.ProviderName);
+            Assert.Null(item.GetImageInfo(ImageType.Primary, 0)!.Language);
+        }
+
+        [Fact]
         public async Task SaveRemoteResultImages_SingularType_TriesNextCandidateWhenFirstFails()
         {
             var item = new Movie();

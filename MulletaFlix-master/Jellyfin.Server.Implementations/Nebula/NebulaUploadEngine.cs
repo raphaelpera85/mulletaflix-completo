@@ -589,7 +589,8 @@ public sealed class NebulaUploadEngine : IAsyncDisposable, IDisposable
         string? parentId,
         int workerId,
         NebulaMongoAdmissionLease? admission,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        string? fileLeaseId = null)
     {
         if (!TryEnterOperation())
         {
@@ -617,7 +618,8 @@ public sealed class NebulaUploadEngine : IAsyncDisposable, IDisposable
                 targetFileName,
                 parentId,
                 workerId,
-                linkedCancellation.Token).ConfigureAwait(false);
+                linkedCancellation.Token,
+                fileLeaseId).ConfigureAwait(false);
             outcome = succeeded ? "success" : "failure";
             activity?.SetTag("nebula.result", outcome);
             return succeeded;
@@ -699,6 +701,7 @@ public sealed class NebulaUploadEngine : IAsyncDisposable, IDisposable
     private async Task ReleaseClaimedUploadAsync(
         ObjectId? claimedNodeId,
         string workerKey,
+        string? leaseId,
         Exception failure,
         string targetFileName)
     {
@@ -716,7 +719,8 @@ public sealed class NebulaUploadEngine : IAsyncDisposable, IDisposable
                 $"Erro inesperado no upload ({failure.GetType().Name}).",
                 NebulaUploadFailureStages.UnexpectedError,
                 CancellationToken.None,
-                workerKey).ConfigureAwait(false);
+                workerKey,
+                leaseId).ConfigureAwait(false);
         }
         catch (Exception releaseFailure)
         {
@@ -732,7 +736,8 @@ public sealed class NebulaUploadEngine : IAsyncDisposable, IDisposable
         string targetFileName,
         string? parentId,
         int workerId,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        string? fileLeaseId)
     {
         if (!File.Exists(localFilePath))
         {
@@ -762,6 +767,10 @@ public sealed class NebulaUploadEngine : IAsyncDisposable, IDisposable
         // pelos ramos explícitos de falha não deixe a mídia presa em `uploading`.
         ObjectId? claimedNodeId = null;
         var workerKey = workerId.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        var uploadLeaseId = string.IsNullOrWhiteSpace(fileLeaseId) ? Guid.NewGuid().ToString("N") : fileLeaseId;
+        CancellationTokenSource? leaseHeartbeatStop = null;
+        Task? leaseHeartbeatTask = null;
+        var leaseLost = 0;
 
         await _concurrencySemaphore.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
@@ -780,12 +789,34 @@ public sealed class NebulaUploadEngine : IAsyncDisposable, IDisposable
                 : ObjectId.TryParse(parentId, out var parentObjectId)
                     ? parentObjectId
                     : parentId;
+            ObjectId nodeId;
 
             // O worker pode ter acabado de marcar este registro como uploading.
             // Resolva-o antes da deduplicação para não deixá-lo preso nesse estado.
             var existingDoc = _mongoContext != null
                 ? await _mongoContext.FindFileForUploadAsync(targetFileName, parentId, localFilePath, cancellationToken).ConfigureAwait(false)
                 : null;
+
+            if (_mongoContext != null && existingDoc != null)
+            {
+                var existingStatus = existingDoc.GetValue("status", string.Empty).AsString;
+                if (!string.Equals(existingStatus, "completed", StringComparison.OrdinalIgnoreCase))
+                {
+                    nodeId = existingDoc.GetValue("_id").AsObjectId;
+                    claimedNodeId = nodeId;
+                    var ownsUpload = await _mongoContext
+                        .TryAcquireUploadOwnershipAsync(nodeId, workerKey, cancellationToken, uploadLeaseId)
+                        .ConfigureAwait(false);
+                    if (!ownsUpload)
+                    {
+                        _logger.LogInformation(
+                            "[NEBULA-UPLOAD] '{Name}' já pertence a outra geração; este ciclo não vai sobrescrever o progresso dela.",
+                            targetFileName);
+                        claimedNodeId = null;
+                        return false;
+                    }
+                }
+            }
 
             // 0. Verifica se esta mídia já foi enviada e concluída no Telegram (evita duplicata universal)
             var alreadyCompleted = _mongoContext != null
@@ -816,18 +847,21 @@ public sealed class NebulaUploadEngine : IAsyncDisposable, IDisposable
                     LogServer("INFO", $"[NEBULA-UPLOAD] Mídia '{targetFileName}' já enviada ao Telegram anteriormente. Arquivo local excluído.");
                 }
 
-                if (existingDoc != null && existingDoc.TryGetValue("_id", out var existingId) && existingId.IsObjectId)
+                if (existingDoc != null && existingDoc.TryGetValue("_id", out var existingId) && existingId.IsObjectId &&
+                    !string.Equals(existingDoc.GetValue("status", string.Empty).AsString, "completed", StringComparison.OrdinalIgnoreCase))
                 {
                     var duplicateCompleted = await _mongoContext!.CompleteDuplicateUploadAsync(
                         existingId.AsObjectId,
                         alreadyCompleted,
                         totalSize,
-                        cancellationToken).ConfigureAwait(false);
+                        cancellationToken,
+                        workerKey,
+                        uploadLeaseId).ConfigureAwait(false);
                     if (!duplicateCompleted)
                     {
-                        if (await _mongoContext.IsUploadCancellationRequestedAsync(existingId.AsObjectId, workerKey, cancellationToken).ConfigureAwait(false))
+                        if (await _mongoContext.IsUploadCancellationRequestedAsync(existingId.AsObjectId, workerKey, cancellationToken, uploadLeaseId).ConfigureAwait(false))
                         {
-                            await _mongoContext.MarkUploadCancelledAsync(existingId.AsObjectId, workerKey, cancellationToken).ConfigureAwait(false);
+                            await _mongoContext.MarkUploadCancelledAsync(existingId.AsObjectId, workerKey, cancellationToken, uploadLeaseId).ConfigureAwait(false);
                             throw new NebulaUploadCancellationRequestedException();
                         }
 
@@ -859,8 +893,6 @@ public sealed class NebulaUploadEngine : IAsyncDisposable, IDisposable
 
             var existingPartsMap = new Dictionary<int, NebulaFilePart>();
             string fileUuid;
-            ObjectId nodeId;
-
             if (existingDoc != null)
             {
                 nodeId = existingDoc.GetValue("_id").AsObjectId;
@@ -893,6 +925,11 @@ public sealed class NebulaUploadEngine : IAsyncDisposable, IDisposable
                     }
 
                     return true;
+                }
+                else if (string.Equals(status, "completed", StringComparison.OrdinalIgnoreCase))
+                {
+                    _logger.LogWarning("[NEBULA-UPLOAD] Registro concluído inconsistente para '{Name}'; upload interrompido sem sobrescrever registro final.", targetFileName);
+                    return false;
                 }
 
                 var storedSize = existingDoc.TryGetValue("size", out var storedSizeValue) && storedSizeValue.IsNumeric
@@ -981,10 +1018,13 @@ public sealed class NebulaUploadEngine : IAsyncDisposable, IDisposable
                         { "modified_at", DateTimeOffset.UtcNow.ToUnixTimeSeconds() },
 
                         // O documento nasce em `uploading` já sob posse deste
-                        // worker. Sem isto o fencing de `worker_id` rejeitaria
-                        // todas as escritas seguintes, pois um documento sem dono
-                        // não pertence a ninguém.
+                        // worker e geração. As gravações posteriores exigem os
+                        // dois valores para impedir que uma tentativa antiga
+                        // reutilize o mesmo worker_id após um novo claim.
                         { "worker_id", workerKey },
+                        { "lease_id", uploadLeaseId },
+                        { "lease_until", DateTimeOffset.UtcNow.ToUnixTimeSeconds() + NebulaMongoContext.UploadLeaseSeconds },
+                        { "heartbeat_at", DateTimeOffset.UtcNow.ToUnixTimeSeconds() },
                         { "started_at", DateTimeOffset.UtcNow.ToUnixTimeSeconds() }
                     };
 
@@ -997,43 +1037,48 @@ public sealed class NebulaUploadEngine : IAsyncDisposable, IDisposable
                 }
             }
 
-            // A partir daqui o documento está em `uploading` neste worker, então
-            // qualquer saída por exceção precisa liberá-lo explicitamente.
+            // A partir daqui o documento está em `uploading` nesta geração.
             claimedNodeId = nodeId;
 
-            // Documento preexistente pode ter chegado aqui sem passar por
-            // `ClaimFileForUploadAsync` (retomada de staging, por exemplo). A posse
-            // é adquirida atomicamente: só prossegue se o documento estiver sem
-            // dono ou já for deste worker. Outro worker vivo detém a posse e este
-            // ciclo precisa desistir em vez de sobrescrever as partes dele.
-            if (_mongoContext != null && existingDoc != null)
+            if (_mongoContext != null)
             {
-                var ownsUpload = await _mongoContext
-                    .TryAcquireUploadOwnershipAsync(nodeId, workerKey, cancellationToken)
-                    .ConfigureAwait(false);
-                if (!ownsUpload)
+                leaseHeartbeatStop = new CancellationTokenSource();
+                leaseHeartbeatTask = MaintainUploadLeaseAsync(
+                    nodeId,
+                    workerKey,
+                    uploadLeaseId,
+                    targetFileName,
+                    leaseHeartbeatStop.Token,
+                    () => Interlocked.Exchange(ref leaseLost, 1));
+            }
+
+            bool EnsureLeaseHeld()
+            {
+                if (Volatile.Read(ref leaseLost) == 0)
                 {
-                    _logger.LogInformation(
-                        "[NEBULA-UPLOAD] '{Name}' já pertence a outro worker; este ciclo não vai sobrescrever o progresso dele.",
-                        targetFileName);
-                    claimedNodeId = null;
-                    return false;
+                    return true;
                 }
+
+                _logger.LogWarning(
+                    "[NEBULA-UPLOAD] Worker {Worker} perdeu a lease da geração atual de '{Name}'; nenhum novo estado será gravado.",
+                    workerId,
+                    targetFileName);
+                return false;
             }
 
             async Task<bool> FailUploadAsync(string reason, string failureStage)
             {
                 if (_mongoContext != null)
                 {
-                    if (await _mongoContext.IsUploadCancellationRequestedAsync(nodeId, workerKey, cancellationToken).ConfigureAwait(false))
+                    if (await _mongoContext.IsUploadCancellationRequestedAsync(nodeId, workerKey, cancellationToken, uploadLeaseId).ConfigureAwait(false))
                     {
-                        await _mongoContext.MarkUploadCancelledAsync(nodeId, workerKey, cancellationToken).ConfigureAwait(false);
+                        await _mongoContext.MarkUploadCancelledAsync(nodeId, workerKey, cancellationToken, uploadLeaseId).ConfigureAwait(false);
                         throw new NebulaUploadCancellationRequestedException();
                     }
 
                     try
                     {
-                        var markedFailed = await _mongoContext.MarkUploadFailedAsync(nodeId, reason, failureStage, cancellationToken, workerKey).ConfigureAwait(false);
+                        var markedFailed = await _mongoContext.MarkUploadFailedAsync(nodeId, reason, failureStage, cancellationToken, workerKey, uploadLeaseId).ConfigureAwait(false);
                         if (!markedFailed && await StopForCancellationIfRequestedAsync().ConfigureAwait(false))
                         {
                             throw new NebulaUploadCancellationRequestedException();
@@ -1050,12 +1095,12 @@ public sealed class NebulaUploadEngine : IAsyncDisposable, IDisposable
 
             async Task<bool> StopForCancellationIfRequestedAsync()
             {
-                if (!await _mongoContext.IsUploadCancellationRequestedAsync(nodeId, workerKey, cancellationToken).ConfigureAwait(false))
+                if (!await _mongoContext.IsUploadCancellationRequestedAsync(nodeId, workerKey, cancellationToken, uploadLeaseId).ConfigureAwait(false))
                 {
                     return false;
                 }
 
-                await _mongoContext.MarkUploadCancelledAsync(nodeId, workerKey, cancellationToken).ConfigureAwait(false);
+                await _mongoContext.MarkUploadCancelledAsync(nodeId, workerKey, cancellationToken, uploadLeaseId).ConfigureAwait(false);
                 _logger.LogInformation("[NEBULA-UPLOAD] Upload de '{Name}' cancelado pelo administrador após salvar as partes confirmadas.", targetFileName);
                 return true;
             }
@@ -1103,6 +1148,18 @@ public sealed class NebulaUploadEngine : IAsyncDisposable, IDisposable
 
                 for (int partNum = resumePart; partNum < totalParts; partNum++)
                 {
+                    if (!EnsureLeaseHeld())
+                    {
+                        return false;
+                    }
+
+                    if (_mongoContext is not null &&
+                        !await _mongoContext.RenewUploadLeaseAsync(nodeId, workerKey, uploadLeaseId, cancellationToken).ConfigureAwait(false))
+                    {
+                        Interlocked.Exchange(ref leaseLost, 1);
+                        return false;
+                    }
+
                     cancellationToken.ThrowIfCancellationRequested();
                     if (await StopForCancellationIfRequestedAsync().ConfigureAwait(false))
                     {
@@ -1163,6 +1220,21 @@ public sealed class NebulaUploadEngine : IAsyncDisposable, IDisposable
 
                     for (var botAttempt = 0; botAttempt < availableBots.Count; botAttempt++)
                     {
+                        if (!EnsureLeaseHeld())
+                        {
+                            return false;
+                        }
+
+                        // A lease may be reclaimed while a prior Telegram send
+                        // is returning an ambiguous failure. Before trying a
+                        // different bot, confirm the exact generation in Mongo.
+                        if (botAttempt > 0 && _mongoContext is not null &&
+                            !await _mongoContext.RenewUploadLeaseAsync(nodeId, workerKey, uploadLeaseId, cancellationToken).ConfigureAwait(false))
+                        {
+                            Interlocked.Exchange(ref leaseLost, 1);
+                            return false;
+                        }
+
                         botIndex = availableBots[(partNum + botAttempt) % availableBots.Count];
                         LogServer("INFO", $"[UPLOAD] W{workerId} parte={partNum + 1} bot=#{botIndex + 1} iniciando");
                         try
@@ -1198,6 +1270,11 @@ public sealed class NebulaUploadEngine : IAsyncDisposable, IDisposable
                             NebulaUploadFailureStages.TelegramTransfer).ConfigureAwait(false);
                     }
 
+                    if (!EnsureLeaseHeld())
+                    {
+                        return false;
+                    }
+
                     // O pool pode escolher outro bot livre para manter o
                     // maior paralelismo possível; persiste o bot real usado.
                     botIndex = tgMsg.BotIndex;
@@ -1230,7 +1307,7 @@ public sealed class NebulaUploadEngine : IAsyncDisposable, IDisposable
 
                     if (_mongoContext != null)
                     {
-                        var ownsUpload = await _mongoContext.UpdateUploadProgressAsync(nodeId, currentPartDocs, uploadedBytes, botIndex, workerKey, cancellationToken).ConfigureAwait(false);
+                        var ownsUpload = await _mongoContext.UpdateUploadProgressAsync(nodeId, currentPartDocs, uploadedBytes, botIndex, workerKey, cancellationToken, uploadLeaseId).ConfigureAwait(false);
                         if (!ownsUpload)
                         {
                             _logger.LogWarning(
@@ -1270,6 +1347,11 @@ public sealed class NebulaUploadEngine : IAsyncDisposable, IDisposable
             var firstPart = parts[0];
             if (_mongoContext != null)
             {
+                if (!EnsureLeaseHeld())
+                {
+                    return false;
+                }
+
                 var finalFields = new BsonDocument
                 {
                     { "name", targetFileName },
@@ -1288,7 +1370,7 @@ public sealed class NebulaUploadEngine : IAsyncDisposable, IDisposable
                     { "tg_file_id", firstPart.TgFileId }
                 };
 
-                var completed = await _mongoContext.CompleteFileUploadAsync(nodeId, finalFields, cancellationToken, workerKey).ConfigureAwait(false);
+                var completed = await _mongoContext.CompleteFileUploadAsync(nodeId, finalFields, cancellationToken, workerKey, uploadLeaseId).ConfigureAwait(false);
                 if (!completed)
                 {
                     if (await StopForCancellationIfRequestedAsync().ConfigureAwait(false))
@@ -1367,12 +1449,85 @@ public sealed class NebulaUploadEngine : IAsyncDisposable, IDisposable
             // Sem isto, uma exceção inesperada deixaria o documento em
             // `uploading` até o requeue por obsolescência (1 h), invisível para o
             // painel e para as contagens de falha por etapa.
-            await ReleaseClaimedUploadAsync(claimedNodeId, workerKey, ex, targetFileName).ConfigureAwait(false);
+            await ReleaseClaimedUploadAsync(claimedNodeId, workerKey, uploadLeaseId, ex, targetFileName).ConfigureAwait(false);
             throw;
         }
         finally
         {
+            if (leaseHeartbeatStop is not null)
+            {
+                await leaseHeartbeatStop.CancelAsync().ConfigureAwait(false);
+                if (leaseHeartbeatTask is not null)
+                {
+                    try
+                    {
+                        await leaseHeartbeatTask.ConfigureAwait(false);
+                    }
+                    catch (OperationCanceledException)
+                    {
+                    }
+                }
+
+                leaseHeartbeatStop.Dispose();
+            }
+
             _concurrencySemaphore.Release();
+        }
+    }
+
+    private async Task MaintainUploadLeaseAsync(
+        ObjectId nodeId,
+        string workerKey,
+        string leaseId,
+        string targetFileName,
+        CancellationToken cancellationToken,
+        Action markLeaseLost)
+    {
+        if (_mongoContext is null)
+        {
+            return;
+        }
+
+        using var timer = new PeriodicTimer(TimeSpan.FromSeconds(NebulaMongoContext.UploadLeaseHeartbeatSeconds));
+        try
+        {
+            while (await timer.WaitForNextTickAsync(cancellationToken).ConfigureAwait(false))
+            {
+                for (var attempt = 1; attempt <= 3; attempt++)
+                {
+                    try
+                    {
+                        if (await _mongoContext.RenewUploadLeaseAsync(nodeId, workerKey, leaseId, cancellationToken).ConfigureAwait(false))
+                        {
+                            break;
+                        }
+
+                        markLeaseLost();
+                        _logger.LogWarning(
+                            "[NEBULA-UPLOAD] Lease não corresponde mais à geração ativa de '{Name}'; worker interromperá novas partes.",
+                            targetFileName);
+                        return;
+                    }
+                    catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                    {
+                        return;
+                    }
+                    catch (Exception ex) when (attempt < 3)
+                    {
+                        _logger.LogWarning(ex, "[NEBULA-UPLOAD] Falha transitória ao renovar a lease de '{Name}' (tentativa {Attempt}/3).", targetFileName, attempt);
+                        await Task.Delay(TimeSpan.FromSeconds(attempt * 2), cancellationToken).ConfigureAwait(false);
+                    }
+                    catch (Exception ex)
+                    {
+                        markLeaseLost();
+                        _logger.LogError(ex, "[NEBULA-UPLOAD] Lease de '{Name}' não foi renovada; worker falha fechado.", targetFileName);
+                        return;
+                    }
+                }
+            }
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
         }
     }
 

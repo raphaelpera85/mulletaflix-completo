@@ -9,14 +9,14 @@ using System.Net.Http.Headers;
 using System.Threading;
 using System.Threading.Tasks;
 using Jellyfin.Server.Implementations.Nebula;
-using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Logging.Abstractions;
 using MediaBrowser.Model.Configuration;
 using MediaBrowser.Model.Nebula;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging.Abstractions;
 using MongoDB.Bson;
 using Moq;
-using MulletaFlix.Database.Implementations.Entities;
 using MulletaFlix.Database.Implementations.Contexts;
+using MulletaFlix.Database.Implementations.Entities;
 using Xunit;
 
 namespace MulletaFlix.Server.Implementations.Tests.Nebula;
@@ -207,6 +207,65 @@ public class NebulaSupabaseSyncTests
         }
     }
 
+    [Theory]
+    [InlineData(0, 60, 60)]
+    [InlineData(1, 60, 1)]
+    [InlineData(2, 60, 2)]
+    [InlineData(3, 60, 4)]
+    [InlineData(7, 60, 60)]
+    [InlineData(4, 5, 5)]
+    public void GetAutomaticBackupDelay_UsesExponentialBackoffCappedAtConfiguredInterval(int consecutiveFailures, int intervalMinutes, int expectedMinutes)
+    {
+        var delay = NebulaSupabaseSyncService.GetAutomaticBackupDelay(consecutiveFailures, intervalMinutes);
+
+        Assert.Equal(TimeSpan.FromMinutes(expectedMinutes), delay);
+    }
+
+    [Fact]
+    public async Task AutomaticBackupLoop_RetriesFailedResultsAndTimeoutsThenResetsAfterSuccess()
+    {
+        using var service = new NebulaSupabaseSyncService(null!, NullLogger<NebulaSupabaseSyncService>.Instance);
+        using var cancellation = new CancellationTokenSource();
+        var delays = new List<TimeSpan>();
+        var retryMessages = new List<string>();
+        var attempts = 0;
+
+        Task DelayAsync(TimeSpan delay, CancellationToken cancellationToken)
+        {
+            delays.Add(delay);
+            if (delays.Count == 3)
+            {
+                cancellation.Cancel();
+                return Task.FromCanceled(cancellationToken);
+            }
+
+            return Task.CompletedTask;
+        }
+
+        Task<NebulaSupabaseBackupResultDto> BackupAsync(CancellationToken _)
+        {
+            attempts++;
+            return attempts switch
+            {
+                1 => Task.FromResult(new NebulaSupabaseBackupResultDto { Success = false }),
+                2 => Task.FromException<NebulaSupabaseBackupResultDto>(new TaskCanceledException("temporary HTTP timeout")),
+                3 => Task.FromResult(new NebulaSupabaseBackupResultDto { Success = true }),
+                _ => throw new InvalidOperationException("Unexpected automatic backup attempt.")
+            };
+        }
+
+        await service.RunAutomaticBackupLoopAsync(
+            BackupAsync,
+            DelayAsync,
+            intervalMinutes: 60,
+            retryMessages.Add,
+            cancellation.Token);
+
+        Assert.Equal(3, attempts);
+        Assert.Equal(new[] { TimeSpan.FromMinutes(1), TimeSpan.FromMinutes(2), TimeSpan.FromMinutes(60) }, delays);
+        Assert.Equal(2, retryMessages.Count);
+    }
+
     [Fact]
     public async Task UsersBackupFailsWhenRelationalSourceIsNotConfigured()
     {
@@ -356,21 +415,94 @@ public class NebulaSupabaseSyncTests
     }
 
     [Fact]
-    public async Task GetLastRemoteFileTimestampAsync_RetriesTransientServerErrorThenReturnsTimestamp()
+    public async Task GetLastRemoteBackupTimestampAsync_RetriesTransientServerErrorThenReturnsTimestamp()
+    {
+        var expected = new DateTime(2026, 10, 20, 12, 30, 0, DateTimeKind.Utc);
+        var handler = new SequenceResponseHandler(
+            new HttpResponseMessage(HttpStatusCode.InternalServerError) { Content = new StringContent("temporary failure") },
+            new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent($"[{{\"created_at\":\"{expected:O}\",\"total_files\":100,\"details\":\"sync_started_at_utc={expected:O}; completed\"}}]")
+            });
+        using var service = new NebulaSupabaseSyncService(null!, NullLogger<NebulaSupabaseSyncService>.Instance, null, handler);
+
+        var timestamp = await service.GetLastRemoteBackupTimestampAsync(
+            "https://supabase.invalid",
+            "sb_secret_test",
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(expected, timestamp);
+        Assert.Equal(new[] { HttpMethod.Get, HttpMethod.Get }, handler.Methods);
+        Assert.All(handler.RequestUris, uri => Assert.Contains("/rest/v1/nebula_backups?", uri, StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task GetLastRemoteFileTimestampAsync_RetriesTransientServerErrorThenUsesBackupCheckpoint()
     {
         var expected = new DateTime(2026, 10, 18, 12, 30, 0, DateTimeKind.Utc);
         var handler = new SequenceResponseHandler(
             new HttpResponseMessage(HttpStatusCode.InternalServerError) { Content = new StringContent("temporary failure") },
             new HttpResponseMessage(HttpStatusCode.OK)
             {
-                Content = new StringContent($"[{{\"updated_at\":\"{expected:O}\"}}]")
+                Content = new StringContent("[{\"id\":\"file-1\"}]")
+            },
+            new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent($"[{{\"created_at\":\"{expected.AddHours(1):O}\",\"total_files\":100,\"details\":\"sync_started_at_utc={expected:O}; completed\"}}]")
             });
         using var service = new NebulaSupabaseSyncService(null!, NullLogger<NebulaSupabaseSyncService>.Instance, null, handler);
 
         var timestamp = await service.GetLastRemoteFileTimestampAsync("https://supabase.invalid", "sb_secret_test", TestContext.Current.CancellationToken);
 
         Assert.Equal(expected, timestamp);
-        Assert.Equal(new[] { HttpMethod.Get, HttpMethod.Get }, handler.Methods);
+        Assert.Equal(new[] { HttpMethod.Get, HttpMethod.Get, HttpMethod.Get }, handler.Methods);
+        Assert.Contains("select=id&limit=1", handler.RequestUris[1], StringComparison.Ordinal);
+        Assert.DoesNotContain("order=updated_at", handler.RequestUris[1], StringComparison.Ordinal);
+        Assert.Contains("status=eq.success", handler.RequestUris[2], StringComparison.Ordinal);
+        Assert.Contains("backup_type=in.(mongo_delta_sync_v2,mongo_full_sync_v2)", handler.RequestUris[2], StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task GetLastRemoteFileTimestampAsync_HonorsRetryAfterForCursorAndBackupHistory()
+    {
+        var expected = new DateTime(2026, 10, 18, 12, 30, 0, DateTimeKind.Utc);
+        var cursorLimited = new HttpResponseMessage(HttpStatusCode.TooManyRequests) { Content = new StringContent("rate limited") };
+        cursorLimited.Headers.RetryAfter = new RetryConditionHeaderValue(TimeSpan.FromSeconds(1));
+        var historyUnavailable = new HttpResponseMessage(HttpStatusCode.ServiceUnavailable) { Content = new StringContent("temporary failure") };
+        historyUnavailable.Headers.RetryAfter = new RetryConditionHeaderValue(TimeSpan.FromSeconds(1));
+        var handler = new SequenceResponseHandler(
+            cursorLimited,
+            new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent("[{\"id\":\"file-1\"}]")
+            },
+            historyUnavailable,
+            new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent($"[{{\"created_at\":\"{expected.AddHours(1):O}\",\"total_files\":100,\"details\":\"sync_started_at_utc={expected:O}; completed\"}}]")
+            });
+        using var service = new NebulaSupabaseSyncService(null!, NullLogger<NebulaSupabaseSyncService>.Instance, null, handler);
+
+        var timestamp = await service.GetLastRemoteFileTimestampAsync("https://supabase.invalid", "sb_secret_test", TestContext.Current.CancellationToken);
+
+        Assert.Equal(expected, timestamp);
+        Assert.Equal(4, handler.RequestedAtUtc.Count);
+        Assert.True(handler.RequestedAtUtc[1] - handler.RequestedAtUtc[0] >= TimeSpan.FromMilliseconds(800));
+        Assert.True(handler.RequestedAtUtc[3] - handler.RequestedAtUtc[2] >= TimeSpan.FromMilliseconds(800));
+    }
+
+    [Fact]
+    public void GetSupabaseRetryDelay_UsesFallbackForInvalidRetryAfterAndCapsLongDelays()
+    {
+        var withoutHeader = new HttpResponseMessage(HttpStatusCode.TooManyRequests);
+        var pastDate = new HttpResponseMessage(HttpStatusCode.TooManyRequests);
+        pastDate.Headers.RetryAfter = new RetryConditionHeaderValue(DateTimeOffset.UtcNow.AddMinutes(-1));
+        var excessive = new HttpResponseMessage(HttpStatusCode.TooManyRequests);
+        excessive.Headers.RetryAfter = new RetryConditionHeaderValue(TimeSpan.FromMinutes(2));
+
+        Assert.Equal(TimeSpan.FromMilliseconds(500), NebulaSupabaseSyncService.GetSupabaseRetryDelay(withoutHeader, 2));
+        Assert.Equal(TimeSpan.FromMilliseconds(250), NebulaSupabaseSyncService.GetSupabaseRetryDelay(pastDate, 1));
+        Assert.Equal(TimeSpan.FromSeconds(60), NebulaSupabaseSyncService.GetSupabaseRetryDelay(excessive, 1));
     }
 
     [Fact]
@@ -380,7 +512,7 @@ public class NebulaSupabaseSyncTests
             new HttpResponseMessage(HttpStatusCode.Unauthorized) { Content = new StringContent("unauthorized") },
             new HttpResponseMessage(HttpStatusCode.OK)
             {
-                Content = new StringContent("[{\"updated_at\":\"2026-10-18T12:30:00Z\"}]")
+                Content = new StringContent("[{\"id\":\"file-1\"}]")
             });
         using var service = new NebulaSupabaseSyncService(null!, NullLogger<NebulaSupabaseSyncService>.Instance, null, handler);
 
@@ -392,18 +524,70 @@ public class NebulaSupabaseSyncTests
     }
 
     [Fact]
-    public async Task GetLastRemoteFileTimestampAsync_OrdersNullsLastToMatchTheCursorIndex()
+    public async Task GetLastRemoteFileTimestampAsync_UsesLastSuccessfulBackupCheckpointInsteadOfPartialFileTimestamp()
     {
-        var handler = new StaticResponseHandler(new HttpResponseMessage(HttpStatusCode.OK)
-        {
-            Content = new StringContent("[{\"updated_at\":\"2026-10-09T05:00:00Z\"}]")
-        });
+        var checkpoint = new DateTime(2026, 10, 8, 22, 0, 0, DateTimeKind.Utc);
+        var handler = new SequenceResponseHandler(
+            new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent("[{\"id\":\"file-1\"}]")
+            },
+            new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent($"[{{\"created_at\":\"{checkpoint.AddHours(1):O}\",\"total_files\":100,\"details\":\"sync_started_at_utc={checkpoint:O}; completed\"}}]")
+            });
         using var service = new NebulaSupabaseSyncService(null!, NullLogger<NebulaSupabaseSyncService>.Instance, null, handler);
 
         var timestamp = await service.GetLastRemoteFileTimestampAsync("https://supabase.invalid", "sb_secret_test", TestContext.Current.CancellationToken);
 
-        Assert.Equal(new DateTime(2026, 10, 9, 5, 0, 0, DateTimeKind.Utc), timestamp);
-        Assert.Contains("order=updated_at.desc.nullslast", handler.LastUri, StringComparison.Ordinal);
+        Assert.Equal(checkpoint, timestamp);
+        Assert.Contains("select=id&limit=1", handler.RequestUris[0], StringComparison.Ordinal);
+        Assert.DoesNotContain("order=updated_at", handler.RequestUris[0], StringComparison.Ordinal);
+        Assert.Contains("select=created_at,total_files,details", handler.RequestUris[1], StringComparison.Ordinal);
+        Assert.Contains("status=eq.success", handler.RequestUris[1], StringComparison.Ordinal);
+        Assert.Contains("backup_type=in.(mongo_delta_sync_v2,mongo_full_sync_v2)", handler.RequestUris[1], StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task GetLastRemoteFileTimestampAsync_UsesFullSyncWhenCatalogHasNoVersionedSuccessCheckpoint()
+    {
+        var handler = new SequenceResponseHandler(
+            new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent("[{\"id\":\"file-1\"}]")
+            },
+            new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("[]") });
+        using var service = new NebulaSupabaseSyncService(null!, NullLogger<NebulaSupabaseSyncService>.Instance, null, handler);
+
+        var timestamp = await service.GetLastRemoteFileTimestampAsync("https://supabase.invalid", "sb_secret_test", TestContext.Current.CancellationToken);
+
+        Assert.Null(timestamp);
+        Assert.Equal(2, handler.Methods.Count);
+    }
+
+    [Theory]
+    [InlineData("legacy record")]
+    [InlineData("sync_started_at_utc=2026-10-08T22:00:00; legacy")]
+    [InlineData("sync_started_at_utc=2026-10-08T22:00:00+03:00; legacy")]
+    [InlineData("sync_started_at_utc=not-a-timestamp; legacy")]
+    public async Task GetLastRemoteFileTimestampAsync_UsesFullSyncWhenCheckpointCursorMetadataIsInvalid(string details)
+    {
+        var handler = new SequenceResponseHandler(
+            new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent("[{\"id\":\"file-1\"}]")
+            },
+            new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent($"[{{\"created_at\":\"2026-10-08T22:00:00Z\",\"total_files\":100,\"details\":\"{details}\"}}]")
+            });
+        using var service = new NebulaSupabaseSyncService(null!, NullLogger<NebulaSupabaseSyncService>.Instance, null, handler);
+
+        var timestamp = await service.GetLastRemoteFileTimestampAsync("https://supabase.invalid", "sb_secret_test", TestContext.Current.CancellationToken);
+
+        Assert.Null(timestamp);
+        Assert.Contains("status=eq.success", handler.RequestUris[1], StringComparison.Ordinal);
+        Assert.Contains("backup_type=in.(mongo_delta_sync_v2,mongo_full_sync_v2)", handler.RequestUris[1], StringComparison.Ordinal);
     }
 
     [Fact]
@@ -533,6 +717,8 @@ public class NebulaSupabaseSyncTests
     {
         var handler = new SequenceResponseHandler(
             new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("[]") },
+            new HttpResponseMessage(HttpStatusCode.ServiceUnavailable),
+            new HttpResponseMessage(HttpStatusCode.ServiceUnavailable),
             new HttpResponseMessage(HttpStatusCode.ServiceUnavailable));
         using var service = new NebulaSupabaseSyncService(null!, NullLogger<NebulaSupabaseSyncService>.Instance, null, handler);
 
@@ -540,7 +726,7 @@ public class NebulaSupabaseSyncTests
             service.GetLastRemoteFileTimestampAsync("https://supabase.invalid", "sb_secret_test", TestContext.Current.CancellationToken));
 
         Assert.Contains("HTTP 503", exception.Message, StringComparison.Ordinal);
-        Assert.Equal(2, handler.Methods.Count);
+        Assert.Equal(4, handler.Methods.Count);
     }
 
     [Fact]
@@ -551,14 +737,18 @@ public class NebulaSupabaseSyncTests
         var converter = typeof(NebulaSupabaseSyncService).GetMethod(
             "ConvertBsonDocToSupabaseRecord",
             System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static);
-        var record = converter!.Invoke(null, [new BsonDocument
+        var document = new BsonDocument
         {
             ["_id"] = ObjectId.GenerateNewId(),
             ["name"] = "episode.mkv",
             ["status"] = "completed",
             ["modified_at"] = new DateTimeOffset(sourceUpdatedAt).ToUnixTimeSeconds(),
-            ["parts"] = new BsonArray { new BsonDocument("tg_file_id", "file-id") }
-        }])!;
+            ["parts"] = new BsonArray
+            {
+                new BsonDocument("tg_file_id", "file-id")
+            }
+        };
+        var record = converter!.Invoke(null, [document])!;
         var updatedAt = (DateTime)record.GetType().GetProperty("UpdatedAt")!.GetValue(record)!;
 
         Assert.True(updatedAt > sourceUpdatedAt, "O cursor deve representar a sincronização, não a data antiga da mídia.");
@@ -1186,10 +1376,13 @@ public class NebulaSupabaseSyncTests
 
         public List<string> RequestUris { get; } = new();
 
+        public List<DateTime> RequestedAtUtc { get; } = new();
+
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
             Methods.Add(request.Method);
             RequestUris.Add(request.RequestUri!.PathAndQuery);
+            RequestedAtUtc.Add(DateTime.UtcNow);
             return Task.FromResult(responses[_nextResponse++]);
         }
     }

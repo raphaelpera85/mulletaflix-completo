@@ -99,6 +99,7 @@ namespace MediaBrowser.Providers.Plugins.MidiaStorageOnline.Api
         private void SaveConfig(PluginConfiguration config) => _configurationManager.SaveConfiguration("midiastorageonline", config);
 
         [HttpPost("config")]
+        [Authorize(Policy = Policies.RequiresElevation)]
         public IActionResult SavePluginConfig([FromBody] PluginConfiguration body)
         {
             var config = GetConfig();
@@ -116,6 +117,7 @@ namespace MediaBrowser.Providers.Plugins.MidiaStorageOnline.Api
         }
 
         [HttpGet("status")]
+        [Authorize(Policy = Policies.RequiresElevation)]
         public IActionResult GetStatus()
         {
             var config = GetConfig();
@@ -831,46 +833,39 @@ namespace MediaBrowser.Providers.Plugins.MidiaStorageOnline.Api
             _configurationManager.SaveConfiguration("livetv", liveTvConfig);
         }
 
-        private static readonly object ManifestLock = new object();
-
         private Dictionary<string, string> LoadManifest()
         {
             var dir = GetDataDir();
             var path = Path.Combine(dir, "sync_manifest.json");
-            lock (ManifestLock)
+            if (!System.IO.File.Exists(path))
+                return new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            try
             {
-                if (!System.IO.File.Exists(path))
-                    return new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-                try
-                {
-                    var json = System.IO.File.ReadAllText(path);
-                    return System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, string>>(json) 
-                           ?? new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-                }
-                catch (Exception ex)
-                {
-                    Log($"Erro ao carregar manifesto: {ex.Message}. Criando novo.");
-                    return new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-                }
+                var json = System.IO.File.ReadAllText(path);
+                return System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, string>>(json)
+                       ?? new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            }
+            catch (Exception ex)
+            {
+                Log($"Erro ao carregar manifesto: {ex.Message}. Criando novo.");
+                return new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
             }
         }
 
-        private void SaveManifest(Dictionary<string, string> manifest)
+        private async Task SaveManifestAsync(Dictionary<string, string> manifest, CancellationToken cancellationToken)
         {
             var dir = GetDataDir();
             Directory.CreateDirectory(dir);
             var path = Path.Combine(dir, "sync_manifest.json");
-            lock (ManifestLock)
+            try
             {
-                try
-                {
-                    var json = System.Text.Json.JsonSerializer.Serialize(manifest, new System.Text.Json.JsonSerializerOptions { WriteIndented = true });
-                    System.IO.File.WriteAllText(path, json);
-                }
-                catch (Exception ex)
-                {
-                    Log($"Erro ao salvar manifesto: {ex.Message}");
-                }
+                var json = System.Text.Json.JsonSerializer.Serialize(manifest, new System.Text.Json.JsonSerializerOptions { WriteIndented = true });
+                await MidiaStorageOnlinePathGuard.WriteTextAtomicallyAsync(dir, path, json, cancellationToken).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                Log($"Erro ao salvar manifesto: {ex.Message}");
+                throw;
             }
         }
 
@@ -916,6 +911,7 @@ namespace MediaBrowser.Providers.Plugins.MidiaStorageOnline.Api
         }
 
         [HttpPost("sync")]
+        [Authorize(Policy = Policies.RequiresElevation)]
         public async Task<IActionResult> Sync([FromQuery] bool force = false, CancellationToken ct = default)
         {
             var config = GetConfig();
@@ -1091,17 +1087,22 @@ namespace MediaBrowser.Providers.Plugins.MidiaStorageOnline.Api
                 Log($"Sintonizador M3U registrado no Live TV imediatamente: {tunerUrl} (ID: {saved.Id})");
 
                 // 2. Criar pastas e preparar bibliotecas para filmes e series
-                var strmPath = GetStrmOutputPath(config);
+                var strmPath = Path.GetFullPath(GetStrmOutputPath(config));
                 var moviesPath = Path.Combine(strmPath, "Filmes");
                 var seriesPath = Path.Combine(strmPath, "Series");
 
+                MidiaStorageOnlinePathGuard.EnsureNoReparsePoints(strmPath, moviesPath);
                 Directory.CreateDirectory(moviesPath);
+                MidiaStorageOnlinePathGuard.EnsureNoReparsePoints(strmPath, moviesPath);
+                MidiaStorageOnlinePathGuard.EnsureNoReparsePoints(strmPath, seriesPath);
                 Directory.CreateDirectory(seriesPath);
+                MidiaStorageOnlinePathGuard.EnsureNoReparsePoints(strmPath, seriesPath);
                 _libraryMonitor.ReportFileSystemChangeBeginning(strmPath);
 
                 try
                 {
                     List<M3uEntry> validatedMediaEntries;
+                    var mediaSourceIncomplete = false;
                     if (MidiaStorageOnlineLinkValidator.RequiresMediaLinkValidation(config.OutputMode))
                     {
                         validatedMediaEntries = (await MidiaStorageOnlineLinkValidator.FilterOnlineEntriesAsync(
@@ -1113,7 +1114,9 @@ namespace MediaBrowser.Providers.Plugins.MidiaStorageOnline.Api
                             GetOfflineLinkCachePath()).ConfigureAwait(false)).ToList();
                         if (validatedMediaEntries.Count != mediaCandidates.Count)
                         {
+                            mediaSourceIncomplete = true;
                             Log($"Links offline removidos das midias antes do sync: {mediaCandidates.Count - validatedMediaEntries.Count}");
+                            Log("Validacao de links incompleta; a limpeza de arquivos antigos sera adiada para evitar perda de midia por indisponibilidade temporaria.");
                         }
 
                         Log($"Midias validadas: {validatedMediaEntries.Count} entradas ativas.");
@@ -1126,7 +1129,16 @@ namespace MediaBrowser.Providers.Plugins.MidiaStorageOnline.Api
 
                     validatedMediaEntries = MidiaStorageOnlineEntryDeduplicator.DeduplicateByKey(validatedMediaEntries, BuildEntryDedupKey).ToList();
 
-                    var manifest = force ? new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase) : LoadManifest();
+                    using var syncLease = await MidiaStorageOnlineSyncGate.AcquireAsync(
+                        Path.Combine(GetDataDir(), "sync_manifest.json"),
+                        ct).ConfigureAwait(false);
+                    var previousManifest = LoadManifest();
+                    if (mediaCandidates.Count == 0 && previousManifest.Count > 0)
+                    {
+                        mediaSourceIncomplete = true;
+                        Log("A playlist nao contem midias, mas o manifesto possui arquivos anteriores; a limpeza foi adiada por seguranca.");
+                    }
+
                     var newManifest = new System.Collections.Concurrent.ConcurrentDictionary<string, string>(StringComparer.OrdinalIgnoreCase);
                     var createdDirs = new System.Collections.Concurrent.ConcurrentDictionary<string, byte>(StringComparer.OrdinalIgnoreCase);
 
@@ -1147,11 +1159,12 @@ namespace MediaBrowser.Providers.Plugins.MidiaStorageOnline.Api
                             // ponytail: hash only the .strm name to keep folder names readable and still avoid collisions.
                             var fileName = TrimPathSegment(SanitizeName(entry.Name), MaxMovieFileStemLength);
                             var relPath = Path.Combine("Filmes", name, fileName + GetOutputFileExtension(outputMode, entry.Url));
-                            var filePath = Path.Combine(strmPath, relPath);
+                            var filePath = MidiaStorageOnlinePathGuard.ResolveUnderRoot(strmPath, relPath);
                             var newUrl = entry.Url.Trim();
 
                             newManifest.TryAdd(relPath, newUrl);
 
+                            MidiaStorageOnlinePathGuard.EnsureNoReparsePoints(strmPath, filePath);
                             var fileExists = System.IO.File.Exists(filePath);
                             if (fileExists && string.Equals(outputMode, "strm", StringComparison.OrdinalIgnoreCase))
                             {
@@ -1172,22 +1185,20 @@ namespace MediaBrowser.Providers.Plugins.MidiaStorageOnline.Api
                                 Log($"Sobrescrevendo .strm: {filePath}");
                             }
 
-                            var dir = Path.Combine(moviesPath, name);
-                            if (createdDirs.TryAdd(dir, 0))
+                            var dir = Path.GetDirectoryName(filePath)!;
+                            if (createdDirs.TryAdd(dir, 0) || !Directory.Exists(dir))
                             {
                                 Directory.CreateDirectory(dir);
                             }
-                            else if (!Directory.Exists(dir))
-                            {
-                                Directory.CreateDirectory(dir);
-                            }
+                            MidiaStorageOnlinePathGuard.EnsureNoReparsePoints(strmPath, filePath);
                             if (string.Equals(outputMode, "download", StringComparison.OrdinalIgnoreCase))
                             {
-                                await DownloadMediaFileAsync(entry.Url, filePath, ct).ConfigureAwait(false);
+                                await DownloadMediaFileAsync(entry.Url, filePath, strmPath, ct).ConfigureAwait(false);
                             }
                             else
                             {
-                                await System.IO.File.WriteAllTextAsync(filePath, newUrl, ct).ConfigureAwait(false);
+                                MidiaStorageOnlinePathGuard.EnsureNoReparsePoints(strmPath, filePath);
+                                await MidiaStorageOnlinePathGuard.WriteTextAtomicallyAsync(strmPath, filePath, newUrl, ct).ConfigureAwait(false);
                             }
                             Interlocked.Increment(ref totalSynced);
                             Interlocked.Increment(ref movieCount);
@@ -1199,11 +1210,12 @@ namespace MediaBrowser.Providers.Plugins.MidiaStorageOnline.Api
                             // ponytail: hash only the .strm name to keep folder names readable and still avoid collisions.
                             var fileName = TrimPathSegment(SanitizeName(entry.Name), MaxEpisodeFileStemLength);
                             var relPath = Path.Combine("Series", showName, seasonFolder, fileName + GetOutputFileExtension(outputMode, entry.Url));
-                            var filePath = Path.Combine(strmPath, relPath);
+                            var filePath = MidiaStorageOnlinePathGuard.ResolveUnderRoot(strmPath, relPath);
                             var newUrl = entry.Url.Trim();
 
                             newManifest.TryAdd(relPath, newUrl);
 
+                            MidiaStorageOnlinePathGuard.EnsureNoReparsePoints(strmPath, filePath);
                             var fileExists = System.IO.File.Exists(filePath);
                             if (fileExists && string.Equals(outputMode, "strm", StringComparison.OrdinalIgnoreCase))
                             {
@@ -1224,22 +1236,20 @@ namespace MediaBrowser.Providers.Plugins.MidiaStorageOnline.Api
                                 Log($"Sobrescrevendo .strm: {filePath}");
                             }
 
-                            var dir = Path.Combine(seriesPath, showName, seasonFolder);
-                            if (createdDirs.TryAdd(dir, 0))
+                            var dir = Path.GetDirectoryName(filePath)!;
+                            if (createdDirs.TryAdd(dir, 0) || !Directory.Exists(dir))
                             {
                                 Directory.CreateDirectory(dir);
                             }
-                            else if (!Directory.Exists(dir))
-                            {
-                                Directory.CreateDirectory(dir);
-                            }
+                            MidiaStorageOnlinePathGuard.EnsureNoReparsePoints(strmPath, filePath);
                             if (string.Equals(outputMode, "download", StringComparison.OrdinalIgnoreCase))
                             {
-                                await DownloadMediaFileAsync(entry.Url, filePath, ct).ConfigureAwait(false);
+                                await DownloadMediaFileAsync(entry.Url, filePath, strmPath, ct).ConfigureAwait(false);
                             }
                             else
                             {
-                                await System.IO.File.WriteAllTextAsync(filePath, newUrl, ct).ConfigureAwait(false);
+                                MidiaStorageOnlinePathGuard.EnsureNoReparsePoints(strmPath, filePath);
+                                await MidiaStorageOnlinePathGuard.WriteTextAtomicallyAsync(strmPath, filePath, newUrl, ct).ConfigureAwait(false);
                             }
                             Interlocked.Increment(ref totalSynced);
                             Interlocked.Increment(ref seriesCount);
@@ -1256,20 +1266,31 @@ namespace MediaBrowser.Providers.Plugins.MidiaStorageOnline.Api
                 }).ConfigureAwait(false);
 
                 // Smart cleanup: delete files that are no longer in the M3U
-                var filesToDelete = manifest.Keys.Except(newManifest.Keys).ToList();
+                var cleanupPlan = MidiaStorageOnlineManifestCleanup.CreatePlan(
+                    previousManifest,
+                    newManifest,
+                    force,
+                    mediaSourceIncomplete);
                 var deletedCount = 0;
-                foreach (var relPath in filesToDelete)
+                foreach (var relPath in cleanupPlan.PathsToDelete)
                 {
-                    var filePath = Path.Combine(strmPath, relPath);
+                    string filePath;
                     // BG-4: delete-then-catch is O(1) I/O vs exists-then-delete which is O(2n)
                     try
                     {
+                        filePath = MidiaStorageOnlinePathGuard.ResolveUnderRoot(strmPath, relPath);
+                        MidiaStorageOnlinePathGuard.EnsureNoReparsePoints(strmPath, filePath);
                         System.IO.File.Delete(filePath);
                         deletedCount++;
                         // Try to delete empty parent directories up to moviesPath / seriesPath
                         var dir = Path.GetDirectoryName(filePath);
-                        while (dir != null && dir.Length > strmPath.Length && Directory.Exists(dir) && !Directory.EnumerateFileSystemEntries(dir).Any())
+                        while (dir is not null
+                               && MidiaStorageOnlinePathGuard.IsPathWithinRoot(strmPath, dir)
+                               && !string.Equals(dir, strmPath, OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal)
+                               && Directory.Exists(dir)
+                               && !Directory.EnumerateFileSystemEntries(dir).Any())
                         {
+                            MidiaStorageOnlinePathGuard.EnsureNoReparsePoints(strmPath, dir);
                             Directory.Delete(dir);
                             dir = Path.GetDirectoryName(dir);
                         }
@@ -1282,8 +1303,7 @@ namespace MediaBrowser.Providers.Plugins.MidiaStorageOnline.Api
                 }
 
                 // Save manifest
-                var manifestToSave = new Dictionary<string, string>(newManifest, StringComparer.OrdinalIgnoreCase);
-                SaveManifest(manifestToSave);
+                await SaveManifestAsync(cleanupPlan.ManifestToSave, ct).ConfigureAwait(false);
 
                 config.LastSyncTime = DateTime.UtcNow;
                 config.LastSyncDurationSeconds = sw.Elapsed.TotalSeconds;
@@ -1372,7 +1392,7 @@ namespace MediaBrowser.Providers.Plugins.MidiaStorageOnline.Api
             return ".ts";
         }
 
-        private async Task DownloadMediaFileAsync(string url, string filePath, CancellationToken cancellationToken)
+        private async Task DownloadMediaFileAsync(string url, string filePath, string rootPath, CancellationToken cancellationToken)
         {
             using var client = _httpClientFactory.CreateClient();
             client.Timeout = TimeSpan.FromMinutes(30);
@@ -1389,19 +1409,22 @@ namespace MediaBrowser.Providers.Plugins.MidiaStorageOnline.Api
                 Directory.CreateDirectory(directory);
             }
 
-            var temporaryPath = filePath + ".download";
+            var temporaryPath = filePath + "." + Guid.NewGuid().ToString("N") + ".download";
             try
             {
+                MidiaStorageOnlinePathGuard.EnsureNoReparsePoints(rootPath, temporaryPath);
                 await using (var input = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false))
-                await using (var output = new FileStream(temporaryPath, FileMode.Create, FileAccess.Write, FileShare.None, 1024 * 1024, useAsync: true))
+                await using (var output = new FileStream(temporaryPath, FileMode.CreateNew, FileAccess.Write, FileShare.None, 1024 * 1024, useAsync: true))
                 {
                     await input.CopyToAsync(output, cancellationToken).ConfigureAwait(false);
                 }
 
+                MidiaStorageOnlinePathGuard.EnsureNoReparsePoints(rootPath, filePath);
                 System.IO.File.Move(temporaryPath, filePath, true);
             }
             finally
             {
+                MidiaStorageOnlinePathGuard.EnsureNoReparsePoints(rootPath, temporaryPath);
                 if (System.IO.File.Exists(temporaryPath))
                 {
                     System.IO.File.Delete(temporaryPath);

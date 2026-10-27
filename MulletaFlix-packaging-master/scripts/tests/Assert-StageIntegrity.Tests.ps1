@@ -18,6 +18,7 @@ $requiredFiles = @(
     'Tools\NebulaPython\main.py',
     'Tools\NebulaPython\stream_service.py',
     'Tools\NebulaPython\generate_strm.py',
+    'Tools\NebulaPython\upload_checkpoint.py',
     'Tools\NebulaPython\ftp\pathio.py',
     'Tools\NebulaPython\tools\mongo_admission.py',
     'Tools\NebulaPython\requirements.in',
@@ -49,6 +50,12 @@ try {
     [void][System.IO.Directory]::CreateDirectory((Split-Path -Parent $stagedAdmission))
     [System.IO.File]::WriteAllText($sourceAdmission, 'current-admission')
     [System.IO.File]::WriteAllText($stagedAdmission, 'current-admission')
+    $sourceCheckpoint = Join-Path $projectRoot 'MulletaFlix-master\Tools\NebulaPython\upload_checkpoint.py'
+    $stagedCheckpoint = Join-Path $stageDirectory 'Tools\NebulaPython\upload_checkpoint.py'
+    [void][System.IO.Directory]::CreateDirectory((Split-Path -Parent $sourceCheckpoint))
+    [void][System.IO.Directory]::CreateDirectory((Split-Path -Parent $stagedCheckpoint))
+    [System.IO.File]::WriteAllText($sourceCheckpoint, 'current-upload-checkpoint')
+    [System.IO.File]::WriteAllText($stagedCheckpoint, 'current-upload-checkpoint')
     $sourceRequirementsLock = Join-Path $projectRoot 'MulletaFlix-master\Tools\NebulaPython\requirements.lock'
     [void][System.IO.Directory]::CreateDirectory((Split-Path -Parent $sourceRequirementsLock))
     [System.IO.File]::WriteAllText($sourceRequirementsLock, 'locked dependency fixture')
@@ -120,6 +127,33 @@ try {
     }
     [System.IO.File]::WriteAllText($stagedGenerator, 'current-generator')
 
+    $stagedCheckpoint = Join-Path $stageDirectory 'Tools\NebulaPython\upload_checkpoint.py'
+    [System.IO.File]::Delete($stagedCheckpoint)
+    $missingCheckpointRejected = $false
+    try {
+        Assert-StageIntegrity -StageDirectory $stageDirectory -ProjectRoot $projectRoot -PublishDirectory $publishDirectory
+    } catch {
+        $missingCheckpointRejected = $_.Exception.Message -like '*upload_checkpoint.py*'
+        if (-not $missingCheckpointRejected) { throw }
+    }
+    if (-not $missingCheckpointRejected) {
+        throw 'Stage integrity accepted a Python worker package missing upload_checkpoint.py.'
+    }
+    [System.IO.File]::WriteAllText($stagedCheckpoint, 'current-upload-checkpoint')
+
+    [System.IO.File]::WriteAllText($stagedCheckpoint, 'stale-upload-checkpoint')
+    $checkpointMismatchRejected = $false
+    try {
+        Assert-StageIntegrity -StageDirectory $stageDirectory -ProjectRoot $projectRoot -PublishDirectory $publishDirectory
+    } catch {
+        $checkpointMismatchRejected = $_.Exception.Message -like '*upload checkpoint differs*'
+        if (-not $checkpointMismatchRejected) { throw }
+    }
+    if (-not $checkpointMismatchRejected) {
+        throw 'Stage integrity accepted a stale Nebula upload checkpoint.'
+    }
+    [System.IO.File]::WriteAllText($stagedCheckpoint, 'current-upload-checkpoint')
+
     [System.IO.File]::Delete($stagedAdmission)
     $missingAdmissionRejected = $false
     try {
@@ -132,7 +166,7 @@ try {
         throw 'Stage integrity accepted a Python worker package missing mongo_admission.py.'
     }
 
-    Write-Host 'Stage integrity accepted matching Nebula modules and dependency lock, and rejected stale downloader or lock, missing readiness contract, generator, or admission module.'
+    Write-Host 'Stage integrity accepted matching Nebula modules and dependency lock, and rejected stale downloader/checkpoint/lock, missing readiness contract, generator, or admission module.'
 }
 finally {
     if ([System.IO.Directory]::Exists($fixtureRoot)) {

@@ -16,9 +16,12 @@ namespace MulletaFlix.Server.Helpers
     public static class MariaDbProcessManager
     {
         private static Process? _mariaDbProcess;
-        private static Mutex? _startupMutex;
+        private static StartupMutexLease? _startupMutex;
 
-        public static async Task StartMariaDbAsync(IServerApplicationPaths appPaths, ILogger logger, CancellationToken cancellationToken = default)
+        public static Task StartMariaDbAsync(IServerApplicationPaths appPaths, ILogger logger, CancellationToken cancellationToken = default)
+            => StartMariaDbAsync(appPaths, logger, requireEmbeddedProcess: false, cancellationToken);
+
+        internal static async Task StartMariaDbAsync(IServerApplicationPaths appPaths, ILogger logger, bool requireEmbeddedProcess, CancellationToken cancellationToken = default)
         {
             try
             {
@@ -42,7 +45,11 @@ namespace MulletaFlix.Server.Helpers
                     return;
                 }
 
-                _startupMutex = AcquireStartupMutex();
+                _startupMutex = await StartupMutexLease.AcquireAsync(
+                    "Global\\MulletaFlix.EmbeddedMariaDb",
+                    "MulletaFlix.EmbeddedMariaDb",
+                    TimeSpan.FromSeconds(45),
+                    cancellationToken).ConfigureAwait(false);
                 var databaseAvailable = await WaitForDatabaseAsync(masterConnString, TimeSpan.FromSeconds(2), logger, cancellationToken).ConfigureAwait(false);
                 if (!databaseAvailable)
                 {
@@ -139,6 +146,11 @@ namespace MulletaFlix.Server.Helpers
                     throw new TimeoutException("Embedded MariaDB did not accept SQL connections within 30 seconds. Check whether another process owns the port and whether the data directory is writable.");
                 }
 
+                if (requireEmbeddedProcess && _mariaDbProcess is null)
+                {
+                    throw new InvalidOperationException($"Port {port} is served by another MariaDB process; refusing to initialize databases during an isolated lifecycle test.");
+                }
+
                 if (_mariaDbProcess is null)
                 {
                     logger.LogInformation("Existing MariaDB is accepting connections on port {Port}", port);
@@ -178,44 +190,6 @@ namespace MulletaFlix.Server.Helpers
             {
                 logger?.LogDebug(ex, "MariaDB SQL probe not ready yet while checking readiness.");
                 return false;
-            }
-        }
-
-        private static Mutex AcquireStartupMutex()
-        {
-            try
-            {
-                var mutex = new Mutex(false, "Global\\MulletaFlix.EmbeddedMariaDb");
-                try
-                {
-                    if (!mutex.WaitOne(TimeSpan.FromSeconds(45)))
-                    {
-                        mutex.Dispose();
-                        throw new TimeoutException("Timed out waiting for another MulletaFlix process to finish MariaDB startup.");
-                    }
-                }
-                catch (AbandonedMutexException)
-                {
-                    // The previous owner exited without releasing the mutex.
-                    // The OS transfers ownership to this process, so startup
-                    // can safely continue.
-                }
-
-                return mutex;
-            }
-            catch (UnauthorizedAccessException)
-            {
-                var fallbackMutex = new Mutex(false, "MulletaFlix.EmbeddedMariaDb");
-                try
-                {
-                    fallbackMutex.WaitOne();
-                }
-                catch (AbandonedMutexException)
-                {
-                    // The abandoned mutex is acquired by this process.
-                }
-
-                return fallbackMutex;
             }
         }
 
@@ -409,54 +383,181 @@ namespace MulletaFlix.Server.Helpers
                             _mariaDbProcess.Kill(entireProcessTree: true);
                             await _mariaDbProcess.WaitForExitAsync(cancellationToken).WaitAsync(TimeSpan.FromSeconds(5), cancellationToken).ConfigureAwait(false);
                         }
-                }
-                catch (Exception ex)
-                {
-                    logger.LogError(ex, "Error while stopping embedded MariaDB. Attempting a final process termination.");
-                    try
+                    }
+                    catch (Exception ex)
                     {
-                        if (!_mariaDbProcess.HasExited)
+                        logger.LogError(ex, "Error while stopping embedded MariaDB. Attempting a final process termination.");
+                        try
                         {
-                            _mariaDbProcess.Kill(entireProcessTree: true);
-                            await _mariaDbProcess.WaitForExitAsync(CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(5), CancellationToken.None).ConfigureAwait(false);
+                            if (!_mariaDbProcess.HasExited)
+                            {
+                                _mariaDbProcess.Kill(entireProcessTree: true);
+                                await _mariaDbProcess.WaitForExitAsync(CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(5), CancellationToken.None).ConfigureAwait(false);
+                            }
                         }
-                    }
-                    catch (Exception killException)
-                    {
-                        logger.LogError(killException, "Final embedded MariaDB termination failed.");
-                    }
-                }
-                finally
-                {
-                    _mariaDbProcess.Dispose();
-                    _mariaDbProcess = null;
-                }
-            }
-            }
-            finally
-            {
-                ReleaseStartupMutex();
-            }
-        }
-
-        private static void ReleaseStartupMutex()
-        {
-            if (_startupMutex is not null)
-            {
-                try
-                {
-                }
-                finally
-                {
-                    try
-                    {
-                        _startupMutex.ReleaseMutex();
+                        catch (Exception killException)
+                        {
+                            logger.LogError(killException, "Final embedded MariaDB termination failed.");
+                        }
                     }
                     finally
                     {
-                        _startupMutex.Dispose();
-                        _startupMutex = null;
+                        _mariaDbProcess.Dispose();
+                        _mariaDbProcess = null;
                     }
+                }
+            }
+            finally
+            {
+                await ReleaseStartupMutexAsync().ConfigureAwait(false);
+            }
+        }
+
+        private static async Task ReleaseStartupMutexAsync()
+        {
+            if (_startupMutex is not null)
+            {
+                var mutex = _startupMutex;
+                _startupMutex = null;
+                await mutex.DisposeAsync().ConfigureAwait(false);
+            }
+        }
+
+        internal sealed class StartupMutexLease : IAsyncDisposable
+        {
+            private readonly string _mutexName;
+            private readonly string _fallbackMutexName;
+            private readonly TimeSpan _timeout;
+            private readonly ManualResetEvent _releaseRequested = new(false);
+            private readonly TaskCompletionSource<bool> _acquired = new(TaskCreationOptions.RunContinuationsAsynchronously);
+            private readonly TaskCompletionSource<bool> _released = new(TaskCreationOptions.RunContinuationsAsynchronously);
+            private readonly Thread _ownerThread;
+            private Exception? _releaseException;
+            private int _disposeStarted;
+
+            private StartupMutexLease(string mutexName, string fallbackMutexName, TimeSpan timeout)
+            {
+                _mutexName = mutexName;
+                _fallbackMutexName = fallbackMutexName;
+                _timeout = timeout;
+                _ownerThread = new Thread(OwnMutex)
+                {
+                    IsBackground = true,
+                    Name = "MulletaFlix MariaDB startup mutex"
+                };
+            }
+
+            internal static async Task<StartupMutexLease> AcquireAsync(
+                string mutexName,
+                string fallbackMutexName,
+                TimeSpan timeout,
+                CancellationToken cancellationToken)
+            {
+                var lease = new StartupMutexLease(mutexName, fallbackMutexName, timeout);
+                try
+                {
+                    lease._ownerThread.Start();
+                    await lease._acquired.Task.WaitAsync(cancellationToken).ConfigureAwait(false);
+                    return lease;
+                }
+                catch
+                {
+                    if (lease._ownerThread.ThreadState == System.Threading.ThreadState.Unstarted)
+                    {
+                        lease._released.TrySetResult(true);
+                    }
+
+                    await lease.DisposeAsync().ConfigureAwait(false);
+                    throw;
+                }
+            }
+
+            public async ValueTask DisposeAsync()
+            {
+                var disposeOwnerResources = Interlocked.Exchange(ref _disposeStarted, 1) == 0;
+                if (disposeOwnerResources)
+                {
+                    _releaseRequested.Set();
+                }
+
+                await _released.Task.ConfigureAwait(false);
+                if (disposeOwnerResources)
+                {
+                    _releaseRequested.Dispose();
+                }
+
+                if (_releaseException is not null)
+                {
+                    throw new InvalidOperationException("The MariaDB startup mutex could not be released by its owner thread.", _releaseException);
+                }
+            }
+
+            private void OwnMutex()
+            {
+                Mutex? mutex = null;
+                var ownsMutex = false;
+                try
+                {
+                    try
+                    {
+                        mutex = new Mutex(false, _mutexName);
+                        ownsMutex = WaitForOwnership(mutex);
+                    }
+                    catch (UnauthorizedAccessException)
+                    {
+                        mutex?.Dispose();
+                        mutex = new Mutex(false, _fallbackMutexName);
+                        ownsMutex = WaitForOwnership(mutex);
+                    }
+
+                    if (!ownsMutex)
+                    {
+                        _acquired.TrySetCanceled();
+                        return;
+                    }
+
+                    _acquired.TrySetResult(true);
+                    _releaseRequested.WaitOne();
+                }
+                catch (Exception exception)
+                {
+                    _acquired.TrySetException(exception);
+                }
+                finally
+                {
+                    if (ownsMutex && mutex is not null)
+                    {
+                        try
+                        {
+                            mutex.ReleaseMutex();
+                        }
+                        catch (Exception exception)
+                        {
+                            _releaseException = exception;
+                        }
+                    }
+
+                    mutex?.Dispose();
+                    _released.TrySetResult(true);
+                }
+            }
+
+            private bool WaitForOwnership(Mutex mutex)
+            {
+                try
+                {
+                    var result = WaitHandle.WaitAny([mutex, _releaseRequested], _timeout);
+                    if (result == WaitHandle.WaitTimeout)
+                    {
+                        throw new TimeoutException("Timed out waiting for another MulletaFlix process to finish MariaDB startup.");
+                    }
+
+                    return result == 0;
+                }
+                catch (AbandonedMutexException)
+                {
+                    // The previous owner exited; WaitAny transfers mutex ownership to this thread.
+                    return true;
                 }
             }
         }

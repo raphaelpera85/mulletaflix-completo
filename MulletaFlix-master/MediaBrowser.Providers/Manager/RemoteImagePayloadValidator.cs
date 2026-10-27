@@ -21,8 +21,8 @@ internal static class RemoteImagePayloadValidator
     private static readonly SemaphoreSlim _imageDecodeConcurrency = new(2, 2);
 
     /// <summary>
-    /// Copies the payload into a bounded temporary file and fully decodes it when a
-    /// compatible decoder is available. Undecodable formats still get byte-limit protection.
+    /// Copies the payload into a bounded temporary file and fully decodes it before saving.
+    /// Formats without a compatible decoder are rejected instead of being persisted unverified.
     /// </summary>
     /// <param name="source">Downloaded image stream. Ownership transfers to this method.</param>
     /// <param name="mimeType">Image MIME type.</param>
@@ -87,23 +87,28 @@ internal static class RemoteImagePayloadValidator
                 }
             }
 
-            if (canDecode)
+            if (!canDecode)
             {
-                await _imageDecodeConcurrency.WaitAsync(cancellationToken).ConfigureAwait(false);
-                try
+                throw new HttpRequestException(
+                    "The remote image format cannot be validated by the configured image decoder.",
+                    null,
+                    HttpStatusCode.UnsupportedMediaType);
+            }
+
+            await _imageDecodeConcurrency.WaitAsync(cancellationToken).ConfigureAwait(false);
+            try
+            {
+                if (!imageEncoder.IsImageDecodable(temporaryPath, MaximumPixelCount))
                 {
-                    if (!imageEncoder.IsImageDecodable(temporaryPath, MaximumPixelCount))
-                    {
-                        throw new HttpRequestException(
-                            "The remote image payload could not be fully decoded.",
-                            null,
-                            HttpStatusCode.UnprocessableEntity);
-                    }
+                    throw new HttpRequestException(
+                        "The remote image payload could not be fully decoded.",
+                        null,
+                        HttpStatusCode.UnprocessableEntity);
                 }
-                finally
-                {
-                    _imageDecodeConcurrency.Release();
-                }
+            }
+            finally
+            {
+                _imageDecodeConcurrency.Release();
             }
 
             return new FileStream(

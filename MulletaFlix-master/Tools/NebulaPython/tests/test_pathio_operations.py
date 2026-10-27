@@ -4,6 +4,7 @@ import asyncio
 import importlib
 import json
 import os
+import re
 from pathlib import Path, PurePosixPath
 
 import pytest
@@ -13,10 +14,25 @@ pathio = importlib.import_module("ftp.pathio")
 
 
 def matches(doc, query):
+    if "$or" in query and not any(matches(doc, branch) for branch in query["$or"]):
+        return False
     for key, value in query.items():
+        if key == "$or":
+            continue
         actual = doc.get(key)
         if isinstance(value, dict) and "$in" in value:
             if actual not in value["$in"]:
+                return False
+        elif isinstance(value, dict) and "$regex" in value:
+            if not isinstance(actual, str) or re.search(value["$regex"], actual) is None:
+                return False
+        elif isinstance(value, dict) and "$exists" in value:
+            if (key in doc) != value["$exists"]:
+                return False
+            if "$ne" in value and actual == value["$ne"]:
+                return False
+        elif isinstance(value, dict) and "$ne" in value:
+            if actual == value["$ne"]:
                 return False
         elif isinstance(value, dict) and "$not" in value:
             pattern = value["$not"].get("$regex", "")
@@ -35,7 +51,7 @@ class FakeFiles:
     async def find_one(self, query, _projection=None):
         return next((doc for doc in self.docs if matches(doc, query)), None)
 
-    def find(self, query):
+    def find(self, query, _projection=None):
         return AsyncCursor(doc for doc in self.docs if matches(doc, query))
 
     async def count_documents(self, query):
@@ -79,6 +95,14 @@ class AsyncCursor:
 
     def __aiter__(self):
         return self
+
+    def limit(self, length):
+        self.items = iter(list(self.items)[:length])
+        return self
+
+    async def to_list(self, length=None):
+        items = list(self.items)
+        return items if length is None else items[:length]
 
     async def __anext__(self):
         try:
@@ -160,11 +184,48 @@ async def test_rmdir_refuses_nonempty_directory_without_deleting_children(io):
 @pytest.mark.asyncio
 async def test_list_excludes_partial_uploads_and_returns_virtual_paths(io):
     io.db.files.docs.extend([
-        {"_id": ObjectId(), "type": "file", "name": "Ready.mkv", "parent": "/"},
+        {"_id": ObjectId(), "type": "file", "name": "Ready.mkv", "parent": "/", "parts": [{"tg_file_id": "published"}]},
+        {"_id": ObjectId(), "type": "file", "name": "Unpublished.mkv", "parent": "/", "parts": []},
         {"_id": ObjectId(), "type": "file", "name": "Pending.mkv.partial", "parent": "/"},
     ])
     listed = [p.as_posix() async for p in io.list(PurePosixPath("/"))]
     assert listed == ["/Ready.mkv"]
+
+
+@pytest.mark.asyncio
+async def test_list_hides_empty_directories_and_deduplicates_published_files(io):
+    io.db.files.docs.extend([
+        {"_id": ObjectId(), "type": "dir", "name": "Empty", "parent": "/"},
+        {"_id": ObjectId(), "type": "dir", "name": "Series", "parent": "/"},
+        {"_id": ObjectId(), "type": "file", "name": "Episode.mkv", "parent": "/Series", "parts": [{"tg_file_id": "ready"}]},
+        {"_id": ObjectId(), "type": "file", "name": "Movie.mkv", "parent": "/", "parts": [{"tg_file_id": "old"}]},
+        {"_id": ObjectId(), "type": "file", "name": "movie.mkv", "parent": "/", "status": "completed", "parts": [{"tg_file_id": "ready"}]},
+    ])
+
+    listed_root = [p.as_posix() async for p in io.list(PurePosixPath("/"))]
+    listed_series = [p.as_posix() async for p in io.list(PurePosixPath("/Series"))]
+
+    assert listed_root == ["/Series", "/movie.mkv"]
+    assert listed_series == ["/Series/Episode.mkv"]
+
+
+@pytest.mark.asyncio
+async def test_list_keeps_object_id_parent_directories_with_published_descendants(io):
+    series_id, season_id = ObjectId(), ObjectId()
+    io.db.files.docs.extend([
+        {"_id": series_id, "type": "dir", "name": "Series", "parent": None},
+        {"_id": season_id, "type": "dir", "name": "Season 1", "parent": series_id},
+        {
+            "_id": ObjectId(), "type": "file", "name": "Episode.mkv", "parent": season_id,
+            "parts": [{"tg_file_id": "published"}],
+        },
+    ])
+
+    listed_root = [p.as_posix() async for p in io.list(PurePosixPath("/"))]
+    listed_series = [p.as_posix() async for p in io.list(PurePosixPath("/Series"))]
+
+    assert listed_root == ["/Series"]
+    assert listed_series == ["/Series/Season 1"]
 
 
 @pytest.mark.asyncio
@@ -272,6 +333,7 @@ async def test_upload_keeps_staging_and_memory_cache_when_mongo_upsert_fails(
     cached = io._memory_cache["/Series/Show::episode.mkv.partial"]
     assert cached["status"] == "staging"
     assert cached["local_path"] == writer.local_path
+    assert cached["queue_identity"] == pathio.queue_identity(writer.local_path)
     assert cached["size"] == len(b"video-bytes")
     assert await io.get_node(PurePosixPath("/Series/Show/episode.mkv.partial")) is not None
 

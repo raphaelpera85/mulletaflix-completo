@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import argparse
 import contextlib
+import hashlib
 import json
 import logging
 import mimetypes
@@ -598,7 +599,7 @@ class FailureTracker:
         if self.cache_file.exists():
             try:
                 with self.cache_file.open("r", encoding="utf-8") as f:
-                    self.failures = json.load(f)
+                    self.failures = {os.path.normcase(key): value for key, value in json.load(f).items()}
             except Exception as exc:
                 logger.debug("Falha ao carregar tracker de falhas: %s", exc)
                 self.failures = {}
@@ -621,7 +622,7 @@ class FailureTracker:
                 return True, s_reason
 
         # 2. Verificação individual do arquivo no cache persistido
-        key = str(file_path.resolve())
+        key = os.path.normcase(str(file_path.resolve()))
         with self._lock:
             info = self.failures.get(key)
             if not info:
@@ -653,7 +654,7 @@ class FailureTracker:
             return False, ""
 
     def record_failure(self, file_path: Path, error: str) -> None:
-        key = str(file_path.resolve())
+        key = os.path.normcase(str(file_path.resolve()))
         with self._lock:
             info = self.failures.get(key, {"count": 0})
             info["count"] = info.get("count", 0) + 1
@@ -679,7 +680,7 @@ class FailureTracker:
                     )
 
     def record_success(self, file_path: Path) -> None:
-        key = str(file_path.resolve())
+        key = os.path.normcase(str(file_path.resolve()))
         series_k = get_series_key(file_path)
         with self._lock:
             if key in self.failures:
@@ -790,14 +791,14 @@ class MediaValidator:
             self.active_paths_or_names = active
             self.last_cache_time = now
             logger.debug(
-                "Índice Mongo atualizado: %d filmes concl., %d eps concl., %d ativos.",
+                "Cache de duplicidade Mongo atualizada: %d filmes concl., %d eps concl., %d ativos.",
                 len(movies), len(episodes), len(active)
             )
             return True
         except Exception as exc:
             # Don't retry a failed full scan once per STRM item: that turns a
             # transient Mongo/query failure into a queue-wide startup stall.
-            logger.warning("Falha ao atualizar índice Mongo: %s", exc)
+            logger.warning("Falha ao atualizar cache de duplicidade Mongo: %s", exc)
             return False
         finally:
             if client is not None:
@@ -895,6 +896,7 @@ def download_strm_multipart(
     target_path.parent.mkdir(parents=True, exist_ok=True)
     tmp_path = target_path.parent / f".{target_path.stem}.download"
     meta_path = Path(f"{tmp_path}.meta")
+    source_fingerprint = hashlib.sha256(url.encode("utf-8")).hexdigest()
     part_paths: list[Path] = []
 
     socket.setdefaulttimeout(read_timeout)
@@ -906,30 +908,59 @@ def download_strm_multipart(
             match = re.match(r"bytes\s+0-0/(\d+)", content_range)
 
             if not match:
-                # Checar se já existe no destino
-                if target_path.exists() and target_path.stat().st_size > 0:
-                    return target_path
+                content_length = response.headers.get("Content-Length")
+                try:
+                    expected_total = int(content_length) if content_length is not None else None
+                    if expected_total is not None and expected_total < 0:
+                        expected_total = None
+                except (TypeError, ValueError):
+                    expected_total = None
                 # Servidor não suporta Range: download sequencial direto
                 logger.info("Download direto sem suporte a Range: %s", target_path.name)
                 with tmp_path.open("wb") as out:
                     shutil.copyfileobj(response, out, length=1024 * 1024)
                 total = tmp_path.stat().st_size
+                if expected_total is not None and total != expected_total:
+                    raise IOError(f"Download sequencial incompleto ({total}/{expected_total} bytes)")
             else:
                 total = int(match.group(1))
 
                 # Checar se já existe no destino completo
                 if target_path.exists():
-                    if target_path.stat().st_size == total:
-                        return target_path
-                    logger.warning(
-                        "Arquivo de destino com tamanho divergente (%d != %d). Reiniciando: %s",
-                        target_path.stat().st_size, total, target_path.name,
-                    )
+                    if target_path.stat().st_size != total:
+                        logger.warning(
+                            "Arquivo de destino com tamanho divergente (%d != %d). Reiniciando: %s",
+                            target_path.stat().st_size, total, target_path.name,
+                        )
                     # Keep the last known-good media until the replacement has
                     # downloaded and passed its size check; tmp_path.replace()
                     # commits the new file atomically at the end.
 
-                # Checar se o arquivo já foi completamente unido antes de uma parada inesperada
+                # shortcut: same-URL byte changes are indistinguishable by size; add ETag/If-Range before mutable-source resume.
+                # Persist only a URL digest, never its plaintext credentials.
+                resume_is_valid = False
+                if meta_path.exists():
+                    try:
+                        with meta_path.open("r", encoding="utf-8") as f:
+                            saved_meta = json.load(f)
+                        saved_parts_count = saved_meta.get("parts_count")
+                        if (
+                            saved_meta.get("source_fingerprint") == source_fingerprint
+                            and saved_meta.get("total") == total
+                            and isinstance(saved_parts_count, int)
+                            and saved_parts_count > 0
+                        ):
+                            parts_count = saved_parts_count
+                            resume_is_valid = True
+                    except Exception:
+                        pass
+
+                if not resume_is_valid:
+                    tmp_path.unlink(missing_ok=True)
+                    for stale_part in target_path.parent.glob(f".{target_path.stem}.download.part*"):
+                        stale_part.unlink(missing_ok=True)
+
+                # Checar se o arquivo unido pertence à sessão de origem ainda válida.
                 if tmp_path.exists() and tmp_path.stat().st_size == total:
                     logger.info("Arquivo unido já existente completo (%d bytes): %s", total, target_path.name)
                     tmp_path.replace(target_path)
@@ -941,23 +972,18 @@ def download_strm_multipart(
 
                 wait_for_disk_capacity(target_path, total, min_free_percent)
 
-                # Recupera parts_count original caso salvo em sessão anterior
-                if meta_path.exists():
-                    try:
-                        with meta_path.open("r", encoding="utf-8") as f:
-                            saved_meta = json.load(f)
-                        if saved_meta.get("total") == total and saved_meta.get("parts_count"):
-                            parts_count = int(saved_meta["parts_count"])
-                    except Exception:
-                        pass
-
                 parts_count = min(max(parts_count, 1), 32)
                 part_size = (total + parts_count - 1) // parts_count
                 part_paths = [Path(f"{tmp_path}.part{index}") for index in range(parts_count)]
 
                 try:
                     with meta_path.open("w", encoding="utf-8") as f:
-                        json.dump({"total": total, "parts_count": parts_count, "part_size": part_size}, f)
+                        json.dump({
+                            "source_fingerprint": source_fingerprint,
+                            "total": total,
+                            "parts_count": parts_count,
+                            "part_size": part_size,
+                        }, f)
                 except Exception:
                     pass
 
@@ -1081,7 +1107,16 @@ def download_strm_multipart(
                     raise IOError(f"Parte {index + 1} falhou após {max_retries} tentativas: {last_error}")
 
                 with ThreadPoolExecutor(max_workers=parts_count) as executor:
-                    list(executor.map(download_part, range(parts_count)))
+                    futures = [executor.submit(download_part, index) for index in range(parts_count)]
+                    errors = []
+                    for future in futures:
+                        try:
+                            future.result()
+                        except Exception as exc:
+                            errors.append(exc)
+
+                    if errors:
+                        raise errors[0]
 
                 logger.info("Unindo partes do arquivo: %s", target_path.name)
                 with tmp_path.open("wb") as out:
@@ -1464,8 +1499,15 @@ def get_title_scan_roots(
             continue
         try:
             children = list(category_root.iterdir())
-        except OSError:
-            title_roots.append((source, category_root))
+        except OSError as exc:
+            if category_root.is_file():
+                title_roots.append((source, category_root))
+            else:
+                logger.warning(
+                    "[STRM-SCAN-ROOT-ERROR] Não foi possível descobrir títulos em %s: %s",
+                    category_root,
+                    exc,
+                )
             continue
 
         direct_media = [
@@ -1859,14 +1901,14 @@ def run_downloader(args: argparse.Namespace) -> int:
 
     # Let the server acknowledge a live worker before the potentially slow
     # full Mongo duplicate-index refresh. This marker is not scan/download proof.
-    logger.info("[STRM-WORKER-READY] Worker iniciado; preparando índice Mongo e fila.")
+    logger.info("[STRM-WORKER-READY] Worker iniciado; preparando cache de duplicidade Mongo e fila.")
     validator = MediaValidator(mongo_uri=mongo_uri, db_name=db_name, library_user=library_user)
     if not validator.refresh_cache(force=True):
-        logger.error("[STRM-WORKER-STARTUP-FAILED] Índice Mongo indisponível; download não iniciado para evitar duplicidades.")
+        logger.error("[STRM-WORKER-STARTUP-FAILED] Cache de duplicidade Mongo indisponível; download não iniciado para evitar duplicidades.")
         return 1
     # The manager confirms worker readiness after Mongo validation succeeds.
     # STRM-SCAN-STARTED remains a progress signal for filesystem enumeration.
-    logger.info("[STRM-WORKER-MONGO-READY] Índice Mongo preparado; descobrindo raízes STRM.")
+    logger.info("[STRM-WORKER-MONGO-READY] Cache de duplicidade Mongo atualizada; descobrindo raízes STRM.")
 
     failure_tracker = FailureTracker()
     if getattr(args, "reset_failures", False):

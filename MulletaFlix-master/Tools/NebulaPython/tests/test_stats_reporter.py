@@ -72,7 +72,11 @@ async def test_stats_reporter_registers_stable_file_and_queues_it(monkeypatch, t
     assert queue.items == [{
         "path": str(media), "filename": "Movie.mkv", "parent": "/raphael/Filmes", "size": 5,
     }]
-    file_document = next(update[1]["$setOnInsert"] for update in files.updates if "queue_identity" in update[0])
+    identity_query, identity_update, _kwargs = next(update for update in files.updates if "queue_identity" in update[0])
+    identities = main.queue_identity_candidates(str(media))
+    assert identity_query == {"queue_identity": {"$in": identities}}
+    file_document = identity_update["$setOnInsert"]
+    assert file_document["queue_identity"] == identities[0]
     assert file_document["status"] == "queued"
     assert file_document["search_name"] == "movie.mkv"
     assert file_document["search_parent"] == "/raphael/filmes"
@@ -186,6 +190,7 @@ async def test_stats_reporter_requeues_failed_file_without_telegram_parts(monkey
                 "parent": "/raphael/Filmes",
                 "status": "queued",
                 "local_path": str(media),
+                "queue_identity": main.queue_identity(str(media)),
                 "size": 5,
             }},
             {},

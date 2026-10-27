@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib
+import os
 import urllib.error
 from pathlib import Path
 from types import SimpleNamespace
@@ -468,6 +469,22 @@ def test_failure_tracker_persists_failures_and_skips_only_after_transient_thresh
 
     now[0] += 61
     assert restored.should_skip(media) == (False, "")
+
+
+def test_failure_tracker_case_variants_follow_platform_path_semantics(tmp_path):
+    cache = tmp_path / "failures.json"
+    original = tmp_path / "Show.mkv"
+    variant = tmp_path / "show.mkv"
+    cache.write_text(
+        downloader.json.dumps(
+            {str(original.resolve()): {"timestamp": 9999999999, "count": 1, "error": "HTTP Error 404"}}
+        ),
+        encoding="utf-8",
+    )
+
+    tracker = downloader.FailureTracker(cache)
+
+    assert tracker.should_skip(variant)[0] is (os.name == "nt")
 
 
 def test_failure_tracker_fatal_series_breaker_resets_and_partial_download_overrides_skip(

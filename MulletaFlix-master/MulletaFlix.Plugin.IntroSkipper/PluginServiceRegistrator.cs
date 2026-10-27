@@ -15,6 +15,7 @@ using MediaBrowser.Common.Configuration;
 using MediaBrowser.Controller;
 using MediaBrowser.Controller.MediaSegments;
 using MediaBrowser.Controller.Plugins;
+using MediaBrowser.Controller.SystemBackupService;
 using MediaBrowser.Controller.Configuration;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -32,6 +33,8 @@ namespace IntroSkipper
     /// </summary>
     public class PluginServiceRegistrator : IPluginServiceRegistrator
     {
+        private const string DefaultDatabaseName = "mulletaflix_introskipper";
+
         /// <inheritdoc />
         public void RegisterServices(IServiceCollection serviceCollection, IServerApplicationHost applicationHost)
         {
@@ -55,6 +58,7 @@ namespace IntroSkipper
             // gates; every consumer goes through a facade.
             serviceCollection.AddSingleton<IIntroSkipperDatabase, IntroSkipperDatabase>();
             serviceCollection.AddSingleton<IDetectionCacheDatabase, DetectionCacheDatabase>();
+            serviceCollection.AddSingleton<IBackupDatabaseParticipant, IntroSkipperBackupParticipant>();
 
             // Registered before Entrypoint so migrations are warmed as the first hosted
             // service; the facades' internal gate still guarantees ordering for any
@@ -132,7 +136,7 @@ namespace IntroSkipper
                 PluginName = sourceOptions.PluginName,
                 PluginAssembly = sourceOptions.PluginAssembly,
                 ConnectionString = sourceOptions.ConnectionString,
-                Options = [.. sourceOptions.Options.Where(option => !option.Key.Equals("database", StringComparison.OrdinalIgnoreCase)), new CustomDatabaseOption { Key = "database", Value = "mulletaflix_introskipper" }]
+                Options = [.. sourceOptions.Options.Where(option => !option.Key.Equals("database", StringComparison.OrdinalIgnoreCase)), new CustomDatabaseOption { Key = "database", Value = GetDatabaseName() }]
             };
             return new DatabaseConfigurationOptions
             {
@@ -140,6 +144,17 @@ namespace IntroSkipper
                 LockingBehavior = source.LockingBehavior,
                 CustomProviderOptions = options
             };
+        }
+
+        private static string GetDatabaseName()
+        {
+            var databaseName = Environment.GetEnvironmentVariable("MULLETAFLIX_TEST_INTROSKIPPER_DATABASE") ?? DefaultDatabaseName;
+            if (databaseName.Length is 0 or > 64 || databaseName.Any(character => !char.IsAsciiLetterOrDigit(character) && character != '_'))
+            {
+                throw new InvalidOperationException("IntroSkipper database name contains unsupported characters.");
+            }
+
+            return databaseName;
         }
     }
 }

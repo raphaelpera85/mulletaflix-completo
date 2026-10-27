@@ -84,9 +84,12 @@ public sealed class CleanupUserDataTaskTests
         var factory = new Mock<IDbContextFactory<MulletaFlixDbContext>>();
         factory.Setup(provider => provider.CreateDbContextAsync(It.IsAny<CancellationToken>()))
             .ReturnsAsync(CreateContext);
-        async Task<int> DeleteFromInMemoryAsync(IQueryable<UserData> query, CancellationToken cancellationToken)
+        async Task<int> DeleteFromInMemoryAsync(DateTime cutoff, CancellationToken cancellationToken)
         {
-            var candidates = await query.ToListAsync(cancellationToken);
+            await using var candidateContext = CreateContext();
+            var candidates = await CleanupUserDataTask.FilterExpiredDetachedUserData(
+                candidateContext.UserData.Where(entry => entry.ItemId == BaseItemRepository.PlaceholderId),
+                cutoff).ToListAsync(cancellationToken);
             Assert.Equal(expired.CustomDataKey, Assert.Single(candidates).CustomDataKey);
             var candidateKeys = candidates.Select(candidate => candidate.CustomDataKey).ToArray();
             await using var deleteContext = CreateContext();
@@ -152,6 +155,7 @@ public sealed class CleanupUserDataTaskTests
         var task = new CleanupUserDataTask(
             Mock.Of<ILocalizationManager>(),
             factory.Object,
+            Mock.Of<MediaBrowser.Controller.Persistence.IItemPersistenceService>(),
             NullLogger<CleanupUserDataTask>.Instance);
 
         await task.ExecuteAsync(Mock.Of<IProgress<double>>(), CancellationToken.None);

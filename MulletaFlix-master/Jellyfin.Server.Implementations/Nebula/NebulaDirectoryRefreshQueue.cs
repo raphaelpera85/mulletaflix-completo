@@ -11,11 +11,13 @@ namespace Jellyfin.Server.Implementations.Nebula;
 /// </summary>
 internal sealed class NebulaDirectoryRefreshQueue : IAsyncDisposable
 {
+    private const int MaximumRetryDelayMinutes = 5;
     private readonly object _lock = new();
-    private readonly Dictionary<string, DateTimeOffset> _pendingDirectories = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, (DateTimeOffset DueAt, int Attempt)> _pendingDirectories = new(StringComparer.OrdinalIgnoreCase);
     private readonly Func<string, CancellationToken, Task> _refresh;
     private readonly ILogger<NebulaDirectoryRefreshQueue> _logger;
     private readonly TimeSpan _debounce;
+    private readonly TimeSpan _retryBaseDelay;
     private readonly SemaphoreSlim _wakeSignal = new(0, 1);
     private readonly CancellationTokenSource _shutdown = new();
     private readonly Task _workerTask;
@@ -25,11 +27,13 @@ internal sealed class NebulaDirectoryRefreshQueue : IAsyncDisposable
     public NebulaDirectoryRefreshQueue(
         Func<string, CancellationToken, Task> refresh,
         ILogger<NebulaDirectoryRefreshQueue> logger,
-        TimeSpan? debounce = null)
+        TimeSpan? debounce = null,
+        TimeSpan? retryBaseDelay = null)
     {
         _refresh = refresh;
         _logger = logger;
         _debounce = debounce ?? TimeSpan.FromMilliseconds(750);
+        _retryBaseDelay = retryBaseDelay ?? TimeSpan.FromSeconds(5);
         _workerTask = ProcessQueueAsync();
     }
 
@@ -47,7 +51,7 @@ internal sealed class NebulaDirectoryRefreshQueue : IAsyncDisposable
                 return;
             }
 
-            _pendingDirectories[directory] = DateTimeOffset.UtcNow + _debounce;
+            _pendingDirectories[directory] = (DateTimeOffset.UtcNow + _debounce, 0);
         }
 
         try
@@ -69,6 +73,7 @@ internal sealed class NebulaDirectoryRefreshQueue : IAsyncDisposable
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 string? directory = null;
+                var attempt = 0;
                 TimeSpan? wait = null;
 
                 lock (_lock)
@@ -78,10 +83,10 @@ internal sealed class NebulaDirectoryRefreshQueue : IAsyncDisposable
                         return;
                     }
 
-                    var next = default(KeyValuePair<string, DateTimeOffset>?);
+                    var next = default(KeyValuePair<string, (DateTimeOffset DueAt, int Attempt)>?);
                     foreach (var pending in _pendingDirectories)
                     {
-                        if (next is null || pending.Value < next.Value.Value)
+                        if (next is null || pending.Value.DueAt < next.Value.Value.DueAt)
                         {
                             next = pending;
                         }
@@ -89,10 +94,11 @@ internal sealed class NebulaDirectoryRefreshQueue : IAsyncDisposable
 
                     if (next is { } scheduled)
                     {
-                        var remaining = scheduled.Value - DateTimeOffset.UtcNow;
+                        var remaining = scheduled.Value.DueAt - DateTimeOffset.UtcNow;
                         if (remaining <= TimeSpan.Zero)
                         {
                             directory = scheduled.Key;
+                            attempt = scheduled.Value.Attempt;
                             _pendingDirectories.Remove(directory);
                         }
                         else
@@ -127,12 +133,40 @@ internal sealed class NebulaDirectoryRefreshQueue : IAsyncDisposable
                 catch (Exception ex)
                 {
                     _logger.LogWarning(ex, "Falha ao atualizar cache rclone da pasta virtual {Directory}.", directory);
+                    ScheduleRetry(directory, attempt + 1);
                 }
             }
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
             // Shutdown cancels a pending debounce or the active rclone refresh.
+        }
+    }
+
+    private void ScheduleRetry(string directory, int attempt)
+    {
+        var exponent = Math.Min(attempt - 1, 6);
+        var delay = TimeSpan.FromTicks(Math.Min(
+            _retryBaseDelay.Ticks * (1L << exponent),
+            TimeSpan.FromMinutes(MaximumRetryDelayMinutes).Ticks));
+
+        lock (_lock)
+        {
+            if (_disposed || _pendingDirectories.ContainsKey(directory))
+            {
+                return;
+            }
+
+            _pendingDirectories[directory] = (DateTimeOffset.UtcNow + delay, attempt);
+        }
+
+        try
+        {
+            _wakeSignal.Release();
+        }
+        catch (SemaphoreFullException)
+        {
+            // A wake-up is already pending; the worker will observe the retry due time.
         }
     }
 

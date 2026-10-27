@@ -35,7 +35,8 @@ namespace Jellyfin.Server.Implementations.Nebula;
 /// </summary>
 public sealed class NebulaSupabaseSyncService : IDisposable
 {
-    private sealed record RemoteBackupState(DateTime CreatedAtUtc, int TotalFiles);
+    private static readonly TimeSpan MaxSupabaseRetryAfter = TimeSpan.FromSeconds(60);
+    private sealed record RemoteBackupState(DateTime CreatedAtUtc, DateTime? SyncStartedAtUtc, int TotalFiles);
 
     public const string MeterName = "MulletaFlix.Nebula.SupabaseSync";
     internal const int SupabaseRestorePageSize = 100;
@@ -71,6 +72,95 @@ public sealed class NebulaSupabaseSyncService : IDisposable
     /// Obtém a data e hora UTC da última restauração bem-sucedida realizada nesta sessão.
     /// </summary>
     public DateTime? LastSuccessfulRestoreTime => _lastSuccessfulRestoreTime;
+
+    internal static TimeSpan GetAutomaticBackupDelay(int consecutiveFailures, int intervalMinutes)
+    {
+        var maximumDelay = TimeSpan.FromMinutes(Math.Max(5, intervalMinutes));
+        if (consecutiveFailures <= 0)
+        {
+            return maximumDelay;
+        }
+
+        var delay = TimeSpan.FromMinutes(1);
+        for (var failure = 1; failure < consecutiveFailures && delay < maximumDelay; failure++)
+        {
+            var doubledTicks = delay.Ticks <= maximumDelay.Ticks / 2 ? delay.Ticks * 2 : maximumDelay.Ticks;
+            delay = TimeSpan.FromTicks(Math.Min(doubledTicks, maximumDelay.Ticks));
+        }
+
+        return delay;
+    }
+
+    private void LogAutomaticBackupRetry(int consecutiveFailures, int intervalMinutes, Action<string>? progressAction, Exception? exception = null)
+    {
+        var delay = GetAutomaticBackupDelay(consecutiveFailures, intervalMinutes);
+        var message = $"[SUPABASE-AUTO-SYNC] Backup automático falhou; nova tentativa em {delay.TotalMinutes:0} min (falhas consecutivas: {consecutiveFailures}).";
+        if (exception is null)
+        {
+            _logger.LogWarning("{Message}", message);
+        }
+        else
+        {
+            _logger.LogWarning(exception, "{Message}", message);
+        }
+
+        progressAction?.Invoke(message);
+    }
+
+    internal async Task RunAutomaticBackupLoopAsync(
+        Func<CancellationToken, Task<NebulaSupabaseBackupResultDto>> backupOperation,
+        Func<TimeSpan, CancellationToken, Task> delayAsync,
+        int intervalMinutes,
+        Action<string>? progressAction,
+        CancellationToken cancellationToken)
+    {
+        _logger.LogInformation("[SUPABASE-AUTO-SYNC] Loop de sincronização contínua iniciado (Intervalo: {Min} min).", intervalMinutes);
+        var consecutiveFailures = 0;
+        var firstAttempt = true;
+
+        while (!cancellationToken.IsCancellationRequested)
+        {
+            var retrying = consecutiveFailures > 0;
+            var delay = firstAttempt ? TimeSpan.Zero : GetAutomaticBackupDelay(consecutiveFailures, intervalMinutes);
+            firstAttempt = false;
+
+            try
+            {
+                if (delay > TimeSpan.Zero)
+                {
+                    await delayAsync(delay, cancellationToken).ConfigureAwait(false);
+                    if (retrying)
+                    {
+                        _logger.LogInformation("[SUPABASE-AUTO-SYNC] Executando nova tentativa automática após {DelayMinutes} min.", delay.TotalMinutes);
+                    }
+                    else
+                    {
+                        _logger.LogInformation("[SUPABASE-AUTO-SYNC] Executando sincronização periódica programada...");
+                    }
+                }
+
+                var result = await backupOperation(cancellationToken).ConfigureAwait(false);
+                if (result.Success)
+                {
+                    consecutiveFailures = 0;
+                }
+                else
+                {
+                    consecutiveFailures++;
+                    LogAutomaticBackupRetry(consecutiveFailures, intervalMinutes, progressAction);
+                }
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                break;
+            }
+            catch (Exception ex)
+            {
+                consecutiveFailures++;
+                LogAutomaticBackupRetry(consecutiveFailures, intervalMinutes, progressAction, ex);
+            }
+        }
+    }
 
     /// <summary>
     /// Verifica se a chave pode ser usada pelo backend para acessar tabelas protegidas por RLS.
@@ -190,38 +280,12 @@ public sealed class NebulaSupabaseSyncService : IDisposable
             var ct = _continuousSyncCts.Token;
 
             _continuousSyncTask = Task.Run(
-                async () =>
-                {
-                    _logger.LogInformation("[SUPABASE-AUTO-SYNC] Loop de sincronização contínua iniciado (Intervalo: {Min} min).", intervalMinutes);
-
-                    // Primeira execução imediata
-                    try
-                    {
-                        await PerformAutomaticBackupWhenIdleAsync(supabaseUrl, supabaseKey, progressAction, ct).ConfigureAwait(false);
-                    }
-                    catch (Exception ex) when (!ct.IsCancellationRequested)
-                    {
-                        _logger.LogWarning(ex, "[SUPABASE-AUTO-SYNC] Aviso na sincronização inicial com Supabase.");
-                    }
-
-                    while (!ct.IsCancellationRequested)
-                    {
-                        try
-                        {
-                            await Task.Delay(TimeSpan.FromMinutes(Math.Max(5, intervalMinutes)), ct).ConfigureAwait(false);
-                            _logger.LogInformation("[SUPABASE-AUTO-SYNC] Executando sincronização periódica programada...");
-                            await PerformAutomaticBackupWhenIdleAsync(supabaseUrl, supabaseKey, progressAction, ct).ConfigureAwait(false);
-                        }
-                        catch (OperationCanceledException)
-                        {
-                            break;
-                        }
-                        catch (Exception ex)
-                        {
-                            _logger.LogError(ex, "[SUPABASE-AUTO-SYNC] Erro no ciclo de sincronização periódica.");
-                        }
-                    }
-                },
+                () => RunAutomaticBackupLoopAsync(
+                    token => PerformAutomaticBackupWhenIdleAsync(supabaseUrl, supabaseKey, progressAction, token),
+                    static (delay, token) => Task.Delay(delay, token),
+                    intervalMinutes,
+                    progressAction,
+                    ct),
                 ct);
 
             _continuousUsersBackupTask = Task.Run(async () =>
@@ -511,18 +575,55 @@ public sealed class NebulaSupabaseSyncService : IDisposable
 
         try
         {
-            var uri = $"{supabaseUrl.TrimEnd('/')}/rest/v1/nebula_backups?select=created_at,total_files&status=eq.success&order=id.desc&limit=1";
-            using var req = new HttpRequestMessage(HttpMethod.Get, uri);
-            req.Headers.Add("apikey", supabaseKey);
-            req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", supabaseKey);
-
-            using var resp = await _httpClient.SendAsync(req, cancellationToken).ConfigureAwait(false);
-            if (!resp.IsSuccessStatusCode)
+            var uri = $"{supabaseUrl.TrimEnd('/')}/rest/v1/nebula_backups?select=created_at,total_files,details&status=eq.success&backup_type=in.(mongo_delta_sync_v2,mongo_full_sync_v2)&order=id.desc&limit=1";
+            string? body = null;
+            for (var attempt = 1; attempt <= 3; attempt++)
             {
-                throw new InvalidOperationException($"Falha ao consultar o histórico do Supabase: HTTP {(int)resp.StatusCode} {resp.ReasonPhrase}.");
+                var retry = false;
+                var retryDelay = TimeSpan.FromMilliseconds(250 * attempt);
+                try
+                {
+                    using var req = new HttpRequestMessage(HttpMethod.Get, uri);
+                    req.Headers.Add("apikey", supabaseKey);
+                    req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", supabaseKey);
+
+                    using var resp = await _httpClient.SendAsync(req, cancellationToken).ConfigureAwait(false);
+                    if (!resp.IsSuccessStatusCode)
+                    {
+                        var retryableStatus = resp.StatusCode == HttpStatusCode.TooManyRequests || (int)resp.StatusCode >= 500;
+                        if (!retryableStatus || attempt == 3)
+                        {
+                            throw new InvalidOperationException($"Falha ao consultar o histórico do Supabase: HTTP {(int)resp.StatusCode} {resp.ReasonPhrase}.");
+                        }
+
+                        _logger.LogWarning("[SUPABASE-TIMESTAMP] Falha transitória ao consultar o histórico (tentativa {Attempt}/3): HTTP {StatusCode}.", attempt, (int)resp.StatusCode);
+                        retryDelay = GetSupabaseRetryDelay(resp, attempt);
+                        retry = true;
+                    }
+                    else
+                    {
+                        body = await resp.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+                    }
+                }
+                catch (Exception ex) when (attempt < 3 && !cancellationToken.IsCancellationRequested && (ex is HttpRequestException or IOException or TaskCanceledException))
+                {
+                    _logger.LogWarning(ex, "[SUPABASE-TIMESTAMP] Erro transitório ao consultar o histórico (tentativa {Attempt}/3).", attempt);
+                    retry = true;
+                }
+
+                if (!retry)
+                {
+                    break;
+                }
+
+                await Task.Delay(retryDelay, cancellationToken).ConfigureAwait(false);
             }
 
-            var body = await resp.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+            if (body is null)
+            {
+                throw new InvalidOperationException("Não foi possível consultar o histórico do Supabase após 3 tentativas.");
+            }
+
             using var doc = JsonDocument.Parse(body);
             if (doc.RootElement.ValueKind != JsonValueKind.Array)
             {
@@ -546,7 +647,15 @@ public sealed class NebulaSupabaseSyncService : IDisposable
                 throw new InvalidOperationException("O último backup do Supabase não contém um total_files válido.");
             }
 
-            return new RemoteBackupState(createdAt.ToUniversalTime(), totalFiles);
+            DateTime? syncStartedAtUtc = null;
+            if (doc.RootElement[0].TryGetProperty("details", out var detailsProp)
+                && detailsProp.ValueKind == JsonValueKind.String
+                && TryParseSyncStartedAt(detailsProp.GetString(), out var parsedSyncStartedAt))
+            {
+                syncStartedAtUtc = parsedSyncStartedAt;
+            }
+
+            return new RemoteBackupState(createdAt.ToUniversalTime(), syncStartedAtUtc, totalFiles);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -564,8 +673,9 @@ public sealed class NebulaSupabaseSyncService : IDisposable
     }
 
     /// <summary>
-    /// Obtém o timestamp de atualização mais recente já gravado na tabela de arquivos do Supabase.
-    /// Serve de marcador quando não há registro de backup de usuários.
+    /// Obtém o cursor delta do último backup integralmente concluído.
+    /// O horário do início fica em metadados do campo de detalhes após o sucesso, preservando
+    /// created_at como horário real de criação do registro.
     /// </summary>
     public async Task<DateTime?> GetLastRemoteFileTimestampAsync(string supabaseUrl, string supabaseKey, CancellationToken cancellationToken = default)
     {
@@ -576,11 +686,12 @@ public sealed class NebulaSupabaseSyncService : IDisposable
 
         try
         {
-            var uri = $"{supabaseUrl.TrimEnd('/')}/rest/v1/nebula_files?select=updated_at&order=updated_at.desc.nullslast&limit=1";
+            var uri = $"{supabaseUrl.TrimEnd('/')}/rest/v1/nebula_files?select=id&limit=1";
             string? body = null;
             for (var attempt = 1; attempt <= 3; attempt++)
             {
                 var retry = false;
+                var retryDelay = TimeSpan.FromMilliseconds(250 * attempt);
                 try
                 {
                     using var req = new HttpRequestMessage(HttpMethod.Get, uri);
@@ -597,6 +708,7 @@ public sealed class NebulaSupabaseSyncService : IDisposable
                         }
 
                         _logger.LogWarning("[SUPABASE-TIMESTAMP] Falha transitória ao consultar o cursor (tentativa {Attempt}/3): HTTP {StatusCode}.", attempt, (int)resp.StatusCode);
+                        retryDelay = GetSupabaseRetryDelay(resp, attempt);
                         retry = true;
                     }
                     else
@@ -615,7 +727,7 @@ public sealed class NebulaSupabaseSyncService : IDisposable
                     break;
                 }
 
-                await Task.Delay(TimeSpan.FromMilliseconds(250 * attempt), cancellationToken).ConfigureAwait(false);
+                await Task.Delay(retryDelay, cancellationToken).ConfigureAwait(false);
             }
 
             if (body is null)
@@ -629,12 +741,12 @@ public sealed class NebulaSupabaseSyncService : IDisposable
                 throw new InvalidOperationException("O cursor remoto do Supabase retornou um formato inesperado.");
             }
 
+            var backupState = await GetLastRemoteBackupStateAsync(supabaseUrl, supabaseKey, cancellationToken).ConfigureAwait(false);
             if (doc.RootElement.GetArrayLength() == 0)
             {
                 // Catálogo vazio com backup histórico não é um catálogo inicial:
                 // o checkpoint faria somente delta e não recuperaria arquivos apagados.
-                var backupState = await GetLastRemoteBackupStateAsync(supabaseUrl, supabaseKey, cancellationToken).ConfigureAwait(false);
-                if (backupState is not null)
+                if (backupState is { TotalFiles: > 0 })
                 {
                     _logger.LogWarning(
                         "[SUPABASE-TIMESTAMP] Catálogo de arquivos vazio, mas existe histórico de backup (última contagem: {TotalFiles}); será feita sincronização integral de recuperação.",
@@ -642,15 +754,17 @@ public sealed class NebulaSupabaseSyncService : IDisposable
                     return null;
                 }
 
-                return backupState?.CreatedAtUtc;
+                return null;
             }
 
-            if (!doc.RootElement[0].TryGetProperty("updated_at", out var updatedProp) || !updatedProp.TryGetDateTime(out var updatedAt))
+            if (backupState is null || backupState.TotalFiles == 0 || backupState.SyncStartedAtUtc is null)
             {
-                throw new InvalidOperationException("O registro mais recente do Supabase não contém um updated_at válido.");
+                _logger.LogWarning(
+                    "[SUPABASE-TIMESTAMP] O catálogo contém arquivos, mas não há checkpoint de backup integral bem-sucedido; será feita sincronização integral.");
+                return null;
             }
 
-            return updatedAt.ToUniversalTime();
+            return backupState.SyncStartedAtUtc;
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -662,9 +776,54 @@ public sealed class NebulaSupabaseSyncService : IDisposable
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "[SUPABASE-TIMESTAMP] Falha ao obter o updated_at mais recente do Supabase; a sincronização delta foi interrompida para evitar fallback integral.");
+            _logger.LogWarning(ex, "[SUPABASE-TIMESTAMP] Falha ao obter o cursor de backup confirmado; a sincronização delta foi interrompida para evitar perda de registros.");
             throw new InvalidOperationException("Não foi possível obter com segurança o cursor delta do Supabase.", ex);
         }
+    }
+
+    private static bool TryParseSyncStartedAt(string? details, out DateTime syncStartedAtUtc)
+    {
+        const string marker = "sync_started_at_utc=";
+        syncStartedAtUtc = default;
+        if (string.IsNullOrEmpty(details))
+        {
+            return false;
+        }
+
+        var markerIndex = details.IndexOf(marker, StringComparison.Ordinal);
+        if (markerIndex < 0)
+        {
+            return false;
+        }
+
+        var valueStart = markerIndex + marker.Length;
+        var valueEnd = details.IndexOf(';', valueStart);
+        if (valueEnd < 0)
+        {
+            return false;
+        }
+
+        return DateTime.TryParse(
+            details.AsSpan(valueStart, valueEnd - valueStart),
+            CultureInfo.InvariantCulture,
+            DateTimeStyles.RoundtripKind,
+            out syncStartedAtUtc)
+            && syncStartedAtUtc.Kind == DateTimeKind.Utc;
+    }
+
+    internal static TimeSpan GetSupabaseRetryDelay(HttpResponseMessage response, int attempt)
+    {
+        var fallback = TimeSpan.FromMilliseconds(250 * attempt);
+        var retryAfter = response.Headers.RetryAfter;
+        var requestedDelay = retryAfter?.Delta
+            ?? (retryAfter?.Date is { } retryDate ? retryDate - DateTimeOffset.UtcNow : null);
+
+        if (requestedDelay is not { } delay || delay <= TimeSpan.Zero)
+        {
+            return fallback;
+        }
+
+        return delay > MaxSupabaseRetryAfter ? MaxSupabaseRetryAfter : delay;
     }
 
     /// <summary>
@@ -795,14 +954,14 @@ public sealed class NebulaSupabaseSyncService : IDisposable
             }
 
             // 5. Registra log na tabela nebula_backups
-            var syncModeName = forceFullSync ? "mongo_full_sync" : "mongo_delta_sync";
+            var syncModeName = forceFullSync ? "mongo_full_sync_v2" : "mongo_delta_sync_v2";
             var backupLog = new
             {
                 backup_type = syncModeName,
                 status = "success",
                 total_files = (int)remoteFileCount,
                 total_users = syncedUsers,
-                details = $"Backup do MongoDB concluído com {syncedFiles} arquivos, {syncedUsers} usuários FTP e {syncedTokens} tokens de bot; {deletedFtpUsers} usuários removidos do backup. Usuários do aplicativo não incluídos."
+                details = $"sync_started_at_utc={startTime.ToString("O", CultureInfo.InvariantCulture)}; Backup do MongoDB concluído com {syncedFiles} arquivos, {syncedUsers} usuários FTP e {syncedTokens} tokens de bot; {deletedFtpUsers} usuários removidos do backup. Usuários do aplicativo não incluídos."
             };
 
             await RecordBackupHistoryAsync(supabaseUrl, supabaseKey, backupLog, cancellationToken).ConfigureAwait(false);
@@ -826,7 +985,7 @@ public sealed class NebulaSupabaseSyncService : IDisposable
         {
             _logger.LogError(ex, "[SUPABASE-SYNC] Erro durante a sincronização com o Supabase.");
             result.Success = false;
-            result.Message = $"Erro: {ex.Message}";
+            result.Message = $"Erro: {NebulaErrorMessageFormatter.Format(ex)}";
             progressAction?.Invoke($"[SUPABASE-ERRO] Falha na sincronização: {result.Message}");
             return result;
         }
@@ -1074,7 +1233,7 @@ public sealed class NebulaSupabaseSyncService : IDisposable
         {
             _logger.LogError(ex, "[SUPABASE-RESTORE] Erro ao restaurar do Supabase.");
             result.Success = false;
-            result.Message = $"Erro: {ex.Message}";
+            result.Message = $"Erro: {NebulaErrorMessageFormatter.Format(ex)}";
             progressAction?.Invoke($"[SUPABASE-RESTORE-ERRO] Falha na restauração: {result.Message}");
             return result;
         }
@@ -1415,7 +1574,8 @@ public sealed class NebulaSupabaseSyncService : IDisposable
         }
         catch (Exception ex)
         {
-            result.Message = $"Erro: {ex.Message}";
+            _logger.LogError(ex, "[SUPABASE-USERS] Erro ao fazer backup dos usuários FTP.");
+            result.Message = $"Erro: {NebulaErrorMessageFormatter.Format(ex)}";
             progressAction?.Invoke($"[SUPABASE-ERRO] {result.Message}");
             return result;
         }
@@ -1488,7 +1648,8 @@ public sealed class NebulaSupabaseSyncService : IDisposable
         }
         catch (Exception ex)
         {
-            result.Message = $"Erro: {ex.Message}";
+            _logger.LogError(ex, "[SUPABASE-USERS] Erro ao restaurar usuários FTP.");
+            result.Message = $"Erro: {NebulaErrorMessageFormatter.Format(ex)}";
             progressAction?.Invoke($"[SUPABASE-ERRO] {result.Message}");
             return result;
         }

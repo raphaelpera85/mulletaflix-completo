@@ -6,6 +6,7 @@ using System.Globalization;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using AsyncKeyedLock;
 using BitFaster.Caching.Lru;
 using MulletaFlix.Database.Implementations;
 using MulletaFlix.Database.Implementations.Entities;
@@ -24,9 +25,9 @@ namespace Emby.Server.Implementations.Library
     /// <summary>
     /// Class UserDataManager.
     /// </summary>
-    public class UserDataManager : IUserDataManager
+    public class UserDataManager : IUserDataManager, IDisposable
     {
-        private static readonly SemaphoreSlim[] _saveUserDataLocks = Enumerable.Range(0, 8).Select(_ => new SemaphoreSlim(1, 1)).ToArray();
+        private readonly AsyncKeyedLocker<Guid> _saveUserDataLock = new();
         private readonly IServerConfigurationManager _config;
         private readonly IDbContextFactory<MulletaFlixDbContext> _repository;
         private readonly FastConcurrentLru<string, UserItemData> _cache;
@@ -65,64 +66,69 @@ namespace Emby.Server.Implementations.Library
 
             cancellationToken.ThrowIfCancellationRequested();
 
-            var lockIndex = item.Id.GetHashCode() & 7;
-            var saveLock = _saveUserDataLocks[lockIndex];
+            using var saveLock = await _saveUserDataLock.LockAsync(item.Id, cancellationToken).ConfigureAwait(false);
+            var keys = item.GetUserDataKeys().Distinct(StringComparer.Ordinal).ToArray();
 
-            // WaitAsync instead of Wait: this is called from SessionManager on every playback
-            // progress report (roughly every 10 seconds per active client), so blocking the thread
-            // here is the most frequent thread-pool stall in the server. With only 8 stripes over a
-            // Guid space two unrelated items routinely share a stripe, so the wait is not rare.
-            await saveLock.WaitAsync(cancellationToken).ConfigureAwait(false);
-            try
+            var dbContext = await _repository.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
+            await using (dbContext.ConfigureAwait(false))
             {
-                var keys = item.GetUserDataKeys().Distinct(StringComparer.Ordinal).ToArray();
+                await using var transaction = await dbContext.Database.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+                var existingEntries = (await dbContext.UserData
+                    .Where(f => f.ItemId == item.Id && f.UserId == user.Id)
+                    .ToListAsync(cancellationToken)
+                    .ConfigureAwait(false))
+                    .Where(f => keys.Contains(f.CustomDataKey))
+                    .ToDictionary(f => f.CustomDataKey, StringComparer.Ordinal);
 
-                var dbContext = await _repository.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
-                await using (dbContext.ConfigureAwait(false))
+                foreach (var key in keys)
                 {
-                    await using var transaction = await dbContext.Database.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
-                    var existingEntries = (await dbContext.UserData
-                        .Where(f => f.ItemId == item.Id && f.UserId == user.Id)
-                        .ToListAsync(cancellationToken)
-                        .ConfigureAwait(false))
-                        .Where(f => keys.Contains(f.CustomDataKey))
-                        .ToDictionary(f => f.CustomDataKey, StringComparer.Ordinal);
-
-                    foreach (var key in keys)
+                    userData.Key = key;
+                    var userDataEntry = Map(userData, user.Id, item.Id);
+                    if (existingEntries.TryGetValue(key, out var existingEntry))
                     {
-                        userData.Key = key;
-                        var userDataEntry = Map(userData, user.Id, item.Id);
-                        if (existingEntries.TryGetValue(key, out var existingEntry))
-                        {
-                            ApplyUserData(existingEntry, userDataEntry);
-                        }
-                        else
-                        {
-                            dbContext.UserData.Add(userDataEntry);
-                        }
+                        ApplyUserData(existingEntry, userDataEntry);
                     }
-
-                    await dbContext.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
-                    await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
-
-                    var userId = user.InternalId;
-                    var cacheKey = GetCacheKey(userId, item.Id);
-                    _cache.AddOrUpdate(cacheKey, userData);
-                    item.UserData = await dbContext.UserData.Where(e => e.ItemId == item.Id).AsNoTracking().ToArrayAsync(cancellationToken).ConfigureAwait(false); // rehydrate the cached userdata
+                    else
+                    {
+                        dbContext.UserData.Add(userDataEntry);
+                    }
                 }
 
-                UserDataSaved?.Invoke(this, new UserDataSaveEventArgs
-                {
-                    Keys = keys.ToList(),
-                    UserData = userData,
-                    SaveReason = reason,
-                    UserId = user.Id,
-                    Item = item
-                });
+                await dbContext.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+                await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+
+                var userId = user.InternalId;
+                var cacheKey = GetCacheKey(userId, item.Id);
+                _cache.AddOrUpdate(cacheKey, userData);
+                item.UserData = await dbContext.UserData.Where(e => e.ItemId == item.Id).AsNoTracking().ToArrayAsync(cancellationToken).ConfigureAwait(false); // rehydrate the cached userdata
             }
-            finally
+
+            UserDataSaved?.Invoke(this, new UserDataSaveEventArgs
             {
-                saveLock.Release();
+                Keys = keys.ToList(),
+                UserData = userData,
+                SaveReason = reason,
+                UserId = user.Id,
+                Item = item
+            });
+        }
+
+        /// <inheritdoc />
+        public void Dispose()
+        {
+            Dispose(true);
+            GC.SuppressFinalize(this);
+        }
+
+        /// <summary>
+        /// Releases the resources used by the <see cref="UserDataManager"/>.
+        /// </summary>
+        /// <param name="disposing">Whether managed resources should be disposed.</param>
+        protected virtual void Dispose(bool disposing)
+        {
+            if (disposing)
+            {
+                _saveUserDataLock.Dispose();
             }
         }
 

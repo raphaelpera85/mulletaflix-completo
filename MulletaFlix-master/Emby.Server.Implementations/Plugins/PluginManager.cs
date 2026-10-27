@@ -7,13 +7,13 @@ using System.Net.Http;
 using System.Net.Http.Json;
 using System.Reflection;
 using System.Runtime.Loader;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
-using System.Security.Cryptography;
+using System.Threading;
 using System.Threading.Tasks;
 using Emby.Server.Implementations.Library;
-using MulletaFlix.Extensions.Json;
-using MulletaFlix.Extensions.Json.Converters;
+using Jellyfin.Server.Implementations.Archives;
 using MediaBrowser.Common.Extensions;
 using MediaBrowser.Common.Net;
 using MediaBrowser.Common.Plugins;
@@ -25,6 +25,8 @@ using MediaBrowser.Model.Plugins;
 using MediaBrowser.Model.Updates;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using MulletaFlix.Extensions.Json;
+using MulletaFlix.Extensions.Json.Converters;
 
 namespace Emby.Server.Implementations.Plugins
 {
@@ -1086,32 +1088,51 @@ namespace Emby.Server.Implementations.Plugins
                     return;
                 }
 
-                var targetDir = Path.Combine(_pluginsPath, package.Name + "_" + version.VersionNumber);
                 Directory.CreateDirectory(_pluginsPath);
-
-                if (Directory.Exists(targetDir))
+                var targetDir = BoundedZipArchiveExtractor.GetChildPath(_pluginsPath, package.Name + "_" + version.VersionNumber);
+                var archivePath = Path.Combine(_pluginsPath, ".bootstrap-" + Guid.NewGuid().ToString("N") + ".zip");
+                try
                 {
-                    Directory.Delete(targetDir, true);
-                }
+                    using (var response = await client.GetAsync(version.SourceUrl, HttpCompletionOption.ResponseHeadersRead).ConfigureAwait(false))
+                    {
+                        response.EnsureSuccessStatusCode();
+                        if (response.Content.Headers.ContentLength > BoundedZipArchiveExtractor.MaxArchiveBytes)
+                        {
+                            throw new InvalidDataException("The bootstrap plugin package exceeds the download size limit.");
+                        }
 
-                var bytes = await client.GetByteArrayAsync(version.SourceUrl).ConfigureAwait(false);
+                        await using var responseStream = await response.Content.ReadAsStreamAsync().ConfigureAwait(false);
+                        await using var fileStream = new FileStream(archivePath, FileMode.CreateNew, FileAccess.Write, FileShare.None, 81920, true);
+                        await BoundedZipArchiveExtractor.CopyBoundedAsync(
+                            responseStream,
+                            fileStream,
+                            BoundedZipArchiveExtractor.MaxArchiveBytes,
+                            CancellationToken.None).ConfigureAwait(false);
+                    }
 
-                if (!string.IsNullOrEmpty(version.Checksum))
-                {
-                    var hash = Convert.ToHexString(MD5.HashData(bytes));
-                    if (!string.Equals(version.Checksum, hash, StringComparison.OrdinalIgnoreCase))
+                    await using var archiveStream = new FileStream(archivePath, FileMode.Open, FileAccess.Read, FileShare.Read, 81920, true);
+                    if (!await VerifyBootstrapPackageChecksumAsync(version.Checksum, archiveStream, CancellationToken.None).ConfigureAwait(false))
                     {
                         _logger.LogError(
-                            "Bootstrap plugin {PluginName} checksum mismatch. Expected {Expected}, got {Received}.",
-                            package.Name,
-                            version.Checksum,
-                            hash);
+                            "Bootstrap plugin {PluginName} has a missing, invalid, or mismatched package checksum.",
+                            package.Name);
                         return;
                     }
-                }
 
-                using var archiveStream = new MemoryStream(bytes);
-                System.IO.Compression.ZipFile.ExtractToDirectory(archiveStream, targetDir, true);
+                    var retainedBackupPath = await BoundedZipArchiveExtractor.ExtractToDirectoryAsync(
+                        archiveStream,
+                        targetDir,
+                        _pluginsPath,
+                        CancellationToken.None).ConfigureAwait(false);
+                    if (retainedBackupPath is not null)
+                    {
+                        _logger.LogWarning("The previous bootstrap plugin package could not be removed and remains at {BackupPath}.", retainedBackupPath);
+                    }
+                }
+                finally
+                {
+                    File.Delete(archivePath);
+                }
 
                 var manifest = new PluginManifest
                 {
@@ -1143,6 +1164,34 @@ namespace Emby.Server.Implementations.Plugins
             {
                 processingIds.Remove(pluginId);
             }
+        }
+
+        internal static async Task<bool> VerifyBootstrapPackageChecksumAsync(
+            string? expectedChecksum,
+            Stream archiveStream,
+            CancellationToken cancellationToken)
+        {
+            ArgumentNullException.ThrowIfNull(archiveStream);
+            if (string.IsNullOrWhiteSpace(expectedChecksum) || expectedChecksum.Length != 32 || !archiveStream.CanSeek)
+            {
+                return false;
+            }
+
+            byte[] expectedHash;
+            try
+            {
+                expectedHash = Convert.FromHexString(expectedChecksum);
+            }
+            catch (FormatException)
+            {
+                return false;
+            }
+
+            archiveStream.Position = 0;
+#pragma warning disable CA5351
+            var actualHash = await MD5.HashDataAsync(archiveStream, cancellationToken).ConfigureAwait(false);
+#pragma warning restore CA5351
+            return CryptographicOperations.FixedTimeEquals(expectedHash, actualHash);
         }
 
         private VersionInfo? SelectCompatibleVersion(PackageInfo package)

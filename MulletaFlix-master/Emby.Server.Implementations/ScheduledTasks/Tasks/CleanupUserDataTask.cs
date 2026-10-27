@@ -12,6 +12,7 @@ using MulletaFlix.Server.Implementations.Item;
 using Emby.Server.Implementations.ScheduledTasks;
 using MediaBrowser.Model.Globalization;
 using MediaBrowser.Model.Tasks;
+using MediaBrowser.Controller.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 
@@ -25,16 +26,21 @@ public class CleanupUserDataTask : IScheduledTask
     private readonly ILocalizationManager _localization;
     private readonly IDbContextFactory<MulletaFlixDbContext> _dbProvider;
     private readonly ILogger<CleanupUserDataTask> _logger;
-    private readonly Func<IQueryable<UserData>, CancellationToken, Task<int>> _deleteExpiredUserDataAsync;
+    private readonly Func<DateTime, CancellationToken, Task<int>> _deleteExpiredUserDataAsync;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="CleanupUserDataTask"/> class.
     /// </summary>
     /// <param name="localization">The localisation Provider.</param>
     /// <param name="dbProvider">The DB context factory.</param>
+    /// <param name="persistenceService">The coordinated item persistence service.</param>
     /// <param name="logger">A logger.</param>
-    public CleanupUserDataTask(ILocalizationManager localization, IDbContextFactory<MulletaFlixDbContext> dbProvider, ILogger<CleanupUserDataTask> logger)
-        : this(localization, dbProvider, logger, static (query, cancellationToken) => query.ExecuteDeleteAsync(cancellationToken))
+    public CleanupUserDataTask(
+        ILocalizationManager localization,
+        IDbContextFactory<MulletaFlixDbContext> dbProvider,
+        IItemPersistenceService persistenceService,
+        ILogger<CleanupUserDataTask> logger)
+        : this(localization, dbProvider, logger, persistenceService.DeleteExpiredPlaceholderUserDataAsync)
     {
     }
 
@@ -42,7 +48,7 @@ public class CleanupUserDataTask : IScheduledTask
         ILocalizationManager localization,
         IDbContextFactory<MulletaFlixDbContext> dbProvider,
         ILogger<CleanupUserDataTask> logger,
-        Func<IQueryable<UserData>, CancellationToken, Task<int>> deleteExpiredUserDataAsync)
+        Func<DateTime, CancellationToken, Task<int>> deleteExpiredUserDataAsync)
     {
         _localization = localization;
         _dbProvider = dbProvider;
@@ -88,7 +94,7 @@ public class CleanupUserDataTask : IScheduledTask
 
                 if (expiredCount > 0)
                 {
-                    deletedCount = await _deleteExpiredUserDataAsync(detachedUserData, cancellationToken).ConfigureAwait(false);
+                    deletedCount = await _deleteExpiredUserDataAsync(userDataDate, cancellationToken).ConfigureAwait(false);
                 }
             }
 

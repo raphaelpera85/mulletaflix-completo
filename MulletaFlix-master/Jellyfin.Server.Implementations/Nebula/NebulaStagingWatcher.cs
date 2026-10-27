@@ -6,8 +6,8 @@ using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.Logging;
 using MediaBrowser.Model.Nebula;
+using Microsoft.Extensions.Logging;
 using MongoDB.Bson;
 
 namespace Jellyfin.Server.Implementations.Nebula;
@@ -584,8 +584,8 @@ public sealed class NebulaStagingWatcher : IAsyncDisposable, IDisposable
                 EmitServer("INFO", $"Fila restaurada: {count} arquivo(s) pendente(s)");
                 try
                 {
-                    var (staging, queued, uploading, completed, failed, pending, pendingDisk) = await _mongoContext.GetQueueStatsAsync(cancellationToken).ConfigureAwait(false);
-                    EmitServer("INFO", $"Fila: evento=restauracao stage={staging} fila={queued} enviando={uploading} enviados={completed} falhas={failed} faltam={pending} (no disco={pendingDisk})");
+                    var (staging, queued, uploading, completed, retryWait, failed, pending, pendingDisk) = await _mongoContext.GetQueueStatsAsync(cancellationToken).ConfigureAwait(false);
+                    EmitServer("INFO", $"Fila: evento=restauracao stage={staging} fila={queued} enviando={uploading} retry_wait={retryWait} enviados={completed} falhas={failed} faltam={pending} (no disco={pendingDisk})");
                 }
                 catch
                 {
@@ -652,6 +652,7 @@ public sealed class NebulaStagingWatcher : IAsyncDisposable, IDisposable
             if (item != null)
             {
                 var requeued = false;
+                string? claimedLeaseId = null;
                 NebulaMongoAdmissionLease? uploadAdmission = null;
                 CancellationTokenSource? admissionCancellation = null;
                 try
@@ -708,6 +709,15 @@ public sealed class NebulaStagingWatcher : IAsyncDisposable, IDisposable
                                 continue;
                             }
 
+                            claimedLeaseId = claimed.TryGetValue("lease_id", out var claimedLeaseValue) && claimedLeaseValue.IsString
+                                ? claimedLeaseValue.AsString
+                                : null;
+                            if (string.IsNullOrWhiteSpace(claimedLeaseId))
+                            {
+                                _logger.LogError("[NEBULA-WATCHER][Worker #{Worker}] Claim de {File} não retornou lease_id; upload bloqueado por segurança.", workerId, item.FileName);
+                                continue;
+                            }
+
                             // Track Mongo-claimed uploads too so user request status reflects all active workers.
                             _activeFiles.TryAdd(Path.GetFullPath(item.FilePath), isPriorityItem || IsPathPrioritized(item.FilePath));
                         }
@@ -736,11 +746,11 @@ public sealed class NebulaStagingWatcher : IAsyncDisposable, IDisposable
 
                         if (uploadAdmission is null)
                         {
-                            await _uploadEngine.ProcessFileUploadAsync(item.FilePath, item.FileName, parentId, workerId, uploadCancellationToken).ConfigureAwait(false);
+                            await _uploadEngine.ProcessFileUploadAsync(item.FilePath, item.FileName, parentId, workerId, uploadAdmission, uploadCancellationToken, claimedLeaseId).ConfigureAwait(false);
                         }
                         else
                         {
-                            await _uploadEngine.ProcessFileUploadAsync(item.FilePath, item.FileName, parentId, workerId, uploadAdmission, uploadCancellationToken).ConfigureAwait(false);
+                            await _uploadEngine.ProcessFileUploadAsync(item.FilePath, item.FileName, parentId, workerId, uploadAdmission, uploadCancellationToken, claimedLeaseId).ConfigureAwait(false);
                         }
                     }
                     else if (File.Exists(item.FilePath))
@@ -772,7 +782,7 @@ public sealed class NebulaStagingWatcher : IAsyncDisposable, IDisposable
                     {
                         try
                         {
-                            released = await _mongoContext.ReleaseUploadClaimForRetryAsync(item.NodeId.Value, workerId, CancellationToken.None).ConfigureAwait(false);
+                            released = await _mongoContext.ReleaseUploadClaimForRetryAsync(item.NodeId.Value, workerId, CancellationToken.None, claimedLeaseId).ConfigureAwait(false);
                         }
                         catch (Exception ex)
                         {
@@ -1004,7 +1014,7 @@ public sealed class NebulaStagingWatcher : IAsyncDisposable, IDisposable
             {
                 Interlocked.Exchange(ref _stagingCleanupRunning, 0);
             }
-            },
+        },
             CancellationToken.None);
     }
 

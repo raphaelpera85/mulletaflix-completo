@@ -262,8 +262,33 @@ public class SessionControllerAuthorizationTests
 
         Assert.IsType<ForbidResult>(result);
         sessionManager.Verify(
-            manager => manager.ReportNowViewingItem(It.IsAny<string>(), It.IsAny<string>()),
+            manager => manager.ReportNowViewingItemAsync(It.IsAny<string>(), It.IsAny<string>()),
             Times.Never);
+    }
+
+    [Fact]
+    public async Task ReportViewing_AwaitsAsyncSessionManagerUpdate()
+    {
+        var user = CreateUser();
+        var itemId = Guid.NewGuid();
+        var updateFinished = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var sessionManager = new Mock<ISessionManager>();
+        var userManager = new Mock<IUserManager>();
+        var libraryManager = new Mock<ILibraryManager>();
+        userManager.Setup(manager => manager.GetUserById(user.Id)).Returns(user);
+        sessionManager.Setup(manager => manager.GetSessions(user.Id, string.Empty, null, null, false))
+            .Returns([new SessionInfoDto { Id = "request-session" }]);
+        sessionManager.Setup(manager => manager.ReportNowViewingItemAsync("request-session", itemId.ToString("N")))
+            .Returns(updateFinished.Task);
+        libraryManager.Setup(manager => manager.GetItemById<BaseItem>(itemId, user))
+            .Returns(new Folder { Id = itemId });
+        var controller = CreateController(sessionManager.Object, userManager.Object, user.Id, libraryManager.Object);
+
+        var reportTask = controller.ReportViewing("request-session", itemId.ToString("N"));
+
+        Assert.False(reportTask.IsCompleted);
+        updateFinished.SetResult();
+        Assert.IsType<NoContentResult>(await reportTask);
     }
 
     private static SessionController CreateController(
@@ -305,7 +330,7 @@ public class SessionControllerAuthorizationTests
 
         Assert.IsType<NotFoundResult>(result);
         sessionManager.Verify(
-            manager => manager.ReportNowViewingItem(It.IsAny<string>(), It.IsAny<string>()),
+            manager => manager.ReportNowViewingItemAsync(It.IsAny<string>(), It.IsAny<string>()),
             Times.Never);
     }
 
@@ -322,7 +347,7 @@ public class SessionControllerAuthorizationTests
 
         Assert.IsType<BadRequestResult>(result);
         sessionManager.Verify(
-            manager => manager.ReportNowViewingItem(It.IsAny<string>(), It.IsAny<string>()),
+            manager => manager.ReportNowViewingItemAsync(It.IsAny<string>(), It.IsAny<string>()),
             Times.Never);
     }
 

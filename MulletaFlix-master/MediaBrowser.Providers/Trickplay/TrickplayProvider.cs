@@ -1,3 +1,4 @@
+using System;
 using System.Threading;
 using System.Threading.Tasks;
 using MediaBrowser.Controller.Configuration;
@@ -8,6 +9,7 @@ using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.Providers;
 using MediaBrowser.Controller.Trickplay;
 using MediaBrowser.Model.Configuration;
+using Microsoft.Extensions.Logging;
 
 namespace MediaBrowser.Providers.Trickplay;
 
@@ -24,9 +26,14 @@ public class TrickplayProvider : ICustomMetadataProvider<Episode>,
     IHasOrder,
     IForcedProvider
 {
+    private const int MaxBackgroundRefreshes = 8;
+
+    private static readonly SemaphoreSlim _backgroundRefreshSlots = new(MaxBackgroundRefreshes, MaxBackgroundRefreshes);
+
     private readonly IServerConfigurationManager _config;
     private readonly ITrickplayManager _trickplayManager;
     private readonly ILibraryManager _libraryManager;
+    private readonly ILogger<TrickplayProvider> _logger;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="TrickplayProvider"/> class.
@@ -34,14 +41,17 @@ public class TrickplayProvider : ICustomMetadataProvider<Episode>,
     /// <param name="config">The configuration manager.</param>
     /// <param name="trickplayManager">The trickplay manager.</param>
     /// <param name="libraryManager">The library manager.</param>
+    /// <param name="logger">The logger.</param>
     public TrickplayProvider(
         IServerConfigurationManager config,
         ITrickplayManager trickplayManager,
-        ILibraryManager libraryManager)
+        ILibraryManager libraryManager,
+        ILogger<TrickplayProvider> logger)
     {
         _config = config;
         _trickplayManager = trickplayManager;
         _libraryManager = libraryManager;
+        _logger = logger;
     }
 
     /// <inheritdoc />
@@ -112,10 +122,41 @@ public class TrickplayProvider : ICustomMetadataProvider<Episode>,
         }
         else
         {
-            _ = _trickplayManager.RefreshTrickplayDataAsync(video, replace, libraryOptions, cancellationToken).ConfigureAwait(false);
+            try
+            {
+                await _backgroundRefreshSlots.WaitAsync(cancellationToken).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                return ItemUpdateType.None;
+            }
+
+            _ = ObserveBackgroundRefreshAsync(video, replace, libraryOptions, cancellationToken);
         }
 
         // The core doesn't need to trigger any save operations over this
         return ItemUpdateType.None;
+    }
+
+    private async Task ObserveBackgroundRefreshAsync(Video video, bool replace, LibraryOptions libraryOptions, CancellationToken cancellationToken)
+    {
+        try
+        {
+            await _trickplayManager.RefreshTrickplayDataAsync(video, replace, libraryOptions, cancellationToken).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            // The scan owns this cancellation and can stop non-blocking refresh work.
+        }
+#pragma warning disable CA1031 // Background provider failures must be observed and logged.
+        catch (Exception ex)
+#pragma warning restore CA1031
+        {
+            _logger.LogError(ex, "Background trickplay refresh failed for item {ItemId}", video.Id);
+        }
+        finally
+        {
+            _backgroundRefreshSlots.Release();
+        }
     }
 }

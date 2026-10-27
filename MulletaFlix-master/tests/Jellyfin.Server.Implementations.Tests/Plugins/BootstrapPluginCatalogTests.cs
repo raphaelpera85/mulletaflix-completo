@@ -1,6 +1,10 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
+using System.Text;
+using System.Threading;
+using System.Threading.Tasks;
 using Emby.Server.Implementations.Plugins;
 using Xunit;
 
@@ -39,5 +43,39 @@ public sealed class BootstrapPluginCatalogTests
             BootstrapPluginCatalog.DefaultPluginRepositories,
             repo => repo.Name.Contains("Intro Skipper", StringComparison.OrdinalIgnoreCase)
                  || repo.Url.Contains("intro-skipper.org", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("900150983CD24FB0D6963F7D28E17F7")]
+    [InlineData("900150983CD24FB0D6963F7D28E17F7G")]
+    public async Task VerifyBootstrapPackageChecksumAsync_RejectsMissingOrMalformedChecksum(string? checksum)
+    {
+        using var archive = new MemoryStream(Encoding.ASCII.GetBytes("abc"));
+
+        Assert.False(await PluginManager.VerifyBootstrapPackageChecksumAsync(checksum, archive, CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task VerifyBootstrapPackageChecksumAsync_AcceptsMatchingMd5()
+    {
+        using var archive = new MemoryStream(Encoding.ASCII.GetBytes("abc"));
+
+        Assert.True(await PluginManager.VerifyBootstrapPackageChecksumAsync(
+            "900150983CD24FB0D6963F7D28E17F72",
+            archive,
+            CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task VerifyBootstrapPackageChecksumAsync_RejectsMismatch()
+    {
+        using var archive = new MemoryStream(Encoding.ASCII.GetBytes("abc"));
+
+        Assert.False(await PluginManager.VerifyBootstrapPackageChecksumAsync(
+            "00000000000000000000000000000000",
+            archive,
+            CancellationToken.None));
     }
 }

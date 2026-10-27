@@ -100,13 +100,19 @@ public class ServerConfiguration : BaseApplicationConfiguration
     /// Gets or sets the preferred metadata language.
     /// </summary>
     /// <value>The preferred metadata language.</value>
-    public string PreferredMetadataLanguage { get; set; } = "en";
+    private string _preferredMetadataLanguage = "pt-BR";
+
+    public string PreferredMetadataLanguage
+    {
+        get => _preferredMetadataLanguage;
+        set => _preferredMetadataLanguage = string.IsNullOrWhiteSpace(value) ? "pt-BR" : value;
+    }
 
     /// <summary>
     /// Gets or sets the metadata country code.
     /// </summary>
     /// <value>The metadata country code.</value>
-    public string MetadataCountryCode { get; set; } = "US";
+    public string MetadataCountryCode { get; set; } = "BR";
 
     /// <summary>
     /// Gets or sets characters to be replaced with a ' ' in strings to create a sort name.

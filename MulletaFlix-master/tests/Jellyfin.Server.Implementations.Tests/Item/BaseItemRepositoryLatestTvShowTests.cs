@@ -5,6 +5,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using MediaBrowser.Controller;
 using MediaBrowser.Controller.Entities;
+using MediaBrowser.Controller.Entities.Audio;
 using MediaBrowser.Controller.Entities.TV;
 using MediaBrowser.Controller.Persistence;
 using MediaBrowser.Controller.Providers;
@@ -62,7 +63,9 @@ public sealed class BaseItemRepositoryLatestTvShowTests : IDisposable
             {
                 { BaseItemKind.Episode, typeof(Episode).ToString() },
                 { BaseItemKind.Season, typeof(Season).ToString() },
-                { BaseItemKind.Series, typeof(Series).ToString() }
+                { BaseItemKind.Series, typeof(Series).ToString() },
+                { BaseItemKind.Audio, typeof(Audio).ToString() },
+                { BaseItemKind.MusicAlbum, typeof(MusicAlbum).ToString() }
             });
 
         _repository = new BaseItemRepository(
@@ -183,6 +186,33 @@ public sealed class BaseItemRepositoryLatestTvShowTests : IDisposable
         Assert.Contains(result, item => item.Id == seriesB.Id);
     }
 
+    [Fact]
+    public void GetLatestItemList_Music_ReturnsLatestAlbumsWithMatchingTracks()
+    {
+        var now = new DateTime(2026, 6, 27, 12, 0, 0, DateTimeKind.Utc);
+        var olderAlbum = CreateMusicAlbum("Older", now.AddDays(-1));
+        var newerAlbum = CreateMusicAlbum("Newer", now);
+        var matchingTrack = CreateAudio("Matching track", now.AddHours(-1));
+        var unrelatedTrack = CreateAudio("Unrelated track", now.AddHours(-2));
+
+        _context.BaseItems.AddRange(olderAlbum, newerAlbum, matchingTrack, unrelatedTrack);
+        _context.AncestorIds.AddRange(
+            new AncestorId { ParentItemId = newerAlbum.Id, ItemId = matchingTrack.Id, ParentItem = newerAlbum, Item = matchingTrack },
+            new AncestorId { ParentItemId = olderAlbum.Id, ItemId = unrelatedTrack.Id, ParentItem = olderAlbum, Item = unrelatedTrack });
+        _context.SaveChanges();
+
+        var result = _repository.GetLatestItemList(
+            new InternalItemsQuery
+            {
+                IncludeItemTypes = [BaseItemKind.Audio],
+                Limit = 1
+            },
+            CollectionType.music);
+
+        Assert.Single(result);
+        Assert.Equal(newerAlbum.Id, result[0].Id);
+    }
+
     private static BaseItemEntity CreateSeries(string name)
     {
         return new BaseItemEntity
@@ -220,6 +250,30 @@ public sealed class BaseItemRepositoryLatestTvShowTests : IDisposable
             SeriesId = series.Id,
             SeasonId = season.Id,
             ParentId = season.Id,
+            DateCreated = dateCreated,
+            IsFolder = false
+        };
+    }
+
+    private static BaseItemEntity CreateMusicAlbum(string name, DateTime dateCreated)
+    {
+        return new BaseItemEntity
+        {
+            Id = Guid.NewGuid(),
+            Type = typeof(MusicAlbum).ToString(),
+            Name = name,
+            DateCreated = dateCreated,
+            IsFolder = true
+        };
+    }
+
+    private static BaseItemEntity CreateAudio(string name, DateTime dateCreated)
+    {
+        return new BaseItemEntity
+        {
+            Id = Guid.NewGuid(),
+            Type = typeof(Audio).ToString(),
+            Name = name,
             DateCreated = dateCreated,
             IsFolder = false
         };

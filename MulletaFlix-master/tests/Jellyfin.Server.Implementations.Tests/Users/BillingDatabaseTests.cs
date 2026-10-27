@@ -5,6 +5,7 @@ using MulletaFlix.Database.Implementations.Contexts;
 using MulletaFlix.Database.Implementations.Entities;
 using MulletaFlix.Server.Implementations.Billing;
 using Microsoft.EntityFrameworkCore;
+using MySqlConnector;
 using Xunit;
 
 namespace MulletaFlix.Server.Implementations.Tests.Users;
@@ -72,6 +73,20 @@ public sealed class BillingDatabaseTests : IDisposable
         Assert.Equal(2, gateways.Count);
         Assert.Contains(gateways, g => g.GatewayName == "MercadoPago" && !g.IsEnabled);
         Assert.Contains(gateways, g => g.GatewayName == "PagSeguro" && !g.IsEnabled);
+    }
+
+    [Fact]
+    public void ApplicationIdentity_CannotCreateAnotherDatabase()
+    {
+        var forbiddenDatabase = "mfx_forbidden_" + Guid.NewGuid().ToString("N");
+        using var connection = new MySqlConnection(_database.ApplicationConnectionString);
+        connection.Open();
+        using var command = connection.CreateCommand();
+        command.CommandText = $"CREATE DATABASE `{forbiddenDatabase}`;";
+
+        var exception = Assert.Throws<MySqlException>(() => command.ExecuteNonQuery());
+
+        Assert.Equal(1044, exception.Number);
     }
 
     [Fact]

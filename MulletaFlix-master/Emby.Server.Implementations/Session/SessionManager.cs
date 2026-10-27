@@ -7,14 +7,6 @@ using System.Globalization;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
-using MulletaFlix.Data;
-using MulletaFlix.Data.Enums;
-using MulletaFlix.Data.Events;
-using MulletaFlix.Data.Queries;
-using MulletaFlix.Database.Implementations.Entities;
-using MulletaFlix.Database.Implementations.Entities.Security;
-using MulletaFlix.Database.Implementations.Enums;
-using MulletaFlix.Extensions;
 using MediaBrowser.Common.Events;
 using MediaBrowser.Common.Extensions;
 using MediaBrowser.Controller;
@@ -39,6 +31,14 @@ using MediaBrowser.Model.SyncPlay;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using MulletaFlix.Data;
+using MulletaFlix.Data.Enums;
+using MulletaFlix.Data.Events;
+using MulletaFlix.Data.Queries;
+using MulletaFlix.Database.Implementations.Entities;
+using MulletaFlix.Database.Implementations.Entities.Security;
+using MulletaFlix.Database.Implementations.Enums;
+using MulletaFlix.Extensions;
 using Episode = MediaBrowser.Controller.Entities.TV.Episode;
 
 namespace Emby.Server.Implementations.Session
@@ -416,7 +416,7 @@ namespace Emby.Server.Implementations.Session
                         }
                     }
 
-                    info.Item = GetItemInfo(libraryItem, mediaSource);
+                    info.Item = await GetItemInfoAsync(libraryItem, mediaSource).ConfigureAwait(false);
 
                     info.Item.RunTimeTicks = runtimeTicks;
                 }
@@ -1069,7 +1069,7 @@ namespace Emby.Server.Implementations.Session
                         mediaSource = await GetMediaSource(libraryItem, info.MediaSourceId, info.LiveStreamId).ConfigureAwait(false);
                     }
 
-                    info.Item = GetItemInfo(libraryItem, mediaSource);
+                    info.Item = await GetItemInfoAsync(libraryItem, mediaSource).ConfigureAwait(false);
                 }
                 else
                 {
@@ -1811,7 +1811,7 @@ namespace Emby.Server.Implementations.Session
         /// <summary>
         /// Converts a BaseItem to a BaseItemInfo.
         /// </summary>
-        private BaseItemDto GetItemInfo(BaseItem item, MediaSourceInfo mediaSource)
+        private async Task<BaseItemDto> GetItemInfoAsync(BaseItem item, MediaSourceInfo mediaSource)
         {
             ArgumentNullException.ThrowIfNull(item);
 
@@ -1855,7 +1855,7 @@ namespace Emby.Server.Implementations.Session
                 _itemInfoDtoOptions = dtoOptions;
             }
 
-            var info = _dtoService.GetBaseItemDto(item, dtoOptions);
+            var info = await _dtoService.GetBaseItemDtoAsync(item, dtoOptions).ConfigureAwait(false);
 
             if (mediaSource is not null)
             {
@@ -1886,7 +1886,18 @@ namespace Emby.Server.Implementations.Session
             var item = _libraryManager.GetItemById(new Guid(itemId));
             var session = GetSession(sessionId);
 
-            session.NowViewingItem = GetItemInfo(item, null);
+            session.NowViewingItem = GetItemInfoAsync(item, null).GetAwaiter().GetResult();
+        }
+
+        /// <inheritdoc />
+        public async Task ReportNowViewingItemAsync(string sessionId, string itemId)
+        {
+            ArgumentException.ThrowIfNullOrEmpty(itemId);
+
+            var item = _libraryManager.GetItemById(new Guid(itemId));
+            var session = GetSession(sessionId);
+
+            session.NowViewingItem = await GetItemInfoAsync(item, null).ConfigureAwait(false);
         }
 
         /// <inheritdoc />

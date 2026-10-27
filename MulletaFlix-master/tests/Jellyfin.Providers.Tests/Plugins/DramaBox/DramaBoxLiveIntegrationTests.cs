@@ -3,6 +3,7 @@ using System.IO;
 using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
+using Jellyfin.Providers.Tests.Plugins;
 using MediaBrowser.Controller;
 using MediaBrowser.Providers.Plugins.DramaBox;
 using Microsoft.Extensions.Logging;
@@ -15,13 +16,12 @@ namespace Jellyfin.Providers.Tests.Plugins.DramaBox
     /// Live verification against the real DramaBox site.
     /// </summary>
     /// <remarks>
-    /// The type name deliberately contains "Integration" so the CI filter
-    /// (FullyQualifiedName!~Integration) skips it: it reaches the public internet and must never
-    /// gate a build. Run it on demand with
-    /// <c>dotnet test --filter "FullyQualifiedName~DramaBoxLiveIntegration"</c>.
+    /// Live requests require <c>MULLETAFLIX_RUN_LIVE_PROVIDER_TESTS=1</c> and must never gate a build.
+    /// Run this category on demand with <c>dotnet test --filter "Category=ExternalLive"</c>.
     /// It exists because every other test in this folder uses a captured payload, and a captured
     /// payload cannot prove that the crawler still parses what the site serves today.
     /// </remarks>
+    [Trait("Category", "ExternalLive")]
     public sealed class DramaBoxLiveIntegrationTests : IDisposable
     {
         private readonly string _cachePath = Path.Combine(
@@ -31,6 +31,7 @@ namespace Jellyfin.Providers.Tests.Plugins.DramaBox
         [Fact]
         public async Task RebuildIndex_FindsTheRealCatalogueAndMatchesRealLibraryTitles()
         {
+            ProviderLiveTestEnvironment.SkipUnlessEnabled();
             var client = CreateClient();
 
             var index = await client.RebuildIndexAsync(null, CancellationToken.None);

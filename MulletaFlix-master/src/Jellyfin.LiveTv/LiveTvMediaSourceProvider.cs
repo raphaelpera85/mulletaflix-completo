@@ -139,6 +139,13 @@ namespace MulletaFlix.LiveTv
             return liveStream;
         }
 
+        /// <inheritdoc />
+        public string GetOpenMediaSourceLockKey(string openToken)
+        {
+            var keys = openToken.Split(StreamIdDelimiter, 3);
+            return keys.Length >= 3 && !string.IsNullOrWhiteSpace(keys[2]) ? keys[2] : openToken;
+        }
+
         private static void Normalize(MediaSourceInfo mediaSource, ILiveTvService service, bool isVideo)
         {
             // Not all of the plugins are setting this

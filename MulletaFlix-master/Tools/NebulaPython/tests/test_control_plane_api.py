@@ -24,6 +24,7 @@ class Mongo:
             "queued": 2,
             "staging": 3,
             "uploading": 4,
+            "retry_wait": 7,
             "completed": 5,
             "failed": 6,
         }[query["status"]]
@@ -122,6 +123,7 @@ async def test_control_queue_reports_persisted_and_in_memory_counts():
         "queued": 2,
         "staging": 3,
         "uploading": 4,
+        "retry_wait": 7,
         "completed": 5,
         "failed": 6,
         "pending": 9,

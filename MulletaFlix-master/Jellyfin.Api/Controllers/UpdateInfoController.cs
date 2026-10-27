@@ -1,17 +1,17 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Globalization;
 using System.IO;
-using System.IO.Compression;
 using System.Linq;
 using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
 using System.Text.Json.Serialization;
-using System.Globalization;
 using System.Threading;
 using System.Threading.Tasks;
+using Jellyfin.Server.Implementations.Archives;
 using MediaBrowser.Common.Api;
 using MediaBrowser.Common.Configuration;
 using MediaBrowser.Controller;
@@ -41,6 +41,7 @@ public class UpdateInfoController : BaseMulletaFlixApiController
     private static string? _installError = null;
     private static string? _extractedUpdatePath = null;
     private static string? _downloadedVersion = null;
+    private static string? _verifiedChecksum = null;
     private static CancellationTokenSource? _activeCts = null;
     private static UpdateInfoDto? _cachedUpdateInfo;
 
@@ -93,36 +94,52 @@ public class UpdateInfoController : BaseMulletaFlixApiController
 
         var manifestUrl = Environment.GetEnvironmentVariable(UpdateManifestUrlEnv);
         var targetUrl = !string.IsNullOrWhiteSpace(manifestUrl) ? manifestUrl : DefaultGitHubApiUrl;
+        if (!BoundedZipArchiveExtractor.IsHttpsUrl(targetUrl))
+        {
+            _logger.LogWarning("Server update manifest URL must use HTTPS without embedded credentials.");
+            info.LastCheckedAt = DateTime.UtcNow;
+            return Ok(info);
+        }
 
         try
         {
             var client = CreateConfiguredClient();
-            var response = await client.GetAsync(targetUrl, cancellationToken).ConfigureAwait(false);
+            using var response = await client.GetAsync(targetUrl, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
 
-            if (response.IsSuccessStatusCode)
+            if (!BoundedZipArchiveExtractor.IsHttpsUrl(response.RequestMessage?.RequestUri?.ToString()))
             {
-                var contentString = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+                _logger.LogWarning("Server update manifest redirect did not remain on HTTPS.");
+            }
+            else if (response.IsSuccessStatusCode)
+            {
+                await using var manifestStream = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
+                var contentString = await BoundedZipArchiveExtractor.ReadBoundedTextAsync(
+                    manifestStream,
+                    BoundedZipArchiveExtractor.MaxManifestBytes,
+                    cancellationToken).ConfigureAwait(false);
 
                 // Try parsing as standard GitHub release JSON first
-                if (TryParseGitHubRelease(contentString, out var remoteVersion, out var changelog, out var archiveUrl, out var size))
+                if (TryParseGitHubRelease(contentString, out var remoteVersion, out var changelog, out var archiveUrl, out var size, out var checksum))
                 {
                     info.AvailableVersion = remoteVersion.ToString(3);
                     info.UpdateAvailable = remoteVersion > _applicationHost.ApplicationVersion;
                     info.Changelog = changelog;
                     info.ArchiveUrl = archiveUrl;
                     info.PackageSize = size;
+                    info.Checksum = checksum;
                 }
-                else if (TryParseCustomManifest(contentString, out var customVersion, out var customChangelog, out var customUrl))
+                else if (TryParseCustomManifest(contentString, out var customVersion, out var customChangelog, out var customUrl, out var customChecksum))
                 {
                     info.AvailableVersion = customVersion.ToString(3);
                     info.UpdateAvailable = customVersion > _applicationHost.ApplicationVersion;
                     info.Changelog = customChangelog;
                     info.ArchiveUrl = customUrl;
+                    info.Checksum = customChecksum;
                 }
             }
             else
             {
-            _logger.LogWarning("Update check returned HTTP status {StatusCode}.", response.StatusCode);
+                _logger.LogWarning("Update check returned HTTP status {StatusCode}.", response.StatusCode);
             }
 
             info.LastCheckedAt = DateTime.UtcNow;
@@ -139,7 +156,7 @@ public class UpdateInfoController : BaseMulletaFlixApiController
         if (info.UpdateAvailable && !string.IsNullOrWhiteSpace(info.ArchiveUrl))
         {
             // 1. Check if update was already downloaded and verified on disk
-            TryRestorePersistentState(updatesDir, extractDir, info.AvailableVersion);
+            TryRestorePersistentState(updatesDir, extractDir, info.AvailableVersion, info.Checksum);
 
             // 2. Se os arquivos extraídos são idênticos aos instalados, não há atualização a ser feita
             if (Directory.Exists(extractDir) && AreUpdateFilesIdentical(extractDir, installDir, _logger))
@@ -163,7 +180,7 @@ public class UpdateInfoController : BaseMulletaFlixApiController
                     if (_installState is "Idle")
                     {
                         _logger.LogInformation("New server update {Version} detected. Starting automatic background download...", info.AvailableVersion);
-                        StartBackgroundDownload(info.ArchiveUrl, info.AvailableVersion);
+                        StartBackgroundDownload(info.ArchiveUrl, info.AvailableVersion, info.Checksum);
                     }
                 }
             }
@@ -206,6 +223,7 @@ public class UpdateInfoController : BaseMulletaFlixApiController
                     UpdateAvailable = _cachedUpdateInfo.UpdateAvailable,
                     Changelog = _cachedUpdateInfo.Changelog,
                     ArchiveUrl = _cachedUpdateInfo.ArchiveUrl,
+                    Checksum = _cachedUpdateInfo.Checksum,
                     PackageSize = _cachedUpdateInfo.PackageSize,
                     LastCheckedAt = _cachedUpdateInfo.LastCheckedAt,
                     InstallState = _installState,
@@ -241,28 +259,39 @@ public class UpdateInfoController : BaseMulletaFlixApiController
             {
                 return Accepted(new { Message = "Update is already in progress.", State = _installState, Progress = _installProgress });
             }
+        }
 
-            if (!force && _installState == "ReadyToApply" && !string.IsNullOrWhiteSpace(_extractedUpdatePath) && Directory.Exists(_extractedUpdatePath))
+        var updateInfo = (await GetUpdateInfo(CancellationToken.None).ConfigureAwait(false)).Value;
+
+        if (updateInfo is null
+            || string.IsNullOrWhiteSpace(updateInfo.ArchiveUrl)
+            || string.IsNullOrWhiteSpace(updateInfo.AvailableVersion)
+            || !BoundedZipArchiveExtractor.IsValidSha256Digest(updateInfo.Checksum)
+            || (archiveUrl is not null && !string.Equals(archiveUrl, updateInfo.ArchiveUrl, StringComparison.Ordinal)))
+        {
+            return BadRequest(new { Message = "No trusted update archive with a valid SHA-256 digest is available." });
+        }
+
+        lock (SyncLock)
+        {
+            if (!force
+                && IsPreparedUpdateCurrent(_installState, _downloadedVersion, _verifiedChecksum, updateInfo.AvailableVersion, updateInfo.Checksum)
+                && !string.IsNullOrWhiteSpace(_extractedUpdatePath)
+                && Directory.Exists(_extractedUpdatePath))
             {
                 return Accepted(new { Message = "Update package is already downloaded and ready to apply upon user approval.", State = _installState, Progress = _installProgress });
             }
         }
 
-        string? availableVersion = _cachedUpdateInfo?.AvailableVersion;
-        if (string.IsNullOrWhiteSpace(archiveUrl))
-        {
-            // Resolve from latest release if not passed
-            var updateInfo = (await GetUpdateInfo(CancellationToken.None).ConfigureAwait(false)).Value;
-            archiveUrl = updateInfo?.ArchiveUrl;
-            availableVersion = updateInfo?.AvailableVersion;
-            if (string.IsNullOrWhiteSpace(archiveUrl))
-            {
-                return BadRequest(new { Message = "No update archive URL found for the latest release." });
-            }
-        }
-
-        StartBackgroundDownload(archiveUrl, availableVersion);
+        StartBackgroundDownload(updateInfo.ArchiveUrl, updateInfo.AvailableVersion, updateInfo.Checksum);
         return Accepted(new { Message = "Update download started in background.", State = _installState, Progress = _installProgress });
+    }
+
+    internal static bool IsPreparedUpdateCurrent(string? state, string? downloadedVersion, string? verifiedChecksum, string availableVersion, string checksum)
+    {
+        return state == "ReadyToApply"
+            && string.Equals(downloadedVersion, availableVersion, StringComparison.OrdinalIgnoreCase)
+            && string.Equals(verifiedChecksum, checksum, StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>
@@ -347,7 +376,7 @@ public class UpdateInfoController : BaseMulletaFlixApiController
         return client;
     }
 
-    private void StartBackgroundDownload(string archiveUrl, string? availableVersion)
+    private void StartBackgroundDownload(string archiveUrl, string? availableVersion, string? checksum)
     {
         lock (SyncLock)
         {
@@ -370,7 +399,7 @@ public class UpdateInfoController : BaseMulletaFlixApiController
             {
                 try
                 {
-                    await DownloadAndPrepareUpdateAsync(archiveUrl, availableVersion, token).ConfigureAwait(false);
+                    await DownloadAndPrepareUpdateAsync(archiveUrl, availableVersion, checksum, token).ConfigureAwait(false);
                 }
                 catch (Exception ex)
                 {
@@ -386,11 +415,26 @@ public class UpdateInfoController : BaseMulletaFlixApiController
             token);
     }
 
-    private void TryRestorePersistentState(string updatesDir, string extractDir, string? availableVersion)
+    private void TryRestorePersistentState(string updatesDir, string extractDir, string? availableVersion, string? checksum)
     {
         var stateFile = Path.Combine(updatesDir, "update_state.json");
         try
         {
+            lock (SyncLock)
+            {
+                if (_installState == "ReadyToApply"
+                    && (!string.Equals(_downloadedVersion, availableVersion, StringComparison.OrdinalIgnoreCase)
+                        || !string.Equals(_verifiedChecksum, checksum, StringComparison.OrdinalIgnoreCase)))
+                {
+                    _installState = "Idle";
+                    _installProgress = 0;
+                    _installError = null;
+                    _extractedUpdatePath = null;
+                    _downloadedVersion = null;
+                    _verifiedChecksum = null;
+                }
+            }
+
             var installDir = AppContext.BaseDirectory.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
 
             if (System.IO.File.Exists(stateFile))
@@ -400,6 +444,7 @@ public class UpdateInfoController : BaseMulletaFlixApiController
                 if (state != null
                     && !string.IsNullOrWhiteSpace(state.DownloadedVersion)
                     && state.InstallState == "ReadyToApply"
+                    && string.Equals(state.VerifiedChecksum, checksum, StringComparison.OrdinalIgnoreCase)
                     && (string.IsNullOrWhiteSpace(availableVersion) || string.Equals(state.DownloadedVersion, availableVersion, StringComparison.OrdinalIgnoreCase))
                     && Directory.Exists(state.ExtractedPath ?? extractDir)
                     && Directory.EnumerateFileSystemEntries(state.ExtractedPath ?? extractDir).Any())
@@ -419,38 +464,13 @@ public class UpdateInfoController : BaseMulletaFlixApiController
                         _installError = null;
                         _extractedUpdatePath = targetExtract;
                         _downloadedVersion = state.DownloadedVersion;
+                        _verifiedChecksum = state.VerifiedChecksum;
                     }
 
                     return;
                 }
             }
 
-            // Fallback check: If extractDir has files and package.zip exists with non-zero length
-            var packageZip = Path.Combine(updatesDir, "package.zip");
-            if (Directory.Exists(extractDir)
-                && Directory.EnumerateFileSystemEntries(extractDir).Any()
-                && System.IO.File.Exists(packageZip)
-                && new FileInfo(packageZip).Length > 1024 * 1024
-                && !string.IsNullOrWhiteSpace(availableVersion))
-            {
-                if (AreUpdateFilesIdentical(extractDir, installDir, _logger))
-                {
-                    _logger.LogInformation("Arquivos em {Dir} são idênticos aos instalados. Descartando atualização redundante.", extractDir);
-                    CleanupObsoleteUpdates(updatesDir, extractDir);
-                    return;
-                }
-
-                lock (SyncLock)
-                {
-                    _installState = "ReadyToApply";
-                    _installProgress = 100;
-                    _installError = null;
-                    _extractedUpdatePath = extractDir;
-                    _downloadedVersion = availableVersion;
-                }
-
-                SavePersistentState(updatesDir, extractDir, availableVersion, "ReadyToApply");
-            }
         }
         catch (Exception ex)
         {
@@ -458,7 +478,7 @@ public class UpdateInfoController : BaseMulletaFlixApiController
         }
     }
 
-    private static void SavePersistentState(string updatesDir, string extractDir, string? version, string state)
+    private static void SavePersistentState(string updatesDir, string extractDir, string? version, string? checksum, string state)
     {
         try
         {
@@ -467,6 +487,7 @@ public class UpdateInfoController : BaseMulletaFlixApiController
             var stateObj = new UpdatePersistentState
             {
                 DownloadedVersion = version,
+                VerifiedChecksum = checksum,
                 InstallState = state,
                 ExtractedPath = extractDir,
                 CompletedAt = DateTime.UtcNow
@@ -512,10 +533,11 @@ public class UpdateInfoController : BaseMulletaFlixApiController
             _installProgress = 0;
             _extractedUpdatePath = null;
             _downloadedVersion = null;
+            _verifiedChecksum = null;
         }
     }
 
-    private async Task DownloadAndPrepareUpdateAsync(string archiveUrl, string? availableVersion, CancellationToken cancellationToken)
+    private async Task DownloadAndPrepareUpdateAsync(string archiveUrl, string? availableVersion, string? checksum, CancellationToken cancellationToken)
     {
         var updatesDir = Path.Combine(_applicationPaths.ProgramDataPath, "updates");
         Directory.CreateDirectory(updatesDir);
@@ -528,11 +550,6 @@ public class UpdateInfoController : BaseMulletaFlixApiController
             System.IO.File.Delete(packageZip);
         }
 
-        if (Directory.Exists(extractDir))
-        {
-            Directory.Delete(extractDir, true);
-        }
-
         // 1. Download
         _logger.LogInformation("Downloading update package to {Dest}.", packageZip);
         var client = CreateConfiguredClient();
@@ -540,7 +557,17 @@ public class UpdateInfoController : BaseMulletaFlixApiController
         {
             response.EnsureSuccessStatusCode();
 
+            if (!BoundedZipArchiveExtractor.IsHttpsUrl(response.RequestMessage?.RequestUri?.ToString()))
+            {
+                throw new InvalidDataException("The server update package redirect did not remain on HTTPS.");
+            }
+
             var totalBytes = response.Content.Headers.ContentLength ?? -1L;
+            if (totalBytes > BoundedZipArchiveExtractor.MaxArchiveBytes)
+            {
+                throw new InvalidDataException("The server update package exceeds the download size limit.");
+            }
+
             var readBytes = 0L;
 
             await using (var contentStream = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false))
@@ -551,6 +578,11 @@ public class UpdateInfoController : BaseMulletaFlixApiController
 
                 while ((bytesRead = await contentStream.ReadAsync(buffer, cancellationToken).ConfigureAwait(false)) > 0)
                 {
+                    if (bytesRead > BoundedZipArchiveExtractor.MaxArchiveBytes - readBytes)
+                    {
+                        throw new InvalidDataException("The server update package exceeds the download size limit.");
+                    }
+
                     await fileStream.WriteAsync(buffer.AsMemory(0, bytesRead), cancellationToken).ConfigureAwait(false);
                     readBytes += bytesRead;
 
@@ -566,16 +598,31 @@ public class UpdateInfoController : BaseMulletaFlixApiController
             }
         }
 
-        // 2. Extract
-        lock (SyncLock)
+        await using (var packageStream = new FileStream(packageZip, FileMode.Open, FileAccess.Read, FileShare.Read, 81920, true))
         {
-            _installState = "Extracting";
-            _installProgress = 85;
-        }
+            if (!await BoundedZipArchiveExtractor.VerifySha256Async(checksum, packageStream, cancellationToken).ConfigureAwait(false))
+            {
+                throw new InvalidDataException("The server update package SHA-256 digest does not match the release metadata.");
+            }
 
-        _logger.LogInformation("Extracting update package to {ExtractDir}", extractDir);
-        Directory.CreateDirectory(extractDir);
-        ZipFile.ExtractToDirectory(packageZip, extractDir, true);
+            // Reuse the verified handle so extraction cannot reopen a different archive at the same path.
+            lock (SyncLock)
+            {
+                _installState = "Extracting";
+                _installProgress = 85;
+            }
+
+            _logger.LogInformation("Extracting update package to {ExtractDir}", extractDir);
+            var retainedBackupPath = await BoundedZipArchiveExtractor.ExtractToDirectoryAsync(
+                packageStream,
+                extractDir,
+                updatesDir,
+                cancellationToken).ConfigureAwait(false);
+            if (retainedBackupPath is not null)
+            {
+                _logger.LogWarning("The previous extracted update could not be removed and remains at {BackupPath}.", retainedBackupPath);
+            }
+        }
 
         var installDir = AppContext.BaseDirectory.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
         if (AreUpdateFilesIdentical(extractDir, installDir, _logger))
@@ -599,18 +646,20 @@ public class UpdateInfoController : BaseMulletaFlixApiController
             _installProgress = 100;
             _installError = null;
             _downloadedVersion = availableVersion;
+            _verifiedChecksum = checksum;
         }
 
-        SavePersistentState(updatesDir, extractDir, availableVersion, "ReadyToApply");
+        SavePersistentState(updatesDir, extractDir, availableVersion, checksum, "ReadyToApply");
         _logger.LogInformation("Update package is ready to be applied from {ExtractDir} upon user approval.", extractDir);
     }
 
-    internal static bool TryParseGitHubRelease(string json, out Version version, out string? changelog, out string? archiveUrl, out long? size)
+    internal static bool TryParseGitHubRelease(string json, out Version version, out string? changelog, out string? archiveUrl, out long? size, out string? checksum)
     {
         version = new Version(0, 0, 0);
         changelog = null;
         archiveUrl = null;
         size = null;
+        checksum = null;
 
         try
         {
@@ -658,7 +707,9 @@ public class UpdateInfoController : BaseMulletaFlixApiController
 
                 // Server release must include a .zip package
                 var zipAsset = release.Assets?.FirstOrDefault(a => a.Name.EndsWith(".zip", StringComparison.OrdinalIgnoreCase));
-                if (zipAsset == null)
+                if (zipAsset == null
+                    || !BoundedZipArchiveExtractor.IsHttpsUrl(zipAsset.BrowserDownloadUrl)
+                    || !BoundedZipArchiveExtractor.IsValidSha256Digest(zipAsset.Digest))
                 {
                     continue;
                 }
@@ -677,6 +728,7 @@ public class UpdateInfoController : BaseMulletaFlixApiController
                 var zipAsset = bestRelease.Assets!.First(a => a.Name.EndsWith(".zip", StringComparison.OrdinalIgnoreCase));
                 archiveUrl = zipAsset.BrowserDownloadUrl;
                 size = zipAsset.Size;
+                checksum = zipAsset.Digest;
                 return true;
             }
 
@@ -688,11 +740,12 @@ public class UpdateInfoController : BaseMulletaFlixApiController
         }
     }
 
-    private static bool TryParseCustomManifest(string json, out Version version, out string? changelog, out string? archiveUrl)
+    private static bool TryParseCustomManifest(string json, out Version version, out string? changelog, out string? archiveUrl, out string? checksum)
     {
         version = new Version(0, 0, 0);
         changelog = null;
         archiveUrl = null;
+        checksum = null;
 
         try
         {
@@ -704,7 +757,8 @@ public class UpdateInfoController : BaseMulletaFlixApiController
                 version = parsed;
                 changelog = manifest.Changelog;
                 archiveUrl = manifest.ArchiveUrl;
-                return true;
+                checksum = manifest.Checksum;
+                return BoundedZipArchiveExtractor.IsHttpsUrl(archiveUrl) && BoundedZipArchiveExtractor.IsValidSha256Digest(checksum);
             }
 
             return false;
@@ -898,6 +952,9 @@ Log ""In-place update finished.""
 
         [JsonPropertyName("browser_download_url")]
         public string BrowserDownloadUrl { get; set; } = string.Empty;
+
+        [JsonPropertyName("digest")]
+        public string? Digest { get; set; }
     }
 
     private sealed class ServerUpdateManifest
@@ -916,6 +973,8 @@ Log ""In-place update finished.""
         public string? DownloadedVersion { get; set; }
 
         public string? InstallState { get; set; }
+
+        public string? VerifiedChecksum { get; set; }
 
         public string? ExtractedPath { get; set; }
 

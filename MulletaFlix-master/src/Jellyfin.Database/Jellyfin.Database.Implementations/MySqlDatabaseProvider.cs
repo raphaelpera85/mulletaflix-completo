@@ -19,7 +19,7 @@ namespace MulletaFlix.Database.Implementations;
 /// Configures MulletaFlix to use a MySQL/MariaDB database.
 /// </summary>
 [MulletaFlixDatabaseProviderKey("MulletaFlix-MySQL")]
-public sealed class MySqlDatabaseProvider : IMulletaFlixDatabaseProvider
+public sealed class MySqlDatabaseProvider : IMulletaFlixDatabaseProvider, IMulletaFlixDomainDatabaseProvider
 {
     private readonly ILogger<MySqlDatabaseProvider> _logger;
     private string? _toolsDir;
@@ -346,7 +346,14 @@ public sealed class MySqlDatabaseProvider : IMulletaFlixDatabaseProvider
     }
 
     /// <inheritdoc/>
-    public async Task PurgeDatabase(MulletaFlixDbContext dbContext, IEnumerable<string>? tableNames)
+    public Task PurgeDatabase(MulletaFlixDbContext dbContext, IEnumerable<string>? tableNames)
+        => PurgeDatabaseCoreAsync(dbContext, tableNames);
+
+    /// <inheritdoc/>
+    public Task PurgeDomainDatabase(DbContext dbContext, IEnumerable<string>? tableNames)
+        => PurgeDatabaseCoreAsync(dbContext, tableNames);
+
+    private static async Task PurgeDatabaseCoreAsync(DbContext dbContext, IEnumerable<string>? tableNames)
     {
         if (tableNames == null) return;
 

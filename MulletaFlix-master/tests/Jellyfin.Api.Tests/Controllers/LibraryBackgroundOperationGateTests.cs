@@ -1,4 +1,5 @@
 using System;
+using System.Diagnostics;
 using System.Threading;
 using System.Threading.Tasks;
 using MediaBrowser.Controller;
@@ -97,7 +98,27 @@ public sealed class LibraryBackgroundOperationGateTests
         await monitorRestarted.Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
         monitor.Verify(libraryMonitor => libraryMonitor.Start(), Times.Once);
         libraryManager.VerifyAll();
-        using var nextLease = LibraryBackgroundOperationGate.TryAcquire();
+
+        // The monitor callback runs before the background operation's finally releases its lease.
+        // Wait for that release instead of racing it under parallel test load.
+        using var nextLease = await WaitForAdmissionAsync(TestContext.Current.CancellationToken);
         Assert.NotNull(nextLease);
+    }
+
+    private static async Task<IDisposable> WaitForAdmissionAsync(CancellationToken cancellationToken)
+    {
+        var timeout = Stopwatch.StartNew();
+        while (timeout.Elapsed < TimeSpan.FromSeconds(5))
+        {
+            var lease = LibraryBackgroundOperationGate.TryAcquire();
+            if (lease is not null)
+            {
+                return lease;
+            }
+
+            await Task.Delay(10, cancellationToken);
+        }
+
+        throw new TimeoutException("The library background-operation admission was not released.");
     }
 }

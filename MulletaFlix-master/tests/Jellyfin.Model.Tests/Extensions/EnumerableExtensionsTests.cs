@@ -1,4 +1,4 @@
-﻿using System.Linq;
+using System.Linq;
 using MediaBrowser.Model.Extensions;
 using MediaBrowser.Model.Providers;
 using Xunit;
@@ -24,6 +24,25 @@ public class EnumerableExtensionsTests
         Assert.Equal("en", result[1].Language);
         Assert.Null(result[2].Language);
         Assert.Equal("fr", result[3].Language);
+    }
+
+    [Fact]
+    public void OrderByLanguageDescending_PortugueseBaseCodeBeforeEnglishForBrazilianPreference()
+    {
+        var images = new[]
+        {
+            new RemoteImageInfo { Language = "en", CommunityRating = 10.0, VoteCount = 1000 },
+            new RemoteImageInfo { Language = "pt", CommunityRating = 4.0, VoteCount = 10 },
+            new RemoteImageInfo { Language = "pt-BR", CommunityRating = 3.0, VoteCount = 5 },
+            new RemoteImageInfo { Language = null, CommunityRating = 9.0, VoteCount = 500 },
+        };
+
+        var result = images.OrderByLanguageDescending("pt-BR").ToList();
+
+        Assert.Equal("pt-BR", result[0].Language);
+        Assert.Equal("pt", result[1].Language);
+        Assert.Equal("en", result[2].Language);
+        Assert.Null(result[3].Language);
     }
 
     [Fact]

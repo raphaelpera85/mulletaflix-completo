@@ -3,6 +3,7 @@ using System.Linq;
 using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
+using Jellyfin.Providers.Tests.Plugins;
 using MediaBrowser.Providers.Plugins.DramaFinds;
 using Microsoft.Extensions.Logging;
 using Moq;
@@ -14,19 +15,19 @@ namespace Jellyfin.Providers.Tests.Plugins.DramaFinds
     /// Live verification against the real DramaFinds API.
     /// </summary>
     /// <remarks>
-    /// The type name deliberately contains "Integration" so the CI filter
-    /// (FullyQualifiedName!~Integration) skips it: it reaches the public internet and must never
-    /// gate a build. Run it on demand with
-    /// <c>dotnet test --filter "FullyQualifiedName~DramaFindsLiveIntegration"</c>.
+    /// Live requests require <c>MULLETAFLIX_RUN_LIVE_PROVIDER_TESTS=1</c> and must never gate a build.
+    /// Run this category on demand with <c>dotnet test --filter "Category=ExternalLive"</c>.
     /// It exists because every other test in this folder uses a captured payload, and a captured
     /// payload cannot prove that the client still speaks what the API serves today — in particular
     /// that the Guest-Id header is still accepted and that the cover still resolves unsigned.
     /// </remarks>
+    [Trait("Category", "ExternalLive")]
     public sealed class DramaFindsLiveIntegrationTests
     {
         [Fact]
         public async Task SearchAndDetail_WorkAgainstTheRealApi()
         {
+            ProviderLiveTestEnvironment.SkipUnlessEnabled();
             using var client = CreateClient();
 
             // The endpoint is fuzzy by substring, so the exact title is the only query that is

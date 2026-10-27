@@ -548,8 +548,7 @@ public class SubtitleController : BaseMulletaFlixApiController
 
     private bool IsNotModified(string etag)
     {
-        var requestETag = Request.Headers.IfNoneMatch.ToString();
-        return !string.IsNullOrEmpty(requestETag) && string.Equals(requestETag, etag, StringComparison.Ordinal);
+        return Request.IfNoneMatchMatches(etag);
     }
 
     private ActionResult NotModifiedResult(string etag)
@@ -646,10 +645,7 @@ public class SubtitleController : BaseMulletaFlixApiController
             }
         }
 
-        var ifNoneMatch = Request.Headers.IfNoneMatch.ToString();
-        if (!string.IsNullOrEmpty(ifNoneMatch)
-            && (string.Equals(ifNoneMatch, etag, StringComparison.Ordinal)
-                || string.Equals(ifNoneMatch, etag.Trim('\"'), StringComparison.Ordinal)))
+        if (Request.IfNoneMatchMatches(etag))
         {
             Response.Headers.ETag = etag;
             Response.Headers.CacheControl = "public, max-age=300";

@@ -3,12 +3,13 @@ using System.Collections.Generic;
 using System.IO;
 using System.IO.Compression;
 using System.Linq;
+using System.Net;
 using System.Net.Http;
 using System.Security.Cryptography;
 using System.Text.Json;
 using System.Threading.Tasks;
-using MulletaFlix.Plugin.GetAvatar.Controllers;
 using Microsoft.Extensions.Logging;
+using MulletaFlix.Plugin.GetAvatar.Controllers;
 
 namespace MulletaFlix.Plugin.GetAvatar.Services
 {
@@ -18,8 +19,12 @@ namespace MulletaFlix.Plugin.GetAvatar.Services
     public class OnlinePackService
     {
         private const string GitHubReleaseApiUrl = "https://api.github.com/repos/cedev-1/jellyfin-avatars/releases/latest";
-        private const long MaxZipSizeBytes = 1024L * 1024L * 1024L; // 1 GB
+        internal const string PackDownloadHttpClientName = "GetAvatar.PackDownload";
+        private const long MaxZipSizeBytes = 256L * 1024L * 1024L;
         private const long MaxImageSizeBytes = 5L * 1024L * 1024L;
+        private const long MaxPackImageBytes = 256L * 1024L * 1024L;
+        private const int MaxPackEntries = 10000;
+        private const int MaxDownloadRedirects = 5;
         private static readonly TimeSpan PackCacheDuration = TimeSpan.FromMinutes(15);
 
         private static readonly Dictionary<string, string> PackDisplayNames = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
@@ -194,63 +199,96 @@ namespace MulletaFlix.Plugin.GetAvatar.Services
 
         private async Task<PackImportDetails> ImportPackAsync(OnlinePackInfo pack)
         {
+            if (!IsTrustedDownloadUrl(pack.DownloadUrl))
+            {
+                throw new InvalidOperationException("Avatar pack downloads must come from the configured GitHub releases repository.");
+            }
+
             var existingHashes = GetExistingAvatarHashes();
             var tempDirectory = Path.Combine(Path.GetTempPath(), "GetAvatar", Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(tempDirectory);
 
             try
             {
-                var zipPath = Path.Combine(tempDirectory, pack.FileName);
+                var zipPath = Path.Combine(tempDirectory, "pack.zip");
                 await DownloadFileAsync(pack.DownloadUrl, zipPath, MaxZipSizeBytes).ConfigureAwait(false);
 
-                var extractDirectory = Path.Combine(tempDirectory, "extracted");
-                Directory.CreateDirectory(extractDirectory);
-                ZipFile.ExtractToDirectory(zipPath, extractDirectory);
+                using var archive = ZipFile.OpenRead(zipPath);
+                if (archive.Entries.Count > MaxPackEntries)
+                {
+                    throw new InvalidDataException($"Avatar pack contains more than {MaxPackEntries} entries.");
+                }
 
-                _logger.LogInformation("Extracted pack {PackName} to {ExtractDirectory}. Looking for images...", pack.Name, extractDirectory);
-
-                var allFiles = Directory.GetFiles(extractDirectory, "*.*", SearchOption.AllDirectories).ToList();
-                _logger.LogInformation("Found {Count} total files in pack {PackName}", allFiles.Count, pack.Name);
-
-                var imageFiles = allFiles
-                    .Where(f => AllowedExtensions.Contains(Path.GetExtension(f).ToLowerInvariant()))
+                var imageEntries = archive.Entries
+                    .Where(entry => AllowedExtensions.Contains(Path.GetExtension(entry.FullName.Replace('\\', '/')).ToLowerInvariant()))
                     .ToList();
 
-                _logger.LogInformation("Found {Count} image files in pack {PackName}", imageFiles.Count, pack.Name);
+                var totalImageBytes = imageEntries
+                    .Where(entry => entry.Length <= MaxImageSizeBytes)
+                    .Aggregate(0L, (total, entry) => checked(total + entry.Length));
+                if (totalImageBytes > MaxPackImageBytes)
+                {
+                    throw new InvalidDataException($"Avatar pack images exceed the {MaxPackImageBytes / (1024 * 1024)} MB expanded size limit.");
+                }
+
+                _logger.LogInformation("Found {Count} image files in pack {PackName}", imageEntries.Count, pack.Name);
 
                 var details = new PackImportDetails
                 {
-                    TotalImages = imageFiles.Count
+                    TotalImages = imageEntries.Count
                 };
 
-                foreach (var imagePath in imageFiles)
+                var importedImageBytes = 0L;
+                foreach (var entry in imageEntries)
                 {
                     try
                     {
-                        var fileInfo = new FileInfo(imagePath);
-                        if (fileInfo.Length > MaxImageSizeBytes)
+                        if (entry.Length > MaxImageSizeBytes)
                         {
-                            _logger.LogWarning("Skipping image {FileName}: exceeds {MaxSize} MB", imagePath, MaxImageSizeBytes / (1024 * 1024));
+                            _logger.LogWarning("Skipping image {FileName}: exceeds {MaxSize} MB", entry.FullName, MaxImageSizeBytes / (1024 * 1024));
                             continue;
                         }
 
-                        var imageData = await File.ReadAllBytesAsync(imagePath).ConfigureAwait(false);
+                        var fileName = Path.GetFileName(entry.FullName.Replace('\\', '/'));
+                        if (string.IsNullOrWhiteSpace(fileName) || fileName is "." or "..")
+                        {
+                            _logger.LogWarning("Skipping avatar pack entry with an invalid image name: {EntryName}", entry.FullName);
+                            continue;
+                        }
+
+                        await using var entryStream = entry.Open();
+                        using var imageBuffer = new MemoryStream((int)entry.Length);
+                        var buffer = new byte[81920];
+                        int bytesRead;
+                        while ((bytesRead = await entryStream.ReadAsync(buffer.AsMemory(0, buffer.Length)).ConfigureAwait(false)) > 0)
+                        {
+                            if (imageBuffer.Length + bytesRead > MaxImageSizeBytes
+                                || importedImageBytes + imageBuffer.Length + bytesRead > MaxPackImageBytes)
+                            {
+                                throw new InvalidDataException("Avatar pack image data exceeds its expanded size limit.");
+                            }
+
+                            await imageBuffer.WriteAsync(buffer.AsMemory(0, bytesRead)).ConfigureAwait(false);
+                        }
+
+                        var imageData = imageBuffer.ToArray();
+                        importedImageBytes += imageData.Length;
                         var hash = ComputeHash(imageData);
 
                         if (existingHashes.Contains(hash))
                         {
                             details.DuplicateCount++;
-                            _logger.LogDebug("Skipping duplicate image: {FileName}", Path.GetFileName(imagePath));
+                            _logger.LogDebug("Skipping duplicate image: {FileName}", fileName);
                             continue;
                         }
 
-                        await _avatarService.SaveAvatarAsync(Path.GetFileName(imagePath), imageData, pack.Name).ConfigureAwait(false);
+                        await _avatarService.SaveAvatarAsync(fileName, imageData, pack.Name).ConfigureAwait(false);
                         existingHashes.Add(hash);
                         details.ImportedCount++;
                     }
                     catch (Exception ex)
                     {
-                        _logger.LogError(ex, "Failed to import image {FileName} from pack {PackName}", imagePath, pack.Name);
+                        _logger.LogError(ex, "Failed to import image {FileName} from pack {PackName}", entry.FullName, pack.Name);
                     }
                 }
 
@@ -272,10 +310,41 @@ namespace MulletaFlix.Plugin.GetAvatar.Services
 
         private async Task DownloadFileAsync(string url, string destinationPath, long maxSizeBytes)
         {
-            using var client = _httpClientFactory.CreateClient();
+            using var client = _httpClientFactory.CreateClient(PackDownloadHttpClientName);
             client.Timeout = TimeSpan.FromMinutes(10);
 
-            using var response = await client.GetAsync(url, HttpCompletionOption.ResponseHeadersRead).ConfigureAwait(false);
+            var currentUri = new Uri(url);
+            HttpResponseMessage response;
+            for (var redirectCount = 0; ; redirectCount++)
+            {
+                using var request = new HttpRequestMessage(HttpMethod.Get, currentUri);
+                response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead).ConfigureAwait(false);
+                if (!IsRedirect(response.StatusCode))
+                {
+                    break;
+                }
+
+                using (response)
+                {
+                    if (redirectCount >= MaxDownloadRedirects || response.Headers.Location is null)
+                    {
+                        throw new InvalidDataException("Avatar pack download returned too many or invalid redirects.");
+                    }
+
+                    var nextUri = response.Headers.Location.IsAbsoluteUri
+                        ? response.Headers.Location
+                        : new Uri(currentUri, response.Headers.Location);
+                    if (!IsTrustedRedirectUrl(nextUri))
+                    {
+                        throw new InvalidDataException("Avatar pack download redirected outside the trusted GitHub hosts.");
+                    }
+
+                    currentUri = nextUri;
+                }
+            }
+
+            using (response)
+            {
             response.EnsureSuccessStatusCode();
 
             var contentLength = response.Content.Headers.ContentLength;
@@ -300,6 +369,52 @@ namespace MulletaFlix.Plugin.GetAvatar.Services
                     throw new InvalidOperationException($"Downloaded file exceeded maximum allowed size ({maxSizeBytes} bytes).");
                 }
             }
+            }
+        }
+
+        private static bool IsRedirect(HttpStatusCode statusCode)
+            => statusCode is HttpStatusCode.MovedPermanently
+                or HttpStatusCode.Redirect
+                or HttpStatusCode.SeeOther
+                or HttpStatusCode.TemporaryRedirect
+                || (int)statusCode == 308;
+
+        private static bool IsTrustedRedirectUrl(Uri uri)
+            => uri.Scheme == Uri.UriSchemeHttps
+                && uri.IsDefaultPort
+                && uri.UserInfo.Length == 0
+                && uri.Fragment.Length == 0
+                && (string.Equals(uri.Host, "github.com", StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(uri.Host, "githubusercontent.com", StringComparison.OrdinalIgnoreCase)
+                    || uri.Host.EndsWith(".githubusercontent.com", StringComparison.OrdinalIgnoreCase));
+
+        private static bool IsTrustedDownloadUrl(string value)
+        {
+            if (!Uri.TryCreate(value, UriKind.Absolute, out var uri)
+                || uri.Scheme != Uri.UriSchemeHttps
+                || !string.Equals(uri.Host, "github.com", StringComparison.OrdinalIgnoreCase)
+                || !uri.IsDefaultPort
+                || uri.UserInfo.Length != 0
+                || uri.Query.Length != 0
+                || uri.Fragment.Length != 0)
+            {
+                return false;
+            }
+
+            var segments = uri.AbsolutePath.Split('/');
+            return segments.Length >= 7
+                && segments[1] == "cedev-1"
+                && segments[2] == "jellyfin-avatars"
+                && segments[3] == "releases"
+                && segments[4] == "download"
+                && segments.Skip(5).All(segment =>
+                {
+                    var decoded = Uri.UnescapeDataString(segment);
+                    return decoded.Length > 0
+                        && decoded is not "." and not ".."
+                        && !decoded.Contains('/', StringComparison.Ordinal)
+                        && !decoded.Contains('\\', StringComparison.Ordinal);
+                });
         }
 
         private HashSet<string> GetExistingAvatarHashes()

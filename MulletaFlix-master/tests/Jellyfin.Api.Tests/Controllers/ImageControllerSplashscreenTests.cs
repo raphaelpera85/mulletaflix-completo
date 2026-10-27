@@ -23,6 +23,37 @@ namespace MulletaFlix.Api.Tests.Controllers;
 public sealed class ImageControllerSplashscreenTests
 {
     [Fact]
+    public async Task GetSplashscreen_NonMatchingIfNoneMatchTakesPrecedenceOverIfModifiedSince()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), "mulletaflix-splashscreen-test-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        try
+        {
+            var imagePath = Path.Combine(directory, "splashscreen.png");
+            await File.WriteAllBytesAsync(imagePath, [1, 2, 3], TestContext.Current.CancellationToken);
+            var configuration = new Mock<IServerConfigurationManager>();
+            configuration.Setup(manager => manager.GetConfiguration("branding"))
+                .Returns(new BrandingOptions { SplashscreenEnabled = true, SplashscreenLocation = imagePath });
+            var imageProcessor = new Mock<IImageProcessor>();
+            imageProcessor.Setup(processor => processor.ProcessImage(It.IsAny<ImageProcessingOptions>()))
+                .ReturnsAsync((imagePath, "image/png", DateTime.UtcNow.AddDays(-2)));
+            var controller = CreateController(directory, configuration, imageProcessor.Object);
+            controller.Request.Headers["If-None-Match"] = "\"stale\"";
+            controller.Request.Headers["If-Modified-Since"] = DateTime.UtcNow.AddDays(1).ToString("R");
+
+            var result = await controller.GetSplashscreen("\"current\"", null);
+
+            Assert.IsType<PhysicalFileResult>(result);
+            Assert.Equal(StatusCodes.Status200OK, controller.Response.StatusCode);
+            imageProcessor.Verify(processor => processor.ProcessImage(It.IsAny<ImageProcessingOptions>()), Times.Once);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
     public void DeleteCustomSplashscreen_RemovesManagedFileAfterConfigurationCommit()
     {
         var directory = Path.Combine(Path.GetTempPath(), "mulletaflix-splashscreen-test-" + Guid.NewGuid().ToString("N"));

@@ -1,5 +1,220 @@
 # Matriz de evidências da auditoria
 
+## Nebula: auditoria de aliases físicos da identidade da fila — 2026-10-26 19:31 BRT
+
+- Revisão estática de C#, Python e testes: `NormalizeQueueIdentity` usa `Path.GetFullPath`; `queue_identity` usa `abspath`/`normcase`. Symlink/junction não é resolvido, portanto caminhos distintos para o mesmo arquivo podem criar identidades de fila distintas.
+- Os testes atuais cobrem caixa/identidade lexical e backfill; não cobrem alias físico. Não foi executado MongoDB nem consultado/alterado banco operacional.
+- Risco: adotar identidade física pode colidir no índice único sparse e interromper inicialização. Antes de migração: contrato comum C#/Python, teste com link temporário e inventário somente leitura. Formal 2/7 (28,6%); auditoria técnica 5.465/5.493; sem crédito ou release.
+
+## Seleção de capa localizada até persistência MariaDB — 2026-10-25 10:56 BRT
+
+- Adicionado teste opt-in que passa candidato de imagem `pt` por `ItemImageProvider.RefreshImages` e verifica provedor/idioma persistidos na tabela MariaDB. A integração referencia `MediaBrowser.Providers`; o filtro CI Linux/MariaDB seleciona o cenário.
+- Build Release do projeto de integração compilou; a execução do teste foi ignorada sem connection string MariaDB descartável. Seleção localizada passou 2/2; contrato CI MariaDB 2/2; contrato do portal 197/197; `dotnet format style --verify-no-changes` passou.
+- Limite: resposta HTTP e `SaveImage` são simulados; a prova cobre seleção e proveniência persistida, não os bytes/arquivo da imagem nem a disponibilidade de arte TMDb.
+- Nenhuma API externa, banco operacional, Linux hospedado, runtime instalado ou produção foram acessados. Homologação formal segue 2/7 (28,6%), sem crédito e sem release/publicação remota.
+
+## Regressão ampla Release do servidor e Nebula — 2026-10-25 10:50 BRT
+
+- A repetição completa sem rebuild `dotnet test MulletaFlix.sln --configuration Release --no-build --no-restore --filter "FullyQualifiedName!~LiveIntegrationTests" --verbosity quiet -m:1` encerrou com exit 0: 5.298 aprovados, 256 ignorados, 0 falhas/5.554 resultados em 17 assemblies. Provedores live foram excluídos; ignores opt-in/plataforma não contam como aprovação.
+- NebulaPython completo passou 701/701 usando `uv`, Python 3.10 e arquivos `requirements.lock` e `requirements-test.txt`.
+- Não houve consulta a DB operacional/API externa nem acesso a runtime instalado/produção. Isso é evidência local de source/teste, não valida CI hospedada, Linux nativo ou instalação.
+- Homologação formal mantém 2/7 (28,6%), sem crédito; sem release.
+
+## Auditoria focada Nebula, imagens localizadas e restore — 2026-10-25 10:36 BRT
+
+- Regressões Windows/.NET 10 Release: `TmdbUtilsTests|ProviderManagerImageProviderTests` passou 32/32; `NebulaDownloaderStartupTests|NebulaHostedServiceConfigurationTests` passou 48/48.
+- A auditoria não encontrou prova ponta a ponta de TMDb localizado até persistência; os testes atuais cobrem idioma/cache/filtro e persistência separadamente. Isso é lacuna de cobertura, não prova de defeito determinístico.
+- A primeira execução NebulaPython pela raiz falhou na coleta por diretório de imports incorreto; a tentativa pelo Python global foi bloqueada pelo guard de runtime isolado. Repetidos `test_upload_checkpoint.py`, `test_main_upload_worker.py` e `test_strm_downloader.py` com `uv` em venv Python 3.10 isolada e `requirements.lock` + `requirements-test.txt`: 53/53. Não foram instaladas dependências globais.
+- Continuam pendentes: E2E da imagem localizada até metadados persistidos; subprocesso e transferência pelo artefato Nebula instalado; replay de restore do IntroSkipper em Linux/MariaDB descartável. A auditoria dos agentes confirmou que as suítes atuais não cobrem esses fluxos integrados.
+- Sem acesso a APIs externas, banco operacional, runtime instalado ou produção. Homologação formal 2/7 (28,6%), sem crédito; sem release.
+
+## Recovery de lock MariaDB com resposta perdida — 2026-10-24 19:11 BRT
+
+- Em `ItemPersistenceDatabaseLock.Acquire`, a exceção durante `GET_LOCK` podia ocorrer após o servidor adquirir o lock atual; o cleanup síncrono liberava somente `acquired` locks confirmados, deixando o lock ambíguo retido na conexão. Corrigido: síncrono e assíncrono liberam `min(acquired + 1, requested)`.
+- Teste primeiro falhou por helper ausente (RED); após corrigir, `ItemPersistenceDatabaseLockTests` Release passou 12/12. Solução Release passou 5.142, ignorou 242, falhou 0/5.384 em 17 assemblies; excluído `DramaFindsLiveIntegrationTests` (API externa ao vivo).
+- A documentação oficial MariaDB define `RELEASE_LOCK` como retorno `NULL` quando o lock nomeado não existe, sem liberar outro lock; isso sustenta tentar soltar o stripe ambíguo, mas não substitui teste contra MariaDB real: [MariaDB RELEASE_LOCK](https://mariadb.com/docs/server/reference/sql-functions/secondary-functions/miscellaneous-functions/release_lock).
+- `git diff --check HEAD` passou na candidata; portal local 155/155, JSON válido e diff check passou após corrigir uma expectativa do teste de contrato. MariaDB descartável indisponível; sem runtime, produção, integração à branch ou release. Homologação formal 2/7 (28,6%), sem crédito.
+
+## Regressão candidata .NET + NebulaPython — 2026-10-24 19:00 BRT
+
+- Busca estática dos writers de `BaseItemImageInfos` nas fontes de servidor encontrou `SaveImagesCoreAsync`, regravação em `SaveBaseItemEntities`/`UpdateOrInsertItemsCore`, exclusão em `DeleteItemsUnderLocks` e rotina `FixBaseItemImageInfos`. Os três caminhos de persistência de item usam `ItemPersistenceDatabaseLock`; FixDates adquire os 16 stripes. Escopo limitado às referências diretas encontradas no código-fonte, sem teste concorrente MariaDB nesta sessão.
+- Na worktree candidata `codex/server-image-deadlock-next`, baseada em `origin/main` v12.1.35 SHA `d51f4f38`, `dotnet test MulletaFlix-master/MulletaFlix.sln --configuration Release --filter "FullyQualifiedName!~DramaFindsLiveIntegrationTests" --verbosity quiet -m:1` terminou exit 0: 5.139 aprovados, 242 ignorados, 0 falhas/5.381 em 17 assemblies. Apenas `DramaFindsLiveIntegrationTests` foi excluído por API externa ao vivo.
+- NebulaPython com `uv run --isolated --python 3.10 --with-requirements requirements.lock --with-requirements requirements-test.txt python -m pytest tests -q`: 660/660 aprovados. A chamada preliminar pelo launcher direto `pytest` falhou na coleta por `sys.path`; a repetição via `python -m pytest` no diretório `Tools/NebulaPython` passou.
+- Portal local 154/154; JSON válido; `git diff --check` limpo (avisos CRLF/LF). MariaDB não foi executado; `MULLETAFLIX_TEST_MARIADB_CONNECTION_STRING` ausente e ferramentas Docker/MariaDB não encontradas. Não houve conexão ao listener operacional.
+- Patch permanece não integrado; CI remoto, runtime, Linux nativo e produção sem validação. Homologação formal 2/7 (28,6%), sem crédito; nenhuma release/publicação.
+
+## Regressão Nebula Python Windows — 2026-10-24 12:05 BRT
+
+- `py -3.10 -m venv` em caminho temporário, dependências de runtime instaladas por `pip install --require-hashes -r requirements.lock` e ferramentas de teste por `requirements-test.txt`.
+- `python -m pytest tests -q -p no:cacheprovider`: **694 passed in 11.23s**, Windows, Python 3.10.
+- Não valida Linux/macOS, Telegram/MongoDB/Supabase reais, runtime instalado, produção nem cobertura medida. O ambiente temporário foi criado em `%TEMP%`; tentativa de remoção foi bloqueada pela ferramenta, sem contorno.
+- Portal registra a evidência localmente; homologação formal permanece 2/7 (28,6%), sem crédito.
+
+## Releitura do log MariaDB 1213 de imagens — 2026-10-24 12:00 BRT
+
+- O anexo repete os `DELETE BaseItemImageInfos` concorrentes para um `ItemId`, retries e aviso posterior de heartbeat Kestrel. O HTTP 200 inicial não confirma persistência das imagens.
+- A implementação candidata atual mantém semaphore por stripe no processo e advisory `GET_LOCK` MariaDB em `SaveImagesAsync`. A evidência anterior de DLL/runtime não associa este anexo a PID/assembly; runtime anterior ou writer externo não estão confirmados.
+- Portal: `node --test portal-site/tests/homologacao.test.mjs` passou 109/109; JSON válido; `git diff --check` sem erro de whitespace (avisos de normalização CRLF/LF).
+- Nenhuma alteração de runtime, instalação, banco ativo ou release nesta sessão. Homologação formal permanece 2/7 (28,6%).
+
+## Regressão build-inclusive e lifecycle de restore — 2026-10-24 11:56 BRT
+
+- `dotnet test MulletaFlix.sln --configuration Release --no-restore --logger 'console;verbosity=minimal' -m:1` terminou exit 0: 17 projetos, 5.272 aprovados, 265 ignorados, 0 falhas/5.537 no Windows/.NET 10 Release. Ignorados incluem integração MariaDB/MongoDB opt-in, Linux/macOS e providers live.
+- `ItemPersistenceServiceTests` recompilado Release: 31/31. `IntroSkipper.Integration.Tests`: 14 aprovados/31 ignorados; nenhuma conexão foi feita com o banco ativo.
+- Revisão de dois auditores: restore ainda não valida ACL efetiva/owner; lease pode criar diretório/arquivo antes da validação do backup; `FileSystemRestoreTransaction` usa pathname em apply, rollback e cleanup; replay reutiliza esse fluxo. Primitivas Linux têm janelas entre verificação e mutação.
+- Formal 2/7, sem crédito. Sem Linux nativo, ACL real, restore adversarial integrado, runtime/produção, release ou publicação remota. A árvore está 8 commits atrás do remoto e com 144 paths modificados/não rastreados; não usar como release integral.
+- Mapa atualizado; sem alteração de código runtime nesta sessão. Ver auditoria detalhada em `MulletaFlix-master/docs/backup-coverage-audit.md` e sessão Obsidian `2026-10-24-MulletaFlix-full-server-regression-and-restore-audit-1156`.
+
+## Regressão build-inclusive e restore focal — 2026-10-23 19:17 BRT
+
+- `dotnet test MulletaFlix.sln --configuration Release --no-restore --logger 'console;verbosity=quiet' -m:1` recompilou o snapshot e terminou sem falhas nos 17 projetos: 5.247 aprovados, 256 ignorados, 0 falhas/5.503 resultados em Windows/.NET 10.
+- Execução focal `FullSystemBackup` no mesmo snapshot recompilado: 86 aprovados, 6 ignorados (Linux-only), 0 falhas/92. O projeto amplo Implementations reportou 1.588 aprovados, 72 ignorados, 0 falhas/1.660.
+- Ignorados incluem Linux-only, integrações opt-in e provedores live. O run não verifica ACL efetiva, Linux nativo, runtime instalado, produção ou aceite formal.
+- Portal local atualizado para registrar o evento; homologação formal permanece 2/7 (28,6%), sem crédito. GitHub `main` ainda serve o JSON de 20/10 (SHA `b08db3c7f4804aa0280952e4898908f7e80f40dd`); escrita já foi negada pela integração com HTTP 403 em tentativa anterior. Sem release ou publicação nesta etapa.
+- Mapa técnico conferido, estrutura inalterada. Nenhum fonte de runtime alterado. Ver sessão do vault `[[Sessões/2026-10-23-MulletaFlix-server-regression-refresh-1917]]`.
+
+## Regressão completa .NET e Nebula Python — 2026-10-23 19:05 BRT
+
+- `dotnet test MulletaFlix.sln --configuration Release --no-build --no-restore --logger 'console;verbosity=minimal' -m:1` terminou com exit code 0 em Windows/.NET 10. Os 17 projetos reportaram 5.247 testes aprovados, 256 ignorados e 0 falhas (5.503 resultados).
+- `py -3.14 -m pytest -q` em `MulletaFlix-master/Tools/NebulaPython` passou 688/688.
+- Contrato local do portal passou 72/72; JSON válido, `node --check portal-site/homologacao.js` e `git diff --check` passaram.
+- Portal remoto: leitura no GitHub confirmou `main`/JSON ainda em 20/10 (SHA `b08db3c7f4804aa0280952e4898908f7e80f40dd`). Nova tentativa `github_update_file` via Contents API retornou HTTP 403 `Resource not accessible by integration`; atualização local não foi publicada, nenhum commit/deployment ocorreu. Requer restauração da permissão de escrita da integração.
+- Os ignorados incluem testes Linux-only e testes opt-in que dependem de MongoDB/MariaDB ou serviços externos. Não houve execução Linux, contra bancos reais, runtime instalado ou produção nesta rodada; nenhum crédito de homologação formal é atribuído.
+- Homologação formal permanece 2/7 (28,6%); o restore ainda depende de decisão de trust/ACL, integração handle-relative completa e verificação adversarial multiplataforma. Sem alteração de runtime ou release. O checkout já continha alterações não relacionadas, preservadas.
+
+## Retry do refresh de diretório Nebula — 2026-10-23
+
+- Causa confirmada: `NebulaDirectoryRefreshQueue` removia a pasta pendente antes de chamar o refresh rclone; exceção era apenas registrada e a pasta não era reagendada.
+- Correção: falhas reagendadas com backoff exponencial iniciado em 5 s e limitado a 5 min. Fila segue sequencial, outros diretórios continuam processados; evento novo coalesce e substitui retry pendente. Shutdown cancela espera e operação ativa.
+- Busca de chamadas: `NebulaFtpManager` instancia a fila; conclusão de upload enfileira diretórios. A mudança é na fila compartilhada, sem alteração de API/DI ou pacote.
+- Teste: `dotnet test tests/Jellyfin.Server.Implementations.Tests/Jellyfin.Server.Implementations.Tests.csproj --configuration Release --no-restore --filter FullyQualifiedName~NebulaDirectoryRefreshQueueTests` — 6 aprovados, 0 ignorados/falhas (Windows/.NET 10).
+- Não validado: rclone real, disco N, runtime instalado, Linux/CI remota, produção e refresh periódico de 15 minutos. Homologação formal permanece 2/7 (28,6%), sem novo crédito. Nenhuma release criada; checkout continua sujo e 8 commits atrás de `origin/main`.
+
+## 2026-10-23 — regressão ampla repetida .NET e NebulaPython
+
+`dotnet test MulletaFlix.sln --configuration Release --no-restore --no-build --filter 'FullyQualifiedName!~Integration' --logger 'console;verbosity=minimal' --verbosity quiet -m:1` terminou exit 0 no Windows/.NET 10: 5.221 aprovados, 72 ignorados, 0 falhas/5.293 resultados em 15 projetos. `py -3.14 -m pytest -q` passou 688/688 em NebulaPython. Testes ignorados não contam como aprovados; o filtro .NET exclui nomes `Integration`. Isto não valida Linux/CI remota, serviços externos, runtime instalado, produção ou homologação formal. Formal continua 2/7 (28,6%), sem crédito novo. Nenhuma release criada.
+
+## 2026-10-23 — varredura ampla local .NET/Python
+
+`dotnet test MulletaFlix.sln --configuration Release --no-restore --no-build --verbosity quiet -m:1` percorreu os 17 projetos .NET no Windows/.NET 10; cada resumo reportou zero falhas, 5.236 aprovados e 252 ignorados. O host fechou antes de expor o exit code agregado; o registro é baseado nos resultados individuais, não em um código de saída global. Nebula Python passou 688/688 com `py -3.14 -m pytest -q`; pytest já estava instalado nesse runtime, nenhum pacote foi instalado. Nenhum serviço externo/produção acessado. Homologação formal permanece 2/7; TOCTOU P0 sem mudança. Detalhes em `MulletaFlix-master/docs/backup-coverage-audit.md`.
+
+## 2026-10-23 — restore handle-relative: auditoria de integração
+
+Dois exames read-only mapearam o limite seguro de integração: extração, rollback, commit/limpeza, journal/lease e replay devem migrar juntos; o archive de entrada requer contrato de confiança separado. Gaps adicionais no protótipo: corrida Linux `mkdirat`→`openat`, corrida `statx`→`unlinkat`, falta de ABI Linux/musl testada, APIs NT sem matriz de filesystems e ACL não validada. `FullSystemBackup` foi reexecutado em Windows/.NET 10: 79 aprovados, 2 Linux-only ignorados, 0 falhas. Não houve mudança de runtime; helper continua isolado, homologação formal 2/7 sem crédito, sem release ou produção. Fonte primária `statx(2)`: https://man7.org/linux/man-pages/man2/statx.2.html. Detalhes e próximos gates em `MulletaFlix-master/docs/backup-coverage-audit.md`.
+
+## 2026-10-23 — rejeição de symlink como origem de rename Linux
+
+`BackupRestoreDirectory.Rename` agora rejeita symlink fonte no backend Linux antes de chamar `renameat`/`renameat2`; teste de regressão Linux-only confirma link e destino apontado permanecem intactos. Validação local Windows Release: helper 17 aprovados/3 ignorados; FullSystemBackup 79 aprovados/3 ignorados, 0 falhas; format verify e diff check passaram. Linux não executou, logo a nova branch ainda aguarda CI Linux. Risco: tipo inspecionado via `statx` separado da syscall de rename, dependente da fronteira ACL confiável. Helper segue sem caller de runtime; homologação formal 2/7, sem crédito ou release. Detalhes em `MulletaFlix-master/docs/backup-coverage-audit.md`.
+
+## Sync M3U preserva manifesto após falhas temporárias de link — 2026-10-23 12:36 (-03)
+
+- Em modo `download`, candidatos filtrados pela validação de disponibilidade ou uma playlist sem mídia diante de manifesto não vazio podiam levar à exclusão de arquivos anteriores e a um manifesto parcial/vazio. Novo helper `MidiaStorageOnlineManifestCleanup` adia a limpeza e preserva o manifesto anterior quando a validação é incompleta ou a playlist chega vazia; uma validação completa preserva a exclusão normal de entradas realmente ausentes.
+- `MidiaStorageOnlineManifestCleanupTests`: 4/4; `Jellyfin.Providers.Tests` Release: 862 aprovados, 13 ignorados, 0 falhas; regressão completa `dotnet test MulletaFlix.sln --configuration Release --no-build --no-restore --filter "FullyQualifiedName!~Integration" --verbosity quiet` terminou exit code 0. A saída de resumo agregado da execução foi truncada; os totais exatos globais não foram atualizados. A primeira regressão ampla teve 1 falha em `NebulaMongoAdmissionLeaseTests.DisposeAsync_StopsHeartbeatAndReleasesOnlyOnce`; repetição focal passou 1/1.
+- Portal `node --test tests/homologacao.test.mjs`: 264/264. Evento publicado em `Mulletaflix-Portal:main`, commit `c324995`; endpoint público respondeu HTTP 200, confirmou o evento e manteve 2/7 (28,6%). Nenhum sync M3U externo, filesystem real, produção, instalação ou Linux foi validado. Sem crédito de homologação formal; nenhuma release criada.
+- Achados separados em auditoria read-only: possível estado Nebula `staging` preso após falha pós-claim e TOCTOU no restore por pathname. Não alterados nesta mudança; registrar como pendências.
+- Mapa técnico conferido: helper interno no fluxo existente; nenhuma API, DI, dependência ou topologia nova. Checkout server segue sujo e 8 commits atrás de `origin/main`.
+
+## Restore e crash replay em MariaDB descartável — 2026-10-23 10:51 (-03)
+
+- `dotnet test tests/IntroSkipper.Integration.Tests/IntroSkipper.Integration.Tests.csproj --configuration Release --no-restore --filter 'FullyQualifiedName~BackupRestoreMariaDbTests'` passou 4/4 em Windows/.NET 10 contra MariaDB 11.4.4 descartável, loopback porta 33099. Inclui round-trip/rollback dos contextos relacionais, recuperação após confirmação de commit perdida, encerramento real do processo entre commit relacional e commit de arquivos com replay, e rejeição das duas connection strings inseguras.
+- Regressão local complementar `dotnet test tests/Jellyfin.Server.Implementations.Tests/Jellyfin.Server.Implementations.Tests.csproj --configuration Release --no-restore --filter 'FullyQualifiedName~FullSystemBackup' --verbosity quiet`: 62/62 aprovados, 0 ignorados/falhas.
+- A primeira execução isolada detectou dois defeitos do próprio teste: recovery reutilizava o callback que simulava falha após cada commit, e o processo filho não expunha stderr. O teste agora cria serviço sem injeção de falha na recuperação (como após restart) e inclui stdout/stderr no erro de processo filho. Reexecução limpa 4/4. Build concluiu com 44 avisos de analisadores preexistentes nos arquivos de teste; zero erros.
+- MariaDB foi inicializado num datadir temporário independente e escutou apenas `127.0.0.1:33099`; nenhuma conexão foi feita ao serviço operacional `127.0.0.1:3306` nem ao MongoDB. O processo da porta 33099 foi encerrado. Dois diretórios temporários desta sessão (~285 MiB combinados) permanecem em `%TEMP%`: a remoção recursiva foi negada pela política da ferramenta; sem tentativa de contornar a restrição.
+- H02 recebe evidência técnica completa 4/4 e passa de andamento para concluído; homologação técnica agregada 2/7 (28,6%). Isso não é aceite formal de produção: H03 permanece em andamento por TOCTOU e domínios/consistência restantes; H04 CI remota bloqueada; instalação/runtimes e E2E real pendentes; H07 signoff não dado. Nenhuma release, instalação ou produção foi alterada.
+- Portal de homologação publicado no `main` de `Mulletaflix-Portal`, commit `8bc4a7c8912e6edb2fc19e7ebcd7cab2ba7402b4`; contratos 262/262, JSON válido e `git diff --check` aprovados. Vercel Production deployment para o SHA ficou READY; endpoint público HTTP 200 confirmou H02 completed, 2/7 (28,6%), signoff pending e o evento novo.
+- Mapa técnico conferido em 23/10/2026: nenhuma mudança de módulo, API, classe de runtime, dependência ou fluxo de produção; houve apenas ajuste do harness de testes de integração.
+
+## Regressão ampla do servidor e NebulaPython — 2026-10-23 10:27 (-03)
+
+- `dotnet test MulletaFlix.sln --configuration Release --no-restore --filter "FullyQualifiedName!~Integration" --verbosity quiet` terminou exit code 0 em Windows/.NET 10: 5.248 aprovados, 69 ignorados, 0 falhas/5.317 resultados. A soma foi conferida pelos resumos de cada assembly emitidos pelo processo. O filtro exclui casos cujo nome qualificado contém `Integration`; não equivale à matriz de CI nem executa integrações externas/MariaDB/Mongo.
+- Projetos com resumos observados: Providers 849/849; API 763 aprovados/3 ignorados; Server 74/74; Server.Implementations 1.559 aprovados/66 ignorados. Os demais projetos e a saída completa constam da execução; não se afirma validação Linux ou remota.
+- NebulaPython em `nebula/.venv` passou 685/685 em 13,90 s. Não houve serviço real MongoDB/Supabase/Telegram, instalação, runtime de produção ou operação em mídia real.
+- Auditoria read-only paralela confirmou o gap P0: restore/replay/journal e fluxos irmãos ainda combinam validação de caminho com mutação posterior por pathname; testes não fazem troca concorrente determinística de ancestral. Reutilizar `AvatarFileStore` não cobre transações aninhadas do restore.
+- Formal do servidor permanece 1/7 (14,3%). Sem mudança de runtime, integração de release, instalação ou produção. Checkout `64a33dcf`, 103 paths modificados/não rastreados e 8 commits atrás de `origin/main`; preservar mudanças existentes.
+
+## Filtro e preferência de idioma das artes — pt-BR/pt — 2026-10-22
+
+- `ProviderManager` agora usa correspondência por código ISO 639-1 base ao filtrar e ordenar imagens; para preferência `pt-BR`, uma imagem reportada como `pt` não é descartada nem perde para inglês. Correspondência regional exata mantém prioridade maior; inglês permanece fallback.
+- `dotnet test tests/Jellyfin.Model.Tests/Jellyfin.Model.Tests.csproj -c Release --no-restore --filter 'FullyQualifiedName~EnumerableExtensionsTests'`: 7 aprovados, 0 ignorados/falhas.
+- `dotnet test tests/Jellyfin.Providers.Tests/Jellyfin.Providers.Tests.csproj -c Release --no-restore --no-build --filter 'FullyQualifiedName~ProviderManagerTests'`: 73 aprovados, 0 ignorados/falhas.
+- `dotnet format whitespace --verify-no-changes` passou nos quatro arquivos alterados; `git diff --check` passou. `IncludeAllLanguages` e chamadas de produção não executam TMDb real. Sem validação visual de *Invasão Zumbi 2*, release ou produção; Fanart pode ser plugin externo.
+
+## TMDb — todas as línguas na seleção de imagens — 2026-10-22
+
+- Os cinco providers receberam uma regressão em `IncludeAllLanguages`: query do TMDb limitava o conjunto de artes a idioma preferido, sem idioma e inglês. Quatro providers agora usam endpoints separados de imagens sem filtros; o provider de episódio mantém o mapeamento de ordem por detalhe, com filtros vazios. TMDbLib 3.0.0 trata `null` como default do cliente; strings vazias omitem parâmetros.
+- Cache de arte sem idioma filtra por ID e entidade por uma hora; metadata localizado mantém as dimensões de idioma/região já adicionadas.
+- Release focal `FullyQualifiedName~Tmdb|FullyQualifiedName~GetAvailableRemoteImages_IncludeAllLanguages` passou 39/39. O teste novo confirma que ProviderManager não remove idiomas quando `IncludeAllLanguages=true`; não faz chamada de rede.
+- `dotnet format whitespace` executado; modo de verificação sem alterações pendente. `git diff --check` focal pendente.
+- Nenhuma chamada TMDb autenticada, refresh de Invasão Zumbi 2, alteração de arquivos de mídia, runtime/instalação/produção ou release foi testada/executada. Item persistido exige refresh após futura instalação. Formal 1/7 (14,3%); sem crédito de homologação local.
+- Portal: publicar estado desta correção após consolidar os gates; evidência da publicação anterior não comprova esta correção.
+
+## Revalidação da preferência de idioma das artes TMDb — 2026-10-22 10:25 (-03)
+
+- `dotnet test tests/Jellyfin.Providers.Tests/Jellyfin.Providers.Tests.csproj -c Release --no-restore --filter FullyQualifiedName~Tmdb --logger 'console;verbosity=minimal'` recompilou e passou **38/38**, sem ignorados ou falhas. O filtro focal `TmdbUtilsTests` passou **20/20**.
+- Busca nos call sites confirmou que os cinco image providers (filme, série, temporada, episódio e coleção) usam a política de idioma do servidor. Quatro consultam endpoints de imagem sem filtros; o provider de episódio preserva mapeamento de ordem com filtros vazios. `git diff --check` focado deverá ser repetido após o ajuste.
+- A chamada inicial de `git diff --check` nesta sessão incluiu um caminho inválido e falhou; a verificação foi repetida com caminhos existentes e passou. A falha de comando não altera o resultado dos testes.
+- Nenhuma chamada autenticada TMDb, atualização de *Invasão Zumbi 2*, teste visual de runtime, instalação ou produção foi feita. Fanart segue sem implementação localizada no checkout. Imagens existentes exigem refresh após uma release futura; a homologação formal segue 1/7 (14,3%), sem crédito por teste local.
+- Portal de homologação publicado em `Mulletaflix-Portal:main`, commit `1d08f2d625951c0254dc66329f659669ac41bb87`; Vercel Production `READY` para esse SHA (`dpl_92vbNrBjTKyT29xUNASpdrNTFKsv`). O endpoint canônico `/homologacao-status.json` respondeu HTTP 200 e continha o evento; formal segue 1/7.
+
+## Restore integral — revalidação TOCTOU — 2026-10-22 09:42 (-03)
+
+- O filtro `dotnet test tests/Jellyfin.Server.Implementations.Tests/Jellyfin.Server.Implementations.Tests.csproj -c Release --no-restore --filter FullyQualifiedName~FullSystemBackup` recompilou dependências/server e passou **50/50**, sem falhas ou ignorados.
+- Investigação de código confirmou que a restauração rejeita reparse points estáticos e caminhos lexicais fora da raiz, mas ainda grava/move por caminho (`Directory.CreateDirectory`, `FileStream`, `File.Move`, `File.Delete`) após validações separadas. A janela TOCTOU continua aberta; 50/50 é regressão funcional, não prova de segurança concorrente.
+- O teste `RestoreBackupAsync_RejectsReparsePointInsideRestoreRoot` não cobre substituição entre verificação e uso. Próximo critério: teste determinístico que troca diretório por link precisamente antes da operação de staging e demonstra zero escrita fora da raiz.
+- Investigação das primitivas: Linux `openat2`/operações relativas por dirfd é candidata; no Windows, `NtCreateFile` com `RootDirectory` é API interna e sujeita a mudanças conforme Microsoft, portanto nenhuma implementação foi aprovada nesta sessão. Referências: https://man7.org/linux/man-pages/man2/openat2.2.html ; https://learn.microsoft.com/en-us/windows/win32/devnotes/calling-internal-apis ; https://learn.microsoft.com/en-us/windows/win32/api/winternl/nf-winternl-ntcreatefile
+- Dois scouts read-only foram encerrados após completar suas análises. Sem código runtime alterado nesta sessão; TOCTOU, processo kill/restart, MariaDB descartável, validação FK, consistência temporal e aceite formal permanecem pendentes. Homologação 1/7 (14,3%); sem produção, instalação, integração, release ou acesso à MariaDB operacional.
+- Portal homologação publicado no Git `Mulletaflix-Portal:main`, commit `c28d9416e8ae545f5e413e632dcdbdbc253f80ea`; contrato 229/229, deployment Vercel Production `READY`, endpoint público HTTP 200 confirmou o evento e manteve homologação formal em 1/7 (14,3%).
+
+## Journal e replay crash recovery do restore integral — 2026-10-22
+
+- `BackupRestoreRecoveryJournal` persiste fora dos roots substituídos o ID da operação, o caminho do backup, tamanho, data e SHA-256. No startup, antes de inicializar o host principal, o servidor valida e reaplica o mesmo backup; journal/arquivo inválido ou arquivo alterado bloqueia o início e preserva a evidência. Sidecars determinísticos permitem retomar uma troca de arquivos interrompida, inclusive para destinos originalmente ausentes. Um restore novo não passa por cima de recovery pendente; a linha de comando não duplica o mesmo arquivo recuperado.
+- Testes focais `BackupServiceTests`: 41 aprovados, 0 ignorados/falhas, incluindo conflito `.bak` + `.absent` com preservação do alvo/sidecars/journal. Projeto amplo `Jellyfin.Server.Implementations.Tests`: 1.541 aprovados, 66 ignorados, 0 falhas (1.607 total). `dotnet format whitespace --verify-no-changes` nos quatro C# alterados e `git diff --check` aprovados.
+- A matriz representa estados de disco/journal montados pelos testes; processo não foi morto e reiniciado. Sem MariaDB descartável nesta rodada, CI remota, runtime instalado, produção, instalação ou release. O início bloqueado cobre o host principal, mas não o listener de setup criado antes desse ponto. Formal permanece 1/7 (14,3%), sem crédito de homologação por testes unitários.
+- Portal atualizado em `Mulletaflix-Portal:main`, commit `6dfb68f`; contrato 228/228 e endpoint público `/homologacao-status.json` HTTP 200 confirmou o evento e formal 1/7 (14,3%). Ver `MulletaFlix-master/docs/backup-coverage-audit.md` e decisão `2026-10-22-backup-restore-crash-recovery-replay.md`. Worktree principal preexistente sujo e 8 commits atrás; alterações não integradas.
+
+## Suíte ampla .NET e revalidação Nebula — 2026-10-22 03:35 (-03)
+
+- Primeira execução `dotnet test MulletaFlix.sln -c Release --no-restore` terminou exit 1 com uma falha em `LibraryBackgroundOperationGateTests.AddMediaPath_WhenRefreshFails_RestartsMonitorAndReleasesAdmission`. Reprodução isolada passou 1/1. A leitura do teste confirmou corrida: o callback `ILibraryMonitor.Start()` sinaliza antes de `finally` liberar o lease; a asserção podia competir com a liberação.
+- Corrigido somente o teste: espera limitada/cancelável até `LibraryBackgroundOperationGate.TryAcquire()` voltar a aceitar operação. Regressão `Jellyfin.Api.Tests` Release passou 763 aprovados, 3 ignorados, 0 falhas; suíte .NET completa em Release, `--no-restore --no-build`, terminou exit 0. `dotnet format whitespace --verify-no-changes` no arquivo alterado passou. Projetos com resumos capturados: Providers 818/818; Server.Implementations 1.537 aprovados, 66 ignorados, 0 falhas; API 763 aprovados, 3 ignorados, 0 falhas; Model 684/684; Naming 681/681; Network 124/124; LiveTv 75/75; Server 74/74; Common 31/31; Extensions 144/144; MediaEncoding.Hls 18/18; Keyframes 3/3. Há projetos adicionais no run, portanto não somar apenas esta lista como total da solução.
+- Nebula Python 3.14: suíte completa 684/684. Serviço Mongo local está Running/Automatic e porta TCP 127.0.0.1:27017 aceita conexão agora. O log anterior de connection refused não foi reproduzido no nível TCP; autenticação, ping/consulta, cursor e escrita Supabase não foram testados, então a causa histórica permanece não determinada.
+- Worktree principal continua suja, 48 paths alterados após o ajuste, HEAD `64a33dcf` e 8 commits atrás de `origin/main` (release pública v12.1.35); mudanças prévias preservadas, sem sincronização. Nenhuma instalação, banco operacional, Telegram/Supabase, CI remota, produção, pacote ou release do servidor.
+- Formal permanece 1/7 (14,3%), sem crédito por testes locais; gates de backup crash-safe, plataforma/CI, runtime instalado, E2E de mídia e aceite seguem abertos. Mapa técnico conferido; somente um teste existente mudou, sem novo módulo/API/dependência/fluxo.
+- Portal publicado em `Mulletaflix-Portal:main`, commit `8029fd5`; contrato `tests/homologacao.test.mjs` 227/227, `node --check homologacao.js`, parse JSON e `git diff --check` passaram. Endpoint público `/homologacao-status.json` HTTP 200 confirmou `generatedAt=2026-10-22T03:35:52-03:00`, novo evento e formal 1/7 (14,3%).
+
+## Revalidação de retry Nebula e crash-consistency do restore — 2026-10-22 03:11 (-03)
+
+- O usuário confirmou manter retentativas automáticas quando Telegram pode ter aceitado uma parte mas a resposta ou o checkpoint Mongo se perdeu. O código local já registra a intenção/checkpoint, reconcilia por UUID/parte/SHA-256 antes de reenviar e adia a fila quando a busca é inconclusiva; não foi necessário alterar comportamento nesta revalidação.
+- Em venv temporária Python 3.10, criada com o lock de dependências e dependências de teste isolados, os seis grupos focados de checkpoint/envio/worker/scanner/fila passaram 63/63. A tentativa anterior no Python global foi recusada pelo guard antes da coleta; nenhuma dependência global foi instalada.
+- `dotnet test ... --filter FullyQualifiedName~RestoreBackupAsync_` em Release passou 12/12. Essa cobertura não simula encerramento abrupto: a revisão da fonte confirma rollback filesystem apenas em memória, commit relacional antes de `fileRestore.Commit()` e ausência de journal/recuperação no startup. O risco de divergência após crash permanece aberto.
+- Sem Telegram/Mongo/MariaDB operacional, runtime instalado, CI remota, produção, instalação ou release. Homologação formal permanece 1/7 (14,3%); testes focados não concedem crédito parcial.
+- Portal atualizado em `Mulletaflix-Portal:main`, commit `5f17301`; contrato `tests/homologacao.test.mjs` 226/226, `node --check`, JSON e `git diff --check` passaram. Endpoint público HTTP 200 confirmou ambos eventos e 1/7 (14,3%).
+
+## FullSystemBackup — cobertura dos modelos EF de mídia — 2026-10-22
+
+- Fato confirmado no checkout: `BackupService` injeta e serializa/restaura somente propriedades de `MulletaFlixDbContext`. Quatro modelos separados (`MoviesDbContext`, `SeriesDbContext`, `ChannelsDbContext`, `BooksDbContext`) são provisionados/populados pela migração de domínio, sem captura/restauração própria.
+- `rg -l` não encontrou escritor API/serviço desses modelos fora das definições, DI, migração e `DomainDataMigrator`; portanto não há evidência suficiente para afirmar perda atual. É lacuna de cobertura antes de ativar esses modelos como fonte operacional.
+- Sem mudança de código ou testes nesta reauditoria. A regressão prévia `BackupServiceTests` 32/32 não cobre esse contrato multi-contexto. Homologação formal 2/7; sem release.
+
+## Supabase backup/restore — mensagens de erro operacionais — 2026-10-22
+
+- `NebulaErrorMessageFormatter` limita a 512 caracteres e normaliza as mensagens expostas por quatro caminhos de erro em `NebulaSupabaseSyncService`; logs estruturados preservam exceções integrais. Sem alteração de retry/conectividade.
+- Testes focados: 65/65; assembly Implementations: 1.532 aprovados, 66 ignorados, 0 falhas. `git diff --check` aprovado e busca da atribuição direta `result.Message = $"Erro: {ex.Message}";` sem ocorrências remanescentes.
+- Limite: Mongo/Supabase não consultados; status local do serviço e TCP não confirmam causa da falha histórica. Homologação formal 2/7; sem release.
+
+## Restore ZIP — regressão focada atual — 2026-10-22
+
+- `dotnet test MulletaFlix-master/tests/Jellyfin.Server.Implementations.Tests/Jellyfin.Server.Implementations.Tests.csproj -c Release --no-restore --filter FullyQualifiedName~FullSystemBackup.BackupServiceTests`: 32 aprovados, 0 ignorados/falhas. A contagem antiga de 41 testes no TODO não corresponde ao filtro/projeto executado neste checkout.
+- Essa suíte cobre os cenários unitários de backup/restore atualmente presentes, mas não prova segurança TOCTOU, recuperação após crash, contextos externos ou integração MariaDB descartável. Esses gates continuam abertos; sem alteração de produção/release.
+- O opt-in `MULLETAFLIX_TEST_MARIADB_CONNECTION_STRING` está ausente. A porta `127.0.0.1:3306` está em LISTEN por `mysqld`; o processo/banco não foi usado porque não há evidência de que seja descartável.
+
+## Nebula — retry do backup automático Supabase — 2026-10-21 23:44 (-03)
+
+- `NebulaSupabaseSyncService.RunAutomaticBackupLoopAsync` agora inspeciona o resultado do backup; falha retornada, exceção e timeout acionam retry automático exponencial (1, 2, 4, 8, 16, 32 min), limitado ao intervalo normal. Sucesso zera a sequência; cancelamento do serviço encerra o ciclo. A primeira tentativa continua imediata.
+- Testes determinísticos `NebulaSupabaseSyncTests`: 62/62; suíte completa `Jellyfin.Server.Implementations.Tests` Release: 1.527 aprovados, 66 ignorados, 0 falhas (1.593); build Release de `Jellyfin.Server.csproj`: 0 avisos/0 erros; `git diff --check` aprovado.
+- Rechecagem read-only: serviço Mongo local Running/Automatic e TCP 127.0.0.1:27017 acessível. Isso não valida autenticação, consulta do cursor nem escrita/backup Supabase; não houve conexão a Supabase, acesso a dados, mudança em produção, CI remota ou instalação.
+- Homologação formal permanece 2/7 (28,6%); testes locais não contam como aceite operacional. Sem release do servidor. Portal atualizado em Git `main`, commit `b811688`; contrato 222/222, JSON e `node --check` aprovados. Deployment confirmado: endpoint público HTTP 200 e evento visível.
+- Estrutura conferida: alteração no ciclo interno da classe existente, sem endpoint, módulo, dependência ou registro DI novo; o Mapa técnico foi atualizado. Sessão: `[[Sessões/2026-10-21-MulletaFlix-supabase-auto-backup-retry]]`; decisão: `[[Decisões/2026-10-21-supabase-automatic-backup-retry]]`.
+
 ## Release 12.1.31 — rejeição de backup relacional incompleto — 2026-10-21
 
 - `BackupService` agora valida a lista `DatabaseTables` e todas as entradas JSON relacionais esperadas antes de copiar Config/Data/Root ou abrir o banco. Tabela não declarada, entrada ausente ou nome não suportado causa `InvalidDataException`.
@@ -1275,6 +1490,13 @@ O build de produção atual foi revalidado com maior chunk JS de aproximadamente
 - Nenhum teste do servidor foi executado nesta sessão: a análise foi estática e não mudou código. Nenhum provider/CDN real, biblioteca, produção ou mídia foi acessado. Mapa técnico conferido e inalterado. Evidência/fonte detalhada: `MulletaFlix-master/docs/image-metadata-flow-audit.md`; sessão do Vault `01 Projetos/MulletaFlix/Sessões/2026-10-21-MulletaFlix-remote-image-byte-validation-audit.md`.
 - Portal de homologação atualizado em `Mulletaflix-Portal:main`, commit `99ad0e4d8ab7be051096335137d34eab2c14c8ad`. `node --test tests/homologacao.test.mjs`: 195/195; `node --check homologacao.js`, JSON timestamp/order check e `git diff --check` passaram. `git ls-remote` confirmou `main` no SHA e o endpoint público `/homologacao-status.json` respondeu HTTP 200 com o evento `server-remote-image-byte-validation-audit-2026-10-21-0029` em `in_progress`.
 
+## Nebula — expiração estrita do lease e retry fenced — 2026-10-21
+
+- O token de geração só autoriza mutações enquanto `lease_until` ainda está no futuro. C# e os três workers Python rejeitam renewal/acquire, checkpoints e gravações de workers com lease expirada ou substituída. Em erro ambíguo Telegram, o retry automático permanece, mas o worker revalida a lease antes de aguardar e enviar novamente; perda de posse interrompe o ciclo e preserva o stage local.
+- Evidência local em Windows: suíte Nebula Python 665/665 e `py_compile` aprovados; regressões direcionadas de worker/lease 19/19. Testes .NET Release direcionados (UploadEngine, StreamEngine, recuperação de playback e fila Mongo) 313/313, 0 ignorados/falhas, contra MongoDB 8.3.7 descartável em loopback `127.0.0.1:27099`; o processo foi encerrado e a porta ficou fechada. `dotnet format --verify-no-changes` passou para implementação e arquivos de teste focados após corrigir ordenação dos membros, `CancellationToken` e formatação dos argumentos. `git diff --check` passou.
+- A suíte Python revelou que o worker legado tentava registrar falha após lease ser tomada por outra geração; o filtro impediu a mutação, e novo teste prova que a escrita stale não é aplicada nem gera retry extra. A instância Mongo operacional não foi acessada. Não foram feitos uploads Telegram reais, CI remota, instalação, produção ou release. Homologação formal continua pendente.
+- Portal `Mulletaflix-Portal:main` publicado no commit `572c48b80ff0c6af39a7b1eda9489ef0f9eaf6dc`; testes de contrato 217/217, `node --check homologacao.js`, JSON/timestamp e `git diff --check` passaram. `git ls-remote` confirmou o SHA em `main`; endpoint público `homologacao-status.json` respondeu HTTP 200 e, com cache bypass, exibiu o evento com evidência atual. Homologação formal continua 2/7 (28,6%); portal atualizado não significa aprovação em produção.
+
 ## Release 12.1.28 — validação CRC de restore e builder do pacote — 2026-10-21
 
 - `BackupService.RestoreBackupCoreAsync` agora valida CRC-32 e comprimento de
@@ -1302,3 +1524,382 @@ O build de produção atual foi revalidado com maior chunk JS de aproximadamente
 - Regressões: validator + `ProviderManager` 10/10; regressões focais ProviderManager/MetadataService/ItemImageProvider/validator 177/177; `Jellyfin.Providers.Tests` excluindo integração externa ao vivo 817/817. Build `Jellyfin.Server` Release: 0 erros, 1 aviso CS0419 preexistente. Verificação de formatação e diff passou.
 - Gates locais: solution .NET (sem Integration) exit 0, Implementations 1.508 aprovados/64 ignorados; Nebula Python 660/660 em Python 3.10; web 418/418 em 75 arquivos e build:check; build de servidor Release sem erros. `v12.1.27` foi publicada no GitHub com instalador Windows, ZIP atualizador e pacote Linux; API confirmou os três uploads, tamanhos e digests SHA-256 em `docs/releases/12.1.27.md`. Workflow da tag falhou antes de steps, sem runner alocado; gates/pacotes produzidos localmente. Nenhum provider/CDN, instalação ou biblioteca de produção foi testado; homologação real permanece pendente.
 - Estrutura mudou com uma classe interna nova e dependência de `IImageEncoder` no construtor singleton `ProviderManager`, já registrada pelo host. Mapa técnico e Vault atualizados nesta entrega.
+
+## Nebula — journal Python e integridade do pacote — 2026-10-21
+
+- A árvore principal inclui journal atômico por upload, intenção persistida antes do envio, SHA-256 por parte, reconciliação Telegram tipada em todos os bots, migração defensiva de partes Mongo legadas, retry automático adiado quando confirmação/journal é inconclusivo e recuperação em processo de leases vencidas. Sem garantia exactly-once: ausência MTProto só é considerada após a janela de visibilidade de até 31 s, mas uma mensagem ainda invisível pode gerar duplicata.
+- Verificações desta execução: Python 3.10 `py_compile` aprovado; suíte NebulaPython 681/681; Pester da cópia do runtime Windows 1/1; contrato de integridade do stage Windows passou incluindo rejeição de módulo ausente e SHA divergente; contratos Node de empacotamento 4/4; cópia/validação do runtime Linux passou; `git diff --check` aprovado.
+- Não foram executados testes .NET nesta continuação nem acessados Telegram/Mongo operacionais, instalação, CI remota, produção ou teste de mídia real. Homologação formal segue 2/7 (28,6%); nenhuma release do servidor foi publicada.
+- O novo módulo `Tools/NebulaPython/upload_checkpoint.py` altera fluxo interno e empacotamento, sem endpoint público ou dependência nova. Próximo gate operacional permanece runtime instalado + smoke controlado; CI remota, matriz de plataformas e aceite formal continuam pendentes.
+
+## Auditoria contínua — retries Nebula, cobertura local e toolchain web — 2026-10-21
+
+- Escolha do usuário confirmada: manter retentativas automáticas quando Telegram possa ter aceitado uma parte mas a resposta/checkpoint Mongo se perca. Duas regressões Python provam: (1) após a aceitação simulada e falha do checkpoint local, a nova tentativa pesquisa histórico, retoma a mensagem já aceita e não chama envio outra vez; (2) progresso Mongo ausente é reconstruído da confirmação durável local. Scanner mantém janela `next_retry_at`; focados checkpoint/scanner 22/22.
+- Suíte completa Nebula Python 3.10: segunda execução 683/683. Uma execução anterior teve 682 aprovados e uma falha no teste de retomada multipart STRM; o teste isolado passou 5/5 repetido e o módulo inteiro 19/19, e a segunda suíte integral passou sem alterar o downloader. Registrar como instabilidade observada, não como correção confirmada.
+- `.NET` solução Release com `--no-build --no-restore`: exit code 0; 5.120 aprovados, 236 ignorados, 0 falhas (5.356 total). A tentativa anterior com build terminou exit code 1 sem falhas de teste visíveis no sumário final de Implementations; causa não determinada, e a repetição sem build foi limpa.
+- Frontend: Vitest 418/418 em 75 arquivos, Stylelint/typecheck/build/verify:build aprovados; bundle inicial 294,3 KiB gzip/420 KiB. Atualizado toolchain de teste/lint. `npm audit --omit=dev`: zero; audit integral: dez altas dev-only via `braces@3.0.3` sem correção upstream. Auditoria NuGet sem vulnerabilidades.
+- Contratos do portal reexecutados 221/221; `node --check homologacao.js`, parse JSON e `git diff --check` passaram. Portal `main` atualizado no commit `5e66d839ae351565b280af8ebd81bb5aba627a16`; Vercel Production reportou `READY` e JSON público retornou HTTP 200 com o evento, mantendo homologação formal 2/7 (28,6%).
+- Não houve chamada Telegram/Mongo operacional, runtime instalado, mídia real, CI remota ou produção. Homologação formal continua 2/7 (28,6%); pacote/release do servidor não criado nem publicado. Uma execução local da solução e testes web não equivalem a aceite formal.
+
+## Cursor delta confirmado do backup Supabase — 2026-10-21
+
+- `NebulaSupabaseSyncService` não usa mais o maior `updated_at` entre arquivos enviados como watermark: uma execução parcialmente persistida podia avançar o cursor e pular registros ainda não enviados. O cursor vem do marcador `sync_started_at_utc` incluído no campo existente `details` do último backup v2 `success`; o `created_at` gerado pelo banco mantém sua semântica e não foi substituído. O marcador contém início da execução, então alterações durante um sync longo ficam elegíveis no ciclo seguinte.
+- Ausência de checkpoint v2 ou catálogo inconsistente força sync integral; registros legados/manuais não são tratados como checkpoint confiável. O checkpoint de sucesso só é escrito depois de finalizar o processamento.
+- Evidência local final: `NebulaSupabaseSyncTests` 55/55; `Jellyfin.Server.Implementations.Tests` Release, filtro `FullyQualifiedName!~Integration`: 1.520 aprovados, 66 ignorados, 0 falhas (1.586 total). `dotnet format --verify-no-changes` passou.
+- Limites: Supabase/MongoDB reais, falha de rede real, CI remota, runtime instalado e produção não testados. Falta fault-injection integrado que falhe um lote e comprove ausência de checkpoint final `success`. O checkout contém alterações preexistentes e está 8 commits atrás de `origin/main`; nenhum commit, pacote ou release do servidor foi criado. Homologação formal permanece 2/7 (28,6%).
+
+## Revalidação do checkpoint C# de upload Nebula — 2026-10-21
+
+- A reconciliação/checkpoint C# existe em uma worktree destacada e suja baseada em `d51f4f38`, separada do checkout principal; não foi integrada nem publicada. Preservei todos os arquivos locais dessa worktree.
+- Executei Release focado nessa worktree para `NebulaUploadEngineTests`, `NebulaUploadCheckpointJournalTests` e `NebulaTelegramNotifierTests`: 246 aprovados, 0 ignorados/falhas, incluindo os 6 testes do journal. As dependências .NET foram recompiladas; testes locais isolados, sem Mongo/Telegram reais.
+- No checkout principal, o filtro Nebula focado previamente executado passou 267/267; NebulaPython passou 683/683 em venv Python 3.10 isolado. Esse checkout continua 8 commits atrás de `origin/main` e contém alterações anteriores não relacionadas.
+- Sem alteração de código, pacote, runtime instalado, CI remota, produção ou release. Homologação formal permanece 2/7 (28,6%). O mapa técnico foi conferido; não houve mudança estrutural.
+- Contratos do portal: 221/221; JSON validado e `git diff --check` passou. Atualização factual publicada em `Mulletaflix-Portal:main`, commit final `d0f6516` (registro inicial `82ee304` seguido pela atualização dos totais 246/246); pushes confirmados. Vercel informa deployment Production mais recente `READY`, mas list/get do deployment e leitura HTTP foram negados com 403, então não foi possível confirmar que esse deployment contém o SHA `d0f6516`.
+- Próximo passo: auditar a worktree C# integralmente e definir sua integração controlada; não fazer cherry-pick/merge até revisar o conjunto completo de alterações locais e executar regressões compatíveis.
+
+## Revalidação de retries ambíguos do Telegram — 2026-10-21 23:53 -03
+
+- Preferência do usuário confirmada: manter retentativas automáticas quando Telegram possivelmente aceitou uma parte, mas a resposta ou o checkpoint Mongo se perdeu. A fonte principal já consulta o journal/histórico por UUID, parte e SHA-256 antes de reenviar; busca inconclusiva adia o processamento, preservando o retry automático sem novo POST imediato.
+- Em venv temporária Python 3.10: testes focados de checkpoint/worker/worker legado 31/31; suíte `Tools/NebulaPython/tests` 683/683. `py_compile` de `main.py` e `upload_checkpoint.py` também passou.
+- Revalidação de fonte e testes; nenhuma alteração de código, pacote, instalação, Telegram/Mongo reais, produção, CI remota ou release. O teste local não prova o comportamento da busca MTProto real; pode haver duplicata se uma mensagem aceita continuar invisível ao histórico.
+- Homologação formal permanece 2/7 (28,6%). Checkout principal permanece sujo e 8 commits atrás de `origin/main`; nenhuma alteração preexistente foi descartada.
+
+## Restore ZIP: contenção de symlink/junction — 2026-10-22
+
+- `BackupService.RestoreBackupCoreAsync` agora rejeita reparse points existentes em componentes abaixo da raiz de destino, antes e depois de criar o diretório pai; raiz configurada continua confiável. Teste adversarial com symlink real: reproduziu escape antes da correção, depois `FullSystemBackup` Release passou 40/40.
+- `TWINS`: busca no servidor encontrou um único `ZipArchiveEntry.ExtractToFile`, protegido pelo guard. `git diff --check` passou.
+- Limites: TOCTOU, extração/transação com rollback, exceção individual de persistência após purga e restore integral permanecem pendentes. Nenhum banco, runtime instalado, Linux, CI remota ou produção foi acessado; sem release.
+- Checkout principal segue sujo em `64a33dcf`, 8 commits atrás de `origin/main`; mudanças locais anteriores preservadas. Homologação formal 2/7 (28,6%).
+- Portal atualizado em `Mulletaflix-Portal:main`, commit `33dc39dcfd9d5dd94dbf31d08e6580235d8ef42e`; contrato 223/223, JSON e `node --check` aprovados. Vercel Production ficou `READY` nesse SHA e `homologacao-status.json` público respondeu HTTP 200 com o evento e homologação em 28,6%.
+
+## Restore ZIP: rollback após falha relacional — 2026-10-22
+
+- No checkout principal local `64a33dcf`, falhas de `DbContext.Add` eram capturadas e ignoradas depois da purga. A fonte local passa a propagar erro, envolver a restauração relacional em transação e instalar arquivos por staging/rename com rollback compensatório.
+- Verificações: `FullSystemBackup` Release 41/41; `dotnet build Jellyfin.Server` Release 0 avisos/0 erros; `BackupRestoreMariaDbTests` 2 aprovados, 1 ignorado por falta de MariaDB descartável; `git diff --check` passou com avisos preexistentes de conversão LF/CRLF em outros arquivos. A integração MariaDB com registro duplicado compila, mas não executou.
+- Limites: checkout sujo e 8 commits atrás de `origin/main`; mudança não integrada, sem pacote, instalação, release, CI remota ou produção. Transação cobre o contexto relacional central desta versão do restore, não os contextos de domínio nem Mongo/Supabase; crash abrupto entre arquivos/commit ainda requer journal durável. Homologação formal continua 2/7 (28,6%) e T4.3 aberto.
+
+## Backup relacional: manifesto e PlaybackReports — 2026-10-22
+
+- Corrigido o manifesto do `FullSystemBackup`: geração usava `Type.Name` do `DbSet<T>` e declarava `DbSet`1`, enquanto os arquivos ZIP usam nomes físicos do modelo EF. Geração, validação do manifesto/ZIP, validação JSON e restore compartilham nomes físicos mapeados, com `HistoryRow`; regressão verifica o mapeamento singular `PlaybackReports` → `PlaybackReport`. Manifesto legado com marcador genérico só passa se todas as entradas esperadas estiverem presentes.
+- O conjunto `PlaybackReports`, ativo em `PlaybackReportManager`, existia apenas em `UsersDbContext` e não era percorrido pelo backup central. `MulletaFlixDbContext` agora declara a entidade; teste de modelo InMemory confirma inclusão e a integração MariaDB foi ampliada para round-trip.
+- Testes: `BackupServiceTests` 34/34. `BackupRestoreMariaDbTests`: 2 aprovados, 1 ignorado. O round-trip MariaDB novo não executou, pois `MULLETAFLIX_TEST_MARIADB_CONNECTION_STRING` não está configurada. Não acessamos banco operacional nem produção.
+- H02 segue em andamento (formal 1/7); os contextos Movies/Series/Channels/Books permanecem fora do backup, e a antiga alegação de round-trip 6/6 ainda não foi reconciliada. Sem release, instalação ou CI remota; checkout principal sujo e 8 commits atrás de `origin/main`.
+- Portal atualizado em `Mulletaflix-Portal:main`, commit `6cfc8421e051f76fb7dddab4f9f983584c14675b`; contratos 224/224, Vercel Production `READY` (`dpl_2uyiTm1rr1PFzkFK826DZTW4YMyM`) e endpoint público HTTP 200 confirmou os nomes físicos e 1/7 (14,3%).
+
+## Reconciliação do gate de restore MariaDB — 2026-10-22
+
+- A evidência pública atribuía ao `BackupRestoreMariaDbTests 6/6` round-trip/rollback de cinco contextos. Na fonte inspecionada nesta sessão, `BackupService` recebe só `IDbContextFactory<MulletaFlixDbContext>`; o teste MariaDB usa apenas essa fábrica. Não encontramos no código examinado prova dos quatro contextos independentes nem rastreio do resultado 6/6.
+- Decisão de auditoria: reabrir SRV-H02 até reconciliar o SHA/relatórios mencionados ou executar a matriz multi-contexto correta. O percentual formal muda de 2/7 (28,6%) para 1/7 (14,3%); o gate não recebe crédito parcial. Nenhuma perda operacional foi comprovada, e nenhum banco foi acessado.
+- Sem mudança de código/teste nesta sessão. Portal publicado em `Mulletaflix-Portal:main`, commit `dabc71d0fb4bb9c234fe236a53ff375e686acfaf`; contrato 223/223 e endpoint público HTTP 200 confirmou 1/7 (14,3%) e SRV-H02 em andamento.
+
+## Retry Nebula com journal local inválido — 2026-10-22 00:38 (-03)
+
+- Decisão do usuário mantida: continuar retentativas automáticas se Telegram puder ter aceitado uma parte sem resposta ou sem checkpoint Mongo.
+- A leitura de journal corrompido/incompatível não pode mais ser interpretada como geração nova. O worker agora adia o arquivo, preserva UUID e progresso, registra motivo recuperável e deixa o scanner tentar novamente após a janela configurada; evita reenvio cego de parte possivelmente aceita.
+- Verificações: focados checkpoint/worker/worker legado/scanner, Python 3.14, 56/56; suíte completa `Tools/NebulaPython/tests`, Python 3.14, 684/684. A coleta Python 3.10 parou no guard de isolamento antes dos testes; `py_compile` 3.10 passou nos dois módulos e não houve instalação global.
+- Limites: testes usam fakes/mocks; Telegram, Mongo, runtime instalado, produção, CI remota e exatamente-uma-vez não foram validados. Sem pacote ou release; formal do servidor permanece 2/7 (28,6%). Checkout sujo e 8 commits atrás de `origin/main`; alterações anteriores foram preservadas.
+- Portal de homologação atualizado via Git em `Mulletaflix-Portal:main`, commit `98694e16e7c4a815c5310af5dec9b981dae2a089`; contrato 223/223, `node --check`, parse JSON e `git diff --check` passaram. Endpoint público `homologacao-status.json` respondeu HTTP 200 com este evento. A publicação do portal não cria release do servidor.
+
+## Restore multi-contexto FullSystemBackup — 2026-10-22
+
+- `BackupService` agora inclui Movies, Series, Channels e Books no snapshot e prepara restauração usando a mesma conexão e transação relacional do contexto central. A interface pública de provedores existente permanece compatível; uma capability separada de purge é necessária apenas para restaurar arquivos que declarem contextos de domínio.
+- A validação anterior à instalação de arquivos detecta chaves primárias e índices únicos EF não filtrados duplicados. FKs não são pré-validadas; continuam sujeitas ao banco dentro da transação de restore. Rollback de arquivo é compensatório em processo e não é crash-safe.
+- Evidências 22/10: build `Jellyfin.Server` bem-sucedido, 0 avisos/0 erros; `BackupServiceTests` 37/37; `BackupRestoreMariaDbTests` 2 aprovados, 1 ignorado (sem servidor descartável configurado). Nenhum banco operacional, produção, Telegram ou Mongo foi acessado. `git diff --check` aprovado com avisos de normalização de EOL em arquivos preexistentes.
+- H02/H03 permanecem abertos; formal 1/7 (14,3%), sem crédito parcial. Patch ainda no checkout local sujo; nenhuma release/pacote/instalação. Falta round-trip/rollback multi-contexto em MariaDB descartável, crash recovery durável, pré-validação FK e CI remota.
+
+## Concorrência do journal C# de upload Nebula — 2026-10-21 23:22 -03
+
+- Revisão da worktree candidata identificou que atualizações simultâneas por UUID faziam leitura-modificação-escrita sem sincronização. O `NebulaUploadCheckpointJournal` agora serializa operações do mesmo caminho entre instâncias no processo e descarta o bloqueio quando não há titulares nem esperas. O formato persistido v2 e a política de retentativas automáticas não mudaram.
+- Nova regressão executa 32 intenções pendentes e 32 confirmações concorrentes por duas instâncias do journal. Resultados: `NebulaUploadCheckpointJournalTests` 7/7; regressão concorrente repetida 10/10; grupo `NebulaUploadEngineTests` + `NebulaUploadCheckpointJournalTests` + `NebulaTelegramNotifierTests` 247/247. `dotnet format whitespace --verify-no-changes` nos dois arquivos e `git diff --check` focado passaram.
+- A revisão também apontou que a reconciliação C# consulta inicialmente no máximo três bots e os testes não exercitam MTProto real. Continua pendente ampliar a recuperação sob inconclusão e homologar histórico/canal com Telegram real.
+- A correção permanece somente na worktree destacada suja baseada em `d51f4f38`; não foi integrada ao checkout principal, que está 8 commits atrás de `origin/main` e tem mudanças locais sobrepostas. Sem Mongo/Telegram reais, runtime instalado, produção, CI remota ou release; homologação formal permanece 2/7 (28,6%).
+- Estado publicado no portal `Mulletaflix-Portal:main`, commit `23dac67`; contrato 222/222, `node --check`, JSON e `git diff --check` passaram; push confirmado. O estado registrado mantém a homologação formal em 2/7 e a implementação como não integrada.
+- Três agentes conhecidos desta etapa foram encerrados; a ferramenta não disponibiliza inventário global para verificar ou encerrar IDs desconhecidos.
+
+## Restore multi-contexto: MariaDB isolado e regressão de DbContext pool — 2026-10-22
+
+- Foi criada uma instância MariaDB 11.4.4 isolada em datadir temporário recém-criado, vinculada a loopback em porta aleatória 47251. A regressão integrada inicialmente falhou com `ObjectDisposedException` depois do rollback por FK, ao consultar Movies.
+- Causa: `BackupService` substitui a conexão nos contextos Movies/Series/Channels/Books para compartilhar a transação primária. As fábricas eram `AddPooledDbContextFactory`; um contexto reconfigurado podia retornar ao pool com a conexão anterior descartada. Essas quatro fábricas agora usam `AddDbContextFactory` sem pool; contexto central, Users e System continuam pooled.
+- Depois da alteração: `BackupRestoreMariaDbTests` 3/3 (inclui proteção contra connection string insegura, round-trip dos cinco contextos e rollback em dados relacionais/arquivos); `FullSystemBackup` 46/46. Os testes focados compilaram em Release com analisadores desabilitados na repetição; houve build transitivo com sucesso. A instância descartável foi parada; porta operacional 3306 não foi conectada. Diretório de teste temporário permaneceu por bloqueio da ferramenta à remoção recursiva.
+- Mapa técnico conferido e atualizado: alterou-se o registro DI dos quatro contextos de domínio de pooled para não pooled; nenhum endpoint ou pacote novo.
+- H02/H03 continuam abertos; formal 1/7 (14,3%), sem crédito parcial. Crash recovery/journal, pré-validação de FK, TOCTOU, consistência temporal, aceite formal, CI remota e o histórico 6/6 seguem pendentes. Código continua em checkout principal sujo, 8 commits atrás de `origin/main`; sem integração, instalação ou release.
+
+## Retentativa automática após ack ambíguo do Telegram — 2026-10-22 02:37 -03
+
+- O usuário confirmou que prefere manter retry automático se Telegram puder ter aceitado uma parte e a resposta/checkpoint Mongo se perder. O código atual reconcilia por UUID/parte/SHA-256 e só repete o envio após ausência confirmada; pesquisa inconclusiva adia e tenta novamente.
+- `py -3 -m pytest tests/test_upload_checkpoint.py tests/test_main_upload_part.py -q`: 27/27 passou em Python 3.14.7. A regressão simulada confirma que, após aceitação Telegram e falha na gravação do ack local, o retry encontra a mensagem no histórico, persiste a confirmação e não envia uma segunda vez.
+- Limites: nenhum Telegram/Mongo real, runtime instalado, produção, CI remota ou release; duplicata continua possível se a mensagem aceite permanecer invisível à busca. A validação não concede crédito de homologação formal.
+
+### Revalidação dos retries automáticos — 2026-10-22 02:59 -03
+
+- Em venv temporária isolada Python 3.10, os testes `test_upload_checkpoint.py`, `test_main_upload_part.py`, `test_main_upload_worker.py`, `test_main_upload_worker_legacy.py`, `test_staging_scanner.py` e `test_upload_queue.py` passaram 63/63.
+- A rodada inclui reconciliação por UUID/parte/SHA-256, recuperação do ack sem segundo envio quando a mensagem simulada é encontrada, defer de resultado inconclusivo e retorno automático à fila após 60 segundos. A suíte foi executada com doubles; não houve conexão a Telegram/Mongo de produção.
+- O guard de venv do runtime foi respeitado; nenhum Python global foi alterado. A mudança de código continua local no checkout sujo, 8 commits atrás de `origin/main`; sem pacote, instalação, CI remota, produção ou release. Risco residual de duplicata permanece quando a mensagem aceita não aparece no histórico; exactly-once não é garantido. Homologação formal atual: 1/7 (14,3%), sem crédito parcial.
+
+## Reconciliação do gate FullSystemBackup e risco crash-safe — 2026-10-22
+
+- Busca somente leitura nas branches/histórico Git locais não encontrou relatório ou execução rastreável para o antigo `BackupRestoreMariaDbTests 6/6`; o `6/6` identificável nas evidências é de `UpdateInfoControllerTests`. A implementação multi-contexto e execução MariaDB descartável 3/3 estão registradas na sessão de regressão do pool, mas são evidência local posterior e não comprovam o relato histórico.
+- Revisão estática confirmou que `FileSystemRestoreTransaction` reverte via estado em memória/`Dispose`; o commit relacional precede `fileRestore.Commit()`. Não há journal durável nem recuperação no startup, portanto queda abrupta nessa janela pode divergir arquivos e banco. Nenhum teste foi executado nesta auditoria documental.
+- Prioridade aberta: desenhar marcador durável acoplado à transação relacional, journal de arquivos e recuperação idempotente; cobrir interrupção após instalação de arquivo e entre commit do banco e finalização dos arquivos. Não declarar T4.3 completo até os testes de crash/restart e gate MariaDB atual passarem.
+- Homologação formal permanece 1/7 (14,3%), sem aceite parcial; não houve alteração de código, banco, instalação ou produção, nem release. O portal não foi atualizado: o checkout local `Mulletaflix-Portal` está 416 commits atrás de `origin/main` e contém alterações não commitadas do usuário, então preservado sem push.
+
+## Revalidação NebulaPython isolada e reconciliação do journal de restore — 2026-10-22
+
+- A primeira invocação da suíte NebulaPython usou Python global e foi bloqueada pelo guard antes da coleta; nenhuma dependência foi instalada globalmente. Reutilizada venv temporária isolada já existente, Python 3.10: `pytest -q` passou 684/684 em 14,19 s.
+- A suíte C# de restore 41/41 e `Jellyfin.Server.Implementations.Tests` 1.541 aprovados/66 ignorados/0 falhas são evidências da rodada anterior, não foram reexecutadas nesta validação. Reconciliada a lista P0: journal durável/replay idempotente já implementados localmente; ainda faltam kill/restart real e MariaDB descartável. A janela TOCTOU entre checagem e gravação é o próximo risco prioritário; não foi alterado nesta sessão.
+- Um listener na porta MariaDB padrão foi observado e permaneceu intocado. Sem Telegram, Mongo, Supabase, integração externa, instalação, produção ou release. Homologação formal permanece 1/7 (14,3%).
+- A preferência do usuário por retentativas automáticas quando a resposta/checkpoint do Telegram se perde foi reconfirmada; a decisão existente continua válida. Portal `Mulletaflix-Portal:main` recebeu o evento no commit `899ee22`; `node --test tests/homologacao.test.mjs` passou 228/228, `node --check homologacao.js`, parse JSON e `git diff --check` passaram. O endpoint público `/homologacao-status.json` respondeu HTTP 200 e confirmou o evento `in_progress` e homologação formal 1/7 (14,3%).
+
+## Regressão completa .NET com filtro seguro de integrações — 2026-10-22
+
+- Primeira execução de `dotnet test` foi interrompida após a inspeção do assembly Providers encontrar outros testes `LiveIntegration` além de DramaFinds; não foi usada como resultado. Execução final: `dotnet test MulletaFlix-master/MulletaFlix.sln --configuration Release --no-restore --filter 'FullyQualifiedName!~Integration' --logger trx --results-directory <TEMP> --verbosity quiet`, exit code 0.
+- Agregação dos 17 TRX por resultado individual: 5.158 `Passed`, 69 `NotExecuted`, 0 `Failed`, 5.227 resultados. Inclui Providers 835/835, API 763 aprovados/3 ignorados, Server 74/74 e Server.Implementations 1.552 aprovados/66 ignorados. Warnings XML/analisadores existentes foram emitidos. `NotExecuted` não conta como aprovação.
+- Nebula Python 3.10 isolado: `pip check` sem dependências quebradas e `pytest tests -q` passou 685/685. Contratos Node de release/empacotamento passaram 25/25. `git diff --check` passou, com avisos preexistentes de normalização LF/CRLF.
+- Sem alteração de código/runtime. O frontend não foi reexecutado: `MulletaFlix-web-master/node_modules` não existe. CI remota, Linux local, testes MariaDB/Mongo opt-in, instalação, mídia real e produção não foram validados. Homologação formal continua 1/7 (14,3%); sem release.
+- Portal de homologação atualizado em `Mulletaflix-Portal:main`, commit `4e64bf6`; contrato local 244/244. Endpoint público `https://mulletaflix-portal.vercel.app/homologacao-status.json` respondeu HTTP 200 e confirmou o evento `server-full-regression-safe-scope-2026-10-22-1741`, auditoria 5.158/5.227 (69 NotExecuted) e homologação formal 1/7 (14,3%).
+
+## Restore ZIP — ACL e autorização HTTP — 2026-10-22
+
+- `MulletaFlix-packaging-master/scripts/tests/ServiceDataAcl.Tests.ps1` passou em fixture temporário: grants amplos herdados/explicitos removidos no root testado, herança de filhos preservada e sentinel fora do root intacto. Não demonstra ACL efetiva de uma instalação existente.
+- `dotnet test tests/Jellyfin.Api.Tests/Jellyfin.Api.Tests.csproj -c Release --no-restore --filter FullyQualifiedName~ProtectedApiSurfacesHttpTests` passou 2/2; o pipeline HTTP respondeu 401 para chamadas anônimas e 403 para usuário comum em rotas administrativas, inclusive Restore e RestorePointInTime.
+- `dotnet test tests/Jellyfin.Server.Implementations.Tests/Jellyfin.Server.Implementations.Tests.csproj -c Release --no-restore --no-build --filter FullyQualifiedName~FullSystemBackup` passou 50/50 na reexecução. Testes existentes não injetam troca concorrente entre checagem do path e operações absolutas; a lacuna TOCTOU permanece.
+- Sem instalação, banco operacional, produção ou release. Homologação formal continua 1/7 (14,3%); testes locais não recebem crédito formal.
+
+## Nebula — retomada multipart após falha parcial — 2026-10-22
+
+- Regressão inicial da suíte NebulaPython: 683 aprovados e 1 falha; o teste revelou que, após uma parte falhar, a enumeração lazy de `ThreadPoolExecutor.map` podia interromper a coleta antes de persistir as demais partes concluídas. Reexecuções isoladas passaram, confirmando comportamento intermitente.
+- Corrigidos `tools/strm_downloader.py` e `tools/feed_ftp.py` para submeter e aguardar cada Future, guardar o primeiro erro e só propagá-lo após a conclusão dos workers. Adicionada regressão no feeder: mantém destino íntegro preexistente, preserva parte concluída após falha de outra parte e, no retry, baixa somente o intervalo ausente.
+- Validação após a correção: suíte NebulaPython isolada 685/685; os dois testes de retomada passaram em 10 repetições (20/20); `py_compile` dos dois módulos e do teste passou. Implementations Release: 1.544 aprovados, 66 ignorados, 0 falhas/1.610; FullSystemBackup focal 53/53. Os ignorados permanecem opt-in/plataforma e não contam como aprovação. Ruff não executado: pacote ausente na venv isolada; nenhuma instalação de dependência feita.
+- Sem Telegram/FTP/Mongo reais, instalação, CI remota ou produção. Homologação formal segue 1/7 (14,3%); nenhum crédito formal por estes testes locais. Release não criada conforme o gate global ainda aberto.
+
+## TMDb — padrão pt-BR e fallback inglês — 2026-10-22
+
+- `ServerConfiguration` define `PreferredMetadataLanguage=pt-BR` e `MetadataCountryCode=BR` para novas configurações. Lista de imagens continua `pt,null,en`.
+- Validação local Release: filtros `TmdbUtilsTests|ProviderManagerImageProviderTests|ItemImageProviderRefreshTests`, 26/26 aprovados. `git diff --check` sem erro.
+- Preferências persistidas e capas já salvas não foram migradas nem atualizadas. Sem consulta TMDb ao vivo, instalação ou produção; homologação formal permanece 1/7 (14,3%) e não foi criada release. Portal de homologação atualizado separadamente.
+## Imagens — persistência da origem e correção localizada — 2026-10-22
+
+- Causa: `BaseItemImageInfo` persistia caminho/tipo/dimensões, mas descartava provedor e idioma; o servidor não podia diferenciar remotamente uma capa antiga inglesa de arte manual/local.
+- Mudança local: novos campos opcionais `ProviderName`/`Language` em `ItemImageInfo` e `BaseItemImageInfo`, mapeamento bidirecional, migration MariaDB `AddRemoteImageProvenance`. Downloads remotos de `ItemImageProvider` e `MetadataService.SaveRemoteResultImages` preenchem a origem.
+- Política de substituição: refresh comum corrige imagens singulares somente quando a origem remota é conhecida e uma candidata no idioma preferido existe para aquele tipo. Ausência de candidata mantém inglês; proveniência nula preserva imagens existentes. Nenhum dado de imagem anterior é inferido/migrado.
+- Verificações executadas: filtros combinados `ItemImageProviderTests|ProviderManagerImageProviderTests|MetadataServiceTests` 103/103 em Release; `BaseItemMapperImageTests` 1/1 em Release; build local Debug de `Jellyfin.Server.Implementations` passou; migration EF/script gerados sem aplicar a uma base.
+- Limites: MariaDB real/migration in-place, TMDb real, arquivo/capa visual, biblioteca, runtime instalado e produção não testados. Homologação formal não recebe crédito; sem release.
+
+## Preferência de idioma vazia em configuração legada — 2026-10-23
+
+- Causa: valor global `PreferredMetadataLanguage` vazio ignorava o default `pt-BR` no acesso TMDb, gerando filtro `null,en` e omitindo artes portuguesas. TMDb público para *Peninsula* (581392), chamado com `pt,null,en`, retornou 6 posters, 2 backdrops e 1 logo com idioma `pt`; consulta restrita a contagens, sem URLs nem credenciais registradas.
+- Mudança: setter de `ServerConfiguration.PreferredMetadataLanguage` converte vazio/espaços para `pt-BR`; idioma explicitamente selecionado permanece intacto.
+- Verificações finais Release: `ServerConfiguration_*` 6/6; conjunto `TmdbUtilsTests|ProviderManagerImageProviderTests|ItemImageProviderRefreshTests|MetadataServiceTests` 77/77; revisão cavecrew sem achados; `git diff --check` passou.
+- Limites: sem refresh de item, instalação, runtime visual, produção ou release. O teste API público confirma disponibilidade no TMDb, mas não a resposta do servidor instalado nem a capa persistida. Homologação formal 2/7 (28,6%), sem crédito por este gate local.
+
+## Nebula — erro pré-fila não deixa upload preso em `staging` — 2026-10-23
+
+- `queued_mongo_scanner` já mudava o documento de `queued` para `staging` antes de resolver caminho/pasta. Exceções nessa fase eram apenas logadas; a fila Mongo selecionava somente `queued`, e o scanner do stage preservava registros `staging`, podendo bloquear o item até intervenção.
+- Agora a falha pré-fila retorna o registro para `queued` se ele ainda estiver `staging`, grava diagnóstico sem conteúdo de exceção e define `next_retry_at` em 60 segundos. O scanner respeita o prazo antes de reclamar o item e limpa o diagnóstico/prazo ao novo claim. Arquivo local ausente continua no fluxo de recuperação manual.
+- Regressão primeiro reproduziu: 2 novos testes falharam antes da mudança. Após correção e inclusão do cenário em que outro worker reivindica o registro antes do rollback, `tests/test_queued_mongo_scanner.py` + `tests/test_staging_scanner.py` passaram 16/16 em Python 3.14.7; suíte completa passou 688/688. `py_compile` e `git diff --check` passaram; o diff check emitiu apenas avisos de conversão CRLF/LF.
+- Caveat: se a atualização compensatória ao Mongo também falhar, documento pode permanecer `staging`; log expõe essa falha secundária. Sem Mongo/Telegram reais, runtime instalado, Linux, produção, CI remota ou release. Homologação formal não recebe crédito local.
+- Mudança restrita a `Tools/NebulaPython/main.py`, teste do scanner e runbook/auditoria. Sem API, dependência ou topologia nova; mapa técnico conferido e atualizado.
+# 2026-10-23 — job Ubuntu para integridade do empacotamento
+
+- Mudança: job `linux-packaging-script-tests` adicionado ao workflow CI. Em `ubuntu-latest`, valida sintaxe Bash do instalador, atualizador e testes; executa `linux-install-preflight`, `linux-atomic-write` e `duckdns-update`. `permissions: contents: read`; `actions/checkout` com `persist-credentials: false`.
+- Teste de contrato inicialmente falhou porque job inexistente; após implementação, contratos CI correlatos passaram 8/8. Contrato reforçado depois de revisão adversarial para exigir comando de execução de cada fixture, além de sua presença no job.
+- Validação local: `bash -n` nos cinco scripts e três fixtures executadas por Git Bash no Windows passaram. Este ambiente não tem WSL; não houve execução em runner Ubuntu. YAML do workflow foi parseado em Python 3.14/PyYAML e confirmou job/runner/timeout. `git diff --check` passou (avisos de conversão CRLF/LF preexistente em vários arquivos do worktree).
+- Portal de homologação atualizado com o evento `server-linux-packaging-ci-coverage-2026-10-23-1306`; teste do portal passou 266/266. Gate formal servidor preservado em 2/7 (28,6%); nenhuma evidência local foi promovida a gate.
+- Também foi iniciada a suíte `dotnet test MulletaFlix.sln --configuration Release --no-restore --filter "FullyQualifiedName!~Integration" --verbosity quiet`. Vários projetos reportaram aprovação, incluindo Server.Implementations 1.562 aprovados/66 ignorados/0 falhas; a sessão encerrou antes de o resumo agregado/exit code ser recuperável. Portanto não afirmo aprovação da solução inteira nem uso esses resultados como evidência conclusiva.
+- Sem build de release, instalação, runtime ou produção. Mudança de CI não altera o servidor instalado; sem commit/push/release do servidor. Riscos P0 TOCTOU/ACL continuam pendentes.
+
+## 2026-10-23 — reexecução focal de backup/restore
+
+- `dotnet test tests/Jellyfin.Server.Implementations.Tests/Jellyfin.Server.Implementations.Tests.csproj --configuration Release --no-restore --filter FullyQualifiedName~FullSystemBackup --verbosity minimal`: exit 0, 62 aprovados, 0 ignorados, 0 falhas, Windows/.NET 10.
+- A execução foi reconstruída e mostrou avisos de documentação/analisadores em código e testes; não houve erro de compilação. A suíte não testa substituição determinística de ancestral entre validação e operação.
+- Revisão do código atual confirmou que restore, rollback, limpeza e journal ainda usam operações por pathname após validações separadas. TOCTOU é risco local condicionado a permissões de escrita; não há prova de exploração remota. ACL efetiva em instalação segue sem medição.
+- Homologação formal permanece 2/7 (28,6%); nenhum crédito novo. Sem Linux, CI remota, instalação, runtime ou produção; nenhuma mudança de runtime ou release.
+- A conclusão do gate continua condicionada a desenho de operações seguras ancoradas a handles/descritores em Windows e Linux e regressão determinística de troca concorrente. Ver `MulletaFlix-master/docs/backup-coverage-audit.md`.
+
+## 2026-10-23 — decisão de desenho para I/O relativo no restore
+
+- Pesquisa oficial e duas revisões independentes refinaram o candidato multiplataforma. Linux: caminhar um componente por vez com `openat`, `O_DIRECTORY | O_NOFOLLOW`; criar/renomear/remover com `mkdirat`/`renameat`/`unlinkat` relativos a descritores. Não exigir `openat2`, pois os pacotes ainda listam Ubuntu 20.04 e o kernel GA 5.4 antecede essa syscall.
+- Windows: `NtCreateFile` aceita nome simples relativo a `RootDirectory`; abrir um único componente com `FILE_OPEN_REPARSE_POINT`, validar os atributos no handle e rejeitar reparse points; renomear com `SetFileInformationByHandle` e `FILE_RENAME_INFO.RootDirectory`. Não confiar em `OBJ_DONT_REPARSE`: o contrato específico user-mode continua ambíguo, e `winternl.h` exige validação de compatibilidade.
+- Handles não tornam a árvore inteira atômica. ACL deve impedir atores sem confiança de renomear os diretórios ancestrais; ACL efetiva e caminhos de backup customizados seguem sem medição. Não há backend, teste de corrida ou mitigação implementados nesta sessão.
+- Gate de desenho mais concreto; SRV-H03 permanece aberto, homologação 2/7, sem release, instalação ou produção.
+- Referências primárias estão listadas em `MulletaFlix-master/docs/backup-coverage-audit.md`.
+
+Revisão adicional: Linux adotará como baseline de protótipo componentes individuais abertos com `openat(O_DIRECTORY | O_NOFOLLOW)` e operações mutáveis `mkdirat`/`renameat`/`unlinkat`; `openat2` não será requisito, pois Ubuntu 20.04/kernel 5.4 ainda está nos pacotes. Windows permanece candidato condicionado: `NtCreateFile` com `RootDirectory`, `FILE_OPEN_REPARSE_POINT` e inspeção do handle, mais rename com `FILE_RENAME_INFO.RootDirectory`; a combinação exata user-mode e a estabilidade de `winternl.h` ainda exigem prova em Windows suportado. Não usar `OBJ_DONT_REPARSE` como garantia isolada nem fallback por path. ACL efetiva dos ancestrais, troca concorrente e crash-replay não foram testados. Pesquisa e revisão refinam o desenho, mas não corrigem a vulnerabilidade nem recebem crédito de homologação. Ver a decisão revisada no vault e a sessão `2026-10-23-MulletaFlix-restore-toctou-handle-contract`.
+
+Reexecução focal do restore — 2026-10-23: `dotnet test tests/Jellyfin.Server.Implementations.Tests/Jellyfin.Server.Implementations.Tests.csproj -c Release --no-restore --filter FullyQualifiedName~FullSystemBackup` passou 62/62 em Windows/.NET 10. Restore, journal, rollback e limpeza ainda operam por pathname depois de checagens separadas; a suíte não força troca determinística de ancestral. `wsl --status` indicou WSL não instalado. Linux, ACL efetiva, instalação, CI remota e produção não verificados. Homologação formal permanece 2/7 (28,6%), sem crédito novo; sem release. Mapa técnico conferido e sem mudança estrutural. Ver [[Sessões/2026-10-23-MulletaFlix-restore-toctou-rerun]].
+
+Protótipo de filesystem relativo — 2026-10-23: nova classe `BackupRestoreDirectory` e 15 testes; Release focal `FullyQualifiedName~FullSystemBackup` passou 77/77 em Windows/.NET 10. Cobertos create/open/rename/delete de componente único, links estáticos e impedimento de rename concorrente do diretório aberto no Windows. O rename Windows passou a usar `NtSetInformationFile` após erro 87 observado com `SetFileInformationByHandle`. A classe ainda não está integrada a restore/journal/replay; o fluxo vulnerável permanece ativo. Sem Linux/WSL, ACL de instalação ou teste de troca concorrente Linux; sem crédito formal, release ou produção. Mapa atualizado por novo helper interno no módulo existente; dependências/DI/endpoints não mudaram. Ver [[Sessões/2026-10-23-MulletaFlix-restore-relative-primitives-prototype]] e [[Decisões/2026-10-22-restore-handle-relative-primitives]]. Fontes Microsoft: [NtSetInformationFile](https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/ntifs/nf-ntifs-ntsetinformationfile), [FILE_RENAME_INFO](https://learn.microsoft.com/en-us/windows/win32/api/winbase/ns-winbase-file_rename_info).
+
+Revisão do protótipo: backend Linux não verifica tipo de entry antes de `unlinkat`, então poderia remover symlink/special entry (sem seguir o link); Windows rejeita reparse points. `OpenRoot` aplica no-follow apenas ao componente final, seguindo ancestrais symlink. Ambos são achados pendentes de correção e teste Linux. Helper ainda sem callers de runtime.
+
+### Rename — regressão de reparse point no Windows — 2026-10-23
+
+Adicionado teste com junction Windows para confirmar rejeição de origem reparse em `BackupRestoreDirectory.Rename`; alvo, conteúdo e junction permanecem intactos após a falha esperada. Projeto focal Release passou 18/18 executáveis; 3 testes Linux-only ignorados. Formatação passou. Esta é cobertura de comportamento já implementado no Windows; não valida Linux nem elimina TOCTOU, pois o helper segue sem integração no restore ativo. Formal 2/7, sem release/produção.
+
+Atualização 2026-10-23 — refresh automático de imagens: corrigido o caso em que pôster pt disponível, mas com erro HTTP, impedia o fallback inglês de outro provedor. O refresh busca candidatos de todos os idiomas, conserva idioma preferido, inglês e arte sem idioma, e tenta primeiro provedores com arte localizada; a galeria manual mantém o filtro restrito. Regressão `RefreshImages_FailedPreferredLanguageImage_UsesEnglishFromAnotherProvider` e grupos `ItemImageProviderTests|ProviderManagerTests`: 137/137 em Windows/.NET 10 Release. `dotnet format --verify-no-changes` e `git diff --check` passaram. Sem TMDb real, refresh visual, instalação/produção ou release; artes existentes não são atualizadas automaticamente. Homologação formal 2/7, sem crédito.
+### Restore — rastreio dos chamadores e gap de CI (2026-10-23)
+
+Inspeção dos fontes: `BackupController` chama o serviço para restore solicitado por API; `Program` tenta recuperar operação interrompida no startup antes do restore pendente; `JellyfinMigrationService` usa restore para rollback. `BackupRestoreDirectory` não tem callers de runtime. Restore ativo, transação/rollback e journal ainda operam por pathname após checks separados. Correção da auditoria CI: `.github/workflows/ci.yml` em `origin/main` possui job Linux `server-build-test` que testa toda a solução, e o projeto `Jellyfin.Server.Implementations.Tests` faz parte dela; assim, os testes do helper serão executados quando forem incluídos no commit da revisão. O helper e testes atuais estão não rastreados e ausentes de `origin/main`, portanto esse run ainda não ocorreu. A CI não cobre substituição concorrente de ancestral no restore integrado. Conclusão: TOCTOU P0 segue aberto; formal 2/7; CI Linux desta revisão, matriz ACL/filesystem, teste determinístico integrado e runtime instalado pendentes. Ver `MulletaFlix-master/docs/backup-coverage-audit.md`.
+### Downloader Nebula — retry de encerramento precoce — 2026-10-23
+
+`WaitForWorkerReadinessAsync` reclassifica somente o encerramento prematuro do worker Python como `IOException`, conectando-o ao retry já limitado do `NebulaHostedService` (3 tentativas, atrasos 5/10 s). Busca de callers confirmou um único uso em produção: startup do Downloader. Regressão focal Release Windows/.NET 10 passou 48/48; formatação e `git diff --check` passaram (este último apenas com avisos de fim de linha em arquivos preexistentes). Nenhum smoke test de processo instalado, transferência, Linux ou produção. Homologação formal segue 2/7, sem crédito; nenhuma release. Portal a ser atualizado após os testes de contrato.
+
+Retificação de publicação: contrato do portal passou 272/272; evento publicado no Mulletaflix-Portal `main`, commit `cb9f6277a76999abb2c745e767f7b488f14d6d6d`; deployment Vercel Production READY e JSON público HTTP 200.
+
+### Regressão completa da solução .NET — 2026-10-23
+
+Comando: `dotnet test MulletaFlix.sln --configuration Release --no-restore --no-build --verbosity quiet -m:1`.
+
+Resultado observado: exit 0; 5.241 aprovados, 253 ignorados, 0 falhas/5.494 resultados em 17 projetos, Windows/.NET 10. A suíte inclui assemblies Integration sem filtro, mas vários testes condicionais/opt-in foram ignorados. `FullSystemBackup` passou 80 testes executáveis; 3 testes Linux-only foram ignorados. Nenhum acesso a MongoDB, Supabase, provedor externo, instalação ou produção ocorreu nesta rodada.
+
+Esta regressão não fecha o P0 de TOCTOU: o helper continua sem chamada no restore runtime; transação, journal, rollback, cleanup e replay seguem por pathname. Linux, ACL efetiva e troca concorrente integrada não foram verificados. Homologação formal permanece 2/7 (28,6%), sem crédito; nenhuma release foi criada. Ver `MulletaFlix-master/docs/backup-coverage-audit.md` e a sessão do vault `2026-10-23-MulletaFlix-full-solution-regression-current`.
+
+Revalidação build-inclusive, 2026-10-23: `dotnet test MulletaFlix-master\MulletaFlix.sln --configuration Release --no-restore --verbosity quiet -m:1` compilou o snapshot local e terminou exit 0; os 17 projetos reportaram zero falhas. A saída detalhada foi reduzida a 80 linhas, portanto não houve contador agregado capturado nesta execução; mantém-se a contagem exata 5.241/5.494 da execução `--no-build` anterior. `FullSystemBackup` após o build: 80 aprovados, 3 ignorados Linux-only, 0 falhas/83. Avisos dos analisadores xUnit foram observados e não triados. Não muda homologação formal (2/7), nenhum risco TOCTOU/ACL foi fechado e nenhuma release foi criada.
+
+### Atualização local do painel de homologação — 2026-10-23
+
+`tools/Sync-HomologationStatus.ps1` regenerou `portal-site/homologacao-status.json` a partir do roadmap atual: 425 itens, 347 concluídos, 73 pendentes e 5 em execução. O painel separa esse checklist da homologação formal do servidor (2/7, 28,6%, sign-off pendente) e da auditoria de testes automatizados (.NET 5.241/5.494, 253 ignorados, zero falhas; `FullSystemBackup` 80/83, três ignorados Linux-only). Isso não representa aceite de produção.
+
+O contrato Node do portal passou 72/72; `node --check portal-site/homologacao.js`, parse do JSON e `git diff --check` passaram. Os testes antigos continham contagens/eventos obsoletos e foram alinhados à evidência atual; itens GetAvatar são identificados pelo título do roadmap e a evidência por seus eventos, sem confundir IDs textuais nos títulos com IDs sequenciais gerados pelo sincronizador. O mapa técnico foi conferido e permaneceu estruturalmente igual. Tentativas de publicação foram bloqueadas: integração GitHub retornou HTTP 403 em atualizações de arquivo/blob; o executor bloqueou `git push` por política. GET read-only ao JSON público respondeu HTTP 200, mas ainda mostra 331/401 itens de checklist (local: 347/425); homologação formal no endpoint permanece 28,6%. Somente o estado local foi atualizado. Nenhuma release ou alteração de produção ocorreu. Registro: `[[Sessões/2026-10-23-MulletaFlix-homologation-portal-refresh]]`.
+
+### Restore: identidade real dos serviços para a política ACL — 2026-10-23
+
+Inspeção dos instaladores confirma que Linux usa o principal dedicado `mulletaflix`, enquanto o NSIS permite `NetworkService` ou `LocalSystem` no Windows. Essa variação precisa integrar a matriz de ACL antes de migrar operações do restore para handles relativos; não foi feita suposição de principal único. Foco `FullSystemBackup` Release: 80 aprovados, 3 ignorados (Linux-only), 0 falhas/83. Não fecha TOCTOU: helper sem caller, mutações/journal ainda path-based; Linux, ACL efetiva e race integrada não testados. Homologação formal 2/7 (28,6%), sem crédito/release/produção. Mapa conferido, sem mudança estrutural. Ver `MulletaFlix-master/docs/backup-coverage-audit.md` e `[[Sessões/2026-10-23-MulletaFlix-restore-service-identity-acl-audit]]`.
+
+### Restore: topologia real e ACL do pacote de release — 2026-10-23
+
+Correção da investigação anterior: `.github/workflows/release.yml` usa `MulletaFlix-packaging-master/build-stage-and-installer.ps1`, cujo NSIS efetivamente configura ACL na raiz de dados. O script remove permissões amplas herdadas na raiz e concede Administrators, SYSTEM, NetworkService e LocalService, com herança; `ServiceDataAcl.Tests.ps1` foi executado e confirmou a fixture/harness. Isso não verifica ACL efetiva da máquina instalada. Destinos reais incluem config independente (`--configdir`/`MulletaFlix_CONFIG_DIR`) e `MetadataPath` configurável fora do `ProgramDataPath`; no Linux, systemd limita `ReadWritePaths`, logo metadata externo pode não ser gravável mesmo com ownership/mode. Próximo contrato: auditar/deduplicar todas as cinco raízes e journal, validar ACL/token/ancestrais e fail-closed antes de mutar, sem reescrever ACL automaticamente. Helper segue não integrado e restore/journal path-based; TOCTOU P0 aberto, formal 2/7 sem crédito/release/produção. Mapa sem mudança estrutural. Ver sessão `[[Sessões/2026-10-23-MulletaFlix-restore-root-acl-contract-audit]]` e decisão `[[Decisões/2026-10-22-restore-handle-relative-primitives]]`.
+
+## Regressão ampla e reauditoria adversarial do restore — 2026-10-23
+
+`dotnet test MulletaFlix.sln --configuration Release --no-restore --verbosity quiet -m:1` terminou exit 0 em Windows/.NET 10: 5.241 aprovados, 253 ignorados, 0 falhas, 17 projetos. `py -3.14 -m pytest -q` passou 688/688 para Nebula Python. Revisor independente confirmou o risco `check -> delete -> move` por pathname em `FileSystemRestoreTransaction.ApplyEntryAsync`; rollback/cleanup e journal/replay continuam path-based. `BackupRestoreDirectory` não tem caller de runtime; não integrá-lo parcialmente.
+
+Faltam teste determinístico de troca de ancestral no fluxo integrado, matriz de roots sobrepostos/journal, ACL efetiva Windows/Linux e execução Linux nativa. Os testes ignorados incluem casos opt-in e Linux-only. Não houve runtime, ACL instalada, produção ou release. Homologação formal 2/7, sem crédito. Mapa técnico conferido; estrutura inalterada. Sessão: `[[Sessões/2026-10-23-MulletaFlix-full-server-regression-restore-audit]]`.
+
+### Restore: open de arquivo relativo validado no handle — 2026-10-23
+
+`BackupRestoreDirectory.OpenExistingFile` abre sob o diretório já aberto, não segue symlink/reparse point e valida arquivo regular no handle. Testes helper 21 aprovados/4 ignorados; `FullSystemBackup` 83 aprovados/4 ignorados, zero falhas em Windows/.NET 10 Release. Novo teste confirma que o handle aberto impede rename/substituição concorrente no Windows. Linux-only não executados (WSL, Docker e Podman ausentes); `git diff --check` passou. API segue sem caller: restore, replay, rollback, cleanup e journal ainda usam paths. ACL e proteção contra ancestrais modificáveis não comprovadas; TOCTOU P0 aberto, formal 2/7 sem crédito. Sem release/instalação/produção. Ver `MulletaFlix-master/docs/backup-coverage-audit.md` e `[[Sessões/2026-10-23-MulletaFlix-restore-openhandle-windows-replacement-test]]`.
+
+Regressão build-inclusive da solução na mesma sessão: 17 projetos Windows/.NET 10 Release, exit 0; soma dos resultados reportados por projeto 5.244 aprovados, 254 ignorados, 0 falhas/5.498. `FullSystemBackup` 83 aprovados/4 ignorados Linux-only. Avisos de analisadores/documentação foram emitidos e não triados; integrações condicionais não equivalem a serviços reais. Sem validação Linux, ACL efetiva, runtime instalado, produção ou release. Ver sessão `[[Sessões/2026-10-23-MulletaFlix-full-dotnet-regression-after-openhandle-test]]`.
+
+## Regressão .NET Release repetida — 2026-10-24 08:51 BRT
+
+- `dotnet test MulletaFlix.sln -c Release --no-build --no-restore --filter "FullyQualifiedName!~Integration" --logger "trx;LogFileName=server-audit-20261024.trx"`: exit code 0; 5.254 aprovados, 78 ignorados, 0 falhas/5.332 resultados em 17 projetos. TRX individuais gerados.
+- `node --test tests/homologacao.test.mjs` no portal passou 99/99; status JSON válido; `git diff --check` limpo nos arquivos tocados.
+- O filtro excluiu explicitamente os assemblies de integração; permanecem ignorados testes que exigem MariaDB/MongoDB, Linux/macOS ou pré-condições locais.
+- Execução usa assemblies já compilados no checkout principal sujo; não é build limpo/reprodutível, teste de runtime instalado nem homologação de produção. Restore TOCTOU/ACL continua P0 aberto; formal permanece 2/7 (28,6%), sem crédito.
+- O log MariaDB 1213 ainda não identifica o processo/binário que o originou. Travas na fonte local não comprovam a correção do binário 12.1.35 previamente observado.
+- Mapa técnico conferido: sem mudança de módulos, APIs ou dependências nesta sessão. Sem acesso ao banco ativo, instalação, produção, release ou publicação remota.
+
+## Restore — revalidação do lifecycle e gates de ambiente — 2026-10-24 08:57 BRT
+
+- Call-site search no checkout principal: `BackupRestoreDirectory` tem chamadas somente em `BackupRestoreRecoveryJournal`; `FileSystemRestoreTransaction` continua pathname-based.
+- Rebuild focado Release de `ItemPersistenceServiceTests` + `ItemPersistenceDatabaseLockTests`: 40/40, 0 falhas.
+- `BackupServiceTests` + `BackupRestoreDirectoryTests`: 82 aprovados, 9 ignorados por Linux/macOS, 0 falhas/91 em Windows/.NET 10.
+- Connection strings de teste MariaDB/Mongo não configuradas; Docker/Podman/daemon MariaDB ausentes. WSL launcher disponível, mas distribuição/WSL não instalada. Porta 3306 apenas observada, sem conexão.
+- Nenhum código/runtime/DB/produção alterado. Restore TOCTOU/ACL segue P0; homologação formal 2/7 sem crédito; nenhuma release. Mapa técnico conferido, sem mudança estrutural. Ver [[Sessões/2026-10-24-MulletaFlix-restore-handle-callsite-audit-0857]].
+- Portal homologation contract: JSON válido; `node --test portal-site/tests/homologacao.test.mjs` 100/100; `git diff --check` passou nos arquivos tocados.
+
+## Gap de handles ancestrais Linux no restore — 2026-10-24 09:01 BRT
+
+- Leitura de `BackupRestoreDirectory.OpenRoot`: Windows mantém handles ancestrais em `_ancestorHandles`; Linux fechava cada descritor anterior.
+- O helper não valida ACL/owner; busca de callers mostra uso somente em `BackupRestoreRecoveryJournal`. `FileSystemRestoreTransaction` permanece pathname-based.
+- Este achado foi inicialmente estático; sem Linux nativo, ACL ou race reproduzida. Homologação formal continua 2/7, sem crédito.
+
+## Retenção de ancestrais Linux no restore — 2026-10-24 09:09 BRT
+
+- `OpenLinuxDirectoryPath` agora devolve o handle final junto com todos os descritores ancestrais, que `BackupRestoreDirectory.Dispose` libera em ordem inversa.
+- Adicionado `OpenRoot_RetainsLinuxAncestorHandlesUntilDisposed`, que mede o descritor de um ancestral único via `/proc/self/fd`.
+- Em Windows/.NET 10, `BackupRestoreDirectoryTests`: 23 aprovados, 7 ignorados por plataforma, 0 falhas/30. `FullSystemBackup`: 91 aprovados, 10 ignorados, 0 falhas/101. O teste Linux novo foi ignorado neste host.
+- ACL/owner não é validado e `FileSystemRestoreTransaction` ainda não usa operações por handle em apply/rollback/replay/cleanup. P0 aberto; formal 2/7 sem crédito. Sem runtime, produção, instalação ou release.
+- Portal foi atualizado localmente; `node --test portal-site/tests/homologacao.test.mjs` passou 101/101, JSON validado e `git diff --check` exit 0 (avisos apenas de normalização CRLF/LF em arquivos preexistentes).
+# NebulaPython — regressão integral isolada — 2026-10-24 07:12 BRT
+
+- `py -3.10 -m pytest tests -q` fora de venv foi bloqueado corretamente por `tools.check_deps`; nenhum teste foi coletado e nenhuma dependência global foi instalada.
+- Foi criada venv temporária Python 3.10 em `%TEMP%`, com dependências runtime instaladas usando `pip --require-hashes -r requirements.lock`; pytest/pytest-asyncio/pytest-cov instalados apenas nessa venv.
+- `pytest tests -q`: 694 aprovados em 13,07 s. Nenhum serviço MongoDB, Supabase, Telegram, runtime instalado ou produção foi exercitado.
+- A pasta de teste permanece em `%TEMP%`: a remoção recursiva foi negada pela política local e não foi contornada.
+- Portal e vault registram a evidência; homologação formal permanece 2/7 (28,6%), sem crédito. Sem release ou publicação remota.
+
+Persistência de imagens (24/10/2026 09:20 BRT): auditoria dos writers identificou que a remoção de versões locais alternativas órfãs por `BaseItems.RemoveRange` podia remover `BaseItemImageInfos` sem adquirir a stripe do item órfão. `UpdateOrInsertItemsCore` agora abandona a transação não confirmada quando `SaveLinkedChildren` descobre stripes ausentes, libera as atuais e repete com locks ordenados. Unitários focais 31/31; regressão Implementations 1.609 aprovados/76 ignorados/0 falhas. O teste MariaDB dedicado compilou e foi ignorado sem servidor descartável configurado. O deadlock do log segue compatível com concorrência nesse writer, mas sem correlação comprovada; runtime, instalação, banco ativo e produção não foram verificados. Formal 2/7 sem crédito. Ver [[Sessões/2026-10-24-MulletaFlix-orphan-image-persistence-lock-0920]].
+
+Revisão do teste MariaDB (24/10/2026 09:26 BRT): revisão independente apontou que a regressão anterior aguardava 250 ms e segurava apenas o `SemaphoreSlim` do processo. O teste agora mantém `GET_LOCK` da stripe órfã numa sessão MariaDB, inicia `SaveItems` em outra sessão e consulta `PROCESSLIST`, filtrado pelo schema descartável, até observar espera de advisory lock antes de liberar. Compilação Release passou; execução segue ignorada sem conexão descartável, e o teste não cobre um processo OS separado. Portal formal continua 2/7; sem runtime/produção/release. Ver [[Sessões/2026-10-24-MulletaFlix-image-lock-test-determinism-0926]].
+
+## Reconciliação da release v12.1.35 — 2026-10-24 18:10 BRT
+
+A Releases API pública confirma v12.1.35 publicada em 2026-10-21 13:30:55 UTC, tag apontando para `d51f4f38d2b4148ab49394c001567ad273bd57aa`, com update zip e instaladores Windows x64/Linux x64. O workflow `39608677913` iniciou 1 s depois; sua validação falhou sem runner/steps, e os jobs de build/publicação ficaram skipped. A falha posterior do workflow não significa que a release não exista. A API não identifica a origem/checksum dos assets nem a versão instalada em produção; homologação formal continua 2/7 (28,6%), sem crédito.
+
+Reauditoria dos assets (24/10/2026 18:12 BRT): a API agora fornece os digests SHA-256 e datas de upload dos três assets. Linux tar.gz (`2428fba0…66001f1f`) e Windows exe (`6be65a66…f45bf6e`) foram enviados em 13:30:56Z e 13:31:05Z; update zip (`7cb01e2e…37d5be8e`) em 13:31:35Z. Isso ocorre durante/após o run de release, cujo API reporta validação sem runner e build/publicação skipped. A lista pública dos workflows por SHA mostra CI e Release, mas não identifica outro uploader. Proveniência fica inconclusiva; não atribuir os assets ao workflow nem recriar a release. Formal 2/7, sem crédito.
+
+## Revalidação do log de deadlock de imagens — 2026-10-24 18:13 BRT
+
+O novo anexo repete `1213 Deadlock found` em `DELETE BaseItemImageInfos` para o mesmo item, com retries; `HTTP 200` precedente não comprova persistência. A fonte local já serializa os writers conhecidos com stripes e `GET_LOCK`. A suíte focada Release/.NET 10 passou: 40 aprovados, 0 ignorados, 0 falhas. O log não informa PID/assembly; o teste não valida o processo instalado. Nenhum banco ativo foi consultado; integração MariaDB não foi reexecutada. Formal 2/7, sem crédito. Sem mudança de código, runtime ou release.
+
+O contrato atualizado da homologação passou 151/151 em `node --test portal-site/tests/homologacao.test.mjs`; o parser validou o JSON do status. `git diff --check` passou nos arquivos versionados tocados, com avisos de normalização LF/CRLF em dois arquivos.
+
+## Gravação física de imagem — 2026-10-26 01:21 BRT
+
+`ImageSaverTests` Release passou 2/2 em Windows/.NET 10. O novo caso usa uma pasta temporária isolada e confirma que `ImageSaver.SaveImage` grava os bytes recebidos e atualiza `BaseItem.ImageInfo.Path` para o arquivo criado. Isso fecha a lacuna da fixture TMDb local que mockava `SaveImage`, mas ainda não prova o fluxo agregado até EF/MariaDB. A conexão de teste MariaDB não está configurada e a porta 33099 não tem listener; nenhum banco operacional foi consultado. Homologação formal continua 2/7 (28,6%), sem crédito ou release. Portal registra o evento; mapa conferido, sem alteração estrutural. Ver [[Sessões/2026-10-26-MulletaFlix-image-saver-filesystem-write-0121]].
+
+## Fluxo localizado de imagem com gravação real — 2026-10-26 01:26 BRT
+
+A regressão opt-in `RefreshImages_PersistsSelectedPortugueseCandidateToMariaDb` foi ligada a um `ImageSaver` real: o item recebe bytes da resposta remota, grava em pasta temporária exclusiva, preserva idioma/provedor, persiste a linha MariaDB e verifica caminho e arquivo. O projeto de integração compilou em Release, mas o guard ignorou o caso por falta de `MULLETAFLIX_TEST_MARIADB_CONNECTION_STRING`; não há docker/podman/MariaDB server neste host e 33099 não escuta. O workflow existente `.github/workflows/ci.yml` já seleciona esse teste no job Linux com MariaDB 11.4; execução observável para o checkout alterado ainda não existe. Portanto, não houve execução integrada nem crédito formal. Banco operacional não foi consultado. O contrato do portal passou 232/232 após atualizar `generatedAt` para não anteceder o evento (o teste inicialmente detectou essa inconsistência). Formal continua 2/7 (28,6%), sem crédito ou release. Portal registra status em andamento; mapa conferido, sem alteração estrutural. Ver [[Sessões/2026-10-26-MulletaFlix-localized-image-mariadb-flow-wiring-0126]].
+
+### Reexecução local integrada — 2026-10-26 01:45 BRT
+
+MariaDB 11.4.13 descartável foi inicializado em `127.0.0.1:33099`, com datadir novo e isolado. `ServerPersistenceMariaDbTests` passou 17/17; a suíte completa `IntroSkipper.Integration.Tests` passou 57/57, ambos Windows/.NET 10 Release, sem ignorados ou falhas. O caso localizado verificou gravação física pelo `ImageSaver` e metadados `ProviderName`/`Language` na linha MariaDB. O processo foi encerrado e a porta ficou fechada. A ferramenta bloqueou remoção recursiva, então o datadir temporário ficou retido. Sem acesso ao DB operacional, execução Linux hospedada, runtime instalado ou produção; não concede crédito formal. Homologação formal continua 2/7 (28,6%). Mapa técnico conferido, sem mudança estrutural. Ver [[Sessões/2026-10-26-MulletaFlix-localized-image-mariadb-flow-wiring-0126]].
+
+## Restore Windows: ACL e operações por handle — 2026-10-26 01:30 BRT
+
+`BackupRestoreDirectoryTests` Release passou em Windows/.NET 10: 36 aprovados, 8 ignorados, 0 falhas/44. Os skips são específicos de Linux/POSIX; os resultados locais exercitam apenas os caminhos portáveis e Windows. O gate de restore segue aberto: ACL Linux, corrida determinística da entrada final, syscalls Linux, crash/replay, CI observável, runtime instalado e produção não foram validados. Portal registra evento #437; homologação formal permanece 2/7 (28,6%), sem crédito ou release. Mapa conferido, sem alteração estrutural. Ver [[Sessões/2026-10-26-MulletaFlix-restore-windows-acl-regression-0130]].
+
+## Deadlock MariaDB: anexo repetido revalidado — 2026-10-26 01:38 BRT
+
+O anexo tem SHA-256 `53030F76669CB3FF502062EFD09E4B536C64C3229339B3D23F59628F8F8577E2`, igual ao incidente já registrado. A regressão `ItemPersistenceServiceTests|ItemPersistenceDatabaseLockTests` passou 49/49 em Windows/.NET 10 Release; o contrato do portal passou 233/233. A working tree serializa os writers conhecidos por stripe local e `GET_LOCK` MariaDB antes da transação, mas o helper ainda não existe no `HEAD` `64a33dcf` e `ItemPersistenceService.cs` está modificado; logo a proteção ainda não integra o commit atual. Como o recorte é de 23/10 e não identifica PID/assembly, não prova qual runtime o produziu nem resolução em produção. Nenhum dado ou banco operacional foi acessado; sem alteração de runtime ou release nesta rodada. Formal 2/7, sem crédito. Mapa conferido, sem mudança estrutural. Ver [[Sessões/2026-10-26-MulletaFlix-image-deadlock-duplicate-attachment-rerun-0039]].
+
+### Backup do IntroSkipper: cobertura durável e composição DI — 2026-10-26 02:07 BRT
+
+`IntroSkipper.Integration.Tests` passou 58/58 em Windows/.NET 10 Release com MariaDB 11.4.13 descartável em loopback. A suíte agora prova o restore das oito tabelas duráveis, descarte de `DetectionCache`, existência de `ImportHistory` no schema e injeção do participante na instância de `BackupService`. Formatter `dotnet format style --verify-no-changes` passou para os três testes alterados. MariaDB encerrado; porta 33099 fechada. Não houve mudança de runtime; CI Linux, runtime instalado e produção pendentes. Formal permanece 2/7 (28,6%), sem crédito ou release. Ver `MulletaFlix-master/docs/backup-coverage-audit.md` e a sessão no vault.
+
+### Deadlock MariaDB ao salvar imagens — rechecagem do runtime — 2026-10-26 02:12 BRT
+
+O anexo de log é byte-idêntico ao já revisado (SHA-256 `53030F76669CB3FF502062EFD09E4B536C64C3229339B3D23F59628F8F8577E2`). A DLL presente em `C:\Program Files\MulletaFlix\Server` reporta 12.1.35, data 21/10/2026; o tag local `v12.1.35` antecede a alteração e não contém lock de persistência por item nem o `GET_LOCK` MariaDB. A árvore de trabalho contém essas proteções e suas regressões focais passaram: 49/49 unitários e 17/17 contra MariaDB 11.4.13 descartável em loopback. Porta fechada após o teste.
+
+A resposta HTTP 200 anterior não demonstra o commit da gravação das imagens. Deadlocks repetidos indicam contenção; o warning do Kestrel é compatível com possível pressão do thread pool, mas não prova causalidade. Nenhum processo MulletaFlix ativo/listener 8096 foi encontrado, então não se confirmou qual binário emitiu o log nem se a correção está ativa em execução. A branch atual parte de v12.1.31 e a árvore está suja; não publicar downgrade nem criar release sem reconciliar os commits/alterações e avançar a versão após revisão. CI Linux e validação instalada/produção pendentes; homologação formal 2/7, sem crédito. Nenhuma conexão à base operacional.
+# Revalidação do deadlock de imagens e suíte CI — 2026-10-26 05:59 BRT
+
+- O log anexado tem SHA-256 `53030F76669CB3FF502062EFD09E4B536C64C3229339B3D23F59628F8F8577E2`, idêntico ao anexo já registrado. Repete deadlock InnoDB 1213 ao apagar `BaseItemImageInfos` do mesmo `ItemId`; sem PID/assembly e sem desfecho do retry, não atribui o evento ao binário atual.
+- A working tree já contém stripe local por item e advisory `GET_LOCK` MariaDB em `SaveImagesAsync`; isso não está comprovado no runtime instalado/produção. Três testes MariaDB focais passaram 3/3 e a regressão de implementações com bancos descartáveis passou 1.742/1.766 (24 ignorados, 0 falhas).
+- A rodada de solução `FullyQualifiedName!~Integration` passou 5.425, ignorou 80 e falhou 0/5.505. Ela exclui projetos de integração pelo nome. A tentativa anterior com filtro mais amplo abortou durante Integration após um erro de setup Mongo (replica set sem PRIMARY); também apontou um fixture de telemetria incompleto. O fixture foi corrigido apenas no teste e validado 1/1; a suíte CI foi repetida verde.
+- MariaDB/Mongo descartáveis foram encerrados; portas 33099/27099 confirmadas fechadas. Instâncias operacionais nas portas 3306/27017 não foram acessadas. Linux/CI hospedada, runtime instalado, autenticação MariaDB e produção permanecem sem validação. Homologação formal 2/7, sem crédito; nenhuma release.
+# MariaDB autenticado: repetição dos gates de persistência — 2026-10-26 06:04 BRT
+
+- Uma instância MariaDB 11.4.13 descartável em `127.0.0.1:33099` foi inicializada com senha root gerada aleatoriamente; grants normais ficaram ativos. Ping TCP com autenticação passou. O segredo não foi persistido.
+- O filtro do workflow `UserManagerNormalizedUsernameTests|BillingDatabaseTests` passou 30, ignorou 1 caso que exige `@@lower_case_table_names == 0` e falhou 0/31. A execução Windows não valida o schema case-sensitive Linux. O filtro MariaDB selecionado de `IntroSkipper.Integration.Tests` passou 16/16; não representa a suíte completa de integrações MariaDB.
+- A conexão autenticada usou root; não prova privilégio mínimo da conta da aplicação. Instância parada e porta descartável fechada; porta operacional 3306 não acessada. WSL/Docker/Podman não estão disponíveis para teste Linux local. Linux/CI hospedada, runtime instalado e produção permanecem pendentes. Formal 2/7, sem crédito ou release.
+
+## CI hospedada e validação Linux — 2026-10-26 18:23 BRT
+
+Consulta somente leitura à API do GitHub confirmou que `main` está no SHA `d51f4f38d2b4148ab49394c001567ad273bd57aa`; o último run visível é `39608614450`, evento push em 21/10/2026. O job `Server build & unit tests` aparece como `failure`, mas a lista de steps veio vazia e o endpoint de logs retornou 404 `BlobNotFound`; não há evidência para dizer que o runner iniciou ou que testes falharam. O workflow local inclui jobs Linux, mas o host não tem WSL, Docker ou Podman. `HEAD` local `64a33dcf` está 8 commits atrás de `origin/main` e contém alterações locais não commitadas; o run remoto não valida esse checkout. Gate Linux/CI hospedada atual pendente; sem release ou crédito formal (2/7). Fonte: `.github/workflows/ci.yml`; run [39608614450](https://github.com/raphaelpera85/mulletaflix-completo/actions/runs/39608614450).
+
+26/10/2026 19:12 BRT: suíte completa `IntroSkipper.Integration.Tests` Release passou contra MariaDB 11.4.4 descartável: 66 aprovados, 1 ignorado (o caso pede a CI isolada de restart), 0 falhas/67. Execução paralela inicial saturou o banco de teste com `Too many connections` (27 falhas); runner serializado passou em todos os testes executáveis. A CI de restart, Linux/hospedada, runtime instalado e produção não foram validados. A evidência é suplementar e não altera o agregado 5.465/5.493 nem a homologação formal 2/7. MariaDB 33099 foi encerrado; portas operacionais 3306 e 27017 mantidas intactas. Ver [[Sessões/2026-10-26-MulletaFlix-introskipper-full-mariadb-1912]].
+
+26/10/2026 19:14 BRT: `SaveImagesAsync_RetriesAfterMariaDbProcessRestartDuringDelete` passou 1/1 em Windows/.NET 10 Release usando MariaDB 11.4.4 descartável. MariaDB foi encerrado abruptamente enquanto a gravação de imagem estava bloqueada e reiniciado no mesmo datadir; a imagem atualizada persistiu. 33099 fechada; serviços 3306/27017 intocados. Portal adicionou evento local, sem crédito formal; agregado 5.465/5.493 e homologação formal 2/7. CI remota segue pendente. Ver [[Sessões/2026-10-26-MulletaFlix-mariadb-restart-image-persistence-1914]].
+
+26/10/2026 19:17 BRT: API pública do GitHub confirma que o CI mais recente visível no main (run 39608614450, commit d51f4f38) teve 13 jobs marcados failure em 3–4 s, sem steps; anotações explicam que os jobs não iniciaram porque a conta está bloqueada por cobrança. Checks de validação de release têm mesma anotação e os builds/publicação ficaram skipped. Isso não representa falhas de teste executadas. Em Windows local, passaram os cinco testes PowerShell de integridade do pacote e o `LinuxPackageOutput.Tests.ps1` (6 arquivos, exit 0). WSL/Docker não disponíveis, então Linux não testado. Portal registra bloqueio; auditoria 5.465/5.493 e homologação formal 2/7 permanecem. Ver [[Sessões/2026-10-26-MulletaFlix-ci-billing-block-packaging-local-1917]].
+
+26/10/2026 19:19 BRT: contrato Node encontrou lacuna no job NuGet: faltava `Jellyfin.Server.StartupRecoveryProbe.csproj`, fora da solução apesar de possuir referência transiente ao servidor. Workflow passou a incluir restore e auditoria `--vulnerable --include-transitive` com NU1900–NU1905 como erros. Primeira suíte release 28/29, após correção 29/29. Restore do probe passou, auditoria local encontrou zero vulnerabilidades nas fontes atuais, `ProgramStartupRecoveryTests` passou 8/8. Incluído no rascunho 12.1.32. Actions remoto bloqueado por cobrança; Linux remoto sem validação. Portal atualizado, agregado técnico segue 5.465/5.493 e formal 2/7. Ver [[Sessões/2026-10-26-MulletaFlix-nuget-audit-startup-probe-1919]].
+
+26/10/2026 19:22 BRT: `dotnet list MulletaFlix.sln package --vulnerable --include-transitive` atualizou os dados NuGet da solução (43 projetos) e não encontrou vulnerabilidades conhecidas. Os seis projetos explicitamente auditados fora da solução foram restaurados com NU1900–NU1905 como erros e também reportaram zero vulnerabilidades transitivas; loop exit 0. O feed usado foi NuGet.org. Isso não valida Linux/Actions remotos, bloqueados por cobrança. Auditoria formal permanece 2/7; testAudit continua 5.465/5.493. Portal atualizado. Ver [[Sessões/2026-10-26-MulletaFlix-full-nuget-local-audit-1922]].
+
+26/10/2026 19:24 BRT: suíte Nebula Python completa executada em venv isolada CPython 3.10.11: 723 aprovados, 2 ignorados, 0 falhas, cobertura 91%, XML em Temp. Os dois skips são POSIX-only; cobertura Windows MoveFileExW foi exercitada. Primeira tentativa com Python global foi negada pelo guard antes da coleta; nenhuma dependência global foi instalada. Evento no portal separado do agregado .NET 5.465/5.493. Ubuntu CI e produção não validados. Ver [[Sessões/2026-10-26-MulletaFlix-nebula-python-full-suite-1924]].
+
+## Reenvio do log de deadlock e sintaxe dos scripts Linux — 2026-10-26 19:27 BRT
+
+O anexo tem SHA-256 `53030F76669CB3FF502062EFD09E4B536C64C3229339B3D23F59628F8F8577E2`, idêntico aos registros anteriores. Mostra deadlock MariaDB 1213 ao apagar `BaseItemImageInfos` do mesmo item e retries; o `HTTP 200` anterior não confirma commit e o trecho não contém PID/assembly nem resultado final. A fonte local já coordena os writers conhecidos por stripe local e advisory `GET_LOCK`, mas este registro não correlaciona o log com a versão instalada ou produção. Nenhum banco operacional foi consultado.
+
+`bash -n` passou nos nove scripts `.sh` de `tools/release` via GNU Bash 5.3 no Git Bash/MSYS. `wsl.exe --list --quiet` confirmou que não há distribuição WSL instalada. Portanto, foi validada somente sintaxe de shell; scripts Linux, instalador, syscalls POSIX e ambiente de runtime não foram executados. O contrato do portal passou 298/298; JSON válido. Agregado da auditoria do servidor permanece 5.465/5.493 e homologação formal 2/7 (28,6%), sem crédito ou release. Mapa técnico conferido, sem mudança estrutural.
+
+## Nebula queue path/key consistency — 2026-10-26 19:43 BRT
+
+`test_main_helpers.py`, `test_staging_scanner.py` e `test_pathio_operations.py` passaram 112/112 em venv CPython 3.10.11 isolada. A inspeção dos writers C#/Python confirmou gravação conjunta de `local_path` e `queue_identity` nas operações de atualização, recuperação e criação/caching. O teste C# focal foi ignorado porque `127.0.0.1:27099` não tinha Mongo descartável ouvindo; isso não conta como teste aprovado. Portal e memória foram atualizados; agregado .NET 5.465/5.493 e gate formal 2/7 não mudam. Symlink/junction, Mongo operacional, runtime e produção não foram validados.

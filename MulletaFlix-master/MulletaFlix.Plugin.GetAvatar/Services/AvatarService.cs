@@ -480,7 +480,7 @@ namespace MulletaFlix.Plugin.GetAvatar.Services
 
             // Use Jellyfin's native user profile image path and save pipeline.
             // This mirrors Jellyfin.Api.Controllers.ImageController.PostUserImage.
-            var userDataPath = Path.Combine(
+            var userDataPath = FileSystemHelper.GetUserConfigurationDirectoryPath(
                 _serverConfigurationManager.ApplicationPaths.UserConfigurationDirectoryPath,
                 user.Username);
 
@@ -1102,7 +1102,7 @@ namespace MulletaFlix.Plugin.GetAvatar.Services
 
                     if (!string.IsNullOrEmpty(oldProfileImagePath) && File.Exists(oldProfileImagePath))
                     {
-                        var userDataPath = Path.Combine(
+                        var userDataPath = FileSystemHelper.GetUserConfigurationDirectoryPath(
                             _serverConfigurationManager.ApplicationPaths.UserConfigurationDirectoryPath,
                             user.Username);
                         if (!FileSystemHelper.IsPathWithinRoot(oldProfileImagePath, userDataPath))

@@ -57,6 +57,11 @@ public sealed class NebulaPythonCacheLeaseHost : IAsyncDisposable
             {
                 return;
             }
+            catch (ObjectDisposedException) when (cancellationToken.IsCancellationRequested)
+            {
+                // Stopping the listener can surface either cancellation or a disposed socket.
+                return;
+            }
 
             _ = HandleClientAsync(client, cancellationToken);
         }

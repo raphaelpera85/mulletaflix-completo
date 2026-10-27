@@ -3,6 +3,7 @@ using System.Linq;
 using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
+using Jellyfin.Providers.Tests.Plugins;
 using MediaBrowser.Providers.Plugins.GoodShort;
 using Microsoft.Extensions.Logging;
 using Moq;
@@ -14,13 +15,12 @@ namespace Jellyfin.Providers.Tests.Plugins.GoodShort
     /// Live verification against the real GoodShort site.
     /// </summary>
     /// <remarks>
-    /// The type name deliberately contains "Integration" so the CI filter
-    /// (FullyQualifiedName!~Integration) skips it: it reaches the public internet and must never
-    /// gate a build. Run it on demand with
-    /// <c>dotnet test --filter "FullyQualifiedName~GoodShortLiveIntegration"</c>.
+    /// Live requests require <c>MULLETAFLIX_RUN_LIVE_PROVIDER_TESTS=1</c> and must never gate a build.
+    /// Run this category on demand with <c>dotnet test --filter "Category=ExternalLive"</c>.
     /// It exists because every other test in this folder uses a captured payload, and a captured
     /// payload cannot prove that GoodShort still answers the way it did when the fixtures were taken.
     /// </remarks>
+    [Trait("Category", "ExternalLive")]
     public sealed class GoodShortLiveIntegrationTests
     {
         /// <summary>
@@ -39,6 +39,7 @@ namespace Jellyfin.Providers.Tests.Plugins.GoodShort
         [Fact]
         public async Task GetSeries_ReadsBothReportedSeriesWithTheirCompleteEpisodeList()
         {
+            ProviderLiveTestEnvironment.SkipUnlessEnabled();
             using var client = CreateClient();
 
             foreach (var url in new[] { FirstSeriesUrl, SecondSeriesUrl })
@@ -75,6 +76,7 @@ namespace Jellyfin.Providers.Tests.Plugins.GoodShort
         [Fact]
         public async Task Search_ReturnsTheSeriesForItsOwnTitle()
         {
+            ProviderLiveTestEnvironment.SkipUnlessEnabled();
             using var client = CreateClient();
 
             var matches = await client.SearchAsync(
@@ -93,6 +95,7 @@ namespace Jellyfin.Providers.Tests.Plugins.GoodShort
         [Fact]
         public async Task GetSeries_ReturnsNothingForAnIdThatDoesNotExist()
         {
+            ProviderLiveTestEnvironment.SkipUnlessEnabled();
             using var client = CreateClient();
 
             var series = await client.GetSeriesAsync("99999999999999", null, CancellationToken.None);

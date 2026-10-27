@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
 using System.Text.RegularExpressions;
@@ -201,23 +201,30 @@ namespace MediaBrowser.Providers.Plugins.Tmdb
         public static string GetImageLanguagesParam(string preferredLanguage, string? countryCode = null)
         {
             var languages = new List<string>();
+            var preferredImageLanguage = string.IsNullOrEmpty(preferredLanguage)
+                ? null
+                : GetImageLanguageCode(preferredLanguage, countryCode);
 
-            if (!string.IsNullOrEmpty(preferredLanguage))
+            if (!string.IsNullOrEmpty(preferredImageLanguage))
             {
-                preferredLanguage = NormalizeLanguage(preferredLanguage, countryCode);
-
-                languages.Add(preferredLanguage);
+                languages.Add(preferredImageLanguage);
             }
 
             languages.Add("null");
 
             // Always add English as fallback language
-            if (!string.Equals(preferredLanguage, "en", StringComparison.OrdinalIgnoreCase))
+            if (!string.Equals(preferredImageLanguage, "en", StringComparison.OrdinalIgnoreCase))
             {
                 languages.Add("en");
             }
 
             return string.Join(',', languages);
+        }
+
+        private static string GetImageLanguageCode(string language, string? countryCode)
+        {
+            // TMDb image filters use ISO 639-1 codes; region variants such as pt-BR are not supported.
+            return NormalizeLanguage(language, countryCode)!.Split('-', 2)[0];
         }
 
         /// <summary>

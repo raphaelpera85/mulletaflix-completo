@@ -72,10 +72,10 @@ namespace MediaBrowser.Providers.Plugins.Tmdb.TV
             }
 
             var language = item.GetPreferredMetadataLanguage();
-
-            // TODO use image languages if All Languages isn't toggled, but there's currently no way to get that value in here
+            var countryCode = item.GetPreferredMetadataCountryCode();
+            // Keep the metadata lookup's display-order mapping while requesting localized art and English fallback.
             var episodeResult = await _tmdbClientManager
-                .GetEpisodeAsync(seriesTmdbId, seasonNumber, episodeNumber.Value, series.DisplayOrder, null, null, null, cancellationToken)
+                .GetEpisodeImagesAsync(seriesTmdbId, seasonNumber, episodeNumber.Value, series.DisplayOrder, language, countryCode, cancellationToken)
                 .ConfigureAwait(false);
 
             var stills = episodeResult?.Images?.Stills;
@@ -84,7 +84,7 @@ namespace MediaBrowser.Providers.Plugins.Tmdb.TV
                 return Enumerable.Empty<RemoteImageInfo>();
             }
 
-            return _tmdbClientManager.ConvertStillsToRemoteImageInfo(stills, language);
+            return _tmdbClientManager.ConvertStillsToRemoteImageInfo(stills, item.GetPreferredMetadataLanguage());
         }
 
         /// <inheritdoc />

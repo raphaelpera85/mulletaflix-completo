@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Net.Http;
@@ -16,7 +16,9 @@ using MediaBrowser.Controller.MediaSegments;
 using MediaBrowser.Controller.Providers;
 using MediaBrowser.Controller.Subtitles;
 using MediaBrowser.Model.Configuration;
+using MediaBrowser.Model.Entities;
 using MediaBrowser.Model.IO;
+using MediaBrowser.Model.Providers;
 using MediaBrowser.Providers.Manager;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging;
@@ -56,6 +58,146 @@ namespace MulletaFlix.Providers.Tests.Manager
                 { 3, new[] { 1 }, null, new int?[] { 2, 0, 1 }, new[] { 1, 2, 0 } }, // library order first, then orderby
                 { 3, new[] { 2, 1, 0 }, new[] { 1, 2, 0 }, new int?[] { 2, 0, 1 }, new[] { 2, 1, 0 } }, // library order wins
             };
+
+        [Fact]
+        public async Task GetAvailableRemoteImages_IncludeAllLanguages_ReturnsEveryProviderLanguage()
+        {
+            var item = new Movie
+            {
+                PreferredMetadataLanguage = "pt-BR",
+                PreferredMetadataCountryCode = "BR"
+            };
+            var provider = new Mock<IRemoteImageProvider>(MockBehavior.Strict);
+            provider.Setup(p => p.Name).Returns("all-language-provider");
+            provider.Setup(p => p.Supports(item)).Returns(true);
+            provider.Setup(p => p.GetSupportedImages(item)).Returns([ImageType.Primary]);
+            provider.Setup(p => p.GetImages(item, It.IsAny<CancellationToken>())).ReturnsAsync(
+            [
+                new RemoteImageInfo { Language = "pt-BR", Type = ImageType.Primary },
+                new RemoteImageInfo { Language = "en", Type = ImageType.Primary },
+                new RemoteImageInfo { Language = "ko", Type = ImageType.Primary }
+            ]);
+
+            var baseItemManager = new Mock<IBaseItemManager>(MockBehavior.Strict);
+            baseItemManager.Setup(manager => manager.IsImageFetcherEnabled(item, It.IsAny<TypeOptions>(), "all-language-provider"))
+                .Returns(true);
+
+            using var providerManager = GetProviderManager(baseItemManager: baseItemManager.Object);
+            AddParts(providerManager, imageProviders: [provider.Object]);
+
+            var result = await providerManager.GetAvailableRemoteImages(
+                item,
+                new RemoteImageQuery(string.Empty) { IncludeAllLanguages = true },
+                TestContext.Current.CancellationToken);
+
+            Assert.Equal(new[] { "pt-BR", "en", "ko" }, result.Select(image => image.Language));
+        }
+
+        [Fact]
+        public async Task GetAvailableRemoteImages_PortugueseArtworkFromOneProviderSuppressesEnglishFromOthers()
+        {
+            var item = new Movie
+            {
+                PreferredMetadataLanguage = "pt-BR",
+                PreferredMetadataCountryCode = "BR"
+            };
+            var englishProvider = new Mock<IRemoteImageProvider>(MockBehavior.Strict);
+            englishProvider.Setup(p => p.Name).Returns("english-provider");
+            englishProvider.Setup(p => p.Supports(item)).Returns(true);
+            englishProvider.Setup(p => p.GetSupportedImages(item)).Returns([ImageType.Primary]);
+            englishProvider.Setup(p => p.GetImages(item, It.IsAny<CancellationToken>())).ReturnsAsync(
+            [new RemoteImageInfo { ProviderName = string.Empty, Language = "en", Type = ImageType.Primary, CommunityRating = 10 }]);
+
+            var portugueseProvider = new Mock<IRemoteImageProvider>(MockBehavior.Strict);
+            portugueseProvider.Setup(p => p.Name).Returns("portuguese-provider");
+            portugueseProvider.Setup(p => p.Supports(item)).Returns(true);
+            portugueseProvider.Setup(p => p.GetSupportedImages(item)).Returns([ImageType.Primary]);
+            portugueseProvider.Setup(p => p.GetImages(item, It.IsAny<CancellationToken>())).ReturnsAsync(
+            [
+                new RemoteImageInfo { Language = "pt", Type = ImageType.Primary, CommunityRating = 1 },
+                new RemoteImageInfo { Language = null, Type = ImageType.Primary, CommunityRating = 8 },
+                new RemoteImageInfo { Language = "ko", Type = ImageType.Primary, CommunityRating = 9 }
+            ]);
+
+            var baseItemManager = new Mock<IBaseItemManager>(MockBehavior.Strict);
+            baseItemManager.Setup(manager => manager.IsImageFetcherEnabled(item, It.IsAny<TypeOptions>(), "english-provider"))
+                .Returns(true);
+            baseItemManager.Setup(manager => manager.IsImageFetcherEnabled(item, It.IsAny<TypeOptions>(), "portuguese-provider"))
+                .Returns(true);
+
+            using var providerManager = GetProviderManager(baseItemManager: baseItemManager.Object);
+            AddParts(providerManager, imageProviders: [englishProvider.Object, portugueseProvider.Object]);
+
+            var result = (await providerManager.GetAvailableRemoteImages(
+                item,
+                new RemoteImageQuery(string.Empty),
+                TestContext.Current.CancellationToken)).ToList();
+
+            Assert.Equal(new string?[] { "pt" }, result.Select(image => image.Language));
+            Assert.Equal(new[] { "portuguese-provider" }, result.Select(image => image.ProviderName));
+        }
+
+        [Fact]
+        public async Task GetAvailableRemoteImages_LocalizedPosterDoesNotSuppressEnglishBackdrop()
+        {
+            var item = new Movie { PreferredMetadataLanguage = "pt-BR", PreferredMetadataCountryCode = "BR" };
+            var provider = new Mock<IRemoteImageProvider>(MockBehavior.Strict);
+            provider.Setup(imageProvider => imageProvider.Name).Returns("mixed-language-provider");
+            provider.Setup(imageProvider => imageProvider.Supports(item)).Returns(true);
+            provider.Setup(imageProvider => imageProvider.GetSupportedImages(item)).Returns([ImageType.Primary, ImageType.Backdrop]);
+            provider.Setup(imageProvider => imageProvider.GetImages(item, It.IsAny<CancellationToken>())).ReturnsAsync(
+            [
+                new RemoteImageInfo { Type = ImageType.Primary, Language = "pt" },
+                new RemoteImageInfo { Type = ImageType.Primary, Language = "en" },
+                new RemoteImageInfo { Type = ImageType.Backdrop, Language = "en" }
+            ]);
+
+            var baseItemManager = new Mock<IBaseItemManager>(MockBehavior.Strict);
+            baseItemManager.Setup(manager => manager.IsImageFetcherEnabled(item, It.IsAny<TypeOptions>(), "mixed-language-provider"))
+                .Returns(true);
+
+            using var providerManager = GetProviderManager(baseItemManager: baseItemManager.Object);
+            AddParts(providerManager, imageProviders: [provider.Object]);
+
+            var result = (await providerManager.GetAvailableRemoteImages(
+                item,
+                new RemoteImageQuery(string.Empty),
+                TestContext.Current.CancellationToken)).ToList();
+
+            Assert.Contains(result, image => image.Type == ImageType.Primary && image.Language == "pt");
+            Assert.DoesNotContain(result, image => image.Type == ImageType.Primary && image.Language == "en");
+            Assert.Contains(result, image => image.Type == ImageType.Backdrop && image.Language == "en");
+        }
+
+        [Fact]
+        public async Task GetAvailableRemoteImages_UsesEnglishWhenPreferredLanguageIsUnavailable()
+        {
+            var item = new Movie { PreferredMetadataLanguage = "pt-BR", PreferredMetadataCountryCode = "BR" };
+            var provider = new Mock<IRemoteImageProvider>(MockBehavior.Strict);
+            provider.Setup(p => p.Name).Returns("english-fallback-provider");
+            provider.Setup(p => p.Supports(item)).Returns(true);
+            provider.Setup(p => p.GetSupportedImages(item)).Returns([ImageType.Primary]);
+            provider.Setup(p => p.GetImages(item, It.IsAny<CancellationToken>())).ReturnsAsync(
+            [
+                new RemoteImageInfo { Language = "ko", Type = ImageType.Primary },
+                new RemoteImageInfo { Language = null, Type = ImageType.Primary },
+                new RemoteImageInfo { Language = "en", Type = ImageType.Primary }
+            ]);
+
+            var baseItemManager = new Mock<IBaseItemManager>(MockBehavior.Strict);
+            baseItemManager.Setup(manager => manager.IsImageFetcherEnabled(item, It.IsAny<TypeOptions>(), "english-fallback-provider"))
+                .Returns(true);
+
+            using var providerManager = GetProviderManager(baseItemManager: baseItemManager.Object);
+            AddParts(providerManager, imageProviders: [provider.Object]);
+
+            var result = await providerManager.GetAvailableRemoteImages(
+                item,
+                new RemoteImageQuery(string.Empty),
+                TestContext.Current.CancellationToken);
+
+            Assert.Equal(new string?[] { "en", null }, result.Select(image => image.Language));
+        }
 
         [Theory]
         [MemberData(nameof(GetImageProvidersOrderData))]

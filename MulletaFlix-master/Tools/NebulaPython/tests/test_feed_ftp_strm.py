@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import queue
@@ -63,6 +64,15 @@ def _write_strm(tmp_path: Path, content="https://cdn.example/title.mp4\n") -> Pa
     return path
 
 
+def _write_materialize_metadata(tmp_path: Path, url: str, *, total: int, parts_count: int) -> None:
+    metadata = {
+        "source_fingerprint": hashlib.sha256(url.encode("utf-8")).hexdigest(),
+        "total": total,
+        "parts_count": parts_count,
+    }
+    (tmp_path / ".title.download.meta").write_text(json.dumps(metadata), encoding="utf-8")
+
+
 def test_iter_files_by_priority_orders_categories_then_titles_alphabetically(tmp_path):
     categories = [
         ("Animações", ["Zulu.mkv", "Alpha.mkv"]),
@@ -115,8 +125,10 @@ def test_materialize_strm_downloads_non_range_response_atomically(tmp_path, monk
 
 
 def test_materialize_strm_reuses_complete_parts_when_resuming(tmp_path, monkeypatch):
-    source = _write_strm(tmp_path)
+    url = "https://cdn.example/title.mp4"
+    source = _write_strm(tmp_path, f"{url}\n")
     target = tmp_path / "title.mp4"
+    _write_materialize_metadata(tmp_path, url, total=6, parts_count=3)
     # total=6 and three parts make each existing part exactly two bytes.
     (tmp_path / ".title.download.part0").write_bytes(b"ab")
     (tmp_path / ".title.download.part1").write_bytes(b"cd")
@@ -140,6 +152,40 @@ def test_materialize_strm_reuses_complete_parts_when_resuming(tmp_path, monkeypa
     assert target.read_bytes() == b"abcdef"
     assert requests == ["bytes=0-0"]
     assert list(tmp_path.glob(".title.*.download*")) == []
+
+
+def test_materialize_strm_discards_partial_files_when_source_url_changes(tmp_path, monkeypatch):
+    old_url = "https://cdn.example/title.mp4?token=old-secret"
+    new_url = "https://cdn.example/title.mp4?token=new-secret"
+    source = _write_strm(tmp_path, f"{new_url}\n")
+    target = tmp_path / "title.mp4"
+    _write_materialize_metadata(tmp_path, old_url, total=6, parts_count=2)
+    (tmp_path / ".title.download").write_bytes(b"stale!")
+    (tmp_path / ".title.download.part0").write_bytes(b"old")
+    (tmp_path / ".title.download.part1.tmp").write_bytes(b"old")
+    requested_ranges = []
+    monkeypatch.setenv("STRM_DOWNLOAD_PARTS", "2")
+    monkeypatch.setattr(feed_ftp.socket, "setdefaulttimeout", lambda *_args: None)
+
+    def fake_urlopen(request, **_kwargs):
+        range_header = request.get_header("Range")
+        if range_header == "bytes=0-0":
+            return _Response(b"", headers={"Content-Range": "bytes 0-0/6"}, status=206)
+        requested_ranges.append(range_header)
+        start, end = map(int, range_header.removeprefix("bytes=").split("-"))
+        payload = b"new!!!"
+        return _Response(
+            payload[start : end + 1],
+            headers={"Content-Range": f"bytes {start}-{end}/6"},
+            status=206,
+        )
+
+    monkeypatch.setattr(feed_ftp, "urlopen", fake_urlopen)
+
+    assert feed_ftp.materialize_strm(source, target=target) == target
+    assert target.read_bytes() == b"new!!!"
+    assert sorted(requested_ranges) == ["bytes=0-2", "bytes=3-5"]
+    assert list(tmp_path.glob(".title.download*")) == []
 
 
 def test_materialize_strm_downloads_and_joins_parallel_ranges(tmp_path, monkeypatch):
@@ -167,6 +213,51 @@ def test_materialize_strm_downloads_and_joins_parallel_ranges(tmp_path, monkeypa
 
     assert target.read_bytes() == payload
     assert len(ranges) == 4
+    assert list(tmp_path.glob(".title.*.download*")) == []
+
+
+def test_materialize_strm_waits_for_other_parts_after_one_part_fails(tmp_path, monkeypatch):
+    source = _write_strm(tmp_path)
+    target = tmp_path / "title.mp4"
+    target.write_bytes(b"previous-good-media")
+    monkeypatch.setenv("STRM_DOWNLOAD_PARTS", "2")
+    monkeypatch.setenv("STRM_PART_RETRIES", "1")
+    monkeypatch.setattr(feed_ftp.socket, "setdefaulttimeout", lambda *_args: None)
+
+    def interrupted_urlopen(request, **_kwargs):
+        range_header = request.get_header("Range")
+        if range_header == "bytes=0-0":
+            return _Response(b"", headers={"Content-Range": "bytes 0-0/6"}, status=206)
+        if range_header == "bytes=0-2":
+            return _Response(b"ab", headers={"Content-Range": "bytes 0-2/6"}, status=206)
+        if range_header == "bytes=3-5":
+            return _Response(b"def", headers={"Content-Range": "bytes 3-5/6"}, status=206)
+        pytest.fail(f"unexpected range: {range_header}")
+
+    monkeypatch.setattr(feed_ftp, "urlopen", interrupted_urlopen)
+
+    with pytest.raises(IOError, match="Parte 1 falhou apos 1 tentativas"):
+        feed_ftp.materialize_strm(source, overwrite=True, target=target)
+
+    assert target.read_bytes() == b"previous-good-media"
+    assert (tmp_path / ".title.download.part0.tmp").read_bytes() == b"ab"
+    assert (tmp_path / ".title.download.part1").read_bytes() == b"def"
+
+    retry_ranges = []
+
+    def resumed_urlopen(request, **_kwargs):
+        range_header = request.get_header("Range")
+        if range_header == "bytes=0-0":
+            return _Response(b"", headers={"Content-Range": "bytes 0-0/6"}, status=206)
+        retry_ranges.append(range_header)
+        assert range_header == "bytes=2-2"
+        return _Response(b"c", headers={"Content-Range": "bytes 2-2/6"}, status=206)
+
+    monkeypatch.setattr(feed_ftp, "urlopen", resumed_urlopen)
+    assert feed_ftp.materialize_strm(source, overwrite=True, target=target) == target
+
+    assert target.read_bytes() == b"abcdef"
+    assert retry_ranges == ["bytes=2-2"]
     assert list(tmp_path.glob(".title.*.download*")) == []
 
 
@@ -789,6 +880,60 @@ def test_atomic_write_json_preserves_previous_state_and_cleans_temp_after_replac
 
     assert state_file.read_text(encoding="utf-8") == '{"previous": true}'
     assert not temp_file.exists()
+
+
+def test_concurrent_mark_seen_serializes_snapshot_and_atomic_file_write(tmp_path, monkeypatch):
+    state_file = tmp_path / "state.json"
+    seen = set()
+    first_write_entered = threading.Event()
+    second_write_entered = threading.Event()
+    second_call_started = threading.Event()
+    release_first_write = threading.Event()
+    original_write_text = Path.write_text
+    write_count = 0
+    write_count_lock = threading.Lock()
+    failures = []
+
+    def gated_write_text(path, *args, **kwargs):
+        nonlocal write_count
+        if path.name.startswith(".state.json.") and path.name.endswith(".tmp"):
+            with write_count_lock:
+                write_count += 1
+                current_write = write_count
+            if current_write == 1:
+                first_write_entered.set()
+                if not release_first_write.wait(5):
+                    raise TimeoutError("first state write was not released")
+            else:
+                second_write_entered.set()
+        return original_write_text(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "write_text", gated_write_text)
+
+    def write_seen(name, *, signal_started=False):
+        try:
+            if signal_started:
+                second_call_started.set()
+            feed_ftp.mark_seen(Path(name), seen, state_file)
+        except Exception as exc:  # keep worker failures visible to the test thread
+            failures.append(exc)
+
+    first = threading.Thread(target=write_seen, args=("first.mkv",))
+    second = threading.Thread(target=write_seen, kwargs={"name": "second.mkv", "signal_started": True})
+    first.start()
+    assert first_write_entered.wait(5)
+    second.start()
+    assert second_call_started.wait(5)
+    blocked_during_first_write = not second_write_entered.wait(0.1)
+    release_first_write.set()
+    first.join(5)
+    second.join(5)
+
+    assert not first.is_alive()
+    assert not second.is_alive()
+    assert blocked_during_first_write
+    assert failures == []
+    assert feed_ftp.load_seen(state_file) == {"first.mkv", "second.mkv"}
 
 
 def test_prune_completed_strm_dry_run_reports_matches_without_deleting(tmp_path, monkeypatch):

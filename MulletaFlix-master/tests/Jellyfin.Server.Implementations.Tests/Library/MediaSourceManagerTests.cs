@@ -4,6 +4,7 @@ using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Collections.Generic;
+using System.Globalization;
 using AutoFixture;
 using AutoFixture.AutoMoq;
 using Castle.Components.DictionaryAdapter;
@@ -374,6 +375,148 @@ namespace MulletaFlix.Server.Implementations.Tests.Library
             _mockLibraryManager.Verify(
                 library => library.GetItemById(_item.Id),
                 Times.Never);
+        }
+
+        [Fact]
+        public async Task OpenLiveStream_DifferentTokensDoNotWaitForSlowProvider()
+        {
+            var firstOpenStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var releaseFirstOpen = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var firstStream = CreateLiveStream("first");
+            var secondStream = CreateLiveStream("second");
+            var provider = new Mock<IMediaSourceProvider>();
+            provider.Setup(source => source.OpenMediaSource(
+                    It.IsAny<string>(),
+                    It.IsAny<List<ILiveStream>>(),
+                    It.IsAny<CancellationToken>()))
+                .Returns(async (string key, List<ILiveStream> _, CancellationToken _) =>
+                {
+                    if (key == "first")
+                    {
+                        firstOpenStarted.TrySetResult();
+                        await releaseFirstOpen.Task.ConfigureAwait(false);
+                        return firstStream;
+                    }
+
+                    return secondStream;
+                });
+            provider.Setup(source => source.GetOpenMediaSourceLockKey(It.IsAny<string>()))
+                .Returns((string key) => key);
+            _mediaSourceManager.AddParts([provider.Object]);
+
+            Task<Tuple<LiveStreamResponse, IDirectStreamProvider>>? firstTask = null;
+            try
+            {
+                firstTask = _mediaSourceManager.OpenLiveStreamInternal(
+                    CreateLiveStreamRequest(provider.Object, "first"),
+                    TestContext.Current.CancellationToken);
+                await firstOpenStarted.Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+                var secondTask = _mediaSourceManager.OpenLiveStreamInternal(
+                    CreateLiveStreamRequest(provider.Object, "second"),
+                    TestContext.Current.CancellationToken);
+                await secondTask.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+                Assert.False(firstTask.IsCompleted);
+            }
+            finally
+            {
+                releaseFirstOpen.TrySetResult();
+            }
+
+            await firstTask!.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+        }
+
+        [Fact]
+        public async Task OpenLiveStream_DifferentTokensForSameResourceSerializeAndPassOpenedStreamToProvider()
+        {
+            var firstOpenStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var releaseFirstOpen = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var firstStream = CreateLiveStream("first");
+            var secondStream = CreateLiveStream("second");
+            firstStream.ConsumerCount = 1;
+            List<ILiveStream> streamsSeenBySecondOpen = null;
+            var openCount = 0;
+            var provider = new Mock<IMediaSourceProvider>();
+            provider.Setup(source => source.OpenMediaSource(
+                    It.IsAny<string>(),
+                    It.IsAny<List<ILiveStream>>(),
+                    It.IsAny<CancellationToken>()))
+                .Returns(async (string _, List<ILiveStream> currentStreams, CancellationToken _) =>
+                {
+                    if (Interlocked.Increment(ref openCount) == 1)
+                    {
+                        firstOpenStarted.TrySetResult();
+                        await releaseFirstOpen.Task.ConfigureAwait(false);
+                        return firstStream;
+                    }
+
+                    streamsSeenBySecondOpen = currentStreams;
+                    if (currentStreams.Contains(firstStream))
+                    {
+                        firstStream.ConsumerCount++;
+                        return firstStream;
+                    }
+
+                    return secondStream;
+                });
+            provider.Setup(source => source.GetOpenMediaSourceLockKey(It.IsAny<string>()))
+                .Returns("shared-resource");
+            _mediaSourceManager.AddParts([provider.Object]);
+
+            Task<Tuple<LiveStreamResponse, IDirectStreamProvider>>? firstTask = null;
+            try
+            {
+                firstTask = _mediaSourceManager.OpenLiveStreamInternal(
+                    CreateLiveStreamRequest(provider.Object, "channel-a"),
+                    TestContext.Current.CancellationToken);
+                await firstOpenStarted.Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+                var secondTask = _mediaSourceManager.OpenLiveStreamInternal(
+                    CreateLiveStreamRequest(provider.Object, "channel-b"),
+                    TestContext.Current.CancellationToken);
+                Assert.False(secondTask.IsCompleted);
+                provider.Verify(
+                    source => source.OpenMediaSource(
+                        It.IsAny<string>(),
+                        It.IsAny<List<ILiveStream>>(),
+                        It.IsAny<CancellationToken>()),
+                    Times.Once);
+
+                releaseFirstOpen.TrySetResult();
+                await Task.WhenAll(firstTask, secondTask).WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+            }
+            finally
+            {
+                releaseFirstOpen.TrySetResult();
+            }
+
+            await firstTask!.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+            Assert.Equal(2, openCount);
+            Assert.Contains(firstStream, streamsSeenBySecondOpen);
+            Assert.Equal(2, firstStream.ConsumerCount);
+        }
+
+        private static ILiveStream CreateLiveStream(string id)
+        {
+            var mediaSource = new MediaSourceInfo
+            {
+                LiveStreamId = id,
+                SupportsProbing = false,
+                MediaStreams =
+                [
+                    new MediaStream { Index = 0, Type = MediaStreamType.Video },
+                    new MediaStream { Index = 1, Type = MediaStreamType.Audio }
+                ]
+            };
+            var liveStream = new Mock<ILiveStream>();
+            liveStream.SetupProperty(stream => stream.ConsumerCount);
+            liveStream.Setup(stream => stream.Close()).Returns(Task.CompletedTask);
+            liveStream.SetupGet(stream => stream.MediaSource).Returns(mediaSource);
+            return liveStream.Object;
+        }
+
+        private static LiveStreamRequest CreateLiveStreamRequest(IMediaSourceProvider provider, string key)
+        {
+            var providerHash = provider.GetType().FullName!.GetMD5().ToString("N", CultureInfo.InvariantCulture);
+            return new LiveStreamRequest { OpenToken = $"{providerHash}_{key}" };
         }
     }
 }

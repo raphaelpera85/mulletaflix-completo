@@ -134,6 +134,10 @@ ENV DEBIAN_FRONTEND="noninteractive" \
     JELLYFIN_WEB_DIR="/jellyfin/jellyfin-web" \
     JELLYFIN_FFMPEG="/usr/lib/jellyfin-ffmpeg/ffmpeg"
 
+# MulletaFlix reads its own data/config variables; keep Jellyfin aliases for packaging tooling.
+ENV MulletaFlix_DATA_DIR="/config" \
+    MulletaFlix_CONFIG_DIR="/config/config"
+
 # required for fontconfig cache
 ENV XDG_CACHE_HOME=${JELLYFIN_CACHE_DIR}
 

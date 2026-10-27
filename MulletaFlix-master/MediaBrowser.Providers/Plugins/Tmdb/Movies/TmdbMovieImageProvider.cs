@@ -82,19 +82,16 @@ namespace MediaBrowser.Providers.Plugins.Tmdb.Movies
                 return [];
             }
 
-            // TODO use image languages if All Languages isn't toggled, but there's currently no way to get that value in here
-            var movie = await _tmdbClientManager
-                .GetMovieAsync(movieTmdbId, null, null, null, cancellationToken)
-                .ConfigureAwait(false);
+            var movie = await _tmdbClientManager.GetMovieImagesAsync(movieTmdbId, language, countryCode, cancellationToken).ConfigureAwait(false);
 
-            if (movie?.Images is null)
+            if (movie is null)
             {
                 return [];
             }
 
-            var posters = movie.Images.Posters;
-            var backdrops = movie.Images.Backdrops;
-            var logos = movie.Images.Logos;
+            var posters = movie.Posters;
+            var backdrops = movie.Backdrops;
+            var logos = movie.Logos;
             var remoteImages = new List<RemoteImageInfo>(posters?.Count ?? 0 + backdrops?.Count ?? 0 + logos?.Count ?? 0);
 
             if (posters is not null)

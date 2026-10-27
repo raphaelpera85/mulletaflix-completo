@@ -350,7 +350,7 @@ class ControlPlane:
         )
 
     async def queue_summary(self) -> dict[str, int]:
-        states = ("queued", "staging", "uploading", "completed", "failed")
+        states = ("queued", "staging", "uploading", "retry_wait", "completed", "failed")
         counts = {
             state: int(await self._mongo.files.count_documents({"type": "file", "status": state}))
             for state in states

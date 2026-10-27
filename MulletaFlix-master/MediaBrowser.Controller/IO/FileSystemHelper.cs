@@ -14,6 +14,37 @@ namespace MediaBrowser.Controller.IO;
 public static class FileSystemHelper
 {
     /// <summary>
+    /// Resolves the directory for a user's configuration data under the configured users root.
+    /// </summary>
+    /// <param name="usersRoot">The configured root for user configuration directories.</param>
+    /// <param name="username">The username used as the directory name.</param>
+    /// <returns>The normalized user directory path.</returns>
+    /// <exception cref="ArgumentException">The username is not a safe single directory name.</exception>
+    public static string GetUserConfigurationDirectoryPath(string usersRoot, string username)
+    {
+        if (string.IsNullOrWhiteSpace(usersRoot)
+            || string.IsNullOrWhiteSpace(username)
+            || username is "." or ".."
+            || Path.IsPathRooted(username)
+            || (OperatingSystem.IsWindows() && !string.Equals(username, username.TrimEnd('.', ' '), StringComparison.Ordinal))
+            || username.IndexOfAny([Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar, '/', '\\']) >= 0
+            || username.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0
+            || !string.Equals(Path.GetFileName(username), username, OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal))
+        {
+            throw new ArgumentException("Username must be a single safe directory name.", nameof(username));
+        }
+
+        var fullRoot = Path.GetFullPath(usersRoot);
+        var userDirectory = Path.GetFullPath(Path.Combine(fullRoot, username));
+        if (!IsPathWithinRoot(userDirectory, fullRoot))
+        {
+            throw new ArgumentException("User configuration directory must remain under the configured users root.", nameof(username));
+        }
+
+        return userDirectory;
+    }
+
+    /// <summary>
     /// Determines whether two paths identify the same path using the host operating system's path semantics.
     /// </summary>
     /// <param name="left">The first path.</param>

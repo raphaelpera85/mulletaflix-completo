@@ -76,15 +76,7 @@ namespace MediaBrowser.Providers.Books.OpenPackagingFormat
                 return new DynamicImageResponse { HasImage = false };
             }
 
-            var memoryStream = new MemoryStream();
-
-            var coverStream = await coverFile.OpenAsync(cancellationToken).ConfigureAwait(false);
-            await using (coverStream.ConfigureAwait(false))
-            {
-                await coverStream.CopyToAsync(memoryStream, cancellationToken).ConfigureAwait(false);
-            }
-
-            memoryStream.Position = 0;
+            var memoryStream = await EpubUtils.ReadEntryAsync(coverFile, EpubUtils.MaxImageEntryBytes, cancellationToken).ConfigureAwait(false);
 
             var response = new DynamicImageResponse { HasImage = true, Stream = memoryStream };
             response.SetFormatFromMimeType(cover.MimeType);
@@ -187,7 +179,7 @@ namespace MediaBrowser.Providers.Books.OpenPackagingFormat
 
             try
             {
-                using var htmlStream = await htmlEntry.OpenAsync(cancellationToken).ConfigureAwait(false);
+                using var htmlStream = await EpubUtils.ReadEntryAsync(htmlEntry, EpubUtils.MaxXmlEntryBytes, cancellationToken).ConfigureAwait(false);
                 var htmlDocument = new XmlDocument();
                 htmlDocument.Load(htmlStream);
 
@@ -268,7 +260,7 @@ namespace MediaBrowser.Providers.Books.OpenPackagingFormat
                 return new DynamicImageResponse { HasImage = false };
             }
 
-            using var opfStream = await opfFile.OpenAsync(cancellationToken).ConfigureAwait(false);
+            using var opfStream = await EpubUtils.ReadEntryAsync(opfFile, EpubUtils.MaxXmlEntryBytes, cancellationToken).ConfigureAwait(false);
 
             var opfDocument = new XmlDocument();
             opfDocument.Load(opfStream);

@@ -18,6 +18,14 @@ public interface IItemPersistenceService
     void DeleteItem(params IReadOnlyList<Guid> ids);
 
     /// <summary>
+    /// Deletes detached user data older than the specified retention cutoff.
+    /// </summary>
+    /// <param name="cutoff">The oldest retention date to delete.</param>
+    /// <param name="cancellationToken">The cancellation token.</param>
+    /// <returns>The number of deleted entries.</returns>
+    Task<int> DeleteExpiredPlaceholderUserDataAsync(DateTime cutoff, CancellationToken cancellationToken);
+
+    /// <summary>
     /// Saves items to the database.
     /// </summary>
     /// <param name="items">The items to save.</param>

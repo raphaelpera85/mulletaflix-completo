@@ -62,13 +62,23 @@ public class InsecureDeserializationAuditTests
             .Select(entry => $"{entry.Path}:{entry.Line}: {entry.Text.Trim()}")
             .ToList();
 
-        // No known occurrences at the time this test was written (the codebase deserializes
-        // exclusively through System.Text.Json). If this starts failing, audit the new call
-        // site(s) for explicit, safe JsonSerializerSettings before updating this test.
+        // The IntroSkipper backup snapshot is the sole reviewed Newtonsoft call site. It
+        // supplies settings with TypeNameHandling.None; any other call requires a separate audit.
+        var reviewedSafeCall = "JsonConvert.DeserializeObject<BackupSnapshot>(json, SnapshotJsonSettings)";
+        var introSkipperPath = Path.Combine("MulletaFlix.Plugin.IntroSkipper", "Services", "IntroSkipperBackupParticipant.cs");
+        var approvedCallSites = deserializeObjectCalls
+            .Where(entry => entry.Contains(introSkipperPath, StringComparison.OrdinalIgnoreCase)
+                && entry.Contains(reviewedSafeCall, StringComparison.Ordinal))
+            .ToList();
+        var unreviewedCallSites = deserializeObjectCalls.Except(approvedCallSites).ToList();
+        var introSkipperSource = Path.Combine(FindRepositoryRoot(), introSkipperPath);
+        var explicitlyDisablesTypeNames = File.Exists(introSkipperSource)
+            && File.ReadAllText(introSkipperSource).Contains("TypeNameHandling = TypeNameHandling.None", StringComparison.Ordinal);
+
         Assert.True(
-            deserializeObjectCalls.Count == 0,
-            "JsonConvert.DeserializeObject is now used where it previously was not; audit for "
-            + $"TypeNameHandling before accepting this change:\n{string.Join('\n', deserializeObjectCalls)}");
+            unreviewedCallSites.Count == 0 && (approvedCallSites.Count == 0 || explicitlyDisablesTypeNames),
+            "Found an unreviewed JsonConvert.DeserializeObject call or the IntroSkipper snapshot "
+            + $"no longer explicitly disables type-name handling:\n{string.Join('\n', unreviewedCallSites)}");
     }
 
     private static string[] EnumerateRepositorySourceFiles()

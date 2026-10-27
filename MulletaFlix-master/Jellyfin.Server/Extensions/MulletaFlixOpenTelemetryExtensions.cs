@@ -5,6 +5,7 @@ using Emby.Server.Implementations.ScheduledTasks.Tasks;
 using Emby.Server.Implementations.ScheduledTasks;
 using MulletaFlix.Server.Implementations.Nebula;
 using MulletaFlix.Server.Implementations.FullSystemBackup;
+using MulletaFlix.Server.Implementations.Trickplay;
 using Jellyfin.Server.Implementations.Nebula;
 using Jellyfin.Server.Implementations.Database;
 using MediaBrowser.Providers.Plugins.MidiaStorageOnline.ScheduledTasks;
@@ -61,6 +62,7 @@ internal static class MulletaFlixOpenTelemetryExtensions
                 .AddMeter(NebulaUploadEngine.MeterName)
                 .AddMeter(NebulaDownloaderEngine.MeterName)
                 .AddMeter(NotificationsLibraryNotifier.MeterName)
+                .AddMeter(TrickplayManager.MeterName)
                 .AddMeter(RateLimitMiddleware.MeterName)
                 .AddMeter(BackupService.MeterName)
                 .AddMeter(NebulaSupabaseSyncService.MeterName)

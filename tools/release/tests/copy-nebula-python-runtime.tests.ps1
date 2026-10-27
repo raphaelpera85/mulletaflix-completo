@@ -11,7 +11,7 @@ Describe 'copy-nebula-python-runtime.ps1' {
 
     It 'copies required download worker files without tests and caches' {
         foreach ($relativePath in @(
-            'main.py', 'stream_service.py', 'control_plane.py', 'generate_strm.py', 'requirements.txt', 'requirements.lock',
+            'main.py', 'stream_service.py', 'control_plane.py', 'generate_strm.py', 'upload_checkpoint.py', 'requirements.txt', 'requirements.lock',
             'ftp/__init__.py', 'tools/__init__.py', 'tools/strm_downloader.py', 'tools/mongo_admission.py'
         )) {
             Test-Path -LiteralPath (Join-Path $destinationDirectory $relativePath) -PathType Leaf | Should Be $true
@@ -19,6 +19,9 @@ Describe 'copy-nebula-python-runtime.ps1' {
         $sourceHash = (Get-FileHash -LiteralPath (Join-Path $sourceDirectory 'tools/strm_downloader.py') -Algorithm SHA256).Hash
         $copiedHash = (Get-FileHash -LiteralPath (Join-Path $destinationDirectory 'tools/strm_downloader.py') -Algorithm SHA256).Hash
         $copiedHash | Should Be $sourceHash
+        $checkpointSourceHash = (Get-FileHash -LiteralPath (Join-Path $sourceDirectory 'upload_checkpoint.py') -Algorithm SHA256).Hash
+        $checkpointCopiedHash = (Get-FileHash -LiteralPath (Join-Path $destinationDirectory 'upload_checkpoint.py') -Algorithm SHA256).Hash
+        $checkpointCopiedHash | Should Be $checkpointSourceHash
         Get-ChildItem -LiteralPath $destinationDirectory -Directory -Recurse | Where-Object Name -In @('tests', '__pycache__', '.pytest_cache') | Should BeNullOrEmpty
     }
 

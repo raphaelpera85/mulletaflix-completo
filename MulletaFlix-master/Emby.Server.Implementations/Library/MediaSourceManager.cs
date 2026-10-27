@@ -62,6 +62,7 @@ namespace Emby.Server.Implementations.Library
         private readonly ConcurrentDictionary<string, ILiveStream> _openStreams = new ConcurrentDictionary<string, ILiveStream>(StringComparer.OrdinalIgnoreCase);
         private readonly ConcurrentDictionary<string, ConcurrentDictionary<Guid, int>> _liveStreamOwners = new ConcurrentDictionary<string, ConcurrentDictionary<Guid, int>>(StringComparer.OrdinalIgnoreCase);
         private readonly ConcurrentDictionary<string, int> _unownedLiveStreamConsumers = new ConcurrentDictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        private readonly AsyncKeyedLocker<string> _liveStreamOpenLocker = new();
         private readonly AsyncNonKeyedLocker _liveStreamLocker = new(1);
         private readonly JsonSerializerOptions _jsonOptions = JsonDefaults.Options;
 
@@ -632,42 +633,37 @@ namespace Emby.Server.Implementations.Library
             MediaSourceInfo mediaSource;
             ILiveStream liveStream;
 
-            // NOTE: _liveStreamLocker previously wrapped the entire block below, including the
-            // await on provider.OpenMediaSource(...), which performs the actual (potentially slow)
-            // network call to open the remote stream. Because this is a single global lock shared
-            // by every Live TV operation (including CloseLiveStream), holding it across that await
-            // blocked all other Live TV activity for the duration of a slow connection.
-            // _openStreams is a ConcurrentDictionary, so reading a snapshot of its values and writing
-            // the newly opened stream into it are already thread-safe without external locking. The
-            // lock is only needed to serialize the provider resolution + registration around the
-            // network call, not the network call itself, so it is scoped to just that critical section.
             var (provider, keyId) = GetProvider(request.OpenToken);
-            var currentLiveStreams = _openStreams.Values.ToList();
-
-            liveStream = await provider.OpenMediaSource(keyId, currentLiveStreams, cancellationToken).ConfigureAwait(false);
-
-            mediaSource = liveStream.MediaSource;
-
-            // Validate that this is actually possible
-            if (mediaSource.SupportsDirectStream)
+            var providerLockKey = provider.GetOpenMediaSourceLockKey(keyId);
+            var lockKey = string.IsNullOrWhiteSpace(providerLockKey) ? request.OpenToken : $"{GetProviderKeyHash(provider)}:{providerLockKey}";
+            using (await _liveStreamOpenLocker.LockAsync(lockKey, cancellationToken).ConfigureAwait(false))
             {
-                mediaSource.SupportsDirectStream = SupportsDirectStream(mediaSource.Path, mediaSource.Protocol);
-            }
+                var currentLiveStreams = _openStreams.Values.ToList();
+                liveStream = await provider.OpenMediaSource(keyId, currentLiveStreams, cancellationToken).ConfigureAwait(false);
 
-            SetKeyProperties(provider, mediaSource);
+                mediaSource = liveStream.MediaSource;
 
-            using (await _liveStreamLocker.LockAsync(cancellationToken).ConfigureAwait(false))
-            {
-                _openStreams[mediaSource.LiveStreamId] = liveStream;
-                if (!request.UserId.IsEmpty())
+                // Validate that this is actually possible
+                if (mediaSource.SupportsDirectStream)
                 {
-                    _liveStreamOwners
-                        .GetOrAdd(mediaSource.LiveStreamId, _ => new ConcurrentDictionary<Guid, int>())
-                        .AddOrUpdate(request.UserId, 1, (_, count) => count + 1);
+                    mediaSource.SupportsDirectStream = SupportsDirectStream(mediaSource.Path, mediaSource.Protocol);
                 }
-                else
+
+                SetKeyProperties(provider, mediaSource);
+
+                using (await _liveStreamLocker.LockAsync(cancellationToken).ConfigureAwait(false))
                 {
-                    _unownedLiveStreamConsumers.AddOrUpdate(mediaSource.LiveStreamId, 1, (_, count) => count + 1);
+                    _openStreams[mediaSource.LiveStreamId] = liveStream;
+                    if (!request.UserId.IsEmpty())
+                    {
+                        _liveStreamOwners
+                            .GetOrAdd(mediaSource.LiveStreamId, _ => new ConcurrentDictionary<Guid, int>())
+                            .AddOrUpdate(request.UserId, 1, (_, count) => count + 1);
+                    }
+                    else
+                    {
+                        _unownedLiveStreamConsumers.AddOrUpdate(mediaSource.LiveStreamId, 1, (_, count) => count + 1);
+                    }
                 }
             }
 
@@ -1143,6 +1139,7 @@ namespace Emby.Server.Implementations.Library
                 }
 
                 _liveStreamLocker.Dispose();
+                _liveStreamOpenLocker.Dispose();
             }
         }
 

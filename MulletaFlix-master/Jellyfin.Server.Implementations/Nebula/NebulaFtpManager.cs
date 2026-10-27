@@ -6,14 +6,15 @@ using System.Diagnostics.Metrics;
 using System.Globalization;
 using System.IO;
 using System.Linq;
+using System.Net.Http;
+using System.Net.Http.Headers;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
-using System.Security.Cryptography;
-using System.Net.Http;
-using System.Net.Http.Headers;
 using System.Threading;
 using System.Threading.Tasks;
+using Jellyfin.Server.Implementations.Nebula;
 using MediaBrowser.Common.Configuration;
 using MediaBrowser.Controller.Configuration;
 using MediaBrowser.Controller.Entities;
@@ -24,7 +25,6 @@ using MediaBrowser.Model.Configuration;
 using MediaBrowser.Model.Nebula;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
-using Jellyfin.Server.Implementations.Nebula;
 using MulletaFlix.Database.Implementations.Contexts;
 
 namespace MulletaFlix.Server.Implementations.Nebula;
@@ -1734,7 +1734,7 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable, IAsyncDis
                 if (_mongoContext != null)
                 {
                     var stats = await _mongoContext.GetQueueStatsAsync(CancellationToken.None).ConfigureAwait(false);
-                    EmitServerLog("INFO", $"Fila: evento={evt} stage={stats.Staging} fila={stats.Queued} enviando={stats.Uploading} enviados={stats.Completed} falhas={stats.Failed} faltam={stats.Pending} (no disco={stats.PendingDisk})");
+                    EmitServerLog("INFO", $"Fila: evento={evt} stage={stats.Staging} fila={stats.Queued} enviando={stats.Uploading} retry_wait={stats.RetryWait} enviados={stats.Completed} falhas={stats.Failed} faltam={stats.Pending} (no disco={stats.PendingDisk})");
                 }
             };
 
@@ -2768,16 +2768,20 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable, IAsyncDis
             _downloaderEngine.OnProgressChanged += st =>
             {
                 var queueProgress = _downloaderEngine.GetQueueProgress();
-                _currentDownload.Name = st.Name;
-                _currentDownload.TotalMb = st.TotalMb;
-                _currentDownload.DoneMb = st.DoneMb;
-                _currentDownload.Percentage = st.Percentage;
-                _currentDownload.StageStep = st.StageStep;
-                _currentDownload.DetailText = st.DetailText;
-                _currentDownload.QueuePosition = queueProgress.Position;
-                _currentDownload.QueueCount = queueProgress.Count;
-                _currentDownload.PriorityReason = queueProgress.Reason;
-                _currentDownload.NextItemName = queueProgress.NextItemName;
+                lock (_lock)
+                {
+                    _currentDownload.Name = st.Name;
+                    _currentDownload.Speed = st.Speed;
+                    _currentDownload.TotalMb = st.TotalMb;
+                    _currentDownload.DoneMb = st.DoneMb;
+                    _currentDownload.Percentage = st.Percentage;
+                    _currentDownload.StageStep = st.StageStep;
+                    _currentDownload.DetailText = st.DetailText;
+                    _currentDownload.QueuePosition = queueProgress.Position;
+                    _currentDownload.QueueCount = queueProgress.Count;
+                    _currentDownload.PriorityReason = queueProgress.Reason;
+                    _currentDownload.NextItemName = queueProgress.NextItemName;
+                }
             };
 
             // Aplica a preferência de ordem de categorias persistida antes do primeiro
@@ -2836,10 +2840,13 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable, IAsyncDis
                 _downloaderEngine = null;
             }
 
-            _currentDownload.Name = "Downloader parado.";
-            _currentDownload.StageStep = string.Empty;
-            _currentDownload.Percentage = 0;
-            _currentDownload.DetailText = "0.0%";
+            lock (_lock)
+            {
+                _currentDownload.Name = "Downloader parado.";
+                _currentDownload.StageStep = string.Empty;
+                _currentDownload.Percentage = 0;
+                _currentDownload.DetailText = "0.0%";
+            }
 
             // Only unmount drive N: if NO service (Envio or Downloader) needs it anymore
             if (!_isEnvioRunning)
@@ -4460,9 +4467,6 @@ CREATE TABLE IF NOT EXISTS nebula_files (
 CREATE INDEX IF NOT EXISTS idx_nebula_files_status ON nebula_files(status);
 CREATE INDEX IF NOT EXISTS idx_nebula_files_parent ON nebula_files(parent);
 CREATE INDEX IF NOT EXISTS idx_nebula_files_name ON nebula_files(name);
--- O cursor delta consulta o registro mais recente em catálogos grandes.
--- Sem este índice o ORDER BY pode exceder o timeout do PostgREST.
-CREATE INDEX IF NOT EXISTS idx_nebula_files_updated_at ON nebula_files(updated_at DESC NULLS LAST);
 
 CREATE TABLE IF NOT EXISTS nebula_bot_tokens (
     id BIGSERIAL PRIMARY KEY,
@@ -5993,7 +5997,7 @@ CREATE POLICY nebula_bot_tokens_service_role_all
             if (processExitTask.IsCompleted)
             {
                 await processExitTask.ConfigureAwait(false);
-                throw new InvalidOperationException($"Worker Python encerrou durante a inicialização (código {getExitCode()}).");
+                throw new IOException($"Worker Python encerrou durante a inicialização (código {getExitCode()}).");
             }
 
             return;
@@ -6002,7 +6006,7 @@ CREATE POLICY nebula_bot_tokens_service_role_all
         if (completedTask == processExitTask)
         {
             await processExitTask.ConfigureAwait(false);
-            throw new InvalidOperationException($"Worker Python encerrou antes de iniciar o scan (código {getExitCode()}).");
+            throw new IOException($"Worker Python encerrou antes de iniciar o scan (código {getExitCode()}).");
         }
 
         throw new TimeoutException($"Worker Python não confirmou prontidão após preparar o índice Mongo dentro de {timeout.TotalSeconds:0} segundos.");
@@ -6015,49 +6019,64 @@ CREATE POLICY nebula_bot_tokens_service_role_all
             return;
         }
 
-        if (TryApplyPythonDownloaderProgressOutput(line, _currentDownload))
+        lock (_lock)
         {
-            return;
+            if (TryApplyPythonDownloaderProgressOutput(line, _currentDownload))
+            {
+                return;
+            }
         }
 
         if (line.Contains("Escaneando e priorizando arquivos .strm", StringComparison.OrdinalIgnoreCase))
         {
-            _currentDownload.Name = "Preparando fila de download";
-            _currentDownload.StageStep = "Indexando e priorizando arquivos da biblioteca...";
-            _currentDownload.Percentage = 0;
-            _currentDownload.DetailText = "A fila será iniciada após a varredura e ordenação por prioridade";
+            lock (_lock)
+            {
+                _currentDownload.Name = "Preparando fila de download";
+                _currentDownload.StageStep = "Indexando e priorizando arquivos da biblioteca...";
+                _currentDownload.Percentage = 0;
+                _currentDownload.DetailText = "A fila será iniciada após a varredura e ordenação por prioridade";
+            }
             return;
         }
 
         var scanCategory = DownloaderScanCategoryRegex.Match(line);
         if (scanCategory.Success)
         {
-            _currentDownload.Name = "Preparando fila de download";
-            _currentDownload.StageStep = $"Indexando categoria prioritária: {scanCategory.Groups["category"].Value.Trim()}";
-            _currentDownload.Percentage = 0;
-            _currentDownload.DetailText = "O download desta categoria começa antes da próxima categoria da fila";
+            lock (_lock)
+            {
+                _currentDownload.Name = "Preparando fila de download";
+                _currentDownload.StageStep = $"Indexando categoria prioritária: {scanCategory.Groups["category"].Value.Trim()}";
+                _currentDownload.Percentage = 0;
+                _currentDownload.DetailText = "O download desta categoria começa antes da próxima categoria da fila";
+            }
             return;
         }
 
         var scanProgress = DownloaderScanProgressRegex.Match(line);
         if (scanProgress.Success)
         {
-            _currentDownload.Name = "Preparando fila de download";
-            _currentDownload.StageStep = $"Indexando biblioteca: {scanProgress.Groups["directories"].Value} diretórios";
-            _currentDownload.Percentage = 0;
-            _currentDownload.DetailText = $"{scanProgress.Groups["media"].Value} mídias localizadas; ordenando por prioridade após a varredura";
+            lock (_lock)
+            {
+                _currentDownload.Name = "Preparando fila de download";
+                _currentDownload.StageStep = $"Indexando biblioteca: {scanProgress.Groups["directories"].Value} diretórios";
+                _currentDownload.Percentage = 0;
+                _currentDownload.DetailText = $"{scanProgress.Groups["media"].Value} mídias localizadas; ordenando por prioridade após a varredura";
+            }
             return;
         }
 
         var scanCount = DownloaderScanCountRegex.Match(line);
         if (scanCount.Success && int.TryParse(scanCount.Groups["count"].Value, out var count))
         {
-            _currentDownload.Name = count == 0 ? "Nenhuma mídia elegível encontrada" : "Fila de download preparada";
-            _currentDownload.StageStep = count == 0 ? "Fila vazia" : "Aguardando o primeiro download...";
-            _currentDownload.QueueCount = count;
-            _currentDownload.QueuePosition = 0;
-            _currentDownload.Percentage = 0;
-            _currentDownload.DetailText = $"{count} arquivo(s) de mídia encontrados";
+            lock (_lock)
+            {
+                _currentDownload.Name = count == 0 ? "Nenhuma mídia elegível encontrada" : "Fila de download preparada";
+                _currentDownload.StageStep = count == 0 ? "Fila vazia" : "Aguardando o primeiro download...";
+                _currentDownload.QueueCount = count;
+                _currentDownload.QueuePosition = 0;
+                _currentDownload.Percentage = 0;
+                _currentDownload.DetailText = $"{count} arquivo(s) de mídia encontrados";
+            }
             return;
         }
 
@@ -6070,33 +6089,42 @@ CREATE POLICY nebula_bot_tokens_service_role_all
             _ = double.TryParse(matchProg.Groups["pct"].Value, NumberStyles.Any, CultureInfo.InvariantCulture, out var pct);
             var speed = matchProg.Groups["speed"].Value.Trim();
 
-            _currentDownload.Name = name;
-            _currentDownload.DoneMb = done;
-            _currentDownload.TotalMb = total;
-            _currentDownload.Percentage = pct;
-            _currentDownload.Speed = $"{speed} MB/s";
-            _currentDownload.StageStep = "Baixando mídia...";
-            _currentDownload.DetailText = $"{pct:F0}% ({done:F1} MB / {total:F1} MB) - {speed} MB/s";
+            lock (_lock)
+            {
+                _currentDownload.Name = name;
+                _currentDownload.DoneMb = done;
+                _currentDownload.TotalMb = total;
+                _currentDownload.Percentage = pct;
+                _currentDownload.Speed = $"{speed} MB/s";
+                _currentDownload.StageStep = "Baixando mídia...";
+                _currentDownload.DetailText = $"{pct:F0}% ({done:F1} MB / {total:F1} MB) - {speed} MB/s";
+            }
             return;
         }
 
         var matchStart = DownloaderStartingRegex.Match(line);
         if (matchStart.Success)
         {
-            _currentDownload.Name = matchStart.Groups["name"].Value.Trim();
-            _currentDownload.StageStep = "Iniciando download...";
-            _currentDownload.Percentage = 0;
-            _currentDownload.DetailText = "0%";
+            lock (_lock)
+            {
+                _currentDownload.Name = matchStart.Groups["name"].Value.Trim();
+                _currentDownload.StageStep = "Iniciando download...";
+                _currentDownload.Percentage = 0;
+                _currentDownload.DetailText = "0%";
+            }
             return;
         }
 
         var matchMerge = DownloaderMergingRegex.Match(line);
         if (matchMerge.Success)
         {
-            _currentDownload.Name = matchMerge.Groups["name"].Value.Trim();
-            _currentDownload.StageStep = "Unindo partes...";
-            _currentDownload.Percentage = 100;
-            _currentDownload.DetailText = "Processando arquivo final...";
+            lock (_lock)
+            {
+                _currentDownload.Name = matchMerge.Groups["name"].Value.Trim();
+                _currentDownload.StageStep = "Unindo partes...";
+                _currentDownload.Percentage = 100;
+                _currentDownload.DetailText = "Processando arquivo final...";
+            }
             return;
         }
 
@@ -6116,7 +6144,7 @@ CREATE POLICY nebula_bot_tokens_service_role_all
         if (line.Contains("[STRM-WORKER-READY]", StringComparison.OrdinalIgnoreCase))
         {
             status.Name = "Preparando fila de download";
-            status.StageStep = "Downloader iniciado; preparando índice Mongo...";
+            status.StageStep = "Downloader iniciado; preparando cache Mongo...";
             status.Percentage = 0;
             status.DetailText = "O processo está ativo; a varredura começa após preparar o índice.";
             return true;
@@ -6125,7 +6153,7 @@ CREATE POLICY nebula_bot_tokens_service_role_all
         if (line.Contains("[STRM-WORKER-MONGO-READY]", StringComparison.OrdinalIgnoreCase))
         {
             status.Name = "Preparando fila de download";
-            status.StageStep = "Índice Mongo preparado; descobrindo bibliotecas...";
+            status.StageStep = "Cache Mongo preparada; descobrindo bibliotecas...";
             status.Percentage = 0;
             status.DetailText = "O scan ainda não começou; localizando pastas e títulos elegíveis.";
             return true;
@@ -6137,6 +6165,15 @@ CREATE POLICY nebula_bot_tokens_service_role_all
             status.StageStep = "Varredura da biblioteca iniciada";
             status.Percentage = 0;
             status.DetailText = "O worker começou a percorrer as pastas monitoradas.";
+            return true;
+        }
+
+        if (line.Contains("[STRM-SCAN-ROOT-ERROR]", StringComparison.OrdinalIgnoreCase))
+        {
+            status.Name = "Erro ao descobrir biblioteca";
+            status.StageStep = "Raiz STRM inacessível";
+            status.Percentage = 0;
+            status.DetailText = line.Trim();
             return true;
         }
 
@@ -6164,16 +6201,16 @@ CREATE POLICY nebula_bot_tokens_service_role_all
         }
 
         var indexedTitle = status.StageStep[titlePrefix.Length..];
-        status.Name = count == 0 ? "Preparando fila de download" : "Fila de download preparada";
+        status.Name = "Preparando download";
         status.StageStep = count == 0
             ? "Título sem mídia elegível; seguindo para o próximo..."
             : $"Título indexado: {indexedTitle}";
-        status.QueueCount = count;
+        status.QueueCount = 0;
         status.QueuePosition = 0;
         status.Percentage = 0;
         status.DetailText = count == 0
             ? $"{indexedTitle} não contém arquivos elegíveis."
-            : $"{count} arquivo(s) elegível(is); iniciando este título antes do próximo.";
+            : $"{count} arquivo(s) elegível(is) neste título; processamento sequencial começa agora. Isso não é uma fila global.";
         return true;
     }
 
@@ -6384,52 +6421,40 @@ idle_timeout = 15s
             return;
         }
 
-        try
+        var refreshError = await SendRcloneVfsRefreshAsync(
+            port,
+            username,
+            password,
+            directory,
+            cancellationToken).ConfigureAwait(false);
+        if (refreshError is not null)
         {
-            var refreshError = await SendRcloneVfsRefreshAsync(
-                port,
-                username,
-                password,
-                directory,
-                cancellationToken).ConfigureAwait(false);
-            if (refreshError is not null)
+            var ancestors = NebulaCompletedMediaRefresh.GetRefreshAncestors(directory);
+            if (ancestors.Count == 0)
             {
-                var ancestors = NebulaCompletedMediaRefresh.GetRefreshAncestors(directory);
-                if (ancestors.Count == 0)
-                {
-                    throw new InvalidOperationException($"rclone recusou o refresh da pasta virtual {directory}: {refreshError}");
-                }
-
-                _logger.LogWarning(
-                    "[NEBULA-MOUNT] O diretório {Directory} não existe no cache VFS ({RefreshError}); atualizando seus ancestrais para descobrir novas pastas.",
-                    directory,
-                    refreshError);
-                foreach (var ancestor in ancestors)
-                {
-                    var fallbackError = await SendRcloneVfsRefreshAsync(
-                        port,
-                        username,
-                        password,
-                        ancestor,
-                        cancellationToken).ConfigureAwait(false);
-                    if (fallbackError is not null)
-                    {
-                        throw new InvalidOperationException($"rclone recusou o refresh do diretório ancestral {ancestor}: {fallbackError}");
-                    }
-                }
+                throw new InvalidOperationException($"rclone recusou o refresh da pasta virtual {directory}: {refreshError}");
             }
 
-            _logger.LogDebug("[NEBULA-MOUNT] Cache da pasta virtual atualizado: {Directory}", directory);
+            _logger.LogWarning(
+                "[NEBULA-MOUNT] O diretório {Directory} não existe no cache VFS ({RefreshError}); atualizando seus ancestrais para descobrir novas pastas.",
+                directory,
+                refreshError);
+            foreach (var ancestor in ancestors)
+            {
+                var fallbackError = await SendRcloneVfsRefreshAsync(
+                    port,
+                    username,
+                    password,
+                    ancestor,
+                    cancellationToken).ConfigureAwait(false);
+                if (fallbackError is not null)
+                {
+                    throw new InvalidOperationException($"rclone recusou o refresh do diretório ancestral {ancestor}: {fallbackError}");
+                }
+            }
         }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-        {
-            throw;
-        }
-        catch (Exception ex)
-        {
-            // MongoDB já confirmou o upload. Uma falha de cache nunca reverte nem falha a mídia.
-            _logger.LogWarning(ex, "[NEBULA-MOUNT] Refresh da pasta virtual falhou após upload concluído: {Directory}", directory);
-        }
+
+        _logger.LogDebug("[NEBULA-MOUNT] Cache da pasta virtual atualizado: {Directory}", directory);
     }
 
     private static async Task<string?> SendRcloneVfsRefreshAsync(

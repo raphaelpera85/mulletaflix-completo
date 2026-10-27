@@ -18,6 +18,8 @@ namespace MulletaFlix.Server.Implementations.Item;
 /// </summary>
 public class NextUpService : INextUpService
 {
+    internal readonly record struct EpisodeCandidate(Guid Id, string SeriesKey, int? Season, int? Episode);
+
     private readonly IDbContextFactory<MulletaFlixDbContext> _dbProvider;
     private readonly IItemTypeLookup _itemTypeLookup;
     private readonly IItemQueryHelpers _queryHelpers;
@@ -59,6 +61,7 @@ public class NextUpService : INextUpService
             .Select(g => new { g.Key, LastPlayedDate = g.Max(u => u.UserData.LastPlayedDate) })
             .Where(g => g.Key != null && g.LastPlayedDate != null && g.LastPlayedDate >= dateCutoff)
             .OrderByDescending(g => g.LastPlayedDate)
+            .ThenBy(g => g.Key)
             .Select(g => g.Key!);
 
         if (filter.Limit.HasValue)
@@ -94,61 +97,56 @@ public class NextUpService : INextUpService
             .AsNoTracking()
             .Where(e => e.Type == episodeTypeName)
             .Where(e => e.SeriesPresentationUniqueKey != null && seriesKeys.Contains(e.SeriesPresentationUniqueKey))
-            .Where(e => e.ParentIndexNumber != 0)
-            .Where(e => e.UserData!.Any(ud => ud.UserId == userId && ud.Played));
+            .Where(e => e.ParentIndexNumber != 0);
         lastWatchedBase = _queryHelpers.ApplyAccessFiltering(context, lastWatchedBase, filter);
 
-        // Use lightweight projection + client-side grouping to avoid correlated scalar subquery
-        // per group that EF generates for GroupBy+OrderByDescending+FirstOrDefault.
-        var allPlayedLite = lastWatchedBase
-            .Select(e => new
-            {
-                e.Id,
-                e.SeriesPresentationUniqueKey,
-                e.ParentIndexNumber,
-                e.IndexNumber
-            })
-            .ToList();
+        var playedWithDates = lastWatchedBase
+            .Join(
+                context.UserData
+                    .AsNoTracking()
+                    .Where(ud => ud.ItemId != EF.Constant(BaseItemRepository.PlaceholderId))
+                    .Where(ud => ud.Played),
+                e => new { UserId = userId, ItemId = e.Id },
+                ud => new { ud.UserId, ud.ItemId },
+                (e, ud) => new { Episode = e, ud.LastPlayedDate });
 
-        var lastWatchedInfo = new Dictionary<string, Guid>();
-        foreach (var group in allPlayedLite.GroupBy(e => e.SeriesPresentationUniqueKey))
-        {
-            var lastWatched = group
+        var latestPlayedPositionRows = lastWatchedBase
+            .Where(e => e.UserData!.Any(ud => ud.UserId == userId && ud.Played))
+            .GroupBy(e => e.SeriesPresentationUniqueKey)
+            .Select(group => group
                 .OrderByDescending(e => e.ParentIndexNumber)
                 .ThenByDescending(e => e.IndexNumber)
-                .First();
-            lastWatchedInfo[group.Key!] = lastWatched.Id;
-        }
+                .ThenByDescending(e => e.Id)
+                .Select(e => new
+                {
+                    e.Id,
+                    SeriesKey = e.SeriesPresentationUniqueKey,
+                    Season = e.ParentIndexNumber,
+                    Episode = e.IndexNumber
+                })
+                .First())
+            .ToDictionary(row => row.SeriesKey!, row => new EpisodeCandidate(row.Id, row.SeriesKey!, row.Season, row.Episode));
+        var lastWatchedInfo = latestPlayedPositionRows.ToDictionary(row => row.Key, row => row.Value.Id);
 
-        Dictionary<string, Guid> lastWatchedByDateInfo = new();
+        IQueryable<BaseItemEntity>? latestPlayedByDateQuery = null;
+        var lastWatchedByDateInfo = new Dictionary<string, Guid>();
         if (includeWatchedForRewatching)
         {
-            var lastWatchedByDateBase = context.BaseItems
+            var latestPlayedByDateIds = playedWithDates
+                .GroupBy(row => row.Episode.SeriesPresentationUniqueKey)
+                .Select(group => group
+                    .OrderByDescending(row => row.LastPlayedDate)
+                    .ThenByDescending(row => row.Episode.ParentIndexNumber)
+                    .ThenByDescending(row => row.Episode.IndexNumber)
+                    .ThenByDescending(row => row.Episode.Id)
+                    .Select(row => row.Episode.Id)
+                    .First());
+            latestPlayedByDateQuery = context.BaseItems
                 .AsNoTracking()
-                .Where(e => e.Type == episodeTypeName)
-                .Where(e => e.SeriesPresentationUniqueKey != null && seriesKeys.Contains(e.SeriesPresentationUniqueKey))
-                .Where(e => e.ParentIndexNumber != 0);
-            lastWatchedByDateBase = _queryHelpers.ApplyAccessFiltering(context, lastWatchedByDateBase, filter);
-
-            // Use an explicit Join (INNER JOIN) instead of SelectMany on a collection navigation.
-            // SelectMany on UserData with a correlated Where would translate to APPLY,
-            // which MariaDB does not support.
-            var playedWithDates = lastWatchedByDateBase
-                .Join(
-                    context.UserData
-                        .AsNoTracking()
-                        .Where(ud => ud.ItemId != EF.Constant(BaseItemRepository.PlaceholderId))
-                        .Where(ud => ud.Played),
-                    e => new { UserId = userId, ItemId = e.Id },
-                    ud => new { ud.UserId, ud.ItemId },
-                    (e, ud) => new { EpisodeId = e.Id, e.SeriesPresentationUniqueKey, ud.LastPlayedDate })
-                .ToList();
-
-            foreach (var group in playedWithDates.GroupBy(x => x.SeriesPresentationUniqueKey))
-            {
-                var mostRecent = group.OrderByDescending(x => x.LastPlayedDate).First();
-                lastWatchedByDateInfo[group.Key!] = mostRecent.EpisodeId;
-            }
+                .Where(e => latestPlayedByDateIds.Contains(e.Id));
+            lastWatchedByDateInfo = latestPlayedByDateQuery
+                .Select(e => new { e.SeriesPresentationUniqueKey, e.Id })
+                .ToDictionary(row => row.SeriesPresentationUniqueKey!, row => row.Id);
         }
 
         var allLastWatchedIds = lastWatchedInfo.Values
@@ -185,18 +183,6 @@ public class NextUpService : INextUpService
             }
         }
 
-        var positionLookup = new Dictionary<string, (int Season, int Episode)>();
-        foreach (var kvp in lastWatchedInfo)
-        {
-            if (kvp.Value != Guid.Empty
-                && lastWatchedEpisodes.TryGetValue(kvp.Value, out var lw)
-                && lw.ParentIndexNumber.HasValue
-                && lw.IndexNumber.HasValue)
-            {
-                positionLookup[kvp.Key] = (lw.ParentIndexNumber.Value, lw.IndexNumber.Value);
-            }
-        }
-
         var allUnplayedBase = context.BaseItems
             .AsNoTracking()
             .Where(e => e.Type == episodeTypeName)
@@ -205,45 +191,40 @@ public class NextUpService : INextUpService
             .Where(e => !e.IsVirtualItem)
             .Where(e => !e.UserData!.Any(ud => ud.UserId == userId && ud.Played));
         allUnplayedBase = _queryHelpers.ApplyAccessFiltering(context, allUnplayedBase, filter);
-        var allUnplayedCandidates = allUnplayedBase
-            .Select(e => new
-            {
-                e.Id,
-                e.SeriesPresentationUniqueKey,
-                e.ParentIndexNumber,
-                EpisodeNumber = e.IndexNumber
-            })
-            .ToList();
-
-        var candidatesBySeries = allUnplayedCandidates
-            .GroupBy(c => c.SeriesPresentationUniqueKey!)
-            .ToDictionary(g => g.Key, g => g.AsEnumerable());
+        var nextUnplayedBySeries = allUnplayedBase
+            .Where(candidate => !lastWatchedBase.Any(watched =>
+                watched.SeriesPresentationUniqueKey == candidate.SeriesPresentationUniqueKey
+                && watched.UserData!.Any(ud => ud.UserId == userId && ud.Played)
+                && watched.ParentIndexNumber != null
+                && watched.IndexNumber != null
+                && !lastWatchedBase.Any(later =>
+                    later.SeriesPresentationUniqueKey == watched.SeriesPresentationUniqueKey
+                    && later.UserData!.Any(ud => ud.UserId == userId && ud.Played)
+                    && (later.ParentIndexNumber > watched.ParentIndexNumber
+                        || (later.ParentIndexNumber == watched.ParentIndexNumber
+                            && later.IndexNumber > watched.IndexNumber)))
+                && ((candidate.ParentIndexNumber == null || candidate.IndexNumber == null)
+                    || watched.ParentIndexNumber > candidate.ParentIndexNumber
+                    || (watched.ParentIndexNumber == candidate.ParentIndexNumber
+                        && watched.IndexNumber >= candidate.IndexNumber))))
+            .GroupBy(candidate => candidate.SeriesPresentationUniqueKey)
+            .Select(group => group
+                .OrderBy(candidate => candidate.ParentIndexNumber)
+                .ThenBy(candidate => candidate.IndexNumber)
+                .Select(candidate => new EpisodeCandidate(
+                    candidate.Id,
+                    candidate.SeriesPresentationUniqueKey!,
+                    candidate.ParentIndexNumber,
+                    candidate.IndexNumber))
+                .First())
+            .ToDictionary(candidate => candidate.SeriesKey);
 
         var nextEpisodeIds = new HashSet<Guid>();
         var seriesNextIdMap = new Dictionary<string, Guid>();
 
         foreach (var seriesKey in seriesKeys)
         {
-            if (!candidatesBySeries.TryGetValue(seriesKey, out var allCandidates))
-            {
-                continue;
-            }
-
-            var candidates = allCandidates.AsEnumerable();
-
-            if (positionLookup.TryGetValue(seriesKey, out var pos))
-            {
-                candidates = candidates.Where(c =>
-                    c.ParentIndexNumber > pos.Season
-                    || (c.ParentIndexNumber == pos.Season && c.EpisodeNumber > pos.Episode));
-            }
-
-            var nextCandidate = candidates
-                .OrderBy(c => c.ParentIndexNumber)
-                .ThenBy(c => c.EpisodeNumber)
-                .FirstOrDefault();
-
-            if (nextCandidate is not null && nextCandidate.Id != Guid.Empty)
+            if (nextUnplayedBySeries.TryGetValue(seriesKey, out var nextCandidate) && nextCandidate.Id != Guid.Empty)
             {
                 nextEpisodeIds.Add(nextCandidate.Id);
                 seriesNextIdMap[seriesKey] = nextCandidate.Id;
@@ -261,55 +242,37 @@ public class NextUpService : INextUpService
                 .Where(e => !e.IsVirtualItem)
                 .Where(e => e.UserData!.Any(ud => ud.UserId == userId && ud.Played));
             allPlayedBase = _queryHelpers.ApplyAccessFiltering(context, allPlayedBase, filter);
-            var allPlayedCandidates = allPlayedBase
-                .Select(e => new
-                {
-                    e.Id,
-                    e.SeriesPresentationUniqueKey,
-                    e.ParentIndexNumber,
-                    EpisodeNumber = e.IndexNumber
-                })
-                .ToList();
-
-            var playedBySeries = allPlayedCandidates
-                .GroupBy(c => c.SeriesPresentationUniqueKey!)
-                .ToDictionary(g => g.Key, g => g.AsEnumerable());
+            var latestPlayedByDate = latestPlayedByDateQuery!;
+            var nextPlayedBySeries = allPlayedBase
+                .Join(
+                    latestPlayedByDate,
+                    candidate => candidate.SeriesPresentationUniqueKey,
+                    latest => latest.SeriesPresentationUniqueKey,
+                    (candidate, latest) => new { Candidate = candidate, Latest = latest })
+                .Where(row => !row.Latest.ParentIndexNumber.HasValue
+                    || !row.Latest.IndexNumber.HasValue
+                    || (row.Candidate.ParentIndexNumber > row.Latest.ParentIndexNumber.Value
+                        || (row.Candidate.ParentIndexNumber == row.Latest.ParentIndexNumber.Value
+                            && row.Candidate.IndexNumber > row.Latest.IndexNumber.Value)))
+                .GroupBy(row => row.Candidate.SeriesPresentationUniqueKey)
+                .Select(group => group
+                    .OrderBy(row => row.Candidate.ParentIndexNumber)
+                    .ThenBy(row => row.Candidate.IndexNumber)
+                    .ThenBy(row => row.Candidate.Id)
+                    .Select(row => new
+                    {
+                        row.Candidate.Id,
+                        SeriesKey = row.Candidate.SeriesPresentationUniqueKey,
+                        Season = row.Candidate.ParentIndexNumber,
+                        Episode = row.Candidate.IndexNumber
+                    })
+                    .First())
+                .ToDictionary(row => row.SeriesKey!, row => new EpisodeCandidate(row.Id, row.SeriesKey!, row.Season, row.Episode));
 
             foreach (var seriesKey in seriesKeys)
             {
-                if (!lastWatchedByDateInfo.TryGetValue(seriesKey, out var lastByDateId))
-                {
-                    continue;
-                }
-
-                var lastByDateEntity = lastWatchedEpisodes.GetValueOrDefault(lastByDateId);
-                if (lastByDateEntity is null)
-                {
-                    continue;
-                }
-
-                if (!playedBySeries.TryGetValue(seriesKey, out var allPlayed))
-                {
-                    continue;
-                }
-
-                var playedCandidates = allPlayed.AsEnumerable();
-
-                if (lastByDateEntity.ParentIndexNumber.HasValue && lastByDateEntity.IndexNumber.HasValue)
-                {
-                    var lastSeason = lastByDateEntity.ParentIndexNumber.Value;
-                    var lastEp = lastByDateEntity.IndexNumber.Value;
-                    playedCandidates = playedCandidates.Where(c =>
-                        c.ParentIndexNumber > lastSeason
-                        || (c.ParentIndexNumber == lastSeason && c.EpisodeNumber > lastEp));
-                }
-
-                var nextPlayedCandidate = playedCandidates
-                    .OrderBy(c => c.ParentIndexNumber)
-                    .ThenBy(c => c.EpisodeNumber)
-                    .FirstOrDefault();
-
-                if (nextPlayedCandidate is not null && nextPlayedCandidate.Id != Guid.Empty)
+                if (nextPlayedBySeries.TryGetValue(seriesKey, out var nextPlayedCandidate)
+                    && nextPlayedCandidate.Id != Guid.Empty)
                 {
                     nextEpisodeIds.Add(nextPlayedCandidate.Id);
                     seriesNextPlayedIdMap[seriesKey] = nextPlayedCandidate.Id;
@@ -371,5 +334,28 @@ public class NextUpService : INextUpService
         }
 
         return result;
+    }
+
+    internal static void KeepPreferredCandidate(
+        Dictionary<string, EpisodeCandidate> candidatesBySeries,
+        EpisodeCandidate candidate,
+        bool descending)
+    {
+        if (!candidatesBySeries.TryGetValue(candidate.SeriesKey, out var current))
+        {
+            candidatesBySeries[candidate.SeriesKey] = candidate;
+            return;
+        }
+
+        var comparison = Nullable.Compare(candidate.Season, current.Season);
+        if (comparison == 0)
+        {
+            comparison = Nullable.Compare(candidate.Episode, current.Episode);
+        }
+
+        if ((descending && comparison > 0) || (!descending && comparison < 0))
+        {
+            candidatesBySeries[candidate.SeriesKey] = candidate;
+        }
     }
 }

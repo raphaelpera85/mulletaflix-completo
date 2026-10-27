@@ -1,3 +1,6 @@
+## Reauditoria O-1 — telemetria de respostas lentas — 2026-10-26 23:20 BRT
+
+O achado O-1/H-1 não está mais aberto no código: `ResponseTimeMiddleware` registra em `Information` quando habilitado e acima do limiar, redige capability sensível, suprime o mesmo caminho por 30 s e limita o mapa a 512 entradas. `ResponseTimeMiddlewareTests` passou 7/7 em Windows/.NET 10 Release, cobrindo Debug desligado, supressão, paths distintos, redação, opção desabilitada, fast response e `X-Response-Time-ms`. Corrigi abaixo o status anterior que ainda descrevia o defeito como atual. Não conferi versão instalada, configuração/logs de produção nem volume real; homologação formal não recebe crédito até essa evidência existir.
 # Auditoria completa de performance — servidor MulletaFlix
 
 Escopo: backend .NET (`MulletaFlix-master`), banco MariaDB (`mulletaflix`) e cliente web
@@ -137,27 +140,27 @@ Frente auditada: `Emby.Server.Implementations`, `MediaBrowser.Providers`, `Media
 
 | # | Prio | Local | Problema | Correção |
 | --- | --- | --- | --- | --- |
-| B-1 | P0 | `ProviderManager.cs:1275` e `:1306` | `PriorityQueue` **não é thread-safe** e é usada sem lock no `Enqueue` e no `TryDequeue`; `_refreshQueueLock` só protege a flag. Produtores concorrentes corrompem o heap: refreshes perdidos, ordem errada ou exceção. | Serializar Enqueue+TryDequeue sob o lock, ou trocar por `ConcurrentQueue` com baldes de prioridade |
-| B-2 | P0 | `NebulaDownloaderEngine.cs:1017` | Lock global + `Sum()` + 2-3 strings interpoladas + evento de UI **dentro do lock**, a cada buffer de 64 KB e com até 32 partes concorrentes. >1.500 aquisições de lock e ~5.000 alocações por segundo. | Reportar a cada 250–500 ms ou na mudança de percentual inteiro; formatar fora do lock |
-| B-3 | P0 | `UserDataManager.cs:59` | `SaveUserData` faz lock bloqueante em 8 stripes + transação síncrona + re-query completo, e é chamado em **todo report de progresso** (~10 s por cliente). Itens sem relação colidem no mesmo stripe. | Overload assíncrono com `AsyncKeyedLocker<Guid>` por item; eliminar a re-query (leituras já vêm do cache) |
-| B-4 | P1 | `MediaSourceManager.cs:619` | Um lock global do subsistema de live TV segurado **através do await** que abre o stream remoto. Dois usuários em canais diferentes serializam; um provider travado bloqueia todos. | Lock por chave (`request.OpenToken`), seção crítica só na mutação de `_openStreams` |
-| B-5 | P1 | `NebulaChunkedStream.cs:66` | `MaxCachedChunks = 64` → **64 MB de LOH por stream ativo** (2-3 streams = 128-192 MB), com GC workstation e host paginando. | Baixar para 4–8 chunks e/ou alugar de `ArrayPool<byte>.Shared` |
-| B-6 | P1 | `DtoService.cs:327` | Sync-over-async com `GetAwaiter().GetResult()`; o caminho busca o manifest de trickplay, que abre um DbContext e faz uma query **por media source**, no `/Sessions` que todo cliente poll. Contribuinte direto da starvation. | Remover `ItemFields.Trickplay` das opções de sessão; eliminar o contrato síncrono |
-| B-7 | P1 | `DisplayPreferencesManager.cs:42,60,104,113,122` | `SaveChangesAsync(default).GetAwaiter().GetResult()` em caminhos de request, inclusive no create-on-miss do GET. | Overloads assíncronos na interface |
-| B-8 | P1 | `ItemPersistenceService.cs:290` | Os 16 stripes são escolhidos pelo **primeiro item do lote**. Dois lotes que compartilham itens pegam locks diferentes (exclusão perdida) e lotes sem relação serializam. | Stripe por item ou chunk do lote com ordem determinística de locks |
-| B-9 | P1 | `MetadataService.cs:1062` | `await Task.Delay(100)` incondicional **após cada imagem**, dentro do orçamento de `_refreshConcurrency`: limita o servidor inteiro a 10 imagens/s. | Só dormir após 429 real, ou mover imagens para worker dedicado |
-| B-10 | P2 | `CollectionManager.cs:249` | `List<Guid>.Contains` dentro de laço → O(n²). | `HashSet<Guid>` |
-| B-11 | P2 | `PeopleRepository.cs:126,166`, `MediaStreamRepository.cs:47`, `ChapterRepository.cs:81`, `MediaAttachmentRepository.cs:39`, `LinkedChildrenService.cs:175` | `SaveChangesAsync(default).GetAwaiter().GetResult()` uma vez por item no scan, com `CreateDbContext()` e transação síncronos. | Migrar para os métodos `*Async` que já existem |
-| B-12 | P2 | `MediaSourceManager.cs:405` | MD5 criptográfico do nome do tipo recalculado por provider por request, para um valor constante do processo. | Memoizar por `Type` |
+| B-1 | Proteção implementada; cobertura adicionada nesta sessão | `ProviderManager.cs` | `PriorityQueue` é acessada sob `_refreshQueueLock` no `Enqueue`, `TryDequeue` e `GetRefreshQueue`; faltava regressão com produtores e consumidor ativos ao mesmo tempo. | Manter o lock e verificar que cada ID enfileirado é processado sob concorrência |
+| B-2 | Proteção aplicada no checkout; CI e produção pendentes | `NebulaDownloaderEngine.cs`; `NebulaFtpManager.cs` | Contenção por parte mitigada; havia até 128 eventos/s, mutação de DTO compartilhado e cópia concorrente do status. | Limite global de 1 evento/250 ms, snapshot isolado, publicação serializada e acesso ao status sob `_lock`; validar runtime e produção |
+| B-3 | P0 — parcialmente mitigado | `UserDataManager.cs:52-112`; `SessionManager.cs:829, 949, 1138` | Início, progresso e parada de reprodução usam `SaveUserDataAsync`; o report aguarda a gravação. Lock assíncrono agora usa a chave `ItemId`, sem colisões entre itens distintos. Persistem transação por gravação, reconsulta de todas as linhas de user data do item para reidratar `item.UserData` e falta validação sob carga MariaDB. | Medir contenção e custo da reidratação em carga; preservar os dados compartilhados do item |
+| B-4 | Mitigado no checkout; runtime/produção pendentes | `MediaSourceManager.cs:630-679`; `IMediaSourceProvider.cs` | Um lock global sobre a chamada remota serializava canais diferentes; lock por token ainda permitiria corrida quando tokens distintos compartilham o mesmo recurso. | Provider informa a chave de concorrência; Live TV usa o ID da fonte compartilhada. O manager mantém lock só até registrar o stream; validar tuner capacity e providers reais |
+| B-5 | Implementado na fonte; runtime/produção pendentes | `NebulaChunkedStream.cs:77, 618-627` | O limite já é `MaxCachedChunks = 8`, não 64. O cache LRU local retém no máximo 8 blocos por stream (até ~8 MiB se cada chunk vier completo); pressão agregada depende de streams ativos, partes e alocações em andamento. | Preservar o teto LRU e confirmar memória agregada em carga/runtime; não estimar 64 MiB por stream como estado atual |
+| B-6 | Mitigado nos fluxos internos do checkout; runtime/produção pendentes | `SessionManager.cs:419,1072,1859`; `DtoService.cs:307-335` | DTO de playback era enriquecido pela chamada síncrona enquanto `ItemFields.Trickplay` exigia manifest assíncrono e consulta no banco. | Fluxos internos de playback e report aguardam `GetBaseItemDtoAsync`; mantém Trickplay para as miniaturas do player web. Métodos síncronos públicos continuam como compatibilidade e ainda podem bloquear quando usados diretamente |
+| B-7 | P1 — corrigido no checkout; runtime/produção pendentes | `DisplayPreferencesManager.cs` | A versão antiga bloqueava no `SaveChangesAsync` dentro de métodos integralmente síncronos. | Os 5 pontos usam `SaveChanges()` nativo; métodos assíncronos não foram removidos. Filtro histórico: 17/17; validar runtime e produção |
+| B-8 | P1 — corrigido no checkout; carga/produção pendentes | `ItemPersistenceService.cs` | Os 16 stripes eram escolhidos pelo primeiro item do lote, permitindo locks diferentes para lotes sobrepostos. | Calcula stripes distintas de todos os itens, adquire em ordem ascendente e libera em ordem reversa. `ItemPersistenceServiceTests` histórico: 23/23; medir sob carga |
+| B-9 | P1 — corrigido no checkout; provider/runtime pendentes | `MetadataService.cs` | Espera de 100 ms após cada imagem limitava refresh mesmo sem falha do provider. | Espera ocorre só depois de falha transitória repetível; teste de regressão/runtime do provider ainda pendente |
+| B-10 | P2 — corrigido no checkout; runtime/produção pendentes | `CollectionManager.cs` | `List<Guid>.Contains` dentro de laço produzia membership O(n²). | `HashSet<Guid>`; validar em biblioteca real |
+| B-11 | P2 — corrigido no checkout; runtime/produção pendentes | `PeopleRepository.cs`, `MediaStreamRepository.cs`, `ChapterRepository.cs`, `MediaAttachmentRepository.cs`, `LinkedChildrenService.cs` | Métodos síncronos bloqueavam em `SaveChangesAsync(default)` e métodos síncronos de contexto/transação durante scans. | Writers síncronos usam `SaveChanges()`; overloads assíncronos continuam para pipelines async. Filtro histórico combinado com B-7: 17/17; validar runtime |
+| B-12 | P2 — corrigido no checkout; runtime/produção pendentes | `MediaSourceManager.cs` | Hash MD5 do nome do tipo do provider era recalculado para um valor constante do processo. | Memoizado por `Type` em `ConcurrentDictionary`; verificar equivalência e comportamento no runtime |
 
 ## Parte 3 — HTTP, API e streaming
 
 | # | Prio | Local | Problema | Correção |
 | --- | --- | --- | --- | --- |
-| H-1 | P0 | `ResponseTimeMiddleware.cs:51` | Aviso de resposta lenta só em **Debug**, com log efetivo em `Information`: `EnableSlowResponseWarning=true` (limiar 500 ms) nunca produz saída. | Emitir em `Information` com supressão por endpoint |
-| H-2 | P0 | `DynamicHlsController.cs:1436` | **Todo request de segmento HLS reconstrói o estado de streaming inteiro**: resolução de media source, `PathFallbackHelper` ×2, decisão de transcoding (`TryStreamCopy`), `ResolutionNormalizer` e um `StreamState` novo. Numa resolução real, 1200 reconstruções por filme de 2 h. | Cachear o `StreamState` por `PlaySessionId`/`MediaSourceId` com TTL curto, invalidando em `OnTranscodeEndRequest` |
+| H-1 | P0 — resolvido no código; produção pendente | `ResponseTimeMiddleware.cs` | O log `Information` agora é emitido acima do limiar; supressão de 30 s por caminho e teto de 512 chaves. Testes locais 7/7. Instalação e telemetria de produção não verificadas. | Validar versão/configuração instalada e confirmar avisos em carga real |
+| H-2 | P0 — cache implementado e corrigido no checkout; concorrência real/runtime/produção pendentes | `DynamicHlsController.cs`; `StreamStateCache.cs` | Reconstrução do estado em todo segmento custava resolução/probe e recomputava parâmetros. O cache já existia, mas compartilhava DTO mutável entre requests e a chave omitia opções de encode. | Cache de 30 s reutilizado; progresso agora fica local ao request, seek sincronizado sob lock da playlist, e a chave cobre opções de encode/StreamOptions. Testes focais 7/7 + 17/17; falta teste concorrente end-to-end e playback/runtime/produção |
 | H-3 | P1 | `Startup.cs` (compressão) | **Playlists HLS não eram comprimidas**: `application/x-mpegURL` não está na lista padrão de MIME types do ASP.NET Core, então a compressão que eu havia habilitado não cobria m3u8. Cada segmento repete a query string inteira, gerando uma playlist de centenas de KB de texto repetitivo. | Adicionar os MIME types de playlist e `text/vtt` — **corrigido nesta execução** |
-| H-4 | P1 | `ImageController.cs:2121` vs `:2172` | O `ProcessImage` (encode Skia, MD5 da chave de cache, stats) roda **antes** da checagem de `If-None-Match`/`If-Modified-Since`, embora o `tag` do ETag já esteja disponível antes. O short-circuit do ETag não evita o trabalho que deveria evitar. | Checar o ETag e devolver 304 antes de `ProcessImage` |
+| H-4 | Implementado no checkout; conformidade das condições reforçada em 2026-10-27 | `ImageController.cs`; `ConditionalRequestExtensions.cs` | O early 304 já evitava `ProcessImage`, mas a comparação literal reconhecia apenas uma ETag exata; ignorava listas, weak validators e `*`. Além disso, o fallback `If-Modified-Since` podia prevalecer apesar da presença de `If-None-Match`. | Parser compartilhado aplica comparação fraca para listas/wildcard e preserva precedência HTTP; regressão controller-level + extensões/imagem/legenda 44/44. Runtime e produção pendentes. |
 | H-5 | P1 | `SubtitleEncoder.cs:127` + `SubtitleController.cs:270` | Cada segmento de legenda re-resolve media source (com `allowMediaProbe: true`) e re-parseia o arquivo inteiro, sem cache de saída e **sem nenhum header de cache**. 240 requests por filme. | Cachear por `(mediaSourceId, streamIndex, format, start, end)` + `ETag`/`Cache-Control` |
 | H-6 | P1 | `MediaInfoHelper.cs:127` | Clone de `MediaSourceInfo[]` via round-trip JSON (serialize + deserialize) só para copiar o grafo. | `record`/`Clone()` explícito |
 | H-7 | P1 | `TrickplayController.cs:97` → `TrickplayManager.cs:507` | Uma query de banco **por tile**: abrir um DbContext novo a cada tile, e `GetTrickplayResolutions` sem cache. Um arrasto de scrub faz centenas de requests. | Cachear resoluções por `itemId` e montar o caminho sem query |
@@ -225,7 +228,7 @@ Nota: hls.js, flv.js, pdfjs, epubjs e libass **já** são importados dinamicamen
 | E-5 | P1 | `ItemPersistenceService.cs:660` + `ItemValuesConfiguration.cs:17` | `INSERT IGNORE` num índice único: o InnoDB pega **lock compartilhado** na linha conflitante. Duas transações concorrentes inserindo o mesmo `(Type, Value)` em ordens diferentes causam deadlock — **é a origem mais provável das 14 deadlocks/dia**, já absorvidas pelo retry. | Deduplicar contra o conjunto já carregado antes de montar o SQL; usar `ON DUPLICATE KEY UPDATE` no-op |
 | E-6 | P1 | `ItemPersistenceService.cs:145-166` | `DeleteItem` inlineia até ~78k GUIDs em **22** `ExecuteDelete` dentro de uma transação: ~65 MB de SQL para parsear e planejar, com locks presos o tempo todo. | Deletes set-based por join; chunk de ≤1000 quando inevitável |
 | E-7 | P1 | `TranslateQuery.cs:1092-1131` | `e.Data.Contains(...)` sobre o JSON em `longtext` em 7 filtros: full scan + leitura do payload de todas as linhas. | Promover as flags a colunas ou linhas de `ItemValues` indexáveis |
-| E-8 | P1 | `BaseItemRepository.Querying.cs:131-155` | `GetLatestTvShowItems`/movies transmitem **todo** o conjunto filtrado ao processo para escolher uma linha por chave, anulando o `LIMIT`. | `ROW_NUMBER() OVER (PARTITION BY ...)` — o índice de partição já existe |
+| E-8 | P1 | `BaseItemRepository.Querying.cs:131-155` | `GetLatestTvShowItems`/movies projetam apenas chaves e percorrem candidatos ordenados no cliente até obter o limite de cards; não há limite de linhas no SQL. Sem limite ou com alta duplicidade, a leitura pode alcançar todo o conjunto. A alegação de que sempre transmite todo o conjunto é ampla demais: o loop termina assim que completa o limite. | Medir EXPLAIN e custo MariaDB em catálogo representativo; avaliar `ROW_NUMBER() OVER (PARTITION BY ...)` apenas se preservar ordenação, filtros, deduplicação e compatibilidade MariaDB |
 | E-9 | P1 | `DescendantQueryHelper.cs:90-106` | Materializa todos os ids correspondentes e inlineia um parâmetro por id na primeira iteração, com 3 round trips por nível de hierarquia. | `WITH RECURSIVE` compondo como `IQueryable` |
 | E-10 | P1 | `Migrations/20260709214429` e `20260819010535` | Duas migrações distintas fazem `DROP INDEX` + `CREATE` do FULLTEXT em `baseitems`, e uma delas também altera tipo de coluna indexada: `ALGORITHM=COPY` com rebuild completo e MDL exclusivo bloqueando leituras e escritas. **É a classe de mudança que derruba o servidor durante o update.** | Nunca combinar mudança de tipo com rebuild de FTS; checar existência em `information_schema` antes de recriar |
 | E-11 | P2 | `TranslateQuery.cs:545-565` | `IsResumable` ainda usa `Contains(...) == isResumable` com `ToList()` — exatamente o defeito já corrigido no ramo `IsPlayed`, gerando até ~2.787 parâmetros por request de Continue Watching. | Separar no booleano e manter `IQueryable<Guid>`, como no ramo já corrigido |
@@ -241,21 +244,11 @@ A frente de EF verificou o banco ao vivo e corrigiu duas premissas minhas: `Item
 
 ## Parte 6 — Observabilidade (medido nos logs de produção)
 
-### O-1 [P0] O servidor não tem telemetria de requisição lenta em produção
+### O-1 [P0] Telemetria de resposta lenta — resolvido no código, produção pendente
 
-- Evidência: `ResponseTimeMiddleware.cs:51` só registra quando
-  `_logger.IsEnabled(LogLevel.Debug)`. O log efetivo é
-  `C:\Users\Raphael\AppData\Local\MulletaFlix\config\logging.default.json` com
-  `MinimumLevel.Default = "Information"`, ou seja **Debug está desligado**.
-- Configuração encontrada: `EnableSlowResponseWarning = true` e
-  `SlowResponseThresholdMs = 500` (`ServerConfiguration.cs:226,231`) — a opção está ligada mas
-  **nunca produz saída**. É um ajuste que parece ativo e não faz nada.
-- Por que importa: sem isso não existe evidência de produção sobre qual endpoint é lento. Toda
-  otimização de latência passa a ser palpite.
-- Correção: emitir em `Information`/`Warning` quando ultrapassar o limiar, com supressão por
-  endpoint/threshold para não inundar o log, mantendo o Debug para o detalhe por URL.
-- Esforço/risco: pequeno. O risco é volume de log, mitigado pela supressão por endpoint.
+O registro anterior descrevia o defeito original, já corrigido: o middleware emitia em `Information`, não depende de `Debug`; respeita `EnableSlowResponseWarning` e `SlowResponseThresholdMs`; suprime o mesmo caminho por 30 s e limita o mapa de caminhos a 512 entradas. `ResponseTimeMiddlewareTests` passou 7/7 em Release. Cobertura inclui o caso de produção com Debug desativado, redação de capability, supressão, limiar/opção e cabeçalho `X-Response-Time-ms`.
 
+Pendente: validar binário e configuração instalados, observar carga real e medir volume de avisos. Esta reauditoria de código não comprova produção.
 ### O-2 [P1] As paradas de heartbeat eram causadas pelo esgotamento de conexões
 
 - Evidência medida no mesmo arquivo de log, comparando os dois ciclos do dia:
@@ -330,7 +323,7 @@ Ordenado do que dá mais resultado com menos risco. Cada item indica como provar
 | # | Ação | Ganho medido | Prova |
 | --- | --- | --- | --- |
 | 1 | `DROP INDEX IX_BaseItems_TopParentId_Type_IsVirtualItem` | ~8,9 MB de índice e uma B-tree a menos por escrita | `INDEX_LENGTH` de `baseitems` antes/depois; suíte verde |
-| 2 | Emitir aviso de resposta lenta em nível visível (`ResponseTimeMiddleware`) | passa a existir telemetria de latência | log com `Slow HTTP Response` em carga real |
+| 2 | Validar aviso de resposta lenta já implementado (`ResponseTimeMiddleware`) na instalação | confirmar telemetria de latência real | versão/configuração instalada e log `Slow HTTP Response` em carga real |
 | 3 | Suprimir/agregar os avisos repetitivos de heartbeat e os 403 de provider | ~130 MB/dia de log e sinal legível | tamanho diário do log antes/depois |
 | 4 | Aplicar a build 12.0.46 na instalação (exige elevação) | ativa teto de pool 100, guard de porta e correções de Fase 1–3 | versão instalada = 12.0.46 e suíte completa com servidor vivo |
 
@@ -830,12 +823,12 @@ estiver sobrecomprometido.
 Isto **não invalida** as 25 correções executadas — o esgotamento de conexões caiu de 182/dia para
 **0** e isso é medido. Mas reposiciona o resto:
 
-1. **Reduzir o pico de memória do servidor passa a ser a prioridade número um**, à frente de
-   qualquer micro-otimização de CPU ou de query. São exatamente os achados que ainda não foram
-   executados: `ChapterImagesTask` (S-5), `UnidentifiedMediaCleanupTask` (S-6) e
-   `StrmProbeScheduledTask` (S-11) carregam a **biblioteca inteira** em memória sem paginação;
-   `NebulaChunkedStream` reserva **64 MB de LOH por stream ativo** (B-5), e há 9 workers de upload
-   concorrentes segurando buffers de 16 MB cada.
+1. **Reduzir o pico de memória do servidor continua prioridade**, à frente de micro-otimizações de
+   CPU ou query. `ChapterImagesTask` (S-5), `UnidentifiedMediaCleanupTask` (S-6) e
+   `StrmProbeScheduledTask` (S-11) carregam a **biblioteca inteira** em memória sem paginação; há
+   também workers de upload segurando buffers. O LRU local de `NebulaChunkedStream` já foi reduzido
+   de 64 para 8 chunks (até ~8 MiB por stream), então o antigo cálculo de 64 MiB não descreve a
+   fonte atual. Runtime instalado e memória agregada em produção continuam sem verificação.
 2. **Aliviar a competição no host** — a VM QEMU e os processos Java somam mais que a RAM livre.
    Nenhum tuning do servidor resolve isso.
 3. As correções já feitas que reduzem memória (E-1, que eliminou uma tabela derivada de ~55 MB por
@@ -846,6 +839,10 @@ Isto **não invalida** as 25 correções executadas — o esgotamento de conexõ
 Uma hipótese que **não** se sustenta mais: atribuir os avisos de heartbeat exclusivamente a
 bloqueios de thread. Os bloqueios existem e foram corrigidos, mas os congelamentos de 50–100 s são
 de outra ordem de grandeza e coincidem com o esgotamento de memória do host.
+
+### Correção da estimativa B-5 — 2026-10-27 01:00 BRT
+
+A tabela e esta priorização foram reconciliadas com a fonte: `NebulaChunkedStream.MaxCachedChunks` vale 8. Um teste regressivo lê nove chunks distintos e confirma que o primeiro, removido pelo LRU, é buscado novamente no seek. O limite local atual é até 8 MiB por stream quando todos os chunks estão completos; isso não mede os buffers do pool, prefetch em andamento, concorrência total ou runtime instalado.
 
 ---
 
@@ -1842,6 +1839,159 @@ Commit: `4d3cbe85` (`MulletaFlix-web-master`, `src/index.tsx`).
 - `tests/Jellyfin.Api.Tests`: 166 aprovados, 0 falhas (código 0).
 - `build-update-package.ps1`: Pacote de atualização zip e executável compilados com sucesso.
 
+## Atualização — 2026-10-23 — Exclusão concorrente de imagens
+
+`DeleteItem` agora descobre os itens afetados antes da transação, adquire as
+faixas por `ItemId` em ordem crescente e revalida a hierarquia dentro da
+transação. Se a revalidação encontrar faixa ainda não adquirida, a operação sai
+sem mutações, libera as faixas e reinicia; nenhuma espera por `SemaphoreSlim`
+ocorre com a transação SQL aberta. `SaveImagesAsync`, `UpdateOrInsertItems` e
+`DeleteItem` ficam coordenados dentro do mesmo processo; gravações de itens
+também travam os stripes de `ParentId` e `OwnerId`, reduzindo a janela para
+inserção de descendentes enquanto um ancestral é excluído. A busca por
+descendentes ainda pode ser repetida quando o grafo muda.
+
+Evidência local: `ItemPersistenceServiceTests` Release, 27/27; o teste de
+integração `DeleteItem_ConcurrentWithImageRefreshes_CompletesWithoutDeadlock`
+compilou, mas foi ignorado sem `MULLETAFLIX_TEST_MARIADB_CONNECTION_STRING`.
+Ainda falta execução em MariaDB isolado e teste de inclusão concorrente de
+descendentes. `SemaphoreSlim` não coordena processos distintos. Esta evidência
+não confirma instalação nem produção.
 
 
 
+
+## Reauditoria do runtime instalado — 2026-10-26 23:23 BRT
+
+Checagem local somente leitura: `C:\Program Files\MulletaFlix\Server\MulletaFlix.dll` informa produto `12.1.35` (última gravação 21/10/2026 10:15); a fonte deste checkout declara `12.1.32`. `logging.default.json` em `AppData\Local\MulletaFlix\config` define `Serilog.MinimumLevel.Default=Information`. Não havia processo MulletaFlix nem serviço principal cujo caminho apontasse para o produto; o serviço `MulletaFlixNginx` estava ativo. Não foram encontrados logs nos diretórios de log verificados. A configuração é compatível com a severidade do middleware, mas não prova que `ResponseTimeMiddleware` está no binário instalado nem que alertas aparecem sob carga. O-1 permanece resolvido no código/testes e pendente em runtime/produção; homologação formal permanece 2/7 (28,6%), sem crédito.
+
+## Reauditoria B-1 — concorrência da fila de refresh — 2026-10-26 23:55 BRT
+
+A fila `PriorityQueue` já serializa `Enqueue`, `TryDequeue` e `GetRefreshQueue` com `_refreshQueueLock`; não foi necessária alteração no código de produção. Foi adicionada uma regressão com 8 produtores concorrentes (4.096 IDs únicos) e o worker ativo. O teste compara o conjunto de IDs enfileirados ao conjunto processado, exige exatamente uma chamada por ID e confirma a fila vazia. Isso evita falso positivo de contagem quando um item duplicado substitui outro perdido.
+
+Evidência local: teste específico aprovado em 10 execuções; suíte `ProviderManagerTests` 77/77; `dotnet format style --verify-no-changes` aprovado; contrato do portal 318/318; `git diff --check` aprovado. A auditoria confirma proteção já presente, acrescenta cobertura, mas não altera comportamento do servidor. Não valida CI hospedada, runtime instalado ou produção. Homologação formal permanece 2/7 (28,6%); sem crédito ou release.
+
+## Reauditoria B-2 — progresso multipart Nebula — 2026-10-27 00:04 BRT
+
+O código já havia removido `Sum()`, formatação e callback do hot path de cada leitura de 64 KiB, com intervalo de 250 ms por parte. A auditoria encontrou a lacuna restante: 32 partes podiam emitir até 128 eventos por segundo, mutar o mesmo DTO e atualizar `_currentDownload` sem o lock usado pelo endpoint. Agora o relatório é limitado globalmente a um evento por 250 ms, usa semáforo assíncrono para manter ordem entre snapshots, calcula o agregado com leituras atômicas, envia DTO próprio por callback e grava o estado do manager dentro de `_lock`.
+
+Evidência local: `NebulaDownloaderEngineTests` 46/46; conjunto `FullyQualifiedName~Nebula` 729 aprovados, 38 ignorados, 0 falhas/767; formatter direcionado aprovado. Os ignorados não são creditados como aprovados. A revisão independente inicialmente identificou publicação fora de ordem; a correção serializa publicação e tira o timestamp após adquirir o semáforo. CI hospedada, fluxo de rede real, runtime instalado e produção não verificados. Formal permanece 2/7 (28,6%), sem crédito/release.
+
+### Fechamento da revisão B-2 — 2026-10-27 00:22 BRT
+
+A revisão final encontrou três omissões de consistência: o callback C# não propagava `Speed`, o parser Python atualizava `_currentDownload` sem `_lock`, e a parada do downloader também gravava esse DTO fora do lock lido pelo endpoint. Os três caminhos agora usam o mesmo lock e `EmitServerLog` continua fora da seção crítica. O teste multipart mede os callbacks com tolerância de 230 ms para o atraso entre reivindicar e observar o callback; o teste unitário ainda verifica o limite exato de 250 ms.
+
+Evidência: suíte `FullyQualifiedName~Nebula` recompilada em Windows/.NET 10 Release: 729 aprovados, 38 ignorados, 0 falhas/767; `dotnet format style --verify-no-changes --no-restore`, `git diff --check` e contrato do portal 318/318 aprovados. Busca por `_currentDownload.<campo> =` no `NebulaFtpManager.cs` confirmou que todos os escritores estão sob `_lock`. O teste integrado MariaDB, runtime instalado, rede real e produção não foram executados nesta revisão. A DLL instalada continua sem os marcadores da proteção de imagens; a repetição do log tem o mesmo SHA-256 e não identifica o processo emissor. Formal segue 2/7 (28,6%), sem crédito ou release.
+
+## Reauditoria B-3 — persistência de progresso — 2026-10-27 00:27 BRT
+
+A inspeção dos call sites confirma que início, progresso e parada de reprodução aguardam `SaveUserDataAsync`; a alegação histórica de que cada report chama o overload síncrono estava desatualizada. A gravação assíncrona ainda usa oito stripes compartilhadas e consulta novamente todas as linhas de user data do item após salvar. A reconsulta reidrata `item.UserData`, que possui consumidores no DTO; removê-la sem medir e provar alternativa pode deixar dados de outras contas ausentes. Portanto B-3 está parcialmente mitigado, não fechado. Recomenda-se medir a contenção, avaliar lock assíncrono por chave com descarte seguro e adicionar testes do caminho de progresso antes de mudar essa semântica.
+
+Evidência desta sessão: `rg` confirmou apenas chamadas síncronas em consumidores manuais/importação e `BaseItem` síncrono; os três métodos privados de reprodução chamam `SaveUserDataAsync`. Foi adicionado teste do overload assíncrono, incluindo persistência e reidratação de `item.UserData`. Testes Release direcionados `UserDataManagerTests|SessionManagerTests`: 13 aprovados, 0 ignorados/falhas; ainda não há teste de integração do progresso no `SessionManager`. O log anexado é byte a byte idêntico ao já registrado (SHA-256 `53030F76669CB3FF502062EFD09E4B536C64C3229339B3D23F59628F8F8577E2`) e continua sem correlação confiável com processo/assembly. Nenhuma alteração de runtime, release ou produção. Homologação formal permanece 2/7 (28,6%), sem crédito.
+
+### Complemento B-3 — contrato do report de progresso — 2026-10-27 00:39 BRT
+
+Foi adicionado teste público de `SessionManager.OnPlaybackProgress`: a gravação `SaveUserDataAsync` fica suspensa por `TaskCompletionSource`; o teste confirma que o report não termina antes de liberar a gravação e verifica `UserDataSaveReason.PlaybackProgress`. O filtro Release `UserDataManagerTests|SessionManagerTests` passou 14/14, 0 ignorados/falhas. `dotnet format style` no arquivo tocado e `git diff --check` passaram. O caminho de request agora tem teste comportamental, além do teste de persistência do manager. B-3 continua parcial: contenção das oito stripes, custo da reconsulta compartilhada e carga MariaDB/produção não foram medidos nesta sessão. Formal continua 2/7 (28,6%), sem crédito; nenhuma release/instalação.
+
+### Complemento B-3 — lock por item — 2026-10-27 00:51 BRT
+
+`UserDataManager.SaveUserDataAsync` substituiu oito semáforos compartilhados por `AsyncKeyedLocker<Guid>` indexado por `item.Id`. Dois itens distintos que colidiam no hash das antigas stripes agora podem persistir em paralelo; gravações do mesmo item continuam serializadas. A instância do locker é descartada pelo ciclo de vida singleton via `IDisposable`. A transação, o cache, o evento e a reidratação de `item.UserData` permanecem iguais.
+
+`SaveUserDataAsync_DoesNotBlockDifferentItemsWithSameHashStripe` segura a primeira gravação no evento pós-commit e exige que a segunda, para outro item com a mesma antiga stripe, termine antes de liberar a primeira. `UserDataManagerTests|SessionManagerTests` passou 15/15 em Windows/.NET 10 Release; formatter dos dois projetos passou. B-3 continua parcial: reconsulta compartilhada, carga MariaDB/produção e runtime instalado não foram medidos. Homologação formal 2/7 (28,6%), sem crédito; sem release ou instalação.
+
+### B-4 — lock keyed para abertura de streams Live TV — 2026-10-27 00:58 BRT
+
+`IMediaSourceProvider` pode fornecer uma chave de concorrência para aberturas que compartilham recurso; o default usa o próprio token, preservando implementadores existentes. `LiveTvMediaSourceProvider` usa o ID da fonte, que o serviço Live TV já usa para decidir reuso. `MediaSourceManager.OpenLiveStreamInternal` serializa a chamada do provider e registro somente pela chave fornecida; chaves distintas continuam paralelas. Testes determinísticos cobrem chaves diferentes em paralelo e tokens distintos com a mesma chave observando/reutilizando o primeiro stream. `MediaSourceManagerTests` passou 33/33 em Windows/.NET 10 Release; formatters de produção e teste passaram. Mudança adiciona método default à interface, sem quebrar implementadores existentes e sem novo pacote. Risco/pendência: limites de tuner compartilhados por host com IDs de fonte diferentes, providers reais, carga e produção não foram validados; formal 2/7 (28,6%), sem crédito/release.
+
+### B-6 — DTO de playback usa enriquecimento assíncrono — 2026-10-27 01:34 BRT
+
+`SessionManager` usa `IDtoService.GetBaseItemDtoAsync` para montar o DTO em início/progresso/parada e no report de visualização; `SessionController.ReportViewing` aguarda a operação. `ItemFields.Trickplay` permanece no DTO para as miniaturas da barra de busca do player web. O novo método async de `ISessionManager` tem implementação default síncrona para manter implementadores existentes compatíveis; `SessionManager` fornece a implementação não bloqueante.
+
+Evidência local: `SessionManagerTests` 14/14 cobre início da reprodução e o método async de report; `SessionControllerAuthorizationTests` 12/12 confirma que o controller aguarda o método async. Format verifier direcionado, contrato local do portal 318/318 e `git diff --check` passaram. Os métodos síncronos públicos seguem disponíveis e podem bloquear quando chamados diretamente; a remoção exige migração dos consumidores. Log de deadlock anexado nesta sessão tem SHA-256 igual ao incidente já registrado e não contém PID/versão para identificar o processo emissor; não é evidência de validação desse runtime. CI hospedada, runtime instalado, MariaDB sob carga e produção pendentes. Formal permanece 2/7 (28,6%), sem crédito/release.
+
+## Reconciliação B-7 a B-12 — 2026-10-27
+
+Leitura direta da fonte confirma que B-7 a B-12, ainda mostrados como achados abertos na tabela original, já têm as correções documentadas nas rodadas posteriores. Atualizei os estados acima para distinguir a correção no checkout das validações em runtime, carga e produção. A busca atual não encontrou `GetAwaiter().GetResult()` nem `SaveChangesAsync(default)` nos cinco repositórios de B-11; os métodos síncronos usam `SaveChanges()`, enquanto os overloads async continuam disponíveis. Não foi alterado código de produto.
+
+### Reauditoria estática da persistência de itens — 2026-10-27 02:46 BRT
+
+O roadmap anterior alegava consultas repetidas e `GetAwaiter().GetResult()` em `UpdateOrInsertItemsCore`; revisão da cadeia de chamadores e da implementação não confirmou essas afirmações. Leituras de itens existentes, providers e campos de metadata são agrupadas. O fluxo é síncrono via `SemaphoreSlim.Wait` e chamadas EF síncronas. `SaveBaseItemEntities` pode emitir `ExecuteDelete` por item apenas quando os conjuntos relacionados mudam; medir em scan representativo antes de propor alteração. EXPLAIN/carga e métricas de runtime seguem pendentes; nenhuma mudança de código nesta rodada.
+
+B-3 continua parcial: `SaveUserDataAsync` mantém uma reconsulta de todas as linhas de user data do item para reidratar `item.UserData`. `UserDataManagerTests` passou 3/3 em Windows/.NET 10 Release nesta rodada (resultado registrado no evento do portal); isso cobre persistência/reidratação e coordenação por item, não mede a latência dessa consulta nem contenção em MariaDB. Próximo passo é obter medida reproduzível de banco e carga antes de otimizar essa reidratação compartilhada.
+
+Limite: confirmação estática do checkout e testes locais/históricos não provam que o runtime instalado ou produção contém essas mudanças. Homologação formal permanece 2/7 (28,6%); sem crédito formal e sem release.
+O anexo recebido em 27/10 tem SHA-256 `53030F76669CB3FF502062EFD09E4B536C64C3229339B3D23F59628F8F8577E2`, idêntico ao log já registrado: MariaDB 1213 em `DELETE BaseItemImageInfos` para o mesmo ItemId, com chamadas concorrentes e retries sem desfecho. Não atribui o erro ao runtime atual; confirmar a correção implantada exige log novo com identidade do processo/assembly e resultado final do retry.
+
+
+## H-2 — estado mutável e chave incompleta no cache HLS — 2026-10-27
+
+O cache de `StreamState` reduz o custo de setup por segmento, mas devolvia a mesma instância mutável a requests concorrentes. Os campos `CurrentRuntimeTicks` e `ActualSegmentLengthTicks` não são mais copiados para o estado compartilhado: o fim do segmento é calculado do DTO do request e capturado pelo callback da resposta. Isso impede um segmento de avançar o progresso de outro. Em cache hit, o início do transcode é aplicado ao request cacheado dentro do lock por playlist imediatamente antes de `StartFfMpeg`, para que o seek chegue ao estado usado pelo encoder.
+
+A chave inclui as opções de codificação antes omitidas, incluindo limites de referência/bit depth, sample rate, stream copy, segment sizing, opções de stream ordenadas e demais campos de encode. Valores numéricos anuláveis usam marcador diferente de zero, para evitar colisões entre limite ausente e limite explicitamente zero. O tempo atual/duração do segmento e o seek transitório continuam fora da chave.
+
+Verificação local: `DynamicHlsControllerTests` 7/7 e `StreamStateCacheTests` 17/17, Release/Windows/.NET 10; os formatters direcionados passaram. Cavecrew confirmou estaticamente os writers/leitores e callers afetados. A suíte não dirige requests HTTP concorrentes completos nem inicia playback em cliente real; runtime instalado, seek real, produção e carga continuam pendentes. Sem homologação formal/release.
+
+## Deadlock de persistência de imagens — falha terminal de retries — 2026-10-27 02:00 BRT
+
+SaveImagesAsync já tentava novamente falhas transitórias (deadlock/lock timeout por até três tentativas e erros de conexão por até dez), mas o logger da própria operação só escrevia os avisos intermediários. Acrescentei um log Error apenas quando uma falha transitória chega ao limite: quantidade final de tentativas, ItemId, PID e versão do assembly; a exceção original continua subindo ao chamador e os limites/intervalos de retry não mudam. O teste existente agora verifica o evento terminal para o limite de três tentativas.
+
+Validação: ItemPersistenceServiceTests passou 37/37 em Windows/.NET 10 Release; git diff --check passou nos dois arquivos tocados. O teste simula falha transitória ao criar o contexto; não provoca deadlock real em MariaDB. O log anexado é repetido e não identifica runtime, processo, ou sucesso/falha final dos retries. CI hospedada e produção pendentes; homologação formal 2/7 (28,6%), sem crédito/release. Portal modificado no checkout local, sem publicação remota.
+
+Mapa técnico conferido: mudança apenas em ItemPersistenceService e seu teste; sem classe, módulo, API ou dependência nova. Decisão registrada em 2026-10-27-image-persistence-terminal-retry-log.md.
+
+## Reauditoria dos escritores de BaseItemImageInfos — 2026-10-27 02:03 BRT
+
+Busca em todos os fontes C# encontrou apenas três escritores de runtime: SaveImagesCoreAsync, UpdateOrInsertItemsCore e DeleteItemsUnderLocks, todos em ItemPersistenceService. Os caminhos adquirem as stripes locais antes de iniciar a operação e depois o advisory lock transacional por stripe. A rotina FixBaseItemImageInfos é o escritor adicional em código de migração e adquire as 16 advisory locks. Existem testes MariaDB para refresh concorrente, SaveItems com SaveImagesAsync e DeleteItem concorrente com refresh.
+
+Nesta sessão, a variável MULLETAFLIX_TEST_MARIADB_CONNECTION_STRING não está configurada. Não executei a integração porque o teste requer um endpoint descartável explícito, loopback e porta não padrão. A evidência de fonte não descarta outro processo/binário antigo nem prova o resultado da produção; o log repetido não identifica versão, PID, caller completo, nem resultado das tentativas. Próxima validação útil: executar os testes existentes contra MariaDB descartável e obter log novo com PID/versão e evento terminal. Formal 2/7, sem crédito/release.
+
+## DLL instalada versus build local no incidente de imagens — 2026-10-27 02:04 BRT
+
+Leitura somente de metadados e SHA-256: C:\Program Files\MulletaFlix\Server\MulletaFlix.dll é 12.1.35, 606.208 bytes, última gravação 21/10/2026 10:15:24, SHA-256 6BCB074F679722F2F1D547E94DC40A81B8BAF90F4261D07235F1340B044C60BD. A saída atual local MulletaFlix.Server/bin/Release/net10.0/MulletaFlix.dll é 12.1.32, 617.472 bytes, compilada em 27/10/2026 01:54:20, SHA-256 E3386F4F98F7D0D1DB3D6425BD48F77B7422B420BB27620F4953C24E4730CCE1. Não havia processo MulletaFlix/Jellyfin ativo na consulta.
+
+A divergência prova que o binário instalado não é a saída local consultada e não contém automaticamente as alterações locais. Não prova qual DLL emitiu o log histórico, porque o trecho não tem PID, versão nem hash. Nenhum processo foi iniciado, arquivo instalado substituído ou serviço reiniciado. Sem release/instalação; CI hospedada e validação em produção continuam pendentes. Formal 2/7 sem crédito.
+
+## Deadlock de imagens — validação MariaDB descartável — 2026-10-27 02:10 BRT
+
+O log recebido é repetido (SHA-256 $sha). O trecho mostra pelo menos 11 tentativas simultâneas de DELETE BaseItemImageInfos para o mesmo ItemId, cada uma chegando ao aviso de retry 2, e um heartbeat Kestrel atrasado em 2,35 s. Não mostra o resultado final dos retries, PID, versão do assembly, caller completo nem relatório InnoDB; por isso não identifica o binário emissor nem prova perda permanente de dados. A concentração no mesmo item e as mensagens de saturação são compatíveis com contenção elevada; não isolam uma causa única.
+
+Validação local: MariaDB 11.4.4 descartável, loopback porta 33564, datadir temporário; filtro Release FullyQualifiedName~IntroSkipper.Integration.Tests.ServerPersistenceMariaDbTests aprovou 24, ignorou 1 e falhou 0 (25 total; 1m14s). O ignorado (SaveImagesAsync_RetriesAfterMariaDbProcessRestartDuringDelete) requer execução em CI. A instância temporária foi encerrada; a instância instalada observada em 3306 permaneceu intacta. O relatório TRX antigo encontrado em %TEMP% era da suíte LiveTV e foi descartado como evidência desta execução.
+
+O teste confirma os cenários de concorrência codificados no checkout, não reproduz a rajada de retries do log nem valida runtime/prod. A fonte local já serializa os três escritores C# e inclui locks advisory por stripe; sem log novo com PID/versão, resultado terminal e InnoDB deadlock report não se pode afirmar qual execução continha essa proteção. CI hospedada e produção pendentes; homologação formal 2/7 (28,6%), sem crédito/release. Nenhuma alteração de código de produto.
+
+Mapa técnico conferido: apenas teste/documentação/evidência local; módulos, APIs, classes de produção e dependências não mudaram.
+
+## Regressão Release ampla do servidor — 2026-10-27 02:18 BRT
+
+A solução .NET Release passou com `dotnet test MulletaFlix-master/MulletaFlix.sln --configuration Release --no-restore -m:1 --filter 'FullyQualifiedName!~Integration'`: 15 assemblies, 5.433 aprovados, 98 ignorados, 0 falhas/5.531; exit code 0. Os skips representam casos de plataforma Linux e integrações/opt-ins não cobertos por esse filtro; não contam como aprovação. Build emitiu avisos de analisadores, sem erro de compilação. O logger TRX recebeu o mesmo nome por projeto e foi sobrescrito; a soma foi conferida nos 15 resumos de console, que permanecem no log temporário desta execução.
+
+Nebula Python foi testado em ambiente `uv run --isolated` com `requirements.lock` e `requirements-test.txt`: 724 aprovados, 2 ignorados, 0 falhas em 35,91 s. A primeira tentativa no Python global foi bloqueada pelo guard de runtime não isolado antes da coleta; a repetição no ambiente isolado foi a execução válida. O `uv` preparou o ambiente isolado com 63 pacotes, sem instalação no Python global.
+
+Não foi executado `IntroSkipper.Integration.Tests` pelo filtro amplo (a integração MariaDB específica `ServerPersistenceMariaDbTests` passou 24/25 na sessão anterior, 1 skip CI-only). Nenhum serviço externo, runtime instalado ou produção foi acessado. A execução não altera agregados auditáveis nem dá crédito à homologação formal, que segue 2/7 (28,6%). Sem mudança de código do produto.
+
+Mapa técnico conferido: apenas regressão/testes e atualização de evidência; módulos, APIs, classes de produto e dependências não mudaram.
+
+## Revalidação do mesmo log de deadlock — 2026-10-27 02:22 BRT
+
+O anexo recebido novamente tem SHA-256 `53030F76669CB3FF502062EFD09E4B536C64C3229339B3D23F59628F8F8577E2`, sem evidência nova do erro: não há PID/versão do servidor, resultado final das tentativas nem relatório InnoDB. A verificação read-only encontrou o mesmo binário instalado 12.1.35 e checkout local 12.1.32; não havia processo MulletaFlix/Jellyfin ativo, somente MariaDB local em 3306. Isso mantém aberta a hipótese de runtime sem a correção, mas não prova que essa DLL emitiu o log.
+
+A fonte do checkout mantém sincronização por `ItemId` e advisory lock MariaDB. A validação MariaDB descartável registrada às 02:10 passou 24/25 (um cenário CI-only ignorado), e a regressão Release geral registrada às 02:18 passou 5.433, com 98 ignorados e zero falhas; nenhuma dessas execuções reproduz a rajada histórica nem valida runtime/produção. Homologação formal segue 2/7 (28,6%), sem crédito ou release. Mapa técnico conferido; arquitetura inalterada.
+
+## Verificação SQL MariaDB da consulta de álbuns — 2026-10-27 02:40 BRT
+GetLatestItemList_Music_UsesMariaDbSubqueryAndDeduplicatesAlbums passou 1/1 em Windows/.NET 10 Release contra MariaDB portátil 11.4.4 em 127.0.0.1:49270, banco/diretório de teste isolados. O teste confirmou tradução SQL, ordenação e deduplicação. EXPLAIN/carga de catálogo representativo, CI hospedada, runtime instalado e produção continuam pendentes; homologação formal 2/7 (28,6%), sem crédito/release. Datadir temporário mantido pela limitação da ferramenta ao remover diretórios recursivos.
+
+## NextUp — seleção SQL de episódios não assistidos — 2026-10-27 11:24 BRT
+
+`GetNextUpEpisodesBatch_SelectsEarliestUnplayedEpisodeOnMariaDb` passou 1/1 em Release contra MariaDB portátil descartável. O SQL real inclui `ROW_NUMBER()` e `<= 1`, e o cenário cobre múltiplas séries, histórico assistido, especiais, virtualidade, e ordenação com posições nulas. A revisão Cavecrew apontou uma regressão quando o episódio assistido mais recente tinha temporada/episódio parcial; o predicado foi corrigido e a regressão ficou coberta no teste.
+
+O resultado confirma a tradução e o conjunto retornado, mas não demonstra custo físico/latência: `EXPLAIN/ANALYZE`, biblioteca representativa e medição de memória continuam pendentes. Caminho de rewatch não foi reduzido. `Jellyfin.Server.Implementations.Tests` passou 1.739, ignorou 95 casos de plataforma/ambiente e teve 0 falhas em Release/Windows/.NET 10; CI hospedada, runtime instalado e produção ainda não foram validados. Formal 2/7 (28,6%), sem crédito/release.
+
+## NextUp — estatísticas reais do fixture MariaDB — 2026-10-27 11:45–11:48 BRT
+
+O teste descartável captura o comando e parâmetros do query ranqueado e executa `ANALYZE FORMAT=JSON`. Em uma execução com cinco séries/16 episódios, o plano mostrou contagens observadas incluindo 4 e 16 e 0,429 ms no query block. Após revisão, as asserções não dependem dos aliases internos do MariaDB e ignoram valores `r_rows` nulos; a integração repetida passou 1/1.
+
+É evidência do mecanismo no fixture pequeno, não benchmark representativo ou medida de ponta a ponta. Catálogo volumoso, variação/cold cache, memória, comparação antes/depois, rewatch, CI remota, runtime e produção permanecem pendentes. Formal 2/7, sem crédito/release.
+
+## NextUp — desempate de LastPlayedDate no rewatch — 2026-10-27
+
+Empates em `LastPlayedDate` agora escolhem o episódio mais alto por temporada/episódio. Se posição também empatar, o maior `Guid` resolve de forma estável. MariaDB descartável passou a regressão 1/1, inclusive timestamp nulo contra timestamp válido; `NextUpQueryOptimizationTests` passou 8/8. Não altera contrato público ou estrutura. Rewatch segue lendo todos os episódios tocados; sem crédito formal, CI, runtime ou produção.

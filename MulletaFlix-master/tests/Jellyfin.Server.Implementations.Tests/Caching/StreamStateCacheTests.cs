@@ -1,10 +1,10 @@
 using System;
-using MulletaFlix.Api.Caching;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.MediaEncoding;
 using MediaBrowser.Controller.Streaming;
 using Microsoft.Extensions.Caching.Memory;
 using Moq;
+using MulletaFlix.Api.Caching;
 using Xunit;
 
 namespace MulletaFlix.Server.Implementations.Tests.Caching;
@@ -77,7 +77,8 @@ public class StreamStateCacheTests
             MediaSourceId = "media-1",
             AudioStreamIndex = 1,
             CurrentRuntimeTicks = 0,
-            ActualSegmentLengthTicks = 30_000_000
+            ActualSegmentLengthTicks = 30_000_000,
+            StartTimeTicks = 0
         };
 
         var requestSegment2 = new StreamingRequestDto
@@ -86,7 +87,8 @@ public class StreamStateCacheTests
             MediaSourceId = "media-1",
             AudioStreamIndex = 1,
             CurrentRuntimeTicks = 30_000_000,
-            ActualSegmentLengthTicks = 30_000_000
+            ActualSegmentLengthTicks = 30_000_000,
+            StartTimeTicks = 30_000_000
         };
 
         Assert.Equal(StreamStateCache.BuildCacheKey(requestSegment1), StreamStateCache.BuildCacheKey(requestSegment2));
@@ -110,6 +112,128 @@ public class StreamStateCacheTests
         };
 
         Assert.NotEqual(StreamStateCache.BuildCacheKey(requestBefore), StreamStateCache.BuildCacheKey(requestAfter));
+    }
+
+    [Fact]
+    public void BuildCacheKey_StreamCopyOptionProducesDifferentKey()
+    {
+        var requestBefore = new StreamingRequestDto
+        {
+            PlaySessionId = "session-1",
+            MediaSourceId = "media-1",
+            AllowVideoStreamCopy = true
+        };
+        var requestAfter = new StreamingRequestDto
+        {
+            PlaySessionId = "session-1",
+            MediaSourceId = "media-1",
+            AllowVideoStreamCopy = false
+        };
+
+        Assert.NotEqual(StreamStateCache.BuildCacheKey(requestBefore), StreamStateCache.BuildCacheKey(requestAfter));
+    }
+
+    [Fact]
+    public void BuildCacheKey_AudioSampleRateProducesDifferentKey()
+    {
+        var requestBefore = new StreamingRequestDto { PlaySessionId = "session-1", MediaSourceId = "media-1", AudioSampleRate = 48_000 };
+        var requestAfter = new StreamingRequestDto { PlaySessionId = "session-1", MediaSourceId = "media-1", AudioSampleRate = 44_100 };
+        var requestWithoutLimit = new StreamingRequestDto { PlaySessionId = "session-1", MediaSourceId = "media-1" };
+        var requestWithZeroLimit = new StreamingRequestDto { PlaySessionId = "session-1", MediaSourceId = "media-1", AudioSampleRate = 0 };
+
+        Assert.NotEqual(StreamStateCache.BuildCacheKey(requestBefore), StreamStateCache.BuildCacheKey(requestAfter));
+        Assert.NotEqual(StreamStateCache.BuildCacheKey(requestWithoutLimit), StreamStateCache.BuildCacheKey(requestWithZeroLimit));
+    }
+
+    [Fact]
+    public void BuildCacheKey_MaxRefFramesProducesDifferentKey()
+    {
+        var requestBefore = new StreamingRequestDto { PlaySessionId = "session-1", MediaSourceId = "media-1", MaxRefFrames = 2 };
+        var requestAfter = new StreamingRequestDto { PlaySessionId = "session-1", MediaSourceId = "media-1", MaxRefFrames = 4 };
+
+        Assert.NotEqual(StreamStateCache.BuildCacheKey(requestBefore), StreamStateCache.BuildCacheKey(requestAfter));
+    }
+
+    [Fact]
+    public void BuildCacheKey_MaxVideoBitDepthProducesDifferentKey()
+    {
+        var requestBefore = new StreamingRequestDto { PlaySessionId = "session-1", MediaSourceId = "media-1", MaxVideoBitDepth = 8 };
+        var requestAfter = new StreamingRequestDto { PlaySessionId = "session-1", MediaSourceId = "media-1", MaxVideoBitDepth = 10 };
+
+        Assert.NotEqual(StreamStateCache.BuildCacheKey(requestBefore), StreamStateCache.BuildCacheKey(requestAfter));
+    }
+
+    [Fact]
+    public void BuildCacheKey_StreamOptionsProduceDifferentKeys()
+    {
+        var requestBefore = new StreamingRequestDto
+        {
+            PlaySessionId = "session-1",
+            MediaSourceId = "media-1",
+            StreamOptions = new System.Collections.Generic.Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["deinterlace"] = "false"
+            }
+        };
+        var requestAfter = new StreamingRequestDto
+        {
+            PlaySessionId = "session-1",
+            MediaSourceId = "media-1",
+            StreamOptions = new System.Collections.Generic.Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["deinterlace"] = "true"
+            }
+        };
+
+        Assert.NotEqual(StreamStateCache.BuildCacheKey(requestBefore), StreamStateCache.BuildCacheKey(requestAfter));
+    }
+
+    [Fact]
+    public void BuildCacheKey_StreamOptionOrderDoesNotChangeKey()
+    {
+        var requestBefore = new StreamingRequestDto
+        {
+            PlaySessionId = "session-1",
+            MediaSourceId = "media-1",
+            StreamOptions = new System.Collections.Generic.Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["option-a"] = "a",
+                ["option-b"] = "b"
+            }
+        };
+        var requestAfter = new StreamingRequestDto
+        {
+            PlaySessionId = "session-1",
+            MediaSourceId = "media-1",
+            StreamOptions = new System.Collections.Generic.Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["option-b"] = "b",
+                ["option-a"] = "a"
+            }
+        };
+
+        Assert.Equal(StreamStateCache.BuildCacheKey(requestBefore), StreamStateCache.BuildCacheKey(requestAfter));
+    }
+
+    [Fact]
+    public void BuildCacheKey_SeparatesContainerValuesContainingKeyDelimiter()
+    {
+        var requestA = new StreamingRequestDto
+        {
+            PlaySessionId = "session-1",
+            MediaSourceId = "media-1",
+            Container = "mkv|mp4",
+            SegmentContainer = "ts"
+        };
+        var requestB = new StreamingRequestDto
+        {
+            PlaySessionId = "session-1",
+            MediaSourceId = "media-1",
+            Container = "mkv",
+            SegmentContainer = "mp4|ts"
+        };
+
+        Assert.NotEqual(StreamStateCache.BuildCacheKey(requestA), StreamStateCache.BuildCacheKey(requestB));
     }
 
     [Fact]

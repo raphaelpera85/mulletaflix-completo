@@ -1,5 +1,55 @@
 # Nebula STRM Downloader
 
+## Shutdown aguarda uploads em andamento — 2026-10-27
+
+O encerramento agora aguarda `UPLOAD_QUEUE.join()` até 30 segundos mesmo quando as filas de lanes estão vazias. `empty()` só observa itens ainda enfileirados e não detecta tarefas já retiradas pelo worker; sem o join, o shutdown podia cancelar workers e fechar sessões durante um upload ativo. Regressão de ciclo de vida: 3/3; suíte NebulaPython isolada: 725 aprovados, 2 ignorados, 0 falhas. Mudança local; não validada em runtime instalado, Linux, Telegram/MongoDB ou produção. Sem crédito formal de homologação.
+
+## Estado de retry durável — 2026-10-26
+
+Falhas transitórias com janela de retentativa são registradas como `retry_wait`; falhas terminais permanecem `failed`. O claim C# só libera itens quando `retry_after` e o campo legado Python `next_retry_at` estão vencidos. Os relatórios contam retries separadamente, a varredura Python respeita ambos os prazos e dados antigos `failed` continuam sendo aceitos. Suíte NebulaPython completa: 720 aprovados, 2 ignorados. `Category=RequiresMongo` em MongoDB 8.3.7 descartável, isolado em `127.0.0.1:27099`: 31 aprovados, 0 ignorados/falhas, incluindo a cobertura da fila Nebula. Implementação ainda local, sem validação de runtime instalado/produção ou crédito formal de homologação.
+
+## Regressão MongoDB descartável do backend — 2026-10-26 07:02 BRT
+
+Na branch local baseada em `d51f4f38`, os 25 testes Mongo opt-in selecionados
+do projeto `Jellyfin.Server.Implementations.Tests` passaram 25/25 em Release:
+`MongoTopologyCapabilityTests`, `NebulaPlaybackRecoveryMongoTests`,
+`NebulaQueueConcurrencyMongoTests`, `NebulaSupabaseBackupBotTokensMongoTests` e
+`NebulaSupabaseRestoreMongoTests`. Foi usado MongoDB 8.3.7 com datadir exclusivo,
+bind `127.0.0.1` e porta `27099`; shutdown pelo comando administrativo foi
+confirmado com a porta fechada. O MongoDB existente em `27017` não foi acessado.
+Isso valida testes contra instância local descartável, não Telegram real,
+instalação, produção nem Linux/CI hospedada.
+
+## Listagem FTP em lote — 2026-10-25 22:03 BRT
+
+`MongoDBPathIO.list()` primeiro lê os filhos diretos e depois verifica, em uma única varredura por nível, quais diretórios candidatos contêm mídia com payload Telegram publicado. A quantidade de consultas de descendentes deixa de crescer com cada subpasta irmã. A varredura mantém os formatos de pai por ObjectId e caminho legado, aliases da raiz de usuário, filtro de arquivos `.partial`, diretórios vazios ocultos e precedência de representações de pai usada pela resolução de caminho. `_id` repetido na mesma rota interrompe ciclos de dados inválidos. A listagem não adiciona ordenação; a ordem que vier do cursor Mongo continua sem garantia.
+
+Regressão em Windows/Python 3.10 isolado: NebulaPython 710 aprovados, 2 ignorados/712; testes verificam contagem de consultas por nível, aliases, ciclo malformado e pasta duplicada. Em nomes duplicados, a seleção respeita a prioridade de representações de pai usada pela resolução de caminho, e mantém o primeiro documento para a mesma representação. O double Mongo não valida latência, índice ou carga de um catálogo real; Mongo operacional, Linux, runtime instalado e produção permanecem pendentes.
+
+## Smoke do runtime empacotado — 2026-10-25
+
+O job Linux de release instala `requirements.lock` em venv descartável e agora recebe o tarball Linux recém-criado, extrai o runtime Nebula do pacote, confere que seu lock é idêntico ao da fonte e executa `import main` e `tools/strm_downloader.py --help` sob timeout. `NEBULA_STREAM_SERVICE=1` desativa a consulta HTTP de horário ao Telegram; `NEBULA_ENV_FILE` aponta para um arquivo inexistente, sem carregar configuração local. O import não chama `main()` nem deve iniciar worker, MongoDB, FTP ou transferência.
+
+Limite desta sessão: foram alterados o gate e seu contrato estático, mas não há ambiente Linux local nem artefato Linux existente neste host para executar o smoke; a primeira evidência de runtime empacotado depende de CI hospedada observável. Isso não valida serviços reais, upload/download ou produção.
+
+## Regressão Nebula Python — 2026-10-25 09:06 BRT
+
+Reexecução completa local: Python 3.10, venv temporária, dependências de runtime de `requirements.lock` instaladas com verificação de hashes, dependências de teste de `requirements-test.txt`; `pip check` sem conflitos e `py -3.10 -m pytest -q` passou 701/701. A tentativa anterior com Python global foi recusada pelo guard de isolamento antes da coleta. Testes usam doubles/fixtures; nenhum serviço MongoDB ou MariaDB foi consultado. Esta evidência não cobre integração com serviços reais, Linux, runtime instalado, upload Telegram nem produção.
+
+## Retomada vinculada à origem — 2026-10-25
+
+Os dois caminhos que materializam `.strm` (`tools/strm_downloader.py` e `tools/feed_ftp.py`) só retomam `.part`, `.part*.tmp` ou arquivo `.download` unido quando o sidecar corresponde ao fingerprint SHA-256 da URL atual e ao tamanho/particionamento esperado. Mudança de URL invalida os temporários e baixa novamente, mesmo que o total de bytes seja igual. O sidecar não grava a URL em texto, mas o fingerprint é determinístico e deriva da URL completa; proteja esses arquivos como metadado local sensível. A mídia final anterior só é substituída após download completo e validação do tamanho.
+
+Limite conhecido: o fingerprint não detecta bytes alterados no mesmo URL com o mesmo tamanho; exigir ETag/Last-Modified e `If-Range` antes de tratar URLs mutáveis como identidade estável. A retomada em partes requer o sidecar: arquivos `.part` legados sem metadado confiável são descartados com segurança.
+
+## Falha transitória no refresh do VFS rclone — 2026-10-23
+
+`NebulaFtpManager.RefreshRcloneDirectoryAsync` não deve consumir falhas: a `NebulaDirectoryRefreshQueue` só agenda retentativa quando o callback lança. O catch genérico foi removido; falhas HTTP/JSON e recusas do rclone agora sobem ao worker da fila, que aplica backoff exponencial. Upload Mongo já confirmado não é revertido, pois o refresh continua sendo operação em segundo plano. O único caller é a fila criada no construtor do manager. Ver teste focal e sessão `2026-10-23-MulletaFlix-nebula-directory-refresh-retry`.
+
+## Retry de refresh do cache rclone — 2026-10-23
+
+`NebulaDirectoryRefreshQueue` reagenda automaticamente o diretório quando `RefreshRcloneDirectoryAsync` falha. O atraso cresce exponencialmente a partir de 5 s e fica limitado a 5 min; novos eventos para a mesma pasta continuam coalescidos e reiniciam a espera, enquanto a fila segue atendendo outras pastas. O retry termina no shutdown do servidor. Testes focais Release Windows/.NET 10: 6/6. Não valida rclone/disco N instalado, Linux ou produção.
+
 ## Worker órfão mantém portas FTP/stream — 2026-10-18 13:28 (-03)
 
 - Nova inspeção read-only do host encontrou PID Python 6080 ouvindo em 2121 e 2123 desde 16/10 21:16:16; PID pai 19764 não existe. Serviço `MulletaFlixServer` não está instalado/registrado e API 8096 não responde. A identidade binária do processo não pôde ser lida, mas o timestamp coincide com o worker mostrado no log e com os binds em conflito. Isso confirma um worker órfão; não prova que ele seja a única causa de ausência de downloads.
@@ -836,3 +886,40 @@ Após nova auditoria, a API ativa ainda responde **12.1.21** e não havia worker
 - Defeito de observabilidade confirmado: após até três tentativas, a falha do download da imagem é capturada e apenas registrada como warning; não incrementa `RefreshResult.Failures`. Isso permite atualizar metadados e concluir a atualização sem sinalizar a falha de imagem neste estágio.
 - Limite da confirmação: não havia log de produção atual nem resposta de imagem/API para os títulos do screenshot. Assim, os defeitos de fonte explicam casos compatíveis, mas não atribuo a eles todos os posters azuis nem confirmo que cada item afetado tenha recebido múltiplas imagens. Nenhuma produção, item ou imagem foi alterado.
 - Verificações: fluxo percorrido em `MetadataService`, `ProviderManager`, `ImageSaver`, `ItemImageProvider` e `BaseItem.ValidateImages`; suítes servidor/Python já concluídas nesta sessão. Testes de regressão específicos de múltiplas imagens Primary e falha remota ainda não existem. Mapa técnico conferido: sem mudança de estrutura. Detalhes: `docs/image-metadata-flow-audit.md`.
+# Retry de inicialização após encerramento precoce do worker — 2026-10-23
+
+Se o processo Python do Downloader encerra antes de sinalizar prontidão/scan, `WaitForWorkerReadinessAsync` agora reporta `IOException`, que é uma das falhas transitórias cobertas pelo retry existente do `NebulaHostedService` (até 3 tentativas, atrasos de 5 s e 10 s). Apenas os dois casos de encerramento dentro da espera de prontidão foram reclassificados; outras `InvalidOperationException` continuam sem retry. Testes focalizados `NebulaDownloaderStartupTests|NebulaHostedServiceConfigurationTests`: 48/48 em Release Windows/.NET 10. Não valida processo instalado, início real do worker, transferência, Linux, produção ou release; smoke operacional permanece pendente.
+
+## Reconciliação paginada de upload Telegram — 2026-10-23
+
+`find_uploaded_telegram_part` agora percorre páginas de 50 mensagens para recuperar uploads aceitos pelo Telegram cujo ACK/checkpoint local se perdeu. A identidade continua exigindo os marcadores da peça (UUID, número da parte e digest), evitando concluir por mera semelhança de nome. A busca é limitada a 5.000 mensagens por bot; se atingir o limite sem conclusão, retorna estado inconclusivo e mantém as retentativas automáticas, sem declarar a peça ausente nem reenviá-la como se a busca estivesse completa. Compatibilidade de `search_messages(offset, limit)` conferida com Pyrogram 2.3.69 instalado. Testes focados `test_upload_checkpoint.py` + `test_main_upload_part.py`: 29 aprovados; suíte NebulaPython completa: 690 aprovados; `py_compile` passou em Python 3.14. Não houve chamada ao Telegram/MongoDB nem teste de upload real, runtime instalado ou produção. Sem crédito formal ou release.
+
+### Durabilidade do journal após substituição atômica — 2026-10-25
+
+Após gravar e sincronizar o conteúdo temporário, a substituição do checkpoint agora sincroniza também a entrada do diretório em POSIX. No Windows, usa `MoveFileExW` com `MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH`. Falhas de sincronização propagam ao worker; se o Telegram já aceitou a parte, o fluxo existente mantém reconciliação e retry automático. NebulaPython completo: 703 aprovados, 2 ignorados; teste focal: 15 aprovados, 2 ignorados; `compileall` e `pip check` passaram. Não houve teste de corte de energia, Linux nativo, Telegram/Mongo reais, runtime instalado ou produção; a durabilidade física depende do sistema de arquivos e do dispositivo.
+### Regressão NebulaPython com dependências travadas — 2026-10-25 05:06 BRT
+
+- Criada uma venv descartável em `.build/nebula-locked-regression-20261025`, Python 3.10.11. Foram repetidos os comandos de instalação do workflow: `python -m pip install --require-hashes -r requirements.lock` (53 distribuições aplicáveis ao Python 3.10) e `python -m pip install -r requirements-test.txt`. O pip foi adicionado só à venv; `python -m pip check` terminou com `No broken requirements found`.
+- `PYTHONDONTWRITEBYTECODE=1; python -m pytest tests -q -p no:cacheprovider --no-cov` passou **697/697** em 15,73 s no Windows, contra a fonte atual do checkout principal. A tentativa anterior na venv preexistente também passou 697/697, mas sem prova de paridade com o lock; a execução nova fecha essa lacuna local.
+- Limite: isso não valida Linux/CI remota, runtime instalado, transferência real ou produção. Homologação formal permanece 2/7 (28,6%), sem crédito.
+
+### Suíte de integração MongoDB isolada — 2026-10-26 05:26 BRT
+
+O MongoDB 8.3.7 instalado localmente foi iniciado com datadir recém-criado,
+bind `127.0.0.1` e porta `27099`. A suíte `Jellyfin.Server.Implementations.Tests`
+com filtro `Category=RequiresMongo` passou **26/26, sem skips ou falhas** em
+Windows/.NET 10 Release. Inclui verificação de topologia/change streams, filas
+Nebula e concorrência, backup/restore Supabase e recuperação de playback. O
+fixture `NebulaMongoTestConnection` fixa a conexão de teste a `127.0.0.1:27099`;
+o Mongo que escuta na porta operacional `27017` não foi consultado.
+
+A instância descartável recebeu comando de shutdown e a porta 27099 ficou sem
+listener. O datadir temporário e o helper de shutdown permaneceram em TEMP; não
+há processo ativo. A evidência não valida Linux, CI hospedada, Telegram real,
+runtime instalado ou produção. Homologação formal permanece 2/7 (28,6%), sem
+crédito ou release. Registro em `TODO-AUDITORIA.md` e no portal local.
+
+\r\n
+## Retentativa Nebula com campos de prazo coexistentes — 2026-10-26 07:58 BRT
+
+Cobertura adicionada para documentos com retry_after e next_retry_at simultâneos: consumidores aguardam o prazo mais distante. NebulaPython completo passou 721 (2 ignorados); Category=RequiresMongo passou 32/32 em MongoDB 8.3.7 isolado; contrato do portal 260/260. Esta rodada alterou apenas testes. Não valida worker/runtime instalado, mídia/Telegram real, Linux, CI hospedada ou produção; homologação formal 2/7, sem crédito/release. Mapa conferido, sem mudança estrutural.

@@ -1064,6 +1064,12 @@ namespace MulletaFlix.Server.Implementations.Users
                 return false;
             }
 
+            // These names resolve to the users root or its parent when used as directory components.
+            if (name is "." or "..")
+            {
+                return false;
+            }
+
             if (char.IsWhiteSpace(name[0]) || char.IsWhiteSpace(name[^1]))
             {
                 return false;

@@ -18,6 +18,19 @@ public class EfMigrationTests
         }
     }
 
+    private sealed class ExposedAddRemoteImageProvenance : AddRemoteImageProvenance
+    {
+        public void ApplyUp(MigrationBuilder migrationBuilder)
+        {
+            base.Up(migrationBuilder);
+        }
+
+        public void ApplyDown(MigrationBuilder migrationBuilder)
+        {
+            base.Down(migrationBuilder);
+        }
+    }
+
     [Fact]
     public void CheckForUnappliedMigrations_MySql()
     {
@@ -40,5 +53,43 @@ public class EfMigrationTests
 
         var createIndex = Assert.IsType<CreateIndexOperation>(operations[2]);
         Assert.Equal("IX_BaseItems_FullTextSearch", createIndex.Name);
+    }
+
+    [Fact]
+    public void AddRemoteImageProvenance_AddsNullableColumnsAndRevertsOnlyThoseColumns()
+    {
+        var migration = new ExposedAddRemoteImageProvenance();
+        var upBuilder = new MigrationBuilder("Pomelo.EntityFrameworkCore.MySql");
+
+        migration.ApplyUp(upBuilder);
+
+        Assert.Collection(
+            upBuilder.Operations,
+            operation => AssertImageProvenanceColumn(operation, "Language", "varchar(32)"),
+            operation => AssertImageProvenanceColumn(operation, "ProviderName", "varchar(255)"));
+
+        var downBuilder = new MigrationBuilder("Pomelo.EntityFrameworkCore.MySql");
+        migration.ApplyDown(downBuilder);
+
+        Assert.Collection(
+            downBuilder.Operations,
+            operation => AssertImageProvenanceDrop(operation, "Language"),
+            operation => AssertImageProvenanceDrop(operation, "ProviderName"));
+    }
+
+    private static void AssertImageProvenanceColumn(MigrationOperation operation, string name, string type)
+    {
+        var column = Assert.IsType<AddColumnOperation>(operation);
+        Assert.Equal("BaseItemImageInfos", column.Table);
+        Assert.Equal(name, column.Name);
+        Assert.Equal(type, column.ColumnType);
+        Assert.True(column.IsNullable);
+    }
+
+    private static void AssertImageProvenanceDrop(MigrationOperation operation, string name)
+    {
+        var column = Assert.IsType<DropColumnOperation>(operation);
+        Assert.Equal("BaseItemImageInfos", column.Table);
+        Assert.Equal(name, column.Name);
     }
 }

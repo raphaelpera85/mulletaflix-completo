@@ -1,12 +1,33 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
+using System.Runtime.InteropServices;
+using System.Text;
+using System.Threading;
+using System.Threading.Tasks;
+using MediaBrowser.Common.Extensions;
+using MediaBrowser.Controller.Library;
+using MediaBrowser.Controller.Lyrics;
+using MediaBrowser.Controller.Providers;
+using MediaBrowser.Model.Configuration;
+using MediaBrowser.Model.IO;
+using MediaBrowser.Model.Lyrics;
 using MediaBrowser.Providers.Lyric;
+using Microsoft.Extensions.Logging.Abstractions;
+using Moq;
 using Xunit;
 
 namespace MulletaFlix.Providers.Tests.Lyrics;
 
-public sealed class LyricManagerPathSafetyTests
+public sealed partial class LyricManagerPathSafetyTests
 {
+    [DllImport("kernel32.dll", EntryPoint = "CreateHardLinkW", CharSet = CharSet.Unicode, SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool CreateWindowsHardLink(string fileName, string existingFileName, nint securityAttributes);
+
+    [DllImport("libc", EntryPoint = "link", CharSet = CharSet.Ansi, SetLastError = true)]
+    private static extern int CreateUnixHardLink(string existingFileName, string fileName);
+
     [Theory]
     [InlineData("lrc")]
     [InlineData("elrc")]
@@ -70,6 +91,78 @@ public sealed class LyricManagerPathSafetyTests
     }
 
     [Fact]
+    public void GetSafeLyricSavePaths_ReturnsEmptyWhenNoSafeRootExists()
+    {
+        Assert.Empty(LyricManager.GetSafeLyricSavePaths(string.Empty, string.Empty, "track.lrc", true));
+    }
+
+    [Fact]
+    public void GetSafeLyricSavePaths_UsesMetadataRootWhenMediaRootIsUnavailable()
+    {
+        using var temp = new TemporaryDirectory();
+
+        var savePaths = LyricManager.GetSafeLyricSavePaths(string.Empty, temp.Path, "track.lrc", true);
+
+        Assert.Equal([Path.Combine(temp.Path, "track.lrc")], savePaths);
+    }
+
+    [Fact]
+    public async Task TrySaveLyric_ReturnsFalseAndDisposesStreamWhenNoSafeDestinationExists()
+    {
+        var manager = new LyricManager(
+            NullLogger<LyricManager>.Instance,
+            Mock.Of<IFileSystem>(),
+            Mock.Of<ILibraryMonitor>(),
+            Mock.Of<IMediaSourceManager>(),
+            [],
+            []);
+        var audio = new TestAudio { Path = string.Empty };
+        var lyrics = new MemoryStream(Encoding.UTF8.GetBytes("[00:01.00]Hello"));
+
+        var saved = await manager.TrySaveLyric(audio, new LibraryOptions { SaveLyricsWithMedia = true }, "lrc", lyrics);
+
+        Assert.False(saved);
+        Assert.False(lyrics.CanRead);
+    }
+
+    [Fact]
+    public async Task DownloadLyrics_ThrowsAndReportsFailureWhenNoSafeDestinationExists()
+    {
+        const string providerName = "test-provider";
+        var provider = new Mock<ILyricProvider>();
+        provider.SetupGet(p => p.Name).Returns(providerName);
+        provider.Setup(p => p.GetLyricsAsync("remote-id", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new LyricResponse
+            {
+                Format = "lrc",
+                Stream = new MemoryStream(Encoding.UTF8.GetBytes("[00:01.00]Hello"))
+            });
+        var manager = new LyricManager(
+            NullLogger<LyricManager>.Instance,
+            Mock.Of<IFileSystem>(),
+            Mock.Of<ILibraryMonitor>(),
+            Mock.Of<IMediaSourceManager>(),
+            [provider.Object],
+            [new LrcLyricParser()]);
+        var failures = new List<LyricDownloadFailureEventArgs>();
+        manager.LyricDownloadFailure += (_, args) => failures.Add(args);
+        var audio = new TestAudio { Path = string.Empty };
+        var lyricId = $"{providerName.ToLowerInvariant().GetMD5():N}_remote-id";
+
+        var exception = await Assert.ThrowsAsync<IOException>(() => manager.DownloadLyricsAsync(
+            audio,
+            new LibraryOptions { SaveLyricsWithMedia = true },
+            lyricId,
+            CancellationToken.None));
+
+        Assert.Contains("safe destination", exception.Message, StringComparison.Ordinal);
+        var failure = Assert.Single(failures);
+        Assert.Same(audio, failure.Item);
+        Assert.Same(exception, failure.Exception);
+        Assert.Equal(providerName, failure.Provider);
+    }
+
+    [Fact]
     public void IsPathWithinDirectory_RejectsSymbolicLinkToOutsideFile()
     {
         using var temp = new TemporaryDirectory();
@@ -111,6 +204,58 @@ public sealed class LyricManagerPathSafetyTests
         Assert.False(LyricManager.IsPathWithinDirectory(root, linkPath));
     }
 
+    [Fact]
+    public void IsPathWithinDirectory_RejectsSymbolicLinkAsConfiguredRoot()
+    {
+        using var temp = new TemporaryDirectory();
+        var target = Path.Combine(temp.Path, "target");
+        var root = Path.Combine(temp.Path, "library-link");
+        Directory.CreateDirectory(target);
+
+        try
+        {
+            Directory.CreateSymbolicLink(root, target);
+        }
+        catch (Exception ex) when (ex is UnauthorizedAccessException or IOException or PlatformNotSupportedException)
+        {
+            Assert.Skip($"Creating a symbolic link is unavailable in this environment: {ex.GetType().Name}.");
+        }
+
+        Assert.False(LyricManager.IsPathWithinDirectory(root, Path.Combine(root, "track.lrc")));
+    }
+
+    [Fact]
+    public async Task TrySaveToFiles_ReplacesHardLinkWithoutTruncatingItsOtherTarget()
+    {
+        using var temp = new TemporaryDirectory();
+        var originalPath = Path.Combine(temp.Path, "original.txt");
+        var lyricPath = Path.Combine(temp.Path, "track.lrc");
+        await File.WriteAllTextAsync(originalPath, "preserve-original-data", TestContext.Current.CancellationToken);
+        var hardLinkCreated = OperatingSystem.IsWindows()
+            ? CreateWindowsHardLink(lyricPath, originalPath, 0)
+            : CreateUnixHardLink(originalPath, lyricPath) == 0;
+        if (!hardLinkCreated)
+        {
+            Assert.Skip($"Hard links are unavailable in this environment. Native error: {Marshal.GetLastPInvokeError()}.");
+        }
+
+        var libraryMonitor = new Mock<ILibraryMonitor>();
+        var manager = new LyricManager(
+            NullLogger<LyricManager>.Instance,
+            Mock.Of<IFileSystem>(),
+            libraryMonitor.Object,
+            Mock.Of<IMediaSourceManager>(),
+            [],
+            []);
+
+        await using var lyrics = new MemoryStream(Encoding.UTF8.GetBytes("new lyrics"));
+        await manager.TrySaveToFiles(lyrics, [lyricPath]);
+
+        Assert.Equal("preserve-original-data", await File.ReadAllTextAsync(originalPath, TestContext.Current.CancellationToken));
+        Assert.Equal("new lyrics", await File.ReadAllTextAsync(lyricPath, TestContext.Current.CancellationToken));
+        Assert.Empty(Directory.GetFiles(temp.Path, ".track.lrc.*.tmp"));
+    }
+
     private sealed class TemporaryDirectory : IDisposable
     {
         public TemporaryDirectory()
@@ -124,5 +269,10 @@ public sealed class LyricManagerPathSafetyTests
         {
             Directory.Delete(Path, recursive: true);
         }
+    }
+
+    private sealed class TestAudio : MediaBrowser.Controller.Entities.Audio.Audio
+    {
+        public override string GetInternalMetadataPath() => string.Empty;
     }
 }

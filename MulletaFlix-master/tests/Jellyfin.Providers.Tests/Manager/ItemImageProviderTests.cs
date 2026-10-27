@@ -180,30 +180,33 @@ namespace MulletaFlix.Providers.Tests.Manager
         [InlineData(ImageType.Primary, 0)]
         [InlineData(ImageType.Primary, 1)]
         [InlineData(ImageType.Backdrop, 2)]
-        public void RemoveImages_DeletesImages_WhenFound(ImageType imageType, int imageCount)
+        public void RemoveImages_DetachesImagesWithoutDeletingPotentiallySharedFiles(ImageType imageType, int imageCount)
         {
             var item = GetItemWithImages(imageType, imageCount, false);
 
             var mockFileSystem = new Mock<IFileSystem>(MockBehavior.Strict);
-            if (imageCount > 0)
-            {
-                mockFileSystem.Setup(fs => fs.DeleteFile("invalid path 0"))
-                    .Verifiable();
-            }
-
-            if (imageCount > 1)
-            {
-                mockFileSystem.Setup(fs => fs.DeleteFile("invalid path 1"))
-                    .Verifiable();
-            }
-
             var itemImageProvider = GetItemImageProvider(Mock.Of<IProviderManager>(), mockFileSystem);
             var result = itemImageProvider.RemoveImages(item);
 
             Assert.Equal(imageCount != 0, result);
             Assert.Empty(item.GetImages(imageType));
-            mockFileSystem.Verify();
+            mockFileSystem.Verify(fs => fs.DeleteFile(It.IsAny<string>()), Times.Never);
         }
+
+        [Fact]
+        public void RemoveImages_PreservesFileStillReferencedByAnotherItem()
+        {
+            var item = GetItemWithImages(ImageType.Primary, 1, false);
+            var otherItem = GetItemWithImages(ImageType.Primary, 1, false);
+            var mockFileSystem = new Mock<IFileSystem>(MockBehavior.Strict);
+            var itemImageProvider = GetItemImageProvider(Mock.Of<IProviderManager>(), mockFileSystem);
+
+            Assert.True(itemImageProvider.RemoveImages(item));
+
+            Assert.Equal("invalid path 0", otherItem.GetImagePath(ImageType.Primary, 0));
+            mockFileSystem.Verify(fs => fs.DeleteFile(It.IsAny<string>()), Times.Never);
+        }
+
         private static ItemImageProvider GetItemImageProvider(IProviderManager? providerManager, Mock<IFileSystem>? mockFileSystem)
         {
             // strict to ensure this isn't accidentally used where a prepared mock is intended

@@ -159,7 +159,9 @@ public class ImageController : BaseMulletaFlixApiController
 
                 // Handle image/png; charset=utf-8
                 var mimeType = Request.ContentType?.Split(';').FirstOrDefault();
-                var userDataPath = Path.Combine(_serverConfigurationManager.ApplicationPaths.UserConfigurationDirectoryPath, user.Username);
+                var userDataPath = FileSystemHelper.GetUserConfigurationDirectoryPath(
+                    _serverConfigurationManager.ApplicationPaths.UserConfigurationDirectoryPath,
+                    user.Username);
                 Directory.CreateDirectory(userDataPath);
                 var previousProfileImage = user.ProfileImage;
                 var newProfileImagePath = Path.Combine(userDataPath, "profile-" + Guid.NewGuid().ToString("N") + extension);
@@ -365,7 +367,7 @@ public class ImageController : BaseMulletaFlixApiController
                 return NoContent();
             }
 
-            var userDataPath = Path.Combine(
+            var userDataPath = FileSystemHelper.GetUserConfigurationDirectoryPath(
                 _serverConfigurationManager.ApplicationPaths.UserConfigurationDirectoryPath,
                 user.Username);
             if (!FileSystemHelper.IsPathWithinRoot(user.ProfileImage.Path, userDataPath))
@@ -701,6 +703,7 @@ public class ImageController : BaseMulletaFlixApiController
     /// A <see cref="FileStreamResult"/> containing the file stream on success,
     /// or a <see cref="NotFoundResult"/> if item not found.
     /// </returns>
+    [AllowAnonymous]
     [HttpGet("Items/{itemId}/Images/{imageType}")]
     [HttpHead("Items/{itemId}/Images/{imageType}", Name = "HeadItemImage")]
     [ProducesResponseType(StatusCodes.Status200OK)]
@@ -779,6 +782,7 @@ public class ImageController : BaseMulletaFlixApiController
     /// A <see cref="FileStreamResult"/> containing the file stream on success,
     /// or a <see cref="NotFoundResult"/> if item not found.
     /// </returns>
+    [AllowAnonymous]
     [HttpGet("Items/{itemId}/Images/{imageType}/{imageIndex}")]
     [HttpHead("Items/{itemId}/Images/{imageType}/{imageIndex}", Name = "HeadItemImageByIndex")]
     [ProducesResponseType(StatusCodes.Status200OK)]
@@ -857,6 +861,7 @@ public class ImageController : BaseMulletaFlixApiController
     /// A <see cref="FileStreamResult"/> containing the file stream on success,
     /// or a <see cref="NotFoundResult"/> if item not found.
     /// </returns>
+    [AllowAnonymous]
     [HttpGet("Items/{itemId}/Images/{imageType}/{imageIndex}/{tag}/{format}/{maxWidth}/{maxHeight}/{percentPlayed}/{unplayedCount}")]
     [HttpHead("Items/{itemId}/Images/{imageType}/{imageIndex}/{tag}/{format}/{maxWidth}/{maxHeight}/{percentPlayed}/{unplayedCount}", Name = "HeadItemImage2")]
     [ProducesResponseType(StatusCodes.Status200OK)]
@@ -935,6 +940,7 @@ public class ImageController : BaseMulletaFlixApiController
     /// A <see cref="FileStreamResult"/> containing the file stream on success,
     /// or a <see cref="NotFoundResult"/> if item not found.
     /// </returns>
+    [AllowAnonymous]
     [HttpGet("Artists/{name}/Images/{imageType}/{imageIndex}")]
     [HttpHead("Artists/{name}/Images/{imageType}/{imageIndex}", Name = "HeadArtistImage")]
     [ProducesResponseType(StatusCodes.Status200OK)]
@@ -1013,6 +1019,7 @@ public class ImageController : BaseMulletaFlixApiController
     /// A <see cref="FileStreamResult"/> containing the file stream on success,
     /// or a <see cref="NotFoundResult"/> if item not found.
     /// </returns>
+    [AllowAnonymous]
     [HttpGet("Genres/{name}/Images/{imageType}")]
     [HttpHead("Genres/{name}/Images/{imageType}", Name = "HeadGenreImage")]
     [ProducesResponseType(StatusCodes.Status200OK)]
@@ -1091,6 +1098,7 @@ public class ImageController : BaseMulletaFlixApiController
     /// A <see cref="FileStreamResult"/> containing the file stream on success,
     /// or a <see cref="NotFoundResult"/> if item not found.
     /// </returns>
+    [AllowAnonymous]
     [HttpGet("Genres/{name}/Images/{imageType}/{imageIndex}")]
     [HttpHead("Genres/{name}/Images/{imageType}/{imageIndex}", Name = "HeadGenreImageByIndex")]
     [ProducesResponseType(StatusCodes.Status200OK)]
@@ -1169,6 +1177,7 @@ public class ImageController : BaseMulletaFlixApiController
     /// A <see cref="FileStreamResult"/> containing the file stream on success,
     /// or a <see cref="NotFoundResult"/> if item not found.
     /// </returns>
+    [AllowAnonymous]
     [HttpGet("MusicGenres/{name}/Images/{imageType}")]
     [HttpHead("MusicGenres/{name}/Images/{imageType}", Name = "HeadMusicGenreImage")]
     [ProducesResponseType(StatusCodes.Status200OK)]
@@ -1247,6 +1256,7 @@ public class ImageController : BaseMulletaFlixApiController
     /// A <see cref="FileStreamResult"/> containing the file stream on success,
     /// or a <see cref="NotFoundResult"/> if item not found.
     /// </returns>
+    [AllowAnonymous]
     [HttpGet("MusicGenres/{name}/Images/{imageType}/{imageIndex}")]
     [HttpHead("MusicGenres/{name}/Images/{imageType}/{imageIndex}", Name = "HeadMusicGenreImageByIndex")]
     [ProducesResponseType(StatusCodes.Status200OK)]
@@ -1325,6 +1335,7 @@ public class ImageController : BaseMulletaFlixApiController
     /// A <see cref="FileStreamResult"/> containing the file stream on success,
     /// or a <see cref="NotFoundResult"/> if item not found.
     /// </returns>
+    [AllowAnonymous]
     [HttpGet("Persons/{name}/Images/{imageType}")]
     [HttpHead("Persons/{name}/Images/{imageType}", Name = "HeadPersonImage")]
     [ProducesResponseType(StatusCodes.Status200OK)]
@@ -1403,6 +1414,7 @@ public class ImageController : BaseMulletaFlixApiController
     /// A <see cref="FileStreamResult"/> containing the file stream on success,
     /// or a <see cref="NotFoundResult"/> if item not found.
     /// </returns>
+    [AllowAnonymous]
     [HttpGet("Persons/{name}/Images/{imageType}/{imageIndex}")]
     [HttpHead("Persons/{name}/Images/{imageType}/{imageIndex}", Name = "HeadPersonImageByIndex")]
     [ProducesResponseType(StatusCodes.Status200OK)]
@@ -1481,6 +1493,7 @@ public class ImageController : BaseMulletaFlixApiController
     /// A <see cref="FileStreamResult"/> containing the file stream on success,
     /// or a <see cref="NotFoundResult"/> if item not found.
     /// </returns>
+    [AllowAnonymous]
     [HttpGet("Studios/{name}/Images/{imageType}")]
     [HttpHead("Studios/{name}/Images/{imageType}", Name = "HeadStudioImage")]
     [ProducesResponseType(StatusCodes.Status200OK)]
@@ -1559,6 +1572,7 @@ public class ImageController : BaseMulletaFlixApiController
     /// A <see cref="FileStreamResult"/> containing the file stream on success,
     /// or a <see cref="NotFoundResult"/> if item not found.
     /// </returns>
+    [AllowAnonymous]
     [HttpGet("Studios/{name}/Images/{imageType}/{imageIndex}")]
     [HttpHead("Studios/{name}/Images/{imageType}/{imageIndex}", Name = "HeadStudioImageByIndex")]
     [ProducesResponseType(StatusCodes.Status200OK)]
@@ -1853,6 +1867,7 @@ public class ImageController : BaseMulletaFlixApiController
     /// <param name="format">Determines the output format of the image - original,gif,jpg,png.</param>
     /// <response code="200">Splashscreen returned successfully.</response>
     /// <returns>The splashscreen.</returns>
+    [AllowAnonymous]
     [HttpGet("Branding/Splashscreen")]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesImageFile]
@@ -2530,10 +2545,7 @@ public class ImageController : BaseMulletaFlixApiController
         // and a stale tag for a replaced or deleted image simply will not match here.
         if (hasTag && !disableCaching)
         {
-            var ifNoneMatchEarly = Request.Headers[HeaderNames.IfNoneMatch].ToString();
-            if (!string.IsNullOrEmpty(ifNoneMatchEarly)
-                && (string.Equals(ifNoneMatchEarly, $"\"{tag}\"", StringComparison.Ordinal)
-                    || string.Equals(ifNoneMatchEarly, tag, StringComparison.Ordinal)))
+            if (Request.IfNoneMatchMatches($"\"{tag}\""))
             {
                 Response.StatusCode = StatusCodes.Status304NotModified;
                 Response.Headers.Append(HeaderNames.ETag, $"\"{tag}\"");
@@ -2601,10 +2613,7 @@ public class ImageController : BaseMulletaFlixApiController
                 Response.Headers.Append(HeaderNames.ETag, $"\"{tag}\"");
 
                 // Check If-None-Match header for ETag-based validation (preferred over If-Modified-Since)
-                var ifNoneMatch = Request.Headers[HeaderNames.IfNoneMatch].ToString();
-                if (!string.IsNullOrEmpty(ifNoneMatch)
-                    && (string.Equals(ifNoneMatch, $"\"{tag}\"", StringComparison.Ordinal)
-                        || string.Equals(ifNoneMatch, tag, StringComparison.Ordinal)))
+                if (Request.IfNoneMatchMatches($"\"{tag}\""))
                 {
                     Response.StatusCode = StatusCodes.Status304NotModified;
                     return new ContentResult();
@@ -2612,14 +2621,11 @@ public class ImageController : BaseMulletaFlixApiController
             }
 
             // Check If-Modified-Since header for time-based validation
-            if (DateTime.TryParse(Request.Headers[HeaderNames.IfModifiedSince], out var ifModifiedSinceHeader))
+            if (Request.IfModifiedSinceMatches(dateImageModified))
             {
                 // Return 304 if the image has not been modified since the client's cached version
-                if (dateImageModified <= ifModifiedSinceHeader)
-                {
-                    Response.StatusCode = StatusCodes.Status304NotModified;
-                    return new ContentResult();
-                }
+                Response.StatusCode = StatusCodes.Status304NotModified;
+                return new ContentResult();
             }
         }
 

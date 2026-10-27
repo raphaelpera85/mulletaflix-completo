@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import importlib
 import io
+import uuid
 from types import SimpleNamespace
 
 import pytest
@@ -57,6 +58,9 @@ async def test_legacy_upload_worker_persists_each_part_and_completion(monkeypatc
     sent_payloads = []
     removed = []
     queue = asyncio.Queue()
+    lease_id = "00000000000000000000000000000001"
+    file_uuid = "00000000-0000-0000-0000-000000000002"
+    uuid_values = iter((uuid.UUID(lease_id), uuid.UUID(file_uuid)))
 
     class Files:
         async def find_one(self, query):
@@ -69,10 +73,11 @@ async def test_legacy_upload_worker_persists_each_part_and_completion(monkeypatc
         async def find_one_and_update(self, query, update, *, return_document):
             assert query == {"_id": "legacy-file", "status": {"$in": ["queued", "staging"]}}
             assert update["$set"]["status"] == "uploading"
-            return file_doc
+            return {**file_doc, **update["$set"]}
 
         async def update_one(self, query, update):
             updates.append((query, update))
+            return SimpleNamespace(matched_count=1)
 
     class Bot:
         name = "legacy-bot"
@@ -99,7 +104,7 @@ async def test_legacy_upload_worker_persists_each_part_and_completion(monkeypatc
     monkeypatch.setattr(main, "build_part_caption", lambda *_args: "episode caption")
     monkeypatch.setattr(main, "log_queue_state", log_state)
     monkeypatch.setattr(main, "safe_remove_staging_file", lambda path, **_kwargs: removed.append(path))
-    monkeypatch.setattr(main.uuid, "uuid4", lambda: "legacy-uuid")
+    monkeypatch.setattr(main.uuid, "uuid4", lambda: next(uuid_values))
     monkeypatch.setattr(main.Metrics, "log_success", lambda _size: None)
     monkeypatch.setattr(main, "UPLOAD_QUEUE", queue)
 
@@ -113,19 +118,33 @@ async def test_legacy_upload_worker_persists_each_part_and_completion(monkeypatc
             await worker
 
     assert [(name, payload) for name, payload, _caption in sent_payloads] == [
-        ("legacy-uuid.part_000", b"abc"),
-        ("legacy-uuid.part_001", b"def"),
-        ("legacy-uuid.part_002", b"g"),
+        (f"{file_uuid}.part_000", b"abc"),
+        (f"{file_uuid}.part_001", b"def"),
+        (f"{file_uuid}.part_002", b"g"),
     ]
     final_query, final_update = updates[-1]
-    assert final_query == {"_id": "legacy-file"}
+    lease_until_filter = final_query.pop("lease_until")
+    assert lease_until_filter["$gt"] <= int(main.time.time())
+    assert final_query == {
+        "_id": "legacy-file",
+        "worker_id": "21",
+        "lease_id": lease_id,
+        "status": "uploading",
+    }
     persisted = final_update["$set"]
     assert persisted["status"] == "completed"
     assert persisted["part_count"] == 3
     assert persisted["size"] == 7
     assert [part["tg_file"] for part in persisted["parts"]] == ["tg-1", "tg-2", "tg-3"]
     assert [(part["byte_start"], part["byte_end"]) for part in persisted["parts"]] == [(0, 2), (3, 5), (6, 6)]
-    assert final_update["$unset"] == {"uploadId": 1, "local_path": 1}
+    assert final_update["$unset"] == {
+        "worker_id": 1,
+        "lease_id": 1,
+        "lease_until": 1,
+        "heartbeat_at": 1,
+        "uploadId": 1,
+        "local_path": 1,
+    }
     assert removed == [str(media)]
     assert str(media) not in main.ACTIVE_UPLOADS
 
@@ -144,11 +163,12 @@ async def test_legacy_upload_worker_marks_telegram_failure_and_keeps_source(monk
         async def find_one(self, _query):
             return file_doc
 
-        async def find_one_and_update(self, *_args, **_kwargs):
-            return file_doc
+        async def find_one_and_update(self, _query, update, **_kwargs):
+            return {**file_doc, **update["$set"]}
 
         async def update_one(self, query, update):
             updates.append((query, update))
+            return SimpleNamespace(matched_count=1)
 
     class Bot:
         async def send_document(self, **_kwargs):
@@ -191,3 +211,91 @@ async def test_legacy_upload_worker_marks_telegram_failure_and_keeps_source(monk
     assert removed == []
     assert media.read_bytes() == b"data"
     assert str(media) not in main.ACTIVE_UPLOADS
+
+
+@pytest.mark.asyncio
+async def test_legacy_upload_worker_stops_before_retry_after_lease_is_reclaimed(monkeypatch, tmp_path):
+    media = tmp_path / "reclaimed.mkv"
+    media.write_bytes(b"payload")
+    database_doc = {"_id": "reclaimed-file", "status": "queued", "parts": []}
+    updates = []
+    sends = []
+    sleeps = []
+    removed = []
+    queue = asyncio.Queue()
+    lease_uuid = uuid.UUID("00000000-0000-0000-0000-000000000001")
+    media_uuid = uuid.UUID("00000000-0000-0000-0000-000000000002")
+    uuid_values = iter((lease_uuid, media_uuid))
+
+    class Files:
+        async def find_one(self, _query):
+            return {**database_doc}
+
+        async def find_one_and_update(self, query, update, **_kwargs):
+            assert database_doc["status"] in query["status"]["$in"]
+            database_doc.update(update["$set"])
+            return {**database_doc}
+
+        async def update_one(self, query, update):
+            matched = True
+            for key, expected in query.items():
+                actual = database_doc.get(key)
+                if isinstance(expected, dict) and "$gt" in expected:
+                    matched = matched and actual is not None and actual > expected["$gt"]
+                else:
+                    matched = matched and actual == expected
+            if matched:
+                database_doc.update(update.get("$set", {}))
+                for key in update.get("$unset", {}):
+                    database_doc.pop(key, None)
+            updates.append((query, update, matched))
+            return SimpleNamespace(matched_count=int(matched))
+
+    class Bot:
+        async def send_document(self, **_kwargs):
+            sends.append(True)
+            database_doc["lease_id"] = "replacement-generation"
+            raise RuntimeError("ambiguous Telegram timeout")
+
+    async def resolve_parent(*_args):
+        return "Series"
+
+    async def log_state(*_args):
+        return None
+
+    async def no_wait(seconds):
+        sleeps.append(seconds)
+
+    monkeypatch.setattr(main, "UPLOAD_QUEUE", queue)
+    monkeypatch.setattr(main, "ACTIVE_UPLOADS", set())
+    monkeypatch.setattr(main, "CHUNK_SIZE", 3)
+    monkeypatch.setattr(main, "MAX_RETRIES", 3)
+    monkeypatch.setattr(main, "UPLOAD_STATUS_MESSAGES", False)
+    monkeypatch.setattr(main, "resolve_media_parent", resolve_parent)
+    monkeypatch.setattr(main, "classify_media_type", lambda *_args: "series")
+    monkeypatch.setattr(main, "build_part_caption", lambda *_args: "episode caption")
+    monkeypatch.setattr(main, "log_queue_state", log_state)
+    monkeypatch.setattr(main, "safe_remove_staging_file", lambda path, **_kwargs: removed.append(path))
+    monkeypatch.setattr(main.uuid, "uuid4", lambda: next(uuid_values))
+    monkeypatch.setattr(main.asyncio, "sleep", no_wait)
+
+    await queue.put({"path": str(media), "filename": media.name, "parent": "Series"})
+    worker = asyncio.create_task(main.upload_worker(Bot(), -100, SimpleNamespace(files=Files()), 23))
+    try:
+        await asyncio.wait_for(queue.join(), timeout=3)
+    finally:
+        worker.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await worker
+
+    assert sends == [True]
+    assert sleeps == []
+    assert database_doc["lease_id"] == "replacement-generation"
+    assert database_doc["status"] == "uploading"
+    failed_updates = [(query, update, matched) for query, update, matched in updates if update.get("$set", {}).get("status") == "failed"]
+    assert failed_updates
+    assert all(query.get("lease_id") == lease_uuid.hex for query, _update, _matched in failed_updates)
+    assert all(query.get("_id") == "reclaimed-file" for query, _update, _matched in failed_updates)
+    assert not any(matched for _query, _update, matched in failed_updates)
+    assert removed == []
+    assert media.read_bytes() == b"payload"

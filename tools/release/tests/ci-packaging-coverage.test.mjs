@@ -14,6 +14,16 @@ const linuxRuntimeCopy = await readFile(resolve(repositoryRoot, 'tools/release/c
 const linuxDependencyTest = await readFile(resolve(repositoryRoot, 'tools/release/tests/linux-nebula-python-dependencies.test.sh'), 'utf8');
 const linuxPackageTest = await readFile(resolve(repositoryRoot, 'tools/release/tests/linux-nebula-runtime-package.test.sh'), 'utf8');
 const releaseWorkflow = await readFile(resolve(repositoryRoot, '.github/workflows/release.yml'), 'utf8');
+const dockerfile = await readFile(resolve(repositoryRoot, 'MulletaFlix-packaging-master/docker/Dockerfile'), 'utf8');
+const startupHelpers = await readFile(resolve(repositoryRoot, 'MulletaFlix-master/Jellyfin.Server/Helpers/StartupHelpers.cs'), 'utf8');
+
+test('Docker image maps persistent volumes to MulletaFlix startup path variables', () => {
+    assert.match(startupHelpers, /GetEnvironmentVariable\("MulletaFlix_DATA_DIR"\)/);
+    assert.match(startupHelpers, /GetEnvironmentVariable\("MulletaFlix_CONFIG_DIR"\)/);
+    assert.match(dockerfile, /MulletaFlix_DATA_DIR="\/config"/);
+    assert.match(dockerfile, /MulletaFlix_CONFIG_DIR="\/config\/config"/);
+    assert.match(dockerfile, /VOLUME \$\{JELLYFIN_DATA_DIR\}/);
+});
 
 test('Windows CI executes every packaging integrity script', async () => {
     const jobStart = workflow.indexOf('  windows-packaging-script-tests:');
@@ -39,6 +49,30 @@ test('Windows CI executes every packaging integrity script', async () => {
     }
 });
 
+test('Linux CI syntax-checks and executes every Linux packaging fixture', async () => {
+    const jobStart = workflow.indexOf('  linux-packaging-script-tests:');
+    assert.notEqual(jobStart, -1, 'Linux packaging integrity job must exist');
+    const nextJob = workflow.slice(jobStart + 1).search(/\n  [a-z0-9_-]+:\n/);
+    const job = workflow.slice(jobStart, nextJob === -1 ? undefined : jobStart + 1 + nextJob);
+
+    assert.match(job, /runs-on:\s*ubuntu-latest/);
+    assert.match(job, /timeout-minutes:\s*10/);
+    assert.match(job, /bash -n "\$script"/);
+
+    const requiredTests = [
+        'linux-install-preflight.test.sh',
+        'linux-atomic-write.test.sh',
+        'duckdns-update.test.sh'
+    ];
+    const executionStep = job.split('- name: Run Linux packaging integrity checks')[1] ?? '';
+
+    for (const testFile of requiredTests) {
+        assert.ok(job.includes(testFile), `${testFile} must run in the Linux CI job`);
+        assert.match(executionStep, new RegExp(`bash\\s+tools/release/tests/${testFile.replaceAll('.', '\\.')}\\b`), `${testFile} must be executed, not only syntax-checked`);
+        await readFile(resolve(repositoryRoot, 'tools/release/tests', testFile), 'utf8');
+    }
+});
+
 test('Nebula packaging installs and stages the hash-locked runtime dependencies', () => {
     assert.match(installer, /Tools\\NebulaPython\\requirements\.lock/);
     assert.match(installer, /--require-hashes/);
@@ -51,6 +85,9 @@ test('Nebula packaging installs and stages the hash-locked runtime dependencies'
     assert.doesNotMatch(installer, /Get-Command python\.exe/);
     assert.match(stageBuilder, /'requirements\.in'.*'requirements\.txt'.*'requirements\.lock'/);
     assert.match(stageIntegrity, /Tools\\NebulaPython\\requirements\.lock/);
+    assert.match(stageBuilder, /'generate_strm\.py'.*'upload_checkpoint\.py'/);
+    assert.match(stageIntegrity, /Tools\\NebulaPython\\upload_checkpoint\.py/);
+    assert.match(stageIntegrity, /sourceCheckpointHash.*stagedCheckpointHash/s);
 });
 
 test('Nebula startup dependency guard never repairs a global Python interpreter', async () => {
@@ -68,10 +105,15 @@ test('Nebula startup dependency guard never repairs a global Python interpreter'
 });
 
 test('Linux server package copies, verifies, and installs Nebula from the hash lock', () => {
+    assert.match(linuxRuntimeCopy, /generate_strm\.py upload_checkpoint\.py/);
     assert.match(linuxRuntimeCopy, /requirements\.in requirements\.txt requirements\.lock/);
     assert.match(linuxInstaller, /--require-hashes -r "\$nebula_python_dir\/requirements\.lock"/);
     assert.match(linuxDependencyTest, /--require-hashes/);
     assert.match(linuxDependencyTest, /requirements_lock/);
+    assert.match(linuxDependencyTest, /Packaged Nebula main import passed/);
+    assert.match(linuxDependencyTest, /strm_downloader\.py --help/);
+    assert.match(linuxDependencyTest, /NEBULA_STREAM_SERVICE=1/);
     assert.match(linuxPackageTest, /requirements\.in requirements\.txt requirements\.lock/);
     assert.match(releaseWorkflow, /server\/Tools\/NebulaPython\/requirements\.lock/);
+    assert.match(releaseWorkflow, /linux-nebula-python-dependencies\.test\.sh "\$package"/);
 });

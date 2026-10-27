@@ -3,6 +3,14 @@
 Data: 2026-10-21
 Escopo: `MulletaFlix-web-master` e os assets web empacotados pelo servidor.
 
+## Revalidação do toolchain — 2026-10-21
+
+- Atualizados e fixados como `devDependencies`: `vitest`/`@vitest/coverage-v8` 5.0.3, `stylelint` 17.6.0, `@stylistic/stylelint-plugin` 5.3.1, `stylelint-scss` 7.3.0 e `stylelint-no-browser-hacks` 2.0.3. O parser transitivo vulnerável deixou de aparecer no audit.
+- `npm audit --omit=dev --audit-level=low`: 0 vulnerabilidades. `npm audit --audit-level=low`: 10 altas, sem moderadas/críticas, todas na árvore exclusiva de desenvolvimento e ligadas ao `braces@3.0.3` sem release corrigida upstream ([GHSA-vfj7-8cjw-p6xm](https://github.com/advisories/GHSA-vfj7-8cjw-p6xm)). Não foi aplicado override artificial nem `npm audit fix --force`.
+- Corrigidos advisories de Vitest e `@vitest/mocker` via 5.0.3 ([GHSA-qxg6-89mg-rqv8](https://github.com/advisories/GHSA-qxg6-89mg-rqv8), [GHSA-xp26-3454-mjgp](https://github.com/advisories/GHSA-xp26-3454-mjgp)) e de `postcss-selector-parser` via a atualização do Stylelint ([GHSA-rj75-hqrm-r3gf](https://github.com/advisories/GHSA-rj75-hqrm-r3gf)).
+- Validação posterior: Vitest 418/418 em 75 arquivos; Stylelint, typecheck e build de produção aprovados; `verify:build` aprovou 1.926 artefatos e bundle inicial de 294,3 KiB gzip (orçamento 420 KiB). `.NET` NuGet audit sem pacote vulnerável.
+- Isso é validação local, não homologação formal, release ou prova de segurança do host. O restante do audit completo permanece aberto até correção upstream ou migração de ferramenta que retire `braces` sem regredir lint/build.
+
 ## Resultado
 
 - Antes da atualização, `npm audit` reportou 12 vulnerabilidades somente no conjunto de desenvolvimento: 1 moderada e 11 altas. `npm audit --omit=dev` reportou zero vulnerabilidades em dependências de produção.

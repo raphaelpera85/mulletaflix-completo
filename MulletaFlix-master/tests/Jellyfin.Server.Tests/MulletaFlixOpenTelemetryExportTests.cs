@@ -7,6 +7,8 @@ using System.Net;
 using System.Net.Http;
 using System.Net.Sockets;
 using System.Reflection;
+using System.Security.AccessControl;
+using System.Security.Principal;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
@@ -171,9 +173,17 @@ public sealed class MulletaFlixOpenTelemetryExportTests
         var previousTracesHeaders = Environment.GetEnvironmentVariable("OTEL_EXPORTER_OTLP_TRACES_HEADERS");
         var previousMetricsHeaders = Environment.GetEnvironmentVariable("OTEL_EXPORTER_OTLP_METRICS_HEADERS");
         var privatePath = Path.Combine(Path.GetTempPath(), $"backup-private-path-{Guid.NewGuid():N}.zip");
+        var backupProgramDataPath = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+            ".mulletaflix-restore-tests",
+            $"otel-{Guid.NewGuid():N}");
+        var restoreRootsPath = Path.Combine(
+            Path.GetDirectoryName(backupProgramDataPath)!,
+            $"otel-roots-{Guid.NewGuid():N}");
         var dramaBoxCachePath = Path.Combine(Path.GetTempPath(), "mulletaflix-dramabox-otlp-" + Guid.NewGuid().ToString("N"));
         try
         {
+            CreatePrivateRestoreTestRoot(backupProgramDataPath);
             Environment.SetEnvironmentVariable("OTEL_EXPORTER_OTLP_ENDPOINT", receiver.Endpoint);
             Environment.SetEnvironmentVariable("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT", null);
             Environment.SetEnvironmentVariable("OTEL_EXPORTER_OTLP_METRICS_ENDPOINT", null);
@@ -192,7 +202,13 @@ public sealed class MulletaFlixOpenTelemetryExportTests
                 NullLogger<BackupService>.Instance,
                 null!,
                 null!,
-                null!,
+                Mock.Of<MediaBrowser.Controller.IServerApplicationPaths>(paths =>
+                    paths.ProgramDataPath == backupProgramDataPath
+                    && paths.ConfigurationDirectoryPath == Path.Combine(restoreRootsPath, "config")
+                    && paths.DataPath == Path.Combine(restoreRootsPath, "data")
+                    && paths.RootFolderPath == Path.Combine(restoreRootsPath, "library")
+                    && paths.InternalMetadataPath == Path.Combine(restoreRootsPath, "metadata")
+                    && paths.DefaultInternalMetadataPath == Path.Combine(restoreRootsPath, "default-metadata")),
                 null!,
                 null!);
 
@@ -404,6 +420,7 @@ public sealed class MulletaFlixOpenTelemetryExportTests
             var userDataCleanup = new CleanupUserDataTask(
                 Mock.Of<ILocalizationManager>(),
                 userDataDbFactory.Object,
+                Mock.Of<MediaBrowser.Controller.Persistence.IItemPersistenceService>(),
                 NullLogger<CleanupUserDataTask>.Instance);
             await userDataCleanup.ExecuteAsync(Mock.Of<IProgress<double>>(), TestContext.Current.CancellationToken);
             var licenseManager = new Mock<MediaBrowser.Controller.Library.IUserLicenseManager>();
@@ -576,6 +593,44 @@ public sealed class MulletaFlixOpenTelemetryExportTests
             Environment.SetEnvironmentVariable("OTEL_EXPORTER_OTLP_HEADERS", previousHeaders);
             Environment.SetEnvironmentVariable("OTEL_EXPORTER_OTLP_TRACES_HEADERS", previousTracesHeaders);
             Environment.SetEnvironmentVariable("OTEL_EXPORTER_OTLP_METRICS_HEADERS", previousMetricsHeaders);
+            if (Directory.Exists(backupProgramDataPath))
+            {
+                Directory.Delete(backupProgramDataPath, recursive: true);
+            }
+        }
+    }
+
+    private static void CreatePrivateRestoreTestRoot(string root)
+    {
+        Directory.CreateDirectory(root);
+
+        if (OperatingSystem.IsWindows())
+        {
+            var user = WindowsIdentity.GetCurrent().User
+                ?? throw new UnauthorizedAccessException("The restore fixture has no current user SID.");
+            var security = new DirectorySecurity();
+            security.SetAccessRuleProtection(isProtected: true, preserveInheritance: false);
+            security.SetOwner(user);
+            foreach (var sid in new[]
+            {
+                user,
+                new SecurityIdentifier(WellKnownSidType.LocalSystemSid, null),
+                new SecurityIdentifier(WellKnownSidType.BuiltinAdministratorsSid, null)
+            })
+            {
+                security.AddAccessRule(new FileSystemAccessRule(
+                    sid,
+                    FileSystemRights.FullControl,
+                    InheritanceFlags.ContainerInherit | InheritanceFlags.ObjectInherit,
+                    PropagationFlags.None,
+                    AccessControlType.Allow));
+            }
+
+            new DirectoryInfo(root).SetAccessControl(security);
+        }
+        else if (OperatingSystem.IsLinux())
+        {
+            File.SetUnixFileMode(root, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
         }
     }
 

@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
+using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using MediaBrowser.Model.Dto;
@@ -47,6 +48,119 @@ namespace MediaBrowser.Providers.Plugins.Tmdb
             _tmDbClient.ThrowApiExceptions = false;
         }
 
+        internal TmdbClientManager(IMemoryCache memoryCache, TMDbClient tmDbClient)
+        {
+            _memoryCache = memoryCache;
+            _tmDbClient = tmDbClient;
+            _tmDbClient.ThrowApiExceptions = false;
+        }
+
+        internal static string BuildCacheKey(string entity, params string?[] dimensions)
+        {
+            var key = new StringBuilder(entity);
+            foreach (var dimension in dimensions)
+            {
+                key.Append('-').Append(Uri.EscapeDataString(dimension ?? string.Empty));
+            }
+
+            return key.ToString();
+        }
+
+        private async Task<T?> GetCachedImagesAsync<T>(string key, Func<Task<T>> fetch, CancellationToken cancellationToken)
+            where T : class
+        {
+            if (_memoryCache.TryGetValue(key, out T? images))
+            {
+                return images;
+            }
+
+            await EnsureClientConfigAsync().ConfigureAwait(false);
+            await ThrottleAsync(cancellationToken).ConfigureAwait(false);
+
+            images = await fetch().ConfigureAwait(false);
+            if (images is not null)
+            {
+                _memoryCache.Set(key, images, TimeSpan.FromHours(CacheDurationInHours));
+            }
+
+            return images;
+        }
+
+        /// <summary>
+        /// Gets movie images across every language supported by TMDb. The server applies the user's language selection later.
+        /// </summary>
+        /// <param name="tmdbId">The TMDb movie identifier.</param>
+        /// <param name="preferredLanguage">The preferred metadata language.</param>
+        /// <param name="countryCode">The preferred metadata country.</param>
+        /// <param name="cancellationToken">The cancellation token.</param>
+        /// <returns>All available movie images.</returns>
+        public async Task<ImagesWithId?> GetMovieImagesAsync(int tmdbId, string preferredLanguage, string? countryCode, CancellationToken cancellationToken)
+        {
+            var imageLanguages = TmdbUtils.GetImageLanguagesParam(preferredLanguage, countryCode);
+            var key = BuildCacheKey("movie-images", tmdbId.ToString(CultureInfo.InvariantCulture), imageLanguages);
+            return await GetCachedImagesAsync(
+                key,
+                () => _tmDbClient.GetMovieImagesAsync(tmdbId, string.Empty, imageLanguages, cancellationToken),
+                cancellationToken).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// Gets every collection image without a language filter. The server applies the user's language selection later.
+        /// </summary>
+        /// <param name="tmdbId">The TMDb collection identifier.</param>
+        /// <param name="cancellationToken">The cancellation token.</param>
+        /// <returns>All available collection images.</returns>
+        public Task<ImagesWithId?> GetCollectionImagesAsync(int tmdbId, CancellationToken cancellationToken)
+        {
+            var key = BuildCacheKey("collection-images", tmdbId.ToString(CultureInfo.InvariantCulture));
+            // TMDbLib's collection endpoint adds the language parameter whenever it is non-null;
+            // null is required here to request the complete image set.
+            return GetCachedImagesAsync(key, () => _tmDbClient.GetCollectionImagesAsync(tmdbId, null, cancellationToken), cancellationToken);
+        }
+
+        /// <summary>
+        /// Gets every series image without a language filter. The server applies the user's language selection later.
+        /// </summary>
+        /// <param name="tmdbId">The TMDb series identifier.</param>
+        /// <param name="cancellationToken">The cancellation token.</param>
+        /// <returns>All available series images.</returns>
+        public Task<ImagesWithId?> GetSeriesImagesAsync(int tmdbId, CancellationToken cancellationToken)
+        {
+            return GetSeriesImagesAsync(tmdbId, string.Empty, null, cancellationToken);
+        }
+
+        /// <summary>
+        /// Gets series images in the preferred language, with English and language-neutral fallbacks.
+        /// </summary>
+        public async Task<ImagesWithId?> GetSeriesImagesAsync(int tmdbId, string preferredLanguage, string? countryCode, CancellationToken cancellationToken)
+        {
+            var imageLanguages = TmdbUtils.GetImageLanguagesParam(preferredLanguage, countryCode);
+            var key = BuildCacheKey("series-images", tmdbId.ToString(CultureInfo.InvariantCulture), imageLanguages);
+            return await GetCachedImagesAsync(key, () => _tmDbClient.GetTvShowImagesAsync(tmdbId, string.Empty, imageLanguages, cancellationToken), cancellationToken).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// Gets every season image without a language filter. The server applies the user's language selection later.
+        /// </summary>
+        /// <param name="tvShowId">The TMDb series identifier.</param>
+        /// <param name="seasonNumber">The season number.</param>
+        /// <param name="cancellationToken">The cancellation token.</param>
+        /// <returns>All available season images.</returns>
+        public Task<PosterImages?> GetSeasonImagesAsync(int tvShowId, int seasonNumber, CancellationToken cancellationToken)
+        {
+            return GetSeasonImagesAsync(tvShowId, seasonNumber, string.Empty, null, cancellationToken);
+        }
+
+        /// <summary>
+        /// Gets season images in the preferred language, with English and language-neutral fallbacks.
+        /// </summary>
+        public async Task<PosterImages?> GetSeasonImagesAsync(int tvShowId, int seasonNumber, string preferredLanguage, string? countryCode, CancellationToken cancellationToken)
+        {
+            var imageLanguages = TmdbUtils.GetImageLanguagesParam(preferredLanguage, countryCode);
+            var key = BuildCacheKey("season-images", tvShowId.ToString(CultureInfo.InvariantCulture), seasonNumber.ToString(CultureInfo.InvariantCulture), imageLanguages);
+            return await GetCachedImagesAsync(key, () => _tmDbClient.GetTvSeasonImagesAsync(tvShowId, seasonNumber, string.Empty, imageLanguages, cancellationToken), cancellationToken).ConfigureAwait(false);
+        }
+
         private async Task ThrottleAsync(CancellationToken cancellationToken)
         {
             var delay = Plugin.Instance.Configuration.RateLimitDelayMs;
@@ -84,7 +198,7 @@ namespace MediaBrowser.Providers.Plugins.Tmdb
         /// <returns>The TMDb movie or null if not found.</returns>
         public async Task<Movie?> GetMovieAsync(int tmdbId, string? language, string? imageLanguages, string? countryCode, CancellationToken cancellationToken)
         {
-            var key = $"movie-{tmdbId.ToString(CultureInfo.InvariantCulture)}-{language}";
+            var key = BuildCacheKey("movie", tmdbId.ToString(CultureInfo.InvariantCulture), language, imageLanguages, countryCode);
             if (_memoryCache.TryGetValue(key, out Movie? movie))
             {
                 return movie;
@@ -125,7 +239,7 @@ namespace MediaBrowser.Providers.Plugins.Tmdb
         /// <returns>The TMDb collection or null if not found.</returns>
         public async Task<Collection?> GetCollectionAsync(int tmdbId, string? language, string? imageLanguages, string? countryCode, CancellationToken cancellationToken)
         {
-            var key = $"collection-{tmdbId.ToString(CultureInfo.InvariantCulture)}-{language}";
+            var key = BuildCacheKey("collection", tmdbId.ToString(CultureInfo.InvariantCulture), language, imageLanguages, countryCode);
             if (_memoryCache.TryGetValue(key, out Collection? collection))
             {
                 return collection;
@@ -160,7 +274,7 @@ namespace MediaBrowser.Providers.Plugins.Tmdb
         /// <returns>The TMDb tv show information or null if not found.</returns>
         public async Task<TvShow?> GetSeriesAsync(int tmdbId, string? language, string? imageLanguages, string? countryCode, CancellationToken cancellationToken)
         {
-            var key = $"series-{tmdbId.ToString(CultureInfo.InvariantCulture)}-{language}";
+            var key = BuildCacheKey("series", tmdbId.ToString(CultureInfo.InvariantCulture), language, imageLanguages, countryCode);
             if (_memoryCache.TryGetValue(key, out TvShow? series))
             {
                 return series;
@@ -217,7 +331,7 @@ namespace MediaBrowser.Providers.Plugins.Tmdb
                 return null;
             }
 
-            var key = $"group-{tvShowId.ToString(CultureInfo.InvariantCulture)}-{displayOrder}-{language}";
+            var key = BuildCacheKey("group", tvShowId.ToString(CultureInfo.InvariantCulture), displayOrder, language, imageLanguages, countryCode);
             if (_memoryCache.TryGetValue(key, out TvGroupCollection? group))
             {
                 return group;
@@ -259,7 +373,7 @@ namespace MediaBrowser.Providers.Plugins.Tmdb
         /// <returns>The TMDb tv season information or null if not found.</returns>
         public async Task<TvSeason?> GetSeasonAsync(int tvShowId, int seasonNumber, string? language, string? imageLanguages, string? countryCode, CancellationToken cancellationToken)
         {
-            var key = $"season-{tvShowId.ToString(CultureInfo.InvariantCulture)}-s{seasonNumber.ToString(CultureInfo.InvariantCulture)}-{language}";
+            var key = BuildCacheKey("season", tvShowId.ToString(CultureInfo.InvariantCulture), seasonNumber.ToString(CultureInfo.InvariantCulture), language, imageLanguages, countryCode);
             if (_memoryCache.TryGetValue(key, out TvSeason? season))
             {
                 return season;
@@ -298,7 +412,7 @@ namespace MediaBrowser.Providers.Plugins.Tmdb
         /// <returns>The TMDb tv episode information or null if not found.</returns>
         public async Task<TvEpisode?> GetEpisodeAsync(int tvShowId, int seasonNumber, long episodeNumber, string displayOrder, string? language, string? imageLanguages, string? countryCode, CancellationToken cancellationToken)
         {
-            var key = $"episode-{tvShowId.ToString(CultureInfo.InvariantCulture)}-s{seasonNumber.ToString(CultureInfo.InvariantCulture)}e{episodeNumber.ToString(CultureInfo.InvariantCulture)}-{displayOrder}-{language}";
+            var key = BuildCacheKey("episode", tvShowId.ToString(CultureInfo.InvariantCulture), seasonNumber.ToString(CultureInfo.InvariantCulture), episodeNumber.ToString(CultureInfo.InvariantCulture), displayOrder, language, imageLanguages, countryCode);
             if (_memoryCache.TryGetValue(key, out TvEpisode? episode))
             {
                 return episode;
@@ -335,6 +449,15 @@ namespace MediaBrowser.Providers.Plugins.Tmdb
             }
 
             return episode;
+        }
+
+        /// <summary>
+        /// Gets an episode with artwork in the preferred language, its original language, English, and all other supported languages.
+        /// </summary>
+        public async Task<TvEpisode?> GetEpisodeImagesAsync(int tvShowId, int seasonNumber, long episodeNumber, string displayOrder, string preferredLanguage, string? countryCode, CancellationToken cancellationToken)
+        {
+            var imageLanguages = TmdbUtils.GetImageLanguagesParam(preferredLanguage, countryCode);
+            return await GetEpisodeAsync(tvShowId, seasonNumber, episodeNumber, displayOrder, preferredLanguage, imageLanguages, countryCode, cancellationToken).ConfigureAwait(false);
         }
 
         /// <summary>

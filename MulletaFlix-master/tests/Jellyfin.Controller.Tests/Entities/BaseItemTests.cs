@@ -1,7 +1,11 @@
 using System;
 using System.IO;
+using System.Threading;
+using System.Threading.Tasks;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Library;
+using MediaBrowser.Model.Entities;
+using MediaBrowser.Model.IO;
 using MediaBrowser.Model.MediaInfo;
 using Moq;
 using Xunit;
@@ -82,5 +86,69 @@ public class BaseItemTests
 
         Assert.True(book.SupportsLocalMetadata);
         Assert.True(book.IsSaveLocalMetadataEnabled());
+    }
+
+    [Fact]
+    public async Task DeleteImageAsync_WhenRepositoryUpdateFails_LeavesFileAndRestoresImageReference()
+    {
+        var previousFileSystem = BaseItem.FileSystem;
+        var fileSystem = new Mock<IFileSystem>(MockBehavior.Strict);
+        var item = new RepositoryUpdatingVideo { FailRepositoryUpdate = true };
+        var image = new ItemImageInfo { Path = "C:\\media\\poster.jpg", Type = ImageType.Primary };
+        item.AddImage(image);
+        BaseItem.FileSystem = fileSystem.Object;
+
+        try
+        {
+            await Assert.ThrowsAsync<InvalidOperationException>(() => item.DeleteImageAsync(ImageType.Primary, 0));
+
+            Assert.Same(image, item.GetImageInfo(ImageType.Primary, 0));
+            fileSystem.Verify(fs => fs.DeleteFile(It.IsAny<string>()), Times.Never);
+        }
+        finally
+        {
+            BaseItem.FileSystem = previousFileSystem;
+        }
+    }
+
+    [Fact]
+    public async Task DeleteImageAsync_WhenRepositoryUpdateSucceeds_PreservesLocalFileThatMayBeShared()
+    {
+        var previousFileSystem = BaseItem.FileSystem;
+        var item = new RepositoryUpdatingVideo();
+        var otherItem = new RepositoryUpdatingVideo();
+        const string imagePath = "C:\\media\\poster.jpg";
+        var fileSystem = new Mock<IFileSystem>(MockBehavior.Strict);
+        item.AddImage(new ItemImageInfo { Path = imagePath, Type = ImageType.Primary });
+        otherItem.AddImage(new ItemImageInfo { Path = imagePath, Type = ImageType.Primary });
+        BaseItem.FileSystem = fileSystem.Object;
+
+        try
+        {
+            await item.DeleteImageAsync(ImageType.Primary, 0);
+
+            Assert.Null(item.GetImageInfo(ImageType.Primary, 0));
+            Assert.Equal(imagePath, otherItem.GetImageInfo(ImageType.Primary, 0)?.Path);
+            fileSystem.Verify(fs => fs.DeleteFile(It.IsAny<string>()), Times.Never);
+        }
+        finally
+        {
+            BaseItem.FileSystem = previousFileSystem;
+        }
+    }
+
+    private sealed class RepositoryUpdatingVideo : Video
+    {
+        public bool FailRepositoryUpdate { get; init; }
+
+        public override Task UpdateToRepositoryAsync(ItemUpdateType updateReason, CancellationToken cancellationToken)
+        {
+            if (FailRepositoryUpdate)
+            {
+                return Task.FromException(new InvalidOperationException("Persistence failed."));
+            }
+
+            return Task.CompletedTask;
+        }
     }
 }

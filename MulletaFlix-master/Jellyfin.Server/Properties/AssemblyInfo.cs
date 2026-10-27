@@ -22,4 +22,8 @@ using System.Runtime.InteropServices;
 [assembly: ComVisible(false)]
 
 [assembly: InternalsVisibleTo("MulletaFlix.Server.Tests")]
+[assembly: InternalsVisibleTo("MulletaFlix.Server.StartupRecoveryProbe")]
+[assembly: InternalsVisibleTo("MulletaFlix.Server.Implementations.Tests")]
+[assembly: InternalsVisibleTo("IntroSkipper.Integration.Tests")]
+[assembly: InternalsVisibleTo("MulletaFlix.Server.Integration.Tests")]
 

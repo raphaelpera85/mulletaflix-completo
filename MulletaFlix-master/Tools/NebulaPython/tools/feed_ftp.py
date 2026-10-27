@@ -44,6 +44,7 @@ INCOMPLETE_RE = re.compile(
 
 # Priority order for category processing: Animações > Filmes > Séries > Doramas > Novelas > Porno (A–Z)
 CATEGORY_PRIORITY = ["animacoes", "filmes", "series", "doramas", "novelas", "porno"]
+_STATE_WRITE_LOCK = threading.RLock()
 
 
 def normalize_cat_token(text: str) -> str:
@@ -302,16 +303,17 @@ def save_materialized_links(path: Path, links: dict[str, str]) -> None:
 
 
 def atomic_write_json(path: Path, value, *, sort_keys: bool = False) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temp = path.with_name(f".{path.name}.{os.getpid()}.tmp")
-    try:
-        temp.write_text(
-            json.dumps(value, ensure_ascii=False, indent=2, sort_keys=sort_keys),
-            encoding="utf-8",
-        )
-        temp.replace(path)
-    finally:
-        temp.unlink(missing_ok=True)
+    with _STATE_WRITE_LOCK:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        temp = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+        try:
+            temp.write_text(
+                json.dumps(value, ensure_ascii=False, indent=2, sort_keys=sort_keys),
+                encoding="utf-8",
+            )
+            temp.replace(path)
+        finally:
+            temp.unlink(missing_ok=True)
 
 
 def mongo_database(client):
@@ -325,9 +327,10 @@ def mongo_database(client):
 def mark_seen(src: Path, seen: set[str] | None, state_file: Path | None) -> None:
     if seen is None:
         return
-    seen.add(str(src))
-    if state_file:
-        save_seen(state_file, seen)
+    with _STATE_WRITE_LOCK:
+        seen.add(str(src))
+        if state_file:
+            save_seen(state_file, seen)
 
 
 def read_strm_url(src: Path) -> str:
@@ -464,6 +467,8 @@ def materialize_strm(src: Path, overwrite: bool = False, target: Path | None = N
     read_timeout = max(5, int(os.getenv("STRM_READ_TIMEOUT", "20")))
     socket.setdefaulttimeout(read_timeout)
     tmp_path = target.parent / f".{src.stem}.download"
+    meta_path = Path(f"{tmp_path}.meta")
+    source_fingerprint = hashlib.sha256(url.encode("utf-8")).hexdigest()
     part_paths: list[Path] = []
     try:
         probe = Request(url, headers={"Range": "bytes=0-0", "User-Agent": "Mozilla/5.0"})
@@ -477,6 +482,35 @@ def materialize_strm(src: Path, overwrite: bool = False, target: Path | None = N
             else:
                 total = int(match.group(1))
                 parts_count = min(max(int(os.getenv("STRM_DOWNLOAD_PARTS", "20")), 1), 32)
+                resume_is_valid = False
+                if meta_path.exists():
+                    try:
+                        with meta_path.open("r", encoding="utf-8") as metadata_file:
+                            saved_meta = json.load(metadata_file)
+                        saved_parts_count = saved_meta.get("parts_count")
+                        if (
+                            saved_meta.get("source_fingerprint") == source_fingerprint
+                            and saved_meta.get("total") == total
+                            and isinstance(saved_parts_count, int)
+                            and saved_parts_count > 0
+                        ):
+                            parts_count = min(saved_parts_count, 32)
+                            resume_is_valid = True
+                    except (OSError, ValueError, AttributeError):
+                        pass
+
+                if not resume_is_valid:
+                    tmp_path.unlink(missing_ok=True)
+                    for stale_part in target.parent.glob(f".{src.stem}.download.part*"):
+                        stale_part.unlink(missing_ok=True)
+
+                # shortcut: URL identity cannot detect same-URL byte changes; add ETag/If-Range support before mutable-source resume.
+                with meta_path.open("w", encoding="utf-8") as metadata_file:
+                    json.dump({
+                        "source_fingerprint": source_fingerprint,
+                        "total": total,
+                        "parts_count": parts_count,
+                    }, metadata_file)
                 part_size = (total + parts_count - 1) // parts_count
                 part_paths = [Path(f"{tmp_path}.part{index}") for index in range(parts_count)]
                 progress_lock = threading.Lock()
@@ -596,7 +630,16 @@ def materialize_strm(src: Path, overwrite: bool = False, target: Path | None = N
                     raise IOError(f"Parte {index + 1} falhou apos {retries} tentativas: {last_error}")
 
                 with ThreadPoolExecutor(max_workers=parts_count) as executor:
-                    list(executor.map(download_part, range(parts_count)))
+                    futures = [executor.submit(download_part, index) for index in range(parts_count)]
+                    errors = []
+                    for future in futures:
+                        try:
+                            future.result()
+                        except Exception as exc:
+                            errors.append(exc)
+
+                    if errors:
+                        raise errors[0]
                 print(f"[STRM] Todas as {parts_count} partes concluidas; juntando arquivo.", flush=True)
                 with tmp_path.open("wb") as out:
                     for part_path in part_paths:
@@ -1191,7 +1234,7 @@ def register_one(src: Path, dst: Path, dest_root: Path, mongo_uri: str, overwrit
         if existing_by_path:
             st = existing_by_path.get("status")
             # Se já está completed ou em processamento, apenas atualiza delete_source
-            if st == "completed" or st in {"queued", "staging", "uploading"}:
+            if st == "completed" or st in {"queued", "staging", "uploading", "retry_wait"}:
                 files.update_one(
                     {"_id": existing_by_path["_id"]},
                     {"$set": {"delete_source": bool(delete_source), "name": dst.name, "parent": parent}},
@@ -1208,7 +1251,7 @@ def register_one(src: Path, dst: Path, dest_root: Path, mongo_uri: str, overwrit
         existing_by_name = files.find_one({"parent": parent, "name": dst.name}, {"status": 1, "local_path": 1})
         if existing_by_name and not overwrite:
             st = existing_by_name.get("status")
-            if st == "completed" or st in {"queued", "staging", "uploading"}:
+            if st == "completed" or st in {"queued", "staging", "uploading", "retry_wait"}:
                 files.update_one(
                     {"parent": parent, "name": dst.name},
                     {"$set": {"delete_source": bool(delete_source)}},

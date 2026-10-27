@@ -4,6 +4,7 @@ import asyncio
 import importlib
 
 import pytest
+from ftp.common import DualLaneUploadQueue
 
 main_module = importlib.import_module("main")
 stream_service_module = importlib.import_module("stream_service")
@@ -252,9 +253,23 @@ async def test_main_stops_started_bots_when_ftp_security_configuration_is_invali
     assert events == ["bot-start", "bot-stop"]
 
 
+@pytest.mark.parametrize(
+    ("stream_only", "upload_in_flight"),
+    [(True, False), (False, False), (False, True)],
+    ids=["stream-only", "full-upload", "full-upload-in-flight"],
+)
 @pytest.mark.asyncio
-async def test_stream_only_lifecycle_starts_services_and_stops_resources(monkeypatch, tmp_path):
+async def test_main_lifecycle_starts_configured_services_and_stops_resources(monkeypatch, tmp_path, stream_only, upload_in_flight):
     events = []
+
+    class ObservedUploadQueue(DualLaneUploadQueue):
+        def __init__(self):
+            super().__init__()
+            self.join_started = asyncio.Event()
+
+        async def join(self):
+            self.join_started.set()
+            await super().join()
 
     class Bot:
         def __init__(self, name, **kwargs):
@@ -312,6 +327,32 @@ async def test_stream_only_lifecycle_starts_services_and_stops_resources(monkeyp
 
     async def background(*_args, **_kwargs):
         events.append("background-task")
+        await asyncio.Future()
+
+    async def setup_indexes(*_args, **_kwargs):
+        events.append("indexes")
+
+    async def cleanup_duplicates(*_args, **_kwargs):
+        events.append("cleanup-duplicates")
+
+    async def watch_folders(*_args, **_kwargs):
+        events.append("folder-watcher")
+        await asyncio.Future()
+
+    async def restore_uploads(*_args, **_kwargs):
+        events.append("restore-pending-uploads")
+
+    async def queued_scanner(*_args, **_kwargs):
+        events.append("queued-mongo-scanner")
+        await asyncio.Future()
+
+    async def upload_worker(*_args, **_kwargs):
+        events.append("upload-worker")
+        await asyncio.Future()
+
+    async def small_upload_worker(*_args, **_kwargs):
+        events.append("small-upload-worker")
+        await asyncio.Future()
 
     async def start_http(_mongo, _bots):
         events.append("http-start")
@@ -323,13 +364,21 @@ async def test_stream_only_lifecycle_starts_services_and_stops_resources(monkeyp
     monkeypatch.setattr(main_module, "Server", FTPServer)
     monkeypatch.setattr(main_module, "MongoDBUserManager", lambda _mongo: object())
     monkeypatch.setattr(main_module, "resolve_channel", lambda _bot: asyncio.sleep(0, result="channel"))
-    monkeypatch.setattr(main_module, "setup_database_indexes", background)
+    monkeypatch.setattr(main_module, "setup_database_indexes", setup_indexes)
     monkeypatch.setattr(main_module, "validate_ftp_security", lambda *_args: False)
     monkeypatch.setattr(main_module, "start_http_stream_server", start_http)
     monkeypatch.setattr(main_module, "garbage_collector", background)
     monkeypatch.setattr(main_module, "stats_reporter", background)
     monkeypatch.setattr(main_module, "staging_scanner", background)
-    monkeypatch.setattr(main_module, "STREAM_ONLY", True)
+    monkeypatch.setattr(main_module, "cleanup_strm_duplicate_records", cleanup_duplicates)
+    monkeypatch.setattr(main_module, "folder_watcher", watch_folders)
+    monkeypatch.setattr(main_module, "restore_pending_uploads", restore_uploads)
+    monkeypatch.setattr(main_module, "queued_mongo_scanner", queued_scanner)
+    monkeypatch.setattr(main_module, "upload_worker_parallel", upload_worker)
+    monkeypatch.setattr(main_module, "upload_small_file_worker", small_upload_worker)
+    monkeypatch.setattr(main_module, "get_upload_worker_count", lambda _count: 2)
+    monkeypatch.setattr(main_module, "get_small_upload_worker_count", lambda _count: 1)
+    monkeypatch.setattr(main_module, "STREAM_ONLY", stream_only)
     monkeypatch.setattr(main_module, "CONTROL_ENABLED", False)
     monkeypatch.setattr(main_module, "STREAM_HOST", "127.0.0.1")
     monkeypatch.setattr(main_module, "STREAM_PORT", 19091)
@@ -339,14 +388,27 @@ async def test_stream_only_lifecycle_starts_services_and_stops_resources(monkeyp
     monkeypatch.setattr(main_module, "TLS_REQUIRED", False)
     monkeypatch.setattr(main_module, "TLS_REQUIRE_CLIENT_CERT", False)
     monkeypatch.setattr(main_module, "PASSIVE_PORTS", None)
-    monkeypatch.setattr(main_module, "UPLOAD_QUEUE", asyncio.Queue())
+    queue = ObservedUploadQueue()
+    monkeypatch.setattr(main_module, "UPLOAD_QUEUE", queue)
     monkeypatch.setenv("SESSIONS_DIR", str(tmp_path / "sessions"))
     monkeypatch.setenv("MONGODB", "mongodb://fake")
     monkeypatch.setenv("MONGO_DATABASE", "nebula-test")
     monkeypatch.setenv("HOST", "127.0.0.1")
     monkeypatch.setenv("PORT", "21210")
 
-    result = await main_module.main()
+    if upload_in_flight:
+        await queue.put({"path": "active-upload.mkv", "size": 1})
+        assert await queue.get() == {"path": "active-upload.mkv", "size": 1}
+        assert queue.empty()
+
+        main_task = asyncio.create_task(main_module.main())
+        await asyncio.wait_for(queue.join_started.wait(), timeout=1)
+        await asyncio.sleep(0)
+        assert not main_task.done()
+        queue.task_done()
+        result = await main_task
+    else:
+        result = await main_module.main()
 
     assert result == 0
     assert (tmp_path / "sessions").is_dir()
@@ -358,6 +420,21 @@ async def test_stream_only_lifecycle_starts_services_and_stops_resources(monkeyp
     assert "http-wait-closed" in events
     assert "bot-stop" in events
     assert events.index("ftp-close") < events.index("bot-stop")
+    if stream_only:
+        assert "cleanup-duplicates" not in events
+        assert "restore-pending-uploads" not in events
+        assert "folder-watcher" not in events
+        assert "queued-mongo-scanner" not in events
+        assert "upload-worker" not in events
+        assert "small-upload-worker" not in events
+    else:
+        assert events.index("cleanup-duplicates") < events.index("restore-pending-uploads")
+        assert events.index("restore-pending-uploads") < events.index("queued-mongo-scanner")
+        assert events.index("restore-pending-uploads") < events.index("upload-worker")
+        assert "folder-watcher" in events
+        assert "queued-mongo-scanner" in events
+        assert events.count("upload-worker") == 2
+        assert events.count("small-upload-worker") == 1
 
 
 @pytest.mark.asyncio

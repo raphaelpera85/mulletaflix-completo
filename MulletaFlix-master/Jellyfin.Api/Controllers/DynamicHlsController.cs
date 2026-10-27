@@ -8,19 +8,12 @@ using System.Linq;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
-using MulletaFlix.Api.Attributes;
-using MulletaFlix.Api.Extensions;
-using MulletaFlix.Api.Helpers;
-using MulletaFlix.Api.Models.StreamingDtos;
-using MulletaFlix.Data.Enums;
-using MulletaFlix.Extensions;
-using MulletaFlix.MediaEncoding.Hls.Playlist;
 using MediaBrowser.Common.Configuration;
 using MediaBrowser.Controller.Configuration;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.MediaEncoding;
-using MediaBrowser.Controller.Streaming;
 using MediaBrowser.Controller.Session;
+using MediaBrowser.Controller.Streaming;
 using MediaBrowser.MediaEncoding.Encoder;
 using MediaBrowser.Model.Configuration;
 using MediaBrowser.Model.Dlna;
@@ -31,6 +24,13 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging;
+using MulletaFlix.Api.Attributes;
+using MulletaFlix.Api.Extensions;
+using MulletaFlix.Api.Helpers;
+using MulletaFlix.Api.Models.StreamingDtos;
+using MulletaFlix.Data.Enums;
+using MulletaFlix.Extensions;
+using MulletaFlix.MediaEncoding.Hls.Playlist;
 
 namespace MulletaFlix.Api.Controllers;
 
@@ -1449,6 +1449,8 @@ public class DynamicHlsController : BaseMulletaFlixApiController
             throw new ArgumentException("StartTimeTicks is not allowed.");
         }
 
+        var segmentEndingPositionTicks = GetSegmentEndingPositionTicks(streamingRequest);
+
         // CTS lifecycle is managed internally.
         var cancellationTokenSource = new CancellationTokenSource();
         var cancellationToken = cancellationTokenSource.Token;
@@ -1466,10 +1468,6 @@ public class DynamicHlsController : BaseMulletaFlixApiController
             // (potentially probing the file) and recomputes all encoding parameters from scratch.
             state = cachedState;
 
-            // Per-segment fields still need to reflect *this* request even though the rest of the state is reused.
-            state!.Request.CurrentRuntimeTicks = streamingRequest.CurrentRuntimeTicks;
-            state.Request.ActualSegmentLengthTicks = streamingRequest.ActualSegmentLengthTicks;
-            state.Request.StartTimeTicks = streamingRequest.StartTimeTicks;
         }
 
         if (state is null)
@@ -1508,7 +1506,7 @@ public class DynamicHlsController : BaseMulletaFlixApiController
         {
             job = _transcodeManager.OnTranscodeBeginRequest(playlistPath, TranscodingJobType);
             _logger.LogDebug("returning {0} [it exists, try 1]", segmentPath);
-            return await GetSegmentResult(state, playlistPath, segmentPath, segmentExtension, segmentId, job, cancellationToken).ConfigureAwait(false);
+            return await GetSegmentResult(state, playlistPath, segmentPath, segmentExtension, segmentId, job, segmentEndingPositionTicks, cancellationToken).ConfigureAwait(false);
         }
 
         using (await _transcodeManager.LockAsync(playlistPath, cancellationToken).ConfigureAwait(false))
@@ -1518,7 +1516,7 @@ public class DynamicHlsController : BaseMulletaFlixApiController
             {
                 job = _transcodeManager.OnTranscodeBeginRequest(playlistPath, TranscodingJobType);
                 _logger.LogDebug("returning {0} [it exists, try 2]", segmentPath);
-                return await GetSegmentResult(state, playlistPath, segmentPath, segmentExtension, segmentId, job, cancellationToken).ConfigureAwait(false);
+                return await GetSegmentResult(state, playlistPath, segmentPath, segmentExtension, segmentId, job, segmentEndingPositionTicks, cancellationToken).ConfigureAwait(false);
             }
 
             var currentTranscodingIndex = GetCurrentTranscodingIndex(playlistPath, segmentExtension);
@@ -1561,6 +1559,9 @@ public class DynamicHlsController : BaseMulletaFlixApiController
 
                     streamingRequest.StartTimeTicks = streamingRequest.CurrentRuntimeTicks;
 
+                    // Cache hits reuse a different request DTO, so apply the seek only while holding the
+                    // playlist lock immediately before the transcoder reads this shared state.
+                    SetTranscodeStartTimeTicks(state.Request, streamingRequest);
                     state.WaitForPath = segmentPath;
                     job = await _transcodeManager.StartFfMpeg(
                         state,
@@ -1597,8 +1598,14 @@ public class DynamicHlsController : BaseMulletaFlixApiController
 
         _logger.LogDebug("returning {0} [general case]", segmentPath);
         job ??= _transcodeManager.OnTranscodeBeginRequest(playlistPath, TranscodingJobType);
-        return await GetSegmentResult(state, playlistPath, segmentPath, segmentExtension, segmentId, job, cancellationToken).ConfigureAwait(false);
+        return await GetSegmentResult(state, playlistPath, segmentPath, segmentExtension, segmentId, job, segmentEndingPositionTicks, cancellationToken).ConfigureAwait(false);
     }
+
+    internal static long GetSegmentEndingPositionTicks(StreamingRequestDto request)
+        => request.CurrentRuntimeTicks + request.ActualSegmentLengthTicks;
+
+    internal static void SetTranscodeStartTimeTicks(StreamingRequestDto stateRequest, StreamingRequestDto segmentRequest)
+        => stateRequest.StartTimeTicks = segmentRequest.CurrentRuntimeTicks;
 
     private static double[] GetSegmentLengths(StreamState state)
         => GetSegmentLengthsInternal(state.RunTimeTicks ?? 0, state.SegmentLength);
@@ -1967,6 +1974,7 @@ public class DynamicHlsController : BaseMulletaFlixApiController
         string segmentExtension,
         int segmentIndex,
         TranscodingJob? transcodingJob,
+        long segmentEndingPositionTicks,
         CancellationToken cancellationToken)
     {
         var segmentExists = System.IO.File.Exists(segmentPath);
@@ -1976,7 +1984,7 @@ public class DynamicHlsController : BaseMulletaFlixApiController
             {
                 // Transcoding job is over, so assume all existing files are ready
                 _logger.LogDebug("serving up {0} as transcode is over", segmentPath);
-                return GetSegmentResult(state, segmentPath, transcodingJob);
+                return GetSegmentResult(state, segmentPath, transcodingJob, segmentEndingPositionTicks);
             }
 
             var currentTranscodingIndex = GetCurrentTranscodingIndex(playlistPath, segmentExtension);
@@ -1985,7 +1993,7 @@ public class DynamicHlsController : BaseMulletaFlixApiController
             if (segmentIndex < currentTranscodingIndex)
             {
                 _logger.LogDebug("serving up {0} as transcode index {1} is past requested point {2}", segmentPath, currentTranscodingIndex, segmentIndex);
-                return GetSegmentResult(state, segmentPath, transcodingJob);
+                return GetSegmentResult(state, segmentPath, transcodingJob, segmentEndingPositionTicks);
             }
         }
 
@@ -2001,7 +2009,7 @@ public class DynamicHlsController : BaseMulletaFlixApiController
                     if (transcodingJob.HasExited || System.IO.File.Exists(nextSegmentPath))
                     {
                         _logger.LogDebug("Serving up {SegmentPath} as it deemed ready", segmentPath);
-                        return GetSegmentResult(state, segmentPath, transcodingJob);
+                        return GetSegmentResult(state, segmentPath, transcodingJob, segmentEndingPositionTicks);
                     }
                 }
                 else
@@ -2032,13 +2040,11 @@ public class DynamicHlsController : BaseMulletaFlixApiController
             _logger.LogWarning("cannot serve {0} as it doesn't exist and no transcode is running", segmentPath);
         }
 
-        return GetSegmentResult(state, segmentPath, transcodingJob);
+        return GetSegmentResult(state, segmentPath, transcodingJob, segmentEndingPositionTicks);
     }
 
-    private ActionResult GetSegmentResult(StreamState state, string segmentPath, TranscodingJob? transcodingJob)
+    private ActionResult GetSegmentResult(StreamState state, string segmentPath, TranscodingJob? transcodingJob, long segmentEndingPositionTicks)
     {
-        var segmentEndingPositionTicks = state.Request.CurrentRuntimeTicks + state.Request.ActualSegmentLengthTicks;
-
         Response.OnCompleted(() =>
         {
             _logger.LogDebug("Finished serving {SegmentPath}", segmentPath);

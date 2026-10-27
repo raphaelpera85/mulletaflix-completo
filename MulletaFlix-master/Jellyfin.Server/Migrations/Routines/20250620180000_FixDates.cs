@@ -4,6 +4,7 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using MulletaFlix.Database.Implementations;
+using MulletaFlix.Server.Implementations.Item;
 using MulletaFlix.Server.ServerSetupApp;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
@@ -119,8 +120,13 @@ public class FixDates : IAsyncMigrationRoutine
         _logger.LogInformation("Chapters: Processed {ItemCount} items, saved {SaveCount} changes in {ElapsedTime}", itemCount, saveCount, sw.Elapsed);
     }
 
-    private async Task FixBaseItemImageInfos(MulletaFlixDbContext context, Stopwatch sw, CancellationToken cancellationToken)
+    internal async Task FixBaseItemImageInfos(MulletaFlixDbContext context, Stopwatch sw, CancellationToken cancellationToken)
     {
+        await using var databaseLock = await ItemPersistenceDatabaseLock.AcquireAsync(
+            context.Database,
+            Enumerable.Range(0, 16).ToArray(),
+            _logger,
+            cancellationToken).ConfigureAwait(false);
         int itemCount = 0;
 
         var baseQuery = context.BaseItemImageInfos;

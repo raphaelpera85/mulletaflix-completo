@@ -6,7 +6,7 @@ from types import SimpleNamespace
 
 import pytest
 from bson import ObjectId
-from pymongo.errors import OperationFailure
+from pymongo.errors import DuplicateKeyError
 
 import main as main_module
 
@@ -25,6 +25,7 @@ from main import (
     library_category,
     next_upload_bot_index,
     queue_identity,
+    queue_identity_candidates,
     resolve_local_path,
     resolve_media_parent,
     resolve_parent_to_path,
@@ -149,6 +150,18 @@ def test_category_priority_keeps_current_order_and_filename_fallback():
     assert get_media_category_priority("/user/other", "documentary.mkv") == 3
 
 
+def test_queue_identity_matches_native_csharp_case_and_legacy_keys(tmp_path):
+    path = str(tmp_path / "MiXeD" / "Épisode.mkv")
+    expected = os.path.normcase(os.path.abspath(path)).rstrip("\\/")
+    if os.name == "nt":
+        expected = expected.upper()
+
+    assert queue_identity(path) == expected
+    assert queue_identity_candidates(path) == (
+        [expected, expected.lower()] if os.name == "nt" else [expected]
+    )
+
+
 def test_doc_download_timestamp_uses_metadata_then_file_mtime(tmp_path):
     path = tmp_path / "media.mkv"
     path.write_bytes(b"data")
@@ -195,7 +208,10 @@ async def test_resolve_local_path_recovers_file_from_stage_and_persists_mapping(
 
     assert await resolve_local_path(mongo, doc) == str(candidate)
     assert doc["local_path"] == str(candidate)
-    assert updates == [({"_id": "file-id"}, {"$set": {"local_path": str(candidate)}})]
+    assert updates == [({"_id": "file-id"}, {"$set": {
+        "local_path": str(candidate),
+        "queue_identity": queue_identity(str(candidate)),
+    }})]
 
 
 @pytest.mark.asyncio
@@ -295,6 +311,19 @@ async def test_setup_database_indexes_creates_expected_supplementary_indexes():
         async def create_index(self, keys, **kwargs):
             self.calls.append((keys, kwargs))
 
+        def find(self, *_args):
+            class EmptyCursor:
+                def batch_size(self, _size):
+                    return self
+
+                def __aiter__(self):
+                    return self
+
+                async def __anext__(self):
+                    raise StopAsyncIteration
+
+            return EmptyCursor()
+
     files = Files()
     await setup_database_indexes(SimpleNamespace(files=files))
     assert files.calls == [
@@ -306,12 +335,63 @@ async def test_setup_database_indexes_creates_expected_supplementary_indexes():
 
 
 @pytest.mark.asyncio
-async def test_setup_database_indexes_ignores_existing_index_errors():
-    class Files:
-        async def create_index(self, _keys, **_kwargs):
-            raise OperationFailure("already exists")
+async def test_setup_database_indexes_backfills_legacy_queue_identity():
+    local_path = str(Path("legacy-media.mkv").resolve())
+    legacy = {"_id": ObjectId(), "local_path": local_path}
 
-    await setup_database_indexes(SimpleNamespace(files=Files()))
+    class Cursor:
+        def batch_size(self, _size):
+            return self
+
+        def __aiter__(self):
+            async def documents():
+                yield legacy
+
+            return documents()
+
+    class Files:
+        def __init__(self):
+            self.find_call = None
+            self.updates = []
+
+        async def create_index(self, *_args, **_kwargs):
+            pass
+
+        def find(self, query, projection):
+            self.find_call = (query, projection)
+            return Cursor()
+
+        async def bulk_write(self, updates):
+            self.updates.extend(updates)
+            return SimpleNamespace(modified_count=len(updates))
+
+    files = Files()
+    await setup_database_indexes(SimpleNamespace(files=files))
+
+    query, projection = files.find_call
+    assert query["queue_identity"] == {"$exists": False}
+    assert query["local_path"]["$regex"] == r"\S"
+    assert projection == {"_id": 1, "local_path": 1}
+    update = files.updates[0]
+    assert update._filter == {"_id": legacy["_id"], "queue_identity": {"$exists": False}}
+    assert update._doc == {"$set": {"queue_identity": queue_identity(local_path)}}
+
+
+@pytest.mark.asyncio
+async def test_setup_database_indexes_does_not_hide_duplicate_queue_identity_values():
+    class Files:
+        def __init__(self):
+            self.calls = []
+
+        async def create_index(self, keys, **_kwargs):
+            self.calls.append(keys)
+            if keys == [("queue_identity", 1)]:
+                raise DuplicateKeyError("duplicate queue_identity values")
+
+    files = Files()
+    with pytest.raises(DuplicateKeyError, match="duplicate queue_identity"):
+        await setup_database_indexes(SimpleNamespace(files=files))
+    assert len(files.calls) == 4
 
 
 @pytest.mark.asyncio

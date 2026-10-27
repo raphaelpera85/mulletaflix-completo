@@ -832,6 +832,42 @@ public sealed class NebulaPlaybackCacheTests
     }
 
     [Fact]
+    public async Task ChunkedStream_EvictsLeastRecentlyUsedChunkAtEightChunkLimit()
+    {
+        const int chunkSize = 1024 * 1024;
+        const int chunkCount = 10;
+        var part = new NebulaStreamPart { PartIndex = 0, FileOffset = 0, Size = (long)chunkSize * chunkCount };
+        var fetchCounts = new ConcurrentDictionary<int, int>();
+        await using var stream = new NebulaChunkedStream(
+            null,
+            [part],
+            part.Size,
+            NullLogger<NebulaChunkedStream>.Instance,
+            (NebulaPlaybackCacheAccessor?)null,
+            "lru-eviction-test",
+            (currentPart, chunkIndex, _) =>
+            {
+                fetchCounts.AddOrUpdate(chunkIndex, 1, static (_, count) => count + 1);
+                var bytes = new byte[chunkSize];
+                bytes[0] = (byte)chunkIndex;
+                return Task.FromResult(bytes);
+            });
+
+        var oneByte = new byte[1];
+        for (int chunkIndex = 0; chunkIndex < 9; chunkIndex++)
+        {
+            stream.Seek((long)chunkIndex * chunkSize, SeekOrigin.Begin);
+            Assert.Equal(1, await stream.ReadAsync(oneByte, TestContext.Current.CancellationToken));
+            Assert.Equal((byte)chunkIndex, oneByte[0]);
+        }
+
+        stream.Seek(0, SeekOrigin.Begin);
+        Assert.Equal(1, await stream.ReadAsync(oneByte, TestContext.Current.CancellationToken));
+
+        Assert.Equal(2, fetchCounts[0]);
+    }
+
+    [Fact]
     public async Task CacheMetrics_TrackPersistedChunksAndClearCache()
     {
         var root = CreateTempDirectory();

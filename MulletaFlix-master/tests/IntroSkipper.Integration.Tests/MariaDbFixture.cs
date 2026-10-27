@@ -31,8 +31,16 @@ public sealed class MariaDbFixture : IAsyncLifetime
 {
     /// <summary>Dedicated plugin schema, matching <c>PluginServiceRegistrator</c>.</summary>
     public const string DatabaseName = "mulletaflix_introskipper";
+    private const string TestUserPrefix = "mfx_intro_";
+    private const string TestUserHost = "127.0.0.1";
 
     private ServiceProvider? _services;
+    private string? _testUser;
+    private string? _applicationConnectionString;
+
+    /// <summary>Gets the scoped connection string used by the plugin services.</summary>
+    internal string ApplicationConnectionString
+        => _applicationConnectionString ?? throw new InvalidOperationException("MariaDB fixture is not configured.");
 
     /// <summary>Gets the schema context factory configured by the plugin registration.</summary>
     public IDbContextFactory<IntroSkipperDbContext> IntroSkipperContexts
@@ -61,15 +69,42 @@ public sealed class MariaDbFixture : IAsyncLifetime
         var adminConnection = MariaDbTestEnvironment.GetAdminConnection();
         // A cold schema: nothing may assume a previous run created anything.
         Drop(adminConnection);
-        _services = BuildServices(adminConnection);
+        CreateDatabase(adminConnection);
+        _testUser = TestUserPrefix + Guid.NewGuid().ToString("N");
+        MySqlConnector.MySqlConnectionStringBuilder applicationConnection;
+        try
+        {
+            applicationConnection = CreateApplicationConnection(adminConnection, _testUser);
+        }
+        catch
+        {
+            Drop(adminConnection);
+            _testUser = null;
+            throw;
+        }
+
+        _applicationConnectionString = applicationConnection.ConnectionString;
+        _services = BuildServices(applicationConnection);
 
         // Startup runs this from the hosted-service list. Resolving it by name keeps the
         // fixture to the database path: the plugin's other hosted services need Jellyfin
         // server internals that are out of scope here.
         var initializerType = typeof(IIntroSkipperDatabase).Assembly
             .GetType("IntroSkipper.Services.IntroSkipperDatabaseInitializer", throwOnError: true)!;
-        var initializer = (IHostedService)ActivatorUtilities.CreateInstance(_services, initializerType);
-        await initializer.StartAsync(CancellationToken.None);
+        try
+        {
+            var initializer = (IHostedService)ActivatorUtilities.CreateInstance(_services, initializerType);
+            await initializer.StartAsync(CancellationToken.None);
+        }
+        catch
+        {
+            _services.Dispose();
+            _services = null;
+            DropTestUser(adminConnection, _testUser);
+            Drop(adminConnection);
+            _testUser = null;
+            throw;
+        }
     }
 
     /// <inheritdoc/>
@@ -77,6 +112,18 @@ public sealed class MariaDbFixture : IAsyncLifetime
     {
         _services?.Dispose();
         _services = null;
+        if (_testUser is not null)
+        {
+            var adminConnection = MariaDbTestEnvironment.GetAdminConnection();
+            DropTestUser(adminConnection, _testUser);
+            using var connection = new MySqlConnector.MySqlConnection(adminConnection.ConnectionString);
+            connection.Open();
+            using var command = connection.CreateCommand();
+            command.CommandText = $"DROP DATABASE IF EXISTS `{DatabaseName}`;";
+            command.ExecuteNonQuery();
+            _testUser = null;
+        }
+
         return ValueTask.CompletedTask;
     }
 
@@ -95,6 +142,59 @@ public sealed class MariaDbFixture : IAsyncLifetime
         connection.Open();
         using var command = connection.CreateCommand();
         command.CommandText = $"DROP DATABASE IF EXISTS `{DatabaseName}`;";
+        command.ExecuteNonQuery();
+    }
+
+    private static void CreateDatabase(MySqlConnector.MySqlConnectionStringBuilder adminConnection)
+    {
+        using var connection = new MySqlConnector.MySqlConnection(adminConnection.ConnectionString);
+        connection.Open();
+        using var command = connection.CreateCommand();
+        command.CommandText = $"CREATE DATABASE `{DatabaseName}` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;";
+        command.ExecuteNonQuery();
+    }
+
+    private static MySqlConnector.MySqlConnectionStringBuilder CreateApplicationConnection(
+        MySqlConnector.MySqlConnectionStringBuilder adminConnection,
+        string userName)
+    {
+        var password = Guid.NewGuid().ToString("N");
+        using var connection = new MySqlConnector.MySqlConnection(adminConnection.ConnectionString);
+        connection.Open();
+        using var command = connection.CreateCommand();
+        try
+        {
+            command.CommandText = $"CREATE USER '{userName}'@'{TestUserHost}' IDENTIFIED BY '{password}';";
+            command.ExecuteNonQuery();
+            command.CommandText = $"GRANT ALL PRIVILEGES ON `{DatabaseName}`.* TO '{userName}'@'{TestUserHost}';";
+            command.ExecuteNonQuery();
+        }
+        catch
+        {
+            command.CommandText = $"DROP USER IF EXISTS '{userName}'@'{TestUserHost}';";
+            command.ExecuteNonQuery();
+            throw;
+        }
+
+        return new MySqlConnector.MySqlConnectionStringBuilder(adminConnection.ConnectionString)
+        {
+            Database = DatabaseName,
+            UserID = userName,
+            Password = password,
+        };
+    }
+
+    private static void DropTestUser(MySqlConnector.MySqlConnectionStringBuilder adminConnection, string userName)
+    {
+        if (!userName.StartsWith(TestUserPrefix, StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException("Refusing to drop a MariaDB user outside the test prefix.");
+        }
+
+        using var connection = new MySqlConnector.MySqlConnection(adminConnection.ConnectionString);
+        connection.Open();
+        using var command = connection.CreateCommand();
+        command.CommandText = $"DROP USER IF EXISTS '{userName}'@'{TestUserHost}';";
         command.ExecuteNonQuery();
     }
 
@@ -131,7 +231,7 @@ public sealed class MariaDbFixture : IAsyncLifetime
         return tables;
     }
 
-    private static ServiceProvider BuildServices(MySqlConnector.MySqlConnectionStringBuilder adminConnection)
+    private static ServiceProvider BuildServices(MySqlConnector.MySqlConnectionStringBuilder applicationConnection)
     {
         var services = new ServiceCollection();
         services.AddLogging(builder => builder.SetMinimumLevel(LogLevel.Warning));
@@ -147,10 +247,10 @@ public sealed class MariaDbFixture : IAsyncLifetime
                 ConnectionString = string.Empty,
                 Options =
                 [
-                    new CustomDatabaseOption { Key = "server", Value = adminConnection.Server },
-                    new CustomDatabaseOption { Key = "port", Value = adminConnection.Port.ToString(System.Globalization.CultureInfo.InvariantCulture) },
-                    new CustomDatabaseOption { Key = "user", Value = adminConnection.UserID },
-                    new CustomDatabaseOption { Key = "password", Value = adminConnection.Password },
+                    new CustomDatabaseOption { Key = "server", Value = applicationConnection.Server },
+                    new CustomDatabaseOption { Key = "port", Value = applicationConnection.Port.ToString(System.Globalization.CultureInfo.InvariantCulture) },
+                    new CustomDatabaseOption { Key = "user", Value = applicationConnection.UserID },
+                    new CustomDatabaseOption { Key = "password", Value = applicationConnection.Password },
                 ],
             },
         };

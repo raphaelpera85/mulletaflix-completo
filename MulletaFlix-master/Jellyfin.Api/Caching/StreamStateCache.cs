@@ -1,5 +1,6 @@
 using System;
 using System.Globalization;
+using System.Linq;
 using System.Text;
 using MediaBrowser.Controller.Streaming;
 using Microsoft.Extensions.Caching.Memory;
@@ -64,53 +65,93 @@ public class StreamStateCache
     public static string BuildCacheKey(StreamingRequestDto request)
     {
         var sb = new StringBuilder(128);
-        sb.Append(request.PlaySessionId);
+        AppendString(request.PlaySessionId);
         sb.Append('|');
-        sb.Append(request.MediaSourceId);
+        AppendString(request.MediaSourceId);
         sb.Append('|');
-        sb.Append(request.DeviceId);
+        AppendString(request.DeviceId);
         sb.Append('|');
-        sb.Append(request.AudioStreamIndex.GetValueOrDefault(-1).ToString(CultureInfo.InvariantCulture));
+        sb.Append(request.Id.ToString("N", CultureInfo.InvariantCulture));
         sb.Append('|');
-        sb.Append(request.SubtitleStreamIndex.GetValueOrDefault(-1).ToString(CultureInfo.InvariantCulture));
+        AppendString(request.Params);
         sb.Append('|');
-        sb.Append(request.VideoStreamIndex.GetValueOrDefault(-1).ToString(CultureInfo.InvariantCulture));
+        AppendString(request.Tag);
         sb.Append('|');
-        sb.Append(request.SubtitleMethod);
+        sb.Append(request.EnableAutoStreamCopy);
         sb.Append('|');
-        sb.Append(request.AudioCodec);
+        sb.Append(request.AllowAudioStreamCopy);
         sb.Append('|');
-        sb.Append(request.VideoCodec);
+        sb.Append(request.AllowVideoStreamCopy);
         sb.Append('|');
-        sb.Append(request.SubtitleCodec);
+        AppendNullable(request.AudioStreamIndex);
         sb.Append('|');
-        sb.Append(request.Container);
+        AppendNullable(request.SubtitleStreamIndex);
         sb.Append('|');
-        sb.Append(request.SegmentContainer);
+        AppendNullable(request.VideoStreamIndex);
         sb.Append('|');
-        sb.Append(request.AudioBitRate.GetValueOrDefault());
+        AppendString(request.SubtitleMethod.ToString());
         sb.Append('|');
-        sb.Append(request.VideoBitRate.GetValueOrDefault());
+        AppendString(request.AudioCodec);
         sb.Append('|');
-        sb.Append(request.AudioChannels.GetValueOrDefault());
+        AppendString(request.VideoCodec);
         sb.Append('|');
-        sb.Append(request.MaxAudioChannels.GetValueOrDefault());
+        AppendString(request.SubtitleCodec);
         sb.Append('|');
-        sb.Append(request.TranscodingMaxAudioChannels.GetValueOrDefault());
+        AppendString(request.Container);
         sb.Append('|');
-        sb.Append(request.Width.GetValueOrDefault());
+        AppendString(request.SegmentContainer);
         sb.Append('|');
-        sb.Append(request.Height.GetValueOrDefault());
+        AppendNullable(request.SegmentLength);
         sb.Append('|');
-        sb.Append(request.MaxWidth.GetValueOrDefault());
+        AppendNullable(request.MinSegments);
         sb.Append('|');
-        sb.Append(request.MaxHeight.GetValueOrDefault());
+        sb.Append(request is VideoRequestDto videoRequest && videoRequest.EnableSubtitlesInManifest);
+        sb.Append('|');
+        sb.Append(request is VideoRequestDto videoRequestWithTrickplay && videoRequestWithTrickplay.EnableTrickplay);
+        sb.Append('|');
+        AppendNullable(request.AudioSampleRate);
+        sb.Append('|');
+        AppendNullable(request.MaxAudioBitDepth);
+        sb.Append('|');
+        AppendNullable(request.AudioBitRate);
+        sb.Append('|');
+        AppendNullable(request.VideoBitRate);
+        sb.Append('|');
+        AppendNullable(request.AudioChannels);
+        sb.Append('|');
+        AppendNullable(request.MaxAudioChannels);
+        sb.Append('|');
+        AppendNullable(request.TranscodingMaxAudioChannels);
+        sb.Append('|');
+        AppendNullable(request.CpuCoreLimit);
+        sb.Append('|');
+        AppendNullable(request.MaxRefFrames);
+        sb.Append('|');
+        AppendNullable(request.MaxVideoBitDepth);
+        sb.Append('|');
+        AppendNullable(request.Width);
+        sb.Append('|');
+        AppendNullable(request.Height);
+        sb.Append('|');
+        AppendNullable(request.MaxWidth);
+        sb.Append('|');
+        AppendNullable(request.MaxHeight);
         sb.Append('|');
         sb.Append(request.Static);
         sb.Append('|');
-        sb.Append(request.Profile);
+        AppendString(request.VideoRangeType);
         sb.Append('|');
-        sb.Append(request.Level);
+        AppendString(request.Profile);
+        sb.Append('|');
+        AppendString(request.Level);
+        sb.Append('|');
+        AppendString(request.CodecTag);
+        sb.Append('|');
+        AppendString(request.Rotation);
+        sb.Append('|');
+        AppendNullable(request.Framerate);
+        sb.Append('|');
+        AppendNullable(request.MaxFramerate);
         sb.Append('|');
         sb.Append(request.EnableMpegtsM2TsMode);
         sb.Append('|');
@@ -122,11 +163,40 @@ public class StreamStateCache
         sb.Append('|');
         sb.Append(request.CopyTimestamps);
         sb.Append('|');
+        AppendString(request.TranscodeReasons);
+        sb.Append('|');
+        AppendString(request.Context.ToString());
+        sb.Append('|');
         sb.Append(request.AlwaysBurnInSubtitleWhenTranscoding);
         sb.Append('|');
         sb.Append(request.EnableAudioVbrEncoding);
 
+        foreach (var option in request.StreamOptions.OrderBy(pair => pair.Key, StringComparer.Ordinal))
+        {
+            sb.Append('|');
+            AppendString(option.Key);
+            sb.Append('=');
+            AppendString(option.Value);
+        }
+
         return sb.ToString();
+
+        void AppendNullable<T>(T? value)
+            where T : struct, IFormattable
+        {
+            sb.Append(value.HasValue ? value.Value.ToString(null, CultureInfo.InvariantCulture) : "<null>");
+        }
+
+        void AppendString(string? value)
+        {
+            if (value is null)
+            {
+                sb.Append("-1:");
+                return;
+            }
+
+            sb.Append(value.Length.ToString(CultureInfo.InvariantCulture)).Append(':').Append(value);
+        }
     }
 
     /// <summary>

@@ -117,4 +117,33 @@ describe('NFO settings API connection state', () => {
         expect(container.querySelector('form')).not.toBeNull();
         expect(container.querySelector('[data-testid="loading"]')).toBeNull();
     });
+
+    it('keeps the settings form available when loading users fails', async () => {
+        useNamedConfigurationMock.mockReturnValue({
+            data: {},
+            isPending: false,
+            isError: false,
+            refetch: vi.fn()
+        });
+        useUsersMock.mockReturnValue({ data: undefined, isPending: false, isError: true });
+
+        await act(async () => root.render(
+            <ApiProvider><NfoSettingsPage /></ApiProvider>
+        ));
+
+        await act(async () => {
+            events.trigger(ServerConnections, 'localusersignedin', [{
+                Id: 'user-id',
+                Name: 'test-user',
+                ServerId: 'server-id'
+            }]);
+            await new Promise(resolve => setTimeout(resolve, 0));
+            await new Promise(resolve => setTimeout(resolve, 0));
+        });
+
+        expect(container.textContent).toContain('Configurações NFO');
+        expect(container.textContent).toContain('Nenhum');
+        expect(container.querySelector('form')).not.toBeNull();
+        expect(container.querySelector('[data-testid="loading"]')).toBeNull();
+    });
 });

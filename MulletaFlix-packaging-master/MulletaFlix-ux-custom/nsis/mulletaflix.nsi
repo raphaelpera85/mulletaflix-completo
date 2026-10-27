@@ -399,14 +399,24 @@ ${If} $_INSTALLSERVICE_ == "Yes" ; Only run this if we're going to install the s
     ; Portuguese, English, and other Windows installations. Create the
     ; subdirectories explicitly because migrations write config/system.xml
     ; during the first startup. Grant all supported service identities so an
-    ; existing service account cannot leave the installation unwritable.
+    ; existing installations may use LocalService, NetworkService, or LocalSystem.
+    ; Remove stale grants, then grant only the configured service identity.
     Call ValidateDataDirectory
     CreateDirectory "$_MULLETAFLIXDATADIR_"
     Call RejectReparseDataDirectory
     CreateDirectory "$_MULLETAFLIXDATADIR_\data"
     CreateDirectory "$_MULLETAFLIXDATADIR_\config"
     CreateDirectory "$_MULLETAFLIXDATADIR_\cache"
-    ExecWait 'icacls "$_MULLETAFLIXDATADIR_" /inheritance:r /remove:g *S-1-5-32-545 *S-1-1-0 *S-1-5-11 /grant *S-1-5-32-544:(OI)(CI)F /grant *S-1-5-18:(OI)(CI)F /grant *S-1-5-20:(OI)(CI)M /grant *S-1-5-19:(OI)(CI)M /Q' $0
+    StrCpy $R4 ""
+    ${If} $_SERVICEACCOUNTTYPE_ == "NetworkService"
+        StrCpy $R4 ' /grant *S-1-5-20:(OI)(CI)M'
+    ${ElseIf} $_SERVICEACCOUNTTYPE_ == "LocalService"
+        StrCpy $R4 ' /grant *S-1-5-19:(OI)(CI)M'
+    ${ElseIf} $_SERVICEACCOUNTTYPE_ != "LocalSystem"
+        MessageBox MB_OK|MB_ICONSTOP "Unsupported MulletaFlix service identity. Choose LocalSystem or NetworkService, then retry."
+        Abort
+    ${EndIf}
+    ExecWait 'icacls "$_MULLETAFLIXDATADIR_" /inheritance:r /remove:g *S-1-5-32-545 *S-1-1-0 *S-1-5-11 *S-1-5-18 *S-1-5-19 *S-1-5-20 /grant *S-1-5-32-544:(OI)(CI)F /grant *S-1-5-18:(OI)(CI)F$R4 /Q' $0
     ${If} $0 <> 0
         MessageBox MB_OK|MB_ICONSTOP "Could not grant the MulletaFlix service access to the data folder."
         Abort
@@ -466,14 +476,29 @@ ${If} $_INSTALLSERVICE_ == "Yes" ; Only run this if we're going to install the s
     DetailPrint "MulletaFlix Server Service setting (DisplayName), $0"
 
     Sleep 3000
-    ${If} $_SERVICEACCOUNTTYPE_ == "NetworkService" ; the default install using NSSM is Local System
+    ${If} $_SERVICEACCOUNTTYPE_ == "NetworkService"
         ConfigureNetworkServiceRetry:
-        ExecWait '"$INSTDIR\nssm.exe" set MulletaFlixServer Objectname "NT Authority\NetworkService"' $0
+        ExecWait 'sc.exe config MulletaFlixServer obj= "NT AUTHORITY\NetworkService" password= ""' $0
         ${If} $0 <> 0
             !insertmacro ShowError "Could not configure the MulletaFlix Server service account." ConfigureNetworkServiceRetry
         ${EndIf}
-        DetailPrint "MulletaFlix Server service account change, $0"
+    ${ElseIf} $_SERVICEACCOUNTTYPE_ == "LocalSystem"
+        ConfigureLocalSystemRetry:
+        ExecWait 'sc.exe config MulletaFlixServer obj= LocalSystem' $0
+        ${If} $0 <> 0
+            !insertmacro ShowError "Could not configure the MulletaFlix Server service account." ConfigureLocalSystemRetry
+        ${EndIf}
+    ${ElseIf} $_SERVICEACCOUNTTYPE_ == "LocalService"
+        ConfigureLocalServiceRetry:
+        ExecWait 'sc.exe config MulletaFlixServer obj= "NT AUTHORITY\LocalService" password= ""' $0
+        ${If} $0 <> 0
+            !insertmacro ShowError "Could not configure the MulletaFlix Server service account." ConfigureLocalServiceRetry
+        ${EndIf}
+    ${Else}
+        MessageBox MB_OK|MB_ICONSTOP "Unsupported MulletaFlix service identity. Choose LocalSystem or NetworkService, then retry."
+        Abort
     ${EndIf}
+    DetailPrint "MulletaFlix Server service account configured, $0"
 
     Sleep 3000
     ConfigureDefaultAppExit:

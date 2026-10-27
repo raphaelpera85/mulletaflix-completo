@@ -53,6 +53,7 @@ public class HlsSegmentController : BaseMulletaFlixApiController
     /// <returns>A <see cref="FileStreamResult"/> containing the audio stream.</returns>
     // Can't require authentication just yet due to seeing some requests come from Chrome without full query string
     // [Authenticated]
+    [AllowAnonymous]
     [HttpGet("Audio/{itemId}/hls/{segmentId}/stream.mp3", Name = "GetHlsAudioSegmentLegacyMp3")]
     [HttpGet("Audio/{itemId}/hls/{segmentId}/stream.aac", Name = "GetHlsAudioSegmentLegacyAac")]
     [ProducesResponseType(StatusCodes.Status200OK)]
@@ -144,6 +145,7 @@ public class HlsSegmentController : BaseMulletaFlixApiController
     /// <returns>A <see cref="FileStreamResult"/> containing the video segment.</returns>
     // Can't require authentication just yet due to seeing some requests come from Chrome without full query string
     // [Authenticated]
+    [AllowAnonymous]
     [HttpGet("Videos/{itemId}/hls/{playlistId}/{segmentId}.{segmentContainer}")]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]

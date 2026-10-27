@@ -235,6 +235,33 @@ public sealed class NebulaDownloaderEngine : IAsyncDisposable, IDisposable
     /// </summary>
     public event Action<NebulaDownloadStatusDto>? OnProgressChanged;
 
+    internal static NebulaDownloadStatusDto CreateProgressSnapshot(NebulaDownloadStatusDto status)
+        => new()
+        {
+            Name = status.Name,
+            StageStep = status.StageStep,
+            Percentage = status.Percentage,
+            DoneMb = status.DoneMb,
+            TotalMb = status.TotalMb,
+            Speed = status.Speed,
+            DetailText = status.DetailText,
+            QueuePosition = status.QueuePosition,
+            QueueCount = status.QueueCount,
+            PriorityReason = status.PriorityReason,
+            NextItemName = status.NextItemName
+        };
+
+    internal static bool TryClaimProgressReport(ref long lastReportTimestamp, long nowTimestamp)
+    {
+        var lastTimestamp = Volatile.Read(ref lastReportTimestamp);
+        if (lastTimestamp != 0 && Stopwatch.GetElapsedTime(lastTimestamp, nowTimestamp) < TimeSpan.FromMilliseconds(250))
+        {
+            return false;
+        }
+
+        return Interlocked.CompareExchange(ref lastReportTimestamp, nowTimestamp, lastTimestamp) == lastTimestamp;
+    }
+
     public (int Position, int Count, string Reason, string NextItemName) GetQueueProgress()
     {
         lock (_queueProgressLock)
@@ -1179,7 +1206,7 @@ public sealed class NebulaDownloaderEngine : IAsyncDisposable, IDisposable
             StageStep = "Baixando mídia...",
             DetailText = "0%"
         };
-        OnProgressChanged?.Invoke(status);
+        OnProgressChanged?.Invoke(CreateProgressSnapshot(status));
 
         var tempOutputFile = targetFilePath + ".download.tmp";
         var partFilesToClean = Array.Empty<string>();
@@ -1222,7 +1249,7 @@ public sealed class NebulaDownloaderEngine : IAsyncDisposable, IDisposable
                     status.Percentage = Math.Round(percent, 1);
                     status.Speed = $"{speedMb:F1} MB/s";
                     status.DetailText = $"{status.Percentage:F1}% ({FormatBytes(totalRead)}) - {status.Speed}";
-                    OnProgressChanged?.Invoke(status);
+                    OnProgressChanged?.Invoke(CreateProgressSnapshot(status));
 
                     if (percent >= nextPercent || (totalRead - lastLoggedBytes) >= 25 * 1024 * 1024)
                     {
@@ -1250,6 +1277,8 @@ public sealed class NebulaDownloaderEngine : IAsyncDisposable, IDisposable
 
                 var partDownloadedAmounts = new long[partsCount];
                 var progressLock = new object();
+                using var progressReportSemaphore = new SemaphoreSlim(1, 1);
+                long lastGlobalProgressReportTimestamp = 0;
                 var startTime = DateTime.UtcNow;
                 var nextPercent = 1;
                 long lastLoggedBytes = 0;
@@ -1318,7 +1347,7 @@ public sealed class NebulaDownloaderEngine : IAsyncDisposable, IDisposable
 
                             lock (progressLock)
                             {
-                                partDownloadedAmounts[index] = 0;
+                                Interlocked.Exchange(ref partDownloadedAmounts[index], 0);
                             }
 
                             try
@@ -1352,7 +1381,7 @@ public sealed class NebulaDownloaderEngine : IAsyncDisposable, IDisposable
                                     // meant ~160,000 lock acquisitions and ~160,000 event invocations
                                     // competing with the download threads themselves. Reporting on a
                                     // time cadence keeps the display useful and removes that contention.
-                                    partDownloadedAmounts[index] = partBytesRead;
+                                    Interlocked.Exchange(ref partDownloadedAmounts[index], partBytesRead);
 
                                     var now = DateTime.UtcNow;
                                     if (now - lastProgressReport < TimeSpan.FromMilliseconds(250))
@@ -1361,28 +1390,50 @@ public sealed class NebulaDownloaderEngine : IAsyncDisposable, IDisposable
                                     }
 
                                     lastProgressReport = now;
-
-                                    long currentDownloaded;
-                                    lock (progressLock)
+                                    await progressReportSemaphore.WaitAsync(cancellationToken).ConfigureAwait(false);
+                                    try
                                     {
-                                        currentDownloaded = partDownloadedAmounts.Sum();
+                                        now = DateTime.UtcNow;
+                                        if (!TryClaimProgressReport(ref lastGlobalProgressReportTimestamp, Stopwatch.GetTimestamp()))
+                                        {
+                                            continue;
+                                        }
+
+                                        long currentDownloaded;
+                                        double speedMb;
+                                        double percent;
+                                        NebulaDownloadStatusDto progressSnapshot;
+                                        lock (progressLock)
+                                        {
+                                            currentDownloaded = 0;
+                                            for (var partIndex = 0; partIndex < partDownloadedAmounts.Length; partIndex++)
+                                            {
+                                                currentDownloaded += Interlocked.Read(ref partDownloadedAmounts[partIndex]);
+                                            }
+
+                                            var elapsed = Math.Max(0.1, (now - startTime).TotalSeconds);
+                                            speedMb = (currentDownloaded / (1024.0 * 1024.0)) / elapsed;
+                                            percent = (currentDownloaded * 100.0) / totalSize;
+
+                                            status.DoneMb = Math.Round(currentDownloaded / (1024.0 * 1024.0), 2);
+                                            status.Percentage = Math.Round(percent, 1);
+                                            status.Speed = $"{speedMb:F1} MB/s";
+                                            status.DetailText = $"{status.Percentage:F1}% ({FormatBytes(currentDownloaded)}/{FormatBytes(totalSize)}) - {status.Speed}";
+                                            progressSnapshot = CreateProgressSnapshot(status);
+                                        }
+
+                                        OnProgressChanged?.Invoke(progressSnapshot);
+
+                                        if (percent >= nextPercent || (currentDownloaded - lastLoggedBytes) >= 25 * 1024 * 1024)
+                                        {
+                                            LogInfo($"Baixando {fileName}: {status.DoneMb:F1} MB / {status.TotalMb:F1} MB ({(int)percent}%) - Vel: {speedMb:F1} MB/s");
+                                            nextPercent = (int)percent + 1;
+                                            lastLoggedBytes = currentDownloaded;
+                                        }
                                     }
-
-                                    var elapsed = Math.Max(0.1, (now - startTime).TotalSeconds);
-                                    var speedMb = (currentDownloaded / (1024.0 * 1024.0)) / elapsed;
-                                    var percent = (currentDownloaded * 100.0) / totalSize;
-
-                                    status.DoneMb = Math.Round(currentDownloaded / (1024.0 * 1024.0), 2);
-                                    status.Percentage = Math.Round(percent, 1);
-                                    status.Speed = $"{speedMb:F1} MB/s";
-                                    status.DetailText = $"{status.Percentage:F1}% ({FormatBytes(currentDownloaded)}/{FormatBytes(totalSize)}) - {status.Speed}";
-                                    OnProgressChanged?.Invoke(status);
-
-                                    if (percent >= nextPercent || (currentDownloaded - lastLoggedBytes) >= 25 * 1024 * 1024)
+                                    finally
                                     {
-                                        LogInfo($"Baixando {fileName}: {status.DoneMb:F1} MB / {status.TotalMb:F1} MB ({(int)percent}%) - Vel: {speedMb:F1} MB/s");
-                                        nextPercent = (int)percent + 1;
-                                        lastLoggedBytes = currentDownloaded;
+                                        progressReportSemaphore.Release();
                                     }
                                 }
 
@@ -1404,7 +1455,7 @@ public sealed class NebulaDownloaderEngine : IAsyncDisposable, IDisposable
                             {
                                 lock (progressLock)
                                 {
-                                    partDownloadedAmounts[index] = 0;
+                                    Interlocked.Exchange(ref partDownloadedAmounts[index], 0);
                                 }
                                 var errDesc = ex is OperationCanceledException ? "conexão estagnou (sem dados por 45s)" : ex.Message;
                                 LogInfo($"[STRM] Parte {index + 1}/{partsCount} de {fileName} {errDesc} (tentativa {attempt}/{maxPartAttempts}). Reconectando...");
@@ -1453,7 +1504,7 @@ public sealed class NebulaDownloaderEngine : IAsyncDisposable, IDisposable
             status.Percentage = 100;
             status.StageStep = "Concluído";
             status.DetailText = "100% Concluído";
-            OnProgressChanged?.Invoke(status);
+            OnProgressChanged?.Invoke(CreateProgressSnapshot(status));
 
             return true;
         }
@@ -2346,9 +2397,10 @@ public sealed class NebulaDownloaderEngine : IAsyncDisposable, IDisposable
         DisposeAsync().AsTask().GetAwaiter().GetResult();
     }
 
-    private sealed class FailureTracker
+    internal sealed class FailureTracker
     {
-        private readonly ConcurrentDictionary<string, (DateTime Timestamp, int Count, string Error)> _failures = new(StringComparer.OrdinalIgnoreCase);
+        private readonly ConcurrentDictionary<string, (DateTime Timestamp, int Count, string Error)> _failures = new(
+            OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal);
         private readonly TimeSpan _cooldown = TimeSpan.FromHours(2);
 
         public bool ShouldSkip(string filePath, out string reason)

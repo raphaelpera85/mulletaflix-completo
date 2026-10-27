@@ -1,6 +1,7 @@
 ﻿using MediaBrowser.Common.Configuration;
 using MediaBrowser.Controller.Configuration;
 using MediaBrowser.Model.Branding;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using MulletaFlix.Api.Constants;
@@ -28,6 +29,7 @@ public class BrandingController : BaseMulletaFlixApiController
     /// </summary>
     /// <response code="200">Branding configuration returned.</response>
     /// <returns>An <see cref="OkResult"/> containing the branding configuration.</returns>
+    [AllowAnonymous]
     [HttpGet("Configuration")]
     [ProducesResponseType(StatusCodes.Status200OK)]
     public ActionResult<BrandingOptionsDto> GetBrandingOptions()
@@ -65,6 +67,7 @@ public class BrandingController : BaseMulletaFlixApiController
     /// An <see cref="OkResult"/> containing the branding css if exist,
     /// or a <see cref="NoContentResult"/> if the css is not configured.
     /// </returns>
+    [AllowAnonymous]
     [HttpGet("Css")]
     [HttpGet("Css.css", Name = "GetBrandingCss_2")]
     [Produces("text/css")]

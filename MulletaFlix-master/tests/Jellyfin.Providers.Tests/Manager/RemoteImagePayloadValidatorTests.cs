@@ -88,10 +88,9 @@ public class RemoteImagePayloadValidatorTests
     [InlineData(false, "image/jpeg")]
     [InlineData(true, "image/svg+xml")]
     [InlineData(true, "image/tiff")]
-    public async Task PrepareAsync_WhenDecoderUnavailableForFormat_StagesPayloadWithoutRequiringDecoder(bool decoderAvailable, string mimeType)
+    public async Task PrepareAsync_WhenDecoderUnavailableForFormat_RejectsAndDoesNotStagePayload(bool decoderAvailable, string mimeType)
     {
-        var image = new byte[] { 1, 2, 3 };
-        var source = new MemoryStream(image);
+        var source = new MemoryStream(new byte[] { 1, 2, 3 });
         var encoder = new Mock<IImageEncoder>(MockBehavior.Strict);
         encoder.SetupGet(value => value.SupportsImageEncoding).Returns(decoderAvailable);
         if (decoderAvailable && !string.Equals(mimeType, "image/svg+xml", StringComparison.OrdinalIgnoreCase))
@@ -102,19 +101,14 @@ public class RemoteImagePayloadValidatorTests
         var temporaryDirectory = CreateTemporaryDirectory();
         try
         {
-            await using (var prepared = await RemoteImagePayloadValidator.PrepareAsync(
+            var exception = await Assert.ThrowsAsync<HttpRequestException>(() => RemoteImagePayloadValidator.PrepareAsync(
                 source,
                 mimeType,
                 encoder.Object,
                 temporaryDirectory,
-                TestContext.Current.CancellationToken))
-            {
-                Assert.NotSame(source, prepared);
-                using var actual = new MemoryStream();
-                await prepared.CopyToAsync(actual, TestContext.Current.CancellationToken);
-                Assert.Equal(image, actual.ToArray());
-            }
+                TestContext.Current.CancellationToken));
 
+            Assert.Equal(HttpStatusCode.UnsupportedMediaType, exception.StatusCode);
             Assert.False(source.CanRead);
             Assert.Empty(Directory.GetFiles(temporaryDirectory));
             encoder.VerifyAll();

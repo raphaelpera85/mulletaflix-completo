@@ -6,10 +6,6 @@ using System.Net.Mime;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
-using MulletaFlix.Api.Attributes;
-using MulletaFlix.Api.Extensions;
-using MulletaFlix.Api.Validation;
-using MulletaFlix.Extensions;
 using MediaBrowser.Common.Api;
 using MediaBrowser.Controller.Entities.Audio;
 using MediaBrowser.Controller.Library;
@@ -21,6 +17,10 @@ using MediaBrowser.Model.Providers;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+using MulletaFlix.Api.Attributes;
+using MulletaFlix.Api.Extensions;
+using MulletaFlix.Api.Validation;
+using MulletaFlix.Extensions;
 
 namespace MulletaFlix.Api.Controllers;
 
@@ -97,6 +97,7 @@ public class LyricsController : BaseMulletaFlixApiController
     /// <response code="200">Lyrics uploaded.</response>
     /// <response code="400">Error processing upload.</response>
     /// <response code="404">Item not found.</response>
+    /// <response code="500">The server could not persist the uploaded lyrics.</response>
     /// <returns>The uploaded lyric.</returns>
     [HttpPost("Audio/{itemId}/Lyrics")]
     [Authorize(Policy = Policies.LyricManagement)]
@@ -105,6 +106,7 @@ public class LyricsController : BaseMulletaFlixApiController
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status500InternalServerError)]
     [ProducesResponseType(StatusCodes.Status413RequestEntityTooLarge)]
     public async Task<ActionResult<LyricDto>> UploadLyrics(
         [FromRoute, Required] Guid itemId,
@@ -253,11 +255,13 @@ public class LyricsController : BaseMulletaFlixApiController
     /// <param name="lyricId">The lyric id.</param>
     /// <response code="200">Lyric downloaded.</response>
     /// <response code="404">Item not found.</response>
+    /// <response code="500">The server could not persist the downloaded lyrics.</response>
     /// <returns>A <see cref="NoContentResult"/>.</returns>
     [HttpPost("Audio/{itemId}/RemoteSearch/Lyrics/{lyricId}")]
     [Authorize(Policy = Policies.LyricManagement)]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status500InternalServerError)]
     public async Task<ActionResult<LyricDto>> DownloadRemoteLyrics(
         [FromRoute, Required] Guid itemId,
         [FromRoute, Required] string lyricId)

@@ -14,7 +14,7 @@ public sealed class MariaDbTestConnectionTests
     [InlineData("Server=127.0.0.1,db.example.test;Port=33099;User ID=test;Password=x;")]
     public void Validate_RejectsRemoteDefaultOrMultiHostConnections(string connectionString)
     {
-        Assert.Throws<InvalidOperationException>(() => MariaDbTestEnvironment.Validate(connectionString));
+        Assert.Throws<InvalidOperationException>(() => MariaDbTestEnvironment.Validate(connectionString, disposableInstanceConfirmed: true));
     }
 
     [Theory]
@@ -22,11 +22,19 @@ public sealed class MariaDbTestConnectionTests
     [InlineData("Server=localhost;Port=33099;User ID=test;Password=x;")]
     public void Validate_AcceptsLoopbackOnNonDefaultPort(string connectionString)
     {
-        var result = MariaDbTestEnvironment.Validate(connectionString);
+        var result = MariaDbTestEnvironment.Validate(connectionString, disposableInstanceConfirmed: true);
 
         Assert.True(result.Port == 33099);
         Assert.Empty(result.Database);
         Assert.Equal(5, checked((int)result.ConnectionTimeout));
+    }
+
+    [Theory]
+    [InlineData("Server=127.0.0.1;Port=33099;User ID=test;Password=x;")]
+    [InlineData("Server=localhost;Port=33099;User ID=test;Password=x;")]
+    public void Validate_RejectsLoopbackUnlessDisposableInstanceIsExplicitlyConfirmed(string connectionString)
+    {
+        Assert.Throws<InvalidOperationException>(() => MariaDbTestEnvironment.Validate(connectionString));
     }
 
     [Theory]

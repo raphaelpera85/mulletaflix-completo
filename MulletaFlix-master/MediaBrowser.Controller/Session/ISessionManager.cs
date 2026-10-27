@@ -6,13 +6,13 @@ using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
-using MulletaFlix.Database.Implementations.Entities;
-using MulletaFlix.Database.Implementations.Entities.Security;
 using MediaBrowser.Controller.Authentication;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Model.Dto;
 using MediaBrowser.Model.Session;
 using MediaBrowser.Model.SyncPlay;
+using MulletaFlix.Database.Implementations.Entities;
+using MulletaFlix.Database.Implementations.Entities.Security;
 
 namespace MediaBrowser.Controller.Session
 {
@@ -255,6 +255,19 @@ namespace MediaBrowser.Controller.Session
         /// <param name="sessionId">The session identifier.</param>
         /// <param name="itemId">The item identifier.</param>
         void ReportNowViewingItem(string sessionId, string itemId);
+
+        /// <summary>
+        /// Reports the now viewing item asynchronously.
+        /// </summary>
+        /// <param name="sessionId">The session identifier.</param>
+        /// <param name="itemId">The item identifier.</param>
+        /// <returns>A task that completes after the item DTO is loaded.</returns>
+        Task ReportNowViewingItemAsync(string sessionId, string itemId)
+        {
+            // Compatibility fallback: third-party implementations remain synchronous until they override this method.
+            ReportNowViewingItem(sessionId, itemId);
+            return Task.CompletedTask;
+        }
 
         /// <summary>
         /// Authenticates the new session.

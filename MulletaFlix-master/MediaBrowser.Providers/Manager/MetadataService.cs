@@ -1132,6 +1132,17 @@ namespace MediaBrowser.Providers.Manager
                     try
                     {
                         await ProviderManager.SaveImage(item, remoteImage.Url, remoteImage.Type, null, cancellationToken).ConfigureAwait(false);
+                        var savedImageIndex = item.AllowsMultipleImages(remoteImage.Type)
+                            ? item.GetImages(remoteImage.Type).Count() - 1
+                            : 0;
+                        var savedImage = item.GetImageInfo(remoteImage.Type, savedImageIndex);
+                        if (savedImage is not null)
+                        {
+                            savedImage.ProviderName = providerName;
+                            // ResultLanguage describes metadata, not the language of each image URL.
+                            savedImage.Language = null;
+                        }
+
                         foundImageTypes.Add(remoteImage.Type);
                         saved = true;
                     }

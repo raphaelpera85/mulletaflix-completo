@@ -9,6 +9,17 @@ namespace MulletaFlix.Api.Tests.Controllers;
 public class UpdateInfoControllerTests
 {
     [Fact]
+    public void IsPreparedUpdateCurrent_RejectsStateForDifferentReleaseMetadata()
+    {
+        const string checksum = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+
+        Assert.True(UpdateInfoController.IsPreparedUpdateCurrent("ReadyToApply", "12.1.35", checksum, "12.1.35", checksum));
+        Assert.False(UpdateInfoController.IsPreparedUpdateCurrent("ReadyToApply", "12.1.35", checksum, "12.1.36", checksum));
+        Assert.False(UpdateInfoController.IsPreparedUpdateCurrent("ReadyToApply", "12.1.35", checksum, "12.1.35", "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"));
+        Assert.False(UpdateInfoController.IsPreparedUpdateCurrent("Downloading", "12.1.35", checksum, "12.1.35", checksum));
+    }
+
+    [Fact]
     public void AreUpdateFilesIdentical_ReturnsTrue_WhenFilesMatchExactly()
     {
         var tempBase = Path.Combine(Path.GetTempPath(), "mulleta_upd_test_" + Guid.NewGuid().ToString("N"));
@@ -124,7 +135,8 @@ public class UpdateInfoControllerTests
                     {
                         ""name"": ""mulletaflix-update-win-x64.zip"",
                         ""size"": 105000000,
-                        ""browser_download_url"": ""https://github.com/.../mulletaflix-update-win-x64.zip""
+                        ""browser_download_url"": ""https://github.com/.../mulletaflix-update-win-x64.zip"",
+                        ""digest"": ""sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa""
                     },
                     {
                         ""name"": ""mulletaflix-app-v12.0.2.apk"",
@@ -135,13 +147,14 @@ public class UpdateInfoControllerTests
             }
         ]";
 
-        var success = UpdateInfoController.TryParseGitHubRelease(json, out var version, out var changelog, out var archiveUrl, out var size);
+        var success = UpdateInfoController.TryParseGitHubRelease(json, out var version, out var changelog, out var archiveUrl, out var size, out var checksum);
 
         Assert.True(success);
         Assert.Equal(new Version(12, 0, 2), version);
         Assert.Equal("Server release notes", changelog);
         Assert.Equal("https://github.com/.../mulletaflix-update-win-x64.zip", archiveUrl);
         Assert.Equal(105000000, size);
+        Assert.Equal("sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", checksum);
     }
 
     [Fact]
@@ -154,16 +167,18 @@ public class UpdateInfoControllerTests
                 {
                     ""name"": ""update.zip"",
                     ""size"": 5000,
-                    ""browser_download_url"": ""https://example.com/update.zip""
+                        ""browser_download_url"": ""https://example.com/update.zip"",
+                        ""digest"": ""sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb""
                 }
             ]
         }";
 
-        var success = UpdateInfoController.TryParseGitHubRelease(json, out var version, out var changelog, out var archiveUrl, out var size);
+        var success = UpdateInfoController.TryParseGitHubRelease(json, out var version, out var changelog, out var archiveUrl, out var size, out var checksum);
 
         Assert.True(success);
         Assert.Equal(new Version(12, 0, 3), version);
         Assert.Equal("https://example.com/update.zip", archiveUrl);
+        Assert.Equal("sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", checksum);
     }
 
     [Fact]
@@ -181,9 +196,25 @@ public class UpdateInfoControllerTests
             ]
         }";
 
-        var success = UpdateInfoController.TryParseGitHubRelease(json, out var version, out var changelog, out var archiveUrl, out var size);
+        var success = UpdateInfoController.TryParseGitHubRelease(json, out var version, out var changelog, out var archiveUrl, out var size, out _);
 
         Assert.False(success);
+    }
+
+    [Fact]
+    public void TryParseGitHubRelease_RejectsZipWithoutValidDigest()
+    {
+        const string json = "{\"tag_name\":\"v12.1.36\",\"assets\":[{\"name\":\"server.zip\",\"size\":10,\"browser_download_url\":\"https://example.com/server.zip\"}]}";
+
+        Assert.False(UpdateInfoController.TryParseGitHubRelease(json, out _, out _, out _, out _, out _));
+    }
+
+    [Fact]
+    public void TryParseGitHubRelease_RejectsHttpArchiveUrl()
+    {
+        const string json = "{\"tag_name\":\"v12.1.36\",\"assets\":[{\"name\":\"server.zip\",\"size\":10,\"browser_download_url\":\"http://example.test/server.zip\",\"digest\":\"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}]}";
+
+        Assert.False(UpdateInfoController.TryParseGitHubRelease(json, out _, out _, out _, out _, out _));
     }
 }
 

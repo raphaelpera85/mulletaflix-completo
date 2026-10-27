@@ -146,8 +146,20 @@ namespace MediaBrowser.Providers.Manager
             }
 
             var currentImage = GetCurrentImage(item, type, index);
-            var currentImageIsLocalFile = currentImage is not null && currentImage.IsLocalFile;
             var currentImagePath = currentImage?.Path;
+
+            for (var i = 0; i < paths.Length; i++)
+            {
+                if (FileSystemHelper.PathsEqual(paths[i], currentImagePath))
+                {
+                    paths[i] = GetUniqueReplacementPath(paths[i]);
+                }
+
+                if (retryPaths.Length > i && FileSystemHelper.PathsEqual(retryPaths[i], currentImagePath))
+                {
+                    retryPaths[i] = GetUniqueReplacementPath(retryPaths[i]);
+                }
+            }
 
             var savedPaths = new List<string>();
 
@@ -173,53 +185,14 @@ namespace MediaBrowser.Providers.Manager
 
             // Set the path into the item
             SetImagePath(item, type, imageIndex, savedPaths[0]);
+        }
 
-            // Delete the current path
-            if (currentImageIsLocalFile
-                && !savedPaths.Contains(currentImagePath, StringComparison.OrdinalIgnoreCase)
-                && (saveLocally || currentImagePath.Contains(_config.ApplicationPaths.InternalMetadataPath, StringComparison.OrdinalIgnoreCase)))
-            {
-                var currentPath = currentImagePath;
-
-                _logger.LogInformation("Deleting previous image {0}", currentPath);
-
-                _libraryMonitor.ReportFileSystemChangeBeginning(currentPath);
-
-                try
-                {
-                    _fileSystem.DeleteFile(currentPath);
-
-                    // Remove local episode metadata directory if it exists and is empty
-                    var directory = Path.GetDirectoryName(currentPath);
-                    if (item is Episode && directory.Equals("metadata", StringComparison.Ordinal))
-                    {
-                        var parentDirectoryPath = Directory.GetParent(currentPath).FullName;
-                        if (_fileSystem.DirectoryExists(parentDirectoryPath) && !_fileSystem.GetFiles(parentDirectoryPath).Any())
-                        {
-                            try
-                            {
-                                _logger.LogInformation("Deleting empty local metadata folder {Folder}", parentDirectoryPath);
-                                Directory.Delete(parentDirectoryPath);
-                            }
-                            catch (UnauthorizedAccessException ex)
-                            {
-                                _logger.LogError(ex, "Error deleting directory {Path}", parentDirectoryPath);
-                            }
-                            catch (IOException ex)
-                            {
-                                _logger.LogError(ex, "Error deleting directory {Path}", parentDirectoryPath);
-                            }
-                        }
-                    }
-                }
-                catch (FileNotFoundException)
-                {
-                }
-                finally
-                {
-                    _libraryMonitor.ReportFileSystemChangeComplete(currentPath, false);
-                }
-            }
+        internal static string GetUniqueReplacementPath(string path)
+        {
+            var directory = Path.GetDirectoryName(path)!;
+            var extension = Path.GetExtension(path);
+            var name = Path.GetFileNameWithoutExtension(path);
+            return Path.Combine(directory, string.Concat(name, "-", Guid.NewGuid().ToString("N", CultureInfo.InvariantCulture), extension));
         }
 
         public async Task SaveImage(Stream source, string path)

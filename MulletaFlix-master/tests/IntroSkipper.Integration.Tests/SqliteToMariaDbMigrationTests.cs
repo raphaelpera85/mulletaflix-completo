@@ -22,10 +22,44 @@ namespace IntroSkipper.Integration.Tests;
 /// </para>
 /// </summary>
 [Collection(MariaDbCollection.Name)]
-public sealed class SqliteToMariaDbMigrationTests
+public sealed class SqliteToMariaDbMigrationTests : IAsyncLifetime
 {
     /// <summary>Schema used only by this fixture, so it cannot touch the plugin's schema.</summary>
     private const string TargetDatabase = "mulletaflix_introskipper_migration_test";
+    private const string TestUserHost = "127.0.0.1";
+    private readonly string _testUser = "mfx_migration_" + Guid.NewGuid().ToString("N");
+    private readonly string _testPassword = Guid.NewGuid().ToString("N");
+
+    /// <inheritdoc/>
+    public ValueTask InitializeAsync()
+    {
+        if (MariaDbTestEnvironment.IsConfigured)
+        {
+            using var connection = new MySqlConnection(MariaDbTestEnvironment.GetAdminConnection().ConnectionString);
+            connection.Open();
+            using var command = connection.CreateCommand();
+            command.CommandText = $"CREATE USER '{_testUser}'@'{TestUserHost}' IDENTIFIED BY '{_testPassword}';";
+            command.ExecuteNonQuery();
+        }
+
+        return ValueTask.CompletedTask;
+    }
+
+    /// <inheritdoc/>
+    public ValueTask DisposeAsync()
+    {
+        if (MariaDbTestEnvironment.IsConfigured)
+        {
+            DropTarget();
+            using var connection = new MySqlConnection(MariaDbTestEnvironment.GetAdminConnection().ConnectionString);
+            connection.Open();
+            using var command = connection.CreateCommand();
+            command.CommandText = $"DROP USER IF EXISTS '{_testUser}'@'{TestUserHost}';";
+            command.ExecuteNonQuery();
+        }
+
+        return ValueTask.CompletedTask;
+    }
 
     [Fact]
     public async Task MigratesEveryTablePreservingIdsAndUserIntent()
@@ -132,7 +166,7 @@ public sealed class SqliteToMariaDbMigrationTests
         legacy.AddSegment(Guid.CreateVersion7(), badItem, AnalysisMode.Introduction, 900, 800, SegmentSource.Chromaprint);
 
         var output = new StringWriter();
-        var status = await Migration.RunAsync(OptionsFor(legacy), output);
+        var status = await RunAsync(legacy, output: output);
 
         // The run must complete: one corrupt row cannot abort the migration.
         Assert.Equal(0, status);
@@ -167,7 +201,7 @@ public sealed class SqliteToMariaDbMigrationTests
         }
 
         var output = new StringWriter();
-        Assert.Equal(0, await Migration.RunAsync(OptionsFor(legacy), output));
+        Assert.Equal(0, await RunAsync(legacy, output: output));
 
         using (var db = OpenTarget())
         {
@@ -227,7 +261,7 @@ public sealed class SqliteToMariaDbMigrationTests
         }
 
         var output = new StringWriter();
-        Assert.Equal(0, await Migration.RunAsync(OptionsFor(legacy, includeCache: true), output));
+        Assert.Equal(0, await RunAsync(legacy, includeCache: true, output: output));
 
         using (var cache = OpenCache())
         {
@@ -270,6 +304,10 @@ public sealed class SqliteToMariaDbMigrationTests
         {
             SegmentDatabasePath = legacy.MissingDatabasePath,
             DatabaseName = TargetDatabase,
+            Server = MariaDbTestEnvironment.GetAdminConnection().Server,
+            Port = MariaDbTestEnvironment.GetAdminConnection().Port.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            User = _testUser,
+            Password = _testPassword,
         };
 
         var output = new StringWriter();
@@ -279,10 +317,21 @@ public sealed class SqliteToMariaDbMigrationTests
         Assert.Contains("arquivo não encontrado", output.ToString(), StringComparison.Ordinal);
     }
 
-    private static Task<int> RunAsync(LegacySqliteBuilder legacy, bool includeCache = false, bool dryRun = false)
-        => Migration.RunAsync(OptionsFor(legacy, includeCache, dryRun), new StringWriter());
+    private async Task<int> RunAsync(
+        LegacySqliteBuilder legacy,
+        bool includeCache = false,
+        bool dryRun = false,
+        TextWriter? output = null)
+    {
+        if (!dryRun)
+        {
+            PrepareTarget();
+        }
 
-    private static Options OptionsFor(LegacySqliteBuilder legacy, bool includeCache = false, bool dryRun = false)
+        return await Migration.RunAsync(OptionsFor(legacy, includeCache, dryRun), output ?? new StringWriter());
+    }
+
+    private Options OptionsFor(LegacySqliteBuilder legacy, bool includeCache = false, bool dryRun = false)
         => new()
         {
             SegmentDatabasePath = legacy.SegmentDatabasePath,
@@ -291,30 +340,48 @@ public sealed class SqliteToMariaDbMigrationTests
             DatabaseName = TargetDatabase,
             Server = MariaDbTestEnvironment.GetAdminConnection().Server,
             Port = MariaDbTestEnvironment.GetAdminConnection().Port.ToString(System.Globalization.CultureInfo.InvariantCulture),
-            User = MariaDbTestEnvironment.GetAdminConnection().UserID,
-            Password = MariaDbTestEnvironment.GetAdminConnection().Password,
+            User = _testUser,
+            Password = _testPassword,
             DryRun = dryRun,
         };
 
-    private static IntroSkipperDbContext OpenTarget()
+    private IntroSkipperDbContext OpenTarget()
     {
         var builder = new Microsoft.EntityFrameworkCore.DbContextOptionsBuilder<IntroSkipperDbContext>();
-        var connection = MariaDbTestEnvironment.GetAdminConnection();
-        connection.Database = TargetDatabase;
+        var connection = GetApplicationConnection();
         builder.UseMySql(connection.ConnectionString, new MariaDbServerVersion(new Version(11, 4, 2)));
         return new IntroSkipperDbContext(builder.Options);
     }
 
-    private static DetectionCacheDbContext OpenCache()
+    private DetectionCacheDbContext OpenCache()
     {
         var builder = new Microsoft.EntityFrameworkCore.DbContextOptionsBuilder<DetectionCacheDbContext>();
-        var connection = MariaDbTestEnvironment.GetAdminConnection();
-        connection.Database = TargetDatabase;
+        var connection = GetApplicationConnection();
         builder.UseMySql(connection.ConnectionString, new MariaDbServerVersion(new Version(11, 4, 2)));
         return new DetectionCacheDbContext(builder.Options);
     }
 
-    private static void DropTarget()
+    private void PrepareTarget()
+    {
+        var adminConnection = MariaDbTestEnvironment.GetAdminConnection();
+        using var connection = new MySqlConnection(adminConnection.ConnectionString);
+        connection.Open();
+        using var command = connection.CreateCommand();
+        command.CommandText = $"CREATE DATABASE IF NOT EXISTS `{TargetDatabase}` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;";
+        command.ExecuteNonQuery();
+        command.CommandText = $"GRANT ALL PRIVILEGES ON `{TargetDatabase}`.* TO '{_testUser}'@'{TestUserHost}';";
+        command.ExecuteNonQuery();
+    }
+
+    private MySqlConnectionStringBuilder GetApplicationConnection()
+        => new(MariaDbTestEnvironment.GetAdminConnection().ConnectionString)
+        {
+            Database = TargetDatabase,
+            UserID = _testUser,
+            Password = _testPassword,
+        };
+
+    private void DropTarget()
     {
         using var connection = new MySqlConnection(MariaDbTestEnvironment.GetAdminConnection().ConnectionString);
         connection.Open();

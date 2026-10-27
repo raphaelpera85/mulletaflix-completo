@@ -33,6 +33,11 @@ namespace MediaBrowser.Model.System
         public string? ArchiveUrl { get; set; }
 
         /// <summary>
+        /// Gets or sets the SHA-256 digest published for the update archive.
+        /// </summary>
+        public string? Checksum { get; set; }
+
+        /// <summary>
         /// Gets or sets the size of the update package in bytes.
         /// </summary>
         public long? PackageSize { get; set; }

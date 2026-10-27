@@ -26,7 +26,7 @@ jobs:
           dotnet-version: ${{ env.SDK_VERSION }}
 
       - name: Restore
-        run: dotnet restore MulletaFlix.sln
+        run: dotnet restore MulletaFlix.sln '-p:WarningsAsErrors=NU1900%3BNU1901%3BNU1902%3BNU1903%3BNU1904%3BNU1905'
 
       - name: Build
         run: dotnet build MulletaFlix.sln --configuration Release --no-restore
@@ -34,15 +34,81 @@ jobs:
       - name: Audit NuGet dependencies
         run: dotnet list MulletaFlix.sln package --vulnerable --include-transitive
 
+      - name: Audit NuGet dependencies outside solution
+        shell: bash
+        run: |
+          set -euo pipefail
+          for project in \
+            Compatibility/Jellyfin.Extensions/Jellyfin.Extensions.csproj \
+            Compatibility/Jellyfin.Database.Implementations/Jellyfin.Database.Implementations.csproj \
+            Compatibility/Jellyfin.Data/Jellyfin.Data.csproj \
+            fuzz/Jellyfin.Api.Fuzz/Jellyfin.Api.Fuzz.csproj \
+            fuzz/Emby.Server.Implementations.Fuzz/Emby.Server.Implementations.Fuzz.csproj \
+            tests/Jellyfin.Server.StartupRecoveryProbe/Jellyfin.Server.StartupRecoveryProbe.csproj
+          do
+            dotnet restore "$project" '-p:WarningsAsErrors=NU1900%3BNU1901%3BNU1902%3BNU1903%3BNU1904%3BNU1905'
+            dotnet list "$project" package --vulnerable --include-transitive --no-restore
+          done
+
       - name: Run unit tests (exclude integration)
         run: >
           dotnet test MulletaFlix.sln
           --configuration Release
           --no-build
+          -m:1
           --filter "FullyQualifiedName!~Integration"
           --collect:"XPlat Code Coverage"
           --results-directory TestResults
           --verbosity minimal
+
+      - name: Verify privileged Linux restore filesystem boundaries
+        shell: bash
+        run: |
+          set -euo pipefail
+          results="$RUNNER_TEMP/restore-linux"
+          mkdir -p "$results"
+          sudo "$(command -v dotnet)" test tests/Jellyfin.Server.Implementations.Tests/Jellyfin.Server.Implementations.Tests.csproj \
+            --configuration Release \
+            --no-build \
+            --filter 'FullyQualifiedName~IsSameOrAncestorOf_DetectsBindMountedProgramDataInsideRestoreRoot|FullyQualifiedName~IsOnSameMountAs_DetectsBindMountedDirectory|FullyQualifiedName~ValidateTrustedWriteBoundary_RejectsWritableNamedUserInLinuxDefaultAcl|FullyQualifiedName~ValidateTrustedWriteBoundary_RejectsOtherWriteInLinuxDefaultAcl|FullyQualifiedName~OpenRoot_RetainsLinuxAncestorHandlesUntilDisposed|FullyQualifiedName~OpenExistingFile_RejectsSymbolicLinkOnLinux|FullyQualifiedName~OpenRoot_RejectsSymbolicLinkInAncestorOnLinux|FullyQualifiedName~OpenOrCreateFileAndDeleteIfExists_RejectSymbolicLinkOnLinux|FullyQualifiedName~DeleteFile_RejectsSymbolicLinkOnLinux|FullyQualifiedName~DeleteNonDirectoryEntryIfExists_RemovesLinkWithoutFollowingItOnLinux|FullyQualifiedName~Rename_RejectsSymbolicLinkSourceOnLinux|FullyQualifiedName~RestoreBackupAsync_RejectsNestedMountBeforeWritingIntoIt|FullyQualifiedName~RecoverInterruptedRestoreAsync_RejectsProgramDataBindAliasAcrossNestedMountBeforeCreatingLease|FullyQualifiedName~RecoveryJournal_OperationLeaseRejectsSymbolicLinkOnLinux' \
+            --logger 'trx;LogFileName=restore-linux.trx' \
+            --results-directory "$results" \
+            --verbosity minimal
+          python3 - "$results/restore-linux.trx" <<'PY'
+          import sys
+          import xml.etree.ElementTree as ET
+
+          expected = {
+              "IsSameOrAncestorOf_DetectsBindMountedProgramDataInsideRestoreRoot",
+              "IsOnSameMountAs_DetectsBindMountedDirectory",
+              "ValidateTrustedWriteBoundary_RejectsWritableNamedUserInLinuxDefaultAcl",
+              "ValidateTrustedWriteBoundary_RejectsOtherWriteInLinuxDefaultAcl",
+              "OpenRoot_RetainsLinuxAncestorHandlesUntilDisposed",
+              "OpenExistingFile_RejectsSymbolicLinkOnLinux",
+              "OpenRoot_RejectsSymbolicLinkInAncestorOnLinux",
+              "OpenOrCreateFileAndDeleteIfExists_RejectSymbolicLinkOnLinux",
+              "DeleteFile_RejectsSymbolicLinkOnLinux",
+              "DeleteNonDirectoryEntryIfExists_RemovesLinkWithoutFollowingItOnLinux",
+              "Rename_RejectsSymbolicLinkSourceOnLinux",
+              "RestoreBackupAsync_RejectsNestedMountBeforeWritingIntoIt",
+              "RecoverInterruptedRestoreAsync_RejectsProgramDataBindAliasAcrossNestedMountBeforeCreatingLease",
+              "RecoveryJournal_OperationLeaseRejectsSymbolicLinkOnLinux",
+          }
+          root = ET.parse(sys.argv[1]).getroot()
+          results = [node for node in root.iter() if node.tag.endswith("UnitTestResult")]
+          actual = [(node.attrib["testName"], node.attrib["testName"].rsplit(".", 1)[-1], node.attrib["outcome"]) for node in results]
+          names = [name for _, name, _ in actual]
+          missing = expected - set(names)
+          duplicates = {name: names.count(name) for name in expected if names.count(name) > 1}
+          unexpected = sorted(set(names) - expected)
+          not_passed = [(full_name, outcome) for full_name, _, outcome in actual if outcome != "Passed"]
+          if missing or duplicates or unexpected or not_passed or len(actual) != len(expected):
+              raise SystemExit(
+                  f"Linux restore coverage incomplete: missing={sorted(missing)}, duplicates={duplicates}, "
+                  f"unexpected={unexpected}, not_passed={not_passed}, result_count={len(actual)}"
+              )
+          print(f"Linux restore boundary tests passed: {len(expected)}/{len(expected)}")
+          PY
 
       - name: Upload backend coverage
         uses: actions/upload-artifact@v4
@@ -50,6 +116,90 @@ jobs:
           name: backend-coverage
           path: MulletaFlix-master/TestResults/**/coverage.cobertura.xml
           if-no-files-found: error
+
+  embedded-mariadb-lifecycle-windows:
+    name: Embedded MariaDB start-stop-restart lifecycle (Windows)
+    runs-on: windows-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: MulletaFlix-master
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ env.SDK_VERSION }}
+
+      - name: Restore server tests
+        run: dotnet restore tests/Jellyfin.Server.Tests/Jellyfin.Server.Tests.csproj
+
+      - name: Build server tests
+        run: dotnet build tests/Jellyfin.Server.Tests/Jellyfin.Server.Tests.csproj --configuration Release --no-restore
+
+      - name: Stage the packaged MariaDB runtime for the test assembly
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $runtimeVersion = '11.4.4'
+          $runtimeArchive = Join-Path $env:RUNNER_TEMP "mariadb-$runtimeVersion-winx64.zip"
+          $runtimeExtract = Join-Path $env:RUNNER_TEMP 'mariadb-extract'
+          $runtimeUrl = "https://downloads.mariadb.org/rest-api/mariadb/$runtimeVersion/mariadb-$runtimeVersion-winx64.zip"
+          Invoke-WebRequest -Uri $runtimeUrl -OutFile $runtimeArchive
+          Expand-Archive -LiteralPath $runtimeArchive -DestinationPath $runtimeExtract
+
+          $runtimeSource = Join-Path $runtimeExtract "mariadb-$runtimeVersion-winx64"
+          $testOutput = Join-Path $PWD 'tests/Jellyfin.Server.Tests/bin/Release/net10.0'
+          $runtimeTarget = Join-Path $testOutput 'mariadb'
+          foreach ($executable in @('mysqld.exe', 'mysql_install_db.exe', 'mysqladmin.exe')) {
+            if (-not (Test-Path -LiteralPath (Join-Path $runtimeSource "bin/$executable") -PathType Leaf)) {
+              throw "MariaDB runtime is missing $executable"
+            }
+          }
+          Copy-Item -LiteralPath $runtimeSource -Destination $runtimeTarget -Recurse
+
+      - name: Verify start-stop-second-start against an isolated datadir
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $results = Join-Path $env:RUNNER_TEMP 'mariadb-lifecycle-results'
+          New-Item -ItemType Directory -Path $results -Force | Out-Null
+          dotnet test tests/Jellyfin.Server.Tests/Jellyfin.Server.Tests.csproj `
+            --configuration Release --no-build --no-restore -m:1 `
+            --filter 'FullyQualifiedName~MariaDbProcessManagerLifecycleTests.StartStopStart_UsesTheSameIsolatedDataDirectory' `
+            --logger 'trx;LogFileName=mariadb-lifecycle.trx' `
+            --results-directory $results --verbosity minimal
+          if ($LASTEXITCODE -ne 0) { throw "MariaDB lifecycle test failed with exit code $LASTEXITCODE" }
+
+          [xml]$trx = Get-Content -LiteralPath (Join-Path $results 'mariadb-lifecycle.trx') -Raw
+          $matches = @($trx.TestRun.Results.UnitTestResult | Where-Object testName -like '*StartStopStart_UsesTheSameIsolatedDataDirectory')
+          if ($matches.Count -ne 1 -or $matches[0].outcome -ne 'Passed') {
+            throw "Expected exactly one Passed lifecycle test; found $($matches.Count) result(s): $($matches.outcome -join ', ')"
+          }
+
+  server-restore-macos-startup:
+    name: Server restore startup guard (macOS)
+    runs-on: macos-14
+    defaults:
+      run:
+        working-directory: MulletaFlix-master
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ env.SDK_VERSION }}
+
+      - name: Restore server test project
+        run: dotnet restore tests/Jellyfin.Server.Implementations.Tests/Jellyfin.Server.Implementations.Tests.csproj
+
+      - name: Verify restore startup without pending journal and fail-closed behavior
+        run: >
+          dotnet test tests/Jellyfin.Server.Implementations.Tests/Jellyfin.Server.Implementations.Tests.csproj
+          --configuration Release
+          --no-restore
+          --filter "FullyQualifiedName~RecoverInterruptedRestoreAsync_OnMacOSWithoutPendingRestoreDoesNotAcquireUnsupportedLease|FullyQualifiedName~RecoverInterruptedRestoreAsync_OnMacOSWithPendingRestoreFailsClosed"
+          --verbosity minimal
 
   nebula-representative-tests:
     name: Nebula representative scenarios (${{ matrix.os }})
@@ -103,11 +253,23 @@ jobs:
           --health-retries 10
     env:
       MULLETAFLIX_TEST_MONGODB_CONNECTION_STRING: mongodb://127.0.0.1:27099/?directConnection=true
+      NEBULA_TEST_PYTHON: ${{ runner.temp }}/nebula-venv/bin/python
     defaults:
       run:
         working-directory: MulletaFlix-master
     steps:
       - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+          cache: pip
+          cache-dependency-path: MulletaFlix-master/Tools/NebulaPython/requirements.lock
+
+      - name: Create isolated Nebula Python runtime
+        run: |
+          python -m venv "$RUNNER_TEMP/nebula-venv"
+          "$RUNNER_TEMP/nebula-venv/bin/python" -m pip install --require-hashes -r Tools/NebulaPython/requirements.lock
 
       - uses: actions/setup-dotnet@v4
         with:
@@ -142,6 +304,7 @@ jobs:
           --health-retries 10
     env:
       MULLETAFLIX_TEST_MARIADB_CONNECTION_STRING: "Server=127.0.0.1;Port=33099;User ID=root;Password=mfx_ci_mariadb_test;CharSet=utf8mb4;"
+      MULLETAFLIX_TEST_MARIADB_CONFIRM_DISPOSABLE: I_ACKNOWLEDGE_TESTS_CREATE_AND_DROP_SCHEMAS
     defaults:
       run:
         working-directory: MulletaFlix-master
@@ -151,6 +314,9 @@ jobs:
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: ${{ env.SDK_VERSION }}
+
+      - name: Install MariaDB client for full startup migration test
+        run: sudo apt-get update && sudo apt-get install --yes mariadb-client
 
       - name: Restore server test project
         run: dotnet restore tests/Jellyfin.Server.Implementations.Tests/Jellyfin.Server.Implementations.Tests.csproj
@@ -162,6 +328,106 @@ jobs:
           --no-restore
           --filter "FullyQualifiedName~UserManagerNormalizedUsernameTests|FullyQualifiedName~BillingDatabaseTests"
           --verbosity minimal
+
+      - name: Restore backup crash-recovery integration tests
+        run: dotnet restore tests/IntroSkipper.Integration.Tests/IntroSkipper.Integration.Tests.csproj
+
+      - name: Verify MariaDB persistence, plugin schema, backup participant, and restore replay
+        run: >
+          dotnet test tests/IntroSkipper.Integration.Tests/IntroSkipper.Integration.Tests.csproj
+          --configuration Release
+          --no-restore
+          --filter "FullyQualifiedName~RestoreBackupAsync_ReplaysAfterProcessTerminationBetweenDatabaseAndFileCommit|FullyQualifiedName~RestoreBackupAsync_RestoresDatabaseRowsOnDisposableMariaDb|FullyQualifiedName~IntroSkipperMariaDbTests.SchemaCreationTargetsTheDedicatedDatabase|FullyQualifiedName~IntroSkipperBackupParticipantTests|FullyQualifiedName~SaveImagesAsync_ConcurrentRefreshesForSameItem_PersistOneCompleteImageSet|FullyQualifiedName~SaveItemsAndSaveImagesAsync_ConcurrentWritesForSameItem_PersistMetadataAndCompleteImageSet|FullyQualifiedName~SaveItemsBatchAndSaveImagesAsync_ConcurrentItemsAcrossStripes_CompletesWithoutDeadlock|FullyQualifiedName~SaveImagesAsync_PersistsProviderAndLanguageChanges|FullyQualifiedName~RefreshImages_PersistsSelectedPortugueseCandidateToMariaDb|FullyQualifiedName~SaveImagesAsync_WaitsForDatabaseAdvisoryLockHeldByAnotherSession|FullyQualifiedName~UpdateInheritedValues_WaitsForDatabaseAdvisoryLockHeldByAnotherSession|FullyQualifiedName~DeleteItem_RemovesPeopleRowsMadeOrphanByDeletedItem|FullyQualifiedName~DeleteItem_ConcurrentWithUpdatePeople_DoesNotLeaveOrphanPeople|FullyQualifiedName~DeleteItem_WaitsForDatabaseAdvisoryLockHeldByAnotherSession|FullyQualifiedName~FixDatesImageMigration_WaitsForAllImageAdvisoryLocks|FullyQualifiedName~GetNextUpSeriesKeys_WithEqualLastPlayedDates_AppliesStableTieBreakBeforeLimit"
+          --verbosity minimal
+
+      - name: Restore full-server startup integration tests
+        run: dotnet restore tests/Jellyfin.Server.Integration.Tests/Jellyfin.Server.Integration.Tests.csproj
+
+      - name: Verify interrupted restore precedes real server migration and startup
+        run: >
+          dotnet test tests/Jellyfin.Server.Integration.Tests/Jellyfin.Server.Integration.Tests.csproj
+          --configuration Release
+          --no-restore
+          --filter "FullyQualifiedName~StartupBackupRecoveryTests.CreateHost_ReplaysInterruptedRestoreBeforeMigrationsAndCompletesStartup"
+          --verbosity minimal
+
+      - name: Verify image persistence recovers after MariaDB process restart
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          mapfile -t containers < <(docker ps --filter publish=33099 --format '{{.ID}}')
+          if [[ "${#containers[@]}" -ne 1 ]]; then
+            echo "Expected one MariaDB service container on port 33099; found ${#containers[@]}." >&2
+            exit 1
+          fi
+
+          container="${containers[0]}"
+          image="$(docker inspect --format '{{.Config.Image}}' "$container")"
+          ports="$(docker inspect --format '{{json .NetworkSettings.Ports}}' "$container")"
+          if [[ "$image" != "mariadb:11.4" || "$ports" != *'"HostPort":"33099"'* ]]; then
+            echo "Refusing to restart unexpected container: image=$image ports=$ports" >&2
+            exit 1
+          fi
+
+          ready_marker="$RUNNER_TEMP/mariadb-restart-ready"
+          restart_marker="$RUNNER_TEMP/mariadb-restart-confirmed"
+          test_log="$RUNNER_TEMP/mariadb-restart-test.log"
+          rm -f "$ready_marker" "$restart_marker" "$test_log"
+          MULLETAFLIX_TEST_MARIADB_RESTART_READY_MARKER="$ready_marker" \
+          MULLETAFLIX_TEST_MARIADB_RESTART_MARKER="$restart_marker" \
+            dotnet test tests/IntroSkipper.Integration.Tests/IntroSkipper.Integration.Tests.csproj \
+              --configuration Release \
+              --no-restore \
+              --filter "FullyQualifiedName~SaveImagesAsync_RetriesAfterMariaDbProcessRestartDuringDelete" \
+              --logger "console;verbosity=normal" \
+              --verbosity minimal > "$test_log" 2>&1 &
+          test_pid=$!
+
+          cleanup() {
+            if kill -0 "$test_pid" 2>/dev/null; then
+              kill "$test_pid" 2>/dev/null || true
+              wait "$test_pid" 2>/dev/null || true
+            fi
+            cat "$test_log"
+          }
+          trap cleanup EXIT
+
+          for attempt in $(seq 1 180); do
+            if [[ -f "$ready_marker" ]]; then
+              break
+            fi
+            if ! kill -0 "$test_pid" 2>/dev/null; then
+              wait "$test_pid" || true
+              echo "Restart integration test exited before requesting a database restart." >&2
+              exit 1
+            fi
+            sleep 0.5
+          done
+
+          if [[ ! -f "$ready_marker" ]]; then
+            echo "Timed out waiting for SaveImagesAsync to enter the MariaDB trigger." >&2
+            exit 1
+          fi
+
+          docker kill --signal KILL "$container"
+          docker start "$container"
+          for attempt in $(seq 1 120); do
+            if docker exec "$container" mariadb-admin --user=root ping --silent >/dev/null 2>&1; then
+              printf 'MariaDB container restarted while image persistence was blocked.\n' > "$restart_marker"
+              break
+            fi
+            sleep 0.5
+          done
+
+          if [[ ! -f "$restart_marker" ]]; then
+            echo "MariaDB service did not become ready after restarting its isolated container." >&2
+            exit 1
+          fi
+
+          wait "$test_pid"
+          cat "$test_log"
+          trap - EXIT
 
   windows-packaging-script-tests:
     name: Windows packaging integrity scripts
@@ -191,6 +457,37 @@ jobs:
             Write-Host "Running $test"
             & $testPath
           }
+
+  linux-packaging-script-tests:
+    name: Linux packaging integrity scripts
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Check Linux installer and test script syntax
+        run: |
+          scripts=(
+            tools/release/linux-install.sh
+            tools/release/duckdns-update.sh
+            tools/release/tests/linux-install-preflight.test.sh
+            tools/release/tests/linux-atomic-write.test.sh
+            tools/release/tests/duckdns-update.test.sh
+          )
+
+          for script in "${scripts[@]}"; do
+            bash -n "$script"
+          done
+
+      - name: Run Linux packaging integrity checks
+        run: |
+          bash tools/release/tests/linux-install-preflight.test.sh
+          bash tools/release/tests/linux-atomic-write.test.sh
+          bash tools/release/tests/duckdns-update.test.sh
 
   nebula-python-tests:
     name: Nebula Python unit tests (${{ matrix.os }})
@@ -242,7 +539,7 @@ jobs:
           cache-dependency-path: MulletaFlix-web-master/package-lock.json
 
       - name: Verify database integration CI coverage
-        run: node --test ../tools/release/tests/ci-mongo-coverage.test.mjs ../tools/release/tests/ci-mariadb-linux-coverage.test.mjs ../tools/release/tests/ci-packaging-coverage.test.mjs ../tools/release/tests/update-package-output-path.test.mjs
+        run: node --test ../tools/release/tests/ci-mongo-coverage.test.mjs ../tools/release/tests/ci-mariadb-linux-coverage.test.mjs ../tools/release/tests/ci-nuget-audit-coverage.test.mjs ../tools/release/tests/ci-packaging-coverage.test.mjs ../tools/release/tests/update-package-output-path.test.mjs ../tools/release/tests/ci-test-runner-serialization.test.mjs ../tools/release/tests/ci-mariadb-lifecycle.test.mjs
 
       - name: Install dependencies
         run: npm ci

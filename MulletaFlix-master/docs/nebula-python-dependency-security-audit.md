@@ -45,3 +45,10 @@ Em 2026-10-20, a fonte do guard e do instalador Windows foi alterada para impedi
 - A repetição da suíte isolada passou 660/660. O contrato Node falhou porque exigia que a validação da venv estivesse colada à chamada de reparo com lock; o guard valida uma vez antes de ambos os caminhos de reparo. O contrato agora compara a ordem dentro de `ensure_runtime_dependencies`; passou 4/4.
 - Parser PowerShell do helper passou e `Assert-StageIntegrity.Tests.ps1` passou como harness direto. Uma invocação inicial usou caminho sem a pasta `tests` e não executou; repetida no caminho correto, passou.
 - Nenhum código runtime mudou nesta revalidação. Instalador end-to-end Windows, NSIS, Linux nativo, CI remota, instalação/runtime, produção e download/playback continuam sem evidência.
+
+### Suíte Nebula — regressão Windows isolada (2026-10-26 16:36 BRT)
+
+- Execução completa de `Tools/NebulaPython/tests` com Python 3.10.11 a partir da venv de regressão já existente: **723 passed, 2 skipped, 0 failed (725 total)**.
+- Os dois skips são as variantes de sincronização POSIX após rename e de substituição POSIX; no Windows são cobertas por `MoveFileExW`/`MOVEFILE_WRITE_THROUGH`. Repetição passou com `-rs`, sem instalação/atualização de pacotes e sem cache do pytest.
+- A tentativa anterior com Python global foi interrompida pelo guard que exige runtime isolado, antes da coleta. Isso não valida Linux, runtime instalado, serviço, CI hospedada nem produção.
+- Portal registrou a evidência, contrato Node atualizado; formal permanece 2/7 (28,6%), sem crédito ou release.

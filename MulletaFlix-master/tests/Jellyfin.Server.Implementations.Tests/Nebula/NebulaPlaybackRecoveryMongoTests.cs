@@ -111,38 +111,54 @@ public sealed class NebulaPlaybackRecoveryMongoTests : IDisposable
 
         using (var producerContext = CreateContext())
         {
-            Assert.True(await producerContext.InsertFileDocIfAbsentAsync(new BsonDocument
-            {
-                { "name", "episode.mkv" },
-                { "type", "file" },
-                { "is_directory", false },
-                { "status", "queued" },
-                { "size", (long)expectedBytes.Length },
-                { "parts", new BsonArray() },
-                { "local_path", localPath },
-                { "queued_at", uploadedAt },
-                { "modified_at", uploadedAt }
-            }));
-            var queuedMedia = Assert.Single(await producerContext.GetQueuedUploadsAsync());
+            Assert.True(
+                await producerContext.InsertFileDocIfAbsentAsync(
+                    new BsonDocument
+                    {
+                        { "name", "episode.mkv" },
+                        { "type", "file" },
+                        { "is_directory", false },
+                        { "status", "queued" },
+                        { "size", (long)expectedBytes.Length },
+                        { "parts", new BsonArray() },
+                        { "local_path", localPath },
+                        { "queued_at", uploadedAt },
+                        { "modified_at", uploadedAt }
+                    },
+                    cancellationToken: TestContext.Current.CancellationToken));
+            var queuedMedia = Assert.Single(
+                await producerContext.GetQueuedUploadsAsync(TestContext.Current.CancellationToken));
             var mediaId = queuedMedia["_id"].AsObjectId;
-            Assert.NotNull(await producerContext.ClaimFileForUploadAsync(mediaId, workerId: 7, botIndex: 0));
+            var claim = await producerContext.ClaimFileForUploadAsync(
+                mediaId,
+                workerId: 7,
+                botIndex: 0,
+                cancellationToken: TestContext.Current.CancellationToken);
+            Assert.NotNull(claim);
+            var leaseId = claim["lease_id"].AsString;
             Assert.True(await producerContext.UpdateUploadProgressAsync(
                 mediaId,
                 new BsonArray { uploadedPart },
                 expectedBytes.Length,
                 lastBotIndex: 0,
-                workerId: "7"));
+                workerId: "7",
+                cancellationToken: TestContext.Current.CancellationToken,
+                leaseId: leaseId));
             Assert.True(await producerContext.CompleteFileUploadAsync(
                 mediaId,
                 finalFields,
-                workerId: "7"));
+                cancellationToken: TestContext.Current.CancellationToken,
+                workerId: "7",
+                leaseId: leaseId));
         }
 
         BsonDocument persistedMedia;
         ObjectId persistedMediaId;
         using (var firstContext = CreateContext())
         {
-            var foundMedia = Assert.IsType<BsonDocument>(await firstContext.FindFileByVirtualPathOrNameAsync("episode.mkv"));
+            var foundMedia = Assert.IsType<BsonDocument>(await firstContext.FindFileByVirtualPathOrNameAsync(
+                "episode.mkv",
+                TestContext.Current.CancellationToken));
             persistedMediaId = foundMedia["_id"].AsObjectId;
         }
 
@@ -150,7 +166,7 @@ public sealed class NebulaPlaybackRecoveryMongoTests : IDisposable
         using (var restartedContext = CreateContext())
         {
             persistedMedia = Assert.IsType<BsonDocument>(
-                await restartedContext.FindFileByVirtualPathOrNameAsync("episode.mkv"));
+                await restartedContext.FindFileByVirtualPathOrNameAsync("episode.mkv", TestContext.Current.CancellationToken));
         }
 
         var (parts, totalSize) = NebulaHttpStreamServer.BuildStreamParts(persistedMedia);

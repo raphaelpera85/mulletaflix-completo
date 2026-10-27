@@ -49,6 +49,32 @@ public sealed class LyricsControllerTests
     }
 
     [Fact]
+    public async Task UploadLyrics_ReturnsBadRequestWhenManagerCannotParseLyric()
+    {
+        var controller = CreateController("[00:01.00]Hello world\n");
+        _lyricManager
+            .Setup(m => m.SaveLyricAsync(_audio, "lrc", It.IsAny<Stream>()))
+            .ReturnsAsync((LyricDto?)null);
+
+        var result = await controller.UploadLyrics(_itemId, "lyrics.lrc");
+
+        Assert.IsType<BadRequestResult>(result.Result);
+        _providerManager.Verify(m => m.QueueRefresh(It.IsAny<Guid>(), It.IsAny<MetadataRefreshOptions>(), It.IsAny<RefreshPriority>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task UploadLyrics_PropagatesPersistenceFailure()
+    {
+        var controller = CreateController("[00:01.00]Hello world\n");
+        _lyricManager
+            .Setup(m => m.SaveLyricAsync(_audio, "lrc", It.IsAny<Stream>()))
+            .ThrowsAsync(new IOException("Lyric storage unavailable"));
+
+        await Assert.ThrowsAsync<IOException>(() => controller.UploadLyrics(_itemId, "lyrics.lrc"));
+        _providerManager.Verify(m => m.QueueRefresh(It.IsAny<Guid>(), It.IsAny<MetadataRefreshOptions>(), It.IsAny<RefreshPriority>()), Times.Never);
+    }
+
+    [Fact]
     public async Task UploadLyrics_RejectsUnsupportedExtension()
     {
         var controller = CreateController("1\n00:00:01,000 --> 00:00:02,000\nHello\n");

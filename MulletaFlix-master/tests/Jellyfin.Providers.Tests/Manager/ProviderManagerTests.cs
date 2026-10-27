@@ -34,7 +34,6 @@ namespace MulletaFlix.Providers.Tests.Manager
     {
         private static readonly ILogger<ProviderManager> _logger = new NullLogger<ProviderManager>();
 
-
         private static Mock<IMetadataService> MockIMetadataService(bool refreshPrimary, bool canRefresh, int order = 0)
         {
             var service = new Mock<IMetadataService>(MockBehavior.Strict);
@@ -183,14 +182,15 @@ namespace MulletaFlix.Providers.Tests.Manager
             LibraryOptions? libraryOptions = null,
             IBaseItemManager? baseItemManager = null,
             IServerApplicationPaths? appPaths = null,
-            IImageEncoder? imageEncoder = null)
+            IImageEncoder? imageEncoder = null,
+            Mock<ILibraryManager>? libraryManagerMock = null)
         {
             var serverConfigurationManager = new Mock<IServerConfigurationManager>(MockBehavior.Strict);
             serverConfigurationManager.Setup(i => i.Configuration)
                 .Returns(serverConfiguration ?? new ServerConfiguration());
 
-            var libraryManager = new Mock<ILibraryManager>(MockBehavior.Strict);
-            libraryManager.Setup(i => i.GetLibraryOptions(It.IsAny<BaseItem>()))
+            libraryManagerMock ??= new Mock<ILibraryManager>(MockBehavior.Strict);
+            libraryManagerMock.Setup(i => i.GetLibraryOptions(It.IsAny<BaseItem>()))
                 .Returns(libraryOptions ?? new LibraryOptions());
 
             var providerManager = new ProviderManager(
@@ -201,7 +201,7 @@ namespace MulletaFlix.Providers.Tests.Manager
                 _logger,
                 Mock.Of<IFileSystem>(),
                 appPaths ?? Mock.Of<IServerApplicationPaths>(),
-                libraryManager.Object,
+                libraryManagerMock.Object,
                 baseItemManager!,
                 Mock.Of<ILyricManager>(),
                 Mock.Of<IMemoryCache>(),

@@ -7,6 +7,44 @@ namespace MulletaFlix.Api.Tests.Controllers;
 
 public sealed class FileSystemHelperPathSafetyTests
 {
+    [Theory]
+    [InlineData(".")]
+    [InlineData("..")]
+    [InlineData("../outside")]
+    [InlineData("..\\outside")]
+    [InlineData("C:\\outside")]
+    public void GetUserConfigurationDirectoryPath_RejectsUnsafeUsername(string username)
+    {
+        var root = Path.Combine(Path.GetTempPath(), "mfx-users-" + Guid.NewGuid().ToString("N"));
+
+        Assert.Throws<ArgumentException>(() => FileSystemHelper.GetUserConfigurationDirectoryPath(root, username));
+    }
+
+    [Fact]
+    public void GetUserConfigurationDirectoryPath_ResolvesSafeUsernameInsideRoot()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "mfx-users-" + Guid.NewGuid().ToString("N"));
+
+        var path = FileSystemHelper.GetUserConfigurationDirectoryPath(root, "raphael.pera");
+
+        Assert.True(FileSystemHelper.IsPathWithinRoot(path, root));
+        Assert.Equal(Path.GetFullPath(Path.Combine(root, "raphael.pera")), path);
+    }
+
+    [Fact]
+    public void GetUserConfigurationDirectoryPath_RejectsWindowsTrailingDotAliases()
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        var root = Path.Combine(Path.GetTempPath(), "mfx-users-" + Guid.NewGuid().ToString("N"));
+
+        Assert.Throws<ArgumentException>(() => FileSystemHelper.GetUserConfigurationDirectoryPath(root, ".. ."));
+        Assert.Throws<ArgumentException>(() => FileSystemHelper.GetUserConfigurationDirectoryPath(root, "profile."));
+    }
+
     [Fact]
     public void IsPathWithinRoot_AcceptsRegularDescendantAndRejectsSiblingPrefix()
     {
@@ -41,6 +79,7 @@ public sealed class FileSystemHelperPathSafetyTests
             }
 
             Assert.False(FileSystemHelper.IsPathWithinRoot(Path.Combine(link, "avatar.png"), root));
+            Assert.Throws<ArgumentException>(() => FileSystemHelper.GetUserConfigurationDirectoryPath(root, "linked-user-dir"));
             Assert.True(File.Exists(outsideFile));
         }
         finally
