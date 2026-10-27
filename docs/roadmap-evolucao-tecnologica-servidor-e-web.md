@@ -1,5 +1,13 @@
 # Roadmap de evolução tecnológica — servidor e frontend web
 
+### 27/10/2026 18:22 -03 — Revalidação dos logs de inicialização Nebula/Supabase
+
+- Os logs apresentados registram versão `12.1.35`. A release `12.1.36` já contém a virtualenv Nebula em `DataPath` (gravável pela identidade do serviço) e o cursor UUID Supabase sem aspas, cobrindo os erros de acesso negado em `Program Files` e `22P02` para UUID.
+- Regressão focal Release `FetchSupabaseRowsPagedAsync_UsesBareUuidForUuidCursor`, `..._ExcludesInvalidLegacyNebulaLogins` e `..._PreservesNebulaLoginFiltersWhenPaging`: 3/3 aprovados.
+- Consulta somente leitura ao projeto Supabase atual: `nebula_users` tem 7 linhas, chave primária `login`, zero grupos duplicados e zero logins nulos/vazios; `mulletaflix_users` tem 16 linhas e `id` tipado como UUID. O erro de cursor repetido em `nebula_users` não foi reproduzido nos dados atuais; por segurança, nenhuma exclusão/alteração remota foi feita.
+- Conclusão: nenhuma correção adicional de código foi indicada por estes logs nesta sessão. A `v12.1.36` segue como release aplicável; não foi criada nova release. O estado atual do Supabase não prova o estado histórico no instante do log nem valida instalação/worker em produção.
+- Mapa técnico conferido: mesma topologia e contratos; nenhuma mudança estrutural. Homologação formal continua 2/7 (28,6%). Evidência publicada no portal em [[Sessões/2026-10-27-MulletaFlix-Nebula-Supabase-log-revalidation-1822]].
+
 ## Segurança de caminhos de imagem de perfil — 2026-10-19
 
 - [x] Corrigir igualdade de caminhos conforme o sistema operacional; evitar excluir perfil ativo por casing no Windows.
