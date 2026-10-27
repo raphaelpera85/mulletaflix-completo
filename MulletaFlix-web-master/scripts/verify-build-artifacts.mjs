@@ -25,6 +25,22 @@ if (!files.some((file) => file.endsWith('serviceworker.js'))) {
     throw new Error('O build não contém dist/serviceworker.js, embora o cliente registre esse worker.');
 }
 
+const liveTvProviderBundles = files.filter((file) => /livetvguideprovider-[^/\\]+\.js$/.test(file));
+if (liveTvProviderBundles.length === 0) {
+    throw new Error('O build não contém o controlador de configuração dos provedores de TV ao vivo.');
+}
+
+const liveTvProviderCode = (await Promise.all(liveTvProviderBundles.map((file) => readFile(file, 'utf8')))).join('\n');
+if (/import\(`components\/tvproviders\/\$\{/.test(liveTvProviderCode)) {
+    throw new Error('O build mantém imports de provedores de TV ao vivo que o navegador não consegue resolver.');
+}
+
+for (const provider of ['xmltv', 'schedulesdirect']) {
+    if (!liveTvProviderCode.includes(`../../../components/tvproviders/${provider}.template.html`)) {
+        throw new Error(`O build não inclui o template do provedor de TV ao vivo ${provider}.`);
+    }
+}
+
 const sitemap = await readFile(join(distDir, 'sitemap.xml'), 'utf8');
 const sitemapUrls = [...sitemap.matchAll(/<loc>\s*([^<]+?)\s*<\/loc>/g)].map((match) => match[1]);
 if (sitemapUrls.length !== 1 || sitemapUrls[0] !== 'https://mulletaflix.com') {

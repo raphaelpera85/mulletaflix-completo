@@ -11,12 +11,26 @@ interface ProviderFactory {
     new (page: HTMLElement, providerId: string | null, options: Record<string, never>): ProviderInstance;
 }
 
+const providerModules = import.meta.glob<{ default: ProviderFactory }>('../../../components/tvproviders/*.ts');
+const providerTemplates = import.meta.glob<string>(
+    '../../../components/tvproviders/*.template.html',
+    { eager: true, import: 'default' }
+);
+
 function onListingsSubmitted(): void {
     void Dashboard.navigate('dashboard/livetv');
 }
 
 function init(page: HTMLElement, type: string, providerId: string | null): void {
-    void import(`components/tvproviders/${type}`)
+    const providerPath = `../../../components/tvproviders/${type}.ts`;
+    const loadProvider = providerModules[providerPath];
+    if (!loadProvider) {
+        console.error(`Unsupported Live TV provider: ${type}`);
+        Dashboard.alert({ message: globalize.translate('ErrorDefault') });
+        return;
+    }
+
+    void loadProvider()
         .then(({ default: ProviderFactoryClass }) => {
             const Provider = ProviderFactoryClass as ProviderFactory;
             const instance = new Provider(page, providerId, {});
@@ -30,18 +44,19 @@ function init(page: HTMLElement, type: string, providerId: string | null): void 
 }
 
 function loadTemplate(page: HTMLElement, type: string, providerId: string | null): void {
-    void import(`components/tvproviders/${type}.template.html`)
-        .then(({ default: html }) => {
-            const template = page.querySelector<HTMLElement>('.providerTemplate');
-            if (template) {
-                template.innerHTML = globalize.translateHtml(html);
-            }
-            init(page, type, providerId);
-        })
-        .catch((error: unknown) => {
-            console.error('Failed to load Live TV provider template', error);
-            Dashboard.alert({ message: globalize.translate('ErrorDefault') });
-        });
+    const templatePath = `../../../components/tvproviders/${type}.template.html`;
+    const html = providerTemplates[templatePath];
+    if (html === undefined) {
+        console.error(`Unsupported Live TV provider template: ${type}`);
+        Dashboard.alert({ message: globalize.translate('ErrorDefault') });
+        return;
+    }
+
+    const template = page.querySelector<HTMLElement>('.providerTemplate');
+    if (template) {
+        template.innerHTML = globalize.translateHtml(html);
+    }
+    init(page, type, providerId);
 }
 
 pageIdOn('pageshow', 'liveTvGuideProviderPage', function (this: HTMLElement) {
