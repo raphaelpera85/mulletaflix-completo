@@ -1201,7 +1201,10 @@ public sealed class NebulaSupabaseSyncService : IDisposable
             var cursorFilter = cursorValue is null
                 ? string.Empty
                 : $"&{Uri.EscapeDataString(cursorColumn)}=gt.{cursorValue}";
-            var query = $"select={Uri.EscapeDataString(select)}&order={Uri.EscapeDataString(orderBy)}&limit={SupabaseRestorePageSize}{cursorFilter}";
+            var validLoginFilter = string.Equals(tableName, "nebula_users", StringComparison.Ordinal)
+                ? "&login=not.is.null&login=neq.%22%22"
+                : string.Empty;
+            var query = $"select={Uri.EscapeDataString(select)}&order={Uri.EscapeDataString(orderBy)}&limit={SupabaseRestorePageSize}{validLoginFilter}{cursorFilter}";
             var uri = $"{supabaseUrl.TrimEnd('/')}/rest/v1/{tablePath}?{query}";
             using var request = new HttpRequestMessage(HttpMethod.Get, uri);
             request.Headers.Add("apikey", supabaseKey);
@@ -1242,7 +1245,9 @@ public sealed class NebulaSupabaseSyncService : IDisposable
 
             var nextCursor = cursorProperty.ValueKind switch
             {
-                JsonValueKind.String => EscapePostgrestStringFilterValue(cursorProperty.GetString()!),
+                JsonValueKind.String => Guid.TryParse(cursorProperty.GetString(), out var guid)
+                    ? Uri.EscapeDataString(guid.ToString("D"))
+                    : EscapePostgrestStringFilterValue(cursorProperty.GetString()!),
                 JsonValueKind.Number => Uri.EscapeDataString(cursorProperty.GetRawText()),
                 _ => null
             };

@@ -2,6 +2,13 @@ $ErrorActionPreference = 'Stop'
 
 . (Join-Path $PSScriptRoot '..\Assert-StageIntegrity.ps1')
 
+$pythonInstaller = Get-Content -LiteralPath (Join-Path $PSScriptRoot '..\..\install-python-if-missing.ps1') -Raw
+if ($pythonInstaller -notmatch 'MULLETAFLIX_DATA_PATH' -or
+    $pythonInstaller -notmatch 'MulletaFlix\\Server\\data' -or
+    $pythonInstaller -notmatch 'Join-Path \$dataDirectory .+Tools\\NebulaPython') {
+    throw 'Nebula Python runtime must be installed under the writable server data directory.'
+}
+
 $fixtureRoot = Join-Path ([System.IO.Path]::GetTempPath()) "mflx-stage-integrity-$([guid]::NewGuid().ToString('N'))"
 $stageDirectory = Join-Path $fixtureRoot 'stage'
 $projectRoot = $fixtureRoot

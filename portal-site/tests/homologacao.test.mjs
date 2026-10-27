@@ -692,7 +692,7 @@ test('portal reports the server Nebula release gate without claiming production 
 
     const dashboard = createDashboard();
     await settleDashboard();
-    assert.match(dashboard.getElement('event-list').innerHTML, /Servidor: gate determinístico \.NET aprovado/);
+    assert.match(dashboard.getElement('event-list').innerHTML, /Servidor 12\.1\.36: correções Nebula\/Supabase empacotadas/);
 });
 
 test('portal records the current deterministic server suite without claiming integration or production validation', async () => {
@@ -712,7 +712,7 @@ test('portal records the current deterministic server suite without claiming int
     assert.match(event.evidence, /Nenhuma release de servidor criada/);
     assert.ok(Date.parse(event.updatedAt) <= Date.parse(statusData.generatedAt));
 
-    const dashboard = createDashboard();
+    const dashboard = createDashboard({ ...statusData, events: [event] });
     await settleDashboard();
     assert.match(dashboard.getElement('event-list').innerHTML, /gate determinístico \.NET aprovado/);
 });
@@ -1132,9 +1132,26 @@ test('Nebula production recheck publishes the stale runtime, port collision, and
     assert.match(event.evidence, /primeiro download real permanecem pendentes/);
     assert.ok(Date.parse(event.updatedAt) <= Date.parse(statusData.generatedAt));
 
-    const dashboard = createDashboard();
+    const dashboard = createDashboard({ ...statusData, events: [event] });
     await settleDashboard();
     assert.match(dashboard.getElement('event-list').innerHTML, /produção segue 12\.1\.21; porta FTP impede validar o download/);
+});
+
+test('portal records v12.1.36 package evidence without closing formal homologation', async () => {
+    const event = statusData.events.find(item => item.id === 'server-release-12-1-36-packaged-2026-10-27-1808');
+    const server = statusData.tracks.find(track => track.id === 'server');
+
+    assert.ok(event);
+    assert.equal(event.status, 'in_progress');
+    assert.equal(event.progressPercent, null);
+    assert.match(event.evidence, /instalador Windows x64/);
+    assert.match(event.evidence, /cross-publish em Windows/);
+    assert.match(event.evidence, /homologação formal permanece aberta/);
+    assert.equal(server.homologation.percent, null);
+
+    const dashboard = createDashboard({ ...statusData, events: [event] });
+    await settleDashboard();
+    assert.match(dashboard.getElement('event-list').innerHTML, /Servidor 12\.1\.36: correções Nebula\/Supabase empacotadas/);
 });
 
 test('Nebula stream-only logs are not treated as proof that the STRM downloader started', () => {

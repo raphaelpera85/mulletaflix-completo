@@ -170,6 +170,76 @@ public class NebulaSupabaseSyncTests
     }
 
     [Fact]
+    public async Task FetchSupabaseRowsPagedAsync_UsesBareUuidForUuidCursor()
+    {
+        const string userId = "f7b01323-9705-42e9-8229-6072788e384b";
+        var handler = new SequenceResponseHandler(
+            new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent($"[{{\"id\":\"{userId}\"}}]") },
+            new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("[]") });
+        using var service = new NebulaSupabaseSyncService(null!, NullLogger<NebulaSupabaseSyncService>.Instance, null, handler);
+
+        await service.FetchSupabaseRowsPagedAsync(
+            "https://supabase.invalid",
+            "sb_secret_fixture",
+            "mulletaflix_users",
+            "id",
+            "id.asc",
+            "id",
+            "fixture query",
+            TestContext.Current.CancellationToken);
+
+        Assert.Contains($"id=gt.{userId}", handler.RequestUris[1], StringComparison.Ordinal);
+        Assert.DoesNotContain("%22", handler.RequestUris[1], StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task FetchSupabaseRowsPagedAsync_ExcludesInvalidLegacyNebulaLogins()
+    {
+        var handler = new SequenceResponseHandler(
+            new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("[]") });
+        using var service = new NebulaSupabaseSyncService(null!, NullLogger<NebulaSupabaseSyncService>.Instance, null, handler);
+
+        await service.FetchSupabaseRowsPagedAsync(
+            "https://supabase.invalid",
+            "sb_secret_fixture",
+            "nebula_users",
+            "login",
+            "login.asc",
+            "login",
+            "fixture query",
+            TestContext.Current.CancellationToken);
+
+        Assert.Contains("login=not.is.null", handler.RequestUris[0], StringComparison.Ordinal);
+        Assert.Contains("login=neq.%22%22", handler.RequestUris[0], StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task FetchSupabaseRowsPagedAsync_PreservesNebulaLoginFiltersWhenPaging()
+    {
+        var handler = new SequenceResponseHandler(
+            new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("[{\"login\":\"alpha\"}]") },
+            new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("[]") });
+        using var service = new NebulaSupabaseSyncService(null!, NullLogger<NebulaSupabaseSyncService>.Instance, null, handler);
+
+        var rows = await service.FetchSupabaseRowsPagedAsync(
+            "https://supabase.invalid",
+            "sb_secret_fixture",
+            "nebula_users",
+            "login",
+            "login.asc",
+            "login",
+            "fixture query",
+            TestContext.Current.CancellationToken);
+
+        Assert.Single(rows);
+        Assert.Contains("login=not.is.null", handler.RequestUris[0], StringComparison.Ordinal);
+        Assert.Contains("login=neq.%22%22", handler.RequestUris[0], StringComparison.Ordinal);
+        Assert.Contains("login=not.is.null", handler.RequestUris[1], StringComparison.Ordinal);
+        Assert.Contains("login=neq.%22%22", handler.RequestUris[1], StringComparison.Ordinal);
+        Assert.Contains("login=gt.%22alpha%22", handler.RequestUris[1], StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void StartContinuousSync_DoesNotStartAnotherCycleWhilePreviousCallbackIsStillRunning()
     {
         using var callbackStarted = new ManualResetEventSlim();

@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-10-20T09:13:19-03:00",
+  "generatedAt": "2026-10-27T18:08:17-03:00",
   "source": {
     "roadmap": "https://github.com/raphaelpera85/mulletaflix-completo/blob/main/docs/roadmap-evolucao-tecnologica-servidor-e-web.md",
     "repository": "https://github.com/raphaelpera85/mulletaflix-completo"
@@ -6381,6 +6381,24 @@
       "startedAt": "2026-10-20T08:49:00-03:00",
       "updatedAt": "2026-10-20T08:53:23-03:00",
       "evidence": "Cinco harnesses PowerShell de packaging passaram. `dotnet test MulletaFlix.sln --configuration Release --no-restore --filter FullyQualifiedName!~Integration` terminou exit 0 sem falhas; projetos principais: Implementations 1.508 aprovados/64 ignorados; API 763/3; Providers 793/0; Server 74/0; Extensions 144, Model 684 e Naming 681 aprovados. Integrações opt-in Mongo/MariaDB e testes exclusivos de Linux não executaram. Web passou 418 testes em 75 arquivos e `npm run build:check`; há ruído React act/jsdom/MUI, sem falha. Nebula em venv Python 3.10: lock por hashes, `pip check`, 658/658 e zero drift. Tentativa anterior no Python global 3.10 acionou autorreparo e falhou substituindo TgCrypto com WinError 5; após a tentativa foram observadas as mesmas 15 versões fora do lock, sem baseline completo para atribuir delta; nenhum rollback foi feito. Venv descartável não pôde ser removida porque o executor bloqueou remoção recursiva; não se contornou a política. `makensis` ausente impediu teste do instalador completo. Não houve produção, CI Linux, playback real, instalação nem release do servidor. Homologação formal segue aberta."
+    },
+    {
+      "id": "server-release-12-1-36-packaged-2026-10-27-1808",
+      "title": "Servidor 12.1.36: correções Nebula/Supabase empacotadas para Windows e Linux",
+      "agent": "Codex",
+      "front": "server",
+      "featureIds": [
+        "T2.1",
+        "T4.2"
+      ],
+      "local": "Suíte .NET Release, stage/instalador Windows e pacote Linux x64 cross-publish",
+      "location": "Nebula Python bootstrap/DataPath; sincronização Supabase; pipeline de release",
+      "scope": "Empacotar e validar localmente as correções do runtime Nebula e dos cursores/paginação Supabase.",
+      "status": "in_progress",
+      "progressPercent": null,
+      "startedAt": "2026-10-27T18:08:17-03:00",
+      "updatedAt": "2026-10-27T18:08:17-03:00",
+      "evidence": "Gate .NET Release sem Integration: 4.417 aprovados, 68 ignorados, 0 falhas; build Release concluído. Stage e integridade passaram. instalador Windows x64: 452.336.601 bytes, SHA-256 B11F97DA2F34439C774C0CBB593EA3003E8B4AEA702C11BF499FC6311BBDDF03. ZIP atualização Windows: 417.648.937 bytes, SHA-256 00C18CE9BB568B7E92DBF6F0FB364CD6206E122C567481B3EEEE6BD37583A34A. Pacote Linux x64 cross-publish em Windows: 137.191.054 bytes, SHA-256 4A5646A947F40EF343D75CA381E266588792538B995F62DA67D77BB5E819C278; conteúdo esperado conferido. Ainda não comprovados: CI hospedada/Linux nativo, smoke de instalação/serviço, produção e homologação formal. Este evento registra validação de artefatos, não aceite funcional; homologação formal permanece aberta."
     }
   ]
 }

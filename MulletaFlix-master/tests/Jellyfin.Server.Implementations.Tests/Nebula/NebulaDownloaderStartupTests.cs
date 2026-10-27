@@ -1,4 +1,5 @@
 using System;
+using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using MediaBrowser.Model.Nebula;
@@ -9,6 +10,37 @@ namespace MulletaFlix.Server.Implementations.Tests.Nebula;
 
 public sealed class NebulaDownloaderStartupTests
 {
+    [Fact]
+    public void FindPythonPathFromMarkers_PrefersDataRuntimeAndFallsBackToLegacyRuntime()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "mulletaflix-python-marker-" + Guid.NewGuid().ToString("N"));
+        var dataPython = Path.Combine(root, "data-python.exe");
+        var legacyPython = Path.Combine(root, "legacy-python.exe");
+        var dataMarker = Path.Combine(root, "data.path");
+        var legacyMarker = Path.Combine(root, "legacy.path");
+
+        try
+        {
+            Directory.CreateDirectory(root);
+            File.WriteAllText(dataPython, string.Empty);
+            File.WriteAllText(legacyPython, string.Empty);
+            File.WriteAllText(dataMarker, dataPython);
+            File.WriteAllText(legacyMarker, legacyPython);
+
+            Assert.Equal(dataPython, NebulaFtpManager.FindPythonPathFromMarkers([dataMarker, legacyMarker]));
+
+            File.Delete(dataMarker);
+            Assert.Equal(legacyPython, NebulaFtpManager.FindPythonPathFromMarkers([dataMarker, legacyMarker]));
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+            {
+                Directory.Delete(root, recursive: true);
+            }
+        }
+    }
+
     [Theory]
     [InlineData(true, false, false)]
     [InlineData(true, true, true)]

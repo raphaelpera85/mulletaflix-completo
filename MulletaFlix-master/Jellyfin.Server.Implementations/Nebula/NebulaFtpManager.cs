@@ -447,6 +447,7 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable, IAsyncDis
         {
             _logger.LogError(ex, "[NEBULA-DEPS] Falha ao verificar/instalar dependências de runtime.");
             AddServerLog($"[NEBULA-DEPS] Falha ao verificar dependências: {ex.Message}");
+            throw;
         }
         finally
         {
@@ -465,6 +466,7 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable, IAsyncDis
             RedirectStandardOutput = true,
             RedirectStandardError = true
         };
+        startInfo.Environment["MULLETAFLIX_DATA_PATH"] = _configManager.CommonApplicationPaths.DataPath;
         startInfo.ArgumentList.Add("-NoProfile");
         startInfo.ArgumentList.Add("-NonInteractive");
         startInfo.ArgumentList.Add("-ExecutionPolicy");
@@ -5544,13 +5546,11 @@ CREATE POLICY nebula_bot_tokens_service_role_all
             "Tools",
             "NebulaPython",
             "python.path");
-        if (File.Exists(runtimePathMarker))
+        var dataRuntimeMarker = Path.Combine(_configManager.CommonApplicationPaths.DataPath, "Tools", "NebulaPython", "python.path");
+        var installedRuntime = FindPythonPathFromMarkers([dataRuntimeMarker, runtimePathMarker]);
+        if (installedRuntime != null)
         {
-            var installedRuntime = File.ReadAllText(runtimePathMarker).Trim();
-            if (File.Exists(installedRuntime))
-            {
-                return installedRuntime;
-            }
+            return installedRuntime;
         }
 
         var pathEnv = Environment.GetEnvironmentVariable("PATH") ?? string.Empty;
@@ -5582,6 +5582,25 @@ CREATE POLICY nebula_bot_tokens_service_role_all
             if (File.Exists(candidate))
             {
                 return candidate;
+            }
+        }
+
+        return null;
+    }
+
+    internal static string? FindPythonPathFromMarkers(IEnumerable<string> runtimeMarkers)
+    {
+        foreach (var marker in runtimeMarkers)
+        {
+            if (!File.Exists(marker))
+            {
+                continue;
+            }
+
+            var runtimePath = File.ReadAllText(marker).Trim();
+            if (File.Exists(runtimePath))
+            {
+                return runtimePath;
             }
         }
 
