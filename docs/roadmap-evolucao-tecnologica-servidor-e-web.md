@@ -1,5 +1,13 @@
 # Roadmap de evolução tecnológica — servidor e frontend web
 
+### 27/10/2026 18:31 -03 — Auditoria de restore e falha TLS do Nebula
+
+- Em Windows/.NET 10 Release, `FullyQualifiedName~FullSystemBackup` passou: 142 aprovados, 16 ignorados por requisitos de Linux/macOS, 0 falhas. Isso não valida ACL/syscalls Linux.
+- Revisão do workflow confirma job Linux privilegiado e verificador que exige os testes selecionados aprovados; execução hospedada não foi consultada nesta sessão.
+- O log STRM apresenta 95 erros `TLSV1_UNRECOGNIZED_NAME`. Dois `.strm` analisados usam `cn53.org`; handshake básico desse host passou localmente em .NET TLS 1.3 e Python 3.13/OpenSSL 3.0.16. Python 3.10, testes `test_strm_downloader.py` e `test_strm_downloader_helpers.py`: 99/99.
+- Acesso à URL completa/redirect não foi feito; o runtime produtor do log não está disponível neste host. Não há causa de código comprovada nem correção/release. Próximo passo: capturar apenas o host final do redirect no runtime afetado, sem URL, query ou credenciais; depois validar o endpoint e corrigir a integração se necessário.
+- Restore P0 e homologação formal seguem abertos em 2/7 (28,6%). Mapa técnico conferido; módulos, APIs, classes, dependências e fluxos permaneceram iguais. Evidência: [[Sessões/2026-10-27-MulletaFlix-server-audit-nebula-tls-restore-1831]].
+
 ### 27/10/2026 18:22 -03 — Revalidação dos logs de inicialização Nebula/Supabase
 
 - Os logs apresentados registram versão `12.1.35`. A release `12.1.36` já contém a virtualenv Nebula em `DataPath` (gravável pela identidade do serviço) e o cursor UUID Supabase sem aspas, cobrindo os erros de acesso negado em `Program Files` e `22P02` para UUID.
