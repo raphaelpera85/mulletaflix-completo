@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-10-27T18:08:17-03:00",
+  "generatedAt": "2026-10-27T18:13:08-03:00",
   "source": {
     "roadmap": "https://github.com/raphaelpera85/mulletaflix-completo/blob/main/docs/roadmap-evolucao-tecnologica-servidor-e-web.md",
     "repository": "https://github.com/raphaelpera85/mulletaflix-completo"
@@ -6384,7 +6384,7 @@
     },
     {
       "id": "server-release-12-1-36-packaged-2026-10-27-1808",
-      "title": "Servidor 12.1.36: correções Nebula/Supabase empacotadas para Windows e Linux",
+      "title": "Servidor 12.1.36 publicada com artefatos Windows e Linux",
       "agent": "Codex",
       "front": "server",
       "featureIds": [
@@ -6394,11 +6394,11 @@
       "local": "Suíte .NET Release, stage/instalador Windows e pacote Linux x64 cross-publish",
       "location": "Nebula Python bootstrap/DataPath; sincronização Supabase; pipeline de release",
       "scope": "Empacotar e validar localmente as correções do runtime Nebula e dos cursores/paginação Supabase.",
-      "status": "in_progress",
+      "status": "completed",
       "progressPercent": null,
       "startedAt": "2026-10-27T18:08:17-03:00",
-      "updatedAt": "2026-10-27T18:08:17-03:00",
-      "evidence": "Gate .NET Release sem Integration: 4.417 aprovados, 68 ignorados, 0 falhas; build Release concluído. Stage e integridade passaram. instalador Windows x64: 452.336.601 bytes, SHA-256 B11F97DA2F34439C774C0CBB593EA3003E8B4AEA702C11BF499FC6311BBDDF03. ZIP atualização Windows: 417.648.937 bytes, SHA-256 00C18CE9BB568B7E92DBF6F0FB364CD6206E122C567481B3EEEE6BD37583A34A. Pacote Linux x64 cross-publish em Windows: 137.191.054 bytes, SHA-256 4A5646A947F40EF343D75CA381E266588792538B995F62DA67D77BB5E819C278; conteúdo esperado conferido. Ainda não comprovados: CI hospedada/Linux nativo, smoke de instalação/serviço, produção e homologação formal. Este evento registra validação de artefatos, não aceite funcional; homologação formal permanece aberta."
+      "updatedAt": "2026-10-27T18:13:08-03:00",
+      "evidence": "Gate .NET Release sem Integration: 4.417 aprovados, 68 ignorados, 0 falhas; build Release concluído. Stage e integridade passaram. instalador Windows x64: 452.336.601 bytes, SHA-256 B11F97DA2F34439C774C0CBB593EA3003E8B4AEA702C11BF499FC6311BBDDF03. ZIP atualização Windows: 417.648.937 bytes, SHA-256 00C18CE9BB568B7E92DBF6F0FB364CD6206E122C567481B3EEEE6BD37583A34A. Pacote Linux x64 cross-publish em Windows: 137.191.054 bytes, SHA-256 4A5646A947F40EF343D75CA381E266588792538B995F62DA67D77BB5E819C278; conteúdo esperado conferido. Ainda não comprovados: CI hospedada/Linux nativo, smoke de instalação/serviço, produção e homologação formal. Este evento registra validação de artefatos, não aceite funcional; homologação formal permanece aberta. Release GitHub publicada: https://github.com/raphaelpera85/mulletaflix-completo/releases/tag/v12.1.36, com os três artefatos anexados. O workflow hospedado falhou antes de expor etapas/logs; causa não confirmada. A publicação usou os artefatos locais verificados. CI nativa/hospedada, instalação, produção e homologação formal continuam pendentes."
     }
   ]
 }

@@ -692,7 +692,7 @@ test('portal reports the server Nebula release gate without claiming production 
 
     const dashboard = createDashboard();
     await settleDashboard();
-    assert.match(dashboard.getElement('event-list').innerHTML, /Servidor 12\.1\.36: correções Nebula\/Supabase empacotadas/);
+    assert.match(dashboard.getElement('event-list').innerHTML, /Servidor 12\.1\.36 publicada com artefatos Windows e Linux/);
 });
 
 test('portal records the current deterministic server suite without claiming integration or production validation', async () => {
@@ -1142,16 +1142,18 @@ test('portal records v12.1.36 package evidence without closing formal homologati
     const server = statusData.tracks.find(track => track.id === 'server');
 
     assert.ok(event);
-    assert.equal(event.status, 'in_progress');
+    assert.equal(event.status, 'completed');
     assert.equal(event.progressPercent, null);
     assert.match(event.evidence, /instalador Windows x64/);
     assert.match(event.evidence, /cross-publish em Windows/);
+    assert.match(event.evidence, /Release GitHub publicada/);
+    assert.match(event.evidence, /workflow hospedado falhou/);
     assert.match(event.evidence, /homologação formal permanece aberta/);
     assert.equal(server.homologation.percent, null);
 
     const dashboard = createDashboard({ ...statusData, events: [event] });
     await settleDashboard();
-    assert.match(dashboard.getElement('event-list').innerHTML, /Servidor 12\.1\.36: correções Nebula\/Supabase empacotadas/);
+    assert.match(dashboard.getElement('event-list').innerHTML, /Servidor 12\.1\.36 publicada com artefatos Windows e Linux/);
 });
 
 test('Nebula stream-only logs are not treated as proof that the STRM downloader started', () => {
