@@ -1309,7 +1309,22 @@ public sealed class BackupServiceTests : IDisposable
 
             const string existingContent = "keep-existing-config";
             await File.WriteAllTextAsync(existingConfigPath, existingContent);
-            var incompressibleManifest = "{\"padding\":\"" + Convert.ToBase64String(RandomNumberGenerator.GetBytes(12 * 1024 * 1024 + 1)) + "\"}";
+            var validManifest = JsonSerializer.Serialize(new BackupManifest
+            {
+                ServerVersion = new Version(10, 0, 0),
+                BackupEngineVersion = new Version(0, 2, 0),
+                DateCreated = DateTimeOffset.UtcNow,
+                DatabaseTables = Array.Empty<string>(),
+                Options = new BackupOptions
+                {
+                    Database = false,
+                    Metadata = false,
+                    Subtitles = false,
+                    Trickplay = false
+                }
+            });
+            var incompressiblePadding = Convert.ToBase64String(RandomNumberGenerator.GetBytes(12 * 1024 * 1024 + 1));
+            var incompressibleManifest = validManifest.Insert(validManifest.Length - 1, ",\"padding\":\"" + incompressiblePadding + "\"");
             using (var archive = ZipFile.Open(archivePath, ZipArchiveMode.Create))
             {
                 await WriteArchiveEntryAsync(archive, "manifest.json", incompressibleManifest);
