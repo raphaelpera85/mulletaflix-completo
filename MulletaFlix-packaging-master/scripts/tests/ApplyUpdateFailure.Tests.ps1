@@ -4,18 +4,23 @@ $tempRoot = Join-Path ([System.IO.Path]::GetTempPath()) "mflx-update-failure-$([
 $installDirectory = Join-Path $tempRoot 'install'
 $sourceDirectory = Join-Path $tempRoot 'extracted'
 $dataDirectory = Join-Path $tempRoot 'data'
+$updatesDirectory = Join-Path $dataDirectory 'updates'
 $harnessPath = Join-Path $tempRoot 'run-update.ps1'
 $restartMarker = Join-Path $tempRoot 'server-restarted.txt'
 $updateScript = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..\MulletaFlix-ux-custom\nsis\apply-update.ps1'))
 
 try {
-    foreach ($directory in @($installDirectory, $sourceDirectory, $dataDirectory, (Join-Path $dataDirectory 'updates'))) {
+    foreach ($directory in @($installDirectory, $sourceDirectory, $dataDirectory, $updatesDirectory)) {
         [void][System.IO.Directory]::CreateDirectory($directory)
     }
 
-    foreach ($file in @((Join-Path $installDirectory 'MulletaFlix.exe'), (Join-Path $sourceDirectory 'MulletaFlix.dll'))) {
-        [System.IO.File]::WriteAllText($file, 'fixture')
-    }
+    [System.IO.File]::WriteAllText((Join-Path $installDirectory 'MulletaFlix.exe'), 'fixture')
+    [System.IO.File]::WriteAllText((Join-Path $installDirectory 'MulletaFlix.dll'), 'old server')
+    [System.IO.File]::WriteAllText((Join-Path $sourceDirectory 'MulletaFlix.dll'), 'new server')
+    [System.IO.File]::SetLastWriteTimeUtc((Join-Path $sourceDirectory 'MulletaFlix.dll'), [DateTime]::UtcNow.AddMinutes(1))
+    [System.IO.File]::WriteAllText((Join-Path $sourceDirectory 'new-component.dll'), 'new component')
+    [System.IO.File]::WriteAllText((Join-Path $updatesDirectory 'package.zip'), 'package')
+    [System.IO.File]::WriteAllText((Join-Path $updatesDirectory 'update_state.json'), '{}')
 
     $quotedUpdateScript = $updateScript.Replace("'", "''")
     $quotedInstallDirectory = $installDirectory.Replace("'", "''")
@@ -31,7 +36,11 @@ function Start-Sleep {}
 function Get-Service { return `$null }
 function Start-Process {
     param([string]`$FilePath, [string]`$ArgumentList, [switch]`$Wait, [switch]`$PassThru, [switch]`$NoNewWindow, [string]`$WorkingDirectory, [string]`$WindowStyle)
-    if (`$FilePath -eq 'robocopy.exe') { return [pscustomobject]@{ ExitCode = 11 } }
+    if (`$FilePath -eq 'robocopy.exe') {
+        [System.IO.File]::WriteAllText((Join-Path '$quotedInstallDirectory' 'MulletaFlix.dll'), 'partially copied server')
+        [System.IO.File]::WriteAllText((Join-Path '$quotedInstallDirectory' 'new-component.dll'), 'partially copied component')
+        return [pscustomobject]@{ ExitCode = 11 }
+    }
     [System.IO.File]::WriteAllText('$quotedRestartMarker', `$FilePath)
     return [pscustomobject]@{ ExitCode = 0 }
 }
@@ -39,9 +48,15 @@ function Start-Process {
 "@
     [System.IO.File]::WriteAllText($harnessPath, $harness)
 
-    $childPowerShell = Join-Path $PSHOME 'pwsh.exe'
-    $output = & $childPowerShell -NoProfile -File $harnessPath 2>&1
-    $exitCode = $LASTEXITCODE
+    $childPowerShell = Join-Path $PSHOME $(if ($PSVersionTable.PSEdition -eq 'Desktop') { 'powershell.exe' } else { 'pwsh.exe' })
+    $previousErrorActionPreference = $ErrorActionPreference
+    try {
+        $ErrorActionPreference = 'Continue'
+        $output = & $childPowerShell -NoProfile -File $harnessPath 2>&1
+        $exitCode = $LASTEXITCODE
+    } finally {
+        $ErrorActionPreference = $previousErrorActionPreference
+    }
 
     if ($exitCode -eq 0) {
         throw "Expected the update helper to fail after robocopy error 11. Output: $($output -join [Environment]::NewLine)"
@@ -52,8 +67,17 @@ function Start-Process {
     if (-not (Test-Path -LiteralPath $sourceDirectory)) {
         throw 'Update source was removed after robocopy failed.'
     }
+    if ([System.IO.File]::ReadAllText((Join-Path $installDirectory 'MulletaFlix.dll')) -ne 'old server') {
+        throw 'An existing installation file was not restored after a partial copy.'
+    }
+    if (Test-Path -LiteralPath (Join-Path $installDirectory 'new-component.dll')) {
+        throw 'A new installation file was not removed after a partial copy.'
+    }
+    foreach ($file in @((Join-Path $updatesDirectory 'package.zip'), (Join-Path $updatesDirectory 'update_state.json'))) {
+        if (-not (Test-Path -LiteralPath $file)) { throw "Update state was removed after copy failure: $file" }
+    }
 
-    Write-Host 'PASS: failed copy preserves the package, returns its error code, and does not restart server/tray.' -ForegroundColor Green
+    Write-Host 'PASS: partial copy failure restores replaced files, removes new files, preserves update data, and does not restart server/tray.' -ForegroundColor Green
 }
 finally {
     if (Test-Path -LiteralPath $tempRoot) {
