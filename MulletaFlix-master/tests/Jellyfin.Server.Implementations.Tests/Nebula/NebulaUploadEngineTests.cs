@@ -8,6 +8,7 @@ using System.Net;
 using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Reflection;
+using System.Security.Cryptography;
 using System.Threading;
 using System.Threading.Tasks;
 using Jellyfin.Server.Implementations.Nebula;
@@ -611,6 +612,41 @@ public class NebulaUploadEngineTests
             logicalChunkSize: 16);
 
         Assert.Equal(expected, actual);
+    }
+
+    [Fact]
+    public async Task UploadEngine_ResumePartHash_RejectsChangedBytesWithSameLength()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "mulletaflix-part-hash-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        var path = Path.Combine(root, "source.bin");
+        var prefix = new byte[] { 9, 9, 9, 9 };
+        var oldPart = new byte[] { 1, 2, 3, 4 };
+        var replacementPart = new byte[] { 4, 3, 2, 1 };
+        var sourceBytes = prefix.Concat(replacementPart).ToArray();
+
+        try
+        {
+            await File.WriteAllBytesAsync(path, sourceBytes);
+            await using var source = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, 4096, true);
+            var currentHash = await NebulaUploadEngine.ComputeSourcePartSha256Async(
+                source,
+                partNumber: 1,
+                partSize: replacementPart.Length,
+                logicalChunkSize: prefix.Length,
+                CancellationToken.None);
+
+            Assert.Equal(Convert.ToHexString(SHA256.HashData(replacementPart)), currentHash);
+            Assert.NotEqual(Convert.ToHexString(SHA256.HashData(oldPart)), currentHash);
+            Assert.False(NebulaUploadEngine.IsMatchingPartSourceHash(
+                Convert.ToHexString(SHA256.HashData(oldPart)),
+                currentHash));
+            Assert.True(NebulaUploadEngine.IsMatchingPartSourceHash(currentHash.ToLowerInvariant(), currentHash));
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
     }
 
     [Fact]

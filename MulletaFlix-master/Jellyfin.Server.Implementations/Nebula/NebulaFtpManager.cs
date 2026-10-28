@@ -5750,6 +5750,7 @@ CREATE POLICY nebula_bot_tokens_service_role_all
         }
         var healthUrl = $"http://{probeHost}:{port}/health";
         var startedAt = Stopwatch.StartNew();
+        var lastProbeFailure = "nenhuma resposta da sonda";
         while (startedAt.Elapsed < PythonStreamStartupTimeout)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -5769,21 +5770,57 @@ CREATE POLICY nebula_bot_tokens_service_role_all
                         AddServerLog($"[NEBULA-PYTHON] Runtime Python pronto na porta {port} (PID {process.Id}).");
                         return;
                     }
+
+                    lastProbeFailure = DescribePythonWorkerHealthFailure(
+                        (int)response.StatusCode,
+                        healthPayload,
+                        process.Id);
+                }
+                else
+                {
+                    lastProbeFailure = $"HTTP {(int)response.StatusCode}";
                 }
             }
-            catch (HttpRequestException)
+            catch (HttpRequestException ex)
             {
                 // O worker ainda está conectando aos bots ou ao MongoDB.
+                lastProbeFailure = $"conexão HTTP falhou ({ex.GetType().Name})";
             }
             catch (TaskCanceledException) when (!cancellationToken.IsCancellationRequested)
             {
                 // A sonda local tem timeout curto para não atrasar o início.
+                lastProbeFailure = "sonda HTTP excedeu 800 ms";
             }
 
             await Task.Delay(250, cancellationToken).ConfigureAwait(false);
         }
 
-        throw new TimeoutException($"Worker Python do Nebula não ficou pronto em {PythonStreamStartupTimeout.TotalSeconds:0} segundos.");
+        throw new TimeoutException(
+            $"Worker Python do Nebula não ficou pronto em {PythonStreamStartupTimeout.TotalSeconds:0} segundos "
+            + $"(porta {port}, PID {process.Id}; última sonda: {lastProbeFailure}).");
+    }
+
+    internal static string DescribePythonWorkerHealthFailure(int statusCode, string payload, int expectedProcessId)
+    {
+        if (statusCode != 200)
+        {
+            return $"HTTP {statusCode}";
+        }
+
+        try
+        {
+            using var document = JsonDocument.Parse(payload);
+            if (!document.RootElement.TryGetProperty("pid", out var pid) || !pid.TryGetInt32(out var actualProcessId))
+            {
+                return "HTTP 200 sem PID válido";
+            }
+
+            return $"HTTP 200 respondeu com PID {actualProcessId}; esperado {expectedProcessId}";
+        }
+        catch (JsonException)
+        {
+            return "HTTP 200 respondeu JSON inválido";
+        }
     }
 
     internal static bool IsExpectedPythonWorkerHealth(string payload, int expectedProcessId)
