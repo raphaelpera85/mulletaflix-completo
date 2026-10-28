@@ -203,6 +203,7 @@ jobs:
     defaults:
       run:
         working-directory: MulletaFlix-master/Tools/NebulaPython
+        shell: bash
     steps:
       - uses: actions/checkout@v4
 
@@ -214,11 +215,18 @@ jobs:
 
       - name: Install runtime and test dependencies
         run: |
-          python -m pip install --require-hashes -r requirements.lock
-          python -m pip install -r requirements-test.txt
+          python -m venv .venv
+          if [[ "$RUNNER_OS" == "Windows" ]]; then
+            NEBULA_PYTHON=".venv/Scripts/python.exe"
+          else
+            NEBULA_PYTHON=".venv/bin/python"
+          fi
+          "$NEBULA_PYTHON" -m pip install --require-hashes -r requirements.lock
+          "$NEBULA_PYTHON" -m pip install -r requirements-test.txt
+          echo "NEBULA_PYTHON=$NEBULA_PYTHON" >> "$GITHUB_ENV"
 
       - name: Run Nebula Python tests
-        run: python -m pytest tests --cov=. --cov-report=term-missing --cov-report=xml:coverage.xml
+        run: "$NEBULA_PYTHON" -m pytest tests --cov=. --cov-report=term-missing --cov-report=xml:coverage.xml
 
       - name: Upload Nebula Python coverage
         uses: actions/upload-artifact@v4
@@ -235,6 +243,8 @@ jobs:
         working-directory: MulletaFlix-web-master
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - uses: actions/setup-node@v4
         with:
@@ -348,6 +358,8 @@ jobs:
       security-events: write
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Scan repository for secrets
         uses: gitleaks/gitleaks-action@v2
@@ -432,7 +444,7 @@ jobs:
 
   ios-build-test:
     name: iOS Core tests & Xcode build
-    runs-on: macos-14
+    runs-on: macos-15
     defaults:
       run:
         working-directory: MulletaFlix-iOS
