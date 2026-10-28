@@ -66,3 +66,5 @@ finally {
         Remove-Item -LiteralPath $resolvedTempRoot -Recurse -Force
     }
 }
+
+exit 0
