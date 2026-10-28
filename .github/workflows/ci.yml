@@ -28,6 +28,9 @@ jobs:
       - name: Restore
         run: dotnet restore MulletaFlix.sln
 
+      - name: Restore IntroSkipper migration tool
+        run: dotnet restore Tools/MulletaFlix.IntroSkipperMigration/MulletaFlix.IntroSkipperMigration.csproj
+
       - name: Build
         run: dotnet build MulletaFlix.sln --configuration Release --no-restore
 

@@ -760,7 +760,7 @@ namespace MulletaFlix.Server.Implementations.Users
                     );
                     """,
                     """
-                    CREATE TABLE IF NOT EXISTS `permissions` (
+                    CREATE TABLE IF NOT EXISTS `Permissions` (
                         `Id` int NOT NULL AUTO_INCREMENT,
                         `UserId` char(36) CHARACTER SET ascii COLLATE ascii_general_ci NULL,
                         `Kind` int NOT NULL,
@@ -772,7 +772,7 @@ namespace MulletaFlix.Server.Implementations.Users
                     );
                     """,
                     """
-                    CREATE TABLE IF NOT EXISTS `preferences` (
+                    CREATE TABLE IF NOT EXISTS `Preferences` (
                         `Id` int NOT NULL AUTO_INCREMENT,
                         `UserId` char(36) CHARACTER SET ascii COLLATE ascii_general_ci NULL,
                         `Kind` int NOT NULL,
@@ -784,7 +784,7 @@ namespace MulletaFlix.Server.Implementations.Users
                     );
                     """,
                     """
-                    CREATE TABLE IF NOT EXISTS `accessschedules` (
+                    CREATE TABLE IF NOT EXISTS `AccessSchedules` (
                         `Id` int NOT NULL AUTO_INCREMENT,
                         `UserId` char(36) CHARACTER SET ascii COLLATE ascii_general_ci NOT NULL,
                         `DayOfWeek` int NOT NULL,
@@ -795,7 +795,7 @@ namespace MulletaFlix.Server.Implementations.Users
                     );
                     """,
                     """
-                    CREATE TABLE IF NOT EXISTS `userlicenses` (
+                    CREATE TABLE IF NOT EXISTS `UserLicenses` (
                         `Id` int NOT NULL AUTO_INCREMENT,
                         `UserId` char(36) CHARACTER SET ascii COLLATE ascii_general_ci NOT NULL,
                         `StartDate` datetime(6) NOT NULL,
