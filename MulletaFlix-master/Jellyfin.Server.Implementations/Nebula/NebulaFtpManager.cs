@@ -4488,7 +4488,7 @@ CREATE TABLE IF NOT EXISTS nebula_files (
 );
 
 CREATE INDEX IF NOT EXISTS idx_nebula_files_status ON nebula_files(status);
-CREATE INDEX IF NOT EXISTS idx_nebula_files_parent ON nebula_files(parent);
+DROP INDEX IF EXISTS idx_nebula_files_parent;
 CREATE INDEX IF NOT EXISTS idx_nebula_files_name ON nebula_files(name);
 -- O cursor delta consulta o registro mais recente em catálogos grandes.
 -- Sem este índice o ORDER BY pode exceder o timeout do PostgREST.
@@ -4521,7 +4521,7 @@ CREATE TABLE IF NOT EXISTS nebula_users (
 CREATE TABLE IF NOT EXISTS mulletaflix_users (
     id UUID PRIMARY KEY,
     username TEXT NOT NULL,
-    normalized_username TEXT NOT NULL,
+    normalized_username TEXT NOT NULL UNIQUE,
     password TEXT,
     phone_number TEXT,
     must_update_password BOOLEAN NOT NULL DEFAULT FALSE,
@@ -4534,7 +4534,8 @@ CREATE TABLE IF NOT EXISTS mulletaflix_users (
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
-CREATE UNIQUE INDEX IF NOT EXISTS idx_mulletaflix_users_username ON mulletaflix_users(normalized_username);
+CREATE UNIQUE INDEX IF NOT EXISTS mulletaflix_users_normalized_username_key ON mulletaflix_users(normalized_username);
+DROP INDEX IF EXISTS idx_mulletaflix_users_username;
 ALTER TABLE mulletaflix_users ADD COLUMN IF NOT EXISTS license JSONB;
 
 CREATE TABLE IF NOT EXISTS nebula_backups (

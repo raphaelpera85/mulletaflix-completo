@@ -860,3 +860,7 @@ A tabela `nebula_directory_refreshes` foi adicionada ao SQL de instalação Supa
 ### Revalidação com Mongo descartável e schema instalado — 2026-10-28
 
 MongoDB 8.3.7 isolado em `127.0.0.1:27099` habilitou todos os testes da suíte Nebula: 744 aprovados, 0 ignorados, 0 falhas. A migration `20261028125319` foi aplicada ao Supabase `Mulletaflix-Nebula`; tabela vazia e ACL/RLS conferidos por catálogo: apenas `service_role` tem SELECT/INSERT/UPDATE/DELETE. HTTP de sync/restore continuou mockado; CI, runtime instalado e execução de backup de produção não foram validados.
+
+### 28/10/2026 — Remediação dos advisors Supabase
+
+A migration `20261028130514_supabase_advisor_cleanup` fixa `search_path` vazio na trigger `set_nebula_updated_at`, remove o índice duplicado `idx_mulletaflix_users_username` e elimina `idx_nebula_files_parent`, sem scans e sem callers do campo no código. A uniqueness canônica `mulletaflix_users_normalized_username_key` permanece; C# setup cria/garante essa chave sem a duplicata e C#/Python setup não recriam `parent`. Advisors security e performance retornaram sem findings. Testes C# e Python focais passaram 1/1 cada. CI hospedada, runtime instalado e produção do servidor seguem pendentes.

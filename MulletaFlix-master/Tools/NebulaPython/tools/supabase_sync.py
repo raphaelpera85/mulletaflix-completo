@@ -715,7 +715,7 @@ CREATE TABLE IF NOT EXISTS nebula_files (
 );
 
 CREATE INDEX IF NOT EXISTS idx_nebula_files_status ON nebula_files(status);
-CREATE INDEX IF NOT EXISTS idx_nebula_files_parent ON nebula_files(parent);
+DROP INDEX IF EXISTS idx_nebula_files_parent;
 CREATE INDEX IF NOT EXISTS idx_nebula_files_name ON nebula_files(name);
 
 CREATE TABLE IF NOT EXISTS nebula_users (

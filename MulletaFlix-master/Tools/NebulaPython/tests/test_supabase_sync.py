@@ -745,6 +745,8 @@ def test_supabase_cli_sql_schema_prints_schema_without_network(monkeypatch, caps
 
     output = capsys.readouterr().out
     assert "CREATE TABLE IF NOT EXISTS nebula_files" in output
+    assert "DROP INDEX IF EXISTS idx_nebula_files_parent" in output
+    assert "CREATE INDEX IF NOT EXISTS idx_nebula_files_parent" not in output
     assert "ALTER TABLE nebula_backups DISABLE ROW LEVEL SECURITY" in output
 
 
