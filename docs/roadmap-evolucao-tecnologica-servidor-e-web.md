@@ -1,3 +1,10 @@
+### 28/10/2026 15:32 -03 — CI da candidata bloqueada antes dos testes
+
+- O PR #1 continua aberto para `main`, head `15213c86dd7e02356eab7126c58609b411f1192a`; `mergeable=true`. Run `40745673770` foi criado para esse head às 15:29 BRT e encerrou às 15:30.
+- A API de Actions expõe a mesma anotação para os 13/13 jobs: `The job was not started because your account is locked due to a billing issue.` Todos têm `runner_id=0` e zero steps. Isso confirma bloqueio de conta antes de execução; não é resultado de testes e não valida CI/empacotamento.
+- O run anterior `40743410951` teve a mesma causa nos 13 jobs. Não tentei rerun: cobrança é estado externo, e um novo acionamento repetiria o bloqueio. Depois de a conta ser desbloqueada, será necessário rerodar o workflow para o head candidato.
+- Nenhum código foi alterado. Homologação formal 2/7 (28,6%); sem release ou instalação. Mapa técnico conferido, sem mudança estrutural.
+
 ### 28/10/2026 15:28 -03 — Revalidação da exclusão GetAvatar em Linux
 
 - A fonte valida a pasta raiz fixada como diretório real pertencente ao UID efetivo do servidor e rejeita escrita de grupo/outros em cada operação. Isso protege a entrada contra alteração por outra identidade; o descritor aberto mantém operações ancoradas mesmo que o caminho ancestral seja renomeado depois da abertura.
