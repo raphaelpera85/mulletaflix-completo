@@ -2421,9 +2421,14 @@ public sealed class BackupServiceTests : IDisposable
     [InlineData(true)]
     public async Task GetBackupManifest_RejectsDuplicateOrCaseAliasedManifestEntries(bool useCaseAlias)
     {
-        var isolatedRoot = Path.Combine(Path.GetTempPath(), $"mulletaflix-duplicate-manifest-{Guid.NewGuid():N}");
+        var isolatedRoot = Path.Combine(_testProgramDataPath, $"duplicate-manifest-{Guid.NewGuid():N}");
         Directory.CreateDirectory(isolatedRoot);
         var archivePath = Path.Combine(isolatedRoot, "duplicate-manifest.zip");
+        var configPath = _applicationPathsMock.Object.ConfigurationDirectoryPath;
+        var existingConfigPath = Path.Combine(configPath, "server.json");
+        var restoreSidecarCreated = false;
+        Directory.CreateDirectory(configPath);
+        _applicationPathsMock.Setup(paths => paths.CachePath).Returns(Path.Combine(_testProgramDataPath, "cache"));
 
         try
         {
@@ -2446,15 +2451,20 @@ public sealed class BackupServiceTests : IDisposable
                 await WriteArchiveEntryAsync(archive, "manifest.json", JsonSerializer.Serialize(manifest));
                 await WriteArchiveEntryAsync(
                     archive,
-                    useCaseAlias && OperatingSystem.IsWindows() ? "Manifest.json" : "manifest.json",
+                    useCaseAlias ? "Manifest.json" : "manifest.json",
                     JsonSerializer.Serialize(manifest));
             }
 
             _applicationPathsMock.Setup(paths => paths.BackupPath).Returns(isolatedRoot);
-            var service = CreateService();
+            const string existingContent = "keep-existing-config";
+            await File.WriteAllTextAsync(existingConfigPath, existingContent);
+            var service = CreateService(restoreBackupSidecarCreatedForTesting: _ => restoreSidecarCreated = true);
 
             Assert.Null(await service.GetBackupManifest(archivePath));
             Assert.Empty(await service.EnumerateBackups());
+            await Assert.ThrowsAsync<InvalidDataException>(() => service.RestoreBackupAsync(archivePath));
+            Assert.Equal(existingContent, await File.ReadAllTextAsync(existingConfigPath));
+            Assert.False(restoreSidecarCreated);
         }
         finally
         {

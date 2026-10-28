@@ -2607,8 +2607,7 @@ public class BackupService : IBackupService, IDisposable
             return null;
         }
 
-        var pathComparer = OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
-        if (archive.Entries.Count(entry => string.Equals(entry.FullName, ManifestEntryName, pathComparer)) != 1)
+        if (archive.Entries.Count(entry => string.Equals(entry.FullName, ManifestEntryName, StringComparison.OrdinalIgnoreCase)) != 1)
         {
             throw new InvalidDataException($"Backup archive contains duplicate '{ManifestEntryName}' entries.");
         }
