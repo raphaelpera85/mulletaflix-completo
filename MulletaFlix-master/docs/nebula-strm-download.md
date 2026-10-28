@@ -852,3 +852,7 @@ Após upload concluído, o caminho virtual é normalizado e persistido na coleç
 O caminho persistido deve estar sob uma raiz visível (Animações, Filmes, Séries, Doramas, Novelas ou Porno) e rejeita segmentos de traversal. A coleção é criada por `EnsureSchemaAsync`; não requer instalação manual. A varredura de `completed_at` de 30 minutos continua como reconciliação secundária para uploads cujo marker não pôde ser persistido. Se Mongo estiver indisponível ao gravar, refresh atual segue em memória e a janela de 30 minutos pode recuperar a conclusão quando Mongo voltar; para falha além da janela, esse marker ainda não existe.
 
 Validação local Release Windows/.NET 10: testes Nebula 716 aprovados, 26 ignorados, 0 falhas/742. O teste de persistência entre contextos exige Mongo descartável e foi ignorado nesta execução; CI, runtime instalado e produção pendentes.
+
+### Complemento — snapshot da fila persistente no Supabase
+
+A tabela `nebula_directory_refreshes` foi adicionada ao SQL de instalação Supabase com RLS apenas para `service_role`. Backup sincroniza o conjunto atual por caminho canônico e remove rows remotas concluídas; restore reidrata paths usando o mesmo guard de raiz visível. Resultado de backup/restore expõe contagens de refreshes sincronizados/restaurados. Suíte ampla `FullyQualifiedName~Nebula`: 718 aprovados, 26 ignorados, 0 falhas/744; os testes Mongo opt-in não executaram sem Mongo disponível. Schema remoto real, CI hospedada, runtime instalado e produção seguem pendentes.

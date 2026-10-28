@@ -632,3 +632,10 @@ Para evitar falso ganho, cada sprint deve fechar com medicao antes/depois.
 - Corrigida retentativa anterior que era só em memória e não sobrevivia a reinícios; além disso, o callback de rclone engolia exceções. Refreshes agora ficam registrados na coleção `nebula_directory_refreshes`, são reidratados no scan periódico e removidos após confirmação do rclone. Falta de readiness/HTTP/resultado rclone não é mais sucesso silencioso.
 - Teste de normalização rejeita raiz invisível e traversal; teste `NebulaDirectoryRefreshMongoTests` valida upsert idempotente, sobrevivência entre instâncias e remoção após refresh confirmado, mas requer Mongo opt-in.
 - Suíte Release Windows/.NET 10 `FullyQualifiedName~Nebula`: 716 aprovados, 26 ignorados, 0 falhas/742. Mongo descartável, CI hospedada, runtime e produção não foram validados. Estrutura: nova coleção Mongo operacional; sem endpoint ou pacote novo. Formal 2/7, sem release.
+
+### 28/10/2026 — Backup da fila durável de refresh VFS
+
+- O ciclo Supabase nativo agora sincroniza a coleção operacional `nebula_directory_refreshes` como snapshot por `directory_path`: faz upsert dos caminhos ainda pendentes, remove do espelho remoto entradas concluídas e reidrata os caminhos ao restaurar Mongo. Os caminhos restaurados passam pela mesma normalização e validação de raiz visível.
+- O SQL de configuração Supabase cria a tabela com chave primária e RLS restrito à `service_role`. Restauração continua mesclada; marcadores remotos são idempotentes.
+- Não incluir `nebula_admission` nem `operation_replays`: leases e chaves replay são estado efêmero e podem recriar bloqueios obsoletos. Schema remoto real ainda requer instalação/validação.
+- Verificação focal Release: 57 aprovados, 4 ignorados, 0 falhas. Suíte ampla `FullyQualifiedName~Nebula`: 718 aprovados, 26 ignorados, 0 falhas/744. Mongo opt-in, Supabase real, runtime instalado, CI hospedada e produção não foram validados.

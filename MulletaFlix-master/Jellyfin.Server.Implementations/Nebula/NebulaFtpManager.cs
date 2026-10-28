@@ -4504,6 +4504,10 @@ CREATE TABLE IF NOT EXISTS nebula_bot_tokens (
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_nebula_bot_tokens_index ON nebula_bot_tokens(index);
 
+CREATE TABLE IF NOT EXISTS nebula_directory_refreshes (
+    directory_path TEXT PRIMARY KEY
+);
+
 CREATE TABLE IF NOT EXISTS nebula_users (
     login TEXT PRIMARY KEY,
     password_hash TEXT,
@@ -4552,6 +4556,7 @@ ALTER TABLE nebula_users ENABLE ROW LEVEL SECURITY;
 ALTER TABLE mulletaflix_users ENABLE ROW LEVEL SECURITY;
 ALTER TABLE nebula_backups ENABLE ROW LEVEL SECURITY;
 ALTER TABLE nebula_bot_tokens ENABLE ROW LEVEL SECURITY;
+ALTER TABLE nebula_directory_refreshes ENABLE ROW LEVEL SECURITY;
 
 -- Remove políticas anteriores (idempotência ao re-executar o script)
 DROP POLICY IF EXISTS nebula_files_service_role_all ON nebula_files;
@@ -4559,6 +4564,7 @@ DROP POLICY IF EXISTS nebula_users_service_role_all ON nebula_users;
 DROP POLICY IF EXISTS mulletaflix_users_service_role_all ON mulletaflix_users;
 DROP POLICY IF EXISTS nebula_backups_service_role_all ON nebula_backups;
 DROP POLICY IF EXISTS nebula_bot_tokens_service_role_all ON nebula_bot_tokens;
+DROP POLICY IF EXISTS nebula_directory_refreshes_service_role_all ON nebula_directory_refreshes;
 
 -- Cria políticas permissivas apenas para a role 'service_role' (backend).
 -- Roles 'anon' e 'authenticated' não possuem políticas e são bloqueadas por padrão.
@@ -4576,6 +4582,9 @@ CREATE POLICY nebula_backups_service_role_all
 
 CREATE POLICY nebula_bot_tokens_service_role_all
     ON nebula_bot_tokens FOR ALL TO service_role USING (true) WITH CHECK (true);
+
+CREATE POLICY nebula_directory_refreshes_service_role_all
+    ON nebula_directory_refreshes FOR ALL TO service_role USING (true) WITH CHECK (true);
 ";
     }
 

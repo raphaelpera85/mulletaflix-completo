@@ -878,12 +878,15 @@ public class NebulaUploadEngineTests
         Assert.Contains("ALTER TABLE nebula_users ENABLE ROW LEVEL SECURITY", sql, System.StringComparison.Ordinal);
         Assert.Contains("ALTER TABLE nebula_backups ENABLE ROW LEVEL SECURITY", sql, System.StringComparison.Ordinal);
         Assert.Contains("ALTER TABLE nebula_bot_tokens ENABLE ROW LEVEL SECURITY", sql, System.StringComparison.Ordinal);
+        Assert.Contains("CREATE TABLE IF NOT EXISTS nebula_directory_refreshes", sql, System.StringComparison.Ordinal);
+        Assert.Contains("ALTER TABLE nebula_directory_refreshes ENABLE ROW LEVEL SECURITY", sql, System.StringComparison.Ordinal);
 
         // Deve criar políticas para service_role (evita acesso anônimo implícito)
         Assert.Contains("CREATE POLICY nebula_files_service_role_all", sql, System.StringComparison.Ordinal);
         Assert.Contains("CREATE POLICY nebula_users_service_role_all", sql, System.StringComparison.Ordinal);
         Assert.Contains("CREATE POLICY nebula_backups_service_role_all", sql, System.StringComparison.Ordinal);
         Assert.Contains("CREATE POLICY nebula_bot_tokens_service_role_all", sql, System.StringComparison.Ordinal);
+        Assert.Contains("CREATE POLICY nebula_directory_refreshes_service_role_all", sql, System.StringComparison.Ordinal);
 
         // Deve incluir DROP POLICY IF EXISTS para idempotência
         Assert.Contains("DROP POLICY IF EXISTS nebula_files_service_role_all", sql, System.StringComparison.Ordinal);

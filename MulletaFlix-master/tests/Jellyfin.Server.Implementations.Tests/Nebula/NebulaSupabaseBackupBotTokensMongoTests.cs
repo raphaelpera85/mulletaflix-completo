@@ -87,8 +87,10 @@ public sealed class NebulaSupabaseBackupBotTokensMongoTests : IDisposable
             new BsonDocument { { "index", 2 }, { "token", "backup-token-disabled" }, { "enabled", false } },
             TestContext.Current.CancellationToken,
             collectionName);
+        await mongoContext.PersistDirectoryRefreshAsync("/Series/Refresh Sample/Season 1", TestContext.Current.CancellationToken);
 
         var backupHandler = new RecordingResponseHandler(
+            "[{\"directory_path\":\"/Series/Refresh Sample/Season 1\"},{\"directory_path\":\"/Series/Old Pending/Season 1\"}]",
             new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(string.Empty) },
             new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(string.Empty) });
 
@@ -108,6 +110,7 @@ public sealed class NebulaSupabaseBackupBotTokensMongoTests : IDisposable
 
         Assert.True(backupResult.Success, backupResult.Message);
         Assert.Equal(2, backupResult.BotTokensBackedUp);
+        Assert.Equal(1, backupResult.DirectoryRefreshesBackedUp);
 
         var tokenRequest = Assert.Single(backupHandler.Requests, r => r.Uri.Contains("nebula_bot_tokens", StringComparison.Ordinal));
         Assert.Equal(HttpMethod.Post, tokenRequest.Method);
@@ -116,11 +119,17 @@ public sealed class NebulaSupabaseBackupBotTokensMongoTests : IDisposable
         Assert.Contains("\"enabled\":true", tokenRequest.Body, StringComparison.Ordinal);
         Assert.Contains("\"token\":\"backup-token-disabled\"", tokenRequest.Body, StringComparison.Ordinal);
         Assert.Contains("\"enabled\":false", tokenRequest.Body, StringComparison.Ordinal);
+        var refreshRequest = Assert.Single(backupHandler.Requests, r => r.Uri.Contains("nebula_directory_refreshes", StringComparison.Ordinal) && r.Method == HttpMethod.Post);
+        Assert.Contains("on_conflict=directory_path", refreshRequest.Uri, StringComparison.Ordinal);
+        Assert.Contains("\"directory_path\":\"/Series/Refresh Sample/Season 1\"", refreshRequest.Body, StringComparison.Ordinal);
+        var staleRefreshDelete = Assert.Single(backupHandler.Requests, r => r.Method == HttpMethod.Delete && r.Uri.Contains("nebula_directory_refreshes", StringComparison.Ordinal));
+        Assert.Contains("Old%20Pending", staleRefreshDelete.Uri, StringComparison.Ordinal);
 
         // Now simulate a fresh install restoring from the Supabase payload the backup
         // just produced: feed the exact body sent to nebula_bot_tokens back as the
         // GET response, into a separate, empty MongoDB database.
         var restoreHandler = new RecordingResponseHandler(
+            refreshRequest.Body!,
             new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("[]") }, // nebula_files
             new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("[]") }, // nebula_users
             new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("[]") }, // mulletaflix_users
@@ -150,9 +159,11 @@ public sealed class NebulaSupabaseBackupBotTokensMongoTests : IDisposable
 
         Assert.True(restoreResult.Success, restoreResult.Message);
         Assert.Equal(2, restoreResult.BotTokensRestored);
+        Assert.Equal(1, restoreResult.DirectoryRefreshesRestored);
 
         var restoredEnabledTokens = await restoreMongoContext.GetBotTokensAsync(collectionName, TestContext.Current.CancellationToken);
         Assert.Equal(["backup-token-enabled"], restoredEnabledTokens);
+        Assert.Equal(["/Series/Refresh Sample/Season 1"], await restoreMongoContext.GetPendingDirectoryRefreshesAsync(TestContext.Current.CancellationToken));
 
         _mongoClient!.DropDatabase(restoreDatabaseName);
     }
@@ -165,9 +176,23 @@ public sealed class NebulaSupabaseBackupBotTokensMongoTests : IDisposable
         }
     }
 
-    private sealed class RecordingResponseHandler(params HttpResponseMessage[] responses) : HttpMessageHandler
+    private sealed class RecordingResponseHandler : HttpMessageHandler
     {
+        private readonly HttpResponseMessage[] _responses;
+        private readonly string _directoryRefreshRows;
         private int _nextResponse;
+        private int _directoryRefreshGetCount;
+
+        public RecordingResponseHandler(params HttpResponseMessage[] responses)
+            : this("[]", responses)
+        {
+        }
+
+        public RecordingResponseHandler(string directoryRefreshRows, params HttpResponseMessage[] responses)
+        {
+            _directoryRefreshRows = directoryRefreshRows;
+            _responses = responses;
+        }
 
         public List<CapturedRequest> Requests { get; } = [];
 
@@ -177,6 +202,13 @@ public sealed class NebulaSupabaseBackupBotTokensMongoTests : IDisposable
                 ? null
                 : await request.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
             Requests.Add(new CapturedRequest(request.Method, request.RequestUri!.PathAndQuery, body));
+            if (request.Method == HttpMethod.Get
+                && request.RequestUri.AbsolutePath.EndsWith("/nebula_directory_refreshes", StringComparison.Ordinal))
+            {
+                var pageBody = Interlocked.Increment(ref _directoryRefreshGetCount) == 1 ? _directoryRefreshRows : "[]";
+                return new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(pageBody) };
+            }
+
             if (request.Method == HttpMethod.Head
                 && request.RequestUri.AbsolutePath.EndsWith("/nebula_files", StringComparison.Ordinal))
             {
@@ -185,7 +217,7 @@ public sealed class NebulaSupabaseBackupBotTokensMongoTests : IDisposable
                 return countResponse;
             }
 
-            return responses[_nextResponse++];
+            return _responses[_nextResponse++];
         }
     }
 
