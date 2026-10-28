@@ -6,6 +6,10 @@ Em Windows/.NET 10 Release, `FullyQualifiedName~FullSystemBackup` passou 147 tes
 
 Os limites podem recusar backups legítimos acima dos tetos indicados; não foi medido o maior backup de produção. O preflight não suporta/validou arquivos com prefixo SFX ou registro opcional de assinatura digital no diretório central. Não houve execução Linux/CI hospedada, runtime instalado nem restore em produção. Homologação formal permanece 2/7 (28,6%); esta mudança não conclui gate nem cria release.
 
+## CI da branch de restore — 2026-10-28 08:58 BRT
+
+Auditoria de `.github/workflows/ci.yml`: `push` está configurado somente para `main` e `master`; branches de trabalho dependem de `pull_request`. O endpoint público de Actions não retornou execução para o commit `80609ab92d585eb248376f2fe32ffd04fa29dfe9`, e o status combinado não listou checks. A tentativa de abrir PR draft pela integração GitHub foi recusada com HTTP 403 `Resource not accessible by integration`; nenhum PR foi criado. Isso explica a ausência de CI nessa branch, sem indicar falha do código nem sucesso dos testes hospedados. Localmente, a validação anterior segue 147/163 `FullSystemBackup`, 8/8 `Crc32Tests` e 1/1 teste focal IntroSkipper em Windows/.NET 10 Release. Linux/CI hospedada, runtime instalado e produção não foram validados. Homologação formal 2/7 (28,6%), sem crédito ou release.
+
 ## Revalidação do restore na branch isolada — 2026-10-27 23:27 BRT
 
 Branch `codex/backup-restore-handle-relative-io`, baseada no `origin/main` então atual `8a7796c3`. A suíte `FullyQualifiedName~FullSystemBackup` em Windows/.NET 10 Release terminou com 141 aprovados, 16 ignorados por dependência de Linux/macOS/mounts e 0 falhas (157). Os dois testes de serialização da imagem e nomes de tabelas que haviam falhado na primeira compilação passaram após sincronizar as entidades/contexto do banco. `git diff --cached --check` passou antes da última sincronização; reexecutar antes do commit.
