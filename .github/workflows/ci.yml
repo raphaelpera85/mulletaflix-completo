@@ -279,7 +279,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: frontend-coverage
-          path: MulletaFlix-web-master/coverage/**
+          path: MulletaFlix-web-master/src/coverage/**
           if-no-files-found: error
 
       - name: Verify build artifacts
