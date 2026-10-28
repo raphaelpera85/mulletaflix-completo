@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: 2026 rlauuzo
 // SPDX-License-Identifier: GPL-3.0-only
 
+using System.Buffers;
 using System.IO.Compression;
 using System.Reflection;
 using System.Text;
@@ -16,6 +17,8 @@ internal sealed class IntroSkipperBackupParticipant : IBackupDatabaseParticipant
 {
     private const string SnapshotFileName = "data.json";
     private const int ReadBufferSize = 64 * 1024;
+    private const int MaxSnapshotBytes = 64 * 1024 * 1024;
+    private const int MaxSnapshotCharacters = MaxSnapshotBytes / 2;
     private static readonly JsonSerializerSettings SnapshotJsonSettings = new()
     {
         TypeNameHandling = TypeNameHandling.None,
@@ -115,9 +118,34 @@ internal sealed class IntroSkipperBackupParticipant : IBackupDatabaseParticipant
     {
         var entryName = GetEntryName(entryPrefix);
         var entry = archive.GetEntry(entryName) ?? throw new InvalidDataException($"IntroSkipper backup entry '{entryName}' is missing.");
+        if (entry.Length > MaxSnapshotBytes)
+        {
+            throw new InvalidDataException($"IntroSkipper backup snapshot exceeds the maximum size of {MaxSnapshotBytes} bytes.");
+        }
+
         await using var stream = entry.Open();
         using var reader = new StreamReader(stream, Encoding.UTF8, detectEncodingFromByteOrderMarks: true, ReadBufferSize, leaveOpen: false);
-        var json = await reader.ReadToEndAsync(cancellationToken).ConfigureAwait(false);
+        var jsonBuilder = new StringBuilder((int)Math.Min(entry.Length, 1024 * 1024));
+        var characters = ArrayPool<char>.Shared.Rent(ReadBufferSize);
+        try
+        {
+            int charsRead;
+            while ((charsRead = await reader.ReadAsync(characters.AsMemory(), cancellationToken).ConfigureAwait(false)) > 0)
+            {
+                if (charsRead > MaxSnapshotCharacters - jsonBuilder.Length)
+                {
+                    throw new InvalidDataException($"IntroSkipper backup snapshot exceeds the maximum size of {MaxSnapshotBytes} bytes.");
+                }
+
+                jsonBuilder.Append(characters, 0, charsRead);
+            }
+        }
+        finally
+        {
+            ArrayPool<char>.Shared.Return(characters, clearArray: true);
+        }
+
+        var json = jsonBuilder.ToString();
         cancellationToken.ThrowIfCancellationRequested();
         BackupSnapshot snapshot;
         try

@@ -1,4 +1,6 @@
 using System;
+using System.Buffers;
+using System.Buffers.Binary;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Data.Common;
@@ -35,6 +37,57 @@ namespace MulletaFlix.Server.Implementations.FullSystemBackup;
 /// </summary>
 public class BackupService : IBackupService, IDisposable
 {
+    private sealed class CountingReadStream : Stream
+    {
+        private readonly Stream _inner;
+
+        public CountingReadStream(Stream inner)
+        {
+            _inner = inner;
+        }
+
+        public long BytesRead { get; private set; }
+
+        public override bool CanRead => _inner.CanRead;
+        public override bool CanSeek => _inner.CanSeek;
+        public override bool CanWrite => false;
+        public override long Length => _inner.Length;
+        public override long Position { get => _inner.Position; set => _inner.Position = value; }
+
+        public override void Flush() => _inner.Flush();
+        public override long Seek(long offset, SeekOrigin origin) => _inner.Seek(offset, origin);
+        public override void SetLength(long value) => throw new NotSupportedException();
+        public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+
+        public override int Read(byte[] buffer, int offset, int count)
+        {
+            var read = _inner.Read(buffer, offset, count);
+            BytesRead += read;
+            return read;
+        }
+
+        public override int Read(Span<byte> buffer)
+        {
+            var read = _inner.Read(buffer);
+            BytesRead += read;
+            return read;
+        }
+
+        public override async ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default)
+        {
+            var read = await _inner.ReadAsync(buffer, cancellationToken).ConfigureAwait(false);
+            BytesRead += read;
+            return read;
+        }
+
+        public override async Task<int> ReadAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken)
+        {
+            var read = await _inner.ReadAsync(buffer, offset, count, cancellationToken).ConfigureAwait(false);
+            BytesRead += read;
+            return read;
+        }
+    }
+
     private sealed record DomainDatabaseContext(string Name, DbContext Context);
 
     private sealed record ForeignKeyValidationPlan(
@@ -96,6 +149,14 @@ public class BackupService : IBackupService, IDisposable
     }
 
     private static readonly string[] SupportedDomainDatabaseContexts = ["Movies", "Series", "Channels", "Books"];
+    private const long BackupGiB = 1024L * 1024 * 1024;
+    private const long MaxBackupArchiveBytes = 257 * BackupGiB;
+    private const long MaxBackupCentralDirectoryBytes = 32 * 1024 * 1024;
+    private const int MaxBackupManifestBytes = 16 * 1024 * 1024;
+    private const long MaxBackupExpandedBytes = 256 * BackupGiB;
+    private const long MaxBackupEntryBytes = 64 * BackupGiB;
+    private const int MaxBackupArchiveEntries = 100_000;
+    private const double MaxBackupCompressionRatio = 1_000;
     public const string MeterName = "MulletaFlix.Server.Backup";
     private static readonly Meter BackupMeter = new(MeterName);
     private static readonly Counter<long> BackupOperationCounter = BackupMeter.CreateCounter<long>(
@@ -2198,36 +2259,257 @@ public class BackupService : IBackupService, IDisposable
 
     internal static async Task ValidateArchiveIntegrityAsync(string archivePath)
     {
+        await ValidateArchiveIntegrityAsync(
+            archivePath,
+            MaxBackupArchiveBytes,
+            MaxBackupArchiveEntries,
+            MaxBackupEntryBytes,
+            MaxBackupExpandedBytes,
+            MaxBackupCompressionRatio,
+            MaxBackupCentralDirectoryBytes).ConfigureAwait(false);
+    }
+
+    internal static async Task ValidateArchiveIntegrityAsync(
+        string archivePath,
+        long maxArchiveBytes,
+        int maxEntries,
+        long maxEntryBytes,
+        long maxExpandedBytes,
+        double maxCompressionRatio,
+        long maxCentralDirectoryBytes = MaxBackupCentralDirectoryBytes)
+    {
         await using var fileStream = File.OpenRead(archivePath);
-        await ValidateArchiveIntegrityAsync(fileStream).ConfigureAwait(false);
+        await ValidateArchiveIntegrityAsync(fileStream, maxArchiveBytes, maxEntries, maxEntryBytes, maxExpandedBytes, maxCompressionRatio, maxCentralDirectoryBytes).ConfigureAwait(false);
     }
 
     private static async Task ValidateArchiveIntegrityAsync(Stream fileStream)
+    {
+        await ValidateArchiveIntegrityAsync(
+            fileStream,
+            MaxBackupArchiveBytes,
+            MaxBackupArchiveEntries,
+            MaxBackupEntryBytes,
+            MaxBackupExpandedBytes,
+            MaxBackupCompressionRatio,
+            MaxBackupCentralDirectoryBytes).ConfigureAwait(false);
+    }
+
+    private static async Task ValidateArchiveIntegrityAsync(
+        Stream fileStream,
+        long maxArchiveBytes,
+        int maxEntries,
+        long maxEntryBytes,
+        long maxExpandedBytes,
+        double maxCompressionRatio,
+        long maxCentralDirectoryBytes)
     {
         if (!fileStream.CanRead || !fileStream.CanSeek)
         {
             throw new ArgumentException("The backup archive stream must be readable and seekable.", nameof(fileStream));
         }
 
+        if (fileStream.Length > maxArchiveBytes)
+        {
+            throw new InvalidDataException($"Backup archive exceeds the maximum compressed size of {maxArchiveBytes} bytes.");
+        }
+
+        if (maxArchiveBytes < 0 || maxEntries < 0 || maxEntryBytes < 0 || maxExpandedBytes < 0 || maxCentralDirectoryBytes < 0 || !double.IsFinite(maxCompressionRatio) || maxCompressionRatio <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(maxArchiveBytes), "Backup archive limits must be non-negative and compression ratio must be finite and positive.");
+        }
+
         var originalPosition = fileStream.Position;
         try
         {
             fileStream.Position = 0;
-            using var archive = new ZipArchive(fileStream, ZipArchiveMode.Read, leaveOpen: true);
+            ValidateArchiveEntryCount(fileStream, maxEntries, maxCentralDirectoryBytes);
+            fileStream.Position = 0;
+            using var countedArchiveStream = new CountingReadStream(fileStream);
+            using var archive = new ZipArchive(countedArchiveStream, ZipArchiveMode.Read, leaveOpen: true);
+            if (archive.Entries.Count > maxEntries)
+            {
+                throw new InvalidDataException($"Backup archive exceeds the maximum entry count of {maxEntries}.");
+            }
+
+            long totalLength = 0;
             foreach (var entry in archive.Entries)
             {
+                var remainingTotalBytes = maxExpandedBytes - totalLength;
+                if (entry.Length > maxEntryBytes || entry.Length > remainingTotalBytes)
+                {
+                    throw new InvalidDataException($"Backup entry '{entry.FullName}' exceeds the configured expansion limit.");
+                }
+
+                var compressedLength = Math.Max(1, entry.CompressedLength);
+                if (entry.Length / (double)compressedLength > maxCompressionRatio)
+                {
+                    throw new InvalidDataException($"Backup entry '{entry.FullName}' exceeds the maximum compression ratio of {maxCompressionRatio}:1.");
+                }
+
                 await using var entryStream = await entry.OpenAsync().ConfigureAwait(false);
-                var (checksum, length) = await Crc32.ComputeAsync(entryStream).ConfigureAwait(false);
+                var compressedStart = countedArchiveStream.BytesRead;
+                var (checksum, length) = await Crc32.ComputeBoundedAsync(
+                    entryStream,
+                    CancellationToken.None,
+                    Math.Min(maxEntryBytes, remainingTotalBytes),
+                    () => GetExpansionLimit(countedArchiveStream.BytesRead - compressedStart, maxCompressionRatio)).ConfigureAwait(false);
                 if (checksum != entry.Crc32 || length != entry.Length)
                 {
                     throw new InvalidDataException($"Backup entry '{entry.FullName}' failed its size or CRC-32 integrity check.");
                 }
+
+                var actualCompressedLength = Math.Max(1, countedArchiveStream.BytesRead - compressedStart);
+                if (length / (double)actualCompressedLength > maxCompressionRatio)
+                {
+                    throw new InvalidDataException($"Backup entry '{entry.FullName}' exceeds the maximum compression ratio of {maxCompressionRatio}:1.");
+                }
+
+                totalLength += length;
             }
 
         }
         finally
         {
             fileStream.Position = originalPosition;
+        }
+    }
+
+    private static long GetExpansionLimit(long compressedBytesRead, double maximumCompressionRatio)
+    {
+        var limit = Math.Max(0, compressedBytesRead) * maximumCompressionRatio;
+        return limit >= long.MaxValue ? long.MaxValue : (long)Math.Floor(limit);
+    }
+
+    private static void ValidateArchiveEntryCount(Stream archiveStream, int maxEntries, long maxCentralDirectoryBytes)
+    {
+        const int EndOfCentralDirectorySignature = 0x06054b50;
+        const int Zip64EndOfCentralDirectoryLocatorSignature = 0x07064b50;
+        const int Zip64EndOfCentralDirectorySignature = 0x06064b50;
+        const int CentralDirectoryEntrySignature = 0x02014b50;
+        const int EndRecordLength = 22;
+        const int MaxCommentLength = ushort.MaxValue;
+
+        var tailLength = (int)Math.Min(archiveStream.Length, EndRecordLength + MaxCommentLength);
+        var tail = new byte[tailLength];
+        archiveStream.Position = archiveStream.Length - tailLength;
+        archiveStream.ReadExactly(tail);
+
+        var endRecordOffset = -1;
+        for (var i = tail.Length - EndRecordLength; i >= 0; i--)
+        {
+            if (BinaryPrimitives.ReadUInt32LittleEndian(tail.AsSpan(i)) == EndOfCentralDirectorySignature
+                && i + EndRecordLength + BinaryPrimitives.ReadUInt16LittleEndian(tail.AsSpan(i + 20)) == tail.Length)
+            {
+                endRecordOffset = i;
+                break;
+            }
+        }
+
+        if (endRecordOffset < 0)
+        {
+            throw new InvalidDataException("Backup archive has no valid end-of-central-directory record.");
+        }
+
+        var endRecord = tail.AsSpan(endRecordOffset, EndRecordLength);
+        var diskNumber = BinaryPrimitives.ReadUInt16LittleEndian(endRecord[4..]);
+        var centralDirectoryDisk = BinaryPrimitives.ReadUInt16LittleEndian(endRecord[6..]);
+        var entriesOnDisk = BinaryPrimitives.ReadUInt16LittleEndian(endRecord[8..]);
+        ulong totalEntries = BinaryPrimitives.ReadUInt16LittleEndian(endRecord[10..]);
+        ulong centralDirectorySize = BinaryPrimitives.ReadUInt32LittleEndian(endRecord[12..]);
+        ulong centralDirectoryOffset = BinaryPrimitives.ReadUInt32LittleEndian(endRecord[16..]);
+        var centralDirectoryStartLimit = archiveStream.Length - tailLength + endRecordOffset;
+
+        if (diskNumber != 0 || centralDirectoryDisk != 0 || entriesOnDisk != totalEntries)
+        {
+            throw new InvalidDataException("Multi-disk backup archives are not supported.");
+        }
+
+        if (totalEntries == ushort.MaxValue || centralDirectorySize == uint.MaxValue || centralDirectoryOffset == uint.MaxValue)
+        {
+            var locatorPosition = centralDirectoryStartLimit - 20;
+            if (locatorPosition < 0)
+            {
+                throw new InvalidDataException("Backup archive has an invalid ZIP64 locator.");
+            }
+
+            archiveStream.Position = locatorPosition;
+            Span<byte> locator = stackalloc byte[20];
+            archiveStream.ReadExactly(locator);
+            if (BinaryPrimitives.ReadUInt32LittleEndian(locator) != Zip64EndOfCentralDirectoryLocatorSignature
+                || BinaryPrimitives.ReadUInt32LittleEndian(locator[4..]) != 0
+                || BinaryPrimitives.ReadUInt32LittleEndian(locator[16..]) != 1)
+            {
+                throw new InvalidDataException("Backup archive has an invalid ZIP64 locator.");
+            }
+
+            var zip64RecordPosition = BinaryPrimitives.ReadUInt64LittleEndian(locator[8..]);
+            if (archiveStream.Length < 56 || zip64RecordPosition > (ulong)(archiveStream.Length - 56))
+            {
+                throw new InvalidDataException("Backup archive has an invalid ZIP64 end record.");
+            }
+
+            archiveStream.Position = (long)zip64RecordPosition;
+            Span<byte> zip64EndRecord = stackalloc byte[56];
+            archiveStream.ReadExactly(zip64EndRecord);
+            if (BinaryPrimitives.ReadUInt32LittleEndian(zip64EndRecord) != Zip64EndOfCentralDirectorySignature
+                || BinaryPrimitives.ReadUInt32LittleEndian(zip64EndRecord[16..]) != 0
+                || BinaryPrimitives.ReadUInt32LittleEndian(zip64EndRecord[20..]) != 0
+                || BinaryPrimitives.ReadUInt64LittleEndian(zip64EndRecord[24..]) != BinaryPrimitives.ReadUInt64LittleEndian(zip64EndRecord[32..]))
+            {
+                throw new InvalidDataException("Backup archive has an invalid ZIP64 end record.");
+            }
+
+            totalEntries = BinaryPrimitives.ReadUInt64LittleEndian(zip64EndRecord[32..]);
+            centralDirectorySize = BinaryPrimitives.ReadUInt64LittleEndian(zip64EndRecord[40..]);
+            centralDirectoryOffset = BinaryPrimitives.ReadUInt64LittleEndian(zip64EndRecord[48..]);
+        }
+
+        if (totalEntries > (ulong)maxEntries)
+        {
+            throw new InvalidDataException($"Backup archive exceeds the maximum entry count of {maxEntries}.");
+        }
+
+        if (centralDirectoryOffset > (ulong)centralDirectoryStartLimit
+            || centralDirectorySize > (ulong)centralDirectoryStartLimit - centralDirectoryOffset)
+        {
+            throw new InvalidDataException("Backup archive has an invalid central directory range.");
+        }
+
+        if (centralDirectorySize > (ulong)maxCentralDirectoryBytes)
+        {
+            throw new InvalidDataException($"Backup archive central directory exceeds the maximum size of {maxCentralDirectoryBytes} bytes.");
+        }
+
+        var centralDirectoryEnd = (long)(centralDirectoryOffset + centralDirectorySize);
+        archiveStream.Position = (long)centralDirectoryOffset;
+        Span<byte> entryHeader = stackalloc byte[46];
+        for (ulong entryIndex = 0; entryIndex < totalEntries; entryIndex++)
+        {
+            if (archiveStream.Position > centralDirectoryEnd - entryHeader.Length)
+            {
+                throw new InvalidDataException("Backup archive has a truncated central directory.");
+            }
+
+            archiveStream.ReadExactly(entryHeader);
+            if (BinaryPrimitives.ReadUInt32LittleEndian(entryHeader) != CentralDirectoryEntrySignature)
+            {
+                throw new InvalidDataException("Backup archive has an invalid central directory entry.");
+            }
+
+            var variableLength = BinaryPrimitives.ReadUInt16LittleEndian(entryHeader[28..])
+                + BinaryPrimitives.ReadUInt16LittleEndian(entryHeader[30..])
+                + BinaryPrimitives.ReadUInt16LittleEndian(entryHeader[32..]);
+            if (variableLength > centralDirectoryEnd - archiveStream.Position)
+            {
+                throw new InvalidDataException("Backup archive has a truncated central directory entry.");
+            }
+
+            archiveStream.Position += variableLength;
+        }
+
+        if (archiveStream.Position != centralDirectoryEnd)
+        {
+            throw new InvalidDataException("Backup archive central directory entry count does not match its size.");
         }
     }
 
@@ -2292,21 +2574,49 @@ public class BackupService : IBackupService, IDisposable
 
     private static async ValueTask<BackupManifest?> GetManifest(string archivePath)
     {
-        var archiveStream = File.OpenRead(archivePath);
-        await using (archiveStream.ConfigureAwait(false))
+        await using var archiveStream = File.OpenRead(archivePath);
+        if (archiveStream.Length > MaxBackupArchiveBytes)
         {
-            using var zipStream = new ZipArchive(archiveStream, ZipArchiveMode.Read);
-            var manifestEntry = zipStream.GetEntry(ManifestEntryName);
-            if (manifestEntry is null)
+            throw new InvalidDataException($"Backup archive exceeds the maximum compressed size of {MaxBackupArchiveBytes} bytes.");
+        }
+
+        ValidateArchiveEntryCount(archiveStream, MaxBackupArchiveEntries, MaxBackupCentralDirectoryBytes);
+        archiveStream.Position = 0;
+        using var zipStream = new ZipArchive(archiveStream, ZipArchiveMode.Read);
+        var manifestEntry = zipStream.GetEntry(ManifestEntryName);
+        if (manifestEntry is null)
+        {
+            return null;
+        }
+
+        if (manifestEntry.Length > MaxBackupManifestBytes
+            || manifestEntry.Length / (double)Math.Max(1, manifestEntry.CompressedLength) > MaxBackupCompressionRatio)
+        {
+            throw new InvalidDataException("Backup manifest exceeds its configured size or compression limit.");
+        }
+
+        await using var manifestStream = await manifestEntry.OpenAsync().ConfigureAwait(false);
+        using var manifestBuffer = new MemoryStream();
+        var buffer = ArrayPool<byte>.Shared.Rent(81920);
+        try
+        {
+            int bytesRead;
+            while ((bytesRead = await manifestStream.ReadAsync(buffer.AsMemory()).ConfigureAwait(false)) > 0)
             {
-                return null;
+                if (bytesRead > MaxBackupManifestBytes - manifestBuffer.Length)
+                {
+                    throw new InvalidDataException($"Backup manifest exceeds the maximum size of {MaxBackupManifestBytes} bytes.");
+                }
+
+                await manifestBuffer.WriteAsync(buffer.AsMemory(0, bytesRead)).ConfigureAwait(false);
             }
 
-            var manifestStream = await manifestEntry.OpenAsync().ConfigureAwait(false);
-            await using (manifestStream.ConfigureAwait(false))
-            {
-                return await JsonSerializer.DeserializeAsync<BackupManifest>(manifestStream, _serializerSettings).ConfigureAwait(false);
-            }
+            manifestBuffer.Position = 0;
+            return await JsonSerializer.DeserializeAsync<BackupManifest>(manifestBuffer, _serializerSettings).ConfigureAwait(false);
+        }
+        finally
+        {
+            ArrayPool<byte>.Shared.Return(buffer, clearArray: true);
         }
     }
 

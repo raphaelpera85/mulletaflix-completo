@@ -1,5 +1,6 @@
 using System.IO.Compression;
 using System.Reflection;
+using System.Text;
 using IntroSkipper.Data;
 using IntroSkipper.Db;
 using IntroSkipper.Services;
@@ -213,6 +214,23 @@ public sealed class IntroSkipperBackupParticipantTests
 
         await using var verify = await contexts.CreateDbContextAsync();
         Assert.Equal(existing.Id, Assert.Single(await verify.Segments.Select(row => row.Id).ToListAsync()));
+    }
+
+    [Fact]
+    public async Task ValidateBackupAsync_RejectsOversizedSnapshot()
+    {
+        await using var connection = OpenConnection();
+        var (participant, _, _) = CreateParticipant(connection);
+        using var backup = new MemoryStream();
+        using (var archive = new ZipArchive(backup, ZipArchiveMode.Create, leaveOpen: true))
+        await using (var writer = new StreamWriter(archive.CreateEntry("Database/Participants/IntroSkipper/data.json").Open(), Encoding.UTF8))
+        {
+            await writer.WriteAsync("{\"Segments\":[],\"extra\":\"" + new string('a', 32 * 1024 * 1024) + "\"}");
+        }
+
+        backup.Position = 0;
+        await using var readArchive = new ZipArchive(backup, ZipArchiveMode.Read, leaveOpen: true);
+        await Assert.ThrowsAsync<InvalidDataException>(() => participant.ValidateBackupAsync(readArchive, "Database/Participants/IntroSkipper", CancellationToken.None));
     }
 
     [Fact]

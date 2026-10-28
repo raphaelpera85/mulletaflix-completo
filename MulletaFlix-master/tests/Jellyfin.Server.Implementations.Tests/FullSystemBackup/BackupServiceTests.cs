@@ -1,4 +1,5 @@
 using System;
+using System.Buffers.Binary;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Diagnostics.Metrics;
@@ -931,6 +932,197 @@ public sealed class BackupServiceTests : IDisposable
             }
 
             await BackupService.ValidateArchiveIntegrityAsync(archivePath);
+        }
+        finally
+        {
+            if (File.Exists(archivePath))
+            {
+                File.Delete(archivePath);
+            }
+        }
+    }
+
+    [Fact]
+    public async Task ValidateArchiveIntegrityAsync_RejectsArchiveLimitViolations()
+    {
+        var archivePath = Path.Combine(Path.GetTempPath(), $"mulletaflix-backup-limits-{Guid.NewGuid():N}.zip");
+        try
+        {
+            using (var archive = ZipFile.Open(archivePath, ZipArchiveMode.Create))
+            {
+                foreach (var entryName in new[] { "Data/first.json", "Data/second.json" })
+                {
+                    await using var entry = archive.CreateEntry(entryName).Open();
+                    await entry.WriteAsync("0123456789"u8.ToArray());
+                }
+            }
+
+            await Assert.ThrowsAsync<InvalidDataException>(() => BackupService.ValidateArchiveIntegrityAsync(archivePath, long.MaxValue, 1, 64, 64, 1000));
+            await Assert.ThrowsAsync<InvalidDataException>(() => BackupService.ValidateArchiveIntegrityAsync(archivePath, long.MaxValue, 2, 9, 64, 1000));
+            await Assert.ThrowsAsync<InvalidDataException>(() => BackupService.ValidateArchiveIntegrityAsync(archivePath, long.MaxValue, 2, 64, 19, 1000));
+            await Assert.ThrowsAsync<InvalidDataException>(() => BackupService.ValidateArchiveIntegrityAsync(archivePath, 1, 2, 64, 64, 1000));
+            await Assert.ThrowsAsync<InvalidDataException>(() => BackupService.ValidateArchiveIntegrityAsync(archivePath, long.MaxValue, 2, 64, 64, 1000, maxCentralDirectoryBytes: 1));
+        }
+        finally
+        {
+            if (File.Exists(archivePath))
+            {
+                File.Delete(archivePath);
+            }
+        }
+    }
+
+    [Fact]
+    public async Task ValidateArchiveIntegrityAsync_AcceptsZip64CentralDirectory()
+    {
+        var archivePath = Path.Combine(Path.GetTempPath(), $"mulletaflix-backup-zip64-{Guid.NewGuid():N}.zip");
+        try
+        {
+            using (var archive = ZipFile.Open(archivePath, ZipArchiveMode.Create))
+            await using (var entry = archive.CreateEntry("Data/sample.json").Open())
+            {
+                await entry.WriteAsync("{}"u8.ToArray());
+            }
+
+            var classicArchive = await File.ReadAllBytesAsync(archivePath);
+            var endRecordSignature = new byte[] { 0x50, 0x4b, 0x05, 0x06 };
+            var endRecordOffset = classicArchive.AsSpan().IndexOf(endRecordSignature);
+            Assert.True(endRecordOffset >= 0);
+
+            const int Zip64EndRecordLength = 56;
+            const int Zip64LocatorLength = 20;
+            var zip64Archive = new byte[classicArchive.Length + Zip64EndRecordLength + Zip64LocatorLength];
+            classicArchive.AsSpan(0, endRecordOffset).CopyTo(zip64Archive);
+            var zip64EndRecordOffset = endRecordOffset;
+            var locatorOffset = zip64EndRecordOffset + Zip64EndRecordLength;
+            var endRecordWithZip64Offset = locatorOffset + Zip64LocatorLength;
+            var zip64Record = zip64Archive.AsSpan(zip64EndRecordOffset, Zip64EndRecordLength);
+            BinaryPrimitives.WriteUInt32LittleEndian(zip64Record, 0x06064b50);
+            BinaryPrimitives.WriteUInt64LittleEndian(zip64Record[4..], 44);
+            BinaryPrimitives.WriteUInt16LittleEndian(zip64Record[12..], 45);
+            BinaryPrimitives.WriteUInt16LittleEndian(zip64Record[14..], 45);
+            BinaryPrimitives.WriteUInt64LittleEndian(zip64Record[24..], BinaryPrimitives.ReadUInt16LittleEndian(classicArchive.AsSpan(endRecordOffset + 8)));
+            BinaryPrimitives.WriteUInt64LittleEndian(zip64Record[32..], BinaryPrimitives.ReadUInt16LittleEndian(classicArchive.AsSpan(endRecordOffset + 10)));
+            BinaryPrimitives.WriteUInt64LittleEndian(zip64Record[40..], BinaryPrimitives.ReadUInt32LittleEndian(classicArchive.AsSpan(endRecordOffset + 12)));
+            BinaryPrimitives.WriteUInt64LittleEndian(zip64Record[48..], BinaryPrimitives.ReadUInt32LittleEndian(classicArchive.AsSpan(endRecordOffset + 16)));
+
+            var locator = zip64Archive.AsSpan(locatorOffset, Zip64LocatorLength);
+            BinaryPrimitives.WriteUInt32LittleEndian(locator, 0x07064b50);
+            BinaryPrimitives.WriteUInt64LittleEndian(locator[8..], (ulong)zip64EndRecordOffset);
+            BinaryPrimitives.WriteUInt32LittleEndian(locator[16..], 1);
+            classicArchive.AsSpan(endRecordOffset).CopyTo(zip64Archive.AsSpan(endRecordWithZip64Offset));
+            BinaryPrimitives.WriteUInt16LittleEndian(zip64Archive.AsSpan(endRecordWithZip64Offset + 8), ushort.MaxValue);
+            BinaryPrimitives.WriteUInt16LittleEndian(zip64Archive.AsSpan(endRecordWithZip64Offset + 10), ushort.MaxValue);
+            BinaryPrimitives.WriteUInt32LittleEndian(zip64Archive.AsSpan(endRecordWithZip64Offset + 12), uint.MaxValue);
+            BinaryPrimitives.WriteUInt32LittleEndian(zip64Archive.AsSpan(endRecordWithZip64Offset + 16), uint.MaxValue);
+            await File.WriteAllBytesAsync(archivePath, zip64Archive);
+
+            await BackupService.ValidateArchiveIntegrityAsync(archivePath);
+        }
+        finally
+        {
+            if (File.Exists(archivePath))
+            {
+                File.Delete(archivePath);
+            }
+        }
+    }
+
+    [Fact]
+    public async Task ValidateArchiveIntegrityAsync_RejectsExcessiveCompressionRatio()
+    {
+        var archivePath = Path.Combine(Path.GetTempPath(), $"mulletaflix-backup-ratio-{Guid.NewGuid():N}.zip");
+        try
+        {
+            using (var archive = ZipFile.Open(archivePath, ZipArchiveMode.Create))
+            await using (var entry = archive.CreateEntry("Data/repetitive.json").Open())
+            {
+                await entry.WriteAsync(Enumerable.Repeat((byte)'A', 4096).ToArray());
+            }
+
+            await Assert.ThrowsAsync<InvalidDataException>(() => BackupService.ValidateArchiveIntegrityAsync(archivePath, long.MaxValue, 1, long.MaxValue, long.MaxValue, 2));
+        }
+        finally
+        {
+            if (File.Exists(archivePath))
+            {
+                File.Delete(archivePath);
+            }
+        }
+    }
+
+    [Fact]
+    public async Task ValidateArchiveIntegrityAsync_StopsWhenActualExpansionExceedsRatioLimit()
+    {
+        var archivePath = Path.Combine(Path.GetTempPath(), $"mulletaflix-backup-forged-size-{Guid.NewGuid():N}.zip");
+        try
+        {
+            using (var archive = ZipFile.Open(archivePath, ZipArchiveMode.Create))
+            await using (var entry = archive.CreateEntry("Data/repetitive.json").Open())
+            {
+                await entry.WriteAsync(Enumerable.Repeat((byte)'A', 4096).ToArray());
+            }
+
+            var archiveBytes = await File.ReadAllBytesAsync(archivePath);
+            var signature = new byte[] { 0x50, 0x4b, 0x01, 0x02 };
+            var centralDirectoryOffset = archiveBytes.AsSpan().IndexOf(signature);
+            Assert.True(centralDirectoryOffset >= 0);
+            BinaryPrimitives.WriteUInt32LittleEndian(archiveBytes.AsSpan(centralDirectoryOffset + 24), 1);
+            await File.WriteAllBytesAsync(archivePath, archiveBytes);
+
+            await Assert.ThrowsAsync<InvalidDataException>(() => BackupService.ValidateArchiveIntegrityAsync(archivePath, long.MaxValue, 1, long.MaxValue, long.MaxValue, 2));
+        }
+        finally
+        {
+            if (File.Exists(archivePath))
+            {
+                File.Delete(archivePath);
+            }
+        }
+    }
+
+    [Fact]
+    public async Task ValidateArchiveIntegrityAsync_StopsWhenCompressedLengthIsForged()
+    {
+        var archivePath = Path.Combine(Path.GetTempPath(), $"mulletaflix-backup-forged-compressed-size-{Guid.NewGuid():N}.zip");
+        try
+        {
+            long compressedLength;
+            using (var archive = ZipFile.Open(archivePath, ZipArchiveMode.Create))
+            await using (var entry = archive.CreateEntry("Data/repetitive.json").Open())
+            {
+                await entry.WriteAsync(Enumerable.Repeat((byte)'A', 1_000_000).ToArray());
+            }
+
+            using (var archive = ZipFile.OpenRead(archivePath))
+            {
+                compressedLength = archive.Entries[0].CompressedLength;
+            }
+
+            const int forgedCompressedLength = 600_000;
+            var archiveBytes = await File.ReadAllBytesAsync(archivePath);
+            var localHeaderSignature = new byte[] { 0x50, 0x4b, 0x03, 0x04 };
+            var centralDirectorySignature = new byte[] { 0x50, 0x4b, 0x01, 0x02 };
+            var endRecordSignature = new byte[] { 0x50, 0x4b, 0x05, 0x06 };
+            var localHeaderOffset = archiveBytes.AsSpan().IndexOf(localHeaderSignature);
+            var centralDirectoryOffset = archiveBytes.AsSpan().IndexOf(centralDirectorySignature);
+            var endRecordOffset = archiveBytes.AsSpan().IndexOf(endRecordSignature);
+            Assert.True(localHeaderOffset >= 0 && centralDirectoryOffset >= 0 && endRecordOffset >= 0);
+            var dataOffset = localHeaderOffset + 30
+                + BinaryPrimitives.ReadUInt16LittleEndian(archiveBytes.AsSpan(localHeaderOffset + 26))
+                + BinaryPrimitives.ReadUInt16LittleEndian(archiveBytes.AsSpan(localHeaderOffset + 28));
+            var compressedDataEnd = dataOffset + checked((int)compressedLength);
+            var paddingLength = forgedCompressedLength - checked((int)compressedLength);
+            var forgedArchiveBytes = new byte[archiveBytes.Length + paddingLength];
+            archiveBytes.AsSpan(0, compressedDataEnd).CopyTo(forgedArchiveBytes);
+            archiveBytes.AsSpan(compressedDataEnd).CopyTo(forgedArchiveBytes.AsSpan(compressedDataEnd + paddingLength));
+            var forgedCentralDirectoryOffset = centralDirectoryOffset + paddingLength;
+            var forgedEndRecordOffset = endRecordOffset + paddingLength;
+            BinaryPrimitives.WriteUInt32LittleEndian(forgedArchiveBytes.AsSpan(forgedCentralDirectoryOffset + 20), forgedCompressedLength);
+            BinaryPrimitives.WriteUInt32LittleEndian(forgedArchiveBytes.AsSpan(forgedEndRecordOffset + 16), checked((uint)forgedCentralDirectoryOffset));
+            await File.WriteAllBytesAsync(archivePath, forgedArchiveBytes);
+
+            await Assert.ThrowsAsync<InvalidDataException>(() => BackupService.ValidateArchiveIntegrityAsync(archivePath, long.MaxValue, 1, long.MaxValue, long.MaxValue, 2));
         }
         finally
         {
@@ -2127,6 +2319,33 @@ public sealed class BackupServiceTests : IDisposable
             Assert.NotNull(result);
             Assert.Equal(new FileInfo(archivePath).Length, result.SizeBytes);
             Assert.True(result.SizeBytes > 0);
+        }
+        finally
+        {
+            if (Directory.Exists(isolatedRoot))
+            {
+                Directory.Delete(isolatedRoot, recursive: true);
+            }
+        }
+    }
+
+    [Fact]
+    public async Task GetBackupManifest_RejectsManifestAboveConfiguredLimit()
+    {
+        var isolatedRoot = Path.Combine(Path.GetTempPath(), $"mulletaflix-manifest-limit-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(isolatedRoot);
+        var archivePath = Path.Combine(isolatedRoot, "backup.zip");
+
+        try
+        {
+            using (var archive = ZipFile.Open(archivePath, ZipArchiveMode.Create))
+            {
+                await WriteArchiveEntryAsync(archive, "manifest.json", "{\"extra\":\"" + new string('a', 16 * 1024 * 1024) + "\"}");
+            }
+
+            var result = await CreateService().GetBackupManifest(archivePath);
+
+            Assert.Null(result);
         }
         finally
         {
