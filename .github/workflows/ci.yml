@@ -178,6 +178,7 @@ jobs:
             'Assert-StageIntegrity.Tests.ps1',
             'RcloneBootstrap.Tests.ps1',
             'ServiceDataAcl.Tests.ps1',
+            'ApplyUpdateFailure.Tests.ps1',
             'StageBackup.Tests.ps1',
             'StageBuildOptions.Tests.ps1'
           )

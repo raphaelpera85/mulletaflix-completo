@@ -81,6 +81,7 @@ if ($exitCode -lt 8) {
     }
 } else {
     Log "ERROR: Robocopy failed with exit code $exitCode. Retaining update source directory for diagnostics."
+    throw "In-place update aborted because Robocopy failed with exit code $exitCode. The current server will not be restarted."
 }
 
 # 5. Restart MulletaFlix
