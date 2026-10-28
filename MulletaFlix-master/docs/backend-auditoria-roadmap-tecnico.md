@@ -600,3 +600,10 @@ Para evitar falso ganho, cada sprint deve fechar com medicao antes/depois.
 - Busca na fonte atual não encontra a mensagem literal de adiamento de 30 s. O log é de versão/build anterior ou de componente distinto da fonte atual. Não é seguro inferir qual lease ou processo causou a espera nem encerrar o worker, pois pode servir streams.
 - Testes locais desta sessão: Implementations 1.498 aprovados/63 ignorados; API 730/730; Providers 790/790; NebulaPython 592/592. Eles não reproduzem a situação operacional do anexo. Sem mudança de código ou produção, sem download real e sem release; próximo passo é coletar build/versão instalada e telemetria de leases em janela controlada.
 - Mapa técnico conferido; arquitetura inalterada nesta análise.
+### 27/10/2026 — Shutdown seguro do scheduler de biblioteca
+
+- `LimitedConcurrencyLibraryScheduler.Enqueue` usa `ApplicationStopping` para cancelar `WriteAsync` no canal limitado e a espera pela conclusão do workset; evita que uma fila cheia bloqueie o shutdown após os workers pararem.
+- O `DisposeAsync` explícito continua drenando enqueues já admitidos antes de concluir o canal. Descarte reentrante solicitado por callback do próprio scheduler falha rápido para evitar ciclo de espera.
+- Testes de regressão incluídos em `tests/Jellyfin.Controller.Tests/LibraryTaskScheduler/LimitedConcurrencyLibrarySchedulerTests.cs`.
+- Dependências do frontend atualizadas no `MulletaFlix-web-master/package.json` e lockfile: DOMPurify 3.4.17, Vitest/coverage 5.0.5 e Undici transitivo corrigido; auditoria npm sem vulnerabilidades.
+- Mapa técnico conferido: mesma classe, singleton e caller `Folder.RunTasks`; sem novo módulo/API/dependência. Versões de dependências existentes foram corrigidas.

@@ -303,3 +303,10 @@ migração de índice da Database Wave 3 (exige janela de manutenção dedicada)
 dos commits pendentes em `main` vão para `release/v12.0.92`.
 
 Validação mais recente: `Jellyfin.Server.Implementations.Tests` passou 764 testes, com 38 testes condicionais ignorados; frontend passou typecheck, lint dos arquivos alterados sem erros e 196 testes; o teste de loading global passou 4/4; a validação de artefatos confirmou `serviceworker.js`; suíte Nebula passou com 149 testes; `validate-stage.ps1` passou com todos os artefatos essenciais, assemblies compatíveis e assets referenciados presentes; a suíte de integração passou 111 testes, com 3 ignorados. O smoke test limpo está preparado e validado sintaticamente, mas exige host/VM Windows elevado; a persistência Mongo foi compilada, mas não exercitada contra servidor local porque `mongod` não está instalado neste ambiente.
+
+## 2026-10-27 — Scheduler de biblioteca: cancelamento no shutdown
+
+- Corrigido o deadlock em que um `Enqueue` bloqueado pelo canal cheio não podia terminar após `ApplicationStopping` cancelar os workers; as esperas de escrita e de workset agora recebem o token do host.
+- Mantido o escoamento gracioso no `DisposeAsync` explícito e o guard de descarte reentrante por callback.
+- Evidência Release: scheduler 9/9 e `Jellyfin.Controller.Tests` 72/72; frontend Vitest 421/421, typecheck/build/verify aprovados; npm audit 0 vulnerabilidades. Pacotes finais e CI ainda pendentes.
+- Release alvo 12.1.39; CI hospedada, pacotes e produção pendentes.

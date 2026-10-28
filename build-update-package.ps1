@@ -14,6 +14,7 @@ param(
     [string]$OutputDir,
     [string]$StageDirectory,
     [switch]$SkipBuild,
+    [switch]$SkipWebBuild,
     [switch]$SkipInstaller
 )
 
@@ -105,7 +106,7 @@ if (-not $SkipBuild) {
 & (Join-Path $projectRoot 'tools\release\stage-file-transformation-plugin.ps1') -ApplicationDirectory $stageDir
 
 # Refresh web assets. Stale stage assets can hide dashboard routes behind the old service worker cache.
-if (Test-Path -LiteralPath (Join-Path $webRoot 'package.json')) {
+if ((Test-Path -LiteralPath (Join-Path $webRoot 'package.json')) -and -not $SkipWebBuild) {
     Write-Host "Building latest web client in an isolated production workspace..." -ForegroundColor Yellow
     $webBuildRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("mulletaflix-web-build-" + [Guid]::NewGuid().ToString('N'))
     New-Item -ItemType Directory -Path $webBuildRoot -Force | Out-Null
@@ -166,6 +167,9 @@ if (Test-Path -LiteralPath (Join-Path $webRoot 'package.json')) {
             Remove-Item -LiteralPath $webBuildRoot -Recurse -Force -ErrorAction SilentlyContinue
         }
     }
+}
+elseif ($SkipWebBuild -and -not (Test-Path -LiteralPath (Join-Path $stageDir 'MulletaFlix-web\index.html'))) {
+    throw "Stage directory does not contain a prebuilt web client. Build it or omit -SkipWebBuild."
 }
 
 # 2. Ensure apply-update.ps1 is in stage

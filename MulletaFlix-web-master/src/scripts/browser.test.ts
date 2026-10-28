@@ -3,6 +3,12 @@ import { describe, expect, it } from 'vitest';
 import { detectBrowser } from './browser';
 
 describe('Browser', () => {
+    it('should identify LG webOS Chromium browser', () => {
+        const browser = detectBrowser('Mozilla/5.0 (Web0S; Linux/SmartTV) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/79.0.3945.79 Safari/537.36 WebAppManager');
+        expect(browser.web0s).toBe(true);
+        expect(browser.tv).toBe(true);
+    });
+
     it('should identify TitanOS devices', () => {
         // Ref: https://docs.titanos.tv/user-agents-specifications
         // Philips example
