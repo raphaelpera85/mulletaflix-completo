@@ -1774,3 +1774,9 @@ Confirmação nesta sessão: inspeção estática dos pontos acima e do teste `R
 ## Falha do rollback deve parar o servidor — 2026-10-28
 
 Quando uma restauração de arquivos falha antes do commit relacional e o rollback também não consegue devolver um sidecar, `BackupService` agora solicita reinício e mantém o journal. Isso evita atender requisições com um conjunto parcialmente restaurado; no próximo startup, o replay reaplica o backup até convergir. O teste Windows `RestoreBackupAsync_RequestsRestartWhenRollbackCannotRestoreBackupSidecar` confirmou o pedido de restart, preservação do journal/sidecar e replay concluído. `FullSystemBackup` faz parte da suíte ampla: 1.649 aprovados, 82 ignorados, 0 falhas. Linux, CI hospedada e runtime instalado continuam pendentes.
+
+## Rename atômico do destino no rollback — 2026-10-28
+
+`FileSystemRestoreTransaction.Rollback` não remove mais o destino antes de devolver o sidecar `.bak`; chama `Rename(..., replaceExisting: true)`, que usa substituição atômica no backend Linux e rename com replace no Windows. Se a operação falhar, a versão instalada permanece nomeada no destino em vez de ser removida previamente. Um teste cross-platform cobre falha de replace entre arquivo e diretório não vazio e confirma que origem e destino permanecem intactos; o teste existente cobre rollback após falha em arquivo posterior.
+
+Isto reduz perda por falha entre delete/rename, mas não torna a seleção da entrada fonte atômica contra escritor com UID do serviço/root. Linux nativo e corrida reproduzível continuam pendentes; H03 permanece aberto.

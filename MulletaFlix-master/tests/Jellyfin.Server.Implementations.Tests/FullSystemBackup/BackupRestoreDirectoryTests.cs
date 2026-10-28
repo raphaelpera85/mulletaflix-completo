@@ -828,6 +828,24 @@ public sealed class BackupRestoreDirectoryTests
     }
 
     [Fact]
+    public void Rename_WithReplaceFailurePreservesSourceAndDestination()
+    {
+        Assert.SkipWhen(!OperatingSystem.IsWindows() && !OperatingSystem.IsLinux(), "Safe rename is supported only on Windows and Linux.");
+
+        using var temporary = new TemporaryDirectory();
+        File.WriteAllText(Path.Combine(temporary.Path, "source.bin"), "source");
+        var destinationPath = Path.Combine(temporary.Path, "destination");
+        Directory.CreateDirectory(destinationPath);
+        File.WriteAllText(Path.Combine(destinationPath, "sentinel.bin"), "destination");
+        using var root = BackupRestoreDirectory.OpenRoot(temporary.Path);
+
+        Assert.ThrowsAny<IOException>(() => root.Rename("source.bin", root, "destination", replaceExisting: true));
+
+        Assert.Equal("source", File.ReadAllText(Path.Combine(temporary.Path, "source.bin")));
+        Assert.Equal("destination", File.ReadAllText(Path.Combine(destinationPath, "sentinel.bin")));
+    }
+
+    [Fact]
     public void DeleteOperations_RemoveOnlyExpectedEntryTypes()
     {
         using var temporary = new TemporaryDirectory();

@@ -1305,8 +1305,7 @@ public class BackupService : IBackupService, IDisposable
 
                     if (file.Directory.FileExists(file.BackupName))
                     {
-                        file.Directory.DeleteNonDirectoryEntryIfExists(file.TargetName);
-                        file.Directory.Rename(file.BackupName, file.Directory, file.TargetName);
+                        file.Directory.Rename(file.BackupName, file.Directory, file.TargetName, replaceExisting: true);
                     }
                     else if (file.Directory.FileExists(file.OriginalAbsentName))
                     {
