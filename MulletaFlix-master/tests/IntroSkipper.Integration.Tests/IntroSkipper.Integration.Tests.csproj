@@ -36,7 +36,7 @@
     <ProjectReference Include="..\..\MulletaFlix.Plugin.IntroSkipper\MulletaFlix.Plugin.IntroSkipper.csproj" />
     <ProjectReference Include="..\..\src\Jellyfin.Database\Jellyfin.Database.Implementations\Jellyfin.Database.Implementations.csproj" />
     <!-- The migration tool under test. It is the only SQLite dependency in the tree. -->
-    <ProjectReference Include="..\..\tools\MulletaFlix.IntroSkipperMigration\MulletaFlix.IntroSkipperMigration.csproj" />
+    <ProjectReference Include="..\..\Tools\MulletaFlix.IntroSkipperMigration\MulletaFlix.IntroSkipperMigration.csproj" />
   </ItemGroup>
 
 </Project>

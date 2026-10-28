@@ -338,7 +338,7 @@ jobs:
         run: npx playwright install --with-deps chromium
 
       - name: Run isolated wizard and playlist persistence UX tests
-        run: "npm run playwright -- --grep=Wizard|playlist"
+        run: npm run playwright -- "--grep=Wizard|playlist"
 
       - name: Run Playwright carousel navigation tests
         run: npm run test:playwright:scrollbuttons
