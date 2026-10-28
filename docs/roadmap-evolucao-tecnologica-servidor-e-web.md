@@ -1,3 +1,9 @@
+### 27/10/2026 21:41 -03 — Auditoria de exclusão de imagens de perfil GetAvatar
+
+- Inspeção da fonte encontrou `AvatarService.TryDeleteObsoleteProfileImage` e o fluxo de remoção de imagem de perfil validando `FileSystemHelper.IsPathWithinRoot` antes de `File.Delete`; a verificação por caminho não fixa o objeto que será excluído se uma entrada puder ser trocada concorrentemente.
+- `AvatarFileStore` já usa handle relativo à raiz e impede seguir reparse points para os arquivos do catálogo de avatares, mas esse mecanismo não cobre os arquivos de perfil geridos por `AvatarService`. Os testes localizados cobrem caminho fora da raiz e links simbólicos estáveis, não a troca entre validação e exclusão.
+- Isso é uma lacuna de garantia sob concorrência, não prova de exploração: ACLs efetivas dos diretórios por usuário e a capacidade de um ator não confiável de alterá-los não foram verificadas. Não foi feita alteração de código nem executado teste de corrida; decidir a mitigação depende dessa verificação.
+- Release v12.1.40 continua publicada; esta auditoria não gera release nem crédito formal. Homologação formal permanece 2/7 (28,6%). Portal recebe evento de auditoria separadamente da evidência de release. Mapa técnico conferido; módulos, APIs, dependências e fluxos permanecem iguais.
 # Roadmap de evolução tecnológica — servidor e frontend web
 
 ### 27/10/2026 18:31 -03 — Auditoria de restore e falha TLS do Nebula
