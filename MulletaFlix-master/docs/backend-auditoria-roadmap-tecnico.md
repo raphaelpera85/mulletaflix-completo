@@ -1,5 +1,12 @@
 # Auditoria Tecnica do Backend MulletaFlix
 
+## Scheduler de biblioteca aguarda workers durante limpeza — 2026-10-27
+
+- A limpeza periódica removia os workers do registro antes de aguardar somente os callbacks de cancelamento. Um novo `Enqueue` podia iniciar outra leva enquanto as tasks anteriores ainda encerravam; `DisposeAsync` também podia deixar de observar esses workers.
+- O fluxo agora conserva os runners registrados até o `finally` de cada worker e aguarda cancelamento mais conclusão da task interna na limpeza e no descarte explícito. Teste focal `CleanupWaitsForWorkerTaskAfterCancellationCallbacksComplete` cobre um worker bloqueado após observar cancelamento.
+- Sem classe pública, API, dependência, módulo ou novo fluxo externo. `LimitedConcurrencyLibrarySchedulerTests` passou 10/10 e `Jellyfin.Controller.Tests` 73/73 em Release; Windows e Linux x64 foram empacotados para 12.1.40. Publicação Git e do portal ainda pendentes. Produção não foi alterada.
+- Mapa técnico conferido: `LimitedConcurrencyLibraryScheduler` e seus callers permanecem no módulo Controller; o fluxo interno de limpeza/Dispose agora aguarda a saída real dos workers. Nenhuma mudança de topologia ou dependência.
+
 ## Intro Skipper — reanálise de STRM alterado e parâmetro EF — 2026-10-18
 
 - O log de `A Era de Miyu - S01E06.strm` registra `AnalysisScheduler` falhando no passe `ChangedItems`: EF Core não conseguiu avaliar `ReadOnlySpan<AnalysisMode>` no predicado de `ResetItemsForReanalysisAsync`. Os avisos Chromaprint `returned 0 points` são mensagens separadas e não causam essa exceção.

@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
 using System.Reflection;
@@ -17,6 +18,28 @@ namespace MulletaFlix.Controller.Tests.LibraryTaskScheduler;
 
 public sealed class LimitedConcurrencyLibrarySchedulerTests
 {
+    [Fact]
+    public async Task CleanupWaitsForWorkerTaskAfterCancellationCallbacksComplete()
+    {
+        using var cancellationTokenSource = new CancellationTokenSource();
+        var cancellationObserved = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var registration = cancellationTokenSource.Token.Register(() => cancellationObserved.TrySetResult());
+        var workerCompletion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        Task<Task> worker = Task.Factory.StartNew(
+            () => workerCompletion.Task,
+            CancellationToken.None,
+            TaskCreationOptions.None,
+            TaskScheduler.Default);
+        var runners = new[] { new KeyValuePair<CancellationTokenSource, Task>(cancellationTokenSource, worker) };
+
+        var cleanup = LimitedConcurrencyLibraryScheduler.CancelAndWaitForRunnersAsync(runners);
+
+        await cancellationObserved.Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+        Assert.False(cleanup.IsCompleted);
+        workerCompletion.TrySetResult();
+        await cleanup.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+    }
+
     [Fact]
     public async Task Enqueue_AppliesBackpressureWhenBoundedChannelIsFull()
     {

@@ -121,20 +121,10 @@ public sealed class LimitedConcurrencyLibraryScheduler : ILimitedConcurrencyLibr
                     cleanupCompletion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
                     _cleanupInProgress = cleanupCompletion;
                     taskRunners = _taskRunners.ToArray();
-                    foreach (var item in taskRunners)
-                    {
-                        _taskRunners.Remove(item.Key);
-                    }
-                }
-
-                var cancellations = new Task[taskRunners.Length];
-                for (var i = 0; i < taskRunners.Length; i++)
-                {
-                    cancellations[i] = CancelIfRunningAsync(taskRunners[i].Key);
                 }
 
                 _logger.LogDebug("Cleanup runners.");
-                await Task.WhenAll(cancellations).ConfigureAwait(false);
+                await CancelAndWaitForRunnersAsync(taskRunners).ConfigureAwait(false);
                 lock (_taskLock)
                 {
                     if (ReferenceEquals(_cleanupInProgress, cleanupCompletion))
@@ -183,6 +173,13 @@ public sealed class LimitedConcurrencyLibraryScheduler : ILimitedConcurrencyLibr
                 // The worker completed and disposed its token source before cleanup reached it.
             }
         });
+    }
+
+    internal static Task CancelAndWaitForRunnersAsync(KeyValuePair<CancellationTokenSource, Task>[] taskRunners)
+    {
+        var runnerTasks = taskRunners
+            .Select(item => item.Value is Task<Task> worker ? worker.Unwrap() : item.Value);
+        return Task.WhenAll(taskRunners.Select(item => CancelIfRunningAsync(item.Key)).Concat(runnerTasks));
     }
 
     private bool ShouldForceSequentialOperation()
@@ -445,12 +442,7 @@ public sealed class LimitedConcurrencyLibraryScheduler : ILimitedConcurrencyLibr
                 taskRunners = _taskRunners.ToArray();
             }
 
-            foreach (var item in taskRunners)
-            {
-                await CancelIfRunningAsync(item.Key).ConfigureAwait(false);
-            }
-
-            await Task.WhenAll(taskRunners.Select(item => item.Value is Task<Task> worker ? worker.Unwrap() : item.Value)).ConfigureAwait(false);
+            await CancelAndWaitForRunnersAsync(taskRunners).ConfigureAwait(false);
 
             if (_cleanupTask is not null)
             {
