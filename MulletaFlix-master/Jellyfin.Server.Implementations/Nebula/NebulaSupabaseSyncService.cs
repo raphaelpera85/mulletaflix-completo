@@ -1723,26 +1723,15 @@ public sealed class NebulaSupabaseSyncService : IDisposable
 
         // Conflict target must match the remote unique index. Using only id
         // caused HTTP 409 when a stale row kept the same username.
-        var uri = $"{supabaseUrl.TrimEnd('/')}/rest/v1/mulletaflix_users?on_conflict=normalized_username";
-        using var request = new HttpRequestMessage(HttpMethod.Post, uri)
+        const string endpoint = "mulletaflix_users?on_conflict=normalized_username";
+        try
         {
-            Content = new StringContent(JsonSerializer.Serialize(records), Encoding.UTF8, "application/json")
-        };
-        request.Headers.Add("apikey", supabaseKey);
-        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", supabaseKey);
-        request.Headers.Add("Prefer", "resolution=merge-duplicates,return=minimal");
-
-        using var response = await _httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
-        if (!response.IsSuccessStatusCode)
+            await SendSupabaseBatchWithRetryAsync(supabaseUrl, supabaseKey, endpoint, records, cancellationToken).ConfigureAwait(false);
+        }
+        catch (InvalidOperationException ex) when (ex.Message.Contains("PGRST205", StringComparison.Ordinal))
         {
-            var body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
-            if (response.StatusCode == HttpStatusCode.NotFound && body.Contains("PGRST205", StringComparison.Ordinal))
-            {
-                throw new InvalidOperationException(
-                    "A tabela mulletaflix_users não existe no projeto Supabase; aplique a migração antes de declarar o backup concluído.");
-            }
-
-            throw new InvalidOperationException($"Falha ao salvar usuários do MulletaFlix no Supabase: HTTP {(int)response.StatusCode} - {body}");
+            throw new InvalidOperationException(
+                "A tabela mulletaflix_users não existe no projeto Supabase; aplique a migração antes de declarar o backup concluído.", ex);
         }
 
         return records.Count;

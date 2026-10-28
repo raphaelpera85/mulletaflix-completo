@@ -1203,6 +1203,45 @@ public class NebulaSupabaseSyncTests
         Assert.Contains(progressMessages, msg => msg.Contains("Lote de usuários do MulletaFlix (1 usuários) enviado com sucesso", StringComparison.Ordinal));
     }
 
+    [Fact]
+    public async Task PerformUsersBackupAsync_RetriesTransientMulletaFlixUserBatch()
+    {
+        var options = new DbContextOptionsBuilder<UsersDbContext>()
+            .UseInMemoryDatabase(Guid.NewGuid().ToString("N"))
+            .Options;
+        var factory = new Mock<IDbContextFactory<UsersDbContext>>();
+        await using (var seedDb = new UsersDbContext(options, NullLogger<UsersDbContext>.Instance))
+        {
+            seedDb.Users.Add(new User("retry-user", "default", "default") { NormalizedUsername = "RETRY-USER", Password = "pwd" });
+            await seedDb.SaveChangesAsync(TestContext.Current.CancellationToken);
+        }
+
+        factory.Setup(value => value.CreateDbContextAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(() => new UsersDbContext(options, NullLogger<UsersDbContext>.Instance));
+
+        var handler = new SequenceResponseHandler(
+            new HttpResponseMessage(HttpStatusCode.InternalServerError) { Content = new StringContent("temporary") },
+            new HttpResponseMessage(HttpStatusCode.OK),
+            new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("[]") });
+        using var service = new NebulaSupabaseSyncService(
+            null!,
+            NullLogger<NebulaSupabaseSyncService>.Instance,
+            factory.Object,
+            handler);
+
+        var result = await service.PerformUsersBackupAsync(
+            "https://supabase.invalid",
+            "sb_secret_test",
+            cancellationToken: TestContext.Current.CancellationToken);
+
+        Assert.True(result.Success);
+        Assert.Equal(3, handler.Methods.Count);
+        Assert.Equal(HttpMethod.Post, handler.Methods[0]);
+        Assert.Equal(HttpMethod.Post, handler.Methods[1]);
+        Assert.Equal("/rest/v1/mulletaflix_users?on_conflict=normalized_username", handler.RequestUris[1]);
+        Assert.Equal(HttpMethod.Get, handler.Methods[2]);
+    }
+
     private static IDbContextFactory<UsersDbContext> CreateUsersContextFactory(DbContextOptions<UsersDbContext> options)
     {
         var factory = new Mock<IDbContextFactory<UsersDbContext>>();

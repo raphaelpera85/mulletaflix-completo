@@ -620,3 +620,9 @@ Para evitar falso ganho, cada sprint deve fechar com medicao antes/depois.
 - Testes de regressão incluídos em `tests/Jellyfin.Controller.Tests/LibraryTaskScheduler/LimitedConcurrencyLibrarySchedulerTests.cs`.
 - Dependências do frontend atualizadas no `MulletaFlix-web-master/package.json` e lockfile: DOMPurify 3.4.17, Vitest/coverage 5.0.5 e Undici transitivo corrigido; auditoria npm sem vulnerabilidades.
 - Mapa técnico conferido: mesma classe, singleton e caller `Folder.RunTasks`; sem novo módulo/API/dependência. Versões de dependências existentes foram corrigidas.
+
+### 28/10/2026 — Retry de backup de usuários e refresh Nebula
+
+- O backup Supabase de usuários MulletaFlix reutiliza `SendSupabaseBatchWithRetryAsync` para até três tentativas idempotentes (merge por `normalized_username`); a falha de migração `PGRST205` mantém mensagem específica.
+- `NebulaDirectoryRefreshQueue` reprograma em memória o diretório que falhou após 30 segundos; refreshes seguintes continuam sendo atendidos. Testes determinísticos cobrem HTTP 500→sucesso e refresh temporariamente falho→sucesso.
+- Mudança de fluxo nas classes existentes, sem novo módulo, API pública ou dependência. Retry da fila não é persistente após reinício; o scan recuperatório segue limitado a 30 minutos. Focal Windows/.NET 10 Debug: 7/7 aprovados; GitHub CI/PR, serviços reais e produção pendentes. Formal 2/7, sem release.

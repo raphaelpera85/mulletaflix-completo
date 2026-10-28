@@ -16,6 +16,7 @@ internal sealed class NebulaDirectoryRefreshQueue : IAsyncDisposable
     private readonly Func<string, CancellationToken, Task> _refresh;
     private readonly ILogger<NebulaDirectoryRefreshQueue> _logger;
     private readonly TimeSpan _debounce;
+    private readonly TimeSpan _retryDelay;
     private readonly SemaphoreSlim _wakeSignal = new(0, 1);
     private readonly CancellationTokenSource _shutdown = new();
     private readonly Task _workerTask;
@@ -25,11 +26,13 @@ internal sealed class NebulaDirectoryRefreshQueue : IAsyncDisposable
     public NebulaDirectoryRefreshQueue(
         Func<string, CancellationToken, Task> refresh,
         ILogger<NebulaDirectoryRefreshQueue> logger,
-        TimeSpan? debounce = null)
+        TimeSpan? debounce = null,
+        TimeSpan? retryDelay = null)
     {
         _refresh = refresh;
         _logger = logger;
         _debounce = debounce ?? TimeSpan.FromMilliseconds(750);
+        _retryDelay = retryDelay ?? TimeSpan.FromSeconds(30);
         _workerTask = ProcessQueueAsync();
     }
 
@@ -127,6 +130,22 @@ internal sealed class NebulaDirectoryRefreshQueue : IAsyncDisposable
                 catch (Exception ex)
                 {
                     _logger.LogWarning(ex, "Falha ao atualizar cache rclone da pasta virtual {Directory}.", directory);
+                    lock (_lock)
+                    {
+                        if (!_disposed)
+                        {
+                            _pendingDirectories[directory] = DateTimeOffset.UtcNow + _retryDelay;
+                        }
+                    }
+
+                    try
+                    {
+                        _wakeSignal.Release();
+                    }
+                    catch (SemaphoreFullException)
+                    {
+                        // The worker already has a pending wake-up.
+                    }
                 }
             }
         }
