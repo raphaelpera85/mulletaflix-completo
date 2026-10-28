@@ -148,6 +148,10 @@ jobs:
           name: mulletaflix-linux-x64
           path: dist
 
+      - name: Validate updater stops after a failed file copy
+        shell: pwsh
+        run: .\MulletaFlix-packaging-master\scripts\tests\ApplyUpdateFailure.Tests.ps1
+
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
         with:
@@ -200,6 +204,6 @@ jobs:
         shell: pwsh
         run: |
           $tagVersion = "${{ github.ref_name }}".TrimStart('v')
-          .\publish-release.ps1 -Tag "${{ github.ref_name }}" -Title "MulletaFlix Server ${{ github.ref_name }}" -NotesPath "docs/releases/$tagVersion.md" -AssetsDirectory dist
+          .\publish-release.ps1 -Tag "${{ github.ref_name }}" -Title "MulletaFlix Server ${{ github.ref_name }}" -NotesPath "MulletaFlix-master/docs/releases/$tagVersion.md" -AssetsDirectory dist
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

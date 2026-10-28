@@ -75,3 +75,8 @@ test('Linux server package copies, verifies, and installs Nebula from the hash l
     assert.match(linuxPackageTest, /requirements\.in requirements\.txt requirements\.lock/);
     assert.match(releaseWorkflow, /server\/Tools\/NebulaPython\/requirements\.lock/);
 });
+
+test('Release workflow validates the updater and reads notes from the server documentation path', () => {
+    assert.match(releaseWorkflow, /ApplyUpdateFailure\.Tests\.ps1/);
+    assert.ok(releaseWorkflow.includes('-NotesPath "MulletaFlix-master/docs/releases/$tagVersion.md"'));
+});
