@@ -10,6 +10,12 @@ Em Windows/.NET 10 Release, o teste focal de manifesto excedente passou 1/1, o d
 
 Os limites podem recusar backups legítimos acima dos tetos indicados; não foi medido o maior backup de produção. O preflight não suporta/validou arquivos com prefixo SFX ou registro opcional de assinatura digital no diretório central. Não houve execução Linux/CI hospedada, runtime instalado nem restore em produção. Homologação formal permanece 2/7 (28,6%); esta mudança não conclui gate nem cria release.
 
+## Reauditoria estática das operações do restore — 2026-10-28 11:34 BRT
+
+No commit `1965ea30`, `FileSystemRestoreTransaction.ApplyEntryAsync`, rollback, limpeza de sidecars e remoção de diretórios criados executam mutações por `BackupRestoreDirectory` e nomes relativos a handles. A descoberta/abertura dos diretórios ainda usa paths para `Directory.Exists`, `Path.GetFullPath` e `BackupRestoreDirectory.OpenRoot`; a revisão estática não prova ausência de corrida do sistema operacional. Não foi identificada correção de código justificável sem reproduzir um bypass concreto.
+
+`FullyQualifiedName~FullSystemBackup` recompilou em Windows/.NET 10 Release e passou 150, ignorou 16 casos Linux/macOS/mount e falhou 0 (166). WSL2 não inicia porque virtualização de hardware está desativada nesta máquina; Docker e Podman não estão instalados. Assim, syscalls/ACL POSIX, corrida concorrente Linux, mount cases e execução CI hospedada permanecem não verificados. Formal continua 2/7 (28,6%), sem crédito/release. O próximo gate é obter um runner Linux observável e executar o conjunto privilegiado atual, não inferir segurança Linux da suíte Windows.
+
 ## CI da branch de restore — 2026-10-28 08:58 BRT
 
 Auditoria de `.github/workflows/ci.yml`: `push` está configurado somente para `main` e `master`; branches de trabalho dependem de `pull_request`. O endpoint público de Actions não retornou execução para o commit `80609ab92d585eb248376f2fe32ffd04fa29dfe9`, e o status combinado não listou checks. A tentativa de abrir PR draft pela integração GitHub foi recusada com HTTP 403 `Resource not accessible by integration`; nenhum PR foi criado. Isso explica a ausência de CI nessa branch, sem indicar falha do código nem sucesso dos testes hospedados. Localmente, a validação anterior segue 147/163 `FullSystemBackup`, 8/8 `Crc32Tests` e 1/1 teste focal IntroSkipper em Windows/.NET 10 Release. Linux/CI hospedada, runtime instalado e produção não foram validados. Homologação formal 2/7 (28,6%), sem crédito ou release.
