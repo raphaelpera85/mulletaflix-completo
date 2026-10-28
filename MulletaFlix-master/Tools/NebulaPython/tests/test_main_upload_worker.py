@@ -10,6 +10,33 @@ main = importlib.import_module("main")
 
 
 @pytest.mark.asyncio
+async def test_upload_checkpoint_retries_transient_mongo_failures(monkeypatch):
+    attempts = []
+    delays = []
+
+    class Files:
+        async def update_one(self, query, update):
+            attempts.append((query, update))
+            if len(attempts) < 3:
+                raise TimeoutError("Mongo temporarily unavailable")
+
+    async def record_delay(delay):
+        delays.append(delay)
+
+    monkeypatch.setattr(main.asyncio, "sleep", record_delay)
+    query = {"_id": "uploaded-media"}
+    update = {"$set": {"parts": [{"part_id": 0}]}}
+
+    await main.persist_upload_checkpoint(
+        SimpleNamespace(files=Files()), query, update, filename="media.mkv", worker_id=4
+    )
+
+    assert len(attempts) == 3
+    assert delays == [1, 2]
+    assert all(attempt == (query, update) for attempt in attempts)
+
+
+@pytest.mark.asyncio
 async def test_parallel_upload_worker_completes_file_and_cleans_staging(monkeypatch, tmp_path):
     media = tmp_path / "episode.mkv"
     media.write_bytes(b"abcdefghij")

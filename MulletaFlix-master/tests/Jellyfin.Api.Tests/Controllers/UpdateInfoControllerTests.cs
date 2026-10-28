@@ -145,6 +145,44 @@ public class UpdateInfoControllerTests
     }
 
     [Fact]
+    public void TryParseGitHubRelease_SelectsUpdatePackageWhenAnotherZipComesFirst()
+    {
+        var json = """
+            [{
+              "tag_name": "v12.1.46",
+              "assets": [
+                { "name": "source-code.zip", "size": 100, "browser_download_url": "https://example.com/source.zip" },
+                { "name": "mulletaflix-update-win-x64.zip", "size": 500, "browser_download_url": "https://example.com/server-update.zip" }
+              ]
+            }]
+            """;
+
+        var success = UpdateInfoController.TryParseGitHubRelease(json, out _, out _, out var archiveUrl, out var size);
+
+        Assert.True(success);
+        Assert.Equal("https://example.com/server-update.zip", archiveUrl);
+        Assert.Equal(500, size);
+    }
+
+    [Fact]
+    public void TryParseGitHubRelease_RejectsAmbiguousZipAssetsWithoutNamedUpdatePackage()
+    {
+        var json = """
+            [{
+              "tag_name": "v12.1.46",
+              "assets": [
+                { "name": "source-code.zip", "size": 100, "browser_download_url": "https://example.com/source.zip" },
+                { "name": "other-package.zip", "size": 500, "browser_download_url": "https://example.com/other.zip" }
+              ]
+            }]
+            """;
+
+        var success = UpdateInfoController.TryParseGitHubRelease(json, out _, out _, out _, out _);
+
+        Assert.False(success);
+    }
+
+    [Fact]
     public void TryParseGitHubRelease_IgnoresNumericPrereleaseWithNewerVersion()
     {
         var json = @"[

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import os
 from pathlib import Path
 from types import SimpleNamespace
@@ -120,12 +121,28 @@ def test_worker_counts_respect_bot_and_configuration_limits(monkeypatch):
     assert get_upload_worker_count(8) == 4
     # A large bot pool must not override the configured global upload cap.
     assert get_upload_worker_count(27) == 4
-    assert get_upload_worker_count(0) == 1
+    assert get_upload_worker_count(0) == 0
+    assert get_small_upload_worker_count(0) == 0
     monkeypatch.setenv("SMALL_WORKERS", "20")
     assert get_small_upload_worker_count(3) == 3
     monkeypatch.setenv("SMALL_WORKERS", "bad")
     with pytest.raises(ValueError):
         get_small_upload_worker_count(3)
+
+
+@pytest.mark.asyncio
+async def test_upload_task_stays_in_durable_queue_when_no_bot_is_active(monkeypatch):
+    queue = asyncio.Queue()
+    task = {"filename": "queued.mkv"}
+    monkeypatch.setattr(main_module, "UPLOAD_QUEUE", queue)
+    monkeypatch.setattr(main_module.MongoDBPathIO, "tg", [])
+
+    assert await main_module.enqueue_upload_if_available(task) is False
+    assert queue.empty()
+
+    monkeypatch.setattr(main_module.MongoDBPathIO, "tg", [object()])
+    assert await main_module.enqueue_upload_if_available(task) is True
+    assert await queue.get() == task
 
 
 def test_bot_rotation_wraps_and_empty_pool_is_safe(monkeypatch):

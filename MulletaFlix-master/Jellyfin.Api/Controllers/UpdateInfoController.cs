@@ -14,6 +14,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using MediaBrowser.Common.Api;
 using MediaBrowser.Common.Configuration;
+using MediaBrowser.Common.Updates;
 using MediaBrowser.Controller;
 using MediaBrowser.Model.System;
 using Microsoft.AspNetCore.Authorization;
@@ -635,6 +636,7 @@ public class UpdateInfoController : BaseMulletaFlixApiController
             }
 
             GitHubReleasePayload? bestRelease = null;
+            GitHubReleaseAsset? bestArchive = null;
             var bestVersion = new Version(0, 0, 0);
 
             foreach (var release in candidates)
@@ -656,8 +658,7 @@ public class UpdateInfoController : BaseMulletaFlixApiController
                     continue;
                 }
 
-                // Server release must include a .zip package
-                var zipAsset = release.Assets?.FirstOrDefault(a => a.Name.EndsWith(".zip", StringComparison.OrdinalIgnoreCase));
+                var zipAsset = ServerUpdateArchiveSelector.Select(release.Assets, asset => asset.Name);
                 if (zipAsset == null)
                 {
                     continue;
@@ -667,16 +668,16 @@ public class UpdateInfoController : BaseMulletaFlixApiController
                 {
                     bestVersion = parsed;
                     bestRelease = release;
+                    bestArchive = zipAsset;
                 }
             }
 
-            if (bestRelease != null && bestVersion > new Version(0, 0, 0))
+            if (bestRelease != null && bestArchive != null && bestVersion > new Version(0, 0, 0))
             {
                 version = bestVersion;
                 changelog = bestRelease.Body;
-                var zipAsset = bestRelease.Assets!.First(a => a.Name.EndsWith(".zip", StringComparison.OrdinalIgnoreCase));
-                archiveUrl = zipAsset.BrowserDownloadUrl;
-                size = zipAsset.Size;
+                archiveUrl = bestArchive.BrowserDownloadUrl;
+                size = bestArchive.Size;
                 return true;
             }
 

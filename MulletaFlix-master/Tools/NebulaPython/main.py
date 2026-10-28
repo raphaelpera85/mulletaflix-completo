@@ -173,6 +173,8 @@ def is_loopback_host(host):
 
 
 def get_upload_worker_count(bot_count):
+    if bot_count <= 0:
+        return 0
     # Each worker uploads one file at a time using PART_WORKERS_PER_FILE parallel parts.
     target_workers = max(1, bot_count // PART_WORKERS_PER_FILE)
     # Do not turn the available bot count into a minimum concurrency: the global
@@ -185,6 +187,8 @@ def get_upload_worker_count(bot_count):
 
 def get_small_upload_worker_count(bot_count):
     """Number of dedicated workers for small files (<= 50MB, e.g. .jpg, .png, .nfo, subtitles)."""
+    if bot_count <= 0:
+        return 0
     configured = int(environ.get("SMALL_WORKERS", str(SMALL_WORKERS_CONFIG)))
     return max(1, min(configured, bot_count))
 
@@ -844,9 +848,11 @@ async def stats_reporter(mongo):
                                 {"_id": doc["_id"]},
                                 {"$set": {"name": display_name, "parent": parent_path, "status": "queued", "local_path": fp, "size": size_t1}}
                             )
-                            await UPLOAD_QUEUE.put({
+                            task = {
                                 "path": fp, "filename": display_name, "parent": parent_path, "size": size_t1
-                            })
+                            }
+                            if not await enqueue_upload_if_available(task):
+                                logger.info("Arquivo preservado na fila; aguardando bot Telegram ativo: %s", display_name)
                             logger.debug(f"Reenfileirado: {display_name}")
                             await log_queue_state(mongo, f"reenfileirado:{display_name}")
                         elif not doc:
@@ -890,9 +896,11 @@ async def stats_reporter(mongo):
                                 if not result.upserted_id:
                                     logger.debug("Já enfileirado por outro produtor: %s", display_name)
                                     continue
-                                await UPLOAD_QUEUE.put({
+                                task = {
                                     "path": fp, "filename": display_name, "parent": parent_path, "size": size_t1
-                                })
+                                }
+                                if not await enqueue_upload_if_available(task):
+                                    logger.info("Arquivo registrado na fila; aguardando bot Telegram ativo: %s", display_name)
                                 logger.debug(f"Enfileirado: {display_name}")
                                 await log_queue_state(mongo, f"enfileirado:{display_name}")
                             except Exception as e:
@@ -1619,6 +1627,24 @@ async def upload_worker(bot, target_chat_id, mongo, worker_id, bot_index=0):
                 ACTIVE_UPLOADS.discard(local_path)
                 UPLOAD_QUEUE.task_done()
 
+async def persist_upload_checkpoint(mongo, query, update, *, filename, worker_id):
+    delay = 1
+    while True:
+        try:
+            await mongo.files.update_one(query, update)
+            return
+        except Exception as exc:
+            logger.warning(
+                "[W%s] Mongo indisponível ao salvar checkpoint de %s (%s); nova tentativa em %ss",
+                worker_id,
+                filename,
+                type(exc).__name__,
+                delay,
+            )
+            await asyncio.sleep(delay)
+            delay = min(delay * 2, 30)
+
+
 async def upload_worker_parallel(bots, target_chat_id, mongo, worker_id):
     """Upload worker with bot rotation and read-ahead.
 
@@ -1751,9 +1777,12 @@ async def upload_worker_parallel(bots, target_chat_id, mongo, worker_id):
                 uploaded_bytes += sum(item["file_size"] for item in results)
                 percent = uploaded_bytes / real_size * 100
                 stream_bot_name = next((item.get("bot_name") for item in parts_metadata if item.get("bot_name")), None)
-                await mongo.files.update_one(
+                await persist_upload_checkpoint(
+                    mongo,
                     {"_id": file_doc["_id"]},
-                    {"$set": {"uploaded_bytes": uploaded_bytes, "parts": parts_metadata, "stream_bot_name": stream_bot_name}}
+                    {"$set": {"uploaded_bytes": uploaded_bytes, "parts": parts_metadata, "stream_bot_name": stream_bot_name}},
+                    filename=filename,
+                    worker_id=worker_id,
                 )
                 logger.debug(
                     f"[W{worker_id}] Progresso: {filename} parte={batch_end}/{total_parts} "
@@ -1776,7 +1805,8 @@ async def upload_worker_parallel(bots, target_chat_id, mongo, worker_id):
                 (item.get("bot_name") for item in parts_metadata if item.get("bot_name")),
                 None,
             )
-            await mongo.files.update_one(
+            await persist_upload_checkpoint(
+                mongo,
                 {"_id": file_doc["_id"]},
                 {
                     "$set": {
@@ -1793,6 +1823,8 @@ async def upload_worker_parallel(bots, target_chat_id, mongo, worker_id):
                     },
                     "$unset": {"uploadId": 1, "local_path": 1},
                 },
+                filename=filename,
+                worker_id=worker_id,
             )
             async with MongoDBPathIO._cache_lock:
                 MongoDBPathIO._memory_cache.pop(f"{parent}::{filename}", None)
@@ -1893,7 +1925,8 @@ async def upload_small_file_worker(bots, target_chat_id, mongo, worker_id):
 
             parts_metadata = [part_result]
             stream_bot_name = part_result.get("bot_name")
-            await mongo.files.update_one(
+            await persist_upload_checkpoint(
+                mongo,
                 {"_id": file_doc["_id"]},
                 {
                     "$set": {
@@ -1910,6 +1943,8 @@ async def upload_small_file_worker(bots, target_chat_id, mongo, worker_id):
                     },
                     "$unset": {"uploadId": 1, "local_path": 1},
                 },
+                filename=filename,
+                worker_id=f"S{worker_id}",
             )
             async with MongoDBPathIO._cache_lock:
                 MongoDBPathIO._memory_cache.pop(f"{parent}::{filename}", None)
@@ -2372,6 +2407,14 @@ async def folder_watcher(mongo):
     await stats_reporter(mongo)
 
 
+async def enqueue_upload_if_available(task):
+    """Keep MongoDB as the durable queue while no Telegram bot can upload."""
+    if not MongoDBPathIO.tg:
+        return False
+    await UPLOAD_QUEUE.put(task)
+    return True
+
+
 async def _supervisor_lease_is_alive(port: int, token: str) -> bool:
     """Check that the owning MulletaFlix process still supervises this worker."""
     writer = None
@@ -2607,35 +2650,38 @@ async def main():
     if STREAM_ONLY:
         logger.info("Modo somente streaming: feeder, fila e workers de upload desativados.")
     else:
-        await cleanup_strm_duplicate_records(mongo)
         folder_task = asyncio.create_task(folder_watcher(mongo))
         background_tasks.append(folder_task)
-        await restore_pending_uploads(mongo)
-        upload_worker_count = get_upload_worker_count(len(upload_bots))
-        small_worker_count = get_small_upload_worker_count(len(upload_bots))
-        logger.info(
-            "Workers de upload ativos: %s grandes / %s pequenos "
-            "(concorrencia maxima=%s partes, configurados: max_grandes=%s, max_pequenos=%s, bots=%s).",
-            upload_worker_count,
-            small_worker_count,
-            UPLOAD_CONCURRENCY,
-            LARGE_WORKERS_CONFIG,
-            SMALL_WORKERS_CONFIG,
-            len(upload_bots),
-        )
-        background_tasks.append(
-            asyncio.create_task(
-                queued_mongo_scanner(mongo, max_workers=max(upload_worker_count * PART_WORKERS_PER_FILE, 30))
+        if upload_bots:
+            await cleanup_strm_duplicate_records(mongo)
+            await restore_pending_uploads(mongo)
+            upload_worker_count = get_upload_worker_count(len(upload_bots))
+            small_worker_count = get_small_upload_worker_count(len(upload_bots))
+            logger.info(
+                "Workers de upload ativos: %s grandes / %s pequenos "
+                "(concorrencia maxima=%s partes, configurados: max_grandes=%s, max_pequenos=%s, bots=%s).",
+                upload_worker_count,
+                small_worker_count,
+                UPLOAD_CONCURRENCY,
+                LARGE_WORKERS_CONFIG,
+                SMALL_WORKERS_CONFIG,
+                len(upload_bots),
             )
-        )
-        for i in range(upload_worker_count):
             background_tasks.append(
-                asyncio.create_task(upload_worker_parallel(upload_bots, target_chat_id, mongo, i + 1))
+                asyncio.create_task(
+                    queued_mongo_scanner(mongo, max_workers=max(upload_worker_count * PART_WORKERS_PER_FILE, 30))
+                )
             )
-        for i in range(small_worker_count):
-            background_tasks.append(
-                asyncio.create_task(upload_small_file_worker(upload_bots, target_chat_id, mongo, i + 1))
-            )
+            for i in range(upload_worker_count):
+                background_tasks.append(
+                    asyncio.create_task(upload_worker_parallel(upload_bots, target_chat_id, mongo, i + 1))
+                )
+            for i in range(small_worker_count):
+                background_tasks.append(
+                    asyncio.create_task(upload_small_file_worker(upload_bots, target_chat_id, mongo, i + 1))
+                )
+        else:
+            logger.warning("Fila de upload preservada no MongoDB; scanners e workers aguardam bots Telegram ativos.")
 
     ftp_server_task = asyncio.create_task(server.serve_forever())
     control_plane = None
