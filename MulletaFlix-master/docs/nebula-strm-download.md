@@ -856,3 +856,7 @@ Validação local Release Windows/.NET 10: testes Nebula 716 aprovados, 26 ignor
 ### Complemento — snapshot da fila persistente no Supabase
 
 A tabela `nebula_directory_refreshes` foi adicionada ao SQL de instalação Supabase com RLS apenas para `service_role`. Backup sincroniza o conjunto atual por caminho canônico e remove rows remotas concluídas; restore reidrata paths usando o mesmo guard de raiz visível. Resultado de backup/restore expõe contagens de refreshes sincronizados/restaurados. Suíte ampla `FullyQualifiedName~Nebula`: 718 aprovados, 26 ignorados, 0 falhas/744; os testes Mongo opt-in não executaram sem Mongo disponível. Schema remoto real, CI hospedada, runtime instalado e produção seguem pendentes.
+
+### Revalidação com Mongo descartável e schema instalado — 2026-10-28
+
+MongoDB 8.3.7 isolado em `127.0.0.1:27099` habilitou todos os testes da suíte Nebula: 744 aprovados, 0 ignorados, 0 falhas. A migration `20261028125319` foi aplicada ao Supabase `Mulletaflix-Nebula`; tabela vazia e ACL/RLS conferidos por catálogo: apenas `service_role` tem SELECT/INSERT/UPDATE/DELETE. HTTP de sync/restore continuou mockado; CI, runtime instalado e execução de backup de produção não foram validados.

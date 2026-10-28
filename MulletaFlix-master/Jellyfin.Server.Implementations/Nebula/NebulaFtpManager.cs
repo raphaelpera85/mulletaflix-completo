@@ -4585,6 +4585,9 @@ CREATE POLICY nebula_bot_tokens_service_role_all
 
 CREATE POLICY nebula_directory_refreshes_service_role_all
     ON nebula_directory_refreshes FOR ALL TO service_role USING (true) WITH CHECK (true);
+
+REVOKE ALL ON TABLE nebula_directory_refreshes FROM anon, authenticated;
+GRANT ALL ON TABLE nebula_directory_refreshes TO service_role;
 ";
     }
 

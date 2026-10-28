@@ -880,6 +880,8 @@ public class NebulaUploadEngineTests
         Assert.Contains("ALTER TABLE nebula_bot_tokens ENABLE ROW LEVEL SECURITY", sql, System.StringComparison.Ordinal);
         Assert.Contains("CREATE TABLE IF NOT EXISTS nebula_directory_refreshes", sql, System.StringComparison.Ordinal);
         Assert.Contains("ALTER TABLE nebula_directory_refreshes ENABLE ROW LEVEL SECURITY", sql, System.StringComparison.Ordinal);
+        Assert.Contains("REVOKE ALL ON TABLE nebula_directory_refreshes FROM anon, authenticated", sql, System.StringComparison.Ordinal);
+        Assert.Contains("GRANT ALL ON TABLE nebula_directory_refreshes TO service_role", sql, System.StringComparison.Ordinal);
 
         // Deve criar políticas para service_role (evita acesso anônimo implícito)
         Assert.Contains("CREATE POLICY nebula_files_service_role_all", sql, System.StringComparison.Ordinal);

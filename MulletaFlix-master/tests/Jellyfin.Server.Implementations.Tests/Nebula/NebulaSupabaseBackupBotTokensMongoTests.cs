@@ -92,6 +92,8 @@ public sealed class NebulaSupabaseBackupBotTokensMongoTests : IDisposable
         var backupHandler = new RecordingResponseHandler(
             "[{\"directory_path\":\"/Series/Refresh Sample/Season 1\"},{\"directory_path\":\"/Series/Old Pending/Season 1\"}]",
             new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(string.Empty) },
+            new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(string.Empty) },
+            new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(string.Empty) },
             new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(string.Empty) });
 
         using var backupService = new NebulaSupabaseSyncService(
