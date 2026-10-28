@@ -15,9 +15,9 @@ public interface ILimitedConcurrencyLibraryScheduler
     /// </summary>
     /// <typeparam name="T">The data Type.</typeparam>
     /// <param name="data">The data.</param>
-    /// <param name="worker">The callback to process the data.</param>
+    /// <param name="worker">The callback to process the data and observe scheduler cancellation.</param>
     /// <param name="progress">A progress reporter.</param>
-    /// <param name="cancellationToken">Stop token.</param>
+    /// <param name="cancellationToken">Token that cancels this workset.</param>
     /// <returns>A task that finishes when all data has been processed by the worker.</returns>
-    Task Enqueue<T>(T[] data, Func<T, IProgress<double>, Task> worker, IProgress<double> progress, CancellationToken cancellationToken);
+    Task Enqueue<T>(T[] data, Func<T, IProgress<double>, CancellationToken, Task> worker, IProgress<double> progress, CancellationToken cancellationToken);
 }

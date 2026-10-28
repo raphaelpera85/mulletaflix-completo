@@ -809,7 +809,7 @@ namespace MediaBrowser.Controller.Entities
         private async Task RefreshMetadataRecursive(IList<BaseItem> children, MetadataRefreshOptions refreshOptions, bool recursive, IProgress<double> progress, CancellationToken cancellationToken)
         {
             await RunTasks(
-                (baseItem, innerProgress) => RefreshChildMetadata(baseItem, refreshOptions, recursive && baseItem.IsFolder, innerProgress, cancellationToken),
+                (baseItem, innerProgress, workerCancellationToken) => RefreshChildMetadata(baseItem, refreshOptions, recursive && baseItem.IsFolder, innerProgress, workerCancellationToken),
                 children,
                 progress,
                 cancellationToken).ConfigureAwait(false);
@@ -857,7 +857,7 @@ namespace MediaBrowser.Controller.Entities
         private async Task ValidateSubFolders(IList<Folder> children, IDirectoryService directoryService, IProgress<double> progress, CancellationToken cancellationToken)
         {
             await RunTasks(
-                (folder, innerProgress) => folder.ValidateChildrenInternal(innerProgress, true, false, false, null, directoryService, cancellationToken),
+                (folder, innerProgress, workerCancellationToken) => folder.ValidateChildrenInternal(innerProgress, true, false, false, null, directoryService, workerCancellationToken),
                 children,
                 progress,
                 cancellationToken).ConfigureAwait(false);
@@ -871,7 +871,7 @@ namespace MediaBrowser.Controller.Entities
         /// <param name="progress">The progress.</param>
         /// <param name="cancellationToken">The cancellation token.</param>
         /// <returns>Task.</returns>
-        private async Task RunTasks<T>(Func<T, IProgress<double>, Task> task, IList<T> children, IProgress<double> progress, CancellationToken cancellationToken)
+        private async Task RunTasks<T>(Func<T, IProgress<double>, CancellationToken, Task> task, IList<T> children, IProgress<double> progress, CancellationToken cancellationToken)
         {
             await LimitedConcurrencyLibraryScheduler
                 .Enqueue(
