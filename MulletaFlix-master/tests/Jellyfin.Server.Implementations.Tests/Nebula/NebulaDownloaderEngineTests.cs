@@ -362,6 +362,53 @@ public sealed class NebulaDownloaderEngineTests : IDisposable
     }
 
     [Fact]
+    public async Task DownloadMultipartCoreAsync_RejectsEmptySequentialResponseWhenSizeIsUnknown()
+    {
+        using var engine = CreateEngine();
+        var requestCount = 0;
+        ReplaceHttpClient(engine, new DelegateHttpMessageHandler(request =>
+        {
+            requestCount++;
+            return new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new ByteArrayContent(Array.Empty<byte>())
+            };
+        }));
+        var target = Path.Combine(_testRoot, "empty.mkv");
+        var method = typeof(NebulaDownloaderEngine).GetMethod("DownloadMultipartCoreAsync", BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.NotNull(method);
+
+        var download = (Task<bool>)method.Invoke(engine, new object[] { "https://example.invalid/empty.mkv", target, 1, CancellationToken.None })!;
+
+        var exception = await Assert.ThrowsAsync<IOException>(() => download);
+
+        Assert.Contains("vazio", exception.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(3, requestCount);
+        Assert.False(File.Exists(target));
+        Assert.False(File.Exists(target + ".download.tmp"));
+    }
+
+    [Fact]
+    public async Task DownloadMultipartCoreAsync_AcceptsNonEmptySequentialResponseWhenSizeIsUnknown()
+    {
+        using var engine = CreateEngine();
+        ReplaceHttpClient(engine, new DelegateHttpMessageHandler(request => new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new ByteArrayContent(request.Method == HttpMethod.Get && request.Headers.Range is null
+                ? new byte[] { 1, 2, 3 }
+                : Array.Empty<byte>())
+        }));
+        var target = Path.Combine(_testRoot, "valid.mkv");
+        var method = typeof(NebulaDownloaderEngine).GetMethod("DownloadMultipartCoreAsync", BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.NotNull(method);
+
+        var download = (Task<bool>)method.Invoke(engine, new object[] { "https://example.invalid/valid.mkv", target, 1, CancellationToken.None })!;
+
+        Assert.True(await download);
+        Assert.Equal(new byte[] { 1, 2, 3 }, await File.ReadAllBytesAsync(target));
+    }
+
+    [Fact]
     public void TryGetRangeProbeLength_ReturnsFalse_ForMissingContentRange()
     {
         var response = new HttpResponseMessage(HttpStatusCode.PartialContent)
@@ -658,4 +705,18 @@ public sealed class NebulaDownloaderEngineTests : IDisposable
     }
 
     #endregion
+
+    private static void ReplaceHttpClient(NebulaDownloaderEngine engine, HttpMessageHandler handler)
+    {
+        var field = typeof(NebulaDownloaderEngine).GetField("_httpClient", BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.NotNull(field);
+        ((HttpClient)field.GetValue(engine)!).Dispose();
+        field.SetValue(engine, new HttpClient(handler));
+    }
+
+    private sealed class DelegateHttpMessageHandler(Func<HttpRequestMessage, HttpResponseMessage> responseFactory) : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+            => Task.FromResult(responseFactory(request));
+    }
 }

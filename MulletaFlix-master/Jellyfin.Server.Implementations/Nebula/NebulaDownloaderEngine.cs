@@ -1232,6 +1232,11 @@ public sealed class NebulaDownloaderEngine : IAsyncDisposable, IDisposable
                     }
                 }
 
+                if (totalRead == 0)
+                {
+                    throw new IOException("Download sequencial vazio: o servidor não enviou bytes da mídia.");
+                }
+
                 if (totalSize > 0 && totalRead != totalSize)
                 {
                     throw new IOException($"Download sequencial incompleto: {totalRead} de {totalSize} bytes.");
