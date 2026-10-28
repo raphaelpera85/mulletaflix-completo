@@ -3821,3 +3821,10 @@ A API pública confirma `v12.1.45` como última GitHub Release e retorna 404 par
 - A regressão completa Release foi iniciada e interrompida depois de não produzir progresso no assembly Providers; não há contagem agregada nem alegação de suíte completa aprovada. Revisão Cavecrew independente: sem achados; não executou integração MariaDB.
 - Ainda não foram executados teste contra MariaDB descartável, Linux, runtime instalado, CI hospedada ou produção. Não criar release: a homologação geral continua 2/7 (28,6%) e T6.4 permanece parcial.
 - CI do commit `a17b61db331ceed5b5f253aae78360da95d34f48`: Actions run `40788460057` encerrou 13/13 checks antes dos runners por bloqueio de cobrança da conta; nenhum teste remoto iniciou. Isso não aprova nem reprova o código.
+
+### 28/10/2026 — Regressão unitária local do gate CI após pin MariaDB
+
+- Reexecução local do passo unitário definido em `.github/workflows/ci.yml`: `dotnet test MulletaFlix.sln --configuration Release --no-build --no-restore --filter "FullyQualifiedName!~Integration" --logger trx`. Resultado em 15 assemblies com casos correspondentes: 5.279 aprovados, 85 ignorados, 0 falhas/5.364. Dois assemblies de integração tiveram zero casos pelo filtro; os 85 ignorados não são aprovações.
+- `MySqlDatabaseProviderTests` segue incluído no assembly e passou 7/7. Build Release da solução concluiu com 0 erros e 2.090 avisos de compilador/analisadores, não tratados nesta tarefa. A auditoria NuGet não reportou pacotes vulneráveis.
+- A primeira execução sem filtro permaneceu sem progresso em Providers e foi interrompida; ela não tem resultado agregado. A reexecução filtrada prova o passo unitário local, não integrações MariaDB, Linux ou produção.
+- Actions run `40788460057` permanece bloqueado antes dos runners por problema de cobrança da conta; não houve CI hospedada. Homologação formal 2/7 (28,6%); T6.4 parcial e sem nova release.
