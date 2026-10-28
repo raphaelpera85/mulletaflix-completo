@@ -1287,6 +1287,50 @@ public sealed class BackupServiceTests : IDisposable
         }
     }
 
+    [Fact]
+    public async Task RestoreBackupAsync_RejectsOversizedManifestBeforeCreatingRestoreSidecars()
+    {
+        var isolatedRoot = CreateRestoreTestRoot("oversized-restore-manifest");
+        var configPath = Path.Combine(isolatedRoot, "config");
+        var archivePath = Path.Combine(isolatedRoot, "oversized-manifest.zip");
+        var existingConfigPath = Path.Combine(configPath, "server.json");
+        Directory.CreateDirectory(configPath);
+
+        try
+        {
+            _applicationPathsMock.Setup(paths => paths.ConfigurationDirectoryPath).Returns(configPath);
+            _applicationPathsMock.Setup(paths => paths.DataPath).Returns(Path.Combine(isolatedRoot, "data"));
+            _applicationPathsMock.Setup(paths => paths.CachePath).Returns(Path.Combine(isolatedRoot, "cache"));
+            _applicationPathsMock.Setup(paths => paths.ProgramDataPath).Returns(Path.Combine(isolatedRoot, "program-data"));
+            _applicationPathsMock.Setup(paths => paths.RootFolderPath).Returns(Path.Combine(isolatedRoot, "root"));
+            _applicationPathsMock.Setup(paths => paths.InternalMetadataPath).Returns(Path.Combine(isolatedRoot, "metadata"));
+            _applicationPathsMock.Setup(paths => paths.DefaultInternalMetadataPath).Returns(Path.Combine(isolatedRoot, "metadata-default"));
+
+            const string existingContent = "keep-existing-config";
+            await File.WriteAllTextAsync(existingConfigPath, existingContent);
+            var incompressibleManifest = Convert.ToBase64String(RandomNumberGenerator.GetBytes(12 * 1024 * 1024 + 1));
+            using (var archive = ZipFile.Open(archivePath, ZipArchiveMode.Create))
+            {
+                await WriteArchiveEntryAsync(archive, "manifest.json", incompressibleManifest);
+            }
+
+            var error = await Assert.ThrowsAsync<InvalidDataException>(
+                () => CreateService().RestoreBackupAsync(archivePath));
+
+            Assert.Contains("manifest", error.Message, StringComparison.OrdinalIgnoreCase);
+            Assert.Equal(existingContent, await File.ReadAllTextAsync(existingConfigPath));
+            Assert.False(File.Exists(Path.Combine(configPath, "server.json.restore-backup")));
+            Assert.False(Directory.Exists(Path.Combine(isolatedRoot, "data")));
+        }
+        finally
+        {
+            if (Directory.Exists(isolatedRoot))
+            {
+                Directory.Delete(isolatedRoot, recursive: true);
+            }
+        }
+    }
+
     [Theory]
     [InlineData("Config/../outside.txt")]
     [InlineData("Config/..\\outside.txt")]

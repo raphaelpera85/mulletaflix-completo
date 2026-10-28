@@ -517,7 +517,7 @@ public class BackupService : IBackupService, IDisposable
             var manifestStream = await zipArchiveEntry.OpenAsync().ConfigureAwait(false);
             await using (manifestStream.ConfigureAwait(false))
             {
-                manifest = await JsonSerializer.DeserializeAsync<BackupManifest>(manifestStream, _serializerSettings).ConfigureAwait(false);
+                manifest = await DeserializeManifestAsync(manifestStream).ConfigureAwait(false);
             }
 
             if (manifest!.ServerVersion > _applicationHost.ApplicationVersion) // newer versions of MulletaFlix should be able to load older versions as we have migrations.
@@ -2596,6 +2596,11 @@ public class BackupService : IBackupService, IDisposable
         }
 
         await using var manifestStream = await manifestEntry.OpenAsync().ConfigureAwait(false);
+        return await DeserializeManifestAsync(manifestStream).ConfigureAwait(false);
+    }
+
+    private static async ValueTask<BackupManifest?> DeserializeManifestAsync(Stream manifestStream)
+    {
         using var manifestBuffer = new MemoryStream();
         var buffer = ArrayPool<byte>.Shared.Rent(81920);
         try
