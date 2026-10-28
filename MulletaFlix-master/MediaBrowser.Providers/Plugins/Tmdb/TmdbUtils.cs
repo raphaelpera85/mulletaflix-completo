@@ -279,13 +279,13 @@ namespace MediaBrowser.Providers.Plugins.Tmdb
                 && imageLanguage.Length == 2
                 && requestLanguage.StartsWith(imageLanguage, StringComparison.OrdinalIgnoreCase))
             {
-                return requestLanguage;
+                return requestLanguage.ToLowerInvariant();
             }
 
             // TMDb now returns xx for no language instead of an empty string.
             return string.Equals(imageLanguage, "xx", StringComparison.OrdinalIgnoreCase)
                 ? string.Empty
-                : imageLanguage;
+                : imageLanguage.ToLowerInvariant();
         }
 
         /// <summary>

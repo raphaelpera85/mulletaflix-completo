@@ -76,3 +76,10 @@ Títulos recebem metadados textuais, mas parte dos posters permanece ausente (pl
 - **Regressões:** imagem TMDb pt-BR com fallbacks; chaves de cache distintas por país/idiomas; abertura após bloqueio exclusivo temporário do Windows; validação e fallback prévios do staging. `TmdbUtilsTests`, `RemoteImagePayloadValidatorTests` e `ProviderManagerRemoteImageValidationTests` passaram 28/28; suíte `Jellyfin.Providers.Tests` sem `LiveIntegrationTests` passou 808/808 em Release.
 - **Twin search:** a busca pelos métodos de obtenção de imagem encontrou cinco providers com idioma de imagem nulo (todos corrigidos). `TmdbPersonImageProvider` usa `GetPersonAsync`, sem parâmetro de idioma de imagem nesta abstração, portanto não reproduz o mesmo defeito de capas/telas de títulos. Não foi encontrado outro re-open de staging remoto com política de retry concorrente.
 - **Limites:** testes não chamam a API real do TMDb, não reprocessam capas já salvas e não verificam mídia renderizada. Títulos com arte antiga precisarão de atualização/refresh após implantação; configuração efetiva de idioma/região por servidor/biblioteca/item permanece a fonte de preferência. A correção ainda não foi instalada nem observada em produção nesta sessão.
+
+## Rótulos de idioma em minúsculas para qualquer locale — 2026-10-28
+
+- `TmdbUtils.AdjustImageLanguage` agora retorna códigos de idioma em minúsculas em todos os casos, inclusive códigos regionais herdados do locale solicitado (`pt-br`, `en-us`, `zh-hant`). O formato em maiúsculas exigido por TMDb permanece somente no parâmetro de consulta; esta mudança afeta o rótulo retornado para cada imagem.
+- Regressão focal cobre locale regional para inglês, francês e chinês, idioma base maiúsculo e idioma não localizado. Nenhum idioma foi codificado como preferência fixa.
+- O mapa técnico foi conferido; a mudança permanece no fluxo existente de conversão de resultados TMDb, sem novo módulo, classe, API ou dependência.
+- Não testado contra TMDb ao vivo nem visualmente na produção nesta sessão. Refresh de imagens já gravadas continua necessário para reaplicar rótulos/seleção de candidatos após implantação.
