@@ -639,7 +639,7 @@ public class UpdateInfoController : BaseMulletaFlixApiController
 
             foreach (var release in candidates)
             {
-                if (string.IsNullOrWhiteSpace(release.TagName))
+                if (release.Prerelease || string.IsNullOrWhiteSpace(release.TagName))
                 {
                     continue;
                 }
@@ -886,6 +886,9 @@ Log ""In-place update finished.""
 
         [JsonPropertyName("assets")]
         public GitHubReleaseAsset[]? Assets { get; set; }
+
+        [JsonPropertyName("prerelease")]
+        public bool Prerelease { get; set; }
     }
 
     private sealed class GitHubReleaseAsset

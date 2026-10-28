@@ -3804,3 +3804,10 @@ A API pública confirma `v12.1.45` como última GitHub Release e retorna 404 par
 - Testes locais de backup, recuperação de inicialização, API, telemetria, IntroSkipper e refresh Nebula passaram; 20 casos foram ignorados por requisitos de plataforma/Mongo opt-in. CI do novo head, runtime Linux nativo, pacotes e instalação continuam pendentes.
 - A última GitHub Release segue 12.1.45 e não há tag/Release 12.1.46. O portal foi sincronizado em `main` no commit `37b40c8`; Vercel Production reportou `READY` e o JSON público respondeu HTTP 200.
 - Homologação formal permanece 2/7 (28,6%); esta atualização documental não fecha gate nem autoriza publicação da versão.
+
+### Update Center — filtrar pré-lançamentos e corrigir visibilidade — 2026-10-28 16:00 (-03)
+
+- A candidata 12.1.46 está na branch `codex/fail-closed-inplace-updater` e o PR #1 aponta para `main`, ainda aberto. Não há tag nem GitHub Release `v12.1.46`; o Update Center consulta releases publicadas e não branches. A API ainda indica `v12.1.45` como latest.
+- Auditoria encontrou que `UpdateInfoController.TryParseGitHubRelease` aceitava pré-lançamentos com tag numérica e ativo ZIP. O parser agora ignora payloads `prerelease=true`; regressão `UpdateInfoControllerTests` passou 7/7 em Release, incluindo candidata numérica superior à estável.
+- GitHub Actions run 40749414922 não iniciou os jobs por bloqueio de cobrança da conta. CI não executou testes. Homologação formal permanece 2/7 (28,6%); tag/release segue bloqueada até CI, pacotes reconstruídos e validação dos gates pendentes.
+- Mapa técnico conferido: mesma classe `UpdateInfoController` e endpoint/fluxo; apenas o modelo interno de desserialização agora lê `prerelease` para filtrar releases. Sem novo módulo, endpoint ou dependência.

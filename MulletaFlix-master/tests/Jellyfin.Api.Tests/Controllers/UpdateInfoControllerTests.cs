@@ -145,6 +145,29 @@ public class UpdateInfoControllerTests
     }
 
     [Fact]
+    public void TryParseGitHubRelease_IgnoresNumericPrereleaseWithNewerVersion()
+    {
+        var json = @"[
+            {
+                ""tag_name"": ""v12.1.45"",
+                ""prerelease"": false,
+                ""assets"": [{ ""name"": ""update.zip"", ""browser_download_url"": ""https://example.com/stable.zip"" }]
+            },
+            {
+                ""tag_name"": ""v12.1.99"",
+                ""prerelease"": true,
+                ""assets"": [{ ""name"": ""update.zip"", ""browser_download_url"": ""https://example.com/prerelease.zip"" }]
+            }
+        ]";
+
+        var success = UpdateInfoController.TryParseGitHubRelease(json, out var version, out _, out var archiveUrl, out _);
+
+        Assert.True(success);
+        Assert.Equal(new Version(12, 1, 45), version);
+        Assert.Equal("https://example.com/stable.zip", archiveUrl);
+    }
+
+    [Fact]
     public void TryParseGitHubRelease_ParsesSingleReleaseObject_WhenValid()
     {
         var json = @"{
