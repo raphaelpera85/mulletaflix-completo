@@ -1,3 +1,10 @@
+### 28/10/2026 15:28 -03 — Revalidação da exclusão GetAvatar em Linux
+
+- A fonte valida a pasta raiz fixada como diretório real pertencente ao UID efetivo do servidor e rejeita escrita de grupo/outros em cada operação. Isso protege a entrada contra alteração por outra identidade; o descritor aberto mantém operações ancoradas mesmo que o caminho ancestral seja renomeado depois da abertura.
+- Permanece uma corrida entre a comparação final do inode e `unlinkat` por nome. Sob as permissões verificadas pelo código, a troca exige processo com o mesmo UID efetivo (ou administrador); o mecanismo Linux não oferece unlink condicional ao inode neste fluxo. Isso é limite do modelo de confiança, não bypass entre usuários demonstrado. ACL efetiva e execução Linux continuam sem validação neste host.
+- `AvatarFileStoreTests` Release no Windows/.NET 10: 5 aprovados, 3 ignorados por serem Linux-only, 0 falhas (8 total). WSL não apresentou distribuição e Docker não está instalado; nenhum teste Linux/ACL foi executado. Sem alteração de runtime.
+- Homologação formal permanece 2/7 (28,6%); este resultado não fecha o gate SRV-H03, que cobre TOCTOU distinto no fluxo de backup/restauração. Mapa técnico conferido; módulos, APIs, dependências e fluxo permaneceram iguais. Sem release ou mudança em produção.
+
 ### 28/10/2026 15:20 -03 — Auditoria de visibilidade da candidata 12.1.46
 
 - A API pública do GitHub ainda retorna `v12.1.45` como última release; `GET /releases/tags/v12.1.46` retorna HTTP 404, e a lista de tags não contém `v12.1.46`. PR #1 permanece aberto para `main`; head `c63fc5c0` está em `codex/fail-closed-inplace-updater`.
