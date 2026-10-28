@@ -226,7 +226,7 @@ jobs:
           echo "NEBULA_PYTHON=$NEBULA_PYTHON" >> "$GITHUB_ENV"
 
       - name: Run Nebula Python tests
-        run: "$NEBULA_PYTHON" -m pytest tests --cov=. --cov-report=term-missing --cov-report=xml:coverage.xml
+        run: $NEBULA_PYTHON -m pytest tests --cov=. --cov-report=term-missing --cov-report=xml:coverage.xml
 
       - name: Upload Nebula Python coverage
         uses: actions/upload-artifact@v4
