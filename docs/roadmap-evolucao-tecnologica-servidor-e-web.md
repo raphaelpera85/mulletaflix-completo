@@ -1,3 +1,9 @@
+### 28/10/2026 13:17 -03 — Reauditoria do fluxo de exclusão GetAvatar no Linux
+
+- O achado antigo `IsPathWithinRoot` seguido por `File.Delete` no caminho de profile image está superado: substituição, limpeza de órfãos e remoção de perfil delegam ao `AvatarFileStore`. A exclusão Windows usa o handle aberto.
+- O store Linux ainda compara dispositivo/inode e depois chama `unlinkat` pelo nome; permanece janela entre a comparação final e a remoção. O teste Linux muda o nome antes da comparação final, portanto não cobre essa janela. O diretório raiz exige ownership do UID efetivo e bloqueia escrita de grupo/outros, mas ancestrais não são percorridos/pinados; nenhuma ACL Linux efetiva foi verificada.
+- Reauditoria read-only, sem execução de Linux e sem alteração de runtime. Nenhum bypass foi reproduzido. Gate permanece pendente até validação de permissões/runtime e mitigação coerente com o modelo de confiança. Homologação formal permanece 2/7 (28,6%); sem release ou produção.
+- Mapa técnico conferido; módulos, APIs e dependências permaneceram iguais. Evidência: `AvatarFileStore.cs:212-228`, `AvatarFileStoreTests.cs:100-123`, `AvatarService.cs:597-625,957,1135`. Portal `Mulletaflix-Portal/main` commit `a6fc93f`; contrato 296/296, Vercel Production READY, JSON público HTTP 200 confirmou o evento.
 ### 28/10/2026 10:15 -03 — Atualizador encerra após falha de cópia
 
 - O log da instalação reportou Robocopy código 11, reteve o pacote extraído, mas ainda iniciou servidor e tray; o servidor falhou ao carregar `Emby.Naming` com versão divergente. O atualizador agora lança erro quando Robocopy retorna 8 ou superior, impedindo esse reinício e mantendo o pacote para diagnóstico.
@@ -3745,3 +3751,24 @@ Fontes oficiais consultadas em 28/09/2026. Disponibilidade, suporte e requisitos
 - [x] Rejeitar respostas remotas HTTP 200 cujo MIME efetivo não seja `image/*` para imagens principais e fundos; seguir para a próxima candidata em vez de gravar HTML como imagem.
 - [x] Cobrir pôster e backdrop com regressão de rejeição de `text/html` e fallback para imagem válida (`ItemImageProviderRefreshTests`).
 - [ ] Validar com provider/CDN real e runtime instalado, incluindo bytes de imagem corrompidos apesar de MIME `image/*`; homologação de mídia real segue pendente.
+
+### Reauditoria do CDN e runtime de imagens — 2026-10-28 13:48 (-03)
+
+- Testes Release `RemoteImagePayloadValidatorTests` + `ProviderManagerRemoteImageValidationTests`: 10/10, zero falhas. Um recurso público do CDN TMDb respondeu HTTP 200, `image/jpeg`, 154.888 bytes e assinatura JPEG válida. Isso valida apenas um recurso CDN; não exercita a seleção por idioma nem o provider completo.
+- `GET http://127.0.0.1:8096/System/Info/Public` retornou HTTP 200 e versão 12.1.43. A fonte/release está em 12.1.45, portanto o runtime observado ainda não contém a correção mais recente e não serve de evidência de imagem homologada.
+- Sem refresh, escrita de mídia, instalação ou alteração de produção. Próximo gate: instalar 12.1.45 em janela segura e validar um item controlado (resposta HTTP, arquivo, `ImageInfos`/`ImageTags` e imagem renderizada). Formal permanece 2/7; nenhum crédito ou release adicional nesta sessão.
+
+### TMDb — idioma base para todos os locales — 2026-10-28 13:58 (-03)
+
+- A lista de `include_image_language` agora acrescenta o código ISO 639-1 base depois do locale regional, deduplica os códigos e mantém `null` e inglês como fallbacks. Exemplos exercitados: `pt-BR,pt,null,en`, `fr-CA,fr,null,en`, `ja-JP,ja,null,en`, `zh-HANT,zh,null,en`, `es-MX,es,null,en`, `ar,null,en` e `en-US,en,null`.
+- Teste `TmdbUtilsTests`: 27/27 passou em Release. Regressão da solução executada nesta sessão antes da confirmação final da alteração: 5.121 aprovados, 68 ignorados, zero falhas; não é usada como evidência específica da alteração. Uma segunda suíte Providers ficou sem saída por mais de um minuto e foi cancelada; resultado incompleto.
+- A API usa códigos ISO 639-1 na lista de imagens; consulte [TMDb — Languages](https://developer.themoviedb.org/docs/image-languages). A funcionalidade cobre os providers de mídia que já chamam a função compartilhada; não aplica locais específicos.
+- Sem API autenticada, refresh, produção, instalação ou teste visual. Mapa técnico conferido e sem mudança de estrutura; homologação formal e execução após release permanecem pendentes.
+
+### Nebula — startup e legibilidade dos logs — 2026-10-28 14:12 (-03)
+
+- Evidência do log: 28 bots Telegram passam por inicialização e confirmação de canal antes de abrir FTP/HTTP. O código limitava a espera do endpoint de saúde a 45 s; a confirmação em 4 lotes pode consumir até 80 s além da inicialização paralela dos clientes. A mensagem de falha em 45 s é consistente com esse teto prematuro, não demonstra por si só falha do Python.
+- Alteração local para 120 s, mantendo a verificação estrita do PID do processo próprio. Os leitores stdout/stderr dos subprocessos stream e downloader agora usam UTF-8, alinhado com `PYTHONUTF8=1`, corrigindo a corrupção de acentos/emoji vista nos nomes e logs.
+- `NebulaDownloaderStartupTests` Release passou 31/31; `TmdbUtilsTests` Release passou 27/27. Build servidor Windows x64, cross-publish Linux x64, `npm run build:check` e `npm run build:production` concluíram. Artefatos locais verificados: instalador Windows SHA-256 `3B3C95E7A7E25DBB12F259F765930C5328FD602CA10EAA53F63623A3CDFAAC5B`, atualização Windows `ACCA39A39542C07391D45A57B07BDC657950E5EA81FACE4A098D474595989674`, Linux `FF21CA39C6C5F40288E1CBA3C3035111EA6B05446CE6B12B09E200A1D21775F5`.
+- Python Nebula tests não foram executados: a venv isolada não estava disponível. Não houve runtime Linux, instalação, teste em portas concorrentes, Telegram real ou produção; os pacotes ainda não foram publicados. Formal continua 2/7.
+- Componentes alterados: `Jellyfin.Server.Implementations/Nebula/NebulaFtpManager.cs`; nenhum módulo ou contrato externo novo. Mapa técnico conferido, sem mudança estrutural.

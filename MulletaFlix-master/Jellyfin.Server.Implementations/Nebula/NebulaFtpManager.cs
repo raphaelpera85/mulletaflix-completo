@@ -33,6 +33,7 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable, IAsyncDis
 {
     public const string MeterName = "MulletaFlix.Nebula.Cleanup";
     private static readonly TimeSpan DownloaderStartupTimeout = TimeSpan.FromSeconds(60);
+    private static readonly TimeSpan PythonStreamStartupTimeout = TimeSpan.FromSeconds(120);
 
     private static readonly Meter CleanupMeter = new(MeterName);
     private static readonly Counter<long> CleanupCycleCounter = CleanupMeter.CreateCounter<long>("mulletaflix.nebula.cleanup.cycles");
@@ -5680,7 +5681,9 @@ CREATE POLICY nebula_bot_tokens_service_role_all
             UseShellExecute = false,
             CreateNoWindow = true,
             RedirectStandardOutput = true,
-            RedirectStandardError = true
+            RedirectStandardError = true,
+            StandardOutputEncoding = Encoding.UTF8,
+            StandardErrorEncoding = Encoding.UTF8
         };
         processInfo.ArgumentList.Add("-u");
         processInfo.ArgumentList.Add(script);
@@ -5747,7 +5750,7 @@ CREATE POLICY nebula_bot_tokens_service_role_all
         }
         var healthUrl = $"http://{probeHost}:{port}/health";
         var startedAt = Stopwatch.StartNew();
-        while (startedAt.Elapsed < TimeSpan.FromSeconds(45))
+        while (startedAt.Elapsed < PythonStreamStartupTimeout)
         {
             cancellationToken.ThrowIfCancellationRequested();
             if (process.HasExited)
@@ -5780,7 +5783,7 @@ CREATE POLICY nebula_bot_tokens_service_role_all
             await Task.Delay(250, cancellationToken).ConfigureAwait(false);
         }
 
-        throw new TimeoutException("Worker Python do Nebula não ficou pronto em 45 segundos.");
+        throw new TimeoutException($"Worker Python do Nebula não ficou pronto em {PythonStreamStartupTimeout.TotalSeconds:0} segundos.");
     }
 
     internal static bool IsExpectedPythonWorkerHealth(string payload, int expectedProcessId)
@@ -5914,7 +5917,9 @@ CREATE POLICY nebula_bot_tokens_service_role_all
             UseShellExecute = false,
             CreateNoWindow = true,
             RedirectStandardOutput = true,
-            RedirectStandardError = true
+            RedirectStandardError = true,
+            StandardOutputEncoding = Encoding.UTF8,
+            StandardErrorEncoding = Encoding.UTF8
         };
         processInfo.ArgumentList.Add("-u");
         processInfo.ArgumentList.Add(script);
