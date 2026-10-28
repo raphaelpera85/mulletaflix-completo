@@ -826,7 +826,7 @@ public sealed class NebulaSupabaseSyncService : IDisposable
         {
             _logger.LogError(ex, "[SUPABASE-SYNC] Erro durante a sincronização com o Supabase.");
             result.Success = false;
-            result.Message = $"Erro: {ex.Message}";
+            result.Message = $"Erro: {NebulaErrorMessageFormatter.FormatForDisplay(ex)}";
             progressAction?.Invoke($"[SUPABASE-ERRO] Falha na sincronização: {result.Message}");
             return result;
         }
@@ -1074,7 +1074,7 @@ public sealed class NebulaSupabaseSyncService : IDisposable
         {
             _logger.LogError(ex, "[SUPABASE-RESTORE] Erro ao restaurar do Supabase.");
             result.Success = false;
-            result.Message = $"Erro: {ex.Message}";
+            result.Message = $"Erro: {NebulaErrorMessageFormatter.FormatForDisplay(ex)}";
             progressAction?.Invoke($"[SUPABASE-RESTORE-ERRO] Falha na restauração: {result.Message}");
             return result;
         }
@@ -1415,7 +1415,8 @@ public sealed class NebulaSupabaseSyncService : IDisposable
         }
         catch (Exception ex)
         {
-            result.Message = $"Erro: {ex.Message}";
+            _logger.LogError(ex, "[SUPABASE-USERS] Falha no backup automático de usuários.");
+            result.Message = $"Erro: {NebulaErrorMessageFormatter.FormatForDisplay(ex)}";
             progressAction?.Invoke($"[SUPABASE-ERRO] {result.Message}");
             return result;
         }
@@ -1488,7 +1489,8 @@ public sealed class NebulaSupabaseSyncService : IDisposable
         }
         catch (Exception ex)
         {
-            result.Message = $"Erro: {ex.Message}";
+            _logger.LogError(ex, "[SUPABASE-USERS] Falha na restauração automática de usuários.");
+            result.Message = $"Erro: {NebulaErrorMessageFormatter.FormatForDisplay(ex)}";
             progressAction?.Invoke($"[SUPABASE-ERRO] {result.Message}");
             return result;
         }

@@ -15,7 +15,10 @@ except RuntimeError as exc:
     raise SystemExit(f"[deps] {exc}") from None
 
 import contextlib
+from dataclasses import dataclass
+from enum import Enum
 import hmac
+import inspect
 import io
 import ipaddress
 import json
@@ -36,6 +39,7 @@ from logging.handlers import RotatingFileHandler
 from os import environ
 from os.path import exists
 from pathlib import Path, PurePosixPath
+from types import SimpleNamespace
 from typing import Any
 from urllib.parse import parse_qs, quote, urlsplit
 
@@ -79,6 +83,12 @@ from ftp.pathio import MongoDBMemoryIO, Node, is_uploadable_name, movie_folder_s
 from ftp.range import parse_range as _parse_range
 from ftp.tg import close_upload_sessions, install_reliable_upload, send_document_bot_api
 from tools.mongo_admission import acquire_upload_admission
+from upload_checkpoint import (
+    UploadCheckpointJournal,
+    UploadCheckpointSnapshot,
+    compute_file_part_sha256,
+    compute_part_sha256,
+)
 
 
 async def acquire_worker_upload_admission(mongo, owner):
@@ -212,6 +222,127 @@ def get_contiguous_uploaded_parts(parts, total_parts=None):
     return completed
 
 
+def _upload_claim_filter(file_doc):
+    claim_id = file_doc.get("upload_claim_id")
+    worker_id = file_doc.get("worker_id")
+    if not claim_id or worker_id is None:
+        raise RuntimeError("A reivindicação atual do upload não possui token de posse.")
+    return {
+        "_id": file_doc["_id"],
+        "status": "uploading",
+        "worker_id": worker_id,
+        "upload_claim_id": claim_id,
+    }
+
+
+async def _update_upload_claim(mongo, file_doc, update):
+    result = await mongo.files.update_one(_upload_claim_filter(file_doc), update)
+    if result is not None and getattr(result, "matched_count", 1) < 1:
+        raise RuntimeError("A posse do upload mudou; a atualização foi interrompida para preservar o novo worker.")
+    return result
+
+
+async def _prepare_upload_resume(mongo, file_doc, local_path, real_size, chunk_size=None):
+    chunk_size = chunk_size or CHUNK_SIZE
+    total_parts = (real_size + chunk_size - 1) // chunk_size
+    raw_mongo_parts = file_doc.get("parts") or []
+    mongo_parts = get_contiguous_uploaded_parts(file_doc.get("parts"), total_parts)
+    has_unusable_mongo_parts = len(raw_mongo_parts) != len(mongo_parts)
+    file_uuid = None
+    if mongo_parts:
+        first_chunk_name = mongo_parts[0].get("chunk_name", "")
+        if ".part_" in first_chunk_name:
+            file_uuid = first_chunk_name.rsplit(".part_", 1)[0]
+
+    stored_uuid = file_doc.get("obfuscated_id")
+    if file_uuid and stored_uuid and file_uuid != stored_uuid:
+        raise ValueError("O UUID das partes Mongo diverge do identificador do upload.")
+    file_uuid = file_uuid or stored_uuid
+    journal = UPLOAD_CHECKPOINT_JOURNAL
+    if not file_uuid:
+        file_uuid = str(uuid.uuid4())
+        if journal is not None:
+            result = await _update_upload_claim(
+                mongo, file_doc,
+                {"$set": {"obfuscated_id": file_uuid}},
+            )
+            if result is not None and getattr(result, "matched_count", 1) < 1:
+                raise RuntimeError("Não foi possível persistir o UUID do upload antes do envio.")
+            file_doc["obfuscated_id"] = file_uuid
+
+    source_mtime_ns = os.stat(local_path).st_mtime_ns
+    snapshot = UploadCheckpointSnapshot()
+    if journal is not None:
+        snapshot = await asyncio.to_thread(
+            journal.load, file_uuid, real_size, source_mtime_ns, total_parts, chunk_size
+        )
+    merged_by_id = {int(part["part_id"]): part for part in snapshot.parts}
+    # Mongo is authoritative when it already has the same confirmed part.
+    merged_by_id.update({int(part["part_id"]): part for part in mongo_parts})
+    requires_new_generation = snapshot.requires_new_generation or has_unusable_mongo_parts
+    try:
+        for part_number, part in merged_by_id.items():
+            digest = part.get("source_sha256")
+            if not isinstance(digest, str) or len(digest) != 64:
+                requires_new_generation = True
+                break
+            actual_digest = await asyncio.to_thread(
+                compute_file_part_sha256, local_path, part_number, real_size, chunk_size
+            )
+            if not hmac.compare_digest(actual_digest, digest.lower()):
+                requires_new_generation = True
+                break
+        if not requires_new_generation:
+            for part_number in snapshot.pending_parts:
+                expected_digest = (snapshot.pending_sha256 or {}).get(part_number)
+                if not expected_digest:
+                    requires_new_generation = True
+                    break
+                actual_digest = await asyncio.to_thread(
+                    compute_file_part_sha256, local_path, part_number, real_size, chunk_size
+                )
+                if not hmac.compare_digest(actual_digest, expected_digest):
+                    requires_new_generation = True
+                    break
+    except (OSError, ValueError):
+        requires_new_generation = True
+
+    if requires_new_generation:
+        previous_uuid = file_uuid
+        file_uuid = str(uuid.uuid4())
+        reset_result = await _update_upload_claim(
+            mongo, file_doc,
+            {"$set": {
+                "obfuscated_id": file_uuid,
+                "file_uuid": file_uuid,
+                "parts": [],
+                "uploaded_bytes": 0,
+                "part_count": total_parts,
+            }},
+        )
+        if reset_result is not None and getattr(reset_result, "matched_count", 1) < 1:
+            raise RuntimeError("A posse do upload mudou; geração antiga preservada para evitar sobrescrita concorrente.")
+        file_doc["obfuscated_id"] = file_uuid
+        file_doc["file_uuid"] = file_uuid
+        file_doc["parts"] = []
+        file_doc["uploaded_bytes"] = 0
+        mongo_parts = []
+        merged_by_id.clear()
+        if journal is not None:
+            await asyncio.to_thread(journal.delete, previous_uuid)
+        logger.warning(
+            "[UPLOAD-CHECKPOINT] Partes antigas/alteradas descartadas para %s; nova geração %s será enviada sem misturar partes.",
+            file_doc.get("name", "arquivo"), file_uuid,
+        )
+    # Keep confirmed journal parts even when a parallel sibling is still
+    # missing. Dropping non-contiguous confirmations would make restart resend
+    # those Telegram parts before the gap is filled.
+    merged_parts = [merged_by_id[number] for number in sorted(merged_by_id)]
+    completed_ids = {int(part["part_id"]) for part in merged_parts}
+    pending_parts = set(snapshot.pending_parts) - completed_ids if not requires_new_generation else set()
+    return file_uuid, total_parts, merged_parts, pending_parts, journal, source_mtime_ns
+
+
 async def _wait_for_streaming(bot):
     active_streams = getattr(bot, "_nebula_streams", 0)
     while isinstance(active_streams, int) and active_streams > 0:
@@ -256,10 +387,15 @@ def classify_media_type(parent: str, filename: str) -> str:
     return "FILME"
 
 
-def build_part_caption(media_type: str, filename: str, part_num: int, total_parts: int, file_uuid: str, real_size: int) -> str:
+def build_part_caption(media_type: str, filename: str, part_num: int, total_parts: int, file_uuid: str, real_size: int, source_sha256: str | None = None) -> str:
     """Gera legenda estruturada para visualização e reconstrução a partir do Telegram."""
     size_mb = real_size / (1024 * 1024) if real_size else 0
-    return f"[NEBULA] TIPO: {media_type} | MIDIA: {filename} | PARTE: {part_num + 1}/{total_parts} | UUID: {file_uuid} | TAM: {size_mb:.1f}MB"
+    prefix = f"[NEBULA] TIPO: {media_type} | MIDIA: "
+    digest_marker = f" | SHA256: {source_sha256.lower()}" if source_sha256 else ""
+    suffix = f" | PARTE: {part_num + 1}/{total_parts} | UUID: {file_uuid} | TAM: {size_mb:.1f}MB{digest_marker}"
+    # Preserve the unique reconciliation markers within Telegram's 1,024-char
+    # caption limit even when the source filename is unusually long.
+    return prefix + filename[: max(0, 1024 - len(prefix) - len(suffix))] + suffix
 
 
 async def _send_part_document(
@@ -366,6 +502,7 @@ FEED_STOP_TIMEOUT = max(1, int(environ.get("FEED_STOP_TIMEOUT", "15")))
 
 # --- CONTROLE DE LOCKS (PROTEÇÃO) ---
 ACTIVE_UPLOADS = set()
+UPLOAD_CHECKPOINT_JOURNAL: UploadCheckpointJournal | None = None
 
 
 def is_staging_path(path):
@@ -468,6 +605,16 @@ def has_telegram_parts(doc: dict) -> bool:
             part.get("tg_file_id") or part.get("file_id") or part.get("tg_message")
         )
         for part in (doc.get("parts") or [])
+    )
+
+
+def is_telegram_history_retry(doc: dict | None) -> bool:
+    """Keep staged bytes for automatic retries blocked only by an uncertain lookup."""
+    return bool(
+        doc
+        and str(doc.get("failed_reason") or "").startswith(
+            "telegram_reconciliation_inconclusive:"
+        )
     )
 
 
@@ -834,7 +981,7 @@ async def stats_reporter(mongo):
                         if doc and doc.get("status") in {"queued", "uploading", "completed", "staging"}:
                             continue
 
-                        if doc and doc.get("status") in {"failed", "staging"} and has_telegram_parts(doc):
+                        if doc and doc.get("status") in {"failed", "staging"} and has_telegram_parts(doc) and not is_telegram_history_retry(doc):
                             safe_remove_staging_file(fp, force_delete=True)
                             logger.info("Ignorado arquivo já enviado parcialmente ao Telegram: %s", display_name)
                             continue
@@ -1306,7 +1453,214 @@ async def staging_scanner(mongo, staging_dirs):
         await asyncio.sleep(5)
 
 
-async def upload_part_with_retries(worker_id, bots, target_chat_id, local_path, file_uuid, part_num, chunk_data=None, bot_index_offset=0, caption="", admission=None):
+async def find_uploaded_telegram_part(
+    bots,
+    target_chat_id,
+    file_uuid,
+    part_num,
+    total_parts,
+    bot_index_offset=0,
+    source_sha256=None,
+):
+    """Find a previously accepted document, distinguishing absence from lookup failure."""
+    if not bots:
+        return TelegramPartReconciliation(TelegramPartReconciliationStatus.INCONCLUSIVE)
+    order = list(range(len(bots)))
+    expected_uuid = f"UUID: {file_uuid}".casefold()
+    expected_part = f"PARTE: {part_num + 1}/{total_parts}".casefold()
+    expected_digest = f"SHA256: {source_sha256}".casefold() if source_sha256 else None
+
+    completed_searches = 0
+    lookup_failed = False
+    for bot_index in order[:5]:
+        bot = bots[bot_index]
+        search_messages = getattr(bot, "search_messages", None)
+        if not callable(search_messages):
+            lookup_failed = True
+            continue
+        try:
+            results = search_messages(target_chat_id, query=file_uuid, limit=50)
+            if inspect.isawaitable(results):
+                results = await results
+            if results is None:
+                lookup_failed = True
+                continue
+
+            result_count = 0
+            if hasattr(results, "__aiter__"):
+                async for message in results:
+                    result_count += 1
+                    recovered = _telegram_message_for_part(
+                        message, bots, bot_index, bot_index_offset,
+                        expected_uuid, expected_part,
+                        expected_digest,
+                    )
+                    if recovered is not None:
+                        return TelegramPartReconciliation(TelegramPartReconciliationStatus.FOUND, recovered)
+            else:
+                for message in results:
+                    result_count += 1
+                    recovered = _telegram_message_for_part(
+                        message, bots, bot_index, bot_index_offset,
+                        expected_uuid, expected_part,
+                        expected_digest,
+                    )
+                    if recovered is not None:
+                        return TelegramPartReconciliation(TelegramPartReconciliationStatus.FOUND, recovered)
+            if result_count >= 50:
+                # Pyrogram's limit may have truncated older channel history.
+                lookup_failed = True
+            else:
+                completed_searches += 1
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            lookup_failed = True
+            logger.debug(
+                "Busca de reconciliação Telegram indisponível no bot #%s (%s).",
+                bot_index_offset + bot_index + 1,
+                type(exc).__name__,
+            )
+    status = (
+        TelegramPartReconciliationStatus.NOT_FOUND
+        if completed_searches > 0 and not lookup_failed
+        else TelegramPartReconciliationStatus.INCONCLUSIVE
+    )
+    return TelegramPartReconciliation(status)
+
+
+class TelegramPartReconciliationStatus(Enum):
+    FOUND = "found"
+    NOT_FOUND = "not_found"
+    INCONCLUSIVE = "inconclusive"
+
+
+@dataclass(frozen=True)
+class TelegramPartReconciliation:
+    status: TelegramPartReconciliationStatus
+    message: Any = None
+
+
+class TelegramReconciliationInconclusiveError(RuntimeError):
+    """Defer an automatic retry rather than resend after an uncertain lookup."""
+
+
+async def reconcile_telegram_part_with_retries(
+    bots,
+    target_chat_id,
+    file_uuid,
+    part_num,
+    total_parts,
+    bot_index_offset=0,
+    source_sha256=None,
+):
+    """Give Telegram's channel search a short bounded window to expose a send."""
+    outcome = TelegramPartReconciliation(TelegramPartReconciliationStatus.INCONCLUSIVE)
+    all_checks_not_found = True
+    for check in range(4):
+        outcome = await find_uploaded_telegram_part(
+            bots,
+            target_chat_id,
+            file_uuid,
+            part_num,
+            total_parts,
+            bot_index_offset=bot_index_offset,
+            source_sha256=source_sha256,
+        )
+        if outcome.status is TelegramPartReconciliationStatus.FOUND:
+            return outcome
+        if outcome.status is TelegramPartReconciliationStatus.INCONCLUSIVE:
+            all_checks_not_found = False
+        if check < 3:
+            await asyncio.sleep(0.25 * (2**check))
+    if all_checks_not_found:
+        return TelegramPartReconciliation(TelegramPartReconciliationStatus.NOT_FOUND)
+    return TelegramPartReconciliation(TelegramPartReconciliationStatus.INCONCLUSIVE)
+
+
+def _telegram_message_for_part(message, bots, searcher_index, bot_index_offset, expected_uuid, expected_part, expected_digest=None):
+    caption = str(getattr(message, "caption", None) or getattr(message, "text", None) or "").casefold()
+    caption_markers = {marker.strip() for marker in caption.split("|")}
+    document = getattr(message, "document", None)
+    message_id = getattr(message, "id", None)
+    file_id = getattr(document, "file_id", None)
+    if (
+        expected_uuid not in caption_markers
+        or expected_part not in caption_markers
+        or (expected_digest is not None and expected_digest not in caption_markers)
+        or not isinstance(message_id, int)
+        or message_id <= 0
+        or not isinstance(file_id, str)
+        or not file_id
+    ):
+        return None
+
+    sender_id = getattr(getattr(message, "from_user", None), "id", None)
+    source_bot_index = next(
+        (
+            index for index, bot in enumerate(bots)
+            if sender_id is not None
+            and getattr(getattr(bot, "me", None), "id", None) == sender_id
+        ),
+        searcher_index,
+    )
+    source_bot = bots[source_bot_index]
+    return SimpleNamespace(
+        id=message_id,
+        document=SimpleNamespace(file_id=file_id),
+        _nebula_bot_index=source_bot_index,
+        _nebula_bot_name=getattr(source_bot, "name", None),
+    )
+
+
+async def _try_reconcile_part(reconcile, worker_id, part_num):
+    if reconcile is None:
+        return TelegramPartReconciliation(TelegramPartReconciliationStatus.INCONCLUSIVE)
+    try:
+        result = reconcile()
+        if inspect.isawaitable(result):
+            result = await result
+        if isinstance(result, TelegramPartReconciliation):
+            outcome = result
+        elif result is None:
+            # Legacy lookup callbacks do not carry enough evidence to prove absence.
+            outcome = TelegramPartReconciliation(TelegramPartReconciliationStatus.INCONCLUSIVE)
+        else:
+            outcome = TelegramPartReconciliation(TelegramPartReconciliationStatus.FOUND, result)
+        if outcome.status is TelegramPartReconciliationStatus.FOUND:
+            logger.warning(
+                "[W%s] Parte %s recuperada do histórico Telegram; não será reenviada.",
+                worker_id,
+                part_num + 1,
+            )
+        return outcome
+    except asyncio.CancelledError:
+        raise
+    except Exception as exc:
+        logger.debug(
+            "[W%s] Reconciliação Telegram inconclusiva para parte %s (%s).",
+            worker_id,
+            part_num + 1,
+            type(exc).__name__,
+        )
+        return TelegramPartReconciliation(TelegramPartReconciliationStatus.INCONCLUSIVE)
+
+
+async def upload_part_with_retries(
+    worker_id,
+    bots,
+    target_chat_id,
+    local_path,
+    file_uuid,
+    part_num,
+    chunk_data=None,
+    bot_index_offset=0,
+    caption="",
+    admission=None,
+    reconcile=None,
+    on_success=None,
+    reconcile_before_send=False,
+):
     """Upload a single part with bot rotation on FloodWait.
 
     Instead of being pinned to one bot, this function accepts the full bots
@@ -1323,6 +1677,9 @@ async def upload_part_with_retries(worker_id, bots, target_chat_id, local_path, 
             chunk_data = await f.read(CHUNK_SIZE)
     if not chunk_data:
         raise Exception(f"Parte vazia {part_num}")
+    source_sha256 = compute_part_sha256(chunk_data)
+    if caption and "SHA256:" not in caption:
+        caption = f"{caption} | SHA256: {source_sha256}"
 
     # Rotate globally so successive media parts do not keep concentrating
     # traffic on the same worker-specific subset of bots.
@@ -1330,16 +1687,32 @@ async def upload_part_with_retries(worker_id, bots, target_chat_id, local_path, 
         raise RuntimeError("Nenhum bot Telegram disponível para upload. Verifique os tokens configurados.")
     current_bot_idx = next_upload_bot_index(len(bots))
     sent_msg = None
+    bot_name = None
     attempt = 1
+    if reconcile_before_send:
+        outcome = await _try_reconcile_part(reconcile, worker_id, part_num)
+        if outcome.status is TelegramPartReconciliationStatus.INCONCLUSIVE:
+            raise TelegramReconciliationInconclusiveError(
+                "telegram_reconciliation_inconclusive: "
+                f"consulta do histórico Telegram inconclusiva para parte {part_num}; retry automático agendado."
+            )
+        sent_msg = outcome.message if outcome.status is TelegramPartReconciliationStatus.FOUND else None
+        if sent_msg is not None:
+            current_bot_idx = getattr(sent_msg, "_nebula_bot_index", current_bot_idx)
+            bot_name = getattr(sent_msg, "_nebula_bot_name", bot_name)
     while attempt <= MAX_RETRIES:
+        if sent_msg is not None:
+            break
         part_bot = bots[current_bot_idx % len(bots)]
         bot_number = bot_index_offset + (current_bot_idx % len(bots)) + 1
         bot_name = getattr(part_bot, "name", None)
+        upload_started = False
         try:
             if admission is not None:
                 admission.ensure_active()
             started_at = time.monotonic()
             logger.info("[UPLOAD] W%s parte=%s bot=#%s iniciando", worker_id, part_num, bot_number)
+            upload_started = True
             sent_msg = await _send_part_on_idle_bot(
                 part_bot,
                 target_chat_id,
@@ -1373,6 +1746,18 @@ async def upload_part_with_retries(worker_id, bots, target_chat_id, local_path, 
                 bot_number,
                 e,
             )
+            if upload_started:
+                outcome = await _try_reconcile_part(reconcile, worker_id, part_num)
+                if outcome.status is TelegramPartReconciliationStatus.INCONCLUSIVE:
+                    raise TelegramReconciliationInconclusiveError(
+                        "telegram_reconciliation_inconclusive: "
+                        f"consulta do histórico Telegram inconclusiva após timeout da parte {part_num}; retry automático agendado."
+                    ) from e
+                sent_msg = outcome.message if outcome.status is TelegramPartReconciliationStatus.FOUND else None
+                if sent_msg is not None:
+                    current_bot_idx = getattr(sent_msg, "_nebula_bot_index", current_bot_idx)
+                    bot_name = getattr(sent_msg, "_nebula_bot_name", bot_name)
+                    break
             attempt += 1
             current_bot_idx += 1
             await asyncio.sleep(1)
@@ -1383,22 +1768,41 @@ async def upload_part_with_retries(worker_id, bots, target_chat_id, local_path, 
             await asyncio.sleep(w)
         except Exception as e:
             logger.error(f"[W{worker_id}] Erro: {e}")
+            if upload_started:
+                outcome = await _try_reconcile_part(reconcile, worker_id, part_num)
+                if outcome.status is TelegramPartReconciliationStatus.INCONCLUSIVE:
+                    raise TelegramReconciliationInconclusiveError(
+                        "telegram_reconciliation_inconclusive: "
+                        f"consulta do histórico Telegram inconclusiva após erro de envio da parte {part_num}; retry automático agendado."
+                    ) from e
+                sent_msg = outcome.message if outcome.status is TelegramPartReconciliationStatus.FOUND else None
+                if sent_msg is not None:
+                    current_bot_idx = getattr(sent_msg, "_nebula_bot_index", current_bot_idx)
+                    bot_name = getattr(sent_msg, "_nebula_bot_name", bot_name)
+                    break
             attempt += 1
             await asyncio.sleep(5)
     if not sent_msg:
         raise Exception(f"Falha upload parte {part_num}")
-    return {
+    actual_bot_index = getattr(sent_msg, "_nebula_bot_index", current_bot_idx % len(bots))
+    result = {
         "part_id": part_num,
         "tg_file": sent_msg.document.file_id,
         "tg_message": sent_msg.id,
         "file_size": len(chunk_data),
+        "source_sha256": source_sha256,
         "chunk_name": chunk_name,
         "byte_start": part_num * CHUNK_SIZE,
         "byte_end": part_num * CHUNK_SIZE + len(chunk_data) - 1,
         "caption": caption,
-        "bot_index": bot_index_offset + (current_bot_idx % len(bots)),
-        "bot_name": bot_name,
+        "bot_index": bot_index_offset + actual_bot_index,
+        "bot_name": getattr(sent_msg, "_nebula_bot_name", bot_name),
     }
+    if on_success is not None:
+        saved = on_success(result)
+        if inspect.isawaitable(saved):
+            await saved
+    return result
 
 
 async def _readahead_producer(
@@ -1443,6 +1847,7 @@ async def upload_worker(bot, target_chat_id, mongo, worker_id, bot_index=0):
         # --- LOCK: Bloqueia o arquivo para o GC não apagar ---
         ACTIVE_UPLOADS.add(local_path)
         admission = None
+        file_doc = None
         # -----------------------------------------------------
 
         try:
@@ -1483,7 +1888,7 @@ async def upload_worker(bot, target_chat_id, mongo, worker_id, bot_index=0):
 
             claimed_doc = await mongo.files.find_one_and_update(
                 {"_id": file_doc["_id"], "status": {"$in": ["queued", "staging"]}},
-                {"$set": {"parent": parent, "status": "uploading", "worker_id": worker_id, "bot_index": bot_index + 1, "started_at": int(time.time())}},
+                {"$set": {"parent": parent, "status": "uploading", "worker_id": worker_id, "upload_claim_id": str(uuid.uuid4()), "bot_index": bot_index + 1, "started_at": int(time.time())}},
                 return_document=ReturnDocument.AFTER,
             )
             if not claimed_doc:
@@ -1571,16 +1976,16 @@ async def upload_worker(bot, target_chat_id, mongo, worker_id, bot_index=0):
                 with contextlib.suppress(RPCError, ConnectionError):
                     await status_msg.edit_text(f"Upload falhou: {parent}/{filename}")
             if upload_failed:
-                await mongo.files.update_one(
-                    {"_id": file_doc["_id"]},
-                    {"$set": {"status": "failed", "failed_at": int(time.time())}},
+                await _update_upload_claim(
+                    mongo, file_doc,
+                    {"$set": {"status": "failed", "failed_at": int(time.time())}, "$unset": {"upload_claim_id": 1}},
                 )
                 await log_queue_state(mongo, f"falha:{filename}")
 
             if not upload_failed:
                 parts_metadata.sort(key=lambda item: item["part_id"])
-                await mongo.files.update_one(
-                    {"_id": file_doc["_id"]},
+                await _update_upload_claim(
+                    mongo, file_doc,
                     {
                         "$set": {
                             "size": real_size,
@@ -1594,7 +1999,7 @@ async def upload_worker(bot, target_chat_id, mongo, worker_id, bot_index=0):
                             "search_name": filename.lower(),
                             "search_parent": parent.lower(),
                         },
-                        "$unset": {"uploadId": 1, "local_path": 1},
+                        "$unset": {"uploadId": 1, "local_path": 1, "upload_claim_id": 1},
                     }
                 )
                 async with MongoDBPathIO._cache_lock:
@@ -1644,6 +2049,7 @@ async def upload_worker_parallel(bots, target_chat_id, mongo, worker_id):
         ACTIVE_UPLOADS.add(local_path)
         producer_task = None
         admission = None
+        file_doc = None
         try:
             if filename.endswith(".partial") or not os.path.exists(local_path):
                 continue
@@ -1664,7 +2070,7 @@ async def upload_worker_parallel(bots, target_chat_id, mongo, worker_id):
 
             file_doc = await mongo.files.find_one_and_update(
                 {"_id": file_doc["_id"], "status": {"$in": ["queued", "staging"]}},
-                {"$set": {"parent": parent, "status": "uploading", "worker_id": worker_id, "started_at": int(time.time())}},
+                {"$set": {"parent": parent, "status": "uploading", "worker_id": worker_id, "upload_claim_id": str(uuid.uuid4()), "started_at": int(time.time())}},
                 return_document=ReturnDocument.AFTER,
             )
             if not file_doc:
@@ -1672,26 +2078,22 @@ async def upload_worker_parallel(bots, target_chat_id, mongo, worker_id):
                 continue
             await log_queue_state(mongo, f"inicio:{filename}")
 
-            parts_metadata = get_contiguous_uploaded_parts(file_doc.get("parts"))
-            resume_part = len(parts_metadata)
+            file_uuid, total_parts, parts_metadata, pending_parts, journal, source_mtime_ns = await _prepare_upload_resume(
+                mongo, file_doc, local_path, real_size
+            )
+            completed_part_ids = {int(part["part_id"]) for part in parts_metadata}
+            resume_part = 0
+            while resume_part in completed_part_ids:
+                resume_part += 1
             uploaded_bytes = sum(int(part["file_size"]) for part in parts_metadata)
             if uploaded_bytes > real_size:
                 raise RuntimeError(
                     f"Metadados excedem arquivo: {uploaded_bytes}/{real_size} bytes"
                 )
-            remaining_bytes = real_size - uploaded_bytes
-            remaining_parts = (remaining_bytes + CHUNK_SIZE - 1) // CHUNK_SIZE
-            total_parts = resume_part + remaining_parts
             logger.info(
                 f"[W{worker_id}] Iniciando upload: {filename} "
                 f"tamanho={real_size/1024/1024:.2f} MB partes={total_parts} "
                 f"paralelo={PART_WORKERS_PER_FILE} bots={len(bots)}"
-            )
-            first_chunk_name = parts_metadata[0].get("chunk_name", "") if parts_metadata else ""
-            file_uuid = (
-                first_chunk_name.rsplit(".part_", 1)[0]
-                if ".part_" in first_chunk_name
-                else str(uuid.uuid4())
             )
             if resume_part:
                 logger.info(
@@ -1714,7 +2116,7 @@ async def upload_worker_parallel(bots, target_chat_id, mongo, worker_id):
                     readahead_queue,
                     worker_id,
                     resume_part,
-                    uploaded_bytes,
+                    resume_part * CHUNK_SIZE,
                 )
             )
 
@@ -1737,22 +2139,66 @@ async def upload_worker_parallel(bots, target_chat_id, mongo, worker_id):
                 # inside upload_part_with_retries via the bots[] list.
                 async def _upload_one(pn: int) -> dict:
                     chunk_data = chunk_map.get(pn)
-                    caption = build_part_caption(media_type, filename, pn, total_parts, file_uuid, real_size)
+                    if chunk_data is None:
+                        async with aiofiles.open(local_path, "rb") as source_stream:
+                            await source_stream.seek(pn * CHUNK_SIZE)
+                            chunk_data = await source_stream.read(CHUNK_SIZE)
+                    source_sha256 = compute_part_sha256(chunk_data)
+                    caption = build_part_caption(media_type, filename, pn, total_parts, file_uuid, real_size, source_sha256)
+                    reconcile = None
+                    on_success = None
+                    if journal is not None:
+                        await asyncio.to_thread(
+                            journal.mark_pending,
+                            file_uuid,
+                            real_size,
+                            source_mtime_ns,
+                            total_parts,
+                            CHUNK_SIZE,
+                            pn,
+                            source_sha256,
+                        )
+
+                        async def reconcile():
+                            return await reconcile_telegram_part_with_retries(
+                                bots, target_chat_id, file_uuid, pn, total_parts, bot_index_offset=1, source_sha256=source_sha256
+                            )
+
+                        async def on_success(part_result):
+                            await asyncio.to_thread(
+                                journal.save_part,
+                                file_uuid,
+                                real_size,
+                                source_mtime_ns,
+                                total_parts,
+                                CHUNK_SIZE,
+                                part_result,
+                            )
+
                     return await upload_part_with_retries(
                         worker_id, bots, target_chat_id, local_path, file_uuid, pn, chunk_data, 1,
-                        caption=caption, admission=admission
+                        caption=caption,
+                        admission=admission,
+                        reconcile=reconcile,
+                        on_success=on_success,
+                        reconcile_before_send=pn in pending_parts,
                     )
 
+                parts_to_upload = [
+                    pn for pn in range(start_part, batch_end)
+                    if pn not in completed_part_ids
+                ]
                 results = await asyncio.gather(
-                    *[_upload_one(pn) for pn in range(start_part, batch_end)]
+                    *[_upload_one(pn) for pn in parts_to_upload]
                 )
                 parts_metadata.extend(results)
                 parts_metadata.sort(key=lambda item: item["part_id"])
                 uploaded_bytes += sum(item["file_size"] for item in results)
+                completed_part_ids.update(int(item["part_id"]) for item in results)
                 percent = uploaded_bytes / real_size * 100
                 stream_bot_name = next((item.get("bot_name") for item in parts_metadata if item.get("bot_name")), None)
-                await mongo.files.update_one(
-                    {"_id": file_doc["_id"]},
+                await _update_upload_claim(
+                    mongo, file_doc,
                     {"$set": {"uploaded_bytes": uploaded_bytes, "parts": parts_metadata, "stream_bot_name": stream_bot_name}}
                 )
                 logger.debug(
@@ -1772,12 +2218,13 @@ async def upload_worker_parallel(bots, target_chat_id, mongo, worker_id):
                     f"bytes={uploaded_bytes}/{real_size}"
                 )
             parts_metadata.sort(key=lambda item: item["part_id"])
+            media_type = classify_media_type(parent, filename)
             stream_bot_name = next(
                 (item.get("bot_name") for item in parts_metadata if item.get("bot_name")),
                 None,
             )
-            await mongo.files.update_one(
-                {"_id": file_doc["_id"]},
+            await _update_upload_claim(
+                mongo, file_doc,
                 {
                     "$set": {
                         "size": real_size,
@@ -1791,9 +2238,14 @@ async def upload_worker_parallel(bots, target_chat_id, mongo, worker_id):
                         "search_name": filename.lower(),
                         "search_parent": parent.lower(),
                     },
-                    "$unset": {"uploadId": 1, "local_path": 1},
+                    "$unset": {"uploadId": 1, "local_path": 1, "upload_claim_id": 1},
                 },
             )
+            if journal is not None:
+                try:
+                    await asyncio.to_thread(journal.delete, file_uuid)
+                except OSError as exc:
+                    logger.warning("Não foi possível remover checkpoint concluído do Nebula (%s).", type(exc).__name__)
             async with MongoDBPathIO._cache_lock:
                 MongoDBPathIO._memory_cache.pop(f"{parent}::{filename}", None)
             logger.info(f"[W{worker_id}] Concluido: {filename}")
@@ -1804,11 +2256,12 @@ async def upload_worker_parallel(bots, target_chat_id, mongo, worker_id):
         except Exception as exc:
             logger.error(f"[W{worker_id}] Abortado: {filename}: {exc}")
             Metrics.log_fail()
-            with contextlib.suppress(Exception):
-                await mongo.files.update_one(
-                    {"name": filename, "local_path": local_path},
-                    {"$set": {"status": "failed", "failed_at": int(time.time()), "failed_reason": str(exc)}},
-                )
+            if file_doc is not None and file_doc.get("upload_claim_id"):
+                with contextlib.suppress(Exception):
+                    await _update_upload_claim(
+                        mongo, file_doc,
+                        {"$set": {"status": "failed", "failed_at": int(time.time()), "failed_reason": str(exc)}, "$unset": {"upload_claim_id": 1}},
+                    )
             await log_queue_state(mongo, f"falha:{filename}")
         finally:
             try:
@@ -1847,6 +2300,7 @@ async def upload_small_file_worker(bots, target_chat_id, mongo, worker_id):
         parent = task["parent"]
         ACTIVE_UPLOADS.add(local_path)
         admission = None
+        file_doc = None
         try:
             if filename.endswith(".partial") or not os.path.exists(local_path):
                 continue
@@ -1872,7 +2326,7 @@ async def upload_small_file_worker(bots, target_chat_id, mongo, worker_id):
 
             file_doc = await mongo.files.find_one_and_update(
                 {"_id": file_doc["_id"], "status": {"$in": ["queued", "staging"]}},
-                {"$set": {"parent": parent, "status": "uploading", "worker_id": f"small_{worker_id}", "started_at": int(time.time())}},
+                {"$set": {"parent": parent, "status": "uploading", "worker_id": f"small_{worker_id}", "upload_claim_id": str(uuid.uuid4()), "started_at": int(time.time())}},
                 return_document=ReturnDocument.AFTER,
             )
             if not file_doc:
@@ -1880,21 +2334,58 @@ async def upload_small_file_worker(bots, target_chat_id, mongo, worker_id):
                 continue
             await log_queue_state(mongo, f"inicio:{filename}")
 
+            file_uuid, total_parts, parts_metadata, pending_parts, journal, source_mtime_ns = await _prepare_upload_resume(
+                mongo, file_doc, local_path, real_size, chunk_size=real_size
+            )
             media_type = classify_media_type(parent, filename)
-            file_uuid = str(uuid.uuid4())
             async with aiofiles.open(local_path, "rb") as f:
                 chunk_data = await f.read()
 
-            caption = build_part_caption(media_type, filename, 0, 1, file_uuid, real_size)
-            part_result = await upload_part_with_retries(
-                f"S{worker_id}", bots, target_chat_id, local_path, file_uuid, 0, chunk_data, 1,
-                caption=caption, admission=admission
-            )
+            if not parts_metadata:
+                source_sha256 = compute_part_sha256(chunk_data)
+                caption = build_part_caption(media_type, filename, 0, 1, file_uuid, real_size, source_sha256)
+                reconcile = None
+                on_success = None
+                if journal is not None:
+                    await asyncio.to_thread(
+                        journal.mark_pending,
+                        file_uuid,
+                        real_size,
+                        source_mtime_ns,
+                        total_parts,
+                        real_size,
+                        0,
+                        source_sha256,
+                    )
 
-            parts_metadata = [part_result]
-            stream_bot_name = part_result.get("bot_name")
-            await mongo.files.update_one(
-                {"_id": file_doc["_id"]},
+                    async def reconcile():
+                        return await reconcile_telegram_part_with_retries(
+                            bots, target_chat_id, file_uuid, 0, total_parts, bot_index_offset=1, source_sha256=source_sha256
+                        )
+
+                    async def on_success(part_result):
+                        await asyncio.to_thread(
+                            journal.save_part,
+                            file_uuid,
+                            real_size,
+                            source_mtime_ns,
+                            total_parts,
+                            real_size,
+                            part_result,
+                        )
+
+                part_result = await upload_part_with_retries(
+                    f"S{worker_id}", bots, target_chat_id, local_path, file_uuid, 0, chunk_data, 1,
+                    caption=caption,
+                    admission=admission,
+                    reconcile=reconcile,
+                    on_success=on_success,
+                    reconcile_before_send=0 in pending_parts,
+                )
+                parts_metadata = [part_result]
+            stream_bot_name = parts_metadata[0].get("bot_name") if parts_metadata else None
+            await _update_upload_claim(
+                mongo, file_doc,
                 {
                     "$set": {
                         "size": real_size,
@@ -1908,9 +2399,14 @@ async def upload_small_file_worker(bots, target_chat_id, mongo, worker_id):
                         "search_name": filename.lower(),
                         "search_parent": parent.lower(),
                     },
-                    "$unset": {"uploadId": 1, "local_path": 1},
+                    "$unset": {"uploadId": 1, "local_path": 1, "upload_claim_id": 1},
                 },
             )
+            if journal is not None:
+                try:
+                    await asyncio.to_thread(journal.delete, file_uuid)
+                except OSError as exc:
+                    logger.warning("Não foi possível remover checkpoint concluído do Nebula (%s).", type(exc).__name__)
             async with MongoDBPathIO._cache_lock:
                 MongoDBPathIO._memory_cache.pop(f"{parent}::{filename}", None)
             logger.info(f"[SmallW{worker_id}] Concluido: {filename} ({real_size / 1024:.1f} KB)")
@@ -1921,11 +2417,12 @@ async def upload_small_file_worker(bots, target_chat_id, mongo, worker_id):
         except Exception as exc:
             logger.error(f"[SmallW{worker_id}] Abortado: {filename}: {exc}")
             Metrics.log_fail()
-            with contextlib.suppress(Exception):
-                await mongo.files.update_one(
-                    {"name": filename, "local_path": local_path},
-                    {"$set": {"status": "failed", "failed_at": int(time.time()), "failed_reason": str(exc)}},
-                )
+            if file_doc is not None and file_doc.get("upload_claim_id"):
+                with contextlib.suppress(Exception):
+                    await _update_upload_claim(
+                        mongo, file_doc,
+                        {"$set": {"status": "failed", "failed_at": int(time.time()), "failed_reason": str(exc)}, "$unset": {"upload_claim_id": 1}},
+                    )
             await log_queue_state(mongo, f"falha:{filename}")
         finally:
             try:
@@ -2434,6 +2931,7 @@ async def setup_database_indexes(db) -> None:
 
 
 async def main():
+    global UPLOAD_CHECKPOINT_JOURNAL
     try:
         api_id, api_hash, tokens = get_required_config()
     except RuntimeError as exc:
@@ -2446,6 +2944,10 @@ async def main():
         )
     )
     _sessions_dir.mkdir(parents=True, exist_ok=True)
+    checkpoint_dir = Path(
+        environ.get("NEBULA_UPLOAD_CHECKPOINT_DIR", str(_sessions_dir / "upload-checkpoints"))
+    ).expanduser()
+    UPLOAD_CHECKPOINT_JOURNAL = UploadCheckpointJournal(checkpoint_dir)
     bots = [
         Client(
             f"Nebula_Bot_{idx + 1}",

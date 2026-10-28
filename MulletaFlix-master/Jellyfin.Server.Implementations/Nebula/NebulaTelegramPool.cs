@@ -40,6 +40,8 @@ public sealed class NebulaTelegramPool : IAsyncDisposable, IDisposable
     private readonly ConcurrentDictionary<int, Client> _clients = new();
     private readonly ConcurrentDictionary<int, SemaphoreSlim> _botOperationGates = new();
     private readonly ConcurrentDictionary<int, long> _uploadBotCooldowns = new();
+    private readonly ConcurrentDictionary<string, int> _ambiguousUploadCaptions = new(StringComparer.Ordinal);
+    private readonly Func<int, string, int, int, CancellationToken, Task<NebulaTelegramPartLookupResult>>? _uploadPartRecoveryLookupOverride;
 
     // Controle de taxa por bot. A rotação evita reusar um bot em flood-wait, mas
     // nada impedia N workers de disparar N chamadas simultâneas no mesmo bot
@@ -94,7 +96,8 @@ public sealed class NebulaTelegramPool : IAsyncDisposable, IDisposable
         long chatId,
         string sessionsDirectory,
         ILogger<NebulaTelegramPool> logger,
-        HttpClient httpClient)
+        HttpClient httpClient,
+        Func<int, string, int, int, CancellationToken, Task<NebulaTelegramPartLookupResult>>? uploadPartRecoveryLookupOverride = null)
     {
         _apiId = apiId;
         _apiHash = apiHash;
@@ -105,6 +108,7 @@ public sealed class NebulaTelegramPool : IAsyncDisposable, IDisposable
             : sessionsDirectory;
         _logger = logger;
         _httpClient = httpClient;
+        _uploadPartRecoveryLookupOverride = uploadPartRecoveryLookupOverride;
         _processLock = new Mutex(false, "MulletaFlix.NebulaTelegramPool");
 
         if (!Directory.Exists(_sessionsDirectory))
@@ -133,6 +137,128 @@ public sealed class NebulaTelegramPool : IAsyncDisposable, IDisposable
     /// Retorna os índices dos bots autenticados e disponíveis para upload e streaming.
     /// </summary>
     public IReadOnlyList<int> GetAvailableBotIndices() => _clients.Keys.OrderBy(index => index).ToArray();
+
+    /// <summary>
+    /// Returns true when the last send attempt for this caption ended without a
+    /// definitive Bot API response, so callers must reconcile before retrying.
+    /// </summary>
+    internal bool TryTakeAmbiguousUploadBot(string caption, out int botIndex)
+    {
+        if (!string.IsNullOrWhiteSpace(caption) && _ambiguousUploadCaptions.TryRemove(caption, out botIndex))
+        {
+            return true;
+        }
+
+        botIndex = -1;
+        return false;
+    }
+
+    /// <summary>
+    /// Searches the destination channel for the deterministic UUID/part caption
+    /// before an automatic retry. A failed lookup is distinct from a confirmed absence.
+    /// </summary>
+    public Task<NebulaTelegramPartLookupResult> TryFindUploadedPartAsync(
+        int botIndex,
+        string fileUuid,
+        int partNumber,
+        int totalParts,
+        CancellationToken cancellationToken = default,
+        string? sourceSha256 = null)
+    {
+        if (_uploadPartRecoveryLookupOverride is not null)
+        {
+            return _uploadPartRecoveryLookupOverride(botIndex, fileUuid, partNumber, totalParts, cancellationToken);
+        }
+
+        return TryFindUploadedPartInChannelAsync(botIndex, fileUuid, partNumber, totalParts, cancellationToken, sourceSha256);
+    }
+
+    private async Task<NebulaTelegramPartLookupResult> TryFindUploadedPartInChannelAsync(
+        int botIndex,
+        string fileUuid,
+        int partNumber,
+        int totalParts,
+        CancellationToken cancellationToken,
+        string? sourceSha256)
+    {
+        var selected = await AcquireStreamingBotAsync([botIndex], cancellationToken).ConfigureAwait(false);
+        if (!_clients.TryGetValue(selected.BotIndex, out var client))
+        {
+            await selected.Lease.DisposeAsync().ConfigureAwait(false);
+            return NebulaTelegramPartLookupResult.Inconclusive;
+        }
+
+        await using var operation = selected.Lease;
+        var channelId = NormalizeChannelId(_chatId);
+        var expectedUuid = $"UUID: {fileUuid}";
+        var expectedPart = $"PARTE: {partNumber + 1}/{totalParts}";
+        var expectedDigest = NebulaUploadPartIntegrity.IsSha256(sourceSha256) ? $"SHA256: {sourceSha256}" : null;
+        var accessHashes = await GetCandidateChannelAccessHashesAsync(client, selected.BotIndex, channelId, cancellationToken).ConfigureAwait(false);
+        if (accessHashes.Count == 0)
+        {
+            return NebulaTelegramPartLookupResult.Inconclusive;
+        }
+
+        var completedSearches = 0;
+        var lookupFailed = false;
+
+        foreach (var accessHash in accessHashes)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            try
+            {
+                var peer = new InputPeerChannel(channelId, accessHash);
+                var found = await client.Messages_Search<InputMessagesFilterDocument>(peer, fileUuid, 0, 50).ConfigureAwait(false);
+                if (found?.Messages is null)
+                {
+                    lookupFailed = true;
+                    continue;
+                }
+
+                var searchResults = found.Messages.ToArray();
+                var message = searchResults.OfType<Message>()
+                    .Where(item => item.message?.Contains(expectedUuid, StringComparison.OrdinalIgnoreCase) == true &&
+                        item.message.Contains(expectedPart, StringComparison.OrdinalIgnoreCase) &&
+                        (expectedDigest is null || item.message.Contains(expectedDigest, StringComparison.OrdinalIgnoreCase)) &&
+                        item.media is MessageMediaDocument { document: Document })
+                    .OrderBy(static item => item.id)
+                    .FirstOrDefault();
+
+                if (message is not null)
+                {
+                    _logger.LogWarning(
+                        "[NEBULA-TG] Parte ambígua reconciliada pelo histórico do canal (UUID {FileUuid}, parte {Part}); nenhuma nova cópia foi enviada.",
+                        fileUuid,
+                        partNumber + 1);
+                    return NebulaTelegramPartLookupResult.Found(
+                        new NebulaTelegramUploadResult(selected.BotIndex, message.id, _chatId, $"mtproto:{message.id}"));
+                }
+
+                if (searchResults.Length >= 50)
+                {
+                    // The server may have truncated older results at the query limit.
+                    lookupFailed = true;
+                }
+                else
+                {
+                    completedSearches++;
+                }
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                lookupFailed = true;
+                _logger.LogDebug(ex, "[NEBULA-TG] Histórico indisponível para reconciliar UUID {FileUuid}, parte {Part} (tipo {ErrorType}).", fileUuid, partNumber + 1, ex.GetType().Name);
+            }
+        }
+
+        return completedSearches > 0 && !lookupFailed
+            ? NebulaTelegramPartLookupResult.NotFound
+            : NebulaTelegramPartLookupResult.Inconclusive;
+    }
 
     private async Task<BotOperationLease> AcquireBotAsync(int botIndex, bool streaming, CancellationToken cancellationToken)
     {
@@ -1531,97 +1657,106 @@ public sealed class NebulaTelegramPool : IAsyncDisposable, IDisposable
 
         var upload = await AcquireUploadBotAsync(botIndex, cancellationToken).ConfigureAwait(false);
         botIndex = upload.BotIndex;
+        if (!string.IsNullOrWhiteSpace(caption))
+        {
+            _ambiguousUploadCaptions.TryRemove(caption, out _);
+        }
         activity?.SetTag("telegram.bot.index", botIndex);
         await using var operation = upload.Lease;
 
-        for (var attempt = 1; attempt <= 3; attempt++)
+        try
         {
-            try
+            using var form = new MultipartFormDataContent();
+            form.Add(new StringContent(_chatId.ToString(System.Globalization.CultureInfo.InvariantCulture)), "chat_id");
+
+            var document = new ByteArrayContent(data);
+            document.Headers.ContentType = new MediaTypeHeaderValue(mimeType);
+            form.Add(document, "document", fileName);
+
+            if (!string.IsNullOrWhiteSpace(caption))
             {
-                using var form = new MultipartFormDataContent();
-                form.Add(new StringContent(_chatId.ToString(System.Globalization.CultureInfo.InvariantCulture)), "chat_id");
-
-                var document = new ByteArrayContent(data);
-                document.Headers.ContentType = new MediaTypeHeaderValue(mimeType);
-                form.Add(document, "document", fileName);
-
-                if (!string.IsNullOrWhiteSpace(caption))
-                {
-                    form.Add(new StringContent(caption), "caption");
-                }
-
-                var endpoint = $"https://api.telegram.org/bot{_botTokens[botIndex]}/sendDocument";
-                using var response = await _httpClient.PostAsync(endpoint, form, cancellationToken).ConfigureAwait(false);
-                var responseJson = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
-                if (response.IsSuccessStatusCode)
-                {
-                    var parsed = ParseUploadResultForBot(responseJson, botIndex);
-                    activity?.SetTag("telegram.result", parsed is null ? "invalid_response" : "success");
-                    return parsed;
-                }
-
-                if ((int)response.StatusCode == 429)
-                {
-                    // Deliberately NOT retried on the same bot. A Telegram flood-wait must be waited
-                    // out on that bot while its exclusive lease is held, so retrying here cost up to
-                    // 3 x retry_after seconds and blocked every other worker from using the bot. That
-                    // is what produced the measured bimodal upload speed: a ~19 s flood-wait became
-                    // ~57 s per part (the observed 56-59 s slow mode) against 2.4 s in the fast mode.
-                    // Returning null hands control back to NebulaUploadEngine, which rotates to the
-                    // next candidate. This bot is excluded from subsequent selections until its
-                    // cooldown expires, so repeated work cannot immediately hit the same flood-wait.
-                    var retryAfter = GetFloodWaitSeconds(responseJson);
-                    _uploadBotCooldowns[botIndex] = DateTimeOffset.UtcNow.AddSeconds(retryAfter).ToUnixTimeMilliseconds();
-                    _logger.LogWarning(
-                        "[NEBULA-TG] Bot [{BotIndex}] retornou HTTP 429; em cooldown por {RetryAfter}s e liberado para rotação.",
-                        botIndex,
-                        retryAfter);
-
-                    activity?.SetTag("telegram.result", "flood_wait");
-                    return null;
-                }
-
-                if ((int)response.StatusCode >= 500)
-                {
-                    throw new HttpRequestException($"Telegram Bot API retornou HTTP {(int)response.StatusCode}.");
-                }
-
-                _logger.LogError(
-                    "[NEBULA-TG] Telegram Bot API rejeitou o documento via Bot [{BotIndex}] com HTTP {StatusCode}.",
-                    botIndex,
-                    (int)response.StatusCode);
-                activity?.SetTag("telegram.result", "rejected");
-                return null;
+                form.Add(new StringContent(caption), "caption");
             }
-            catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException && attempt < 3 && !cancellationToken.IsCancellationRequested)
+
+            var endpoint = $"https://api.telegram.org/bot{_botTokens[botIndex]}/sendDocument";
+            using var response = await _httpClient.PostAsync(endpoint, form, cancellationToken).ConfigureAwait(false);
+            var responseJson = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+            if (response.IsSuccessStatusCode)
             {
+                var parsed = ParseUploadResultForBot(responseJson, botIndex);
+                if (parsed is null && !string.IsNullOrWhiteSpace(caption))
+                {
+                    _ambiguousUploadCaptions[caption] = botIndex;
+                }
+
+                activity?.SetTag("telegram.result", parsed is null ? "invalid_response" : "success");
+                return parsed;
+            }
+
+            if ((int)response.StatusCode == 429)
+            {
+                // Deliberately NOT retried on the same bot. A Telegram flood-wait must be waited
+                // out on that bot while its exclusive lease is held, so retrying here cost up to
+                // 3 x retry_after seconds and blocked every other worker from using the bot. That
+                // is what produced the measured bimodal upload speed: a ~19 s flood-wait became
+                // ~57 s per part (the observed 56-59 s slow mode) against 2.4 s in the fast mode.
+                // Returning null hands control back to NebulaUploadEngine, which rotates to the
+                // next candidate. This bot is excluded from subsequent selections until its
+                // cooldown expires, so repeated work cannot immediately hit the same flood-wait.
+                var retryAfter = GetFloodWaitSeconds(responseJson);
+                _uploadBotCooldowns[botIndex] = DateTimeOffset.UtcNow.AddSeconds(retryAfter).ToUnixTimeMilliseconds();
                 _logger.LogWarning(
-                    "[NEBULA-TG] Falha transitória no Bot API via Bot [{BotIndex}] (tentativa {Attempt}/3, tipo {ErrorType}); tentando novamente.",
+                    "[NEBULA-TG] Bot [{BotIndex}] retornou HTTP 429; em cooldown por {RetryAfter}s e liberado para rotação.",
                     botIndex,
-                    attempt,
-                    ex.GetType().Name);
-                await Task.Delay(GetRetryDelay(ex, attempt), cancellationToken).ConfigureAwait(false);
-            }
-            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-            {
-                activity?.SetTag("telegram.result", "cancelled");
-                throw;
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(
-                    "[NEBULA-TG] Erro ao enviar documento via Bot [{BotIndex}] (tipo {ErrorType}).",
-                    botIndex,
-                    ex.GetType().Name);
-                activity?.SetStatus(ActivityStatusCode.Error, "Telegram document upload failed");
-                activity?.SetTag("error.type", ex.GetType().FullName);
-                activity?.SetTag("telegram.result", "failure");
+                    retryAfter);
+
+                activity?.SetTag("telegram.result", "flood_wait");
                 return null;
             }
-        }
 
-        activity?.SetTag("telegram.result", "exhausted");
-        return null;
+            if ((int)response.StatusCode >= 500)
+            {
+                throw new HttpRequestException($"Telegram Bot API retornou HTTP {(int)response.StatusCode}.");
+            }
+
+            _logger.LogError(
+                "[NEBULA-TG] Telegram Bot API rejeitou o documento via Bot [{BotIndex}] com HTTP {StatusCode}.",
+                botIndex,
+                (int)response.StatusCode);
+            activity?.SetTag("telegram.result", "rejected");
+            return null;
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException && !cancellationToken.IsCancellationRequested)
+        {
+            _logger.LogWarning(
+                "[NEBULA-TG] Resultado ambíguo no Bot API via Bot [{BotIndex}] (tipo {ErrorType}); reconciliando pelo UUID/parte antes de retentar.",
+                botIndex,
+                ex.GetType().Name);
+            if (!string.IsNullOrWhiteSpace(caption))
+            {
+                _ambiguousUploadCaptions[caption] = botIndex;
+            }
+
+            activity?.SetStatus(ActivityStatusCode.Error, "Telegram upload outcome is ambiguous");
+            activity?.SetTag("telegram.result", "ambiguous");
+            return null;
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            activity?.SetTag("telegram.result", "cancelled");
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(
+                "[NEBULA-TG] Erro ao enviar documento via Bot [{BotIndex}] (tipo {ErrorType}).",
+                botIndex,
+                ex.GetType().Name);
+            activity?.SetStatus(ActivityStatusCode.Error, "Telegram document upload failed");
+            activity?.SetTag("error.type", ex.GetType().FullName);
+            activity?.SetTag("telegram.result", "failure");
+            return null;
+        }
     }
 
     private static TimeSpan GetRetryDelay(Exception ex, int attempt)
@@ -1988,4 +2123,43 @@ public sealed class NebulaTelegramUploadResult
 
     /// <summary>Obtém o identificador reutilizável do documento.</summary>
     public string FileId { get; }
+}
+
+/// <summary>Resultado da consulta ao histórico usada para reconciliar uma parte Telegram.</summary>
+public enum NebulaTelegramPartLookupStatus
+{
+    /// <summary>A parte foi localizada com UUID, número e hash correspondentes.</summary>
+    Found,
+
+    /// <summary>Todas as consultas terminaram sem localizar a parte.</summary>
+    NotFound,
+
+    /// <summary>Nenhuma consulta confiável concluiu; não é seguro interpretar como ausência.</summary>
+    Inconclusive
+}
+
+/// <summary>Resultado tipado que não confunde histórico vazio com erro de consulta.</summary>
+public sealed class NebulaTelegramPartLookupResult
+{
+    private NebulaTelegramPartLookupResult(NebulaTelegramPartLookupStatus status, NebulaTelegramUploadResult? uploadResult = null)
+    {
+        Status = status;
+        UploadResult = uploadResult;
+    }
+
+    /// <summary>Estado da consulta ao histórico.</summary>
+    public NebulaTelegramPartLookupStatus Status { get; }
+
+    /// <summary>Referência da mensagem, quando encontrada.</summary>
+    public NebulaTelegramUploadResult? UploadResult { get; }
+
+    /// <summary>Resultado compartilhado para uma consulta inconclusiva.</summary>
+    public static NebulaTelegramPartLookupResult Inconclusive { get; } = new(NebulaTelegramPartLookupStatus.Inconclusive);
+
+    /// <summary>Resultado compartilhado para uma busca concluída sem correspondência.</summary>
+    public static NebulaTelegramPartLookupResult NotFound { get; } = new(NebulaTelegramPartLookupStatus.NotFound);
+
+    /// <summary>Cria resultado para uma parte localizada.</summary>
+    public static NebulaTelegramPartLookupResult Found(NebulaTelegramUploadResult uploadResult) =>
+        new(NebulaTelegramPartLookupStatus.Found, uploadResult ?? throw new ArgumentNullException(nameof(uploadResult)));
 }

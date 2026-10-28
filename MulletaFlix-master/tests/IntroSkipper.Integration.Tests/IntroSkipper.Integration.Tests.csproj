@@ -4,6 +4,7 @@
   <PropertyGroup>
     <ProjectGuid>{7C1E5D44-9A6B-4F2B-9E4D-3B5F0A7C8D21}</ProjectGuid>
     <OutputType>Exe</OutputType>
+    <IsTestProject>true</IsTestProject>
     <RootNamespace>IntroSkipper.Integration.Tests</RootNamespace>
     <IsPackable>false</IsPackable>
     <ImplicitUsings>enable</ImplicitUsings>

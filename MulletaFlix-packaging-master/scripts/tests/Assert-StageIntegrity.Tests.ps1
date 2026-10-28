@@ -7,6 +7,8 @@ $stageDirectory = Join-Path $fixtureRoot 'stage'
 $projectRoot = $fixtureRoot
 $sourceDownloader = Join-Path $projectRoot 'MulletaFlix-master\Tools\NebulaPython\tools\strm_downloader.py'
 $stagedDownloader = Join-Path $stageDirectory 'Tools\NebulaPython\tools\strm_downloader.py'
+$sourceCheckpoint = Join-Path $projectRoot 'MulletaFlix-master\Tools\NebulaPython\upload_checkpoint.py'
+$stagedCheckpoint = Join-Path $stageDirectory 'Tools\NebulaPython\upload_checkpoint.py'
 $publishDirectory = Join-Path $fixtureRoot 'candidate-publish'
 $requiredFiles = @(
     'MulletaFlix.exe',
@@ -16,6 +18,7 @@ $requiredFiles = @(
     'MulletaFlix-web\serviceworker.js',
     'Tools\mount_drive_n.py',
     'Tools\NebulaPython\main.py',
+    'Tools\NebulaPython\upload_checkpoint.py',
     'Tools\NebulaPython\stream_service.py',
     'Tools\NebulaPython\generate_strm.py',
     'Tools\NebulaPython\ftp\pathio.py',
@@ -43,6 +46,10 @@ try {
     $validDownloader = 'logger.info("[STRM-WORKER-MONGO-READY]")'
     [System.IO.File]::WriteAllText($sourceDownloader, $validDownloader)
     [System.IO.File]::WriteAllText($stagedDownloader, $validDownloader)
+    [void][System.IO.Directory]::CreateDirectory((Split-Path -Parent $sourceCheckpoint))
+    [void][System.IO.Directory]::CreateDirectory((Split-Path -Parent $stagedCheckpoint))
+    [System.IO.File]::WriteAllText($sourceCheckpoint, 'current-checkpoint-module')
+    [System.IO.File]::WriteAllText($stagedCheckpoint, 'current-checkpoint-module')
     $sourceAdmission = Join-Path $projectRoot 'MulletaFlix-master\Tools\NebulaPython\tools\mongo_admission.py'
     $stagedAdmission = Join-Path $stageDirectory 'Tools\NebulaPython\tools\mongo_admission.py'
     [void][System.IO.Directory]::CreateDirectory((Split-Path -Parent $sourceAdmission))
@@ -75,6 +82,19 @@ try {
         throw 'Stage integrity accepted a stale Nebula STRM downloader.'
     }
     [System.IO.File]::WriteAllText($stagedDownloader, $validDownloader)
+
+    [System.IO.File]::WriteAllText($stagedCheckpoint, 'stale-checkpoint-module')
+    $checkpointMismatchRejected = $false
+    try {
+        Assert-StageIntegrity -StageDirectory $stageDirectory -ProjectRoot $projectRoot -PublishDirectory $publishDirectory
+    } catch {
+        $checkpointMismatchRejected = $_.Exception.Message -like '*checkpoint module differs*'
+        if (-not $checkpointMismatchRejected) { throw }
+    }
+    if (-not $checkpointMismatchRejected) {
+        throw 'Stage integrity accepted a stale Nebula checkpoint module.'
+    }
+    [System.IO.File]::WriteAllText($stagedCheckpoint, 'current-checkpoint-module')
 
     $invalidDownloader = 'logger.info("[STRM-WORKER-READY]")'
     [System.IO.File]::WriteAllText($sourceDownloader, $invalidDownloader)
@@ -132,7 +152,7 @@ try {
         throw 'Stage integrity accepted a Python worker package missing mongo_admission.py.'
     }
 
-    Write-Host 'Stage integrity accepted matching Nebula modules and dependency lock, and rejected stale downloader or lock, missing readiness contract, generator, or admission module.'
+    Write-Host 'Stage integrity accepted matching Nebula modules and dependency lock, and rejected stale downloader/checkpoint module or lock, missing readiness contract, generator, or admission module.'
 }
 finally {
     if ([System.IO.Directory]::Exists($fixtureRoot)) {

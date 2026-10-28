@@ -1,14 +1,21 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
+using System.Net;
 using System.Net.Http;
+using System.Runtime.CompilerServices;
+using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using Jellyfin.Server.Implementations.Nebula;
 using MediaBrowser.Model.Nebula;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using MongoDB.Bson;
 using MongoDB.Driver;
+using WTelegram;
 using Xunit;
 
 namespace MulletaFlix.Server.Implementations.Tests.Nebula;
@@ -87,6 +94,137 @@ public sealed class NebulaQueueConcurrencyMongoTests : IDisposable
     }
 
     [Fact]
+    public async Task InsertFileDocIfAbsentAsync_PreservesCallerObjectIdForWorkerTransitions()
+    {
+        if (!_available)
+        {
+            Assert.Skip(_skipReason);
+        }
+
+        var expectedId = ObjectId.GenerateNewId();
+        var localPath = Path.Combine(Path.GetTempPath(), $"nebula-idempotency-{Guid.NewGuid():N}.mkv");
+        var initialDocument = new BsonDocument
+        {
+            { "_id", expectedId },
+            { "name", Path.GetFileName(localPath) },
+            { "type", "file" },
+            { "is_directory", false },
+            { "local_path", localPath },
+            { "status", "queued" },
+            { "parts", new BsonArray() }
+        };
+        var inserted = await CreateContext().InsertFileDocIfAbsentAsync(initialDocument, TestContext.Current.CancellationToken);
+
+        Assert.True(inserted);
+        var persisted = await Files.Find(Builders<BsonDocument>.Filter.Eq("local_path", localPath))
+            .SingleAsync(TestContext.Current.CancellationToken);
+        Assert.Equal(expectedId, persisted["_id"].AsObjectId);
+
+        var duplicateDocument = new BsonDocument
+        {
+            { "_id", ObjectId.GenerateNewId() },
+            { "name", Path.GetFileName(localPath) },
+            { "type", "file" },
+            { "is_directory", false },
+            { "local_path", localPath },
+            { "status", "queued" },
+            { "parts", new BsonArray() }
+        };
+        var duplicate = await CreateContext().InsertFileDocIfAbsentAsync(duplicateDocument, TestContext.Current.CancellationToken);
+
+        Assert.False(duplicate);
+        persisted = await Files.Find(Builders<BsonDocument>.Filter.Eq("local_path", localPath))
+            .SingleAsync(TestContext.Current.CancellationToken);
+        Assert.Equal(expectedId, persisted["_id"].AsObjectId);
+        Assert.Equal(1, await Files.CountDocumentsAsync(
+            Builders<BsonDocument>.Filter.Eq("local_path", localPath),
+            cancellationToken: TestContext.Current.CancellationToken));
+        var claim = await CreateContext().ClaimFileForUploadAsync(expectedId, 1, 0, TestContext.Current.CancellationToken);
+        Assert.NotNull(claim);
+        Assert.True(await CreateContext().UpdateUploadProgressAsync(
+            expectedId,
+            new BsonArray(),
+            128,
+            1,
+            "1",
+            TestContext.Current.CancellationToken,
+            claim["lease_id"].AsString));
+    }
+
+    [Fact]
+    public async Task ResetUploadGenerationAsync_RequiresCurrentLeaseAndClearsOldParts()
+    {
+        Assert.SkipUnless(_available, _skipReason);
+
+        using var context = CreateContext();
+        var id = await InsertQueuedFileAsync();
+        var claim = await context.ClaimFileForUploadAsync(id, 41, 0, TestContext.Current.CancellationToken);
+        Assert.NotNull(claim);
+        var currentLeaseId = claim["lease_id"].AsString;
+        var oldParts = new BsonArray
+        {
+            new BsonDocument
+            {
+                { "part_number", 0 },
+                { "source_sha256", new string('a', 64) }
+            }
+        };
+        await Files.UpdateOneAsync(
+            Builders<BsonDocument>.Filter.Eq("_id", id),
+            Builders<BsonDocument>.Update.Set("parts", oldParts).Set("uploaded_bytes", 256L),
+            cancellationToken: TestContext.Current.CancellationToken);
+
+        Assert.False(await context.ResetUploadGenerationAsync(id, "stale-generation", "41", "old-lease", 3, TestContext.Current.CancellationToken));
+        var unchanged = await Files.Find(Builders<BsonDocument>.Filter.Eq("_id", id)).SingleAsync(TestContext.Current.CancellationToken);
+        Assert.Equal(oldParts, unchanged["parts"].AsBsonArray);
+        Assert.Equal(256L, unchanged["uploaded_bytes"].ToInt64());
+
+        await Files.UpdateOneAsync(
+            Builders<BsonDocument>.Filter.Eq("_id", id),
+            Builders<BsonDocument>.Update.Set("lease_until", DateTimeOffset.UtcNow.ToUnixTimeSeconds() - 1),
+            cancellationToken: TestContext.Current.CancellationToken);
+        Assert.False(await context.ResetUploadGenerationAsync(id, "expired-generation", "41", currentLeaseId, 3, TestContext.Current.CancellationToken));
+        unchanged = await Files.Find(Builders<BsonDocument>.Filter.Eq("_id", id)).SingleAsync(TestContext.Current.CancellationToken);
+        Assert.Equal(oldParts, unchanged["parts"].AsBsonArray);
+        Assert.Equal(256L, unchanged["uploaded_bytes"].ToInt64());
+
+        await Files.UpdateOneAsync(
+            Builders<BsonDocument>.Filter.Eq("_id", id),
+            Builders<BsonDocument>.Update.Set("lease_until", DateTimeOffset.UtcNow.ToUnixTimeSeconds() + 60),
+            cancellationToken: TestContext.Current.CancellationToken);
+
+        Assert.True(await context.ResetUploadGenerationAsync(id, "new-generation", "41", currentLeaseId, 3, TestContext.Current.CancellationToken));
+        var reset = await Files.Find(Builders<BsonDocument>.Filter.Eq("_id", id)).SingleAsync(TestContext.Current.CancellationToken);
+        Assert.Equal("uploading", reset["status"].AsString);
+        Assert.Equal("new-generation", reset["file_uuid"].AsString);
+        Assert.Equal("new-generation", reset["obfuscated_id"].AsString);
+        Assert.Empty(reset["parts"].AsBsonArray);
+        Assert.Equal(0L, reset["uploaded_bytes"].ToInt64());
+        Assert.Equal(3, reset["part_count"].ToInt32());
+        Assert.Equal(currentLeaseId, reset["lease_id"].AsString);
+    }
+
+    private async Task<(ObjectId Id, string StaleLeaseId, string CurrentLeaseId)> ReclaimForSameWorkerAsync(NebulaMongoContext context)
+    {
+        var id = await InsertQueuedFileAsync();
+        var firstClaim = await context.ClaimFileForUploadAsync(id, 1, 0, CancellationToken.None);
+        Assert.NotNull(firstClaim);
+        var staleLeaseId = firstClaim["lease_id"].AsString;
+
+        await Files.UpdateOneAsync(
+            Builders<BsonDocument>.Filter.Eq("_id", id),
+            Builders<BsonDocument>.Update.Set("lease_until", DateTimeOffset.UtcNow.ToUnixTimeSeconds() - 10),
+            cancellationToken: TestContext.Current.CancellationToken);
+
+        var secondClaim = await context.ClaimFileForUploadAsync(id, 1, 0, CancellationToken.None);
+        Assert.NotNull(secondClaim);
+        var currentLeaseId = secondClaim["lease_id"].AsString;
+        Assert.NotEqual(staleLeaseId, currentLeaseId);
+
+        return (id, staleLeaseId, currentLeaseId);
+    }
+
+    [Fact]
     public async Task UploadQueueSummary_RecordsSuccessfulMongoActivity()
     {
         Assert.SkipUnless(_available, _skipReason);
@@ -155,14 +293,15 @@ public sealed class NebulaQueueConcurrencyMongoTests : IDisposable
 
         var claimed = await context.ClaimFileForUploadAsync(id, 1, 0, CancellationToken.None);
         Assert.NotNull(claimed);
+        var leaseId = claimed["lease_id"].AsString;
 
         var ownerParts = new BsonArray { new BsonDocument { { "part", 0 }, { "size", 512L } } };
-        var ownerWrote = await context.UpdateUploadProgressAsync(id, ownerParts, 512, 0, "1", CancellationToken.None);
+        var ownerWrote = await context.UpdateUploadProgressAsync(id, ownerParts, 512, 0, "1", CancellationToken.None, leaseId);
         Assert.True(ownerWrote, "O dono do lease deve conseguir gravar progresso.");
 
         // Worker 2 nunca reivindicou este documento.
         var intruderParts = new BsonArray { new BsonDocument { { "part", 99 }, { "size", 1L } } };
-        var intruderWrote = await context.UpdateUploadProgressAsync(id, intruderParts, 1, 0, "2", CancellationToken.None);
+        var intruderWrote = await context.UpdateUploadProgressAsync(id, intruderParts, 1, 0, "2", CancellationToken.None, leaseId);
         Assert.False(intruderWrote, "Worker sem posse não pode gravar progresso.");
 
         // E as partes do dono continuam intactas.
@@ -174,6 +313,63 @@ public sealed class NebulaQueueConcurrencyMongoTests : IDisposable
     }
 
     [Fact]
+    public async Task ReclaimedLease_FencesEveryMutationWhenWorkerIdIsReused()
+    {
+        Assert.SkipUnless(_available, _skipReason);
+
+        using var context = CreateContext();
+        var progress = await ReclaimForSameWorkerAsync(context);
+        var currentParts = new BsonArray { new BsonDocument { { "part", 0 }, { "size", 900L } } };
+        var staleParts = new BsonArray { new BsonDocument { { "part", 0 }, { "size", 100L } } };
+
+        Assert.False(await context.TryAcquireUploadOwnershipAsync(progress.Id, "1", progress.StaleLeaseId));
+        Assert.True(await context.TryAcquireUploadOwnershipAsync(progress.Id, "1", progress.CurrentLeaseId));
+        Assert.False(await context.UpdateUploadProgressAsync(progress.Id, staleParts, 100, 0, "1", CancellationToken.None, progress.StaleLeaseId));
+        Assert.True(await context.UpdateUploadProgressAsync(progress.Id, currentParts, 900, 0, "1", CancellationToken.None, progress.CurrentLeaseId));
+        Assert.False(await context.MarkUploadFailedAsync(progress.Id, "stale failure", NebulaUploadFailureStages.TelegramTransfer, CancellationToken.None, "1", progress.StaleLeaseId));
+        Assert.False(await context.CompleteFileUploadAsync(progress.Id, new BsonDocument { { "status", "completed" }, { "size", 100L } }, CancellationToken.None, "1", progress.StaleLeaseId));
+        Assert.False(await context.CompleteDuplicateUploadAsync(progress.Id, new BsonDocument("status", "completed"), 100, CancellationToken.None, "1", progress.StaleLeaseId));
+        Assert.False(await context.ReleaseUploadClaimForRetryAsync(progress.Id, 1, CancellationToken.None, progress.StaleLeaseId));
+
+        var progressDocument = await Files.Find(Builders<BsonDocument>.Filter.Eq("_id", progress.Id)).FirstAsync(TestContext.Current.CancellationToken);
+        Assert.Equal(900L, progressDocument["uploaded_bytes"].ToInt64());
+        Assert.Equal(progress.CurrentLeaseId, progressDocument["lease_id"].AsString);
+
+        var failed = await ReclaimForSameWorkerAsync(context);
+        Assert.False(await context.MarkUploadFailedAsync(failed.Id, "stale failure", NebulaUploadFailureStages.TelegramTransfer, CancellationToken.None, "1", failed.StaleLeaseId));
+        Assert.True(await context.MarkUploadFailedAsync(failed.Id, "current failure", NebulaUploadFailureStages.TelegramTransfer, CancellationToken.None, "1", failed.CurrentLeaseId));
+
+        var completed = await ReclaimForSameWorkerAsync(context);
+        var finalFields = new BsonDocument { { "status", "completed" }, { "size", 1024L } };
+        Assert.False(await context.CompleteFileUploadAsync(completed.Id, finalFields, CancellationToken.None, "1", completed.StaleLeaseId));
+        Assert.True(await context.CompleteFileUploadAsync(completed.Id, finalFields, CancellationToken.None, "1", completed.CurrentLeaseId));
+
+        var duplicate = await ReclaimForSameWorkerAsync(context);
+        var canonicalMedia = new BsonDocument
+        {
+            { "status", "completed" },
+            { "parts", new BsonArray { new BsonDocument { { "part", 0 }, { "size", 1024L } } } },
+            { "tg_file_id", "canonical-file" }
+        };
+        Assert.False(await context.CompleteDuplicateUploadAsync(duplicate.Id, canonicalMedia, 1024, CancellationToken.None, "1", duplicate.StaleLeaseId));
+        Assert.True(await context.CompleteDuplicateUploadAsync(duplicate.Id, canonicalMedia, 1024, CancellationToken.None, "1", duplicate.CurrentLeaseId));
+
+        var cancelled = await ReclaimForSameWorkerAsync(context);
+        await Files.UpdateOneAsync(
+            Builders<BsonDocument>.Filter.Eq("_id", cancelled.Id),
+            Builders<BsonDocument>.Update.Set("cancel_requested_at", DateTimeOffset.UtcNow.ToUnixTimeSeconds()),
+            cancellationToken: TestContext.Current.CancellationToken);
+        Assert.False(await context.IsUploadCancellationRequestedAsync(cancelled.Id, "1", CancellationToken.None, cancelled.StaleLeaseId));
+        Assert.False(await context.MarkUploadCancelledAsync(cancelled.Id, "1", CancellationToken.None, cancelled.StaleLeaseId));
+        Assert.True(await context.IsUploadCancellationRequestedAsync(cancelled.Id, "1", CancellationToken.None, cancelled.CurrentLeaseId));
+        Assert.True(await context.MarkUploadCancelledAsync(cancelled.Id, "1", CancellationToken.None, cancelled.CurrentLeaseId));
+
+        var released = await ReclaimForSameWorkerAsync(context);
+        Assert.False(await context.ReleaseUploadClaimForRetryAsync(released.Id, 1, CancellationToken.None, released.StaleLeaseId));
+        Assert.True(await context.ReleaseUploadClaimForRetryAsync(released.Id, 1, CancellationToken.None, released.CurrentLeaseId));
+    }
+
+    [Fact]
     public async Task RequeuedDocument_CannotBeWrittenByTheZombieWorker()
     {
         Assert.SkipUnless(_available, _skipReason);
@@ -182,14 +378,16 @@ public sealed class NebulaQueueConcurrencyMongoTests : IDisposable
         var id = await InsertQueuedFileAsync();
 
         // Worker 1 reivindica e grava progresso.
-        Assert.NotNull(await context.ClaimFileForUploadAsync(id, 1, 0, CancellationToken.None));
+        var claimed = await context.ClaimFileForUploadAsync(id, 1, 0, CancellationToken.None);
+        Assert.NotNull(claimed);
         Assert.True(await context.UpdateUploadProgressAsync(
             id,
             new BsonArray { new BsonDocument { { "part", 0 }, { "size", 512L } } },
             512,
             0,
             "1",
-            CancellationToken.None));
+            CancellationToken.None,
+            claimed["lease_id"].AsString));
 
         // O worker travou e a recuperação devolveu o item à fila.
         await context.RequeueInterruptedUploadsAsync(CancellationToken.None);
@@ -211,14 +409,16 @@ public sealed class NebulaQueueConcurrencyMongoTests : IDisposable
         Assert.False(requeued.Contains("lease_id"), "O requeue deve limpar o lease.");
 
         // Worker 2 assume legitimamente.
-        Assert.NotNull(await context.ClaimFileForUploadAsync(id, 2, 0, CancellationToken.None));
+        var secondClaim = await context.ClaimFileForUploadAsync(id, 2, 0, CancellationToken.None);
+        Assert.NotNull(secondClaim);
         Assert.True(await context.UpdateUploadProgressAsync(
             id,
             new BsonArray { new BsonDocument { { "part", 0 }, { "size", 900L } } },
             900,
             0,
             "2",
-            CancellationToken.None));
+            CancellationToken.None,
+            secondClaim["lease_id"].AsString));
 
         // O worker 1 volta do limbo. Esta é a corrida que corrompia os dados:
         // antes do fencing, "sem dono" o qualificava e ele sobrescrevia o
@@ -229,7 +429,8 @@ public sealed class NebulaQueueConcurrencyMongoTests : IDisposable
             512,
             0,
             "1",
-            CancellationToken.None);
+            CancellationToken.None,
+            claimed["lease_id"].AsString);
 
         Assert.False(zombieWrote, "Worker zumbi não pode readotar documento já reivindicado.");
 
@@ -246,7 +447,8 @@ public sealed class NebulaQueueConcurrencyMongoTests : IDisposable
         using var context = CreateContext();
         var id = await InsertQueuedFileAsync();
 
-        Assert.NotNull(await context.ClaimFileForUploadAsync(id, 1, 0, CancellationToken.None));
+        var claimed = await context.ClaimFileForUploadAsync(id, 1, 0, CancellationToken.None);
+        Assert.NotNull(claimed);
         var completed = await context.CompleteFileUploadAsync(
             id,
             new BsonDocument
@@ -256,7 +458,8 @@ public sealed class NebulaQueueConcurrencyMongoTests : IDisposable
                 { "parts", new BsonArray { new BsonDocument { { "part", 0 }, { "size", 1024L } } } }
             },
             CancellationToken.None,
-            "1");
+            "1",
+            claimed["lease_id"].AsString);
         Assert.True(completed);
 
         // Mídia concluída nunca volta para a fila: é o requisito de idempotência
@@ -277,13 +480,15 @@ public sealed class NebulaQueueConcurrencyMongoTests : IDisposable
         using var context = CreateContext();
         var id = await InsertQueuedFileAsync();
 
-        Assert.NotNull(await context.ClaimFileForUploadAsync(id, 1, 0, CancellationToken.None));
+        var claimed = await context.ClaimFileForUploadAsync(id, 1, 0, CancellationToken.None);
+        Assert.NotNull(claimed);
         Assert.True(await context.MarkUploadFailedAsync(
             id,
             "falha transitória",
             NebulaUploadFailureStages.TelegramTransfer,
             CancellationToken.None,
-            "1"));
+            "1",
+            claimed["lease_id"].AsString));
 
         var failed = await Files.Find(Builders<BsonDocument>.Filter.Eq("_id", id)).FirstAsync(TestContext.Current.CancellationToken);
         Assert.Equal("failed", failed["status"].AsString);
@@ -364,12 +569,14 @@ public sealed class NebulaQueueConcurrencyMongoTests : IDisposable
         using var context = CreateContext();
         var id = await InsertQueuedFileAsync();
 
-        Assert.NotNull(await context.ClaimFileForUploadAsync(id, 1, 0, CancellationToken.None));
+        var completedClaim = await context.ClaimFileForUploadAsync(id, 1, 0, CancellationToken.None);
+        Assert.NotNull(completedClaim);
         Assert.True(await context.CompleteFileUploadAsync(
             id,
             new BsonDocument { { "status", "completed" }, { "size", 1024L } },
             CancellationToken.None,
-            "1"));
+            "1",
+            completedClaim["lease_id"].AsString));
 
         // Priorizar mídia já enviada não faz sentido e reabriria trabalho
         // concluído na fila restaurada.
@@ -392,7 +599,8 @@ public sealed class NebulaQueueConcurrencyMongoTests : IDisposable
         var completedId = await InsertQueuedFileAsync();
         var pendingId = await InsertQueuedFileAsync();
 
-        Assert.NotNull(await source.ClaimFileForUploadAsync(completedId, 1, 0, CancellationToken.None));
+        var completedClaim = await source.ClaimFileForUploadAsync(completedId, 1, 0, CancellationToken.None);
+        Assert.NotNull(completedClaim);
         Assert.True(await source.CompleteFileUploadAsync(
             completedId,
             new BsonDocument
@@ -403,7 +611,8 @@ public sealed class NebulaQueueConcurrencyMongoTests : IDisposable
                 { "parts", new BsonArray { new BsonDocument { { "part", 0 }, { "size", 4096L } } } }
             },
             CancellationToken.None,
-            "1"));
+            "1",
+            completedClaim["lease_id"].AsString));
         Assert.True(await source.SetUploadPriorityAsync(pendingId, true, CancellationToken.None));
 
         // "Backup": exporta a coleção inteira como documentos BSON.
@@ -721,6 +930,297 @@ public sealed class NebulaQueueConcurrencyMongoTests : IDisposable
         Assert.Empty(state["active_upload_leases"].AsBsonArray);
     }
 
+    [Fact]
+    [Trait("Category", "RequiresMongoFailPoint")]
+    public async Task AcceptedTelegramPart_IsRecoveredAfterMongoProgressWriteFails()
+    {
+        Assert.SkipUnless(_available, _skipReason);
+
+        var admin = _client!.GetDatabase("admin");
+        try
+        {
+            await admin.RunCommandAsync<BsonDocument>(
+                new BsonDocument
+                {
+                    { "configureFailPoint", "failCommand" },
+                    { "mode", "off" }
+                },
+                cancellationToken: TestContext.Current.CancellationToken);
+        }
+        catch (MongoCommandException exception) when (exception.Code == 59)
+        {
+            Assert.Skip("Mongo opt-in precisa habilitar enableTestCommands para injetar a falha de checkpoint.");
+        }
+
+        var sourceDirectory = Path.Combine(Path.GetTempPath(), "nebula-upload-recovery-" + Guid.NewGuid().ToString("N"));
+        var checkpointDirectory = Path.Combine(sourceDirectory, "checkpoints");
+        var sessionsDirectory = Path.Combine(sourceDirectory, "sessions");
+        Directory.CreateDirectory(sourceDirectory);
+        var sourcePath = Path.Combine(sourceDirectory, "recovery.mkv");
+        await File.WriteAllBytesAsync(sourcePath, [1, 2, 3, 4, 5], TestContext.Current.CancellationToken);
+
+        var handler = new TelegramAckThenFailMongoHandler(_client);
+        var httpClient = new HttpClient(handler);
+        var telegramPool = new NebulaTelegramPool(
+            1,
+            "test-api-hash",
+            ["123456:test-token"],
+            -1001234567890,
+            sessionsDirectory,
+            NullLogger<NebulaTelegramPool>.Instance,
+            httpClient);
+        var clientsField = typeof(NebulaTelegramPool).GetField(
+            "_clients",
+            System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+        Assert.NotNull(clientsField);
+        var authenticatedClients = Assert.IsType<ConcurrentDictionary<int, Client>>(clientsField.GetValue(telegramPool));
+        authenticatedClients.TryAdd(0, (Client)RuntimeHelpers.GetUninitializedObject(typeof(Client)));
+
+        try
+        {
+            using var firstEngine = new NebulaUploadEngine(
+                CreateContext(),
+                telegramPool,
+                uploadConcurrency: 1,
+                chunkSizeMb: 16,
+                deleteSourceAfterUpload: false,
+                NullLogger<NebulaUploadEngine>.Instance,
+                uploadCheckpointDirectory: checkpointDirectory);
+
+            await Assert.ThrowsAnyAsync<MongoException>(
+                () => firstEngine.ProcessFileUploadAsync(sourcePath, "recovery.mkv", cancellationToken: TestContext.Current.CancellationToken));
+
+            Assert.Equal(1, handler.RequestCount);
+            var failedDocument = await Files.Find(Builders<BsonDocument>.Filter.Eq("local_path", sourcePath))
+                .SingleAsync(TestContext.Current.CancellationToken);
+            Assert.Empty(failedDocument["parts"].AsBsonArray);
+            Assert.Single(Directory.GetFiles(checkpointDirectory, "*.json"));
+
+            await Files.UpdateOneAsync(
+                Builders<BsonDocument>.Filter.Eq("_id", failedDocument["_id"].AsObjectId),
+                Builders<BsonDocument>.Update
+                    .Set("status", "queued")
+                    .Set("retry_after", 0L)
+                    .Unset("worker_id")
+                    .Unset("lease_id")
+                    .Unset("lease_until")
+                    .Unset("heartbeat_at")
+                    .Unset("started_at"),
+                cancellationToken: TestContext.Current.CancellationToken);
+
+            using var resumedEngine = new NebulaUploadEngine(
+                CreateContext(),
+                telegramPool,
+                uploadConcurrency: 1,
+                chunkSizeMb: 16,
+                deleteSourceAfterUpload: false,
+                NullLogger<NebulaUploadEngine>.Instance,
+                uploadCheckpointDirectory: checkpointDirectory);
+
+            Assert.True(await resumedEngine.ProcessFileUploadAsync(
+                sourcePath,
+                "recovery.mkv",
+                cancellationToken: TestContext.Current.CancellationToken));
+
+            Assert.Equal(1, handler.RequestCount);
+            var completedDocument = await Files.Find(Builders<BsonDocument>.Filter.Eq("_id", failedDocument["_id"].AsObjectId))
+                .SingleAsync(TestContext.Current.CancellationToken);
+            Assert.Equal("completed", completedDocument["status"].AsString);
+            Assert.Single(completedDocument["parts"].AsBsonArray);
+            Assert.Equal("accepted-file-id", completedDocument["parts"].AsBsonArray[0].AsBsonDocument["tg_file_id"].AsString);
+            Assert.Empty(Directory.GetFiles(checkpointDirectory, "*.json"));
+        }
+        finally
+        {
+            authenticatedClients.Clear();
+            await telegramPool.DisposeAsync();
+            Directory.Delete(sourceDirectory, recursive: true);
+            await admin.RunCommandAsync<BsonDocument>(
+                new BsonDocument
+                {
+                    { "configureFailPoint", "failCommand" },
+                    { "mode", "off" }
+                },
+                cancellationToken: CancellationToken.None);
+        }
+    }
+
+    [Fact]
+    public async Task LostTelegramResponse_IsReconciledFromHistoryBeforeRestartRetry()
+    {
+        Assert.SkipUnless(_available, _skipReason);
+
+        var sourceDirectory = Path.Combine(Path.GetTempPath(), "nebula-upload-ambiguous-" + Guid.NewGuid().ToString("N"));
+        var checkpointDirectory = Path.Combine(sourceDirectory, "checkpoints");
+        var sessionsDirectory = Path.Combine(sourceDirectory, "sessions");
+        Directory.CreateDirectory(sourceDirectory);
+        var sourcePath = Path.Combine(sourceDirectory, "ambiguous.mkv");
+        await File.WriteAllBytesAsync(sourcePath, [1, 2, 3, 4, 5], TestContext.Current.CancellationToken);
+
+        var handler = new TelegramLostResponseHandler();
+        var allowHistoryRecovery = 0;
+        var historyLookupCount = 0;
+        var uploadLogger = new CapturingLogger<NebulaUploadEngine>();
+        var httpClient = new HttpClient(handler);
+        var telegramPool = new NebulaTelegramPool(
+            1,
+            "test-api-hash",
+            ["123456:test-token", "123456:test-token-2"],
+            -1001234567890,
+            sessionsDirectory,
+            NullLogger<NebulaTelegramPool>.Instance,
+            httpClient,
+            (botIndex, fileUuid, partNumber, totalParts, _) =>
+            {
+                Interlocked.Increment(ref historyLookupCount);
+                return Task.FromResult(Volatile.Read(ref allowHistoryRecovery) == 0
+                    ? NebulaTelegramPartLookupResult.Inconclusive
+                    : NebulaTelegramPartLookupResult.Found(
+                        new NebulaTelegramUploadResult(botIndex, 456, -1001234567890, "mtproto:456")));
+            });
+        var clientsField = typeof(NebulaTelegramPool).GetField(
+            "_clients",
+            System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+        Assert.NotNull(clientsField);
+        var authenticatedClients = Assert.IsType<ConcurrentDictionary<int, Client>>(clientsField.GetValue(telegramPool));
+        authenticatedClients.TryAdd(0, (Client)RuntimeHelpers.GetUninitializedObject(typeof(Client)));
+        authenticatedClients.TryAdd(1, (Client)RuntimeHelpers.GetUninitializedObject(typeof(Client)));
+        var cooldownsField = typeof(NebulaTelegramPool).GetField(
+            "_uploadBotCooldowns",
+            System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+        Assert.NotNull(cooldownsField);
+        var cooldowns = Assert.IsType<ConcurrentDictionary<int, long>>(cooldownsField.GetValue(telegramPool));
+        // The engine asks for bot 0, but the pool must route around its cooldown
+        // and use bot 1. The ambiguous result must still be associated with the
+        // actual sender, not the bot originally requested by the worker.
+        cooldowns[0] = DateTimeOffset.UtcNow.AddMinutes(5).ToUnixTimeMilliseconds();
+
+        try
+        {
+            using var firstEngine = new NebulaUploadEngine(
+                CreateContext(),
+                telegramPool,
+                uploadConcurrency: 1,
+                chunkSizeMb: 16,
+                deleteSourceAfterUpload: false,
+                uploadLogger,
+                uploadCheckpointDirectory: checkpointDirectory);
+
+            Assert.False(await firstEngine.ProcessFileUploadAsync(
+                sourcePath,
+                "ambiguous.mkv",
+                cancellationToken: TestContext.Current.CancellationToken));
+            // Even with a second bot ready, an unresolved response must release
+            // the worker for scheduled automatic retry instead of sending a copy.
+            Assert.Equal(1, handler.RequestCount);
+            Assert.Equal(8, historyLookupCount);
+            Assert.Single(Directory.GetFiles(checkpointDirectory, "*.json"));
+
+            var failedDocument = await Files.Find(Builders<BsonDocument>.Filter.Eq("local_path", sourcePath))
+                .SingleAsync(TestContext.Current.CancellationToken);
+            Assert.Empty(failedDocument["parts"].AsBsonArray);
+            Assert.True(
+                string.Equals("failed", failedDocument["status"].AsString, StringComparison.Ordinal),
+                failedDocument.ToJson() + Environment.NewLine + string.Join(Environment.NewLine, uploadLogger.Messages));
+            Assert.Equal(1, failedDocument["retry_count"].ToInt32());
+            Assert.True(failedDocument["retry_after"].ToInt64() > DateTimeOffset.UtcNow.ToUnixTimeSeconds());
+            await Files.UpdateOneAsync(
+                Builders<BsonDocument>.Filter.Eq("_id", failedDocument["_id"].AsObjectId),
+                Builders<BsonDocument>.Update
+                    .Set("status", "queued")
+                    .Set("retry_after", 0L)
+                    .Unset("worker_id")
+                    .Unset("lease_id")
+                    .Unset("lease_until")
+                    .Unset("heartbeat_at")
+                    .Unset("started_at"),
+                cancellationToken: TestContext.Current.CancellationToken);
+
+            Volatile.Write(ref allowHistoryRecovery, 1);
+            using var resumedEngine = new NebulaUploadEngine(
+                CreateContext(),
+                telegramPool,
+                uploadConcurrency: 1,
+                chunkSizeMb: 16,
+                deleteSourceAfterUpload: false,
+                NullLogger<NebulaUploadEngine>.Instance,
+                uploadCheckpointDirectory: checkpointDirectory);
+
+            Assert.True(await resumedEngine.ProcessFileUploadAsync(
+                sourcePath,
+                "ambiguous.mkv",
+                cancellationToken: TestContext.Current.CancellationToken));
+
+            Assert.Equal(1, handler.RequestCount);
+            var completedDocument = await Files.Find(Builders<BsonDocument>.Filter.Eq("_id", failedDocument["_id"].AsObjectId))
+                .SingleAsync(TestContext.Current.CancellationToken);
+            Assert.Equal("completed", completedDocument["status"].AsString);
+            Assert.Equal("mtproto:456", completedDocument["parts"].AsBsonArray[0].AsBsonDocument["tg_file_id"].AsString);
+            Assert.Equal(9, historyLookupCount);
+            Assert.Empty(Directory.GetFiles(checkpointDirectory, "*.json"));
+        }
+        finally
+        {
+            authenticatedClients.Clear();
+            await telegramPool.DisposeAsync();
+            Directory.Delete(sourceDirectory, recursive: true);
+        }
+    }
+
+    private sealed class TelegramAckThenFailMongoHandler : HttpMessageHandler
+    {
+        private const string TelegramAcceptedResponse = "{\"ok\":true,\"result\":{\"message_id\":123,\"chat\":{\"id\":-1001234567890},\"document\":{\"file_id\":\"accepted-file-id\"}}}";
+        private readonly MongoClient _client;
+        private int _requestCount;
+
+        public TelegramAckThenFailMongoHandler(MongoClient client)
+        {
+            _client = client;
+        }
+
+        public int RequestCount => Volatile.Read(ref _requestCount);
+
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            if (Interlocked.Increment(ref _requestCount) == 1)
+            {
+                await _client.GetDatabase("admin").RunCommandAsync<BsonDocument>(
+                    new BsonDocument
+                    {
+                        { "configureFailPoint", "failCommand" },
+                        { "mode", new BsonDocument("times", 2) },
+                        {
+                            "data",
+                            new BsonDocument
+                            {
+                                { "failCommands", new BsonArray { "update" } },
+                                { "errorCode", 11600 }
+                            }
+                        }
+                    },
+                    cancellationToken: cancellationToken);
+            }
+
+            return new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(TelegramAcceptedResponse, Encoding.UTF8, "application/json")
+            };
+        }
+    }
+
+    private sealed class TelegramLostResponseHandler : HttpMessageHandler
+    {
+        private int _requestCount;
+
+        public int RequestCount => Volatile.Read(ref _requestCount);
+
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            Interlocked.Increment(ref _requestCount);
+            throw new HttpRequestException("Simulated connection loss after Telegram accepted the document.");
+        }
+    }
+
     public void Dispose()
     {
         if (_available && _client is not null)
@@ -737,6 +1237,22 @@ public sealed class NebulaQueueConcurrencyMongoTests : IDisposable
         {
             RequestCount++;
             throw new InvalidOperationException("The automatic backup must wait for active uploads before sending HTTP requests.");
+        }
+    }
+
+    private sealed class CapturingLogger<T> : ILogger<T>
+    {
+        public ConcurrentQueue<string> Messages { get; } = new();
+
+        public IDisposable? BeginScope<TState>(TState state)
+            where TState : notnull
+            => null;
+
+        public bool IsEnabled(LogLevel logLevel) => true;
+
+        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter)
+        {
+            Messages.Enqueue(formatter(state, exception));
         }
     }
 }

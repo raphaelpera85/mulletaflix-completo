@@ -446,7 +446,7 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable, IAsyncDis
         catch (Exception ex)
         {
             _logger.LogError(ex, "[NEBULA-DEPS] Falha ao verificar/instalar dependências de runtime.");
-            AddServerLog($"[NEBULA-DEPS] Falha ao verificar dependências: {ex.Message}");
+            AddServerLog($"[NEBULA-DEPS] Falha ao verificar dependências: {NebulaErrorMessageFormatter.FormatForDisplay(ex)}");
         }
         finally
         {
@@ -681,13 +681,19 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable, IAsyncDis
             {
                 var countBeforeRoot = suggestions.Count;
                 var root = Path.GetFullPath(configuredRoot);
-                foreach (var path in Directory.EnumerateFiles(configuredRoot, "*.strm", new EnumerationOptions
+                var enumerationOptions = new EnumerationOptions
                 {
-                    RecurseSubdirectories = true,
-                    IgnoreInaccessible = true,
+                    RecurseSubdirectories = false,
+                    IgnoreInaccessible = false,
                     AttributesToSkip = FileAttributes.ReparsePoint,
                     MatchCasing = MatchCasing.CaseInsensitive
-                }))
+                };
+                var enumeration = NebulaStrmDirectoryEnumerator.Enumerate(
+                    configuredRoot,
+                    directory => Directory.EnumerateFiles(directory, "*.strm", enumerationOptions),
+                    directory => Directory.EnumerateDirectories(directory, "*", enumerationOptions),
+                    cancellationToken);
+                foreach (var path in enumeration.Files)
                 {
                     cancellationToken.ThrowIfCancellationRequested();
                     var normalizedPath = path.Replace('\\', '/');
@@ -723,6 +729,16 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable, IAsyncDis
                         directory = directory.Parent;
                     }
                 }
+
+                if (enumeration.FailedDirectoryCount > 0)
+                {
+                    failedRootCount++;
+                    _logger.LogWarning(
+                        "[NEBULA-REQUESTS] Raiz STRM {Root} indexada parcialmente; {FailedDirectoryCount} diretórios tiveram falha de leitura.",
+                        configuredRoot,
+                        enumeration.FailedDirectoryCount);
+                }
+
                 _logger.LogDebug(
                     "[NEBULA-REQUESTS] Raiz {Root}: {SuggestionCount} sugestões catalogadas.",
                     configuredRoot,
@@ -1525,7 +1541,7 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable, IAsyncDis
                     catch (Exception ex)
                     {
                         _logger.LogError(ex, "Falha ao recuperar worker Python de playback.");
-                        AddServerLog($"[ERRO] Falha ao recuperar stream Python: {ex.Message}");
+                        AddServerLog($"[ERRO] Falha ao recuperar stream Python: {NebulaErrorMessageFormatter.FormatForDisplay(ex)}");
                         return false;
                     }
                 }
@@ -1772,7 +1788,10 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable, IAsyncDis
                         }
 
                         return Task.CompletedTask;
-                    });
+                    },
+                    uploadCheckpointDirectory: Path.Combine(
+                        _configManager.CommonApplicationPaths.DataPath,
+                        "nebula_upload_checkpoints"));
             }
             else
             {
@@ -1903,7 +1922,7 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable, IAsyncDis
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to start NebulaFTP server");
-            AddServerLog($"[ERRO] Falha ao iniciar NebulaFTP nativo: {ex.Message}");
+            AddServerLog($"[ERRO] Falha ao iniciar NebulaFTP nativo: {NebulaErrorMessageFormatter.FormatForDisplay(ex)}");
             _isEnvioRunning = false;
 
             // Libere apenas os recursos criados nesta tentativa. O pool/Mongo podem
@@ -2080,7 +2099,7 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable, IAsyncDis
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to stop NebulaFTP server");
-            AddServerLog($"[ERRO] Falha ao parar serviços: {ex.Message}");
+            AddServerLog($"[ERRO] Falha ao parar serviços: {NebulaErrorMessageFormatter.FormatForDisplay(ex)}");
         }
         finally
         {
@@ -2677,7 +2696,7 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable, IAsyncDis
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to load Nebula downloader configuration");
-            AddDownloaderLog($"[ERRO] Falha ao carregar configuração do Downloader: {ex.Message}");
+            AddDownloaderLog($"[ERRO] Falha ao carregar configuração do Downloader: {NebulaErrorMessageFormatter.FormatForDisplay(ex)}");
             _downloaderLock.Release();
             return false;
         }
@@ -2808,7 +2827,7 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable, IAsyncDis
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to start STRM Downloader");
-            AddDownloaderLog($"[ERRO] Falha ao iniciar Downloader: {ex.Message}");
+            AddDownloaderLog($"[ERRO] Falha ao iniciar Downloader: {NebulaErrorMessageFormatter.FormatForDisplay(ex)}");
             _isDownloaderRunning = _pythonDownloaderProcess is { HasExited: false };
             return false;
         }
@@ -2864,7 +2883,7 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable, IAsyncDis
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to stop STRM Downloader");
-            AddDownloaderLog($"[ERRO] Falha ao parar Downloader: {ex.Message}");
+            AddDownloaderLog($"[ERRO] Falha ao parar Downloader: {NebulaErrorMessageFormatter.FormatForDisplay(ex)}");
         }
         finally
         {
@@ -3001,9 +3020,9 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable, IAsyncDis
         }
         catch (Exception ex)
         {
-            AddServerLog($"[STRM-ERRO] Falha ao gerar STRM: {ex.Message}");
+            AddServerLog($"[STRM-ERRO] Falha ao gerar STRM: {NebulaErrorMessageFormatter.FormatForDisplay(ex)}");
             _logger.LogError(ex, "[NEBULA-STRM] Falha ao gerar STRM.");
-            CompleteMaintenanceOperation("failed", ex.Message);
+            CompleteMaintenanceOperation("failed", NebulaErrorMessageFormatter.FormatForDisplay(ex));
             await CacheOperationReplayAsync("generate-strm", idempotencyKey, false, CancellationToken.None).ConfigureAwait(false);
             return false;
         }
@@ -3054,9 +3073,9 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable, IAsyncDis
         }
         catch (Exception ex)
         {
-            AddDownloaderLog($"[LIMPEZA-ERRO] {ex.Message}");
+            AddDownloaderLog($"[LIMPEZA-ERRO] {NebulaErrorMessageFormatter.FormatForDisplay(ex)}");
             _logger.LogError(ex, "[NEBULA-CLEANUP] Erro durante a limpeza.");
-            CompleteMaintenanceOperation("failed", ex.Message);
+            CompleteMaintenanceOperation("failed", NebulaErrorMessageFormatter.FormatForDisplay(ex));
             await CacheOperationReplayAsync("prune-completed", idempotencyKey, false, CancellationToken.None).ConfigureAwait(false);
             return false;
         }
@@ -3903,11 +3922,13 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable, IAsyncDis
         }
         catch (Exception ex)
         {
-            AddServerLog($"[SUPABASE-ERRO] Erro ao testar conexão com Supabase: {ex.Message}");
+            _logger.LogError(ex, "Falha ao testar a conexão com Supabase.");
+            var displayError = NebulaErrorMessageFormatter.FormatForDisplay(ex);
+            AddServerLog($"[SUPABASE-ERRO] Erro ao testar conexão com Supabase: {displayError}");
             return new NebulaSupabaseTestResponseDto
             {
                 Success = false,
-                Message = $"Erro de conexão: {ex.Message}",
+                Message = $"Erro de conexão: {displayError}",
                 StatusCode = 500
             };
         }
@@ -3974,7 +3995,7 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable, IAsyncDis
         catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException)
         {
             _logger.LogWarning(ex, "Falha ao provisionar schema do Supabase pela Management API.");
-            return new NebulaSupabaseProvisionResultDto { Success = false, Message = $"Não foi possível provisionar o Supabase: {ex.Message}" };
+            return new NebulaSupabaseProvisionResultDto { Success = false, Message = $"Não foi possível provisionar o Supabase: {NebulaErrorMessageFormatter.FormatForDisplay(ex)}" };
         }
     }
 
@@ -4154,13 +4175,14 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable, IAsyncDis
         }
         catch (Exception ex)
         {
-            AddServerLog($"[SUPABASE-ERRO] Exceção durante o backup nativo: {ex.Message}");
+            var displayError = NebulaErrorMessageFormatter.FormatForDisplay(ex);
+            AddServerLog($"[SUPABASE-ERRO] Exceção durante o backup nativo: {displayError}");
             _logger.LogError(ex, "Erro durante o backup nativo para Supabase.");
-            CompleteMaintenanceOperation("failed", ex.Message);
+            CompleteMaintenanceOperation("failed", displayError);
             var failedResult = new NebulaSupabaseBackupResultDto
             {
                 Success = false,
-                Message = $"Erro durante o backup: {ex.Message}",
+                Message = $"Erro durante o backup: {displayError}",
                 Timestamp = DateTime.UtcNow
             };
             RecordMongoBackupResult(failedResult);
@@ -4385,14 +4407,15 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable, IAsyncDis
         }
         catch (Exception ex)
         {
-            AddServerLog($"[SUPABASE-RESTORE-ERRO] Exceção durante a restauração nativa: {ex.Message}");
+            var displayError = NebulaErrorMessageFormatter.FormatForDisplay(ex);
+            AddServerLog($"[SUPABASE-RESTORE-ERRO] Exceção durante a restauração nativa: {displayError}");
             _logger.LogError(ex, "Erro durante a restauração nativa do Supabase.");
-            CompleteMaintenanceOperation("failed", ex.Message);
-            RecordMongoRestoreResult(false, ex.Message, null, null, null, null);
+            CompleteMaintenanceOperation("failed", displayError);
+            RecordMongoRestoreResult(false, displayError, null, null, null, null);
             var failedResult = new NebulaSupabaseRestoreResultDto
             {
                 Success = false,
-                Message = $"Erro durante a restauração: {ex.Message}",
+                Message = $"Erro durante a restauração: {displayError}",
                 Timestamp = DateTime.UtcNow
             };
             await CacheOperationReplayAsync("supabase-restore", idempotencyKey, failedResult, CancellationToken.None).ConfigureAwait(false);
@@ -5134,7 +5157,7 @@ CREATE POLICY nebula_bot_tokens_service_role_all
         catch (Exception ex)
         {
             _logger.LogError(ex, "[DATABASE-INIT] Erro ao verificar ou restaurar base de dados vazia do Supabase.");
-            logAction?.Invoke($"[DATABASE-INIT-ERRO] Erro na auto-restauração: {ex.Message}");
+            logAction?.Invoke($"[DATABASE-INIT-ERRO] Erro na auto-restauração: {NebulaErrorMessageFormatter.FormatForDisplay(ex)}");
         }
     }
 
@@ -5396,7 +5419,7 @@ CREATE POLICY nebula_bot_tokens_service_role_all
         catch (Exception ex)
         {
             _logger.LogError(ex, "Erro ao montar unidade N: via rclone");
-            AddServerLog($"[NEBULA-MOUNT-ERRO] Exceção ao montar unidade N: {ex.Message}");
+            AddServerLog($"[NEBULA-MOUNT-ERRO] Exceção ao montar unidade N: {NebulaErrorMessageFormatter.FormatForDisplay(ex)}");
             StopOwnedRcloneProcess();
             ScheduleMountRetry();
             return false;

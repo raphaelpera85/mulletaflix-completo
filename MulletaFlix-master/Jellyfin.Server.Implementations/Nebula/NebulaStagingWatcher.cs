@@ -654,6 +654,7 @@ public sealed class NebulaStagingWatcher : IAsyncDisposable, IDisposable
                 var requeued = false;
                 NebulaMongoAdmissionLease? uploadAdmission = null;
                 CancellationTokenSource? admissionCancellation = null;
+                string? uploadLeaseId = null;
                 try
                 {
                     if (IsMetadataSidecar(item.FilePath) && HasPendingMetadataMarker(item.FilePath))
@@ -708,6 +709,13 @@ public sealed class NebulaStagingWatcher : IAsyncDisposable, IDisposable
                                 continue;
                             }
 
+                            if (!claimed.TryGetValue("lease_id", out var leaseValue) || !leaseValue.IsString || string.IsNullOrWhiteSpace(leaseValue.AsString))
+                            {
+                                throw new InvalidOperationException("MongoDB reivindicou o upload sem retornar um lease_id válido.");
+                            }
+
+                            uploadLeaseId = leaseValue.AsString;
+
                             // Track Mongo-claimed uploads too so user request status reflects all active workers.
                             _activeFiles.TryAdd(Path.GetFullPath(item.FilePath), isPriorityItem || IsPathPrioritized(item.FilePath));
                         }
@@ -736,11 +744,24 @@ public sealed class NebulaStagingWatcher : IAsyncDisposable, IDisposable
 
                         if (uploadAdmission is null)
                         {
-                            await _uploadEngine.ProcessFileUploadAsync(item.FilePath, item.FileName, parentId, workerId, uploadCancellationToken).ConfigureAwait(false);
+                            await _uploadEngine.ProcessFileUploadAsync(
+                                item.FilePath,
+                                item.FileName,
+                                parentId,
+                                workerId,
+                                uploadCancellationToken,
+                                uploadLeaseId).ConfigureAwait(false);
                         }
                         else
                         {
-                            await _uploadEngine.ProcessFileUploadAsync(item.FilePath, item.FileName, parentId, workerId, uploadAdmission, uploadCancellationToken).ConfigureAwait(false);
+                            await _uploadEngine.ProcessFileUploadAsync(
+                                item.FilePath,
+                                item.FileName,
+                                parentId,
+                                workerId,
+                                uploadAdmission,
+                                uploadCancellationToken,
+                                uploadLeaseId).ConfigureAwait(false);
                         }
                     }
                     else if (File.Exists(item.FilePath))
@@ -772,7 +793,11 @@ public sealed class NebulaStagingWatcher : IAsyncDisposable, IDisposable
                     {
                         try
                         {
-                            released = await _mongoContext.ReleaseUploadClaimForRetryAsync(item.NodeId.Value, workerId, CancellationToken.None).ConfigureAwait(false);
+                            released = await _mongoContext.ReleaseUploadClaimForRetryAsync(
+                                item.NodeId.Value,
+                                workerId,
+                                CancellationToken.None,
+                                uploadLeaseId).ConfigureAwait(false);
                         }
                         catch (Exception ex)
                         {
@@ -1004,7 +1029,7 @@ public sealed class NebulaStagingWatcher : IAsyncDisposable, IDisposable
             {
                 Interlocked.Exchange(ref _stagingCleanupRunning, 0);
             }
-            },
+        },
             CancellationToken.None);
     }
 

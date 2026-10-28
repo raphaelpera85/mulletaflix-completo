@@ -1068,7 +1068,10 @@ public sealed class NebulaMongoContext : IDisposable
         }
 
         doc["queue_identity"] = NormalizeQueueIdentity(localPath.AsString);
-        var insertFields = new BsonDocument(doc.Where(static pair => pair.Name != "_id"));
+        // Preserve the caller-assigned ObjectId. Upload workers retain this ID
+        // for lease fencing and failure/retry transitions after the upsert; if
+        // Mongo generates another ID, later updates silently match no document.
+        var insertFields = new BsonDocument(doc);
         var result = await _filesCollection.UpdateOneAsync(
             Builders<BsonDocument>.Filter.Eq("queue_identity", doc["queue_identity"]),
             new BsonDocumentUpdateDefinition<BsonDocument>(new BsonDocument("$setOnInsert", insertFields)),
@@ -2605,20 +2608,22 @@ public sealed class NebulaMongoContext : IDisposable
     public async Task<bool> IsUploadCancellationRequestedAsync(
         ObjectId id,
         string workerId,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        string? leaseId = null)
     {
         var filter = Builders<BsonDocument>.Filter.And(
             Builders<BsonDocument>.Filter.Eq("_id", id),
             Builders<BsonDocument>.Filter.Eq("status", "uploading"),
             Builders<BsonDocument>.Filter.Exists("cancel_requested_at", true),
-            BuildWorkerOwnershipFilter(workerId));
+            BuildWorkerOwnershipFilter(workerId, leaseId));
         return await _filesCollection.Find(filter).Limit(1).AnyAsync(cancellationToken).ConfigureAwait(false);
     }
 
     public async Task<bool> MarkUploadCancelledAsync(
         ObjectId id,
         string workerId,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        string? leaseId = null)
     {
         using var activity = StartQueueActivity("mongodb.mark_upload_cancelled", "cancelled");
         try
@@ -2627,7 +2632,7 @@ public sealed class NebulaMongoContext : IDisposable
                 Builders<BsonDocument>.Filter.Eq("_id", id),
                 Builders<BsonDocument>.Filter.Eq("status", "uploading"),
                 Builders<BsonDocument>.Filter.Exists("cancel_requested_at", true),
-                BuildWorkerOwnershipFilter(workerId));
+                BuildWorkerOwnershipFilter(workerId, leaseId));
             var update = Builders<BsonDocument>.Update
                 .Set("status", "cancelled")
                 .Set("cancelled_at", DateTimeOffset.UtcNow.ToUnixTimeSeconds())
@@ -3273,6 +3278,7 @@ public sealed class NebulaMongoContext : IDisposable
     /// <param name="lastBotIndex">Último bot usado.</param>
     /// <param name="workerId">Identificador do worker de envio.</param>
     /// <param name="cancellationToken">Token de cancelamento.</param>
+    /// <param name="leaseId">Identificador exclusivo desta tentativa de upload.</param>
     /// <returns>Verdadeiro quando o worker ainda possui o upload; falso quando outro worker assumiu a posse.</returns>
     public async Task<bool> UpdateUploadProgressAsync(
         ObjectId id,
@@ -3280,14 +3286,15 @@ public sealed class NebulaMongoContext : IDisposable
         long uploadedBytes,
         int lastBotIndex,
         string workerId = "1",
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        string? leaseId = null)
     {
         using var activity = StartQueueActivity("mongodb.update_upload_progress", "uploading");
         try
         {
             var filter = Builders<BsonDocument>.Filter.And(
                 Builders<BsonDocument>.Filter.Eq("_id", id),
-                BuildWorkerOwnershipFilter(workerId));
+                BuildWorkerOwnershipFilter(workerId, leaseId));
             var progressNow = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
             var update = Builders<BsonDocument>.Update
                 .Set("status", "uploading")
@@ -3323,6 +3330,44 @@ public sealed class NebulaMongoContext : IDisposable
         }
     }
 
+    /// <summary>Starts a clean Telegram generation when persisted parts cannot be proven to match the source bytes.</summary>
+    public async Task<bool> ResetUploadGenerationAsync(
+        ObjectId id,
+        string newFileUuid,
+        string workerId,
+        string? leaseId,
+        int totalParts,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(newFileUuid))
+        {
+            throw new ArgumentException("O UUID da nova geração é obrigatório.", nameof(newFileUuid));
+        }
+
+        if (string.IsNullOrWhiteSpace(workerId) || string.IsNullOrWhiteSpace(leaseId))
+        {
+            return false;
+        }
+
+        var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+        var filter = Builders<BsonDocument>.Filter.And(
+            Builders<BsonDocument>.Filter.Eq("_id", id),
+            Builders<BsonDocument>.Filter.Eq("status", "uploading"),
+            BuildWorkerOwnershipFilter(workerId, leaseId),
+            Builders<BsonDocument>.Filter.Gt("lease_until", now));
+        var update = Builders<BsonDocument>.Update
+            .Set("file_uuid", newFileUuid)
+            .Set("obfuscated_id", newFileUuid)
+            .Set("parts", new BsonArray())
+            .Set("uploaded_bytes", 0L)
+            .Set("part_count", totalParts)
+            .Set("modified_at", now)
+            .Set("heartbeat_at", now)
+            .Set("lease_until", now + UploadLeaseSeconds);
+        var result = await _filesCollection.UpdateOneAsync(filter, update, cancellationToken: cancellationToken).ConfigureAwait(false);
+        return result.MatchedCount > 0;
+    }
+
     /// <summary>
     /// Marca uma tentativa de upload como falha para que o scanner possa
     /// reencaminhá-la, em vez de deixá-la permanentemente em <c>uploading</c>.
@@ -3332,13 +3377,15 @@ public sealed class NebulaMongoContext : IDisposable
     /// <param name="failureStage">Etapa de baixa cardinalidade onde ocorreu a falha.</param>
     /// <param name="cancellationToken">Token de cancelamento.</param>
     /// <param name="workerId">Worker que deve possuir o arquivo; nulo desativa a verificação.</param>
+    /// <param name="leaseId">Identificador exclusivo desta tentativa de upload.</param>
     /// <returns>Verdadeiro quando a transição para falha foi gravada.</returns>
     public async Task<bool> MarkUploadFailedAsync(
         ObjectId id,
         string reason,
         string failureStage,
         CancellationToken cancellationToken = default,
-        string? workerId = null)
+        string? workerId = null,
+        string? leaseId = null)
     {
         using var activity = StartQueueActivity("mongodb.mark_upload_failed", "failed");
         try
@@ -3347,7 +3394,7 @@ public sealed class NebulaMongoContext : IDisposable
                 Builders<BsonDocument>.Filter.Eq("_id", id),
                 Builders<BsonDocument>.Filter.Eq("status", "uploading"),
                 Builders<BsonDocument>.Filter.Exists("cancel_requested_at", false),
-                BuildWorkerOwnershipFilter(workerId));
+                BuildWorkerOwnershipFilter(workerId, leaseId));
             var existing = await _filesCollection.Find(failureFilter)
                 .Project(Builders<BsonDocument>.Projection.Include("retry_count"))
                 .FirstOrDefaultAsync(cancellationToken)
@@ -3407,12 +3454,14 @@ public sealed class NebulaMongoContext : IDisposable
     /// <param name="finalFields">Campos finais do documento.</param>
     /// <param name="cancellationToken">Token de cancelamento.</param>
     /// <param name="workerId">Worker que deve possuir o arquivo; nulo desativa a verificação.</param>
+    /// <param name="leaseId">Identificador exclusivo desta tentativa de upload.</param>
     /// <returns>Verdadeiro quando o worker ainda possui o upload e a conclusão foi gravada.</returns>
     public async Task<bool> CompleteFileUploadAsync(
         ObjectId id,
         BsonDocument finalFields,
         CancellationToken cancellationToken = default,
-        string? workerId = null)
+        string? workerId = null,
+        string? leaseId = null)
     {
         using var activity = StartQueueActivity("mongodb.complete_file_upload", "completed");
         try
@@ -3420,7 +3469,7 @@ public sealed class NebulaMongoContext : IDisposable
             var filter = Builders<BsonDocument>.Filter.And(
                 Builders<BsonDocument>.Filter.Eq("_id", id),
                 Builders<BsonDocument>.Filter.Exists("cancel_requested_at", false),
-                BuildWorkerOwnershipFilter(workerId));
+                BuildWorkerOwnershipFilter(workerId, leaseId));
             var update = Builders<BsonDocument>.Update.Combine(
                 new BsonDocument("$set", finalFields),
                 Builders<BsonDocument>.Update.Unset("retry_after"),
@@ -3463,7 +3512,9 @@ public sealed class NebulaMongoContext : IDisposable
         ObjectId id,
         BsonDocument completedMedia,
         long uploadedBytes,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        string? workerId = null,
+        string? leaseId = null)
     {
         var update = Builders<BsonDocument>.Update
             .Set("status", "completed")
@@ -3494,7 +3545,8 @@ public sealed class NebulaMongoContext : IDisposable
             Builders<BsonDocument>.Filter.And(
                 Builders<BsonDocument>.Filter.Eq("_id", id),
                 Builders<BsonDocument>.Filter.Ne("status", "completed"),
-                Builders<BsonDocument>.Filter.Exists("cancel_requested_at", false)),
+                Builders<BsonDocument>.Filter.Exists("cancel_requested_at", false),
+                BuildWorkerOwnershipFilter(workerId, leaseId)),
             update,
             cancellationToken: cancellationToken).ConfigureAwait(false);
 
@@ -3550,13 +3602,20 @@ public sealed class NebulaMongoContext : IDisposable
     /// </remarks>
     /// <param name="id">Documento alvo.</param>
     /// <param name="workerId">Worker que quer a posse.</param>
+    /// <param name="leaseId">Token exclusivo da tentativa atual.</param>
     /// <param name="cancellationToken">Token de cancelamento.</param>
     /// <returns><see langword="true"/> quando este worker detém a posse ao final.</returns>
     public async Task<bool> TryAcquireUploadOwnershipAsync(
         ObjectId id,
         string workerId,
+        string leaseId,
         CancellationToken cancellationToken = default)
     {
+        if (string.IsNullOrWhiteSpace(leaseId))
+        {
+            throw new ArgumentException("O lease_id do upload é obrigatório.", nameof(leaseId));
+        }
+
         using var activity = StartQueueActivity("mongodb.acquire_upload_ownership", "uploading");
         try
         {
@@ -3573,12 +3632,25 @@ public sealed class NebulaMongoContext : IDisposable
                 unownedOrMine.Add(Builders<BsonDocument>.Filter.Eq("worker_id", numericWorkerId));
             }
 
+            var leaseAbsent = Builders<BsonDocument>.Filter.Or(
+                Builders<BsonDocument>.Filter.Exists("lease_id", false),
+                Builders<BsonDocument>.Filter.Eq("lease_id", BsonNull.Value),
+                Builders<BsonDocument>.Filter.Eq("lease_id", string.Empty));
+            var alreadyClaimedByThisLease = BuildWorkerOwnershipFilter(workerId, leaseId);
+            var canAdoptUnleasedDocument = Builders<BsonDocument>.Filter.And(
+                Builders<BsonDocument>.Filter.Or(unownedOrMine),
+                leaseAbsent);
             var filter = Builders<BsonDocument>.Filter.And(
                 Builders<BsonDocument>.Filter.Eq("_id", id),
-                Builders<BsonDocument>.Filter.Or(unownedOrMine));
+                Builders<BsonDocument>.Filter.Or(alreadyClaimedByThisLease, canAdoptUnleasedDocument));
+            var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
             var update = Builders<BsonDocument>.Update
+                .Set("status", "uploading")
                 .Set("worker_id", workerId)
-                .Set("modified_at", DateTimeOffset.UtcNow.ToUnixTimeSeconds());
+                .Set("lease_id", leaseId)
+                .Set("lease_until", now + UploadLeaseSeconds)
+                .Set("heartbeat_at", now)
+                .Set("modified_at", now);
 
             var result = await _filesCollection.UpdateOneAsync(filter, update, cancellationToken: cancellationToken).ConfigureAwait(false);
             var acquired = result.MatchedCount > 0;
@@ -3647,8 +3719,8 @@ public sealed class NebulaMongoContext : IDisposable
     /// A posse sozinha não basta: o mesmo worker pode ter reivindicado o item
     /// duas vezes, e uma escrita em voo do ciclo anterior — cujo lease já expirou
     /// e foi recuperado — não pode sobrescrever o progresso do ciclo corrente.
-    /// Documentos legados sem <c>lease_id</c> seguem governados apenas pela posse,
-    /// para não travar uploads em andamento durante a atualização.
+    /// Documentos legados sem <c>lease_id</c> só aceitam chamadas legadas sem token.
+    /// Um token apresentado nunca corresponde a uma reivindicação sem lease.
     /// </remarks>
     /// <param name="storedWorkerId">Valor persistido em <c>worker_id</c>.</param>
     /// <param name="storedLeaseId">Valor persistido em <c>lease_id</c>.</param>
@@ -3664,35 +3736,47 @@ public sealed class NebulaMongoContext : IDisposable
 
         if (string.IsNullOrWhiteSpace(storedLeaseId))
         {
-            return true;
+            return string.IsNullOrWhiteSpace(leaseId);
         }
 
         return string.Equals(storedLeaseId, leaseId, StringComparison.Ordinal);
     }
 
-    private static FilterDefinition<BsonDocument> BuildWorkerOwnershipFilter(string? workerId)
+    private static FilterDefinition<BsonDocument> BuildWorkerOwnershipFilter(string? workerId, string? leaseId = null)
     {
+        FilterDefinition<BsonDocument> ownerFilter;
         if (string.IsNullOrWhiteSpace(workerId))
         {
-            return Builders<BsonDocument>.Filter.Empty;
+            ownerFilter = Builders<BsonDocument>.Filter.Empty;
+        }
+        else
+        {
+            // Fencing: apenas o dono explícito pode escrever. Um documento sem
+            // `worker_id` foi requeuado e precisa passar por `ClaimFileForUploadAsync`
+            // outra vez; tratá-lo como "livre para adotar" permitia que um worker
+            // zumbi sobrescrevesse as partes gravadas pelo novo dono.
+            var ownerFilters = new List<FilterDefinition<BsonDocument>>
+            {
+                Builders<BsonDocument>.Filter.Eq("worker_id", workerId)
+            };
+
+            // Older documents may have persisted the worker id as an integer.
+            if (int.TryParse(workerId, System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out var numericWorkerId))
+            {
+                ownerFilters.Add(Builders<BsonDocument>.Filter.Eq("worker_id", numericWorkerId));
+            }
+
+            ownerFilter = Builders<BsonDocument>.Filter.Or(ownerFilters);
         }
 
-        // Fencing: apenas o dono explícito pode escrever. Um documento sem
-        // `worker_id` foi requeuado e precisa passar por `ClaimFileForUploadAsync`
-        // outra vez; tratá-lo como "livre para adotar" permitia que um worker
-        // zumbi sobrescrevesse as partes gravadas pelo novo dono.
-        var ownerFilters = new List<FilterDefinition<BsonDocument>>
-        {
-            Builders<BsonDocument>.Filter.Eq("worker_id", workerId)
-        };
+        var leaseFilter = string.IsNullOrWhiteSpace(leaseId)
+            ? Builders<BsonDocument>.Filter.Or(
+                Builders<BsonDocument>.Filter.Exists("lease_id", false),
+                Builders<BsonDocument>.Filter.Eq("lease_id", BsonNull.Value),
+                Builders<BsonDocument>.Filter.Eq("lease_id", string.Empty))
+            : Builders<BsonDocument>.Filter.Eq("lease_id", leaseId);
 
-        // Older documents may have persisted the worker id as an integer.
-        if (int.TryParse(workerId, System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out var numericWorkerId))
-        {
-            ownerFilters.Add(Builders<BsonDocument>.Filter.Eq("worker_id", numericWorkerId));
-        }
-
-        return Builders<BsonDocument>.Filter.Or(ownerFilters);
+        return Builders<BsonDocument>.Filter.And(ownerFilter, leaseFilter);
     }
 
     private static FilterDefinition<BsonDocument> BuildRetryReadyFilter(long now)
@@ -3944,15 +4028,20 @@ public sealed class NebulaMongoContext : IDisposable
     /// <param name="id">ID do arquivo.</param>
     /// <param name="workerId">Número do worker.</param>
     /// <param name="cancellationToken">Token de cancelamento.</param>
+    /// <param name="leaseId">Identificador exclusivo desta tentativa de upload.</param>
     /// <returns><see langword="true"/> se a reivindicação foi liberada.</returns>
-    public async Task<bool> ReleaseUploadClaimForRetryAsync(ObjectId id, int workerId, CancellationToken cancellationToken = default)
+    public async Task<bool> ReleaseUploadClaimForRetryAsync(
+        ObjectId id,
+        int workerId,
+        CancellationToken cancellationToken = default,
+        string? leaseId = null)
     {
         var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
         var filter = Builders<BsonDocument>.Filter.And(
             Builders<BsonDocument>.Filter.Eq("_id", id),
             Builders<BsonDocument>.Filter.Eq("status", "uploading"),
             Builders<BsonDocument>.Filter.Exists("cancel_requested_at", false),
-            BuildWorkerOwnershipFilter(workerId.ToString(System.Globalization.CultureInfo.InvariantCulture)));
+            BuildWorkerOwnershipFilter(workerId.ToString(System.Globalization.CultureInfo.InvariantCulture), leaseId));
         var update = Builders<BsonDocument>.Update
             .Set("status", "queued")
             .Set("queued_at", now)

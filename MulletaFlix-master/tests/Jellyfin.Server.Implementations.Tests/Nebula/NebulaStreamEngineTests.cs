@@ -919,10 +919,10 @@ public class NebulaStreamEngineTests
         Assert.True(NebulaMongoContext.IsLeaseHeldBy("1", "lease-b", "1", "lease-b"));
         Assert.False(NebulaMongoContext.IsLeaseHeldBy("1", "lease-b", "1", "lease-a"));
 
-        // Documento legado sem `lease_id` continua governado apenas pela posse,
-        // senão uploads em andamento na atualização travariam.
+        // Documento legado sem `lease_id` só aceita chamadas legadas sem token;
+        // token antigo nunca pode corresponder a uma reivindicação sem geração.
         Assert.True(NebulaMongoContext.IsLeaseHeldBy("1", null, "1", null));
-        Assert.True(NebulaMongoContext.IsLeaseHeldBy("1", null, "1", "lease-a"));
+        Assert.False(NebulaMongoContext.IsLeaseHeldBy("1", null, "1", "lease-a"));
 
         // Posse de terceiro nunca passa, com ou sem lease.
         Assert.False(NebulaMongoContext.IsLeaseHeldBy("2", "lease-b", "1", "lease-b"));

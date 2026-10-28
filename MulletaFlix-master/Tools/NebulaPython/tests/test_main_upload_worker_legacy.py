@@ -69,6 +69,7 @@ async def test_legacy_upload_worker_persists_each_part_and_completion(monkeypatc
         async def find_one_and_update(self, query, update, *, return_document):
             assert query == {"_id": "legacy-file", "status": {"$in": ["queued", "staging"]}}
             assert update["$set"]["status"] == "uploading"
+            file_doc.update(update["$set"])
             return file_doc
 
         async def update_one(self, query, update):
@@ -118,14 +119,17 @@ async def test_legacy_upload_worker_persists_each_part_and_completion(monkeypatc
         ("legacy-uuid.part_002", b"g"),
     ]
     final_query, final_update = updates[-1]
-    assert final_query == {"_id": "legacy-file"}
+    assert final_query["_id"] == "legacy-file"
+    assert final_query["status"] == "uploading"
+    assert final_query["worker_id"] == 21
+    assert final_query["upload_claim_id"]
     persisted = final_update["$set"]
     assert persisted["status"] == "completed"
     assert persisted["part_count"] == 3
     assert persisted["size"] == 7
     assert [part["tg_file"] for part in persisted["parts"]] == ["tg-1", "tg-2", "tg-3"]
     assert [(part["byte_start"], part["byte_end"]) for part in persisted["parts"]] == [(0, 2), (3, 5), (6, 6)]
-    assert final_update["$unset"] == {"uploadId": 1, "local_path": 1}
+    assert final_update["$unset"] == {"uploadId": 1, "local_path": 1, "upload_claim_id": 1}
     assert removed == [str(media)]
     assert str(media) not in main.ACTIVE_UPLOADS
 
@@ -144,7 +148,8 @@ async def test_legacy_upload_worker_marks_telegram_failure_and_keeps_source(monk
         async def find_one(self, _query):
             return file_doc
 
-        async def find_one_and_update(self, *_args, **_kwargs):
+        async def find_one_and_update(self, _query, update, **_kwargs):
+            file_doc.update(update["$set"])
             return file_doc
 
         async def update_one(self, query, update):

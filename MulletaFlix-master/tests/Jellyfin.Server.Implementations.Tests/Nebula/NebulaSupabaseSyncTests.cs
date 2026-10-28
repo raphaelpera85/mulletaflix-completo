@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics.Metrics;
 using System.Globalization;
+using System.IO;
 using System.Linq;
 using System.Net;
 using System.Net.Http;
@@ -91,6 +92,40 @@ public class NebulaSupabaseSyncTests
         using var service = new NebulaSupabaseSyncService(null!, NullLogger<NebulaSupabaseSyncService>.Instance);
         Assert.Null(service.LastSuccessfulBackupTime);
         Assert.Null(service.LastSuccessfulRestoreTime);
+    }
+
+    [Fact]
+    public void FormatErrorForDisplay_UsesRootCauseAndBoundsLongDriverMessages()
+    {
+        var verboseMessage = string.Concat(Enumerable.Repeat("Mongo server selection diagnostic ", 100));
+        var exception = new InvalidOperationException(verboseMessage, new IOException("Connection refused"));
+
+        var message = NebulaErrorMessageFormatter.FormatForDisplay(exception);
+
+        Assert.Equal("Connection refused", message);
+        Assert.True(message.Length <= NebulaErrorMessageFormatter.MaxDisplayedErrorLength);
+    }
+
+    [Fact]
+    public void FormatErrorForDisplay_PreservesConciseHttpStatus()
+    {
+        var message = NebulaErrorMessageFormatter.FormatForDisplay(
+            new InvalidOperationException("Falha ao consultar o cursor: HTTP 503 Service Unavailable."));
+
+        Assert.Contains("HTTP 503", message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void FormatErrorForDisplay_FlattensAndTruncatesMessagesWithoutRootCause()
+    {
+        var longMessage = string.Concat("Falha\r\n", new string('x', 800));
+
+        var message = NebulaErrorMessageFormatter.FormatForDisplay(new InvalidOperationException(longMessage));
+
+        Assert.DoesNotContain('\r', message);
+        Assert.DoesNotContain('\n', message);
+        Assert.EndsWith(" (detalhes completos no log do servidor)", message, StringComparison.Ordinal);
+        Assert.True(message.Length <= NebulaErrorMessageFormatter.MaxDisplayedErrorLength);
     }
 
     [Fact]

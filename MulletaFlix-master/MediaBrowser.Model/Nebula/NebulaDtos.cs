@@ -190,6 +190,8 @@ public static class NebulaUploadFailureStages
 
     public const string TelegramTransfer = "telegram_transfer";
 
+    public const string LocalCheckpoint = "local_checkpoint";
+
     public const string UploadIntegrity = "upload_integrity";
 
     /// <summary>

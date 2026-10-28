@@ -2,11 +2,159 @@ from __future__ import annotations
 
 import asyncio
 import importlib
+import os
+import uuid
 from types import SimpleNamespace
 
 import pytest
 
 main = importlib.import_module("main")
+
+
+@pytest.mark.asyncio
+async def test_resume_rejects_stale_claim_before_rotating_current_generation(monkeypatch, tmp_path):
+    media = tmp_path / "media.bin"
+    media.write_bytes(b"NEW!")
+    current_uuid = str(uuid.uuid4())
+    old_claim_uuid = str(uuid.uuid4())
+    new_claim_uuid = str(uuid.uuid4())
+    file_doc = {
+        "_id": "shared-file",
+        "status": "uploading",
+        "worker_id": 7,
+        "upload_claim_id": old_claim_uuid,
+        "obfuscated_id": "old-generation",
+        "parts": [{
+            "part_id": 0,
+            "tg_file": "old-part",
+            "tg_message": 9,
+            "file_size": 4,
+            "chunk_name": "old-generation.part_000",
+            "byte_start": 0,
+            "byte_end": 3,
+            "source_sha256": main.compute_part_sha256(b"OLD!"),
+        }],
+    }
+    current_document = {
+        **file_doc,
+        "worker_id": 8,
+        "upload_claim_id": new_claim_uuid,
+        "obfuscated_id": current_uuid,
+        "parts": [{"part_id": 0, "tg_file": "new-worker-part"}],
+        "uploaded_bytes": 4,
+    }
+    original_current_document = {**current_document, "parts": list(current_document["parts"])}
+
+    class Files:
+        async def update_one(self, query, update):
+            if all(current_document.get(key) == value for key, value in query.items()):
+                current_document.update(update["$set"])
+                return SimpleNamespace(matched_count=1)
+            return SimpleNamespace(matched_count=0)
+
+    monkeypatch.setattr(main, "CHUNK_SIZE", 4)
+    monkeypatch.setattr(main, "UPLOAD_CHECKPOINT_JOURNAL", None)
+
+    with pytest.raises(RuntimeError, match="claim|posse|reivindicação"):
+        await main._prepare_upload_resume(
+            SimpleNamespace(files=Files()), file_doc, str(media), media.stat().st_size
+        )
+
+    assert current_document == original_current_document
+
+
+@pytest.mark.asyncio
+async def test_resume_rotates_generation_when_part_content_changed_but_size_and_mtime_match(monkeypatch, tmp_path):
+    media = tmp_path / "media.bin"
+    media.write_bytes(b"NEW!")
+    original = media.stat()
+    part_uuid = str(uuid.uuid4())
+    file_doc = {
+        "_id": "mongo-file", "worker_id": 1, "upload_claim_id": str(uuid.uuid4()),
+        "status": "uploading",
+        "obfuscated_id": part_uuid,
+        "parts": [{
+            "part_id": 0, "tg_file": "old-telegram-file", "tg_message": 42,
+            "file_size": 4, "chunk_name": f"{part_uuid}.part_000",
+            "byte_start": 0, "byte_end": 3,
+            "source_sha256": main.compute_part_sha256(b"OLD!"),
+        }],
+    }
+
+    class Files:
+        async def update_one(self, query, update):
+            file_doc.update(update["$set"])
+            return SimpleNamespace(matched_count=1)
+
+    monkeypatch.setattr(main, "CHUNK_SIZE", 4)
+    monkeypatch.setattr(main, "UPLOAD_CHECKPOINT_JOURNAL", None)
+    os.utime(media, ns=(original.st_atime_ns, original.st_mtime_ns))
+    new_uuid, _total, parts, pending, _journal, _mtime = await main._prepare_upload_resume(
+        SimpleNamespace(files=Files()), file_doc, str(media), 4
+    )
+
+    assert new_uuid != part_uuid
+    assert parts == []
+    assert pending == set()
+    assert file_doc["parts"] == []
+    assert file_doc["uploaded_bytes"] == 0
+
+
+@pytest.mark.asyncio
+async def test_resume_treats_legacy_parts_without_hash_as_unverified(monkeypatch, tmp_path):
+    media = tmp_path / "legacy.bin"
+    media.write_bytes(b"DATA")
+    legacy_uuid = str(uuid.uuid4())
+    file_doc = {
+        "_id": "legacy-file", "status": "uploading", "worker_id": 1, "upload_claim_id": str(uuid.uuid4()), "obfuscated_id": legacy_uuid,
+        "parts": [{
+            "part_id": 0, "tg_file": "legacy-file-id", "tg_message": 9,
+            "file_size": 4, "chunk_name": f"{legacy_uuid}.part_000",
+            "byte_start": 0, "byte_end": 3,
+        }],
+    }
+
+    class Files:
+        async def update_one(self, _query, update):
+            file_doc.update(update["$set"])
+            return SimpleNamespace(matched_count=1)
+
+    monkeypatch.setattr(main, "CHUNK_SIZE", 4)
+    monkeypatch.setattr(main, "UPLOAD_CHECKPOINT_JOURNAL", None)
+    new_uuid, _total, parts, _pending, _journal, _mtime = await main._prepare_upload_resume(
+        SimpleNamespace(files=Files()), file_doc, str(media), 4
+    )
+
+    assert new_uuid != legacy_uuid
+    assert parts == []
+
+
+@pytest.mark.asyncio
+async def test_resume_does_not_reconcile_pending_message_for_different_bytes(monkeypatch, tmp_path):
+    media = tmp_path / "pending.bin"
+    media.write_bytes(b"NEW!")
+    original = media.stat()
+    file_uuid = str(uuid.uuid4())
+    journal = main.UploadCheckpointJournal(tmp_path / "journal")
+    journal.mark_pending(file_uuid, 4, original.st_mtime_ns, 1, 4, 0, main.compute_part_sha256(b"OLD!"))
+    file_doc = {"_id": "pending-file", "status": "uploading", "worker_id": 1, "upload_claim_id": str(uuid.uuid4()), "obfuscated_id": file_uuid, "parts": []}
+
+    class Files:
+        async def update_one(self, _query, update):
+            file_doc.update(update["$set"])
+            return SimpleNamespace(matched_count=1)
+
+    monkeypatch.setattr(main, "CHUNK_SIZE", 4)
+    monkeypatch.setattr(main, "UPLOAD_CHECKPOINT_JOURNAL", journal)
+    os.utime(media, ns=(original.st_atime_ns, original.st_mtime_ns))
+    new_uuid, _total, parts, pending, _journal, _mtime = await main._prepare_upload_resume(
+        SimpleNamespace(files=Files()), file_doc, str(media), 4
+    )
+
+    assert new_uuid != file_uuid
+    assert parts == []
+    assert pending == set()
+    assert journal.load(file_uuid, 4, original.st_mtime_ns, 1, 4).parts == ()
 
 
 @pytest.mark.asyncio
@@ -25,6 +173,7 @@ async def test_parallel_upload_worker_completes_file_and_cleans_staging(monkeypa
 
         async def find_one_and_update(self, query, update, *, return_document):
             claims.append((query, update, return_document))
+            file_doc.update(update["$set"])
             return file_doc
 
         async def update_one(self, query, update):
@@ -33,6 +182,7 @@ async def test_parallel_upload_worker_completes_file_and_cleans_staging(monkeypa
     queue = asyncio.Queue()
     monkeypatch.setattr(main, "UPLOAD_QUEUE", queue)
     monkeypatch.setattr(main, "ACTIVE_UPLOADS", set())
+    monkeypatch.setattr(main, "UPLOAD_CHECKPOINT_JOURNAL", None)
     monkeypatch.setattr(main, "CHUNK_SIZE", 4)
     monkeypatch.setattr(main, "PART_WORKERS_PER_FILE", 2)
     monkeypatch.setattr(main, "classify_media_type", lambda *_args: "series")
@@ -49,13 +199,15 @@ async def test_parallel_upload_worker_completes_file_and_cleans_staging(monkeypa
     monkeypatch.setattr(main, "safe_remove_staging_file", lambda path, **_kwargs: removed.append(path))
     monkeypatch.setattr(main.Metrics, "log_success", lambda size: uploaded.append(("success", size)))
     monkeypatch.setattr(main.Metrics, "log_fail", lambda: uploaded.append(("failure", None)))
-    monkeypatch.setattr(main.uuid, "uuid4", lambda: "stable-uuid")
+    stable_uuid = "00000000-0000-0000-0000-000000000001"
+    monkeypatch.setattr(main.uuid, "uuid4", lambda: stable_uuid)
 
     async def upload_part(_worker_id, _bots, _chat, _path, file_uuid, part_num, chunk_data, *_args, **_kwargs):
         uploaded.append((part_num, chunk_data, file_uuid))
         return {
             "part_id": part_num,
             "file_size": len(chunk_data),
+            "source_sha256": main.compute_part_sha256(chunk_data),
             "chunk_name": f"{file_uuid}.part_{part_num:03d}",
             "bot_name": "bot-a",
         }
@@ -84,8 +236,14 @@ async def test_parallel_upload_worker_completes_file_and_cleans_staging(monkeypa
     assert final_update["$set"]["status"] == "completed"
     assert final_update["$set"]["part_count"] == 3
     assert final_update["$set"]["size"] == 10
-    assert final_update["$set"]["obfuscated_id"] == "stable-uuid"
-    assert final_update["$unset"] == {"uploadId": 1, "local_path": 1}
+    assert final_update["$set"]["obfuscated_id"] == stable_uuid
+    assert final_update["$unset"] == {"uploadId": 1, "local_path": 1, "upload_claim_id": 1}
+    assert claims[0][1]["$set"]["upload_claim_id"]
+    assert all(
+        query.get("upload_claim_id") == claims[0][1]["$set"]["upload_claim_id"]
+        and query.get("worker_id") == 7
+        for query, _update in updates
+    )
     assert uploaded[-1] == ("success", 10)
     assert removed == [str(media)]
     assert str(media) not in main.ACTIVE_UPLOADS
@@ -103,7 +261,8 @@ async def test_parallel_upload_worker_cancels_blocked_readahead_after_upload_fai
         async def find_one(self, _query):
             return file_doc
 
-        async def find_one_and_update(self, _query, _update, *, return_document):
+        async def find_one_and_update(self, _query, update, *, return_document):
+            file_doc.update(update["$set"])
             return file_doc
 
         async def update_one(self, query, update):
@@ -160,6 +319,192 @@ async def test_parallel_upload_worker_cancels_blocked_readahead_after_upload_fai
 
 
 @pytest.mark.asyncio
+async def test_parallel_worker_recovers_checkpoint_after_mongo_progress_failure(monkeypatch, tmp_path):
+    media = tmp_path / "episode-recovery.mkv"
+    media.write_bytes(b"abcdefghij")
+    file_doc = {"_id": "file-recovery", "status": "queued", "parts": []}
+    updates = []
+    sends = []
+    fail_progress_once = {"value": True}
+    removed = []
+
+    class Files:
+        async def find_one(self, _query):
+            return file_doc
+
+        async def find_one_and_update(self, _query, update, *, return_document):
+            file_doc.update(update["$set"])
+            return file_doc
+
+        async def update_one(self, query, update):
+            updates.append((query, update))
+            if "obfuscated_id" in update.get("$set", {}):
+                file_doc.update(update["$set"])
+            if "uploaded_bytes" in update.get("$set", {}) and fail_progress_once["value"]:
+                fail_progress_once["value"] = False
+                raise ConnectionError("Mongo checkpoint unavailable after Telegram confirmation")
+            file_doc.update(update.get("$set", {}))
+            file_doc.update({key: None for key in update.get("$unset", {})})
+
+    queue = asyncio.Queue()
+    monkeypatch.setattr(main, "UPLOAD_QUEUE", queue)
+    monkeypatch.setattr(main, "ACTIVE_UPLOADS", set())
+    monkeypatch.setattr(main, "UPLOAD_CHECKPOINT_JOURNAL", main.UploadCheckpointJournal(tmp_path / "journal"))
+    monkeypatch.setattr(main, "CHUNK_SIZE", 4)
+    monkeypatch.setattr(main, "PART_WORKERS_PER_FILE", 2)
+    monkeypatch.setattr(main, "classify_media_type", lambda *_args: "series")
+    monkeypatch.setattr(main, "build_part_caption", lambda *_args: "caption")
+    monkeypatch.setattr(main, "resolve_media_parent", lambda *_args: _async_value("Series"))
+    monkeypatch.setattr(main, "log_queue_state", lambda *_args: _async_value(None))
+    monkeypatch.setattr(main, "safe_remove_staging_file", lambda path, **_kwargs: removed.append(path))
+    monkeypatch.setattr(main.Metrics, "log_success", lambda *_args: None)
+    monkeypatch.setattr(main.Metrics, "log_fail", lambda: None)
+
+    async def upload_part(_worker, _bots, _chat, _path, file_uuid, part_num, chunk_data, *_args, **kwargs):
+        sends.append(part_num)
+        result = {
+            "part_id": part_num,
+            "tg_file": f"telegram-{part_num}",
+            "tg_message": 100 + part_num,
+            "file_size": len(chunk_data),
+            "source_sha256": main.compute_part_sha256(chunk_data),
+            "chunk_name": f"{file_uuid}.part_{part_num:03d}",
+            "byte_start": part_num * 4,
+            "byte_end": part_num * 4 + len(chunk_data) - 1,
+            "caption": "caption",
+            "bot_index": 0,
+            "bot_name": "bot-a",
+        }
+        await kwargs["on_success"](result)
+        return result
+
+    monkeypatch.setattr(main, "upload_part_with_retries", upload_part)
+    worker = asyncio.create_task(
+        main.upload_worker_parallel([SimpleNamespace(name="bot-a")], -100, SimpleNamespace(files=Files()), 7)
+    )
+
+    try:
+        await queue.put({"path": str(media), "filename": media.name, "parent": "Series"})
+        await asyncio.wait_for(queue.join(), timeout=3)
+        assert file_doc["status"] == "failed"
+        assert len(main.UPLOAD_CHECKPOINT_JOURNAL.load(
+            file_doc["obfuscated_id"], media.stat().st_size, media.stat().st_mtime_ns, 3, 4
+        ).parts) == 2
+
+        file_doc["status"] = "queued"
+        await queue.put({"path": str(media), "filename": media.name, "parent": "Series"})
+        await asyncio.wait_for(queue.join(), timeout=3)
+    finally:
+        worker.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await worker
+
+    assert sends == [0, 1, 2]
+    assert file_doc["status"] == "completed"
+    assert removed == [str(media)]
+    assert not main.UPLOAD_CHECKPOINT_JOURNAL._get_path(file_doc["obfuscated_id"]).exists()
+
+
+@pytest.mark.asyncio
+async def test_parallel_worker_does_not_resend_confirmed_noncontiguous_journal_part(monkeypatch, tmp_path):
+    media = tmp_path / "out-of-order-recovery.mkv"
+    media.write_bytes(b"abcdefghij")
+    file_uuid = "00000000-0000-0000-0000-000000000011"
+    file_doc = {
+        "_id": "file-out-of-order",
+        "status": "queued",
+        "parts": [],
+        "obfuscated_id": file_uuid,
+    }
+    journal = main.UploadCheckpointJournal(tmp_path / "journal")
+    confirmed_middle_part = {
+        "part_id": 1,
+        "tg_file": "telegram-1",
+        "tg_message": 101,
+        "file_size": 4,
+        "source_sha256": main.compute_part_sha256(b"efgh"),
+        "chunk_name": f"{file_uuid}.part_001",
+        "byte_start": 4,
+        "byte_end": 7,
+        "caption": "caption",
+        "bot_index": 0,
+        "bot_name": "bot-a",
+    }
+    journal.save_part(file_uuid, 10, media.stat().st_mtime_ns, 3, 4, confirmed_middle_part)
+    sends = []
+    updates = []
+
+    class Files:
+        async def find_one(self, _query):
+            return file_doc
+
+        async def find_one_and_update(self, _query, update, *, return_document):
+            file_doc.update(update["$set"])
+            return file_doc
+
+        async def update_one(self, query, update):
+            updates.append((query, update))
+            file_doc.update(update.get("$set", {}))
+            file_doc.update({key: None for key in update.get("$unset", {})})
+
+    async def upload_part(_worker, _bots, _chat, _path, current_uuid, part_num, chunk_data, *_args, **kwargs):
+        sends.append(part_num)
+        result = {
+            "part_id": part_num,
+            "tg_file": f"telegram-{part_num}",
+            "tg_message": 100 + part_num,
+            "file_size": len(chunk_data),
+            "source_sha256": main.compute_part_sha256(chunk_data),
+            "chunk_name": f"{current_uuid}.part_{part_num:03d}",
+            "byte_start": part_num * 4,
+            "byte_end": part_num * 4 + len(chunk_data) - 1,
+            "caption": "caption",
+            "bot_index": 0,
+            "bot_name": "bot-a",
+        }
+        await kwargs["on_success"](result)
+        return result
+
+    queue = asyncio.Queue()
+    monkeypatch.setattr(main, "UPLOAD_QUEUE", queue)
+    monkeypatch.setattr(main, "ACTIVE_UPLOADS", set())
+    monkeypatch.setattr(main, "UPLOAD_CHECKPOINT_JOURNAL", journal)
+    monkeypatch.setattr(main, "CHUNK_SIZE", 4)
+    monkeypatch.setattr(main, "PART_WORKERS_PER_FILE", 2)
+    monkeypatch.setattr(main, "resolve_media_parent", lambda *_args: _async_value("Series"))
+    monkeypatch.setattr(main, "classify_media_type", lambda *_args: "series")
+    monkeypatch.setattr(main, "build_part_caption", lambda *_args: "caption")
+    monkeypatch.setattr(main, "log_queue_state", lambda *_args: _async_value(None))
+    monkeypatch.setattr(main, "safe_remove_staging_file", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(main.Metrics, "log_success", lambda *_args: None)
+    monkeypatch.setattr(main.Metrics, "log_fail", lambda: None)
+    monkeypatch.setattr(main, "upload_part_with_retries", upload_part)
+
+    await queue.put({"path": str(media), "filename": media.name, "parent": "Series"})
+    worker = asyncio.create_task(
+        main.upload_worker_parallel([SimpleNamespace(name="bot-a")], -100, SimpleNamespace(files=Files()), 7)
+    )
+    try:
+        await asyncio.wait_for(queue.join(), timeout=3)
+    finally:
+        worker.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await worker
+
+    assert sends == [0, 2]
+    final_update = updates[-1][1]
+    assert final_update["$set"]["status"] == "completed"
+    assert [part["part_id"] for part in final_update["$set"]["parts"]] == [0, 1, 2]
+    progress_updates = [update["$set"] for _query, update in updates if "uploaded_bytes" in update.get("$set", {})]
+    assert progress_updates[-1]["uploaded_bytes"] == 10
+    assert not journal._get_path(file_uuid).exists()
+
+
+async def _async_value(value):
+    return value
+
+
+@pytest.mark.asyncio
 async def test_small_file_worker_uploads_single_payload_and_persists_completion(monkeypatch, tmp_path):
     result = await _run_small_file_worker(monkeypatch, tmp_path, fail_upload=False)
 
@@ -168,7 +513,7 @@ async def test_small_file_worker_uploads_single_payload_and_persists_completion(
     assert final_update["$set"]["status"] == "completed"
     assert final_update["$set"]["part_count"] == 1
     assert final_update["$set"]["size"] == len(b"cover-bytes")
-    assert final_update["$unset"] == {"uploadId": 1, "local_path": 1}
+    assert final_update["$unset"] == {"uploadId": 1, "local_path": 1, "upload_claim_id": 1}
     assert result["removed"] == [result["path"]]
     assert result["metrics"] == [("success", len(b"cover-bytes"))]
     assert result["path"] not in main.ACTIVE_UPLOADS
@@ -301,7 +646,8 @@ async def _run_small_file_worker(monkeypatch, tmp_path, *, fail_upload):
         async def find_one(self, _query):
             return file_doc
 
-        async def find_one_and_update(self, _query, _update, *, return_document):
+        async def find_one_and_update(self, _query, update, *, return_document):
+            file_doc.update(update["$set"])
             return file_doc
 
         async def update_one(self, query, update):

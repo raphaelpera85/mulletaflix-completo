@@ -1,10 +1,13 @@
 using System;
 using System.Collections.Generic;
+using System.Data;
+using System.Data.Common;
 using System.Diagnostics;
 using System.Diagnostics.Metrics;
 using System.IO;
 using System.IO.Compression;
 using System.Linq;
+using System.Reflection;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
@@ -17,9 +20,11 @@ using MediaBrowser.Model.Tasks;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Migrations;
+using Microsoft.EntityFrameworkCore.Storage;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using MulletaFlix.Database.Implementations;
+using MulletaFlix.Database.Implementations.Contexts;
 using MulletaFlix.Server.Implementations.StorageHelpers;
 
 namespace MulletaFlix.Server.Implementations.FullSystemBackup;
@@ -49,6 +54,14 @@ public class BackupService : IBackupService, IDisposable
     private const int MaxBackupHistoryEntries = 50;
     private readonly ILogger<BackupService> _logger;
     private readonly IDbContextFactory<MulletaFlixDbContext> _dbProvider;
+    private readonly IDbContextFactory<MoviesDbContext> _moviesDbProvider;
+    private readonly IDbContextFactory<SeriesDbContext> _seriesDbProvider;
+    private readonly IDbContextFactory<ChannelsDbContext> _channelsDbProvider;
+    private readonly IDbContextFactory<BooksDbContext> _booksDbProvider;
+    private Func<MoviesDbContext>? _createMoviesDbContext;
+    private Func<SeriesDbContext>? _createSeriesDbContext;
+    private Func<ChannelsDbContext>? _createChannelsDbContext;
+    private Func<BooksDbContext>? _createBooksDbContext;
     private readonly IServerApplicationHost _applicationHost;
     private readonly IServerApplicationPaths _applicationPaths;
     private readonly IMulletaFlixDatabaseProvider _MulletaFlixDatabaseProvider;
@@ -62,20 +75,30 @@ public class BackupService : IBackupService, IDisposable
         ReferenceHandler = ReferenceHandler.IgnoreCycles,
     };
 
-    private readonly Version _backupEngineVersion = new Version(0, 2, 0);
+    private static readonly Version LegacyBackupEngineVersion = new(0, 2, 0);
+    private readonly Version _backupEngineVersion = new(0, 3, 0);
 
     /// <summary>
     /// Initializes a new instance of the <see cref="BackupService"/> class.
     /// </summary>
     /// <param name="logger">A logger.</param>
     /// <param name="dbProvider">A Database Factory.</param>
+    /// <param name="moviesDbProvider">The movies database factory.</param>
+    /// <param name="seriesDbProvider">The series database factory.</param>
+    /// <param name="channelsDbProvider">The channels database factory.</param>
+    /// <param name="booksDbProvider">The books database factory.</param>
     /// <param name="applicationHost">The Application host.</param>
     /// <param name="applicationPaths">The application paths.</param>
     /// <param name="MulletaFlixDatabaseProvider">The MulletaFlix database Provider in use.</param>
     /// <param name="applicationLifetime">The SystemManager.</param>
+    /// <param name="storageSpaceProvider">Provides free-space information for backup targets.</param>
     public BackupService(
         ILogger<BackupService> logger,
         IDbContextFactory<MulletaFlixDbContext> dbProvider,
+        IDbContextFactory<MoviesDbContext> moviesDbProvider,
+        IDbContextFactory<SeriesDbContext> seriesDbProvider,
+        IDbContextFactory<ChannelsDbContext> channelsDbProvider,
+        IDbContextFactory<BooksDbContext> booksDbProvider,
         IServerApplicationHost applicationHost,
         IServerApplicationPaths applicationPaths,
         IMulletaFlixDatabaseProvider MulletaFlixDatabaseProvider,
@@ -84,11 +107,46 @@ public class BackupService : IBackupService, IDisposable
     {
         _logger = logger;
         _dbProvider = dbProvider;
+        _moviesDbProvider = moviesDbProvider;
+        _seriesDbProvider = seriesDbProvider;
+        _channelsDbProvider = channelsDbProvider;
+        _booksDbProvider = booksDbProvider;
         _applicationHost = applicationHost;
         _applicationPaths = applicationPaths;
         _MulletaFlixDatabaseProvider = MulletaFlixDatabaseProvider;
         _hostApplicationLifetime = applicationLifetime;
         _storageSpaceProvider = storageSpaceProvider;
+    }
+
+    /// <summary>
+    /// Initializes a new instance of the <see cref="BackupService"/> class with non-pooled contexts for atomic restores.
+    /// </summary>
+    public BackupService(
+        ILogger<BackupService> logger,
+        IDbContextFactory<MulletaFlixDbContext> dbProvider,
+        IDbContextFactory<MoviesDbContext> moviesDbProvider,
+        IDbContextFactory<SeriesDbContext> seriesDbProvider,
+        IDbContextFactory<ChannelsDbContext> channelsDbProvider,
+        IDbContextFactory<BooksDbContext> booksDbProvider,
+        IServerApplicationHost applicationHost,
+        IServerApplicationPaths applicationPaths,
+        IMulletaFlixDatabaseProvider MulletaFlixDatabaseProvider,
+        IHostApplicationLifetime applicationLifetime,
+        IStorageSpaceProvider storageSpaceProvider,
+        DbContextOptions<MoviesDbContext> moviesOptions,
+        ILogger<MoviesDbContext> moviesLogger,
+        DbContextOptions<SeriesDbContext> seriesOptions,
+        ILogger<SeriesDbContext> seriesLogger,
+        DbContextOptions<ChannelsDbContext> channelsOptions,
+        ILogger<ChannelsDbContext> channelsLogger,
+        DbContextOptions<BooksDbContext> booksOptions,
+        ILogger<BooksDbContext> booksLogger)
+        : this(logger, dbProvider, moviesDbProvider, seriesDbProvider, channelsDbProvider, booksDbProvider, applicationHost, applicationPaths, MulletaFlixDatabaseProvider, applicationLifetime, storageSpaceProvider)
+    {
+        _createMoviesDbContext = () => new MoviesDbContext(moviesOptions, moviesLogger);
+        _createSeriesDbContext = () => new SeriesDbContext(seriesOptions, seriesLogger);
+        _createChannelsDbContext = () => new ChannelsDbContext(channelsOptions, channelsLogger);
+        _createBooksDbContext = () => new BooksDbContext(booksOptions, booksLogger);
     }
 
     /// <inheritdoc/>
@@ -211,13 +269,26 @@ public class BackupService : IBackupService, IDisposable
             if (manifest.Options.Database)
             {
                 ValidateDatabaseBackupEntries(manifest, zipArchive);
-                await ValidateDatabaseBackupContentAsync(zipArchive).ConfigureAwait(false);
+                await ValidateDatabaseBackupContentAsync(manifest, zipArchive).ConfigureAwait(false);
             }
 
-            void CopyDirectory(string source, string target, string[]? exclude = null)
+            var includeDomainTables = manifest.BackupEngineVersion != LegacyBackupEngineVersion;
+            if (manifest.Options.Database && includeDomainTables
+                && (_createMoviesDbContext is null
+                    || _createSeriesDbContext is null
+                    || _createChannelsDbContext is null
+                    || _createBooksDbContext is null))
+            {
+                throw new InvalidOperationException("Restoring this backup requires atomic relational context support; no data was modified.");
+            }
+
+            using var fileRestore = new FileSystemRestoreTransaction(_logger);
+
+            async Task CopyDirectory(string source, string target, string[]? exclude = null)
             {
                 var fullSourcePath = NormalizePathSeparator(Path.GetFullPath(source) + Path.DirectorySeparatorChar);
-                var fullTargetRoot = Path.GetFullPath(target) + Path.DirectorySeparatorChar;
+                var normalizedTargetRoot = Path.TrimEndingDirectorySeparator(Path.GetFullPath(target));
+                var fullTargetRoot = normalizedTargetRoot + Path.DirectorySeparatorChar;
                 var excludePaths = exclude?.Select(e => $"{source}/{e}/").ToArray();
                 foreach (var item in zipArchive.Entries)
                 {
@@ -237,17 +308,17 @@ public class BackupService : IBackupService, IDisposable
                     }
 
                     _logger.LogInformation("Restore and override {File}", targetPath);
-
-                    Directory.CreateDirectory(Path.GetDirectoryName(targetPath)!);
-                    item.ExtractToFile(targetPath, overwrite: true);
+                    await fileRestore.ApplyEntryAsync(item, targetPath, normalizedTargetRoot).ConfigureAwait(false);
                 }
             }
 
-            CopyDirectory("Config", _applicationPaths.ConfigurationDirectoryPath);
-            CopyDirectory("Data", _applicationPaths.DataPath, exclude: ["metadata", "metadata-default"]);
-            CopyDirectory("Root", _applicationPaths.RootFolderPath);
-            CopyDirectory("Data/metadata", _applicationPaths.InternalMetadataPath);
-            CopyDirectory("Data/metadata-default", _applicationPaths.DefaultInternalMetadataPath);
+            // Apply files under a compensating transaction before restoring the database. If either
+            // this copy or the relational restore fails, disposal restores the previous file set.
+            await CopyDirectory("Config", _applicationPaths.ConfigurationDirectoryPath).ConfigureAwait(false);
+            await CopyDirectory("Data", _applicationPaths.DataPath, exclude: ["metadata", "metadata-default"]).ConfigureAwait(false);
+            await CopyDirectory("Root", _applicationPaths.RootFolderPath).ConfigureAwait(false);
+            await CopyDirectory("Data/metadata", _applicationPaths.InternalMetadataPath).ConfigureAwait(false);
+            await CopyDirectory("Data/metadata-default", _applicationPaths.DefaultInternalMetadataPath).ConfigureAwait(false);
 
             if (manifest.Options.Database)
             {
@@ -255,121 +326,459 @@ public class BackupService : IBackupService, IDisposable
                 var dbContext = await _dbProvider.CreateDbContextAsync().ConfigureAwait(false);
                 await using (dbContext.ConfigureAwait(false))
                 {
-                    // restore migration history manually
-                    var historyEntry = zipArchive.GetEntry(NormalizePathSeparator(Path.Combine("Database", $"{nameof(HistoryRow)}.json")));
-                    if (historyEntry is null)
+                    var domainContexts = new List<(DbContext Context, DbConnection OriginalConnection)>();
+
+                    try
                     {
-                        _logger.LogInformation("No backup of the history table in archive. This is required for MulletaFlix operation");
-                        throw new InvalidOperationException("Cannot restore backup that has no History data.");
-                    }
-
-                    HistoryRow[] historyEntries;
-                    var historyArchive = await historyEntry.OpenAsync().ConfigureAwait(false);
-                    await using (historyArchive.ConfigureAwait(false))
-                    {
-                        historyEntries = await JsonSerializer.DeserializeAsync<HistoryRow[]>(historyArchive).ConfigureAwait(false) ??
-                            throw new InvalidOperationException("Cannot restore backup that has no History data.");
-                    }
-
-                    var historyRepository = dbContext.GetService<IHistoryRepository>();
-                    await historyRepository.CreateIfNotExistsAsync().ConfigureAwait(false);
-
-                    // Validate and sanitize migration IDs before executing SQL to prevent injection.
-                    foreach (var item in await historyRepository.GetAppliedMigrationsAsync(CancellationToken.None).ConfigureAwait(false))
-                    {
-                        var sanitizedId = SanitizeMigrationId(item.MigrationId);
-                        var insertScript = historyRepository.GetDeleteScript(sanitizedId);
-                        await dbContext.Database.ExecuteSqlRawAsync(insertScript).ConfigureAwait(false);
-                    }
-
-                    foreach (var item in historyEntries)
-                    {
-                        var sanitizedItem = new HistoryRow(SanitizeMigrationId(item.MigrationId), item.ProductVersion);
-                        var insertScript = historyRepository.GetInsertScript(sanitizedItem);
-                        await dbContext.Database.ExecuteSqlRawAsync(insertScript).ConfigureAwait(false);
-                    }
-
-                    dbContext.ChangeTracker.QueryTrackingBehavior = QueryTrackingBehavior.NoTracking;
-                    var entityTypes = typeof(MulletaFlixDbContext).GetProperties(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance)
-                        .Where(e => e.PropertyType.IsAssignableTo(typeof(IQueryable)))
-                        .Select(e => (Type: e, Set: e.GetValue(dbContext) as IQueryable))
-                        .ToArray();
-
-                    var tableNames = entityTypes.Select(f => dbContext.Model.FindEntityType(f.Type.PropertyType.GetGenericArguments()[0])!.GetSchemaQualifiedTableName()!);
-                    _logger.LogInformation("Begin purging database");
-                    await _MulletaFlixDatabaseProvider.PurgeDatabase(dbContext, tableNames).ConfigureAwait(false);
-                    _logger.LogInformation("Database Purged");
-
-                    foreach (var entityType in entityTypes)
-                    {
-                        _logger.LogInformation("Read backup of {Table}", entityType.Type.Name);
-
-                        var zipEntry = zipArchive.GetEntry(NormalizePathSeparator(Path.Combine("Database", $"{entityType.Type.Name}.json")));
-                        if (zipEntry is null)
+                        if (includeDomainTables && _createMoviesDbContext is not null)
                         {
-                            _logger.LogInformation("No backup of expected table {Table} is present in backup, continuing anyway", entityType.Type.Name);
-                            continue;
+                            var sharedConnection = dbContext.Database.GetDbConnection();
+                            AddDomainContext(_createMoviesDbContext(), sharedConnection, domainContexts);
+                            AddDomainContext(_createSeriesDbContext!(), sharedConnection, domainContexts);
+                            AddDomainContext(_createChannelsDbContext!(), sharedConnection, domainContexts);
+                            AddDomainContext(_createBooksDbContext!(), sharedConnection, domainContexts);
                         }
 
-                        var zipEntryStream = await zipEntry.OpenAsync().ConfigureAwait(false);
-                        await using (zipEntryStream.ConfigureAwait(false))
+                        // Restore migration history manually.
+                        var historyEntry = zipArchive.GetEntry(NormalizePathSeparator(Path.Combine("Database", $"{nameof(HistoryRow)}.json")));
+                        if (historyEntry is null)
                         {
-                            _logger.LogInformation("Restore backup of {Table}", entityType.Type.Name);
-                            var records = 0;
-                            await foreach (var item in JsonSerializer.DeserializeAsyncEnumerable<JsonObject>(zipEntryStream, _serializerSettings).ConfigureAwait(false))
-                            {
-                                var entity = item.Deserialize(entityType.Type.PropertyType.GetGenericArguments()[0]);
-                                if (entity is null)
-                                {
-                                    throw new InvalidOperationException($"Cannot deserialize entity '{item}'");
-                                }
+                            _logger.LogInformation("No backup of the history table in archive. This is required for MulletaFlix operation");
+                            throw new InvalidOperationException("Cannot restore backup that has no History data.");
+                        }
 
-                                try
-                                {
-                                    records++;
-                                    dbContext.Add(entity);
-                                }
-                                catch (Exception ex)
-                                {
-                                    _logger.LogError(ex, "Could not store entity {Entity}, continuing anyway", item);
-                                }
+                        HistoryRow[] historyEntries;
+                        var historyArchive = await historyEntry.OpenAsync().ConfigureAwait(false);
+                        await using (historyArchive.ConfigureAwait(false))
+                        {
+                            historyEntries = await JsonSerializer.DeserializeAsync<HistoryRow[]>(historyArchive).ConfigureAwait(false) ??
+                                throw new InvalidOperationException("Cannot restore backup that has no History data.");
+                        }
+
+                        var historyRepository = dbContext.GetService<IHistoryRepository>();
+                        await historyRepository.CreateIfNotExistsAsync().ConfigureAwait(false);
+
+                        await using (var transaction = await dbContext.Database.BeginTransactionAsync().ConfigureAwait(false))
+                        {
+                            foreach (var (context, _) in domainContexts)
+                            {
+                                await context.Database.UseTransactionAsync(transaction.GetDbTransaction()).ConfigureAwait(false);
                             }
 
-                            _logger.LogInformation("Prepared to restore {Number} entries for {Table}", records, entityType.Type.Name);
+                            // Validate and sanitize migration IDs before executing SQL to prevent injection.
+                            foreach (var item in await historyRepository.GetAppliedMigrationsAsync(CancellationToken.None).ConfigureAwait(false))
+                            {
+                                var sanitizedId = SanitizeMigrationId(item.MigrationId);
+                                var insertScript = historyRepository.GetDeleteScript(sanitizedId);
+                                await dbContext.Database.ExecuteSqlRawAsync(insertScript).ConfigureAwait(false);
+                            }
+
+                            foreach (var item in historyEntries)
+                            {
+                                var sanitizedItem = new HistoryRow(SanitizeMigrationId(item.MigrationId), item.ProductVersion);
+                                var insertScript = historyRepository.GetInsertScript(sanitizedItem);
+                                await dbContext.Database.ExecuteSqlRawAsync(insertScript).ConfigureAwait(false);
+                            }
+
+                            dbContext.ChangeTracker.QueryTrackingBehavior = QueryTrackingBehavior.NoTracking;
+                            var coreTables = GetDatabaseTableDefinitions(typeof(MulletaFlixDbContext));
+                            var domainTables = includeDomainTables
+                                ? GetDatabaseTableDefinitions().Where(table => table.ContextType != typeof(MulletaFlixDbContext)).ToArray()
+                                : [];
+                            var tableNames = coreTables
+                                .Select(table => dbContext.Model.FindEntityType(table.EntityType)!.GetSchemaQualifiedTableName()!)
+                                .Concat(domainTables.Select(table => table.Name));
+                            _logger.LogInformation("Begin purging database");
+                            await _MulletaFlixDatabaseProvider.PurgeDatabase(dbContext, tableNames).ConfigureAwait(false);
+                            _logger.LogInformation("Database Purged");
+
+                            await RestoreDatabaseTablesAsync(dbContext, zipArchive, coreTables).ConfigureAwait(false);
+                            _logger.LogInformation("Try restore Database");
+                            await dbContext.SaveChangesAsync().ConfigureAwait(false);
+
+                            foreach (var (context, _) in domainContexts)
+                            {
+                                await RestoreDomainContextAsync(context, context.GetType(), zipArchive).ConfigureAwait(false);
+                                await context.Database.UseTransactionAsync(null).ConfigureAwait(false);
+                            }
+
+                            await transaction.CommitAsync().ConfigureAwait(false);
+                            _logger.LogInformation("Restored core and domain database contexts");
+                        }
+
+                    }
+                    finally
+                    {
+                        foreach (var (context, originalConnection) in domainContexts)
+                        {
+                            try
+                            {
+                                await context.Database.UseTransactionAsync(null).ConfigureAwait(false);
+                                var sharedConnection = context.Database.GetDbConnection();
+                                if (sharedConnection.State != System.Data.ConnectionState.Closed)
+                                {
+                                    await context.Database.CloseConnectionAsync().ConfigureAwait(false);
+                                }
+
+                                context.Database.SetDbConnection(originalConnection, contextOwnsConnection: false);
+                                context.Database.SetDbConnection(originalConnection, contextOwnsConnection: true);
+                            }
+                            finally
+                            {
+                                await context.DisposeAsync().ConfigureAwait(false);
+                            }
                         }
                     }
-
-                    _logger.LogInformation("Try restore Database");
-                    await dbContext.SaveChangesAsync().ConfigureAwait(false);
-                    _logger.LogInformation("Restored database");
                 }
             }
+
+            fileRestore.Commit();
 
             _logger.LogInformation("Restored MulletaFlix system from {Date}", manifest.DateCreated);
         }
     }
 
     private bool TestBackupVersionCompatibility(Version backupEngineVersion)
+        => backupEngineVersion == _backupEngineVersion || backupEngineVersion == LegacyBackupEngineVersion;
+
+    private sealed class FileSystemRestoreTransaction : IDisposable
     {
-        if (backupEngineVersion == _backupEngineVersion)
+        private sealed class RestoredFile
         {
-            return true;
+            public required string TargetPath { get; init; }
+
+            public required string StagingPath { get; init; }
+
+            public required string BackupPath { get; init; }
+
+            public bool OriginalMoved { get; set; }
+
+            public bool ReplacementInstalled { get; set; }
         }
 
-        return false;
+        private readonly ILogger _logger;
+        private readonly List<RestoredFile> _files = [];
+        private readonly List<string> _createdDirectories = [];
+        private readonly HashSet<string> _trackedDirectories = new(OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal);
+        private bool _committed;
+
+        public FileSystemRestoreTransaction(ILogger logger)
+        {
+            _logger = logger;
+        }
+
+        public async Task ApplyEntryAsync(ZipArchiveEntry archiveEntry, string targetPath, string targetRoot)
+        {
+            EnsurePathWithinConfiguredRoot(targetPath, targetRoot);
+            var directory = Path.GetDirectoryName(targetPath)!;
+            EnsureDirectoryExists(directory, targetRoot);
+
+            var id = Guid.NewGuid().ToString("N");
+            var restoredFile = new RestoredFile
+            {
+                TargetPath = targetPath,
+                StagingPath = Path.Combine(directory, $".mfx-restore-{id}.tmp"),
+                BackupPath = Path.Combine(directory, $".mfx-restore-{id}.bak")
+            };
+            _files.Add(restoredFile);
+
+            using (var source = archiveEntry.Open())
+            await using (var destination = new FileStream(
+                restoredFile.StagingPath,
+                new FileStreamOptions
+                {
+                    Mode = FileMode.CreateNew,
+                    Access = FileAccess.Write,
+                    Share = FileShare.None,
+                    BufferSize = 81920,
+                    Options = FileOptions.Asynchronous | FileOptions.SequentialScan
+                }))
+            {
+                await source.CopyToAsync(destination).ConfigureAwait(false);
+            }
+
+            // Revalidate after staging to catch a reparse point introduced while the
+            // archive entry was copied. Path-based moves still rely on filesystem ACLs
+            // to prevent a privileged concurrent actor from swapping a directory afterward.
+            EnsurePathWithinConfiguredRoot(targetPath, targetRoot);
+            if (Directory.Exists(targetPath))
+            {
+                throw new IOException($"Cannot restore a file over the existing directory '{targetPath}'.");
+            }
+
+            if (File.Exists(targetPath))
+            {
+                File.Move(targetPath, restoredFile.BackupPath);
+                restoredFile.OriginalMoved = true;
+            }
+
+            File.Move(restoredFile.StagingPath, targetPath);
+            restoredFile.ReplacementInstalled = true;
+        }
+
+        public void Commit()
+        {
+            _committed = true;
+            CleanupTemporaryFiles(removeBackups: true);
+            _createdDirectories.Clear();
+        }
+
+        public void Dispose()
+        {
+            if (_committed)
+            {
+                return;
+            }
+
+            Rollback();
+            CleanupTemporaryFiles(removeBackups: false);
+            RemoveCreatedDirectories();
+        }
+
+        private void EnsureDirectoryExists(string path, string targetRoot)
+        {
+            EnsurePathWithinConfiguredRoot(path, targetRoot);
+            var missing = new List<string>();
+            var current = Path.GetFullPath(path);
+            while (!Directory.Exists(current))
+            {
+                if (File.Exists(current))
+                {
+                    throw new IOException($"Cannot create restore directory because a file exists at '{current}'.");
+                }
+
+                missing.Add(current);
+                var parent = Path.GetDirectoryName(current);
+                if (string.IsNullOrEmpty(parent) || string.Equals(parent, current, StringComparison.Ordinal))
+                {
+                    break;
+                }
+
+                current = parent;
+            }
+
+            Directory.CreateDirectory(path);
+            EnsurePathWithinConfiguredRoot(path, targetRoot);
+            for (var index = missing.Count - 1; index >= 0; index--)
+            {
+                if (_trackedDirectories.Add(missing[index]))
+                {
+                    _createdDirectories.Add(missing[index]);
+                }
+            }
+        }
+
+        private static void EnsurePathWithinConfiguredRoot(string path, string root)
+        {
+            var fullRoot = Path.TrimEndingDirectorySeparator(Path.GetFullPath(root));
+            var fullPath = Path.GetFullPath(path);
+            var relativePath = Path.GetRelativePath(fullRoot, fullPath);
+            var comparison = OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
+            if (Path.IsPathRooted(relativePath)
+                || string.Equals(relativePath, "..", comparison)
+                || relativePath.StartsWith(".." + Path.DirectorySeparatorChar, comparison)
+                || relativePath.StartsWith(".." + Path.AltDirectorySeparatorChar, comparison))
+            {
+                throw new IOException("Restore target is outside its configured directory.");
+            }
+
+            // The configured root itself is trusted (it may intentionally be a symlink
+            // or junction); descendants are not. Reject links in every existing component
+            // below that root, including an existing file target or a dangling link.
+            var current = fullRoot;
+            foreach (var component in relativePath.Split(
+                [Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar],
+                StringSplitOptions.RemoveEmptyEntries))
+            {
+                current = Path.Combine(current, component);
+                try
+                {
+                    if ((File.GetAttributes(current) & FileAttributes.ReparsePoint) != 0)
+                    {
+                        throw new IOException("Restore target contains a symbolic link or reparse point.");
+                    }
+                }
+                catch (FileNotFoundException)
+                {
+                    break;
+                }
+                catch (DirectoryNotFoundException)
+                {
+                    break;
+                }
+            }
+        }
+
+        private void Rollback()
+        {
+            for (var index = _files.Count - 1; index >= 0; index--)
+            {
+                var file = _files[index];
+                try
+                {
+                    if (file.ReplacementInstalled && File.Exists(file.TargetPath))
+                    {
+                        File.Delete(file.TargetPath);
+                    }
+
+                    if (file.OriginalMoved && File.Exists(file.BackupPath))
+                    {
+                        File.Move(file.BackupPath, file.TargetPath);
+                    }
+                }
+                catch (Exception exception)
+                {
+                    _logger.LogCritical(exception, "Failed to roll back restored file {File}; recovery copy is {RecoveryFile}", file.TargetPath, file.BackupPath);
+                }
+            }
+        }
+
+        private void CleanupTemporaryFiles(bool removeBackups)
+        {
+            foreach (var file in _files)
+            {
+                foreach (var path in removeBackups ? new[] { file.StagingPath, file.BackupPath } : new[] { file.StagingPath })
+                {
+                    try
+                    {
+                        if (File.Exists(path))
+                        {
+                            File.Delete(path);
+                        }
+                    }
+                    catch (Exception exception)
+                    {
+                        _logger.LogWarning(exception, "Could not remove temporary restore file {File}", path);
+                    }
+                }
+            }
+        }
+
+        private void RemoveCreatedDirectories()
+        {
+            for (var index = _createdDirectories.Count - 1; index >= 0; index--)
+            {
+                try
+                {
+                    if (Directory.Exists(_createdDirectories[index]) && !Directory.EnumerateFileSystemEntries(_createdDirectories[index]).Any())
+                    {
+                        Directory.Delete(_createdDirectories[index]);
+                    }
+                }
+                catch (Exception exception)
+                {
+                    _logger.LogWarning(exception, "Could not remove empty directory created during restore: {Directory}", _createdDirectories[index]);
+                }
+            }
+        }
+    }
+
+    private static void AddDomainContext(
+        DbContext context,
+        DbConnection sharedConnection,
+        ICollection<(DbContext Context, DbConnection OriginalConnection)> contexts)
+    {
+        var originalConnection = context.Database.GetDbConnection();
+        try
+        {
+            context.Database.SetDbConnection(originalConnection, contextOwnsConnection: false);
+            context.Database.SetDbConnection(sharedConnection, contextOwnsConnection: false);
+            contexts.Add((context, originalConnection));
+        }
+        catch
+        {
+            context.Database.SetDbConnection(originalConnection, contextOwnsConnection: true);
+            context.Dispose();
+            throw;
+        }
+    }
+
+    private async Task RestoreDomainContextAsync<TContext>(IDbContextFactory<TContext> factory, Type contextType, ZipArchive archive)
+        where TContext : DbContext
+    {
+        await using var context = await factory.CreateDbContextAsync().ConfigureAwait(false);
+        await RestoreDomainContextAsync(context, contextType, archive).ConfigureAwait(false);
+    }
+
+    private async Task RestoreDomainContextAsync(DbContext context, Type contextType, ZipArchive archive)
+    {
+        context.ChangeTracker.QueryTrackingBehavior = QueryTrackingBehavior.NoTracking;
+        await RestoreDatabaseTablesAsync(context, archive, GetDatabaseTableDefinitions(contextType)).ConfigureAwait(false);
+        await context.SaveChangesAsync().ConfigureAwait(false);
+    }
+
+    private async Task RestoreDatabaseTablesAsync(DbContext context, ZipArchive archive, IEnumerable<DatabaseTableDefinition> tables)
+    {
+        foreach (var table in tables)
+        {
+            var entryPath = NormalizePathSeparator(Path.Combine("Database", $"{table.Name}.json"));
+            var zipEntry = archive.GetEntry(entryPath);
+            if (zipEntry is null)
+            {
+                throw new InvalidDataException($"Cannot restore missing database table '{table.Name}'.");
+            }
+
+            var zipEntryStream = await zipEntry.OpenAsync().ConfigureAwait(false);
+            await using (zipEntryStream.ConfigureAwait(false))
+            {
+                await foreach (var item in JsonSerializer.DeserializeAsyncEnumerable<JsonObject>(zipEntryStream, _serializerSettings).ConfigureAwait(false))
+                {
+                    var entity = item?.Deserialize(table.EntityType, _serializerSettings);
+                    if (entity is null)
+                    {
+                        throw new InvalidDataException($"Cannot deserialize entity for database table '{table.Name}'.");
+                    }
+
+                    context.Add(entity);
+                }
+            }
+        }
+    }
+
+    private static readonly Type[] DatabaseContextTypes =
+    [
+        typeof(MulletaFlixDbContext),
+        typeof(MoviesDbContext),
+        typeof(SeriesDbContext),
+        typeof(ChannelsDbContext),
+        typeof(BooksDbContext)
+    ];
+
+    private sealed record DatabaseTableDefinition(string Name, Type ContextType, Type EntityType, PropertyInfo Property);
+
+    private static DatabaseTableDefinition[] GetDatabaseTableDefinitions(Type? contextType = null)
+        => DatabaseContextTypes
+            .Where(type => contextType is null || type == contextType)
+            .SelectMany(type => type
+                .GetProperties(BindingFlags.Public | BindingFlags.Instance)
+                .Where(property => property.PropertyType.IsAssignableTo(typeof(IQueryable)))
+                .Select(property => new DatabaseTableDefinition(
+                    property.Name,
+                    type,
+                    property.PropertyType.GetGenericArguments()[0],
+                    property)))
+            .ToArray();
+
+    private static string[] GetDatabaseBackupTableNames(Version version)
+    {
+        var definitions = version == LegacyBackupEngineVersion
+            ? GetDatabaseTableDefinitions(typeof(MulletaFlixDbContext))
+            : GetDatabaseTableDefinitions();
+        return [.. definitions.Select(table => table.Name), nameof(HistoryRow)];
     }
 
     private static void ValidateDatabaseBackupEntries(BackupManifest manifest, ZipArchive zipArchive)
     {
-        var expectedTableNames = typeof(MulletaFlixDbContext)
-            .GetProperties(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance)
-            .Where(property => property.PropertyType.IsAssignableTo(typeof(IQueryable)))
-            .Select(property => property.Name)
-            .Append(nameof(HistoryRow))
-            .ToHashSet(StringComparer.Ordinal);
-        var declaredTableNames = manifest.DatabaseTables?.ToHashSet(StringComparer.Ordinal) ?? [];
-        var missingDeclarations = expectedTableNames.Except(declaredTableNames, StringComparer.Ordinal).ToArray();
-        var unexpectedDeclarations = declaredTableNames.Except(expectedTableNames, StringComparer.Ordinal).ToArray();
+        var expectedTableNames = GetDatabaseBackupTableNames(manifest.BackupEngineVersion);
+        var expectedSet = expectedTableNames.ToHashSet(StringComparer.Ordinal);
+        var declaredTableNames = manifest.DatabaseTables ?? [];
+        var declaredSet = declaredTableNames.ToHashSet(StringComparer.Ordinal);
+        var isLegacyGenericManifest = manifest.BackupEngineVersion == LegacyBackupEngineVersion
+            && declaredTableNames.Length == expectedTableNames.Length
+            && declaredTableNames.Count(name => name == "DbSet`1") == expectedTableNames.Length - 1
+            && declaredTableNames.Count(name => name == nameof(HistoryRow)) == 1;
+        var missingDeclarations = isLegacyGenericManifest ? [] : expectedSet.Except(declaredSet, StringComparer.Ordinal).ToArray();
+        var unexpectedDeclarations = isLegacyGenericManifest ? [] : declaredSet.Except(expectedSet, StringComparer.Ordinal).ToArray();
         var missingEntries = expectedTableNames
             .Where(tableName => zipArchive.GetEntry(NormalizePathSeparator(Path.Combine("Database", $"{tableName}.json"))) is null)
             .ToArray();
@@ -396,13 +805,13 @@ public class BackupService : IBackupService, IDisposable
         }
     }
 
-    private static async Task ValidateDatabaseBackupContentAsync(ZipArchive zipArchive)
+    private static async Task ValidateDatabaseBackupContentAsync(BackupManifest manifest, ZipArchive zipArchive)
     {
-        var entityTypes = typeof(MulletaFlixDbContext)
-            .GetProperties(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance)
-            .Where(property => property.PropertyType.IsAssignableTo(typeof(IQueryable)))
-            .Select(property => (Name: property.Name, Type: property.PropertyType.GetGenericArguments()[0]))
-            .Append((Name: nameof(HistoryRow), Type: typeof(HistoryRow)));
+        var entityTypes = GetDatabaseTableDefinitions(manifest.BackupEngineVersion == LegacyBackupEngineVersion
+                ? typeof(MulletaFlixDbContext)
+                : null)
+            .Select(table => (Name: table.Name, EntityType: table.EntityType))
+            .Append((Name: nameof(HistoryRow), EntityType: typeof(HistoryRow)));
 
         foreach (var entityType in entityTypes)
         {
@@ -415,7 +824,7 @@ public class BackupService : IBackupService, IDisposable
                 {
                     await foreach (var item in JsonSerializer.DeserializeAsyncEnumerable<JsonObject>(zipEntryStream, _serializerSettings).ConfigureAwait(false))
                     {
-                        if (item is null || item.Deserialize(entityType.Type, _serializerSettings) is null)
+                        if (item is null || item.Deserialize(entityType.EntityType, _serializerSettings) is null)
                         {
                             throw new JsonException($"The backup entry '{entryPath}' contains a null or invalid entity.");
                         }
@@ -427,6 +836,43 @@ public class BackupService : IBackupService, IDisposable
                 }
             }
         }
+    }
+
+    private async Task WriteDomainDatabaseTablesAsync(DbContext context, Type contextType, ZipArchive archive)
+    {
+        context.ChangeTracker.QueryTrackingBehavior = QueryTrackingBehavior.NoTracking;
+        foreach (var table in GetDatabaseTableDefinitions(contextType))
+        {
+            var query = (IQueryable)table.Property.GetValue(context)!;
+            var method = query.GetType().GetMethod(nameof(DbSet<object>.AsAsyncEnumerable))!;
+            var values = (IAsyncEnumerable<object>)method.Invoke(query, null)!;
+            await WriteDatabaseTableAsync(table.Name, values, archive).ConfigureAwait(false);
+        }
+    }
+
+    private async Task WriteDatabaseTableAsync(string tableName, IAsyncEnumerable<object> values, ZipArchive archive)
+    {
+        var zipEntry = archive.CreateEntry(NormalizePathSeparator(Path.Combine("Database", $"{tableName}.json")));
+        var count = 0;
+        var zipEntryStream = await zipEntry.OpenAsync().ConfigureAwait(false);
+        await using (zipEntryStream.ConfigureAwait(false))
+        {
+            var jsonWriter = new Utf8JsonWriter(zipEntryStream);
+            await using (jsonWriter.ConfigureAwait(false))
+            {
+                jsonWriter.WriteStartArray();
+                await foreach (var item in values.ConfigureAwait(false))
+                {
+                    using var document = JsonSerializer.SerializeToDocument(item, _serializerSettings);
+                    document.WriteTo(jsonWriter);
+                    count++;
+                }
+
+                jsonWriter.WriteEndArray();
+            }
+        }
+
+        _logger.LogInformation("Backup of entity {Table} with {Number} entries created", tableName, count);
     }
 
     /// <inheritdoc/>
@@ -557,35 +1003,57 @@ public class BackupService : IBackupService, IDisposable
                 _logger.LogInformation("Starting backup process");
                 if (backupOptions.Database)
                 {
+                    manifest.DatabaseTables = GetDatabaseBackupTableNames(_backupEngineVersion);
+                    if (_createMoviesDbContext is null
+                        || _createSeriesDbContext is null
+                        || _createChannelsDbContext is null
+                        || _createBooksDbContext is null)
+                    {
+                        throw new InvalidOperationException("A consistent relational backup requires non-pooled contexts for every media domain.");
+                    }
+
                     var dbContext = await _dbProvider.CreateDbContextAsync().ConfigureAwait(false);
                     await using (dbContext.ConfigureAwait(false))
                     {
                         dbContext.ChangeTracker.QueryTrackingBehavior = QueryTrackingBehavior.NoTracking;
+                        var domainContexts = new List<(DbContext Context, DbConnection OriginalConnection)>();
 
-                        static IAsyncEnumerable<object> GetValues(IQueryable dbSet)
+                        try
                         {
-                            var method = dbSet.GetType().GetMethod(nameof(DbSet<object>.AsAsyncEnumerable))!;
-                            var enumerable = method.Invoke(dbSet, null)!;
-                            return (IAsyncEnumerable<object>)enumerable;
-                        }
+                            var sharedConnection = dbContext.Database.GetDbConnection();
+                            AddDomainContext(_createMoviesDbContext(), sharedConnection, domainContexts);
+                            AddDomainContext(_createSeriesDbContext(), sharedConnection, domainContexts);
+                            AddDomainContext(_createChannelsDbContext(), sharedConnection, domainContexts);
+                            AddDomainContext(_createBooksDbContext(), sharedConnection, domainContexts);
 
-                        // include the migration history as well
-                        var historyRepository = dbContext.GetService<IHistoryRepository>();
-                        var migrations = await historyRepository.GetAppliedMigrationsAsync().ConfigureAwait(false);
+                            await using var transaction = await dbContext.Database
+                                .BeginTransactionAsync(IsolationLevel.RepeatableRead)
+                                .ConfigureAwait(false);
+                            foreach (var (context, _) in domainContexts)
+                            {
+                                await context.Database.UseTransactionAsync(transaction.GetDbTransaction()).ConfigureAwait(false);
+                            }
 
-                        ICollection<(Type Type, string SourceName, Func<IAsyncEnumerable<object>> ValueFactory)> entityTypes =
-                        [
-                            .. typeof(MulletaFlixDbContext)
-                            .GetProperties(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance)
-                            .Where(e => e.PropertyType.IsAssignableTo(typeof(IQueryable)))
-                            .Select(e => (Type: e.PropertyType, dbContext.Model.FindEntityType(e.PropertyType.GetGenericArguments()[0])!.GetSchemaQualifiedTableName()!, ValueFactory: new Func<IAsyncEnumerable<object>>(() => GetValues((IQueryable)e.GetValue(dbContext)!)))),
-                        (Type: typeof(HistoryRow), SourceName: nameof(HistoryRow), ValueFactory: () => migrations.ToAsyncEnumerable())
-                        ];
-                        manifest.DatabaseTables = entityTypes.Select(e => e.Type.Name).ToArray();
-                        var transaction = await dbContext.Database.BeginTransactionAsync().ConfigureAwait(false);
+                            static IAsyncEnumerable<object> GetValues(IQueryable dbSet)
+                            {
+                                var method = dbSet.GetType().GetMethod(nameof(DbSet<object>.AsAsyncEnumerable))!;
+                                var enumerable = method.Invoke(dbSet, null)!;
+                                return (IAsyncEnumerable<object>)enumerable;
+                            }
 
-                        await using (transaction.ConfigureAwait(false))
-                        {
+                            // Read migration history inside the same snapshot as the tables.
+                            var historyRepository = dbContext.GetService<IHistoryRepository>();
+                            var migrations = await historyRepository.GetAppliedMigrationsAsync().ConfigureAwait(false);
+
+                            ICollection<(Type Type, string SourceName, Func<IAsyncEnumerable<object>> ValueFactory)> entityTypes =
+                            [
+                                .. typeof(MulletaFlixDbContext)
+                                .GetProperties(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance)
+                                .Where(e => e.PropertyType.IsAssignableTo(typeof(IQueryable)))
+                                .Select(e => (Type: e.PropertyType, dbContext.Model.FindEntityType(e.PropertyType.GetGenericArguments()[0])!.GetSchemaQualifiedTableName()!, ValueFactory: new Func<IAsyncEnumerable<object>>(() => GetValues((IQueryable)e.GetValue(dbContext)!)))),
+                                (Type: typeof(HistoryRow), SourceName: nameof(HistoryRow), ValueFactory: () => migrations.ToAsyncEnumerable())
+                            ];
+
                             _logger.LogInformation("Begin Database backup");
 
                             foreach (var entityType in entityTypes)
@@ -622,6 +1090,35 @@ public class BackupService : IBackupService, IDisposable
                                 }
 
                                 _logger.LogInformation("Backup of entity {Table} with {Number} created", entityType.SourceName, entities);
+                            }
+
+                            foreach (var (context, _) in domainContexts)
+                            {
+                                await WriteDomainDatabaseTablesAsync(context, context.GetType(), zipArchive).ConfigureAwait(false);
+                            }
+
+                            await transaction.CommitAsync().ConfigureAwait(false);
+                        }
+                        finally
+                        {
+                            foreach (var (context, originalConnection) in domainContexts)
+                            {
+                                try
+                                {
+                                    await context.Database.UseTransactionAsync(null).ConfigureAwait(false);
+                                    var sharedConnection = context.Database.GetDbConnection();
+                                    if (sharedConnection.State != ConnectionState.Closed)
+                                    {
+                                        await context.Database.CloseConnectionAsync().ConfigureAwait(false);
+                                    }
+
+                                    context.Database.SetDbConnection(originalConnection, contextOwnsConnection: false);
+                                    context.Database.SetDbConnection(originalConnection, contextOwnsConnection: true);
+                                }
+                                finally
+                                {
+                                    await context.DisposeAsync().ConfigureAwait(false);
+                                }
                             }
                         }
                     }

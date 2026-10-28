@@ -76,6 +76,10 @@ public class BackupServiceTests
         return new BackupService(
             _loggerMock.Object,
             mockDbProvider.Object,
+            null!,
+            null!,
+            null!,
+            null!,
             _applicationHostMock.Object,
             _applicationPathsMock.Object,
             _databaseProviderMock.Object,
@@ -114,11 +118,44 @@ public class BackupServiceTests
         var method = typeof(BackupService).GetMethod("TestBackupVersionCompatibility",
             System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
 
-        // Current backup engine version is 0.2.0
-        var result = (bool)method!.Invoke(service, new object[] { new Version(0, 2, 0) })!;
+        // Current backup engine version is 0.3.0
+        var result = (bool)method!.Invoke(service, new object[] { new Version(0, 3, 0) })!;
 
         // Assert
         Assert.True(result);
+    }
+
+    [Fact]
+    public void TestBackupVersionCompatibility_ReturnsTrueForLegacyVersion()
+    {
+        var service = CreateService();
+        var method = typeof(BackupService).GetMethod("TestBackupVersionCompatibility",
+            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+
+        var result = (bool)method!.Invoke(service, new object[] { new Version(0, 2, 0) })!;
+
+        Assert.True(result);
+    }
+
+    [Fact]
+    public void DatabaseBackupTableNames_Version03IncludesDomainContextsWithoutDuplicates()
+    {
+        var method = typeof(BackupService).GetMethod(
+            "GetDatabaseBackupTableNames",
+            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static);
+
+        var currentNames = (string[])method!.Invoke(null, [new Version(0, 3, 0)])!;
+        var legacyNames = (string[])method.Invoke(null, [new Version(0, 2, 0)])!;
+
+        Assert.Equal(currentNames.Length, currentNames.Distinct(StringComparer.Ordinal).Count());
+        Assert.True(currentNames.Contains("Movies"), string.Join(", ", currentNames));
+        Assert.True(currentNames.Contains("Series"), string.Join(", ", currentNames));
+        Assert.True(currentNames.Contains("Channels"), string.Join(", ", currentNames));
+        Assert.True(currentNames.Contains("Books"), string.Join(", ", currentNames));
+        Assert.Contains("ActivityLogs", legacyNames);
+        Assert.DoesNotContain("Series", legacyNames);
+        Assert.DoesNotContain("Channels", legacyNames);
+        Assert.DoesNotContain("Books", legacyNames);
     }
 
     [Fact]
@@ -145,7 +182,7 @@ public class BackupServiceTests
             System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
 
         // Act
-        var result = (bool)method!.Invoke(service, new object[] { new Version(0, 3, 0) })!;
+        var result = (bool)method!.Invoke(service, new object[] { new Version(0, 4, 0) })!;
 
         // Assert
         Assert.False(result);
@@ -206,6 +243,10 @@ public class BackupServiceTests
         var fullService = new BackupService(
             _loggerMock.Object,
             mockDbProvider.Object,
+            null!,
+            null!,
+            null!,
+            null!,
             _applicationHostMock.Object,
             _applicationPathsMock.Object,
             _databaseProviderMock.Object,
@@ -244,6 +285,10 @@ public class BackupServiceTests
             var service = new BackupService(
                 _loggerMock.Object,
                 dbContextFactory.Object,
+                null!,
+                null!,
+                null!,
+                null!,
                 _applicationHostMock.Object,
                 _applicationPathsMock.Object,
                 _databaseProviderMock.Object,
@@ -895,6 +940,10 @@ public class BackupServiceTests
             var service = new BackupService(
                 _loggerMock.Object,
                 dbContextFactory.Object,
+                null!,
+                null!,
+                null!,
+                null!,
                 _applicationHostMock.Object,
                 _applicationPathsMock.Object,
                 _databaseProviderMock.Object,
@@ -906,6 +955,91 @@ public class BackupServiceTests
             Assert.Contains(defect == "unsupported-declaration" ? "UnknownTable" : "Users", exception.Message, StringComparison.Ordinal);
             Assert.Equal(existingContent, await File.ReadAllTextAsync(existingConfigPath));
             dbContextFactory.Verify(factory => factory.CreateDbContext(), Times.Never);
+            dbContextFactory.Verify(factory => factory.CreateDbContextAsync(It.IsAny<CancellationToken>()), Times.Never);
+        }
+        finally
+        {
+            if (Directory.Exists(isolatedRoot))
+            {
+                Directory.Delete(isolatedRoot, recursive: true);
+            }
+        }
+    }
+
+    [Fact]
+    public async Task RestoreBackupAsync_RejectsCurrentDatabaseBackupWhenAtomicContextFactoriesAreUnavailable()
+    {
+        var isolatedRoot = Path.Combine(Path.GetTempPath(), $"mulletaflix-restore-atomic-context-{Guid.NewGuid():N}");
+        var configPath = Path.Combine(isolatedRoot, "config");
+        var dataPath = Path.Combine(isolatedRoot, "data");
+        var cachePath = Path.Combine(isolatedRoot, "cache");
+        var programDataPath = Path.Combine(isolatedRoot, "program-data");
+        var rootPath = Path.Combine(isolatedRoot, "root");
+        var metadataPath = Path.Combine(isolatedRoot, "metadata");
+        var archivePath = Path.Combine(isolatedRoot, "current-backup.zip");
+        foreach (var path in new[] { configPath, dataPath, cachePath, programDataPath, rootPath, metadataPath })
+        {
+            Directory.CreateDirectory(path);
+        }
+
+        try
+        {
+            _applicationPathsMock.Setup(paths => paths.ConfigurationDirectoryPath).Returns(configPath);
+            _applicationPathsMock.Setup(paths => paths.DataPath).Returns(dataPath);
+            _applicationPathsMock.Setup(paths => paths.CachePath).Returns(cachePath);
+            _applicationPathsMock.Setup(paths => paths.ProgramDataPath).Returns(programDataPath);
+            _applicationPathsMock.Setup(paths => paths.RootFolderPath).Returns(rootPath);
+            _applicationPathsMock.Setup(paths => paths.InternalMetadataPath).Returns(metadataPath);
+            _applicationPathsMock.Setup(paths => paths.DefaultInternalMetadataPath).Returns(Path.Combine(isolatedRoot, "metadata-default"));
+
+            const string existingConfig = "must-remain-untouched";
+            await File.WriteAllTextAsync(Path.Combine(configPath, "server.json"), existingConfig);
+            var tableNamesMethod = typeof(BackupService).GetMethod(
+                "GetDatabaseBackupTableNames",
+                System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)!;
+            var tableNames = (string[])tableNamesMethod.Invoke(null, [new Version(0, 3, 0)])!;
+            var manifest = new BackupManifest
+            {
+                ServerVersion = new Version(10, 0, 0),
+                BackupEngineVersion = new Version(0, 3, 0),
+                DateCreated = DateTimeOffset.UtcNow,
+                DatabaseTables = tableNames,
+                Options = new BackupOptions
+                {
+                    Database = true,
+                    Metadata = false,
+                    Subtitles = false,
+                    Trickplay = false
+                }
+            };
+
+            using (var archive = ZipFile.Open(archivePath, ZipArchiveMode.Create))
+            {
+                await WriteArchiveEntryAsync(archive, "manifest.json", JsonSerializer.Serialize(manifest));
+                foreach (var tableName in tableNames)
+                {
+                    await WriteArchiveEntryAsync(archive, $"Database/{tableName}.json", "[]");
+                }
+            }
+
+            var dbContextFactory = new Mock<IDbContextFactory<MulletaFlixDbContext>>(MockBehavior.Strict);
+            var service = new BackupService(
+                _loggerMock.Object,
+                dbContextFactory.Object,
+                null!,
+                null!,
+                null!,
+                null!,
+                _applicationHostMock.Object,
+                _applicationPathsMock.Object,
+                _databaseProviderMock.Object,
+                _applicationLifetimeMock.Object,
+                _storageSpaceProviderMock.Object);
+
+            var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => service.RestoreBackupAsync(archivePath));
+
+            Assert.Contains("atomic", exception.Message, StringComparison.OrdinalIgnoreCase);
+            Assert.Equal(existingConfig, await File.ReadAllTextAsync(Path.Combine(configPath, "server.json")));
             dbContextFactory.Verify(factory => factory.CreateDbContextAsync(It.IsAny<CancellationToken>()), Times.Never);
         }
         finally
@@ -977,6 +1111,10 @@ public class BackupServiceTests
             var service = new BackupService(
                 _loggerMock.Object,
                 dbContextFactory.Object,
+                null!,
+                null!,
+                null!,
+                null!,
                 _applicationHostMock.Object,
                 _applicationPathsMock.Object,
                 _databaseProviderMock.Object,
@@ -1064,6 +1202,125 @@ public class BackupServiceTests
         }
         finally
         {
+            if (Directory.Exists(isolatedRoot))
+            {
+                Directory.Delete(isolatedRoot, recursive: true);
+            }
+        }
+    }
+
+    [Fact]
+    public async Task RestoreBackupAsync_PreservesEarlierFilesWhenLaterFileExtractionFails()
+    {
+        var isolatedRoot = Path.Combine(Path.GetTempPath(), $"mulletaflix-restore-rollback-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(isolatedRoot);
+        var configPath = Path.Combine(isolatedRoot, "config");
+        var archivePath = Path.Combine(isolatedRoot, "recovery.zip");
+        Directory.CreateDirectory(configPath);
+        var firstFilePath = Path.Combine(configPath, "first.txt");
+        await File.WriteAllTextAsync(firstFilePath, "before-restore");
+        Directory.CreateDirectory(Path.Combine(configPath, "blocked.txt"));
+
+        try
+        {
+            _applicationPathsMock.Setup(paths => paths.ConfigurationDirectoryPath).Returns(configPath);
+            _applicationPathsMock.Setup(paths => paths.DataPath).Returns(Path.Combine(isolatedRoot, "data"));
+            _applicationPathsMock.Setup(paths => paths.CachePath).Returns(Path.Combine(isolatedRoot, "cache"));
+            _applicationPathsMock.Setup(paths => paths.ProgramDataPath).Returns(Path.Combine(isolatedRoot, "program-data"));
+            _applicationPathsMock.Setup(paths => paths.RootFolderPath).Returns(Path.Combine(isolatedRoot, "root"));
+            _applicationPathsMock.Setup(paths => paths.InternalMetadataPath).Returns(Path.Combine(isolatedRoot, "metadata"));
+            _applicationPathsMock.Setup(paths => paths.DefaultInternalMetadataPath).Returns(Path.Combine(isolatedRoot, "metadata-default"));
+
+            var manifest = new BackupManifest
+            {
+                ServerVersion = new Version(10, 0, 0),
+                BackupEngineVersion = new Version(0, 2, 0),
+                DateCreated = DateTimeOffset.UtcNow,
+                DatabaseTables = Array.Empty<string>(),
+                Options = new BackupOptions { Database = false, Metadata = false, Subtitles = false, Trickplay = false }
+            };
+
+            using (var archive = ZipFile.Open(archivePath, ZipArchiveMode.Create))
+            {
+                await WriteArchiveEntryAsync(archive, "manifest.json", JsonSerializer.Serialize(manifest));
+                await WriteArchiveEntryAsync(archive, "Config/first.txt", "from-backup");
+                await WriteArchiveEntryAsync(archive, "Config/blocked.txt", "cannot-extract");
+            }
+
+            var service = CreateService();
+            await Assert.ThrowsAnyAsync<IOException>(() => service.RestoreBackupAsync(archivePath));
+
+            Assert.Equal("before-restore", await File.ReadAllTextAsync(firstFilePath));
+            Assert.Empty(Directory.EnumerateFileSystemEntries(Path.Combine(configPath, "blocked.txt")));
+        }
+        finally
+        {
+            if (Directory.Exists(isolatedRoot))
+            {
+                Directory.Delete(isolatedRoot, recursive: true);
+            }
+        }
+    }
+
+    [Fact]
+    public async Task RestoreBackupAsync_RejectsReparsePointWithinConfiguredTargetRoot()
+    {
+        var isolatedRoot = Path.Combine(Path.GetTempPath(), $"mulletaflix-restore-reparse-{Guid.NewGuid():N}");
+        var configPath = Path.Combine(isolatedRoot, "config");
+        var outsidePath = Path.Combine(isolatedRoot, "outside");
+        var archivePath = Path.Combine(isolatedRoot, "recovery.zip");
+        Directory.CreateDirectory(configPath);
+        Directory.CreateDirectory(outsidePath);
+        var outsideFilePath = Path.Combine(outsidePath, "escape.txt");
+        var linkPath = Path.Combine(configPath, "linked");
+        await File.WriteAllTextAsync(outsideFilePath, "outside-before-restore");
+
+        try
+        {
+            try
+            {
+                Directory.CreateSymbolicLink(linkPath, outsidePath);
+            }
+            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or PlatformNotSupportedException)
+            {
+                Assert.Skip($"Creating a symbolic link is unavailable in this environment: {exception.GetType().Name}.");
+            }
+
+            _applicationPathsMock.Setup(paths => paths.ConfigurationDirectoryPath).Returns(configPath);
+            _applicationPathsMock.Setup(paths => paths.DataPath).Returns(Path.Combine(isolatedRoot, "data"));
+            _applicationPathsMock.Setup(paths => paths.CachePath).Returns(Path.Combine(isolatedRoot, "cache"));
+            _applicationPathsMock.Setup(paths => paths.ProgramDataPath).Returns(Path.Combine(isolatedRoot, "program-data"));
+            _applicationPathsMock.Setup(paths => paths.RootFolderPath).Returns(Path.Combine(isolatedRoot, "root"));
+            _applicationPathsMock.Setup(paths => paths.InternalMetadataPath).Returns(Path.Combine(isolatedRoot, "metadata"));
+            _applicationPathsMock.Setup(paths => paths.DefaultInternalMetadataPath).Returns(Path.Combine(isolatedRoot, "metadata-default"));
+
+            var manifest = new BackupManifest
+            {
+                ServerVersion = new Version(10, 0, 0),
+                BackupEngineVersion = new Version(0, 2, 0),
+                DateCreated = DateTimeOffset.UtcNow,
+                DatabaseTables = Array.Empty<string>(),
+                Options = new BackupOptions { Database = false, Metadata = false, Subtitles = false, Trickplay = false }
+            };
+
+            using (var archive = ZipFile.Open(archivePath, ZipArchiveMode.Create))
+            {
+                await WriteArchiveEntryAsync(archive, "manifest.json", JsonSerializer.Serialize(manifest));
+                await WriteArchiveEntryAsync(archive, "Config/linked/escape.txt", "must-not-leave-config-root");
+            }
+
+            var service = CreateService();
+            await Assert.ThrowsAsync<IOException>(() => service.RestoreBackupAsync(archivePath));
+
+            Assert.Equal("outside-before-restore", await File.ReadAllTextAsync(outsideFilePath));
+        }
+        finally
+        {
+            if (Directory.Exists(linkPath))
+            {
+                Directory.Delete(linkPath);
+            }
+
             if (Directory.Exists(isolatedRoot))
             {
                 Directory.Delete(isolatedRoot, recursive: true);

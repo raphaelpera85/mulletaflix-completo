@@ -1,4 +1,5 @@
 using System.Linq;
+using MediaBrowser.Model.Configuration;
 using MediaBrowser.Providers.Plugins.Tmdb;
 using Xunit;
 
@@ -40,6 +41,18 @@ namespace MulletaFlix.Providers.Tests.Tmdb
         public static void GetImageLanguagesParam_PrioritizesBrazilianPortugueseAndKeepsFallbacks()
         {
             Assert.Equal("pt-BR,null,en", TmdbUtils.GetImageLanguagesParam("pt-BR", "BR"));
+        }
+
+        [Fact]
+        public static void ServerConfiguration_DefaultsToBrazilianPortugueseWithBrazilianFallbacks()
+        {
+            var configuration = new ServerConfiguration();
+
+            Assert.Equal("pt-BR", configuration.PreferredMetadataLanguage);
+            Assert.Equal("BR", configuration.MetadataCountryCode);
+            Assert.Equal("pt-BR,null,en", TmdbUtils.GetImageLanguagesParam(
+                configuration.PreferredMetadataLanguage,
+                configuration.MetadataCountryCode));
         }
 
         [Fact]

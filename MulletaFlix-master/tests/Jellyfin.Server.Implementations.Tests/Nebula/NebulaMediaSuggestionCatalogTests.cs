@@ -1,4 +1,6 @@
 using System;
+using System.Collections.Generic;
+using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using MediaBrowser.Model.Nebula;
@@ -87,5 +89,53 @@ public sealed class NebulaMediaSuggestionCatalogTests
 
         Assert.Equal("Mounted Series", Assert.Single(catalog.GetItems()).Title);
         Assert.Equal(2, scanCount);
+    }
+
+    [Fact]
+    public async Task PartialIndexIsPublishedWithWarningWhenASubdirectoryIsInaccessible()
+    {
+        var root = Path.Combine("library", "root");
+        var inaccessible = Path.Combine(root, "restricted");
+        var accessible = Path.Combine(root, "accessible");
+
+        IEnumerable<string> EnumerateFiles(string directory)
+        {
+            if (string.Equals(directory, inaccessible, StringComparison.OrdinalIgnoreCase))
+            {
+                throw new UnauthorizedAccessException("simulated inaccessible directory");
+            }
+
+            return string.Equals(directory, accessible, StringComparison.OrdinalIgnoreCase)
+                ? [Path.Combine(accessible, "S01E01.strm")]
+                : Array.Empty<string>();
+        }
+
+        IEnumerable<string> EnumerateDirectories(string directory)
+        {
+            return string.Equals(directory, root, StringComparison.OrdinalIgnoreCase)
+                ? [inaccessible, accessible]
+                : Array.Empty<string>();
+        }
+
+        var enumeration = NebulaStrmDirectoryEnumerator.Enumerate(
+            root,
+            EnumerateFiles,
+            EnumerateDirectories,
+            CancellationToken.None);
+
+        Assert.Equal([Path.Combine(accessible, "S01E01.strm")], enumeration.Files);
+        Assert.Equal(1, enumeration.FailedDirectoryCount);
+
+        await using var catalog = new NebulaMediaSuggestionCatalog(
+            () => [root],
+            (_, _) => new NebulaMediaSuggestionCatalogBuildResult(
+                [new NebulaMediaSuggestionDto { Title = "Accessible Series", MediaType = "Series" }],
+                enumeration.FailedDirectoryCount),
+            NullLogger.Instance);
+
+        _ = catalog.GetItems();
+        Assert.True(SpinWait.SpinUntil(() => catalog.GetStatus().State == "ReadyWithWarnings", TimeSpan.FromSeconds(5)));
+        Assert.Equal(1, catalog.GetStatus().FailedRootCount);
+        Assert.Equal("Accessible Series", Assert.Single(catalog.GetItems()).Title);
     }
 }

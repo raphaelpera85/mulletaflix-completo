@@ -1,5 +1,31 @@
 # Roadmap de evolução tecnológica — servidor e frontend web
 
+## Nebula — recuperação de checkpoint de upload Telegram — 2026-10-21
+
+- [x] Persistir respostas Telegram confirmadas num journal local por UUID, validar partes e metadados da fonte antes da retomada, combinar o journal com progresso Mongo e preservar todas as partes em atualizações incrementais.
+- [x] Remover o journal somente após conclusão Mongo; rejeitar corrupção ou incompatibilidade para evitar reenvio cego.
+- [x] Executar a regressão completa da solução em Release; processo encerrou com exit code 0. Sumários visíveis: Providers 821 aprovados/0 ignorados; Server.Implementations 1.524 aprovados/65 ignorados.
+- [x] Teste de falha/reinício integrado com MongoDB descartável e Bot API simulada confirmou recuperação da parte após falha de checkpoint Mongo (1/1); cenário MTProto continua simulado, sem Telegram real.
+- [ ] O journal identifica a fonte por UUID, tamanho e timestamp, não pelo conteúdo; uma alteração de bytes com tamanho e timestamp preservados pode reutilizar partes antigas. Projetar hash por parte, validação na retomada e compatibilidade dos checkpoints antigos antes de corrigir.
+- [ ] Falha na consulta MTProto é tratada como ausência de correspondência e preserva retry automático; isso pode duplicar se Telegram aceitou a parte mas a busca falhou. Separar “não encontrada” de “consulta inconclusiva” sem desativar retries.
+- Validação executada nesta rodada: journal C# 5/5; suíte `FullyQualifiedName~Nebula` 711 aprovados, 29 ignorados por ambiente opt-in e 0 falhas (740 total); journal Python 7/7 e suíte Python 673/673. Testes Mongo opt-in foram ignorados nesta execução. Sem release, instalação, produção ou transferência real.
+- Contrato local do portal passou 19/19, mas a atualização do GitHub `Mulletaflix-Portal:main` foi recusada pela integração (HTTP 403 `Resource not accessible by integration`); evento desta auditoria permanece não publicado. Cobertura e gates formais não foram alterados.
+
+## Backup — rollback e snapshot consistente entre contextos relacionais — 2026-10-21
+
+- [x] Reproduzir uma escrita concorrente entre exportações de contextos e confirmar que o arquivo misturava estados temporais.
+- [x] Ler o histórico e as tabelas de MulletaFlix, Movies, Series, Channels e Books na mesma conexão/transação `RepeatableRead`.
+- [x] Regressão MariaDB descartável: 6/6; `FullSystemBackup`: 42/42; build Release do servidor: 0 avisos/0 erros.
+- [x] Reproduzir falha em `Series` após commit anterior do contexto central; restaurar os cinco contexts na mesma transação; testar falhas de restore em ActivityLogs/Series/Books, round-trip e preservação das linhas/arquivos.
+- [ ] Estender backup/restore para IntroSkipper/DetectionCache e MongoDB/Supabase; validar filesystem, idempotência, instalação e execução operacional. Cobertura integral e homologação continuam parciais; sem release.
+- Mapa técnico conferido e atualizado. MariaDB operacional em `127.0.0.1:3306` intocado.
+
+- [x] Reproduzir falha em `Series` após commit anterior do contexto central e provar perda de dados com MariaDB isolado.
+- [x] Restaurar contexto central, Movies, Series, Channels e Books na mesma conexão/transação relacional, sem modificar os pools normais do servidor.
+- [x] Cobrir falha no histórico central e falhas em Series e Books (último contexto), preservação de dados nos cinco contextos/arquivos e round-trip em MariaDB 11.4.4 descartável; `BackupRestoreMariaDbTests` 6/6.
+- [x] Regressão `FullSystemBackup` 42/42; build Release do servidor 0 avisos/0 erros.
+- Mapa técnico conferido e atualizado. Produção MariaDB `127.0.0.1:3306` intocada; instância descartável em `127.0.0.1:33099` desligada.
+
 ## Segurança de caminhos de imagem de perfil — 2026-10-19
 
 - [x] Corrigir igualdade de caminhos conforme o sistema operacional; evitar excluir perfil ativo por casing no Windows.
@@ -622,7 +648,7 @@ Limite de evidência atual: `ClaimFileForUploadAsync` realiza claim atômico, ma
 ### Fase 4 — Backups e recuperação de dados (P0)
 
 - [x] **T4.1 — Inventariar dados recuperáveis.** Inventário estático de MongoDB, MariaDB/EF, usuários, configuração/segredos, índices, dados de operação, mídia, STRM e temporários; cobertura observada e lacunas em [inventario-dados-e-recuperacao.md](inventario-dados-e-recuperacao.md). Volumes/contagens reais permanecem sem inspeção e pertencem ao baseline T0.1/T4.5.
-- [ ] **T4.2 — Garantir consistência do backup.** Definir snapshot/backup seguro para cada banco, criptografia, retenção, rotação, verificação de integridade e política de remoção remota.
+- [ ] **T4.2 — Garantir consistência do backup.** Definir snapshot/backup seguro para cada banco, criptografia, retenção, rotação, verificação de integridade e política de remoção remota. Subtarefa local: engine `0.3.0` passou a exportar/restaurar os contextos Movies/Series/Channels/Books, com leitura `0.2.0` preservada; `FullSystemBackup` 42/42 e build Release focado passaram em 21/10/2026. A integração MariaDB compilou, mas o round-trip não foi executado (instância descartável ausente); snapshot coordenado, restore atômico entre contextos, Mongo/Supabase, criptografia e demais controles seguem pendentes. Não considerar T4.2 concluído.
   - [x] Rotação local usa a política segura após promoção do ZIP. Datas futuras, anteriores à época Unix ou desconhecidas não deslocam cópias recentes no limite por contagem; a cópia datada mais recente também permanece protegida quando todas as datas conhecidas vencem por idade. Regressões comprovadas na política e no fluxo real de remoção em diretório temporário (30/09/2026).
   - [x] Resposta HTTP ao gravar histórico `nebula_backups` agora é validada; rejeição/erro faz o ciclo reportar falha em vez de declarar sucesso.
   - [x] Backup geral é montado em `.partial`, reaberto e lido integralmente antes de ser promovido atomicamente; nome final tem sufixo único para evitar colisão e truncamento por timestamp.
@@ -3699,6 +3725,12 @@ Fontes oficiais consultadas em 28/09/2026. Disponibilidade, suporte e requisitos
 - Os oito descartes intencionais de `Task` de `StartPrefetch` em `NebulaPlaybackCacheTests` agora são explícitos. Build Release sob `-warnaserror:CS4014` terminou sem erros, com 390 avisos não relacionados. A execução final de `Jellyfin.Server.Implementations.Tests` teve 1.506 aprovados, 63 ignorados, 0 falhas (1.569 total).
 - Isso altera somente testes. Os outros avisos de build (incluindo XML/analisadores) não foram tratados nesta rodada. Mongo isolado, CI remota, runtime instalado, smoke de produção e release continuam pendentes; homologação fica `in_progress`.
 - Portal: commit `6b8aa07d3cfb046514e41c13e9fcab1e48ab51e0` em `main`; testes 124/124. Vercel Production `READY` (`dpl_AAUv7wxbvGewYfA647phGykEubwz`) e JSON público HTTP 200 em `generatedAt=2026-10-19T14:49:23-03:00` confirmam o evento atualizado. Nenhum gate pendente foi fechado por esta publicação.
+
+### Restore seguro contra reparse points — 2026-10-21
+
+- `BackupService.RestoreBackupCoreAsync` valida contenção e recusa symlinks/junctions existentes em descendentes da raiz de destino antes de criar ou substituir arquivos; raiz configurada é confiável explicitamente.
+- Evidência local Release: `FullSystemBackup` 44/44 e `NebulaUploadCheckpointJournalTests` 5/5 (filtro combinado 49/49); symlink real de teste criado e rejeitado; `git diff --check` sem erros.
+- Pendências: TOCTOU por mutação concorrente privilegiada, recuperação após crash/power loss e fixture positiva MariaDB para restore 0.2.0. Revisão Nebula também identificou falta de fencing de `lease_id` em algumas escritas. Retentativas automáticas Telegram foram mantidas conforme decisão do usuário, com risco residual at-least-once/duplicação quando reconciliação falha. Sem acesso remoto, runtime/produção, release ou homologação formal.
 ### Regressão combinada Nebula — 2026-10-19 18:32 (-03)
 
 - NebulaPython Python 3.10 reexecutado no checkout atual: 646/646 aprovados em 119,00 s com `--cov-branch`; agregado 88% incluindo testes (14.440 statements, 1.285 ausentes; 2.744 branches, 497 parciais). `tools/strm_downloader.py` 77%; `tools/supabase_sync.py` 89%.
@@ -3709,3 +3741,55 @@ Fontes oficiais consultadas em 28/09/2026. Disponibilidade, suporte e requisitos
 - [x] Rejeitar respostas remotas HTTP 200 cujo MIME efetivo não seja `image/*` para imagens principais e fundos; seguir para a próxima candidata em vez de gravar HTML como imagem.
 - [x] Cobrir pôster e backdrop com regressão de rejeição de `text/html` e fallback para imagem válida (`ItemImageProviderRefreshTests`).
 - [ ] Validar com provider/CDN real e runtime instalado, incluindo bytes de imagem corrompidos apesar de MIME `image/*`; homologação de mídia real segue pendente.
+
+### Restore de backup: rollback compensatório do filesystem — 2026-10-21
+
+- [x] Restaurar arquivos por temporário no mesmo volume, preservando o destino anterior até o commit relacional; desfazer substituições em ordem reversa se a cópia ou o banco falhar.
+- [x] Teste isolado reproduz falha no segundo arquivo e confirma que o primeiro permanece igual ao estado anterior. `FullSystemBackup`: 43/43; build Release do servidor: 0 avisos/erros.
+- [ ] Executar regressões MariaDB ampliadas de falha de filesystem e falha SQL. Os 3 casos foram compilados, mas ignorados nesta sessão por falta de conexão descartável; não usar a instância operacional.
+- [ ] Implementar journal durável para recuperação após crash/energia; a transação atual compensa exceções observáveis no processo, não garante recuperação após encerramento abrupto. Homologação global permanece 2/7 (28,6%); sem release ou produção.
+
+### Nebula: preservar identidade de fila em resultado Telegram ambíguo — 2026-10-21
+
+- [x] Corrigir o upsert inicial da fila para persistir o `_id` criado pelo worker. O `$setOnInsert` removia `_id`, Mongo criava outro identificador e as transições de falha/retry não localizavam o registro.
+- [x] Manter reconciliação pelo histórico MTProto antes do retry e retentativas automáticas com a política de backoff já existente. Teste de resposta perdida/reinício: 1/1; `NebulaQueueConcurrencyMongoTests` + `NebulaUploadCheckpointJournalTests`: 25/25 Release, Mongo descartável em `127.0.0.1:27099`.
+- [ ] Homologar permissões/histórico no Telegram real, runtime instalado, retry com o limite operacional atual, CI remota e observabilidade em produção controlada. Se o histórico não puder ser consultado/localizado, retry automático ainda pode gerar duplicata; exactly-once não é garantido.
+- Sem release do servidor ou alteração de produção nesta etapa. Homologação formal permanece aberta; status deve continuar parcial.
+
+### Fencing de lease Mongo para retries de upload — 2026-10-21 17:05 (-03)
+
+- Concluído localmente: tokens de geração `lease_id` propagados do claim até o motor, e exigidos em cada mutação Mongo do ciclo. Mesmo `worker_id` reutilizado não pode gravar com token antigo; cobertura percorre progresso, falha, conclusão, conclusão duplicada, cancelamento, aquisição de posse e liberação para retry.
+- `NebulaStreamEngineTests` 69/69 Release; Mongo `RequiresMongo` direcionado 21 aprovados/1 ignorado (failpoint); novo cenário de reuso do mesmo worker 1/1 contra Mongo 8.3.7 efêmero em `127.0.0.1:27099`. Processo encerrado, porta fechada. Não houve acesso a instância Mongo padrão, Telegram, runtime instalado ou produção.
+- Retry automático segue como decisão do usuário. Fencing não resolve efeito remoto ambíguo: reconciliação não encontrada/inacessível ainda pode resultar em duplicata at-least-once, sem exactly-once.
+- Homologação continua `in_progress`, 2/7 (28,6%); estes testes focais não contam como aceite formal. CI remota, runtime, smoke real, integração Telegram e todos os gates de release continuam pendentes. Nenhuma release do servidor criada.
+- Build `Release` incremental repetido após corrigir os comentários XML: `Jellyfin.Server.Implementations.csproj` terminou com 0 avisos/0 erros; `dotnet format whitespace --verify-no-changes` e `git diff --check` passaram. Revisão independente estática não encontrou transição sem fencing. Contrato do portal passou 217/217; evento publicado em Git `main` no commit `3e1b2ab931bbacb77c94d540963439f690652944`, Vercel `READY`, endpoint público confirmou o evento. O mapa técnico recebeu os novos contratos e fluxo nesta sessão. [[Sessões/2026-10-21-MulletaFlix-nebula-lease-fencing]] [[Decisões/2026-10-21-nebula-telegram-ambiguous-retry]]
+
+### Regressão Mongo para identidade do registro de fila — 2026-10-21 18:57 (-03)
+
+- INTENT: `InsertFileDocIfAbsentAsync` já preserva o `_id` fornecido pelo worker no `$setOnInsert`; a auditoria não encontrou teste direto para o ciclo inserção → deduplicação por `local_path` → atualização com lease; o contrato da fila exige a mesma identidade Mongo até as transições de progresso.
+- Adicionado teste opt-in que verifica o `_id` original após inserir, rejeita uma segunda entrada para o mesmo caminho e usa o ID original para reivindicar a lease e gravar progresso. Nenhuma mudança de runtime, API, módulo, classe ou dependência.
+- Verificação Release do filtro `FullSystemBackup | NebulaStreamEngineTests | InsertFileDocIfAbsentAsync_PreservesCallerObjectIdForWorkerTransitions`: 113 aprovados, 1 ignorado, 0 falhas. O novo teste foi compilado, mas ignorado porque não havia URI Mongo de teste, `mongod`, Docker ou Podman disponíveis; teste Mongo efetivo continua pendente. O filtro não é uma aprovação da suíte integral nem da homologação formal.
+- Homologação formal permanece 2/7 (28,6%); nenhuma instalação, produção ou release do servidor. O mapa técnico foi conferido e permanece estruturalmente igual.
+
+### Teste de falhas na gravação do journal Nebula — 2026-10-21
+
+- Nova regressão Python injeta erros em `fsync` e `os.replace` e verifica preservação do checkpoint anterior e limpeza do temporário.
+- Validação local: módulo 7/7 e suíte NebulaPython completa 673/673 com dependências travadas, em venv isolado. Alteração apenas de teste; não representa aceite operacional. Mongo/Telegram reais, runtime instalado, CI remota, produção e homologação formal permanecem pendentes; formal 2/7 (28,6%). Sem release do servidor.
+- Atualização publicada no portal: Git `main` do `Mulletaflix-Portal`, commit `85f03c96ab2a224ae8b8b21bc745b7c3c84926f4`; endpoint público `homologacao-status.json` HTTP 200 contém o evento, preserva `in_progress`/28,6%. API de deployments Vercel retornou 403; estado interno do deployment não foi consultado.
+
+### Nebula: SHA-256 por parte e geração segura de retomada — 2026-10-21
+
+- [x] Persistir SHA-256 dos bytes exatos enviados em cada parte no journal local e no documento Mongo; incluir o digest na legenda para reconciliação MTProto por UUID + parte + conteúdo.
+- [x] Na retomada, conferir partes confirmadas e intenções pendentes contra os bytes atuais usando leituras limitadas à faixa de cada parte. Checkpoint legado sem digest, incompleto ou divergente inicia nova geração UUID e limpa progresso sob lease vigente, sem misturar partes. Upload novo não lê o arquivo inteiro antecipadamente.
+- [x] Preservar retries automáticos por decisão explícita do usuário. Testes simulam perda de resposta, retoma, conteúdo alterado com mesmo tamanho/mtime, checkpoint legado e divergência no pending; não provam disponibilidade/permissão nem resultado da busca no Telegram real.
+- Evidência local: Python 3.10, suíte completa 681/681; .NET Release `FullyQualifiedName~Nebula`: 716 aprovados, 30 ignorados opt-in, 0 falhas/746 total. O teste Mongo de rotação foi compilado e corretamente ignorado sem URI descartável. `dotnet format whitespace --verify-no-changes`, `py_compile` e `git diff --check` passaram.
+- Ainda sem Mongo/Telegram remotos, runtime instalado, CI remota, produção ou release. Homologação formal permanece 2/7 (28,6%); esta rodada não fecha gate E2E nem autoriza dizer que houve validação operacional.
+- Nenhuma instalação ou produção alterada. Tentativa de publicar o status no portal `Mulletaflix-Portal:main` falhou com HTTP 403 `Resource not accessible by integration`; não foi contornada por outro canal. Portanto, o portal permanece desatualizado. Release do servidor não criada nesta rodada.
+
+### Nebula: mensagens de erro operacionais concisas — 2026-10-21
+
+- [x] Normalizar e limitar a 512 caracteres os erros de status/log Nebula; quando a mensagem externa do driver é extensa, preferir a causa-base. Preservar os detalhes completos em logs estruturados.
+- [x] Cobrir backups/restores MongoDB↔Supabase, operações de usuários, montagem, startup/shutdown, downloader, STRM e manutenção; preservar HTTP status curto e indicar truncamento.
+- `dotnet test ... --filter FullyQualifiedName~Nebula`: 719 aprovados, 30 opt-in ignorados, 0 falhas/749 total. Os testes focados não acessam dependências operacionais.
+- Nenhuma alteração de produção nem promoção de homologação formal (2/7, 28,6%). Portal: tentativa de atualização nesta sessão falhou com HTTP 403 `Resource not accessible by integration`; status remoto não atualizado.
+- A suíte contratual local `portal-site/tests/homologacao.test.mjs` teve 3 falhas de expectativa contra fixture local antigo; não foi usada como evidência do portal remoto.

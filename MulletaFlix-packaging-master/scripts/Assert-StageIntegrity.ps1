@@ -49,6 +49,7 @@ function Assert-StageIntegrity {
         'MulletaFlix-web\serviceworker.js',
         'Tools\mount_drive_n.py',
         'Tools\NebulaPython\main.py',
+        'Tools\NebulaPython\upload_checkpoint.py',
         'Tools\NebulaPython\stream_service.py',
         'Tools\NebulaPython\generate_strm.py',
         'Tools\NebulaPython\tools\strm_downloader.py',
@@ -80,6 +81,14 @@ function Assert-StageIntegrity {
     $stagedDownloaderHash = (Get-FileHash -LiteralPath $stagedDownloader -Algorithm SHA256).Hash
     if ($sourceDownloaderHash -ne $stagedDownloaderHash) {
         throw 'Stage Nebula STRM downloader differs from the current server source.'
+    }
+
+    $sourceCheckpoint = Join-Path $ProjectRoot 'MulletaFlix-master\Tools\NebulaPython\upload_checkpoint.py'
+    $stagedCheckpoint = Join-Path $StageDirectory 'Tools\NebulaPython\upload_checkpoint.py'
+    $sourceCheckpointHash = (Get-FileHash -LiteralPath $sourceCheckpoint -Algorithm SHA256).Hash
+    $stagedCheckpointHash = (Get-FileHash -LiteralPath $stagedCheckpoint -Algorithm SHA256).Hash
+    if ($sourceCheckpointHash -ne $stagedCheckpointHash) {
+        throw 'Stage Nebula checkpoint module differs from the current server source.'
     }
 
     $sourceRequirementsLock = Join-Path $ProjectRoot 'MulletaFlix-master\Tools\NebulaPython\requirements.lock'

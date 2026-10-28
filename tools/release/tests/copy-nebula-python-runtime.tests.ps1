@@ -11,7 +11,7 @@ Describe 'copy-nebula-python-runtime.ps1' {
 
     It 'copies required download worker files without tests and caches' {
         foreach ($relativePath in @(
-            'main.py', 'stream_service.py', 'control_plane.py', 'generate_strm.py', 'requirements.txt', 'requirements.lock',
+            'main.py', 'upload_checkpoint.py', 'stream_service.py', 'control_plane.py', 'generate_strm.py', 'requirements.txt', 'requirements.lock',
             'ftp/__init__.py', 'tools/__init__.py', 'tools/strm_downloader.py', 'tools/mongo_admission.py'
         )) {
             Test-Path -LiteralPath (Join-Path $destinationDirectory $relativePath) -PathType Leaf | Should Be $true

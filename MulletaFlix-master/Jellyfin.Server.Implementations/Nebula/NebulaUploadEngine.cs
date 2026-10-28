@@ -43,6 +43,7 @@ public sealed class NebulaUploadEngine : IAsyncDisposable, IDisposable
     private readonly Func<string, Task>? _logQueueState;
     private readonly Func<IEnumerable<string>>? _getStagingRoots;
     private readonly Func<string, Task>? _onUploadCompleted;
+    private readonly NebulaUploadCheckpointJournal? _uploadCheckpointJournal;
     private readonly CancellationTokenSource _cts = new();
     private readonly object _lifecycleLock = new();
     private TaskCompletionSource _operationsDrained = CompletedOperationsSource();
@@ -78,6 +79,7 @@ public sealed class NebulaUploadEngine : IAsyncDisposable, IDisposable
     /// <param name="logQueueState">Callback de log de estado da fila.</param>
     /// <param name="getStagingRoots">Callback opcional para obter as pastas raiz de staging.</param>
     /// <param name="onUploadCompleted">Callback opcional executado após a persistência do upload concluído.</param>
+    /// <param name="uploadCheckpointDirectory">Diretório persistente para checkpoints locais de partes confirmadas pelo Telegram.</param>
     public NebulaUploadEngine(
         NebulaMongoContext mongoContext,
         NebulaTelegramPool telegramPool,
@@ -90,7 +92,8 @@ public sealed class NebulaUploadEngine : IAsyncDisposable, IDisposable
         Action<string, string>? emitServerLog = null,
         Func<string, Task>? logQueueState = null,
         Func<IEnumerable<string>>? getStagingRoots = null,
-        Func<string, Task>? onUploadCompleted = null)
+        Func<string, Task>? onUploadCompleted = null,
+        string? uploadCheckpointDirectory = null)
     {
         _mongoContext = mongoContext;
         _telegramPool = telegramPool;
@@ -106,6 +109,9 @@ public sealed class NebulaUploadEngine : IAsyncDisposable, IDisposable
         _logQueueState = logQueueState;
         _getStagingRoots = getStagingRoots;
         _onUploadCompleted = onUploadCompleted;
+        _uploadCheckpointJournal = mongoContext is null || string.IsNullOrWhiteSpace(uploadCheckpointDirectory)
+            ? null
+            : new NebulaUploadCheckpointJournal(uploadCheckpointDirectory);
         _concurrencySemaphore = new SemaphoreSlim(NebulaTransferLimits.ResolveUploadConcurrency(uploadConcurrency));
     }
 
@@ -510,10 +516,14 @@ public sealed class NebulaUploadEngine : IAsyncDisposable, IDisposable
     /// Gera a legenda estruturada do Telegram para visualização e reconstrução a partir do canal.
     /// Exemplo: [NEBULA] TIPO: FILME | MIDIA: Gosto Infernal (2025).mkv | PARTE: 80/110 | UUID: 793b8f4e-814d-4a09-9076-8537856292f4 | TAM: 1757.2MB.
     /// </summary>
-    public static string BuildPartCaption(string mediaType, string filename, int partNum, int totalParts, string fileUuid, long totalSize)
+    public static string BuildPartCaption(string mediaType, string filename, int partNum, int totalParts, string fileUuid, long totalSize, string? sourceSha256 = null)
     {
         var sizeMb = totalSize > 0 ? (totalSize / (1024.0 * 1024.0)) : 0.0;
-        return $"[NEBULA] TIPO: {mediaType} | MIDIA: {filename} | PARTE: {partNum + 1}/{totalParts} | UUID: {fileUuid} | TAM: {sizeMb.ToString("F1", System.Globalization.CultureInfo.InvariantCulture)}MB";
+        var digestMarker = NebulaUploadPartIntegrity.IsSha256(sourceSha256) ? $" | SHA256: {sourceSha256!.ToLowerInvariant()}" : string.Empty;
+        var prefix = $"[NEBULA] TIPO: {mediaType} | MIDIA: ";
+        var suffix = $" | PARTE: {partNum + 1}/{totalParts} | UUID: {fileUuid} | TAM: {sizeMb.ToString("F1", System.Globalization.CultureInfo.InvariantCulture)}MB{digestMarker}";
+        var filenameLength = Math.Max(0, 1024 - prefix.Length - suffix.Length);
+        return prefix + filename[..Math.Min(filename.Length, filenameLength)] + suffix;
     }
 
     /// <summary>
@@ -542,7 +552,8 @@ public sealed class NebulaUploadEngine : IAsyncDisposable, IDisposable
             { "tg_chat_id", part.TgChatId },
             { "status", part.Status },
             { "chunk_name", $"{fileUuid}.part_{part.PartNumber:000}" },
-            { "caption", BuildPartCaption(mediaType, targetFileName, part.PartNumber, totalParts, fileUuid, mediaTotalSize) },
+            { "source_sha256", part.SourceSha256 },
+            { "caption", BuildPartCaption(mediaType, targetFileName, part.PartNumber, totalParts, fileUuid, mediaTotalSize, part.SourceSha256) },
             { "uploaded_at", part.UploadedAt }
         };
     }
@@ -570,14 +581,16 @@ public sealed class NebulaUploadEngine : IAsyncDisposable, IDisposable
     /// <param name="parentId">ID da pasta pai.</param>
     /// <param name="workerId">Identificador do worker de envio.</param>
     /// <param name="cancellationToken">Token de cancelamento.</param>
+    /// <param name="uploadLeaseId">Identificador exclusivo da reivindicação atual no MongoDB.</param>
     /// <returns>True se o upload foi concluído com sucesso.</returns>
     public async Task<bool> ProcessFileUploadAsync(
         string localFilePath,
         string targetFileName,
         string? parentId,
         int workerId,
-        CancellationToken cancellationToken = default)
-        => await ProcessFileUploadAsync(localFilePath, targetFileName, parentId, workerId, null, cancellationToken).ConfigureAwait(false);
+        CancellationToken cancellationToken = default,
+        string? uploadLeaseId = null)
+        => await ProcessFileUploadAsync(localFilePath, targetFileName, parentId, workerId, null, cancellationToken, uploadLeaseId).ConfigureAwait(false);
 
     /// <summary>
     /// Processes an upload using an admission lease acquired before the MongoDB staging claim.
@@ -589,7 +602,8 @@ public sealed class NebulaUploadEngine : IAsyncDisposable, IDisposable
         string? parentId,
         int workerId,
         NebulaMongoAdmissionLease? admission,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        string? uploadLeaseId = null)
     {
         if (!TryEnterOperation())
         {
@@ -617,6 +631,7 @@ public sealed class NebulaUploadEngine : IAsyncDisposable, IDisposable
                 targetFileName,
                 parentId,
                 workerId,
+                uploadLeaseId,
                 linkedCancellation.Token).ConfigureAwait(false);
             outcome = succeeded ? "success" : "failure";
             activity?.SetTag("nebula.result", outcome);
@@ -699,6 +714,7 @@ public sealed class NebulaUploadEngine : IAsyncDisposable, IDisposable
     private async Task ReleaseClaimedUploadAsync(
         ObjectId? claimedNodeId,
         string workerKey,
+        string? uploadLeaseId,
         Exception failure,
         string targetFileName)
     {
@@ -716,7 +732,8 @@ public sealed class NebulaUploadEngine : IAsyncDisposable, IDisposable
                 $"Erro inesperado no upload ({failure.GetType().Name}).",
                 NebulaUploadFailureStages.UnexpectedError,
                 CancellationToken.None,
-                workerKey).ConfigureAwait(false);
+                workerKey,
+                uploadLeaseId).ConfigureAwait(false);
         }
         catch (Exception releaseFailure)
         {
@@ -732,6 +749,7 @@ public sealed class NebulaUploadEngine : IAsyncDisposable, IDisposable
         string targetFileName,
         string? parentId,
         int workerId,
+        string? uploadLeaseId,
         CancellationToken cancellationToken)
     {
         if (!File.Exists(localFilePath))
@@ -762,12 +780,14 @@ public sealed class NebulaUploadEngine : IAsyncDisposable, IDisposable
         // pelos ramos explícitos de falha não deixe a mídia presa em `uploading`.
         ObjectId? claimedNodeId = null;
         var workerKey = workerId.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        var currentLeaseId = uploadLeaseId;
 
         await _concurrencySemaphore.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
             var fileInfo = new FileInfo(localFilePath);
             var totalSize = fileInfo.Length;
+            var sourceLastWriteUtcTicks = fileInfo.LastWriteTimeUtc.Ticks;
             var totalParts = (int)Math.Ceiling((double)totalSize / _logicalChunkSizeBytes);
             if (totalParts <= 0)
             {
@@ -818,16 +838,40 @@ public sealed class NebulaUploadEngine : IAsyncDisposable, IDisposable
 
                 if (existingDoc != null && existingDoc.TryGetValue("_id", out var existingId) && existingId.IsObjectId)
                 {
-                    var duplicateCompleted = await _mongoContext!.CompleteDuplicateUploadAsync(
-                        existingId.AsObjectId,
-                        alreadyCompleted,
-                        totalSize,
-                        cancellationToken).ConfigureAwait(false);
+                    var existingIsCompleted = string.Equals(
+                        existingDoc.GetValue("status", string.Empty).AsString,
+                        "completed",
+                        StringComparison.OrdinalIgnoreCase);
+                    var duplicateCompleted = existingIsCompleted;
+                    if (!existingIsCompleted)
+                    {
+                        currentLeaseId ??= Guid.NewGuid().ToString("N");
+                        claimedNodeId = existingId.AsObjectId;
+                        var ownsUpload = await _mongoContext!.TryAcquireUploadOwnershipAsync(
+                            existingId.AsObjectId,
+                            workerKey,
+                            currentLeaseId,
+                            cancellationToken).ConfigureAwait(false);
+                        if (!ownsUpload)
+                        {
+                            claimedNodeId = null;
+                            return false;
+                        }
+
+                        duplicateCompleted = await _mongoContext.CompleteDuplicateUploadAsync(
+                            existingId.AsObjectId,
+                            alreadyCompleted,
+                            totalSize,
+                            cancellationToken,
+                            workerKey,
+                            currentLeaseId).ConfigureAwait(false);
+                    }
+
                     if (!duplicateCompleted)
                     {
-                        if (await _mongoContext.IsUploadCancellationRequestedAsync(existingId.AsObjectId, workerKey, cancellationToken).ConfigureAwait(false))
+                        if (await _mongoContext.IsUploadCancellationRequestedAsync(existingId.AsObjectId, workerKey, cancellationToken, currentLeaseId).ConfigureAwait(false))
                         {
-                            await _mongoContext.MarkUploadCancelledAsync(existingId.AsObjectId, workerKey, cancellationToken).ConfigureAwait(false);
+                            await _mongoContext.MarkUploadCancelledAsync(existingId.AsObjectId, workerKey, cancellationToken, currentLeaseId).ConfigureAwait(false);
                             throw new NebulaUploadCancellationRequestedException();
                         }
 
@@ -858,6 +902,11 @@ public sealed class NebulaUploadEngine : IAsyncDisposable, IDisposable
             }
 
             var existingPartsMap = new Dictionary<int, NebulaFilePart>();
+            var pendingPartNumbers = new HashSet<int>();
+            var pendingPartSha256 = new Dictionary<int, string>();
+            var requiresNewGeneration = false;
+            var hasPersistedParts = false;
+            var persistedPartCount = 0;
             string fileUuid;
             ObjectId nodeId;
 
@@ -870,6 +919,8 @@ public sealed class NebulaUploadEngine : IAsyncDisposable, IDisposable
                 if (string.Equals(status, "completed", StringComparison.OrdinalIgnoreCase) &&
                     IsCompletedUploadForFile(existingDoc, totalSize, totalParts))
                 {
+                    var completedUuid = existingDoc.GetValue("file_uuid", BsonNull.Value);
+                    DeleteUploadCheckpoint(completedUuid.IsString ? completedUuid.AsString : string.Empty, targetFileName);
                     _logger.LogInformation("[NEBULA-UPLOAD] Arquivo '{Name}' já está 100% concluído no Nebula.", targetFileName);
                     if (ShouldDeleteLocalSource(localFilePath))
                     {
@@ -895,12 +946,31 @@ public sealed class NebulaUploadEngine : IAsyncDisposable, IDisposable
                     return true;
                 }
 
+                if (_mongoContext is not null)
+                {
+                    currentLeaseId ??= Guid.NewGuid().ToString("N");
+                    claimedNodeId = nodeId;
+                    var ownsUpload = await _mongoContext
+                        .TryAcquireUploadOwnershipAsync(nodeId, workerKey, currentLeaseId, cancellationToken)
+                        .ConfigureAwait(false);
+                    if (!ownsUpload)
+                    {
+                        _logger.LogInformation(
+                            "[NEBULA-UPLOAD] '{Name}' não possui o lease atual; este ciclo não vai sobrescrever o progresso.",
+                            targetFileName);
+                        claimedNodeId = null;
+                        return false;
+                    }
+                }
+
                 var storedSize = existingDoc.TryGetValue("size", out var storedSizeValue) && storedSizeValue.IsNumeric
                     ? storedSizeValue.ToInt64()
                     : existingDoc.TryGetValue("file_size", out var legacySizeValue) && legacySizeValue.IsNumeric
                         ? legacySizeValue.ToInt64()
                         : -1L;
                 var canResumeExistingParts = storedSize == totalSize;
+                hasPersistedParts = existingDoc.TryGetValue("parts", out var existingPartsBson) && existingPartsBson.IsBsonArray && existingPartsBson.AsBsonArray.Count > 0;
+                persistedPartCount = hasPersistedParts ? existingPartsBson.AsBsonArray.Count : 0;
 
                 if (!canResumeExistingParts)
                 {
@@ -929,12 +999,14 @@ public sealed class NebulaUploadEngine : IAsyncDisposable, IDisposable
                         var botIdx = pDoc.GetValue("bot_index", 0).ToInt32();
                         var pStatus = pDoc.GetValue("status", "completed").AsString;
                         var uploadedAt = pDoc.GetValue("uploaded_at", DateTimeOffset.UtcNow.ToUnixTimeSeconds()).ToInt64();
+                        var sourceSha256Value = pDoc.GetValue("source_sha256", BsonNull.Value);
                         if (IsReusablePart(pNum, pSize, fileId, pStatus, totalSize, totalParts, _logicalChunkSizeBytes))
                         {
                             existingPartsMap[pNum] = new NebulaFilePart
                             {
                                 PartNumber = pNum,
                                 Size = pSize,
+                                SourceSha256 = sourceSha256Value.IsString ? sourceSha256Value.AsString : string.Empty,
                                 BotIndex = botIdx,
                                 TgFileId = fileId,
                                 TgMessageId = msgId,
@@ -963,6 +1035,8 @@ public sealed class NebulaUploadEngine : IAsyncDisposable, IDisposable
 
                 if (_mongoContext != null)
                 {
+                    currentLeaseId ??= Guid.NewGuid().ToString("N");
+                    var leaseNow = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
                     var initialDoc = new BsonDocument
                     {
                         { "_id", nodeId },
@@ -985,7 +1059,10 @@ public sealed class NebulaUploadEngine : IAsyncDisposable, IDisposable
                         // todas as escritas seguintes, pois um documento sem dono
                         // não pertence a ninguém.
                         { "worker_id", workerKey },
-                        { "started_at", DateTimeOffset.UtcNow.ToUnixTimeSeconds() }
+                        { "lease_id", currentLeaseId },
+                        { "lease_until", leaseNow + NebulaMongoContext.UploadLeaseSeconds },
+                        { "heartbeat_at", leaseNow },
+                        { "started_at", leaseNow }
                     };
 
                     var inserted = await _mongoContext.InsertFileDocIfAbsentAsync(initialDoc, cancellationToken).ConfigureAwait(false);
@@ -1001,42 +1078,110 @@ public sealed class NebulaUploadEngine : IAsyncDisposable, IDisposable
             // qualquer saída por exceção precisa liberá-lo explicitamente.
             claimedNodeId = nodeId;
 
-            // Documento preexistente pode ter chegado aqui sem passar por
-            // `ClaimFileForUploadAsync` (retomada de staging, por exemplo). A posse
-            // é adquirida atomicamente: só prossegue se o documento estiver sem
-            // dono ou já for deste worker. Outro worker vivo detém a posse e este
-            // ciclo precisa desistir em vez de sobrescrever as partes dele.
-            if (_mongoContext != null && existingDoc != null)
+            if (_uploadCheckpointJournal != null)
             {
-                var ownsUpload = await _mongoContext
-                    .TryAcquireUploadOwnershipAsync(nodeId, workerKey, cancellationToken)
+                var journalSnapshot = await _uploadCheckpointJournal
+                    .LoadSnapshotAsync(fileUuid, totalSize, sourceLastWriteUtcTicks, totalParts, _logicalChunkSizeBytes, cancellationToken)
                     .ConfigureAwait(false);
-                if (!ownsUpload)
+                requiresNewGeneration |= journalSnapshot.RequiresNewGeneration;
+                foreach (var journalPart in journalSnapshot.Parts)
                 {
-                    _logger.LogInformation(
-                        "[NEBULA-UPLOAD] '{Name}' já pertence a outro worker; este ciclo não vai sobrescrever o progresso dele.",
-                        targetFileName);
-                    claimedNodeId = null;
+                    // Mongo remains authoritative when both checkpoints contain a
+                    // part. The local journal only fills gaps after a known Telegram
+                    // response whose Mongo write did not survive.
+                    existingPartsMap.TryAdd(journalPart.PartNumber, journalPart);
+                }
+
+                pendingPartNumbers.UnionWith(journalSnapshot.PendingPartNumbers);
+                foreach (var pendingHash in journalSnapshot.PendingPartSha256)
+                {
+                    pendingPartSha256[pendingHash.Key] = pendingHash.Value;
+                }
+                pendingPartNumbers.RemoveWhere(existingPartsMap.ContainsKey);
+            }
+
+            if (hasPersistedParts && existingPartsMap.Count != persistedPartCount)
+            {
+                requiresNewGeneration = true;
+            }
+
+            foreach (var part in existingPartsMap.Values)
+            {
+                if (!NebulaUploadPartIntegrity.IsSha256(part.SourceSha256))
+                {
+                    requiresNewGeneration = true;
+                    break;
+                }
+
+                var actualSha256 = await NebulaUploadPartIntegrity.ComputeFilePartSha256Async(
+                    localFilePath, part.PartNumber, totalSize, _logicalChunkSizeBytes, cancellationToken).ConfigureAwait(false);
+                if (!string.Equals(actualSha256, part.SourceSha256, StringComparison.OrdinalIgnoreCase))
+                {
+                    requiresNewGeneration = true;
+                    break;
+                }
+            }
+
+            foreach (var partNumber in pendingPartNumbers)
+            {
+                if (!pendingPartSha256.TryGetValue(partNumber, out var expectedSha256))
+                {
+                    requiresNewGeneration = true;
+                    break;
+                }
+
+                var actualSha256 = await NebulaUploadPartIntegrity.ComputeFilePartSha256Async(
+                    localFilePath, partNumber, totalSize, _logicalChunkSizeBytes, cancellationToken).ConfigureAwait(false);
+                if (!string.Equals(actualSha256, expectedSha256, StringComparison.OrdinalIgnoreCase))
+                {
+                    requiresNewGeneration = true;
+                    break;
+                }
+            }
+
+            if (requiresNewGeneration)
+            {
+                var previousFileUuid = fileUuid;
+                fileUuid = Guid.NewGuid().ToString("D");
+                if (_mongoContext is not null && !await _mongoContext.ResetUploadGenerationAsync(
+                    nodeId, fileUuid, workerKey, currentLeaseId, totalParts, cancellationToken).ConfigureAwait(false))
+                {
+                    _logger.LogWarning("[NEBULA-UPLOAD] Geração do upload de '{Name}' não foi alterada porque este worker perdeu a posse.", targetFileName);
                     return false;
                 }
+
+                _uploadCheckpointJournal?.Delete(previousFileUuid);
+                existingPartsMap.Clear();
+                pendingPartNumbers.Clear();
+                pendingPartSha256.Clear();
+                _logger.LogWarning("[NEBULA-UPLOAD] Checkpoint sem identidade ou com conteúdo divergente; nova geração {FileUuid} criada para '{Name}'. Partes antigas não serão misturadas.", fileUuid, targetFileName);
             }
 
             async Task<bool> FailUploadAsync(string reason, string failureStage)
             {
                 if (_mongoContext != null)
                 {
-                    if (await _mongoContext.IsUploadCancellationRequestedAsync(nodeId, workerKey, cancellationToken).ConfigureAwait(false))
+                    if (await _mongoContext.IsUploadCancellationRequestedAsync(nodeId, workerKey, cancellationToken, currentLeaseId).ConfigureAwait(false))
                     {
-                        await _mongoContext.MarkUploadCancelledAsync(nodeId, workerKey, cancellationToken).ConfigureAwait(false);
+                        await _mongoContext.MarkUploadCancelledAsync(nodeId, workerKey, cancellationToken, currentLeaseId).ConfigureAwait(false);
                         throw new NebulaUploadCancellationRequestedException();
                     }
 
                     try
                     {
-                        var markedFailed = await _mongoContext.MarkUploadFailedAsync(nodeId, reason, failureStage, cancellationToken, workerKey).ConfigureAwait(false);
-                        if (!markedFailed && await StopForCancellationIfRequestedAsync().ConfigureAwait(false))
+                        var markedFailed = await _mongoContext.MarkUploadFailedAsync(nodeId, reason, failureStage, cancellationToken, workerKey, currentLeaseId).ConfigureAwait(false);
+                        if (!markedFailed)
                         {
-                            throw new NebulaUploadCancellationRequestedException();
+                            if (await StopForCancellationIfRequestedAsync().ConfigureAwait(false))
+                            {
+                                throw new NebulaUploadCancellationRequestedException();
+                            }
+
+                            _logger.LogWarning(
+                                "[NEBULA-UPLOAD] MongoDB não confirmou a transição para falha de '{Name}' (ID {NodeId}, worker {Worker}); o item pode continuar em uploading até expirar o lease.",
+                                targetFileName,
+                                nodeId,
+                                workerKey);
                         }
                     }
                     catch (Exception ex)
@@ -1050,14 +1195,56 @@ public sealed class NebulaUploadEngine : IAsyncDisposable, IDisposable
 
             async Task<bool> StopForCancellationIfRequestedAsync()
             {
-                if (!await _mongoContext.IsUploadCancellationRequestedAsync(nodeId, workerKey, cancellationToken).ConfigureAwait(false))
+                if (!await _mongoContext.IsUploadCancellationRequestedAsync(nodeId, workerKey, cancellationToken, currentLeaseId).ConfigureAwait(false))
                 {
                     return false;
                 }
 
-                await _mongoContext.MarkUploadCancelledAsync(nodeId, workerKey, cancellationToken).ConfigureAwait(false);
+                await _mongoContext.MarkUploadCancelledAsync(nodeId, workerKey, cancellationToken, currentLeaseId).ConfigureAwait(false);
                 _logger.LogInformation("[NEBULA-UPLOAD] Upload de '{Name}' cancelado pelo administrador após salvar as partes confirmadas.", targetFileName);
                 return true;
+            }
+
+            async Task<NebulaTelegramPartLookupResult> ReconcilePartAsync(int partNumber, IReadOnlyList<int> candidateBots, string sourceSha256)
+            {
+                if (_telegramPool is null || candidateBots.Count == 0)
+                {
+                    return NebulaTelegramPartLookupResult.Inconclusive;
+                }
+
+                var lookupInconclusive = false;
+                for (var check = 0; check < 4; check++)
+                {
+                    if (check > 0)
+                    {
+                        await Task.Delay(TimeSpan.FromMilliseconds(250 * (1 << (check - 1))), cancellationToken).ConfigureAwait(false);
+                    }
+
+                    foreach (var candidateBot in candidateBots)
+                    {
+                        cancellationToken.ThrowIfCancellationRequested();
+                        var lookup = await _telegramPool.TryFindUploadedPartAsync(
+                            candidateBot,
+                            fileUuid,
+                            partNumber,
+                            totalParts,
+                            cancellationToken,
+                            sourceSha256).ConfigureAwait(false);
+                        if (lookup.Status == NebulaTelegramPartLookupStatus.Found)
+                        {
+                            return lookup;
+                        }
+
+                        if (lookup.Status == NebulaTelegramPartLookupStatus.Inconclusive)
+                        {
+                            lookupInconclusive = true;
+                        }
+                    }
+                }
+
+                return lookupInconclusive
+                    ? NebulaTelegramPartLookupResult.Inconclusive
+                    : NebulaTelegramPartLookupResult.NotFound;
             }
 
             // 2. Extrai partes contíguas a partir da parte 0
@@ -1072,6 +1259,15 @@ public sealed class NebulaUploadEngine : IAsyncDisposable, IDisposable
                 {
                     break;
                 }
+            }
+
+            // Include resumed and journal-recovered parts in the next Mongo write.
+            var currentPartDocs = new BsonArray();
+            long uploadedBytes = 0;
+            foreach (var part in parts)
+            {
+                currentPartDocs.Add(BuildPartDocument(part, mediaType, targetFileName, totalParts, fileUuid, totalSize));
+                uploadedBytes += part.Size;
             }
 
             var resumePart = parts.Count;
@@ -1096,11 +1292,6 @@ public sealed class NebulaUploadEngine : IAsyncDisposable, IDisposable
 
             using (var fileStream = new FileStream(localFilePath, FileMode.Open, FileAccess.Read, FileShare.Read, 64 * 1024, true))
             {
-                // Accumulated resume state: the parts array and byte total grow with each uploaded
-                // part so MongoDB progress updates never have to rebuild the whole document array.
-                var currentPartDocs = new BsonArray();
-                long uploadedBytes = 0;
-
                 for (int partNum = resumePart; partNum < totalParts; partNum++)
                 {
                     cancellationToken.ThrowIfCancellationRequested();
@@ -1141,6 +1332,8 @@ public sealed class NebulaUploadEngine : IAsyncDisposable, IDisposable
                         Array.Resize(ref chunkData, bytesRead);
                     }
 
+                    var sourceSha256 = NebulaUploadPartIntegrity.ComputeSha256(chunkData);
+
                     // Uma mídia pode usar até três bots. Isso permite distribuir
                     // partes entre bots sem deixar um único arquivo ocupar todo o pool.
                     availableBots = (_telegramPool?.GetAvailableBotIndices() ?? Array.Empty<int>())
@@ -1154,14 +1347,58 @@ public sealed class NebulaUploadEngine : IAsyncDisposable, IDisposable
                             NebulaUploadFailureStages.TelegramAvailability).ConfigureAwait(false);
                     }
 
-                    var caption = BuildPartCaption(mediaType, targetFileName, partNum, totalParts, fileUuid, totalSize);
+                    var caption = BuildPartCaption(mediaType, targetFileName, partNum, totalParts, fileUuid, totalSize, sourceSha256);
                     var chunkName = $"{fileUuid}.part_{partNum:000}";
 
                     NebulaTelegramUploadResult? tgMsg = null;
                     var botIndex = -1;
+                    var ambiguousOutcome = false;
                     var sw = System.Diagnostics.Stopwatch.StartNew();
 
-                    for (var botAttempt = 0; botAttempt < availableBots.Count; botAttempt++)
+                    if (pendingPartNumbers.Contains(partNum))
+                    {
+                        if (pendingPartSha256.TryGetValue(partNum, out var expectedPendingSha256) && string.Equals(expectedPendingSha256, sourceSha256, StringComparison.OrdinalIgnoreCase))
+                        {
+                            var pendingLookup = await ReconcilePartAsync(partNum, availableBots, sourceSha256).ConfigureAwait(false);
+                            tgMsg = pendingLookup.UploadResult;
+                            if (pendingLookup.Status == NebulaTelegramPartLookupStatus.Inconclusive)
+                            {
+                                _logger.LogWarning(
+                                    "[NEBULA-UPLOAD] Histórico Telegram indisponível para a parte pendente {Part}; o retry automático aguardará outra consulta antes de enviar.",
+                                    partNum + 1);
+                                return await FailUploadAsync(
+                                    $"Reconciliação inconclusiva da parte pendente {partNum + 1}; retry automático aguardará nova consulta.",
+                                    NebulaUploadFailureStages.TelegramTransfer).ConfigureAwait(false);
+                            }
+                        }
+                    }
+
+                    if (tgMsg is null && _uploadCheckpointJournal is not null)
+                    {
+                        try
+                        {
+                            await _uploadCheckpointJournal.MarkPartPendingAsync(
+                                fileUuid,
+                                totalSize,
+                                sourceLastWriteUtcTicks,
+                                totalParts,
+                                _logicalChunkSizeBytes,
+                                partNum,
+                                sourceSha256,
+                                CancellationToken.None).ConfigureAwait(false);
+                            pendingPartNumbers.Add(partNum);
+                            pendingPartSha256[partNum] = sourceSha256;
+                        }
+                        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidDataException)
+                        {
+                            _logger.LogError(ex, "[NEBULA-UPLOAD] Não foi possível registrar a intenção durável da parte {Part}; envio bloqueado para evitar duplicação cega.", partNum + 1);
+                            return await FailUploadAsync(
+                                $"Não foi possível gravar a intenção local da parte {partNum + 1}.",
+                                NebulaUploadFailureStages.LocalCheckpoint).ConfigureAwait(false);
+                        }
+                    }
+
+                    for (var botAttempt = 0; tgMsg is null && botAttempt < availableBots.Count; botAttempt++)
                     {
                         botIndex = availableBots[(partNum + botAttempt) % availableBots.Count];
                         LogServer("INFO", $"[UPLOAD] W{workerId} parte={partNum + 1} bot=#{botIndex + 1} iniciando");
@@ -1184,6 +1421,31 @@ public sealed class NebulaUploadEngine : IAsyncDisposable, IDisposable
                             break;
                         }
 
+                        if (_telegramPool is not null && _telegramPool.TryTakeAmbiguousUploadBot(caption, out var ambiguousBotIndex))
+                        {
+                            var reconciliationBots = availableBots.Contains(ambiguousBotIndex)
+                                ? availableBots
+                                : availableBots.Append(ambiguousBotIndex).ToArray();
+                            var ambiguousLookup = await ReconcilePartAsync(partNum, reconciliationBots, sourceSha256).ConfigureAwait(false);
+                            tgMsg = ambiguousLookup.UploadResult;
+                            if (tgMsg is not null)
+                            {
+                                break;
+                            }
+
+                            // Telegram may have accepted the document even though the
+                            // response was lost. Release this worker and let the normal
+                            // retry_after queue recheck channel history before sending
+                            // again; do not immediately rotate to another bot and create
+                            // a duplicate in the same attempt.
+                            ambiguousOutcome = true;
+                            _logger.LogWarning(
+                                "[NEBULA-UPLOAD] Resultado ambíguo da parte {Part}; consulta do histórico {LookupStatus}. A retentativa automática consultará novamente antes de reenviar.",
+                                partNum + 1,
+                                ambiguousLookup.Status);
+                            break;
+                        }
+
                         _logger.LogWarning("[NEBULA-UPLOAD] Bot [{Bot}] falhou ao publicar parte {Part}; tentando próximo bot disponível.", botIndex + 1, partNum + 1);
                     }
 
@@ -1194,7 +1456,9 @@ public sealed class NebulaUploadEngine : IAsyncDisposable, IDisposable
                         _logger.LogError("[NEBULA-UPLOAD] Telegram não publicou a parte {Part} de '{Name}'.", partNum + 1, targetFileName);
                         LogServer("ERROR", $"[NEBULA-UPLOAD-ERRO] Telegram não publicou a parte {partNum + 1} de '{targetFileName}'.");
                         return await FailUploadAsync(
-                            $"Telegram não publicou a parte {partNum + 1}.",
+                            ambiguousOutcome
+                                ? $"Resultado ambíguo da parte {partNum + 1}; retentativa automática agendada para reconciliação."
+                                : $"Telegram não publicou a parte {partNum + 1}.",
                             NebulaUploadFailureStages.TelegramTransfer).ConfigureAwait(false);
                     }
 
@@ -1211,6 +1475,7 @@ public sealed class NebulaUploadEngine : IAsyncDisposable, IDisposable
                     {
                         PartNumber = partNum,
                         Size = bytesRead,
+                        SourceSha256 = sourceSha256,
                         BotIndex = botIndex,
                         TgFileId = tgMsg.FileId,
                         TgMessageId = tgMsg.MessageId,
@@ -1218,6 +1483,27 @@ public sealed class NebulaUploadEngine : IAsyncDisposable, IDisposable
                         Status = "completed",
                         UploadedAt = DateTimeOffset.UtcNow.ToUnixTimeSeconds()
                     };
+
+                    if (_uploadCheckpointJournal != null)
+                    {
+                        try
+                        {
+                            // Preserve a Telegram acknowledgement even if the
+                            // operation is cancelled before Mongo accepts it.
+                            await _uploadCheckpointJournal.SavePartAsync(
+                                fileUuid,
+                                totalSize,
+                                sourceLastWriteUtcTicks,
+                                totalParts,
+                                _logicalChunkSizeBytes,
+                                uploadedPart,
+                                CancellationToken.None).ConfigureAwait(false);
+                        }
+                        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidDataException)
+                        {
+                            _logger.LogError(ex, "[NEBULA-UPLOAD] Não foi possível gravar checkpoint local da parte {Part} de '{Name}'; o checkpoint Mongo ainda será tentado.", partNum + 1, targetFileName);
+                        }
+                    }
 
                     parts.Add(uploadedPart);
 
@@ -1230,7 +1516,14 @@ public sealed class NebulaUploadEngine : IAsyncDisposable, IDisposable
 
                     if (_mongoContext != null)
                     {
-                        var ownsUpload = await _mongoContext.UpdateUploadProgressAsync(nodeId, currentPartDocs, uploadedBytes, botIndex, workerKey, cancellationToken).ConfigureAwait(false);
+                        var ownsUpload = await _mongoContext.UpdateUploadProgressAsync(
+                            nodeId,
+                            currentPartDocs,
+                            uploadedBytes,
+                            botIndex,
+                            workerKey,
+                            cancellationToken,
+                            currentLeaseId).ConfigureAwait(false);
                         if (!ownsUpload)
                         {
                             _logger.LogWarning(
@@ -1288,7 +1581,12 @@ public sealed class NebulaUploadEngine : IAsyncDisposable, IDisposable
                     { "tg_file_id", firstPart.TgFileId }
                 };
 
-                var completed = await _mongoContext.CompleteFileUploadAsync(nodeId, finalFields, cancellationToken, workerKey).ConfigureAwait(false);
+                var completed = await _mongoContext.CompleteFileUploadAsync(
+                    nodeId,
+                    finalFields,
+                    cancellationToken,
+                    workerKey,
+                    currentLeaseId).ConfigureAwait(false);
                 if (!completed)
                 {
                     if (await StopForCancellationIfRequestedAsync().ConfigureAwait(false))
@@ -1330,6 +1628,8 @@ public sealed class NebulaUploadEngine : IAsyncDisposable, IDisposable
                 }
             }
 
+            DeleteUploadCheckpoint(fileUuid, targetFileName);
+
             LogServer("INFO", $"[W{workerId}] Concluido: {targetFileName}");
 
             if (_logQueueState != null)
@@ -1367,7 +1667,7 @@ public sealed class NebulaUploadEngine : IAsyncDisposable, IDisposable
             // Sem isto, uma exceção inesperada deixaria o documento em
             // `uploading` até o requeue por obsolescência (1 h), invisível para o
             // painel e para as contagens de falha por etapa.
-            await ReleaseClaimedUploadAsync(claimedNodeId, workerKey, ex, targetFileName).ConfigureAwait(false);
+            await ReleaseClaimedUploadAsync(claimedNodeId, workerKey, currentLeaseId, ex, targetFileName).ConfigureAwait(false);
             throw;
         }
         finally
@@ -1474,6 +1774,23 @@ public sealed class NebulaUploadEngine : IAsyncDisposable, IDisposable
 
     private bool ShouldDeleteLocalSource(string localFilePath)
         => _deleteSourceAfterUpload && !IsMetadataOrSidecar(localFilePath);
+
+    private void DeleteUploadCheckpoint(string fileUuid, string targetFileName)
+    {
+        if (_uploadCheckpointJournal == null || string.IsNullOrWhiteSpace(fileUuid))
+        {
+            return;
+        }
+
+        try
+        {
+            _uploadCheckpointJournal.Delete(fileUuid);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidDataException)
+        {
+            _logger.LogWarning(ex, "[NEBULA-UPLOAD] Não foi possível remover checkpoint local concluído de '{Name}'.", targetFileName);
+        }
+    }
 
     /// <summary>
     /// Limpa recursivamente diretórios pais vazios a partir do diretório do arquivo excluído,

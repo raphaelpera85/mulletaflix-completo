@@ -1331,3 +1331,90 @@ O build de produção atual foi revalidado com maior chunk JS de aproximadamente
 - `build-stage-and-installer.ps1` preparou estágio oficial; `validate-stage.ps1` passou. Cliente web passou `build:check` e `build:production`; instalador Windows x64, ZIP de atualização e tarball Linux x64 gerados. ZIP conferido com 3.353 entradas e DLL/tray/web/Nebula presentes; tar.gz inclui executável Linux, `install.sh` e web. Linux foi cross-published no Windows. `npm install` informou 11 vulnerabilidades; nenhum upgrade automático executado.
 - Release `v12.1.34` foi publicada e confirmada pela REST API, não-draft, tag no commit `1fcc52e9c84a8b32fd7a42f8136abead3d50da84` em `main`. Três assets: ZIP Windows 388.586.763 bytes / `BAD1D73C7385A370C61EFF24C19FD5776C9353ECB6EAA07E67F2FC39F86EDBBC`; instalador Windows 423.402.555 bytes / `D914AAD29F4008DCB90CC54310614BC9E891CDE6935528D412A167F23B2C5EDF`; tarball Linux 137.185.631 bytes / `90E8441FA4968740BE882E97EE18EEC75F68DBB784F6AA8E490A411B2E587AF0`. Portal e testes de instalação/produção ainda não estão confirmados nesta etapa.
 - O mapa técnico foi atualizado para registrar a abstração/provider e composição DI. Não houve validação de bancos externos, execução em Linux nativo, instalação limpa/elevada ou produção.
+## Nebula — regressão de identidade da fila Mongo — 2026-10-21
+
+- `InsertFileDocIfAbsentAsync` já preserva o `_id` que o worker usa depois para fencing e progresso. Foi acrescentado teste opt-in cobrindo inserção, deduplicação por `local_path`, claim da lease e atualização de progresso pelo mesmo `_id`.
+- Execução Release: filtro `FullSystemBackup | NebulaStreamEngineTests | InsertFileDocIfAbsentAsync_PreservesCallerObjectIdForWorkerTransitions` aprovou 113 testes e ignorou 1; 0 falhas. A única ignorada foi a nova integração Mongo, pois não havia endpoint isolado configurado e `mongod`, Docker e Podman não estavam disponíveis. A compilação Release passou, mas o comportamento no Mongo permanece sem execução neste ambiente.
+- Não houve acesso ao Mongo operacional, Telegram, produção, runtime instalado ou CI remota. Não houve mudança de comportamento de servidor e não há base para alterar a contagem global de auditoria nem a homologação formal (2/7, 28,6%).
+- Homologação publicada no Git `main` do portal no commit `85f03c96ab2a224ae8b8b21bc745b7c3c84926f4`; endpoint público HTTP 200 confirmou o evento e `generatedAt` `2026-10-21T18:57:50-03:00`. A API Vercel retornou 403, portanto não se afirma estado interno `READY`.
+
+## Nebula — falhas ao gravar checkpoint atômico — 2026-10-21
+
+- Acrescentada regressão parametrizada para falha em `fsync` e `os.replace`: em ambos os casos o checkpoint válido anterior permanece legível e intacto e o temporário é removido.
+- NebulaPython 3.10 em ambiente virtual isolado, com dependências do `requirements.lock` e `requirements-test.txt`: suíte completa 673/673; módulo de journal/checkpoint 7/7. A primeira coleta no Python global parou antes de executar testes por dependências runtime ausentes; não alterei instalações globais.
+- Nenhum serviço Mongo/MariaDB, Telegram, runtime instalado ou produção foi acessado. Mudança apenas em cobertura de teste; runtime, API, módulos/dependências e semântica de retry não mudaram. Homologação formal segue 2/7 (28,6%), sem crédito parcial; sem release do servidor. O venv temporário ficou pendente de remoção porque a política do shell bloqueou a exclusão recursiva.
+
+## Mensagens de erro operacionais Nebula — 2026-10-21
+
+- `NebulaErrorMessageFormatter` normaliza quebras de linha, limita mensagens de status/log a 512 caracteres e prefere a causa-base quando a mensagem externa do driver é extensa. Aplica-se às mensagens de backup/restore MongoDB→Supabase e de usuários, montagem, inicialização/parada, downloader, geração/limpeza STRM e verificação/provisionamento Supabase. Os caminhos com logger estruturado continuam registrando a exceção integral.
+- O erro informado em 21/10 (MongoDB `localhost:27017` recusando conexão, socket 10061) continua sendo uma indisponibilidade de dependência; esta alteração melhora a apresentação e não inicia, reconfigura nem altera MongoDB.
+- Testes Release `FullyQualifiedName~Nebula`: 719 aprovados, 30 ignorados opt-in, 0 falhas (749 total). Três testes de formatação cobrem causa-base curta, HTTP 503 e normalização/truncamento. Não houve acesso a Mongo/Supabase operacional, Telegram, runtime instalado nem produção.
+- Adicionada uma classe interna no módulo Nebula; sem API pública, dependência externa, endpoint ou mudança de DI. `git diff --check` passou. Homologação formal global continua 2/7 (28,6%), sem crédito por testes unitários.
+- Tentativa de publicar evidência no GitHub `Mulletaflix-Portal:main` retornou HTTP 403 `Resource not accessible by integration`; o portal remoto permanece sem esta atualização. A suíte contratual local `portal-site/tests/homologacao.test.mjs` teve 3 falhas por divergência entre o fixture local e as expectativas atuais de eventos/versionamento; não prova o estado do portal remoto.
+
+## Revalidação da suíte NebulaPython e retries ambíguos — 2026-10-21
+
+- Auditoria do checkout atual confirmou reconciliação MTProto por UUID, número da parte e SHA-256 antes do novo POST para parte pendente; os workers paralelo e small mantêm intenção local antes do envio e checkpoint confirmado antes do progresso Mongo.
+- Reexecução em Python 3.10, venv isolado já existente: `pytest -q -p no:cacheprovider` passou 681/681 em 15,18 s. `git diff --check` passou. Nenhum arquivo de código foi alterado nesta revalidação.
+- Decisão do usuário preservada: tentativas automáticas continuam quando a busca falha/não encontra mensagem. Isso mantém entrega at-least-once: se o histórico MTProto não estiver acessível ou não mostrar a mensagem aceita, duplicação ainda é possível; exactly-once não está garantido.
+- Sem acesso a Telegram/Mongo operacionais, runtime instalado, CI remota ou produção; resultado local não fecha homologação formal (2/7, 28,6%) nem valida release/instalação.
+- Atualização solicitada do portal `Mulletaflix-Portal:main` foi tentada pelo conector GitHub e rejeitada com HTTP 403 `Resource not accessible by integration`; nenhum commit ou evento remoto foi criado.
+
+## MongoDB — cronologia da recusa de conexão — 2026-10-21 20:12 (-03)
+
+- No log fornecido, o heartbeat do driver falhou às `2026-10-21T13:33:54Z` (10:33:54 -03) com `SocketException 10061`, indicando recusa TCP ao endereço local `localhost:27017` naquele instante.
+- Inspeção local somente leitura às 20:11 encontrou serviço Windows `MongoDB` em `Running`/`Automatic`, listener em `127.0.0.1:27017` e processo atual criado às 10:47:14 -03. O Windows registrou shutdown às 10:46:43 e boot às 10:46:56 -03. Assim, o processo atual surgiu após o erro e após o reboot; isso não determina quando/por que Mongo ficou indisponível antes do reboot.
+- Consulta aos eventos de falha/início/parada do SCM para MongoDB no intervalo disponível não retornou eventos correspondentes. Não foi feita autenticação nem consulta a dados Mongo, Supabase ou backup; não foi iniciada/parada/reconfigurada qualquer serviço.
+- Diagnóstico: a exceção apresentada é compatível com dependência MongoDB local sem listener no momento da conexão, e não demonstra falha de query/schema. O serviço está acessível agora por TCP, mas a causa histórica e a recuperação do cursor/backup permanecem sem confirmação. Nenhum defeito de código foi provado nem alterado.
+- Sem teste funcional de backup, credenciais, produção ou dados; homologação formal continua 2/7 (28,6%) e contagem global de auditoria não muda. Nenhum release criado.
+- Mapa técnico conferido contra os módulos de backup/Nebula atuais; sem alteração de API, módulo, dependência ou fluxo de dados nesta investigação.
+- Tentativa de atualizar o evento existente no `Mulletaflix-Portal:main` recebeu HTTP 403 `Resource not accessible by integration`; releitura confirmou que `generatedAt` continua em `2026-10-21T19:08:58-03:00` e nenhum commit/evento novo foi publicado.
+
+## MongoDB — crescimento de log e warnings de socket — 2026-10-21 20:15 (-03)
+
+- Leitura local somente leitura mediu `C:\Program Files\MongoDB\Server\8.3\log\mongod.log` em 27.638.041.652 bytes (~27,6 GB); o serviço MongoDB continuava em execução e o volume C: tinha ~110,7 GB livres na medição anterior desta sessão.
+- As últimas 10.000 linhas abrangiam 10,9 minutos e continham 675 warnings, todos `NETWORK / Failed to check socket connectivity`, com `SocketException 9001: Couldn't peek from underlying socket`. Amostra inspecionada sem registrar endereços/clientes. Isso confirma alto volume recente desse warning, mas não identifica qual cliente o provoca nem comprova relação causal com a recusa TCP 10061 anterior.
+- A configuração observada grava em arquivo e usa append; não foi encontrado `logRotate` nas linhas consultadas. A documentação oficial do MongoDB diz que o padrão renomeia o log quando o comando `logRotate` é emitido; a rotação não é automaticamente disparada por tamanho. Fonte: [MongoDB 8.3 — Rotate Log Files](https://www.mongodb.com/docs/v8.3/tutorial/rotate-log-files/).
+- Não foi alterado o serviço/configuração, nem foi truncado, rotacionado ou removido qualquer log. Próximos passos: identificar cliente/fluxo responsável pelos sockets e definir retenção/rotação suportada pelo provisionamento oficial; verificar instalador Windows autoritativo antes de implementar. Causa do log crescente e motivo do incidente anterior permanecem hipóteses/pendências separadas.
+- Nenhum teste funcional ou consulta de dados foi executado; sem release. Homologação formal continua 2/7 (28,6%). Mapa técnico conferido, sem alteração estrutural. Tentativa de publicar atualização no portal segue bloqueada por HTTP 403 do conector GitHub; não há publicação confirmada.
+
+## Nebula — estado de reconciliação Telegram e retry — 2026-10-21
+
+- Corrigido o colapso entre busca MTProto falha/incompleta e busca concluída sem correspondência. C# retorna estado explícito `Found`/`NotFound`/`Inconclusive`; consultas sem access hash, exceção, resposta ausente ou resultado que atinge o limite 50 são inconclusivas. A engine C# não envia uma parte pendente enquanto o histórico estiver inconclusivo e agenda retry Mongo com backoff.
+- Python agora usa os mesmos três estados. Erro, API de busca ausente, iteração incompleta e busca no limite 50 não são interpretados como ausência. Uma consulta inconclusiva gera falha retryable, não repete o POST naquela tentativa; o stage scanner re-enfileira e preserva o staging mesmo com partes anteriores. Busca concluída sem resultado conserva a política de retry automático solicitada.
+- Testes: `Tools/NebulaPython/tests/test_main_upload_part.py` 21/21; suíte NebulaPython completa 684/684 em venv Python 3.14, com `NEBULA_STREAM_SERVICE=1`; filtro .NET `FullyQualifiedName~Nebula` Release 721 aprovados, 30 ignorados opt-in, 0 falhas; teste C# de estados de lookup 2/2. O primeiro build .NET falhou ao detectar um lambda de teste preexistente no seam tipado; atualizado para estados explícitos e a compilação/regressão subsequente passou.
+- Sem `MULLETAFLIX_TEST_MONGODB_CONNECTION_STRING`: 30 casos opt-in ignorados. Nenhum acesso ao Mongo operacional, Telegram, instalação ou produção; a regressão validou fluxo local/fake, não busca real. O worker Python legado `upload_worker` aparece apenas em testes, sem chamada encontrada no manager; a correção cobre os caminhos ativos `upload_worker_parallel` e `upload_small_file_worker`.
+- `git diff --check` e formatting ainda pendentes nesta entrada. Sem release; formal global continua 2/7 (28,6%). Mapa técnico consultado e atualizado por contrato/estado de retorno no módulo Nebula existente; sem nova dependência ou endpoint. Atualização do portal será tentada pelo conector autorizado e reportada separadamente.
+
+## Auditoria continuada: fencing de upload, pacotes e restauração atômica — 2026-10-21
+
+- Python: achada corrida onde o reset do checkpoint usava somente `_id/status`; um worker atrasado podia limpar partes do worker que já tinha reivindicado novamente o arquivo. Os três workers agora criam `upload_claim_id` ao reivindicar; todas as gravações de checkpoint, progresso, falha e conclusão exigem `_id + worker_id + upload_claim_id + status uploading` e param quando a claim mudou. O staging não é removido se a conclusão não persistir.
+- Linux: o pacote incluía `main.py`, que importa `upload_checkpoint`, mas o script de cópia omitia esse módulo. O módulo agora é requisito e arquivo copiado; teste verifica existência e igualdade de conteúdo.
+- Windows: integridade do stage verificava apenas presença do checkpoint; agora compara SHA-256 fonte/stage. A regressão falha para módulo desatualizado.
+- Backup do servidor: restore 0.3.0 em construtor sem factories compartilhadas fazia commits sequenciais dos bancos de domínio. Agora recusa esse caminho antes de abrir o contexto, mantendo configuração/arquivos e bancos sem alteração; restauração antiga 0.2.0 permanece compatível.
+- Verificações: NebulaPython completo 685/685; upload workers focais 15/15; integridade de stage Windows passou; pacote Nebula Linux passou; regressão de restore não atômico passou; `Jellyfin.Server.Implementations.Tests` 1.537 aprovados, 70 ignorados opt-in, 0 falhas. `git diff --check` passou. Sem Telegram real, banco produtivo, instalação, CI remota ou produção.
+- Sem release; verificações locais não concluem homologação formal (2/7, 28,6%). O estado segue `in_progress` até integrar e completar evidência operacional/homologação formal.
+- Portal `main` atualizado em `267e03689ae76e11c19e035a69b24c8961acc2fc`; Vercel marcou o deployment de produção como `READY` e o endpoint público retornou HTTP 200 com 383 eventos e homologação formal inalterada em 2/7 (28,6%).
+
+## TMDb — padrão de idioma de artes pt-BR — 2026-10-22
+
+- A causa identificada no padrão de instalação era `ServerConfiguration` iniciar com idioma `en` e país `US`; o TMDb respeitava essa preferência, portanto capas inglesas eram esperadas mesmo no servidor localizado em português.
+- Novas configurações agora iniciam em `pt-BR`/`BR`; `include_image_language` continua incluindo `null` e `en` como alternativas. A ordenação já prioriza correspondência exata ao idioma preferido e foi coberta explicitamente para pt-BR acima de inglês, independentemente da pontuação.
+- Testes Windows/.NET 10: `TmdbUtilsTests` 19/19 e `EnumerableExtensionsTests` 7/7. Sem chamada TMDb ao vivo, instalação ou inspeção da configuração persistida em produção. Configurações existentes não são migradas automaticamente e títulos com artes já baixadas exigem atualizar preferência e solicitar atualização de imagens/metadados.
+- Mapa técnico conferido em 2026-10-22; alterações ficaram nos defaults de configuração e seleção/contratos existentes, sem novo módulo, API, dependência ou topologia. Sem release/instalação; homologação formal permanece 1/7 (14,3%).
+- Portal `main` commit `c330891`; contratos Node 244/244, JSON válido, `node --check` e `git diff --check` passaram. Deployment Vercel `READY`; endpoint público HTTP 200 confirmou evento `server-tmdb-default-brazilian-image-language-2026-10-22-1809` e gate formal 1/7.
+
+## Nebula — validação fail-closed do hash no checkpoint C# — 2026-10-22
+
+- `NebulaUploadCheckpointJournal.LoadSnapshotCoreAsync` valida itens de `PendingPartSha256` antes de montar o dicionário: rejeita elemento nulo, `PartNumber` duplicado/fora da faixa e SHA-256 inválido com `InvalidDataException`, preservando a política de interromper checkpoint corrompido em vez de retransmitir às cegas.
+- `NebulaUploadCheckpointJournalTests` passou 9/9 em Windows/.NET 10, incluindo entradas duplicadas e nulas. Primeiro build focal apontou SA1117 no teste; formatação foi corrigida e a execução final recompilada/testada passou 9/9. `git diff --check` passou.
+- Nenhuma API, dependência, módulo ou topologia mudou; fluxo interno de leitura do journal mudou. Mapa técnico conferido; estrutura permanece igual. Telegram/Mongo reais, Linux, runtime instalado, CI remota, produção e suíte ampla permanecem pendentes. Homologação formal continua 1/7 (14,3%); sem release.
+- Portal `main` commit `ba9600e`; contrato local 244/244; endpoint público com cache-buster respondeu HTTP 200 e confirmou o evento `server-nebula-checkpoint-hash-validation-2026-10-22-1758` e homologação 1/7.
+
+## Nebula — duplicatas rejeitadas no journal C# — 2026-10-22
+
+- `NebulaUploadCheckpointJournal.LoadSnapshotCoreAsync` agora falha com `InvalidDataException` para números duplicados em `Parts` e `PendingPartNumbers`; não sobrescreve nem deduplica registros estruturais inválidos. Testes confirmam que o checkpoint original permanece intacto.
+- `NebulaUploadCheckpointJournalTests`: 11/11; filtro `FullyQualifiedName~NebulaUpload` no assembly de Implementations: 257/257, 0 ignorados/falhas, Windows/.NET 10. `git diff --check` passou. Revisão adversarial independente não encontrou problema.
+- Twin check: busca por `uniqueParts[...]`, criação do dicionário antes da validação e conversão direta de `PendingPartSha256` encontrou somente `existing.Parts.ToDictionary(...)` no mesmo journal; seu input é o snapshot produzido após validação de unicidade. Não há outro ponto com sobrescrita silenciosa confirmado.
+- Runbook distingue agora corrupção estrutural (preservada; `InvalidDataException`, retry/backoff sem envio até reparo/terminal) de checkpoint antigo/incompleto ou fonte alterada (rotação de UUID). Sem API, dependência, módulo ou topologia nova; mapa técnico conferido, estrutura igual.
+- Telegram/Mongo reais, Linux, CI remota, runtime instalado e produção pendentes. Homologação formal continua 1/7 (14,3%), sem crédito pelos testes locais; sem release. Portal `main` recebeu evento de status; commit e confirmação pública registrados após publicação.

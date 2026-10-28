@@ -17,7 +17,7 @@ public sealed class NebulaMediaSuggestionIndexStatusDto
     /// <summary>Gets or sets the number of configured roots scanned.</summary>
     public int RootCount { get; set; }
 
-    /// <summary>Gets or sets the number of roots that could not be read in the last scan.</summary>
+    /// <summary>Gets or sets the number of roots that were unreadable or partially indexed in the last scan.</summary>
     public int FailedRootCount { get; set; }
 
     /// <summary>Gets or sets the UTC time of the last successful scan.</summary>

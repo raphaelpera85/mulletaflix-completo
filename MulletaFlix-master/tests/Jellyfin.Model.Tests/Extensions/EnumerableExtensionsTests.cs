@@ -43,6 +43,21 @@ public class EnumerableExtensionsTests
     }
 
     [Fact]
+    public void OrderByLanguageDescending_BrazilianPortugueseBeforeEnglishFallback()
+    {
+        var images = new[]
+        {
+            new RemoteImageInfo { Language = "en", CommunityRating = 10.0, VoteCount = 1000 },
+            new RemoteImageInfo { Language = "pt-BR", CommunityRating = 1.0, VoteCount = 1 },
+        };
+
+        var result = images.OrderByLanguageDescending("pt-BR").ToList();
+
+        Assert.Equal("pt-BR", result[0].Language);
+        Assert.Equal("en", result[1].Language);
+    }
+
+    [Fact]
     public void OrderByLanguageDescending_SameLanguageSortedByRatingThenVoteCount()
     {
         var images = new[]

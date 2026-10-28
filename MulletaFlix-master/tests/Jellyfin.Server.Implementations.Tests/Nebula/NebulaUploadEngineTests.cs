@@ -24,6 +24,31 @@ namespace MulletaFlix.Server.Implementations.Tests.Nebula;
 
 public class NebulaUploadEngineTests
 {
+    [Theory]
+    [InlineData(NebulaTelegramPartLookupStatus.NotFound)]
+    [InlineData(NebulaTelegramPartLookupStatus.Inconclusive)]
+    public async Task TelegramPool_PreservesLookupCertaintyForAutomaticRetries(NebulaTelegramPartLookupStatus status)
+    {
+        using var httpClient = new HttpClient();
+        var expected = status == NebulaTelegramPartLookupStatus.NotFound
+            ? NebulaTelegramPartLookupResult.NotFound
+            : NebulaTelegramPartLookupResult.Inconclusive;
+        using var pool = new NebulaTelegramPool(
+            0,
+            string.Empty,
+            Array.Empty<string>(),
+            -100,
+            Path.GetTempPath(),
+            NullLogger<NebulaTelegramPool>.Instance,
+            httpClient,
+            (_, _, _, _, _) => Task.FromResult(expected));
+
+        var actual = await pool.TryFindUploadedPartAsync(0, "uuid", 0, 1);
+
+        Assert.Same(expected, actual);
+        Assert.Equal(status, actual.Status);
+    }
+
     [Fact]
     public void NebulaFileSystemEntry_TimestampsRemainStableAcrossReads()
     {
@@ -407,6 +432,16 @@ public class NebulaUploadEngineTests
             totalSize: totalSize);
 
         Assert.Equal("[NEBULA] TIPO: FILME | MIDIA: Gosto Infernal (2025).mkv | PARTE: 80/110 | UUID: 793b8f4e-814d-4a09-9076-8537856292f4 | TAM: 1757.2MB", caption);
+    }
+
+    [Fact]
+    public void UploadEngine_BuildPartCaption_IncludesContentIdentityForReconciliation()
+    {
+        const string sourceSha256 = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+
+        var caption = NebulaUploadEngine.BuildPartCaption("SERIE", "Episode.mkv", 0, 1, "file-id", 4, sourceSha256);
+
+        Assert.EndsWith($"SHA256: {sourceSha256}", caption, StringComparison.Ordinal);
     }
 
     [Theory]
