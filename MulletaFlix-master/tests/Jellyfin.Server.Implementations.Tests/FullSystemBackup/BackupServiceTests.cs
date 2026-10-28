@@ -2416,6 +2416,55 @@ public sealed class BackupServiceTests : IDisposable
         }
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task GetBackupManifest_RejectsDuplicateOrCaseAliasedManifestEntries(bool useCaseAlias)
+    {
+        var isolatedRoot = Path.Combine(Path.GetTempPath(), $"mulletaflix-duplicate-manifest-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(isolatedRoot);
+        var archivePath = Path.Combine(isolatedRoot, "duplicate-manifest.zip");
+
+        try
+        {
+            var manifest = new BackupManifest
+            {
+                ServerVersion = new Version(10, 0, 0),
+                BackupEngineVersion = new Version(0, 2, 0),
+                DateCreated = DateTimeOffset.UtcNow,
+                DatabaseTables = Array.Empty<string>(),
+                Options = new BackupOptions
+                {
+                    Database = false,
+                    Metadata = false,
+                    Subtitles = false,
+                    Trickplay = false
+                }
+            };
+            using (var archive = ZipFile.Open(archivePath, ZipArchiveMode.Create))
+            {
+                await WriteArchiveEntryAsync(archive, "manifest.json", JsonSerializer.Serialize(manifest));
+                await WriteArchiveEntryAsync(
+                    archive,
+                    useCaseAlias && OperatingSystem.IsWindows() ? "Manifest.json" : "manifest.json",
+                    JsonSerializer.Serialize(manifest));
+            }
+
+            _applicationPathsMock.Setup(paths => paths.BackupPath).Returns(isolatedRoot);
+            var service = CreateService();
+
+            Assert.Null(await service.GetBackupManifest(archivePath));
+            Assert.Empty(await service.EnumerateBackups());
+        }
+        finally
+        {
+            if (Directory.Exists(isolatedRoot))
+            {
+                Directory.Delete(isolatedRoot, recursive: true);
+            }
+        }
+    }
+
     private static async Task WriteArchiveEntryAsync(ZipArchive archive, string entryName, string content)
     {
         var entry = archive.CreateEntry(entryName);

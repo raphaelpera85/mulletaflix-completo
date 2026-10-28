@@ -506,7 +506,7 @@ public class BackupService : IBackupService, IDisposable
             StorageHelper.TestCommonPathsForStorageCapacityReadOnly(_applicationPaths, _logger);
             fileStream.Position = 0;
             using var zipArchive = new ZipArchive(fileStream, ZipArchiveMode.Read, false);
-            var zipArchiveEntry = zipArchive.GetEntry(ManifestEntryName);
+            var zipArchiveEntry = GetUniqueManifestEntry(zipArchive);
 
             if (zipArchiveEntry is null)
             {
@@ -2583,7 +2583,7 @@ public class BackupService : IBackupService, IDisposable
         ValidateArchiveEntryCount(archiveStream, MaxBackupArchiveEntries, MaxBackupCentralDirectoryBytes);
         archiveStream.Position = 0;
         using var zipStream = new ZipArchive(archiveStream, ZipArchiveMode.Read);
-        var manifestEntry = zipStream.GetEntry(ManifestEntryName);
+        var manifestEntry = GetUniqueManifestEntry(zipStream);
         if (manifestEntry is null)
         {
             return null;
@@ -2597,6 +2597,23 @@ public class BackupService : IBackupService, IDisposable
 
         await using var manifestStream = await manifestEntry.OpenAsync().ConfigureAwait(false);
         return await DeserializeManifestAsync(manifestStream).ConfigureAwait(false);
+    }
+
+    private static ZipArchiveEntry? GetUniqueManifestEntry(ZipArchive archive)
+    {
+        var manifestEntry = archive.GetEntry(ManifestEntryName);
+        if (manifestEntry is null)
+        {
+            return null;
+        }
+
+        var pathComparer = OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
+        if (archive.Entries.Count(entry => string.Equals(entry.FullName, ManifestEntryName, pathComparer)) != 1)
+        {
+            throw new InvalidDataException($"Backup archive contains duplicate '{ManifestEntryName}' entries.");
+        }
+
+        return manifestEntry;
     }
 
     private static async ValueTask<BackupManifest?> DeserializeManifestAsync(Stream manifestStream)
