@@ -626,3 +626,9 @@ Para evitar falso ganho, cada sprint deve fechar com medicao antes/depois.
 - O backup Supabase de usuários MulletaFlix reutiliza `SendSupabaseBatchWithRetryAsync` para até três tentativas idempotentes (merge por `normalized_username`); a falha de migração `PGRST205` mantém mensagem específica.
 - `NebulaDirectoryRefreshQueue` reprograma em memória o diretório que falhou após 30 segundos; refreshes seguintes continuam sendo atendidos. Testes determinísticos cobrem HTTP 500→sucesso e refresh temporariamente falho→sucesso.
 - Mudança de fluxo nas classes existentes, sem novo módulo, API pública ou dependência. Retry da fila não é persistente após reinício; o scan recuperatório segue limitado a 30 minutos. Focal Windows/.NET 10 Debug: 7/7 aprovados; GitHub CI/PR, serviços reais e produção pendentes. Formal 2/7, sem release.
+
+### 28/10/2026 — Fila durável para refresh VFS do Nebula
+
+- Corrigida retentativa anterior que era só em memória e não sobrevivia a reinícios; além disso, o callback de rclone engolia exceções. Refreshes agora ficam registrados na coleção `nebula_directory_refreshes`, são reidratados no scan periódico e removidos após confirmação do rclone. Falta de readiness/HTTP/resultado rclone não é mais sucesso silencioso.
+- Teste de normalização rejeita raiz invisível e traversal; teste `NebulaDirectoryRefreshMongoTests` valida upsert idempotente, sobrevivência entre instâncias e remoção após refresh confirmado, mas requer Mongo opt-in.
+- Suíte Release Windows/.NET 10 `FullyQualifiedName~Nebula`: 716 aprovados, 26 ignorados, 0 falhas/742. Mongo descartável, CI hospedada, runtime e produção não foram validados. Estrutura: nova coleção Mongo operacional; sem endpoint ou pacote novo. Formal 2/7, sem release.

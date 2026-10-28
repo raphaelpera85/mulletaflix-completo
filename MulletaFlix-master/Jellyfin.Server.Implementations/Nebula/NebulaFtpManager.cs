@@ -389,7 +389,7 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable, IAsyncDis
             BuildMediaSuggestionsCatalog,
             _logger);
         _directoryRefreshQueue = new NebulaDirectoryRefreshQueue(
-            RefreshRcloneDirectoryAsync,
+            RefreshRcloneDirectoryAndAcknowledgeAsync,
             _loggerFactory.CreateLogger<NebulaDirectoryRefreshQueue>());
         _mountRetry = new NebulaMountRetry(
             async token =>
@@ -1762,7 +1762,7 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable, IAsyncDis
                     emitServerLog: EmitServerLog,
                     logQueueState: logQueueState,
                     getStagingRoots: () => (config.StagePaths ?? Array.Empty<string>()).Where(p => !string.IsNullOrWhiteSpace(p)),
-                    onUploadCompleted: filePath =>
+                    onUploadCompleted: async filePath =>
                     {
                         var refreshPath = NebulaUploadEngine.BuildDirectoryRefreshPath(
                             filePath,
@@ -1770,10 +1770,8 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable, IAsyncDis
                             config.StagePaths ?? Array.Empty<string>());
                         if (refreshPath != null)
                         {
-                            _directoryRefreshQueue.Enqueue(refreshPath);
+                            await QueueDirectoryRefreshAsync(refreshPath, CancellationToken.None).ConfigureAwait(false);
                         }
-
-                        return Task.CompletedTask;
                     });
             }
             else
@@ -3308,6 +3306,12 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable, IAsyncDis
             return;
         }
 
+        var pendingDirectories = await mongo.GetPendingDirectoryRefreshesAsync(cancellationToken).ConfigureAwait(false);
+        foreach (var directory in pendingDirectories)
+        {
+            _directoryRefreshQueue.Enqueue(directory);
+        }
+
         var completedSince = NebulaCompletedMediaRefresh.GetCompletedSince(DateTimeOffset.UtcNow);
         var completedFiles = await mongo.GetRecentlyCompletedFilesAsync(completedSince, cancellationToken).ConfigureAwait(false);
         var mediaFiles = completedFiles
@@ -3323,13 +3327,37 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable, IAsyncDis
         var directories = NebulaCompletedMediaRefresh.GetVirtualDirectories(mediaFiles, directoryPathMap);
         foreach (var directory in directories)
         {
-            _directoryRefreshQueue.Enqueue(directory);
+            await QueueDirectoryRefreshAsync(directory, cancellationToken).ConfigureAwait(false);
         }
 
         _logger.LogInformation(
             "[NEBULA-MOUNT] Refresh periódico do disco N: enfileirado para {DirectoryCount} diretórios com {MediaCount} mídias concluídas na janela de recuperação de 30 minutos.",
             directories.Count,
             mediaFiles.Count);
+    }
+
+    private async Task QueueDirectoryRefreshAsync(string directory, CancellationToken cancellationToken)
+    {
+        var mongo = _mongoContext;
+        if (mongo is not null)
+        {
+            using var persistenceTimeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            persistenceTimeout.CancelAfter(TimeSpan.FromSeconds(5));
+            try
+            {
+                await mongo.PersistDirectoryRefreshAsync(directory, persistenceTimeout.Token).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "[NEBULA-MOUNT] Não foi possível persistir a atualização pendente para {Directory}; o refresh atual continuará em memória.", directory);
+            }
+        }
+
+        _directoryRefreshQueue.Enqueue(directory);
     }
 
     private async Task RunCleanupCycleAsync(List<string> sources, CancellationToken cancellationToken)
@@ -6392,6 +6420,16 @@ idle_timeout = 15s
         }
     }
 
+    private async Task RefreshRcloneDirectoryAndAcknowledgeAsync(string directory, CancellationToken cancellationToken)
+    {
+        await RefreshRcloneDirectoryAsync(directory, cancellationToken).ConfigureAwait(false);
+        var mongo = _mongoContext;
+        if (mongo is not null)
+        {
+            await mongo.CompleteDirectoryRefreshAsync(directory, cancellationToken).ConfigureAwait(false);
+        }
+    }
+
     private async Task RefreshRcloneDirectoryAsync(string directory, CancellationToken cancellationToken)
     {
         var port = Volatile.Read(ref _rcloneRcPort);
@@ -6400,55 +6438,43 @@ idle_timeout = 15s
         if (port <= 0 || string.IsNullOrWhiteSpace(username) || string.IsNullOrWhiteSpace(password)
             || _rcloneProcess == null || _rcloneProcess.HasExited)
         {
-            return;
+            throw new InvalidOperationException("rclone ainda não está pronto para atualizar o cache da mídia.");
         }
 
-        try
+        var refreshError = await SendRcloneVfsRefreshAsync(
+            port,
+            username,
+            password,
+            directory,
+            cancellationToken).ConfigureAwait(false);
+        if (refreshError is not null)
         {
-            var refreshError = await SendRcloneVfsRefreshAsync(
-                port,
-                username,
-                password,
-                directory,
-                cancellationToken).ConfigureAwait(false);
-            if (refreshError is not null)
+            var ancestors = NebulaCompletedMediaRefresh.GetRefreshAncestors(directory);
+            if (ancestors.Count == 0)
             {
-                var ancestors = NebulaCompletedMediaRefresh.GetRefreshAncestors(directory);
-                if (ancestors.Count == 0)
-                {
-                    throw new InvalidOperationException($"rclone recusou o refresh da pasta virtual {directory}: {refreshError}");
-                }
-
-                _logger.LogWarning(
-                    "[NEBULA-MOUNT] O diretório {Directory} não existe no cache VFS ({RefreshError}); atualizando seus ancestrais para descobrir novas pastas.",
-                    directory,
-                    refreshError);
-                foreach (var ancestor in ancestors)
-                {
-                    var fallbackError = await SendRcloneVfsRefreshAsync(
-                        port,
-                        username,
-                        password,
-                        ancestor,
-                        cancellationToken).ConfigureAwait(false);
-                    if (fallbackError is not null)
-                    {
-                        throw new InvalidOperationException($"rclone recusou o refresh do diretório ancestral {ancestor}: {fallbackError}");
-                    }
-                }
+                throw new InvalidOperationException($"rclone recusou o refresh da pasta virtual {directory}: {refreshError}");
             }
 
-            _logger.LogDebug("[NEBULA-MOUNT] Cache da pasta virtual atualizado: {Directory}", directory);
+            _logger.LogWarning(
+                "[NEBULA-MOUNT] O diretório {Directory} não existe no cache VFS ({RefreshError}); atualizando seus ancestrais para descobrir novas pastas.",
+                directory,
+                refreshError);
+            foreach (var ancestor in ancestors)
+            {
+                var fallbackError = await SendRcloneVfsRefreshAsync(
+                    port,
+                    username,
+                    password,
+                    ancestor,
+                    cancellationToken).ConfigureAwait(false);
+                if (fallbackError is not null)
+                {
+                    throw new InvalidOperationException($"rclone recusou o refresh do diretório ancestral {ancestor}: {fallbackError}");
+                }
+            }
         }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-        {
-            throw;
-        }
-        catch (Exception ex)
-        {
-            // MongoDB já confirmou o upload. Uma falha de cache nunca reverte nem falha a mídia.
-            _logger.LogWarning(ex, "[NEBULA-MOUNT] Refresh da pasta virtual falhou após upload concluído: {Directory}", directory);
-        }
+
+        _logger.LogDebug("[NEBULA-MOUNT] Cache da pasta virtual atualizado: {Directory}", directory);
     }
 
     private static async Task<string?> SendRcloneVfsRefreshAsync(
