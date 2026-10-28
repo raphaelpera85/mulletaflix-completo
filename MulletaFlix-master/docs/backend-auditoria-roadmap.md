@@ -286,3 +286,8 @@ Para evitar autoengano, cada sprint deve terminar com medição antes/depois.
 - A retomada de uploads grava SHA-256 por parte e só reutiliza uma parte persistida se os bytes locais no mesmo intervalo corresponderem. Partes antigas sem hash são reenviadas. `NebulaDownloaderStartupTests` passou 35/35 e `NebulaUploadEngineTests` 225/225 em Windows/.NET 10 Release.
 - Limites: testes locais não validam Telegram/Mongo reais, pacote instalado, Linux ou produção. A candidata não tem assets reconstruídos; CI hospedada do PR #1 está bloqueada por cobrança e a homologação formal continua 2/7 (28,6%).
 - A correção entra no candidato 12.1.46 ainda não publicado. Os hashes anteriores dos pacotes foram invalidados; reconstruir após desbloqueio do CI. CI bloqueada por cobrança GitHub; homologação formal permanece 2/7.
+
+## Auditoria de migrações e schema de imagem — 2026-10-28
+- Seleção de IDs de migrações ausentes corrigida em `JellyfinMigrationService`; testes focais 5/5.
+- A migração MySQL `AddImageProviderLanguage` alinha colunas de idioma/provedor de imagem ao modelo; teste `CheckForUnappliedMigrations_MySql` 1/1.
+- Testes executados localmente em Windows/.NET 10 Release. CI hospedada permanece bloqueada por cobrança; sem validação de banco em produção e homologação formal 2/7. Ver [[Sessões/2026-10-28-MulletaFlix-update-center-prerelease-1601]].
