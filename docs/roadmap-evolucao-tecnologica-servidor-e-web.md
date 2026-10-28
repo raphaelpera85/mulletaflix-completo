@@ -3797,3 +3797,10 @@ Fontes oficiais consultadas em 28/09/2026. Disponibilidade, suporte e requisitos
 ### 28/10/2026 — Estado público da candidata 12.1.46
 
 A API pública confirma `v12.1.45` como última GitHub Release e retorna 404 para `v12.1.46`. PR #1 segue aberto para `main`, na branch `codex/fail-closed-inplace-updater`; uma branch não aciona o cliente de atualização. A publicação depende de tag `v*` e de Release com os pacotes anexados. O workflow permanece bloqueado antes dos runners por cobrança da conta GitHub (run 40745673770). Testes locais de restore, startup, API, telemetria e integração IntroSkipper passaram; a homologação formal permanece 2/7. Não publicar até liberar o CI, reconstruir/validar pacotes e completar os gates pendentes.
+
+### Estado do candidato após merge — 2026-10-28 15:52 (-03)
+
+- Merge das correções de backup/restauração e refresh persistente Nebula enviado ao head `00aa7074` do PR #1; PR continua aberto para `main`.
+- Testes locais de backup, recuperação de inicialização, API, telemetria, IntroSkipper e refresh Nebula passaram; 20 casos foram ignorados por requisitos de plataforma/Mongo opt-in. CI do novo head, runtime Linux nativo, pacotes e instalação continuam pendentes.
+- A última GitHub Release segue 12.1.45 e não há tag/Release 12.1.46. O portal foi sincronizado em `main` no commit `37b40c8`; Vercel Production reportou `READY` e o JSON público respondeu HTTP 200.
+- Homologação formal permanece 2/7 (28,6%); esta atualização documental não fecha gate nem autoriza publicação da versão.
