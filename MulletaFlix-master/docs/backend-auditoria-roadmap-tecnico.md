@@ -4,7 +4,7 @@
 
 - A limpeza periódica removia os workers do registro antes de aguardar somente os callbacks de cancelamento. Um novo `Enqueue` podia iniciar outra leva enquanto as tasks anteriores ainda encerravam; `DisposeAsync` também podia deixar de observar esses workers.
 - O fluxo agora conserva os runners registrados até o `finally` de cada worker e aguarda cancelamento mais conclusão da task interna na limpeza e no descarte explícito. Teste focal `CleanupWaitsForWorkerTaskAfterCancellationCallbacksComplete` cobre um worker bloqueado após observar cancelamento.
-- Sem classe pública, API, dependência, módulo ou novo fluxo externo. `LimitedConcurrencyLibrarySchedulerTests` passou 10/10 e `Jellyfin.Controller.Tests` 73/73 em Release; Windows e Linux x64 foram empacotados para 12.1.40. Publicação Git e do portal ainda pendentes. Produção não foi alterada.
+- Sem classe pública, API, dependência, módulo ou novo fluxo externo. `LimitedConcurrencyLibrarySchedulerTests` passou 10/10 e `Jellyfin.Controller.Tests` 73/73 em Release; Windows e Linux x64 foram empacotados e publicados na release [v12.1.40](https://github.com/raphaelpera85/mulletaflix-completo/releases/tag/v12.1.40), commit de código `ab03abb7`. A homologação do portal foi atualizada; aceite formal permanece 2/7 (28,6%). Produção não foi alterada.
 - Mapa técnico conferido: `LimitedConcurrencyLibraryScheduler` e seus callers permanecem no módulo Controller; o fluxo interno de limpeza/Dispose agora aguarda a saída real dos workers. Nenhuma mudança de topologia ou dependência.
 
 ## Intro Skipper — reanálise de STRM alterado e parâmetro EF — 2026-10-18
