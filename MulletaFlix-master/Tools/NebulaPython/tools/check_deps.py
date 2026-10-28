@@ -57,7 +57,6 @@ RUNTIME_REQUIRED: tuple[tuple[str, str], ...] = (
     ("socks", "pysocks"),
     ("pyftpdlib", "pyftpdlib"),
     ("PIL", "Pillow"),
-    ("pystray", "pystray"),
 )
 
 

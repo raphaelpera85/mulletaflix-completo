@@ -101,6 +101,10 @@ def test_tgcrypto_runtime_import_uses_pyrofork_binary_wheel_distribution():
     assert requirements["tgcrypto-pyrofork"] == ">=1.2.8,<1.3"
 
 
+def test_headless_nebula_does_not_require_unused_system_tray_runtime():
+    assert ("pystray", "pystray") not in check_deps.RUNTIME_REQUIRED
+
+
 def test_cryptography_runtime_requirement_excludes_known_vulnerable_versions():
     requirements = check_deps._read_pinned_specs(
         str(check_deps.os.path.join(check_deps.os.path.dirname(__file__), "..", "requirements.txt"))
