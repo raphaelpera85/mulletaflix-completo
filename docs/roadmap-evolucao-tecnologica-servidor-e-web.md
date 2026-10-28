@@ -6,6 +6,13 @@
 - Release v12.1.40 continua publicada; esta auditoria não gera release nem crédito formal. Homologação formal permanece 2/7 (28,6%). Portal recebe evento de auditoria separadamente da evidência de release. Mapa técnico conferido; módulos, APIs, dependências e fluxos permanecem iguais.
 # Roadmap de evolução tecnológica — servidor e frontend web
 
+### 27/10/2026 21:55 -03 — GetAvatar exclui profile image por diretório fixado
+
+- `AvatarService` usava `File.Delete` após validar o caminho e podia remover um arquivo aninhado sob a pasta de configuração. Troca de avatar, remoção e limpeza de órfãos agora passam por um helper que exige arquivo direto da pasta esperada e usa `AvatarFileStore` para abrir/excluir relativamente a um handle sem seguir reparse points.
+- Testes Windows/.NET 10 Release: foco GetAvatar + store 40 aprovados, 3 testes Linux ignorados, 0 falhas; `Jellyfin.Api.Tests` 765 aprovados, 3 Linux-only ignorados, 0 falhas. O teste Windows de troca do nome em curso verifica que o arquivo substituto sobrevive. `dotnet format whitespace --verify-no-changes` e `git diff --check` passaram.
+- ACL read-only da pasta `config/users` usada pelo servidor local: escrita concedida ao usuário do processo, SYSTEM/Admins e uma capability AppContainer não identificada; o grupo de sandbox nomeado tem só leitura/execução. Não se presume que a capability desconhecida seja confiável. Nenhuma exploração ou alteração de ACL foi realizada.
+- Release v12.1.41 preparada; execução Linux CI ainda pendente. Homologação formal continua 2/7 (28,6%), sem crédito, e produção não foi alterada. Mapa técnico conferido; nenhum módulo, API, classe pública ou dependência mudou.
+
 ### 27/10/2026 18:31 -03 — Auditoria de restore e falha TLS do Nebula
 
 - Em Windows/.NET 10 Release, `FullyQualifiedName~FullSystemBackup` passou: 142 aprovados, 16 ignorados por requisitos de Linux/macOS, 0 falhas. Isso não valida ACL/syscalls Linux.

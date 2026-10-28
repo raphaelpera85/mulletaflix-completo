@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.ComponentModel;
 using System.IO;
 using System.Linq;
 using System.Threading;
@@ -585,25 +586,42 @@ namespace MulletaFlix.Plugin.GetAvatar.Services
             }
 
             if (!string.IsNullOrWhiteSpace(previousProfilePath)
-                && !FileSystemHelper.PathsEqual(previousProfilePath, profileImagePath)
-                && FileSystemHelper.IsPathWithinRoot(previousProfilePath, userDataPath))
+                && !FileSystemHelper.PathsEqual(previousProfilePath, profileImagePath))
             {
-                TryDeleteObsoleteProfileImage(previousProfilePath, userId);
+                TryDeleteObsoleteProfileImage(previousProfilePath, userDataPath, userId);
             }
 
             _logger.LogInformation("Successfully set avatar {AvatarId} for user {UserName} ({UserId})", avatarId, user.Username, userId);
         }
 
-        private void TryDeleteObsoleteProfileImage(string path, Guid userId)
+        private void TryDeleteObsoleteProfileImage(string path, string userDataPath, Guid userId)
         {
             try
             {
-                File.Delete(path);
+                var result = TryDeleteProfileImageFile(path, userDataPath);
+                if (result == AvatarFileDeleteResult.Unsafe)
+                {
+                    _logger.LogWarning("Retaining unsafe obsolete profile image for user {UserId}", userId);
+                }
             }
-            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or Win32Exception or PlatformNotSupportedException)
             {
                 _logger.LogWarning(exception, "Failed to remove obsolete profile image file for user {UserId}", userId);
             }
+        }
+
+        private static AvatarFileDeleteResult TryDeleteProfileImageFile(string path, string userDataPath)
+        {
+            var fullRoot = Path.GetFullPath(userDataPath);
+            var fullPath = Path.GetFullPath(path);
+            if (!FileSystemHelper.IsPathWithinRoot(fullPath, fullRoot)
+                || !FileSystemHelper.PathsEqual(Path.GetDirectoryName(fullPath) ?? string.Empty, fullRoot))
+            {
+                return AvatarFileDeleteResult.Unsafe;
+            }
+
+            using var fileStore = new AvatarFileStore(fullRoot);
+            return fileStore.TryDelete(Path.GetFileName(fullPath));
         }
 
         private void SaveUserAvatarMapping(Plugin plugin, Guid userId, string avatarId)
@@ -936,9 +954,16 @@ namespace MulletaFlix.Plugin.GetAvatar.Services
 
                             try
                             {
-                                File.Delete(file);
-                                deletedCount++;
-                                _logger.LogDebug("Deleted orphaned profile image: {File}", file);
+                                var result = TryDeleteProfileImageFile(file, userDataPath);
+                                if (result == AvatarFileDeleteResult.Deleted)
+                                {
+                                    deletedCount++;
+                                    _logger.LogDebug("Deleted orphaned profile image: {File}", file);
+                                }
+                                else if (result == AvatarFileDeleteResult.Unsafe)
+                                {
+                                    _logger.LogWarning("Skipping unsafe orphaned profile image: {File}", file);
+                                }
                             }
                             catch (Exception ex)
                             {
@@ -1100,28 +1125,28 @@ namespace MulletaFlix.Plugin.GetAvatar.Services
                     user.ProfileImage = null;
                     await _userManager.UpdateUserAsync(user).ConfigureAwait(false);
 
-                    if (!string.IsNullOrEmpty(oldProfileImagePath) && File.Exists(oldProfileImagePath))
+                    if (!string.IsNullOrEmpty(oldProfileImagePath))
                     {
                         var userDataPath = Path.Combine(
                             _serverConfigurationManager.ApplicationPaths.UserConfigurationDirectoryPath,
                             user.Username);
-                        if (!FileSystemHelper.IsPathWithinRoot(oldProfileImagePath, userDataPath))
+                        try
                         {
-                            _logger.LogWarning(
-                                "Retaining profile image outside the user's configuration directory for user {UserId}",
-                                userId);
-                        }
-                        else
-                        {
-                            try
+                            var result = TryDeleteProfileImageFile(oldProfileImagePath, userDataPath);
+                            if (result == AvatarFileDeleteResult.Deleted)
                             {
-                                File.Delete(oldProfileImagePath);
                                 _logger.LogInformation("Deleted profile image for user {UserId}", userId);
                             }
-                            catch (Exception ex)
+                            else if (result == AvatarFileDeleteResult.Unsafe)
                             {
-                                _logger.LogWarning(ex, "Could not delete profile image file for user {UserId}", userId);
+                                _logger.LogWarning(
+                                    "Retaining profile image outside or unsafe for the user's configuration directory for user {UserId}",
+                                    userId);
                             }
+                        }
+                        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or Win32Exception or PlatformNotSupportedException)
+                        {
+                            _logger.LogWarning(ex, "Could not delete profile image file for user {UserId}", userId);
                         }
                     }
 

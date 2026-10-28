@@ -5,7 +5,7 @@ using Microsoft.Win32.SafeHandles;
 namespace MulletaFlix.Plugin.GetAvatar.Services;
 
 /// <summary>
-/// Performs avatar catalog file operations relative to an opened directory handle.
+/// Performs avatar and profile image file operations relative to an opened directory handle.
 /// </summary>
 public sealed class AvatarFileStore : IDisposable
 {
@@ -69,7 +69,7 @@ public sealed class AvatarFileStore : IDisposable
     /// <summary>
     /// Initializes a new instance of the <see cref="AvatarFileStore"/> class.
     /// </summary>
-    /// <param name="rootDirectory">The trusted avatar catalog directory.</param>
+    /// <param name="rootDirectory">The trusted avatar or profile image directory.</param>
     public AvatarFileStore(string rootDirectory)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(rootDirectory);
@@ -91,9 +91,9 @@ public sealed class AvatarFileStore : IDisposable
     }
 
     /// <summary>
-    /// Opens a regular avatar file relative to the pinned catalog directory.
+    /// Opens a regular avatar file relative to the pinned directory.
     /// </summary>
-    /// <param name="fileName">A single catalog file name.</param>
+    /// <param name="fileName">A single file name.</param>
     /// <returns>The opened stream, or <see langword="null"/> when the entry is missing or unsafe.</returns>
     public FileStream? TryOpenRead(string fileName)
     {
@@ -126,7 +126,7 @@ public sealed class AvatarFileStore : IDisposable
     /// <summary>
     /// Creates a new regular file without following links or overwriting an existing entry.
     /// </summary>
-    /// <param name="fileName">A single catalog file name.</param>
+    /// <param name="fileName">A single file name.</param>
     /// <returns>The opened stream.</returns>
     public FileStream CreateNew(string fileName)
     {
@@ -146,9 +146,9 @@ public sealed class AvatarFileStore : IDisposable
     }
 
     /// <summary>
-    /// Deletes the catalog entry relative to the pinned directory without following links.
+    /// Deletes a file relative to the pinned directory without following links.
     /// </summary>
-    /// <param name="fileName">A single catalog file name.</param>
+    /// <param name="fileName">A single file name.</param>
     /// <param name="beforeDelete">An optional persistence action invoked after validation and before deletion.</param>
     /// <returns>The result of the delete attempt.</returns>
     public AvatarFileDeleteResult TryDelete(string fileName, Action? beforeDelete = null)
@@ -354,7 +354,7 @@ public sealed class AvatarFileStore : IDisposable
             || (info.FileAttributes & FileAttributeReparsePoint) != 0)
         {
             handle.Dispose();
-            throw new IOException("GetAvatar catalog root must be a real directory, not a reparse point.");
+            throw new IOException("GetAvatar file root must be a real directory, not a reparse point.");
         }
 
         return handle;
@@ -419,7 +419,7 @@ public sealed class AvatarFileStore : IDisposable
             || (statx.Mode & (LinuxGroupWrite | LinuxOtherWrite)) != 0)
         {
             handle.Dispose();
-            throw new IOException("GetAvatar catalog root must be a real directory owned by the server user and not writable by other users.");
+            throw new IOException("GetAvatar file root must be a real directory owned by the server user and not writable by other users.");
         }
 
         return handle;
@@ -486,7 +486,7 @@ public sealed class AvatarFileStore : IDisposable
             || statx.UserId != LinuxGetEffectiveUserId()
             || (statx.Mode & (LinuxGroupWrite | LinuxOtherWrite)) != 0)
         {
-            throw new IOException("GetAvatar catalog root ownership or permissions changed; refusing Linux file operation.");
+            throw new IOException("GetAvatar file root ownership or permissions changed; refusing Linux file operation.");
         }
     }
 

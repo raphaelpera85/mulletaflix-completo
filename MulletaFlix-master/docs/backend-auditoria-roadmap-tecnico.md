@@ -1,5 +1,11 @@
 # Auditoria Tecnica do Backend MulletaFlix
 
+## Exclusão segura de imagens de perfil GetAvatar — 2026-10-27
+
+- `AvatarService` apagava imagens por caminho após uma checagem textual, e permitia caminhos aninhados. A substituição de avatar, remoção e limpeza de órfãos agora usam `AvatarFileStore` para validar um arquivo direto no diretório e excluí-lo relativamente ao handle aberto; paths externos/nested e links são mantidos.
+- Testes Windows/.NET 10 Release: `AvatarControllerUserAvatarAuthorizationTests` + `AvatarFileStoreTests` 40/40 aprovados com 3 casos Linux ignorados; `Jellyfin.Api.Tests` 765 aprovados, 3 ignorados e 0 falhas. Teste de troca concorrente do nome validado no Windows; o cenário Linux aguarda CI de release.
+- Release `v12.1.41` preparada com essa correção. ACL observada na instalação local contém uma ACE de capability AppContainer não identificada com escrita total; não é evidência de exploração, mas mantém a validação de ACL aberta. Formal 2/7, sem crédito; produção não foi alterada.
+
 ## Scheduler de biblioteca aguarda workers durante limpeza — 2026-10-27
 
 - A limpeza periódica removia os workers do registro antes de aguardar somente os callbacks de cancelamento. Um novo `Enqueue` podia iniciar outra leva enquanto as tasks anteriores ainda encerravam; `DisposeAsync` também podia deixar de observar esses workers.
