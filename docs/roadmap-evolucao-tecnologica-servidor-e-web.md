@@ -3812,3 +3812,11 @@ A API pública confirma `v12.1.45` como última GitHub Release e retorna 404 par
 - Auditoria encontrou que `UpdateInfoController.TryParseGitHubRelease` aceitava pré-lançamentos com tag numérica e ativo ZIP. O parser agora ignora payloads `prerelease=true`; regressão `UpdateInfoControllerTests` passou 7/7 em Release, incluindo candidata numérica superior à estável.
 - GitHub Actions run 40749414922 não iniciou os jobs por bloqueio de cobrança da conta. CI não executou testes. Homologação formal permanece 2/7 (28,6%); tag/release segue bloqueada até CI, pacotes reconstruídos e validação dos gates pendentes.
 - Mapa técnico conferido: mesma classe `UpdateInfoController` e endpoint/fluxo; apenas o modelo interno de desserialização agora lê `prerelease` para filtrar releases. Sem novo módulo, endpoint ou dependência.
+
+### 28/10/2026 — Corrigir advisory do driver MariaDB (T6.4 parcial)
+
+- `MySqlConnector 2.4.0` era resolvido transitivamente por Pomelo 9.0.0. A faixa oficial de GHSA-473q-m89c-ghf8 é `<2.6.1`; 2.6.1 é a primeira versão corrigida. Adicionada referência direta com versão central 2.6.1 no projeto `Jellyfin.Database.Implementations`, mantendo Pomelo e MariaDB.
+- O nome `MySqlConnector` identifica o driver .NET; não foi instalado nem adotado MySQL como banco. A configuração operacional MariaDB não foi alterada.
+- Evidência local: `dotnet restore MulletaFlix.sln` passou; a auditoria `dotnet list MulletaFlix.sln package --vulnerable --include-transitive --no-restore --verbosity quiet` não reportou pacotes vulneráveis; o grafo do projeto de banco confirma MySqlConnector 2.6.1 e Pomelo 9.0.0. `MySqlDatabaseProviderTests` Release passou 7/7.
+- A regressão completa Release foi iniciada e interrompida depois de não produzir progresso no assembly Providers; não há contagem agregada nem alegação de suíte completa aprovada. Revisão Cavecrew independente: sem achados; não executou integração MariaDB.
+- Ainda não foram executados teste contra MariaDB descartável, Linux, runtime instalado, CI hospedada ou produção. Não criar release: a homologação geral continua 2/7 (28,6%) e T6.4 permanece parcial.
