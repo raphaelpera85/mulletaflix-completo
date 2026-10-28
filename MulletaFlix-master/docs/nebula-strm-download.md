@@ -1,5 +1,13 @@
 # Nebula STRM Downloader
 
+## Rechecagem de startup e envio — 2026-10-28 15:13 BRT
+
+- O novo log de produção ainda usa o watchdog de 45 s. O processo Python abre FTP `127.0.0.1:2121` e HTTP `127.0.0.1:2123` às 14:49:51; às 14:50:19–20 restaura uploads e inicia partes de quatro mídias; às 14:50:25 o host informa timeout de 45 s. O helper de montagem relata depois conexão recusada em `127.0.0.1:2121`.
+- Isso confirma que o worker chega a iniciar tarefas de envio, mas o supervisor encerra o startup como falha antes de declarar o serviço pronto. O caminho de tratamento da fonte solicita parar o worker ao falhar a prontidão; a sequência é compatível com a porta FTP ficar indisponível depois, embora o log não registre diretamente a chamada de parada nem conclusão de qualquer parte.
+- Consulta somente leitura em 2026-10-28: `/System/Info/Public` respondeu HTTP 200 com versão 12.1.45; `/health` em 2123 recusou conexão e não havia listener local em 2121/2123. Nenhum serviço foi reiniciado ou alterado.
+- A candidata local 12.1.46 usa timeout de prontidão de 120 s e inclui a última falha da sonda na mensagem de timeout. `NebulaDownloaderStartupTests` Release passou 35/35 nesta rechecagem; isso valida o teste/fonte, não o pacote instalado nem transferência Telegram real.
+- Pendente: empacotar/publicar após os gates vigentes, instalar em janela controlada, confirmar `/health` do PID correto, FTP 2121 e uma transferência completa. Homologação formal permanece 2/7 (28,6%).
+
 ## Rechecagem de falha TLS do provedor — 2026-10-27 18:19 BRT
 
 - O log anexado registra 95 falhas de download, todas com `TLSV1_UNRECOGNIZED_NAME`; o scan iniciou e encontrou títulos, mas não concluiu esses downloads.
