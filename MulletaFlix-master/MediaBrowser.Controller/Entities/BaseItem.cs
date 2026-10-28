@@ -13,11 +13,6 @@ using System.Text;
 using System.Text.Json.Serialization;
 using System.Threading;
 using System.Threading.Tasks;
-using MulletaFlix.Data;
-using MulletaFlix.Data.Enums;
-using MulletaFlix.Database.Implementations.Entities;
-using MulletaFlix.Database.Implementations.Enums;
-using MulletaFlix.Extensions;
 using MediaBrowser.Common.Extensions;
 using MediaBrowser.Controller.Channels;
 using MediaBrowser.Controller.Chapters;
@@ -36,6 +31,11 @@ using MediaBrowser.Model.Library;
 using MediaBrowser.Model.LiveTv;
 using MediaBrowser.Model.MediaInfo;
 using Microsoft.Extensions.Logging;
+using MulletaFlix.Data;
+using MulletaFlix.Data.Enums;
+using MulletaFlix.Database.Implementations.Entities;
+using MulletaFlix.Database.Implementations.Enums;
+using MulletaFlix.Extensions;
 
 namespace MediaBrowser.Controller.Entities
 {
@@ -2138,6 +2138,8 @@ namespace MediaBrowser.Controller.Entities
                 existingImage.Width = image.Width;
                 existingImage.Height = image.Height;
                 existingImage.BlurHash = image.BlurHash;
+                existingImage.ProviderName = image.ProviderName;
+                existingImage.Language = image.Language;
             }
         }
 
@@ -2160,6 +2162,8 @@ namespace MediaBrowser.Controller.Entities
 
                 image.Path = file.FullName;
                 image.DateModified = imageInfo.DateModified;
+                image.ProviderName = null;
+                image.Language = null;
 
                 // reset these values
                 image.Width = 0;
@@ -2183,17 +2187,20 @@ namespace MediaBrowser.Controller.Entities
                 return;
             }
 
-            // Remove from file system
-            var path = info.Path;
-            if (info.IsLocalFile && !string.IsNullOrWhiteSpace(path))
-            {
-                FileSystem.DeleteFile(path);
-            }
-
-            // Remove from item
+            var originalImages = ImageInfos;
             RemoveImage(info);
 
-            await UpdateToRepositoryAsync(ItemUpdateType.ImageUpdate, CancellationToken.None).ConfigureAwait(false);
+            try
+            {
+                await UpdateToRepositoryAsync(ItemUpdateType.ImageUpdate, CancellationToken.None).ConfigureAwait(false);
+            }
+            catch
+            {
+                ImageInfos = originalImages;
+                throw;
+            }
+
+            // Image paths may be shared; detach this item's reference without deleting another item's file.
         }
 
         public void RemoveImage(ItemImageInfo image)

@@ -1,6 +1,7 @@
-﻿using System;
+using System;
 using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
+using System.Text.Json.Serialization;
 
 namespace MulletaFlix.Database.Implementations.Entities
 {
@@ -31,6 +32,7 @@ namespace MulletaFlix.Database.Implementations.Entities
         /// <summary>
         /// Gets the user id.
         /// </summary>
+        [JsonInclude]
         public Guid? UserId { get; private set; }
 
         /// <summary>

@@ -47,6 +47,16 @@ public class BaseItemImageInfo
 #pragma warning restore CA1819
 
     /// <summary>
+    /// Gets or Sets the remote provider that supplied this image, when known.
+    /// </summary>
+    public string? ProviderName { get; set; }
+
+    /// <summary>
+    /// Gets or Sets the language of the remote image, when known.
+    /// </summary>
+    public string? Language { get; set; }
+
+    /// <summary>
     /// Gets or Sets the reference id to the BaseItem.
     /// </summary>
     public required Guid ItemId { get; set; }

@@ -99,6 +99,11 @@ public class MulletaFlixDbContext : DbContext
     public DbSet<User> Users => Set<User>();
 
     /// <summary>
+    /// Gets the playback reports written by the user-reporting context.
+    /// </summary>
+    public DbSet<PlaybackReport> PlaybackReports => Set<PlaybackReport>();
+
+    /// <summary>
     /// Gets the <see cref="DbSet{TEntity}"/> containing the user licenses.
     /// </summary>
     public DbSet<UserLicense> UserLicenses => Set<UserLicense>();
