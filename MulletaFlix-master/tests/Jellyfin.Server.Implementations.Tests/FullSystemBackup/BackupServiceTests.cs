@@ -1294,6 +1294,7 @@ public sealed class BackupServiceTests : IDisposable
         var configPath = Path.Combine(isolatedRoot, "config");
         var archivePath = Path.Combine(isolatedRoot, "oversized-manifest.zip");
         var existingConfigPath = Path.Combine(configPath, "server.json");
+        var restoreSidecarCreated = false;
         Directory.CreateDirectory(configPath);
 
         try
@@ -1308,18 +1309,18 @@ public sealed class BackupServiceTests : IDisposable
 
             const string existingContent = "keep-existing-config";
             await File.WriteAllTextAsync(existingConfigPath, existingContent);
-            var incompressibleManifest = Convert.ToBase64String(RandomNumberGenerator.GetBytes(12 * 1024 * 1024 + 1));
+            var incompressibleManifest = "{\"padding\":\"" + Convert.ToBase64String(RandomNumberGenerator.GetBytes(12 * 1024 * 1024 + 1)) + "\"}";
             using (var archive = ZipFile.Open(archivePath, ZipArchiveMode.Create))
             {
                 await WriteArchiveEntryAsync(archive, "manifest.json", incompressibleManifest);
             }
 
             var error = await Assert.ThrowsAsync<InvalidDataException>(
-                () => CreateService().RestoreBackupAsync(archivePath));
+                () => CreateService(restoreBackupSidecarCreatedForTesting: _ => restoreSidecarCreated = true).RestoreBackupAsync(archivePath));
 
             Assert.Contains("manifest", error.Message, StringComparison.OrdinalIgnoreCase);
             Assert.Equal(existingContent, await File.ReadAllTextAsync(existingConfigPath));
-            Assert.False(File.Exists(Path.Combine(configPath, "server.json.restore-backup")));
+            Assert.False(restoreSidecarCreated);
             Assert.False(Directory.Exists(Path.Combine(isolatedRoot, "data")));
         }
         finally
