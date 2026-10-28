@@ -620,3 +620,8 @@ Para evitar falso ganho, cada sprint deve fechar com medicao antes/depois.
 - Testes de regressão incluídos em `tests/Jellyfin.Controller.Tests/LibraryTaskScheduler/LimitedConcurrencyLibrarySchedulerTests.cs`.
 - Dependências do frontend atualizadas no `MulletaFlix-web-master/package.json` e lockfile: DOMPurify 3.4.17, Vitest/coverage 5.0.5 e Undici transitivo corrigido; auditoria npm sem vulnerabilidades.
 - Mapa técnico conferido: mesma classe, singleton e caller `Folder.RunTasks`; sem novo módulo/API/dependência. Versões de dependências existentes foram corrigidas.
+## Scheduler — propagação de cancelamento em varreduras — 2026-10-27 22:21 BRT
+
+`ILimitedConcurrencyLibraryScheduler.Enqueue` agora entrega um `CancellationToken` ao callback; `Folder` o propaga às operações de validação e atualização de metadados. A escrita e a espera do canal limitado usam token ligado ao caller, ao host e ao descarte. Falhas lançadas por callbacks de cancelamento são registradas e não interrompem o restante da limpeza.
+
+Windows/.NET 10 Release na branch limpa `codex/scheduler-callback-cancellation`: classe `LimitedConcurrencyLibrarySchedulerTests` 12/12 e suíte `Jellyfin.Controller.Tests` 75/75; teste adicional `CallerCancellation_UnblocksEnqueueWaitingOnFullChannel` 1/1; `git diff --check` passou. O teste adicional foi executado após a suíte completa, sem alteração de produção. Callbacks que ignoram o token ainda podem estender o descarte gracioso; runtime real, Linux, CI hospedada e produção não foram validados. Commit `0813ca64` enviado à branch; criação de PR indisponível pela integração GitHub (403) e GitHub CLI sem sessão autenticada. Nenhum merge, tag ou release efetuado. Homologação formal 2/7 (28,6%).

@@ -310,3 +310,9 @@ Validação mais recente: `Jellyfin.Server.Implementations.Tests` passou 764 tes
 - Mantido o escoamento gracioso no `DisposeAsync` explícito e o guard de descarte reentrante por callback.
 - Evidência Release: scheduler 9/9 e `Jellyfin.Controller.Tests` 72/72; frontend Vitest 421/421, typecheck/build/verify aprovados; npm audit 0 vulnerabilidades. Pacotes finais e CI ainda pendentes.
 - Release alvo 12.1.39; CI hospedada, pacotes e produção pendentes.
+## Scheduler — token de cancelamento para callbacks — 2026-10-27 22:21 BRT
+
+- [x] `Enqueue` entrega token de cancelamento ao callback e `Folder` repassa o token a validação e atualização recursiva; escrita e espera no canal cancelam com caller/host/shutdown.
+- [x] Callbacks de cancelamento que lançam exceção são registrados sem interromper a limpeza. Scheduler 12/12, Controller 75/75, além do teste direto de caller cancelando enqueue com canal cheio 1/1; Windows/.NET 10 Release.
+- [ ] Callbacks que não observam cancelamento ainda podem prolongar `DisposeAsync`; Linux, CI hospedada, runtime instalado e produção não validados.
+- [x] Commit `0813ca64` publicado em `codex/scheduler-callback-cancellation`. Criação de PR bloqueada: GitHub API retornou 403 para a integração; GitHub CLI não possui sessão autenticada. Sem merge, release ou publicação no portal. Homologação formal 2/7 (28,6%).
