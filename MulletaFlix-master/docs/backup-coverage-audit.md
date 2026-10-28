@@ -1780,3 +1780,7 @@ Quando uma restauração de arquivos falha antes do commit relacional e o rollba
 `FileSystemRestoreTransaction.Rollback` não remove mais o destino antes de devolver o sidecar `.bak`; chama `Rename(..., replaceExisting: true)`, que usa substituição atômica no backend Linux e rename com replace no Windows. Se a operação falhar, a versão instalada permanece nomeada no destino em vez de ser removida previamente. Um teste cross-platform cobre falha de replace entre arquivo e diretório não vazio e confirma que origem e destino permanecem intactos; o teste existente cobre rollback após falha em arquivo posterior.
 
 Isto reduz perda por falha entre delete/rename, mas não torna a seleção da entrada fonte atômica contra escritor com UID do serviço/root. Linux nativo e corrida reproduzível continuam pendentes; H03 permanece aberto.
+
+## Rechecagem de CI do rollback atômico — 2026-10-28 20:13 BRT
+
+GitHub Actions run 40785308776 (pull_request, head 61dac411eab4a69fe62994c7fb1eea78594fb025) encerrou em cerca de quatro segundos com 13/13 checks em failure. Os diagnósticos individuais dos 13 check runs trazem a anotação “The job was not started because your account is locked due to a billing issue.” Nenhum runner/step executou; a CI não validou nem reprovou o código. O incidente confirma o bloqueio de cobrança, não uma falha de teste. A PR #1 continua aberta e a candidata ainda não é Release. H03 permanece em andamento: o teste local executou apenas em Windows; Linux nativo e os gates de runtime/produção continuam pendentes.
