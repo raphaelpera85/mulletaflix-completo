@@ -564,5 +564,55 @@ namespace MulletaFlix.Providers.Tests.Manager
             Assert.True(result.UpdateType.HasFlag(ItemUpdateType.ImageUpdate));
             Assert.Equal(imageType == ImageType.Primary ? 0 : 1, result.Failures);
         }
+
+        [Fact]
+        public async Task RefreshImages_RemoteBackdrop_PrefersPreferredLanguageOverEnglishAndUnlabeledImages()
+        {
+            var item = new Video { Path = "non-empty path", PreferredMetadataLanguage = "pt-BR", PreferredMetadataCountryCode = "BR" };
+            BaseItem.MediaSourceManager = Mock.Of<IMediaSourceManager>();
+            var libraryOptions = GetLibraryOptions(item, ImageType.Backdrop, 1);
+            var requestedUrls = new List<string>();
+            var remoteProvider = new Mock<IRemoteImageProvider>(MockBehavior.Strict);
+            remoteProvider.Setup(provider => provider.Name).Returns("MockRemoteProvider");
+            remoteProvider.Setup(provider => provider.GetSupportedImages(item)).Returns([ImageType.Backdrop]);
+            remoteProvider.Setup(provider => provider.GetImageResponse(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+                .Callback<string, CancellationToken>((url, _) => requestedUrls.Add(url))
+                .ReturnsAsync((string url, CancellationToken _) => new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    RequestMessage = new HttpRequestMessage(HttpMethod.Get, url),
+                    Content = new StringContent("image content", Encoding.UTF8, MediaTypeNames.Image.Jpeg)
+                });
+
+            var providerManager = new Mock<IProviderManager>(MockBehavior.Strict);
+            providerManager.Setup(manager => manager.GetAvailableRemoteImages(
+                    item,
+                    It.IsAny<RemoteImageQuery>(),
+                    It.IsAny<CancellationToken>()))
+                .ReturnsAsync(new[]
+                {
+                    new RemoteImageInfo { Type = ImageType.Backdrop, Url = "https://images.example/unlabeled.jpg", Language = null },
+                    new RemoteImageInfo { Type = ImageType.Backdrop, Url = "https://images.example/english.jpg", Language = "en" },
+                    new RemoteImageInfo { Type = ImageType.Backdrop, Url = "https://images.example/portuguese.jpg", Language = "pt-br" }
+                });
+            providerManager.Setup(manager => manager.SaveImage(
+                    item,
+                    It.IsAny<Stream>(),
+                    MediaTypeNames.Image.Jpeg,
+                    ImageType.Backdrop,
+                    null,
+                    It.IsAny<CancellationToken>()))
+                .Callback<BaseItem, Stream, string, ImageType, int?, CancellationToken>((savedItem, _, _, imageType, _, _) =>
+                    savedItem.SetImage(new ItemImageInfo { Path = requestedUrls[^1], Type = imageType }, 0))
+                .Returns(Task.CompletedTask);
+            var imageProvider = GetItemImageProvider(providerManager.Object, null);
+            await imageProvider.RefreshImages(
+                item,
+                libraryOptions,
+                [remoteProvider.Object],
+                new ImageRefreshOptions(Mock.Of<IDirectoryService>()),
+                CancellationToken.None);
+
+            Assert.Equal("https://images.example/portuguese.jpg", item.GetImageInfo(ImageType.Backdrop, 0)?.Path);
+        }
     }
 }

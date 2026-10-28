@@ -18,6 +18,7 @@ using MediaBrowser.Controller.Providers;
 using MediaBrowser.Model.Configuration;
 using MediaBrowser.Model.Drawing;
 using MediaBrowser.Model.Entities;
+using MediaBrowser.Model.Extensions;
 using MediaBrowser.Model.IO;
 using MediaBrowser.Model.MediaInfo;
 using MediaBrowser.Model.Net;
@@ -156,6 +157,19 @@ namespace MediaBrowser.Providers.Manager
             var typeName = item.GetType().Name;
             var typeOptions = libraryOptions.GetTypeOptions(typeName) ?? new TypeOptions { Type = typeName };
 
+            var preferredImageLanguage = item.PreferredMetadataLanguage;
+            if (string.IsNullOrWhiteSpace(preferredImageLanguage))
+            {
+                preferredImageLanguage = item.GetParents()
+                    .Select(parent => parent.PreferredMetadataLanguage)
+                    .FirstOrDefault(language => !string.IsNullOrWhiteSpace(language));
+            }
+
+            if (string.IsNullOrWhiteSpace(preferredImageLanguage))
+            {
+                preferredImageLanguage = libraryOptions.PreferredMetadataLanguage;
+            }
+
             // track library limits, adding buffer to allow lazy replacing of current images
             var backdropLimit = typeOptions.GetLimit(ImageType.Backdrop) + oldBackdropImages.Length;
             var downloadedImages = new List<ImageType>();
@@ -164,7 +178,7 @@ namespace MediaBrowser.Providers.Manager
             {
                 if (provider is IRemoteImageProvider remoteProvider)
                 {
-                    await RefreshFromProvider(item, remoteProvider, refreshOptions, typeOptions, backdropLimit, downloadedImages, result, cancellationToken).ConfigureAwait(false);
+                    await RefreshFromProvider(item, remoteProvider, refreshOptions, typeOptions, preferredImageLanguage, backdropLimit, downloadedImages, result, cancellationToken).ConfigureAwait(false);
                     continue;
                 }
 
@@ -267,6 +281,7 @@ namespace MediaBrowser.Providers.Manager
         /// <param name="provider">The provider.</param>
         /// <param name="refreshOptions">The refresh options.</param>
         /// <param name="savedOptions">The saved options.</param>
+        /// <param name="preferredImageLanguage">The effective preferred image language.</param>
         /// <param name="backdropLimit">The backdrop limit.</param>
         /// <param name="downloadedImages">The downloaded images.</param>
         /// <param name="result">The result.</param>
@@ -277,6 +292,7 @@ namespace MediaBrowser.Providers.Manager
             IRemoteImageProvider provider,
             ImageRefreshOptions refreshOptions,
             TypeOptions savedOptions,
+            string preferredImageLanguage,
             int backdropLimit,
             List<ImageType> downloadedImages,
             RefreshResult result,
@@ -330,8 +346,17 @@ namespace MediaBrowser.Providers.Manager
                 }
 
                 minWidth = savedOptions.GetMinWidth(ImageType.Backdrop);
-                var listWithNoLangFirst = list.OrderByDescending(i => string.IsNullOrEmpty(i.Language));
-                await DownloadMultiImages(item, ImageType.Backdrop, refreshOptions, backdropLimit, provider, result, listWithNoLangFirst, minWidth, cancellationToken).ConfigureAwait(false);
+                var localizedBackdrops = list.OrderByLanguageDescending(preferredImageLanguage);
+                await DownloadMultiImages(
+                    item,
+                    ImageType.Backdrop,
+                    refreshOptions,
+                    backdropLimit,
+                    provider,
+                    result,
+                    localizedBackdrops,
+                    minWidth,
+                    cancellationToken).ConfigureAwait(false);
             }
             catch (OperationCanceledException)
             {

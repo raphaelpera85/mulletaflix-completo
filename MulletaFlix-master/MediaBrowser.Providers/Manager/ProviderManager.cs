@@ -399,8 +399,8 @@ namespace MediaBrowser.Providers.Manager
                     //
                     // TODO: should exception case of "en" (English) eventually be removed?
                     result = result.Where(i => string.IsNullOrWhiteSpace(i.Language) ||
-                                               string.Equals(preferredLanguage, i.Language, StringComparison.OrdinalIgnoreCase) ||
-                                               string.Equals(i.Language, "en", StringComparison.OrdinalIgnoreCase));
+                                               MediaBrowser.Model.Extensions.EnumerableExtensions.IsLanguageMatch(i.Language, preferredLanguage) ||
+                                               MediaBrowser.Model.Extensions.EnumerableExtensions.IsLanguageMatch(i.Language, "en"));
                 }
 
                 return result.OrderByLanguageDescending(preferredLanguage);

@@ -43,6 +43,21 @@ public class EnumerableExtensionsTests
     }
 
     [Fact]
+    public void OrderByLanguageDescending_EnglishRegionalVariantIsFallback()
+    {
+        var images = new[]
+        {
+            new RemoteImageInfo { Language = null, CommunityRating = 9.0 },
+            new RemoteImageInfo { Language = "en-US", CommunityRating = 1.0 },
+        };
+
+        var result = images.OrderByLanguageDescending("fr-FR").ToList();
+
+        Assert.Equal("en-US", result[0].Language);
+        Assert.Null(result[1].Language);
+    }
+
+    [Fact]
     public void OrderByLanguageDescending_SameLanguageSortedByRatingThenVoteCount()
     {
         var images = new[]
@@ -112,6 +127,39 @@ public class EnumerableExtensionsTests
         Assert.Equal("en", result[1].Language);
         Assert.Null(result[2].Language);
         Assert.Equal("fr", result[3].Language);
+    }
+
+    [Theory]
+    [InlineData("pt-BR", "pt-br", true)]
+    [InlineData("pt-BR", "pt", true)]
+    [InlineData("pt-BR", "pt-PT", true)]
+    [InlineData("pt-BR", "en", false)]
+    [InlineData("en-US", "en", true)]
+    [InlineData("zh-Hans", "zh-Hant", true)]
+    public void IsLanguageMatch_RecognizesLanguageAcrossRegionAndScript(string requestedLanguage, string imageLanguage, bool expected)
+    {
+        Assert.Equal(expected, EnumerableExtensions.IsLanguageMatch(imageLanguage, requestedLanguage));
+    }
+
+    [Fact]
+    public void OrderByLanguageDescending_RegionalMatchComesBeforeEnglishFallback()
+    {
+        var images = new[]
+        {
+            new RemoteImageInfo { Language = "en", CommunityRating = 10 },
+            new RemoteImageInfo { Language = "pt-PT", CommunityRating = 3 },
+            new RemoteImageInfo { Language = "pt", CommunityRating = 2 },
+            new RemoteImageInfo { Language = "pt-br", CommunityRating = 1 },
+            new RemoteImageInfo { Language = null, CommunityRating = 9 },
+        };
+
+        var result = images.OrderByLanguageDescending("pt-BR").ToList();
+
+        Assert.Equal("pt-br", result[0].Language);
+        Assert.Equal("pt-PT", result[1].Language);
+        Assert.Equal("pt", result[2].Language);
+        Assert.Equal("en", result[3].Language);
+        Assert.Null(result[4].Language);
     }
 }
 
