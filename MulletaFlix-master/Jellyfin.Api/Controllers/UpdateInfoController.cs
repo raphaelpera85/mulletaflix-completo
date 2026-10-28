@@ -35,6 +35,7 @@ public class UpdateInfoController : BaseMulletaFlixApiController
     private const string GitHubTokenEnv = "MulletaFlix_GITHUB_TOKEN";
     private const string DefaultGitHubRepo = "raphaelpera85/mulletaflix-completo";
     private const string DefaultGitHubApiUrl = $"https://api.github.com/repos/{DefaultGitHubRepo}/releases";
+    private const string EmbeddedUpdaterResource = "MulletaFlix.Api.Update.apply-update.ps1";
 
     private static readonly object SyncLock = new();
     private static string _installState = "Idle"; // Idle, Downloading, Extracting, ReadyToApply, Applying, Failed
@@ -299,15 +300,7 @@ public class UpdateInfoController : BaseMulletaFlixApiController
         Directory.CreateDirectory(updatesDir);
         var scriptPath = Path.Combine(updatesDir, "apply-update.ps1");
 
-        var installScriptPath = Path.Combine(installDir, "apply-update.ps1");
-        if (System.IO.File.Exists(installScriptPath))
-        {
-            System.IO.File.Copy(installScriptPath, scriptPath, true);
-        }
-        else
-        {
-            System.IO.File.WriteAllText(scriptPath, EmbeddedUpdaterScript);
-        }
+        WriteEmbeddedUpdaterScript(scriptPath);
 
         _logger.LogInformation("Launching in-place updater: {ScriptPath} with source {Source} target {Target} PID {Pid}", scriptPath, updateSource, installDir, pid);
 
@@ -716,69 +709,13 @@ public class UpdateInfoController : BaseMulletaFlixApiController
         }
     }
 
-    private const string EmbeddedUpdaterScript = @"param([string]$InstallDirectory, [string]$UpdateSourceDirectory, [int]$ProcessId, [string]$DataDirectory)
-$ErrorActionPreference = 'Continue'
-$logFile1 = Join-Path $InstallDirectory 'update.log'
-$logFile2 = Join-Path $env:TEMP 'mulletaflix-update.log'
-
-function Log([string]$Message) {
-    $ts = Get-Date -Format 'yyyy-MM-dd HH:mm:ss'
-    $line = ""$ts [UPDATE] $Message""
-    try { $line | Out-File -FilePath $logFile1 -Append -Encoding utf8 } catch {}
-    try { $line | Out-File -FilePath $logFile2 -Append -Encoding utf8 } catch {}
-}
-
-Log ""Starting in-place update for MulletaFlix.""
-Log ""InstallDirectory: $InstallDirectory""
-Log ""UpdateSourceDirectory: $UpdateSourceDirectory""
-Log ""Target ProcessId: $ProcessId""
-
-$waited = 0
-while ((Get-Process -Id $ProcessId -ErrorAction SilentlyContinue) -and ($waited -lt 30)) { Start-Sleep -Seconds 1; $waited++ }
-
-$targetProcesses = @('MulletaFlix', 'MulletaFlix.Windows.Tray', 'jellyfin')
-foreach ($procName in $targetProcesses) {
-    Get-Process -Name $procName -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
-}
-Start-Sleep -Seconds 3
-
-Log ""Copying update files using robocopy...""
-$p = Start-Process -FilePath ""robocopy.exe"" -ArgumentList ""`""$UpdateSourceDirectory`"" `""$InstallDirectory`"" /E /R:5 /W:2 /NP /NFL /NDL /XF apply-update.ps1 *.log *.tmp"" -Wait -PassThru -NoNewWindow
-$exitCode = $p.ExitCode
-Log ""Robocopy finished with exit code: $exitCode""
-
-if ($exitCode -lt 8) {
-    Log ""Files copied successfully.""
-    try { Remove-Item -LiteralPath $UpdateSourceDirectory -Recurse -Force -ErrorAction SilentlyContinue } catch {}
-    if ($DataDirectory) {
-        $stateFile = Join-Path $DataDirectory 'updates\update_state.json'
-        $pkgZip = Join-Path $DataDirectory 'updates\package.zip'
-        if (Test-Path -LiteralPath $stateFile) { Remove-Item -LiteralPath $stateFile -Force -ErrorAction SilentlyContinue }
-        if (Test-Path -LiteralPath $pkgZip) { Remove-Item -LiteralPath $pkgZip -Force -ErrorAction SilentlyContinue }
+    internal static void WriteEmbeddedUpdaterScript(string destinationPath)
+    {
+        using var updaterScript = typeof(UpdateInfoController).Assembly.GetManifestResourceStream(EmbeddedUpdaterResource)
+            ?? throw new InvalidOperationException($"Embedded updater resource '{EmbeddedUpdaterResource}' is missing.");
+        using var destination = new FileStream(destinationPath, FileMode.Create, FileAccess.Write, FileShare.None);
+        updaterScript.CopyTo(destination);
     }
-} else {
-    Log ""ERROR: Robocopy failed with exit code $exitCode.""
-}
-
-$service = Get-Service -Name 'MulletaFlixServer' -ErrorAction SilentlyContinue
-if ($service) {
-    Log ""Starting MulletaFlixServer service...""
-    Start-Service -Name 'MulletaFlixServer' -ErrorAction SilentlyContinue
-} else {
-    $exePath = Join-Path $InstallDirectory 'MulletaFlix.exe'
-    if (Test-Path -LiteralPath $exePath) {
-        Log ""Starting MulletaFlix.exe...""
-        $args = if ($DataDirectory) { ""--datadir `""$DataDirectory`"""" } else { """" }
-        Start-Process -FilePath $exePath -ArgumentList $args -WorkingDirectory $InstallDirectory -WindowStyle Hidden
-    }
-}
-$trayPath = Join-Path $InstallDirectory 'mulletaflix-windows-tray\MulletaFlix.Windows.Tray.exe'
-if (Test-Path -LiteralPath $trayPath) {
-    Log ""Starting MulletaFlix.Windows.Tray.exe...""
-    Start-Process -FilePath $trayPath -WorkingDirectory (Join-Path $InstallDirectory 'mulletaflix-windows-tray')
-}
-Log ""In-place update finished.""
-";
 
     /// <summary>
     /// Compara se todos os arquivos do pacote de atualização já estão presentes e são idênticos aos arquivos instalados.

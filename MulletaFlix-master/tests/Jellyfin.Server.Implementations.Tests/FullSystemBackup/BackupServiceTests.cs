@@ -3518,6 +3518,82 @@ public sealed class BackupServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task RestoreBackupAsync_RequestsRestartWhenRollbackCannotRestoreBackupSidecar()
+    {
+        Assert.SkipWhen(!OperatingSystem.IsWindows(), "Windows sharing rules are required to block rollback of an open sidecar.");
+
+        var isolatedRoot = CreateRestoreTestRoot("rollback-failure-restart");
+        var configPath = Path.Combine(isolatedRoot, "config");
+        var archivePath = Path.Combine(isolatedRoot, "rollback-failure.zip");
+        var targetPath = Path.Combine(configPath, "server.json");
+        var programDataPath = Path.Combine(isolatedRoot, "program-data");
+        Directory.CreateDirectory(configPath);
+        Directory.CreateDirectory(programDataPath);
+        await File.WriteAllTextAsync(targetPath, "original-content");
+
+        FileStream? backupLock = null;
+        try
+        {
+            _applicationHostMock.SetupProperty(host => host.ShouldRestart);
+            _applicationPathsMock.Setup(paths => paths.ConfigurationDirectoryPath).Returns(configPath);
+            _applicationPathsMock.Setup(paths => paths.DataPath).Returns(Path.Combine(isolatedRoot, "data"));
+            _applicationPathsMock.Setup(paths => paths.CachePath).Returns(Path.Combine(isolatedRoot, "cache"));
+            _applicationPathsMock.Setup(paths => paths.ProgramDataPath).Returns(programDataPath);
+            _applicationPathsMock.Setup(paths => paths.RootFolderPath).Returns(Path.Combine(isolatedRoot, "root"));
+            _applicationPathsMock.Setup(paths => paths.InternalMetadataPath).Returns(Path.Combine(isolatedRoot, "metadata"));
+            _applicationPathsMock.Setup(paths => paths.DefaultInternalMetadataPath).Returns(Path.Combine(isolatedRoot, "metadata-default"));
+
+            var manifest = new BackupManifest
+            {
+                ServerVersion = new Version(10, 0, 0),
+                BackupEngineVersion = new Version(0, 2, 0),
+                DateCreated = DateTimeOffset.UtcNow,
+                DatabaseTables = [],
+                Options = new BackupOptions { Database = false, Metadata = false, Subtitles = false, Trickplay = false }
+            };
+            using (var archive = ZipFile.Open(archivePath, ZipArchiveMode.Create))
+            {
+                await WriteArchiveEntryAsync(archive, "manifest.json", JsonSerializer.Serialize(manifest));
+                await WriteArchiveEntryAsync(archive, "Config/server.json", "replacement-content");
+            }
+
+            var service = CreateService(restoreBackupSidecarCreatedForTesting: path =>
+            {
+                backupLock = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read);
+                throw new IOException("Injected failure after original file moved to its recovery sidecar.");
+            });
+            await Assert.ThrowsAsync<IOException>(() => service.RestoreBackupAsync(archivePath));
+
+            var journal = CreateRecoveryJournal(programDataPath);
+            Assert.True(_applicationHostMock.Object.ShouldRestart);
+            _applicationHostMock.Verify(host => host.NotifyPendingRestart(), Times.Once);
+            Assert.NotNull(await journal.ReadAsync());
+            Assert.NotNull(backupLock);
+            Assert.Contains(Directory.EnumerateFiles(configPath), path => path.EndsWith(".bak", StringComparison.Ordinal));
+
+            await backupLock.DisposeAsync();
+            backupLock = null;
+            await service.RecoverInterruptedRestoreAsync();
+
+            Assert.Equal("replacement-content", await File.ReadAllTextAsync(targetPath));
+            Assert.Null(await journal.ReadAsync());
+            Assert.Empty(Directory.EnumerateFiles(configPath, ".mfx-restore-*.bak"));
+        }
+        finally
+        {
+            if (backupLock is not null)
+            {
+                await backupLock.DisposeAsync();
+            }
+
+            if (Directory.Exists(isolatedRoot))
+            {
+                Directory.Delete(isolatedRoot, recursive: true);
+            }
+        }
+    }
+
+    [Fact]
     [SupportedOSPlatform("windows")]
     public async Task RestoreBackupAsync_PreservesJournalWhenCreatedDirectoryParentBecomesUntrusted()
     {

@@ -828,6 +828,10 @@ public class BackupService : IBackupService, IDisposable
                     {
                         await journal.DeleteAsync().ConfigureAwait(false);
                     }
+                    else
+                    {
+                        RequestRestartAfterInterruptedRestore();
+                    }
                 }
 
                 throw;
@@ -870,7 +874,7 @@ public class BackupService : IBackupService, IDisposable
         {
             _applicationHost.ShouldRestart = true;
             _applicationHost.NotifyPendingRestart();
-            _logger.LogCritical("Restore outcome is uncertain after relational commit; stopping the server for journal replay on startup.");
+            _logger.LogCritical("Restore is incomplete after failure; stopping the server for journal replay on startup.");
             _ = Task.Run(async () =>
             {
                 try

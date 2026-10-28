@@ -9,6 +9,30 @@ namespace MulletaFlix.Api.Tests.Controllers;
 public class UpdateInfoControllerTests
 {
     [Fact]
+    public void WriteEmbeddedUpdaterScript_MatchesRollbackSafePackagingScript()
+    {
+        var temporaryPath = Path.Combine(Path.GetTempPath(), "mulletaflix-updater-" + Guid.NewGuid().ToString("N") + ".ps1");
+        try
+        {
+            UpdateInfoController.WriteEmbeddedUpdaterScript(temporaryPath);
+
+            var repositoryRoot = new DirectoryInfo(AppContext.BaseDirectory);
+            while (repositoryRoot is not null && !File.Exists(Path.Combine(repositoryRoot.FullName, "build-update-package.ps1")))
+            {
+                repositoryRoot = repositoryRoot.Parent;
+            }
+
+            Assert.NotNull(repositoryRoot);
+            var canonicalScript = Path.Combine(repositoryRoot!.FullName, "MulletaFlix-packaging-master", "MulletaFlix-ux-custom", "nsis", "apply-update.ps1");
+            Assert.Equal(File.ReadAllText(canonicalScript), File.ReadAllText(temporaryPath));
+        }
+        finally
+        {
+            File.Delete(temporaryPath);
+        }
+    }
+
+    [Fact]
     public void AreUpdateFilesIdentical_ReturnsTrue_WhenFilesMatchExactly()
     {
         var tempBase = Path.Combine(Path.GetTempPath(), "mulleta_upd_test_" + Guid.NewGuid().ToString("N"));
