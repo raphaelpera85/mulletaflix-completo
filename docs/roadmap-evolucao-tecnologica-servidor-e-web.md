@@ -1,3 +1,10 @@
+### 28/10/2026 10:15 -03 — Atualizador encerra após falha de cópia
+
+- O log da instalação reportou Robocopy código 11, reteve o pacote extraído, mas ainda iniciou servidor e tray; o servidor falhou ao carregar `Emby.Naming` com versão divergente. O atualizador agora lança erro quando Robocopy retorna 8 ou superior, impedindo esse reinício e mantendo o pacote para diagnóstico.
+- Recuperação local: reaplicado o pacote íntegro 12.1.40; Robocopy retornou 3, as quatro DLLs principais foram conferidas em 12.1.40.0 e `/System/Info/Public` respondeu HTTP 200. A instalação segue na 12.1.40, abaixo da versão-fonte 12.1.41.
+- Teste focal `ApplyUpdateFailure.Tests.ps1` passou; `git diff --check` passou. Correção versionada como proposta 12.1.42 no commit `c6791942`, branch `codex/fail-closed-inplace-updater`; PR e CI hospedada não foram criados porque a integração GitHub retorna 403 e `gh` não está autenticado. Release ainda não publicada.
+- Homologação formal permanece 2/7 (28,6%), sem crédito. Mapa técnico conferido: o fluxo de empacotamento Windows foi esclarecido; sem novo módulo, API, dependência ou componente.
+
 ### 27/10/2026 21:41 -03 — Auditoria de exclusão de imagens de perfil GetAvatar
 
 - Inspeção da fonte encontrou `AvatarService.TryDeleteObsoleteProfileImage` e o fluxo de remoção de imagem de perfil validando `FileSystemHelper.IsPathWithinRoot` antes de `File.Delete`; a verificação por caminho não fixa o objeto que será excluído se uma entrada puder ser trocada concorrentemente.
