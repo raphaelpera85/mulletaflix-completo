@@ -232,7 +232,9 @@ namespace MediaBrowser.Providers.Manager
                             {
                                 var mimeType = response.Format.GetMimeType();
 
-                                await _providerManager.SaveImage(item, response.Stream, mimeType, imageType, null, cancellationToken).ConfigureAwait(false);
+                                var index = item.AllowsMultipleImages(imageType) ? item.GetImages(imageType).Count() : 0;
+                                await _providerManager.SaveImage(item, response.Stream, mimeType, imageType, index, cancellationToken).ConfigureAwait(false);
+                                item.GetImageInfo(imageType, index)!.ProviderName = provider.Name;
                             }
                             else
                             {
@@ -244,7 +246,8 @@ namespace MediaBrowser.Providers.Manager
                                         new ItemImageInfo
                                         {
                                             Path = response.Path,
-                                            Type = imageType
+                                            Type = imageType,
+                                            ProviderName = provider.Name
                                         },
                                         index);
                                 }
@@ -252,7 +255,9 @@ namespace MediaBrowser.Providers.Manager
                                 {
                                     var mimeType = MimeTypes.GetMimeType(response.Path);
 
-                                    await _providerManager.SaveImage(item, response.Path, mimeType, imageType, null, null, cancellationToken).ConfigureAwait(false);
+                                    var index = item.AllowsMultipleImages(imageType) ? item.GetImages(imageType).Count() : 0;
+                                    await _providerManager.SaveImage(item, response.Path, mimeType, imageType, index, null, cancellationToken).ConfigureAwait(false);
+                                    item.GetImageInfo(imageType, index)!.ProviderName = provider.Name;
                                 }
                             }
 
@@ -588,7 +593,9 @@ namespace MediaBrowser.Providers.Manager
 
             if (EnableImageStub(item) && eligibleImages.Count > 0)
             {
-                SaveImageStub(item, type, eligibleImages.Select(i => i.Url));
+                var imageIndex = item.AllowsMultipleImages(type) ? item.GetImages(type).Count() : 0;
+                SaveImageStub(item, type, eligibleImages.Select(i => i.Url), imageIndex);
+                SetImageSourceMetadata(item, type, imageIndex, eligibleImages[0], provider.Name);
                 result.UpdateType |= ItemUpdateType.ImageUpdate;
                 return true;
             }
@@ -621,6 +628,7 @@ namespace MediaBrowser.Providers.Manager
                     }
 
                     var stream = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
+                    var imageIndex = item.AllowsMultipleImages(type) ? item.GetImages(type).Count() : 0;
                     await using (stream.ConfigureAwait(false))
                     {
                         var mimetype = response.Content.Headers.ContentType?.MediaType;
@@ -642,8 +650,9 @@ namespace MediaBrowser.Providers.Manager
                             stream,
                             mimetype,
                             type,
-                            null,
+                            imageIndex,
                             cancellationToken).ConfigureAwait(false);
+                        SetImageSourceMetadata(item, type, imageIndex, image, provider.Name);
                     }
 
                     result.UpdateType |= ItemUpdateType.ImageUpdate;
@@ -729,7 +738,9 @@ namespace MediaBrowser.Providers.Manager
 
                 if (EnableImageStub(item))
                 {
-                    SaveImageStub(item, imageType, new[] { url });
+                    var imageIndex = item.AllowsMultipleImages(imageType) ? item.GetImages(imageType).Count() : 0;
+                    SaveImageStub(item, imageType, new[] { url }, imageIndex);
+                    SetImageSourceMetadata(item, imageType, imageIndex, image, provider.Name);
                     result.UpdateType |= ItemUpdateType.ImageUpdate;
                     continue;
                 }
@@ -787,13 +798,15 @@ namespace MediaBrowser.Providers.Manager
                                 HttpStatusCode.NotFound);
                         }
 
+                        var imageIndex = item.AllowsMultipleImages(imageType) ? item.GetImages(imageType).Count() : 0;
                         await _providerManager.SaveImage(
                             item,
                             stream,
                             mimetype,
                             imageType,
-                            null,
+                            imageIndex,
                             cancellationToken).ConfigureAwait(false);
+                        SetImageSourceMetadata(item, imageType, imageIndex, image, provider.Name);
                     }
 
                     result.UpdateType |= ItemUpdateType.ImageUpdate;
@@ -804,6 +817,16 @@ namespace MediaBrowser.Providers.Manager
                     result.ErrorMessage = ex.Message;
                     result.Failures++;
                 }
+            }
+        }
+
+        private static void SetImageSourceMetadata(BaseItem item, ImageType imageType, int imageIndex, RemoteImageInfo image, string providerName)
+        {
+            var imageInfo = item.GetImageInfo(imageType, imageIndex);
+            if (imageInfo is not null)
+            {
+                imageInfo.ProviderName = string.IsNullOrWhiteSpace(image.ProviderName) ? providerName : image.ProviderName;
+                imageInfo.Language = image.Language?.ToLowerInvariant();
             }
         }
 

@@ -113,10 +113,10 @@ namespace MulletaFlix.Providers.Tests.Manager
             var refreshOptions = new ImageRefreshOptions(Mock.Of<IDirectoryService>());
 
             var providerManager = new Mock<IProviderManager>(MockBehavior.Strict);
-            providerManager.Setup(pm => pm.SaveImage(item, It.IsAny<Stream>(), It.IsAny<string>(), imageType, null, It.IsAny<CancellationToken>()))
+            providerManager.Setup(pm => pm.SaveImage(item, It.IsAny<Stream>(), It.IsAny<string>(), imageType, It.IsAny<int?>(), It.IsAny<CancellationToken>()))
                 .Callback<BaseItem, Stream, string, ImageType, int?, CancellationToken>((callbackItem, _, _, callbackType, _, _) => callbackItem.SetImagePath(callbackType, 0, new FileSystemMetadata()))
                 .Returns(Task.CompletedTask);
-            providerManager.Setup(pm => pm.SaveImage(item, It.IsAny<string>(), It.IsAny<string>(), imageType, null, null, It.IsAny<CancellationToken>()))
+            providerManager.Setup(pm => pm.SaveImage(item, It.IsAny<string>(), It.IsAny<string>(), imageType, 0, null, It.IsAny<CancellationToken>()))
                 .Callback<BaseItem, string, string, ImageType, int?, bool?, CancellationToken>((callbackItem, _, _, callbackType, _, _, _) => callbackItem.SetImagePath(callbackType, 0, new FileSystemMetadata()))
                 .Returns(Task.CompletedTask);
             var itemImageProvider = GetItemImageProvider(providerManager.Object, null);
@@ -239,7 +239,7 @@ namespace MulletaFlix.Providers.Tests.Manager
             var providerManager = new Mock<IProviderManager>(MockBehavior.Strict);
             providerManager.Setup(pm => pm.GetAvailableRemoteImages(It.IsAny<BaseItem>(), It.IsAny<RemoteImageQuery>(), It.IsAny<CancellationToken>()))
                 .ReturnsAsync(remoteInfo);
-            providerManager.Setup(pm => pm.SaveImage(item, It.IsAny<Stream>(), It.IsAny<string>(), imageType, null, It.IsAny<CancellationToken>()))
+            providerManager.Setup(pm => pm.SaveImage(item, It.IsAny<Stream>(), It.IsAny<string>(), imageType, It.IsAny<int?>(), It.IsAny<CancellationToken>()))
                 .Callback<BaseItem, Stream, string, ImageType, int?, CancellationToken>((callbackItem, _, _, callbackType, _, _) =>
                     callbackItem.SetImagePath(callbackType, callbackItem.AllowsMultipleImages(callbackType) ? callbackItem.GetImages(callbackType).Count() : 0, new FileSystemMetadata()))
                 .Returns(Task.CompletedTask);
@@ -470,7 +470,7 @@ namespace MulletaFlix.Providers.Tests.Manager
                     It.IsAny<Stream>(),
                     It.IsAny<string>(),
                     imageType,
-                    null,
+                    It.IsAny<int?>(),
                     It.IsAny<CancellationToken>()))
                 .Returns(Task.CompletedTask);
 
@@ -491,7 +491,7 @@ namespace MulletaFlix.Providers.Tests.Manager
                     It.IsAny<Stream>(),
                     It.IsAny<string>(),
                     imageType,
-                    null,
+                    It.IsAny<int?>(),
                     It.IsAny<CancellationToken>()),
                 Times.Once);
             Assert.True(result.UpdateType.HasFlag(ItemUpdateType.ImageUpdate));
@@ -537,7 +537,7 @@ namespace MulletaFlix.Providers.Tests.Manager
                     It.IsAny<Stream>(),
                     MediaTypeNames.Image.Jpeg,
                     imageType,
-                    null,
+                    It.IsAny<int?>(),
                     It.IsAny<CancellationToken>()))
                 .Returns(Task.CompletedTask);
 
@@ -558,7 +558,7 @@ namespace MulletaFlix.Providers.Tests.Manager
                     It.IsAny<Stream>(),
                     MediaTypeNames.Image.Jpeg,
                     imageType,
-                    null,
+                    0,
                     It.IsAny<CancellationToken>()),
                 Times.Once);
             Assert.True(result.UpdateType.HasFlag(ItemUpdateType.ImageUpdate));
@@ -592,14 +592,14 @@ namespace MulletaFlix.Providers.Tests.Manager
                 {
                     new RemoteImageInfo { Type = ImageType.Backdrop, Url = "https://images.example/unlabeled.jpg", Language = null },
                     new RemoteImageInfo { Type = ImageType.Backdrop, Url = "https://images.example/english.jpg", Language = "en" },
-                    new RemoteImageInfo { Type = ImageType.Backdrop, Url = "https://images.example/portuguese.jpg", Language = "pt-br" }
+                    new RemoteImageInfo { Type = ImageType.Backdrop, Url = "https://images.example/portuguese.jpg", ProviderName = "TheMovieDb", Language = "pt-BR" }
                 });
             providerManager.Setup(manager => manager.SaveImage(
                     item,
                     It.IsAny<Stream>(),
                     MediaTypeNames.Image.Jpeg,
                     ImageType.Backdrop,
-                    null,
+                    0,
                     It.IsAny<CancellationToken>()))
                 .Callback<BaseItem, Stream, string, ImageType, int?, CancellationToken>((savedItem, _, _, imageType, _, _) =>
                     savedItem.SetImage(new ItemImageInfo { Path = requestedUrls[^1], Type = imageType }, 0))
@@ -613,6 +613,8 @@ namespace MulletaFlix.Providers.Tests.Manager
                 CancellationToken.None);
 
             Assert.Equal("https://images.example/portuguese.jpg", item.GetImageInfo(ImageType.Backdrop, 0)?.Path);
+            Assert.Equal("TheMovieDb", item.GetImageInfo(ImageType.Backdrop, 0)?.ProviderName);
+            Assert.Equal("pt-br", item.GetImageInfo(ImageType.Backdrop, 0)?.Language);
         }
     }
 }

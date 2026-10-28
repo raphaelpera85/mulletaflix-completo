@@ -243,11 +243,7 @@ public class ItemPersistenceService : IItemPersistenceService
                         {
                             var newImg = images[i];
                             var oldImg = existingImages.FirstOrDefault(e => e.ImageType == newImg.ImageType && e.Path == newImg.Path);
-                            if (oldImg == null
-                                || oldImg.Width != newImg.Width
-                                || oldImg.Height != newImg.Height
-                                || oldImg.DateModified != newImg.DateModified
-                                || !NullableSequenceEqual(oldImg.Blurhash, newImg.Blurhash))
+                            if (oldImg == null || !ImageInfosMatch(oldImg, newImg))
                             {
                                 hasChanges = true;
                                 break;
@@ -285,6 +281,18 @@ public class ItemPersistenceService : IItemPersistenceService
                 await Task.Delay(TimeSpan.FromMilliseconds(attempt * 150), cancellationToken).ConfigureAwait(false);
             }
         }
+    }
+
+    internal static bool ImageInfosMatch(BaseItemImageInfo existing, BaseItemImageInfo incoming)
+    {
+        return existing.ImageType == incoming.ImageType
+            && existing.Path == incoming.Path
+            && existing.Width == incoming.Width
+            && existing.Height == incoming.Height
+            && existing.DateModified == incoming.DateModified
+            && existing.ProviderName == incoming.ProviderName
+            && existing.Language == incoming.Language
+            && NullableSequenceEqual(existing.Blurhash, incoming.Blurhash);
     }
 
     private static bool IsTransientImagePersistenceFailure(Exception exception)

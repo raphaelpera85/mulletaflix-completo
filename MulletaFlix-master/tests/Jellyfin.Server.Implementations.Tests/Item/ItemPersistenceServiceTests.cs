@@ -2,6 +2,7 @@ using System;
 using System.IO;
 using System.Linq;
 using System.Net.Sockets;
+using MediaBrowser.Controller.Entities;
 using MediaBrowser.Model.Entities;
 using MulletaFlix.Database.Implementations;
 using MulletaFlix.Database.Implementations.Entities;
@@ -16,6 +17,78 @@ namespace Jellyfin.Server.Implementations.Tests.Item;
 
 public class ItemPersistenceServiceTests
 {
+    [Fact]
+    public void ImageInfoMapper_PreservesProviderAndLanguage()
+    {
+        var itemId = Guid.NewGuid();
+        var entity = new BaseItemImageInfo
+        {
+            Id = Guid.NewGuid(),
+            ItemId = itemId,
+            ImageType = ImageInfoImageType.Primary,
+            Path = "poster.jpg",
+            ProviderName = "TheMovieDb",
+            Language = "pt-br",
+            Item = null!
+        };
+
+        var mapped = BaseItemMapper.MapImageFromEntity(entity, null);
+        var remapped = BaseItemMapper.MapImageToEntity(itemId, mapped);
+
+        Assert.Equal("TheMovieDb", mapped.ProviderName);
+        Assert.Equal("pt-br", mapped.Language);
+        Assert.Equal("TheMovieDb", remapped.ProviderName);
+        Assert.Equal("pt-br", remapped.Language);
+    }
+
+    [Fact]
+    public void ImageInfosMatch_DetectsProviderAndLanguageChanges()
+    {
+        var existing = new BaseItemImageInfo
+        {
+            Id = Guid.NewGuid(),
+            ItemId = Guid.NewGuid(),
+            ImageType = ImageInfoImageType.Primary,
+            Path = "poster.jpg",
+            ProviderName = "TheMovieDb",
+            Language = "en",
+            Item = null!
+        };
+        var same = new BaseItemImageInfo
+        {
+            Id = Guid.NewGuid(),
+            ItemId = existing.ItemId,
+            ImageType = ImageInfoImageType.Primary,
+            Path = "poster.jpg",
+            ProviderName = "TheMovieDb",
+            Language = "en",
+            Item = null!
+        };
+        var changedLanguage = new BaseItemImageInfo
+        {
+            Id = Guid.NewGuid(),
+            ItemId = existing.ItemId,
+            ImageType = ImageInfoImageType.Primary,
+            Path = "poster.jpg",
+            ProviderName = "TheMovieDb",
+            Language = "pt-br",
+            Item = null!
+        };
+        var changedProvider = new BaseItemImageInfo
+        {
+            Id = Guid.NewGuid(),
+            ItemId = existing.ItemId,
+            ImageType = ImageInfoImageType.Primary,
+            Path = "poster.jpg",
+            ProviderName = "Fanart",
+            Item = null!
+        };
+
+        Assert.True(ItemPersistenceService.ImageInfosMatch(existing, same));
+        Assert.False(ItemPersistenceService.ImageInfosMatch(existing, changedLanguage));
+        Assert.False(ItemPersistenceService.ImageInfosMatch(existing, changedProvider));
+    }
+
     [Fact]
     public void ItemValueKeyComparer_TreatsValuesAsCaseInsensitiveWithinSameType()
     {

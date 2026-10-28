@@ -2571,7 +2571,8 @@ async def main():
     try:
         mongo_uri = environ.get("MONGODB")
         mongo_database = environ.get("MONGO_DATABASE", "ftp")
-        mongo = AsyncIOMotorClient(mongo_uri, io_loop=loop, w="majority")[mongo_database]
+        mongo_client = AsyncIOMotorClient(mongo_uri, io_loop=loop, w="majority")
+        mongo = mongo_client[mongo_database]
         await setup_database_indexes(mongo)
     except Exception as e:
         logger.critical(f"❌ Erro DB: {e}")
@@ -2629,7 +2630,14 @@ async def main():
     try:
         http_stream_server = await start_http_stream_server(mongo, bots)
     except OSError as exc:
-        logger.warning("HTTP Stream nao iniciado em %s:%s: %s", STREAM_HOST, STREAM_PORT, exc)
+        logger.critical("HTTP Stream nao iniciou em %s:%s; envio cancelado para evitar startup parcial: %s", STREAM_HOST, STREAM_PORT, exc)
+        try:
+            await server.close()
+        except Exception:
+            logger.exception("Falha ao fechar FTP apos erro no HTTP Stream")
+        mongo_client.close()
+        await asyncio.gather(*(bot.stop() for bot in bots), return_exceptions=True)
+        return 1
 
     stop_event = asyncio.Event()
     background_tasks = [
