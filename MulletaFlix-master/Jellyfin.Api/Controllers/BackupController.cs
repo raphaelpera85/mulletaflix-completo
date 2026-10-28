@@ -63,12 +63,14 @@ public class BackupController : BaseMulletaFlixApiController
     /// <param name="archiveRestoreDto">The data to start a restore process.</param>
     /// <response code="204">Backup restore started.</response>
     /// <response code="403">User does not have permission to retrieve information.</response>
+    /// <response code="501">Backup restore is not supported on this platform.</response>
     /// <returns>No-Content.</returns>
     [HttpPost("Restore")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
     [ProducesResponseType(StatusCodes.Status429TooManyRequests)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(StatusCodes.Status501NotImplemented)]
     public IActionResult StartRestoreBackup([FromBody, BindRequired] BackupRestoreRequestDto archiveRestoreDto)
     {
         if (!TryGetSafeBackupPath(archiveRestoreDto.ArchiveFileName, out var archivePath))
@@ -89,6 +91,10 @@ public class BackupController : BaseMulletaFlixApiController
         {
             return CreateOperationInProgressResult();
         }
+        catch (PlatformNotSupportedException ex)
+        {
+            return StatusCode(StatusCodes.Status501NotImplemented, ex.Message);
+        }
 
         return NoContent();
     }
@@ -100,12 +106,14 @@ public class BackupController : BaseMulletaFlixApiController
     /// <response code="204">Backup restore started.</response>
     /// <response code="404">No backup found before the specified date.</response>
     /// <response code="403">User does not have permission to retrieve information.</response>
+    /// <response code="501">Backup restore is not supported on this platform.</response>
     /// <returns>No-Content.</returns>
     [HttpPost("RestorePointInTime")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
     [ProducesResponseType(StatusCodes.Status429TooManyRequests)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(StatusCodes.Status501NotImplemented)]
     public async Task<IActionResult> RestorePointInTime([FromBody, BindRequired] PointInTimeRestoreRequestDto restoreRequest)
     {
         var backups = await _backupService.EnumerateBackups().ConfigureAwait(false);
@@ -130,6 +138,10 @@ public class BackupController : BaseMulletaFlixApiController
         catch (BackupOperationInProgressException)
         {
             return CreateOperationInProgressResult();
+        }
+        catch (PlatformNotSupportedException ex)
+        {
+            return StatusCode(StatusCodes.Status501NotImplemented, ex.Message);
         }
 
         return NoContent();

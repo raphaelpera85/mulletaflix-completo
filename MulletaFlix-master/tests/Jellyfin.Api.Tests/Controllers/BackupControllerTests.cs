@@ -47,6 +47,62 @@ public class BackupControllerTests
     }
 
     [Fact]
+    public void StartRestoreBackup_ReturnsNotImplementedWhenRestoreIsUnsupported()
+    {
+        var backupPath = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(backupPath);
+
+        try
+        {
+            const string archiveFileName = "restore.zip";
+            File.WriteAllText(Path.Combine(backupPath, archiveFileName), string.Empty);
+            var backupService = new Mock<IBackupService>();
+            backupService
+                .Setup(service => service.ScheduleRestoreAndRestartServer(It.IsAny<string>()))
+                .Throws(new PlatformNotSupportedException("Backup restore requires Windows or Linux."));
+            var controller = new BackupController(
+                backupService.Object,
+                Mock.Of<IApplicationPaths>(paths => paths.BackupPath == backupPath));
+
+            var result = controller.StartRestoreBackup(new BackupRestoreRequestDto { ArchiveFileName = archiveFileName });
+
+            var unsupported = Assert.IsType<ObjectResult>(result);
+            Assert.Equal(StatusCodes.Status501NotImplemented, unsupported.StatusCode);
+            Assert.Equal("Backup restore requires Windows or Linux.", unsupported.Value);
+        }
+        finally
+        {
+            Directory.Delete(backupPath, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task RestorePointInTime_ReturnsNotImplementedWhenRestoreIsUnsupported()
+    {
+        var backupService = new Mock<IBackupService>();
+        backupService.Setup(service => service.EnumerateBackups()).ReturnsAsync([
+            new BackupManifestDto
+            {
+                ServerVersion = new Version(1, 0),
+                BackupEngineVersion = new Version(0, 2, 0),
+                Path = "restore.zip",
+                DateCreated = DateTimeOffset.UtcNow.AddMinutes(-1),
+                Options = new BackupOptionsDto()
+            }
+        ]);
+        backupService
+            .Setup(service => service.ScheduleRestoreAndRestartServer(It.IsAny<string>()))
+            .Throws(new PlatformNotSupportedException("Backup restore requires Windows or Linux."));
+        var controller = new BackupController(backupService.Object, Mock.Of<IApplicationPaths>());
+
+        var result = await controller.RestorePointInTime(new PointInTimeRestoreRequestDto { TargetDate = DateTimeOffset.UtcNow });
+
+        var unsupported = Assert.IsType<ObjectResult>(result);
+        Assert.Equal(StatusCodes.Status501NotImplemented, unsupported.StatusCode);
+        Assert.Equal("Backup restore requires Windows or Linux.", unsupported.Value);
+    }
+
+    [Fact]
     public async Task CreateBackup_ReturnsRetryAfterWhenAnotherBackupIsRunning()
     {
         var backupService = new Mock<IBackupService>();

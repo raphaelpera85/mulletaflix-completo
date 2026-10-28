@@ -390,7 +390,7 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable, IAsyncDis
             BuildMediaSuggestionsCatalog,
             _logger);
         _directoryRefreshQueue = new NebulaDirectoryRefreshQueue(
-            RefreshRcloneDirectoryAsync,
+            RefreshRcloneDirectoryAndAcknowledgeAsync,
             _loggerFactory.CreateLogger<NebulaDirectoryRefreshQueue>());
         _mountRetry = new NebulaMountRetry(
             async token =>
@@ -1763,7 +1763,7 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable, IAsyncDis
                     emitServerLog: EmitServerLog,
                     logQueueState: logQueueState,
                     getStagingRoots: () => (config.StagePaths ?? Array.Empty<string>()).Where(p => !string.IsNullOrWhiteSpace(p)),
-                    onUploadCompleted: filePath =>
+                    onUploadCompleted: async filePath =>
                     {
                         var refreshPath = NebulaUploadEngine.BuildDirectoryRefreshPath(
                             filePath,
@@ -1771,10 +1771,8 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable, IAsyncDis
                             config.StagePaths ?? Array.Empty<string>());
                         if (refreshPath != null)
                         {
-                            _directoryRefreshQueue.Enqueue(refreshPath);
+                            await QueueDirectoryRefreshAsync(refreshPath, CancellationToken.None).ConfigureAwait(false);
                         }
-
-                        return Task.CompletedTask;
                     });
             }
             else
@@ -3309,6 +3307,12 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable, IAsyncDis
             return;
         }
 
+        var pendingDirectories = await mongo.GetPendingDirectoryRefreshesAsync(cancellationToken).ConfigureAwait(false);
+        foreach (var directory in pendingDirectories)
+        {
+            _directoryRefreshQueue.Enqueue(directory);
+        }
+
         var completedSince = NebulaCompletedMediaRefresh.GetCompletedSince(DateTimeOffset.UtcNow);
         var completedFiles = await mongo.GetRecentlyCompletedFilesAsync(completedSince, cancellationToken).ConfigureAwait(false);
         var mediaFiles = completedFiles
@@ -3324,13 +3328,37 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable, IAsyncDis
         var directories = NebulaCompletedMediaRefresh.GetVirtualDirectories(mediaFiles, directoryPathMap);
         foreach (var directory in directories)
         {
-            _directoryRefreshQueue.Enqueue(directory);
+            await QueueDirectoryRefreshAsync(directory, cancellationToken).ConfigureAwait(false);
         }
 
         _logger.LogInformation(
             "[NEBULA-MOUNT] Refresh periódico do disco N: enfileirado para {DirectoryCount} diretórios com {MediaCount} mídias concluídas na janela de recuperação de 30 minutos.",
             directories.Count,
             mediaFiles.Count);
+    }
+
+    private async Task QueueDirectoryRefreshAsync(string directory, CancellationToken cancellationToken)
+    {
+        var mongo = _mongoContext;
+        if (mongo is not null)
+        {
+            using var persistenceTimeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            persistenceTimeout.CancelAfter(TimeSpan.FromSeconds(5));
+            try
+            {
+                await mongo.PersistDirectoryRefreshAsync(directory, persistenceTimeout.Token).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "[NEBULA-MOUNT] Não foi possível persistir a atualização pendente para {Directory}; o refresh atual continuará em memória.", directory);
+            }
+        }
+
+        _directoryRefreshQueue.Enqueue(directory);
     }
 
     private async Task RunCleanupCycleAsync(List<string> sources, CancellationToken cancellationToken)
@@ -4461,7 +4489,7 @@ CREATE TABLE IF NOT EXISTS nebula_files (
 );
 
 CREATE INDEX IF NOT EXISTS idx_nebula_files_status ON nebula_files(status);
-CREATE INDEX IF NOT EXISTS idx_nebula_files_parent ON nebula_files(parent);
+DROP INDEX IF EXISTS idx_nebula_files_parent;
 CREATE INDEX IF NOT EXISTS idx_nebula_files_name ON nebula_files(name);
 -- O cursor delta consulta o registro mais recente em catálogos grandes.
 -- Sem este índice o ORDER BY pode exceder o timeout do PostgREST.
@@ -4477,6 +4505,10 @@ CREATE TABLE IF NOT EXISTS nebula_bot_tokens (
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_nebula_bot_tokens_index ON nebula_bot_tokens(index);
 
+CREATE TABLE IF NOT EXISTS nebula_directory_refreshes (
+    directory_path TEXT PRIMARY KEY
+);
+
 CREATE TABLE IF NOT EXISTS nebula_users (
     login TEXT PRIMARY KEY,
     password_hash TEXT,
@@ -4490,7 +4522,7 @@ CREATE TABLE IF NOT EXISTS nebula_users (
 CREATE TABLE IF NOT EXISTS mulletaflix_users (
     id UUID PRIMARY KEY,
     username TEXT NOT NULL,
-    normalized_username TEXT NOT NULL,
+    normalized_username TEXT NOT NULL UNIQUE,
     password TEXT,
     phone_number TEXT,
     must_update_password BOOLEAN NOT NULL DEFAULT FALSE,
@@ -4503,7 +4535,8 @@ CREATE TABLE IF NOT EXISTS mulletaflix_users (
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
-CREATE UNIQUE INDEX IF NOT EXISTS idx_mulletaflix_users_username ON mulletaflix_users(normalized_username);
+CREATE UNIQUE INDEX IF NOT EXISTS mulletaflix_users_normalized_username_key ON mulletaflix_users(normalized_username);
+DROP INDEX IF EXISTS idx_mulletaflix_users_username;
 ALTER TABLE mulletaflix_users ADD COLUMN IF NOT EXISTS license JSONB;
 
 CREATE TABLE IF NOT EXISTS nebula_backups (
@@ -4525,6 +4558,7 @@ ALTER TABLE nebula_users ENABLE ROW LEVEL SECURITY;
 ALTER TABLE mulletaflix_users ENABLE ROW LEVEL SECURITY;
 ALTER TABLE nebula_backups ENABLE ROW LEVEL SECURITY;
 ALTER TABLE nebula_bot_tokens ENABLE ROW LEVEL SECURITY;
+ALTER TABLE nebula_directory_refreshes ENABLE ROW LEVEL SECURITY;
 
 -- Remove políticas anteriores (idempotência ao re-executar o script)
 DROP POLICY IF EXISTS nebula_files_service_role_all ON nebula_files;
@@ -4532,6 +4566,7 @@ DROP POLICY IF EXISTS nebula_users_service_role_all ON nebula_users;
 DROP POLICY IF EXISTS mulletaflix_users_service_role_all ON mulletaflix_users;
 DROP POLICY IF EXISTS nebula_backups_service_role_all ON nebula_backups;
 DROP POLICY IF EXISTS nebula_bot_tokens_service_role_all ON nebula_bot_tokens;
+DROP POLICY IF EXISTS nebula_directory_refreshes_service_role_all ON nebula_directory_refreshes;
 
 -- Cria políticas permissivas apenas para a role 'service_role' (backend).
 -- Roles 'anon' e 'authenticated' não possuem políticas e são bloqueadas por padrão.
@@ -4549,6 +4584,12 @@ CREATE POLICY nebula_backups_service_role_all
 
 CREATE POLICY nebula_bot_tokens_service_role_all
     ON nebula_bot_tokens FOR ALL TO service_role USING (true) WITH CHECK (true);
+
+CREATE POLICY nebula_directory_refreshes_service_role_all
+    ON nebula_directory_refreshes FOR ALL TO service_role USING (true) WITH CHECK (true);
+
+REVOKE ALL ON TABLE nebula_directory_refreshes FROM anon, authenticated;
+GRANT ALL ON TABLE nebula_directory_refreshes TO service_role;
 ";
     }
 
@@ -6434,6 +6475,16 @@ idle_timeout = 15s
         }
     }
 
+    private async Task RefreshRcloneDirectoryAndAcknowledgeAsync(string directory, CancellationToken cancellationToken)
+    {
+        await RefreshRcloneDirectoryAsync(directory, cancellationToken).ConfigureAwait(false);
+        var mongo = _mongoContext;
+        if (mongo is not null)
+        {
+            await mongo.CompleteDirectoryRefreshAsync(directory, cancellationToken).ConfigureAwait(false);
+        }
+    }
+
     private async Task RefreshRcloneDirectoryAsync(string directory, CancellationToken cancellationToken)
     {
         var port = Volatile.Read(ref _rcloneRcPort);
@@ -6442,55 +6493,43 @@ idle_timeout = 15s
         if (port <= 0 || string.IsNullOrWhiteSpace(username) || string.IsNullOrWhiteSpace(password)
             || _rcloneProcess == null || _rcloneProcess.HasExited)
         {
-            return;
+            throw new InvalidOperationException("rclone ainda não está pronto para atualizar o cache da mídia.");
         }
 
-        try
+        var refreshError = await SendRcloneVfsRefreshAsync(
+            port,
+            username,
+            password,
+            directory,
+            cancellationToken).ConfigureAwait(false);
+        if (refreshError is not null)
         {
-            var refreshError = await SendRcloneVfsRefreshAsync(
-                port,
-                username,
-                password,
-                directory,
-                cancellationToken).ConfigureAwait(false);
-            if (refreshError is not null)
+            var ancestors = NebulaCompletedMediaRefresh.GetRefreshAncestors(directory);
+            if (ancestors.Count == 0)
             {
-                var ancestors = NebulaCompletedMediaRefresh.GetRefreshAncestors(directory);
-                if (ancestors.Count == 0)
-                {
-                    throw new InvalidOperationException($"rclone recusou o refresh da pasta virtual {directory}: {refreshError}");
-                }
-
-                _logger.LogWarning(
-                    "[NEBULA-MOUNT] O diretório {Directory} não existe no cache VFS ({RefreshError}); atualizando seus ancestrais para descobrir novas pastas.",
-                    directory,
-                    refreshError);
-                foreach (var ancestor in ancestors)
-                {
-                    var fallbackError = await SendRcloneVfsRefreshAsync(
-                        port,
-                        username,
-                        password,
-                        ancestor,
-                        cancellationToken).ConfigureAwait(false);
-                    if (fallbackError is not null)
-                    {
-                        throw new InvalidOperationException($"rclone recusou o refresh do diretório ancestral {ancestor}: {fallbackError}");
-                    }
-                }
+                throw new InvalidOperationException($"rclone recusou o refresh da pasta virtual {directory}: {refreshError}");
             }
 
-            _logger.LogDebug("[NEBULA-MOUNT] Cache da pasta virtual atualizado: {Directory}", directory);
+            _logger.LogWarning(
+                "[NEBULA-MOUNT] O diretório {Directory} não existe no cache VFS ({RefreshError}); atualizando seus ancestrais para descobrir novas pastas.",
+                directory,
+                refreshError);
+            foreach (var ancestor in ancestors)
+            {
+                var fallbackError = await SendRcloneVfsRefreshAsync(
+                    port,
+                    username,
+                    password,
+                    ancestor,
+                    cancellationToken).ConfigureAwait(false);
+                if (fallbackError is not null)
+                {
+                    throw new InvalidOperationException($"rclone recusou o refresh do diretório ancestral {ancestor}: {fallbackError}");
+                }
+            }
         }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-        {
-            throw;
-        }
-        catch (Exception ex)
-        {
-            // MongoDB já confirmou o upload. Uma falha de cache nunca reverte nem falha a mídia.
-            _logger.LogWarning(ex, "[NEBULA-MOUNT] Refresh da pasta virtual falhou após upload concluído: {Directory}", directory);
-        }
+
+        _logger.LogDebug("[NEBULA-MOUNT] Cache da pasta virtual atualizado: {Directory}", directory);
     }
 
     private static async Task<string?> SendRcloneVfsRefreshAsync(

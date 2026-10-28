@@ -914,12 +914,23 @@ public class NebulaUploadEngineTests
         Assert.Contains("ALTER TABLE nebula_users ENABLE ROW LEVEL SECURITY", sql, System.StringComparison.Ordinal);
         Assert.Contains("ALTER TABLE nebula_backups ENABLE ROW LEVEL SECURITY", sql, System.StringComparison.Ordinal);
         Assert.Contains("ALTER TABLE nebula_bot_tokens ENABLE ROW LEVEL SECURITY", sql, System.StringComparison.Ordinal);
+        Assert.Contains("CREATE TABLE IF NOT EXISTS nebula_directory_refreshes", sql, System.StringComparison.Ordinal);
+        Assert.Contains("ALTER TABLE nebula_directory_refreshes ENABLE ROW LEVEL SECURITY", sql, System.StringComparison.Ordinal);
+        Assert.Contains("REVOKE ALL ON TABLE nebula_directory_refreshes FROM anon, authenticated", sql, System.StringComparison.Ordinal);
+        Assert.Contains("GRANT ALL ON TABLE nebula_directory_refreshes TO service_role", sql, System.StringComparison.Ordinal);
+        Assert.Contains("normalized_username TEXT NOT NULL UNIQUE", sql, System.StringComparison.Ordinal);
+        Assert.Contains("CREATE UNIQUE INDEX IF NOT EXISTS mulletaflix_users_normalized_username_key", sql, System.StringComparison.Ordinal);
+        Assert.Contains("DROP INDEX IF EXISTS idx_mulletaflix_users_username", sql, System.StringComparison.Ordinal);
+        Assert.Contains("DROP INDEX IF EXISTS idx_nebula_files_parent", sql, System.StringComparison.Ordinal);
+        Assert.DoesNotContain("CREATE INDEX IF NOT EXISTS idx_nebula_files_parent", sql, System.StringComparison.Ordinal);
+        Assert.DoesNotContain("CREATE UNIQUE INDEX IF NOT EXISTS idx_mulletaflix_users_username", sql, System.StringComparison.Ordinal);
 
         // Deve criar políticas para service_role (evita acesso anônimo implícito)
         Assert.Contains("CREATE POLICY nebula_files_service_role_all", sql, System.StringComparison.Ordinal);
         Assert.Contains("CREATE POLICY nebula_users_service_role_all", sql, System.StringComparison.Ordinal);
         Assert.Contains("CREATE POLICY nebula_backups_service_role_all", sql, System.StringComparison.Ordinal);
         Assert.Contains("CREATE POLICY nebula_bot_tokens_service_role_all", sql, System.StringComparison.Ordinal);
+        Assert.Contains("CREATE POLICY nebula_directory_refreshes_service_role_all", sql, System.StringComparison.Ordinal);
 
         // Deve incluir DROP POLICY IF EXISTS para idempotência
         Assert.Contains("DROP POLICY IF EXISTS nebula_files_service_role_all", sql, System.StringComparison.Ordinal);

@@ -788,6 +788,14 @@ public sealed class NebulaSupabaseSyncService : IDisposable
             _logger.LogInformation("{Message}", tokensProgressMsg);
             progressAction?.Invoke(tokensProgressMsg);
 
+            var pendingDirectoryRefreshes = await _mongoContext.GetPendingDirectoryRefreshesAsync(cancellationToken).ConfigureAwait(false);
+            var syncedDirectoryRefreshes = await SyncNebulaDirectoryRefreshesAsync(
+                supabaseUrl,
+                supabaseKey,
+                pendingDirectoryRefreshes,
+                cancellationToken).ConfigureAwait(false);
+            progressAction?.Invoke($"[SUPABASE-SYNC] Fila de refresh VFS sincronizada ({syncedDirectoryRefreshes} diretórios pendentes).");
+
             var remoteFileCount = await GetSupabaseFileCountAsync(supabaseUrl, supabaseKey, cancellationToken).ConfigureAwait(false);
             if (remoteFileCount < 0 || remoteFileCount > int.MaxValue)
             {
@@ -802,7 +810,7 @@ public sealed class NebulaSupabaseSyncService : IDisposable
                 status = "success",
                 total_files = (int)remoteFileCount,
                 total_users = syncedUsers,
-                details = $"Backup do MongoDB concluído com {syncedFiles} arquivos, {syncedUsers} usuários FTP e {syncedTokens} tokens de bot; {deletedFtpUsers} usuários removidos do backup. Usuários do aplicativo não incluídos."
+                details = $"Backup do MongoDB concluído com {syncedFiles} arquivos, {syncedUsers} usuários FTP, {syncedTokens} tokens de bot e {syncedDirectoryRefreshes} refreshes VFS pendentes; {deletedFtpUsers} usuários removidos do backup. Usuários do aplicativo não incluídos."
             };
 
             await RecordBackupHistoryAsync(supabaseUrl, supabaseKey, backupLog, cancellationToken).ConfigureAwait(false);
@@ -812,8 +820,9 @@ public sealed class NebulaSupabaseSyncService : IDisposable
             result.FilesBackedUp = syncedFiles;
             result.UsersBackedUp = syncedUsers;
             result.BotTokensBackedUp = syncedTokens;
+            result.DirectoryRefreshesBackedUp = syncedDirectoryRefreshes;
             result.ElapsedSeconds = (DateTime.UtcNow - startTime).TotalSeconds;
-            result.Message = $"Backup do MongoDB concluído! ({syncedFiles} arquivos, {syncedUsers} usuários FTP e {syncedTokens} tokens de bot em {result.ElapsedSeconds:F1}s; usuários do aplicativo não incluídos)";
+            result.Message = $"Backup do MongoDB concluído! ({syncedFiles} arquivos, {syncedUsers} usuários FTP, {syncedTokens} tokens de bot e {syncedDirectoryRefreshes} refreshes VFS pendentes em {result.ElapsedSeconds:F1}s; usuários do aplicativo não incluídos)";
             _logger.LogInformation("[SUPABASE-SYNC] {Message}", result.Message);
             progressAction?.Invoke($"[SUPABASE] {result.Message}");
             return result;
@@ -1056,12 +1065,35 @@ public sealed class NebulaSupabaseSyncService : IDisposable
 
             result.BotTokensRestored = restoredTokens;
 
+            var restoredDirectoryRefreshes = 0;
+            var refreshRows = await FetchSupabaseRowsPagedAsync(
+                supabaseUrl,
+                supabaseKey,
+                "nebula_directory_refreshes",
+                "directory_path",
+                "directory_path.asc",
+                "directory_path",
+                "Supabase rejeitou a restauração da fila de refresh VFS",
+                cancellationToken).ConfigureAwait(false);
+            foreach (var row in refreshRows)
+            {
+                if (!row.TryGetProperty("directory_path", out var pathValue) || pathValue.ValueKind != JsonValueKind.String)
+                {
+                    throw new InvalidOperationException("A resposta nebula_directory_refreshes contém um caminho inválido.");
+                }
+
+                await _mongoContext.PersistDirectoryRefreshAsync(pathValue.GetString()!, cancellationToken).ConfigureAwait(false);
+                restoredDirectoryRefreshes++;
+            }
+
+            result.DirectoryRefreshesRestored = restoredDirectoryRefreshes;
+
             _lastSuccessfulRestoreTime = DateTime.UtcNow;
             result.Success = true;
             result.FilesRestored = restoredFiles;
             result.UsersRestored = restoredUsers + restoredAppUsers;
             result.ElapsedSeconds = (DateTime.UtcNow - startTime).TotalSeconds;
-            result.Message = $"Restauração finalizada com sucesso! {restoredFiles} arquivos Nebula, {restoredUsers} usuários FTP, {restoredAppUsers} usuários do MulletaFlix e {restoredTokens} tokens de bot recuperados em {result.ElapsedSeconds:F1}s. Arquivos locais não foram removidos.";
+            result.Message = $"Restauração finalizada com sucesso! {restoredFiles} arquivos Nebula, {restoredUsers} usuários FTP, {restoredAppUsers} usuários do MulletaFlix, {restoredTokens} tokens de bot e {restoredDirectoryRefreshes} refreshes VFS pendentes recuperados em {result.ElapsedSeconds:F1}s. Arquivos locais não foram removidos.";
             _logger.LogInformation("[SUPABASE-RESTORE] {Message}", result.Message);
             progressAction?.Invoke($"[SUPABASE-RESTORE] {result.Message}");
             return result;
@@ -1586,6 +1618,59 @@ public sealed class NebulaSupabaseSyncService : IDisposable
         return tokenRecords.Count;
     }
 
+    internal async Task<int> SyncNebulaDirectoryRefreshesAsync(
+        string supabaseUrl,
+        string supabaseKey,
+        IReadOnlyCollection<string> directories,
+        CancellationToken cancellationToken)
+    {
+        var paths = directories
+            .Select(NebulaMongoContext.NormalizeDirectoryRefreshPath)
+            .Distinct(StringComparer.Ordinal)
+            .ToHashSet(StringComparer.Ordinal);
+        var records = paths.Select(static path => new SupabaseDirectoryRefreshRecord { DirectoryPath = path }).ToList();
+        foreach (var batch in records.Chunk(100))
+        {
+            await SendSupabaseBatchWithRetryAsync(
+                supabaseUrl,
+                supabaseKey,
+                "nebula_directory_refreshes?on_conflict=directory_path",
+                batch,
+                cancellationToken).ConfigureAwait(false);
+        }
+
+        var remoteRows = await FetchSupabaseRowsPagedAsync(
+            supabaseUrl,
+            supabaseKey,
+            "nebula_directory_refreshes",
+            "directory_path",
+            "directory_path.asc",
+            "directory_path",
+            "Falha ao conferir a fila remota de refresh VFS",
+            cancellationToken).ConfigureAwait(false);
+        foreach (var row in remoteRows)
+        {
+            if (!row.TryGetProperty("directory_path", out var pathValue) || pathValue.ValueKind != JsonValueKind.String)
+            {
+                throw new InvalidOperationException("A tabela nebula_directory_refreshes contém um caminho inválido.");
+            }
+
+            var path = pathValue.GetString()!;
+            if (!paths.Contains(path))
+            {
+                await DeleteSupabaseRowAsync(
+                    supabaseUrl,
+                    supabaseKey,
+                    "nebula_directory_refreshes",
+                    "directory_path",
+                    path,
+                    cancellationToken).ConfigureAwait(false);
+            }
+        }
+
+        return paths.Count;
+    }
+
     private static SupabaseBotTokenRecord ConvertBsonDocToSupabaseBotToken(BsonDocument doc, int fallbackIndex)
     {
         var index = doc.TryGetValue("index", out var indexValue) && indexValue.IsNumeric
@@ -1723,26 +1808,15 @@ public sealed class NebulaSupabaseSyncService : IDisposable
 
         // Conflict target must match the remote unique index. Using only id
         // caused HTTP 409 when a stale row kept the same username.
-        var uri = $"{supabaseUrl.TrimEnd('/')}/rest/v1/mulletaflix_users?on_conflict=normalized_username";
-        using var request = new HttpRequestMessage(HttpMethod.Post, uri)
+        const string endpoint = "mulletaflix_users?on_conflict=normalized_username";
+        try
         {
-            Content = new StringContent(JsonSerializer.Serialize(records), Encoding.UTF8, "application/json")
-        };
-        request.Headers.Add("apikey", supabaseKey);
-        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", supabaseKey);
-        request.Headers.Add("Prefer", "resolution=merge-duplicates,return=minimal");
-
-        using var response = await _httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
-        if (!response.IsSuccessStatusCode)
+            await SendSupabaseBatchWithRetryAsync(supabaseUrl, supabaseKey, endpoint, records, cancellationToken).ConfigureAwait(false);
+        }
+        catch (InvalidOperationException ex) when (ex.Message.Contains("PGRST205", StringComparison.Ordinal))
         {
-            var body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
-            if (response.StatusCode == HttpStatusCode.NotFound && body.Contains("PGRST205", StringComparison.Ordinal))
-            {
-                throw new InvalidOperationException(
-                    "A tabela mulletaflix_users não existe no projeto Supabase; aplique a migração antes de declarar o backup concluído.");
-            }
-
-            throw new InvalidOperationException($"Falha ao salvar usuários do MulletaFlix no Supabase: HTTP {(int)response.StatusCode} - {body}");
+            throw new InvalidOperationException(
+                "A tabela mulletaflix_users não existe no projeto Supabase; aplique a migração antes de declarar o backup concluído.", ex);
         }
 
         return records.Count;
@@ -2143,5 +2217,11 @@ public sealed class NebulaSupabaseSyncService : IDisposable
 
         [JsonPropertyName("enabled")]
         public bool Enabled { get; set; }
+    }
+
+    private sealed class SupabaseDirectoryRefreshRecord
+    {
+        [JsonPropertyName("directory_path")]
+        public string DirectoryPath { get; set; } = string.Empty;
     }
 }

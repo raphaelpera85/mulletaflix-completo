@@ -15,6 +15,7 @@ using MediaBrowser.Common.Configuration;
 using MediaBrowser.Controller;
 using MediaBrowser.Controller.MediaSegments;
 using MediaBrowser.Controller.Plugins;
+using MediaBrowser.Controller.SystemBackupService;
 using MediaBrowser.Controller.Configuration;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -51,6 +52,7 @@ namespace IntroSkipper
                     .GetConfiguration<DatabaseConfigurationOptions>("database");
                 provider.Initialise(options, WithIntroSkipperDatabase(databaseConfiguration));
             });
+            serviceCollection.AddSingleton<IBackupDatabaseParticipant, IntroSkipperBackupParticipant>();
             // The facades own database initialization via their internal retryable
             // gates; every consumer goes through a facade.
             serviceCollection.AddSingleton<IIntroSkipperDatabase, IntroSkipperDatabase>();

@@ -78,3 +78,17 @@ public interface IMulletaFlixDatabaseProvider
     /// <returns>A <see cref="Task"/> representing the asynchronous operation.</returns>
     Task PurgeDatabase(MulletaFlixDbContext dbContext, IEnumerable<string>? tableNames);
 }
+
+/// <summary>
+/// Optional capability for database providers that can purge tables from additional EF contexts.
+/// </summary>
+public interface IMulletaFlixDomainDatabaseProvider
+{
+    /// <summary>
+    /// Purges selected tables from a domain context.
+    /// </summary>
+    /// <param name="dbContext">A domain database context.</param>
+    /// <param name="tableNames">Physical table names validated from the EF model.</param>
+    /// <returns>A task representing the asynchronous operation.</returns>
+    Task PurgeDomainDatabase(DbContext dbContext, IEnumerable<string>? tableNames);
+}

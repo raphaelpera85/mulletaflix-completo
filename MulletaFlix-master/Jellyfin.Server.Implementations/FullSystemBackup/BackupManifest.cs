@@ -15,6 +15,10 @@ internal class BackupManifest
 
     public required string[] DatabaseTables { get; set; }
 
+    public string[]? DomainDatabaseContexts { get; set; }
+
+    public string[]? DatabaseParticipants { get; set; }
+
     public required BackupOptions Options { get; set; }
 }
 

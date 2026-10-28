@@ -26,10 +26,13 @@
     <!-- Pinned to the same version the migration tool publishes, so the SQLite file the
          tests build is written by the provider the released executable actually carries. -->
     <PackageReference Include="Microsoft.Data.Sqlite" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" />
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\..\Jellyfin.Server\Jellyfin.Server.csproj" />
     <ProjectReference Include="..\..\Jellyfin.Server.Implementations\Jellyfin.Server.Implementations.csproj" />
+    <ProjectReference Include="..\..\MediaBrowser.Providers\MediaBrowser.Providers.csproj" />
     <ProjectReference Include="..\..\MulletaFlix.Plugin.IntroSkipper\MulletaFlix.Plugin.IntroSkipper.csproj" />
     <ProjectReference Include="..\..\src\Jellyfin.Database\Jellyfin.Database.Implementations\Jellyfin.Database.Implementations.csproj" />
     <!-- The migration tool under test. It is the only SQLite dependency in the tree. -->

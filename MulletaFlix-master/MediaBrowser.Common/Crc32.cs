@@ -90,11 +90,29 @@ namespace MediaBrowser.Common
         /// <param name="stream">The stream to read.</param>
         /// <param name="cancellationToken">Cancellation token.</param>
         /// <returns>The CRC-32 and number of bytes read.</returns>
-        public static async Task<(uint Checksum, long Length)> ComputeAsync(Stream stream, CancellationToken cancellationToken = default)
+        public static Task<(uint Checksum, long Length)> ComputeAsync(Stream stream, CancellationToken cancellationToken = default)
+        {
+            return ComputeBoundedAsync(stream, cancellationToken, long.MaxValue);
+        }
+
+        /// <summary>
+        /// Computes a CRC-32 while enforcing a fixed or dynamically calculated byte limit.
+        /// </summary>
+        /// <param name="stream">The stream to read.</param>
+        /// <param name="cancellationToken">Cancellation token.</param>
+        /// <param name="maximumLength">Maximum number of bytes to read.</param>
+        /// <param name="getDynamicMaximumLength">Optional limit recalculated after each read.</param>
+        /// <returns>The CRC-32 and number of bytes read.</returns>
+        public static async Task<(uint Checksum, long Length)> ComputeBoundedAsync(
+            Stream stream,
+            CancellationToken cancellationToken,
+            long maximumLength,
+            Func<long>? getDynamicMaximumLength = null)
         {
             ArgumentNullException.ThrowIfNull(stream);
+            ArgumentOutOfRangeException.ThrowIfNegative(maximumLength);
 
-            var buffer = ArrayPool<byte>.Shared.Rent(81920);
+            var buffer = ArrayPool<byte>.Shared.Rent(getDynamicMaximumLength is null ? 81920 : 4096);
             try
             {
                 var crc = 0xffffffff;
@@ -102,6 +120,12 @@ namespace MediaBrowser.Common
                 int bytesRead;
                 while ((bytesRead = await stream.ReadAsync(buffer.AsMemory(), cancellationToken).ConfigureAwait(false)) > 0)
                 {
+                    var currentMaximumLength = Math.Min(maximumLength, getDynamicMaximumLength?.Invoke() ?? long.MaxValue);
+                    if (bytesRead > currentMaximumLength - length)
+                    {
+                        throw new InvalidDataException($"Stream exceeds the maximum allowed length of {currentMaximumLength} bytes.");
+                    }
+
                     crc = ComputeState(crc, buffer.AsSpan(0, bytesRead));
                     length += bytesRead;
                 }

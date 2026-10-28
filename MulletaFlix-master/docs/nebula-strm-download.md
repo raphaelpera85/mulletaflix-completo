@@ -852,3 +852,23 @@ Após nova auditoria, a API ativa ainda responde **12.1.21** e não havia worker
 - Defeito de observabilidade confirmado: após até três tentativas, a falha do download da imagem é capturada e apenas registrada como warning; não incrementa `RefreshResult.Failures`. Isso permite atualizar metadados e concluir a atualização sem sinalizar a falha de imagem neste estágio.
 - Limite da confirmação: não havia log de produção atual nem resposta de imagem/API para os títulos do screenshot. Assim, os defeitos de fonte explicam casos compatíveis, mas não atribuo a eles todos os posters azuis nem confirmo que cada item afetado tenha recebido múltiplas imagens. Nenhuma produção, item ou imagem foi alterado.
 - Verificações: fluxo percorrido em `MetadataService`, `ProviderManager`, `ImageSaver`, `ItemImageProvider` e `BaseItem.ValidateImages`; suítes servidor/Python já concluídas nesta sessão. Testes de regressão específicos de múltiplas imagens Primary e falha remota ainda não existem. Mapa técnico conferido: sem mudança de estrutura. Detalhes: `docs/image-metadata-flow-audit.md`.
+
+## Retry durável do refresh VFS
+
+Após upload concluído, o caminho virtual é normalizado e persistido na coleção Mongo `nebula_directory_refreshes` antes de entrar na fila de refresh do rclone. A fila remove o registro persistido somente após a confirmação do refresh do diretório ou dos ancestrais; exceções de rede, recusas do rclone e falta de readiness são erros para a fila, que retenta após 30 segundos. No próximo ciclo imediato/periódico, registros ainda pendentes são reidratados, incluindo os deixados por uma parada do servidor. Diretórios são deduplicados por `_id` canônico.
+
+O caminho persistido deve estar sob uma raiz visível (Animações, Filmes, Séries, Doramas, Novelas ou Porno) e rejeita segmentos de traversal. A coleção é criada por `EnsureSchemaAsync`; não requer instalação manual. A varredura de `completed_at` de 30 minutos continua como reconciliação secundária para uploads cujo marker não pôde ser persistido. Se Mongo estiver indisponível ao gravar, refresh atual segue em memória e a janela de 30 minutos pode recuperar a conclusão quando Mongo voltar; para falha além da janela, esse marker ainda não existe.
+
+Validação local Release Windows/.NET 10: testes Nebula 716 aprovados, 26 ignorados, 0 falhas/742. O teste de persistência entre contextos exige Mongo descartável e foi ignorado nesta execução; CI, runtime instalado e produção pendentes.
+
+### Complemento — snapshot da fila persistente no Supabase
+
+A tabela `nebula_directory_refreshes` foi adicionada ao SQL de instalação Supabase com RLS apenas para `service_role`. Backup sincroniza o conjunto atual por caminho canônico e remove rows remotas concluídas; restore reidrata paths usando o mesmo guard de raiz visível. Resultado de backup/restore expõe contagens de refreshes sincronizados/restaurados. Suíte ampla `FullyQualifiedName~Nebula`: 718 aprovados, 26 ignorados, 0 falhas/744; os testes Mongo opt-in não executaram sem Mongo disponível. Schema remoto real, CI hospedada, runtime instalado e produção seguem pendentes.
+
+### Revalidação com Mongo descartável e schema instalado — 2026-10-28
+
+MongoDB 8.3.7 isolado em `127.0.0.1:27099` habilitou todos os testes da suíte Nebula: 744 aprovados, 0 ignorados, 0 falhas. A migration `20261028125319` foi aplicada ao Supabase `Mulletaflix-Nebula`; tabela vazia e ACL/RLS conferidos por catálogo: apenas `service_role` tem SELECT/INSERT/UPDATE/DELETE. HTTP de sync/restore continuou mockado; CI, runtime instalado e execução de backup de produção não foram validados.
+
+### 28/10/2026 — Remediação dos advisors Supabase
+
+A migration `20261028130514_supabase_advisor_cleanup` fixa `search_path` vazio na trigger `set_nebula_updated_at`, remove o índice duplicado `idx_mulletaflix_users_username` e elimina `idx_nebula_files_parent`, sem scans e sem callers do campo no código. A uniqueness canônica `mulletaflix_users_normalized_username_key` permanece; C# setup cria/garante essa chave sem a duplicata e C#/Python setup não recriam `parent`. Advisors security e performance retornaram sem findings. Testes C# e Python focais passaram 1/1 cada. CI hospedada, runtime instalado e produção do servidor seguem pendentes.
