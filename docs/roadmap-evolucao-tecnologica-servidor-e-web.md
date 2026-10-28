@@ -1,3 +1,10 @@
+### 28/10/2026 15:20 -03 — Auditoria de visibilidade da candidata 12.1.46
+
+- A API pública do GitHub ainda retorna `v12.1.45` como última release; `GET /releases/tags/v12.1.46` retorna HTTP 404, e a lista de tags não contém `v12.1.46`. PR #1 permanece aberto para `main`; head `c63fc5c0` está em `codex/fail-closed-inplace-updater`.
+- O Centro de Atualizações consulta `/repos/raphaelpera85/mulletaflix-completo/releases`; `.github/workflows/release.yml` dispara somente em `push` de tag `v*`. Branch sem tag e objeto Release publicado não é candidata ao endpoint de update. Nenhuma alteração de runtime é indicada para esta ocorrência.
+- CI mais recente observado, run `40743410951`: 13 jobs constam como `failure`, sem runner ou steps expostos; API não informa causa. Não classificar como falha de teste. Homologação formal permanece 2/7 (28,6%); não criar release intermediária.
+- Mapa técnico conferido: fluxo de update permanece C# `UpdateInfoController` → GitHub Releases; workflow continua acionado por tag. Sem alteração de módulos, APIs, dependências ou fluxo. Detalhes também em `MulletaFlix-master/docs/releases/12.1.46.md`.
+
 ### 28/10/2026 13:17 -03 — Reauditoria do fluxo de exclusão GetAvatar no Linux
 
 - O achado antigo `IsPathWithinRoot` seguido por `File.Delete` no caminho de profile image está superado: substituição, limpeza de órfãos e remoção de perfil delegam ao `AvatarFileStore`. A exclusão Windows usa o handle aberto.
