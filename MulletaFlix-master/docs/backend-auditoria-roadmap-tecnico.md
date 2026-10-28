@@ -488,7 +488,7 @@ Ganho esperado:
   - `ItemPersistenceServiceTests`
   - `NextUpQueryOptimizationTests`
   - `BaseItemRepositoryTests`
-  - `BaseItemRepositoryLatestTvShowTests`
+  - `BaseItemRepositoryLatestItemTests`
   - `UserManagerTests`
   - `UserManagerNormalizedUsernameTests`
   - `UserManagerAuthenticationLockTests`
@@ -505,6 +505,12 @@ Ganho esperado:
 Mesmo com as correcoes aplicadas, parte do custo pode continuar por causa de dados legados, schema historico e compatibilidade com comportamento antigo.
 
 Para evitar falso ganho, cada sprint deve fechar com medicao antes/depois.
+
+### 27/10/2026 — Contrato de deduplicação de LatestMedia para filmes
+
+- A suíte `BaseItemRepositoryLatestItemTests` agora cobre filmes com seis cortes que compartilham `PresentationUniqueKey`, verificando que o filme seguinte, distinto, continua preenchendo o limite após a deduplicação.
+- Validação local focada: 3 testes aprovados, 0 falhas, em Release (`Jellyfin.Server.Implementations.Tests`).
+- A conexão de teste MariaDB não estava configurada; não foram medidos SQL, plano de execução ou desempenho representativo. A medição com MariaDB continua pendente.
 
 ### 13/10/2026 — Persistência resiliente das referências de imagens (v12.1.20)
 

@@ -5,6 +5,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using MediaBrowser.Controller;
 using MediaBrowser.Controller.Entities;
+using MediaBrowser.Controller.Entities.Movies;
 using MediaBrowser.Controller.Entities.TV;
 using MediaBrowser.Controller.Persistence;
 using MediaBrowser.Controller.Providers;
@@ -23,12 +24,12 @@ using Xunit;
 
 namespace MulletaFlix.Server.Implementations.Tests.Item;
 
-public sealed class BaseItemRepositoryLatestTvShowTests : IDisposable
+public sealed class BaseItemRepositoryLatestItemTests : IDisposable
 {
     private readonly MulletaFlixDbContext _context;
     private readonly BaseItemRepository _repository;
 
-    public BaseItemRepositoryLatestTvShowTests()
+    public BaseItemRepositoryLatestItemTests()
     {
         var options = new DbContextOptionsBuilder<MulletaFlixDbContext>()
             .UseInMemoryDatabase(Guid.NewGuid().ToString("N"))
@@ -60,6 +61,7 @@ public sealed class BaseItemRepositoryLatestTvShowTests : IDisposable
         itemTypeLookup.Setup(l => l.BaseItemKindNames)
             .Returns(new Dictionary<BaseItemKind, string>
             {
+                { BaseItemKind.Movie, typeof(Movie).ToString() },
                 { BaseItemKind.Episode, typeof(Episode).ToString() },
                 { BaseItemKind.Season, typeof(Season).ToString() },
                 { BaseItemKind.Series, typeof(Series).ToString() }
@@ -183,6 +185,28 @@ public sealed class BaseItemRepositoryLatestTvShowTests : IDisposable
         Assert.Contains(result, item => item.Id == seriesB.Id);
     }
 
+    [Fact]
+    public void GetLatestItemList_Movies_DeduplicatesBeforeApplyingLimit()
+    {
+        var now = new DateTime(2026, 6, 27, 12, 0, 0, DateTimeKind.Utc);
+        var newestDuplicate = CreateMovie("Newest cut", "shared-presentation", now);
+        var duplicateCuts = Enumerable.Range(1, 5)
+            .Select(index => CreateMovie($"Older cut {index}", "shared-presentation", now.AddMinutes(-index)))
+            .ToArray();
+        var nextMovie = CreateMovie("Next movie", "different-presentation", now.AddMinutes(-10));
+
+        _context.BaseItems.AddRange(new[] { newestDuplicate }.Concat(duplicateCuts).Append(nextMovie));
+        _context.SaveChanges();
+
+        var result = _repository.GetLatestItemList(
+            new InternalItemsQuery { Limit = 2 },
+            CollectionType.movies);
+
+        Assert.Equal(2, result.Count);
+        Assert.Equal(newestDuplicate.Id, result[0].Id);
+        Assert.Equal(nextMovie.Id, result[1].Id);
+    }
+
     private static BaseItemEntity CreateSeries(string name)
     {
         return new BaseItemEntity
@@ -220,6 +244,19 @@ public sealed class BaseItemRepositoryLatestTvShowTests : IDisposable
             SeriesId = series.Id,
             SeasonId = season.Id,
             ParentId = season.Id,
+            DateCreated = dateCreated,
+            IsFolder = false
+        };
+    }
+
+    private static BaseItemEntity CreateMovie(string name, string presentationKey, DateTime dateCreated)
+    {
+        return new BaseItemEntity
+        {
+            Id = Guid.NewGuid(),
+            Type = typeof(Movie).ToString(),
+            Name = name,
+            PresentationUniqueKey = presentationKey,
             DateCreated = dateCreated,
             IsFolder = false
         };
