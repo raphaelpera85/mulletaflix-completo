@@ -457,6 +457,8 @@ public class BackupService : IBackupService, IDisposable
         }
 
         var result = "failure";
+        var startedAtUtc = DateTime.UtcNow;
+        var errorMessage = string.Empty;
         FileStream? ownedOperationLease = null;
         try
         {
@@ -486,9 +488,26 @@ public class BackupService : IBackupService, IDisposable
             await RestoreBackupCoreAsync(archivePath, pendingRestore, journal).ConfigureAwait(false);
             result = "success";
         }
+        catch
+        {
+            errorMessage = "Restore failed. Check the server log for details.";
+            throw;
+        }
         finally
         {
             ownedOperationLease?.Dispose();
+            await RecordExecutionHistoryAsync(new BackupExecutionHistoryDto
+            {
+                Path = archivePath,
+                StartTimeUtc = startedAtUtc,
+                EndTimeUtc = DateTime.UtcNow,
+                Status = result == "success" ? TaskCompletionStatus.Completed : TaskCompletionStatus.Failed,
+                Name = operation == "restore_recovery" ? "Interrupted restore recovery" : "Full system restore",
+                Key = operation,
+                Id = Guid.NewGuid().ToString("N"),
+                ErrorMessage = errorMessage,
+                LongErrorMessage = string.Empty
+            }).ConfigureAwait(false);
             CompleteOperation(operation, result, startedAt);
         }
     }
@@ -1978,7 +1997,7 @@ public class BackupService : IBackupService, IDisposable
         }
         finally
         {
-            await RecordBackupExecutionAsync(new BackupExecutionHistoryDto
+            await RecordExecutionHistoryAsync(new BackupExecutionHistoryDto
             {
                 Path = manifest?.Path ?? string.Empty,
                 StartTimeUtc = startedAtUtc,
@@ -2717,7 +2736,7 @@ public class BackupService : IBackupService, IDisposable
 
     private string GetBackupHistoryFilePath() => Path.Combine(_applicationPaths.DataPath, BackupHistoryFileName);
 
-    private async Task RecordBackupExecutionAsync(BackupExecutionHistoryDto execution)
+    private async Task RecordExecutionHistoryAsync(BackupExecutionHistoryDto execution)
     {
         await _backupHistoryLock.WaitAsync().ConfigureAwait(false);
         string? temporaryFile = null;

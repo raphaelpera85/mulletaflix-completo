@@ -1270,12 +1270,20 @@ public sealed class BackupServiceTests : IDisposable
             archiveBytes[markerOffset] ^= 0x01;
             await File.WriteAllBytesAsync(archivePath, archiveBytes);
 
-            var service = CreateService();
+            using var service = CreateService();
             await Assert.ThrowsAsync<InvalidDataException>(() => service.RestoreBackupAsync(archivePath));
+
+            using var restartedService = CreateService();
+            var history = Assert.Single(await restartedService.GetBackupHistory());
+            Assert.Equal("restore", history.Key);
+            Assert.Equal(TaskCompletionStatus.Failed, history.Status);
+            Assert.Equal(archivePath, history.Path);
+            Assert.Equal("Restore failed. Check the server log for details.", history.ErrorMessage);
+            Assert.Empty(history.LongErrorMessage);
 
             Assert.Equal(existingContent, await File.ReadAllTextAsync(existingConfigPath));
             Assert.False(File.Exists(Path.Combine(configPath, "restored-user.json")));
-            Assert.False(Directory.Exists(Path.Combine(isolatedRoot, "data")));
+            Assert.Equal(["BackupExecutionHistory.json"], Directory.GetFiles(dataPath).Select(Path.GetFileName));
             Assert.False(Directory.Exists(Path.Combine(isolatedRoot, "root")));
         }
         finally
@@ -1336,7 +1344,7 @@ public sealed class BackupServiceTests : IDisposable
             Assert.Contains("manifest", error.Message, StringComparison.OrdinalIgnoreCase);
             Assert.Equal(existingContent, await File.ReadAllTextAsync(existingConfigPath));
             Assert.False(restoreSidecarCreated);
-            Assert.False(Directory.Exists(Path.Combine(isolatedRoot, "data")));
+            Assert.Equal(["BackupExecutionHistory.json"], Directory.GetFiles(Path.Combine(isolatedRoot, "data")).Select(Path.GetFileName));
         }
         finally
         {
@@ -2315,7 +2323,7 @@ public sealed class BackupServiceTests : IDisposable
                 await WriteArchiveEntryAsync(archive, "Root/fixture.nfo", "<movie><title>Recovered fixture</title></movie>");
             }
 
-            var service = CreateService();
+            using var service = CreateService();
             var restoreTimer = Stopwatch.StartNew();
             await service.RestoreBackupAsync(archivePath);
             restoreTimer.Stop();
@@ -2323,7 +2331,8 @@ public sealed class BackupServiceTests : IDisposable
             var restoreOperationLeasePath = Path.Combine(programDataPath, "restore-recovery", "restore-operation.lock");
             var restoredFiles = Directory.GetFiles(isolatedRoot, "*", SearchOption.AllDirectories)
                 .Where(path => !string.Equals(path, archivePath, StringComparison.OrdinalIgnoreCase)
-                    && !string.Equals(path, restoreOperationLeasePath, StringComparison.OrdinalIgnoreCase))
+                    && !string.Equals(path, restoreOperationLeasePath, StringComparison.OrdinalIgnoreCase)
+                    && !string.Equals(path, Path.Combine(dataPath, "BackupExecutionHistory.json"), StringComparison.OrdinalIgnoreCase))
                 .ToArray();
             Assert.Equal(4, restoredFiles.Length);
             Assert.True(File.Exists(restoreOperationLeasePath));
@@ -2334,6 +2343,14 @@ public sealed class BackupServiceTests : IDisposable
             Assert.Contains("Recovered fixture", await File.ReadAllTextAsync(Path.Combine(rootPath, "fixture.nfo")), StringComparison.Ordinal);
             Assert.True(double.IsFinite(restoreTimer.Elapsed.TotalSeconds));
             Assert.True(restoreTimer.Elapsed >= TimeSpan.Zero);
+
+            using var restartedService = CreateService();
+            var history = Assert.Single(await restartedService.GetBackupHistory());
+            Assert.Equal("restore", history.Key);
+            Assert.Equal("Full system restore", history.Name);
+            Assert.Equal(TaskCompletionStatus.Completed, history.Status);
+            Assert.Equal(archivePath, history.Path);
+            Assert.True(history.EndTimeUtc >= history.StartTimeUtc);
         }
         finally
         {
