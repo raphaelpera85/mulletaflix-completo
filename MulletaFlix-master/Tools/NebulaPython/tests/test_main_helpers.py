@@ -16,6 +16,7 @@ from main import (
     doc_download_timestamp,
     extract_media_year,
     get_contiguous_uploaded_parts,
+    get_uploaded_parts_by_id,
     get_media_category_priority,
     get_small_upload_worker_count,
     get_upload_worker_count,
@@ -90,12 +91,28 @@ def test_uploaded_parts_only_returns_contiguous_valid_prefix():
         {"part_id": 1, "tg_file": "second", "file_size": 10},
         {"part_id": 3, "tg_file": "fourth", "file_size": 0},
     ]
-
     assert [part["part_id"] for part in get_contiguous_uploaded_parts(parts)] == [0, 1, 2]
     assert get_contiguous_uploaded_parts(parts, total_parts=2) == [
         {"part_id": 0, "tg_file": "first", "file_size": 10},
         {"part_id": 1, "tg_file": "second", "file_size": 10},
     ]
+
+
+def test_uploaded_parts_by_id_preserves_sparse_valid_parts_for_retry(monkeypatch):
+    monkeypatch.setattr(main_module, "CHUNK_SIZE", 4)
+    parts = [
+        {"part_id": 1, "tg_file": "second", "file_size": 4},
+        {"part_id": 0, "tg_file": "first", "file_size": 3},
+        {"part_id": 2, "tg_file": "oversized", "file_size": 1},
+        {"part_id": "1", "tg_file": "duplicate", "file_size": 4},
+        {"part_id": 3, "tg_file": "out-of-range", "file_size": 4},
+        {"part_id": 0, "tg_file": "missing-size", "file_size": 0},
+    ]
+
+    recovered = get_uploaded_parts_by_id(parts, total_parts=2, total_size=8)
+
+    assert [part["part_id"] for part in recovered] == [1]
+    assert recovered[0]["tg_file"] == "second"
 
 
 @pytest.mark.parametrize(

@@ -216,6 +216,25 @@ def get_contiguous_uploaded_parts(parts, total_parts=None):
     return completed
 
 
+def get_uploaded_parts_by_id(parts, total_parts, total_size):
+    completed = {}
+    for part in parts or []:
+        try:
+            part_id = int(part.get("part_id"))
+            file_size = int(part.get("file_size") or 0)
+        except (TypeError, ValueError):
+            continue
+        expected_size = min(CHUNK_SIZE, total_size - part_id * CHUNK_SIZE)
+        if (
+            0 <= part_id < total_parts
+            and part.get("tg_file")
+            and file_size == expected_size
+            and part_id not in completed
+        ):
+            completed[part_id] = {**part, "part_id": part_id}
+    return [completed[part_id] for part_id in sorted(completed)]
+
+
 async def _wait_for_streaming(bot):
     active_streams = getattr(bot, "_nebula_streams", 0)
     while isinstance(active_streams, int) and active_streams > 0:
@@ -1083,7 +1102,13 @@ async def restore_pending_uploads(mongo):
                 logger.warning("Fila restaurada preservou duplicado no local e na fila: %s em %s", doc["name"], parent)
                 continue
             try:
-                await mongo.files.update_one({"_id": doc["_id"]}, {"$set": {"status": "staging", "parent": parent}})
+                await mongo.files.update_one(
+                    {"_id": doc["_id"]},
+                    {
+                        "$set": {"status": "staging", "parent": parent},
+                        "$unset": {"scanner_claim_id": "", "scanner_claimed_at": "", "scanner_enqueued": "", "scanner_retry_after": ""},
+                    },
+                )
             except DuplicateKeyError:
                 await mongo.files.update_one(
                     {"_id": doc["_id"]},
@@ -1110,9 +1135,58 @@ async def queued_mongo_scanner(mongo, max_workers=None):
         max_workers = min(MAX_WORKERS, UPLOAD_CONCURRENCY)
     batch_limit = max(max_workers, 30)
     logger.info("Iniciando queued_mongo_scanner ordenado pelo arquivo mais antigo baixado (intervalo=1s, max_por_iteracao=%d)", batch_limit)
+    scanner_id = uuid.uuid4().hex
+    staging_recovery_ids = {}
+    enqueued_claim_ids = {}
 
     while True:
         try:
+            now = int(time.time())
+            for file_id, retry_at in tuple(enqueued_claim_ids.items()):
+                if retry_at > now:
+                    continue
+                try:
+                    await mongo.files.update_one(
+                        {"_id": file_id, "status": "staging", "scanner_claim_id": scanner_id},
+                        {"$set": {
+                            "status": "queued", "scanner_enqueued": True,
+                        }, "$unset": {"scanner_claim_id": "", "scanner_claimed_at": "", "scanner_retry_after": ""}},
+                    )
+                    enqueued_claim_ids.pop(file_id, None)
+                except Exception as retry_exc:
+                    enqueued_claim_ids[file_id] = now + 5
+                    logger.warning("Scanner Mongo: confirmação da fila aguardando banco (%s): %s", file_id, retry_exc)
+
+            stale_claims = mongo.files.find(
+                {
+                    "type": "file",
+                    "status": "staging",
+                    "scanner_claim_id": {"$exists": True},
+                    "scanner_claimed_at": {"$lte": now - 5},
+                    "scanner_enqueued": {"$ne": True},
+                },
+                {"_id": 1},
+            )
+            async for stale in stale_claims:
+                file_id = stale["_id"]
+                retry_at = staging_recovery_ids.get(file_id, 0)
+                if retry_at > now or file_id in enqueued_claim_ids:
+                    continue
+                try:
+                    await mongo.files.update_one(
+                        {"_id": file_id, "status": "staging", "scanner_claim_id": stale.get("scanner_claim_id")},
+                        {"$set": {
+                            "status": "queued",
+                            "failed_at": now,
+                            "failed_reason": "queue_scanner_transient_error",
+                            "scanner_retry_after": now + 5,
+                        }, "$unset": {"scanner_claim_id": "", "scanner_claimed_at": "", "scanner_enqueued": ""}},
+                    )
+                    staging_recovery_ids.pop(file_id, None)
+                except Exception as retry_exc:
+                    staging_recovery_ids[file_id] = now + 5
+                    logger.warning("Scanner Mongo: retry de recuperação staging aguardando banco (%s): %s", file_id, retry_exc)
+
             found = 0
             # If large lane is running low, prioritize pulling large files so large workers never starve
             large_needed = hasattr(UPLOAD_QUEUE, "large_qsize") and UPLOAD_QUEUE.large_qsize() < 6
@@ -1125,6 +1199,11 @@ async def queued_mongo_scanner(mongo, max_workers=None):
                     "status": "queued",
                     "local_path": {"$exists": True},
                     "recovery_required": {"$ne": True},
+                    "scanner_enqueued": {"$ne": True},
+                    "$or": [
+                        {"scanner_retry_after": {"$exists": False}},
+                        {"scanner_retry_after": {"$lte": int(time.time())}},
+                    ],
                 }
                 doc = None
                 if large_needed:
@@ -1132,7 +1211,16 @@ async def queued_mongo_scanner(mongo, max_workers=None):
                     q_large["size"] = {"$gt": SMALL_FILE_MAX_BYTES}
                     doc = await mongo.files.find_one_and_update(
                         q_large,
-                        {"$set": {"status": "staging", "staged_at": int(time.time())}},
+                        {
+                            "$set": {
+                                "status": "staging",
+                                "staged_at": int(time.time()),
+                                "scanner_claim_id": scanner_id,
+                                "scanner_claimed_at": int(time.time()),
+                                "scanner_enqueued": False,
+                            },
+                            "$unset": {"scanner_retry_after": ""},
+                        },
                         sort=[("mtime", 1), ("ctime", 1), ("_id", 1)],
                     )
                     if doc:
@@ -1143,7 +1231,16 @@ async def queued_mongo_scanner(mongo, max_workers=None):
                 if not doc:
                     doc = await mongo.files.find_one_and_update(
                         q,
-                        {"$set": {"status": "staging", "staged_at": int(time.time())}},
+                        {
+                            "$set": {
+                                "status": "staging",
+                                "staged_at": int(time.time()),
+                                "scanner_claim_id": scanner_id,
+                                "scanner_claimed_at": int(time.time()),
+                                "scanner_enqueued": False,
+                            },
+                            "$unset": {"scanner_retry_after": ""},
+                        },
                         sort=[("mtime", 1), ("ctime", 1), ("_id", 1)],
                     )
                 if not doc:
@@ -1189,10 +1286,34 @@ async def queued_mongo_scanner(mongo, max_workers=None):
                         "parent": parent,
                         "size": doc.get("size", os.path.getsize(local_path)),
                     })
+                    enqueued_claim_ids[doc["_id"]] = int(time.time()) + 5
+                    try:
+                        await mongo.files.update_one(
+                            {"_id": doc["_id"], "status": "staging", "scanner_claim_id": scanner_id},
+                            {"$set": {"status": "queued", "scanner_enqueued": True},
+                             "$unset": {"scanner_claim_id": "", "scanner_claimed_at": "", "scanner_retry_after": ""}},
+                        )
+                        enqueued_claim_ids.pop(doc["_id"], None)
+                    except Exception as ack_exc:
+                        logger.warning("Scanner Mongo: confirmação de item enfileirado será repetida (%s): %s", doc.get("name"), ack_exc)
                     found += 1
                     logger.info("Scanner Mongo: enfileirado para upload (mais antigo): %s (mtime=%s, local_path=%s)", doc["name"], doc.get("mtime"), local_path)
                 except Exception as doc_exc:
                     logger.error("Scanner Mongo: erro processando arquivo %s: %s", doc.get("name"), doc_exc)
+                    retry_at = int(time.time()) + 5
+                    try:
+                        await mongo.files.update_one(
+                            {"_id": doc["_id"], "status": "staging", "scanner_claim_id": scanner_id},
+                            {"$set": {
+                                "status": "queued",
+                                "failed_at": int(time.time()),
+                                "failed_reason": "queue_scanner_transient_error",
+                                "scanner_retry_after": retry_at,
+                            }, "$unset": {"scanner_claim_id": "", "scanner_claimed_at": "", "scanner_enqueued": ""}},
+                        )
+                    except Exception as retry_exc:
+                        staging_recovery_ids[doc["_id"]] = int(time.time()) + 5
+                        logger.warning("Scanner Mongo: não conseguiu liberar item staging para retry (%s): %s", doc.get("name"), retry_exc)
             if found:
                 logger.info("Scanner Mongo: %s arquivo(s) movidos para fila de upload (max_por_iteracao=%d)", found, max_workers)
             else:
@@ -1491,7 +1612,8 @@ async def upload_worker(bot, target_chat_id, mongo, worker_id, bot_index=0):
 
             claimed_doc = await mongo.files.find_one_and_update(
                 {"_id": file_doc["_id"], "status": {"$in": ["queued", "staging"]}},
-                {"$set": {"parent": parent, "status": "uploading", "worker_id": worker_id, "bot_index": bot_index + 1, "started_at": int(time.time())}},
+                {"$set": {"parent": parent, "status": "uploading", "worker_id": worker_id, "bot_index": bot_index + 1, "started_at": int(time.time())},
+                 "$unset": {"scanner_claim_id": "", "scanner_claimed_at": "", "scanner_enqueued": "", "scanner_retry_after": ""}},
                 return_document=ReturnDocument.AFTER,
             )
             if not claimed_doc:
@@ -1690,7 +1812,8 @@ async def upload_worker_parallel(bots, target_chat_id, mongo, worker_id):
 
             file_doc = await mongo.files.find_one_and_update(
                 {"_id": file_doc["_id"], "status": {"$in": ["queued", "staging"]}},
-                {"$set": {"parent": parent, "status": "uploading", "worker_id": worker_id, "started_at": int(time.time())}},
+                {"$set": {"parent": parent, "status": "uploading", "worker_id": worker_id, "started_at": int(time.time())},
+                 "$unset": {"scanner_claim_id": "", "scanner_claimed_at": "", "scanner_enqueued": "", "scanner_retry_after": ""}},
                 return_document=ReturnDocument.AFTER,
             )
             if not file_doc:
@@ -1698,16 +1821,15 @@ async def upload_worker_parallel(bots, target_chat_id, mongo, worker_id):
                 continue
             await log_queue_state(mongo, f"inicio:{filename}")
 
-            parts_metadata = get_contiguous_uploaded_parts(file_doc.get("parts"))
-            resume_part = len(parts_metadata)
+            total_parts = max(1, (real_size + CHUNK_SIZE - 1) // CHUNK_SIZE)
+            parts_metadata = get_uploaded_parts_by_id(file_doc.get("parts"), total_parts, real_size)
+            uploaded_part_ids = {part["part_id"] for part in parts_metadata}
+            resume_part = next((part_id for part_id in range(total_parts) if part_id not in uploaded_part_ids), total_parts)
             uploaded_bytes = sum(int(part["file_size"]) for part in parts_metadata)
             if uploaded_bytes > real_size:
                 raise RuntimeError(
                     f"Metadados excedem arquivo: {uploaded_bytes}/{real_size} bytes"
                 )
-            remaining_bytes = real_size - uploaded_bytes
-            remaining_parts = (remaining_bytes + CHUNK_SIZE - 1) // CHUNK_SIZE
-            total_parts = resume_part + remaining_parts
             logger.info(
                 f"[W{worker_id}] Iniciando upload: {filename} "
                 f"tamanho={real_size/1024/1024:.2f} MB partes={total_parts} "
@@ -1740,7 +1862,7 @@ async def upload_worker_parallel(bots, target_chat_id, mongo, worker_id):
                     readahead_queue,
                     worker_id,
                     resume_part,
-                    uploaded_bytes,
+                    resume_part * CHUNK_SIZE,
                 )
             )
 
@@ -1770,20 +1892,27 @@ async def upload_worker_parallel(bots, target_chat_id, mongo, worker_id):
                     )
 
                 results = await asyncio.gather(
-                    *[_upload_one(pn) for pn in range(start_part, batch_end)]
+                    *[_upload_one(pn) for pn in range(start_part, batch_end) if pn not in uploaded_part_ids],
+                    return_exceptions=True,
                 )
-                parts_metadata.extend(results)
-                parts_metadata.sort(key=lambda item: item["part_id"])
-                uploaded_bytes += sum(item["file_size"] for item in results)
+                completed_parts = [result for result in results if not isinstance(result, BaseException)]
+                upload_errors = [result for result in results if isinstance(result, BaseException)]
+                if completed_parts:
+                    parts_metadata.extend(completed_parts)
+                    parts_metadata.sort(key=lambda item: item["part_id"])
+                    uploaded_part_ids.update(item["part_id"] for item in completed_parts)
+                    uploaded_bytes += sum(item["file_size"] for item in completed_parts)
+                    stream_bot_name = next((item.get("bot_name") for item in parts_metadata if item.get("bot_name")), None)
+                    await persist_upload_checkpoint(
+                        mongo,
+                        {"_id": file_doc["_id"]},
+                        {"$set": {"uploaded_bytes": uploaded_bytes, "parts": parts_metadata, "stream_bot_name": stream_bot_name}},
+                        filename=filename,
+                        worker_id=worker_id,
+                    )
+                if upload_errors:
+                    raise upload_errors[0]
                 percent = uploaded_bytes / real_size * 100
-                stream_bot_name = next((item.get("bot_name") for item in parts_metadata if item.get("bot_name")), None)
-                await persist_upload_checkpoint(
-                    mongo,
-                    {"_id": file_doc["_id"]},
-                    {"$set": {"uploaded_bytes": uploaded_bytes, "parts": parts_metadata, "stream_bot_name": stream_bot_name}},
-                    filename=filename,
-                    worker_id=worker_id,
-                )
                 logger.debug(
                     f"[W{worker_id}] Progresso: {filename} parte={batch_end}/{total_parts} "
                     f"percentual={percent:.1f}% enviado={uploaded_bytes/1024/1024:.2f}/{real_size/1024/1024:.2f} MB"
@@ -1904,7 +2033,8 @@ async def upload_small_file_worker(bots, target_chat_id, mongo, worker_id):
 
             file_doc = await mongo.files.find_one_and_update(
                 {"_id": file_doc["_id"], "status": {"$in": ["queued", "staging"]}},
-                {"$set": {"parent": parent, "status": "uploading", "worker_id": f"small_{worker_id}", "started_at": int(time.time())}},
+                {"$set": {"parent": parent, "status": "uploading", "worker_id": f"small_{worker_id}", "started_at": int(time.time())},
+                 "$unset": {"scanner_claim_id": "", "scanner_claimed_at": "", "scanner_enqueued": "", "scanner_retry_after": ""}},
                 return_document=ReturnDocument.AFTER,
             )
             if not file_doc:

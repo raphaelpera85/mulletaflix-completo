@@ -1,5 +1,12 @@
 # Auditoria Técnica do Backend MulletaFlix
 
+## Verificação incremental — player e retomada Nebula — 2026-10-29
+
+- A tela do player mantinha `goHome()` no caminho de erro da inicialização dos controles, escondendo a mídia enquanto a reprodução podia continuar em áudio. Agora registra o erro e permanece no player; precisa capturar e corrigir a exceção específica em ambiente reprodutor antes de considerar o fluxo homologado.
+- Retomada do upload multipart agora reconhece partes válidas esparsas, mantém seus checkpoints e salta essas partes ao repetir o lote. Evita retransmitir dados já confirmados após falha de uma parte anterior.
+- Evidência local: NebulaPython 688/688; Vitest 425/425; `npm run build:check`; build web de produção e `npm run verify:build` (1.929 artefatos). Sem acesso de escrita à produção, teste candidato em dispositivo webOS ou validação de Telegram/MongoDB operacionais.
+- Homologação formal permanece 2/7 (28,6%); nenhuma release foi criada. Ver registro da sessão de 29/10.
+
 Escopo: backend `MulletaFlix-master`, com foco em desempenho, manutenção, bootstrap, persistência, consultas e cobertura de testes.
 
 ### Opt-in MariaDB reexecutado — 2026-10-29
@@ -824,3 +831,12 @@ Estado parcial publicado no portal Git main, commit c2f19535f7bf7e87862570e6e210
 - A tentativa focal filtrada deixou a suíte Vite vazia e o Playwright CLI retornou “No tests found”; stage passou, mas o sumário agregado ficou `failed` por essa suíte sem correspondências. Não foi alterado o runner por causa deste uso de filtro.
 - Produção `localhost:8096` recusou conexão nesta verificação, não foi iniciada nem reiniciada. O log do DLL 12.1.44 registrou tentativa de iniciar o cliente DuckDNS apesar da variável de isolamento; ao fim não havia processo DuckDns, MulletaFlix, dotnet ou mysqld ativo nem listener nas portas de teste. Não foi confirmado efeito externo nem alteração DNS; o candidato atual contém a correção da variável, mas não foi o binário usado.
 - Sem alteração de código de produto, release, commit, push ou portal. Portal continua aguardando lote de dez evidências. E2E da candidata atual, CI hospedada, Linux e produção continuam pendentes. Mapa conferido: estrutura/runtime permanecem iguais.
+
+### Vinheta antes da mídia com STRM Nebula — 2026-10-29 18:28 BRT
+
+A fonte de `v12.1.45` foi comparada com a candidata: o evento de parada da vinheta não carregava a indicação de término natural e o avanço para o título da fila dependia de `EnableNextEpisodeAutoPlay`; isso explica a falha quando a preferência está desligada. A candidata sinaliza término natural e permite a transição da vinheta sem mudar a configuração de autoplay de episódios. Playwright focal em stage isolado, usando um `.strm` real da biblioteca Nebula e a configuração padrão (vinheta habilitada, caminho customizado vazio), passou 1/1: vinheta solicitada antes do vídeo, transição natural e resposta HTTP 200 do stream principal. O relatório local é `mflx-playwright-report-real-intro-verified-20261029`. Produção consultada apenas por GET continua em 12.1.45; fix não está instalado. Homologação formal global 2/7; release candidata não publicada. Mapa técnico conferido: componentes web existentes; nenhuma API, dependência ou módulo novo.
+
+
+### Nebula: retry do scanner após erro transitório — 2026-10-29 18:46 BRT
+
+O queued_mongo_scanner agora recupera também claims gravados no Mongo cuja resposta expirou, com backoff de cinco segundos quando a liberação falha. A restauração após reinício re-enfileira arquivos em staging e limpa marcadores antigos; workers removem marcadores ao assumir. Testes de scanner/restauração 11/11, suíte Nebula Python 686/686 e compileall passaram. Um `.strm` real da biblioteca foi enfileirado em memória, sem worker de upload ou chamada ao Telegram. MongoDB real, Telegram, runtime instalado e produção não foram exercitados. Homologação formal permanece 2/7; nenhum release adicional foi publicado.

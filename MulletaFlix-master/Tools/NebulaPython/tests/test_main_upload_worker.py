@@ -119,6 +119,101 @@ async def test_parallel_upload_worker_completes_file_and_cleans_staging(monkeypa
 
 
 @pytest.mark.asyncio
+async def test_parallel_upload_checkpoints_successful_sibling_before_retry(monkeypatch, tmp_path):
+    media = tmp_path / "partial-episode.mkv"
+    media.write_bytes(b"abcdefgh")
+    file_doc = {"_id": "partial-file", "name": media.name, "status": "queued", "parts": []}
+    updates = []
+    attempts = []
+    later_part_succeeded = asyncio.Event()
+    failed_status_saved = asyncio.Event()
+    removed = []
+
+    class Files:
+        async def find_one(self, _query):
+            return file_doc
+
+        async def find_one_and_update(self, _query, update, *, return_document):
+            file_doc.update(update.get("$set", {}))
+            return file_doc
+
+        async def update_one(self, query, update):
+            updates.append((query, update))
+            file_doc.update(update.get("$set", {}))
+            for key in update.get("$unset", {}):
+                file_doc.pop(key, None)
+            if file_doc.get("status") == "failed":
+                failed_status_saved.set()
+
+    class Admission:
+        async def close(self):
+            return None
+
+    async def resolve_parent(*_args):
+        return "Series"
+
+    async def log_state(*_args):
+        return None
+
+    async def upload_part(_worker_id, _bots, _chat, _path, file_uuid, part_num, payload, *_args, **_kwargs):
+        attempts.append(part_num)
+        if part_num == 0 and attempts.count(0) == 1:
+            await later_part_succeeded.wait()
+            raise RuntimeError("simulated earlier part failure")
+        if part_num == 1 and attempts.count(1) == 1:
+            later_part_succeeded.set()
+        return {
+            "part_id": part_num,
+            "tg_file": f"tg-file-{part_num}",
+            "tg_message": part_num + 100,
+            "file_size": len(payload),
+            "chunk_name": f"{file_uuid}.part_{part_num:03d}",
+            "bot_name": "bot-a",
+        }
+
+    queue = asyncio.Queue()
+    monkeypatch.setattr(main, "UPLOAD_QUEUE", queue)
+    monkeypatch.setattr(main, "ACTIVE_UPLOADS", set())
+    monkeypatch.setattr(main, "CHUNK_SIZE", 4)
+    monkeypatch.setattr(main, "PART_WORKERS_PER_FILE", 2)
+    monkeypatch.setattr(main, "resolve_media_parent", resolve_parent)
+    monkeypatch.setattr(main, "log_queue_state", log_state)
+    monkeypatch.setattr(main, "acquire_worker_upload_admission", lambda *_args: _admission())
+    monkeypatch.setattr(main, "classify_media_type", lambda *_args: "series")
+    monkeypatch.setattr(main, "build_part_caption", lambda *_args: "caption")
+    monkeypatch.setattr(main, "upload_part_with_retries", upload_part)
+    monkeypatch.setattr(main, "safe_remove_staging_file", lambda path, **_kwargs: removed.append(path))
+    monkeypatch.setattr(main.Metrics, "log_fail", lambda: None)
+    monkeypatch.setattr(main.Metrics, "log_success", lambda _size: None)
+
+    async def _admission():
+        return Admission()
+
+    task = {"path": str(media), "filename": media.name, "parent": "Series"}
+    await queue.put(task)
+    worker = asyncio.create_task(
+        main.upload_worker_parallel([SimpleNamespace(name="bot-a")], -100, SimpleNamespace(files=Files()), 12)
+    )
+    try:
+        await asyncio.wait_for(failed_status_saved.wait(), timeout=3)
+        await asyncio.wait_for(queue.join(), timeout=3)
+        assert [part["part_id"] for part in file_doc["parts"]] == [1]
+
+        file_doc["status"] = "queued"
+        await queue.put(task)
+        await asyncio.wait_for(queue.join(), timeout=3)
+    finally:
+        worker.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await worker
+
+    assert attempts == [0, 1, 0]
+    assert file_doc["status"] == "completed"
+    assert [part["part_id"] for part in file_doc["parts"]] == [0, 1]
+    assert removed == [str(media)]
+
+
+@pytest.mark.asyncio
 async def test_parallel_upload_worker_cancels_blocked_readahead_after_upload_failure(monkeypatch, tmp_path):
     media = tmp_path / "large-episode.mkv"
     media.write_bytes(b"x" * 40)
