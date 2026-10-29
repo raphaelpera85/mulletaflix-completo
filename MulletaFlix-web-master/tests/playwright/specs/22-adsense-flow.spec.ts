@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import path from 'node:path';
 
 import {
     getAdminCredentials,
@@ -10,7 +11,8 @@ import { fetchStagePublicInfo, navigateStage } from '../support/stage.mjs';
 import {
     ensureMediaLibrariesReady,
     getVirtualFolderByLibrary,
-    MOVIES_LIBRARY
+    MOVIES_LIBRARY,
+    SERIES_LIBRARY
 } from '../support/media-library.mjs';
 
 async function getTwoPlayableItems(page, folderId) {
@@ -47,11 +49,23 @@ async function updateBranding(page, patch) {
     }, patch);
 }
 
-async function getActivePlaybackSessions(page, itemId) {
-    return page.evaluate(async (targetItemId) => {
-        const sessions = await window.ApiClient.getSessions({ activeWithinSeconds: 120 });
-        return sessions.filter((session) => String(session.NowPlayingItem?.Id || '').toLowerCase() === String(targetItemId).toLowerCase());
-    }, itemId);
+async function getVirtualFolderItemByPath(page, folderId, targetPath) {
+    return page.evaluate(async ({ parentId, itemPath }) => {
+        const result = await window.ApiClient.getItems(window.ApiClient.getCurrentUserId(), {
+            ParentId: parentId,
+            Limit: 1000,
+            Recursive: true,
+            IncludeItemTypes: 'Movie',
+            MediaTypes: 'Video',
+            Fields: 'Path,MediaType,RunTimeTicks,Name,Type'
+        });
+        const item = (result?.Items || []).find(candidate => String(candidate?.Path || '').replaceAll('\\', '/').toLowerCase() === itemPath);
+
+        return item?.Id ? { id: item.Id, name: item.Name, path: item.Path } : null;
+    }, {
+        parentId: folderId,
+        itemPath: targetPath.replaceAll('\\', '/').toLowerCase()
+    });
 }
 
 async function prepareAdSensePlayback(page, scriptMode) {
@@ -136,6 +150,106 @@ async function prepareAdSensePlayback(page, scriptMode) {
 
 test.describe.serial('22 - AdSense playback flow', () => {
     test.setTimeout(25 * 60 * 1000);
+
+    test('plays the bundled intro before media with the default branding settings', async ({ page }) => {
+        const realStrmFile = process.env.PW_REAL_STRM_FILE;
+        test.skip(!realStrmFile, 'Set PW_REAL_STRM_FILE to validate default intro playback using a real Nebula STRM title.');
+
+        const admin = getAdminCredentials();
+        await ensureWizardCompleted(page, admin.username, admin.password);
+        await loginWithManualForm(page, admin.username, admin.password);
+        const realMoviePath = path.join(MOVIES_LIBRARY.path, path.basename(realStrmFile));
+        await ensureMediaLibrariesReady(page, {
+            timeoutMs: 22 * 60 * 1000,
+            pollIntervalMs: 45_000,
+            libraries: [ MOVIES_LIBRARY, SERIES_LIBRARY ]
+        });
+
+        const moviesFolder = await getVirtualFolderByLibrary(page, MOVIES_LIBRARY);
+        const folderId = moviesFolder?.ItemId || moviesFolder?.Id;
+        expect(folderId, 'movie library folder not found').toBeTruthy();
+        let movie: { id: string; name: string; path: string } | null = null;
+        await expect.poll(async () => {
+            movie = await getVirtualFolderItemByPath(page, folderId, realMoviePath);
+            return Boolean(movie?.id);
+        }, {
+            timeout: 22 * 60 * 1000,
+            intervals: [ 5_000, 15_000, 30_000 ]
+        }).toBe(true);
+
+        const branding = await page.evaluate(() => window.ApiClient.getNamedConfiguration('branding'));
+        expect(branding.IntroEnabled).toBe(true);
+        expect(branding.IntroPath || '').toBe('');
+        const intros = await page.evaluate(async (itemId) => (await window.ApiClient.getIntros(itemId))?.Items || [], movie.id);
+        expect(intros, 'default bundled intro should be returned before playable media').toHaveLength(1);
+
+        const mediaRequestItemIds: string[] = [];
+        const playbackEvents: string[] = [];
+        const introDiagnostics: string[] = [];
+        const normalizedIntroId = intros[0].Id.replaceAll('-', '').toLowerCase();
+        const normalizedMovieId = movie.id.replaceAll('-', '').toLowerCase();
+        page.on('request', (request) => {
+            const path = new URL(request.url()).pathname;
+            const mediaRequestMatch = path.match(/^\/Videos\/([^/]+)\//i);
+            if (mediaRequestMatch) {
+                const itemId = mediaRequestMatch[1].replaceAll('-', '').toLowerCase();
+                mediaRequestItemIds.push(itemId);
+                playbackEvents.push(`media:${itemId}`);
+            }
+            if (request.method() === 'POST' && path === '/Sessions/Playing') {
+                try {
+                    const itemId = String(request.postDataJSON()?.ItemId || '').replaceAll('-', '').toLowerCase();
+                    playbackEvents.push(`session:${itemId}`);
+                } catch {
+                    // Ignore unrelated session reports without JSON bodies.
+                }
+            }
+
+            if (request.url().replaceAll('-', '').toLowerCase().includes(normalizedIntroId)) {
+                introDiagnostics.push(`${request.method()} ${path}`);
+            }
+        });
+        page.on('response', (response) => {
+            const path = new URL(response.url()).pathname;
+            const mediaResponseMatch = path.match(/^\/Videos\/([^/]+)\//i);
+            if (mediaResponseMatch) {
+                const itemId = mediaResponseMatch[1].replaceAll('-', '').toLowerCase();
+                playbackEvents.push(`response:${itemId}:${response.status()}`);
+            }
+            if (response.url().replaceAll('-', '').toLowerCase().includes(normalizedIntroId)) {
+                introDiagnostics.push(`HTTP ${response.status()} ${new URL(response.url()).pathname}`);
+            }
+        });
+        page.on('console', (message) => {
+            const text = message.text();
+            if (/playing next track/i.test(text)) {
+                playbackEvents.push(`next:${normalizedMovieId}`);
+            }
+            if (/intro playback failed|No player found|Failed to play next track/i.test(text)) {
+                introDiagnostics.push(text);
+            }
+        });
+
+        await navigateStage(page, `/details?id=${movie.id}`);
+        const playButton = page.locator('.btnPlayOrResume, .btnPlay').first();
+        await expect(playButton).toBeVisible({ timeout: 60_000 });
+        await playButton.click({ force: true });
+        await expect.poll(() => playbackEvents.indexOf(`next:${normalizedMovieId}`), {
+            timeout: 90_000,
+            intervals: [ 2_000, 5_000, 10_000 ]
+        }).toBeGreaterThanOrEqual(0);
+        await expect.poll(() => playbackEvents.indexOf(`response:${normalizedMovieId}:200`), {
+            timeout: 90_000,
+            intervals: [ 2_000, 5_000, 10_000 ]
+        }).toBeGreaterThanOrEqual(0);
+
+        expect(mediaRequestItemIds, `intro media should be requested before the selected movie; intro diagnostics: ${introDiagnostics.join(' | ')}`).toEqual(expect.arrayContaining([ normalizedIntroId, normalizedMovieId ]));
+        expect(playbackEvents.indexOf(`media:${normalizedIntroId}`)).toBeGreaterThanOrEqual(0);
+        expect(playbackEvents.indexOf(`session:${normalizedIntroId}`)).toBeGreaterThanOrEqual(0);
+        expect(playbackEvents.indexOf(`session:${normalizedIntroId}`)).toBeLessThan(playbackEvents.indexOf(`next:${normalizedMovieId}`));
+        expect(playbackEvents.indexOf(`next:${normalizedMovieId}`)).toBeLessThan(playbackEvents.lastIndexOf(`response:${normalizedMovieId}:200`));
+        await logoutViaDashboard(page);
+    });
 
     test('shows the ad after the intro and resumes the main media', async ({ page }) => {
         await prepareAdSensePlayback(page, 'success');

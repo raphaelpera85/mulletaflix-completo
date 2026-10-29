@@ -20,6 +20,12 @@ export function assertSafeStageBaseUrl(value) {
     return value;
 }
 
+export function assertStageVersion(expected, actual) {
+    if (!expected || expected !== actual) {
+        throw new Error(`Playwright stage version mismatch: expected ${expected || 'unknown'}, received ${actual || 'unknown'}. Build the stage from the current server source.`);
+    }
+}
+
 function isInsideOrEqual(target, root) {
     const relative = path.relative(path.resolve(root), path.resolve(target));
     return relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative));

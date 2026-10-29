@@ -25,6 +25,7 @@ import {
     parseStagePid,
     parseWindowsUserSid,
     assertSafeStageBaseUrl,
+    assertStageVersion,
     resolveDotnetExecutable
 } from './stage-safety.mjs';
 import { seedPlaywrightMediaFixtures } from './media-fixtures.mjs';
@@ -32,9 +33,19 @@ import { seedPlaywrightMediaFixtures } from './media-fixtures.mjs';
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(scriptDir, '..', '..');
 const reportDir = path.join(repoRoot, 'reports', 'playwright');
+let failureReportDir = reportDir;
 const configPath = path.join(repoRoot, 'playwright.stage.config.ts');
+const fixtureConfigPath = path.join(repoRoot, 'playwright.fixtures.config.ts');
 const specDir = path.join(repoRoot, 'tests', 'playwright', 'specs');
 const playwrightCli = path.join(repoRoot, 'node_modules', '@playwright', 'test', 'cli.js');
+const viteFixtureSpecNames = new Set([
+    '24-scrollbuttons.spec.ts',
+    '25-myrequests.spec.ts',
+    '26-request-autocomplete.spec.ts',
+    '27-nebula-navigation.spec.ts',
+    '28-backup-coverage.spec.ts',
+    '29-accessibility.spec.ts'
+]);
 const workspaceRoot = path.resolve(repoRoot, '..');
 const stageDll = process.env.PW_STAGE_DLL ? path.resolve(process.env.PW_STAGE_DLL) : path.join(workspaceRoot, 'stage', 'MulletaFlix.dll');
 const defaultStageDataDir = path.join(workspaceRoot, 'stage-data');
@@ -126,6 +137,16 @@ async function selectStageDatabasePort() {
     throw new Error('No isolated MariaDB port is available in the Playwright stage range 33100-33200.');
 }
 
+async function selectFixturePort() {
+    for (let candidate = 18197; candidate <= 18297; candidate++) {
+        if (await isPortAvailable(candidate)) {
+            return candidate;
+        }
+    }
+
+    throw new Error('No isolated Vite fixture port is available in the Playwright range 18197-18297.');
+}
+
 async function writeStageNetworkConfiguration(baseUrl) {
     const { port } = parseBaseUrl(baseUrl);
     const configDir = path.join(stageDataDir, 'config');
@@ -185,6 +206,7 @@ async function probeStage(baseUrl) {
             reachable: true,
             startupWizardCompleted: Boolean(info?.StartupWizardCompleted),
             systemId: info?.Id || null,
+            version: info?.Version || null,
             error: null
         };
     } catch (error) {
@@ -192,6 +214,7 @@ async function probeStage(baseUrl) {
             reachable: false,
             startupWizardCompleted: null,
             systemId: null,
+            version: null,
             error: error instanceof Error ? error.message : String(error)
         };
     }
@@ -415,14 +438,15 @@ async function writeNoSpecsSummary(args, specCount, initialStageProbe) {
 
 async function prepareStage(args) {
     if (!args.resetStage) {
-        return null;
+        return probeStage(args.baseUrl);
     }
 
     await resetStageWorkspace();
     const mediaRoot = path.join(stageDataDir, 'playwright-media');
     const sampleVideoPath = path.join(workspaceRoot, 'MulletaFlix-master', 'Jellyfin.Server', 'media', 'mulletaflix_intro.mp4');
     await seedPlaywrightMediaFixtures(mediaRoot, sampleVideoPath, {
-        ffmpegPath: process.env.PW_FFMPEG_PATH || 'ffmpeg'
+        ffmpegPath: process.env.PW_FFMPEG_PATH || 'ffmpeg',
+        realStrmFilePath: process.env.PW_REAL_STRM_FILE
     });
     process.env.PW_MEDIA_LIBRARY_ROOT = mediaRoot;
     args.baseUrl = await selectStageBaseUrl(args.baseUrl || DEFAULT_STAGE_BASE_URL);
@@ -431,8 +455,11 @@ async function prepareStage(args) {
     return startStageAndWaitClean(args.baseUrl, args.databasePort);
 }
 
-function buildPlaywrightArgs(args) {
-    const playwrightArgs = [ playwrightCli, 'test', '--config', configPath ];
+function buildPlaywrightArgs(args, config, specs) {
+    const playwrightArgs = [ playwrightCli, 'test', ...specs.map(spec => path.relative(repoRoot, spec).replaceAll(path.sep, '/')), '--config', config ];
+    if (args.grep) {
+        playwrightArgs.push('--pass-with-no-tests');
+    }
     if (args.grep) {
         playwrightArgs.push('--grep', args.grep);
     }
@@ -442,14 +469,21 @@ function buildPlaywrightArgs(args) {
 
 async function main() {
     const args = parseArgs(process.argv.slice(2));
-    const rawReportPath = path.join(args.reportDir, 'raw-results.json');
-    await rm(rawReportPath, { force: true });
+    failureReportDir = args.reportDir;
+    const stageRawReportPath = path.join(args.reportDir, 'raw-stage-results.json');
+    const fixtureRawReportPath = path.join(args.reportDir, 'raw-vite-fixture-results.json');
+    await Promise.all([
+        rm(stageRawReportPath, { force: true }),
+        rm(fixtureRawReportPath, { force: true })
+    ]);
     const specPatterns = [ '**/*.spec.ts', '**/*.spec.js', '**/*.spec.mjs' ];
     const specs = await fg(specPatterns, {
         cwd: args.specDir,
         absolute: true,
         onlyFiles: true
     });
+    const fixtureSpecs = specs.filter(spec => viteFixtureSpecNames.has(path.basename(spec)));
+    const stageSpecs = specs.filter(spec => !viteFixtureSpecNames.has(path.basename(spec)));
 
     const initialStageProbe = await prepareStage(args);
 
@@ -458,11 +492,15 @@ async function main() {
         return;
     }
 
+    const versionSource = await readFile(path.join(workspaceRoot, 'MulletaFlix-master', 'SharedVersion.cs'), 'utf8');
+    const expectedVersion = versionSource.match(/AssemblyVersion\("([^"]+)"\)/)?.[1];
+    assertStageVersion(expectedVersion, initialStageProbe?.version);
+
     const env = {
         ...process.env,
         PW_BASE_URL: args.baseUrl,
         PW_STAGE_CLIENT_INDEX: `${args.baseUrl}/web/index.html`,
-        PW_JSON_REPORT: rawReportPath,
+        PW_JSON_REPORT: stageRawReportPath,
         // The runner always resets a disposable stage. Keep the wizard
         // executable out of the box while allowing CI/users to override the
         // credentials explicitly when exercising an existing account flow.
@@ -475,24 +513,64 @@ async function main() {
         PW_STAGE_DB_PORT: String(args.databasePort)
     };
 
-    const result = spawnSync(process.execPath, buildPlaywrightArgs(args), {
+    const stageResult = stageSpecs.length ? spawnSync(process.execPath, buildPlaywrightArgs(args, configPath, stageSpecs), {
         cwd: repoRoot,
         env,
         stdio: 'inherit'
-    });
-    console.error(`[playwright] exit code: ${String(result.status)} signal=${String(result.signal || '')} error=${String(result.error?.message || '')}`);
+    }) : null;
+    if (stageResult) {
+        console.error(`[playwright:stage] exit code: ${String(stageResult.status)} signal=${String(stageResult.signal || '')} error=${String(stageResult.error?.message || '')}`);
+    }
 
-    const rawReport = await loadRawReport(rawReportPath);
+    let fixtureResult = null;
+    let fixtureBaseUrl = null;
+    if (fixtureSpecs.length) {
+        const fixturePort = await selectFixturePort();
+        fixtureBaseUrl = `http://127.0.0.1:${fixturePort}`;
+        fixtureResult = spawnSync(process.execPath, buildPlaywrightArgs(args, fixtureConfigPath, fixtureSpecs), {
+            cwd: repoRoot,
+            env: {
+                ...process.env,
+                PW_FIXTURE_PORT: String(fixturePort),
+                PW_JSON_REPORT: fixtureRawReportPath
+            },
+            stdio: 'inherit'
+        });
+        console.error(`[playwright:vite-fixtures] exit code: ${String(fixtureResult.status)} signal=${String(fixtureResult.signal || '')} error=${String(fixtureResult.error?.message || '')}`);
+    }
+
+    const stageRawReport = await loadRawReport(stageRawReportPath);
+    const fixtureRawReport = await loadRawReport(fixtureRawReportPath);
     const stageProbe = await probeStage(args.baseUrl);
-    const stats = rawReport ? extractPlaywrightStats(rawReport) : {
-        total: 0,
-        passed: 0,
-        failed: result.status === 0 ? 0 : 1,
-        flaky: 0,
-        skipped: 0,
-        durationMs: 0
+    const getSuiteResult = (result, rawReport, suiteSpecs) => {
+        if (!suiteSpecs.length) {
+            return { status: 'not-run', exitCode: 0, specCount: 0, tests: { total: 0, passed: 0, failed: 0, flaky: 0, skipped: 0, durationMs: 0 } };
+        }
+
+        const exitCode = result?.status;
+        const tests = rawReport ? extractPlaywrightStats(rawReport) : {
+            total: 0,
+            passed: 0,
+            failed: exitCode === 0 ? 0 : 1,
+            flaky: 0,
+            skipped: 0,
+            durationMs: 0
+        };
+        if (args.grep && exitCode === 0 && rawReport && tests.total === 0) {
+            return { status: 'filtered-out', exitCode: 0, specCount: suiteSpecs.length, tests };
+        }
+        const gate = evaluatePlaywrightGate(exitCode, tests, !!rawReport);
+        return { status: gate.status, exitCode: gate.exitCode, specCount: suiteSpecs.length, tests };
     };
-    const gate = evaluatePlaywrightGate(result.status, stats, !!rawReport);
+    const stageSuite = getSuiteResult(stageResult, stageRawReport, stageSpecs);
+    const fixtureSuite = getSuiteResult(fixtureResult, fixtureRawReport, fixtureSpecs);
+    const suiteStats = [ stageSuite.tests, fixtureSuite.tests ];
+    const stats = Object.fromEntries([ 'total', 'passed', 'failed', 'flaky', 'skipped', 'durationMs' ].map(key => [
+        key,
+        suiteStats.reduce((total, suite) => total + suite[key], 0)
+    ]));
+    const exitCode = Math.max(stageSuite.exitCode, fixtureSuite.exitCode);
+    const gate = evaluatePlaywrightGate(exitCode, stats, (!stageSpecs.length || !!stageRawReport) && (!fixtureSpecs.length || !!fixtureRawReport));
 
     const summary = {
         title: 'MulletaFlix Playwright Summary',
@@ -501,6 +579,10 @@ async function main() {
         status: gate.status,
         specCount: specs.length,
         tests: stats,
+        suites: {
+            stage: { ...stageSuite, baseUrl: stageSpecs.length ? args.baseUrl : null },
+            viteFixtures: { ...fixtureSuite, baseUrl: fixtureBaseUrl }
+        },
         stageProbe,
         stageChecks: {
             wizard: stageProbe.reachable && stageProbe.startupWizardCompleted === false,
@@ -515,9 +597,15 @@ async function main() {
                 `Stage inicial limpo confirmado com StartupWizardCompleted=${String(initialStageProbe.startupWizardCompleted)}` :
                 'Reset limpo do stage foi desabilitado para esta execuÃ§Ã£o.',
             `StartupWizardCompleted=${String(stageProbe.startupWizardCompleted)}`,
-            rawReport ?
-                'O relatório JSON cru do Playwright foi gerado e consolidado pelo runner.' :
-                'O relatório JSON cru do Playwright não foi encontrado; o resumo foi derivado do exit code.'
+            'Specs que importam módulos React/TypeScript por /@fs ou imports Vite executam em uma instância Vite isolada, separada do stage .NET.',
+            stageRawReport ?
+                'Relatório JSON da suíte .NET gerado e consolidado.' :
+                'A suíte .NET não gerou relatório JSON válido.',
+            fixtureSpecs.length === 0 ?
+                'Nenhum spec Vite-only foi encontrado.' :
+                fixtureRawReport ?
+                    'Relatório JSON da suíte Vite gerado e consolidado.' :
+                    'A suíte Vite não gerou relatório JSON válido.'
         ]
     };
 
@@ -568,7 +656,7 @@ main().catch(async error => {
         ]
     };
 
-    await writePlaywrightReportArtifacts(summary, reportDir);
+    await writePlaywrightReportArtifacts(summary, failureReportDir);
     console.error(error);
     process.exitCode = 1;
 });

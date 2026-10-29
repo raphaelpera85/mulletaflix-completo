@@ -796,3 +796,31 @@ Estado parcial publicado no portal Git main, commit c2f19535f7bf7e87862570e6e210
 - A suíte E2E de navegador não foi executada contra esta fonte: o binário isolado disponível em `stage/MulletaFlix.dll` tem data 28/10 e não representa o código atual. CI hospedada, Linux nativo, instalação/upgrade e integrações externas permanecem pendentes. Produção segue informada pelo usuário como 12.1.45; esta rodada não fez escrita nela nem publicou release.
 - Auditoria de versionamento local encontrou 14 diretórios temporários Playwright (aprox. 2,87 GiB) que foram preservados no disco e excluídos do índice Git por regra de ignore. Nenhum foi removido.
 - Homologação formal continua 2/7 (28,6%). Evidência local, não equivale a release nem a homologação formal. Após o lote de dez evidências, o contrato do portal passou 397/397; commit 0281b4f foi enviado ao Git main e o JSON público da Vercel respondeu HTTP 200, generatedAt 2026-10-29T14:17:00-03:00.
+
+### Consolidação E2E em configurações próprias — 2026-10-29 15:11 BRT
+
+- Produção consultada somente por `GET /System/Info/Public`: HTTP 200, versão informada 12.1.45. Nenhum endpoint de escrita foi chamado.
+- Stage isolado da fonte candidata 12.1.46: a execução ampla reportou 18/39 pass, 17 fail, 4 skipped. O runner aplicou `playwright.stage.config.ts` também aos specs 24–29, embora esses fixtures usem módulos `/@fs` do Vite e possuam configurações dedicadas. Esses resultados misturam falha de configuração do harness com falhas de cenário; não são evidência suficiente para classificar os 17 como defeitos do produto.
+- Suítes web nos ambientes próprios: Playwright requests/autocomplete/Nebula 8/8 após repetir um falso negativo de inicialização fria; backup/accessibility 3/3; scrollbuttons 2/2 após repetir uma falha fria de import. As duas falhas iniciais passaram ao repetir com o Vite aquecido, caracterizando instabilidade de cold start ainda a corrigir no harness.
+- `dotnet test tests/Jellyfin.Server.Implementations.Tests/Jellyfin.Server.Implementations.Tests.csproj -c Release --filter FullyQualifiedName~ItemPersistenceServiceTests --no-restore`: 29/29 aprovados. Os testes de integração MariaDB não foram apontados ao serviço em execução.
+- Stage e MariaDB descartável foram encerrados; a porta de produção 8096 continuou ativa. O listener do MongoDB local não foi usado pelos testes. Artefatos/stage preexistentes foram preservados.
+- Pendências: separar no runner os specs que exigem Vite dos specs de stage C#; estabilizar imports a frio; classificar e corrigir os cenários stage restantes (admin, autenticação, AdSense, logout e paginação); executar integrações MariaDB opt-in apenas em banco descartável. Homologação formal segue 2/7; 12.1.46 não publicada.
+- Mapa técnico conferido nesta sessão e sem mudança estrutural; não houve alteração em módulos, APIs, classes ou dependências de produção. Portal não atualizado; acumular evidências em lote de 10 conforme orientação do usuário.
+
+### Integração Playwright stage/Vite — 2026-10-29 15:54 BRT
+
+- `run-suite.mjs` agora separa os seis specs que dependem dos módulos React/Vite e roda o restante contra stage C#; cada suíte usa porta loopback e JSON próprio, com status e contagens consolidados. Falha precoce respeita também o caminho `--report-dir` personalizado.
+- Vite fixture: 11/11 aprovados. O stage executado usou `stage/MulletaFlix.dll`, que informa versão 12.1.44; portanto 15/28 aprovados, 6 falhas e 7 skips/não executados NÃO são evidência da fonte/candidata 12.1.46. Falhas observadas: formulário de acesso à biblioteca, rota Live TV, AdSense, logout/busca, clique sobreposto no teste acessibilidade e paginação. Homologação da candidata permanece pendente.
+- Contratos Node do runner/relatório: 21/21; `npm run build:check` passou. Sem alteração no runtime do servidor ou em produção.
+- Produção indicada como 12.1.45 pelo usuário; no fim da rodada 8096 recusou conexão apesar de ter sido observada ativa antes. Causa não estabelecida, servidor não reiniciado. Stage, Vite e MariaDB de teste encerrados sem listeners; diretórios temporários de stage/relatório permaneceram porque a limpeza recursiva foi bloqueada pela política.
+- Portal não atualizado: aguarda o próximo lote de 10 evidências. Nenhuma release, commit ou push.
+- Mapa técnico conferido; registrado split do harness, sem mudança em módulos/APIs/dependências runtime.
+- Registro: [[Sessões/2026-10-29-MulletaFlix-playwright-stage-vite-integration-1554]].
+
+### Reteste focal de acessibilidade e origem do binário — 2026-10-29 17:31 BRT
+
+- Corrigido o teste Playwright 32: o link de detalhe fica sob o overlay de reprodução; cenário agora o ativa por teclado (`focus` + Enter). Reteste stage passou 1/1 em 8,1 s, mas o binário isolado também informa 12.1.44 e não valida a candidata 12.1.46.
+- Vite fixtures executados sem filtro: 11/11 aprovados. Contratos Node do runner/relatório 21/21; `npm run build:check` aprovado.
+- A tentativa focal filtrada deixou a suíte Vite vazia e o Playwright CLI retornou “No tests found”; stage passou, mas o sumário agregado ficou `failed` por essa suíte sem correspondências. Não foi alterado o runner por causa deste uso de filtro.
+- Produção `localhost:8096` recusou conexão nesta verificação, não foi iniciada nem reiniciada. O log do DLL 12.1.44 registrou tentativa de iniciar o cliente DuckDNS apesar da variável de isolamento; ao fim não havia processo DuckDns, MulletaFlix, dotnet ou mysqld ativo nem listener nas portas de teste. Não foi confirmado efeito externo nem alteração DNS; o candidato atual contém a correção da variável, mas não foi o binário usado.
+- Sem alteração de código de produto, release, commit, push ou portal. Portal continua aguardando lote de dez evidências. E2E da candidata atual, CI hospedada, Linux e produção continuam pendentes. Mapa conferido: estrutura/runtime permanecem iguais.

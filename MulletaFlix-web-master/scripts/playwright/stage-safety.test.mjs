@@ -11,6 +11,7 @@ import {
     buildStageRemovalTargets,
     isDedicatedStageDataPath,
     assertSafeStageBaseUrl,
+    assertStageVersion,
     parseStagePid,
     parseWindowsUserSid,
     resolveDotnetExecutable
@@ -47,6 +48,12 @@ test('Playwright stage URL is restricted to loopback ports 18096-18196', () => {
     assert.throws(() => assertSafeStageBaseUrl('http://127.0.0.1:8096'), /isolated port/);
     assert.throws(() => assertSafeStageBaseUrl('http://192.168.1.10:18096'), /loopback HTTP/);
     assert.throws(() => assertSafeStageBaseUrl('https://127.0.0.1:18096'), /loopback HTTP/);
+});
+
+test('Playwright stage rejects missing or stale server versions', () => {
+    assert.doesNotThrow(() => assertStageVersion('12.1.46', '12.1.46'));
+    assert.throws(() => assertStageVersion('12.1.46', '12.1.44'), /version mismatch.*Build the stage from the current server source/);
+    assert.throws(() => assertStageVersion('12.1.46', null), /version mismatch.*received unknown/);
 });
 
 test('default Playwright URL avoids the server default port', async () => {
@@ -133,6 +140,39 @@ test('run-suite disables Nebula notifications and remote updater calls for isola
     assert.match(source, /18096-18196; a porta 8096 não é permitida para stage/);
     assert.match(source, /AbortSignal\.timeout\(1500\)/);
     assert.match(source, /child\.once\('exit'/);
+    assert.match(source, /assertStageVersion\(expectedVersion, initialStageProbe\?\.version\)/);
+    assert.match(source, /info\?\.Version/);
+    assert.match(source, /'--pass-with-no-tests'/);
+});
+
+test('run-suite isolates Vite-only browser specs from the .NET stage', async () => {
+    const source = await readFile(new URL('./run-suite.mjs', import.meta.url), 'utf8');
+    const config = await readFile(new URL('../../playwright.fixtures.config.ts', import.meta.url), 'utf8');
+
+    for (const spec of [
+        '24-scrollbuttons.spec.ts',
+        '25-myrequests.spec.ts',
+        '26-request-autocomplete.spec.ts',
+        '27-nebula-navigation.spec.ts',
+        '28-backup-coverage.spec.ts',
+        '29-accessibility.spec.ts'
+    ]) {
+        assert.match(source, new RegExp(`'${spec.replaceAll('.', '\\.')}'`));
+        assert.match(config, new RegExp(`'${spec.replaceAll('.', '\\.')}'`));
+    }
+
+    assert.match(source, /fixtureSpecs = specs\.filter\(spec => viteFixtureSpecNames\.has/);
+    assert.match(source, /stageSpecs = specs\.filter\(spec => !viteFixtureSpecNames\.has/);
+    assert.match(source, /replaceAll\(path\.sep, '\/'\)/);
+    assert.match(config, /reuseExistingServer: false/);
+    assert.match(config, /PW_FIXTURE_PORT/);
+});
+
+test('run-suite writes early failure summaries to the configured report directory', async () => {
+    const source = await readFile(new URL('./run-suite.mjs', import.meta.url), 'utf8');
+
+    assert.match(source, /failureReportDir = args\.reportDir/);
+    assert.match(source, /writePlaywrightReportArtifacts\(summary, failureReportDir\)/);
 });
 
 test('resolveDotnetExecutable uses the native host on each platform', () => {

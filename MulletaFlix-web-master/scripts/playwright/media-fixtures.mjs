@@ -47,7 +47,7 @@ async function createLongPlaybackFixture(ffmpegPath, sourcePath, outputPath, dur
     });
 }
 
-export async function seedPlaywrightMediaFixtures(mediaRoot, sampleVideoPath, { ffmpegPath } = {}) {
+export async function seedPlaywrightMediaFixtures(mediaRoot, sampleVideoPath, { ffmpegPath, realStrmFilePath } = {}) {
     const videoStat = await stat(sampleVideoPath);
     if (!videoStat.isFile() || videoStat.size === 0) {
         throw new Error(`Playwright media fixture source is not a non-empty file: ${sampleVideoPath}`);
@@ -72,6 +72,14 @@ export async function seedPlaywrightMediaFixtures(mediaRoot, sampleVideoPath, { 
             '</movie>',
             ''
         ].join('\n'), 'utf8');
+    }
+
+    if (realStrmFilePath) {
+        const strmStat = await stat(realStrmFilePath);
+        if (!strmStat.isFile() || strmStat.size === 0 || path.extname(realStrmFilePath).toLowerCase() !== '.strm') {
+            throw new Error('Playwright real media source must be a non-empty .strm file.');
+        }
+        await copyFile(realStrmFilePath, path.join(moviesRoot, path.basename(realStrmFilePath)));
     }
 
     if (ffmpegPath) {
