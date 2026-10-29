@@ -187,6 +187,111 @@ async def test_parallel_upload_worker_cancels_blocked_readahead_after_upload_fai
 
 
 @pytest.mark.asyncio
+async def test_parallel_upload_cancel_during_checkpoint_retry_keeps_source_and_releases_worker(
+    monkeypatch, tmp_path
+):
+    media = tmp_path / "retry-episode.mkv"
+    media.write_bytes(b"x" * 40)
+    file_doc = {"_id": "retry-file", "status": "queued", "parts": []}
+    retry_wait_started = asyncio.Event()
+    producer_tasks = []
+    producer_cancellations = []
+    failed_updates = []
+    removed = []
+    admission_closes = []
+    original_producer = main._readahead_producer
+
+    class Files:
+        async def find_one(self, _query):
+            return file_doc
+
+        async def find_one_and_update(self, _query, _update, *, return_document):
+            return file_doc
+
+        async def update_one(self, query, update):
+            failed_updates.append((query, update))
+            raise TimeoutError("simulated Mongo checkpoint outage")
+
+    class Admission:
+        async def close(self):
+            admission_closes.append(True)
+
+    async def track_producer(*args, **kwargs):
+        producer_tasks.append(asyncio.current_task())
+        try:
+            await original_producer(*args, **kwargs)
+        except asyncio.CancelledError:
+            producer_cancellations.append(True)
+            raise
+
+    async def retry_sleep(_delay):
+        retry_wait_started.set()
+        await asyncio.Event().wait()
+
+    async def resolve_parent(*_args):
+        return "Series"
+
+    async def log_state(*_args):
+        return None
+
+    async def upload_part(_worker_id, _bots, _chat, _path, file_uuid, part_num, payload, *_args, **_kwargs):
+        return {
+            "part_id": part_num,
+            "file_size": len(payload),
+            "chunk_name": f"{file_uuid}.part_{part_num:03d}",
+            "bot_name": "bot-a",
+        }
+
+    queue = asyncio.Queue()
+    monkeypatch.setattr(main, "UPLOAD_QUEUE", queue)
+    monkeypatch.setattr(main, "ACTIVE_UPLOADS", set())
+    monkeypatch.setattr(main, "CHUNK_SIZE", 4)
+    monkeypatch.setattr(main, "PART_WORKERS_PER_FILE", 2)
+    monkeypatch.setattr(main, "_readahead_producer", track_producer)
+    monkeypatch.setattr(main, "resolve_media_parent", resolve_parent)
+    monkeypatch.setattr(main, "log_queue_state", log_state)
+    monkeypatch.setattr(main, "acquire_worker_upload_admission", lambda *_args: _admission())
+    monkeypatch.setattr(main.asyncio, "sleep", retry_sleep)
+    monkeypatch.setattr(main, "classify_media_type", lambda *_args: "series")
+    monkeypatch.setattr(main, "build_part_caption", lambda *_args: "caption")
+    monkeypatch.setattr(main, "upload_part_with_retries", upload_part)
+    monkeypatch.setattr(main, "safe_remove_staging_file", lambda path, **_kwargs: removed.append(path))
+    monkeypatch.setattr(main.Metrics, "log_fail", lambda: None)
+
+    async def _admission():
+        return Admission()
+
+    await queue.put({"path": str(media), "filename": media.name, "parent": "Series"})
+    worker = asyncio.create_task(
+        main.upload_worker_parallel([SimpleNamespace(name="bot-a")], -100, SimpleNamespace(files=Files()), 11)
+    )
+
+    try:
+        await asyncio.wait_for(retry_wait_started.wait(), timeout=3)
+        worker.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await worker
+        await asyncio.wait_for(queue.join(), timeout=1)
+    finally:
+        if not worker.done():
+            worker.cancel()
+            await asyncio.gather(worker, return_exceptions=True)
+        for producer in producer_tasks:
+            if not producer.done():
+                producer.cancel()
+        if producer_tasks:
+            await asyncio.gather(*producer_tasks, return_exceptions=True)
+
+    assert failed_updates
+    assert removed == []
+    assert media.exists()
+    assert admission_closes == [True]
+    assert str(media) not in main.ACTIVE_UPLOADS
+    assert producer_tasks and producer_tasks[0].done()
+    assert producer_cancellations == [True]
+
+
+@pytest.mark.asyncio
 async def test_small_file_worker_uploads_single_payload_and_persists_completion(monkeypatch, tmp_path):
     result = await _run_small_file_worker(monkeypatch, tmp_path, fail_upload=False)
 

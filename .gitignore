@@ -41,6 +41,7 @@ config/credentials*
 coverage/
 playwright-report/
 test-results/
+**/.venv/
 
 # Packaging temp
 MulletaFlix-packaging-master/output/

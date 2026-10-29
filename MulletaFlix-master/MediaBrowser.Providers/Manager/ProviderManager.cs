@@ -1064,18 +1064,28 @@ namespace MediaBrowser.Providers.Manager
             return resultList;
         }
 
-        private static string NormalizeRemoteSearchName(string name, int? existingYear, out int? parsedYear)
+        internal static string NormalizeRemoteSearchName(string name, int? existingYear, out int? parsedYear)
         {
             parsedYear = existingYear;
             var cleaned = name.Trim();
 
-            var yearMatch = Regex.Match(cleaned, @"(?:^|[\s\(\[])(?<year>(?:19|20)\d{2})(?:$|[\s\)\]])");
+            var isOnlyYear = Regex.IsMatch(cleaned, @"^(?:19|20)\d{2}$");
+            var yearMatch = isOnlyYear
+                ? Match.Empty
+                : Regex.Match(cleaned, @"(?:^|[\s\(\[._-])(?<year>(?:19|20)\d{2})(?:$|[\s\)\]._\-])");
             if (!parsedYear.HasValue && yearMatch.Success && int.TryParse(yearMatch.Groups["year"].Value, CultureInfo.InvariantCulture, out var year))
             {
                 parsedYear = year;
             }
 
-            cleaned = Regex.Replace(cleaned, @"[\(\[]\s*(?:19|20)\d{2}\s*[\)\]]", " ");
+            if (yearMatch.Success)
+            {
+                cleaned = cleaned.Remove(yearMatch.Groups["year"].Index, yearMatch.Groups["year"].Length);
+            }
+
+            cleaned = cleaned.Replace('.', ' ');
+            cleaned = cleaned.Replace('_', ' ');
+            cleaned = cleaned.Replace(':', ' ');
             cleaned = Regex.Replace(
                 cleaned,
                 @"(?i)[\(\[]\s*(?:LEG|DUB|DUBLADO|LEGENDADO|DUAL\s*AUDIO|PT[-_\s]?BR|PORTUGU[EÊ]S|SUBBED|SUB|MULTI|NACIONAL)\s*[\)\]]",
@@ -1085,9 +1095,6 @@ namespace MediaBrowser.Providers.Manager
                 @"(?i)\b(?:LEG|DUB|DUBLADO|LEGENDADO|DUAL\s*AUDIO|PT[-_\s]?BR|PORTUGU[EÊ]S|SUBBED|SUB|MULTI|1080[pi]|2160[pi]|720[pi]|480[pi]|576[pi]|WEB[-_\s]?DL|WEBRip|Blu[-_\s]?Ray|BRRip|HDRip|DVDRip|DVD|HDTV|REMUX|REPACK|EXTENDED|x264|x265|h264|h265|HEVC|AVC|AV1|AAC|DTS|TRUEHD|ATMOS)\b",
                 " ");
 
-            cleaned = cleaned.Replace('.', ' ');
-            cleaned = cleaned.Replace('_', ' ');
-            cleaned = cleaned.Replace(':', ' ');
             cleaned = Regex.Replace(cleaned, @"[^\p{L}\p{N}\s'\-]", " ");
             cleaned = Regex.Replace(cleaned, @"\s+", " ").Trim().Trim('-');
 

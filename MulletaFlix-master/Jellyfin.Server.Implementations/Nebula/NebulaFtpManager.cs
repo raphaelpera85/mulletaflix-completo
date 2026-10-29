@@ -2147,11 +2147,13 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable, IAsyncDis
     /// <inheritdoc />
     public void PrioritizeMedia(string mediaPath, string? seriesPath = null, string? seriesName = null)
     {
+        var isRequestedMediaPriority = string.IsNullOrWhiteSpace(mediaPath)
+            && string.IsNullOrWhiteSpace(seriesPath)
+            && !string.IsNullOrWhiteSpace(seriesName);
+        var requestPriorityPersisted = false;
         try
         {
-            if (string.IsNullOrWhiteSpace(mediaPath)
-                && string.IsNullOrWhiteSpace(seriesPath)
-                && !string.IsNullOrWhiteSpace(seriesName))
+            if (isRequestedMediaPriority)
             {
                 var requestedTitle = seriesName.Trim();
                 _configManager.UpdateConfiguration("nebulaftp", current =>
@@ -2167,6 +2169,7 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable, IAsyncDis
                     config.RequestedMediaPriorities = priorities.ToArray();
                     return config;
                 });
+                requestPriorityPersisted = true;
 
                 _downloaderEngine?.PrioritizeTarget(string.Empty, seriesName);
                 _stagingWatcher?.PrioritizeUpload(string.Empty, seriesName);
@@ -2195,6 +2198,10 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable, IAsyncDis
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "[NEBULA-PRIORITY] Erro ao priorizar mídia: {Path}", mediaPath);
+            if (isRequestedMediaPriority && !requestPriorityPersisted)
+            {
+                throw new InvalidOperationException("Falha ao persistir a prioridade da mídia solicitada.", ex);
+            }
         }
     }
 
@@ -2890,7 +2897,10 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable, IAsyncDis
         return stopped;
     }
 
-    private async Task DisposeSharedRuntimeResourcesAsync()
+    private Task DisposeSharedRuntimeResourcesAsync() =>
+        DisposeSharedRuntimeResourcesAsync(TimeSpan.FromSeconds(5));
+
+    internal async Task DisposeSharedRuntimeResourcesAsync(TimeSpan cleanupWaitTimeout)
     {
         await _sharedRuntimeLock.WaitAsync().ConfigureAwait(false);
         try
@@ -2913,7 +2923,7 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable, IAsyncDis
             {
                 try
                 {
-                    await cleanupTask.WaitAsync(TimeSpan.FromSeconds(5)).ConfigureAwait(false);
+                    await cleanupTask.WaitAsync(cleanupWaitTimeout).ConfigureAwait(false);
                 }
                 catch (TimeoutException)
                 {

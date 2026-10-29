@@ -293,6 +293,27 @@ public sealed class BackupServiceTests : IDisposable
     }
 
     [Fact]
+    public void GetExpectedDatabaseEntities_IncludesUsersAndSystemContextEntities()
+    {
+        using var context = CreateInMemoryDbContext();
+        var method = typeof(BackupService).GetMethod(
+            "GetExpectedDatabaseEntities",
+            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)!;
+        var entities = Assert.IsAssignableFrom<Array>(method.Invoke(null, [context.Model, typeof(MulletaFlixDbContext), true]));
+        var exportedTypes = entities.Cast<object>()
+            .Select(entity => (Type)entity.GetType().GetField("Item2")!.GetValue(entity)!)
+            .ToHashSet();
+        var usersAndSystemTypes = new[] { typeof(UsersDbContext), typeof(SystemDbContext) }
+            .SelectMany(contextType => contextType.GetProperties(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance))
+            .Where(property => property.PropertyType.IsAssignableTo(typeof(IQueryable)))
+            .Select(property => property.PropertyType.GetGenericArguments()[0])
+            .ToArray();
+
+        Assert.NotEmpty(usersAndSystemTypes);
+        Assert.All(usersAndSystemTypes, entityType => Assert.Contains(entityType, exportedTypes));
+    }
+
+    [Fact]
     public void DatabaseProviderPurgeContract_RemainsBoundToPrimaryContext()
     {
         var method = typeof(IMulletaFlixDatabaseProvider).GetMethod(nameof(IMulletaFlixDatabaseProvider.PurgeDatabase));

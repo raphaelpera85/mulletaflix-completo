@@ -54,6 +54,31 @@ jobs:
           path: MulletaFlix-master/TestResults/**/coverage.cobertura.xml
           if-no-files-found: error
 
+  server-windows-filesystem-tests:
+    name: Server backup filesystem and ACL tests (Windows)
+    runs-on: windows-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: MulletaFlix-master
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ env.SDK_VERSION }}
+
+      - name: Restore server implementation tests
+        run: dotnet restore tests/Jellyfin.Server.Implementations.Tests/Jellyfin.Server.Implementations.Tests.csproj
+
+      - name: Run native Windows backup filesystem tests
+        run: >
+          dotnet test tests/Jellyfin.Server.Implementations.Tests/Jellyfin.Server.Implementations.Tests.csproj
+          --configuration Release
+          --no-restore
+          --filter "FullyQualifiedName~FullSystemBackup.BackupRestoreDirectoryTests|FullyQualifiedName~FullSystemBackup.BackupServiceTests"
+          --verbosity minimal
+
   nebula-representative-tests:
     name: Nebula representative scenarios (${{ matrix.os }})
     strategy:
@@ -166,6 +191,92 @@ jobs:
           --filter "FullyQualifiedName~UserManagerNormalizedUsernameTests|FullyQualifiedName~BillingDatabaseTests"
           --verbosity minimal
 
+  server-mariadb-integration-tests:
+    name: Server integration tests (MariaDB)
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    services:
+      mariadb:
+        image: mariadb:11.4.13
+        env:
+          MARIADB_ROOT_PASSWORD: mfx_ci_mariadb_test
+        ports:
+          - 33099:3306
+        options: >-
+          --health-cmd="healthcheck.sh --connect --innodb_initialized"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      MULLETAFLIX_TEST_MARIADB_CONNECTION_STRING: "Server=127.0.0.1;Port=33099;User ID=root;Password=mfx_ci_mariadb_test;CharSet=utf8mb4;"
+    defaults:
+      run:
+        working-directory: MulletaFlix-master
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ env.SDK_VERSION }}
+
+      - name: Restore server integration tests
+        run: dotnet restore tests/Jellyfin.Server.Integration.Tests/Jellyfin.Server.Integration.Tests.csproj
+
+      - name: Run server integration tests against isolated MariaDB
+        run: >
+          dotnet test tests/Jellyfin.Server.Integration.Tests/Jellyfin.Server.Integration.Tests.csproj
+          --configuration Release
+          --no-restore
+          --verbosity minimal
+
+  full-system-recovery-exercise:
+    name: Full recovery exercise (MariaDB, MongoDB, and files)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    services:
+      mongodb:
+        image: mongo:7.0
+        ports:
+          - 27099:27017
+        options: >-
+          --health-cmd "mongosh --quiet --eval 'db.adminCommand({ ping: 1 }).ok'"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+      mariadb:
+        image: mariadb:11.4.13
+        env:
+          MARIADB_ROOT_PASSWORD: mfx_ci_mariadb_test
+        ports:
+          - 33099:3306
+        options: >-
+          --health-cmd="healthcheck.sh --connect --innodb_initialized"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      MULLETAFLIX_TEST_MONGODB_CONNECTION_STRING: mongodb://127.0.0.1:27099/?directConnection=true
+      MULLETAFLIX_TEST_MARIADB_CONNECTION_STRING: "Server=127.0.0.1;Port=33099;User ID=root;Password=mfx_ci_mariadb_test;CharSet=utf8mb4;"
+    defaults:
+      run:
+        working-directory: MulletaFlix-master
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ env.SDK_VERSION }}
+
+      - name: Restore server integration tests
+        run: dotnet restore tests/IntroSkipper.Integration.Tests/IntroSkipper.Integration.Tests.csproj
+
+      - name: Run complete MariaDB, MongoDB, and filesystem integration suite
+        run: >
+          dotnet test tests/IntroSkipper.Integration.Tests/IntroSkipper.Integration.Tests.csproj
+          --configuration Release
+          --no-restore
+          --verbosity minimal
+
   windows-packaging-script-tests:
     name: Windows packaging integrity scripts
     runs-on: windows-latest
@@ -179,9 +290,12 @@ jobs:
           $ErrorActionPreference = 'Stop'
           $tests = @(
             'Assert-StageIntegrity.Tests.ps1',
+            'Assert-UpdatePackageIntegrity.Tests.ps1',
             'RcloneBootstrap.Tests.ps1',
             'ServiceDataAcl.Tests.ps1',
             'ApplyUpdateFailure.Tests.ps1',
+            'ApplyUpdateStartupFailure.Tests.ps1',
+            'ApplyUpdateFailClosed.Tests.ps1',
             'StageBackup.Tests.ps1',
             'StageBuildOptions.Tests.ps1'
           )
@@ -195,6 +309,10 @@ jobs:
             Write-Host "Running $test"
             & $testPath
           }
+
+      - name: Exercise updater under production Windows PowerShell 5.1
+        shell: powershell
+        run: .\MulletaFlix-packaging-master\scripts\tests\ApplyUpdateFailClosed.Tests.ps1
 
   nebula-python-tests:
     name: Nebula Python unit tests (${{ matrix.os }})

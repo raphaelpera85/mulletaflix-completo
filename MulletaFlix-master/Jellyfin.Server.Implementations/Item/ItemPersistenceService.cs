@@ -211,75 +211,69 @@ public class ItemPersistenceService : IItemPersistenceService
         ArgumentNullException.ThrowIfNull(item);
 
         var images = item.ImageInfos.Select(e => BaseItemMapper.MapImageToEntity(item.Id, e)).ToArray();
+        var itemLock = _updateOrInsertLocks[GetItemLockIndex(item.Id)];
+        await itemLock.WaitAsync(cancellationToken).ConfigureAwait(false);
 
-        for (var attempt = 1; ; attempt++)
+        try
         {
-            try
+            for (var attempt = 1; ; attempt++)
             {
-                var context = await _dbProvider.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
-                await using (context.ConfigureAwait(false))
+                try
                 {
-                    await using var transaction = await context.Database
-                        .BeginTransactionAsync(cancellationToken)
-                        .ConfigureAwait(false);
-
-                    if (!await context.BaseItems
-                        .AnyAsync(bi => bi.Id == item.Id, cancellationToken)
-                        .ConfigureAwait(false))
+                    var context = await _dbProvider.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
+                    await using (context.ConfigureAwait(false))
                     {
-                        _logger.LogWarning("Unable to save ImageInfo for non existing BaseItem {ItemId}", item.Id);
-                        return;
-                    }
+                        await using var transaction = await context.Database
+                            .BeginTransactionAsync(cancellationToken)
+                            .ConfigureAwait(false);
 
-                    var existingImages = await context.BaseItemImageInfos
-                        .Where(e => e.ItemId == item.Id)
-                        .ToArrayAsync(cancellationToken)
-                        .ConfigureAwait(false);
-
-                    bool hasChanges = existingImages.Length != images.Length;
-                    if (!hasChanges)
-                    {
-                        for (int i = 0; i < images.Length; i++)
+                        if (!await context.BaseItems
+                            .AnyAsync(bi => bi.Id == item.Id, cancellationToken)
+                            .ConfigureAwait(false))
                         {
-                            var newImg = images[i];
-                            var oldImg = existingImages.FirstOrDefault(e => e.ImageType == newImg.ImageType && e.Path == newImg.Path);
-                            if (oldImg == null || !ImageInfosMatch(oldImg, newImg))
-                            {
-                                hasChanges = true;
-                                break;
-                            }
+                            _logger.LogWarning("Unable to save ImageInfo for non existing BaseItem {ItemId}", item.Id);
+                            return;
                         }
+
+                        var existingImages = await context.BaseItemImageInfos
+                            .Where(e => e.ItemId == item.Id)
+                            .ToArrayAsync(cancellationToken)
+                            .ConfigureAwait(false);
+
+                        if (ImageInfoCollectionsMatch(existingImages, images))
+                        {
+                            return;
+                        }
+
+                        await context.BaseItemImageInfos
+                            .Where(e => e.ItemId == item.Id)
+                            .ExecuteDeleteAsync(cancellationToken)
+                            .ConfigureAwait(false);
+
+                        await context.BaseItemImageInfos
+                            .AddRangeAsync(images, cancellationToken)
+                            .ConfigureAwait(false);
+
+                        await context.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+                        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
                     }
 
-                    if (!hasChanges)
-                    {
-                        return;
-                    }
-
-                    await context.BaseItemImageInfos
-                        .Where(e => e.ItemId == item.Id)
-                        .ExecuteDeleteAsync(cancellationToken)
-                        .ConfigureAwait(false);
-
-                    await context.BaseItemImageInfos
-                        .AddRangeAsync(images, cancellationToken)
-                        .ConfigureAwait(false);
-
-                    await context.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
-                    await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+                    return;
                 }
-
-                return;
+                catch (Exception ex) when (attempt < 3 && IsTransientImagePersistenceFailure(ex))
+                {
+                    _logger.LogWarning(
+                        ex,
+                        "Transient database failure while saving images for item {ItemId}; retrying attempt {Attempt}",
+                        item.Id,
+                        attempt + 1);
+                    await Task.Delay(TimeSpan.FromMilliseconds(attempt * 150), cancellationToken).ConfigureAwait(false);
+                }
             }
-            catch (Exception ex) when (attempt < 3 && IsTransientImagePersistenceFailure(ex))
-            {
-                _logger.LogWarning(
-                    ex,
-                    "Transient database failure while saving images for item {ItemId}; retrying attempt {Attempt}",
-                    item.Id,
-                    attempt + 1);
-                await Task.Delay(TimeSpan.FromMilliseconds(attempt * 150), cancellationToken).ConfigureAwait(false);
-            }
+        }
+        finally
+        {
+            itemLock.Release();
         }
     }
 
@@ -293,6 +287,56 @@ public class ItemPersistenceService : IItemPersistenceService
             && existing.ProviderName == incoming.ProviderName
             && existing.Language == incoming.Language
             && NullableSequenceEqual(existing.Blurhash, incoming.Blurhash);
+    }
+
+    internal static bool ImageInfoCollectionsMatch(
+        IReadOnlyCollection<BaseItemImageInfo> existing,
+        IReadOnlyCollection<BaseItemImageInfo> incoming)
+    {
+        if (existing.Count != incoming.Count)
+        {
+            return false;
+        }
+
+        // Match each row at most once. ImageType and Path are not unique in the database, so a
+        // FirstOrDefault comparison can incorrectly match multiple incoming duplicates to one row.
+        var unmatched = existing.ToList();
+        foreach (var incomingImage in incoming)
+        {
+            var matchIndex = unmatched.FindIndex(existingImage => ImageInfosMatch(existingImage, incomingImage));
+            if (matchIndex < 0)
+            {
+                return false;
+            }
+
+            unmatched.RemoveAt(matchIndex);
+        }
+
+        return true;
+    }
+
+    internal static bool TrailerTypeCollectionsMatch(
+        IReadOnlyCollection<BaseItemTrailerType> existing,
+        IReadOnlyCollection<BaseItemTrailerType> incoming)
+    {
+        if (existing.Count != incoming.Count)
+        {
+            return false;
+        }
+
+        var unmatchedIds = existing.Select(row => row.Id).ToList();
+        foreach (var incomingType in incoming)
+        {
+            var matchIndex = unmatchedIds.IndexOf(incomingType.Id);
+            if (matchIndex < 0)
+            {
+                return false;
+            }
+
+            unmatchedIds.RemoveAt(matchIndex);
+        }
+
+        return true;
     }
 
     private static bool IsTransientImagePersistenceFailure(Exception exception)
@@ -356,7 +400,7 @@ public class ItemPersistenceService : IItemPersistenceService
         // distinct stripe touched by the batch and acquire them all, always in ascending index
         // order, so two batches with overlapping stripe sets can never deadlock on each other.
         var lockIndices = items.Count > 0
-            ? items.Select(e => e.Id.GetHashCode() & 15).Distinct().Order().ToArray()
+            ? items.Select(e => GetItemLockIndex(e.Id)).Distinct().Order().ToArray()
             : [0];
 
         // This whole path is intentionally synchronous (called from library scans and scheduled
@@ -407,6 +451,8 @@ public class ItemPersistenceService : IItemPersistenceService
             }
         }
     }
+
+    private static int GetItemLockIndex(Guid itemId) => itemId.GetHashCode() & 15;
 
     private void UpdateOrInsertItemsCore(IReadOnlyList<BaseItemDto> items)
     {
@@ -647,6 +693,34 @@ public class ItemPersistenceService : IItemPersistenceService
                 .ToDictionary(g => g.Key, g => g.ToList())
             : new Dictionary<Guid, List<BaseItemMetadataField>>();
 
+        var imageItemIds = tuples
+            .Where(item => existingItems.ContainsKey(item.Item.Id) && item.Item.ImageInfos is not null)
+            .Select(item => item.Item.Id)
+            .Distinct()
+            .ToArray();
+        var existingImages = imageItemIds.Length > 0
+            ? context.BaseItemImageInfos
+                .AsNoTracking()
+                .WhereOneOrMany(imageItemIds, e => e.ItemId)
+                .ToList()
+                .GroupBy(e => e.ItemId)
+                .ToDictionary(g => g.Key, g => (IReadOnlyCollection<BaseItemImageInfo>)g.ToArray())
+            : new Dictionary<Guid, IReadOnlyCollection<BaseItemImageInfo>>();
+
+        var trailerTypeItemIds = tuples
+            .Where(item => existingItems.ContainsKey(item.Item.Id) && item.Item is Trailer)
+            .Select(item => item.Item.Id)
+            .Distinct()
+            .ToArray();
+        var existingTrailerTypes = trailerTypeItemIds.Length > 0
+            ? context.BaseItemTrailerTypes
+                .AsNoTracking()
+                .WhereOneOrMany(trailerTypeItemIds, e => e.ItemId)
+                .ToList()
+                .GroupBy(e => e.ItemId)
+                .ToDictionary(g => g.Key, g => (IReadOnlyCollection<BaseItemTrailerType>)g.ToArray())
+            : new Dictionary<Guid, IReadOnlyCollection<BaseItemTrailerType>>();
+
         foreach (var item in tuples)
         {
             var entity = BaseItemMapper.Map(item.Item, _appHost);
@@ -693,8 +767,12 @@ public class ItemPersistenceService : IItemPersistenceService
                     }
                 }
 
-                // Check if Images changed (only touch if entity.Images is explicitly defined/not null)
-                if (currentImages is not null)
+                // Avoid replacing identical image rows on every library rescan. Besides the write
+                // cost, each replacement creates new image IDs and rebuilds the item/type index.
+                if (currentImages is not null
+                    && !ImageInfoCollectionsMatch(
+                        existingImages.GetValueOrDefault(entity.Id, Array.Empty<BaseItemImageInfo>()),
+                        currentImages))
                 {
                     context.BaseItemImageInfos.Where(e => e.ItemId == entity.Id).ExecuteDelete();
                     if (currentImages.Length > 0)
@@ -718,7 +796,10 @@ public class ItemPersistenceService : IItemPersistenceService
                     }
                 }
 
-                if (currentTrailerTypes is not null)
+                if (currentTrailerTypes is not null
+                    && !TrailerTypeCollectionsMatch(
+                        existingTrailerTypes.GetValueOrDefault(entity.Id, Array.Empty<BaseItemTrailerType>()),
+                        currentTrailerTypes))
                 {
                     context.BaseItemTrailerTypes.Where(e => e.ItemId == entity.Id).ExecuteDelete();
                     if (currentTrailerTypes.Length > 0)

@@ -5,6 +5,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using MediaBrowser.Controller;
 using MediaBrowser.Controller.Entities;
+using MediaBrowser.Controller.Entities.Movies;
 using MediaBrowser.Controller.Entities.TV;
 using MediaBrowser.Controller.Persistence;
 using MediaBrowser.Controller.Providers;
@@ -183,6 +184,39 @@ public sealed class BaseItemRepositoryLatestTvShowTests : IDisposable
         Assert.Contains(result, item => item.Id == seriesB.Id);
     }
 
+    [Fact]
+    public void GetLatestItemList_Movies_FillsLimitAfterSkippingDuplicatePresentationKeys()
+    {
+        var now = new DateTime(2026, 6, 27, 12, 0, 0, DateTimeKind.Utc);
+        var candidates = new List<BaseItemEntity>();
+
+        // A library can contain many cuts/qualities of the same movie. Ensure a run of
+        // duplicates ahead of the limit does not make the latest shelf return too few cards.
+        for (var i = 0; i < 12; i++)
+        {
+            candidates.Add(CreateMovie("Movie A", "movie-a", now.AddMinutes(-i)));
+        }
+
+        candidates.Add(CreateMovie("Movie B", "movie-b", now.AddHours(-1)));
+        candidates.Add(CreateMovie("Movie C", "movie-c", now.AddHours(-2)));
+
+        _context.BaseItems.AddRange(candidates);
+        _context.SaveChanges();
+
+        var result = _repository.GetLatestItemList(
+            new InternalItemsQuery
+            {
+                Limit = 3
+            },
+            CollectionType.movies);
+
+        Assert.Equal(3, result.Count);
+        Assert.All(result, item => Assert.IsType<Movie>(item));
+        Assert.Equal(
+            new[] { "movie-a", "movie-b", "movie-c" },
+            result.Select(item => item.PresentationUniqueKey));
+    }
+
     private static BaseItemEntity CreateSeries(string name)
     {
         return new BaseItemEntity
@@ -192,6 +226,19 @@ public sealed class BaseItemRepositoryLatestTvShowTests : IDisposable
             Name = name,
             IsFolder = true,
             IsSeries = true
+        };
+    }
+
+    private static BaseItemEntity CreateMovie(string name, string presentationUniqueKey, DateTime dateCreated)
+    {
+        return new BaseItemEntity
+        {
+            Id = Guid.NewGuid(),
+            Type = typeof(Movie).ToString(),
+            Name = name,
+            PresentationUniqueKey = presentationUniqueKey,
+            DateCreated = dateCreated,
+            IsFolder = false
         };
     }
 

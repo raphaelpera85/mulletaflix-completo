@@ -80,7 +80,6 @@ public sealed class NebulaMongoAdmissionLeaseTests
         await renewalStarted.Task.WaitAsync(TimeSpan.FromSeconds(2));
         await lease.DisposeAsync();
         await lease.DisposeAsync();
-        await Task.Delay(50);
 
         Assert.Equal(1, renewalCount);
         Assert.Equal(1, releaseCount);

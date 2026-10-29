@@ -1,6 +1,13 @@
 using System;
 using System.IO;
+using System.Net.Http;
+using System.Reflection;
+using System.Threading.Tasks;
+using MediaBrowser.Common.Configuration;
+using MediaBrowser.Controller;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging.Abstractions;
+using Moq;
 using MulletaFlix.Api.Controllers;
 using Xunit;
 
@@ -8,6 +15,51 @@ namespace MulletaFlix.Api.Tests.Controllers;
 
 public class UpdateInfoControllerTests
 {
+    [Fact]
+    public void ApplyUpdate_WhenUpdaterLaunchFails_RestoresReadyStateAndKeepsPackageAvailable()
+    {
+        var tempDirectory = Path.Combine(Path.GetTempPath(), "mulletaflix-update-launch-" + Guid.NewGuid().ToString("N"));
+        var packageDirectory = Path.Combine(tempDirectory, "extracted");
+        Directory.CreateDirectory(packageDirectory);
+        SetStaticField("_installState", "ReadyToApply");
+        SetStaticField("_installProgress", 100);
+        SetStaticField("_installError", null);
+        SetStaticField("_extractedUpdatePath", packageDirectory);
+
+        try
+        {
+            var paths = new Mock<IApplicationPaths>();
+            paths.SetupGet(value => value.ProgramDataPath).Returns(tempDirectory);
+            var controller = new UpdateInfoController(
+                Mock.Of<IServerApplicationHost>(),
+                paths.Object,
+                Mock.Of<ISystemManager>(),
+                Mock.Of<IHttpClientFactory>(),
+                NullLogger<UpdateInfoController>.Instance,
+                static _ => throw new InvalidOperationException("Simulated process launch failure."));
+
+            var result = Assert.IsType<ObjectResult>(controller.ApplyUpdate());
+            Assert.Equal(500, result.StatusCode);
+            Assert.True(Directory.Exists(packageDirectory));
+
+            var status = controller.GetUpdateStatus().Value!;
+            Assert.Equal("ReadyToApply", status.InstallState);
+            Assert.Equal(100, status.InstallProgress);
+            Assert.Contains("try applying it again", status.ErrorMessage, StringComparison.OrdinalIgnoreCase);
+        }
+        finally
+        {
+            SetStaticField("_installState", "Idle");
+            SetStaticField("_installProgress", 0);
+            SetStaticField("_installError", null);
+            SetStaticField("_extractedUpdatePath", null);
+            if (Directory.Exists(tempDirectory))
+            {
+                Directory.Delete(tempDirectory, recursive: true);
+            }
+        }
+    }
+
     [Fact]
     public void WriteEmbeddedUpdaterScript_MatchesRollbackSafePackagingScript()
     {
@@ -30,6 +82,80 @@ public class UpdateInfoControllerTests
         {
             File.Delete(temporaryPath);
         }
+    }
+
+    private static void SetStaticField(string name, object? value)
+    {
+        var field = typeof(UpdateInfoController).GetField(name, BindingFlags.NonPublic | BindingFlags.Static);
+        Assert.NotNull(field);
+        field!.SetValue(null, value);
+    }
+
+    [Fact]
+    public async Task InstallUpdate_RejectsUnapprovedArchiveHostBeforeCreatingHttpClient()
+    {
+        var httpClientFactory = new Mock<IHttpClientFactory>();
+        var controller = new UpdateInfoController(
+            Mock.Of<IServerApplicationHost>(),
+            Mock.Of<IApplicationPaths>(),
+            Mock.Of<ISystemManager>(),
+            httpClientFactory.Object,
+            NullLogger<UpdateInfoController>.Instance);
+
+        var result = await controller.InstallUpdate("https://example.com/package.zip");
+
+        Assert.IsType<BadRequestObjectResult>(result);
+        httpClientFactory.Verify(factory => factory.CreateClient(It.IsAny<string>()), Times.Never);
+    }
+
+    [Fact]
+    public void CreateConfiguredClient_WithoutGitHubToken_ClearsAuthorizationHeader()
+    {
+        var client = new HttpClient();
+        client.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", "factory-token");
+        var httpClientFactory = new Mock<IHttpClientFactory>();
+        httpClientFactory.Setup(factory => factory.CreateClient(It.IsAny<string>())).Returns(client);
+        var applicationHost = new Mock<IServerApplicationHost>();
+        applicationHost.SetupGet(host => host.ApplicationVersionString).Returns("1.2.3");
+        var controller = new UpdateInfoController(
+            applicationHost.Object,
+            Mock.Of<IApplicationPaths>(),
+            Mock.Of<ISystemManager>(),
+            httpClientFactory.Object,
+            NullLogger<UpdateInfoController>.Instance);
+
+        using var configuredClient = controller.CreateConfiguredClient(includeGitHubToken: false);
+
+        Assert.Null(configuredClient.DefaultRequestHeaders.Authorization);
+    }
+
+    [Theory]
+    [InlineData("https://github.com/raphaelpera85/mulletaflix-completo/releases/download/v12.1.46/mulletaflix-update-win-x64.zip", true)]
+    [InlineData("http://github.com/raphaelpera85/mulletaflix-completo/releases/download/v12.1.46/package.zip", false)]
+    [InlineData("https://github.com.attacker.example/raphaelpera85/mulletaflix-completo/releases/download/v12.1.46/package.zip", false)]
+    [InlineData("https://github.com/other/repository/releases/download/v12.1.46/package.zip", false)]
+    [InlineData("https://user:password@github.com/raphaelpera85/mulletaflix-completo/releases/download/v12.1.46/package.zip", false)]
+    [InlineData("https://github.com:444/raphaelpera85/mulletaflix-completo/releases/download/v12.1.46/package.zip", false)]
+    [InlineData("https://github.com/raphaelpera85/mulletaflix-completo/releases/download/v12.1.46/../package.zip", false)]
+    [InlineData("https://github.com/raphaelpera85/mulletaflix-completo/releases/download/v12.1.46/", false)]
+    [InlineData("https://github.com/raphaelpera85/mulletaflix-completo/releases/download//package.zip", false)]
+    [InlineData("https://github.com/raphaelpera85/mulletaflix-completo/releases/download/v12.1.46/package.zip?redirect=https://example.com", false)]
+    public void IsAllowedGitHubReleaseArchiveUrl_RestrictsPackagesToCanonicalReleaseAssets(string archiveUrl, bool expected)
+    {
+        Assert.Equal(expected, UpdateInfoController.IsAllowedGitHubReleaseArchiveUrl(archiveUrl));
+    }
+
+    [Theory]
+    [InlineData("https://release-assets.githubusercontent.com/asset-id", true)]
+    [InlineData("https://objects.githubusercontent.com/asset-id", true)]
+    [InlineData("https://github.com/raphaelpera85/mulletaflix-completo/releases/download/v12.1.46/package.zip", true)]
+    [InlineData("https://release-assets.githubusercontent.com.attacker.example/asset-id", false)]
+    [InlineData("http://release-assets.githubusercontent.com/asset-id", false)]
+    [InlineData("https://user:password@release-assets.githubusercontent.com/asset-id", false)]
+    [InlineData("https://example.com/asset-id", false)]
+    public void IsAllowedGitHubArchiveResponseUri_RestrictsRedirectHosts(string url, bool expected)
+    {
+        Assert.Equal(expected, UpdateInfoController.IsAllowedGitHubArchiveResponseUri(new Uri(url)));
     }
 
     [Fact]

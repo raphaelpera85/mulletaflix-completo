@@ -1,3 +1,29 @@
+## Revalidação focal das operações de diretório do restore — 2026-10-29 07:07 BRT
+
+`BackupRestoreDirectoryTests` foi reexecutado em Windows/.NET 10 Release com `--no-build --no-restore`: 47 aprovados, 11 ignorados, zero falhas (58 casos), em 318 ms. Os ignorados incluem testes que exigem Linux/macOS ou capacidades de filesystem/mount específicas; esta execução não valida syscalls nem ACL POSIX.
+
+O código ainda valida o tipo Linux por `statx` e depois chama `renameat`/`renameat2` ou `unlinkat` pelo nome relativo. Isso deixa uma janela de troca de entrada entre validação e mutação para um ator que já consiga escrever no diretório protegido. O ACL fail-closed pretende impedir escrita por usuários não confiáveis, e a auditoria disponível não demonstra bypass dessa fronteira. Não foi feita alteração de código sem uma ameaça reproduzível e sem runner Linux. Este host não tem distribuição WSL, Docker ou Podman disponíveis; H03 permanece aberto, sem crédito parcial. Homologação formal 2/7; sem release ou teste de produção. MariaDB é o único banco relacional operacional; nenhum banco foi acessado nesta fatia.
+
+## Parser ACL POSIX testado sem exigir Linux — 2026-10-28 21:40 BRT
+
+`ValidateLinuxAclBytes_AllowsServiceAndRootWritesButRejectsAnotherNamedUser` cobre como caso portátil a regra ACL: UID efetivo do serviço e root podem escrever; outro usuário nomeado com write deve falhar fechado. Os dois testes puros `ValidateLinuxAclBytes_` passaram 2/2 em Windows/.NET 10 Release. `dotnet format whitespace --verify-no-changes` para o projeto/arquivo passou.
+
+`BackupServiceTests|BackupRestoreDirectoryTests` passou 145/161, com 16 ignorados por plataforma/mount e 0 falhas. O caso novo valida somente o parser de bytes; não testa `fgetxattr`, owner/mode pelo handle, ACL default/acessível real, ACL POSIX nem syscalls Linux. Os testes reais de ACL Linux seguem ignorados neste host. H03 permanece em andamento e sem crédito parcial; homologação formal 2/7 (28,6%). Sem alteração de runtime, release ou produção.
+
+## Regressão focal de restore e startup — 2026-10-28 21:36 BRT
+
+Em Windows/.NET 10 Release, `BackupServiceTests|BackupRestoreDirectoryTests` passou 144/160, com 16 ignorados por requisitos de plataforma/mount e zero falhas. `ProgramStartupRecoveryTests` passou 9/9; confirma a ordem do callback real de recuperação antes das etapas de migração/inicialização exercitadas pelo teste, não um boot completo via `Program.Main`.
+
+Esta rodada não executou backend Linux, ACL POSIX nem a corrida determinística entre validação e `renameat`/`unlinkat`. WSL não apresentou distro listada e Docker não está instalado/disponível no host; por isso, os casos Linux continuam ignorados. A corrida permanece restrita ao ator que já consegue escrever a árvore protegida com UID do serviço/root; não foi demonstrado bypass de usuário não confiável. H03 continua em andamento e sem crédito parcial; homologação formal permanece 2/7 (28,6%). Nenhuma mudança de runtime, release ou produção.
+
+## MariaDB-only relacional e cobertura de entidades de usuários/sistema — 2026-10-28 21:11 BRT
+
+Premissa operacional confirmada pelo usuário: o servidor relacional usado é MariaDB; não há implantação de servidor MySQL. `MySqlConnector`, `MySqlDatabaseProvider`, nomes de teste/migration e executáveis herdados da distribuição MariaDB são identificadores técnicos, não evidência de MySQL em produção.
+
+Revalidação estática do backup integral: `BackupService.GetExpectedDatabaseEntities` enumera as entidades do modelo `MulletaFlixDbContext`. O teste `GetExpectedDatabaseEntities_IncludesUsersAndSystemContextEntities` deriva os tipos dos `DbSet<T>` de `UsersDbContext` e `SystemDbContext` e confirma que estão incluídos no conjunto exportado. Focal passou 1/1; suíte `FullyQualifiedName~FullSystemBackup` passou 153, ignorou 16 casos dependentes de plataforma e falhou 0 (169). Isto prova cobertura do modelo/enumeração, não o round-trip de todas as linhas em MariaDB.
+
+Não houve conexão a MariaDB instalado, restauração real, CI hospedada ou execução Linux nesta rodada. Os skips de ACL/mount/syscalls Linux/macOS continuam sem validação. Homologação formal permanece 2/7 (28,6%); nenhuma release foi criada.
+
 ## Restore ZIP — limites de expansão e conteúdo — 2026-10-28
 
 `RestoreBackupCoreAsync` também usa o mesmo leitor limitado a 16 MiB da consulta/listagem; a leitura acumulada aplica o limite mesmo se o tamanho anunciado no diretório ZIP não for confiável. Manifesto acima do teto falha com `InvalidDataException` antes de criar o journal de restore, criar sidecars de arquivos ou mutar config/mídia/banco, preservando arquivos existentes; o teste confirma também que o callback de sidecar não é acionado. O teste usa um `BackupManifest` válido com padding incompressível acima do limite. Uma tentativa preliminar anterior ao fix usou JSON inválido e alcançou erro de desserialização, não sendo tratada como a prova do caso válido. A validação geral da integridade ainda percorre o ZIP antes deste limite específico; o trabalho de descompressão permanece sujeito aos tetos gerais por entrada/arquivo e razão de compressão.
@@ -1168,7 +1194,7 @@ Adicionado `SaveImagesAsync_ConcurrentRefreshesForSameItem_PersistOneCompleteIma
 
 O log recebido registra `MySqlException 1213` ao executar `DELETE BaseItemImageInfos` para o mesmo `ItemId`; várias threads repetem a falha. O trecho não identifica versão/binário carregado nem quantidade de processos. No fonte local, `SaveImagesAsync` e `UpdateOrInsertItems` compartilham o mesmo lock por faixa. A regressão unitária `SaveImagesAsync_WaitsForSameItemPersistenceLockBeforeOpeningDatabaseContext` passou 1/1 em Windows/.NET 10 Release.
 
-Limite encontrado: `ItemPersistenceService.DeleteItem` também exclui `BaseItemImageInfos`, mas não adquire as faixas; `SemaphoreSlim` também não coordena processos distintos. Isso deixa dois escritores plausíveis, ainda não comprovados como causa deste log. A integração concorrente MariaDB não pôde ser executada: Docker, MariaDB e MySQL não estão disponíveis e `127.0.0.1:33099` recusou conexão. Não aplicar mitigação global sem medir o impacto sobre exclusões grandes. Próximo passo: executar o teste com MariaDB isolado e instrumentar a identidade/versão/processo do servidor; avaliar serialização de exclusão sem manter transação aberta enquanto espera locks.
+Limite encontrado: `ItemPersistenceService.DeleteItem` também exclui `BaseItemImageInfos`, mas não adquire as faixas; `SemaphoreSlim` também não coordena processos distintos. Isso deixa dois escritores plausíveis, ainda não comprovados como causa deste log. A integração concorrente MariaDB não pôde ser executada: Docker e um servidor MariaDB descartável não estão disponíveis, e `127.0.0.1:33099` recusou conexão. Não aplicar mitigação global sem medir o impacto sobre exclusões grandes. Próximo passo: executar o teste com MariaDB isolado e instrumentar a identidade/versão/processo do servidor; avaliar serialização de exclusão sem manter transação aberta enquanto espera locks.
 
 Nenhum código de runtime alterado nesta revisão. Correção anterior segue somente em fonte local/CI pendente; release 12.1.32 é rascunho não publicado. Homologação formal 2/7 sem crédito; TOCTOU/ACL P0 do restore permanece aberto.
 
@@ -1788,3 +1814,127 @@ GitHub Actions run 40785308776 (pull_request, head 61dac411eab4a69fe62994c7fb1ee
 ## Consistência da versão MariaDB empacotada — 2026-10-28
 
 O projeto usa somente MariaDB. Windows, pacote portátil e CI estavam em patches 11.4.4, 11.4.2 e tag flutuante 11.4, respectivamente. Foram alinhados a 11.4.13; o `MariaDbServerVersion(11.4.2)` do provider permanece como baseline de recursos da série. O ZIP Windows oficial passou SHA-256; servidor descartável iniciou em loopback 33159 e `IntroSkipper.Integration.Tests` passou 47/47. PowerShell parse e Bash syntax passaram. Nenhum pacote completo foi construído, nenhuma CI Linux rodou e produção não foi acessada; homologação formal continua 2/7 (28,6%), sem release.
+
+## Round-trip relacional de backup em MariaDB descartável — 2026-10-28 21:19 BRT
+
+`BackupRestoreMariaDbTests.RestoreBackupAsync_RestoresDatabaseRowsOnDisposableMariaDb` agora grava e altera registros representativos de `User`, `ApiKey` e `DeviceOptions`, executa backup e restore, e confirma que os valores originais retornam. Com MariaDB 11.4.13 descartável em loopback `127.0.0.1:60338`, o caso focal passou 1/1 e a classe `BackupRestoreMariaDbTests` passou 4/4 em Windows/.NET 10 Release. A instância foi encerrada e a porta de teste fechou; nenhum banco operacional foi usado. Este round-trip cobre três tipos representativos, não todas as tabelas/linhas. Linux, CI hospedada, runtime instalado e produção seguem pendentes; homologação formal continua 2/7 (28,6%), sem crédito ou release.
+
+
+## Reauditoria SRV-H03 — corrida de rename sob a política ACL — 2026-10-28 21:54 BRT
+
+Revisão independente dos chamadores e limites ACL não encontrou bypass confirmado por identidade não confiável. A validação POSIX rejeita escrita por grupo/outros e por usuário nomeado que não seja o serviço ou root. O caminho Linux de `BackupRestoreDirectory.Rename` ainda consulta o tipo da entrada com `statx(AT_SYMLINK_NOFOLLOW)` e depois executa rename por nome; um processo concorrente com o UID do serviço ou root pode trocar a entrada entre essas operações. O rename move a symlink sem segui-la; no rollback, a validação posterior pode falhar e manter journal/sidecar para recuperação. Esse ator já pertence à identidade de confiança escolhida pelo usuário, portanto a revisão não demonstra escalada entre usuários.
+
+`BackupRestoreDirectoryTests` Windows/.NET 10 Release passou 47/58 (11 ignorados por dependência de Linux/mount, 0 falhas). WSL não tem distribuição Linux e Docker não está disponível; ACL Linux efetiva, syscalls e corrida determinística não foram exercitadas. SRV-H03 permanece em andamento; homologação formal 2/7 (28,6%), sem crédito. MariaDB é o único banco operacional; `MySql*` permanece apenas em nomes técnicos. Nenhum runtime, produção ou release foi alterado. Próxima evidência: executar testes ACL/rename em Linux real e fechar a decisão operacional.
+
+## Rechecagem da CI Linux do PR #1 — 2026-10-28 21:56 BRT
+
+Actions run `40795733017` corresponde ao head `0328e4c1036011830ddff16d749b6ad0651bc309`. Os diagnósticos dos checks `Server build & unit tests` e `Nebula Python unit tests (ubuntu-latest)` informam que o job não iniciou por bloqueio de cobrança; nenhum runner ou step executou. Isso não é resultado dos testes Linux e mantém H03 aberto. Portal `main` recebeu o evento em `eb7a519`; contrato 311/311, Vercel Production `READY`, `/homologacao-status.json` e `/homologacao` HTTP 200. Homologação formal 2/7; sem release ou produção.
+
+## Histórico de duração do restore relacional — 2026-10-28 22:03 BRT
+
+`BackupRestoreMariaDbTests.RestoreBackupAsync_RestoresDatabaseRowsOnDisposableMariaDb` passou a validar que o histórico de execução persistido registra `TaskCompletionStatus.Completed` e `EndTimeUtc > StartTimeUtc` após restaurar o backup. Build Release do projeto `IntroSkipper.Integration.Tests`: 0 erros e 81 avisos. A execução focal encontrou o caso, mas foi ignorada porque `MULLETAFLIX_TEST_MARIADB_CONNECTION_STRING` não está configurada. Nenhum banco foi acessado; a asserção precisa de execução contra MariaDB descartável. O round-trip verifica valores/consultas críticas, mas não prova todas as tabelas/linhas. T4.3 segue parcial, formal 2/7 e sem release.
+
+## Round-trip MariaDB revalidado com histórico do restore — 2026-10-28 22:12 BRT
+
+A asserção do histórico foi restringida à operação `restore` do mesmo arquivo de backup e com `TaskCompletionStatus.Completed`, pois o teste injeta falhas de restore e guarda diversas operações no mesmo histórico. Build Release `IntroSkipper.Integration.Tests`: 0 erros, 81 avisos. `BackupRestoreMariaDbTests` passou 4/4 em 1m12s contra MariaDB 11.4.4 descartável em `127.0.0.1:34782`; inclui a verificação de `EndTimeUtc > StartTimeUtc` e consultas/entidades restauradas. A instância usou datadir temporário e `--no-defaults`; processo, porta e diretório foram encerrados/removidos. MariaDB operacional em 3306 não foi usado. T4.3 continua parcial: este ciclo prova os cenários cobertos, não todas as tabelas/linhas nem restore integral multi-backend; formal 2/7, sem release.
+
+## Reauditoria do estado do exercício completo no painel — 2026-10-28 22:24 BRT
+
+O painel `BackupCoverageSummary` já informa que não há registro de exercício isolado cobrindo todos os destinos e que uma restauração operacional não comprova recuperação ponta a ponta. `GET /System/Backup/History` expõe tentativas de backup/restauração individuais; `GET /NebulaFtp/Supabase/Status` expõe status e contagens operacionais, sem um resultado agregado do ensaio com MariaDB, MongoDB e arquivos. O teste de interface `BackupCoverageSummary.test.tsx` passou 6/6 em Vitest. Portanto, a apresentação atual não declara sucesso falso; T4.4.15 permanece pendente até existir um exercício integrado que grave um resultado verificável. MariaDB é o único banco relacional operacional; nomes `MySql*` são identificadores técnicos. Sem alteração de runtime, release ou produção; homologação formal 2/7.
+
+## Preparação do exercício integrado MariaDB + MongoDB + arquivos — 2026-10-28
+
+Adicionado `RecoveryExercise_RestoresMariaDbMongoAndFilesFromIsolatedSources` ao teste de integração existente de backup/restauração. Ele reutiliza o round-trip em MariaDB descartável e arquivos temporários, verifica também o conteúdo de `server.json` restaurado e, em seguida, executa a restauração do catálogo Nebula em MongoDB descartável com resposta Supabase simulada. A conexão Mongo só é aceita em `127.0.0.1:27099`; o exercício usa banco Mongo com nome aleatório e remove somente esse banco no teardown. Um novo job de CI provisiona MariaDB 11.4.13 e MongoDB 7.0 em containers efêmeros.
+
+A execução local do caso focal compilou e descobriu um caso, mas foi ignorada porque não havia instâncias isoladas configuradas; nenhum serviço de banco foi acessado. A configuração de CI ainda não executou: a conta GitHub Actions tem bloqueio de cobrança previamente confirmado. Assim, a integração, o MongoDB descartável e o job novo não têm resultado aprovado. T4.4.15 continua pendente; homologação formal continua 2/7 (28,6%). MariaDB é o único banco relacional operacional. Não houve mudança de runtime, release ou produção.
+
+### Exercício integrado local aprovado — 2026-10-28 22:59 BRT
+
+`RecoveryExercise_RestoresMariaDbMongoAndFilesFromIsolatedSources` passou 1/1 em Windows/.NET 10 Release, em 35 s, contra MariaDB 11.4.4 descartável (`127.0.0.1:33099`) e MongoDB 8.3.7 descartável (`127.0.0.1:27099`). O caso verificou restore dos registros MariaDB, de `server.json` e dos arquivos, além da restauração do catálogo Nebula em MongoDB usando resposta HTTP Supabase simulada. As instâncias operacionais em 3306/27017 não foram usadas; os processos descartáveis foram encerrados e as portas de teste fecharam. Duas raízes temporárias de teste permanecem em `%TEMP%`: uma contém uma inicialização MariaDB abandonada e outra os datadirs do exercício aprovado, pois a política da sessão bloqueou remoção recursiva. As versões usadas diferem das configuradas no CI (MariaDB 11.4.13 e MongoDB 7.0), e a execução não foi feita pelo CI hospedado. T4.4.15 permanece parcial: o resultado ainda não é persistido no painel como um exercício agregado; homologação formal segue 2/7 (28,6%), sem release ou produção.
+
+### Regressão da suíte de backup/restauração — 2026-10-28 23:07 BRT
+
+`dotnet test tests/Jellyfin.Server.Implementations.Tests/Jellyfin.Server.Implementations.Tests.csproj --configuration Release --no-restore --filter FullyQualifiedName~FullSystemBackup --verbosity quiet`: 154 aprovados, 16 ignorados, 0 falhas/170 casos, Windows/.NET 10, duração reportada de 13 s. O filtro inclui backup/restore de filesystem e histórico persistido. Esta rodada não foi um teste de integração contra MariaDB/MongoDB operacionais, não executou Linux/CI hospedada e não valida runtime instalado ou produção; os 16 ignorados não contam como aprovados. Homologação formal continua 2/7 (28,6%), sem crédito, release ou mudança de produção. MariaDB segue sendo o único banco relacional operacional.
+
+### Parada de processos do instalador Windows — 2026-10-28 23:12 BRT
+
+O build oficial chama `MulletaFlix-packaging-master/MulletaFlix-ux-custom/nsis/mulletaflix.nsi`. Removida a chamada global `taskkill /IM` do install/uninstall: ela podia encerrar processos homônimos de outra instalação, inclusive MariaDB externo. O fluxo passa a depender do `stop-mulletaflix-processes.ps1` já empacotado, que seleciona alvos por imagem sob as raízes de instalação/dados e encerra por PID. `ci-packaging-coverage.test.mjs` passou 6/6 e confirma o helper nos dois fluxos e a ausência do fallback global. MariaDB é o único banco relacional operacional; `mysqldump` é nome histórico da ferramenta da distribuição MariaDB, conforme documentação oficial. `git diff --check` passou. `makensis` não está disponível nesta máquina; NSIS não foi compilado nem executado. A cópia de instalador legado fora do build oficial não foi alterada. Instalação, produção, runtime, CI hospedada e homologação formal não foram validados; formal 2/7 (28,6%), sem release.
+## Cobertura de dados auxiliares por mídia ampliada — 2026-10-29
+
+O round-trip `RestoreBackupAsync_RestoresDatabaseRowsOnDisposableMariaDb` semeia e verifica `MovieMetadata`, `MovieUserData`, `SeriesUserData`, `BookUserData`, `Seasons`, `Episodes` e `Programs`, além das entidades principais dos respectivos contextos. As asserções conferem idioma/default, reprodução, relações de série/temporada/episódio e canal/programa. `BackupRestoreMariaDbTests` passou 4/5, 1 ignorado, 0 falhas em Windows/.NET 10 Release contra MariaDB 11.4.4 descartável em `127.0.0.1:46735`. O caso ignorado exige MongoDB; a instância descartável encerrou normalmente e nenhuma instância operacional foi acessada.
+
+As 7 tabelas auxiliares de domínio listadas acima agora têm linhas verificadas no round-trip. O fixture central também verifica `AccessSchedules`, `ActionLogs`, `Preference`, `DisplayPreferences`, `ItemDisplayPreferences`, `UserLicense`, `TrickplayInfo` e `MidiaStorageOnlineMediaMetadata`, além de `ApiKey`, `DeviceOptions`, `ActivityLog`, `PlaybackReport` e `User`: 15/38 tabelas centrais, restando 23 sem round-trip de linha. Homologação formal permanece 2/7 (28,6%); sem release. MariaDB é o único banco relacional.
+
+### Round-trip de agenda de acesso e auditoria de ações — 2026-10-29 05:00 BRT
+
+`BackupRestoreMariaDbTests` agora semeia `AccessSchedules` associada ao usuário e uma entrada `ActionLogs`, restaura o backup e verifica relação, dia/horário e campos de auditoria. A bateria passou 4/5, 1 ignorado (dependência de MongoDB), 0 falhas em Windows/.NET 10 Release contra MariaDB 11.4.4 descartável em `127.0.0.1:51424`; o processo foi encerrado normalmente e nenhum banco operacional foi acessado. A formatação whitespace focal e `git diff --check` passaram. Homologação formal 2/7, sem release; 31 tabelas centrais continuam pendentes.
+
+### Round-trip de preferências do usuário e da interface — 2026-10-29 05:06 BRT
+
+O fixture também grava e valida `Preference`, `DisplayPreferences` e `ItemDisplayPreferences` após o restore: valor e tipo da preferência, flags/tempos de navegação e critérios de ordenação/indexação por usuário e item. `BackupRestoreMariaDbTests` passou 4/5, 1 ignorado por depender de MongoDB, 0 falhas/5 em Windows/.NET 10 Release contra MariaDB 11.4.4 descartável em `127.0.0.1:51425`; processo descartável encerrado e porta fechada. Nenhum banco operacional foi usado. Cobertura central atualizada para 10/38, com 28 pendentes; homologação formal 2/7, sem release.
+
+\n
+
+### Falha transitória no CREATE TRIGGER e reexecução — 2026-10-29 05:12 BRT
+
+Uma execução isolada falhou antes das asserções quando `CREATE TRIGGER` tentou gravar um arquivo temporário `.TRN~` e MariaDB retornou Errcode 2 (“No such file or directory”). O log do mesmo processo também registra “ready for connections”; portanto, a causa não foi estabelecida e não é atribuída à prontidão SQL. Uma reexecução após `mariadb-admin ping` passou 1/1 e execuções posteriores da classe também passaram. A ocorrência inicial permanece registrada sem crédito de aprovação. Nenhum banco operacional foi acessado. Auditoria adicional confirmou `UserLicense`, `TrickplayInfo` e `MidiaStorageOnlineMediaMetadata` no round-trip: cobertura correta 13/38, 25 pendentes. Homologação formal 2/7; sem release. Portal Git `main`: commit `fdce0608418844d06ae9fbb52c5b8fd0da2239ba`, contrato 346/346.
+
+### Round-trip de imagem e segmento de mídia — 2026-10-29 05:17 BRT
+
+ImageInfo e MediaSegment foram adicionadas ao round-trip do fixture; após restaurar, o teste compara caminho/data da imagem e item/tipo/limites/provedor do segmento. O teste focal passou 1/1 e BackupRestoreMariaDbTests passou 4/5, 1 ignorado (MongoDB), 0 falhas contra MariaDB 11.4.4 descartável na porta 51432; processo encerrado. Cobertura central: 15/38, com 23 pendentes. Portal Git main: fdce0608418844d06ae9fbb52c5b8fd0da2239ba, contrato 346/346. Sem produção ou release; formal 2/7.
+
+### Round-trip de tabelas de cobrança — 2026-10-29 05:25 BRT
+
+`BackupRestoreMariaDbTests` foi ampliado para semear e validar `PricingPlans`, `DiscountCoupons`, `PaymentGatewayConfigs` e `PaymentTransactions` após restauração. As transações cobrem relação obrigatória com usuário/plano e os cenários `CouponId` preenchido e nulo; a configuração de gateway usa apenas valores sintéticos. A classe passou 4/5, 1 ignorado (caso opt-in MongoDB), 0 falhas em Windows/.NET 10 Release contra MariaDB 11.4.4 descartável em `127.0.0.1:55871`; o processo encerrou normalmente. `dotnet format whitespace --verify-no-changes` no arquivo e `git diff --check` passaram. Nenhum banco operacional foi acessado.
+
+A contagem central reconciliada agora é 22/38 tabelas com linha semeada e assertion pós-restore; 16 seguem sem round-trip de linha. As 7 tabelas auxiliares de domínio e as tabelas persistentes do participante IntroSkipper são acompanhamentos separados. A matriz ampla 5.291/5.376 não foi recalculada; homologação formal permanece 2/7, sem release. MariaDB é o único banco relacional operacional.
+
+### Round-trip de item central e dados de usuário — 2026-10-29 05:28 BRT
+
+O fixture agora também semeia `BaseItems` e `UserData` relacionados a um usuário e valida os campos do item e os dados de reprodução/favorito após o restore. `BackupRestoreMariaDbTests` passou 4/5, 1 ignorado por requerer MongoDB, 0 falhas em Windows/.NET 10 Release contra MariaDB 11.4.4 descartável em `127.0.0.1:60104`; processo encerrou normalmente. `dotnet format whitespace --verify-no-changes` focal e `git diff --check` passaram. Nenhum banco operacional foi acessado.
+
+A cobertura central reconciliada agora é 24/38 tabelas, com 14 pendentes; as seis novas desde o inventário anterior são as quatro tabelas de cobrança, `BaseItems` e `UserData`. A matriz ampla 5.291/5.376 não foi recalculada; homologação formal segue 2/7, sem release. MariaDB é o único banco relacional operacional.
+
+### Round-trip de AttachmentStreamInfo — 2026-10-29 05:30 BRT
+
+Acrescentada uma attachment de stream associada ao `BaseItemEntity` da fixture. Após restore, as assertions conferem chave composta (`ItemId`, `Index`), codec, codec tag, comentário, filename e MIME type; isso também exercita a relação por convenção EF, não explicitada no fluent config. `BackupRestoreMariaDbTests` passou 4/5, 1 ignorado (MongoDB), 0 falhas em Windows/.NET 10 Release contra MariaDB 11.4.4 descartável em `127.0.0.1:60837`; processo encerrou normalmente. Format whitespace focal e `git diff --check` passaram. Nenhum banco operacional foi acessado.
+
+Cobertura central agora 25/38, 13 pendentes. Esta rodada confirma o vínculo por convention no modelo configurado; não amplia homologação formal (2/7) nem recalcula matriz ampla (5.291/5.376). Sem release. MariaDB é o único banco relacional operacional.
+
+### Round-trip de relações de metadados base do item — 2026-10-29 05:32 BRT
+
+A fixture inclui `BaseItemProviders`, `BaseItemImageInfos`, `BaseItemMetadataFields` e `BaseItemTrailerTypes`, todas relacionadas ao `BaseItemEntity`. O restore é verificado por identificadores, provedor/valor, imagem/idioma/dimensões/blurhash, e tipos de metadado/trailer. `BackupRestoreMariaDbTests` passou 4/5, 1 ignorado por depender de MongoDB, 0 falhas em Windows/.NET 10 Release contra MariaDB 11.4.4 descartável em `127.0.0.1:50413`; encerramento normal. Format whitespace focal e diff check passaram; nenhum banco operacional foi acessado.
+
+Cobertura central: 29/38 tabelas com linhas e assertions pós-restore; 9 pendentes. Formal 2/7 e matriz ampla 5.291/5.376 permanecem inalterados; sem release. MariaDB é o único banco relacional operacional.
+
+### Round-trip de capítulos, streams e keyframes — 2026-10-29 05:34 BRT
+
+Adicionadas linhas dependentes de `BaseItems` para `Chapters`, `MediaStreamInfos` e `KeyframeData`. As assertions pós-restore cobrem chave composta/índice e imagem do capítulo; codec, idioma, canais, bitrate, resolução, perfil e cores do stream; e duração/lista de keyframes. `BackupRestoreMariaDbTests` passou 4/5, 1 ignorado por requerer MongoDB, 0 falhas em Windows/.NET 10 Release contra MariaDB 11.4.4 descartável em `127.0.0.1:53605`; processo encerrou normalmente. Format whitespace focal e diff check passaram. Nenhum banco operacional foi acessado.
+
+Cobertura central 32/38; 6 tabelas pendentes. Homologação formal 2/7, agregado 5.291/5.376 sem recálculo e sem release. MariaDB é o único banco relacional operacional.
+
+### Cobertura de linha completa das 38 tabelas centrais — 2026-10-29 05:35 BRT
+
+A fixture adiciona dados e asserções de restore para `AncestorIds`, `LinkedChildren`, `ItemValues`, `ItemValuesMap`, `Peoples` e `PeopleBaseItemMap`, com dois BaseItems e vínculos pai/filho, pessoa/obra e valor/obra. `BackupRestoreMariaDbTests` passou 4/5, 1 ignorado (caso que exige MongoDB), 0 falhas em Windows/.NET 10 Release contra MariaDB 11.4.4 descartável em `127.0.0.1:57572`; instância encerrada normalmente. `dotnet format whitespace --verify-no-changes` focal e `git diff --check` passaram. Nenhum banco operacional foi acessado.
+
+A auditoria da fixture agora encontrou dados e assertions para as 38/38 tabelas centrais declaradas no `JellyfinDbContext`; não há tabela central pendente neste inventário. Esse resultado não significa que todas as linhas de produção foram exercitadas, nem cobre outros participantes/bancos/arquivos. As tabelas auxiliares de domínio e IntroSkipper permanecem contagens independentes já registradas. Agregado 5.291/5.376 não recalculado; homologação formal 2/7 e sem release. MariaDB é o único banco relacional operacional.
+
+### Interrupção abrupta do restore antes e depois do commit — 2026-10-29
+
+O harness de subprocesso `RestoreBackupAsync_ReplaysAfterProcessTerminationBetweenDatabaseAndFileCommit` agora percorre os dois lados do limite transacional: pausa antes de `CommitAsync` sem efetivá-lo e pausa depois do commit relacional, antes do commit de arquivos. Em ambos os casos, encerra o processo e executa `RecoverInterruptedRestoreAsync`, verificando convergência do banco e arquivo, remoção do journal e ausência de sidecars. A nova execução passou compilação; o teste MariaDB foi ignorado porque a connection string isolada não está configurada no host. Nenhum banco operacional foi acessado; MariaDB continua sendo o único banco relacional operacional. CI descartável ainda precisa executar o novo caminho; homologação formal 2/7, sem release.
+
+### Regressão unitária do subsistema de backup/restore — 2026-10-29 05:37 BRT
+
+`dotnet test tests/Jellyfin.Server.Implementations.Tests/Jellyfin.Server.Implementations.Tests.csproj --configuration Release --no-build --no-restore --filter FullyQualifiedName~FullSystemBackup --verbosity quiet` passou 154, ignorou 16 por plataforma/ambiente, falhou 0 (170 casos) em Windows/.NET 10 Release. Os ignorados não contam como aprovados; a bateria não acessou banco operacional nem valida restore de todas as linhas de produção. Combinada ao round-trip em MariaDB descartável, esta é uma verificação unitária adjacente, não homologação total. Homologação formal segue 2/7, matriz 5.291/5.376 sem recálculo, sem release. MariaDB é o único banco relacional operacional.
+
+### Suíte completa Server Implementations — 2026-10-29 05:39 BRT
+
+`dotnet test tests/Jellyfin.Server.Implementations.Tests/Jellyfin.Server.Implementations.Tests.csproj --configuration Release --no-build --no-restore --verbosity quiet` passou 1.659, ignorou 83 por requisitos/platforma/opt-in, falhou 0 (1.742 casos) em Windows/.NET 10 Release, 1m12s. Isto amplia a verificação do backup para o projeto inteiro, mas skips continuam pendentes e a suíte não valida todos os serviços, Linux, instalação ou produção. Nenhum banco operacional foi acessado nesta execução. Homologação formal 2/7, agregado 5.291/5.376 sem recálculo, sem release. MariaDB é o único banco relacional operacional.
+
+### Matriz de testes da solução recompilada — 2026-10-29 05:44 BRT
+
+`dotnet test MulletaFlix.sln --configuration Release --no-restore --filter FullyQualifiedName!~LiveIntegrationTests --verbosity quiet` recompilou os projetos e terminou com exit code 0; nenhum teste falhou. Vários projetos foram reportados individualmente pelo runner. Exemplos: Server.Tests 95/95; Server.Integration.Tests 8 aprovados/143 ignorados; IntroSkipper.Integration.Tests 26/57, 31 ignorados; Providers 824/824; API 793 aprovados/3 ignorados; Server Implementations 1.659 aprovados/83 ignorados. O runner não publicou soma global nesta execução e não será inferida; os skips opt-in/ambiente permanecem pendentes. O filtro excluiu `LiveIntegrationTests`; build reportou avisos de documentação/analisadores, sem erros. Sem acesso a bancos de produção ou runtime. Formal 2/7, matriz 5.291/5.376 não recalculada, sem release. MariaDB é o único banco relacional operacional.
+
+### Portal: matriz recompilada da solução — 2026-10-29 05:45 BRT
+
+O contrato do portal passou 355/355. Evidência registrada e enviada ao Git `main` no commit `90c83c8d9b3697b07ae9ada25aa7f08a707498f2`, SHA confirmado por `git ls-remote`. O evento reporta execução recompilada da solução com exit code 0, exemplos de resultados por projeto, skips e ausência de soma global retida. O filtro excluiu LiveIntegrationTests. Homologação formal permanece 2/7; sem release, produção ou deploy externo verificado. MariaDB é o único banco relacional operacional; nomes MySql* são implementação técnica herdada do provider/driver, não indicam servidor MySQL em uso.

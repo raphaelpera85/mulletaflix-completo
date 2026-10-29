@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using System.IO.Compression;
+using System.Runtime.ExceptionServices;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -22,7 +23,7 @@ public sealed class StartupBackupRecoveryTests
         const string restoredContent = "restored-before-startup";
         var beforeStartupMigrationObserved = false;
         string? restoredFilePath = null;
-        using var factory = new MulletaFlixApplicationFactory
+        var factory = new MulletaFlixApplicationFactory
         {
             BeforeBackupRecovery = paths =>
             {
@@ -48,13 +49,73 @@ public sealed class StartupBackupRecoveryTests
             }
         };
 
-        using var client = factory.CreateClient();
-        var response = await client.GetAsync("/System/Info/Public", TestContext.Current.CancellationToken);
+        await ExecuteAndDisposeAsync(
+            async () =>
+            {
+                using var client = factory.CreateClient();
+                var response = await client.GetAsync("/System/Info/Public", TestContext.Current.CancellationToken);
 
-        response.EnsureSuccessStatusCode();
-        Assert.True(beforeStartupMigrationObserved, "Backup recovery must complete before startup migrations begin.");
-        Assert.Equal(restoredContent, File.ReadAllText(restoredFilePath!));
-        Assert.True(await factory.TestPluginDatabaseExistsAsync(), "The server must initialize IntroSkipper in its isolated test schema.");
+                response.EnsureSuccessStatusCode();
+                Assert.True(beforeStartupMigrationObserved, "Backup recovery must complete before startup migrations begin.");
+                Assert.Equal(restoredContent, File.ReadAllText(restoredFilePath!));
+                Assert.True(await factory.TestPluginDatabaseExistsAsync(), "The server must initialize IntroSkipper in its isolated test schema.");
+            },
+            factory.Dispose);
+    }
+
+    [Fact]
+    public async Task ExecuteAndDisposeAsync_PreservesOperationFailureWhenCleanupAlsoFails()
+    {
+        var operationFailure = new InvalidOperationException("simulated startup failure");
+        var cleanupFailure = new InvalidOperationException("simulated fixture cleanup failure");
+
+        var aggregate = await Assert.ThrowsAsync<AggregateException>(
+            () => ExecuteAndDisposeAsync(
+                () => Task.FromException(operationFailure),
+                () => throw cleanupFailure));
+
+        Assert.Collection(
+            aggregate.InnerExceptions,
+            exception => Assert.Same(operationFailure, exception),
+            exception => Assert.Same(cleanupFailure, exception));
+    }
+
+    private static async Task ExecuteAndDisposeAsync(Func<Task> operation, Action cleanup)
+    {
+        Exception? operationFailure = null;
+        Exception? cleanupFailure = null;
+        try
+        {
+            await operation();
+        }
+        catch (Exception exception)
+        {
+            operationFailure = exception;
+        }
+
+        try
+        {
+            cleanup();
+        }
+        catch (Exception exception)
+        {
+            cleanupFailure = exception;
+        }
+
+        if (operationFailure is not null && cleanupFailure is not null)
+        {
+            throw new AggregateException("The integration test and fixture cleanup both failed.", operationFailure, cleanupFailure);
+        }
+
+        if (operationFailure is not null)
+        {
+            ExceptionDispatchInfo.Capture(operationFailure).Throw();
+        }
+
+        if (cleanupFailure is not null)
+        {
+            ExceptionDispatchInfo.Capture(cleanupFailure).Throw();
+        }
     }
 
     private static void CreateBackupArchive(string archivePath, string content)

@@ -1,5 +1,11 @@
 # Nebula STRM Downloader
 
+## Validação incremental — 2026-10-29 01:14 (-03)
+
+- Revisadas e revalidadas as alterações locais em andamento: resposta HTTP 206 sem `Content-Range` agora falha sem substituir mídia anterior; a detecção de fila ativa usa caminho e identidade (incluindo série/temporada/episódio), evitando bloquear títulos diferentes só por compartilharem o nome/episódio; o feeder detecta saída imediata no startup e valida opções booleanas; erro ao persistir prioridade solicitada é devolvido ao caller.
+- Evidência: suíte completa NebulaPython em Python 3.10.11: 672/672; suíte C# filtrada `FullyQualifiedName~Nebula`: 726 aprovados, 26 ignorados, 0 falhas/752; `NebulaMediaSuggestionTests` Release/.NET 10: 11/11; três módulos Python focalizados: 121/121. Um primeiro comando usou o Python global 3.13 sem pytest; repetição no venv local passou. O aviso de configuração futura do `pytest-asyncio` não afetou os resultados. Os 26 testes Mongo opt-in foram ignorados sem instância descartável.
+- Nenhum banco operacional, Telegram, downloader de produção, mídia ou serviço foi acessado/iniciado. Não houve teste Linux nativo, CI hospedada, runtime instalado, transferência real ou benchmark. A árvore de módulos, APIs e dependências permanece igual. Homologação formal 2/7; sem release nesta etapa.
+
 ## Rechecagem de startup e envio — 2026-10-28 15:13 BRT
 
 - O novo log de produção ainda usa o watchdog de 45 s. O processo Python abre FTP `127.0.0.1:2121` e HTTP `127.0.0.1:2123` às 14:49:51; às 14:50:19–20 restaura uploads e inicia partes de quatro mídias; às 14:50:25 o host informa timeout de 45 s. O helper de montagem relata depois conexão recusada em `127.0.0.1:2121`.
@@ -537,7 +543,7 @@ The current read-only `GET http://127.0.0.1:8096/System/Info/Public` returned HT
 
 Para avançar nos testes de integração sem tocar no Mongo da produção (listener `127.0.0.1:27017`), foi iniciado um `mongod` temporário 8.3.7 somente em loopback `127.0.0.1:27099`, com diretório de dados exclusivo sob `.build/nebula-test-mongo-20261017-a`. A variável opt-in `MULLETAFLIX_TEST_MONGODB_CONNECTION_STRING` foi definida apenas no processo do `dotnet test`; os testes aceitam exclusivamente host/porta fixos e usam nomes de bancos isolados/aleatórios. `Category=RequiresMongo` em Release passou **21/21, 0 falhas, 0 skips**. O processo temporário foi encerrado e a porta 27099 fechou; o diretório de dados de teste permaneceu em `.build` após a política bloquear a remoção recursiva. Nenhum teste usou a porta 27017. Isso fecha uma lacuna dos testes de integração Mongo, mas não valida o download real via Telegram nem corrige a instalação 12.1.21; primeiro download em produção segue pendente.
 
-Na mesma instância descartável, a suíte completa `Jellyfin.Server.Implementations.Tests` Release passou **1.473 aprovados, 39 ignorados, 0 falhas (1.512 total)** em 1m42s. Os 21 testes `RequiresMongo` passaram; os demais skips ainda incluem dependências de MySQL/plataforma e benchmarks. O processo de teste Mongo foi encerrado e a porta 27099 fechou. Isso não executa integração end-to-end com Telegram nem comprova primeira transferência.
+Na mesma instância descartável, a suíte completa `Jellyfin.Server.Implementations.Tests` Release passou **1.473 aprovados, 39 ignorados, 0 falhas (1.512 total)** em 1m42s. Os 21 testes `RequiresMongo` passaram; os demais skips ainda incluem dependências de MariaDB/plataforma e benchmarks. O processo de teste Mongo foi encerrado e a porta 27099 fechou. Isso não executa integração end-to-end com Telegram nem comprova primeira transferência.
 
 ## Recheck de início reportado pelo usuário — 2026-10-17 02:42 (-03)
 
@@ -872,3 +878,22 @@ MongoDB 8.3.7 isolado em `127.0.0.1:27099` habilitou todos os testes da suíte N
 ### 28/10/2026 — Remediação dos advisors Supabase
 
 A migration `20261028130514_supabase_advisor_cleanup` fixa `search_path` vazio na trigger `set_nebula_updated_at`, remove o índice duplicado `idx_mulletaflix_users_username` e elimina `idx_nebula_files_parent`, sem scans e sem callers do campo no código. A uniqueness canônica `mulletaflix_users_normalized_username_key` permanece; C# setup cria/garante essa chave sem a duplicata e C#/Python setup não recriam `parent`. Advisors security e performance retornaram sem findings. Testes C# e Python focais passaram 1/1 cada. CI hospedada, runtime instalado e produção do servidor seguem pendentes.
+
+### Reserva de disco fail-closed no downloader — 2026-10-29 02:16 BRT
+
+- `feed_ftp.check_disk_space` agora pausa a fila quando não consegue selecionar/inspecionar o staging; erros de permissão ou volume indisponível em `wait_for_disk_capacity` são retentados, sem iniciar gravação.
+- `strm_downloader.wait_for_disk_capacity` também retenta erros de sondagem. A resposta sem suporte a `Range` fecha a sondagem, valida capacidade antes de um GET sequencial e revalida espaço antes de gravar cada bloco; se `Content-Length` existir, a reserva considera o arquivo completo.
+- Regressões cobrem erro transitório da sondagem nos dois workers e verificam que o fluxo sequencial confirma capacidade antes/durante a gravação. Nebula Python 3.10: 674/674; `compileall` e `git diff --check` passaram. Aviso existente de configuração `pytest-asyncio` permanece.
+- Sem I/O de rede real, teste de disco cheio prolongado, runtime instalado ou produção. Falhas permanentes de sondagem mantêm o download pausado com retentativas; release e homologação formal não avançaram (2/7). MariaDB é o único banco relacional operacional.
+
+### Validação de origem e gravação de imagens — 2026-10-29
+
+O feeder agora rejeita qualquer HTTP 206 sem `Content-Range` numérico e compatível com o intervalo pedido. Só HTTP 200 pode seguir pelo fallback de arquivo sequencial; códigos inesperados falham. O teste de regressão demonstrou que antes a resposta parcial era gravada como arquivo completo, e confirma que um destino existente continua intacto.
+
+`SaveImagesAsync` usa a mesma trava por faixa de ID de `SaveItems`, evitando concorrência entre a atualização de imagens e o upsert de metadados do mesmo item. A integração concorrente contra MariaDB continua pendente.
+
+Validação Windows/.NET 10 Release: solução inteira, 17 assemblies, 5.363 aprovados, 273 ignorados, 0 falhas/5.636 resultados, exit 0. Nebula Python: 682/682; compileall aprovado. Integração MariaDB opt-in, CI, Linux, runtime instalado e produção não foram validados. MariaDB é o único banco relacional operacional.
+
+O teste MariaDB `SaveImagesAsync_ConcurrentWritesForSameItem_DoNotMixImageSets` cobre 20 escritas concorrentes de dois conjuntos de imagens do mesmo item e exige que a leitura final corresponda a um conjunto completo. Foi compilado, mas ignorado (1/1) sem conexão descartável. A execução integral .NET foi repetida depois: 5.363 aprovados, 274 ignorados, zero falhas/5.637 resultados. Esses skips aguardam MariaDB de teste; não são homologação.
+
+Publicação portal Git `main`: `ba195f1d16e91caf4c586f3890074ed01105ba68`, contrato 377/377 e SHA remoto conferido. Nenhum deployment Vercel foi verificado.

@@ -25,6 +25,9 @@ class _Response:
     def read(self, size=-1):
         return self.stream.read(size)
 
+    def close(self):
+        self.stream.close()
+
 
 def _silence_network_globals(monkeypatch):
     monkeypatch.setattr(strm_downloader.socket, "setdefaulttimeout", lambda *_args: None)
@@ -585,6 +588,76 @@ def test_multipart_download_rejects_wrong_content_range_and_preserves_previous_f
     assert target.read_bytes() == b"previous-good-media"
 
 
+def test_multipart_download_rejects_206_without_content_range_and_preserves_previous_file(
+    tmp_path, monkeypatch
+):
+    target = tmp_path / "episode.mkv"
+    target.write_bytes(b"previous-good-media")
+    _silence_network_globals(monkeypatch)
+
+    def fake_urlopen(request, **_kwargs):
+        if request.get_header("Range") == "bytes=0-0":
+            return _Response(b"", headers={"Content-Range": "bytes 0-0/6"})
+        return _Response(b"def", headers={}, status=206)
+
+    monkeypatch.setattr(strm_downloader, "urlopen", fake_urlopen)
+
+    with pytest.raises(IOError, match="sem cabeçalho Content-Range"):
+        strm_downloader.download_strm_multipart(
+            "https://cdn.example/episode.mkv", target, parts_count=1, max_retries=1
+        )
+
+    assert target.read_bytes() == b"previous-good-media"
+
+
+def test_non_range_response_replaces_stale_nonempty_destination(tmp_path, monkeypatch):
+    target = tmp_path / "episode.mkv"
+    target.write_bytes(b"old")
+    _silence_network_globals(monkeypatch)
+    requests = []
+
+    def fake_urlopen(request, **_kwargs):
+        requests.append(request)
+        return _Response(b"complete replacement", headers={"Content-Length": "19"}, status=200)
+
+    monkeypatch.setattr(strm_downloader, "urlopen", fake_urlopen)
+
+    actual = strm_downloader.download_strm_multipart(
+        "https://cdn.example/episode.mkv", target, parts_count=1
+    )
+
+    assert actual == target
+    assert target.read_bytes() == b"complete replacement"
+    assert len(requests) == 2
+    assert requests[0].get_header("Range") == "bytes=0-0"
+    assert requests[1].get_header("Range") is None
+
+
+def test_non_range_download_checks_disk_capacity_before_and_during_stream(
+    tmp_path, monkeypatch
+):
+    target = tmp_path / "episode.mkv"
+    _silence_network_globals(monkeypatch)
+    capacity_checks = []
+
+    def check_capacity(path, required_bytes, minimum_free_percent):
+        capacity_checks.append((path, required_bytes, minimum_free_percent))
+
+    monkeypatch.setattr(strm_downloader, "wait_for_disk_capacity", check_capacity)
+
+    def fake_urlopen(_request, **_kwargs):
+        return _Response(b"payload", headers={"Content-Length": "7"}, status=200)
+
+    monkeypatch.setattr(strm_downloader, "urlopen", fake_urlopen)
+
+    strm_downloader.download_strm_multipart(
+        "https://cdn.example/episode.mkv", target, min_free_percent=17
+    )
+
+    assert [check[1:] for check in capacity_checks] == [(7, 17), (7, 17)]
+    assert all(check[0] == target for check in capacity_checks)
+
+
 def test_multipart_download_joins_ranges_and_cleans_staging_files(tmp_path, monkeypatch):
     target = tmp_path / "episode.mkv"
     payload = b"abcdefghijk"
@@ -651,8 +724,10 @@ def test_multipart_download_resumes_interrupted_partial_part_and_preserves_good_
             return _Response(b"", headers={"Content-Range": "bytes 0-0/8"})
         first_attempt_ranges.append(range_header)
         if range_header == "bytes=0-3":
-            return _Response(b"ab")  # Transport stops before the requested part is complete.
-        return _Response(b"efgh")
+            return _Response(
+                b"ab", headers={"Content-Range": "bytes 0-3/8"}
+            )  # Transport stops before the requested part is complete.
+        return _Response(b"efgh", headers={"Content-Range": "bytes 4-7/8"})
 
     monkeypatch.setattr(strm_downloader, "urlopen", interrupted_urlopen)
     with pytest.raises(IOError, match="Parte 1 falhou após 1 tentativas"):
@@ -675,7 +750,7 @@ def test_multipart_download_resumes_interrupted_partial_part_and_preserves_good_
             return _Response(b"", headers={"Content-Range": "bytes 0-0/8"})
         retry_ranges.append(range_header)
         assert range_header == "bytes=2-3"
-        return _Response(b"cd")
+        return _Response(b"cd", headers={"Content-Range": "bytes 2-3/8"})
 
     monkeypatch.setattr(strm_downloader, "urlopen", resumed_urlopen)
     actual = strm_downloader.download_strm_multipart(

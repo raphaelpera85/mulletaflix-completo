@@ -1,3 +1,52 @@
+### 29/10/2026 00:05 BRT — Auditoria por blocos: rollback de update, filas Nebula e pedidos (T0.1/T6/T9 parcial)
+
+- Corrigido o atualizador Windows: mantém o snapshot e os dados do pacote até validar o estado `Running` do serviço ou confirmar que o processo standalone sobreviveu à verificação de 10 s. Falha de startup agora tenta restaurar os arquivos anteriores e preserva o pacote/dados para recuperação. Teste novo cobre serviço que não inicia; teste anterior de falha Robocopy continua cobrindo rollback de cópia.
+- Nebula Python deixou de decidir duplicidade de item ativo apenas pelo nome/stem global; agora usa identidade de filme/episódio, destino relativo e caminho exato. HTTP `206` sem `Content-Range` válido falha fechado; resposta `200` sem Range baixa para staging e substitui destino antigo só ao completar. Configurações `overwrite` e `allFiles` rejeitam tipos não booleanos; o feeder detecta processo já encerrado após uma curta janela de inicialização.
+- Solicitação de mídia não confirma `204` quando a prioridade não foi persistida: `NebulaFtpManager` propaga a falha de persistência e o endpoint responde `503`; a atividade da solicitação permanece registrada.
+- Revisão adicional do rollback restringiu a parada ao serviço gerenciado e ao PID standalone criado pelo updater; não há encerramento de processos homônimos por nome. O teste de startup falho também verifica que um processo externo homônimo permanece intacto.
+- Validação final: solução .NET Release no filtro `FullyQualifiedName!~Integration`, 15 assemblies, **5.288 aprovados, 85 ignorados, 0 falhas (5.373 resultados), exit code 0**. A suíte Nebula Python passou **672/672**; sete scripts PowerShell de integridade/empacotamento passaram, incluindo falhas de cópia e startup com rollback. Testes focais da API (3/3) e prioridade (2/2) também passaram e já estão incluídos na regressão .NET. O primeiro run amplo encontrou uma expectativa antiga que supunha falha silenciosa de persistência; ela foi atualizada para exigir erro explícito e o run completo subsequente passou.
+- Não é homologação global: Linux/CI hospedada/runtime instalado/produção não foram testados. Os casos condicionais de MariaDB/MongoDB e plataforma continuam ignorados. Formal segue 2/7 e não houve release.
+
+### 28/10/2026 23:25 BRT — Regressão local e disponibilidade de produção (T0.1/T0.3 parcial)
+
+- `dotnet test MulletaFlix.sln --configuration Release --no-restore --filter "FullyQualifiedName!~Integration" --verbosity minimal` terminou com exit code 0. Assemblies executadas não reportaram falhas; exemplos confirmados no output: API 773 aprovados/3 ignorados, Providers 818/818, Implementations 1.652 aprovados/82 ignorados. O assembly Server Integration não selecionou casos com este filtro; os ignorados incluem caminhos Linux/MariaDB/Mongo opt-in e não contam como aprovados.
+- Nebula Python 3.10, venv do projeto: `pytest tests -q` passou 665/665. Houve aviso de pytest-asyncio sobre escopo futuro do loop.
+- A instância local não respondeu a `http://127.0.0.1:8096/System/Info/Public` (conexão recusada) e o serviço `MulletaFlixServer` não foi encontrado; não foi iniciado. Portanto não houve amostra de produção, latência, recursos, startup ou operações Nebula autenticadas; T0.1 permanece parcial.
+- Mapa técnico conferido, estrutura de runtime inalterada. Sem alteração de produto, release ou produção; homologação formal continua 2/7 (28,6%). Portal e sessão: [[Sessões/2026-10-28-MulletaFlix-regressao-local-e-producao-indisponivel-2325]].
+
+### 28/10/2026 22:16 BRT — Corrigida versão registrada no inventário MariaDB (T4.3 parcial)
+
+- Auditoria cruzada encontrou `docs/inventario-dados-e-recuperacao.md` atribuindo MariaDB 11.4.13 ao teste `RestoreBackupAsync_RestoresDatabaseRowsOnDisposableMariaDb`. O registro da execução de 22:12 confirma MariaDB 11.4.4 descartável; corrigida a versão no inventário.
+- Binário instalado localmente informa MariaDB 11.4.4. Essa leitura identifica o binário, não consulta a instância operacional. Porta 3306 não acessada.
+- Busca de linguagem operacional não encontrou indicação de uso de servidor MySQL separado; `MySql*` e nomes de binários da distribuição MariaDB são identificadores técnicos legados. MariaDB permanece o único banco relacional operacional.
+- Mapa técnico conferido; sem alteração estrutural. T4.3 e homologação formal seguem parciais em 2/7. Sem alteração de runtime, release ou produção.
+
+### 28/10/2026 22:12 BRT — Round-trip de restore MariaDB e histórico verificados (T4.3 parcial)
+
+- Teste inicial da nova asserção revelou ambiguidade: o cenário contém várias operações de restore com falhas injetadas. O filtro foi corrigido para selecionar o histórico pelo `Key`, caminho do backup e status `Completed`.
+- Build Release de `IntroSkipper.Integration.Tests`: 0 erros, 81 avisos. `BackupRestoreMariaDbTests` passou **4/4 em 1m12s**, incluindo round-trip de dados/consultas críticas e histórico `Completed` com `EndTimeUtc > StartTimeUtc`.
+- Execução em MariaDB 11.4.4 descartável, loopback `127.0.0.1:34782`, datadir em `%TEMP%`, servidor iniciado com `--no-defaults`. Depois do teste, processo/porta e pasta temporária confirmados encerrados/removidos; MariaDB operacional em 3306 não foi usado.
+- Portal `main` commit `9e3dea4d9adbe94203af48dec68de19449d8dd06` publicado; contrato 313/313, Vercel Production `dpl_7riQdfRVgJpuCKYenoEDb8qKtLqB` READY, JSON e `/homologacao` HTTP 200. T4.3/formal continuam parciais em 2/7, sem release ou mudança de runtime. Ver [[Sessões/2026-10-28-MulletaFlix-mariadb-restore-duration-2212]].
+
+### 28/10/2026 22:03 BRT — Histórico de duração no restore MariaDB (T4.3 parcial)
+
+- O teste `RestoreBackupAsync_RestoresDatabaseRowsOnDisposableMariaDb` agora exige status `Completed` e `EndTimeUtc > StartTimeUtc` no histórico persistido da restauração após backup/restore em schemas descartáveis MariaDB.
+- Build Release de `IntroSkipper.Integration.Tests`: 0 erros, 81 avisos. O teste focal foi encontrado, mas ignorado porque `MULLETAFLIX_TEST_MARIADB_CONNECTION_STRING` não está configurada; nenhuma conexão ou banco foi acessado. A nova asserção ainda precisa executar contra MariaDB descartável.
+- Portal `main` commit `03479f514ad3ffa90184834be169f795183877a0` publicado; Vercel Production `dpl_CMYaNL23XHkDU3meSy14GKmMWusH` READY, JSON e `/homologacao` HTTP 200; contrato 312/312. T4.3 e homologação formal permanecem parciais (2/7); sem alteração de runtime ou release. Mapa técnico conferido, sem mudança estrutural. Ver [[Sessões/2026-10-28-MulletaFlix-mariadb-restore-duration-2203]].
+
+### 28/10/2026 21:56 BRT — Rechecagem da CI Linux e premissa MariaDB-only
+
+- PR #1 no head `0328e4c1036011830ddff16d749b6ad0651bc309`; Actions run `40795733017` encerrou com os 13 jobs em failure. Os checks `Server build & unit tests` e `Nebula Python unit tests (ubuntu-latest)` foram confirmados pelo diagnóstico como não iniciados por bloqueio de cobrança (`runner_id=0`/sem steps); portanto nenhum teste Linux foi executado nem reprovou o código.
+- Portal `main` recebeu o registro no commit `eb7a519dc41b137c95cedeeff94e5d48e9303bda`; contrato 311/311, deployment Vercel Production `READY`, JSON de status e página `/homologacao` responderam HTTP 200. O evento preserva SRV-H03 em andamento e homologação formal 2/7.
+- Premissa operacional reafirmada: somente MariaDB é usado. Corrigido o guia de migrações que dizia `MariaDB/MySQL`; `MulletaFlix-MySQL`, `MySqlConnector` e nomes de classes permanecem identificadores de compatibilidade. T4.3 segue parcial; sem release, instalação, produção ou teste Linux.
+- Mapa técnico conferido: estrutura sem mudanças. Ver [[Sessões/2026-10-28-MulletaFlix-mariadb-only-ci-recheck-2200]].
+
+### 2026-10-28 21:54 BRT — Reauditoria da corrida Linux no restore H03
+
+- Revisão independente: não há bypass confirmado por usuário não confiável sob a ACL configurada (escrita permitida somente ao UID do serviço e root). A janela `statx(AT_SYMLINK_NOFOLLOW)` → `renameat/renameat2` ainda permite troca por processo concorrente com uma identidade já confiável; a symlink é movida sem ser seguida, mas pode impedir a restauração do sidecar e manter o journal.
+- `BackupRestoreDirectoryTests` Windows/.NET 10 Release: 47 aprovados, 11 ignorados por Linux/mount, 0 falhas. Sem WSL com distribuição ou Docker, não foi executada validação Linux, ACL efetiva ou corrida determinística.
+- SRV-H03 continua em andamento; formal 2/7 (28,6%), sem crédito, release ou produção. MariaDB é o único banco operacional; nomes `MySql*` são técnicos. Mapa técnico conferido e inalterado. Ver [[Sessões/2026-10-28-MulletaFlix-restore-H03-trusted-writer-review-2154]].
+
 ### 28/10/2026 15:32 -03 — CI da candidata bloqueada antes dos testes
 
 - O PR #1 continua aberto para `main`, head `15213c86dd7e02356eab7126c58609b411f1192a`; `mergeable=true`. Run `40745673770` foi criado para esse head às 15:29 BRT e encerrou às 15:30.
@@ -95,8 +144,8 @@
 
 ## Decomposição dos skips do regressão .NET — 2026-10-19 14:57 (-03)
 
-- TRX do run 19/10 registra 64 skips: 30 testes requerem MySQL/MariaDB isolado; 24 requerem Mongo opt-in (executados em separado 24/24 com Mongo 8.3.7); 5 Unix-only, 2 benchmarks, 1 `/dev/shm`, 1 ACL Unix/NTFS e 1 teste de dependência em Server.Tests.
-- Nesta estação não há connection string de MariaDB de teste nem listener em 33099, e Docker/mariadbd não estão no PATH. A porta 3306 foi preservada sem acesso. A suíte Server Integration 144/144 com MariaDB isolado anteriormente não cobre os 30 testes MySQL da assembly Implementations.
+- TRX do run 19/10 registra 64 skips: 30 testes requerem uma instância MariaDB isolada; 24 requerem Mongo opt-in (executados em separado 24/24 com Mongo 8.3.7); 5 Unix-only, 2 benchmarks, 1 `/dev/shm`, 1 ACL Unix/NTFS e 1 teste de dependência em Server.Tests.
+- Nesta estação não há connection string de MariaDB de teste nem listener em 33099, e Docker/mariadbd não estão no PATH. A porta 3306 foi preservada sem acesso. A suíte Server Integration 144/144 com MariaDB isolado anteriormente não cobre os 30 testes de integração com MariaDB da assembly Implementations.
 - Próximo gate: executar os 30 casos com fixture MariaDB isolada, sem reconfigurar a instância de 3306. Mapa técnico conferido, sem mudança de módulos ou runtime.
 - Portal recebeu essa decomposição: commit `b0e84aed96ddd7fc12a191b994a315eb41359f7c`, 126/126 testes, Vercel Production `READY` (`dpl_Dye3szvK7F5192K3v7njKhK2BcJu`), JSON público HTTP 200, status `in_progress`.
 
@@ -699,6 +748,7 @@ Limite de evidência atual: `ClaimFileForUploadAsync` realiza claim atômico, ma
   - [x] Rejeição HTTP no envio de usuários FTP do MongoDB agora encerra a sincronização com erro, sem informar sucesso com contagem zero; respostas 2xx e 503 cobertas em testes.
   - [x] Leituras HTTP ou respostas JSON inválidas de usuários FTP e tokens de bot durante restauração MongoDB agora invalidam a operação e propagam erro; sucesso com tabelas vazias segue válido.
 - [ ] **T4.3 — Criar teste automático de restauração isolada.** Restaurar em diretório/instância temporária, validar contagens e consultas críticas e registrar duração/resultado.
+  - [x] Regressão focal complementar em 28/10/2026: `BackupServiceTests|BackupRestoreDirectoryTests` Windows/.NET 10 Release passou 145/161 (16 skips por plataforma/mount, 0 falhas); `ProgramStartupRecoveryTests` passou 9/9 e verifica callback de recuperação antes das fases de startup exercitadas. `ValidateLinuxAclBytes_` passou 2/2 e o formatter passou, cobrindo apenas parsing puro, não aplicação ACL/syscalls Linux. Não prova boot completo via `Program.Main`, execução Linux/ACL POSIX real ou corrida por pathname; H03 permanece em andamento sem crédito formal.
   - [x] Teste opt-in de ciclo completo MariaDB em schema aleatório: backup, remoção do registro de fixture, restore e consulta do registro restaurado; usa apenas `MULLETAFLIX_TEST_MARIADB_CONNECTION_STRING` configurada explicitamente.
   - [x] **Ciclo de dados MongoDB validado contra banco real** (instância dedicada na porta 27099; a de produção em 27017 não foi tocada). `CatalogRoundTrip_PreservesDocumentsAndCountsAcrossDatabases` exporta a coleção `files` e a reimporta num banco vazio, conferindo contagem preservada, identidade dos documentos, `status`/`size`/`tg_file_id`/`parts` da mídia concluída — sem esses identificadores a restauração devolveria um catálogo apontando para lugar nenhum — e a prioridade persistida, que de outro modo seria perdida na fila restaurada. Também verifica que mídia concluída restaurada não volta a ser reivindicada e mede a duração do exercício. `RestoredCatalog_KeepsPendingWorkClaimable` confirma que trabalho pendente volta reivindicável após a restauração, pois uma fila travada exigiria intervenção manual. 10/10 nos testes com Mongo real, suíte de Implementations 1.141 aprovados/39 ignorados e solução Release com 0 erros.
   - [x] `PerformRestoreAsync` restaura agora `nebula_files` do Supabase em páginas ordenadas, avançando pelo número realmente retornado (inclusive quando `max_rows` limita resposta abaixo de 500), valida HTTP/JSON, mapeia `doc_data` e colunas canônicas e mescla por `$set` no Mongo, preservando campos locais ausentes do backup remoto. Testes cobrem páginas de 500+1, limite simulado de 100+1, erro HTTP/JSON e falha explícita quando há arquivos remotos sem Mongo disponível.
@@ -726,7 +776,8 @@ Limite de evidência atual: `ClaimFileForUploadAsync` realiza claim atômico, ma
   - [x] Parcial: prioridades de solicitações substituem o array sobre snapshot vigente e duplicados são no-op. Atualizações de caminho/cotas do cache usam snapshot sem alterar configuração/cache de runtime antes do save; testados falha, caminho omitido e lifecycle.
   - [x] **Migração total de escritores de configuração para snapshots atômicos concluída**: todos os 5 pontos de persistência direta com `SaveConfiguration` em `NebulaFtpManager.cs` foram eliminados e substituídos por `UpdateConfiguration("nebulaftp", ...)`. A normalização de runtime foi desacoplada em snapshot não-mutante `NormalizeRuntimeConfigurationSnapshot` (garantindo que instâncias em memória nunca sejam corrompidas por leituras concorrentes), e os fluxos de startup (`StartEnvioAsync`, `StartDownloaderAsync`, `GenerateStrmAsync`) agora aplicam normalização e importação do `.env` sob travamento atômico do gerenciador de configuração. O provisionamento assíncrono do Supabase (`ProvisionSupabaseSchemaAsync`) agora opera com snapshot atômico pós-requisição HTTP e limpa `SupabaseManagementToken` estritamente se o token atual ainda corresponder ao utilizado, preservando todas as modificações concorrentes ocorridas durante os até 30s da chamada de rede. Coberto com testes de unidade em `NamedConfigurationConcurrencyTests` (`NormalizeRuntimeConfigurationSnapshot_DoesNotMutateOriginalInstance` e `EnsureRuntimeConfigurationNormalized_PersistsNormalizedValuesAtomically`). Suíte de Implementations (1.221 aprovados / 50 ignorados), API (225 aprovados) e solução Release com 0 erros.
   - [x] Parcial: o painel mostra contagens tipadas de arquivos, total de usuários e subtotais de FTP/app da última restauração Supabase→Mongo. A contagem FTP concluída permanece visível se a etapa seguinte de usuários do aplicativo falhar, sem se passar pelo total; contagens desconhecidas permanecem nulas. A interface identifica o registro como restauração operacional e mantém o aviso de que isso não comprova exercício isolado ponta a ponta.
-  - [ ] Pendente: apresentar o estado do último exercício completo incluindo MongoDB/arquivos. A interface informa explicitamente que restauração operacional não comprova exercício isolado completo.
+  - [ ] Pendente: apresentar o estado do último exercício completo incluindo MariaDB, MongoDB e arquivos. Reauditado em 28/10/2026: o painel informa que não há registro ponta a ponta; os endpoints atuais expõem operações individuais, sem resultado agregado do exercício. A interface distingue restauração operacional de exercício integral.
+  - Preparação acrescentada em 28/10/2026: `RecoveryExercise_RestoresMariaDbMongoAndFilesFromIsolatedSources` compõe restore de MariaDB descartável, `server.json`, arquivos e catálogo Mongo restaurado de resposta Supabase simulada; CI provisiona ambos os serviços efêmeros. O caso local foi descoberto, mas ignorado sem serviços de teste; CI hospedada continua bloqueada por cobrança. Isto cria o gate automatizado, sem evidência de execução aprovada, resultado operacional persistido ou crédito de homologação. MariaDB é o único banco relacional operacional.
 - [x] **T4.5 — Testar recuperação completa.** Documentar RPO/RTO realistas e exercício de recuperação em ambiente Windows e Linux.
   - [x] **Plano de recuperação formalizado** em [`docs/recuperacao-desastres-rpo-rto.md`](file:///d:/Users/Raphael/Documents/Projetos/mulletaflix/docs/recuperacao-desastres-rpo-rto.md): RPO e RTO especificados por camada de dados (Catálogo Relacional: RPO <= 24h, RTO <= 15min; Catálogo Nebula MongoDB: RPO <= 6h, RTO <= 20min; Arquivos STRM: RPO <= 24h/zero perda, RTO <= 10min; Configurações: RPO <= 24h, RTO <= 5min; Cache: descartável, RTO = 0).
   - [x] **Roteiro de exercícios operacionais documentado** para ambientes Windows (PowerShell, parada de serviços, validação de ZIP, extração com atomicidade e validação de health) e Linux (systemd, validação por streaming `unzip -t`, permissions 600 em segredos e verificação de integridade).
@@ -3828,3 +3879,215 @@ A API pública confirma `v12.1.45` como última GitHub Release e retorna 404 par
 - `MySqlDatabaseProviderTests` segue incluído no assembly e passou 7/7. Build Release da solução concluiu com 0 erros e 2.090 avisos de compilador/analisadores, não tratados nesta tarefa. A auditoria NuGet não reportou pacotes vulneráveis.
 - A primeira execução sem filtro permaneceu sem progresso em Providers e foi interrompida; ela não tem resultado agregado. A reexecução filtrada prova o passo unitário local, não integrações MariaDB, Linux ou produção.
 - Actions run `40788460057` permanece bloqueado antes dos runners por problema de cobrança da conta; não houve CI hospedada. Homologação formal 2/7 (28,6%); T6.4 parcial e sem nova release.
+
+### 28/10/2026 22:59 BRT — Execução local do exercício integrado de recuperação
+
+- `RecoveryExercise_RestoresMariaDbMongoAndFilesFromIsolatedSources` passou 1/1 em Release/Windows/.NET 10, em 35 s, usando MariaDB 11.4.4 e MongoDB 8.3.7 em instâncias descartáveis de loopback nas portas 33099 e 27099. Asserções cobrem registros MariaDB, `server.json`, arquivos e restauração real do catálogo Nebula em MongoDB com HTTP Supabase simulado.
+- As instâncias operacionais MariaDB 3306 e MongoDB 27017 não foram usadas. Processos temporários foram encerrados e portas fechadas; duas raízes temporárias ficaram em `%TEMP%` (uma inicialização MariaDB abandonada e os datadirs do exercício aprovado) após a política da sessão bloquear remoção recursiva.
+- CI provisiona MariaDB 11.4.13/MongoDB 7.0; essas versões ainda não foram executadas localmente ou no CI hospedado nesta sessão. O resultado também ainda não é persistido como histórico agregado no painel. T4.4.15 segue parcial, homologação formal 2/7 (28,6%), sem release, instalação ou produção.
+- MariaDB permanece o único banco relacional operacional; MySqlConnector e nomes MySql* são identificadores técnicos do driver/provider.
+
+### 28/10/2026 23:07 BRT — Regressão FullSystemBackup
+
+- `dotnet test tests/Jellyfin.Server.Implementations.Tests/Jellyfin.Server.Implementations.Tests.csproj --configuration Release --no-restore --filter FullyQualifiedName~FullSystemBackup --verbosity quiet`: 154 aprovados, 16 ignorados, 0 falhas/170, Windows/.NET 10, 13 s.
+- A suíte cobre os caminhos de backup/restauração de filesystem e histórico persistido. Os 16 ignorados não contam como aprovados; esta rodada não acessou banco MariaDB, MongoDB operacional, Linux, CI hospedada, runtime instalado ou produção.
+- MariaDB continua sendo o único banco relacional operacional; MySql* aparece apenas em nomes de driver/provider e código. Homologação formal permanece 2/7 (28,6%); T4.4.15 segue parcial, sem nova release ou mudança de produção.
+
+### 28/10/2026 23:12 BRT — Parada segura de processos no instalador Windows (T9.1 parcial)
+
+- No NSIS que o build oficial seleciona, removido o `taskkill` por nomes de imagem nas rotinas de upgrade e remoção. O helper já empacotado encerra os processos apenas quando o caminho executável está sob a instalação/pasta de dados, ou quando a linha de comando referencia a raiz de dados; isso evita terminar processos homônimos alheios.
+- `node --test tools/release/tests/ci-packaging-coverage.test.mjs`: 6/6. Contrato garante que os dois fluxos chamam o helper e que o NSIS oficial não usa fallback `taskkill` global. `git diff --check` passou.
+- `makensis` não está disponível; sem compilação NSIS, teste de instalação/upgrade, execução elevada ou observação de runtime/produção. A cópia legada `mulletaflix-server-windows-mulletaflix-installer-branding` não integra o build oficial e permanece sem alteração. T9.1 e homologação formal 2/7 (28,6%) continuam parciais; sem release.
+
+### 28/10/2026 — Revalidação do transporte do token DuckDNS no NSIS (T9.1 parcial)
+
+- TWINS: busca dos três instaladores NSIS (`jellyfin-server-windows`, `MulletaFlix-ux-custom` e `mulletaflix-server-windows-mulletaflix-installer-branding`) e dos scripts PowerShell confirmou que somente `MulletaFlix-ux-custom` chama `configure-https.ps1`; ele não passa o token como argumento. Prepara `ProgramData\MulletaFlix-DuckDNS\installer-token.txt` com ACL protegida, grava o token temporário e passa apenas `-DuckDnsTokenFile`. As outras duas cópias não contêm chamada DuckDNS/configurador.
+- `node --test tools/release/tests/windows-duckdns-token-transport.test.mjs`: 16/16 aprovados, incluindo ausência do token na linha de comando, criação/limpeza do staging e validação de ACL. `configure-https-credential.tests.ps1`: exit 0; validou rollback/configuração e recusas de setup sem elevação. Nenhum DNS, token real ou host instalado foi acessado.
+- Isso fecha a revalidação estática/local da passagem NSIS → PowerShell no escopo observado, mas não T9.1 inteiro: seguem pendentes compilação/E2E NSIS em VM, ACL sob Administrator elevado, crash recovery do staging, `nginx -t` real, rollback coordenado e auditoria TOCTOU. Homologação formal permanece 2/7 (28,6%); sem release ou produção.
+
+### 28/10/2026 23:34 BRT — Corrige a liberação do mutex MariaDB após operações assíncronas
+
+- O log de produção registra queda anterior da versão 12.1.43 em `MariaDbProcessManager.ReleaseStartupMutex()` por `ReleaseMutex()` executado em thread diferente da aquisição. O código candidato mantinha o mutex em torno de awaits e repetia esse risco.
+- O mutex nomeado agora é adquirido e liberado por uma thread proprietária dedicada. O lease continua retido durante a vida gerenciada do MariaDB, preservando exclusão entre processos; timeout de 45 segundos, mutex abandonado e fallback local por ACL mantidos. Erros na liberação são registrados durante o encerramento em vez de escaparem como exceção não tratada.
+- Testes focais `MariaDbStartupMutexLeaseTests`: 3/3, cobrindo thread cruzada, timeout e mutex abandonado; `Jellyfin.Server.Tests` Release/.NET 10: 89/89. Build Release passou; `git diff --check` passou.
+- Mudança local no worktree, ainda não instalada. Não reiniciei nem alterei processos/serviços de produção, não rodei smoke no runtime instalado ou CI hospedada. O evento observado é da 12.1.43; não foi estabelecida a causa do estado atual de inicialização. Homologação formal segue 2/7 (28,6%); 12.1.46 não publicada.
+- MariaDB permanece o único banco relacional operacional; `MySql*`/`MySqlConnector` são identificadores do driver e provider de compatibilidade. Mapa técnico conferido; sem módulo, API ou dependência nova, mudou o ownership interno do mutex no ciclo de vida do processo.
+### 29/10/2026 — Atualizador: URL de asset allowlist e credencial isolada
+
+- `UpdateInfoController` rejeita `archiveUrl` fora do HTTPS e do caminho de assets de release do repositório oficial; também verifica o host final depois dos redirects. O token GitHub não acompanha downloads de pacote.
+- Evidência local: suíte Jellyfin.Api.Tests Release 793 aprovados, 3 ignorados, 0 falhas/796; formatter focal e `git diff --check` aprovados. CI hospedada, rede externa, pacote/instalação, Linux e produção não executados.
+- É correção candidata sem release. Homologação formal segue 2/7 (28,6%); MariaDB é o único banco relacional operacional.
+# Validação local MariaDB — 29/10/2026
+
+- `PeopleValidationTask_QueriesDuplicateGroupsOnceAcrossBatchBoundary` passou 1/1 em MariaDB 11.4.13 descartável. Cobriu 101 grupos duplicados atravessando o lote de 100, uma leitura agrupada de catálogo, deduplicação para uma linha por grupo e limpeza dos dados criados.
+- O processo foi encerrado e a porta temporária fechada; nenhum banco operacional foi acessado. O datadir ficou em `%TEMP%` porque a política bloqueou a remoção recursiva.
+- A evidência foi publicada no portal; a matriz ampla permanece 5.291/5.376 e a homologação formal 2/7. Esta execução focal não fecha gate formal nem cria release.
+
+### 29/10/2026 — Preferência global de idioma no refresh de imagens
+
+- Refresh de backdrop considera idioma da pasta da coleção e, por último, o idioma configurado no servidor; antes essa resolução parava nas opções da biblioteca. Regressão com item sem idioma comprova que pt-BR vence candidato n mesmo quando vem depois na lista do provider.
+- Jellyfin.Providers.Tests: 824/824 em Windows/.NET 10 Release. Fonte TMDb ao vivo e capas reais permanecem pendentes; sem crédito de homologação.
+
+### 29/10/2026 — Inicializador obrigatório em datadir MariaDB novo
+
+- Instalação embarcada falha antes do mysqld quando datadir novo não contém mysql_install_db.exe; falha explícita se Process.Start não iniciar o inicializador.
+- Jellyfin.Server.Tests: 95/95 Release/.NET 10; nenhum banco operacional iniciado. MariaDB segue único banco relacional. Sem release; homologação formal 2/7.
+
+
+### Pendências priorizadas da auditoria contínua — 2026-10-29
+
+A inspeção estática identificou os próximos gates, ainda sem crédito de homologação: o job CI IntroSkipper agora executa todo o projeto com MariaDB/Mongo, mas a execução Linux hospedada ainda não foi observada; foi adicionado round-trip MariaDB dedicado para SaveImagesAsync, porém localmente foi ignorado sem serviço descartável; round-trip MariaDB de backup ainda cobre poucos tipos, não todo o manifesto; startup aguardando instância MariaDB pré-existente que ainda não aceita SQL não foi validado; workflow release precisa consumir/extrair ZIP de produção gerado no smoke; NSIS permanece ignorado (-SkipInstaller) e requer decisão/validação como artefato. A auditoria deve fechar cada item por fatia, mantendo produção isolada e MariaDB como único banco relacional.
+### 29/10/2026 04:34 BRT — Gate dos artefatos Windows antes da publicação
+
+- O fluxo de release foi reforçado para comparar cada arquivo do ZIP de atualização com o stage por SHA-256 e exigir os executáveis/runtime essenciais. Antes de publicar, o workflow também roda o smoke do instalador limpo em diretórios isolados.
+- Testes locais do verificador: 6 cenários passaram; scripts Windows de packaging: 8/8; contrato do workflow: 7/7. A validação real de ZIP/NSIS/serviço ainda depende de uma execução hospedada Windows; sem artefato real nesta sessão.
+- Homologação formal continua 2/7; status de funcionalidades permanece 328/397 (82,6%) e não mede homologação. Nenhuma release foi criada. MariaDB é o único banco relacional operacional.
+
+### 29/10/2026 04:37 BRT — Lacuna observada no round-trip de backup
+
+- A inspeção estática dos testes/manifesto encontrou linhas verificadas em 5/38 tabelas centrais e nas 4 tabelas principais de mídia; faltam casos de dados para 33 tabelas centrais e 7 tabelas auxiliares de domínio. O participante durável IntroSkipper está coberto em 8/8 tabelas.
+- Planejar rodada de fixtures por grupos com round-trip em MariaDB descartável e comparação entre manifesto, entradas do backup e linhas restauradas. Isso não é evidência de defeito de produção e nenhuma base operacional foi consultada. MariaDB é o único banco relacional usado.
+
+\n
+### 29/10/2026 04:54 BRT — Round-trip das relações de temporadas, episódios e programas
+
+- O round-trip semeia e verifica `MovieMetadata`, `MovieUserData`, `SeriesUserData`, `BookUserData`, `Seasons`, `Episodes` e `Programs`, confirmando também relações Series→Season→Episode e Channel→Program.
+- `BackupRestoreMariaDbTests`: 4 aprovados, 1 ignorado, 0 falhas/5 em Windows/.NET 10 Release contra MariaDB 11.4.4 descartável em loopback/porta 46735. O caso ignorado requer MongoDB; o processo MariaDB descartável encerrou normalmente. Nenhum banco operacional foi acessado.
+- As 7 tabelas auxiliares de domínio têm round-trip validado; 33 tabelas centrais ainda precisam de linhas verificadas. Homologação formal continua 2/7; sem release. MariaDB é o único banco relacional.
+
+### 29/10/2026 05:00 BRT — Round-trip de agenda de acesso e auditoria de ações
+
+- Incluídas fixtures de `AccessSchedules` e `ActionLogs` no round-trip MariaDB; valida o vínculo da agenda ao usuário, o horário permitido e os campos da ação auditada após restore.
+- `BackupRestoreMariaDbTests`: 4 aprovados, 1 ignorado por depender de MongoDB, 0 falhas/5 em Windows/.NET 10 Release contra MariaDB 11.4.4 descartável (`127.0.0.1:51424`). Nenhum banco operacional acessado.
+- Cobertura central de linhas: 7/38, com 31 tabelas pendentes. Homologação formal 2/7, sem release. O mapa técnico foi conferido e não houve alteração estrutural.
+
+### 29/10/2026 05:06 BRT — Round-trip de preferências do usuário e da interface
+
+- A recontagem das assertions no fixture confirmou também `Preference`, `DisplayPreferences` e `ItemDisplayPreferences`; o teste foi ampliado para restaurar e verificar valor/tipo, flags de exibição, tempos de navegação e ordenação/indexação.
+- `BackupRestoreMariaDbTests`: 4 aprovados, 1 ignorado por depender de MongoDB, 0 falhas/5 em Windows/.NET 10 Release contra MariaDB 11.4.4 descartável (`127.0.0.1:51425`); serviço encerrado e porta fechada.
+- Cobertura central atual: 10/38, com 28 tabelas pendentes. Homologação formal 2/7; sem release. Nenhum banco operacional acessado.
+
+### Falha transitória no CREATE TRIGGER e reexecução — 2026-10-29 05:12 BRT
+
+A execução isolada inicial falhou antes das asserções do restore ao criar o trigger de injeção de falha, pois a instância MariaDB descartável ainda não aceitava SQL. A reexecução aguardou `mariadb-admin ping` confirmar prontidão SQL; o mesmo caso passou 1/1 em Windows/.NET 10 Release contra MariaDB 11.4.4 descartável na porta 51430. A instância encerrou normalmente. A classe completa passou 4/5 (um caso ignorado por exigir MongoDB, zero falhas); a tentativa transitória fica registrada e não é contada como aprovação. Auditoria do fixture acrescentou à contagem `UserLicense`, `TrickplayInfo` e `MidiaStorageOnlineMediaMetadata`: cobertura correta 13/38, 25 pendentes. Nenhum banco operacional foi acessado. Formal 2/7; sem release. Portal Git `main`: commit `fdce0608418844d06ae9fbb52c5b8fd0da2239ba`, contrato 346/346.
+
+### Round-trip de imagem e segmento de mídia — 2026-10-29 05:17 BRT
+
+ImageInfo e MediaSegment foram adicionadas ao round-trip do fixture; após restaurar, o teste compara caminho/data da imagem e item/tipo/limites/provedor do segmento. O teste focal passou 1/1 e BackupRestoreMariaDbTests passou 4/5, 1 ignorado (MongoDB), 0 falhas contra MariaDB 11.4.4 descartável na porta 51432; processo encerrado. Cobertura central: 15/38, com 23 pendentes. Portal Git main: fdce0608418844d06ae9fbb52c5b8fd0da2239ba, contrato 346/346. Sem produção ou release; formal 2/7.
+
+### Round-trip de tabelas de cobrança — 2026-10-29 05:25 BRT
+
+`BackupRestoreMariaDbTests` foi ampliado para semear e validar `PricingPlans`, `DiscountCoupons`, `PaymentGatewayConfigs` e `PaymentTransactions` após restauração. As transações cobrem relação obrigatória com usuário/plano e os cenários `CouponId` preenchido e nulo; a configuração de gateway usa apenas valores sintéticos. A classe passou 4/5, 1 ignorado (caso opt-in MongoDB), 0 falhas em Windows/.NET 10 Release contra MariaDB 11.4.4 descartável em `127.0.0.1:55871`; o processo encerrou normalmente. `dotnet format whitespace --verify-no-changes` no arquivo e `git diff --check` passaram. Nenhum banco operacional foi acessado.
+
+A contagem central reconciliada agora é 22/38 tabelas com linha semeada e assertion pós-restore; 16 seguem sem round-trip de linha. As 7 tabelas auxiliares de domínio e as tabelas persistentes do participante IntroSkipper são acompanhamentos separados. A matriz ampla 5.291/5.376 não foi recalculada; homologação formal permanece 2/7, sem release. MariaDB é o único banco relacional operacional.
+
+### Round-trip de item central e dados de usuário — 2026-10-29 05:28 BRT
+
+O fixture agora também semeia `BaseItems` e `UserData` relacionados a um usuário e valida os campos do item e os dados de reprodução/favorito após o restore. `BackupRestoreMariaDbTests` passou 4/5, 1 ignorado por requerer MongoDB, 0 falhas em Windows/.NET 10 Release contra MariaDB 11.4.4 descartável em `127.0.0.1:60104`; processo encerrou normalmente. `dotnet format whitespace --verify-no-changes` focal e `git diff --check` passaram. Nenhum banco operacional foi acessado.
+
+A cobertura central reconciliada agora é 24/38 tabelas, com 14 pendentes; as seis novas desde o inventário anterior são as quatro tabelas de cobrança, `BaseItems` e `UserData`. A matriz ampla 5.291/5.376 não foi recalculada; homologação formal segue 2/7, sem release. MariaDB é o único banco relacional operacional.
+
+### Round-trip de AttachmentStreamInfo — 2026-10-29 05:30 BRT
+
+Acrescentada uma attachment de stream associada ao `BaseItemEntity` da fixture. Após restore, as assertions conferem chave composta (`ItemId`, `Index`), codec, codec tag, comentário, filename e MIME type; isso também exercita a relação por convenção EF, não explicitada no fluent config. `BackupRestoreMariaDbTests` passou 4/5, 1 ignorado (MongoDB), 0 falhas em Windows/.NET 10 Release contra MariaDB 11.4.4 descartável em `127.0.0.1:60837`; processo encerrou normalmente. Format whitespace focal e `git diff --check` passaram. Nenhum banco operacional foi acessado.
+
+Cobertura central agora 25/38, 13 pendentes. Esta rodada confirma o vínculo por convention no modelo configurado; não amplia homologação formal (2/7) nem recalcula matriz ampla (5.291/5.376). Sem release. MariaDB é o único banco relacional operacional.
+
+### Round-trip de relações de metadados base do item — 2026-10-29 05:32 BRT
+
+A fixture inclui `BaseItemProviders`, `BaseItemImageInfos`, `BaseItemMetadataFields` e `BaseItemTrailerTypes`, todas relacionadas ao `BaseItemEntity`. O restore é verificado por identificadores, provedor/valor, imagem/idioma/dimensões/blurhash, e tipos de metadado/trailer. `BackupRestoreMariaDbTests` passou 4/5, 1 ignorado por depender de MongoDB, 0 falhas em Windows/.NET 10 Release contra MariaDB 11.4.4 descartável em `127.0.0.1:50413`; encerramento normal. Format whitespace focal e diff check passaram; nenhum banco operacional foi acessado.
+
+Cobertura central: 29/38 tabelas com linhas e assertions pós-restore; 9 pendentes. Formal 2/7 e matriz ampla 5.291/5.376 permanecem inalterados; sem release. MariaDB é o único banco relacional operacional.
+
+### Round-trip de capítulos, streams e keyframes — 2026-10-29 05:34 BRT
+
+Adicionadas linhas dependentes de `BaseItems` para `Chapters`, `MediaStreamInfos` e `KeyframeData`. As assertions pós-restore cobrem chave composta/índice e imagem do capítulo; codec, idioma, canais, bitrate, resolução, perfil e cores do stream; e duração/lista de keyframes. `BackupRestoreMariaDbTests` passou 4/5, 1 ignorado por requerer MongoDB, 0 falhas em Windows/.NET 10 Release contra MariaDB 11.4.4 descartável em `127.0.0.1:53605`; processo encerrou normalmente. Format whitespace focal e diff check passaram. Nenhum banco operacional foi acessado.
+
+Cobertura central 32/38; 6 tabelas pendentes. Homologação formal 2/7, agregado 5.291/5.376 sem recálculo e sem release. MariaDB é o único banco relacional operacional.
+
+### Cobertura de linha completa das 38 tabelas centrais — 2026-10-29 05:35 BRT
+
+A fixture adiciona dados e asserções de restore para `AncestorIds`, `LinkedChildren`, `ItemValues`, `ItemValuesMap`, `Peoples` e `PeopleBaseItemMap`, com dois BaseItems e vínculos pai/filho, pessoa/obra e valor/obra. `BackupRestoreMariaDbTests` passou 4/5, 1 ignorado (caso que exige MongoDB), 0 falhas em Windows/.NET 10 Release contra MariaDB 11.4.4 descartável em `127.0.0.1:57572`; instância encerrada normalmente. `dotnet format whitespace --verify-no-changes` focal e `git diff --check` passaram. Nenhum banco operacional foi acessado.
+
+A auditoria da fixture agora encontrou dados e assertions para as 38/38 tabelas centrais declaradas no `JellyfinDbContext`; não há tabela central pendente neste inventário. Esse resultado não significa que todas as linhas de produção foram exercitadas, nem cobre outros participantes/bancos/arquivos. As tabelas auxiliares de domínio e IntroSkipper permanecem contagens independentes já registradas. Agregado 5.291/5.376 não recalculado; homologação formal 2/7 e sem release. MariaDB é o único banco relacional operacional.
+
+### Regressão unitária do subsistema de backup/restore — 2026-10-29 05:37 BRT
+
+`dotnet test tests/Jellyfin.Server.Implementations.Tests/Jellyfin.Server.Implementations.Tests.csproj --configuration Release --no-build --no-restore --filter FullyQualifiedName~FullSystemBackup --verbosity quiet` passou 154, ignorou 16 por plataforma/ambiente, falhou 0 (170 casos) em Windows/.NET 10 Release. Os ignorados não contam como aprovados; a bateria não acessou banco operacional nem valida restore de todas as linhas de produção. Combinada ao round-trip em MariaDB descartável, esta é uma verificação unitária adjacente, não homologação total. Homologação formal segue 2/7, matriz 5.291/5.376 sem recálculo, sem release. MariaDB é o único banco relacional operacional.
+
+### Suíte completa Server Implementations — 2026-10-29 05:39 BRT
+
+`dotnet test tests/Jellyfin.Server.Implementations.Tests/Jellyfin.Server.Implementations.Tests.csproj --configuration Release --no-build --no-restore --verbosity quiet` passou 1.659, ignorou 83 por requisitos/platforma/opt-in, falhou 0 (1.742 casos) em Windows/.NET 10 Release, 1m12s. Isto amplia a verificação do backup para o projeto inteiro, mas skips continuam pendentes e a suíte não valida todos os serviços, Linux, instalação ou produção. Nenhum banco operacional foi acessado nesta execução. Homologação formal 2/7, agregado 5.291/5.376 sem recálculo, sem release. MariaDB é o único banco relacional operacional.
+
+### Matriz de testes da solução recompilada — 2026-10-29 05:44 BRT
+
+`dotnet test MulletaFlix.sln --configuration Release --no-restore --filter FullyQualifiedName!~LiveIntegrationTests --verbosity quiet` recompilou os projetos e terminou com exit code 0; nenhum teste falhou. Vários projetos foram reportados individualmente pelo runner. Exemplos: Server.Tests 95/95; Server.Integration.Tests 8 aprovados/143 ignorados; IntroSkipper.Integration.Tests 26/57, 31 ignorados; Providers 824/824; API 793 aprovados/3 ignorados; Server Implementations 1.659 aprovados/83 ignorados. O runner não publicou soma global nesta execução e não será inferida; os skips opt-in/ambiente permanecem pendentes. O filtro excluiu `LiveIntegrationTests`; build reportou avisos de documentação/analisadores, sem erros. Sem acesso a bancos de produção ou runtime. Formal 2/7, matriz 5.291/5.376 não recalculada, sem release. MariaDB é o único banco relacional operacional.
+
+### Continuação rápida: cobertura Python Nebula — 2026-10-29
+
+- A suíte Python foi executada em 674/674 casos (10,36 s), com compileall aprovado. Cobertura agregada medida: 80,5%; `main.py` 75,6%, `feed_ftp.py` 81,0%, `strm_downloader.py` 80,4% e `supabase_sync.py` 90,5%.
+- `pytest.ini` fixa `asyncio_default_fixture_loop_scope = function`, eliminando o aviso de depreciação. Regressão posterior: 674/674 em 13,23 s e compileall aprovado.
+- Contrato do portal 357/357; evidência publicada no Git `main`, commit `835643bd70f72eefca2edffa39702a575505163d`. Sem crédito formal; 2/7 gates permanecem concluídos. Sem release ou produção. MariaDB é o único banco relacional operacional.
+- Evitar um limite `--cov-fail-under=80` neste momento: cobertura agregada tem somente 0,5 ponto de margem. Primeiro aumentar cobertura focal, sobretudo em `main.py`; priorizar fatias por módulo para reduzir tempo de feedback. Integração real, Linux, carga, instalação e produção continuam pendentes.
+
+### Regressão Release recompilada da solução .NET — 2026-10-29 06:07 BRT
+
+`dotnet test MulletaFlix.sln --configuration Release --no-restore --filter 'FullyQualifiedName!~LiveIntegrationTests' --verbosity quiet` recompilou e terminou com exit code 0, sem falhas. Resultados observados: Providers 824/824; API 793 aprovados/3 ignorados; Server.Tests 95/95; Server.Implementations 1.659 aprovados/83 ignorados; Server.Integration 8 aprovados/143 ignorados; IntroSkipper.Integration 26 aprovados/31 ignorados. A saída não foi retida como soma global confiável; nenhum total agregado é inferido. `LiveIntegrationTests` foi excluído e os skips não contam como aprovados.
+
+Os cenários MariaDB opt-in permaneceram ignorados: não havia `MULLETAFLIX_TEST_MARIADB_CONNECTION_STRING` configurada para um serviço descartável. CI hospedada, execução Linux, runtime instalado e produção não foram validados. MariaDB é o único banco relacional operacional; sem release e homologação formal permanece 2/7.
+
+### Scheduler: remover espera fixa do teste de limpeza — 2026-10-29 06:21 BRT
+
+`EnqueueDuringCleanupStartsNewWorkersAndCompletes` aguardava 65 segundos para alcançar o callback de limpeza, apesar de precisar apenas sincronizar com o evento. Foi adicionado um construtor interno com período configurável para testes; o construtor público mantém os 60 segundos de produção. O teste usa 100 ms e aguarda o `TaskCompletionSource` do callback. Duração observada: 65,116 s antes; 200 ms na revalidação focal. A suíte `Jellyfin.Controller.Tests` passou 73/73 em 230 ms após a mudança; o teste foi repetido 5 vezes e passou em 180–193 ms. A solução Release recompilada passou sem falhas, com skips ambientais/plataforma mantidos como pendências. `git diff --check` passou. Sem acesso a runtime ou banco de produção. MariaDB segue como único banco relacional operacional; homologação formal 2/7, sem release.
+
+Limite de timeout de 60 s no teste separado de recuperação de backup foi preservado: é guarda de falha, não espera fixa. Mapa técnico conferido; nenhum módulo, API pública, dependência ou fluxo de produção mudou. Registro da sessão: [[Sessões/2026-10-29-MulletaFlix-controller-test-cleanup-speedup-0621]].
+
+### Nebula: remover espera real nos testes de timeout e retry — 2026-10-29 06:29 BRT
+
+TRX anteriores mostraram cerca de 15 s no teste de falha MongoDB e 15 s no teste de retry de startup. `NebulaMongoContext` ganhou construtor interno para encurtar o timeout somente no teste; o construtor público preserva 15 s. `NebulaHostedService` ganhou delegate interno de atraso; o teste valida os retries de 5 s e 10 s sem dormir, enquanto o construtor público continua usando `Task.Delay`. Focais 2/2 em 426 ms; classes Nebula 86/86 em 6 s; projeto `Jellyfin.Server.Implementations.Tests` passou 1.659, ignorou 83, falhou 0 (1.742 casos), duração 42 s. Avisos de analisadores/documentação preexistentes foram observados no rebuild focal. Revisão independente: nenhum achado. Portal contrato 363/363; Git `main` commit `635dfaa5bdb7ffa235c8891f1248780c42de957c`; deployment Vercel da nova revisão ainda não confirmado nesta anotação. Sem banco real. MariaDB segue como único banco relacional operacional; homologação formal 2/7, sem release.
+
+Mapa técnico conferido: classes/runtime e sequência de produção iguais; construtores internos e delegate servem só para controle determinístico dos testes. Sem API pública ou dependência nova. Ver [[Sessões/2026-10-29-MulletaFlix-nebula-test-timeouts-retries-0629]].
+### Registro do portal — 2026-10-29 06:32 BRT
+
+O evento de velocidade dos testes Nebula e o motivo do bloqueio de deploy foram publicados no Git `main` do portal (commit `d24bcbe7e466bb165d20d0f1a5166e54dc4b5505`); contrato passou 364/364. Vercel não lista deployment para os commits `635dfaa5bdb7ffa235c8891f1248780c42de957c` e `d24bcbe7e466bb165d20d0f1a5166e54dc4b5505`. A criação explícita do primeiro foi bloqueada com HTTP 402 pelo limite gratuito de 100 deployments por dia. A CLI Vercel não está instalada. Conteúdo está no Git; deployment público não confirmado.
+
+### Testes rápidos de retry transitório Nebula — 2026-10-29 06:36 BRT
+
+O teste de timeout transitório agora valida o backoff de 5 s com atraso controlado e termina em 155 ms. Regressão do projeto Server Implementations repetida: 1.659 aprovados, 83 ignorados, 0 falhas, 43 s. Isso reduz tempo de desenvolvimento sem mudar os defaults de produção. Outros testes de concorrência/recuperação com waits longos precisam de inspeção individual antes de qualquer simplificação.
+
+O portal `main` publicou a correção de estado no commit `7a997a86bc36b77a260db4f53b82d5a406a1d276`. Vercel confirmou READY no commit imediatamente anterior `9be0169471e625ff32469a521398894fa3403320`; o endpoint público respondeu HTTP 200 com a evidência do retry, mas mantém o texto anterior sobre quota. Dois lookups e a lista recente não acharam deployment para `7a997a8`; a nova revisão do portal segue aguardando publicação pública.
+
+### Teste de concorrência de sincronização Supabase — 2026-10-29 06:46 BRT
+
+O teste que assegura a recusa de um segundo ciclo enquanto o callback anterior está ativo agora usa timeout interno de 100 ms e termina em 505 ms, ante 10,318 s. O construtor público mantém o timeout de encerramento em 5 s e o callback continua bloqueado durante a assertion. Implementations passou 1.659/1.742, com 83 ignorados, 0 falhas, em 33 s. Portal Git `main` recebeu evidência no commit `129aa1111a3144100f1199b54af25490f942156b`; Vercel ainda não lista deployment para esse SHA.
+
+
+### Nebula: acelerar teste de timeout da limpeza — 2026-10-29 06:49 BRT
+
+O teste `CleanupTimeout_PreservesResourcesUntilTheTaskCompletes` aguardava o timeout de produção de 5 s. O método privado de produção continua usando 5 s; uma sobrecarga interna aceita timeout somente para o teste. O teste usa 100 ms e verifica que a tarefa e o token continuam vivos após timeout, depois conclui a limpeza. Focal passou 1/1 em 183 ms; a suíte `Jellyfin.Server.Implementations.Tests` passou 1.659, ignorou 83, falhou 0/1.742 em 29 s. O portal Git `main` está no commit `61cbf6dff921eeb5ad7379240fef6b3a3eb88974`, SHA remoto confirmado, contratos 365/365. Vercel não tem deployment confirmado para esse SHA; último READY conhecido ainda aponta para `9be0169`, e o snapshot público não contém esta evidência. A tentativa explícita anterior de deployment retornou HTTP 402 por limite diário. Nenhum Mongo operacional, MariaDB de produção ou servidor foi acessado. Formal 2/7; sem release.
+
+Premissa de banco confirmada: MariaDB é o único banco relacional operacional. Nomes internos `MySql*` identificam provider/driver compatível, não uso de servidor MySQL.
+
+Mapa técnico conferido: sem mudança de módulo, API, dependência ou fluxo de produção; somente seam interna de teste.
+
+### Recuperação de restore após encerramento do processo — 2026-10-29 06:58 BRT
+
+O teste existente `RestoreBackupAsync_RecoversAfterRestoreProcessIsTerminated` passou quatro execuções consecutivas: 4/4 em 4 s por execução. Ele encerra o processo filho durante a escrita do staging, reinicia a restauração e verifica 64 MiB recuperados, journal removido e ausência de temporários/sidecars. Os limites de 60 s/30 s são guards de falha, não sleeps. `BackupServiceTests`: 98 aprovados, 5 ignorados, 0 falhas/103 em 8 s. Fatia `FullSystemBackup`: 154 aprovados, 16 ignorados, 0 falhas/170 em 8 s, Windows/.NET 10 Release. Os skips Linux/macOS de filesystem, ACL e mount permanecem pendentes.
+
+Portal Git `main` atualizado no commit `348ac4e5f2f9bd991d995f640bb6e583a3a3627a`; contrato local 366/366. Vercel Production está READY para esse mesmo SHA. Leitura autenticada do endpoint `homologacao-status.json` confirmou HTTP 200, evento `server-backup-restore-process-recovery-repeat-2026-10-29-0653`, evidência dos testes e homologação formal 2/7 (28,6%).
+
+Nenhum banco operacional foi acessado. MongoDB estava Running, mas sem conexão; não havia endpoint MariaDB descartável configurado. MariaDB continua sendo o único banco relacional operacional. CI hospedada, Linux nativo, runtime instalado e produção permanecem sem validação. Sem alteração de código do servidor e sem release.
+
+### Nebula: revalidar caminhos de falha lentos — 2026-10-29 07:01 BRT
+
+TRX histórico da regressão apontava 15,05 s para falha de consulta Mongo e 15,04 s para retentativas de startup do Nebula. Os dois testes focais foram reexecutados na revisão atual e passaram 2/2 em 412 ms. A injeção de timeout/atraso é interna ao teste; defaults públicos permanecem Mongo 15 s e retry 5 s/10 s. As assertions de falha, telemetria sem dados sensíveis, startup independente do downloader e ausência de montagem do disco permanecem ativas. Nenhum código de servidor mudou nesta revalidação.
+
+Portal Git main atualizado em 01cb029ce3549bace53850f09ec61da2fd07895c; contrato 367/367. Vercel ainda não mostra deployment para esse SHA; último Production READY observado é 348ac4e5f2f9bd991d995f640bb6e583a3a3627a, então esta evidência nova está no Git e publicação pública no Vercel segue pendente. MariaDB é o único banco relacional operacional; nenhum banco foi acessado. Formal 2/7, sem release.
+
+### Catálogo de séries: revalidar duração anômala — 2026-10-29 07:04 BRT
+
+TRX histórico registrava 12,71 s no teste GetLatestItemList_TvShows_DoesNotMergeDifferentSeriesWithTheSameName. A classe foi reexecutada no assembly Release existente (--no-build --no-restore): 3/3 em 1 s. Novo TRX focal: 0,055 s, 0,075 s e 1,037 s. A duração alta não se reproduziu e não foi encontrada espera fixa nos três testes; variação de ambiente/JIT é hipótese, não causa provada. Não alterei query, teste ou código de produção sem reprodução.
+
+Portal Git main atualizado no commit 16566bbd023a537be9ee02becf0d1cb429dfdca6; contrato 368/368. Vercel não mostra deployment deste SHA; o último Production READY confirmado permanece no commit 348ac4e5f2f9bd991d995f640bb6e583a3a3627a. A nova evidência está no Git, não confirmada no site.
+
+Sem banco operacional ou produção. MariaDB é o único banco relacional operacional. Homologação formal 2/7; sem release. Mapa técnico conferido, módulos/APIs/dependências/fluxos inalterados nesta fatia.

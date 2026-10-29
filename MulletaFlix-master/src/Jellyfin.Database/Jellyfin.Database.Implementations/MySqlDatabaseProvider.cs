@@ -16,7 +16,7 @@ using MySqlConnector;
 namespace MulletaFlix.Database.Implementations;
 
 /// <summary>
-/// Configures MulletaFlix to use a MySQL/MariaDB database.
+/// Configures MulletaFlix to use MariaDB through the existing Pomelo/MySqlConnector provider.
 /// </summary>
 [MulletaFlixDatabaseProviderKey("MulletaFlix-MySQL")]
 public sealed class MySqlDatabaseProvider : IMulletaFlixDatabaseProvider, IMulletaFlixDomainDatabaseProvider

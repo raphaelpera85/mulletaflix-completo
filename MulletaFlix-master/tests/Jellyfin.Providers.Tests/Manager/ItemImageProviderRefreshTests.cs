@@ -616,5 +616,17 @@ namespace MulletaFlix.Providers.Tests.Manager
             Assert.Equal("TheMovieDb", item.GetImageInfo(ImageType.Backdrop, 0)?.ProviderName);
             Assert.Equal("pt-br", item.GetImageInfo(ImageType.Backdrop, 0)?.Language);
         }
+
+        [Fact]
+        public void GetPreferredImageLanguage_UsesServerLocaleAndNormalizesBrazilianPortuguese()
+        {
+            var language = ItemImageProvider.GetPreferredImageLanguage(
+                new Video(),
+                new LibraryOptions(),
+                null,
+                new ServerConfiguration { PreferredMetadataLanguage = "pt", MetadataCountryCode = "BR" });
+
+            Assert.Equal("pt-BR", language);
+        }
     }
 }

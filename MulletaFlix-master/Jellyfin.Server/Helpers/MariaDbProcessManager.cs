@@ -3,6 +3,9 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Net.Sockets;
+using System.Runtime.ExceptionServices;
+using System.Security.Cryptography;
+using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using MediaBrowser.Common.Configuration;
@@ -16,7 +19,7 @@ namespace MulletaFlix.Server.Helpers
     public static class MariaDbProcessManager
     {
         private static Process? _mariaDbProcess;
-        private static Mutex? _startupMutex;
+        private static MariaDbStartupMutexLease? _startupMutex;
 
         public static async Task StartMariaDbAsync(IServerApplicationPaths appPaths, ILogger logger, CancellationToken cancellationToken = default)
         {
@@ -42,7 +45,7 @@ namespace MulletaFlix.Server.Helpers
                     return;
                 }
 
-                _startupMutex = AcquireStartupMutex();
+                _startupMutex = AcquireStartupMutex(dataDir);
                 var databaseAvailable = await WaitForDatabaseAsync(masterConnString, TimeSpan.FromSeconds(2), logger, cancellationToken).ConfigureAwait(false);
                 if (!databaseAvailable)
                 {
@@ -52,29 +55,25 @@ namespace MulletaFlix.Server.Helpers
                     }
                     else
                     {
-                        if (!Directory.Exists(dataDir) || Directory.GetFiles(dataDir).Length == 0)
+                        if (RequiresDataDirectoryInitialization(dataDir))
                         {
                             logger.LogInformation("Initializing new MariaDB data directory at {DataDir}", dataDir);
                             Directory.CreateDirectory(dataDir);
 
-                            if (File.Exists(installDbPath))
+                            EnsureDataDirectoryInitializerExists(installDbPath);
+                            var initStartInfo = new ProcessStartInfo
                             {
-                                var initStartInfo = new ProcessStartInfo
-                                {
-                                    FileName = installDbPath,
-                                    UseShellExecute = false,
-                                    CreateNoWindow = true
-                                };
-                                initStartInfo.ArgumentList.Add($"--datadir={dataDir}");
-                                using var initProcess = Process.Start(initStartInfo);
-                                if (initProcess != null)
-                                {
-                                    await initProcess.WaitForExitAsync(cancellationToken).ConfigureAwait(false);
-                                    if (initProcess.ExitCode != 0)
-                                    {
-                                        throw new InvalidOperationException($"MariaDB data-directory initialization failed with exit code {initProcess.ExitCode}.");
-                                    }
-                                }
+                                FileName = installDbPath,
+                                UseShellExecute = false,
+                                CreateNoWindow = true
+                            };
+                            initStartInfo.ArgumentList.Add($"--datadir={dataDir}");
+                            using var initProcess = Process.Start(initStartInfo)
+                                ?? throw new InvalidOperationException("MariaDB data-directory initializer could not be started.");
+                            await initProcess.WaitForExitAsync(cancellationToken).ConfigureAwait(false);
+                            if (initProcess.ExitCode != 0)
+                            {
+                                throw new InvalidOperationException($"MariaDB data-directory initialization failed with exit code {initProcess.ExitCode}.");
                             }
                         }
 
@@ -181,41 +180,35 @@ namespace MulletaFlix.Server.Helpers
             }
         }
 
-        private static Mutex AcquireStartupMutex()
+        private static MariaDbStartupMutexLease AcquireStartupMutex(string dataDir)
         {
-            try
-            {
-                var mutex = new Mutex(false, "Global\\MulletaFlix.EmbeddedMariaDb");
-                try
-                {
-                    if (!mutex.WaitOne(TimeSpan.FromSeconds(45)))
-                    {
-                        mutex.Dispose();
-                        throw new TimeoutException("Timed out waiting for another MulletaFlix process to finish MariaDB startup.");
-                    }
-                }
-                catch (AbandonedMutexException)
-                {
-                    // The previous owner exited without releasing the mutex.
-                    // The OS transfers ownership to this process, so startup
-                    // can safely continue.
-                }
+            return new MariaDbStartupMutexLease(BuildStartupMutexName(dataDir), TimeSpan.FromSeconds(45));
+        }
 
-                return mutex;
+        internal static string BuildStartupMutexName(string dataDir)
+        {
+            var normalizedPath = Path.GetFullPath(dataDir);
+            if (OperatingSystem.IsWindows())
+            {
+                normalizedPath = normalizedPath.ToUpperInvariant();
             }
-            catch (UnauthorizedAccessException)
-            {
-                var fallbackMutex = new Mutex(false, "MulletaFlix.EmbeddedMariaDb");
-                try
-                {
-                    fallbackMutex.WaitOne();
-                }
-                catch (AbandonedMutexException)
-                {
-                    // The abandoned mutex is acquired by this process.
-                }
 
-                return fallbackMutex;
+            var pathHash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(normalizedPath)));
+            return $"Global\\MulletaFlix.EmbeddedMariaDb.{pathHash}";
+        }
+
+        internal static bool RequiresDataDirectoryInitialization(string dataDir)
+        {
+            return !Directory.Exists(dataDir) || Directory.GetFiles(dataDir).Length == 0;
+        }
+
+        internal static void EnsureDataDirectoryInitializerExists(string installDbPath)
+        {
+            if (!File.Exists(installDbPath))
+            {
+                throw new FileNotFoundException(
+                    "MariaDB data-directory initializer was not found; refusing to start with an uninitialized data directory.",
+                    installDbPath);
             }
         }
 
@@ -435,29 +428,123 @@ namespace MulletaFlix.Server.Helpers
             }
             finally
             {
-                ReleaseStartupMutex();
+                ReleaseStartupMutex(logger);
             }
         }
 
-        private static void ReleaseStartupMutex()
+        private static void ReleaseStartupMutex(ILogger logger)
         {
             if (_startupMutex is not null)
             {
+                var mutex = _startupMutex;
+                _startupMutex = null;
                 try
                 {
+                    mutex.Dispose();
                 }
-                finally
+                catch (Exception ex)
+                {
+                    logger.LogError(ex, "Failed to release the embedded MariaDB startup mutex.");
+                }
+            }
+        }
+    }
+
+    internal sealed class MariaDbStartupMutexLease : IDisposable
+    {
+        private readonly string _mutexName;
+        private readonly TimeSpan _timeout;
+        private readonly ManualResetEventSlim _ready = new(false);
+        private readonly ManualResetEventSlim _release = new(false);
+        private readonly Thread _ownerThread;
+        private Exception? _error;
+        private int _disposed;
+
+        internal MariaDbStartupMutexLease(string mutexName, TimeSpan timeout)
+        {
+            _mutexName = mutexName;
+            _timeout = timeout;
+            _ownerThread = new Thread(OwnMutex)
+            {
+                IsBackground = true,
+                Name = "MulletaFlix MariaDB mutex owner"
+            };
+            _ownerThread.Start();
+            _ready.Wait();
+            if (_error is not null)
+            {
+                _ownerThread.Join();
+                _ready.Dispose();
+                _release.Dispose();
+                ExceptionDispatchInfo.Capture(_error).Throw();
+            }
+        }
+
+        public void Dispose()
+        {
+            if (Interlocked.Exchange(ref _disposed, 1) != 0)
+            {
+                return;
+            }
+
+            _release.Set();
+            _ownerThread.Join();
+            _ready.Dispose();
+            _release.Dispose();
+            if (_error is not null)
+            {
+                ExceptionDispatchInfo.Capture(_error).Throw();
+            }
+        }
+
+        private void OwnMutex()
+        {
+            Mutex? mutex = null;
+            var ownsMutex = false;
+            try
+            {
+                mutex = new Mutex(false, _mutexName);
+                WaitForOwnership(mutex, _timeout);
+                ownsMutex = true;
+
+                _ready.Set();
+                _release.Wait();
+            }
+            catch (Exception ex)
+            {
+                _error = ex;
+            }
+            finally
+            {
+                if (ownsMutex)
                 {
                     try
                     {
-                        _startupMutex.ReleaseMutex();
+                        mutex!.ReleaseMutex();
                     }
-                    finally
+                    catch (Exception ex)
                     {
-                        _startupMutex.Dispose();
-                        _startupMutex = null;
+                        _error ??= ex;
                     }
                 }
+
+                mutex?.Dispose();
+                _ready.Set();
+            }
+        }
+
+        private static void WaitForOwnership(Mutex mutex, TimeSpan timeout)
+        {
+            try
+            {
+                if (!mutex.WaitOne(timeout))
+                {
+                    throw new TimeoutException("Timed out waiting for another MulletaFlix process to finish MariaDB startup.");
+                }
+            }
+            catch (AbandonedMutexException)
+            {
+                // The OS transfers ownership to this thread when the previous process exits.
             }
         }
     }

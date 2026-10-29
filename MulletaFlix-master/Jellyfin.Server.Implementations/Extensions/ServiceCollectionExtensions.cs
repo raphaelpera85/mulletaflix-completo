@@ -93,7 +93,7 @@ public static class ServiceCollectionExtensions
             }
             else
             {
-                // fallback to MariaDB/MySQL with default settings.
+                // Fallback to MariaDB; the provider key retains its legacy MySQL name.
                 efCoreConfiguration = new DatabaseConfigurationOptions()
                 {
                     DatabaseType = "MulletaFlix-MySQL",

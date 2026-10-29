@@ -30,6 +30,9 @@ public sealed class IntroSkipperBackupParticipantTests
     {
         var services = new ServiceCollection();
         services.AddLogging();
+        var hostEnvironment = new Mock<IHostEnvironment>();
+        hostEnvironment.SetupGet(environment => environment.EnvironmentName).Returns("Testing");
+        services.AddSingleton(hostEnvironment.Object);
         var databaseConfiguration = new DatabaseConfigurationOptions
         {
             DatabaseType = "MulletaFlix-MySQL",

@@ -155,6 +155,7 @@ public class UserFeedbackController : BaseMulletaFlixApiController
     /// <summary>Creates a request for a title to be added to the server library.</summary>
     [HttpPost("MediaRequests")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
     public async Task<IActionResult> CreateMediaRequest([FromBody] MediaRequestDto request)
     {
         if (!TryGetCallerUserId(out var userId))
@@ -184,7 +185,14 @@ public class UserFeedbackController : BaseMulletaFlixApiController
         // Register the requested title with both Nebula queues. The downloader
         // applies the title match as soon as it encounters a matching STRM, and
         // the staging watcher promotes an already queued upload immediately.
-        _nebulaFtpManager.PrioritizeMedia(string.Empty, seriesName: title);
+        try
+        {
+            _nebulaFtpManager.PrioritizeMedia(string.Empty, seriesName: title);
+        }
+        catch (InvalidOperationException)
+        {
+            return StatusCode(StatusCodes.Status503ServiceUnavailable);
+        }
 
         return NoContent();
     }

@@ -245,13 +245,90 @@ async def test_resolve_media_parent_preserves_authoritative_library_and_routes_e
     monkeypatch.setenv("NEBULA_LIBRARY_USER", "raphael")
 
     class Files:
-        async def find(self, query):
+        def find(self, query):
             raise AssertionError(f"database lookup should not be needed: {query}")
 
     mongo = SimpleNamespace(files=Files())
     assert await resolve_media_parent(mongo, "/raphael/Doramas", "Drama S01E01.mkv") == "/raphael/Doramas"
     assert await resolve_media_parent(mongo, "/raphael/staging", "Drama S02E03.mkv") == "/raphael/Series/Drama/Season 02"
     assert await resolve_media_parent(mongo, "/raphael/Series/Drama", "readme.txt") == "/raphael/Series/Drama"
+
+
+@pytest.mark.asyncio
+async def test_resolve_media_parent_prefers_shallow_exact_movie_folder(monkeypatch):
+    monkeypatch.setenv("NEBULA_LIBRARY_USER", "raphael")
+
+    class Cursor:
+        def __init__(self, items):
+            self.items = items
+
+        async def to_list(self, length):
+            return self.items[:length]
+
+    class Files:
+        def find(self, query):
+            if query.get("name") == "Carnaval (2021)":
+                return Cursor([
+                    {"name": "Carnaval (2021)", "parent": "/raphael/Filmes/Arquivo"},
+                    {"name": "Carnaval (2021)", "parent": "/raphael/Filmes"},
+                ])
+            raise AssertionError(f"unexpected query after exact match: {query}")
+
+    mongo = SimpleNamespace(files=Files())
+    assert await resolve_media_parent(mongo, "/raphael/staging", "Carnaval (2021).mkv") == (
+        "/raphael/Filmes/Carnaval (2021)"
+    )
+
+
+@pytest.mark.asyncio
+async def test_resolve_media_parent_uses_matching_existing_movie_folder(monkeypatch):
+    monkeypatch.setenv("NEBULA_LIBRARY_USER", "raphael")
+
+    class Cursor:
+        def __init__(self, items):
+            self.items = items
+
+        async def to_list(self, length):
+            return self.items[:length]
+
+    class Files:
+        def find(self, query):
+            if "name" in query:
+                return Cursor([])
+            assert query == {"type": "dir", "parent": "/raphael/Filmes"}
+            return Cursor([{"name": "Dune Part Two (2024)", "parent": "/raphael/Filmes"}])
+
+    mongo = SimpleNamespace(files=Files())
+    assert await resolve_media_parent(
+        mongo, "/raphael/staging", "Dune.Part.Two.2024.1080p.WEB-DL.mkv"
+    ) == "/raphael/Filmes/Dune Part Two (2024)"
+
+
+@pytest.mark.asyncio
+async def test_resolve_media_parent_creates_movie_folder_only_after_no_match(monkeypatch):
+    monkeypatch.setenv("NEBULA_LIBRARY_USER", "raphael")
+    updates = []
+
+    class Cursor:
+        async def to_list(self, length):
+            return []
+
+    class Files:
+        def find(self, _query):
+            return Cursor()
+
+        async def update_one(self, query, update, upsert):
+            updates.append((query, update, upsert))
+
+    mongo = SimpleNamespace(files=Files())
+    assert await resolve_media_parent(mongo, "/raphael/staging", "Another Film (2024).mkv") == (
+        "/raphael/Filmes/Another Film (2024)"
+    )
+    assert [query for query, _update, _upsert in updates] == [
+        {"name": "Filmes", "parent": "/raphael"},
+        {"name": "Another Film (2024)", "parent": "/raphael/Filmes"},
+    ]
+    assert all(upsert for _query, _update, upsert in updates)
 
 
 def test_get_required_config_reads_supported_bot_token_variables(monkeypatch):

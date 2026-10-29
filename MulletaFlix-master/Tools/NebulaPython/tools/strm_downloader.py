@@ -259,12 +259,12 @@ def remote_content_size(url: str, timeout: int = 15) -> int | None:
 
 
 def _validate_content_range(response: Any, requested_start: int, requested_end: int, total: int) -> None:
-    """Reject explicit partial-response ranges that do not match the request."""
+    """Reject missing or mismatched ranges for HTTP partial responses."""
     if getattr(response, "status", None) != 206:
         return
     content_range = response.headers.get("Content-Range")
     if not content_range:
-        return
+        raise IOError("Resposta HTTP 206 sem cabeçalho Content-Range")
     match = re.fullmatch(r"\s*bytes\s+(\d+)-(\d+)/(\d+|\*)\s*", content_range, re.IGNORECASE)
     if (
         match is None
@@ -364,7 +364,12 @@ def get_configured_staging_dirs() -> list[Path]:
             data = json.loads(stage_json.read_text(encoding="utf-8"))
             if isinstance(data, list):
                 for item in data:
-                    p = Path(item).resolve()
+                    if not isinstance(item, str) or not item.strip():
+                        continue
+                    try:
+                        p = Path(item.strip()).resolve()
+                    except (OSError, RuntimeError, ValueError):
+                        continue
                     if str(p).lower() not in seen:
                         seen.add(str(p).lower())
                         dirs.append(p)
@@ -426,10 +431,10 @@ def wait_for_disk_capacity(
     poll_seconds: int = 10,
 ) -> None:
     """Bloqueia a execução até que haja espaço suficiente em disco."""
-    target_path.parent.mkdir(parents=True, exist_ok=True)
     last_log = 0.0
     while True:
         try:
+            target_path.parent.mkdir(parents=True, exist_ok=True)
             usage = shutil.disk_usage(target_path.parent)
             reserve = usage.total * min_free_percent // 100
             if usage.free - (required_bytes or 0) >= reserve:
@@ -444,9 +449,15 @@ def wait_for_disk_capacity(
                     (required_bytes or 0) / 1024**3,
                 )
                 last_log = now
-        except Exception as exc:
-            logger.debug("Erro ao checar espaço em disco: %s", exc)
-            return
+        except OSError as exc:
+            now = time.time()
+            if now - last_log >= 30:
+                logger.warning(
+                    "Não foi possível confirmar espaço em %s; download pausado até o volume ficar disponível: %s",
+                    target_path.parent,
+                    exc,
+                )
+                last_log = now
         time.sleep(poll_seconds)
 
 
@@ -711,7 +722,10 @@ class MediaValidator:
         self.completed_episodes: set[tuple[str, int, int]] = set()
         self.exact_completed: set[tuple[str, str]] = set()
         self.stem_completed: set[tuple[str, str]] = set()
-        self.active_paths_or_names: set[str] = set()
+        self.active_exact: set[tuple[str, str]] = set()
+        self.active_paths: set[str] = set()
+        self.active_movies: set[tuple[str, str]] = set()
+        self.active_episodes: set[tuple[str, int, int]] = set()
         self.last_cache_time = 0.0
         self.last_cache_attempt_time = 0.0
 
@@ -737,7 +751,11 @@ class MediaValidator:
             stem_set: set[tuple[str, str]] = set()
             movies: set[tuple[str, str]] = set()
             episodes: set[tuple[str, int, int]] = set()
-            active: set[str] = set()
+            active_exact: set[tuple[str, str]] = set()
+            active_paths: set[str] = set()
+            active_movies: set[tuple[str, str]] = set()
+            active_episodes: set[tuple[str, int, int]] = set()
+            active_count = 0
 
             cursor = db.files.find(
                 {"type": "file"},
@@ -778,20 +796,37 @@ class MediaValidator:
                             if ep_id:
                                 episodes.add(ep_id)
                 elif status in ACTIVE_STATUSES:
-                    active.add(name_lower)
-                    active.add(stem_lower)
+                    active_count += 1
+                    active_exact.add((parent, name_lower))
+                    active_exact.add((parent, stem_lower))
                     if local_path:
-                        active.add(str(local_path).lower())
+                        active_paths.add(os.path.normcase(os.path.normpath(str(local_path))))
+                    parts = [p for p in parent.split("/") if p]
+                    if "filmes" in parts:
+                        idx = parts.index("filmes")
+                        if len(parts) > idx + 1:
+                            active_movie = movie_identity(parts[idx + 1]) or movie_identity(stem_lower)
+                            if active_movie:
+                                active_movies.add(active_movie)
+                    elif "series" in parts:
+                        idx = parts.index("series")
+                        if len(parts) > idx + 1:
+                            active_episode = episode_identity(parts[idx + 1], name)
+                            if active_episode:
+                                active_episodes.add(active_episode)
 
             self.exact_completed = exact_set
             self.stem_completed = stem_set
             self.completed_movies = movies
             self.completed_episodes = episodes
-            self.active_paths_or_names = active
+            self.active_exact = active_exact
+            self.active_paths = active_paths
+            self.active_movies = active_movies
+            self.active_episodes = active_episodes
             self.last_cache_time = now
             logger.debug(
                 "Índice Mongo atualizado: %d filmes concl., %d eps concl., %d ativos.",
-                len(movies), len(episodes), len(active)
+                len(movies), len(episodes), active_count
             )
             return True
         except Exception as exc:
@@ -846,14 +881,16 @@ class MediaValidator:
             except Exception:
                 pass
 
-        # 2. Verificação de status ativo (em fila/download/upload)
-        strm_stem_lower = strm_path.stem.casefold()
-        if strm_stem_lower in self.active_paths_or_names:
+        # 2. Verificação de status ativo com identidade/caminho, nunca só pelo nome.
+        candidate_paths = {os.path.normcase(os.path.normpath(str(strm_path)))}
+        if destination:
+            candidate_paths.add(os.path.normcase(os.path.normpath(str(destination))))
+        if candidate_paths & self.active_paths:
             return True, f"Mídia '{strm_path.stem}' já está ativa/em fila no Nebula"
 
         # 3. Verificação por identidade de Filme (Título + Ano)
         m_id = movie_identity(strm_path.stem) or movie_identity(strm_path.parent.name)
-        if m_id and m_id in self.completed_movies:
+        if m_id and (m_id in self.completed_movies or m_id in self.active_movies):
             return True, f"Filme '{m_id[0]} ({m_id[1]})' já concluído no Nebula"
 
         # 4. Verificação por identidade de Série (Nome + Temporada + Episódio)
@@ -861,7 +898,7 @@ class MediaValidator:
         grandparent_name = strm_path.parent.parent.name if strm_path.parent.parent else ""
         s_candidate = parent_name if "season" not in parent_name.lower() else grandparent_name
         ep_id = episode_identity(s_candidate, strm_path.name)
-        if ep_id and ep_id in self.completed_episodes:
+        if ep_id and (ep_id in self.completed_episodes or ep_id in self.active_episodes):
             return True, f"Episódio '{ep_id[0]} S{ep_id[1]:02d}E{ep_id[2]:02d}' já concluído no Nebula"
 
         # 5. Verificação por destino exato no Mongo (parent, name)
@@ -872,6 +909,8 @@ class MediaValidator:
 
             if (parent, name_lower) in self.exact_completed or (parent, stem_lower) in self.stem_completed:
                 return True, f"Destino '{parent}/{destination.name}' já concluído no Nebula"
+            if (parent, name_lower) in self.active_exact or (parent, stem_lower) in self.active_exact:
+                return True, f"Destino '{parent}/{destination.name}' já está ativo/em fila no Nebula"
 
         return False, ""
 
@@ -906,13 +945,28 @@ def download_strm_multipart(
             match = re.match(r"bytes\s+0-0/(\d+)", content_range)
 
             if not match:
-                # Checar se já existe no destino
-                if target_path.exists() and target_path.stat().st_size > 0:
-                    return target_path
+                if getattr(response, "status", None) == 206:
+                    raise IOError("Resposta HTTP 206 do teste de Range sem Content-Range válido")
                 # Servidor não suporta Range: download sequencial direto
                 logger.info("Download direto sem suporte a Range: %s", target_path.name)
-                with tmp_path.open("wb") as out:
-                    shutil.copyfileobj(response, out, length=1024 * 1024)
+                try:
+                    content_length = int(response.headers.get("Content-Length", ""))
+                except (TypeError, ValueError):
+                    content_length = None
+                response.close()
+                # Não escreva no stage até que o volume esteja acessível e a
+                # reserva de espaço possa ser confirmada. Se o tamanho for
+                # desconhecido, valide a reserva antes do GET e a cada bloco.
+                wait_for_disk_capacity(target_path, content_length, min_free_percent)
+                sequential_request = Request(
+                    url,
+                    headers={"User-Agent": "VLC/3.0.21 LibVLC/3.0.21"},
+                )
+                with urlopen(sequential_request, timeout=read_timeout) as sequential_response:
+                    with tmp_path.open("wb") as out:
+                        while chunk := sequential_response.read(1024 * 1024):
+                            wait_for_disk_capacity(target_path, len(chunk), min_free_percent)
+                            out.write(chunk)
                 total = tmp_path.stat().st_size
             else:
                 total = int(match.group(1))

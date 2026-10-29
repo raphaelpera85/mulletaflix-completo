@@ -157,18 +157,11 @@ namespace MediaBrowser.Providers.Manager
             var typeName = item.GetType().Name;
             var typeOptions = libraryOptions.GetTypeOptions(typeName) ?? new TypeOptions { Type = typeName };
 
-            var preferredImageLanguage = item.PreferredMetadataLanguage;
-            if (string.IsNullOrWhiteSpace(preferredImageLanguage))
-            {
-                preferredImageLanguage = item.GetParents()
-                    .Select(parent => parent.PreferredMetadataLanguage)
-                    .FirstOrDefault(language => !string.IsNullOrWhiteSpace(language));
-            }
-
-            if (string.IsNullOrWhiteSpace(preferredImageLanguage))
-            {
-                preferredImageLanguage = libraryOptions.PreferredMetadataLanguage;
-            }
+            var preferredImageLanguage = GetPreferredImageLanguage(
+                item,
+                libraryOptions,
+                BaseItem.LibraryManager,
+                BaseItem.ConfigurationManager?.Configuration);
 
             // track library limits, adding buffer to allow lazy replacing of current images
             var backdropLimit = typeOptions.GetLimit(ImageType.Backdrop) + oldBackdropImages.Length;
@@ -698,6 +691,84 @@ namespace MediaBrowser.Providers.Manager
 
             // We always want to use prefetched images
             return false;
+        }
+
+        internal static string GetPreferredImageLanguage(
+            BaseItem item,
+            LibraryOptions libraryOptions,
+            ILibraryManager? libraryManager,
+            ServerConfiguration? serverConfiguration)
+        {
+            var language = item.PreferredMetadataLanguage;
+            var countryCode = item.PreferredMetadataCountryCode;
+
+            foreach (var parent in item.GetParents())
+            {
+                if (string.IsNullOrWhiteSpace(language) && !string.IsNullOrWhiteSpace(parent.PreferredMetadataLanguage))
+                {
+                    language = parent.PreferredMetadataLanguage;
+                }
+
+                if (string.IsNullOrWhiteSpace(countryCode) && !string.IsNullOrWhiteSpace(parent.PreferredMetadataCountryCode))
+                {
+                    countryCode = parent.PreferredMetadataCountryCode;
+                }
+
+                if (!string.IsNullOrWhiteSpace(language) && !string.IsNullOrWhiteSpace(countryCode))
+                {
+                    break;
+                }
+            }
+
+            if ((string.IsNullOrWhiteSpace(language) || string.IsNullOrWhiteSpace(countryCode)) && libraryManager is not null)
+            {
+                foreach (var folder in libraryManager.GetCollectionFolders(item))
+                {
+                    if (string.IsNullOrWhiteSpace(language) && !string.IsNullOrWhiteSpace(folder.PreferredMetadataLanguage))
+                    {
+                        language = folder.PreferredMetadataLanguage;
+                    }
+
+                    if (string.IsNullOrWhiteSpace(countryCode) && !string.IsNullOrWhiteSpace(folder.PreferredMetadataCountryCode))
+                    {
+                        countryCode = folder.PreferredMetadataCountryCode;
+                    }
+
+                    if (!string.IsNullOrWhiteSpace(language) && !string.IsNullOrWhiteSpace(countryCode))
+                    {
+                        break;
+                    }
+                }
+            }
+
+            if (string.IsNullOrWhiteSpace(language))
+            {
+                language = libraryOptions.PreferredMetadataLanguage;
+            }
+
+            if (string.IsNullOrWhiteSpace(countryCode))
+            {
+                countryCode = libraryOptions.MetadataCountryCode;
+            }
+
+            if (string.IsNullOrWhiteSpace(language))
+            {
+                language = serverConfiguration?.PreferredMetadataLanguage;
+            }
+
+            if (string.IsNullOrWhiteSpace(countryCode))
+            {
+                countryCode = serverConfiguration?.MetadataCountryCode;
+            }
+
+            if (string.Equals(countryCode, "BR", StringComparison.OrdinalIgnoreCase)
+                && (string.Equals(language, "pt", StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(language, "pt-PT", StringComparison.OrdinalIgnoreCase)))
+            {
+                return "pt-BR";
+            }
+
+            return language ?? string.Empty;
         }
 
         private void SaveImageStub(BaseItem item, ImageType imageType, IEnumerable<string> urls)

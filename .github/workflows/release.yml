@@ -10,8 +10,8 @@ permissions:
   contents: write
 
 jobs:
-  validate-release-source:
-    name: Validate source tag before packaging
+  validate-server:
+    name: Validate server source and unit tests
     runs-on: ubuntu-24.04
     services:
       mongodb:
@@ -49,6 +49,15 @@ jobs:
           --filter "FullyQualifiedName!~Integration"
           --verbosity minimal
 
+  validate-nebula-python:
+    name: Validate Nebula Python tests
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
@@ -63,6 +72,15 @@ jobs:
       - name: Test Nebula Python
         working-directory: MulletaFlix-master/Tools/NebulaPython
         run: python -m pytest tests -q
+
+  validate-web:
+    name: Validate web typecheck and unit tests
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -86,7 +104,6 @@ jobs:
   build-linux:
     name: Build Linux x64 package
     runs-on: ubuntu-24.04
-    needs: validate-release-source
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -134,7 +151,8 @@ jobs:
   build-and-release:
     name: Build and publish release
     runs-on: windows-latest
-    needs: build-linux
+    timeout-minutes: 30
+    needs: [validate-server, validate-nebula-python, validate-web, build-linux]
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -151,6 +169,18 @@ jobs:
       - name: Validate updater stops after a failed file copy
         shell: pwsh
         run: .\MulletaFlix-packaging-master\scripts\tests\ApplyUpdateFailure.Tests.ps1
+
+      - name: Validate updater rolls back after server startup failure
+        shell: pwsh
+        run: .\MulletaFlix-packaging-master\scripts\tests\ApplyUpdateStartupFailure.Tests.ps1
+
+      - name: Validate updater fails closed and waits for server readiness
+        shell: pwsh
+        run: .\MulletaFlix-packaging-master\scripts\tests\ApplyUpdateFailClosed.Tests.ps1
+
+      - name: Validate updater under production Windows PowerShell 5.1
+        shell: powershell
+        run: .\MulletaFlix-packaging-master\scripts\tests\ApplyUpdateFailClosed.Tests.ps1
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
@@ -199,6 +229,26 @@ jobs:
         run: |
           $tagVersion = "${{ github.ref_name }}".TrimStart('v')
           .\build-update-package.ps1 -Version $tagVersion -SkipBuild
+
+      - name: Validate update package against staged payload
+        shell: pwsh
+        run: .\MulletaFlix-packaging-master\scripts\Assert-UpdatePackageIntegrity.ps1 -StageDirectory stage -PackagePath dist\mulletaflix-update-win-x64.zip
+
+      - name: Smoke test clean Windows installer
+        shell: pwsh
+        run: |
+          $tagVersion = "${{ github.ref_name }}".TrimStart('v')
+          $installer = Join-Path $env:GITHUB_WORKSPACE "dist\mulletaflix_${tagVersion}_windows-x64.exe"
+          if (-not (Test-Path -LiteralPath $installer -PathType Leaf)) {
+            throw "Versioned Windows installer was not generated: $installer"
+          }
+          $hash = (Get-FileHash -LiteralPath $installer -Algorithm SHA256).Hash
+          $smokeRoot = Join-Path $env:RUNNER_TEMP "mulletaflix-clean-installer-$tagVersion"
+          .\MulletaFlix-packaging-master\scripts\Test-CleanInstaller.ps1 `
+            -InstallerPath $installer `
+            -InstallDirectory (Join-Path $smokeRoot 'install') `
+            -DataDirectory (Join-Path $smokeRoot 'data') `
+            -ExpectedSha256 $hash
 
       - name: Publish GitHub Release and platform assets
         shell: pwsh

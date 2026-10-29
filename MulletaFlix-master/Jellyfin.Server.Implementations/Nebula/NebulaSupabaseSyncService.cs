@@ -52,6 +52,7 @@ public sealed class NebulaSupabaseSyncService : IDisposable
     private readonly IDbContextFactory<UsersDbContext>? _usersDbProvider;
     private readonly string _botTokensCollection;
     private readonly HttpClient _httpClient;
+    private readonly TimeSpan _continuousSyncShutdownTimeout;
     private readonly SemaphoreSlim _backupGate = new(1, 1);
     private readonly object _continuousSyncLifecycleLock = new();
     private CancellationTokenSource? _continuousSyncCts;
@@ -132,17 +133,24 @@ public sealed class NebulaSupabaseSyncService : IDisposable
         ILogger<NebulaSupabaseSyncService> logger,
         IDbContextFactory<UsersDbContext>? usersDbProvider = null,
         string botTokensCollection = "bot_tokens")
-        : this(mongoContext, logger, usersDbProvider, new HttpClient { Timeout = TimeSpan.FromMinutes(5) }, botTokensCollection)
+        : this(mongoContext, logger, usersDbProvider, new HttpClient { Timeout = TimeSpan.FromMinutes(5) }, botTokensCollection, TimeSpan.FromSeconds(5))
     {
     }
 
     internal NebulaSupabaseSyncService(
         NebulaMongoContext mongoContext,
         ILogger<NebulaSupabaseSyncService> logger,
-        IDbContextFactory<UsersDbContext> usersDbProvider,
+        IDbContextFactory<UsersDbContext>? usersDbProvider,
         HttpMessageHandler httpMessageHandler,
-        string botTokensCollection = "bot_tokens")
-        : this(mongoContext, logger, usersDbProvider, new HttpClient(httpMessageHandler) { Timeout = TimeSpan.FromMinutes(5) }, botTokensCollection)
+        string botTokensCollection = "bot_tokens",
+        TimeSpan? continuousSyncShutdownTimeout = null)
+        : this(
+            mongoContext,
+            logger,
+            usersDbProvider,
+            new HttpClient(httpMessageHandler) { Timeout = TimeSpan.FromMinutes(5) },
+            botTokensCollection,
+            continuousSyncShutdownTimeout ?? TimeSpan.FromSeconds(5))
     {
     }
 
@@ -151,13 +159,17 @@ public sealed class NebulaSupabaseSyncService : IDisposable
         ILogger<NebulaSupabaseSyncService> logger,
         IDbContextFactory<UsersDbContext>? usersDbProvider,
         HttpClient httpClient,
-        string botTokensCollection)
+        string botTokensCollection,
+        TimeSpan continuousSyncShutdownTimeout)
     {
         _mongoContext = mongoContext;
         _logger = logger;
         _usersDbProvider = usersDbProvider;
         _botTokensCollection = string.IsNullOrWhiteSpace(botTokensCollection) ? "bot_tokens" : botTokensCollection.Trim();
         _httpClient = httpClient;
+        _continuousSyncShutdownTimeout = continuousSyncShutdownTimeout > TimeSpan.Zero
+            ? continuousSyncShutdownTimeout
+            : throw new ArgumentOutOfRangeException(nameof(continuousSyncShutdownTimeout));
         _httpClient.DefaultRequestHeaders.Add("User-Agent", "MulletaFlix-Server/12.0");
     }
 
@@ -297,7 +309,7 @@ public sealed class NebulaSupabaseSyncService : IDisposable
 
         try
         {
-            if (!completion.Wait(TimeSpan.FromSeconds(5)))
+            if (!completion.Wait(_continuousSyncShutdownTimeout))
             {
                 _logger.LogWarning("[SUPABASE-AUTO-SYNC] O ciclo não encerrou em cinco segundos; os handles permanecem ativos e um novo ciclo será recusado.");
                 _ = completion.ContinueWith(

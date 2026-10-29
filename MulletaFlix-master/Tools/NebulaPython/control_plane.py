@@ -125,6 +125,9 @@ class FeederSupervisor:
             run_mode = str(config.get("runMode", "once"))
             if run_mode not in {"once", "watch"}:
                 raise ValueError("runMode must be once or watch")
+            for option in ("overwrite", "allFiles"):
+                if not isinstance(config.get(option, False), bool):
+                    raise ValueError(f"{option} must be a boolean")
             destination = str(config.get("destination", ".nebula_virtual_root"))
             if transport == "ftp-copy":
                 destination = str(_resolve_allowed(destination, self._destination_roots))
@@ -181,6 +184,11 @@ class FeederSupervisor:
                 stderr=asyncio.subprocess.DEVNULL,
             )
             self._started_at = time.time()
+            await asyncio.sleep(0.1)
+            if self._process.returncode is not None:
+                exit_code = self._process.returncode
+                self._started_at = None
+                raise RuntimeError(f"feeder process exited during startup (exit code {exit_code})")
             return self.status()
 
     async def stop(self) -> dict[str, Any]:

@@ -1,15 +1,11 @@
-﻿using System;
+using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
+using System.Runtime.ExceptionServices;
 using System.Threading.Tasks;
 using Emby.Server.Implementations;
-using MulletaFlix.Server.Extensions;
-using MulletaFlix.Server.Helpers;
-using MulletaFlix.Server.Migrations;
-using MulletaFlix.Server.Migrations.Stages;
-using MulletaFlix.Server.ServerSetupApp;
 using MediaBrowser.Common;
 using MediaBrowser.Common.Configuration;
 using MediaBrowser.Controller.SystemBackupService;
@@ -22,11 +18,16 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
+using MulletaFlix.Server.Extensions;
+using MulletaFlix.Server.Helpers;
+using MulletaFlix.Server.Implementations.FullSystemBackup;
+using MulletaFlix.Server.Migrations;
+using MulletaFlix.Server.Migrations.Stages;
+using MulletaFlix.Server.ServerSetupApp;
+using MulletaFlix.Testing;
+using MySqlConnector;
 using Serilog;
 using Serilog.Core;
-using MySqlConnector;
-using MulletaFlix.Testing;
-using MulletaFlix.Server.Implementations.FullSystemBackup;
 
 namespace MulletaFlix.Server.Integration.Tests
 {
@@ -113,9 +114,17 @@ namespace MulletaFlix.Server.Integration.Tests
                 command.CommandText = $"GRANT ALL PRIVILEGES ON `{pluginDatabaseName}`.* TO '{userName}'@'127.0.0.1';";
                 command.ExecuteNonQuery();
             }
-            catch
+            catch (Exception creationFailure)
             {
-                DropTestDatabases(databaseName, pluginDatabaseName, userName);
+                try
+                {
+                    DropTestDatabases(databaseName, pluginDatabaseName, userName);
+                }
+                catch (Exception cleanupFailure)
+                {
+                    throw new AggregateException("Creating isolated MariaDB test resources failed, and cleanup also failed.", creationFailure, cleanupFailure);
+                }
+
                 throw;
             }
 
@@ -152,9 +161,17 @@ namespace MulletaFlix.Server.Integration.Tests
 
                 throw new InvalidOperationException("The integration-test account can create a database outside its assigned schema.");
             }
-            catch
+            catch (Exception permissionCheckFailure)
             {
-                DropTestDatabases(databaseName, pluginDatabaseName, userName);
+                try
+                {
+                    DropTestDatabases(databaseName, pluginDatabaseName, userName);
+                }
+                catch (Exception cleanupFailure)
+                {
+                    throw new AggregateException("Validating isolated MariaDB permissions failed, and cleanup also failed.", permissionCheckFailure, cleanupFailure);
+                }
+
                 throw;
             }
         }
@@ -162,6 +179,7 @@ namespace MulletaFlix.Server.Integration.Tests
         /// <inheritdoc/>
         protected override void ConfigureWebHost(IWebHostBuilder builder)
         {
+            builder.UseEnvironment("Testing");
             // Skip ffmpeg check for testing
             Environment.SetEnvironmentVariable("MulletaFlix_FFMPEG__NOVALIDATION", "true");
             Environment.SetEnvironmentVariable("MulletaFlix_DISABLE_RUNTIME_METRICS", "true");
@@ -327,61 +345,73 @@ namespace MulletaFlix.Server.Integration.Tests
             // application-path directory can be removed on Windows. It also owns
             // the application host registered in the service provider, so disposing
             // _disposableComponents here would dispose the same host twice.
-            base.Dispose(disposing);
-
-            if (MariaDbTestEnvironment.IsConfigured)
+            try
             {
-                DropTestDatabases(_testDatabaseName, TestPluginDatabaseName, _testDatabaseUserName);
-            }
-
-            if (_mariaDbPortEnvironmentOverridden)
-            {
-                Environment.SetEnvironmentVariable("MULLETAFLIX_DB_SERVER", _originalMariaDbServer);
-                Environment.SetEnvironmentVariable("MULLETAFLIX_DB_PORT", _originalMariaDbPort);
-                Environment.SetEnvironmentVariable("MulletaFlix_DB_PORT", _originalPrefixedMariaDbPort);
-                Environment.SetEnvironmentVariable("MulletaFlix_DATABASE_NAME", _originalDatabaseName);
-                Environment.SetEnvironmentVariable("MULLETAFLIX_TEST_INTROSKIPPER_DATABASE", _originalPluginDatabaseName);
-                Environment.SetEnvironmentVariable("MULLETAFLIX_DB_USER", _originalMariaDbUser);
-                Environment.SetEnvironmentVariable("MULLETAFLIX_DB_PASSWORD", _originalMariaDbPassword);
-                _mariaDbPortEnvironmentOverridden = false;
-            }
-            _disposableComponents.Clear();
-
-            if (_webHostPathRoot is not null)
-            {
-                try
-                {
-                    if (Directory.Exists(_webHostPathRoot))
+                ExecuteCleanupActions(
+                    "Failed to dispose the server integration-test host or clean its isolated MariaDB resources.",
+                    new Action[]
                     {
-                        Directory.Delete(_webHostPathRoot, recursive: true);
+                        () => base.Dispose(disposing),
+                        () =>
+                        {
+                            if (MariaDbTestEnvironment.IsConfigured)
+                            {
+                                DropTestDatabases(_testDatabaseName, TestPluginDatabaseName, _testDatabaseUserName);
+                            }
+                        }
+                    });
+            }
+            finally
+            {
+                if (_mariaDbPortEnvironmentOverridden)
+                {
+                    Environment.SetEnvironmentVariable("MULLETAFLIX_DB_SERVER", _originalMariaDbServer);
+                    Environment.SetEnvironmentVariable("MULLETAFLIX_DB_PORT", _originalMariaDbPort);
+                    Environment.SetEnvironmentVariable("MulletaFlix_DB_PORT", _originalPrefixedMariaDbPort);
+                    Environment.SetEnvironmentVariable("MulletaFlix_DATABASE_NAME", _originalDatabaseName);
+                    Environment.SetEnvironmentVariable("MULLETAFLIX_TEST_INTROSKIPPER_DATABASE", _originalPluginDatabaseName);
+                    Environment.SetEnvironmentVariable("MULLETAFLIX_DB_USER", _originalMariaDbUser);
+                    Environment.SetEnvironmentVariable("MULLETAFLIX_DB_PASSWORD", _originalMariaDbPassword);
+                    _mariaDbPortEnvironmentOverridden = false;
+                }
+                _disposableComponents.Clear();
+
+                if (_webHostPathRoot is not null)
+                {
+                    try
+                    {
+                        if (Directory.Exists(_webHostPathRoot))
+                        {
+                            Directory.Delete(_webHostPathRoot, recursive: true);
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"Failed to clean integration test host directory '{_webHostPathRoot}': {ex.Message}");
+                    }
+                    finally
+                    {
+                        _webHostPathRoot = null;
                     }
                 }
-                catch (Exception ex)
-                {
-                    Console.WriteLine($"Failed to clean integration test host directory '{_webHostPathRoot}': {ex.Message}");
-                }
-                finally
-                {
-                    _webHostPathRoot = null;
-                }
-            }
 
-            if (_privateTestRoot is not null)
-            {
-                try
+                if (_privateTestRoot is not null)
                 {
-                    if (Directory.Exists(_privateTestRoot))
+                    try
                     {
-                        Directory.Delete(_privateTestRoot, recursive: true);
+                        if (Directory.Exists(_privateTestRoot))
+                        {
+                            Directory.Delete(_privateTestRoot, recursive: true);
+                        }
                     }
-                }
-                catch (Exception ex)
-                {
-                    Console.WriteLine($"Failed to clean private integration test root '{_privateTestRoot}': {ex.Message}");
-                }
-                finally
-                {
-                    _privateTestRoot = null;
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"Failed to clean private integration test root '{_privateTestRoot}': {ex.Message}");
+                    }
+                    finally
+                    {
+                        _privateTestRoot = null;
+                    }
                 }
             }
         }
@@ -426,21 +456,68 @@ namespace MulletaFlix.Server.Integration.Tests
 
         private static void DropTestDatabases(string databaseName, string pluginDatabaseName, string userName)
         {
-            try
+            using var connection = new MySqlConnection(MariaDbTestEnvironment.GetAdminConnection().ConnectionString);
+            connection.Open();
+            using var command = connection.CreateCommand();
+            ExecuteCleanupStatements(
+                databaseName,
+                new[]
+                {
+                    $"DROP DATABASE IF EXISTS `{databaseName}`;",
+                    $"DROP DATABASE IF EXISTS `{pluginDatabaseName}`;",
+                    $"DROP USER IF EXISTS '{userName}'@'127.0.0.1';"
+                },
+                statement =>
+                {
+                    command.CommandText = statement;
+                    command.ExecuteNonQuery();
+                });
+        }
+
+        internal static void ExecuteCleanupStatements(string databaseName, IEnumerable<string> statements, Action<string> executeStatement)
+        {
+            var cleanupFailures = new List<Exception>();
+            foreach (var statement in statements)
             {
-                using var connection = new MySqlConnection(MariaDbTestEnvironment.GetAdminConnection().ConnectionString);
-                connection.Open();
-                using var command = connection.CreateCommand();
-                command.CommandText = $"DROP DATABASE IF EXISTS `{databaseName}`;";
-                command.ExecuteNonQuery();
-                command.CommandText = $"DROP DATABASE IF EXISTS `{pluginDatabaseName}`;";
-                command.ExecuteNonQuery();
-                command.CommandText = $"DROP USER IF EXISTS '{userName}'@'127.0.0.1';";
-                command.ExecuteNonQuery();
+                try
+                {
+                    executeStatement(statement);
+                }
+                catch (Exception exception)
+                {
+                    cleanupFailures.Add(exception);
+                }
             }
-            catch (Exception ex)
+
+            if (cleanupFailures.Count > 0)
             {
-                Console.WriteLine($"Failed to drop integration test database '{databaseName}': {ex.Message}");
+                throw new AggregateException($"Failed to drop all resources for integration-test database '{databaseName}'.", cleanupFailures);
+            }
+        }
+
+        internal static void ExecuteCleanupActions(string message, IEnumerable<Action> cleanupActions)
+        {
+            var cleanupFailures = new List<Exception>();
+            foreach (var cleanupAction in cleanupActions)
+            {
+                try
+                {
+                    cleanupAction();
+                }
+                catch (Exception exception)
+                {
+                    cleanupFailures.Add(exception);
+                }
+            }
+
+            if (cleanupFailures.Count == 1)
+            {
+                ExceptionDispatchInfo.Capture(cleanupFailures[0]).Throw();
+            }
+
+            if (cleanupFailures.Count > 1)
+            {
+                throw new AggregateException(message, cleanupFailures);
             }
         }
 

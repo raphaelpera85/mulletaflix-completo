@@ -69,13 +69,22 @@ public sealed class NebulaMongoContext : IDisposable
     /// <param name="databaseName">Nome do banco de dados (padrão: "ftp").</param>
     /// <param name="logger">Instância de logger.</param>
     public NebulaMongoContext(string connectionString, string databaseName, ILogger<NebulaMongoContext> logger)
+        : this(connectionString, databaseName, logger, TimeSpan.FromSeconds(15))
+    {
+    }
+
+    internal NebulaMongoContext(
+        string connectionString,
+        string databaseName,
+        ILogger<NebulaMongoContext> logger,
+        TimeSpan serverSelectionTimeout)
     {
         _logger = logger;
         var uri = string.IsNullOrWhiteSpace(connectionString) ? "mongodb://localhost:27017" : connectionString;
         var dbName = string.IsNullOrWhiteSpace(databaseName) ? "ftp" : databaseName;
 
         var settings = MongoClientSettings.FromConnectionString(uri);
-        settings.ServerSelectionTimeout = TimeSpan.FromSeconds(15);
+        settings.ServerSelectionTimeout = serverSelectionTimeout;
         settings.ConnectTimeout = TimeSpan.FromSeconds(10);
         settings.SocketTimeout = TimeSpan.FromSeconds(30);
         settings.MaxConnectionPoolSize = 250;

@@ -1,15 +1,17 @@
 // SPDX-FileCopyrightText: 2026 MulletaFlix
 // SPDX-License-Identifier: GPL-3.0-only
 
+using System.Diagnostics.Metrics;
 using System.Globalization;
 using System.IO;
+using Emby.Server.Implementations.ScheduledTasks.Tasks;
 using MediaBrowser.Common;
 using MediaBrowser.Common.Net;
 using MediaBrowser.Controller;
 using MediaBrowser.Controller.Configuration;
+using MediaBrowser.Controller.Drawing;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Entities.TV;
-using MediaBrowser.Controller.Drawing;
 using MediaBrowser.Controller.Events;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.LiveTv;
@@ -17,22 +19,24 @@ using MediaBrowser.Controller.Persistence;
 using MediaBrowser.Model.Configuration;
 using MediaBrowser.Model.Cryptography;
 using MediaBrowser.Model.Entities;
-using MulletaFlix.Data.Enums;
-using MulletaFlix.Database.Implementations;
-using MulletaFlix.Database.Implementations.DbConfiguration;
-using MulletaFlix.Database.Implementations.Entities;
-using MulletaFlix.Database.Implementations.Contexts;
-using MulletaFlix.Server.Implementations.Extensions;
-using MulletaFlix.Server.Implementations.Item;
-using MulletaFlix.Server.Implementations.Users;
+using MediaBrowser.Model.Globalization;
+using MediaBrowser.Model.Tasks;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
-using Xunit;
+using MulletaFlix.Data.Enums;
+using MulletaFlix.Database.Implementations;
+using MulletaFlix.Database.Implementations.Contexts;
+using MulletaFlix.Database.Implementations.DbConfiguration;
+using MulletaFlix.Database.Implementations.Entities;
+using MulletaFlix.Server.Implementations.Extensions;
+using MulletaFlix.Server.Implementations.Item;
+using MulletaFlix.Server.Implementations.Users;
 using MulletaFlix.Testing;
+using Xunit;
 
 namespace IntroSkipper.Integration.Tests;
 
@@ -189,6 +193,103 @@ public sealed class ServerPersistenceMariaDbTests : IAsyncLifetime
         // the reported bug.
         Assert.Equal(new int?[] { 2020, 2024 }, years);
         Assert.Equal(2, rows.Select(e => e.Path).Distinct(StringComparer.Ordinal).Count());
+    }
+
+    [Fact]
+    public async Task PeopleValidationTask_QueriesDuplicateGroupsOnceAcrossBatchBoundary()
+    {
+        MariaDbTestEnvironment.SkipUnlessConfigured();
+
+        var prefix = $"PeopleValidationTask-{Guid.NewGuid():N}-";
+        var people = Enumerable.Range(0, 101)
+            .SelectMany(index =>
+            {
+                var name = prefix + index.ToString(CultureInfo.InvariantCulture);
+                return new[]
+                {
+                    new People { Id = Guid.NewGuid(), Name = name, PersonType = "Actor" },
+                    new People { Id = Guid.NewGuid(), Name = name, PersonType = "Actor" }
+                };
+            })
+            .ToArray();
+
+        await using (var context = await Contexts.CreateDbContextAsync(TestContext.Current.CancellationToken))
+        {
+            await context.Peoples.AddRangeAsync(people);
+            await context.SaveChangesAsync(TestContext.Current.CancellationToken);
+        }
+
+        var libraryManager = new Mock<ILibraryManager>();
+        libraryManager
+            .Setup(manager => manager.ValidatePeopleAsync(It.IsAny<IProgress<double>>(), It.IsAny<CancellationToken>()))
+            .Returns(Task.CompletedTask);
+
+        long catalogReadCommands = 0;
+        using var listener = new MeterListener
+        {
+            InstrumentPublished = (instrument, meterListener) =>
+            {
+                if (instrument.Meter.Name == Jellyfin.Server.Implementations.Database.DatabaseTelemetryMetrics.MeterName
+                    && instrument.Name == "mulletaflix.database.commands")
+                {
+                    meterListener.EnableMeasurementEvents(instrument);
+                }
+            }
+        };
+        listener.SetMeasurementEventCallback<long>((_, measurement, tags, _) =>
+        {
+            var operation = string.Empty;
+            var context = string.Empty;
+            foreach (var tag in tags)
+            {
+                if (tag.Key == "db.operation")
+                {
+                    operation = tag.Value as string ?? string.Empty;
+                }
+                else if (tag.Key == "db.context")
+                {
+                    context = tag.Value as string ?? string.Empty;
+                }
+            }
+
+            if (operation == "read" && context == "catalog")
+            {
+                Interlocked.Add(ref catalogReadCommands, measurement);
+            }
+        });
+
+        try
+        {
+            var task = new PeopleValidationTask(libraryManager.Object, Mock.Of<ILocalizationManager>(), Contexts);
+            listener.Start();
+            await task.ExecuteAsync(Mock.Of<IProgress<double>>(), TestContext.Current.CancellationToken);
+            listener.Dispose();
+
+            await using var context = await Contexts.CreateDbContextAsync(TestContext.Current.CancellationToken);
+            var remaining = await context.Peoples
+                .Where(person => person.Name.StartsWith(prefix))
+                .GroupBy(person => new { person.Name, person.PersonType })
+                .Select(group => group.Count())
+                .ToArrayAsync();
+
+            Assert.Equal(101, remaining.Length);
+            Assert.All(remaining, count => Assert.Equal(1, count));
+            Assert.Equal(1, Interlocked.Read(ref catalogReadCommands));
+        }
+        finally
+        {
+#pragma warning disable xUnit1051 // Cleanup must remain available after test cancellation.
+            using var cleanup = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+            await using var context = await Contexts.CreateDbContextAsync(cleanup.Token);
+            await context.Peoples
+                .Where(person => person.Name.StartsWith(prefix))
+                .ExecuteDeleteAsync(cleanup.Token);
+#pragma warning restore xUnit1051
+        }
+
+        libraryManager.Verify(
+            manager => manager.ValidatePeopleAsync(It.IsAny<IProgress<double>>(), It.IsAny<CancellationToken>()),
+            Times.Once);
     }
 
     [Fact]
@@ -358,6 +459,229 @@ public sealed class ServerPersistenceMariaDbTests : IAsyncLifetime
         Assert.Single(maps);
     }
 
+    [Fact]
+    public async Task SaveItems_RescanningUnchangedImages_PreservesRowsAndOnlyReplacesChangedMetadata()
+    {
+        MariaDbTestEnvironment.SkipUnlessConfigured();
+        var persistence = new ItemPersistenceService(
+            Contexts,
+            CreateAppHost(),
+            NullLogger<ItemPersistenceService>.Instance);
+
+        var itemId = Guid.NewGuid();
+        const string path = "N:\\Movies\\Example (2024)";
+        var initial = CreateSeries(itemId, "Example", 2024, path);
+        initial.AddImage(CreateImage("poster.jpg", "pt-br"));
+        persistence.SaveItems([initial], CancellationToken.None);
+
+        Guid originalImageId;
+        await using (var context = await Contexts.CreateDbContextAsync())
+        {
+            originalImageId = (await context.BaseItemImageInfos.SingleAsync(e => e.ItemId == itemId)).Id;
+        }
+
+        var unchangedRescan = CreateSeries(itemId, "Example", 2024, path);
+        unchangedRescan.AddImage(CreateImage("poster.jpg", "pt-br"));
+        persistence.SaveItems([unchangedRescan], CancellationToken.None);
+
+        await using (var context = await Contexts.CreateDbContextAsync())
+        {
+            var unchangedImage = await context.BaseItemImageInfos.SingleAsync(e => e.ItemId == itemId);
+            Assert.Equal(originalImageId, unchangedImage.Id);
+            Assert.Equal("pt-br", unchangedImage.Language);
+        }
+
+        var changedRescan = CreateSeries(itemId, "Example", 2024, path);
+        changedRescan.AddImage(CreateImage("poster.jpg", "en"));
+        persistence.SaveItems([changedRescan], CancellationToken.None);
+
+        await using (var context = await Contexts.CreateDbContextAsync())
+        {
+            var changedImage = await context.BaseItemImageInfos.SingleAsync(e => e.ItemId == itemId);
+            Assert.NotEqual(originalImageId, changedImage.Id);
+            Assert.Equal("en", changedImage.Language);
+        }
+    }
+
+    [Fact]
+    public async Task SaveImagesAsync_PersistsLocalizedImagesAndIsIdempotent()
+    {
+        MariaDbTestEnvironment.SkipUnlessConfigured();
+        var cancellationToken = TestContext.Current.CancellationToken;
+        var persistence = new ItemPersistenceService(
+            Contexts,
+            CreateAppHost(),
+            NullLogger<ItemPersistenceService>.Instance);
+
+        var itemId = Guid.NewGuid();
+        const string path = "N:\\Movies\\Localized image persistence (2026)";
+        persistence.SaveItems([CreateSeries(itemId, "Localized image persistence", 2026, path)], cancellationToken);
+
+        var portugueseItem = CreateSeries(itemId, "Localized image persistence", 2026, path);
+        portugueseItem.AddImage(CreateImage("poster.jpg", "pt-br"));
+        await persistence.SaveImagesAsync(portugueseItem, cancellationToken);
+
+        Guid firstImageId;
+        await using (var context = await Contexts.CreateDbContextAsync())
+        {
+            var storedImage = await context.BaseItemImageInfos.SingleAsync(image => image.ItemId == itemId);
+            firstImageId = storedImage.Id;
+            Assert.Equal("pt-br", storedImage.Language);
+            Assert.Equal("TheMovieDb", storedImage.ProviderName);
+        }
+
+        var unchangedItem = CreateSeries(itemId, "Localized image persistence", 2026, path);
+        unchangedItem.AddImage(CreateImage("poster.jpg", "pt-br"));
+        await persistence.SaveImagesAsync(unchangedItem, cancellationToken);
+
+        await using (var context = await Contexts.CreateDbContextAsync())
+        {
+            var unchangedImage = await context.BaseItemImageInfos.SingleAsync(image => image.ItemId == itemId);
+            Assert.Equal(firstImageId, unchangedImage.Id);
+        }
+
+        var updatedItem = CreateSeries(itemId, "Localized image persistence", 2026, path);
+        updatedItem.AddImage(CreateImage("poster.jpg", "en"));
+        await persistence.SaveImagesAsync(updatedItem, cancellationToken);
+
+        await using (var context = await Contexts.CreateDbContextAsync())
+        {
+            var updatedImage = await context.BaseItemImageInfos.SingleAsync(image => image.ItemId == itemId);
+            Assert.NotEqual(firstImageId, updatedImage.Id);
+            Assert.Equal("en", updatedImage.Language);
+        }
+    }
+
+    [Fact]
+    public async Task SaveImagesAsync_ConcurrentWritesForSameItem_DoNotMixImageSets()
+    {
+        MariaDbTestEnvironment.SkipUnlessConfigured();
+        var cancellationToken = TestContext.Current.CancellationToken;
+        var persistence = new ItemPersistenceService(
+            Contexts,
+            CreateAppHost(),
+            NullLogger<ItemPersistenceService>.Instance);
+
+        var itemId = Guid.NewGuid();
+        const string itemPath = "N:\\Movies\\Concurrent image persistence (2026)";
+        persistence.SaveItems([CreateSeries(itemId, "Concurrent image persistence", 2026, itemPath)], cancellationToken);
+
+        var gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var writes = Enumerable.Range(0, 20).Select(async index =>
+        {
+            var variant = index % 2 == 0 ? "variant-a" : "variant-b";
+            var item = CreateSeries(itemId, "Concurrent image persistence", 2026, itemPath);
+            item.AddImage(CreateImage($"{variant}/poster.jpg", variant));
+            item.AddImage(CreateImage($"{variant}/backdrop.jpg", variant));
+            await gate.Task;
+            await persistence.SaveImagesAsync(item, cancellationToken);
+        });
+
+        gate.SetResult();
+        await Task.WhenAll(writes);
+
+        await using var context = await Contexts.CreateDbContextAsync(cancellationToken);
+        var storedImages = await context.BaseItemImageInfos
+            .Where(image => image.ItemId == itemId)
+            .ToArrayAsync(cancellationToken);
+
+        Assert.Equal(2, storedImages.Length);
+        Assert.Single(storedImages.Select(image => image.Language).Distinct());
+        Assert.Single(storedImages.Select(image => image.Path.Split('/')[0]).Distinct());
+    }
+
+    [Fact]
+    public async Task SaveItems_RescanningTrailerWithSameTypes_PreservesTheStoredTypeSet()
+    {
+        MariaDbTestEnvironment.SkipUnlessConfigured();
+        var persistence = new ItemPersistenceService(
+            Contexts,
+            CreateAppHost(),
+            NullLogger<ItemPersistenceService>.Instance);
+
+        var itemId = Guid.NewGuid();
+        const string path = "N:\\Movies\\Example Trailer (2024).mkv";
+        var initial = CreateTrailer(itemId, path, TrailerType.LocalTrailer, TrailerType.Archive);
+        persistence.SaveItems([initial], CancellationToken.None);
+
+        await using (var context = await Contexts.CreateDbContextAsync())
+        {
+            await context.Database.ExecuteSqlRawAsync(
+                "CREATE TABLE TestTrailerTypeWriteAudit (EventType VARCHAR(6) NOT NULL) ENGINE=InnoDB;");
+            await context.Database.ExecuteSqlRawAsync(
+                "CREATE TRIGGER TestTrailerTypeInsertAudit AFTER INSERT ON BaseItemTrailerTypes "
+                + "FOR EACH ROW INSERT INTO TestTrailerTypeWriteAudit (EventType) VALUES ('INSERT');");
+            await context.Database.ExecuteSqlRawAsync(
+                "CREATE TRIGGER TestTrailerTypeDeleteAudit AFTER DELETE ON BaseItemTrailerTypes "
+                + "FOR EACH ROW INSERT INTO TestTrailerTypeWriteAudit (EventType) VALUES ('DELETE');");
+        }
+
+        try
+        {
+            var reorderedRescan = CreateTrailer(itemId, path, TrailerType.Archive, TrailerType.LocalTrailer);
+            persistence.SaveItems([reorderedRescan], CancellationToken.None);
+
+            await using (var context = await Contexts.CreateDbContextAsync())
+            {
+                Assert.Equal(0, await CountTrailerTypeAuditWritesAsync(context));
+                var storedTypeIds = await context.BaseItemTrailerTypes
+                    .Where(e => e.ItemId == itemId)
+                    .Select(e => e.Id)
+                    .OrderBy(id => id)
+                    .ToArrayAsync();
+
+                Assert.Equal(
+                    new[] { (int)TrailerType.Archive, (int)TrailerType.LocalTrailer }.OrderBy(id => id),
+                    storedTypeIds);
+            }
+
+            var changedRescan = CreateTrailer(itemId, path, TrailerType.Archive, TrailerType.ComingSoonToDvd);
+            persistence.SaveItems([changedRescan], CancellationToken.None);
+
+            await using (var context = await Contexts.CreateDbContextAsync())
+            {
+                Assert.True(await CountTrailerTypeAuditWritesAsync(context) > 0);
+                var storedTypeIds = await context.BaseItemTrailerTypes
+                    .Where(e => e.ItemId == itemId)
+                    .Select(e => e.Id)
+                    .OrderBy(id => id)
+                    .ToArrayAsync();
+
+                Assert.Equal(
+                    new[] { (int)TrailerType.Archive, (int)TrailerType.ComingSoonToDvd }.OrderBy(id => id),
+                    storedTypeIds);
+            }
+        }
+        finally
+        {
+            await using var context = await Contexts.CreateDbContextAsync();
+            await context.Database.ExecuteSqlRawAsync("DROP TRIGGER IF EXISTS TestTrailerTypeInsertAudit;");
+            await context.Database.ExecuteSqlRawAsync("DROP TRIGGER IF EXISTS TestTrailerTypeDeleteAudit;");
+            await context.Database.ExecuteSqlRawAsync("DROP TABLE IF EXISTS TestTrailerTypeWriteAudit;");
+        }
+    }
+
+    private static async Task<int> CountTrailerTypeAuditWritesAsync(MulletaFlixDbContext context)
+    {
+        await context.Database.OpenConnectionAsync();
+        await using var command = context.Database.GetDbConnection().CreateCommand();
+        command.CommandText = "SELECT COUNT(*) FROM TestTrailerTypeWriteAudit;";
+        var result = await command.ExecuteScalarAsync();
+        return Convert.ToInt32(result, CultureInfo.InvariantCulture);
+    }
+
+    private static Trailer CreateTrailer(Guid id, string path, params TrailerType[] trailerTypes)
+    {
+        return new Trailer
+        {
+            Id = id,
+            Name = "Example Trailer (2024)",
+            Path = path,
+            DateCreated = DateTime.UtcNow,
+            TrailerTypes = trailerTypes
+        };
+    }
+
     /// <summary>
     /// Builds a season under a series.
     /// </summary>
@@ -426,6 +750,18 @@ public sealed class ServerPersistenceMariaDbTests : IAsyncLifetime
             ProductionYear = year,
             Path = path,
             DateCreated = DateTime.UtcNow
+        };
+    }
+
+    private static ItemImageInfo CreateImage(string path, string language)
+    {
+        return new ItemImageInfo
+        {
+            Path = path,
+            Type = ImageType.Primary,
+            DateModified = new DateTime(2026, 10, 1, 0, 0, 0, DateTimeKind.Utc),
+            ProviderName = "TheMovieDb",
+            Language = language
         };
     }
 

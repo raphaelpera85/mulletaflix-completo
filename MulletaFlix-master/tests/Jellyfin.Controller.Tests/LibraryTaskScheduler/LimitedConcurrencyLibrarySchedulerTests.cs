@@ -378,7 +378,8 @@ public sealed class LimitedConcurrencyLibrarySchedulerTests
         var scheduler = new LimitedConcurrencyLibraryScheduler(
             applicationLifetime.Object,
             NullLogger<LimitedConcurrencyLibraryScheduler>.Instance,
-            configuration.Object);
+            configuration.Object,
+            TimeSpan.FromMilliseconds(100));
 
         var cleanupCallbackStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var allowCleanupToContinue = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -390,7 +391,6 @@ public sealed class LimitedConcurrencyLibrarySchedulerTests
                 cleanupCallbackStarted.TrySetResult();
                 allowCleanupToContinue.Task.GetAwaiter().GetResult();
             });
-            await Task.Delay(TimeSpan.FromSeconds(65), TestContext.Current.CancellationToken);
             await cleanupCallbackStarted.Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
 
             var processedAfterCleanup = 0;
@@ -403,7 +403,6 @@ public sealed class LimitedConcurrencyLibrarySchedulerTests
                 },
                 new Progress<double>(),
                 CancellationToken.None);
-            await Task.Delay(100, TestContext.Current.CancellationToken);
             Assert.False(enqueue.IsCompleted);
             allowCleanupToContinue.TrySetResult();
             await enqueue.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);

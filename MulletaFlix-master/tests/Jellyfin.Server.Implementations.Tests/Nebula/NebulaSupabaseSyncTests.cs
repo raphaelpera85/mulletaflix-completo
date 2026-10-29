@@ -296,7 +296,12 @@ public class NebulaSupabaseSyncTests
         using var callbackStarted = new ManualResetEventSlim();
         using var releaseCallback = new ManualResetEventSlim();
         using var secondCallbackStarted = new ManualResetEventSlim();
-        using var service = new NebulaSupabaseSyncService(null!, NullLogger<NebulaSupabaseSyncService>.Instance);
+        using var service = new NebulaSupabaseSyncService(
+            null!,
+            NullLogger<NebulaSupabaseSyncService>.Instance,
+            usersDbProvider: null,
+            httpMessageHandler: new StaticResponseHandler(new HttpResponseMessage(HttpStatusCode.ServiceUnavailable)),
+            continuousSyncShutdownTimeout: TimeSpan.FromMilliseconds(100));
         var callbackCount = 0;
         Action<NebulaSupabaseBackupResultDto> callback = _ =>
         {

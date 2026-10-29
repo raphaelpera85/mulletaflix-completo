@@ -90,6 +90,70 @@ public class ItemPersistenceServiceTests
     }
 
     [Fact]
+    public void ImageInfoCollectionsMatch_IsOrderIndependentAndMatchesDuplicatesOneToOne()
+    {
+        var itemId = Guid.NewGuid();
+        var existing = new[]
+        {
+            CreateImageInfo(itemId, "poster.jpg", "en"),
+            CreateImageInfo(itemId, "poster.jpg", "pt-br")
+        };
+        var sameInReverseOrder = new[]
+        {
+            CreateImageInfo(itemId, "poster.jpg", "pt-br"),
+            CreateImageInfo(itemId, "poster.jpg", "en")
+        };
+        var changedDuplicate = new[]
+        {
+            CreateImageInfo(itemId, "poster.jpg", "en"),
+            CreateImageInfo(itemId, "poster.jpg", "en")
+        };
+
+        Assert.True(ItemPersistenceService.ImageInfoCollectionsMatch(existing, sameInReverseOrder));
+        Assert.False(ItemPersistenceService.ImageInfoCollectionsMatch(existing, changedDuplicate));
+    }
+
+    [Fact]
+    public void ImageInfoCollectionsMatch_DetectsAddedAndRemovedImages()
+    {
+        var itemId = Guid.NewGuid();
+        var existing = new[] { CreateImageInfo(itemId, "poster.jpg", "pt-br") };
+
+        Assert.False(ItemPersistenceService.ImageInfoCollectionsMatch(existing, Array.Empty<BaseItemImageInfo>()));
+        Assert.False(ItemPersistenceService.ImageInfoCollectionsMatch(
+            Array.Empty<BaseItemImageInfo>(),
+            existing));
+    }
+
+    [Fact]
+    public void TrailerTypeCollectionsMatch_IgnoresOrderAndPreservesDuplicateCounts()
+    {
+        var existing = new[]
+        {
+            new BaseItemTrailerType { Id = 1, ItemId = Guid.NewGuid(), Item = null! },
+            new BaseItemTrailerType { Id = 2, ItemId = Guid.NewGuid(), Item = null! },
+            new BaseItemTrailerType { Id = 2, ItemId = Guid.NewGuid(), Item = null! }
+        };
+        var sameInDifferentOrder = new[]
+        {
+            new BaseItemTrailerType { Id = 2, ItemId = Guid.NewGuid(), Item = null! },
+            new BaseItemTrailerType { Id = 1, ItemId = Guid.NewGuid(), Item = null! },
+            new BaseItemTrailerType { Id = 2, ItemId = Guid.NewGuid(), Item = null! }
+        };
+        var missingDuplicate = new[]
+        {
+            new BaseItemTrailerType { Id = 2, ItemId = Guid.NewGuid(), Item = null! },
+            new BaseItemTrailerType { Id = 1, ItemId = Guid.NewGuid(), Item = null! }
+        };
+
+        Assert.True(ItemPersistenceService.TrailerTypeCollectionsMatch(existing, sameInDifferentOrder));
+        Assert.False(ItemPersistenceService.TrailerTypeCollectionsMatch(existing, missingDuplicate));
+        Assert.False(ItemPersistenceService.TrailerTypeCollectionsMatch(
+            existing,
+            [.. sameInDifferentOrder, new BaseItemTrailerType { Id = 3, ItemId = Guid.NewGuid(), Item = null! }]));
+    }
+
+    [Fact]
     public void ItemValueKeyComparer_TreatsValuesAsCaseInsensitiveWithinSameType()
     {
         var values = new[]
@@ -428,5 +492,19 @@ public class ItemPersistenceServiceTests
             NullLogger<MulletaFlixDbContext>.Instance,
             dbProvider.Object,
             lockingBehavior.Object);
+    }
+
+    private static BaseItemImageInfo CreateImageInfo(Guid itemId, string path, string? language)
+    {
+        return new BaseItemImageInfo
+        {
+            Id = Guid.NewGuid(),
+            ItemId = itemId,
+            ImageType = ImageInfoImageType.Primary,
+            Path = path,
+            ProviderName = "TheMovieDb",
+            Language = language,
+            Item = null!
+        };
     }
 }
