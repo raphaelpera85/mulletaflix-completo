@@ -404,6 +404,56 @@ public sealed class BackupRestoreDirectoryTests
     }
 
     [Fact]
+    public void ValidateLinuxAclBytes_AllowsServiceAndRootWritesButRejectsAnotherNamedUser()
+    {
+        static byte[] CreateAcl(params (ushort Tag, ushort Permissions, uint Id)[] entries)
+        {
+            var acl = new byte[sizeof(uint) + (entries.Length * 8)];
+            BinaryPrimitives.WriteUInt32LittleEndian(acl, 2);
+            for (var index = 0; index < entries.Length; index++)
+            {
+                var offset = sizeof(uint) + (index * 8);
+                BinaryPrimitives.WriteUInt16LittleEndian(acl.AsSpan(offset), entries[index].Tag);
+                BinaryPrimitives.WriteUInt16LittleEndian(acl.AsSpan(offset + 2), entries[index].Permissions);
+                BinaryPrimitives.WriteUInt32LittleEndian(acl.AsSpan(offset + 4), entries[index].Id);
+            }
+
+            return acl;
+        }
+
+        static void Validate(byte[] acl, uint effectiveUserId)
+        {
+            var buffer = Marshal.AllocHGlobal(acl.Length);
+            try
+            {
+                Marshal.Copy(acl, 0, buffer, acl.Length);
+                BackupRestoreAclValidator.ValidateLinuxAclBytes(buffer, acl.Length, "system.posix_acl_access", effectiveUserId);
+            }
+            finally
+            {
+                Marshal.FreeHGlobal(buffer);
+            }
+        }
+
+        var trustedAcl = CreateAcl(
+            (0x0001, 7, uint.MaxValue), // user::rwx
+            (0x0002, 7, 1000), // user:<service>:rwx
+            (0x0002, 7, 0), // user:root:rwx
+            (0x0004, 5, uint.MaxValue), // group::r-x
+            (0x0010, 7, uint.MaxValue), // mask::rwx
+            (0x0020, 5, uint.MaxValue)); // other::r-x
+        Validate(trustedAcl, effectiveUserId: 1000);
+
+        var untrustedAcl = CreateAcl(
+            (0x0001, 7, uint.MaxValue), // user::rwx
+            (0x0002, 7, 1001), // user:<untrusted>:rwx
+            (0x0004, 5, uint.MaxValue), // group::r-x
+            (0x0010, 7, uint.MaxValue), // mask::rwx
+            (0x0020, 5, uint.MaxValue)); // other::r-x
+        Assert.Throws<UnauthorizedAccessException>(() => Validate(untrustedAcl, effectiveUserId: 1000));
+    }
+
+    [Fact]
     public void ValidateTrustedWriteBoundary_RejectsOtherWriteInLinuxDefaultAcl()
     {
         Assert.SkipWhen(!OperatingSystem.IsLinux(), "POSIX default ACL validation requires Linux.");
