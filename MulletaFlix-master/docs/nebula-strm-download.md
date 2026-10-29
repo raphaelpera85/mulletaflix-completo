@@ -897,3 +897,9 @@ Validação Windows/.NET 10 Release: solução inteira, 17 assemblies, 5.363 apr
 O teste MariaDB `SaveImagesAsync_ConcurrentWritesForSameItem_DoNotMixImageSets` cobre 20 escritas concorrentes de dois conjuntos de imagens do mesmo item e exige que a leitura final corresponda a um conjunto completo. Foi compilado, mas ignorado (1/1) sem conexão descartável. A execução integral .NET foi repetida depois: 5.363 aprovados, 274 ignorados, zero falhas/5.637 resultados. Esses skips aguardam MariaDB de teste; não são homologação.
 
 Publicação portal Git `main`: `ba195f1d16e91caf4c586f3890074ed01105ba68`, contrato 377/377 e SHA remoto conferido. Nenhum deployment Vercel foi verificado.
+
+### Retenção de partes concluídas quando uma parte multipart falha — 2026-10-29
+
+download_strm_multipart agora aguarda cada future já enviado antes de propagar a primeira exceção. Isso evita que executor.map cancele uma tarefa ainda pendente e descarte uma parte que poderia ser reaproveitada na retomada. O destino final e as partes parciais continuam sob a política existente de commit após validação.
+
+Evidência: teste completo Python 3.10 682/682; teste específico de retomada 20/20 repetições; compileall passou. Testes usam respostas HTTP simuladas e arquivos temporários; nenhuma transferência real foi iniciada. O fallback e o tratamento HTTP existente não foram alterados nesta rodada.

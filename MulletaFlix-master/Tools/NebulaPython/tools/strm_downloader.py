@@ -1135,7 +1135,16 @@ def download_strm_multipart(
                     raise IOError(f"Parte {index + 1} falhou após {max_retries} tentativas: {last_error}")
 
                 with ThreadPoolExecutor(max_workers=parts_count) as executor:
-                    list(executor.map(download_part, range(parts_count)))
+                    futures = [executor.submit(download_part, index) for index in range(parts_count)]
+                    first_error = None
+                    for future in futures:
+                        try:
+                            future.result()
+                        except Exception as exc:
+                            if first_error is None:
+                                first_error = exc
+                    if first_error is not None:
+                        raise first_error
 
                 logger.info("Unindo partes do arquivo: %s", target_path.name)
                 with tmp_path.open("wb") as out:

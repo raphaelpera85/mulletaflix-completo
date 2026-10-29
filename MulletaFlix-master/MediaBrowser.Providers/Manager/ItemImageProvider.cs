@@ -762,8 +762,7 @@ namespace MediaBrowser.Providers.Manager
             }
 
             if (string.Equals(countryCode, "BR", StringComparison.OrdinalIgnoreCase)
-                && (string.Equals(language, "pt", StringComparison.OrdinalIgnoreCase)
-                    || string.Equals(language, "pt-PT", StringComparison.OrdinalIgnoreCase)))
+                && string.Equals(language, "pt", StringComparison.OrdinalIgnoreCase))
             {
                 return "pt-BR";
             }

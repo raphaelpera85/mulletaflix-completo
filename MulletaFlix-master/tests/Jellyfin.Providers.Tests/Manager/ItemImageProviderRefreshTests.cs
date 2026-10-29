@@ -628,5 +628,17 @@ namespace MulletaFlix.Providers.Tests.Manager
 
             Assert.Equal("pt-BR", language);
         }
+
+        [Fact]
+        public void GetPreferredImageLanguage_PreservesExplicitPortuguesePortugalPreference()
+        {
+            var language = ItemImageProvider.GetPreferredImageLanguage(
+                new Video { PreferredMetadataLanguage = "pt-PT", PreferredMetadataCountryCode = "BR" },
+                new LibraryOptions(),
+                null,
+                new ServerConfiguration { PreferredMetadataLanguage = "pt", MetadataCountryCode = "BR" });
+
+            Assert.Equal("pt-PT", language);
+        }
     }
 }

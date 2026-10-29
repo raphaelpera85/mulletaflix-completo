@@ -142,7 +142,7 @@ jobs:
           dotnet-version: ${{ env.SDK_VERSION }}
 
       - name: Restore server solution
-        run: dotnet restore MulletaFlix.sln
+        run: dotnet restore tests/Jellyfin.Server.Implementations.Tests/Jellyfin.Server.Implementations.Tests.csproj
 
       - name: Test every Mongo-backed scenario
         run: >

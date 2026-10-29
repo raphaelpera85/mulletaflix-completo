@@ -60,6 +60,7 @@ function Invoke-UpdaterScenario {
 
         $harness = @"
 `$ErrorActionPreference = 'Stop'
+Add-Type -AssemblyName System.ServiceProcess
 `$env:TEMP = '$($quoted.TempRoot)'
 `$script:serviceStatus = [System.ServiceProcess.ServiceControllerStatus]::Stopped
 function Get-Process {

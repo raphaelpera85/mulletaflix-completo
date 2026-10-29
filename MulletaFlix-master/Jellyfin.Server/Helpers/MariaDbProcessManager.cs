@@ -45,7 +45,7 @@ namespace MulletaFlix.Server.Helpers
                     return;
                 }
 
-                _startupMutex = AcquireStartupMutex(dataDir);
+                _startupMutex = AcquireStartupMutex(port);
                 var databaseAvailable = await WaitForDatabaseAsync(masterConnString, TimeSpan.FromSeconds(2), logger, cancellationToken).ConfigureAwait(false);
                 if (!databaseAvailable)
                 {
@@ -138,6 +138,13 @@ namespace MulletaFlix.Server.Helpers
                     throw new TimeoutException("Embedded MariaDB did not accept SQL connections within 30 seconds. Check whether another process owns the port and whether the data directory is writable.");
                 }
 
+                var actualDataDir = await GetMariaDbDataDirectoryAsync(masterConnString, cancellationToken).ConfigureAwait(false);
+                if (!IsExpectedDataDirectory(dataDir, actualDataDir))
+                {
+                    throw new InvalidOperationException(
+                        $"MariaDB on port {port} uses data directory '{actualDataDir}', but this server is configured for '{dataDir}'. Refusing to use a different MariaDB instance.");
+                }
+
                 if (_mariaDbProcess is null)
                 {
                     logger.LogInformation("Existing MariaDB is accepting connections on port {Port}", port);
@@ -180,21 +187,37 @@ namespace MulletaFlix.Server.Helpers
             }
         }
 
-        private static MariaDbStartupMutexLease AcquireStartupMutex(string dataDir)
+        private static MariaDbStartupMutexLease AcquireStartupMutex(int port)
         {
-            return new MariaDbStartupMutexLease(BuildStartupMutexName(dataDir), TimeSpan.FromSeconds(45));
+            return new MariaDbStartupMutexLease(BuildStartupMutexName(port), TimeSpan.FromSeconds(45));
         }
 
-        internal static string BuildStartupMutexName(string dataDir)
+        internal static string BuildStartupMutexName(int port)
         {
-            var normalizedPath = Path.GetFullPath(dataDir);
-            if (OperatingSystem.IsWindows())
+            var portHash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(port.ToString(System.Globalization.CultureInfo.InvariantCulture))));
+            return $"Global\\MulletaFlix.EmbeddedMariaDb.Port.{portHash}";
+        }
+
+        internal static bool IsExpectedDataDirectory(string configuredPath, string actualPath)
+        {
+            if (string.IsNullOrWhiteSpace(configuredPath) || string.IsNullOrWhiteSpace(actualPath))
             {
-                normalizedPath = normalizedPath.ToUpperInvariant();
+                return false;
             }
 
-            var pathHash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(normalizedPath)));
-            return $"Global\\MulletaFlix.EmbeddedMariaDb.{pathHash}";
+            var configured = Path.TrimEndingDirectorySeparator(Path.GetFullPath(configuredPath));
+            var actual = Path.TrimEndingDirectorySeparator(Path.GetFullPath(actualPath));
+            var comparison = OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
+            return string.Equals(configured, actual, comparison);
+        }
+
+        private static async Task<string> GetMariaDbDataDirectoryAsync(string connectionString, CancellationToken cancellationToken)
+        {
+            using var connection = new MySqlConnection(connectionString);
+            await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
+            using var command = new MySqlCommand("SELECT @@datadir", connection);
+            var dataDirectory = await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false) as string;
+            return dataDirectory ?? string.Empty;
         }
 
         internal static bool RequiresDataDirectoryInitialization(string dataDir)

@@ -62,20 +62,36 @@ public class MariaDbStartupMutexLeaseTests
     }
 
     [Fact]
-    public void BuildStartupMutexName_IsStableForSameDataDirectory()
+    public void BuildStartupMutexName_IsStableForSamePort()
     {
-        var path = Path.Combine(Path.GetTempPath(), "mulletaflix", "mariadb_data");
-
         Assert.Equal(
-            MariaDbProcessManager.BuildStartupMutexName(path),
-            MariaDbProcessManager.BuildStartupMutexName(Path.Combine(Path.GetTempPath(), ".", "mulletaflix", "mariadb_data")));
+            MariaDbProcessManager.BuildStartupMutexName(3306),
+            MariaDbProcessManager.BuildStartupMutexName(3306));
     }
 
     [Fact]
-    public void BuildStartupMutexName_IsDifferentForDifferentDataDirectories()
+    public void BuildStartupMutexName_IsDifferentForDifferentPorts()
     {
         Assert.NotEqual(
-            MariaDbProcessManager.BuildStartupMutexName(Path.Combine(Path.GetTempPath(), "mulletaflix-a", "mariadb_data")),
-            MariaDbProcessManager.BuildStartupMutexName(Path.Combine(Path.GetTempPath(), "mulletaflix-b", "mariadb_data")));
+            MariaDbProcessManager.BuildStartupMutexName(3306),
+            MariaDbProcessManager.BuildStartupMutexName(3307));
+    }
+
+    [Fact]
+    public void IsExpectedDataDirectory_AcceptsEquivalentNormalizedPaths()
+    {
+        var configuredPath = Path.Combine(Path.GetTempPath(), "mulletaflix", "db");
+        var equivalentPath = Path.Combine(Path.GetTempPath(), "mulletaflix", "temporary", "..", "db");
+
+        Assert.True(MariaDbProcessManager.IsExpectedDataDirectory(configuredPath, equivalentPath));
+    }
+
+    [Fact]
+    public void IsExpectedDataDirectory_RejectsDifferentDirectories()
+    {
+        var configuredPath = Path.Combine(Path.GetTempPath(), "mulletaflix-a", "db");
+        var actualPath = Path.Combine(Path.GetTempPath(), "mulletaflix-b", "db");
+
+        Assert.False(MariaDbProcessManager.IsExpectedDataDirectory(configuredPath, actualPath));
     }
 }
