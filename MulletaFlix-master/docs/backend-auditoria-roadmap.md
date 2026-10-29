@@ -2,6 +2,23 @@
 
 Escopo: backend `MulletaFlix-master`, com foco em desempenho, manutenção, bootstrap, persistência, consultas e cobertura de testes.
 
+### Opt-in MariaDB reexecutado — 2026-10-29
+
+- Classificação do TRX amplo atual: 85 ignorados visíveis; 31 são testes opt-in MariaDB, 26 exigem MongoDB descartável, 25 são condicionados pelo sistema operacional/recursos Unix/Linux/macOS e 3 são benchmarks. As categorias de ambiente podem sobrepor-se.
+- `UserManagerNormalizedUsernameTests|BillingDatabaseTests` passou **30/31** em Release contra MariaDB 11.4.4 descartável, em loopback `127.0.0.1:53319`; 0 falhas. O caso restante requer `lower_case_table_names=0` em Linux. TRX: `%TEMP%/mflx-mariadb-20261029-audit/results/mariadb-focused-20261029.trx`.
+- A instância usou datadir exclusivo e foi encerrada após os testes; porta 53319 confirmada fechada. Produção permaneceu read-only e respondeu HTTP 200 na versão 12.1.45. Nenhuma conexão ao banco operacional foi feita.
+- Esta execução focal complementa, sem somar ou substituir, a regressão ampla de 5.377 aprovados/274 ignorados/0 falhas. O opt-in MongoDB foi executado depois e está registrado na seção seguinte; MariaDB Linux, CI hospedada, runtime/instalação e E2E real continuam pendentes. Homologação formal segue 2/7.
+
+### Testes MongoDB opt-in — 2026-10-29
+
+- Os 26 testes `Category=RequiresMongo` passaram **26/26**, sem skips nem falhas, contra MongoDB 8.3.7 temporário em `127.0.0.1:27099`, com datadir novo e isolado. TRX: `%TEMP%/mflx-mongodb-20261029-audit/results/mongodb-optin-20261029.trx` (o runner gerou um TRX por projeto; arquivo final pertence a `Jellyfin.Server.Implementations.Tests`).
+- O daemon temporário foi encerrado e a porta 27099 ficou sem listener. Serviço MongoDB existente não foi usado nem alterado; produção do MulletaFlix continuou read-only.
+- O resultado reduz a lacuna opt-in local, mas não altera os 274 skips do snapshot amplo, que não foi reexecutado. A validação MongoDB Linux/CI e os gates de runtime/instalação e E2E real seguem pendentes; homologação formal permanece 2/7.
+
+### Correção das rotas de logs do painel web — 2026-10-29
+
+Rotas já declaradas `/dashboard/logs` e `/dashboard/logs/:file` estavam sem tela de lista e com o componente de detalhe ausente. Foram adicionadas telas React com estados de carregamento/erro/retry e chamadas ao SDK. A leitura solicita a cauda do log, com teto de 1 MiB no endpoint existente; clientes legados sem `tailBytes` ainda recebem o arquivo completo. Playwright/Selenium e plano foram alinhados. Revalidação em 29/10: build atual do servidor Release passou sem avisos/erros; regressão de 17 projetos .NET passou 5.377/5.651 (274 ignorados, 0 falhas); Nebula Python 682/682; Vitest web 425/425; `npm run build:check`, build web production e `verify:build` (1.929 artefatos, payload inicial 298,2 KB gzip); `SystemControllerTests` 3/3 e Playwright administrativo/logs 1/1 com build atual em stage isolado; contrato portal 394/394. A tentativa anterior com o stage empacotado 12.1.44 expirou porque seus assets não continham `#logFilesPage`; não foi falha do código atual. Produção, sem escrita, respondeu HTTP 200 em `/System/Info/Public` e `/web/` e informou versão 12.1.45. Ignorados não são aprovados; MariaDB/Mongo opt-in, Selenium, E2E amplo, CI/Linux e integrações/instalação seguem pendentes. Sem crédito formal ou release; homologação formal permanece 2/7.
+
 ### Gate de artefatos Windows da release — 2026-10-29
 
 - Foi encontrado um ponto cego entre o staging e a publicação: o ZIP final não era comparado ao stage, e o smoke `Test-CleanInstaller.ps1` existente não fazia parte do workflow antes de publicar.
@@ -640,6 +657,16 @@ Foi adicionado `SaveImagesAsync_ConcurrentWritesForSameItem_DoNotMixImageSets`, 
 
 Publicação da homologação — 2026-10-29 08:58 BRT: `Mulletaflix-Portal/main` no commit `ba195f1d16e91caf4c586f3890074ed01105ba68`; 377/377 testes Node e SHA remoto conferido. O servidor permanece sem commit/release; a versão não foi instalada nem testada em produção.
 
+### Isolamento do MariaDB, locale de imagens e restore direcionado do CI — 2026-10-29 09:37 BRT
+
+- `MariaDbProcessManager` coordena inicializações tanto pelo diretório quanto pela porta configurada. Antes de reutilizar MariaDB local, consulta `@@datadir` e falha fechado se a instância responder pela porta, mas usar outro diretório. MariaDB continua sendo o único banco relacional operacional.
+- Rechecagem do código e teste já existentes de `ItemImageProvider` confirmou que preferência explícita `pt-PT` é preservada; somente `pt` com país `BR` é normalizado para `pt-BR`. Nenhuma alteração de código de imagem foi necessária nesta sessão.
+- Job Mongo CI restaura o projeto `Jellyfin.Server.Implementations.Tests` diretamente em vez de avaliar a solução inteira. Restore local passou em 6,7 s e resolveu 29 projetos transitivos; não há medição comparativa hospedada para quantificar o ganho de execução.
+- Testes focados Release/.NET 10: mutex/diretório 9/9; preferência de idioma 2/2. O teste de compatibilidade do nome histórico do mutex reproduziu a falha antes de restaurar o nome antigo e passou depois. Regressão da solução Release, sem nomes Integration: 15 assemblies, 5.329 aprovados, 85 ignorados, 0 falhas, exit 0. Restore direcionado do projeto Mongo passou. Nenhum serviço MariaDB/Mongo nem produção foi acessado nesta validação.
+- Ainda pendentes nesta fatia: integração com MariaDB descartável, CI hospedada, execução Linux, runtime instalado e produção. Homologação formal não avança pelos testes unitários; permanece em 2/7 (28,6%). 12.1.46 continua candidata, sem release.
+- Mapa técnico conferido: mudança de fluxo no bootstrap MariaDB existente; preferência de idioma revalidada no código já presente. Sem módulos, APIs ou dependências novas.
+- Portal Git `main` atualizado no commit `7bff25b7260b8b30ee7aa08d314643a009d3ff1b`; contrato 378/378. Deployment Vercel e conteúdo público não foram verificados.
+
 ### Regressão multipart e harness PowerShell 5.1 — 2026-10-29
 
 Na execução completa Nebula sob concorrência com outras suítes, o teste de retomada multipart falhou porque uma futura pendente foi cancelada quando executor.map propagou a primeira exceção. O downloader agora envia as partes e aguarda todos os futures antes de propagar o primeiro erro; partes já concluídas ficam disponíveis para retomada. Após a mudança, Nebula Python passou 682/682; o caso de retomada passou 20/20 repetições; compileall passou.
@@ -649,3 +676,123 @@ O harness ApplyUpdateFailClosed.Tests.ps1 não carregava System.ServiceProcess p
 Validação geral local: .NET Release, solução completa com filtro contra testes live, exit 0; teste web 425/425; build:check, build de produção e verify:build passaram, artefatos 1.927 e payload inicial 298,1 KB gzip/420 KB. Contratos Node de CI/release passaram 15/15. Vite emitiu avisos sobre diretivas use client ignoradas e imports mistos; a build e o limite de payload permaneceram aprovados.
 
 Não foi executado E2E local porque a porta 8096 está ocupada e o diretório stage já contém artefatos; não foi tocado. Integração descartável MariaDB/Mongo, CI hospedada, runtime instalado e produção permanecem pendentes. MariaDB é o único banco relacional operacional. Homologação formal permanece 2/7; nenhuma release criada.
+
+### Cancelamento da espera de startup MariaDB — 2026-10-29 09:49 BRT
+
+`MariaDbStartupMutexLease` agora recebe o token de cancelamento do startup e aguarda simultaneamente a posse do mutex ou o cancelamento. O cancelamento só interrompe a aquisição; após obter o mutex, a thread proprietária continua segurando-o até o descarte explícito, preservando sincronização de processo.
+
+O novo `Constructor_CancelsWhileWaitingForAnotherOwner` valida cancelamento enquanto outro thread mantém o mutex. `MariaDbStartupMutexLeaseTests` passou 10/10. Regressão local da solução Release com `FullyQualifiedName!~Integration`: 15 assemblies, 5.330 aprovados, 85 ignorados e 0 falhas observadas. Os ignorados não contam como aprovados; o processo agregado encerrou antes de eu capturar seu exit code, portanto ele não é declarado aqui. MariaDB descartável, CI hospedada, Linux nativo, runtime instalado e produção não foram acessados.
+
+Formal permanece 2/7; 12.1.46 continua candidata sem publicação. MariaDB é o único banco relacional operacional. Mapa técnico conferido e atualizado: mudou o fluxo de aquisição dos locks existentes, sem classe pública, API ou dependência nova.
+
+### Integração MariaDB descartável — 2026-10-29 10:06 BRT
+
+Executadas as suítes contra MariaDB 11.4.4 efêmero em porta loopback exclusiva: `Jellyfin.Server.Integration.Tests` 151/151; `IntroSkipper.Integration.Tests` 57 aprovados, 1 ignorado; filtro MariaDB de `Jellyfin.Server.Implementations.Tests` 30 aprovados, 1 ignorado. Total 238 aprovados, 2 ignorados, 0 falhas, exit 0 em cada comando. O skip IntroSkipper depende do exercício MongoDB e o skip de Implementations depende de Linux `lower_case_table_names=0`. Instância encerrada e porta fechada; credencial temporária removida do arquivo de conexão. A exclusão recursiva do diretório temporário foi bloqueada e os dados/logs sem credencial permanecem em `%TEMP%`. Resultado local Windows não fecha os gates Linux/CI/instalação/produção nem altera homologação formal (2/7). Sem release.
+
+Portal Git `main` recebeu a evidência no commit `2d65b700b3034420ab80bfae3dcbe74b5d91f557`; contrato 380/380 e SHA remoto conferido. Deployment Vercel não verificado.
+### Serialização do ciclo de vida MariaDB — 2026-10-29 10:16 BRT
+
+Auditoria confirmou que chamadas simultâneas a `StartMariaDbAsync` compartilhavam processo e leases estáticas: se a segunda chamada falhasse ao aguardar lock, sua rotina de erro poderia executar `StopMariaDbAsync` e encerrar o processo iniciado pela primeira. Start e stop agora passam por uma trava assíncrona dentro do processo; falha de startup limpa estado dentro da operação já protegida, sem reentrância na trava. A lease também observa cancelamento após adquirir o mutex, liberando-o pela thread proprietária.
+
+`MariaDbStartupMutexLeaseTests`: 13/13; `Jellyfin.Server.Tests`: 103/103, Windows/.NET 10. Não acessou MariaDB, MongoDB, serviço instalado ou produção. `RecoveryExercise_RestoresMariaDbMongoAndFilesFromIsolatedSources` já passou 1/1 em 28/10/2026, 22:59 BRT, conforme `docs/backup-coverage-audit.md`; o resultado foi obtido com MariaDB 11.4.4 e MongoDB 8.3.7 descartáveis. Ainda falta execução CI com as versões configuradas (MariaDB 11.4.13 e MongoDB 7.0), validação Linux/runtime/instalação e consolidação do exercício no painel. Formal 2/7; versão 12.1.46 continua candidata, sem release.
+
+Portal `Mulletaflix-Portal/main` atualizado com esta evidência, commit `57e0ed7903e4ce09a3fee717177f531537344e20`; contrato 381/381, SHA remoto confirmado. Deployment Vercel não verificado.
+
+### CI sem steps executados — 2026-10-29 10:21 BRT
+
+A integração GitHub reporta run 40872202840 do commit-base `e3425131826a8d0573267878b0766f910588b34c` concluído como failure em 16 jobs. O job de recuperação completa não contém steps; os logs consultados retornam 404. Amostragem também confirmou ausência de steps/logs recuperáveis nos jobs Server Integration, Server Build e Nebula Mongo. Assim, nenhum teste foi comprovado como executado e a causa do runner permanece desconhecida; não classificar como falha de código nem como aprovação. Reexecução CI com steps e exercício MariaDB+Mongo+arquivos permanecem pendentes. Formal 2/7; sem release.
+
+Estado desta verificacao publicado no portal Git `main`, commit `71642809d9c482e27b66027734f5af82a541d81a`; contrato 382/382 e SHA remoto confirmado. Vercel nao foi verificado.
+
+Rechecagem das anotações do GitHub Actions confirmou a causa: os jobs foram bloqueados antes de iniciar porque a conta GitHub está bloqueada por cobrança. Nenhum teste rodou nesse run; o estado é bloqueio de infraestrutura, não reprovação do código.
+
+### Regressão da solução .NET após serialização MariaDB — 2026-10-29 10:28 BRT
+
+`dotnet test MulletaFlix.sln --configuration Release --no-build --no-restore --filter FullyQualifiedName!~LiveIntegrationTests --verbosity quiet` terminou com exit 0. Agregação dos resumos de 17 assemblies: 5.372 aprovados, 261 ignorados, 0 falhas/5.633. Destaques: `Jellyfin.Server.Tests` 103/103; `Jellyfin.Server.Implementations.Tests` 1.659 aprovados/83 ignorados; `Jellyfin.Server.Integration.Tests` 8 aprovados/143 ignorados; `IntroSkipper.Integration.Tests` 26 aprovados/32 ignorados. O filtro excluiu testes live; integrações MariaDB/Mongo continuam ignoradas sem serviços opt-in. Sem conexão a banco/serviço operacional. Esta regressão não comprova Linux, instalação ou produção e não concede gate formal. Homologação 2/7; sem release.
+
+Portal Git `main`: commit `8227cc94d769ff4f832178497166fdc115302eff; teste contratual 383/383 e SHA remoto confirmado. CI hospedada segue bloqueada antes dos steps pela cobrança; deployment Vercel não verificado.
+
+### Nebula Python e regressão .NET — 2026-10-29 10:30 BRT
+
+A regressão .NET filtrada da solução passou em 17 assemblies: 5.372 aprovados, 261 ignorados, 0 falhas/5.633, exit 0; `LiveIntegrationTests` excluídos. O `Jellyfin.Server.Tests` passou 103/103. `Tools/NebulaPython`: Python 3.10.11, `pytest -q` 682/682 e `compileall -q .` exit 0. Integrações opt-in de MariaDB/Mongo continuam ignoradas; CI GitHub está bloqueada por billing antes dos steps. Formal 2/7, sem release.
+
+Portal Git `main` atualizado com a suíte Nebula, commit `439bea42b5402844ef5d2c52f1d5a546b5bb887c`; contrato 384/384 e SHA remoto confirmado. Deployment Vercel não verificado.
+
+### Auditoria ampliada e E2E bloqueado — 2026-10-29 10:55 BRT
+
+- Regressão .NET Release com MariaDB 11.4.13 e MongoDB 7.0.45 descartáveis: 17 assemblies, 5.604 aprovados, 29 ignorados, 0 falhas/5.633; exit 0. `IntroSkipper.Integration.Tests` 58/58, `Jellyfin.Server.Integration.Tests` 151/151. Os serviços temporários foram encerrados; nenhum banco operacional foi usado.
+- Nebula Python 3.10 em venv temporária com hashes: 682/682 aprovados; `compileall` passou. Nove verificações de empacotamento Windows passaram em PowerShell 7, `ApplyUpdateFailClosed.Tests.ps1` passou em PowerShell 5.1 e os quatro contratos Node de release/CI passaram 15/15.
+- Web: 425/425 testes passaram; cobertura global de linhas 8,25% (statements 8,28%, branches 7,17%, functions 6,45%). Typecheck, stylelint, build de produção, verificação de build e auditoria de dependências de produção passaram; bundle inicial 298,1 KB gzip/420 KB. Cobertura Web é insuficiente para declarar homologação completa.
+- Smoke E2E Wizard/listas não executou casos. O runner recusou corretamente a porta ocupada 8096; em stage separado na 18096, a recuperação falhou fechada porque a ACL herdada de `%TEMP%` concede escrita a identidade não confiável. Não foi enfraquecida a validação. Startup também tentou iniciar o cliente DuckDNS instalado; investigar e isolar esse bootstrap antes de nova tentativa.
+- Incidente de execução: a primeira invocação do runner partiu do checkout Web original; o reset do harness removeu `stage/data` ignorado nesse worktree. A pasta está ausente; não há evidência registrada de seu conteúdo anterior. Nenhum acesso à porta/serviço de produção 8096 ocorreu.
+- Homologação formal permanece 2/7 (28,6%); os resultados locais não concedem gate formal. CI hospedada segue sem runners por bloqueio de faturamento; Linux nativo, runtime instalado e produção pendentes. 12.1.46 continua candidata, não publicada. MariaDB é o único banco relacional operacional.
+- Mapa técnico conferido: nenhuma API, módulo ou dependência foi adicionada nesta rodada. A sessão detalha comandos, resultados, bloqueios e limpeza pendente.
+- Página de homologação sincronizada com as evidências deste lote no Git `main` do portal: commit `29c0f21ce6577f6efe3b4416211c3b7adcc9112a`; SHA remoto conferido; contrato local 386/386. Deployment Vercel não verificado.
+
+### Bootstrap externo isolável e smoke E2E concluído — 2026-10-29 11:14 BRT
+
+- `SecureConnectionProcessManager.EnsureSecureConnectionStartedAsync` respeita `MFLX_DISABLE_EXTERNAL_BOOTSTRAP` antes de qualquer caminho específico do Windows e não inicia HTTPS externo/DuckDNS quando o runner pede isolamento. O teste `EnsureSecureConnectionStartedAsync_ExternalBootstrapDisabled_SkipsExternalServices` passou dentro de `Jellyfin.Server.Tests` 104/104; compilação da solução passou.
+- A regressão .NET posterior em 17 assemblies terminou exit 0: 5.373 aprovados, 261 ignorados, 0 falhas/5.634. Rodada MariaDB 11.4.13 + MongoDB 7.0.45 descartáveis anterior continua registrada separadamente como 5.604 aprovados, 29 ignorados, 0 falhas/5.633. Ignorados não são aprovações.
+- Playwright filtrado para Wizard/listas passou 3/3, sem falhas ou skips. Stage 12.1.46 acessível em 127.0.0.1:18096; inicialização registrada em 16,2 s; MariaDB embutido descartável na porta 33100. Raw report confirma os fluxos de stage limpo, conclusão do assistente e persistência de lista. A porta 8096 não foi acessada. Isso não cobre toda a suíte E2E ou a operação real de mídia/Nebula.
+- O fix e esses testes são evidência candidata, não nova homologação formal. Gates continuam 2/7 (28,6%); Web tem 8,25% de cobertura de linhas; CI hospedada bloqueada por billing; Linux nativo, runtime/instalação e produção pendentes. 12.1.46 não publicada.
+- O worktree de produção permaneceu sem acesso. Um reset anterior do runner removeu `stage/data` ignorado; conteúdo prévio não foi inventariado e não há cópia recuperável confirmada. Diretórios temporários da execução permanecem sujeitos à limpeza segura.
+- Estrutura revisada: mesmo `SecureConnectionProcessManager` e teste existente; startup agora encerra cedo quando o sinalizador de isolamento está ativo. Sem API, dependência ou componente novo. MariaDB é o único banco relacional operacional.
+- Portal de homologação atualizado em `Mulletaflix-Portal/main`, commit `fc19dc92caa7dd4d4e92713900a9148015cca0d6`; contrato portal 387/387 e SHA remoto conferido. Vercel não foi verificado.
+
+### Publicação do resultado E2E — 2026-10-29 11:39 BRT
+
+Portal do Mulletaflix atualizado em Git `main`, commit `93edcb4df6b28bc170914a8d5e933ebc0f45fbda`; `git ls-remote origin refs/heads/main` confirmou o mesmo SHA. Contrato do portal passou 389/389 antes do commit. Deployment Vercel não foi verificado.
+
+### Caminhos padrão da vinheta nativa e triagem Playwright — 29/10/2026 11:47 BRT
+
+- Removida a busca automática da vinheta em `Videos` do perfil do usuário e em um caminho pessoal fixo. Os candidatos padrão agora ficam limitados ao pacote instalado e aos diretórios `ProgramDataPath`/`DataPath` do servidor; caminhos configurados pelo administrador continuam aceitos.
+- `NativeIntroProviderTests`: 8/8; regressão `Jellyfin.Server.Implementations.Tests`, excluindo Integration: 1.661 aprovados, 82 ignorados, 0 falhas/1.743, exit 0. Não foi executada regressão completa da solução nesta rodada.
+- Revisão das falhas Playwright classificou preliminarmente 6 grupos como contrato/seletores possivelmente desatualizados, 12 como provável insuficiência/forma de fixture e nenhum defeito de produto confirmado só por esse relatório. Continua necessária triagem individual, correção de fixtures e repetição. Isso é classificação preliminar, não evidência de que as falhas são apenas testes.
+- Linux nativo, CI hospedada bloqueada por cobrança, instalação/upgrade e produção não foram validados. Homologação formal permanece 2/7; 12.1.46 continua candidata, sem release.
+
+
+### Playwright: fixtures locais e varredura da biblioteca — 2026-10-29
+
+- Fixtures locais com quatro filmes, um episódio e NFO foram adicionadas; harness sem diretórios pessoais, com ACL restrita e bootstrap externo desativado.
+- Testes Node de suporte: 13/13. O stage Windows 12.1.46 com MariaDB descartável continua sem itens consultáveis: teste focal de acessibilidade/detalhes 0/2, mesmo após a preparação inicial e a tentativa de consolidar a varredura em uma execução.
+- Logs demonstram deadlock MariaDB ao inserir BaseItemImageInfos; as cinco tentativas de retry registradas não foram suficientes para produzir itens reconhecidos nessa execução. Investigar o fluxo concorrente de biblioteca/metadata e validar com uma nova execução antes de classificar como defeito de produto.
+- Produção 8096 não acessada; a homologação formal segue 2/7 (28,6%). 12.1.46 continua candidata, sem release. CI hospedada, Linux, runtime/instalação, regressão Web/E2E ampla e produção permanecem pendentes.
+
+### E2E focado aprovado; suíte ampla ainda bloqueada — 2026-10-29 12:41 BRT
+
+- Ajustado o contrato de consulta a bibliotecas para usar `VirtualFolderInfo.ItemId` e filtrar mídia `Movie/Video`; helper também retorna `Type`. A seção de metadata secundária é própria de programa ao vivo e deve permanecer oculta em filmes.
+- Corrigido rótulo acessível dos selects de fonte, vídeo, áudio e legendas com placeholders localizados e correção do escopo do backbutton no E2E.
+- Runner bloqueia 8096 e aceita stage apenas em loopback 18096–18196. Testes auxiliares passaram 15/15; `npm run build:check` passou; build web de produção concluiu; E2E acessibilidade e detalhes passou 2/2.
+- A suíte de 39 cenários foi iniciada, mas interrompida antes de relatório final diante de esperas longas (até 90–120 s) e múltiplas falhas observadas: acesso administrativo espera `.channelAccessContainer` mesmo sem canais, dashboard espera `#logPage`, reprodução multiusuário esperava 2 sessões e recebeu 0. A rodada isolada também observou deadlock transitório ao persistir `BaseItemImageInfos` no MariaDB; a varredura continuou e detectou os itens.
+- Histórico de porta: uma execução prévia iniciou stage em `127.0.0.1:8096` quando sem listener instalado; não há evidência de que tenha atingido o servidor instalado. O runner atual rejeita essa porta. Teste focado: listener 8096 = 0 antes e depois; processos do stage foram encerrados.
+- Homologação formal continua 2/7 (28,6%), CI hospedada bloqueada por faturamento, sem evidência Linux/instalador/produção e nenhuma release desta etapa.
+- Próximos passos: corrigir seletores/contratos E2E, fornecer fixture longa para teste simultâneo, investigar a transação de imagens MariaDB, limitar waits conforme cenário e repetir até obter relatório completo.
+
+Estado parcial publicado no portal Git main, commit c2f19535f7bf7e87862570e6e2101e7670b7bbf2; 392/392 testes contratuais do portal passaram. Cobertura declarada não alterada (338/412 checklist, gates servidor 2/7).
+
+### Reprodução simultânea em stage — 2026-10-29 12:56 BRT
+
+- Fixture H.264/AAC de 300,106689 s gerada localmente e validada por ffprobe; testes Node de segurança/fixture 16/16. E2E focado de reprodução simultânea passou 1/1, com duas sessões ativas de usuários distintos, usando MariaDB descartável e stage loopback 18096. Relatório JSON isolado: `%TEMP%/mflx-e2e-report-f20a1025b6324bbfac442dd5e98625c2/playwright-summary.json`.
+- A execução anterior não observou a segunda sessão porque o Chromium headless escolheu transcodificação HEVC. O cenário temporário agora desativa remux/transcodificação nas contas E2E e confirma direct play H.264/AAC. Isso valida o teste de sessão concorrente em direct play, não transcodificação HEVC nem a suíte E2E ampla.
+- Uma tentativa inicial em `%TEMP%` foi rejeitada pela ACL herdada que concedia escrita a identidade não confiável; nenhum relaxamento foi feito. A repetição em stage sob ACL restrita passou. Nenhum banco operacional ou porta 8096 foi usado; após a execução não restou listener de stage.
+- Este resultado corrige apenas o cenário/harness e não comprova defeito de produto ou resolução do deadlock MariaDB observado em outra varredura. Formal segue 2/7 (28,6%), sem crédito; 12.1.46 não publicada. Permanecem pendentes a suíte ampla Playwright, transcodificação, CI hospedada, Linux nativo, runtime/instalação e produção.
+- Mapa técnico conferido: nenhuma API, classe de produto, dependência ou fluxo de produção mudou. Portal Git `main` sincronizado no commit `aa832d42aeaf5ee71d5897fb71c5dd8c9182542b`; contrato completo passou 393/393 e SHA remoto foi confirmado. Deployment Vercel não verificado.
+
+### Regressão focal servidor e reconciliação da auditoria — 2026-10-29 14:00 BRT
+
+- `dotnet test MulletaFlix.sln --configuration Release --no-build --no-restore --filter "FullyQualifiedName~SystemControllerTests|FullyQualifiedName~NativeIntroProviderTests|FullyQualifiedName~MariaDbStartupMutexLeaseTests|FullyQualifiedName~SecureConnectionProcessManagerTests" --verbosity quiet`: exit 0; 30/30 aprovados, 0 ignorados/falhas (API 3, Implementations 8, Server 19). Log: `%TEMP%/mflx-server-current-focals-confirm-20261029.log`.
+- Produção confirmou 12.1.45 via GET somente leitura; serviço MongoDB operacional ficou ativo, Mongo descartável encerrado e porta 27099 fechada.
+- WSL só está disponível como versão 1, sem distribuição Linux; Docker Engine não está instalado. Não foi possível executar validação Linux nesta máquina.
+- Reconciliada a afirmação obsoleta no roadmap sobre o teste `RecoveryExercise_RestoresMariaDbMongoAndFilesFromIsolatedSources`: `docs/backup-coverage-audit.md` registra execução histórica 1/1 em 28/10 contra MariaDB 11.4.4 e MongoDB 8.3.7 descartáveis. A versão CI configurada e consolidação no painel continuam pendentes.
+- Regressão ampla permanece 5.377/5.651, 274 ignorados/0 falhas; teste focal não somado. Homologação formal 2/7 (28,6%); sem release.
+- Portal atualizado e enviado para Git `main`, commit `08036752f69241cf1d74394f7c1f389e73f6a4c2`; contrato final 397/397 e SHA remoto conferido. Vercel Production permanece READY no commit anterior `cb7bc604`; lista e endpoint público confirmaram que o foco 30/30 ainda não está publicado no deployment. Uma tentativa anterior de criar deployment recebeu HTTP 402 pelo limite diário.
+- Mapa técnico conferido em 2026-10-29; nenhuma mudança de módulo, API, classe, dependência ou fluxo de produção.
+
+### Regressão ampla da fonte — 2026-10-29 14:17 BRT
+
+- .NET 10 Release: solução com filtro `FullyQualifiedName!~LiveIntegrationTests`, 17 assemblies, 5.377 aprovados, 261 ignorados, 0 falhas (5.638 casos contabilizados; exit code 0). Casos ignorados não são aprovados.
+- NebulaPython: pytest no `.venv` do projeto, 682/682; `compileall` dos módulos, testes e ferramentas do projeto passou.
+- Frontend web: Vitest 425/425 em 78 arquivos; testes Node de segurança/fixtures do runner 16/16; `npm run build:check` passou. Build de produção e `verify:build` passaram: 1.929 artefatos válidos, payload inicial 298,2 KB gzip (limite 420 KB). O Vite emitiu avisos de dependências sobre diretivas `use client` e imports mistos, sem falha de build.
+- A suíte E2E de navegador não foi executada contra esta fonte: o binário isolado disponível em `stage/MulletaFlix.dll` tem data 28/10 e não representa o código atual. CI hospedada, Linux nativo, instalação/upgrade e integrações externas permanecem pendentes. Produção segue informada pelo usuário como 12.1.45; esta rodada não fez escrita nela nem publicou release.
+- Auditoria de versionamento local encontrou 14 diretórios temporários Playwright (aprox. 2,87 GiB) que foram preservados no disco e excluídos do índice Git por regra de ignore. Nenhum foi removido.
+- Homologação formal continua 2/7 (28,6%). Evidência local, não equivale a release nem a homologação formal. Após o lote de dez evidências, o contrato do portal passou 397/397; commit 0281b4f foi enviado ao Git main e o JSON público da Vercel respondeu HTTP 200, generatedAt 2026-10-29T14:17:00-03:00.

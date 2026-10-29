@@ -903,3 +903,9 @@ Publicação portal Git `main`: `ba195f1d16e91caf4c586f3890074ed01105ba68`, cont
 download_strm_multipart agora aguarda cada future já enviado antes de propagar a primeira exceção. Isso evita que executor.map cancele uma tarefa ainda pendente e descarte uma parte que poderia ser reaproveitada na retomada. O destino final e as partes parciais continuam sob a política existente de commit após validação.
 
 Evidência: teste completo Python 3.10 682/682; teste específico de retomada 20/20 repetições; compileall passou. Testes usam respostas HTTP simuladas e arquivos temporários; nenhuma transferência real foi iniciada. O fallback e o tratamento HTTP existente não foram alterados nesta rodada.
+
+### Regressão Nebula Python — 2026-10-29
+
+A suíte atual da venv Python 3.10.11 passou 682/682 em 10,63 s; `compileall -q .` passou. Execução unitária local, sem Telegram, FTP, MongoDB, mídia ou servidor instalado. Não substitui integração/runtime nem altera homologação formal (2/7).
+
+Portal Git `main` atualizado com a suíte Nebula, commit `439bea42b5402844ef5d2c52f1d5a546b5bb887c`; contrato 384/384 e SHA remoto confirmado. Deployment Vercel não verificado.

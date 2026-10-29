@@ -18,10 +18,19 @@ namespace MulletaFlix.Server.Helpers
 {
     public static class MariaDbProcessManager
     {
+        private static readonly SemaphoreSlim LifecycleGate = new(1, 1);
         private static Process? _mariaDbProcess;
         private static MariaDbStartupMutexLease? _startupMutex;
+        private static MariaDbStartupMutexLease? _startupPortMutex;
 
         public static async Task StartMariaDbAsync(IServerApplicationPaths appPaths, ILogger logger, CancellationToken cancellationToken = default)
+        {
+            await ExecuteLifecycleOperationAsync(
+                () => StartMariaDbCoreAsync(appPaths, logger, cancellationToken),
+                cancellationToken).ConfigureAwait(false);
+        }
+
+        private static async Task StartMariaDbCoreAsync(IServerApplicationPaths appPaths, ILogger logger, CancellationToken cancellationToken)
         {
             try
             {
@@ -45,7 +54,8 @@ namespace MulletaFlix.Server.Helpers
                     return;
                 }
 
-                _startupMutex = AcquireStartupMutex(port);
+                _startupMutex = AcquireStartupMutex(dataDir, cancellationToken);
+                _startupPortMutex = AcquirePortStartupMutex(port, cancellationToken);
                 var databaseAvailable = await WaitForDatabaseAsync(masterConnString, TimeSpan.FromSeconds(2), logger, cancellationToken).ConfigureAwait(false);
                 if (!databaseAvailable)
                 {
@@ -161,7 +171,7 @@ namespace MulletaFlix.Server.Helpers
                 logger.LogError(ex, "Failed to start embedded MariaDB.");
                 try
                 {
-                    await StopMariaDbAsync(logger, CancellationToken.None).ConfigureAwait(false);
+                    await StopMariaDbCoreAsync(logger, CancellationToken.None).ConfigureAwait(false);
                 }
                 catch (Exception cleanupException)
                 {
@@ -187,12 +197,29 @@ namespace MulletaFlix.Server.Helpers
             }
         }
 
-        private static MariaDbStartupMutexLease AcquireStartupMutex(int port)
+        private static MariaDbStartupMutexLease AcquireStartupMutex(string dataDir, CancellationToken cancellationToken)
         {
-            return new MariaDbStartupMutexLease(BuildStartupMutexName(port), TimeSpan.FromSeconds(45));
+            return new MariaDbStartupMutexLease(BuildStartupMutexName(dataDir), TimeSpan.FromSeconds(45), cancellationToken);
         }
 
-        internal static string BuildStartupMutexName(int port)
+        private static MariaDbStartupMutexLease AcquirePortStartupMutex(int port, CancellationToken cancellationToken)
+        {
+            return new MariaDbStartupMutexLease(BuildPortStartupMutexName(port), TimeSpan.FromSeconds(45), cancellationToken);
+        }
+
+        internal static string BuildStartupMutexName(string dataDir)
+        {
+            var normalizedPath = Path.GetFullPath(dataDir);
+            if (OperatingSystem.IsWindows())
+            {
+                normalizedPath = normalizedPath.ToUpperInvariant();
+            }
+
+            var pathHash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(normalizedPath)));
+            return $"Global\\MulletaFlix.EmbeddedMariaDb.{pathHash}";
+        }
+
+        internal static string BuildPortStartupMutexName(int port)
         {
             var portHash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(port.ToString(System.Globalization.CultureInfo.InvariantCulture))));
             return $"Global\\MulletaFlix.EmbeddedMariaDb.Port.{portHash}";
@@ -388,6 +415,26 @@ namespace MulletaFlix.Server.Helpers
 
         public static async Task StopMariaDbAsync(ILogger logger, CancellationToken cancellationToken = default)
         {
+            await ExecuteLifecycleOperationAsync(
+                () => StopMariaDbCoreAsync(logger, cancellationToken),
+                cancellationToken).ConfigureAwait(false);
+        }
+
+        internal static async Task ExecuteLifecycleOperationAsync(Func<Task> operation, CancellationToken cancellationToken)
+        {
+            await LifecycleGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+            try
+            {
+                await operation().ConfigureAwait(false);
+            }
+            finally
+            {
+                LifecycleGate.Release();
+            }
+        }
+
+        private static async Task StopMariaDbCoreAsync(ILogger logger, CancellationToken cancellationToken)
+        {
             try
             {
                 if (_mariaDbProcess != null && !_mariaDbProcess.HasExited)
@@ -457,10 +504,16 @@ namespace MulletaFlix.Server.Helpers
 
         private static void ReleaseStartupMutex(ILogger logger)
         {
-            if (_startupMutex is not null)
+            ReleaseMutex(ref _startupPortMutex, logger);
+            ReleaseMutex(ref _startupMutex, logger);
+        }
+
+        private static void ReleaseMutex(ref MariaDbStartupMutexLease? lease, ILogger logger)
+        {
+            if (lease is not null)
             {
-                var mutex = _startupMutex;
-                _startupMutex = null;
+                var mutex = lease;
+                lease = null;
                 try
                 {
                     mutex.Dispose();
@@ -483,17 +536,17 @@ namespace MulletaFlix.Server.Helpers
         private Exception? _error;
         private int _disposed;
 
-        internal MariaDbStartupMutexLease(string mutexName, TimeSpan timeout)
+        internal MariaDbStartupMutexLease(string mutexName, TimeSpan timeout, CancellationToken cancellationToken = default)
         {
             _mutexName = mutexName;
             _timeout = timeout;
-            _ownerThread = new Thread(OwnMutex)
+            _ownerThread = new Thread(() => OwnMutex(cancellationToken))
             {
                 IsBackground = true,
                 Name = "MulletaFlix MariaDB mutex owner"
             };
             _ownerThread.Start();
-            _ready.Wait();
+            _ready.Wait(CancellationToken.None);
             if (_error is not null)
             {
                 _ownerThread.Join();
@@ -520,18 +573,19 @@ namespace MulletaFlix.Server.Helpers
             }
         }
 
-        private void OwnMutex()
+        private void OwnMutex(CancellationToken cancellationToken)
         {
             Mutex? mutex = null;
             var ownsMutex = false;
             try
             {
                 mutex = new Mutex(false, _mutexName);
-                WaitForOwnership(mutex, _timeout);
+                WaitForOwnership(mutex, _timeout, cancellationToken);
                 ownsMutex = true;
+                cancellationToken.ThrowIfCancellationRequested();
 
                 _ready.Set();
-                _release.Wait();
+                _release.Wait(CancellationToken.None);
             }
             catch (Exception ex)
             {
@@ -556,13 +610,22 @@ namespace MulletaFlix.Server.Helpers
             }
         }
 
-        private static void WaitForOwnership(Mutex mutex, TimeSpan timeout)
+        private static void WaitForOwnership(Mutex mutex, TimeSpan timeout, CancellationToken cancellationToken)
         {
             try
             {
-                if (!mutex.WaitOne(timeout))
+                var waitHandles = cancellationToken.CanBeCanceled
+                    ? new[] { (WaitHandle)mutex, cancellationToken.WaitHandle }
+                    : new[] { (WaitHandle)mutex };
+                var signaledHandle = WaitHandle.WaitAny(waitHandles, timeout);
+                if (signaledHandle == WaitHandle.WaitTimeout)
                 {
                     throw new TimeoutException("Timed out waiting for another MulletaFlix process to finish MariaDB startup.");
+                }
+
+                if (cancellationToken.CanBeCanceled && signaledHandle == 1)
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
                 }
             }
             catch (AbandonedMutexException)

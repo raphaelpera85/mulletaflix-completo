@@ -2,15 +2,15 @@
   "config": {
     "argv": [
       "C:\\Program Files\\nodejs\\node.exe",
-      "D:\\Users\\Raphael\\Documents\\Projetos\\mulletaflix\\MulletaFlix-web-master\\node_modules\\@playwright\\test\\cli.js",
+      "C:\\Users\\Raphael\\.codex\\worktrees\\updater-fail-closed\\mulletaflix\\MulletaFlix-web-master\\node_modules\\@playwright\\test\\cli.js",
       "test",
       "--config",
-      "D:\\Users\\Raphael\\Documents\\Projetos\\mulletaflix\\MulletaFlix-web-master\\playwright.stage.config.ts",
+      "C:\\Users\\Raphael\\.codex\\worktrees\\updater-fail-closed\\mulletaflix\\MulletaFlix-web-master\\playwright.stage.config.ts",
       "--grep",
-      "creates an empty playlist"
+      "smokes the main dashboard pages and form shells"
     ],
-    "configFile": "D:\\Users\\Raphael\\Documents\\Projetos\\mulletaflix\\MulletaFlix-web-master\\playwright.stage.config.ts",
-    "rootDir": "D:/Users/Raphael/Documents/Projetos/mulletaflix/MulletaFlix-web-master/tests/playwright/specs",
+    "configFile": "C:\\Users\\Raphael\\.codex\\worktrees\\updater-fail-closed\\mulletaflix\\MulletaFlix-web-master\\playwright.stage.config.ts",
+    "rootDir": "C:/Users/Raphael/.codex/worktrees/updater-fail-closed/mulletaflix/MulletaFlix-web-master/tests/playwright/specs",
     "failOnFlakyTests": false,
     "forbidOnly": false,
     "fullyParallel": false,
@@ -26,7 +26,7 @@
     "preserveOutput": "always",
     "projects": [
       {
-        "outputDir": "D:/Users/Raphael/Documents/Projetos/mulletaflix/MulletaFlix-web-master/test-results/playwright",
+        "outputDir": "C:/Users/Raphael/.codex/worktrees/updater-fail-closed/mulletaflix/MulletaFlix-web-master/test-results/playwright",
         "repeatEach": 1,
         "retries": 0,
         "metadata": {
@@ -34,7 +34,7 @@
         },
         "id": "chromium",
         "name": "chromium",
-        "testDir": "D:/Users/Raphael/Documents/Projetos/mulletaflix/MulletaFlix-web-master/tests/playwright/specs",
+        "testDir": "C:/Users/Raphael/.codex/worktrees/updater-fail-closed/mulletaflix/MulletaFlix-web-master/tests/playwright/specs",
         "testIgnore": [],
         "testMatch": [
           "**/*.spec.ts",
@@ -53,7 +53,7 @@
       [
         "json",
         {
-          "outputFile": "D:\\Users\\Raphael\\Documents\\Projetos\\mulletaflix\\MulletaFlix-web-master\\reports\\playwright\\raw-results.json"
+          "outputFile": "C:\\Users\\Raphael\\AppData\\Local\\Temp\\mflx-playwright-current-build-20261029\\raw-results.json"
         }
       ]
     ],
@@ -71,100 +71,64 @@
   },
   "suites": [
     {
-      "title": "30-playlists.spec.ts",
-      "file": "30-playlists.spec.ts",
+      "title": "10-admin.spec.ts",
+      "file": "10-admin.spec.ts",
       "column": 0,
       "line": 0,
-      "specs": [
+      "specs": [],
+      "suites": [
         {
-          "title": "creates an empty playlist, discovers it from the home navigation, and persists it across sessions",
-          "ok": false,
-          "tags": [],
-          "tests": [
+          "title": "10 - Admin",
+          "file": "10-admin.spec.ts",
+          "line": 13,
+          "column": 15,
+          "specs": [
             {
-              "timeout": 120000,
-              "annotations": [],
-              "expectedStatus": "passed",
-              "projectId": "chromium",
-              "projectName": "chromium",
-              "results": [
+              "title": "smokes the main dashboard pages and form shells",
+              "ok": true,
+              "tags": [],
+              "tests": [
                 {
-                  "workerIndex": 0,
-                  "parallelIndex": 0,
-                  "status": "failed",
-                  "duration": 11472,
-                  "error": {
-                    "message": "Error: axe-core violations on playlist page at 390px: [\n  {\n    \"id\": \"button-name\",\n    \"impact\": \"critical\",\n    \"help\": \"Buttons must have discernible text\",\n    \"nodes\": [\n      {\n        \"target\": [\n          \".MuiButton-contained\"\n        ],\n        \"failureSummary\": \"Fix any of the following:\\n  Element does not have inner text that is visible to screen readers\\n  aria-label attribute does not exist or is empty\\n  aria-labelledby attribute does not exist, references elements that do not exist or references elements that are empty\\n  Element has no title attribute\\n  Element's default semantics were not overridden with role=\\\"none\\\" or role=\\\"presentation\\\"\"\n      }\n    ]\n  }\n]\n\n\u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoEqual\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m) // deep equality\u001b[22m\n\n\u001b[32m- Expected  -  1\u001b[39m\n\u001b[31m+ Received  + 20\u001b[39m\n\n\u001b[32m- Array []\u001b[39m\n\u001b[31m+ Array [\u001b[39m\n\u001b[31m+   Object {\u001b[39m\n\u001b[31m+     \"help\": \"Buttons must have discernible text\",\u001b[39m\n\u001b[31m+     \"id\": \"button-name\",\u001b[39m\n\u001b[31m+     \"impact\": \"critical\",\u001b[39m\n\u001b[31m+     \"nodes\": Array [\u001b[39m\n\u001b[31m+       Object {\u001b[39m\n\u001b[31m+         \"failureSummary\": \"Fix any of the following:\u001b[39m\n\u001b[31m+   Element does not have inner text that is visible to screen readers\u001b[39m\n\u001b[31m+   aria-label attribute does not exist or is empty\u001b[39m\n\u001b[31m+   aria-labelledby attribute does not exist, references elements that do not exist or references elements that are empty\u001b[39m\n\u001b[31m+   Element has no title attribute\u001b[39m\n\u001b[31m+   Element's default semantics were not overridden with role=\\\"none\\\" or role=\\\"presentation\\\"\",\u001b[39m\n\u001b[31m+         \"target\": Array [\u001b[39m\n\u001b[31m+           \".MuiButton-contained\",\u001b[39m\n\u001b[31m+         ],\u001b[39m\n\u001b[31m+       },\u001b[39m\n\u001b[31m+     ],\u001b[39m\n\u001b[31m+   },\u001b[39m\n\u001b[31m+ ]\u001b[39m",
-                    "stack": "Error: axe-core violations on playlist page at 390px: [\n  {\n    \"id\": \"button-name\",\n    \"impact\": \"critical\",\n    \"help\": \"Buttons must have discernible text\",\n    \"nodes\": [\n      {\n        \"target\": [\n          \".MuiButton-contained\"\n        ],\n        \"failureSummary\": \"Fix any of the following:\\n  Element does not have inner text that is visible to screen readers\\n  aria-label attribute does not exist or is empty\\n  aria-labelledby attribute does not exist, references elements that do not exist or references elements that are empty\\n  Element has no title attribute\\n  Element's default semantics were not overridden with role=\\\"none\\\" or role=\\\"presentation\\\"\"\n      }\n    ]\n  }\n]\n\n\u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoEqual\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m) // deep equality\u001b[22m\n\n\u001b[32m- Expected  -  1\u001b[39m\n\u001b[31m+ Received  + 20\u001b[39m\n\n\u001b[32m- Array []\u001b[39m\n\u001b[31m+ Array [\u001b[39m\n\u001b[31m+   Object {\u001b[39m\n\u001b[31m+     \"help\": \"Buttons must have discernible text\",\u001b[39m\n\u001b[31m+     \"id\": \"button-name\",\u001b[39m\n\u001b[31m+     \"impact\": \"critical\",\u001b[39m\n\u001b[31m+     \"nodes\": Array [\u001b[39m\n\u001b[31m+       Object {\u001b[39m\n\u001b[31m+         \"failureSummary\": \"Fix any of the following:\u001b[39m\n\u001b[31m+   Element does not have inner text that is visible to screen readers\u001b[39m\n\u001b[31m+   aria-label attribute does not exist or is empty\u001b[39m\n\u001b[31m+   aria-labelledby attribute does not exist, references elements that do not exist or references elements that are empty\u001b[39m\n\u001b[31m+   Element has no title attribute\u001b[39m\n\u001b[31m+   Element's default semantics were not overridden with role=\\\"none\\\" or role=\\\"presentation\\\"\",\u001b[39m\n\u001b[31m+         \"target\": Array [\u001b[39m\n\u001b[31m+           \".MuiButton-contained\",\u001b[39m\n\u001b[31m+         ],\u001b[39m\n\u001b[31m+       },\u001b[39m\n\u001b[31m+     ],\u001b[39m\n\u001b[31m+   },\u001b[39m\n\u001b[31m+ ]\u001b[39m\n    at D:\\Users\\Raphael\\Documents\\Projetos\\mulletaflix\\MulletaFlix-web-master\\tests\\playwright\\specs\\30-playlists.spec.ts:79:126",
-                    "location": {
-                      "file": "D:\\Users\\Raphael\\Documents\\Projetos\\mulletaflix\\MulletaFlix-web-master\\tests\\playwright\\specs\\30-playlists.spec.ts",
-                      "column": 126,
-                      "line": 79
-                    },
-                    "snippet": "  77 |                 }));\n  78 |             });\n> 79 |             expect(violations, `axe-core violations on playlist page at ${width}px: ${JSON.stringify(violations, null, 2)}`).toEqual([]);\n     |                                                                                                                              ^\n  80 |             expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);\n  81 |             await expect(playlistCard).toBeVisible();\n  82 |         }"
-                  },
-                  "errors": [
-                    {
-                      "location": {
-                        "file": "D:\\Users\\Raphael\\Documents\\Projetos\\mulletaflix\\MulletaFlix-web-master\\tests\\playwright\\specs\\30-playlists.spec.ts",
-                        "column": 126,
-                        "line": 79
-                      },
-                      "message": "Error: axe-core violations on playlist page at 390px: [\n  {\n    \"id\": \"button-name\",\n    \"impact\": \"critical\",\n    \"help\": \"Buttons must have discernible text\",\n    \"nodes\": [\n      {\n        \"target\": [\n          \".MuiButton-contained\"\n        ],\n        \"failureSummary\": \"Fix any of the following:\\n  Element does not have inner text that is visible to screen readers\\n  aria-label attribute does not exist or is empty\\n  aria-labelledby attribute does not exist, references elements that do not exist or references elements that are empty\\n  Element has no title attribute\\n  Element's default semantics were not overridden with role=\\\"none\\\" or role=\\\"presentation\\\"\"\n      }\n    ]\n  }\n]\n\n\u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoEqual\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m) // deep equality\u001b[22m\n\n\u001b[32m- Expected  -  1\u001b[39m\n\u001b[31m+ Received  + 20\u001b[39m\n\n\u001b[32m- Array []\u001b[39m\n\u001b[31m+ Array [\u001b[39m\n\u001b[31m+   Object {\u001b[39m\n\u001b[31m+     \"help\": \"Buttons must have discernible text\",\u001b[39m\n\u001b[31m+     \"id\": \"button-name\",\u001b[39m\n\u001b[31m+     \"impact\": \"critical\",\u001b[39m\n\u001b[31m+     \"nodes\": Array [\u001b[39m\n\u001b[31m+       Object {\u001b[39m\n\u001b[31m+         \"failureSummary\": \"Fix any of the following:\u001b[39m\n\u001b[31m+   Element does not have inner text that is visible to screen readers\u001b[39m\n\u001b[31m+   aria-label attribute does not exist or is empty\u001b[39m\n\u001b[31m+   aria-labelledby attribute does not exist, references elements that do not exist or references elements that are empty\u001b[39m\n\u001b[31m+   Element has no title attribute\u001b[39m\n\u001b[31m+   Element's default semantics were not overridden with role=\\\"none\\\" or role=\\\"presentation\\\"\",\u001b[39m\n\u001b[31m+         \"target\": Array [\u001b[39m\n\u001b[31m+           \".MuiButton-contained\",\u001b[39m\n\u001b[31m+         ],\u001b[39m\n\u001b[31m+       },\u001b[39m\n\u001b[31m+     ],\u001b[39m\n\u001b[31m+   },\u001b[39m\n\u001b[31m+ ]\u001b[39m\n\n  77 |                 }));\n  78 |             });\n> 79 |             expect(violations, `axe-core violations on playlist page at ${width}px: ${JSON.stringify(violations, null, 2)}`).toEqual([]);\n     |                                                                                                                              ^\n  80 |             expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);\n  81 |             await expect(playlistCard).toBeVisible();\n  82 |         }\n    at D:\\Users\\Raphael\\Documents\\Projetos\\mulletaflix\\MulletaFlix-web-master\\tests\\playwright\\specs\\30-playlists.spec.ts:79:126"
-                    }
-                  ],
-                  "stdout": [],
-                  "stderr": [],
-                  "retry": 0,
-                  "startTime": "2026-10-04T09:44:22.879Z",
+                  "timeout": 120000,
                   "annotations": [],
-                  "attachments": [
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
                     {
-                      "name": "screenshot",
-                      "contentType": "image/png",
-                      "path": "D:\\Users\\Raphael\\Documents\\Projetos\\mulletaflix\\MulletaFlix-web-master\\test-results\\playwright\\30-playlists-creates-an-em-59146-persists-it-across-sessions-chromium\\test-failed-1.png"
-                    },
-                    {
-                      "name": "video",
-                      "contentType": "video/webm",
-                      "path": "D:\\Users\\Raphael\\Documents\\Projetos\\mulletaflix\\MulletaFlix-web-master\\test-results\\playwright\\30-playlists-creates-an-em-59146-persists-it-across-sessions-chromium\\video.webm"
-                    },
-                    {
-                      "name": "error-context",
-                      "contentType": "text/markdown",
-                      "path": "D:\\Users\\Raphael\\Documents\\Projetos\\mulletaflix\\MulletaFlix-web-master\\test-results\\playwright\\30-playlists-creates-an-em-59146-persists-it-across-sessions-chromium\\error-context.md"
-                    },
-                    {
-                      "name": "trace",
-                      "contentType": "application/zip",
-                      "path": "D:\\Users\\Raphael\\Documents\\Projetos\\mulletaflix\\MulletaFlix-web-master\\test-results\\playwright\\30-playlists-creates-an-em-59146-persists-it-across-sessions-chromium\\trace.zip"
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 8770,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-29T16:33:11.630Z",
+                      "annotations": [],
+                      "attachments": []
                     }
                   ],
-                  "errorLocation": {
-                    "file": "D:\\Users\\Raphael\\Documents\\Projetos\\mulletaflix\\MulletaFlix-web-master\\tests\\playwright\\specs\\30-playlists.spec.ts",
-                    "column": 126,
-                    "line": 79
-                  }
+                  "status": "expected"
                 }
               ],
-              "status": "unexpected"
+              "id": "456aee3854f22d4b8c6b-97a259ab366f3b54be57",
+              "file": "10-admin.spec.ts",
+              "line": 56,
+              "column": 9
             }
-          ],
-          "id": "fb9192565174b5dcf94b-8ea0d7a83c3fb17a882b",
-          "file": "30-playlists.spec.ts",
-          "line": 9,
-          "column": 5
+          ]
         }
       ]
     }
   ],
   "errors": [],
   "stats": {
-    "startTime": "2026-10-04T09:44:22.276Z",
-    "duration": 13858.295,
-    "expected": 0,
+    "startTime": "2026-10-29T16:33:11.221Z",
+    "duration": 9950.785,
+    "expected": 1,
     "skipped": 0,
-    "unexpected": 1,
+    "unexpected": 0,
     "flaky": 0
   }
 }

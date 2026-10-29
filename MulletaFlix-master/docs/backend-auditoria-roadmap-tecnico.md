@@ -1,5 +1,25 @@
 # Auditoria Tecnica do Backend MulletaFlix
 
+## Regressão focal de contratos de servidor — 2026-10-29
+
+- `SystemControllerTests`, `NativeIntroProviderTests`, `MariaDbStartupMutexLeaseTests` e `SecureConnectionProcessManagerTests`: 30/30 aprovados em Release/.NET 10; saída detalhada em `%TEMP%/mflx-server-current-focals-confirm-20261029.log`, exit 0.
+- Produção continua em 12.1.45 por GET read-only. WSL disponível apenas como WSL1 sem distro Linux e Docker Engine ausente; este host não permite validar os gates Linux nativo/containers.
+- Homologação formal permanece 2/7; teste focal não muda contagem da regressão ampla nem cria release.
+
+## Reexecução Mongo opt-in e estado de produção — 2026-10-29
+
+- `Category=RequiresMongo` repetido contra MongoDB 8.3.7 isolado: 26/26 aprovados, 0 ignorados/falhas; TRX em `%TEMP%/mflx-mongodb-20261029-audit/results/mongodb-optin-20261029.trx`.
+- Processo temporário encerrado; porta 27099 fechada e serviço MongoDB existente ainda ativo. Produção consultada somente por GET HTTP 200 e permanece em 12.1.45; nenhum acesso ao banco operacional.
+- Contrato do portal passou 397/397 e Git `main` confere no commit `08036752f69241cf1d74394f7c1f389e73f6a4c2`. Vercel Production ainda está READY no commit anterior `cb7bc604`; o commit mais novo não tem deployment listado. O endpoint público confirmou o snapshot de 13:54 BRT, antes dos 30/30 focais. A API havia retornado HTTP 402 pelo limite diário.
+- Snapshot amplo permanece 5.377/5.651 (274 ignorados); homologação formal 2/7 (28,6%), sem crédito novo ou release.
+- Mapa técnico conferido: nenhuma alteração de módulos, APIs, classes, dependências ou fluxo de produção.
+
+## Opt-in MariaDB reexecutado — 2026-10-29
+
+- Recontagem dos resultados TRX da regressão ampla: 85 ignorados; 31 MariaDB opt-in, 26 MongoDB opt-in, 25 condicionados por OS/recursos POSIX e 3 benchmarks (categorias de ambiente podem sobrepor-se).
+- Contra MariaDB 11.4.4 descartável no Windows, `UserManagerNormalizedUsernameTests|BillingDatabaseTests` passou 30/31; um caso de collation precisa de `lower_case_table_names=0` em Linux. Processo encerrado; porta temporária fechada.
+- Produção confirmada novamente por GET: HTTP 200, versão 12.1.45. Nenhuma consulta ao banco operacional, mudança de dados ou alteração de topologia foi feita nesta rodada. Estrutura do projeto permanece igual.
+
 ## Exclusão segura de imagens de perfil GetAvatar — 2026-10-27
 
 - `AvatarService` apagava imagens por caminho após uma checagem textual, e permitia caminhos aninhados. A substituição de avatar, remoção e limpeza de órfãos agora usam `AvatarFileStore` para validar um arquivo direto no diretório e excluí-lo relativamente ao handle aberto; paths externos/nested e links são mantidos.
@@ -325,6 +345,7 @@ Tarefas:
 - [x] Tornar bootstrap de DB externo e local mais explicito.
 - [x] Revisar `UserManager` para nao bloquear caminhos frequentes.
 - [x] Cobrir boot com DB pre-existente e schema ausente.
+- [x] Propagar cancelamento do startup enquanto aguarda mutexes de diretório/porta do MariaDB.
 
 Concluido:
 
@@ -332,6 +353,7 @@ Concluido:
 - [x] Otimização da concorrência de logins de usuários inexistentes via hashing MD5 de username para a chave de lock, evitando serialização de requests.
 - [x] Implementação do fast-path bypass de validação de schemas em consultas síncronas (`GetUsers`, `GetUsersIds`, `GetUserById`, `GetUserByName`) no `UserManager`.
 - [x] Validação completa de toda a suíte de testes (560/560 testes aprovados, incluindo os testes de concorrência de autenticação que anteriormente expiravam).
+- [x] Regressão de cancelamento, timeout e mutex abandonado em `MariaDbStartupMutexLeaseTests` (10/10, Windows/.NET 10 Release).
 
 Pendente:
 
@@ -648,3 +670,28 @@ Para evitar falso ganho, cada sprint deve fechar com medicao antes/depois.
 - Verificações locais: `NebulaDownloaderStartupTests` 35/35 Release; Python focal helpers/lifecycle/checkpoint 77/77; suíte NebulaPython 664/664 e `compileall` passaram na execução anterior. API local não respondeu, versão em execução e instalação candidata não confirmadas. CI remota continua bloqueada por faturamento; sem release v12.1.46 e sem novo crédito formal (2/7).
 
 - 28/10/2026: migration `20261028130514_supabase_advisor_cleanup` fixou o `search_path` de `public.set_nebula_updated_at` e removeu o índice duplicado de usernames e o índice `nebula_files.parent` sem scans. C# e setup Python não recriam o índice `parent`; unicidade de `normalized_username` permanece garantida. Advisors Supabase security/performance ficaram sem findings. Validação local do DDL C# e do schema CLI Python passou 1/1 cada.
+### Serialização do ciclo de vida do MariaDB embutido — 2026-10-29
+
+`MariaDbProcessManager.StartMariaDbAsync` e `StopMariaDbAsync` serializam operações do processo com uma `SemaphoreSlim` compartilhada no processo. O startup usa core privado para que sua limpeza de falha não reentre na trava. A aquisição da lease de mutex valida cancelamento depois da posse e libera a posse na thread proprietária. Nenhuma rota, classe pública, pacote ou dependência foi adicionado; mudou o fluxo interno da classe existente.
+
+### Bootstrap HTTPS/DuckDNS ignorado em execução isolada — 2026-10-29
+
+`Jellyfin.Server.Helpers.SecureConnectionProcessManager.EnsureSecureConnectionStartedAsync` consulta `MFLX_DISABLE_EXTERNAL_BOOTSTRAP` antes da condição de plataforma e retorna sem iniciar os processos HTTPS/DuckDNS externos quando habilitado. O runner Playwright usa esse modo; teste focal em `SecureConnectionProcessManagerTests` passou 6/6 e a suíte `Jellyfin.Server.Tests` passou 104/104. Playwright stage Wizard/listas passou 3/3 em loopback isolado. Alteração de fluxo interno em classe existente, sem endpoint, módulo ou dependência nova. Ver sessão `2026-10-29-MulletaFlix-validacao-ampliada-e2e-bloqueado-1055`.
+
+### Localização padrão da vinheta nativa — 2026-10-29
+
+`Emby.Server.Implementations/Library/NativeIntroProvider.cs` resolve primeiro o arquivo empacotado sob `AppContext.BaseDirectory` e depois apenas raízes de dados pertencentes ao servidor (`IApplicationPaths.ProgramDataPath` e `DataPath`). A procura automática não consulta mais perfil de usuário nem caminho pessoal codificado; `IntroPath` e `MulletaFlix_INTRO_PATH` explicitamente configurados continuam sendo as entradas configuráveis. `NativeIntroProviderTests.cs` valida a lista de candidatos e o uso do asset empacotado sem configuração (8/8 na classe). Não mudou API pública, módulo ou dependência; apenas o fluxo interno e o helper `internal` de teste. Linux, pacote instalado e produção seguem sem validação.
+
+### E2E stage web — 2026-10-29
+15/15 testes de segurança/fixture do runner; TypeScript e build web Release concluídos; E2Es acessibilidade e detalhes 2/2. A suíte completa foi interrompida sem agregado; falhas de contrato administrativas, sessão multiusuário e deadlock MariaDB permanecem investigação pendente. Stage permitido somente loopback 18096–18196, sem 8096. Sem API de servidor nova ou dependência de produto. Ver sessão 2026-10-29-MulletaFlix-auditoria-e2e-parcial-1241.
+
+### Reprodução simultânea em direct play — 2026-10-29
+O cenário `21-multi-user-playback.spec.ts` usa fixture H.264/AAC de 300,106689 s e contas E2E sem remux/transcodificação para que o Chromium headless valide a concorrência por direct play sem depender de HEVC/NVENC. O teste Node de fixtures e segurança passou 16/16; E2E focado passou 1/1 e observou duas sessões de usuários distintos. Stage e MariaDB foram descartáveis em loopback 18096. Não altera runtime, API, schema ou dependências do produto; não valida transcodificação nem a suíte E2E ampla. A estrutura foi conferida e permanece igual. Ver sessão `2026-10-29-MulletaFlix-playwright-multiuser-directplay-1256`.
+
+### Painel administrativo de logs — 2026-10-29
+
+As rotas `/dashboard/logs` e `/dashboard/logs/:file` usam agora componentes React em `MulletaFlix-web-master/src/apps/dashboard/routes/logs/`, associados em `_asyncRoutes.ts`. A lista chama `SystemApi.getServerLogs`; o detalhe usa `SystemApi.getLogFile`. `GET /System/Logs/Log` aceita `tailBytes` opcional e limita a resposta a no máximo 1 MiB do final do arquivo; sem esse parâmetro, mantém o retorno completo anterior. Sem novo endpoint ou dependência. Evidência: `SystemControllerTests` 3/3, `npm run build:check`, `npm run build:production` e portal 394/394. Smoke Playwright 1/1 validou lista/leitura antes do novo parâmetro, portanto o limite novo ainda não tem E2E integrado; seletores Selenium corrigidos, mas Selenium não executado. Stage isolado desligado, produção não acessada. Homologação 2/7, sem release.
+
+### Revalidação com build atual e produção somente leitura — 2026-10-29 13:34 BRT
+
+O smoke anterior contra o stage empacotado 12.1.44 expirou no seletor `#logFilesPage`, porque esse bundle não continha as rotas da fonte atual. Após compilar a fonte server Release (0 avisos/0 erros), preparar o runtime de stage com esse build e o bundle web atual, o mesmo spec `10-admin` passou 1/1 em loopback:18096; `SystemControllerTests` 3/3 e `npm run build:check` também passaram. Regressão completa .NET: 17 projetos, 5.377 aprovados, 274 ignorados, 0 falhas/5.651; Nebula Python 682/682; Vitest web 425/425 (78 arquivos); build web production e `verify:build` passaram (1.929 artefatos, payload inicial 298,2 KB gzip). A API candidata `12.1.46` e a tela atual foram usadas no stage descartável; MariaDB foi isolado em 33100 e encerrado. Produção recebeu somente GETs em `/System/Info/Public` e `/web/`: HTTP 200, versão 12.1.45, wizard completo. Não houve escrita na produção. Este smoke confirma somente a tela de logs e navegação administrativa; testes ignorados não contam como aprovados. O resultado não altera o gate formal 2/7 nem substitui E2E completo, Selenium, CI, Linux, instalação ou integrações reais. Módulos/APIs/dependências já descritos acima; sem mudança estrutural nesta revalidação.

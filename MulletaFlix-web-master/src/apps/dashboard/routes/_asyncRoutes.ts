@@ -24,7 +24,7 @@ export const ASYNC_ADMIN_ROUTES: AsyncRoute[] = [
     { path: MIDIA_STORAGE_ONLINE_ROUTE, type: AppType.Dashboard },
     { path: 'livetv', type: AppType.Dashboard },
     { path: 'livetv/recordings', type: AppType.Dashboard },
-    { path: 'logs', type: AppType.Dashboard },
+    { path: 'logs', page: 'logs/index', type: AppType.Dashboard },
     { path: 'logs/:file', page: 'logs/file', type: AppType.Dashboard },
     { path: 'networking', type: AppType.Dashboard },
     { path: 'https-domain', type: AppType.Dashboard },

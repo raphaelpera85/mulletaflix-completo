@@ -41,6 +41,7 @@ config/credentials*
 coverage/
 playwright-report/
 test-results/
+mflx-playwright-stage-*/
 **/.venv/
 
 # Packaging temp

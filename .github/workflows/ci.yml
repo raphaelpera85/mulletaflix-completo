@@ -141,7 +141,7 @@ jobs:
         with:
           dotnet-version: ${{ env.SDK_VERSION }}
 
-      - name: Restore server solution
+      - name: Restore Mongo integration project
         run: dotnet restore tests/Jellyfin.Server.Implementations.Tests/Jellyfin.Server.Implementations.Tests.csproj
 
       - name: Test every Mongo-backed scenario

@@ -199,6 +199,7 @@ public class SystemController : BaseMulletaFlixApiController
     /// Gets a log file.
     /// </summary>
     /// <param name="name">The name of the log file to get.</param>
+    /// <param name="tailBytes">Optional maximum number of bytes to return from the end of the log file.</param>
     /// <response code="200">Log file retrieved.</response>
     /// <response code="403">User does not have permission to get log files.</response>
     /// <response code="404">Could not find a log file with the name.</response>
@@ -209,7 +210,7 @@ public class SystemController : BaseMulletaFlixApiController
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     [ProducesFile(MediaTypeNames.Text.Plain)]
-    public ActionResult GetLogFile([FromQuery, Required] string name)
+    public ActionResult GetLogFile([FromQuery, Required] string name, [FromQuery] int? tailBytes = null)
     {
         var file = _fileSystem
             .GetFiles(_appPaths.LogDirectoryPath)
@@ -223,6 +224,34 @@ public class SystemController : BaseMulletaFlixApiController
         // For older files, assume fully static
         var fileShare = file.LastWriteTimeUtc < DateTime.UtcNow.AddHours(-1) ? FileShare.Read : FileShare.ReadWrite;
         FileStream stream = new FileStream(file.FullName, FileMode.Open, FileAccess.Read, fileShare, IODefaults.FileStreamBufferSize, FileOptions.Asynchronous);
+
+        if (tailBytes is > 0)
+        {
+            var bytesToRead = (int)Math.Min(Math.Min(tailBytes.Value, 1_048_576), stream.Length);
+            var buffer = new byte[bytesToRead];
+            var bytesRead = 0;
+            try
+            {
+                stream.Seek(-bytesToRead, SeekOrigin.End);
+                while (bytesRead < bytesToRead)
+                {
+                    var read = stream.Read(buffer, bytesRead, bytesToRead - bytesRead);
+                    if (read == 0)
+                    {
+                        break;
+                    }
+
+                    bytesRead += read;
+                }
+            }
+            finally
+            {
+                stream.Dispose();
+            }
+
+            return File(bytesRead == buffer.Length ? buffer : buffer[..bytesRead], "text/plain; charset=utf-8");
+        }
+
         return File(stream, "text/plain; charset=utf-8");
     }
 }

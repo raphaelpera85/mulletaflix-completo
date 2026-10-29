@@ -108,6 +108,12 @@ namespace MulletaFlix.Server.Helpers
             ILogger logger,
             CancellationToken cancellationToken = default)
         {
+            if (IsExternalBootstrapDisabled())
+            {
+                logger.LogInformation("Skipping external HTTPS and DuckDNS bootstrap because MFLX_DISABLE_EXTERNAL_BOOTSTRAP is enabled.");
+                return;
+            }
+
             if (!OperatingSystem.IsWindows())
             {
                 return;
@@ -188,6 +194,12 @@ namespace MulletaFlix.Server.Helpers
                 logger.LogWarning(ex, "Não foi possível garantir a inicialização automática de todos os componentes HTTPS/Nginx: {Message}", ex.Message);
             }
         }
+
+        internal static bool IsExternalBootstrapDisabled()
+            => string.Equals(
+                Environment.GetEnvironmentVariable("MFLX_DISABLE_EXTERNAL_BOOTSTRAP"),
+                "true",
+                StringComparison.OrdinalIgnoreCase);
 
         /// <summary>
         /// Para o processo Nginx se ele tiver sido iniciado diretamente por esta instância do servidor.

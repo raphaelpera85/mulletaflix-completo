@@ -54,7 +54,7 @@ test.describe.serial('12 - Admin surfaces', () => {
 
         const routes = [
             { route: '/dashboard/activity', selector: '#serverActivityPage' },
-            { route: '/dashboard/logs', selector: '#logPage' },
+            { route: '/dashboard/logs', selector: '#logFilesPage' },
             { route: '/dashboard/devices', selector: '#devicesPage' },
             { route: '/dashboard/plugins', selector: '#pluginsPage' },
             { route: '/dashboard/plugins/repositories', selector: '#repositories' },
@@ -70,7 +70,10 @@ test.describe.serial('12 - Admin surfaces', () => {
         }
 
         await navigateStage(page, '/dashboard/logs');
-        await expect(page.locator('#logPage a[href*="/dashboard/logs/"]').first()).toBeVisible({ timeout: 30_000 });
+        const logFileLink = page.locator('#logFilesPage a[data-log-file]').first();
+        await expect(logFileLink).toBeVisible({ timeout: 30_000 });
+        await logFileLink.click();
+        await expect(page.locator('#logFilePage pre')).toBeVisible({ timeout: 30_000 });
 
         await navigateStage(page, '/dashboard/plugins');
         await expect(page.locator('#pluginsPage a[href*="/dashboard/plugins/"]').first()).toBeVisible({ timeout: 30_000 }).catch(() => undefined);

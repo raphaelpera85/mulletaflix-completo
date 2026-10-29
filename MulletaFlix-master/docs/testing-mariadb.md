@@ -390,3 +390,34 @@ Limitações: Android Gradle não iniciou porque Android SDK não está configur
 - Oito scripts isolados de teste de empacotamento Windows executados diretamente passaram, cobrindo rollback de atualização, validação de stage/artefato, ACL e recuperação de build interrompido. O contrato de saída do gerador Linux também passou em fixture local; isso não substitui build ou execução Linux.
 - O teste de integração do empacotador Android e Gradle continuam bloqueados neste host pela ausência do SDK/`local.properties` válido. `swift test` e MariaDB de integração também não foram executados por ausência de macOS/Swift e connection string descartável.
 - Evidência do portal atualizada em `main`, commit `2f687432287ac842d4670ae1ecc421d6f59ee64d`, SHA remoto confirmado; portal contract 372/372. Deployment externo não verificado.
+
+### Integrações MariaDB executadas em instância descartável — 2026-10-29 10:06 BRT
+
+Com MariaDB 11.4.4 em `127.0.0.1:51451`, usando datadir exclusivo em `%TEMP%` e a variável explícita `MULLETAFLIX_TEST_MARIADB_CONNECTION_STRING`, foram executadas sequencialmente:
+
+- `Jellyfin.Server.Integration.Tests`: 151 aprovados, 0 ignorados, 0 falhas; exit 0.
+- `IntroSkipper.Integration.Tests`: 57 aprovados, 1 ignorado, 0 falhas; exit 0. O caso ignorado `RecoveryExercise_RestoresMariaDbMongoAndFilesFromIsolatedSources` requer MongoDB descartável.
+- `Jellyfin.Server.Implementations.Tests`, filtrado a `UserManagerNormalizedUsernameTests|BillingDatabaseTests`: 30 aprovados, 1 ignorado, 0 falhas; exit 0. O caso ignorado `EnsureSchemaCreated_UsesEfMappedUsersTableWithBinaryUsernameCollations` requer Linux com `lower_case_table_names=0`.
+
+Total do lote: 238 aprovados, 2 ignorados, 0 falhas. Os skips não são aprovados e não validam MongoDB nem Linux. O PID exclusivo da instância de teste foi encerrado e a porta 51451 ficou fechada; nenhum serviço/banco operacional foi acessado. O arquivo temporário de conexão teve seu conteúdo de credencial efêmera substituído por texto neutro. A política bloqueou a remoção recursiva do diretório de teste, portanto os dados e logs sem credencial permanecem em `%TEMP%`. Este lote não valida CI hospedada, Linux nativo, instalação, runtime instalado, produção ou E2E de mídia. Formal permanece 2/7; sem release.
+
+O estado e os resultados foram publicados em `Mulletaflix-Portal/main`, commit `2d65b700b3034420ab80bfae3dcbe74b5d91f557`; o contrato do portal passou 380/380 e o SHA remoto foi conferido. Deployment Vercel não verificado.
+### Ciclo de vida concorrente do MariaDB — 2026-10-29
+
+`MariaDbStartupMutexLeaseTests` passou 13/13 e `Jellyfin.Server.Tests` passou 103/103 em Windows/.NET 10. Cobertura adicionada para serialização start/stop no mesmo processo, cancelamento aguardando a trava, cancelamento quando mutex está livre e recuperação da lease após timeout. O teste é determinístico e usa apenas primitivas locais; não iniciou nem conectou ao serviço MariaDB.
+
+O exercício completo de recuperação MariaDB+MongoDB+arquivos continua pendente de execução com instâncias descartáveis. Os dois skips da rodada anterior (MongoDB descartável e Linux `lower_case_table_names=0`) permanecem pendentes, não aprovados.
+
+O contrato do portal que expõe a homologação passou 381/381; publicação Git `main` commit `57e0ed7903e4ce09a3fee717177f531537344e20`, SHA remoto conferido. Deployment Vercel não verificado.
+
+CI remota: run 40872202840 associado ao commit-base `e3425131826a8d0573267878b0766f910588b34c` mostra 16 jobs em failure, sem steps. Logs de jobs amostrados retornam 404. Não há prova de que o teste integrado tenha iniciado; causa da falha do runner não confirmada. Não contar como teste executado nem como falha do código.
+
+Estado desta verificacao publicado no portal Git `main`, commit `71642809d9c482e27b66027734f5af82a541d81a`; contrato 382/382 e SHA remoto confirmado. Vercel nao foi verificado.
+
+Anotações GitHub recuperadas para jobs Full recovery, Server build e Server integration confirmam bloqueio da conta por cobrança e que os jobs não iniciaram. Não usar a conclusão `failure` como resultado de teste; nenhum step executou.
+
+### Regressão da solução .NET após serialização MariaDB — 2026-10-29 10:28 BRT
+
+`dotnet test MulletaFlix.sln --configuration Release --no-build --no-restore --filter FullyQualifiedName!~LiveIntegrationTests --verbosity quiet` terminou com exit 0. Agregação dos resumos de 17 assemblies: 5.372 aprovados, 261 ignorados, 0 falhas/5.633. Destaques: `Jellyfin.Server.Tests` 103/103; `Jellyfin.Server.Implementations.Tests` 1.659 aprovados/83 ignorados; `Jellyfin.Server.Integration.Tests` 8 aprovados/143 ignorados; `IntroSkipper.Integration.Tests` 26 aprovados/32 ignorados. O filtro excluiu testes live; integrações MariaDB/Mongo continuam ignoradas sem serviços opt-in. Sem conexão a banco/serviço operacional. Esta regressão não comprova Linux, instalação ou produção e não concede gate formal. Homologação 2/7; sem release.
+
+Portal Git `main`: commit `8227cc94d769ff4f832178497166fdc115302eff; teste contratual 383/383 e SHA remoto confirmado. CI hospedada segue bloqueada antes dos steps pela cobrança; deployment Vercel não verificado.

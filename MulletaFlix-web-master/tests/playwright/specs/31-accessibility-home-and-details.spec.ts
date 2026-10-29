@@ -2,10 +2,15 @@ import { expect, test } from '@playwright/test';
 import { resolve } from 'node:path';
 import { getAdminCredentials, loginWithManualForm } from '../support/admin-user.mjs';
 import { navigateStage, openStage } from '../support/stage.mjs';
-import { ensureMediaLibrariesReady, getVirtualFolderByLibrary, getFirstItemFromVirtualFolder, MOVIES_LIBRARY } from '../support/media-library.mjs';
+import { ensureMediaLibrariesReady, getVirtualFolderByLibrary, getFirstItemFromVirtualFolder, getVirtualFolderItemDiagnostics, MOVIES_LIBRARY } from '../support/media-library.mjs';
+import { ensureWizardCompleted } from '../support/wizard.mjs';
 
 test('Home and Item Details pages meet automated WCAG 2.2 AA accessibility checks at mobile (390px) and desktop (1280px) viewports', async ({ page }) => {
     const admin = getAdminCredentials();
+
+    // The isolated runner starts from a clean server. Create the admin before
+    // attempting authentication so this spec is independently runnable.
+    await ensureWizardCompleted(page, admin.username, admin.password);
 
     // Login with admin user
     try {
@@ -19,10 +24,12 @@ test('Home and Item Details pages meet automated WCAG 2.2 AA accessibility check
 
     // Get the first item from the Movies library to test the Details page
     const moviesFolder = await getVirtualFolderByLibrary(page, MOVIES_LIBRARY);
-    const testItem = await getFirstItemFromVirtualFolder(page, moviesFolder?.Id);
+    const movieLibraryId = moviesFolder?.ItemId || moviesFolder?.Id;
+    const testItem = await getFirstItemFromVirtualFolder(page, movieLibraryId);
 
     if (!testItem) {
-        throw new Error('Could not find a test item in the media library. Ensure media is properly configured and discovered.');
+        const diagnostics = await getVirtualFolderItemDiagnostics(page, movieLibraryId);
+        throw new Error(`Could not find a test item in the media library. Diagnostics: ${JSON.stringify(diagnostics)}`);
     }
 
     /**

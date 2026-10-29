@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { existsSync } from 'node:fs';
-import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawn, spawnSync } from 'node:child_process';
@@ -12,18 +12,22 @@ import {
     DEFAULT_STAGE_BASE_URL,
     evaluatePlaywrightGate,
     extractPlaywrightStats,
-    fetchStagePublicInfo,
     getStageBaseUrl,
     writePlaywrightReportArtifacts
 } from '../../tests/playwright/support/index.mjs';
 import {
     assertSafeRemovalTargets,
     assertStagePidFileAbsent,
+    buildRestrictedDirectoryAclArgs,
     buildStageKillArgs,
     buildStageRemovalTargets,
+    isDedicatedStageDataPath,
     parseStagePid,
+    parseWindowsUserSid,
+    assertSafeStageBaseUrl,
     resolveDotnetExecutable
 } from './stage-safety.mjs';
+import { seedPlaywrightMediaFixtures } from './media-fixtures.mjs';
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(scriptDir, '..', '..');
@@ -32,15 +36,13 @@ const configPath = path.join(repoRoot, 'playwright.stage.config.ts');
 const specDir = path.join(repoRoot, 'tests', 'playwright', 'specs');
 const playwrightCli = path.join(repoRoot, 'node_modules', '@playwright', 'test', 'cli.js');
 const workspaceRoot = path.resolve(repoRoot, '..');
-const stageDll = path.join(workspaceRoot, 'stage', 'MulletaFlix.dll');
+const stageDll = process.env.PW_STAGE_DLL ? path.resolve(process.env.PW_STAGE_DLL) : path.join(workspaceRoot, 'stage', 'MulletaFlix.dll');
 const defaultStageDataDir = path.join(workspaceRoot, 'stage-data');
 const configuredStageDataDir = process.env.PW_ISOLATED_STAGE_DATA_DIR;
 const stageDataDir = configuredStageDataDir ? path.resolve(configuredStageDataDir) : defaultStageDataDir;
 if (configuredStageDataDir) {
-    const relativeToTemp = path.relative(path.resolve(os.tmpdir()), stageDataDir);
-    if (!relativeToTemp || relativeToTemp.startsWith('..') || path.isAbsolute(relativeToTemp)
-        || !path.basename(stageDataDir).startsWith('mflx-playwright-stage-')) {
-        throw new Error('PW_ISOLATED_STAGE_DATA_DIR must be a dedicated mflx-playwright-stage-* directory inside the system temp folder.');
+    if (!isDedicatedStageDataPath(stageDataDir, workspaceRoot, os.tmpdir())) {
+        throw new Error('PW_ISOLATED_STAGE_DATA_DIR must be a dedicated mflx-playwright-stage-* child of the workspace or be inside the system temp folder.');
     }
 }
 const legacyStageDataDir = path.join(workspaceRoot, 'stage', 'data', 'jellyfin-test');
@@ -91,6 +93,7 @@ function stripTrailingSlashes(value) {
 }
 
 async function selectStageBaseUrl(requestedBaseUrl) {
+    assertSafeStageBaseUrl(requestedBaseUrl);
     const { parsed, port } = parseBaseUrl(requestedBaseUrl);
     const existingStage = await probeStage(requestedBaseUrl);
     if (process.env.PW_BASE_URL && existingStage.reachable) {
@@ -135,7 +138,7 @@ async function writeStageNetworkConfiguration(baseUrl) {
 
     // The default Nebula configuration is production-oriented. A browser test
     // must never inherit live Telegram/Mongo/media integrations from the host.
-    const nebulaConfig = '<NebulaFtpConfiguration>\n  <Enabled>false</Enabled>\n  <MonitorPaths />\n  <StagePaths />\n  <UseMappedDrive>false</UseMappedDrive>\n  <DeleteSourceAfterUpload>false</DeleteSourceAfterUpload>\n  <BotTokens />\n  <ApiHash />\n  <SupabaseKey />\n</NebulaFtpConfiguration>\n';
+    const nebulaConfig = '<NebulaFtpConfiguration>\n  <Enabled>false</Enabled>\n  <NotificationsEnabled>false</NotificationsEnabled>\n  <NotificationsChannelIds />\n  <TelegramNotificationsEnabled>false</TelegramNotificationsEnabled>\n  <TelegramNotificationChatIds />\n  <ChatId />\n  <MonitorPaths />\n  <StagePaths />\n  <UseMappedDrive>false</UseMappedDrive>\n  <DeleteSourceAfterUpload>false</DeleteSourceAfterUpload>\n  <BotTokens />\n  <ApiHash />\n  <SupabaseKey />\n</NebulaFtpConfiguration>\n';
     await writeFile(path.join(configDir, 'nebulaftp.xml'), nebulaConfig, 'utf8');
 }
 
@@ -162,12 +165,22 @@ function parseArgs(argv) {
         }
     }
 
+    assertSafeStageBaseUrl(args.baseUrl);
+
     return args;
 }
 
 async function probeStage(baseUrl) {
     try {
-        const info = await fetchStagePublicInfo(baseUrl);
+        const response = await fetch(`${stripTrailingSlashes(baseUrl)}/System/Info/Public`, {
+            cache: 'no-cache',
+            signal: AbortSignal.timeout(1500)
+        });
+        if (!response.ok) {
+            throw new Error(`Stage probe returned HTTP ${response.status}.`);
+        }
+
+        const info = await response.json();
         return {
             reachable: true,
             startupWizardCompleted: Boolean(info?.StartupWizardCompleted),
@@ -239,6 +252,33 @@ async function resetStageWorkspace() {
     assertSafeRemovalTargets(stageRemovalTargets, allowedStageRoots);
     await removeTargets(stageRemovalTargets);
     await mkdir(stageDataDir, { recursive: true });
+    if (process.platform === 'win32') {
+        const systemRoot = process.env.SystemRoot || 'C:\\Windows';
+        const whoami = spawnSync(path.join(systemRoot, 'System32', 'whoami.exe'), [ '/user', '/fo', 'csv', '/nh' ], {
+            encoding: 'utf8',
+            windowsHide: true,
+            stdio: [ 'ignore', 'pipe', 'pipe' ]
+        });
+        if (whoami.error || whoami.status !== 0) {
+            throw whoami.error || new Error(`Could not identify the Playwright stage user: ${whoami.stderr || whoami.status}`);
+        }
+
+        const userSid = parseWindowsUserSid(whoami.stdout);
+        if (!userSid) {
+            throw new Error('Could not parse the Windows SID for the Playwright stage user.');
+        }
+
+        const icacls = spawnSync(path.join(systemRoot, 'System32', 'icacls.exe'), buildRestrictedDirectoryAclArgs(stageDataDir, userSid), {
+            encoding: 'utf8',
+            windowsHide: true,
+            stdio: [ 'ignore', 'pipe', 'pipe' ]
+        });
+        if (icacls.error || icacls.status !== 0) {
+            throw icacls.error || new Error(`Could not restrict the Playwright stage data ACL: ${icacls.stderr || icacls.stdout || icacls.status}`);
+        }
+    } else {
+        await chmod(stageDataDir, 0o700);
+    }
 }
 
 async function startStageAndWaitClean(baseUrl, databasePort) {
@@ -257,7 +297,10 @@ async function startStageAndWaitClean(baseUrl, databasePort) {
             MFLX_DISABLE_EXTERNAL_BOOTSTRAP: 'true',
             // The wizard legitimately performs more than the production
             // anonymous burst threshold while bootstrapping its first page.
-            MFLX_E2E_TEST_MODE: 'true'
+            MFLX_E2E_TEST_MODE: 'true',
+            // Never let an isolated browser run query GitHub or download an
+            // update in the background. The loopback sink fails closed.
+            MulletaFlix_UPDATE_MANIFEST_URL: 'http://127.0.0.1:1/e2e-disabled'
         },
         stdio: [ 'ignore', 'inherit', 'inherit' ],
         detached: true
@@ -269,9 +312,17 @@ async function startStageAndWaitClean(baseUrl, databasePort) {
 
     await writeFile(stagePidFile, String(child.pid), 'utf8');
     ownsStageProcess = true;
+    let exitState = null;
+    child.once('exit', (code, signal) => {
+        exitState = { code, signal };
+    });
     child.unref();
 
     for (let attempt = 1; attempt <= 120; attempt++) {
+        if (exitState) {
+            throw new Error(`Stage process exited before readiness (code=${String(exitState.code)}, signal=${String(exitState.signal)}).`);
+        }
+
         const stageProbe = await probeStage(baseUrl);
         if (stageProbe.reachable) {
             if (stageProbe.startupWizardCompleted !== false) {
@@ -347,7 +398,7 @@ async function writeNoSpecsSummary(args, specCount, initialStageProbe) {
     summary.status = stageProbe.reachable ? 'no-specs' : 'probe-failed';
     summary.stageChecks.wizard = stageProbe.reachable && stageProbe.startupWizardCompleted === false;
     summary.assumptions = [
-        'A suíte deve continuar mirando o stage limpo em http://127.0.0.1:8096 por padrão.',
+        'A suíte usa somente loopback e portas isoladas 18096-18196; a porta 8096 não é permitida para stage.',
         'Nenhum spec Playwright foi encontrado no diretório configurado.',
         stageProbe.reachable ?
             'O stage respondeu ao probe do endpoint público.' :
@@ -368,6 +419,12 @@ async function prepareStage(args) {
     }
 
     await resetStageWorkspace();
+    const mediaRoot = path.join(stageDataDir, 'playwright-media');
+    const sampleVideoPath = path.join(workspaceRoot, 'MulletaFlix-master', 'Jellyfin.Server', 'media', 'mulletaflix_intro.mp4');
+    await seedPlaywrightMediaFixtures(mediaRoot, sampleVideoPath, {
+        ffmpegPath: process.env.PW_FFMPEG_PATH || 'ffmpeg'
+    });
+    process.env.PW_MEDIA_LIBRARY_ROOT = mediaRoot;
     args.baseUrl = await selectStageBaseUrl(args.baseUrl || DEFAULT_STAGE_BASE_URL);
     args.databasePort = await selectStageDatabasePort();
     await writeStageNetworkConfiguration(args.baseUrl);
@@ -453,7 +510,7 @@ async function main() {
         },
         assumptions: [
             'Os specs devem continuar separados do código de apoio em tests/playwright/specs.',
-            'O runner escolhe uma porta local isolada quando 127.0.0.1:8096 já está ocupada.',
+            'O runner nunca acessa nem inicia stage na porta de produção 8096; usa portas isoladas 18096-18196.',
             initialStageProbe ?
                 `Stage inicial limpo confirmado com StartupWizardCompleted=${String(initialStageProbe.startupWizardCompleted)}` :
                 'Reset limpo do stage foi desabilitado para esta execuÃ§Ã£o.',

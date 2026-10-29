@@ -27,7 +27,7 @@ Fonte de credenciais e estado:
 | Licencas | `/dashboard/users/licenses` | Tabela, status, duracao, `Aplicar`, `Revogar` | Garante que a pagina e a grade de licencas carregam |
 | Bibliotecas | `/dashboard/libraries` | `ButtonAddMediaLibrary`, `ButtonScanAllLibraries`, cards de bibliotecas | Abre a pagina e valida a area de criacao e escaneamento |
 | Playback - streaming | `/dashboard/playback/streaming` | `StreamingBitrateLimit`, `Save` | Confere o campo de bitrate e o botao de salvamento |
-| Logs | `/dashboard/logs` | `EnableWarningMessage`, `SlowResponseTime`, `Save`, lista de logs | Abre o formulario e valida os controles de log |
+| Logs | `/dashboard/logs` e `/dashboard/logs/:file` | Lista de arquivos de log e conteúdo do arquivo | Confirma a lista e abre um arquivo pelo link |
 | Dispositivos | `/dashboard/devices` | Edicao inline, delete por linha, `DeleteAll` | Confere a tabela e os acoes principais |
 | Plugins | `/dashboard/plugins` | Busca, filtros por status/categoria, `ManageRepositories` | Garante a pagina de plugins e a acao de repositorio |
 | Branding | `/dashboard/branding` | `LoginDisclaimer`, `CustomCss`, splash screen, upload/delete, `Save` | Valida os campos e botoes da tela de branding |
