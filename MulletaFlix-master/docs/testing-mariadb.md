@@ -190,3 +190,7 @@ nenhuma release foi criada. Homologação publicada em `Mulletaflix-Portal:main`
 commit `3b45fb5ecf849d71fe0807d8688559e89cd9ff17`; contrato 175/175. Vercel
 Production `dpl_DVwkcQ12uqQCA32nxUcqkPgEsroM` está `READY`; endpoint público
 HTTP 200 confirmou o evento e preservou o snapshot amplo 5.099/5.334.
+
+## Runtime LTS alinhado — 2026-10-28
+
+Os empacotadores Windows/portátil e o serviço MariaDB do job de integração CI estão pinados em MariaDB 11.4.13. Validação isolada Windows/.NET 10: o ZIP oficial foi comparado ao SHA-256 publicado (`d62986d433eeebfde218560b276103831604a61e929e87f1a17f5aebd80257e2`), `SELECT VERSION()` retornou `11.4.13-MariaDB` e `IntroSkipper.Integration.Tests` passou 47/47 em `127.0.0.1:33159`. A instância temporária foi encerrada e a porta ficou fechada. A execução não valida CI/Linux, instalação, produção ou os pacotes completos. A configuração EF `MariaDbServerVersion(11.4.2)` continua a descrever compatibilidade de recursos da série MariaDB, não o patch empacotado.

@@ -1784,3 +1784,7 @@ Isto reduz perda por falha entre delete/rename, mas não torna a seleção da en
 ## Rechecagem de CI do rollback atômico — 2026-10-28 20:13 BRT
 
 GitHub Actions run 40785308776 (pull_request, head 61dac411eab4a69fe62994c7fb1eea78594fb025) encerrou em cerca de quatro segundos com 13/13 checks em failure. Os diagnósticos individuais dos 13 check runs trazem a anotação “The job was not started because your account is locked due to a billing issue.” Nenhum runner/step executou; a CI não validou nem reprovou o código. O incidente confirma o bloqueio de cobrança, não uma falha de teste. A PR #1 continua aberta e a candidata ainda não é Release. H03 permanece em andamento: o teste local executou apenas em Windows; Linux nativo e os gates de runtime/produção continuam pendentes.
+
+## Consistência da versão MariaDB empacotada — 2026-10-28
+
+O projeto usa somente MariaDB. Windows, pacote portátil e CI estavam em patches 11.4.4, 11.4.2 e tag flutuante 11.4, respectivamente. Foram alinhados a 11.4.13; o `MariaDbServerVersion(11.4.2)` do provider permanece como baseline de recursos da série. O ZIP Windows oficial passou SHA-256; servidor descartável iniciou em loopback 33159 e `IntroSkipper.Integration.Tests` passou 47/47. PowerShell parse e Bash syntax passaram. Nenhum pacote completo foi construído, nenhuma CI Linux rodou e produção não foi acessada; homologação formal continua 2/7 (28,6%), sem release.
