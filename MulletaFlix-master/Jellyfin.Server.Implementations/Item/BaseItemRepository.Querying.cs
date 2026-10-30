@@ -115,6 +115,11 @@ public sealed partial class BaseItemRepository
         }
 
         var limit = filter.Limit;
+        if (limit.HasValue && limit.Value <= 0)
+        {
+            return [];
+        }
+
         using var context = _dbProvider.CreateDbContext();
 
         var baseQuery = PrepareItemQuery(context, filter);
@@ -164,13 +169,12 @@ public sealed partial class BaseItemRepository
         // Albums whose Id is the parent of any track matching the user's filter.
         var albumIdsWithMatchingTrack = context.AncestorIds
             .Join(baseQuery, ai => ai.ItemId, t => t.Id, (ai, _) => ai.ParentItemId)
-            .Distinct()
-            .ToList();
+            .Distinct();
 
         var musicAlbumTypeName = _itemTypeLookup.BaseItemKindNames[BaseItemKind.MusicAlbum]!;
         var topAlbumsQuery = context.BaseItems.AsNoTracking()
             .Where(album => album.Type == musicAlbumTypeName)
-            .WhereOneOrMany(albumIdsWithMatchingTrack, album => album.Id)
+            .Where(album => albumIdsWithMatchingTrack.Contains(album.Id))
             .OrderByDescending(album => album.DateCreated)
             .ThenByDescending(album => album.Id);
 

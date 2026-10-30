@@ -31,6 +31,7 @@ namespace MulletaFlix.Server.Implementations.Item;
 public class ItemPersistenceService : IItemPersistenceService
 {
     internal static readonly IEqualityComparer<(ItemValueType MagicNumber, string Value)> ItemValueKeyComparer = new ItemValueKeyEqualityComparer();
+    private const int DeleteBatchSize = 1000;
     private static readonly SemaphoreSlim[] _updateOrInsertLocks = Enumerable.Range(0, 16).Select(_ => new SemaphoreSlim(1, 1)).ToArray();
 
     // Path is retained only for migrating legacy links that predate ItemId.
@@ -80,79 +81,96 @@ public class ItemPersistenceService : IItemPersistenceService
             descendantIds.Add(id);
         }
 
-        var extraIds = context.BaseItems
-            .Where(e => e.OwnerId.HasValue)
-            .WhereOneOrMany(descendantIds.ToList(), e => e.OwnerId!.Value)
-            .Select(e => e.Id)
-            .ToArray();
-
-        foreach (var extraId in extraIds)
+        var ownerIdsToCheck = new HashSet<Guid>(descendantIds);
+        while (ownerIdsToCheck.Count > 0)
         {
-            descendantIds.Add(extraId);
+            var ownedItemIds = GetItemIdsOwnedBy(context, ownerIdsToCheck);
+            ownedItemIds.ExceptWith(descendantIds);
+            descendantIds.UnionWith(ownedItemIds);
+            ownerIdsToCheck = ownedItemIds;
         }
 
         var relatedItems = descendantIds.ToArray();
 
-        // Achado P1 / DeleteItem: chunk deletions in batches of 1,000 to avoid inlining tens
-        // of thousands of GUIDs in a single query (which can generate ~65MB SQL bursts and
-        // hit max_allowed_packet or transaction limits).
-        const int DeleteBatchSize = 1000;
+        // OwnerId uses NoAction; clear references inside the deletion set before chunk order can delete a parent first.
+        foreach (var ownerIdChunk in relatedItems.Chunk(DeleteBatchSize))
+        {
+            context.BaseItems
+                .Where(e => e.OwnerId.HasValue)
+                .WhereOneOrMany(ownerIdChunk, e => e.OwnerId!.Value)
+                .ExecuteUpdate(e => e.SetProperty(item => item.OwnerId, (Guid?)null));
+        }
+
+        // Migrate every UserData batch before deleting any BaseItem; ParentId cascades can
+        // otherwise remove later batches before their retention rows reach PlaceholderId.
         for (var offset = 0; offset < relatedItems.Length; offset += DeleteBatchSize)
         {
             var chunk = relatedItems.Length <= DeleteBatchSize
                 ? relatedItems
                 : relatedItems.Skip(offset).Take(DeleteBatchSize).ToArray();
 
-            // When batch-deleting, multiple items may have UserData for the same (UserId, CustomDataKey).
-            // Moving all of them to PlaceholderId would violate the UNIQUE constraint.
-            // Deduplicate by loading keys client-side, keeping the best row per group.
             var batchUserData = context.UserData.WhereOneOrMany(chunk, e => e.ItemId);
-
-            var allRows = batchUserData
-                .Select(ud => new { ud.ItemId, ud.UserId, ud.CustomDataKey, ud.LastPlayedDate, ud.PlayCount })
-                .ToList();
-
-            var duplicateRows = allRows
-                .GroupBy(ud => new { ud.UserId, ud.CustomDataKey })
-                .Where(g => g.Count() > 1)
-                .SelectMany(g => g
-                    .OrderByDescending(ud => ud.LastPlayedDate)
-                    .ThenByDescending(ud => ud.PlayCount)
-                    .Skip(1))
-                .ToList();
-
-            if (duplicateRows.Count > 0)
-            {
-                var dupItemIds = duplicateRows.Select(d => d.ItemId).Distinct().ToList();
-                var candidates = context.UserData
-                    .WhereOneOrMany(dupItemIds, ud => ud.ItemId)
-                    .ToList();
-                var duplicateKeys = duplicateRows
-                    .Select(d => (d.ItemId, d.UserId, d.CustomDataKey))
-                    .ToHashSet();
-                var toDelete = candidates
-                    .Where(ud => duplicateKeys.Contains((ud.ItemId, ud.UserId, ud.CustomDataKey)))
-                    .ToList();
-                if (toDelete.Count > 0)
-                {
-                    context.UserData.RemoveRange(toDelete);
-                }
-            }
-
-            // Delete existing placeholder rows that would conflict with the incoming ones
-            context.UserData
+            var userDataRows = batchUserData.AsNoTracking().ToList();
+            var placeholderRows = context.UserData
+                .Where(ud => ud.ItemId == BaseItemRepository.PlaceholderId)
                 .Join(
                     batchUserData,
                     placeholder => new { placeholder.UserId, placeholder.CustomDataKey },
                     userData => new { userData.UserId, userData.CustomDataKey },
-                    (placeholder, userData) => placeholder)
-                .Where(e => e.ItemId == BaseItemRepository.PlaceholderId)
-                .ExecuteDelete();
+                    (placeholder, _) => placeholder)
+                .AsNoTracking()
+                .ToList()
+                .DistinctBy(ud => (ud.UserId, ud.CustomDataKey))
+                .ToDictionary(ud => (ud.UserId, ud.CustomDataKey));
+
+            var userDataToDelete = new List<UserData>();
+            foreach (var group in userDataRows.GroupBy(ud => (ud.UserId, ud.CustomDataKey)))
+            {
+                var candidate = group
+                    .OrderByDescending(ud => ud, Comparer<UserData>.Create(CompareUserDataPreference))
+                    .ThenBy(ud => ud.ItemId)
+                    .First();
+
+                if (placeholderRows.TryGetValue(group.Key, out var placeholder)
+                    && !IsUserDataPreferred(candidate, placeholder))
+                {
+                    userDataToDelete.AddRange(group);
+                    context.UserData
+                        .Where(ud => ud.ItemId == BaseItemRepository.PlaceholderId
+                            && ud.UserId == group.Key.UserId
+                            && ud.CustomDataKey == group.Key.CustomDataKey)
+                        .ExecuteUpdate(e => e.SetProperty(f => f.RetentionDate, date));
+                }
+                else
+                {
+                    userDataToDelete.AddRange(group.Where(ud => ud != candidate));
+                    if (placeholderRows.TryGetValue(group.Key, out placeholder))
+                    {
+                        userDataToDelete.Add(placeholder);
+                    }
+                }
+            }
+
+            if (userDataToDelete.Count > 0)
+            {
+                context.UserData.RemoveRange(userDataToDelete);
+                context.SaveChanges();
+            }
 
             batchUserData
                 .ExecuteUpdate(e => e
                     .SetProperty(f => f.RetentionDate, date)
                     .SetProperty(f => f.ItemId, BaseItemRepository.PlaceholderId));
+        }
+
+        // Achado P1 / DeleteItem: chunk deletions in batches of 1,000 to avoid inlining tens
+        // of thousands of GUIDs in a single query (which can generate ~65MB SQL bursts and
+        // hit max_allowed_packet or transaction limits).
+        for (var offset = 0; offset < relatedItems.Length; offset += DeleteBatchSize)
+        {
+            var chunk = relatedItems.Length <= DeleteBatchSize
+                ? relatedItems
+                : relatedItems.Skip(offset).Take(DeleteBatchSize).ToArray();
 
             context.AncestorIds.WhereOneOrMany(chunk, e => e.ItemId).ExecuteDelete();
             context.AncestorIds.WhereOneOrMany(chunk, e => e.ParentItemId).ExecuteDelete();
@@ -185,6 +203,91 @@ public class ItemPersistenceService : IItemPersistenceService
         context.ItemValues.Where(e => e.BaseItemsMap!.Count == 0).ExecuteDelete();
         context.SaveChanges();
         transaction.Commit();
+    }
+
+    private static bool IsUserDataPreferred(UserData candidate, UserData current)
+    {
+        return CompareUserDataPreference(candidate, current) > 0;
+    }
+
+    private static int CompareUserDataPreference(UserData candidate, UserData current)
+    {
+        var comparison = Nullable.Compare(candidate.LastPlayedDate, current.LastPlayedDate);
+        if (comparison != 0)
+        {
+            return comparison;
+        }
+
+        comparison = candidate.PlayCount.CompareTo(current.PlayCount);
+        if (comparison != 0)
+        {
+            return comparison;
+        }
+
+        comparison = candidate.IsFavorite.CompareTo(current.IsFavorite);
+        if (comparison != 0)
+        {
+            return comparison;
+        }
+
+        comparison = candidate.Played.CompareTo(current.Played);
+        if (comparison != 0)
+        {
+            return comparison;
+        }
+
+        comparison = Nullable.Compare(candidate.Likes, current.Likes);
+        if (comparison != 0)
+        {
+            return comparison;
+        }
+
+        comparison = candidate.PlaybackPositionTicks.CompareTo(current.PlaybackPositionTicks);
+        if (comparison != 0)
+        {
+            return comparison;
+        }
+
+        comparison = Nullable.Compare(candidate.Rating, current.Rating);
+        if (comparison != 0)
+        {
+            return comparison;
+        }
+
+        comparison = CompareStreamIndexPreference(candidate.AudioStreamIndex, current.AudioStreamIndex);
+        if (comparison != 0)
+        {
+            return comparison;
+        }
+
+        return CompareStreamIndexPreference(candidate.SubtitleStreamIndex, current.SubtitleStreamIndex);
+    }
+
+    private static int CompareStreamIndexPreference(int? candidate, int? current)
+    {
+        var hasValueComparison = candidate.HasValue.CompareTo(current.HasValue);
+        return hasValueComparison != 0
+            ? hasValueComparison
+            : current.GetValueOrDefault().CompareTo(candidate.GetValueOrDefault());
+    }
+
+    internal static HashSet<Guid> GetItemIdsOwnedBy(MulletaFlixDbContext context, IEnumerable<Guid> ownerIds)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        ArgumentNullException.ThrowIfNull(ownerIds);
+
+        var itemIds = new HashSet<Guid>();
+        foreach (var ownerIdChunk in ownerIds.Chunk(DeleteBatchSize))
+        {
+            var matchingIds = context.BaseItems
+                .Where(e => e.OwnerId.HasValue)
+                .WhereOneOrMany(ownerIdChunk, e => e.OwnerId!.Value)
+                .Select(e => e.Id)
+                .ToArray();
+            itemIds.UnionWith(matchingIds);
+        }
+
+        return itemIds;
     }
 
     /// <inheritdoc />
@@ -392,6 +495,10 @@ public class ItemPersistenceService : IItemPersistenceService
     {
         ArgumentNullException.ThrowIfNull(items);
         cancellationToken.ThrowIfCancellationRequested();
+        if (items.Count == 0)
+        {
+            return;
+        }
 
         // Every item in the batch can hash to a different lock stripe. Picking the stripe from
         // just items[0] let two batches that share no items but disagree only on their *first*

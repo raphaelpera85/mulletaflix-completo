@@ -5,6 +5,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using MediaBrowser.Controller;
 using MediaBrowser.Controller.Entities;
+using MediaBrowser.Controller.Entities.Audio;
 using MediaBrowser.Controller.Entities.Movies;
 using MediaBrowser.Controller.Entities.TV;
 using MediaBrowser.Controller.Persistence;
@@ -15,11 +16,14 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
+using MySqlConnector;
 using MulletaFlix.Data.Enums;
 using MulletaFlix.Database.Implementations;
 using MulletaFlix.Database.Implementations.Entities;
 using MulletaFlix.Database.Implementations.Locking;
 using MulletaFlix.Server.Implementations.Item;
+using MulletaFlix.Testing;
+using Pomelo.EntityFrameworkCore.MySql.Infrastructure;
 using Xunit;
 
 namespace MulletaFlix.Server.Implementations.Tests.Item;
@@ -57,22 +61,7 @@ public sealed class BaseItemRepositoryLatestTvShowTests : IDisposable
         dbFactory.Setup(f => f.CreateDbContextAsync(It.IsAny<CancellationToken>()))
             .ReturnsAsync(_context);
 
-        var itemTypeLookup = new Mock<IItemTypeLookup>();
-        itemTypeLookup.Setup(l => l.BaseItemKindNames)
-            .Returns(new Dictionary<BaseItemKind, string>
-            {
-                { BaseItemKind.Episode, typeof(Episode).ToString() },
-                { BaseItemKind.Season, typeof(Season).ToString() },
-                { BaseItemKind.Series, typeof(Series).ToString() }
-            });
-
-        _repository = new BaseItemRepository(
-            dbFactory.Object,
-            Mock.Of<IServerApplicationHost>(),
-            itemTypeLookup.Object,
-            Mock.Of<MediaBrowser.Controller.Configuration.IServerConfigurationManager>(manager =>
-                manager.Configuration == new ServerConfiguration()),
-            NullLogger<BaseItemRepository>.Instance);
+        _repository = CreateRepository(dbFactory.Object);
     }
 
     public void Dispose()
@@ -215,6 +204,250 @@ public sealed class BaseItemRepositoryLatestTvShowTests : IDisposable
         Assert.Equal(
             new[] { "movie-a", "movie-b", "movie-c" },
             result.Select(item => item.PresentationUniqueKey));
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(-1)]
+    public void GetLatestItemList_Movies_ReturnsNoItemsForNonPositiveLimit(int limit)
+    {
+        _context.BaseItems.Add(CreateMovie("Movie A", "movie-a", DateTime.UtcNow));
+        _context.SaveChanges();
+
+        var result = _repository.GetLatestItemList(
+            new InternalItemsQuery
+            {
+                Limit = limit
+            },
+            CollectionType.movies);
+
+        Assert.Empty(result);
+    }
+
+    [Fact]
+    public void GetLatestItemList_Music_ReturnsAlbumsWithMatchingTracksOnly()
+    {
+        var matchingAlbum = new BaseItemEntity
+        {
+            Id = Guid.NewGuid(),
+            Type = typeof(MusicAlbum).ToString(),
+            Name = "Matching Album",
+            DateCreated = DateTime.UtcNow,
+            IsFolder = true
+        };
+        var unrelatedAlbum = new BaseItemEntity
+        {
+            Id = Guid.NewGuid(),
+            Type = typeof(MusicAlbum).ToString(),
+            Name = "Unrelated Album",
+            DateCreated = DateTime.UtcNow.AddMinutes(-1),
+            IsFolder = true
+        };
+        var matchingTrack = new BaseItemEntity
+        {
+            Id = Guid.NewGuid(),
+            Type = typeof(Audio).ToString(),
+            Name = "Matching Track",
+            IsFolder = false
+        };
+        var unrelatedTrack = new BaseItemEntity
+        {
+            Id = Guid.NewGuid(),
+            Type = typeof(Audio).ToString(),
+            Name = "Unrelated Track",
+            IsFolder = false
+        };
+
+        _context.BaseItems.AddRange(matchingAlbum, unrelatedAlbum, matchingTrack, unrelatedTrack);
+        _context.AncestorIds.Add(new AncestorId
+        {
+            ItemId = matchingTrack.Id,
+            ParentItemId = matchingAlbum.Id,
+            Item = matchingTrack,
+            ParentItem = matchingAlbum
+        });
+        _context.AncestorIds.Add(new AncestorId
+        {
+            ItemId = unrelatedTrack.Id,
+            ParentItemId = unrelatedAlbum.Id,
+            Item = unrelatedTrack,
+            ParentItem = unrelatedAlbum
+        });
+        _context.SaveChanges();
+
+        var result = _repository.GetLatestItemList(
+            new InternalItemsQuery
+            {
+                Limit = 1,
+                ItemIds = [matchingTrack.Id]
+            },
+            CollectionType.music);
+
+        var album = Assert.Single(result);
+        Assert.Equal(matchingAlbum.Id, album.Id);
+    }
+
+    [Fact]
+    [Trait("Category", "Integration")]
+    public void GetLatestItemList_Music_UsesMariaDbSubqueryForMatchingAlbums()
+    {
+        using var database = new IsolatedMariaDbDatabase();
+        using (var context = database.CreateDbContext())
+        {
+            context.Database.EnsureCreated();
+            AddMatchingMusicData(context, database.MatchingAlbumId, database.MatchingTrackId);
+        }
+
+        var factory = new Mock<IDbContextFactory<MulletaFlixDbContext>>();
+        factory.Setup(f => f.CreateDbContext()).Returns(database.CreateDbContext);
+        factory.Setup(f => f.CreateDbContextAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(database.CreateDbContext);
+
+        var result = CreateRepository(factory.Object).GetLatestItemList(
+            new InternalItemsQuery
+            {
+                Limit = 1,
+                ItemIds = [database.MatchingTrackId]
+            },
+            CollectionType.music);
+
+        var album = Assert.Single(result);
+        Assert.Equal(database.MatchingAlbumId, album.Id);
+    }
+
+    private static BaseItemRepository CreateRepository(IDbContextFactory<MulletaFlixDbContext> dbFactory)
+    {
+        var itemTypeLookup = new Mock<IItemTypeLookup>();
+        itemTypeLookup.Setup(l => l.BaseItemKindNames)
+            .Returns(new Dictionary<BaseItemKind, string>
+            {
+                { BaseItemKind.Episode, typeof(Episode).ToString() },
+                { BaseItemKind.Season, typeof(Season).ToString() },
+                { BaseItemKind.Series, typeof(Series).ToString() },
+                { BaseItemKind.MusicAlbum, typeof(MusicAlbum).ToString() }
+            });
+
+        return new BaseItemRepository(
+            dbFactory,
+            Mock.Of<IServerApplicationHost>(),
+            itemTypeLookup.Object,
+            Mock.Of<MediaBrowser.Controller.Configuration.IServerConfigurationManager>(manager =>
+                manager.Configuration == new ServerConfiguration()),
+            NullLogger<BaseItemRepository>.Instance);
+    }
+
+    private static void AddMatchingMusicData(MulletaFlixDbContext context, Guid matchingAlbumId, Guid matchingTrackId)
+    {
+        var matchingAlbum = new BaseItemEntity
+        {
+            Id = matchingAlbumId,
+            Type = typeof(MusicAlbum).ToString(),
+            Name = "Matching Album",
+            DateCreated = DateTime.UtcNow,
+            IsFolder = true
+        };
+        var unrelatedAlbum = new BaseItemEntity
+        {
+            Id = Guid.NewGuid(),
+            Type = typeof(MusicAlbum).ToString(),
+            Name = "Unrelated Album",
+            DateCreated = DateTime.UtcNow.AddMinutes(-1),
+            IsFolder = true
+        };
+        var matchingTrack = new BaseItemEntity
+        {
+            Id = matchingTrackId,
+            Type = typeof(Audio).ToString(),
+            Name = "Matching Track",
+            IsFolder = false
+        };
+        var unrelatedTrack = new BaseItemEntity
+        {
+            Id = Guid.NewGuid(),
+            Type = typeof(Audio).ToString(),
+            Name = "Unrelated Track",
+            IsFolder = false
+        };
+
+        context.BaseItems.AddRange(matchingAlbum, unrelatedAlbum, matchingTrack, unrelatedTrack);
+        context.AncestorIds.Add(new AncestorId
+        {
+            ItemId = matchingTrack.Id,
+            ParentItemId = matchingAlbum.Id,
+            Item = matchingTrack,
+            ParentItem = matchingAlbum
+        });
+        context.AncestorIds.Add(new AncestorId
+        {
+            ItemId = unrelatedTrack.Id,
+            ParentItemId = unrelatedAlbum.Id,
+            Item = unrelatedTrack,
+            ParentItem = unrelatedAlbum
+        });
+        context.SaveChanges();
+    }
+
+    private sealed class IsolatedMariaDbDatabase : IDisposable
+    {
+        private const string DatabasePrefix = "mfx_latest_music_test_";
+        private readonly string _adminConnectionString;
+        private readonly DbContextOptions<MulletaFlixDbContext> _options;
+        private readonly IMulletaFlixDatabaseProvider _databaseProvider;
+        private readonly IEntityFrameworkCoreLockingBehavior _lockingBehavior;
+
+        public IsolatedMariaDbDatabase()
+        {
+            MariaDbTestEnvironment.SkipUnlessConfigured();
+            var adminConnection = MariaDbTestEnvironment.GetAdminConnection();
+            _adminConnectionString = adminConnection.ConnectionString;
+            DatabaseName = DatabasePrefix + Guid.NewGuid().ToString("N");
+            var databaseConnection = new MySqlConnectionStringBuilder(_adminConnectionString)
+            {
+                Database = DatabaseName
+            };
+            _options = new DbContextOptionsBuilder<MulletaFlixDbContext>()
+                .UseMySql(databaseConnection.ConnectionString, new MariaDbServerVersion(new Version(11, 4, 2)))
+                .Options;
+
+            var provider = new Mock<IMulletaFlixDatabaseProvider>();
+            provider.Setup(p => p.OnModelCreating(It.IsAny<ModelBuilder>()));
+            _databaseProvider = provider.Object;
+            var locking = new Mock<IEntityFrameworkCoreLockingBehavior>();
+            locking.Setup(l => l.OnSaveChanges(It.IsAny<MulletaFlixDbContext>(), It.IsAny<Action>()))
+                .Callback<MulletaFlixDbContext, Action>(static (_, action) => action());
+            locking.Setup(l => l.OnSaveChangesAsync(It.IsAny<MulletaFlixDbContext>(), It.IsAny<Func<Task>>()))
+                .Callback<MulletaFlixDbContext, Func<Task>>(static (_, action) => action());
+            _lockingBehavior = locking.Object;
+
+            using var connection = new MySqlConnection(_adminConnectionString);
+            connection.Open();
+            using var command = connection.CreateCommand();
+            command.CommandText = $"CREATE DATABASE `{DatabaseName}` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;";
+            command.ExecuteNonQuery();
+        }
+
+        public string DatabaseName { get; }
+
+        public Guid MatchingAlbumId { get; } = Guid.NewGuid();
+
+        public Guid MatchingTrackId { get; } = Guid.NewGuid();
+
+        public MulletaFlixDbContext CreateDbContext()
+            => new(_options, NullLogger<MulletaFlixDbContext>.Instance, _databaseProvider, _lockingBehavior);
+
+        public void Dispose()
+        {
+            if (!DatabaseName.StartsWith(DatabasePrefix, StringComparison.Ordinal))
+            {
+                throw new InvalidOperationException("Refusing to drop a database outside the isolated test schema prefix.");
+            }
+
+            using var connection = new MySqlConnection(_adminConnectionString);
+            connection.Open();
+            using var command = connection.CreateCommand();
+            command.CommandText = $"DROP DATABASE IF EXISTS `{DatabaseName}`;";
+            command.ExecuteNonQuery();
+        }
     }
 
     private static BaseItemEntity CreateSeries(string name)

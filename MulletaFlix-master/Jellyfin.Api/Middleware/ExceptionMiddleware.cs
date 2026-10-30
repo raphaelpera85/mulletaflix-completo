@@ -59,6 +59,7 @@ public class ExceptionMiddleware
             if (context.Response.HasStarted)
             {
                 _logger.LogWarning(
+                    ex,
                     "The response has already started, the exception middleware will not be executed. Correlation ID: {CorrelationId}.",
                     context.TraceIdentifier);
                 throw;

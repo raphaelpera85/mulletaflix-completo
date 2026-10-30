@@ -226,7 +226,7 @@ namespace MulletaFlix.Server.Implementations.Users
         {
             try
             {
-                EnsureSchemaCreatedAsync(force: true).GetAwaiter().GetResult();
+                EnsureSchemaCreatedAsync().GetAwaiter().GetResult();
                 using var dbContext = _dbProvider.CreateDbContext();
                 return UserQuery(dbContext).FirstOrDefault();
             }

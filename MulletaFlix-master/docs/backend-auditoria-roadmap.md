@@ -1,11 +1,63 @@
+## Concorrência entre revarredura e atualização de imagens — 2026-10-30 00:11 BRT
+
+- Adicionado teste MariaDB determinístico para `SaveItems` e `SaveImagesAsync` sobre o mesmo item. A fábrica de contexto bloqueia a revarredura depois da aquisição do lock e comprova que a atualização de imagens não abre contexto antes da liberação.
+- Build Release e teste focal passaram 1/1 contra MariaDB 11.4.4 descartável em loopback e porta dinâmica. A instância foi encerrada; MariaDB operacional/produção não foi usado.
+- É incremento de cobertura, sem mudança do código de produção. A execução não valida concorrência entre processos nem substitui a regressão completa; formal permanece 2/7 e a release 12.1.46 não foi publicada.
+
+## Cobertura da prateleira musical — 2026-10-29 22:36 BRT
+
+- Acrescentado teste para a lista musical: inclui apenas o álbum ancestral de uma faixa que corresponde ao filtro e respeita o limite. A classe focada passou 6/6 em Release/.NET 10.
+- Auditoria do ponto P1 confirmou materialização do conjunto distinto de IDs de álbuns antes do limite. Isso pode aumentar memória e parâmetros com bibliotecas grandes, mas não foi medido; mudança para subconsulta permanece pendente de validar plano/SQL em MariaDB isolado.
+- Nenhuma alteração de lógica de produção nesta etapa; estrutura do projeto permanece igual. Produção 12.1.45, sem acesso; homologação formal 2/7.
+
+## Consulta SQL para álbuns recentes — 2026-10-29 22:42 BRT
+
+- A seleção da prateleira musical mantém os IDs dos álbuns correspondentes como subconsulta EF/SQL. Antes, todos os IDs eram materializados antes de aplicar o limite da lista, ampliando o uso de memória conforme a biblioteca crescia.
+- `BaseItemRepositoryLatestTvShowTests`: 7/7 aprovados em Release, incluindo regressão InMemory e integração com MariaDB 11.4.4 descartável. A porta foi dinâmica em loopback (52761), com esquema e datadir temporários isolados; o listener encerrou após os testes. MariaDB operacional em 3306 permaneceu ativo e não foi acessado.
+- A execução confirma o resultado funcional em MariaDB, mas não mede latência/uso de memória em catálogo real nem comprova ganho de desempenho. Produção 12.1.45 não foi alterada; homologação formal permanece 2/7; sem release publicada.
+- Portal atualizado no lote de dez evidências: contrato 413/413; Git `main` commit `045f4c5`; Vercel Production `READY` nesse commit; a página e o JSON públicos retornaram HTTP 200.
+- Mapa técnico do vault conferido: mesma classe e fluxo de consulta; sem módulo, endpoint, dependência ou alteração estrutural.
+
+## Lote vazio de persistência de mídia — 2026-10-29 22:49 BRT
+
+- `SaveItems` agora retorna após validar o argumento e o cancelamento quando o lote está vazio. Isso evita adquirir lock e abrir contexto/transação MariaDB em chamadas sem registros, inclusive de rotinas de biblioteca e migração.
+- `ItemPersistenceServiceTests`: 30/30 aprovados em Release; teste novo confirma que lote vazio não cria contexto EF. Revisão independente sem achados; `git diff --check` passou.
+- Revisão independente do diff: sem achados. Contrato do portal: 414/414; esta execução é o primeiro evento do próximo lote local de dez.
+- MariaDB operacional, produção, Linux e CI hospedada não foram usados. Sem alteração de contrato; homologação formal 2/7, sem release.
+## Limite zero na lista de filmes recentes — 2026-10-29 22:29 BRT
+
+- Corrigido `GetLatestItemList` para filmes: limite `0` ou negativo retornava um título, pois a deduplicação adicionava o primeiro resultado antes de comparar com o limite. O retorno antecipado aplica-se antes da consulta e deixa inalterados os limites positivos.
+- Teste de regressão na classe `BaseItemRepositoryLatestTvShowTests`: 5/5 aprovados, incluindo limite zero, negativo, limites positivos/deduplicação e séries.
+- Nenhuma estrutura de módulo/API/dependência mudou. Produção 12.1.45 não acessada; candidata 12.1.46 não publicada; homologação formal 2/7.
 # Auditoria Técnica do Backend MulletaFlix
+
+## Retorno após erro de reprodução — revisão em 2026-10-30
+
+- A supressão de navegação após `playbackerror` foi retirada após revisão: o fluxo subsequente encerra e destrói o player, então manter a rota podia deixar uma tela vazia. O retorno anterior a erro é preservado.
+- A mudança de navegação relacionada ao relato webOS é apenas no evento `fullscreenchange`: sair do fullscreen forçado não deve chamar `appRouter.back()` enquanto o playback pode continuar. A parada real mantém a navegação anterior.
+- Revisão atual: Vitest web 425/425 e `npm run build:check` passaram. O contador de quadros foi acrescentado ao E2E de stage, ainda não executado nesta rodada. Produção 12.1.45 intacta; candidata 12.1.46 sem release; formal 2/7. WebOS físico, codec e áudio continuam pendentes.
+
+## Bootstrap redundante em GetFirstUser — 2026-10-29 22:13 BRT
+
+- `StartupController` já aguarda `UserManager.InitializeAsync()` antes de consultar `GetFirstUser()`. Essa leitura síncrona não força mais uma inspeção do schema quando a inicialização foi concluída; a exceção de tabela ausente ainda força a recuperação do schema.
+- Regressão MariaDB descartável 11.4.4: `UserManagerNormalizedUsernameTests` passou 26/27; o único skip é a validação Linux de `lower_case_table_names=0`. O teste novo confirmou que `GetFirstUser()` não cria outro contexto assíncrono após `InitializeAsync()`.
+- O datadir foi copiado para instância isolada em `127.0.0.1:33127`; depois do teste, a porta temporária fechou e a instância de produção em 3306 permaneceu ativa e intocada.
+- Isso remove uma inspeção repetida no caminho de inicialização, mas não elimina o bootstrap síncrono de outros métodos públicos de `UserManager`. Linux e produção não foram validados; homologação formal permanece 2/7, sem crédito ou release.
 
 ## Verificação incremental — player e retomada Nebula — 2026-10-29
 
-- A tela do player mantinha `goHome()` no caminho de erro da inicialização dos controles, escondendo a mídia enquanto a reprodução podia continuar em áudio. Agora registra o erro e permanece no player; precisa capturar e corrigir a exceção específica em ambiente reprodutor antes de considerar o fluxo homologado.
+- Hipótese webOS: a navegação de volta no evento de saída do fullscreen forçado pode deixar o elemento de mídia tocando atrás da Home. A fonte candidata remove essa navegação; ainda falta reproduzir no aparelho que apresentou o sintoma.
 - Retomada do upload multipart agora reconhece partes válidas esparsas, mantém seus checkpoints e salta essas partes ao repetir o lote. Evita retransmitir dados já confirmados após falha de uma parte anterior.
 - Evidência local: NebulaPython 688/688; Vitest 425/425; `npm run build:check`; build web de produção e `npm run verify:build` (1.929 artefatos). Sem acesso de escrita à produção, teste candidato em dispositivo webOS ou validação de Telegram/MongoDB operacionais.
+- Revalidação 29/10 21:28 BRT: solução .NET Release passou em 17 assemblies, 5.378 aprovados, 261 ignorados, 0 falhas/5.639; `LiveIntegrationTests` foi excluído. `BackupServiceTests` focal passou 98/103, com 5 ignorados por Linux/macOS/mount. Três testes que inicialmente falharam por C: ter 4,0 GiB livres passaram novamente em diretório D: privado com ACL restrita; a regressão ampla também passou nessa configuração. `npm run build:check` e descoberta dos 3 cenários Playwright passaram. E2E e TV webOS não foram executados, e homologação formal permanece 2/7.
 - Homologação formal permanece 2/7 (28,6%); nenhuma release foi criada. Ver registro da sessão de 29/10.
+
+### Player webOS permanece na reprodução ao sair do fullscreen — 2026-10-29 20:37 BRT
+
+- O caminho de código mais compatível com o relato é a navegação `appRouter.back()` no evento `fullscreenchange` quando `forcedFullscreen` estava ativo e a API dizia que fullscreen havia terminado. Em TVs webOS, isso pode sair da tela do player sem encerrar o elemento de vídeo, compatível com áudio ao fundo e retorno à Home; a causa ainda depende de reprodução no aparelho.
+- Removida essa navegação automática; o código mantém a rota do player e atualiza o ícone. STRM real de *Moriarty the Patriot* continuou com imagem no Chrome; isso não valida saída do fullscreen no webOS, pois a TV não estava disponível.
+- Verificações: Vitest 425/425; `npm run build:check` aprovado; `git diff --check` aprovado. `lint:changed` apontou três falhas preexistentes em `tests/playwright/specs/22-adsense-flow.spec.ts`; lint direto do controller acusa 100 erros históricos do arquivo, sem alteração nova de regra. Não houve build/instalação em produção.
+- Produção permanece 12.1.45; formal 2/7 (28,6%); sem release. Mapa técnico conferido em 2026-10-29: sem mudança estrutural. Ver nota de sessão desta correção.
 
 Escopo: backend `MulletaFlix-master`, com foco em desempenho, manutenção, bootstrap, persistência, consultas e cobertura de testes.
 
@@ -134,7 +186,7 @@ Os principais riscos encontrados são:
 - `BaseItemRepository.Querying.cs` usa `AsEnumerable()` em caminhos de consulta que deveriam permanecer server-side por mais tempo.
 - Há materialização repetida em `GetLatestItemList`, `GetLatestMusicAlbums` e `GetRecentlyAddedItemIds`, com potencial de ampliar latência e consumo de memória quando a biblioteca cresce.
 - O pipeline de reconhecimento de mídia e metadata faz muito trabalho por item, sem foco explícito em reduzir I/O, batching e reutilização de resultados entre `MediaInfoResolver`, `MetadataService` e providers.
-- `UserManager` faz inicialização síncrona via `EnsureSchemaCreatedAsync().GetAwaiter().GetResult()` em métodos públicos que podem ser chamados com frequência.
+- Métodos públicos síncronos de `UserManager` ainda podem bloquear ao inicializar o schema. `GetFirstUser()` evita a rechecagem forçada depois de `InitializeAsync()`, mantendo a recuperação forçada quando a consulta encontra tabela ausente.
 
 ### P2
 
@@ -840,3 +892,109 @@ A fonte de `v12.1.45` foi comparada com a candidata: o evento de parada da vinhe
 ### Nebula: retry do scanner após erro transitório — 2026-10-29 18:46 BRT
 
 O queued_mongo_scanner agora recupera também claims gravados no Mongo cuja resposta expirou, com backoff de cinco segundos quando a liberação falha. A restauração após reinício re-enfileira arquivos em staging e limpa marcadores antigos; workers removem marcadores ao assumir. Testes de scanner/restauração 11/11, suíte Nebula Python 686/686 e compileall passaram. Um `.strm` real da biblioteca foi enfileirado em memória, sem worker de upload ou chamada ao Telegram. MongoDB real, Telegram, runtime instalado e produção não foram exercitados. Homologação formal permanece 2/7; nenhum release adicional foi publicado.
+
+### Revisão Fable-Judge — recuperação após reinício — 2026-10-29
+
+Claims staging de scanners anteriores agora são descobertos após reinício e liberados pelo `scanner_claim_id` persistido; falhas repetidas aguardam cinco segundos antes da próxima tentativa. Regressões de recuperação anterior ao reinício e backoff incluídas. Suíte Nebula Python 690/690. O teste permanece simulado, sem MongoDB operacional ou Telegram real. A mudança não altera a homologação formal (2/7) nem o estado da release (12.1.46 candidata, não publicada).
+
+### Reprodução real de intro nativa em produção — 2026-10-29 19:25 BRT
+
+- Teste somente de reprodução no servidor local informado como produção v12.1.45, com episódio STRM real `O Crime do Conde` e Nebula original ativo. O servidor retornou uma intro nativa; o console do web registrou `intro playback failed, falling back to main item` duas vezes. A reprodução principal então mostrou quadro H.264 1280x720 no Chrome; saída pelo botão Voltar encerrou o player e voltou à Home.
+- O log local confirmou `Resolved 1 intro(s)` e `Providing native intro`; também registrou falha de extração de legenda com desafio de autenticação, sem evidência de que essa falha cause a rejeição da intro. A causa HTTP exata da falha da intro não foi capturada.
+- Resultado: intro padrão continua sem homologação em produção. A execução não reproduziu áudio sem vídeo nem retorno automático à Home; webOS não testado. O teste candidato em stage documentado acima continua separado e não valida a instalação 12.1.45. Nenhuma configuração/arquivo de biblioteca foi alterado; playback foi parado ao final.
+- Mapa técnico conferido em 2026-10-29: sem mudança estrutural. Homologação formal 2/7; sem release. Portal aguarda o próximo lote de dez evidências, conforme preferência do usuário.
+
+### Teste de quadro de vídeo com STRM real — 2026-10-29 19:50 BRT
+
+- O teste Playwright focal da vinheta agora exige que o elemento de vídeo esteja visível, tocando, com `HAVE_CURRENT_DATA` e dimensões maiores que zero após a resposta do stream principal. Fonte STRM real usada: episódio de *Moriarty the Patriot* na biblioteca Nebula; link e parâmetros não são registrados.
+- `npm run build:check` passou. A compilação temporária do cliente e servidor concluiu. A primeira partida do stage isolado foi interrompida por falta do runtime MariaDB; após copiar somente o runtime MariaDB já disponível em stage, a segunda iniciou o banco descartável e falhou fechada na validação ACL do diretório de restauração. Playwright não chegou à reprodução; nenhuma política ACL foi relaxada.
+- Produção respondeu HTTP 200 à consulta de saúde e informa 12.1.45. Nenhum dado de produção foi alterado. A reprodução Chrome anterior com STRM real mostrou vídeo 1280x720, portanto o sintoma áudio-sem-vídeo/retorno à Home continua sem reprodução confiável.
+- Sem alteração de runtime ou release. Homologação formal segue 2/7. Mapa técnico conferido, sem mudança estrutural. Próximo passo: executar stage com identidade aprovada pela política ACL e obter título/aparelho exatos que apresentaram a falha.
+
+### Integridade dos snapshots Supabase — 2026-10-29 20:05 BRT
+
+- `backup_collection` compara a contagem Mongo com os documentos lidos e não grava snapshot quando o limite truncaria a coleção. Novos snapshots usam versão 2 e guardam a lista de documentos sob `data.documents`.
+- Restore integral valida formato, versão e contagem antes de qualquer escrita; backup filtrado não pode apagar o restante da coleção. Restore por `backup_id` aceita o formato legado apenas como upsert seletivo, sem exclusão de documentos extras. Escritas em lote devem terminar antes da limpeza de excedentes.
+- Testes Supabase focais: 50/50; suíte Nebula Python: 701/701; `git diff --check` passou. Inclui snapshot truncado, versão inválida, consulta filtrada, snapshot vazio, erro parcial de escrita e compatibilidade do backup legado seletivo.
+- MongoDB/Supabase reais, backup/restauração de produção e limite real de payload não foram exercitados. Nenhuma chamada a banco operacional. Homologação formal permanece 2/7; produção 12.1.45; sem release. Mapa técnico conferido: módulos/APIs/dependências/fluxo de dados sem alteração estrutural.
+
+### Reprodução da intro nativa com STRM real e diagnóstico de resposta parcial — 2026-10-29 20:12 BRT
+
+- Em produção local 12.1.45, Chrome reproduziu `Moriarty the Patriot — S1:E1: O Crime do Conde` a partir de STRM real, com Nebula original ativo. O servidor resolveu o asset nativo e retornou uma intro; o cliente registrou falha de reprodução da intro e fez fallback para o episódio principal. A mídia principal exibiu vídeo 1280×720 por 24 s e permaneceu no player; o sintoma de vídeo invisível/retorno à Home não foi reproduzido neste Chrome. A faixa de áudio não foi medida instrumentalmente.
+- O log do servidor mostra `ExceptionMiddleware` recebendo exceção após início da resposta, mas descartava o objeto da exceção. A correção candidata agora registra a exceção original no warning, preservando o rethrow e sem alterar resposta/status após headers. `ExceptionMiddlewareTests`: 3/3; o teste novo verifica que a exceção permanece no log. `ffprobe` confirmou o asset instalado (MP4/H.264 High, 1280×720, AAC-LC estéreo, 10 s).
+- Os erros de prebuffer do principal e extração de legenda foram observados separadamente; o stream principal conseguiu iniciar por nova requisição. Ainda não foi identificado o status/cause exato da resposta da intro nem reproduzido o relato de webOS. A mudança de logging está apenas na fonte candidata; não instalada na produção. Formal 2/7; sem release.
+- Mapa técnico conferido; sem mudança estrutural de módulos, APIs ou dependências. Reteste de webOS exige modelo/ano, versão do navegador e título/episódio exatos, ainda não informados.
+### Revalidação com STRM real e regressões do servidor — 2026-10-29 20:28 BRT
+
+- Em produção local 12.1.45, o Chrome mostrou quadros diferentes de *Moriarty the Patriot — S1:E1: O Crime do Conde* a partir do STRM real e permaneceu em `#/video`. O OSD avançou de 1:11 para 1:14 com vídeo visível; Space pausou e mostrou `Reproduzir`. Não houve retorno automático à Home; o áudio não foi medido. Após Escape, uma captura ficou preta por um instante, mas os controles voltaram a mostrar vídeo ativo; a mídia foi deixada pausada em 1:14.
+- A biblioteca continha 38.513 STRMs na contagem read-only. A proteção candidata do evento `viewshow` ainda não foi acionada por uma exceção real. WebOS/modelo/versão do navegador continuam sem confirmação.
+- Regressões desta sessão: Nebula Python 701/701; `ExceptionMiddlewareTests` 3/3; `verify:build` 1.929 artefatos válidos e bundle inicial 298,2 KB gzip; `git diff --check` aprovado. Vitest 425/425 e `build:check` são resultados da sessão imediatamente anterior.
+- Produção permaneceu em 12.1.45, sem alteração de dados/configuração e sem instalação ou release. 12.1.46 continua candidata; homologação formal 2/7.
+- O snapshot público do portal é de 20:07 BRT. A nota de 20:12 e este reteste são duas evidências posteriores; a cópia local do evento foi atualizada, mas permanece sem publicação até o próximo lote de dez.
+- O `generatedAt` da cópia local foi alinhado a 20:30 BRT após a primeira validação detectar timestamp do evento mais recente que o snapshot. A suíte do contrato do portal passou 403/403 após o ajuste; o snapshot público continua em 20:07.
+- Mapa técnico conferido em 2026-10-29: sem mudança estrutural em módulos, contratos, dependências ou fluxo.
+
+### Preservação de tipos BSON no backup Supabase — 2026-10-29 20:43 BRT
+
+- A revisão do fluxo `Tools/NebulaPython/tools/supabase_sync.py` encontrou que restore v2 interpretava qualquer string ISO como data e que backup não codificava valores BSON aninhados. Snapshots novos agora usam Extended JSON canônico v3; ObjectId/datetime aninhados são preservados e strings ISO continuam strings. Restore mantém compatibilidade com v2 e listas legadas.
+- Testes Supabase focais: 51/51; suíte Nebula Python: 702/702; `compileall` e `git diff --check` passaram. A primeira rodada focal falhou em três asserções durante o ajuste do formato; após corrigir a codificação e validar datas BSON como UTC sem fuso, a suíte focal e a suíte completa passaram.
+- MongoDB/Supabase reais, backup/restauração de produção e teste de limite de payload não foram executados. Nenhum banco operacional foi acessado. Produção 12.1.45; homologação formal 2/7; 12.1.46 continua candidata, sem publicação.
+- Mapa técnico do vault foi conferido e atualizado nesta sessão para registrar o formato BSON versionado e a compatibilidade do restore; módulos/APIs/dependências não mudaram.
+
+### Revalidação focal e player webOS — 2026-10-29 20:52 BRT
+
+- Reexecução focal em Release: `ExceptionMiddlewareTests` 3/3; `NativeIntroProviderTests`, `BackupServiceTests` e `BackupRestoreDirectoryTests` no assembly de implementações: 153 aprovados, 16 ignorados, 0 falhas. Os ignorados não são contabilizados como homologados.
+- `npm run build:check` no web passou. A alteração candidata em `onFullscreenChanged` deixa de navegar para trás quando o player sai do fullscreen forçado; esta execução validou apenas compilação TypeScript, sem reproduzir o defeito em webOS.
+- Stage permanece bloqueado pela validação fail-closed de ACL da pasta de restauração. Não houve reprodução em TV webOS; o modelo/ano, versão do navegador e título exato continuam indisponíveis. Portanto não há confirmação de correção no aparelho.
+- Produção continua em 12.1.45, sem alteração de configuração/biblioteca nesta sessão. Nenhuma release ou publicação foi feita; homologação formal permanece 2/7. Mapa técnico do vault conferido: sem mudança de módulos, APIs, dependências ou fluxo de dados.
+
+### Portal: nova evidência no lote local — 2026-10-29 20:56 BRT
+
+- A página pública estava no snapshot 20:07 BRT (`origin/main` 7cf6ddf). Esta revalidação foi registrada no rascunho local do portal; contrato passou 404/404, incluindo o teste que rejeita caminhos absolutos de perfis Windows.
+- Há seis evidências novas desde o snapshot público: cinco anteriores, ainda não integradas ao JSON publicado, e esta revalidação adicionada ao rascunho. Conforme preferência de lote de dez, não houve commit ou push do portal nesta sessão. Quatro evidências novas faltam para publicar o próximo lote.
+- Percentuais agregados e homologação formal não foram alterados: 2/7. O mapa técnico foi conferido e permanece igual.
+
+### Fechamento da auditoria de snapshots BSON — 2026-10-29 21:03 BRT
+
+- Snapshots novos usam BSON codificado em Base64 v4. Restore aceita v2 e listas legadas; v3 experimental é rejeitado antes de mutação porque tags EJSON e documentos literais podem ser ambíguos. Restore integral de legado exige snapshot completo não filtrado; restore seletivo permanece sem exclusão de extras.
+- Testes focais Supabase: 56/56; suíte Nebula Python: 707/707; `compileall` e `git diff --check` passaram. Teste adicional garante rejeição de v3 inválido sem gravação. Chamadores encontrados limitam-se ao método de lote existente e testes; sem alteração da API pública ou dependências.
+- Limitação histórica: v1/v2/legado não distinguem string ISO de data BSON e conservam conversão compatível, potencialmente ambígua. Nenhum MongoDB/Supabase operacional, restore real, produção ou limite real de payload foi exercitado. Homologação formal 2/7; sem release.
+- Portal local atualizado com esta evidência: sete novas evidências pendentes desde o snapshot público 20:07 BRT; três faltam para o lote de dez. Sem commit/push. Mapa técnico do vault conferido; módulos, APIs, dependências e fluxo estrutural permanecem iguais.
+
+### Revalidação webOS — 2026-10-29 21:36 BRT
+
+O usuário confirmou que o sintoma ocorreu no navegador webOS de uma TV. Reexecução local: Vitest 425/425, `npm run build:check` e `git diff --check` passaram.
+pm run build:check e git diff --check passaram. O controlador evita a navegação automática ao sair do fullscreen forçado; a causa do sintoma permanece hipótese sem teste E2E, TV real, modelo/versão do browser ou título exato. Produção 12.1.45 não foi alterada; homologação formal 2/7; sem release. Ver sessão no vault Sessões/2026-10-29-MulletaFlix-player-webos-revalidation-2136.
+
+### E2E do player em stage com STRM real — 2026-10-29 21:54 BRT
+
+Playwright 1/1 passou em stage Windows Release 12.1.46 em 173,8 s, com o STRM real `Invasão Zumbi 2 - Península (2020)`. Chromium usou marcador de user agent web0s e confirmou vinheta antes da mídia, vídeo com largura/altura e rota do player após saída do fullscreen. O STRM acessou o serviço local Nebula em 127.0.0.1:2124; MariaDB do stage ficou em 127.0.0.1:33100. O stage foi encerrado, sem listener na faixa Playwright; produção 8096 não foi usada. Isto não comprova navegação/codec/áudio em TV webOS física. Portal local atualizado, contrato 408/408; lote pendente 5/10, não publicado. Produção 12.1.45, homologação formal 2/7, sem release. Ver sessão no vault `Sessões/2026-10-29-MulletaFlix-player-webos-revalidation-2136`.
+
+Análise dos três logs FFmpeg do teste: fonte Matroska contém H.264 High 1920×1080 e AAC estéreo português; saída HLS contém faixas H.264/AAC e quadros/segmentos. O processo registra `[q] command received. Exiting.` antes do status `FFmpeg exited with code -1`; no E2E, vídeo apresentou dimensões e 1/1 passou. A sequência indica encerramento solicitado do job depois de gerar saída, sem provar causa do sintoma na TV real.
+
+### Revalidação local de testes — 2026-10-29 22:01 BRT
+
+- Nebula Python completo: 707/707 aprovados; foco `test_supabase_sync.py`: 56/56. O Python global não tem pytest, então foi usada a `.venv` do projeto.
+- `ExceptionMiddlewareTests` em .NET Release: 3/3 aprovados. O teste novo confirma que a exceção original é registrada quando a resposta HTTP já começou.
+- `npm run build:check` e `git diff --check` passaram. A compilação .NET emitiu avisos de documentação/analisadores já existentes em arquivos sem relação com a mudança.
+- Não houve alteração adicional no código nesta revalidação, acesso/escrita na produção, release ou publicação do portal. O E2E webOS validado anteriormente é Chromium simulado; TV real e saída de áudio seguem pendentes. Homologação formal 2/7.
+### Consultas em lotes durante exclusões extensas — 2026-10-29 23:01 BRT
+
+- `DeleteItem` divide consultas de hierarquia e `OwnerId` em lotes de até 1.000 IDs, expande proprietários recursivamente e limpa referências `OwnerId` internas antes da remoção. Isso evita violação da FK `BaseItems.OwnerId` (`NoAction`) quando pai e filho caem em lotes diferentes. A travessia das pastas raiz também usa lotes.
+- `ItemPersistenceServiceTests`: 33/33 aprovados em Windows/.NET 10 Release; o teste MariaDB opt-in foi ignorado nessa rodada porque a conexão descartável não estava configurada. MariaDB 11.4.4 isolado em `127.0.0.1:33251`: integração 1/1 aprovada, removendo 2.005 descendentes e itens com `OwnerId` encadeado, preservando Placeholder e mídia não relacionada. A primeira asserção de integração não contou o Placeholder criado pelo esquema; expectativa corrigida sem afrouxar a verificação dos itens removidos.
+- O teste confirma SQL, FK e travessia no MariaDB isolado; biblioteca de produção, Linux hospedado e carga real não foram usados. Latência e memória em catálogo real seguem sem medição. Produção 12.1.45; homologação formal 2/7; sem release.
+- Portal recebeu evidência local no lote seguinte ao commit `045f4c5`; não publicar até completar dez. Mapa técnico conferido: mesmas APIs, dependências e fluxo de persistência, com consultas internas agora paginadas. Ver sessão no vault `Sessões/2026-10-29-MulletaFlix-delete-query-batching-2301`.
+
+#### Addendo — retenção antes de cascatas e desempates — 2026-10-29 23:49 BRT
+
+- Revisão independente encontrou casos entre lotes e empate: cascata `ParentId` podia remover UserData antes da migração, Placeholder vencedor podia manter `RetentionDate` expirado, e itens empatados não tinham ordenação definida. A rotina agora migra todos os UserData antes de apagar qualquer mídia, renova o prazo quando Placeholder vence, e usa a mesma comparação em candidatos e Placeholder: data, contagem, Favorito, assistido, gostei, progresso, avaliação, faixas de áudio/legenda configuradas (menor índice primeiro); candidatos com empate completo usam `ItemId` crescente.
+- Integração em MariaDB 11.4.4 descartável validou 2.005 descendentes com cascata `ParentId`, cadeia `OwnerId`, retenção do UserData mais recente, empates entre candidatos e Placeholder preservando Favorito/progresso/avaliação/faixas e prazo expirado renovado: 1/1; regressão focal completa: 34/34. Servidor de teste na porta 33251 foi encerrado; a porta MariaDB de produção 3306 permaneceu intocada.
+- Sem medição em catálogo real, validação Linux/CI hospedada, acesso a dados de produção ou aceite em hardware. Produção 12.1.45; homologação formal 2/7; sem release.
+
+### Navegação no fullscreen forçado do webOS — 2026-10-30 00:00 BRT
+
+- O encerramento do fullscreen forçado podia disparar appRouter.back() sem que a reprodução terminasse, compatível com o player saindo da tela enquanto a mídia continuava.
+- onFullscreenChanged agora apenas atualiza o ícone. O retorno à tela anterior segue no evento de parada. Retirada a supressão experimental após erro, que podia deixar a rota do player vazia quando o player era destruído.
+- Verificação desta sessão: Vitest web 425/425; npm run build:check; git diff --check. O E2E com STRM real e webOS simulado tem novas asserções de avanço de quadros antes/depois do fullscreen, ainda sem execução nesta sessão. Stage/TV física não foram testados; produção 12.1.45 não foi alterada.
+- Causa do retorno à Home sustentada pelo fluxo do código; a ausência de vídeo/continuidade de áudio na TV não foi reproduzida. Homologação formal segue 2/7; candidata 12.1.46 sem release.
+- Arquivos: MulletaFlix-web-master/src/controllers/playback/video/index.ts, MulletaFlix-web-master/tests/playwright/specs/22-adsense-flow.spec.ts, MulletaFlix-master/docs/releases/12.1.46.md, MulletaFlix-master/docs/backend-auditoria-roadmap.md.

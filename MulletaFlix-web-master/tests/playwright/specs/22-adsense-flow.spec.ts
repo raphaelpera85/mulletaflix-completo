@@ -68,6 +68,32 @@ async function getVirtualFolderItemByPath(page, folderId, targetPath) {
     });
 }
 
+async function prepareRealStrmMovie(page, realStrmFile) {
+    const admin = getAdminCredentials();
+    await ensureWizardCompleted(page, admin.username, admin.password);
+    await loginWithManualForm(page, admin.username, admin.password);
+    await ensureMediaLibrariesReady(page, {
+        timeoutMs: 22 * 60 * 1000,
+        pollIntervalMs: 45_000,
+        libraries: [ MOVIES_LIBRARY, SERIES_LIBRARY ]
+    });
+
+    const moviesFolder = await getVirtualFolderByLibrary(page, MOVIES_LIBRARY);
+    const folderId = moviesFolder?.ItemId || moviesFolder?.Id;
+    expect(folderId, 'movie library folder not found').toBeTruthy();
+    const moviePath = path.join(MOVIES_LIBRARY.path, path.basename(realStrmFile));
+    let movie: { id: string; name: string; path: string } | null = null;
+    await expect.poll(async () => {
+        movie = await getVirtualFolderItemByPath(page, folderId, moviePath);
+        return Boolean(movie?.id);
+    }, {
+        timeout: 22 * 60 * 1000,
+        intervals: [ 5_000, 15_000, 30_000 ]
+    }).toBe(true);
+
+    return movie!;
+}
+
 async function prepareAdSensePlayback(page, scriptMode) {
     try {
         await fetchStagePublicInfo();
@@ -152,30 +178,18 @@ test.describe.serial('22 - AdSense playback flow', () => {
     test.setTimeout(25 * 60 * 1000);
 
     test('plays the bundled intro before media with the default branding settings', async ({ page }) => {
+        await page.addInitScript(() => {
+            const userAgent = navigator.userAgent;
+            Object.defineProperty(navigator, 'userAgent', {
+                configurable: true,
+                get: () => `${userAgent} web0s`
+            });
+        });
+
         const realStrmFile = process.env.PW_REAL_STRM_FILE;
         test.skip(!realStrmFile, 'Set PW_REAL_STRM_FILE to validate default intro playback using a real Nebula STRM title.');
 
-        const admin = getAdminCredentials();
-        await ensureWizardCompleted(page, admin.username, admin.password);
-        await loginWithManualForm(page, admin.username, admin.password);
-        const realMoviePath = path.join(MOVIES_LIBRARY.path, path.basename(realStrmFile));
-        await ensureMediaLibrariesReady(page, {
-            timeoutMs: 22 * 60 * 1000,
-            pollIntervalMs: 45_000,
-            libraries: [ MOVIES_LIBRARY, SERIES_LIBRARY ]
-        });
-
-        const moviesFolder = await getVirtualFolderByLibrary(page, MOVIES_LIBRARY);
-        const folderId = moviesFolder?.ItemId || moviesFolder?.Id;
-        expect(folderId, 'movie library folder not found').toBeTruthy();
-        let movie: { id: string; name: string; path: string } | null = null;
-        await expect.poll(async () => {
-            movie = await getVirtualFolderItemByPath(page, folderId, realMoviePath);
-            return Boolean(movie?.id);
-        }, {
-            timeout: 22 * 60 * 1000,
-            intervals: [ 5_000, 15_000, 30_000 ]
-        }).toBe(true);
+        const movie = await prepareRealStrmMovie(page, realStrmFile);
 
         const branding = await page.evaluate(() => window.ApiClient.getNamedConfiguration('branding'));
         expect(branding.IntroEnabled).toBe(true);
@@ -243,11 +257,130 @@ test.describe.serial('22 - AdSense playback flow', () => {
             intervals: [ 2_000, 5_000, 10_000 ]
         }).toBeGreaterThanOrEqual(0);
 
+        const video = page.locator('.videoPlayerContainer video');
+        await expect(video).toBeVisible();
+        await expect.poll(() => video.evaluate((element: HTMLVideoElement) =>
+            !element.paused && element.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA
+                && element.videoWidth > 0 && element.videoHeight > 0
+        ), {
+            timeout: 90_000,
+            intervals: [ 2_000, 5_000, 10_000 ]
+        }).toBe(true);
+
+        const initialVideoFrames = await video.evaluate((element: HTMLVideoElement) => element.getVideoPlaybackQuality().totalVideoFrames);
+        await page.waitForTimeout(2_000);
+        await expect.poll(() => video.evaluate((element: HTMLVideoElement) => element.getVideoPlaybackQuality().totalVideoFrames))
+            .toBeGreaterThan(initialVideoFrames);
+
+        await expect.poll(() => page.evaluate(() => Boolean(document.fullscreenElement)), {
+            timeout: 30_000,
+            intervals: [ 500, 1_000, 2_000 ]
+        }).toBe(true);
+        await page.evaluate(async () => document.exitFullscreen());
+        await expect(page).toHaveURL(/\/video(?:[?#]|$)/, { timeout: 15_000 });
+        await expect(video).toBeVisible();
+        const framesBeforeFullscreenExit = await video.evaluate((element: HTMLVideoElement) => element.getVideoPlaybackQuality().totalVideoFrames);
+        await page.waitForTimeout(2_000);
+        await expect.poll(() => video.evaluate((element: HTMLVideoElement) => element.getVideoPlaybackQuality().totalVideoFrames))
+            .toBeGreaterThan(framesBeforeFullscreenExit);
+
         expect(mediaRequestItemIds, `intro media should be requested before the selected movie; intro diagnostics: ${introDiagnostics.join(' | ')}`).toEqual(expect.arrayContaining([ normalizedIntroId, normalizedMovieId ]));
         expect(playbackEvents.indexOf(`media:${normalizedIntroId}`)).toBeGreaterThanOrEqual(0);
         expect(playbackEvents.indexOf(`session:${normalizedIntroId}`)).toBeGreaterThanOrEqual(0);
         expect(playbackEvents.indexOf(`session:${normalizedIntroId}`)).toBeLessThan(playbackEvents.indexOf(`next:${normalizedMovieId}`));
         expect(playbackEvents.indexOf(`next:${normalizedMovieId}`)).toBeLessThan(playbackEvents.lastIndexOf(`response:${normalizedMovieId}:200`));
+        await logoutViaDashboard(page);
+    });
+
+    test('keeps real STRM video visible after webOS forced fullscreen exits', async ({ page }) => {
+        await page.addInitScript(() => {
+            const userAgent = navigator.userAgent;
+            Object.defineProperty(navigator, 'userAgent', {
+                configurable: true,
+                get: () => `${userAgent} web0s`
+            });
+        });
+
+        const realStrmFile = process.env.PW_REAL_STRM_FILE;
+        test.skip(!realStrmFile, 'Set PW_REAL_STRM_FILE to validate webOS-style fullscreen exit with a real Nebula STRM title.');
+        const movie = await prepareRealStrmMovie(page, realStrmFile);
+        const mediaResponses: string[] = [];
+        const playbackErrors: string[] = [];
+        const playbackStarts: string[] = [];
+        const normalizedMovieId = movie.id.replaceAll('-', '').toLowerCase();
+        let introListIntercepted = false;
+        page.on('response', (response) => {
+            const match = new URL(response.url()).pathname.match(/^\/Videos\/([^/]+)\//i);
+            if (match && match[1].replaceAll('-', '').toLowerCase() === normalizedMovieId) {
+                mediaResponses.push(`${response.status()}`);
+            }
+        });
+        page.on('request', request => {
+            if (/\/Sessions\/Playing(?:\?|$)/i.test(request.url())) {
+                try {
+                    const itemId = JSON.parse(request.postData() || '{}').ItemId;
+                    if (itemId) playbackStarts.push(String(itemId).replaceAll('-', '').toLowerCase());
+                } catch {
+                    playbackErrors.push('Could not parse playback-start request');
+                }
+            }
+        });
+        page.on('pageerror', error => playbackErrors.push(error.message.slice(0, 240)));
+        page.on('console', message => {
+            if (message.type() === 'error') {
+                playbackErrors.push(message.text().replace(/https?:\/\/\S+/g, '[url]').slice(0, 240));
+            }
+        });
+        await page.route('**/Items/*/Intros**', route => {
+            introListIntercepted = true;
+            return route.fulfill({
+                contentType: 'application/json',
+                body: JSON.stringify({ Items: [] })
+            });
+        });
+
+        await navigateStage(page, `/details?id=${movie.id}`);
+        const playButton = page.locator('.btnPlayOrResume, .btnPlay').first();
+        await expect(playButton).toBeVisible({ timeout: 60_000 });
+        await playButton.click({ force: true });
+        await expect.poll(() => mediaResponses.some(status => status === '200' || status === '206'), {
+            timeout: 90_000,
+            intervals: [ 2_000, 5_000, 10_000 ]
+        }).toBe(true);
+
+        await expect.poll(() => playbackStarts.includes(normalizedMovieId), {
+            message: () => `real STRM playback never started; intro intercepted=${introListIntercepted}; media responses=${mediaResponses.join(',')}; browser errors=${playbackErrors.join(' | ')}`,
+            timeout: 60_000,
+            intervals: [ 1_000, 2_000, 5_000 ]
+        }).toBe(true);
+        await expect(page).toHaveURL(/\/video(?:[?#]|$)/, { timeout: 15_000 });
+        const video = page.locator('.videoPlayerContainer video');
+        await expect(video, `STRM returned media, but the player view disappeared; browser errors: ${playbackErrors.join(' | ')}`)
+            .toBeVisible();
+        await expect.poll(() => video.evaluate((element: HTMLVideoElement) =>
+            !element.paused && element.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA
+                && element.videoWidth > 0 && element.videoHeight > 0
+        ), {
+            timeout: 90_000,
+            intervals: [ 2_000, 5_000, 10_000 ]
+        }).toBe(true);
+
+        const initialFrames = await video.evaluate((element: HTMLVideoElement) => element.getVideoPlaybackQuality().totalVideoFrames);
+        await page.waitForTimeout(2_000);
+        await expect.poll(() => video.evaluate((element: HTMLVideoElement) => element.getVideoPlaybackQuality().totalVideoFrames))
+            .toBeGreaterThan(initialFrames);
+        await expect.poll(() => page.evaluate(() => Boolean(document.fullscreenElement)), {
+            timeout: 30_000,
+            intervals: [ 500, 1_000, 2_000 ]
+        }).toBe(true);
+
+        await page.evaluate(async () => document.exitFullscreen());
+        await expect(page).toHaveURL(/\/video(?:[?#]|$)/, { timeout: 15_000 });
+        await expect(video).toBeVisible();
+        const framesBeforeExit = await video.evaluate((element: HTMLVideoElement) => element.getVideoPlaybackQuality().totalVideoFrames);
+        await page.waitForTimeout(2_000);
+        await expect.poll(() => video.evaluate((element: HTMLVideoElement) => element.getVideoPlaybackQuality().totalVideoFrames))
+            .toBeGreaterThan(framesBeforeExit);
         await logoutViaDashboard(page);
     });
 

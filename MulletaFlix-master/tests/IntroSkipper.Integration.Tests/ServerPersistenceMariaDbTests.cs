@@ -591,6 +591,81 @@ public sealed class ServerPersistenceMariaDbTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task SaveImagesAsync_WaitsForConcurrentSaveItemsForTheSameItem()
+    {
+        MariaDbTestEnvironment.SkipUnlessConfigured();
+        var cancellationToken = TestContext.Current.CancellationToken;
+        var initialPersistence = new ItemPersistenceService(
+            Contexts,
+            CreateAppHost(),
+            NullLogger<ItemPersistenceService>.Instance);
+
+        var itemId = Guid.NewGuid();
+        const string itemPath = "N:\\Movies\\Concurrent image refresh (2026)";
+        var initialItem = CreateSeries(itemId, "Concurrent image refresh", 2026, itemPath);
+        initialItem.AddImage(CreateImage("save-items/poster.jpg", "save-items"));
+        initialItem.AddImage(CreateImage("save-items/backdrop.jpg", "save-items"));
+        initialPersistence.SaveItems([initialItem], cancellationToken);
+
+        var blockingFactory = new BlockingDbContextFactory(Contexts);
+        var persistence = new ItemPersistenceService(
+            blockingFactory,
+            CreateAppHost(),
+            NullLogger<ItemPersistenceService>.Instance);
+        var saveItems = CreateSeries(itemId, "Concurrent image refresh", 2026, itemPath);
+        saveItems.AddImage(CreateImage("save-items/poster.jpg", "save-items"));
+        saveItems.AddImage(CreateImage("save-items/backdrop.jpg", "save-items"));
+        var saveImages = CreateSeries(itemId, "Concurrent image refresh", 2026, itemPath);
+        saveImages.AddImage(CreateImage("save-images/poster.jpg", "save-images"));
+        saveImages.AddImage(CreateImage("save-images/backdrop.jpg", "save-images"));
+
+        var saveItemsTask = Task.Run(() => persistence.SaveItems([saveItems], cancellationToken), cancellationToken);
+        Task? saveImagesTask = null;
+        var saveImagesReachedFactoryBeforeRelease = false;
+        try
+        {
+            await blockingFactory.SynchronousCreateEntered.Task.WaitAsync(TimeSpan.FromSeconds(30), cancellationToken);
+            saveImagesTask = persistence.SaveImagesAsync(saveImages, cancellationToken);
+            saveImagesReachedFactoryBeforeRelease = blockingFactory.AsynchronousCreateEntered.Task.IsCompleted;
+
+            blockingFactory.ReleaseSynchronousCreate();
+            await saveItemsTask.WaitAsync(TimeSpan.FromSeconds(30), cancellationToken);
+            blockingFactory.ReleaseAsynchronousCreate();
+            await saveImagesTask.WaitAsync(TimeSpan.FromSeconds(30), cancellationToken);
+        }
+        finally
+        {
+            blockingFactory.ReleaseSynchronousCreate();
+            blockingFactory.ReleaseAsynchronousCreate();
+            await saveItemsTask.WaitAsync(TimeSpan.FromSeconds(30), cancellationToken);
+            if (saveImagesTask is not null)
+            {
+                await saveImagesTask.WaitAsync(TimeSpan.FromSeconds(30), cancellationToken);
+            }
+        }
+
+        Assert.False(
+            saveImagesReachedFactoryBeforeRelease,
+            "SaveImagesAsync must wait for SaveItems to release the same item lock before opening a database context.");
+
+        await using var context = await Contexts.CreateDbContextAsync(cancellationToken);
+        var storedImages = await context.BaseItemImageInfos
+            .Where(image => image.ItemId == itemId)
+            .ToArrayAsync(cancellationToken);
+
+        var storedSet = storedImages
+            .Select(image => (image.Path, image.Language))
+            .OrderBy(image => image.Path)
+            .ToArray();
+        var expectedSet = new[]
+        {
+            ("save-images/backdrop.jpg", "save-images"),
+            ("save-images/poster.jpg", "save-images")
+        };
+        Assert.Equal(expectedSet, storedSet);
+    }
+
+    [Fact]
     public async Task SaveItems_RescanningTrailerWithSameTypes_PreservesTheStoredTypeSet()
     {
         MariaDbTestEnvironment.SkipUnlessConfigured();
@@ -855,5 +930,43 @@ public sealed class ServerPersistenceMariaDbTests : IAsyncLifetime
             [authenticationProvider, new InvalidAuthProvider()]);
 
         _ = userManager.GetFirstUser();
+    }
+
+    private sealed class BlockingDbContextFactory : IDbContextFactory<MulletaFlixDbContext>
+    {
+        private readonly IDbContextFactory<MulletaFlixDbContext> _inner;
+        private readonly TaskCompletionSource _allowSynchronousCreate = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource _allowAsynchronousCreate = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public BlockingDbContextFactory(IDbContextFactory<MulletaFlixDbContext> inner)
+        {
+            _inner = inner;
+        }
+
+        public TaskCompletionSource SynchronousCreateEntered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public TaskCompletionSource AsynchronousCreateEntered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public MulletaFlixDbContext CreateDbContext()
+        {
+            SynchronousCreateEntered.TrySetResult();
+            if (!_allowSynchronousCreate.Task.Wait(TimeSpan.FromSeconds(30)))
+            {
+                throw new TimeoutException("The test did not release the SaveItems context factory.");
+            }
+
+            return _inner.CreateDbContext();
+        }
+
+        public async Task<MulletaFlixDbContext> CreateDbContextAsync(CancellationToken cancellationToken = default)
+        {
+            AsynchronousCreateEntered.TrySetResult();
+            await _allowAsynchronousCreate.Task.WaitAsync(TimeSpan.FromSeconds(30), cancellationToken);
+            return await _inner.CreateDbContextAsync(cancellationToken);
+        }
+
+        public void ReleaseSynchronousCreate() => _allowSynchronousCreate.TrySetResult();
+
+        public void ReleaseAsynchronousCreate() => _allowAsynchronousCreate.TrySetResult();
     }
 }

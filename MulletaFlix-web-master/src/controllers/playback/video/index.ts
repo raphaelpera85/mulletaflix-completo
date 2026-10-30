@@ -489,11 +489,6 @@ export default function (this: { touchHelper?: { destroy(): void } }, view: HTML
     }
 
     function onFullscreenChanged() {
-        if (currentPlayer.forcedFullscreen && !playbackManager.isFullscreen(currentPlayer)) {
-            void appRouter.back().catch((error: unknown) => logVideoPlaybackError('failed to return from forced fullscreen', error));
-            return;
-        }
-
         updateFullscreenIcon();
     }
 

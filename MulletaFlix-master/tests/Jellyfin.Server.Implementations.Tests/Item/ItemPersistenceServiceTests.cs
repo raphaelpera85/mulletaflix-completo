@@ -2,6 +2,7 @@ using System;
 using System.IO;
 using System.Linq;
 using System.Net.Sockets;
+using MediaBrowser.Controller;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Model.Entities;
 using MulletaFlix.Database.Implementations;
@@ -17,6 +18,85 @@ namespace Jellyfin.Server.Implementations.Tests.Item;
 
 public class ItemPersistenceServiceTests
 {
+    [Fact]
+    public void SaveItems_EmptyBatchDoesNotCreateDatabaseContext()
+    {
+        var dbFactory = new Mock<IDbContextFactory<MulletaFlixDbContext>>(MockBehavior.Strict);
+        var service = new ItemPersistenceService(
+            dbFactory.Object,
+            Mock.Of<IServerApplicationHost>(),
+            NullLogger<ItemPersistenceService>.Instance);
+
+        service.SaveItems(Array.Empty<BaseItem>(), default);
+
+        dbFactory.Verify(factory => factory.CreateDbContext(), Times.Never);
+    }
+
+    [Fact]
+    public void GetItemIdsOwnedBy_QueriesOwnerIdsInBatches()
+    {
+        using var context = CreateContext();
+        var ownerIds = Enumerable.Range(0, 2005).Select(_ => Guid.NewGuid()).ToArray();
+        var expectedIds = new[] { Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid() };
+        context.BaseItems.AddRange(
+            new BaseItemEntity { Id = expectedIds[0], Type = "Movie", OwnerId = ownerIds[0] },
+            new BaseItemEntity { Id = expectedIds[1], Type = "Movie", OwnerId = ownerIds[1000] },
+            new BaseItemEntity { Id = expectedIds[2], Type = "Movie", OwnerId = ownerIds[^1] });
+        context.SaveChanges();
+
+        var actualIds = ItemPersistenceService.GetItemIdsOwnedBy(context, ownerIds);
+
+        Assert.Equal(expectedIds.ToHashSet(), actualIds);
+    }
+
+    [Fact]
+    public void GetOwnedDescendantIdsBatch_TraversesMoreThanOneQueryBatch()
+    {
+        using var context = CreateContext();
+        var parent = new BaseItemEntity { Id = Guid.NewGuid(), Type = "Folder", IsFolder = true };
+        var children = Enumerable.Range(0, 2005)
+            .Select(_ => new BaseItemEntity { Id = Guid.NewGuid(), Type = "Movie" })
+            .ToArray();
+        context.BaseItems.AddRange([parent, .. children]);
+        context.AncestorIds.AddRange(children.Select(child => new AncestorId
+        {
+            ParentItemId = parent.Id,
+            ItemId = child.Id,
+            ParentItem = parent,
+            Item = child
+        }));
+        context.SaveChanges();
+
+        var actualIds = DescendantQueryHelper.GetOwnedDescendantIdsBatch(context, [parent.Id]);
+
+        Assert.Equal(children.Length, actualIds.Count);
+        Assert.All(children, child => Assert.Contains(child.Id, actualIds));
+    }
+
+    [Fact]
+    public void GetOwnedDescendantIdsBatch_ChunksMoreThanOneBatchOfRootFolders()
+    {
+        using var context = CreateContext();
+        var parents = Enumerable.Range(0, 2005)
+            .Select(_ => new BaseItemEntity { Id = Guid.NewGuid(), Type = "Folder", IsFolder = true })
+            .ToArray();
+        var children = parents.Select(_ => new BaseItemEntity { Id = Guid.NewGuid(), Type = "Movie" }).ToArray();
+        context.BaseItems.AddRange([.. parents, .. children]);
+        context.AncestorIds.AddRange(parents.Zip(children, (parent, child) => new AncestorId
+        {
+            ParentItemId = parent.Id,
+            ItemId = child.Id,
+            ParentItem = parent,
+            Item = child
+        }));
+        context.SaveChanges();
+
+        var actualIds = DescendantQueryHelper.GetOwnedDescendantIdsBatch(context, parents.Select(parent => parent.Id).ToArray());
+
+        Assert.Equal(children.Length, actualIds.Count);
+        Assert.All(children, child => Assert.Contains(child.Id, actualIds));
+    }
+
     [Fact]
     public void ImageInfoMapper_PreservesProviderAndLanguage()
     {
