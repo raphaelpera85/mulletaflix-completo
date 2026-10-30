@@ -15,7 +15,7 @@ MulletaFlix for Windows collects the tray application, service utilities, and NS
 
 # Getting Started
 
-Do you want to build MulletaFlix's tray app or installer for yourself? Read on!
+This archived tree is not a supported source for building or installing MulletaFlix Server. Its historical NSIS installer includes global process termination and must not be compiled or used. Build releases only with `MulletaFlix-packaging-master\build-stage-and-installer.ps1`.
 
 ---
 
@@ -52,30 +52,6 @@ Location: `HKEY_LOCAL_MACHINE\SOFTWARE\MulletaFlix\Server` (or under `WOW6432Nod
 
 ---
 
-## Building the Installer
-### Requirements
-* The compiled tray app from above
-* [NSIS 3.x+](https://nsis.sourceforge.io/Download)
-* A copy of the branding assets / repository
-* The latest MulletaFlix Windows Combined package containing the server and the embedded MariaDB binaries.
-* The GPLv3/GPLv2 License as a file simply named `LICENSE`
+## Building the Installer (unsupported from this archived tree)
 
-### Steps
-1. Ensure that a complete copy of MulletaFlix Server is available in a folder.
-2. Copy the GPL License file and place it in the same directory as the server. Ensure that it is named `LICENSE` with no extension.
-3. Copy the contents of the compiled tray app (including its DLLs) into the folder with the server. If there is a duplicate DLL, skip it. We only need to add anything that isn't already included.
-4. Download the branding files at a path ending with `\branding\NSIS\`:
-    * modern-install.ico
-    * installer-header.bmp
-    * installer-right.bmp
-5. Install NSIS if not already available. Be sure to select a Full install.
-6. Open Powershell. Set the environment variable `InstallLocation` to the folder where MulletaFlix Server is available.
-    * e.g. `$env:InstallLocation = "C:\Users\User\Downloads\mulletaflix_release"`
-7. Go to the directory where NSIS is installed. In most systems, this is at `C:\Program Files (x86)\NSIS`.
-8. Run the following command, substituting the path to your branding files and the NSIS script from this repository:
-
-    ```powershell
-    .\makensis /Dx64 /DUXPATH=C:\Path\To\Branding\Files "C:\Path\To\mulletaflix-server-windows\nsis\mulletaflix.nsi"
-    ```
-
-9. Wait for the installer to build. When complete, it will be located next to the NSIS script file. It is now ready to be used.
+Do not build from this archived tree. The supported release flow, validation and installer source are in `MulletaFlix-packaging-master`. This historical NSIS file still contains global process termination commands.

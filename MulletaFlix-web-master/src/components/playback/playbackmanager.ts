@@ -2882,7 +2882,9 @@ export class PlaybackManager {
 
             const apiClient = ServerConnections.getApiClient(item.ServerId);
             const isLiveTv = [BaseItemKind.TvChannel, BaseItemKind.LiveTvChannel].includes(item.Type);
-            const getMediaStreams = isLiveTv ? Promise.resolve([]) : apiClient.getItem(apiClient.getCurrentUserId(), mediaSourceId || item.Id)
+            // Transient intro items are registered for playback-info resolution but
+            // aren't necessarily addressable through the regular library Items API.
+            const getMediaStreams = isLiveTv || item.IsIntro ? Promise.resolve([]) : apiClient.getItem(apiClient.getCurrentUserId(), mediaSourceId || item.Id)
                 .then((fullItem: any) => {
                     return fullItem.MediaStreams;
                 });
@@ -3683,7 +3685,7 @@ export class PlaybackManager {
             onPlaybackStopped.call(player, e, `.${errorType}`);
         }
 
-        function onPlaybackStopped(e, displayErrorCode) {
+        function onPlaybackStopped(e, playerStopInfo) {
             const player = this;
 
             if (getPlayerData(player).isChangingStream) {
@@ -3697,7 +3699,7 @@ export class PlaybackManager {
             const data = getPlayerData(player);
             const streamInfo = data.streamInfo;
 
-            const errorOccurred = displayErrorCode && typeof (displayErrorCode) === 'string';
+            const errorOccurred = playerStopInfo && typeof (playerStopInfo) === 'string';
 
             const nextItem = self._playNextAfterEnded && !errorOccurred ? self._playQueueManager.getNextItemInfo() : null;
 
@@ -3742,12 +3744,13 @@ export class PlaybackManager {
             }
 
             if (errorOccurred) {
-                showPlaybackInfoErrorMessage(self, 'PlaybackError' + displayErrorCode);
+                showPlaybackInfoErrorMessage(self, 'PlaybackError' + playerStopInfo);
             } else if (newPlayer) {
                 const apiClient = ServerConnections.getApiClient(nextItem.item.ServerId);
 
                 void apiClient.getCurrentUser().then(function (user: any) {
-                    if (user.Configuration.EnableNextEpisodeAutoPlay || nextMediaType !== MediaType.Video) {
+                    const introFinished = streamInfo?.item?.IsIntro === true && playerStopInfo?.ended === true;
+                    if (user.Configuration.EnableNextEpisodeAutoPlay || nextMediaType !== MediaType.Video || introFinished) {
                         self.nextTrack();
 
                         if (newPlayer !== player) {

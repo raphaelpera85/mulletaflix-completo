@@ -48,6 +48,7 @@ public sealed class NebulaMongoContext : IDisposable
     private readonly IMongoDatabase _database;
     private readonly IMongoCollection<BsonDocument> _filesCollection;
     private readonly IMongoCollection<BsonDocument> _admissionCollection;
+    private readonly IMongoCollection<BsonDocument> _directoryRefreshesCollection;
     private readonly IMongoCollection<BsonDocument> _usersCollection;
     private readonly IMongoCollection<BsonDocument> _botTokensCollection;
     private readonly IMongoCollection<BsonDocument> _operationReplaysCollection;
@@ -68,13 +69,22 @@ public sealed class NebulaMongoContext : IDisposable
     /// <param name="databaseName">Nome do banco de dados (padrão: "ftp").</param>
     /// <param name="logger">Instância de logger.</param>
     public NebulaMongoContext(string connectionString, string databaseName, ILogger<NebulaMongoContext> logger)
+        : this(connectionString, databaseName, logger, TimeSpan.FromSeconds(15))
+    {
+    }
+
+    internal NebulaMongoContext(
+        string connectionString,
+        string databaseName,
+        ILogger<NebulaMongoContext> logger,
+        TimeSpan serverSelectionTimeout)
     {
         _logger = logger;
         var uri = string.IsNullOrWhiteSpace(connectionString) ? "mongodb://localhost:27017" : connectionString;
         var dbName = string.IsNullOrWhiteSpace(databaseName) ? "ftp" : databaseName;
 
         var settings = MongoClientSettings.FromConnectionString(uri);
-        settings.ServerSelectionTimeout = TimeSpan.FromSeconds(15);
+        settings.ServerSelectionTimeout = serverSelectionTimeout;
         settings.ConnectTimeout = TimeSpan.FromSeconds(10);
         settings.SocketTimeout = TimeSpan.FromSeconds(30);
         settings.MaxConnectionPoolSize = 250;
@@ -85,6 +95,7 @@ public sealed class NebulaMongoContext : IDisposable
         _database = _client.GetDatabase(dbName);
         _filesCollection = _database.GetCollection<BsonDocument>("files");
         _admissionCollection = _database.GetCollection<BsonDocument>("nebula_admission");
+        _directoryRefreshesCollection = _database.GetCollection<BsonDocument>("nebula_directory_refreshes");
         _usersCollection = _database.GetCollection<BsonDocument>("users");
         _botTokensCollection = _database.GetCollection<BsonDocument>("bot_tokens");
         _operationReplaysCollection = _database.GetCollection<BsonDocument>("operation_replays");
@@ -98,7 +109,7 @@ public sealed class NebulaMongoContext : IDisposable
     /// </summary>
     public async Task EnsureSchemaAsync(CancellationToken cancellationToken = default)
     {
-        foreach (var collectionName in new[] { "files", "users", "bot_tokens", "operation_replays", "nebula_admission" })
+        foreach (var collectionName in new[] { "files", "users", "bot_tokens", "operation_replays", "nebula_admission", "nebula_directory_refreshes" })
         {
             try
             {
@@ -2195,6 +2206,68 @@ public sealed class NebulaMongoContext : IDisposable
             activity?.SetTag("mongodb.result", "failure");
             throw;
         }
+    }
+
+    public async Task PersistDirectoryRefreshAsync(string directory, CancellationToken cancellationToken = default)
+    {
+        var normalized = NormalizeDirectoryRefreshPath(directory);
+        var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+        await _directoryRefreshesCollection.UpdateOneAsync(
+            Builders<BsonDocument>.Filter.Eq("_id", normalized),
+            Builders<BsonDocument>.Update
+                .SetOnInsert("directory", normalized)
+                .SetOnInsert("created_at", now)
+                .Set("requested_at", now),
+            new UpdateOptions { IsUpsert = true },
+            cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task<List<string>> GetPendingDirectoryRefreshesAsync(CancellationToken cancellationToken = default)
+    {
+        var documents = await _directoryRefreshesCollection.Find(Builders<BsonDocument>.Filter.Empty)
+            .Sort(Builders<BsonDocument>.Sort.Ascending("requested_at"))
+            .Project(Builders<BsonDocument>.Projection.Include("_id"))
+            .ToListAsync(cancellationToken).ConfigureAwait(false);
+        var directories = new List<string>(documents.Count);
+        foreach (var document in documents)
+        {
+            if (!document.TryGetValue("_id", out var id) || !id.IsString)
+            {
+                continue;
+            }
+
+            try
+            {
+                directories.Add(NormalizeDirectoryRefreshPath(id.AsString));
+            }
+            catch (ArgumentException ex)
+            {
+                _logger.LogWarning(ex, "[NEBULA-MONGO] Ignorando caminho inválido na fila persistente de refresh.");
+            }
+        }
+
+        return directories;
+    }
+
+    public async Task CompleteDirectoryRefreshAsync(string directory, CancellationToken cancellationToken = default)
+    {
+        var normalized = NormalizeDirectoryRefreshPath(directory);
+        await _directoryRefreshesCollection.DeleteOneAsync(
+            Builders<BsonDocument>.Filter.Eq("_id", normalized),
+            cancellationToken).ConfigureAwait(false);
+    }
+
+    internal static string NormalizeDirectoryRefreshPath(string directory)
+    {
+        var segments = NebulaUploadEngine.SplitPathSegments(directory);
+        if (segments.Length == 0
+            || !NebulaUploadEngine.IsVisibleCategoryRoot(segments[0])
+            || segments.Any(static segment => segment is "." or ".." || segment.Contains('\0', StringComparison.Ordinal)))
+        {
+            throw new ArgumentException("O caminho do refresh precisa estar sob uma raiz de mídia visível.", nameof(directory));
+        }
+
+        return "/" + string.Join('/', segments);
     }
 
     private async Task<NebulaUploadQueueSummaryDto> GetUploadQueueSummaryCoreAsync(CancellationToken cancellationToken)

@@ -76,3 +76,25 @@ Títulos recebem metadados textuais, mas parte dos posters permanece ausente (pl
 - **Regressões:** imagem TMDb pt-BR com fallbacks; chaves de cache distintas por país/idiomas; abertura após bloqueio exclusivo temporário do Windows; validação e fallback prévios do staging. `TmdbUtilsTests`, `RemoteImagePayloadValidatorTests` e `ProviderManagerRemoteImageValidationTests` passaram 28/28; suíte `Jellyfin.Providers.Tests` sem `LiveIntegrationTests` passou 808/808 em Release.
 - **Twin search:** a busca pelos métodos de obtenção de imagem encontrou cinco providers com idioma de imagem nulo (todos corrigidos). `TmdbPersonImageProvider` usa `GetPersonAsync`, sem parâmetro de idioma de imagem nesta abstração, portanto não reproduz o mesmo defeito de capas/telas de títulos. Não foi encontrado outro re-open de staging remoto com política de retry concorrente.
 - **Limites:** testes não chamam a API real do TMDb, não reprocessam capas já salvas e não verificam mídia renderizada. Títulos com arte antiga precisarão de atualização/refresh após implantação; configuração efetiva de idioma/região por servidor/biblioteca/item permanece a fonte de preferência. A correção ainda não foi instalada nem observada em produção nesta sessão.
+
+## Rótulos de idioma em minúsculas para qualquer locale — 2026-10-28
+
+- `TmdbUtils.AdjustImageLanguage` agora retorna códigos de idioma em minúsculas em todos os casos, inclusive códigos regionais herdados do locale solicitado (`pt-br`, `en-us`, `zh-hant`). O formato em maiúsculas exigido por TMDb permanece somente no parâmetro de consulta; esta mudança afeta o rótulo retornado para cada imagem.
+- Regressão focal cobre locale regional para inglês, francês e chinês, idioma base maiúsculo e idioma não localizado. Nenhum idioma foi codificado como preferência fixa.
+- O mapa técnico foi conferido; a mudança permanece no fluxo existente de conversão de resultados TMDb, sem novo módulo, classe, API ou dependência.
+- Não testado contra TMDb ao vivo nem visualmente na produção nesta sessão. Refresh de imagens já gravadas continua necessário para reaplicar rótulos/seleção de candidatos após implantação.
+
+## Reauditoria do CDN e runtime de imagens — 2026-10-28
+
+- Teste focal Release de `RemoteImagePayloadValidatorTests` e `ProviderManagerRemoteImageValidationTests`: 10/10 aprovados. Isso revalida o fluxo em memória/test doubles, não o provider completo contra API real.
+- Uma URL pública de imagem do CDN TMDb respondeu HTTP 200, `image/jpeg`, 154.888 bytes e assinatura JPEG válida (`FF-D8-FF`). O teste confirma entrega do CDN para esse recurso, não seleção de idioma ou refresh feito pelo servidor.
+- `GET http://127.0.0.1:8096/System/Info/Public` respondeu HTTP 200 com versão instalada 12.1.43, enquanto a fonte/release atual é 12.1.45. Portanto o runtime observado ainda não valida as correções recentes. Nenhum item de mídia foi atualizado.
+- Pendente: instalar a versão candidata em janela segura, executar refresh de um item de teste e verificar resposta, arquivo, `ImageInfos`/`ImageTags` e renderização. Homologação formal permanece 2/7; esta evidência não concede crédito formal.
+
+## Cobertura de idiomas base e regionais — 2026-10-28
+
+- A busca TMDb passou a enviar a preferência regional e também o código ISO 639-1 base (`fr-CA,fr,null,en`), preservando imagens sem idioma e inglês como fallback. Os itens da biblioteca continuam usando o locale preferido efetivo da mídia; a lista é compartilhada pelos providers de filme, série, temporada, episódio e coleção.
+- A documentação da API TMDb define `include_image_language` como lista separada por vírgulas de códigos ISO 639-1; a consulta somente pela variante regional podia omitir imagens classificadas apenas com o idioma base.
+- Teste Release focal `TmdbUtilsTests`: 27/27 aprovados para pt-BR, francês, japonês, chinês tradicional, espanhol latino-americano, árabe, inglês regional e locale vazio. A suíte Providers ampla foi interrompida após mais de um minuto sem saída; nenhum resultado dela é contabilizado.
+- O mapa técnico foi conferido. A alteração usa `TmdbUtils.GetImageLanguagesParam` e os providers já existentes; não adiciona módulos, APIs, dependências ou fluxos.
+- Não foi chamado o TMDb autenticado, nem realizado refresh, download ou verificação visual em mídia/runtime. Capas existentes exigem refresh após instalação; homologação formal permanece pendente.

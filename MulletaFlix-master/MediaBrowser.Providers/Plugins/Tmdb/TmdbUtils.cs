@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
+using System.Linq;
 using System.Text.RegularExpressions;
 using MulletaFlix.Data.Enums;
 using MulletaFlix.Extensions;
@@ -207,6 +208,14 @@ namespace MediaBrowser.Providers.Plugins.Tmdb
                 preferredLanguage = NormalizeLanguage(preferredLanguage, countryCode);
 
                 languages.Add(preferredLanguage);
+
+                // TMDb image records use ISO-639-1 language codes; regional variants
+                // such as pt-BR must also request the base language (pt).
+                var baseLanguage = preferredLanguage.Split('-')[0];
+                if (!string.Equals(preferredLanguage, baseLanguage, StringComparison.OrdinalIgnoreCase))
+                {
+                    languages.Add(baseLanguage);
+                }
             }
 
             languages.Add("null");
@@ -217,7 +226,7 @@ namespace MediaBrowser.Providers.Plugins.Tmdb
                 languages.Add("en");
             }
 
-            return string.Join(',', languages);
+            return string.Join(',', languages.Distinct(StringComparer.OrdinalIgnoreCase));
         }
 
         /// <summary>
@@ -279,13 +288,13 @@ namespace MediaBrowser.Providers.Plugins.Tmdb
                 && imageLanguage.Length == 2
                 && requestLanguage.StartsWith(imageLanguage, StringComparison.OrdinalIgnoreCase))
             {
-                return requestLanguage;
+                return requestLanguage.ToLowerInvariant();
             }
 
             // TMDb now returns xx for no language instead of an empty string.
             return string.Equals(imageLanguage, "xx", StringComparison.OrdinalIgnoreCase)
                 ? string.Empty
-                : imageLanguage;
+                : imageLanguage.ToLowerInvariant();
         }
 
         /// <summary>

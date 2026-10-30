@@ -489,11 +489,6 @@ export default function (this: { touchHelper?: { destroy(): void } }, view: HTML
     }
 
     function onFullscreenChanged() {
-        if (currentPlayer.forcedFullscreen && !playbackManager.isFullscreen(currentPlayer)) {
-            void appRouter.back().catch((error: unknown) => logVideoPlaybackError('failed to return from forced fullscreen', error));
-            return;
-        }
-
         updateFullscreenIcon();
     }
 
@@ -1713,9 +1708,9 @@ export default function (this: { touchHelper?: { destroy(): void } }, view: HTML
             if (browser.firefox || browser.edge) {
                 dom.addEventListener(document, 'click', onClickCapture, { capture: true });
             }
-        } catch {
+        } catch (error) {
             setBackdropTransparency(TRANSPARENCY_LEVEL.None); // reset state set in viewbeforeshow
-            appRouter.goHome().catch((error: unknown) => console.error('[VideoPlayer] failed to return home', error));
+            console.error('[VideoPlayer] failed to initialize playback controls; keeping the player view active', error);
         }
     });
     view.addEventListener('viewbeforehide', function () {

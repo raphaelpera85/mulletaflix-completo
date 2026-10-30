@@ -5,6 +5,7 @@ using System.Threading.Tasks;
 using MediaBrowser.Controller.Configuration;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Http.Features;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Moq;
@@ -62,9 +63,35 @@ public sealed class ExceptionMiddlewareTests
         Assert.DoesNotContain(capability, log, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public async Task Invoke_LogsOriginalExceptionWhenResponseHasStarted()
+    {
+        var context = new DefaultHttpContext();
+        var responseFeature = new Mock<IHttpResponseFeature>();
+        responseFeature.SetupGet(value => value.HasStarted).Returns(true);
+        context.Features.Set(responseFeature.Object);
+        Assert.True(context.Response.HasStarted);
+
+        var exception = new IOException("simulated stream failure after headers");
+        var logger = new CapturingLogger<ExceptionMiddleware>();
+        var configuration = new Mock<IServerConfigurationManager>();
+        var environment = new Mock<IWebHostEnvironment>();
+        var middleware = new ExceptionMiddleware(
+            _ => throw exception,
+            logger,
+            configuration.Object,
+            environment.Object);
+
+        await Assert.ThrowsAsync<IOException>(() => middleware.Invoke(context));
+
+        Assert.Contains(exception, logger.Exceptions);
+    }
+
     private sealed class CapturingLogger<T> : ILogger<T>
     {
         public List<string> Messages { get; } = new();
+
+        public List<Exception?> Exceptions { get; } = new();
 
         public IDisposable? BeginScope<TState>(TState state)
             where TState : notnull
@@ -80,6 +107,7 @@ public sealed class ExceptionMiddlewareTests
             Func<TState, Exception?, string> formatter)
         {
             Messages.Add(formatter(state, exception));
+            Exceptions.Add(exception);
         }
     }
 }

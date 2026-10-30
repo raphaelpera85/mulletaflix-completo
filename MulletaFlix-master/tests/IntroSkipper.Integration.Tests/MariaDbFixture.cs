@@ -29,10 +29,13 @@ namespace IntroSkipper.Integration.Tests;
 /// </summary>
 public sealed class MariaDbFixture : IAsyncLifetime
 {
-    /// <summary>Dedicated plugin schema, matching <c>PluginServiceRegistrator</c>.</summary>
-    public const string DatabaseName = "mulletaflix_introskipper";
+    /// <summary>Gets a unique plugin schema for this fixture instance.</summary>
+    public string DatabaseName { get; } = $"mfx_intro_test_{Guid.NewGuid():N}";
 
     private ServiceProvider? _services;
+    private MySqlConnector.MySqlConnectionStringBuilder? _adminConnection;
+    private string? _originalTestDatabaseName;
+    private bool _testDatabaseNameOverridden;
 
     /// <summary>Gets the schema context factory configured by the plugin registration.</summary>
     public IDbContextFactory<IntroSkipperDbContext> IntroSkipperContexts
@@ -59,42 +62,155 @@ public sealed class MariaDbFixture : IAsyncLifetime
         }
 
         var adminConnection = MariaDbTestEnvironment.GetAdminConnection();
-        // A cold schema: nothing may assume a previous run created anything.
-        Drop(adminConnection);
-        _services = BuildServices(adminConnection);
+        _adminConnection = adminConnection;
+        _originalTestDatabaseName = Environment.GetEnvironmentVariable("MULLETAFLIX_TEST_INTROSKIPPER_DATABASE");
+        Environment.SetEnvironmentVariable("MULLETAFLIX_TEST_INTROSKIPPER_DATABASE", DatabaseName);
+        _testDatabaseNameOverridden = true;
 
-        // Startup runs this from the hosted-service list. Resolving it by name keeps the
-        // fixture to the database path: the plugin's other hosted services need Jellyfin
-        // server internals that are out of scope here.
-        var initializerType = typeof(IIntroSkipperDatabase).Assembly
-            .GetType("IntroSkipper.Services.IntroSkipperDatabaseInitializer", throwOnError: true)!;
-        var initializer = (IHostedService)ActivatorUtilities.CreateInstance(_services, initializerType);
-        await initializer.StartAsync(CancellationToken.None);
+        try
+        {
+            // A cold, test-only schema: nothing may assume a previous run created anything.
+            Drop(adminConnection, DatabaseName);
+            _services = BuildServices(adminConnection);
+
+            // Startup runs this from the hosted-service list. Resolving it by name keeps the
+            // fixture to the database path: the plugin's other hosted services need Jellyfin
+            // server internals that are out of scope here.
+            var initializerType = typeof(IIntroSkipperDatabase).Assembly
+                .GetType("IntroSkipper.Services.IntroSkipperDatabaseInitializer", throwOnError: true)!;
+            var initializer = (IHostedService)ActivatorUtilities.CreateInstance(_services, initializerType);
+            await initializer.StartAsync(CancellationToken.None);
+
+            // Startup's warm-up is intentionally bounded and can continue in the
+            // background after its timeout. Await both shared gates before allowing
+            // teardown to drop this fixture's schema.
+            await _services.GetRequiredService<IIntroSkipperDatabase>().InitializeAsync();
+            if (!_services.GetRequiredService<IDetectionCacheDatabase>().TryInitialize())
+            {
+                throw new InvalidOperationException("IntroSkipper detection-cache schema initialization failed.");
+            }
+        }
+        catch (Exception initializationFailure)
+        {
+            var cleanupFailures = RunCleanupActions(
+                () =>
+                {
+                    try
+                    {
+                        _services?.Dispose();
+                    }
+                    finally
+                    {
+                        _services = null;
+                    }
+                },
+                () => Drop(adminConnection, DatabaseName),
+                () =>
+                {
+                    _adminConnection = null;
+                    RestoreTestDatabaseName();
+                });
+
+            if (cleanupFailures.Count > 0)
+            {
+                throw CombineInitializationFailure(initializationFailure, cleanupFailures);
+            }
+
+            throw;
+        }
     }
 
     /// <inheritdoc/>
     public ValueTask DisposeAsync()
     {
-        _services?.Dispose();
-        _services = null;
+        var cleanupFailures = RunCleanupActions(
+            () =>
+            {
+                try
+                {
+                    _services?.Dispose();
+                }
+                finally
+                {
+                    _services = null;
+                }
+            },
+            () =>
+            {
+                if (_adminConnection is not null)
+                {
+                    Drop(_adminConnection, DatabaseName);
+                }
+            },
+            () =>
+            {
+                _adminConnection = null;
+                RestoreTestDatabaseName();
+            });
+
+        if (cleanupFailures.Count == 1)
+        {
+            System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(cleanupFailures[0]).Throw();
+        }
+
+        if (cleanupFailures.Count > 1)
+        {
+            throw new AggregateException("Disposing and cleaning the isolated IntroSkipper MariaDB fixture both failed.", cleanupFailures);
+        }
+
         return ValueTask.CompletedTask;
+    }
+
+    private void RestoreTestDatabaseName()
+    {
+        if (_testDatabaseNameOverridden)
+        {
+            Environment.SetEnvironmentVariable("MULLETAFLIX_TEST_INTROSKIPPER_DATABASE", _originalTestDatabaseName);
+            _originalTestDatabaseName = null;
+            _testDatabaseNameOverridden = false;
+        }
     }
 
     /// <summary>
     /// Drops the plugin schema. Used before a run so a stale schema cannot make a broken
     /// creation path look healthy.
     /// </summary>
-    public static void Drop()
+    internal static List<Exception> RunCleanupActions(params Action[] actions)
     {
-        Drop(MariaDbTestEnvironment.GetAdminConnection());
+        var failures = new List<Exception>();
+        foreach (var action in actions)
+        {
+            try
+            {
+                action();
+            }
+            catch (Exception exception)
+            {
+                failures.Add(exception);
+            }
+        }
+
+        return failures;
     }
 
-    private static void Drop(MySqlConnector.MySqlConnectionStringBuilder adminConnection)
+    internal static Exception CombineInitializationFailure(Exception initializationFailure, IReadOnlyList<Exception> cleanupFailures)
+    {
+        if (cleanupFailures.Count == 0)
+        {
+            return initializationFailure;
+        }
+
+        var failures = new List<Exception>(cleanupFailures.Count + 1) { initializationFailure };
+        failures.AddRange(cleanupFailures);
+        return new AggregateException("Initializing and cleaning the isolated IntroSkipper MariaDB fixture both failed.", failures);
+    }
+
+    private static void Drop(MySqlConnector.MySqlConnectionStringBuilder adminConnection, string databaseName)
     {
         using var connection = new MySqlConnector.MySqlConnection(adminConnection.ConnectionString);
         connection.Open();
         using var command = connection.CreateCommand();
-        command.CommandText = $"DROP DATABASE IF EXISTS `{DatabaseName}`;";
+        command.CommandText = $"DROP DATABASE IF EXISTS `{databaseName}`;";
         command.ExecuteNonQuery();
     }
 
@@ -135,6 +251,9 @@ public sealed class MariaDbFixture : IAsyncLifetime
     {
         var services = new ServiceCollection();
         services.AddLogging(builder => builder.SetMinimumLevel(LogLevel.Warning));
+        var hostEnvironment = new Mock<IHostEnvironment>();
+        hostEnvironment.SetupGet(environment => environment.EnvironmentName).Returns("Testing");
+        services.AddSingleton(hostEnvironment.Object);
 
         var configuration = new DatabaseConfigurationOptions
         {

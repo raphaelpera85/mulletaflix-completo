@@ -104,10 +104,10 @@ Cada card deve apresentar claramente:
 
 ---
 
-## 5. Resiliência de Persistência no MySQL (.NET & Entity Framework)
+## 5. Resiliência de Persistência no MariaDB (.NET & Entity Framework)
 
 ### 5.1 Tratamento Obrigatório de Conflitos e Deadlocks Transitórios
-Tarefas em segundo plano (como `StrmProbeScheduledTask`, varreduras de biblioteca e ingestão do Nebula) executam operações concorrentes com inserções e remoções de metadados (`ItemValues` e `ItemValuesMap`). Operações de salvamento no MySQL devem obrigatoriamente tratar erros transitórios via retry com backoff progressivo:
+Tarefas em segundo plano (como `StrmProbeScheduledTask`, varreduras de biblioteca e ingestão do Nebula) executam operações concorrentes com inserções e remoções de metadados (`ItemValues` e `ItemValuesMap`). Operações de salvamento no MariaDB devem obrigatoriamente tratar erros transitórios via retry com backoff progressivo. `MySqlException` é o nome técnico da exceção exposta pelo driver e não indica uso de um servidor MySQL:
 - **1062**: Entrada duplicada em índices exclusivos (`IX_ItemValues_Type_Value`).
 - **1452**: Falha de chave estrangeira (`Cannot add or update a child row: a foreign key constraint fails`) decorrente de limpezas simultâneas de valores não referenciados.
 - **1213**: Deadlock detectado pelo motor InnoDB (`Deadlock found when trying to get lock`).

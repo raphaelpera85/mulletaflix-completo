@@ -1,5 +1,19 @@
 # Nebula STRM Downloader
 
+## Validação incremental — 2026-10-29 01:14 (-03)
+
+- Revisadas e revalidadas as alterações locais em andamento: resposta HTTP 206 sem `Content-Range` agora falha sem substituir mídia anterior; a detecção de fila ativa usa caminho e identidade (incluindo série/temporada/episódio), evitando bloquear títulos diferentes só por compartilharem o nome/episódio; o feeder detecta saída imediata no startup e valida opções booleanas; erro ao persistir prioridade solicitada é devolvido ao caller.
+- Evidência: suíte completa NebulaPython em Python 3.10.11: 672/672; suíte C# filtrada `FullyQualifiedName~Nebula`: 726 aprovados, 26 ignorados, 0 falhas/752; `NebulaMediaSuggestionTests` Release/.NET 10: 11/11; três módulos Python focalizados: 121/121. Um primeiro comando usou o Python global 3.13 sem pytest; repetição no venv local passou. O aviso de configuração futura do `pytest-asyncio` não afetou os resultados. Os 26 testes Mongo opt-in foram ignorados sem instância descartável.
+- Nenhum banco operacional, Telegram, downloader de produção, mídia ou serviço foi acessado/iniciado. Não houve teste Linux nativo, CI hospedada, runtime instalado, transferência real ou benchmark. A árvore de módulos, APIs e dependências permanece igual. Homologação formal 2/7; sem release nesta etapa.
+
+## Rechecagem de startup e envio — 2026-10-28 15:13 BRT
+
+- O novo log de produção ainda usa o watchdog de 45 s. O processo Python abre FTP `127.0.0.1:2121` e HTTP `127.0.0.1:2123` às 14:49:51; às 14:50:19–20 restaura uploads e inicia partes de quatro mídias; às 14:50:25 o host informa timeout de 45 s. O helper de montagem relata depois conexão recusada em `127.0.0.1:2121`.
+- Isso confirma que o worker chega a iniciar tarefas de envio, mas o supervisor encerra o startup como falha antes de declarar o serviço pronto. O caminho de tratamento da fonte solicita parar o worker ao falhar a prontidão; a sequência é compatível com a porta FTP ficar indisponível depois, embora o log não registre diretamente a chamada de parada nem conclusão de qualquer parte.
+- Consulta somente leitura em 2026-10-28: `/System/Info/Public` respondeu HTTP 200 com versão 12.1.45; `/health` em 2123 recusou conexão e não havia listener local em 2121/2123. Nenhum serviço foi reiniciado ou alterado.
+- A candidata local 12.1.46 usa timeout de prontidão de 120 s e inclui a última falha da sonda na mensagem de timeout. `NebulaDownloaderStartupTests` Release passou 35/35 nesta rechecagem; isso valida o teste/fonte, não o pacote instalado nem transferência Telegram real.
+- Pendente: empacotar/publicar após os gates vigentes, instalar em janela controlada, confirmar `/health` do PID correto, FTP 2121 e uma transferência completa. Homologação formal permanece 2/7 (28,6%).
+
 ## Rechecagem de falha TLS do provedor — 2026-10-27 18:19 BRT
 
 - O log anexado registra 95 falhas de download, todas com `TLSV1_UNRECOGNIZED_NAME`; o scan iniciou e encontrou títulos, mas não concluiu esses downloads.
@@ -529,7 +543,7 @@ The current read-only `GET http://127.0.0.1:8096/System/Info/Public` returned HT
 
 Para avançar nos testes de integração sem tocar no Mongo da produção (listener `127.0.0.1:27017`), foi iniciado um `mongod` temporário 8.3.7 somente em loopback `127.0.0.1:27099`, com diretório de dados exclusivo sob `.build/nebula-test-mongo-20261017-a`. A variável opt-in `MULLETAFLIX_TEST_MONGODB_CONNECTION_STRING` foi definida apenas no processo do `dotnet test`; os testes aceitam exclusivamente host/porta fixos e usam nomes de bancos isolados/aleatórios. `Category=RequiresMongo` em Release passou **21/21, 0 falhas, 0 skips**. O processo temporário foi encerrado e a porta 27099 fechou; o diretório de dados de teste permaneceu em `.build` após a política bloquear a remoção recursiva. Nenhum teste usou a porta 27017. Isso fecha uma lacuna dos testes de integração Mongo, mas não valida o download real via Telegram nem corrige a instalação 12.1.21; primeiro download em produção segue pendente.
 
-Na mesma instância descartável, a suíte completa `Jellyfin.Server.Implementations.Tests` Release passou **1.473 aprovados, 39 ignorados, 0 falhas (1.512 total)** em 1m42s. Os 21 testes `RequiresMongo` passaram; os demais skips ainda incluem dependências de MySQL/plataforma e benchmarks. O processo de teste Mongo foi encerrado e a porta 27099 fechou. Isso não executa integração end-to-end com Telegram nem comprova primeira transferência.
+Na mesma instância descartável, a suíte completa `Jellyfin.Server.Implementations.Tests` Release passou **1.473 aprovados, 39 ignorados, 0 falhas (1.512 total)** em 1m42s. Os 21 testes `RequiresMongo` passaram; os demais skips ainda incluem dependências de MariaDB/plataforma e benchmarks. O processo de teste Mongo foi encerrado e a porta 27099 fechou. Isso não executa integração end-to-end com Telegram nem comprova primeira transferência.
 
 ## Recheck de início reportado pelo usuário — 2026-10-17 02:42 (-03)
 
@@ -844,3 +858,54 @@ Após nova auditoria, a API ativa ainda responde **12.1.21** e não havia worker
 - Defeito de observabilidade confirmado: após até três tentativas, a falha do download da imagem é capturada e apenas registrada como warning; não incrementa `RefreshResult.Failures`. Isso permite atualizar metadados e concluir a atualização sem sinalizar a falha de imagem neste estágio.
 - Limite da confirmação: não havia log de produção atual nem resposta de imagem/API para os títulos do screenshot. Assim, os defeitos de fonte explicam casos compatíveis, mas não atribuo a eles todos os posters azuis nem confirmo que cada item afetado tenha recebido múltiplas imagens. Nenhuma produção, item ou imagem foi alterado.
 - Verificações: fluxo percorrido em `MetadataService`, `ProviderManager`, `ImageSaver`, `ItemImageProvider` e `BaseItem.ValidateImages`; suítes servidor/Python já concluídas nesta sessão. Testes de regressão específicos de múltiplas imagens Primary e falha remota ainda não existem. Mapa técnico conferido: sem mudança de estrutura. Detalhes: `docs/image-metadata-flow-audit.md`.
+
+## Retry durável do refresh VFS
+
+Após upload concluído, o caminho virtual é normalizado e persistido na coleção Mongo `nebula_directory_refreshes` antes de entrar na fila de refresh do rclone. A fila remove o registro persistido somente após a confirmação do refresh do diretório ou dos ancestrais; exceções de rede, recusas do rclone e falta de readiness são erros para a fila, que retenta após 30 segundos. No próximo ciclo imediato/periódico, registros ainda pendentes são reidratados, incluindo os deixados por uma parada do servidor. Diretórios são deduplicados por `_id` canônico.
+
+O caminho persistido deve estar sob uma raiz visível (Animações, Filmes, Séries, Doramas, Novelas ou Porno) e rejeita segmentos de traversal. A coleção é criada por `EnsureSchemaAsync`; não requer instalação manual. A varredura de `completed_at` de 30 minutos continua como reconciliação secundária para uploads cujo marker não pôde ser persistido. Se Mongo estiver indisponível ao gravar, refresh atual segue em memória e a janela de 30 minutos pode recuperar a conclusão quando Mongo voltar; para falha além da janela, esse marker ainda não existe.
+
+Validação local Release Windows/.NET 10: testes Nebula 716 aprovados, 26 ignorados, 0 falhas/742. O teste de persistência entre contextos exige Mongo descartável e foi ignorado nesta execução; CI, runtime instalado e produção pendentes.
+
+### Complemento — snapshot da fila persistente no Supabase
+
+A tabela `nebula_directory_refreshes` foi adicionada ao SQL de instalação Supabase com RLS apenas para `service_role`. Backup sincroniza o conjunto atual por caminho canônico e remove rows remotas concluídas; restore reidrata paths usando o mesmo guard de raiz visível. Resultado de backup/restore expõe contagens de refreshes sincronizados/restaurados. Suíte ampla `FullyQualifiedName~Nebula`: 718 aprovados, 26 ignorados, 0 falhas/744; os testes Mongo opt-in não executaram sem Mongo disponível. Schema remoto real, CI hospedada, runtime instalado e produção seguem pendentes.
+
+### Revalidação com Mongo descartável e schema instalado — 2026-10-28
+
+MongoDB 8.3.7 isolado em `127.0.0.1:27099` habilitou todos os testes da suíte Nebula: 744 aprovados, 0 ignorados, 0 falhas. A migration `20261028125319` foi aplicada ao Supabase `Mulletaflix-Nebula`; tabela vazia e ACL/RLS conferidos por catálogo: apenas `service_role` tem SELECT/INSERT/UPDATE/DELETE. HTTP de sync/restore continuou mockado; CI, runtime instalado e execução de backup de produção não foram validados.
+
+### 28/10/2026 — Remediação dos advisors Supabase
+
+A migration `20261028130514_supabase_advisor_cleanup` fixa `search_path` vazio na trigger `set_nebula_updated_at`, remove o índice duplicado `idx_mulletaflix_users_username` e elimina `idx_nebula_files_parent`, sem scans e sem callers do campo no código. A uniqueness canônica `mulletaflix_users_normalized_username_key` permanece; C# setup cria/garante essa chave sem a duplicata e C#/Python setup não recriam `parent`. Advisors security e performance retornaram sem findings. Testes C# e Python focais passaram 1/1 cada. CI hospedada, runtime instalado e produção do servidor seguem pendentes.
+
+### Reserva de disco fail-closed no downloader — 2026-10-29 02:16 BRT
+
+- `feed_ftp.check_disk_space` agora pausa a fila quando não consegue selecionar/inspecionar o staging; erros de permissão ou volume indisponível em `wait_for_disk_capacity` são retentados, sem iniciar gravação.
+- `strm_downloader.wait_for_disk_capacity` também retenta erros de sondagem. A resposta sem suporte a `Range` fecha a sondagem, valida capacidade antes de um GET sequencial e revalida espaço antes de gravar cada bloco; se `Content-Length` existir, a reserva considera o arquivo completo.
+- Regressões cobrem erro transitório da sondagem nos dois workers e verificam que o fluxo sequencial confirma capacidade antes/durante a gravação. Nebula Python 3.10: 674/674; `compileall` e `git diff --check` passaram. Aviso existente de configuração `pytest-asyncio` permanece.
+- Sem I/O de rede real, teste de disco cheio prolongado, runtime instalado ou produção. Falhas permanentes de sondagem mantêm o download pausado com retentativas; release e homologação formal não avançaram (2/7). MariaDB é o único banco relacional operacional.
+
+### Validação de origem e gravação de imagens — 2026-10-29
+
+O feeder agora rejeita qualquer HTTP 206 sem `Content-Range` numérico e compatível com o intervalo pedido. Só HTTP 200 pode seguir pelo fallback de arquivo sequencial; códigos inesperados falham. O teste de regressão demonstrou que antes a resposta parcial era gravada como arquivo completo, e confirma que um destino existente continua intacto.
+
+`SaveImagesAsync` usa a mesma trava por faixa de ID de `SaveItems`, evitando concorrência entre a atualização de imagens e o upsert de metadados do mesmo item. A integração concorrente contra MariaDB continua pendente.
+
+Validação Windows/.NET 10 Release: solução inteira, 17 assemblies, 5.363 aprovados, 273 ignorados, 0 falhas/5.636 resultados, exit 0. Nebula Python: 682/682; compileall aprovado. Integração MariaDB opt-in, CI, Linux, runtime instalado e produção não foram validados. MariaDB é o único banco relacional operacional.
+
+O teste MariaDB `SaveImagesAsync_ConcurrentWritesForSameItem_DoNotMixImageSets` cobre 20 escritas concorrentes de dois conjuntos de imagens do mesmo item e exige que a leitura final corresponda a um conjunto completo. Foi compilado, mas ignorado (1/1) sem conexão descartável. A execução integral .NET foi repetida depois: 5.363 aprovados, 274 ignorados, zero falhas/5.637 resultados. Esses skips aguardam MariaDB de teste; não são homologação.
+
+Publicação portal Git `main`: `ba195f1d16e91caf4c586f3890074ed01105ba68`, contrato 377/377 e SHA remoto conferido. Nenhum deployment Vercel foi verificado.
+
+### Retenção de partes concluídas quando uma parte multipart falha — 2026-10-29
+
+download_strm_multipart agora aguarda cada future já enviado antes de propagar a primeira exceção. Isso evita que executor.map cancele uma tarefa ainda pendente e descarte uma parte que poderia ser reaproveitada na retomada. O destino final e as partes parciais continuam sob a política existente de commit após validação.
+
+Evidência: teste completo Python 3.10 682/682; teste específico de retomada 20/20 repetições; compileall passou. Testes usam respostas HTTP simuladas e arquivos temporários; nenhuma transferência real foi iniciada. O fallback e o tratamento HTTP existente não foram alterados nesta rodada.
+
+### Regressão Nebula Python — 2026-10-29
+
+A suíte atual da venv Python 3.10.11 passou 682/682 em 10,63 s; `compileall -q .` passou. Execução unitária local, sem Telegram, FTP, MongoDB, mídia ou servidor instalado. Não substitui integração/runtime nem altera homologação formal (2/7).
+
+Portal Git `main` atualizado com a suíte Nebula, commit `439bea42b5402844ef5d2c52f1d5a546b5bb887c`; contrato 384/384 e SHA remoto confirmado. Deployment Vercel não verificado.

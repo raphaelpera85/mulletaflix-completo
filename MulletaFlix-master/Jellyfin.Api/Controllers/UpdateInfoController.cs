@@ -14,6 +14,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using MediaBrowser.Common.Api;
 using MediaBrowser.Common.Configuration;
+using MediaBrowser.Common.Updates;
 using MediaBrowser.Controller;
 using MediaBrowser.Model.System;
 using Microsoft.AspNetCore.Authorization;
@@ -34,6 +35,8 @@ public class UpdateInfoController : BaseMulletaFlixApiController
     private const string GitHubTokenEnv = "MulletaFlix_GITHUB_TOKEN";
     private const string DefaultGitHubRepo = "raphaelpera85/mulletaflix-completo";
     private const string DefaultGitHubApiUrl = $"https://api.github.com/repos/{DefaultGitHubRepo}/releases";
+    private const string GitHubReleaseAssetPathPrefix = "/raphaelpera85/mulletaflix-completo/releases/download/";
+    private const string EmbeddedUpdaterResource = "MulletaFlix.Api.Update.apply-update.ps1";
 
     private static readonly object SyncLock = new();
     private static string _installState = "Idle"; // Idle, Downloading, Extracting, ReadyToApply, Applying, Failed
@@ -49,6 +52,7 @@ public class UpdateInfoController : BaseMulletaFlixApiController
     private readonly ISystemManager _systemManager;
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly ILogger<UpdateInfoController> _logger;
+    private readonly Func<ProcessStartInfo, Process?> _processLauncher;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="UpdateInfoController"/> class.
@@ -64,12 +68,24 @@ public class UpdateInfoController : BaseMulletaFlixApiController
         ISystemManager systemManager,
         IHttpClientFactory httpClientFactory,
         ILogger<UpdateInfoController> logger)
+        : this(applicationHost, applicationPaths, systemManager, httpClientFactory, logger, null)
+    {
+    }
+
+    internal UpdateInfoController(
+        IServerApplicationHost applicationHost,
+        IApplicationPaths applicationPaths,
+        ISystemManager systemManager,
+        IHttpClientFactory httpClientFactory,
+        ILogger<UpdateInfoController> logger,
+        Func<ProcessStartInfo, Process?>? processLauncher)
     {
         _applicationHost = applicationHost;
         _applicationPaths = applicationPaths;
         _systemManager = systemManager;
         _httpClientFactory = httpClientFactory;
         _logger = logger;
+        _processLauncher = processLauncher ?? (startInfo => Process.Start(startInfo));
     }
 
     /// <summary>
@@ -109,7 +125,7 @@ public class UpdateInfoController : BaseMulletaFlixApiController
                     info.AvailableVersion = remoteVersion.ToString(3);
                     info.UpdateAvailable = remoteVersion > _applicationHost.ApplicationVersion;
                     info.Changelog = changelog;
-                    info.ArchiveUrl = archiveUrl;
+                    info.ArchiveUrl = IsAllowedGitHubReleaseArchiveUrl(archiveUrl) ? archiveUrl : null;
                     info.PackageSize = size;
                 }
                 else if (TryParseCustomManifest(contentString, out var customVersion, out var customChangelog, out var customUrl))
@@ -117,12 +133,12 @@ public class UpdateInfoController : BaseMulletaFlixApiController
                     info.AvailableVersion = customVersion.ToString(3);
                     info.UpdateAvailable = customVersion > _applicationHost.ApplicationVersion;
                     info.Changelog = customChangelog;
-                    info.ArchiveUrl = customUrl;
+                    info.ArchiveUrl = IsAllowedGitHubReleaseArchiveUrl(customUrl) ? customUrl : null;
                 }
             }
             else
             {
-            _logger.LogWarning("Update check returned HTTP status {StatusCode}.", response.StatusCode);
+                _logger.LogWarning("Update check returned HTTP status {StatusCode}.", response.StatusCode);
             }
 
             info.LastCheckedAt = DateTime.UtcNow;
@@ -235,6 +251,11 @@ public class UpdateInfoController : BaseMulletaFlixApiController
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     public async Task<ActionResult> InstallUpdate([FromQuery] string? archiveUrl, [FromQuery] bool force = false)
     {
+        if (!string.IsNullOrWhiteSpace(archiveUrl) && !IsAllowedGitHubReleaseArchiveUrl(archiveUrl))
+        {
+            return BadRequest(new { Message = "The update archive URL is not an approved MulletaFlix release asset." });
+        }
+
         lock (SyncLock)
         {
             if (_installState is "Downloading" or "Extracting" or "Applying")
@@ -261,7 +282,12 @@ public class UpdateInfoController : BaseMulletaFlixApiController
             }
         }
 
-        StartBackgroundDownload(archiveUrl, availableVersion);
+        if (!IsAllowedGitHubReleaseArchiveUrl(archiveUrl))
+        {
+            return BadRequest(new { Message = "No approved MulletaFlix release archive URL is available." });
+        }
+
+        StartBackgroundDownload(archiveUrl!, availableVersion);
         return Accepted(new { Message = "Update download started in background.", State = _installState, Progress = _installProgress });
     }
 
@@ -289,37 +315,47 @@ public class UpdateInfoController : BaseMulletaFlixApiController
             updateSource = _extractedUpdatePath;
         }
 
-        var installDir = AppContext.BaseDirectory.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-        var dataDir = _applicationPaths.ProgramDataPath;
-        var pid = Environment.ProcessId;
-
-        // Always execute updater script from updatesDir (outside installDir) to prevent file locks on installDir
-        var updatesDir = Path.Combine(dataDir, "updates");
-        Directory.CreateDirectory(updatesDir);
-        var scriptPath = Path.Combine(updatesDir, "apply-update.ps1");
-
-        var installScriptPath = Path.Combine(installDir, "apply-update.ps1");
-        if (System.IO.File.Exists(installScriptPath))
+        try
         {
-            System.IO.File.Copy(installScriptPath, scriptPath, true);
+            var installDir = AppContext.BaseDirectory.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            var dataDir = _applicationPaths.ProgramDataPath;
+            var pid = Environment.ProcessId;
+
+            // Always execute updater script from updatesDir (outside installDir) to prevent file locks on installDir
+            var updatesDir = Path.Combine(dataDir, "updates");
+            Directory.CreateDirectory(updatesDir);
+            var scriptPath = Path.Combine(updatesDir, "apply-update.ps1");
+            WriteEmbeddedUpdaterScript(scriptPath);
+
+            _logger.LogInformation("Launching in-place updater: {ScriptPath} with source {Source} target {Target} PID {Pid}", scriptPath, updateSource, installDir, pid);
+
+            var startInfo = new ProcessStartInfo
+            {
+                FileName = "powershell.exe",
+                Arguments = $"-WindowStyle Hidden -ExecutionPolicy Bypass -File \"{scriptPath}\" -InstallDirectory \"{installDir}\" -UpdateSourceDirectory \"{updateSource}\" -ProcessId {pid} -DataDirectory \"{dataDir}\"",
+                UseShellExecute = true,
+                CreateNoWindow = true,
+                Verb = "runas"
+            };
+
+            if (_processLauncher(startInfo) is null)
+            {
+                throw new InvalidOperationException("The operating system did not start the updater process.");
+            }
         }
-        else
+        catch (Exception ex)
         {
-            System.IO.File.WriteAllText(scriptPath, EmbeddedUpdaterScript);
+            const string message = "The updater could not be started. The downloaded package is still available; try applying it again.";
+            lock (SyncLock)
+            {
+                _installState = "ReadyToApply";
+                _installProgress = 100;
+                _installError = message;
+            }
+
+            _logger.LogError(ex, "Could not launch the in-place updater; restoring the update state to ReadyToApply.");
+            return StatusCode(StatusCodes.Status500InternalServerError, new { Message = message, State = _installState, Progress = _installProgress });
         }
-
-        _logger.LogInformation("Launching in-place updater: {ScriptPath} with source {Source} target {Target} PID {Pid}", scriptPath, updateSource, installDir, pid);
-
-        var startInfo = new ProcessStartInfo
-        {
-            FileName = "powershell.exe",
-            Arguments = $"-WindowStyle Hidden -ExecutionPolicy Bypass -File \"{scriptPath}\" -InstallDirectory \"{installDir}\" -UpdateSourceDirectory \"{updateSource}\" -ProcessId {pid} -DataDirectory \"{dataDir}\"",
-            UseShellExecute = true,
-            CreateNoWindow = true,
-            Verb = "runas"
-        };
-
-        Process.Start(startInfo);
 
         // Schedule server shutdown to release DLL and file locks
         _ = Task.Run(async () =>
@@ -332,16 +368,20 @@ public class UpdateInfoController : BaseMulletaFlixApiController
         return new OkObjectResult(new { Message = "Update application started. Server is shutting down to apply updates." });
     }
 
-    private HttpClient CreateConfiguredClient()
+    internal HttpClient CreateConfiguredClient(bool includeGitHubToken = true)
     {
         var client = _httpClientFactory.CreateClient();
         client.DefaultRequestHeaders.UserAgent.Clear();
         client.DefaultRequestHeaders.UserAgent.Add(new ProductInfoHeaderValue("MulletaFlix", _applicationHost.ApplicationVersionString));
 
         var token = Environment.GetEnvironmentVariable(GitHubTokenEnv);
-        if (!string.IsNullOrWhiteSpace(token))
+        if (includeGitHubToken && !string.IsNullOrWhiteSpace(token))
         {
             client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        }
+        else
+        {
+            client.DefaultRequestHeaders.Authorization = null;
         }
 
         return client;
@@ -517,6 +557,11 @@ public class UpdateInfoController : BaseMulletaFlixApiController
 
     private async Task DownloadAndPrepareUpdateAsync(string archiveUrl, string? availableVersion, CancellationToken cancellationToken)
     {
+        if (!IsAllowedGitHubReleaseArchiveUrl(archiveUrl))
+        {
+            throw new InvalidOperationException("The update archive URL is not an approved MulletaFlix release asset.");
+        }
+
         var updatesDir = Path.Combine(_applicationPaths.ProgramDataPath, "updates");
         Directory.CreateDirectory(updatesDir);
 
@@ -535,9 +580,16 @@ public class UpdateInfoController : BaseMulletaFlixApiController
 
         // 1. Download
         _logger.LogInformation("Downloading update package to {Dest}.", packageZip);
-        var client = CreateConfiguredClient();
+        // GitHub credentials are only needed for the release API. Never attach them to asset
+        // downloads, which can redirect to a separate GitHub-owned host.
+        var client = CreateConfiguredClient(includeGitHubToken: false);
         using (var response = await client.GetAsync(archiveUrl, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false))
         {
+            if (!IsAllowedGitHubArchiveResponseUri(response.RequestMessage?.RequestUri))
+            {
+                throw new InvalidOperationException("The update archive redirected to an unapproved host.");
+            }
+
             response.EnsureSuccessStatusCode();
 
             var totalBytes = response.Content.Headers.ContentLength ?? -1L;
@@ -605,6 +657,47 @@ public class UpdateInfoController : BaseMulletaFlixApiController
         _logger.LogInformation("Update package is ready to be applied from {ExtractDir} upon user approval.", extractDir);
     }
 
+    internal static bool IsAllowedGitHubReleaseArchiveUrl(string? archiveUrl)
+    {
+        if (!Uri.TryCreate(archiveUrl, UriKind.Absolute, out var uri)
+            || uri.Scheme != Uri.UriSchemeHttps
+            || !string.IsNullOrEmpty(uri.UserInfo)
+            || uri.Port != 443
+            || !string.Equals(uri.IdnHost, "github.com", StringComparison.OrdinalIgnoreCase)
+            || !string.IsNullOrEmpty(uri.Query)
+            || !string.IsNullOrEmpty(uri.Fragment))
+        {
+            return false;
+        }
+
+        var decodedPath = Uri.UnescapeDataString(uri.AbsolutePath);
+        if (!decodedPath.StartsWith(GitHubReleaseAssetPathPrefix, StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        var assetPath = decodedPath[GitHubReleaseAssetPathPrefix.Length..];
+        var segments = assetPath.Split('/');
+        return segments.Length >= 2
+            && segments.All(segment => !string.IsNullOrWhiteSpace(segment) && segment is not "." and not "..")
+            && !assetPath.Contains("\\", StringComparison.Ordinal);
+    }
+
+    internal static bool IsAllowedGitHubArchiveResponseUri(Uri? uri)
+    {
+        if (uri is null
+            || uri.Scheme != Uri.UriSchemeHttps
+            || !string.IsNullOrEmpty(uri.UserInfo)
+            || uri.Port != 443)
+        {
+            return false;
+        }
+
+        return IsAllowedGitHubReleaseArchiveUrl(uri.AbsoluteUri)
+            || string.Equals(uri.IdnHost, "release-assets.githubusercontent.com", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(uri.IdnHost, "objects.githubusercontent.com", StringComparison.OrdinalIgnoreCase);
+    }
+
     internal static bool TryParseGitHubRelease(string json, out Version version, out string? changelog, out string? archiveUrl, out long? size)
     {
         version = new Version(0, 0, 0);
@@ -635,11 +728,12 @@ public class UpdateInfoController : BaseMulletaFlixApiController
             }
 
             GitHubReleasePayload? bestRelease = null;
+            GitHubReleaseAsset? bestArchive = null;
             var bestVersion = new Version(0, 0, 0);
 
             foreach (var release in candidates)
             {
-                if (string.IsNullOrWhiteSpace(release.TagName))
+                if (release.Prerelease || string.IsNullOrWhiteSpace(release.TagName))
                 {
                     continue;
                 }
@@ -656,8 +750,7 @@ public class UpdateInfoController : BaseMulletaFlixApiController
                     continue;
                 }
 
-                // Server release must include a .zip package
-                var zipAsset = release.Assets?.FirstOrDefault(a => a.Name.EndsWith(".zip", StringComparison.OrdinalIgnoreCase));
+                var zipAsset = ServerUpdateArchiveSelector.Select(release.Assets, asset => asset.Name);
                 if (zipAsset == null)
                 {
                     continue;
@@ -667,16 +760,16 @@ public class UpdateInfoController : BaseMulletaFlixApiController
                 {
                     bestVersion = parsed;
                     bestRelease = release;
+                    bestArchive = zipAsset;
                 }
             }
 
-            if (bestRelease != null && bestVersion > new Version(0, 0, 0))
+            if (bestRelease != null && bestArchive != null && bestVersion > new Version(0, 0, 0))
             {
                 version = bestVersion;
                 changelog = bestRelease.Body;
-                var zipAsset = bestRelease.Assets!.First(a => a.Name.EndsWith(".zip", StringComparison.OrdinalIgnoreCase));
-                archiveUrl = zipAsset.BrowserDownloadUrl;
-                size = zipAsset.Size;
+                archiveUrl = bestArchive.BrowserDownloadUrl;
+                size = bestArchive.Size;
                 return true;
             }
 
@@ -715,69 +808,13 @@ public class UpdateInfoController : BaseMulletaFlixApiController
         }
     }
 
-    private const string EmbeddedUpdaterScript = @"param([string]$InstallDirectory, [string]$UpdateSourceDirectory, [int]$ProcessId, [string]$DataDirectory)
-$ErrorActionPreference = 'Continue'
-$logFile1 = Join-Path $InstallDirectory 'update.log'
-$logFile2 = Join-Path $env:TEMP 'mulletaflix-update.log'
-
-function Log([string]$Message) {
-    $ts = Get-Date -Format 'yyyy-MM-dd HH:mm:ss'
-    $line = ""$ts [UPDATE] $Message""
-    try { $line | Out-File -FilePath $logFile1 -Append -Encoding utf8 } catch {}
-    try { $line | Out-File -FilePath $logFile2 -Append -Encoding utf8 } catch {}
-}
-
-Log ""Starting in-place update for MulletaFlix.""
-Log ""InstallDirectory: $InstallDirectory""
-Log ""UpdateSourceDirectory: $UpdateSourceDirectory""
-Log ""Target ProcessId: $ProcessId""
-
-$waited = 0
-while ((Get-Process -Id $ProcessId -ErrorAction SilentlyContinue) -and ($waited -lt 30)) { Start-Sleep -Seconds 1; $waited++ }
-
-$targetProcesses = @('MulletaFlix', 'MulletaFlix.Windows.Tray', 'jellyfin')
-foreach ($procName in $targetProcesses) {
-    Get-Process -Name $procName -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
-}
-Start-Sleep -Seconds 3
-
-Log ""Copying update files using robocopy...""
-$p = Start-Process -FilePath ""robocopy.exe"" -ArgumentList ""`""$UpdateSourceDirectory`"" `""$InstallDirectory`"" /E /R:5 /W:2 /NP /NFL /NDL /XF apply-update.ps1 *.log *.tmp"" -Wait -PassThru -NoNewWindow
-$exitCode = $p.ExitCode
-Log ""Robocopy finished with exit code: $exitCode""
-
-if ($exitCode -lt 8) {
-    Log ""Files copied successfully.""
-    try { Remove-Item -LiteralPath $UpdateSourceDirectory -Recurse -Force -ErrorAction SilentlyContinue } catch {}
-    if ($DataDirectory) {
-        $stateFile = Join-Path $DataDirectory 'updates\update_state.json'
-        $pkgZip = Join-Path $DataDirectory 'updates\package.zip'
-        if (Test-Path -LiteralPath $stateFile) { Remove-Item -LiteralPath $stateFile -Force -ErrorAction SilentlyContinue }
-        if (Test-Path -LiteralPath $pkgZip) { Remove-Item -LiteralPath $pkgZip -Force -ErrorAction SilentlyContinue }
+    internal static void WriteEmbeddedUpdaterScript(string destinationPath)
+    {
+        using var updaterScript = typeof(UpdateInfoController).Assembly.GetManifestResourceStream(EmbeddedUpdaterResource)
+            ?? throw new InvalidOperationException($"Embedded updater resource '{EmbeddedUpdaterResource}' is missing.");
+        using var destination = new FileStream(destinationPath, FileMode.Create, FileAccess.Write, FileShare.None);
+        updaterScript.CopyTo(destination);
     }
-} else {
-    Log ""ERROR: Robocopy failed with exit code $exitCode.""
-}
-
-$service = Get-Service -Name 'MulletaFlixServer' -ErrorAction SilentlyContinue
-if ($service) {
-    Log ""Starting MulletaFlixServer service...""
-    Start-Service -Name 'MulletaFlixServer' -ErrorAction SilentlyContinue
-} else {
-    $exePath = Join-Path $InstallDirectory 'MulletaFlix.exe'
-    if (Test-Path -LiteralPath $exePath) {
-        Log ""Starting MulletaFlix.exe...""
-        $args = if ($DataDirectory) { ""--datadir `""$DataDirectory`"""" } else { """" }
-        Start-Process -FilePath $exePath -ArgumentList $args -WorkingDirectory $InstallDirectory -WindowStyle Hidden
-    }
-}
-$trayPath = Join-Path $InstallDirectory 'mulletaflix-windows-tray\MulletaFlix.Windows.Tray.exe'
-if (Test-Path -LiteralPath $trayPath) {
-    Log ""Starting MulletaFlix.Windows.Tray.exe...""
-    Start-Process -FilePath $trayPath -WorkingDirectory (Join-Path $InstallDirectory 'mulletaflix-windows-tray')
-}
-Log ""In-place update finished.""
-";
 
     /// <summary>
     /// Compara se todos os arquivos do pacote de atualização já estão presentes e são idênticos aos arquivos instalados.
@@ -886,6 +923,9 @@ Log ""In-place update finished.""
 
         [JsonPropertyName("assets")]
         public GitHubReleaseAsset[]? Assets { get; set; }
+
+        [JsonPropertyName("prerelease")]
+        public bool Prerelease { get; set; }
     }
 
     private sealed class GitHubReleaseAsset

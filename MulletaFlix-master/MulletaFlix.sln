@@ -70,7 +70,7 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Jellyfin.Server.Integration
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "IntroSkipper.Integration.Tests", "tests\IntroSkipper.Integration.Tests\IntroSkipper.Integration.Tests.csproj", "{7C1E5D44-9A6B-4F2B-9E4D-3B5F0A7C8D21}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "MulletaFlix.IntroSkipperMigration", "tools\MulletaFlix.IntroSkipperMigration\MulletaFlix.IntroSkipperMigration.csproj", "{3F2A8C71-5D64-4E19-9B02-6C8E1A4D7F30}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "MulletaFlix.IntroSkipperMigration", "Tools\MulletaFlix.IntroSkipperMigration\MulletaFlix.IntroSkipperMigration.csproj", "{3F2A8C71-5D64-4E19-9B02-6C8E1A4D7F30}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Jellyfin.Providers.Tests", "tests\Jellyfin.Providers.Tests\Jellyfin.Providers.Tests.csproj", "{A964008C-2136-4716-B6CB-B3426C22320A}"
 EndProject

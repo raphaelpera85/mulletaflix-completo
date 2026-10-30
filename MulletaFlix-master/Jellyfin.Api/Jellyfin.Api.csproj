@@ -50,6 +50,7 @@
   <ItemGroup>
     <EmbeddedResource Include="Web\NebulaFTP\configPage.html" LogicalName="MulletaFlix.Api.Web.NebulaFTP.configPage.html" />
     <EmbeddedResource Include="Web\NebulaFTP\configPage.js" LogicalName="MulletaFlix.Api.Web.NebulaFTP.configPage.js" />
+    <EmbeddedResource Include="..\..\MulletaFlix-packaging-master\MulletaFlix-ux-custom\nsis\apply-update.ps1" LogicalName="MulletaFlix.Api.Update.apply-update.ps1" />
   </ItemGroup>
 
 </Project>

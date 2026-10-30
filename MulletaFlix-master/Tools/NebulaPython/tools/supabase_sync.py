@@ -7,14 +7,16 @@ from __future__ import annotations
 import os
 import sys
 import time
-import json
 import asyncio
+import base64
+import json
 import logging
 import argparse
 import urllib.request
 import urllib.error
 from os import environ
 from datetime import datetime, timezone
+from decimal import Decimal
 from typing import Optional, Dict, Any, List, Union
 from pathlib import Path
 
@@ -27,8 +29,9 @@ except ImportError:  # pragma: no cover
     create_client = None  # type: ignore
 
 from motor.motor_asyncio import AsyncIOMotorClient
-from pymongo import MongoClient
-from bson import ObjectId
+from pymongo import MongoClient, ReplaceOne
+from bson import BSON, ObjectId
+from bson.decimal128 import Decimal128
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -111,25 +114,25 @@ class SupabaseSync:
         try:
             db = self._mongo_client[self.mongo_db]
             collection = db[collection_name]
+            source_count = await collection.count_documents(query or {})
 
             cursor = collection.find(query or {}).limit(limit)
             documents = []
             async for doc in cursor:
-                doc["_id"] = str(doc["_id"])
-                # Convert datetime objects to ISO strings
-                for key, value in doc.items():
-                    if isinstance(value, datetime):
-                        doc[key] = value.isoformat()
-                    elif isinstance(value, ObjectId):
-                        doc[key] = str(value)
-                documents.append(doc)
+                documents.append(base64.b64encode(BSON.encode(doc)).decode("ascii"))
+
+            if len(documents) != source_count:
+                return {
+                    "success": False,
+                    "error": f"Backup limit {limit} would truncate {collection_name}; no snapshot was saved",
+                }
 
             # Insert into Supabase
             backup_record = {
                 "collection": collection_name,
                 "database": self.mongo_db,
-                "document_count": len(documents),
-                "data": documents,
+                "document_count": source_count,
+                "data": {"version": 4, "documents": documents},
                 "created_at": datetime.now(timezone.utc).isoformat(),
                 "query": query or {},
             }
@@ -182,30 +185,79 @@ class SupabaseSync:
                 return {"success": False, "error": "No backup found"}
 
             backup = result.data[0]
-            documents = backup.get("data", [])
+            snapshot = backup.get("data")
+            snapshot_version = snapshot.get("version") if isinstance(snapshot, dict) else None
+            documents = snapshot if isinstance(snapshot, list) and (backup_id or not backup.get("query")) else snapshot.get("documents") if (
+                isinstance(snapshot, dict)
+                and type(snapshot_version) is int
+                and snapshot_version in (2, 4)
+            ) else None
+            if (
+                not isinstance(documents, list)
+                or type(backup.get("document_count")) is not int
+                or backup["document_count"] != len(documents)
+            ):
+                return {"success": False, "error": "Incomplete or invalid backup data"}
 
-            # Convert string IDs back to ObjectId
+            if snapshot_version == 4:
+                try:
+                    documents = [
+                        BSON(base64.b64decode(doc, validate=True)).decode()
+                        for doc in documents
+                    ]
+                except Exception:
+                    return {"success": False, "error": "Incomplete or invalid backup data"}
+
+            if any(not isinstance(doc, dict) or "_id" not in doc for doc in documents):
+                return {"success": False, "error": "Incomplete or invalid backup data"}
+
+            if not backup_id and backup.get("query"):
+                return {"success": False, "error": "Full restore rejects query-filtered backup"}
+
+            if snapshot_version in (None, 2):
+                # Versions 1 and 2 cannot distinguish BSON dates from ISO-looking strings.
+                for doc in documents:
+                    if isinstance(doc["_id"], str) and len(doc["_id"]) == 24:
+                        doc["_id"] = ObjectId(doc["_id"])
+                    for key, value in doc.items():
+                        if isinstance(value, str):
+                            try:
+                                doc[key] = datetime.fromisoformat(value.replace("Z", "+00:00"))
+                            except ValueError:
+                                pass
+
+            seen_ids = set()
             for doc in documents:
-                if "_id" in doc:
-                    doc["_id"] = ObjectId(doc["_id"])
-                # Convert ISO strings back to datetime
-                for key, value in doc.items():
-                    if isinstance(value, str):
-                        try:
-                            doc[key] = datetime.fromisoformat(value.replace("Z", "+00:00"))
-                        except ValueError:
-                            pass
+                item_id = doc["_id"]
+                if isinstance(item_id, bool):
+                    id_key = ("bool", item_id)
+                elif isinstance(item_id, (int, float, Decimal128)):
+                    if isinstance(item_id, Decimal128):
+                        number = item_id.to_decimal()
+                    elif isinstance(item_id, float):
+                        number = Decimal.from_float(item_id)
+                    else:
+                        number = Decimal(item_id)
+                    id_key = ("number", "NaN" if number.is_nan() else number)
+                else:
+                    id_key = ("bson", BSON.encode({"_id": item_id}))
+                if id_key in seen_ids:
+                    return {"success": False, "error": "Incomplete or invalid backup data"}
+                seen_ids.add(id_key)
 
             # Restore to MongoDB
             db = self._mongo_client[self.mongo_db]
             collection = db[collection_name]
 
-            # Clear existing if restoring full backup
-            if not backup_id:
-                await collection.delete_many({})
-
+            restored_ids = [doc["_id"] for doc in documents]
             if documents:
-                await collection.insert_many(documents)
+                await collection.bulk_write([
+                    ReplaceOne({"_id": doc["_id"]}, doc, upsert=True)
+                    for doc in documents
+                ])
+
+            if not backup_id:
+                await collection.delete_many({"_id": {"$nin": restored_ids}})
 
             logger.info(f"Restored {len(documents)} documents to {collection_name}")
             return {"success": True, "count": len(documents)}
@@ -715,7 +767,7 @@ CREATE TABLE IF NOT EXISTS nebula_files (
 );
 
 CREATE INDEX IF NOT EXISTS idx_nebula_files_status ON nebula_files(status);
-CREATE INDEX IF NOT EXISTS idx_nebula_files_parent ON nebula_files(parent);
+DROP INDEX IF EXISTS idx_nebula_files_parent;
 CREATE INDEX IF NOT EXISTS idx_nebula_files_name ON nebula_files(name);
 
 CREATE TABLE IF NOT EXISTS nebula_users (

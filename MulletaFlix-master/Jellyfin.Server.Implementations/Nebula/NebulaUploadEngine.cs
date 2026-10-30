@@ -7,6 +7,7 @@ using System.Diagnostics;
 using System.Diagnostics.Metrics;
 using System.IO;
 using System.Linq;
+using System.Security.Cryptography;
 using System.Threading;
 using System.Threading.Tasks;
 using MediaBrowser.Model.Configuration;
@@ -534,6 +535,7 @@ public sealed class NebulaUploadEngine : IAsyncDisposable, IDisposable
             { "part_id", part.PartNumber },
             { "size", part.Size },
             { "file_size", part.Size },
+            { "source_sha256", part.SourceSha256 },
             { "bot_index", part.BotIndex },
             { "tg_file_id", part.TgFileId },
             { "tg_file", part.TgFileId },
@@ -914,6 +916,13 @@ public sealed class NebulaUploadEngine : IAsyncDisposable, IDisposable
                 // Carrega apenas partes compatíveis com o arquivo local atual.
                 if (canResumeExistingParts && existingDoc.TryGetValue("parts", out var partsBson) && partsBson.IsBsonArray)
                 {
+                    using var sourceHashStream = new FileStream(
+                        localFilePath,
+                        FileMode.Open,
+                        FileAccess.Read,
+                        FileShare.Read,
+                        64 * 1024,
+                        FileOptions.Asynchronous | FileOptions.SequentialScan);
                     foreach (var pElem in partsBson.AsBsonArray)
                     {
                         if (pElem is not BsonDocument pDoc)
@@ -929,12 +938,25 @@ public sealed class NebulaUploadEngine : IAsyncDisposable, IDisposable
                         var botIdx = pDoc.GetValue("bot_index", 0).ToInt32();
                         var pStatus = pDoc.GetValue("status", "completed").AsString;
                         var uploadedAt = pDoc.GetValue("uploaded_at", DateTimeOffset.UtcNow.ToUnixTimeSeconds()).ToInt64();
-                        if (IsReusablePart(pNum, pSize, fileId, pStatus, totalSize, totalParts, _logicalChunkSizeBytes))
+                        var sourceSha256 = pDoc.TryGetValue("source_sha256", out var sourceHashValue) && sourceHashValue.IsString
+                            ? sourceHashValue.AsString
+                            : string.Empty;
+                        if (IsReusablePart(pNum, pSize, fileId, pStatus, totalSize, totalParts, _logicalChunkSizeBytes)
+                            && sourceSha256.Length == 64
+                            && IsMatchingPartSourceHash(
+                                sourceSha256,
+                                await ComputeSourcePartSha256Async(
+                                    sourceHashStream,
+                                    pNum,
+                                    pSize,
+                                    _logicalChunkSizeBytes,
+                                    cancellationToken).ConfigureAwait(false)))
                         {
                             existingPartsMap[pNum] = new NebulaFilePart
                             {
                                 PartNumber = pNum,
                                 Size = pSize,
+                                SourceSha256 = sourceSha256,
                                 BotIndex = botIdx,
                                 TgFileId = fileId,
                                 TgMessageId = msgId,
@@ -1211,6 +1233,7 @@ public sealed class NebulaUploadEngine : IAsyncDisposable, IDisposable
                     {
                         PartNumber = partNum,
                         Size = bytesRead,
+                        SourceSha256 = Convert.ToHexString(SHA256.HashData(chunkData)),
                         BotIndex = botIndex,
                         TgFileId = tgMsg.FileId,
                         TgMessageId = tgMsg.MessageId,
@@ -1443,6 +1466,38 @@ public sealed class NebulaUploadEngine : IAsyncDisposable, IDisposable
 
         var expectedPartSize = Math.Min(logicalChunkSize, totalSize - ((long)partNumber * logicalChunkSize));
         return expectedPartSize > 0 && partSize == expectedPartSize;
+    }
+
+    internal static bool IsMatchingPartSourceHash(string? storedHash, string currentHash)
+        => storedHash?.Length == 64
+            && string.Equals(storedHash, currentHash, StringComparison.OrdinalIgnoreCase);
+
+    internal static async Task<string> ComputeSourcePartSha256Async(
+        FileStream source,
+        int partNumber,
+        long partSize,
+        int logicalChunkSize,
+        CancellationToken cancellationToken)
+    {
+        source.Seek((long)partNumber * logicalChunkSize, SeekOrigin.Begin);
+        using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+        var buffer = new byte[64 * 1024];
+        var remaining = partSize;
+        while (remaining > 0)
+        {
+            var read = await source.ReadAsync(
+                buffer.AsMemory(0, (int)Math.Min(buffer.Length, remaining)),
+                cancellationToken).ConfigureAwait(false);
+            if (read == 0)
+            {
+                throw new EndOfStreamException("O arquivo local foi truncado ao validar uma parte retomada.");
+            }
+
+            hash.AppendData(buffer, 0, read);
+            remaining -= read;
+        }
+
+        return Convert.ToHexString(hash.GetHashAndReset());
     }
 
     /// <inheritdoc />

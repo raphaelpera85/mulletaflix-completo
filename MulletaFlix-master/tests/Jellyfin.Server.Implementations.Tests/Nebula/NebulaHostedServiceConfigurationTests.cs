@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using Jellyfin.Server.Implementations.Nebula;
@@ -30,12 +31,20 @@ public sealed class NebulaHostedServiceConfigurationTests
         Mock<INebulaFtpManager> manager,
         Mock<IServerConfigurationManager> configManager,
         IHostApplicationLifetime lifetime)
+        => CreateService(manager, configManager, lifetime, Task.Delay);
+
+    private static NebulaHostedService CreateService(
+        Mock<INebulaFtpManager> manager,
+        Mock<IServerConfigurationManager> configManager,
+        IHostApplicationLifetime lifetime,
+        Func<TimeSpan, CancellationToken, Task> delayAsync)
         => new(
             manager.Object,
             configManager.Object,
             lifetime,
             Mock.Of<ILibraryManager>(),
-            NullLogger<NebulaHostedService>.Instance);
+            NullLogger<NebulaHostedService>.Instance,
+            delayAsync);
 
     private static Mock<IServerConfigurationManager> CreateConfigManager(NebulaFtpConfiguration config)
     {
@@ -224,12 +233,20 @@ public sealed class NebulaHostedServiceConfigurationTests
             .ThrowsAsync(new TimeoutException("Transient startup timeout"))
             .ReturnsAsync(true);
         manager.Setup(m => m.StartDownloaderAsync(It.IsAny<CancellationToken>())).ReturnsAsync(true);
+        var retryDelays = new List<TimeSpan>();
+        Task RecordRetryDelayAsync(TimeSpan delay, CancellationToken _)
+        {
+            retryDelays.Add(delay);
+            return Task.CompletedTask;
+        }
+
         using var lifetime = new TestLifetime();
-        using var service = CreateService(manager, CreateConfigManager(config), lifetime);
+        using var service = CreateService(manager, CreateConfigManager(config), lifetime, RecordRetryDelayAsync);
         await service.StartAsync(CancellationToken.None);
         lifetime.TriggerStarted();
         await service.WaitForPendingWorkAsync();
         manager.Verify(m => m.StartEnvioAsync(false, It.IsAny<CancellationToken>()), Times.Exactly(2));
+        Assert.Equal([TimeSpan.FromSeconds(5)], retryDelays);
         manager.Verify(m => m.StartDownloaderAsync(It.IsAny<CancellationToken>()), Times.Once);
     }
 
@@ -261,14 +278,22 @@ public sealed class NebulaHostedServiceConfigurationTests
         var manager = new Mock<INebulaFtpManager>();
         manager.Setup(m => m.StartEnvioAsync(false, It.IsAny<CancellationToken>())).ReturnsAsync(false);
         manager.Setup(m => m.StartDownloaderAsync(It.IsAny<CancellationToken>())).ReturnsAsync(true);
+        var retryDelays = new List<TimeSpan>();
+        Task RecordRetryDelayAsync(TimeSpan delay, CancellationToken _)
+        {
+            retryDelays.Add(delay);
+            return Task.CompletedTask;
+        }
+
         using var lifetime = new TestLifetime();
-        using var service = CreateService(manager, CreateConfigManager(config), lifetime);
+        using var service = CreateService(manager, CreateConfigManager(config), lifetime, RecordRetryDelayAsync);
 
         await service.StartAsync(CancellationToken.None);
         lifetime.TriggerStarted();
         await service.WaitForPendingWorkAsync();
 
         manager.Verify(m => m.StartEnvioAsync(false, It.IsAny<CancellationToken>()), Times.Exactly(3));
+        Assert.Equal([TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(10)], retryDelays);
         manager.Verify(m => m.StartDownloaderAsync(It.IsAny<CancellationToken>()), Times.Once);
         manager.Verify(m => m.MountDriveNAsync(It.IsAny<CancellationToken>()), Times.Never);
     }

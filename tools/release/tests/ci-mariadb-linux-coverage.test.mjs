@@ -13,11 +13,16 @@ const userManagerTests = await readFile(
     resolve(repositoryRoot, 'MulletaFlix-master/tests/Jellyfin.Server.Implementations.Tests/Users/UserManagerNormalizedUsernameTests.cs'),
     'utf8');
 
+function getJob(name) {
+    const jobStart = workflow.indexOf(`  ${name}:`);
+    assert.notEqual(jobStart, -1, `${name} job must exist`);
+    const bodyStart = workflow.indexOf('\n', jobStart) + 1;
+    const nextJob = workflow.slice(bodyStart).search(/\r?\n  [a-z0-9_-]+:\r?\n/);
+    return workflow.slice(jobStart, nextJob === -1 ? undefined : bodyStart + nextJob);
+}
+
 test('Linux MariaDB CI executes username schema tests with case-sensitive table names', () => {
-    const jobStart = workflow.indexOf('  user-mariadb-linux-tests:');
-    assert.notEqual(jobStart, -1, 'Linux MariaDB test job must exist');
-    const nextJob = workflow.slice(jobStart + 1).search(/\n  [a-z0-9_-]+:\n/);
-    const job = workflow.slice(jobStart, nextJob === -1 ? undefined : jobStart + 1 + nextJob);
+    const job = getJob('user-mariadb-linux-tests');
 
     assert.match(job, /runs-on:\s*ubuntu-latest/);
     assert.match(job, /image:\s*mariadb:11\.4/);
@@ -27,4 +32,31 @@ test('Linux MariaDB CI executes username schema tests with case-sensitive table 
     assert.match(userManager, /BINARY `TABLE_NAME` = BINARY 'Users'/);
     assert.match(userManagerTests, /EnsureSchemaCreated_UsesEfMappedUsersTableWithBinaryUsernameCollations/);
     assert.match(userManagerTests, /@@lower_case_table_names/);
+});
+
+test('Server integration suite runs in CI against isolated MariaDB', () => {
+    const job = getJob('server-mariadb-integration-tests');
+    const project = 'tests/Jellyfin.Server.Integration.Tests/Jellyfin.Server.Integration.Tests.csproj';
+
+    assert.match(job, /runs-on:\s*ubuntu-latest/);
+    assert.match(job, /image:\s*mariadb:11\.4\.13/);
+    assert.match(job, /MULLETAFLIX_TEST_MARIADB_CONNECTION_STRING:/);
+    assert.match(job, new RegExp(project.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+    assert.match(job, /dotnet test[\s\S]*Jellyfin\.Server\.Integration\.Tests\.csproj[\s\S]*--verbosity minimal/);
+    assert.doesNotMatch(job, /--filter\b/, 'The MariaDB job must execute the entire integration project');
+});
+
+test('Complete MariaDB, MongoDB, and filesystem integration suite runs in CI', () => {
+    const job = getJob('full-system-recovery-exercise');
+    const project = 'tests/IntroSkipper.Integration.Tests/IntroSkipper.Integration.Tests.csproj';
+
+    assert.match(job, /runs-on:\s*ubuntu-latest/);
+    assert.match(job, /image:\s*mongo:7\.0/);
+    assert.match(job, /image:\s*mariadb:11\.4\.13/);
+    assert.match(job, /MULLETAFLIX_TEST_MONGODB_CONNECTION_STRING:/);
+    assert.match(job, /MULLETAFLIX_TEST_MARIADB_CONNECTION_STRING:/);
+    assert.match(job, /dotnet test[\s\S]*IntroSkipper\.Integration\.Tests\.csproj[\s\S]*--verbosity minimal/);
+    assert.doesNotMatch(job, /--filter\b/, 'The integration job must execute every test in the project');
+    assert.match(job, /timeout-minutes:\s*30/);
+    assert.match(workflow, new RegExp(project.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
 });

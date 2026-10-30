@@ -26,9 +26,11 @@ namespace MulletaFlix.Providers.Tests.Tmdb
         }
 
         [Theory]
-        [InlineData("en", "en-US", "en-US")]
-        [InlineData("fr-CA", "fr-BE", "fr-CA")]
-        [InlineData("fr-CA", "fr", "fr-CA")]
+        [InlineData("en", "en-US", "en-us")]
+        [InlineData("fr-CA", "fr-BE", "fr-ca")]
+        [InlineData("fr-CA", "fr", "fr-ca")]
+        [InlineData("zh", "ZH-Hant", "zh-hant")]
+        [InlineData("PT", "", "pt")]
         [InlineData("de", "en-US", "de")]
         [InlineData("", "en-US", "")]
         public static void AdjustImageLanguage_Valid_Success(string imageLanguage, string requestLanguage, string? expected)
@@ -36,10 +38,18 @@ namespace MulletaFlix.Providers.Tests.Tmdb
             Assert.Equal(expected, TmdbUtils.AdjustImageLanguage(imageLanguage, requestLanguage));
         }
 
-        [Fact]
-        public static void GetImageLanguagesParam_PrioritizesBrazilianPortugueseAndKeepsFallbacks()
+        [Theory]
+        [InlineData("pt-BR", "BR", "pt-BR,pt,null,en")]
+        [InlineData("fr-CA", "CA", "fr-CA,fr,null,en")]
+        [InlineData("ja-JP", "JP", "ja-JP,ja,null,en")]
+        [InlineData("zh-Hant", "TW", "zh-HANT,zh,null,en")]
+        [InlineData("es-419", "MX", "es-MX,es,null,en")]
+        [InlineData("ar", "SA", "ar,null,en")]
+        [InlineData("en-US", "US", "en-US,en,null")]
+        [InlineData("", "", "null,en")]
+        public static void GetImageLanguagesParam_IncludesRegionalAndBaseLanguageWithFallbacks(string language, string country, string expected)
         {
-            Assert.Equal("pt-BR,null,en", TmdbUtils.GetImageLanguagesParam("pt-BR", "BR"));
+            Assert.Equal(expected, TmdbUtils.GetImageLanguagesParam(language, country));
         }
 
         [Fact]

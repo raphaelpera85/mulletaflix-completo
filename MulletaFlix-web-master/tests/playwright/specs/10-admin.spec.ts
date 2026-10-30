@@ -66,7 +66,7 @@ test.describe.serial('10 - Admin', () => {
             { route: '/dashboard/libraries', selector: '#mediaLibraryPage' },
             { route: '/dashboard/playback/streaming', selector: '#streamingSettingsPage' },
             { route: '/dashboard/activity', selector: '#serverActivityPage' },
-            { route: '/dashboard/logs', selector: '#logPage' },
+            { route: '/dashboard/logs', selector: '#logFilesPage' },
             { route: '/dashboard/devices', selector: '#devicesPage' },
             { route: '/dashboard/plugins', selector: '#pluginsPage' },
             { route: '/dashboard/plugins/repositories', selector: '#repositories' },
@@ -84,8 +84,14 @@ test.describe.serial('10 - Admin', () => {
         await expect(page.locator('button[type="submit"]')).toBeVisible();
 
         await navigateStage(page, '/dashboard/logs');
-        await expect(page.locator('input[name="SlowResponseTime"]')).toBeVisible();
-        await expect(page.locator('input[name="EnableWarningMessage"]')).toBeVisible();
+        const logFileLink = page.locator('#logFilesPage a[data-log-file]').first();
+        await expect(logFileLink).toBeVisible();
+        const logFileName = await logFileLink.getAttribute('data-log-file');
+        await logFileLink.click();
+        await expect(page.locator('#logFilePage pre')).toBeVisible();
+        if (logFileName) {
+            await expect(page.locator('#logFilePage h1')).toContainText(logFileName);
+        }
 
         await navigateStage(page, '/dashboard/plugins');
         await navigateStage(page, '/dashboard/plugins/repositories');

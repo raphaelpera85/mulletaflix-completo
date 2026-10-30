@@ -25,6 +25,7 @@ public sealed class NebulaHostedService : IHostedService, IDisposable
     private readonly IHostApplicationLifetime _lifetime;
     private readonly ILibraryManager _libraryManager;
     private readonly ILogger<NebulaHostedService> _logger;
+    private readonly Func<TimeSpan, CancellationToken, Task> _delayAsync;
     private readonly CancellationTokenSource _shutdownCancellation;
     private CancellationTokenRegistration _startupRegistration;
 
@@ -51,12 +52,24 @@ public sealed class NebulaHostedService : IHostedService, IDisposable
         IHostApplicationLifetime lifetime,
         ILibraryManager libraryManager,
         ILogger<NebulaHostedService> logger)
+        : this(nebulaManager, configManager, lifetime, libraryManager, logger, Task.Delay)
+    {
+    }
+
+    internal NebulaHostedService(
+        INebulaFtpManager nebulaManager,
+        IServerConfigurationManager configManager,
+        IHostApplicationLifetime lifetime,
+        ILibraryManager libraryManager,
+        ILogger<NebulaHostedService> logger,
+        Func<TimeSpan, CancellationToken, Task> delayAsync)
     {
         _nebulaManager = nebulaManager;
         _configManager = configManager;
         _lifetime = lifetime;
         _libraryManager = libraryManager;
         _logger = logger;
+        _delayAsync = delayAsync;
         _shutdownCancellation = CancellationTokenSource.CreateLinkedTokenSource(lifetime.ApplicationStopping);
     }
 
@@ -426,7 +439,7 @@ public sealed class NebulaHostedService : IHostedService, IDisposable
                     attempt,
                     maxAttempts,
                     delaySeconds);
-                await Task.Delay(TimeSpan.FromSeconds(delaySeconds), cancellationToken).ConfigureAwait(false);
+                await _delayAsync(TimeSpan.FromSeconds(delaySeconds), cancellationToken).ConfigureAwait(false);
             }
         }
 

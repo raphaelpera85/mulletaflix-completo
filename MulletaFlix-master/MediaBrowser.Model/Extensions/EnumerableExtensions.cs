@@ -27,18 +27,18 @@ namespace MediaBrowser.Model.Extensions
             return remoteImageInfos.OrderByDescending(i =>
                 {
                     // Image priority ordering:
-                    //  - Images that match the requested language
-                    //  - TODO: Images that match the original language
+                    //  - Images that match the requested locale
+                    //  - Images that match the requested base language
                     //  - Images in English
                     //  - Images with no language
                     //  - Images that don't match the requested language
 
-                    if (string.Equals(requestedLanguage, i.Language, StringComparison.OrdinalIgnoreCase))
+                    if (IsLanguageMatch(i.Language, requestedLanguage))
                     {
-                        return 4;
+                        return string.Equals(NormalizeLanguageTag(i.Language), NormalizeLanguageTag(requestedLanguage), StringComparison.OrdinalIgnoreCase) ? 5 : 4;
                     }
 
-                    if (string.Equals(i.Language, "en", StringComparison.OrdinalIgnoreCase))
+                    if (IsLanguageMatch(i.Language, "en"))
                     {
                         return 3;
                     }
@@ -52,6 +52,34 @@ namespace MediaBrowser.Model.Extensions
                 })
                 .ThenByDescending(i => Math.Round(i.CommunityRating ?? 0, 1))
                 .ThenByDescending(i => i.VoteCount ?? 0);
+        }
+
+        /// <summary>
+        /// Checks whether an image language is the requested language, including regional variants.
+        /// </summary>
+        /// <param name="imageLanguage">The image language.</param>
+        /// <param name="requestedLanguage">The requested language.</param>
+        /// <returns><c>true</c> when both tags use the same language subtag.</returns>
+        public static bool IsLanguageMatch(string? imageLanguage, string? requestedLanguage)
+        {
+            if (string.IsNullOrWhiteSpace(imageLanguage) || string.IsNullOrWhiteSpace(requestedLanguage))
+            {
+                return false;
+            }
+
+            var normalizedImageLanguage = NormalizeLanguageTag(imageLanguage);
+            var normalizedRequestedLanguage = NormalizeLanguageTag(requestedLanguage);
+
+            return string.Equals(normalizedImageLanguage, normalizedRequestedLanguage, StringComparison.OrdinalIgnoreCase)
+                || string.Equals(
+                    normalizedImageLanguage.Split('-')[0],
+                    normalizedRequestedLanguage.Split('-')[0],
+                    StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static string NormalizeLanguageTag(string language)
+        {
+            return language.Replace('_', '-').Trim();
         }
     }
 }

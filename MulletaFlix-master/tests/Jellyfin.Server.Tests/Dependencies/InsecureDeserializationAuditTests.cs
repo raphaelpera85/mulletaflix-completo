@@ -31,6 +31,14 @@ public class InsecureDeserializationAuditTests
         @"TypeNameHandling\.(All|Auto)",
         RegexOptions.Compiled);
 
+    private static readonly Regex SafeIntroSkipperSnapshotDeserializeCall = new(
+        @"JsonConvert\.DeserializeObject\s*<\s*BackupSnapshot\s*>\s*\(\s*json\s*,\s*SnapshotJsonSettings\s*\)",
+        RegexOptions.Compiled);
+
+    private static readonly Regex SafeIntroSkipperSnapshotSettings = new(
+        @"SnapshotJsonSettings\s*=\s*new\s*\(\s*\)\s*\{\s*TypeNameHandling\s*=\s*TypeNameHandling\.None\b",
+        RegexOptions.Compiled);
+
     [Fact]
     public void NoSourceFileUsesUnsafeNewtonsoftTypeNameHandling()
     {
@@ -50,25 +58,37 @@ public class InsecureDeserializationAuditTests
     [Fact]
     public void NoSourceFileCallsJsonConvertDeserializeObjectWithoutExplicitSafeSettings()
     {
-        // JsonConvert.DeserializeObject(string) / DeserializeObject<T>(string) without a second
-        // `settings` argument inherits JsonConvert.DefaultSettings, which defaults to
-        // TypeNameHandling.None and is therefore safe on its own. This test exists primarily so
-        // that *any* reintroduction of JsonConvert.DeserializeObject is visible here, pointing
-        // whoever added it at this file's TypeNameHandling check above.
+        var snapshotParticipantPath = Path.GetFullPath(Path.Combine(
+            FindRepositoryRoot(),
+            "MulletaFlix.Plugin.IntroSkipper",
+            "Services",
+            "IntroSkipperBackupParticipant.cs"));
         var deserializeObjectCalls = EnumerateRepositorySourceFiles()
-            .SelectMany(path => File.ReadAllLines(path)
-                .Select((line, index) => (Path: path, Line: index + 1, Text: line))
-                .Where(entry => entry.Text.Contains("JsonConvert.DeserializeObject", StringComparison.Ordinal)))
-            .Select(entry => $"{entry.Path}:{entry.Line}: {entry.Text.Trim()}")
+            .SelectMany(path =>
+            {
+                var source = File.ReadAllText(path);
+                return Regex.Matches(source, @"JsonConvert\.DeserializeObject")
+                    .Select(match => (
+                        Path: path,
+                        Line: source[..match.Index].Count(character => character == '\n') + 1,
+                        Source: source));
+            })
             .ToList();
 
-        // No known occurrences at the time this test was written (the codebase deserializes
-        // exclusively through System.Text.Json). If this starts failing, audit the new call
-        // site(s) for explicit, safe JsonSerializerSettings before updating this test.
+        var onlyAllowedCall = deserializeObjectCalls.Count == 1
+            && string.Equals(
+                Path.GetFullPath(deserializeObjectCalls[0].Path),
+                snapshotParticipantPath,
+                StringComparison.OrdinalIgnoreCase)
+            && SafeIntroSkipperSnapshotDeserializeCall.IsMatch(deserializeObjectCalls[0].Source)
+            && SafeIntroSkipperSnapshotSettings.IsMatch(deserializeObjectCalls[0].Source);
+
         Assert.True(
-            deserializeObjectCalls.Count == 0,
-            "JsonConvert.DeserializeObject is now used where it previously was not; audit for "
-            + $"TypeNameHandling before accepting this change:\n{string.Join('\n', deserializeObjectCalls)}");
+            onlyAllowedCall,
+            "Only IntroSkipperBackupParticipant may deserialize its snapshot using the explicit "
+            + "SnapshotJsonSettings configured with TypeNameHandling.None. Other source calls "
+            + "remain forbidden:\n"
+            + string.Join('\n', deserializeObjectCalls.Select(call => $"{call.Path}:{call.Line}")));
     }
 
     private static string[] EnumerateRepositorySourceFiles()

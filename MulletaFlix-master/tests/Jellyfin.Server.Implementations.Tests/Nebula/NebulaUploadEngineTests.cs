@@ -8,6 +8,7 @@ using System.Net;
 using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Reflection;
+using System.Security.Cryptography;
 using System.Threading;
 using System.Threading.Tasks;
 using Jellyfin.Server.Implementations.Nebula;
@@ -614,6 +615,41 @@ public class NebulaUploadEngineTests
     }
 
     [Fact]
+    public async Task UploadEngine_ResumePartHash_RejectsChangedBytesWithSameLength()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "mulletaflix-part-hash-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        var path = Path.Combine(root, "source.bin");
+        var prefix = new byte[] { 9, 9, 9, 9 };
+        var oldPart = new byte[] { 1, 2, 3, 4 };
+        var replacementPart = new byte[] { 4, 3, 2, 1 };
+        var sourceBytes = prefix.Concat(replacementPart).ToArray();
+
+        try
+        {
+            await File.WriteAllBytesAsync(path, sourceBytes);
+            await using var source = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, 4096, true);
+            var currentHash = await NebulaUploadEngine.ComputeSourcePartSha256Async(
+                source,
+                partNumber: 1,
+                partSize: replacementPart.Length,
+                logicalChunkSize: prefix.Length,
+                CancellationToken.None);
+
+            Assert.Equal(Convert.ToHexString(SHA256.HashData(replacementPart)), currentHash);
+            Assert.NotEqual(Convert.ToHexString(SHA256.HashData(oldPart)), currentHash);
+            Assert.False(NebulaUploadEngine.IsMatchingPartSourceHash(
+                Convert.ToHexString(SHA256.HashData(oldPart)),
+                currentHash));
+            Assert.True(NebulaUploadEngine.IsMatchingPartSourceHash(currentHash.ToLowerInvariant(), currentHash));
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
     public void Downloader_ValidateRangeResponse_RejectsServerThatIgnoresRange()
     {
         using var response = new HttpResponseMessage(HttpStatusCode.OK)
@@ -878,12 +914,23 @@ public class NebulaUploadEngineTests
         Assert.Contains("ALTER TABLE nebula_users ENABLE ROW LEVEL SECURITY", sql, System.StringComparison.Ordinal);
         Assert.Contains("ALTER TABLE nebula_backups ENABLE ROW LEVEL SECURITY", sql, System.StringComparison.Ordinal);
         Assert.Contains("ALTER TABLE nebula_bot_tokens ENABLE ROW LEVEL SECURITY", sql, System.StringComparison.Ordinal);
+        Assert.Contains("CREATE TABLE IF NOT EXISTS nebula_directory_refreshes", sql, System.StringComparison.Ordinal);
+        Assert.Contains("ALTER TABLE nebula_directory_refreshes ENABLE ROW LEVEL SECURITY", sql, System.StringComparison.Ordinal);
+        Assert.Contains("REVOKE ALL ON TABLE nebula_directory_refreshes FROM anon, authenticated", sql, System.StringComparison.Ordinal);
+        Assert.Contains("GRANT ALL ON TABLE nebula_directory_refreshes TO service_role", sql, System.StringComparison.Ordinal);
+        Assert.Contains("normalized_username TEXT NOT NULL UNIQUE", sql, System.StringComparison.Ordinal);
+        Assert.Contains("CREATE UNIQUE INDEX IF NOT EXISTS mulletaflix_users_normalized_username_key", sql, System.StringComparison.Ordinal);
+        Assert.Contains("DROP INDEX IF EXISTS idx_mulletaflix_users_username", sql, System.StringComparison.Ordinal);
+        Assert.Contains("DROP INDEX IF EXISTS idx_nebula_files_parent", sql, System.StringComparison.Ordinal);
+        Assert.DoesNotContain("CREATE INDEX IF NOT EXISTS idx_nebula_files_parent", sql, System.StringComparison.Ordinal);
+        Assert.DoesNotContain("CREATE UNIQUE INDEX IF NOT EXISTS idx_mulletaflix_users_username", sql, System.StringComparison.Ordinal);
 
         // Deve criar políticas para service_role (evita acesso anônimo implícito)
         Assert.Contains("CREATE POLICY nebula_files_service_role_all", sql, System.StringComparison.Ordinal);
         Assert.Contains("CREATE POLICY nebula_users_service_role_all", sql, System.StringComparison.Ordinal);
         Assert.Contains("CREATE POLICY nebula_backups_service_role_all", sql, System.StringComparison.Ordinal);
         Assert.Contains("CREATE POLICY nebula_bot_tokens_service_role_all", sql, System.StringComparison.Ordinal);
+        Assert.Contains("CREATE POLICY nebula_directory_refreshes_service_role_all", sql, System.StringComparison.Ordinal);
 
         // Deve incluir DROP POLICY IF EXISTS para idempotência
         Assert.Contains("DROP POLICY IF EXISTS nebula_files_service_role_all", sql, System.StringComparison.Ordinal);

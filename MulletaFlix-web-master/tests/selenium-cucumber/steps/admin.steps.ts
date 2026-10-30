@@ -95,7 +95,7 @@ When('I inspect the dashboard, settings, user, library, playback and branding pa
         { route: '/dashboard/libraries', selector: '#mediaLibraryPage' },
         { route: '/dashboard/playback/streaming', selector: '#streamingSettingsPage' },
         { route: '/dashboard/activity', selector: '#serverActivityPage' },
-        { route: '/dashboard/logs', selector: '#logPage' },
+        { route: '/dashboard/logs', selector: '#logFilesPage' },
         { route: '/dashboard/devices', selector: '#devicesPage' },
         { route: '/dashboard/plugins', selector: '#pluginsPage' },
         { route: '/dashboard/plugins/repositories', selector: '#repositories' },
@@ -111,9 +111,9 @@ When('I inspect the dashboard, settings, user, library, playback and branding pa
     await assertBodyText(this.driver, /Idioma preferido|Preferred display language/i);
     await waitForVisibleCss(this.driver, 'button[type="submit"]');
 
-    await openAndWait(this.driver, '/dashboard/logs', '#logPage');
+    await openAndWait(this.driver, '/dashboard/logs', '#logFilesPage');
     await assertBodyText(this.driver, /Registros|Logs/i);
-    await assertBodyText(this.driver, /log_\d+\.log/i);
+    await waitForVisibleCss(this.driver, '#logFilesPage a[data-log-file]');
 
     await openAndWait(this.driver, '/dashboard/plugins/repositories', '#repositories');
     await assertVisibleByTextOrTitle(this.driver, 'button', /New Repository|Novo Reposit|HeaderNewRepository/i);
@@ -299,7 +299,7 @@ When('I inspect every admin management surface', async function () {
         { route: '/dashboard/playback/transcoding', selector: '#encodingSettingsPage' },
         { route: '/dashboard/playback/trickplay', selector: '#trickplayConfigurationPage' },
         { route: '/dashboard/activity', selector: '#serverActivityPage' },
-        { route: '/dashboard/logs', selector: '#logPage' },
+        { route: '/dashboard/logs', selector: '#logFilesPage' },
         { route: '/dashboard/devices', selector: '#devicesPage' },
         { route: '/dashboard/plugins', selector: '#pluginsPage' },
         { route: '/dashboard/plugins/repositories', selector: '#repositories' },
@@ -315,8 +315,8 @@ When('I inspect every admin management surface', async function () {
         await openAndWait(this.driver, entry.route, entry.selector);
     }
 
-    await openAndWait(this.driver, '/dashboard/logs', '#logPage');
-    await waitForVisibleCss(this.driver, '#logPage a[href*="/dashboard/logs/"]');
+    await openAndWait(this.driver, '/dashboard/logs', '#logFilesPage');
+    await waitForVisibleCss(this.driver, '#logFilesPage a[data-log-file]');
 
     await openAndWait(this.driver, '/dashboard/libraries', '#mediaLibraryPage');
     await assertVisibleByTextOrTitle(this.driver, 'button', /Add Media Library|Adicionar biblioteca|ButtonAddMediaLibrary/i).catch(() => undefined);

@@ -99,6 +99,26 @@ async def test_restore_pending_uploads_requeues_existing_media_in_oldest_first_o
 
 
 @pytest.mark.asyncio
+async def test_restore_pending_uploads_clears_stale_scanner_claim_after_restart(monkeypatch, tmp_path):
+    media_path = tmp_path / "interrupted.mkv"
+    media_path.write_bytes(b"media")
+    doc = {
+        "_id": "interrupted", "name": "Interrupted.mkv", "local_path": str(media_path),
+        "size": 5, "mtime": 10, "status": "staging", "scanner_claim_id": "previous-process",
+        "scanner_claimed_at": 1, "scanner_enqueued": False, "scanner_retry_after": 99,
+    }
+    files, queue = Files([doc]), Queue()
+    mongo = configure_restore(monkeypatch, files, queue, {"interrupted": str(media_path)})
+
+    await main.restore_pending_uploads(mongo)
+
+    assert [item["filename"] for item in queue.items] == ["Interrupted.mkv"]
+    assert files.updates[0][1]["$unset"] == {
+        "scanner_claim_id": "", "scanner_claimed_at": "", "scanner_enqueued": "", "scanner_retry_after": "",
+    }
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("status", ["queued", "uploading"])
 async def test_restore_pending_uploads_marks_missing_stage_for_recovery_without_enqueuing(monkeypatch, status):
     doc = {"_id": "missing", "name": "Lost.mkv", "local_path": "Z:/stage/Lost.mkv", "status": status}

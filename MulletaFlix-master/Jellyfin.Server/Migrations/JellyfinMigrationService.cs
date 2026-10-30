@@ -158,7 +158,7 @@ internal class MulletaFlixMigrationService
                 await historyRepository.CreateIfNotExistsAsync().ConfigureAwait(false);
                 var appliedMigrations = await dbContext.Database.GetAppliedMigrationsAsync().ConfigureAwait(false);
                 var startupScripts = flatApplyMigrations
-                    .Where(e => !appliedMigrations.Any(f => f != e.BuildCodeMigrationId()))
+                    .Where(e => IsMigrationNotApplied(e.BuildCodeMigrationId(), appliedMigrations))
                     .Select(e => (Migration: e.Metadata, Script: historyRepository.GetInsertScript(new HistoryRow(e.BuildCodeMigrationId(), GetMulletaFlixVersion()))))
                     .ToArray();
                 foreach (var item in startupScripts)
@@ -360,6 +360,9 @@ internal class MulletaFlixMigrationService
     {
         return Assembly.GetEntryAssembly()!.GetName().Version!.ToString();
     }
+
+    internal static bool IsMigrationNotApplied(string migrationId, IEnumerable<string> appliedMigrations)
+        => !appliedMigrations.Contains(migrationId, StringComparer.Ordinal);
 
     public async Task CleanupSystemAfterMigration(ILogger logger)
     {

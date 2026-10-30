@@ -1,0 +1,68 @@
+{
+  "title": "MulletaFlix Playwright Summary",
+  "generatedAt": "2026-10-30T03:31:06.338Z",
+  "baseUrl": "http://127.0.0.1:18096",
+  "status": "failed",
+  "specCount": 20,
+  "tests": {
+    "total": 1,
+    "passed": 0,
+    "failed": 1,
+    "flaky": 0,
+    "skipped": 0,
+    "durationMs": 246024.726
+  },
+  "suites": {
+    "stage": {
+      "status": "failed",
+      "exitCode": 1,
+      "specCount": 14,
+      "tests": {
+        "total": 1,
+        "passed": 0,
+        "failed": 1,
+        "flaky": 0,
+        "skipped": 0,
+        "durationMs": 232248.751
+      },
+      "baseUrl": "http://127.0.0.1:18096"
+    },
+    "viteFixtures": {
+      "status": "filtered-out",
+      "exitCode": 0,
+      "specCount": 6,
+      "tests": {
+        "total": 0,
+        "passed": 0,
+        "failed": 0,
+        "flaky": 0,
+        "skipped": 0,
+        "durationMs": 13775.975
+      },
+      "baseUrl": "http://127.0.0.1:18197"
+    }
+  },
+  "stageProbe": {
+    "reachable": true,
+    "startupWizardCompleted": true,
+    "systemId": "3b38032118ce4d1e898c80352a890fd1",
+    "version": "12.1.46",
+    "error": null
+  },
+  "stageChecks": {
+    "wizard": false,
+    "admin": true,
+    "user": true,
+    "login": true
+  },
+  "assumptions": [
+    "Os specs devem continuar separados do código de apoio em tests/playwright/specs.",
+    "O runner nunca acessa nem inicia stage na porta de produção 8096; usa portas isoladas 18096-18196.",
+    "Stage inicial limpo confirmado com StartupWizardCompleted=false",
+    "StartupWizardCompleted=true",
+    "Specs que importam módulos React/TypeScript por /@fs ou imports Vite executam em uma instância Vite isolada, separada do stage .NET.",
+    "Relatório JSON da suíte .NET gerado e consolidado.",
+    "Relatório JSON da suíte Vite gerado e consolidado."
+  ],
+  "conclusion": "A suíte falhou. Corrija os pontos listados no relatório antes de expandir a cobertura."
+}

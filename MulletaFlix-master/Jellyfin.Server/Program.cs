@@ -200,11 +200,24 @@ namespace MulletaFlix.Server
             // Iniciar o Proxy Reverso HTTPS e conexão segura (Nginx, certificados, DuckDNS)
             await SecureConnectionProcessManager.EnsureSecureConnectionStartedAsync(appPaths, _logger).ConfigureAwait(false);
 
-            await ApplyStartupMigrationAsync(appPaths, startupConfig, options).ConfigureAwait(false);
+            var startupMigrationApplied = false;
 
             do
             {
-                await StartServer(appPaths, options, startupConfig).ConfigureAwait(false);
+                await StartServer(
+                    appPaths,
+                    options,
+                    startupConfig,
+                    async () =>
+                    {
+                        if (startupMigrationApplied)
+                        {
+                            return;
+                        }
+
+                        await ApplyStartupMigrationAsync(appPaths, startupConfig, options).ConfigureAwait(false);
+                        startupMigrationApplied = true;
+                    }).ConfigureAwait(false);
 
                 if (_restartOnShutdown)
                 {
@@ -242,7 +255,11 @@ namespace MulletaFlix.Server
             ThreadPool.SetMinThreads(_configuredWorkerThreads, _configuredCompletionPortThreads);
         }
 
-        private static async Task StartServer(IServerApplicationPaths appPaths, StartupOptions options, IConfiguration startupConfig)
+        private static async Task StartServer(
+            IServerApplicationPaths appPaths,
+            StartupOptions options,
+            IConfiguration startupConfig,
+            Func<Task> applyStartupMigration)
         {
             using CoreAppHost appHost = new CoreAppHost(
                             appPaths,
@@ -250,6 +267,7 @@ namespace MulletaFlix.Server
                             options,
                             startupConfig);
             var configurationCompleted = false;
+            var restoreStartupFailed = false;
             try
             {
                 _MulletaFlixHost = Host.CreateDefaultBuilder()
@@ -271,31 +289,44 @@ namespace MulletaFlix.Server
                         .AddSingleton<IServiceCollection>(e))
                     .Build();
 
-                /*
-                 * Initialize the transcode path marker so we avoid starting MulletaFlix in a broken state.
-                 * This should really be a part of IApplicationPaths but this path is configured differently.
-                 */
-                _ = appHost.ConfigurationManager.GetTranscodePath();
-
                 // Re-use the host service provider in the app host since ASP.NET doesn't allow a custom service collection.
                 appHost.ServiceProvider = _MulletaFlixHost.Services;
-                if (!string.IsNullOrWhiteSpace(_restoreFromBackup))
+                restoreStartupFailed = true;
+                if (appHost.ServiceProvider.GetService<IBackupService>() is not BackupService backupService)
                 {
-                    await appHost.ServiceProvider.GetService<IBackupService>()!.RestoreBackupAsync(_restoreFromBackup).ConfigureAwait(false);
-                    _restoreFromBackup = null;
-                    _restartOnShutdown = true;
+                    throw new InvalidOperationException("The registered full-system backup service does not support interrupted-restore recovery.");
+                }
+
+                var initializeServer = await RunAfterBackupRecoveryAsync(
+                    backupService,
+                    recoveredRestorePath => ContinueAfterBackupRecoveryAsync(
+                        backupService,
+                        _restoreFromBackup,
+                        recoveredRestorePath),
+                    async () =>
+                    {
+                        restoreStartupFailed = false;
+                        // GetTranscodePath creates its configured directory when it is missing.
+                        _ = appHost.ConfigurationManager.GetTranscodePath();
+                        await applyStartupMigration().ConfigureAwait(false);
+                    },
+                    async () =>
+                    {
+                        var migrationService = ActivatorUtilities.CreateInstance<MulletaFlixMigrationService>(appHost.ServiceProvider);
+                        await migrationService.PrepareSystemForMigration(_logger).ConfigureAwait(false);
+                        await migrationService.MigrateStepAsync(MulletaFlixMigrationStageTypes.CoreInitialisation, appHost.ServiceProvider).ConfigureAwait(false);
+
+                        await appHost.InitializeServices(startupConfig).ConfigureAwait(false);
+                        _appHost = appHost;
+
+                        await migrationService.MigrateStepAsync(MulletaFlixMigrationStageTypes.AppInitialisation, appHost.ServiceProvider).ConfigureAwait(false);
+                        await migrationService.CleanupSystemAfterMigration(_logger).ConfigureAwait(false);
+                    }).ConfigureAwait(false);
+                if (!initializeServer)
+                {
                     return;
                 }
 
-                var migrationService = ActivatorUtilities.CreateInstance<MulletaFlixMigrationService>(appHost.ServiceProvider);
-                await migrationService.PrepareSystemForMigration(_logger).ConfigureAwait(false);
-                await migrationService.MigrateStepAsync(MulletaFlixMigrationStageTypes.CoreInitialisation, appHost.ServiceProvider).ConfigureAwait(false);
-
-                await appHost.InitializeServices(startupConfig).ConfigureAwait(false);
-                _appHost = appHost;
-
-                await migrationService.MigrateStepAsync(MulletaFlixMigrationStageTypes.AppInitialisation, appHost.ServiceProvider).ConfigureAwait(false);
-                await migrationService.CleanupSystemAfterMigration(_logger).ConfigureAwait(false);
                 try
                 {
                     configurationCompleted = true;
@@ -349,11 +380,15 @@ namespace MulletaFlix.Server
             catch (Exception ex)
             {
                 _restartOnShutdown = false;
+                Environment.ExitCode = 1;
                 _logger.LogCritical(ex, "Error while starting server");
                 if (_setupServer!.IsAlive && !configurationCompleted)
                 {
                     _setupServer!.SoftStop();
-                    if (options.StartupMode is null or Configuration.StartupMode.MediaServer)
+                    if (ShouldWaitForSetupServerAfterStartupFailure(
+                        configurationCompleted,
+                        restoreStartupFailed,
+                        options.StartupMode is null or Configuration.StartupMode.MediaServer))
                     {
                         await Task.Delay(TimeSpan.FromMinutes(10)).ConfigureAwait(false);
                     }
@@ -449,6 +484,65 @@ namespace MulletaFlix.Server
             return isE2eTestMode
                 ? $"Local\\MulletaFlix.Server.E2E.{processId}"
                 : "Global\\MulletaFlix.Server";
+        }
+
+        internal static bool ShouldWaitForSetupServerAfterStartupFailure(
+            bool configurationCompleted,
+            bool restoreStartupFailed,
+            bool isMediaServerMode)
+            => !configurationCompleted && !restoreStartupFailed && isMediaServerMode;
+
+        internal static async Task<bool> RunAfterStartupRecoveryAsync(
+            Func<Task<bool>> recover,
+            Func<Task> initialize)
+        {
+            if (!await recover().ConfigureAwait(false))
+            {
+                return false;
+            }
+
+            await initialize().ConfigureAwait(false);
+            return true;
+        }
+
+        internal static Task<bool> RunAfterBackupRecoveryAsync(
+            BackupService backupService,
+            Func<string?, Task<bool>> continueAfterRecovery,
+            Func<Task> applyStartupMigration,
+            Func<Task> initialize)
+            => RunAfterStartupRecoveryAsync(
+                async () => await continueAfterRecovery(
+                    await backupService.RecoverInterruptedRestoreAsync().ConfigureAwait(false)).ConfigureAwait(false),
+                async () =>
+                {
+                    await applyStartupMigration().ConfigureAwait(false);
+                    await initialize().ConfigureAwait(false);
+                });
+
+        internal static async Task<bool> ContinueAfterBackupRecoveryAsync(
+            BackupService backupService,
+            string? requestedRestorePath,
+            string? recoveredRestorePath)
+        {
+            if (string.IsNullOrWhiteSpace(requestedRestorePath))
+            {
+                return true;
+            }
+
+            var fullRequestedRestorePath = Path.GetFullPath(requestedRestorePath);
+            var alreadyRecovered = recoveredRestorePath is not null
+                && string.Equals(
+                    fullRequestedRestorePath,
+                    Path.GetFullPath(recoveredRestorePath),
+                    OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal);
+            if (!alreadyRecovered)
+            {
+                await backupService.RestoreBackupAsync(requestedRestorePath).ConfigureAwait(false);
+            }
+
+            _restoreFromBackup = null;
+            _restartOnShutdown = true;
+            return false;
         }
 
         private static IConfigurationBuilder ConfigureAppConfiguration(

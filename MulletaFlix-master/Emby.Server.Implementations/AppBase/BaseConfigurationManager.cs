@@ -412,7 +412,7 @@ namespace Emby.Server.Implementations.AppBase
         /// files can hold plaintext secrets (e.g. NebulaFtpConfiguration's Password, ApiHash,
         /// BotTokens, SupabaseKey, MongoDbConnectionString), and the OS default permissions on
         /// most Linux distributions (typically 644) leave them world-readable to any local
-        /// account. Windows ACLs are left untouched — <see cref="File.SetUnixFileMode"/> throws
+        /// account. Windows ACLs are left untouched — <c>File.SetUnixFileMode</c> throws
         /// <see cref="PlatformNotSupportedException"/> there, and NTFS already restricts access by
         /// default to the file's owner/administrators.
         /// </summary>

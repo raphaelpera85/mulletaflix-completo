@@ -36,6 +36,16 @@ namespace MediaBrowser.Controller.Entities
         /// <value>The blurhash.</value>
         public string? BlurHash { get; set; }
 
+        /// <summary>
+        /// Gets or sets the remote provider that supplied this image, when known.
+        /// </summary>
+        public string? ProviderName { get; set; }
+
+        /// <summary>
+        /// Gets or sets the language of the remote image, when known.
+        /// </summary>
+        public string? Language { get; set; }
+
         [JsonIgnore]
         public bool IsLocalFile => !Path.StartsWith("http", StringComparison.OrdinalIgnoreCase);
     }

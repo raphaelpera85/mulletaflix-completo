@@ -93,7 +93,7 @@ public static class ServiceCollectionExtensions
             }
             else
             {
-                // fallback to MariaDB/MySQL with default settings.
+                // Fallback to MariaDB; the provider key retains its legacy MySQL name.
                 efCoreConfiguration = new DatabaseConfigurationOptions()
                 {
                     DatabaseType = "MulletaFlix-MySQL",
@@ -169,28 +169,31 @@ public static class ServiceCollectionExtensions
             AddDatabaseTelemetryInterceptors(serviceProvider, opt);
         });
 
-        serviceCollection.AddPooledDbContextFactory<MoviesDbContext>((serviceProvider, opt) =>
+        // Full-system restore temporarily binds these contexts to the primary
+        // transaction connection. Keep them unpooled so a rebound connection
+        // can never leak into a later lease from a DbContext pool.
+        serviceCollection.AddDbContextFactory<MoviesDbContext>((serviceProvider, opt) =>
         {
             var provider = serviceProvider.GetRequiredService<IMulletaFlixDatabaseProvider>();
             provider.Initialise(opt, efCoreConfiguration);
             AddDatabaseTelemetryInterceptors(serviceProvider, opt);
         });
 
-        serviceCollection.AddPooledDbContextFactory<SeriesDbContext>((serviceProvider, opt) =>
+        serviceCollection.AddDbContextFactory<SeriesDbContext>((serviceProvider, opt) =>
         {
             var provider = serviceProvider.GetRequiredService<IMulletaFlixDatabaseProvider>();
             provider.Initialise(opt, efCoreConfiguration);
             AddDatabaseTelemetryInterceptors(serviceProvider, opt);
         });
 
-        serviceCollection.AddPooledDbContextFactory<ChannelsDbContext>((serviceProvider, opt) =>
+        serviceCollection.AddDbContextFactory<ChannelsDbContext>((serviceProvider, opt) =>
         {
             var provider = serviceProvider.GetRequiredService<IMulletaFlixDatabaseProvider>();
             provider.Initialise(opt, efCoreConfiguration);
             AddDatabaseTelemetryInterceptors(serviceProvider, opt);
         });
 
-        serviceCollection.AddPooledDbContextFactory<BooksDbContext>((serviceProvider, opt) =>
+        serviceCollection.AddDbContextFactory<BooksDbContext>((serviceProvider, opt) =>
         {
             var provider = serviceProvider.GetRequiredService<IMulletaFlixDatabaseProvider>();
             provider.Initialise(opt, efCoreConfiguration);

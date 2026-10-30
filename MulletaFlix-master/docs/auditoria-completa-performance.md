@@ -1019,7 +1019,7 @@ com sucesso, e a comparação acima feita nos artefatos gerados.
 O relatório listava `GetQueryFiltersLegacy` re-executando o pipeline caro 4×. O código atual em
 `BaseItemRepository.Querying.cs` já usa `var matchingItemIds = baseQuery.Select(e => e.Id);` — uma
 subconsulta **só de ids**, com comentário explicando que a forma anterior repetia os joins de
-ancestral/biblioteca e podia estourar o timeout do MySQL. Ou seja: o problema medido
+ancestral/biblioteca e podia estourar o timeout do MariaDB. Ou seja: o problema medido
 (joins repetidos) foi resolvido.
 
 O que **permanece** é que o filtro barato ainda é avaliado até 4× pelo servidor, porque
@@ -1843,5 +1843,41 @@ Commit: `4d3cbe85` (`MulletaFlix-web-master`, `src/index.tsx`).
 - `build-update-package.ps1`: Pacote de atualização zip e executável compilados com sucesso.
 
 
+
+## Rodada 35 — Cache de resoluções Trickplay sob concorrência
+
+### Problema observado
+
+`TrickplayManager.GetTrickplayResolutions` já guardava o resultado por título em `IMemoryCache`, mas requisições simultâneas na primeira leitura podiam passar juntas pelo cache frio e abrir várias consultas no MariaDB. O mesmo padrão podia publicar um resultado antigo depois de uma gravação invalidar o cache. A leitura do manifesto também podia duplicar trabalho concorrente.
+
+### Correção
+
+- Coalescer leituras frias de resoluções por `itemId`, com nova consulta ao cache depois de adquirir o lock.
+- Sincronizar carregamento do manifesto por título e repetir a verificação de cache dentro do lock.
+- Fazer `SaveTrickplayInfo` e `DeleteTrickplayDataAsync` adquirirem os locks do manifesto e das resoluções na mesma ordem; invalidar os dois caches ainda sob esses locks.
+- Não há API, dependência, schema ou backend de banco novo. MariaDB continua sendo o único banco relacional operacional.
+
+### Evidência e limites
+
+- `TrickplayManagerResolutionCacheTests`: 2/2, incluindo 16 chamadas concorrentes com uma única criação de contexto e invalidação após gravação.
+- `Jellyfin.Server.Implementations.Tests`, Release/Windows/.NET 10, filtro sem Integration: 1.656 aprovados, 82 ignorados, 0 falhas/1.738.
+- Solução Release/Windows/.NET 10, 15 assemblies com casos, filtro `FullyQualifiedName!~Integration`: 5.291 aprovados, 85 ignorados, 0 falhas/5.376; exit code 0.
+- O provedor EF InMemory não suporta `ExecuteDeleteAsync`; por isso a invalidação após exclusão ainda precisa ser verificada contra MariaDB descartável. Não houve benchmark de carga, CI hospedada, Linux, runtime instalado ou produção. Esta evidência local não altera homologação formal (2/7) nem autoriza release.
+
+## Rodada 36 — Exclusão Trickplay validada em MariaDB isolado
+
+- Adicionado `TrickplayManagerDeleteMariaDbTests` no namespace `Trickplay.Integration`. O teste é opt-in via `MULLETAFLIX_TEST_MARIADB_CONNECTION_STRING`, que recusa `3306` e endpoints não-loopback.
+- O caso grava duas mídias, aquece o cache, exclui uma delas e confere que o banco e o cache não retêm a mídia excluída enquanto a outra permanece intacta.
+- Executado em instância descartável MariaDB 11.4.4, em porta loopback não padrão: 1/1 aprovado. A consulta pós-teste não encontrou schema residual; processo e datadir temporários foram encerrados/removidos. O processo operacional em `3306` permaneceu ativo e não foi usado.
+- `TrickplayManagerResolutionCacheTests`: 2/2; build Release do projeto de testes: 0 erros (438 avisos de analisadores/compiler no projeto); `dotnet format whitespace --verify-no-changes` e `git diff --check` passaram.
+- Nenhum módulo/API/dependência de produção mudou nesta rodada; o mapa técnico registra a cobertura de integração. Sem benchmark de carga, CI hospedada, Linux, validação do runtime instalado ou produção; sem crédito à homologação formal (2/7) e sem release.
+
+## Rodada 37 — Normalização de títulos de busca remota
+
+- `ProviderManager.NormalizeRemoteSearchName` não reconhecia anos separados do título por `.` ou `_`, formatos comuns em nomes de arquivo. Também removia tags como `1080p` antes de normalizar `_`, deixando o rótulo no texto enviado à busca.
+- A normalização agora reconhece separadores de arquivo para extrair o ano, converte `.`, `_` e `:` em espaços antes de limpar tags de release e preserva nomes cujo único texto é um ano (por exemplo, `1984`). O método ficou `internal` para teste direto; não altera contrato público nem ordem de score.
+- `ProviderManagerSearchNormalizationTests`: 5/5, incluindo pontos, sublinhados, tags técnicas, ano já fornecido, título numérico e sequência numérica sem separador. `Jellyfin.Providers.Tests`, Release/.NET 10: 836/836 em 3m16s. `dotnet format whitespace --verify-no-changes`: passou.
+- A execução inicial do teste focal revelou que `_1080p` permanecia no título. A revisão também evitou apagar números sem separador (por exemplo, `Model2024`); os cinco casos focais e a suíte completa passaram.
+- Sem alteração de schema, banco, dependência ou API pública. MariaDB segue como único banco relacional operacional. Não executados nesta fatia: solução completa, provider externo ao vivo, benchmark, CI hospedada, Linux, runtime instalado ou produção. Sem release; homologação formal permanece 2/7.
 
 

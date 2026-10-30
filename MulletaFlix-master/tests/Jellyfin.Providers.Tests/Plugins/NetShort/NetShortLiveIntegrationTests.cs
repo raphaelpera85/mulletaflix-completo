@@ -14,10 +14,8 @@ namespace Jellyfin.Providers.Tests.Plugins.NetShort
     /// Live verification against the real NetShort API.
     /// </summary>
     /// <remarks>
-    /// The type name deliberately contains "Integration" so the CI filter
-    /// (FullyQualifiedName!~Integration) skips it: it reaches the public internet and must never gate
-    /// a build. Run it on demand with
-    /// <c>dotnet test --filter "FullyQualifiedName~NetShortLiveIntegration"</c>.
+    /// Tests are skipped by default and reach the public internet only when the explicit live-provider
+    /// environment switch is set.
     /// It exists because a captured payload cannot prove that the encryption still matches what the
     /// site does today — and encryption is the one thing about this provider that can break silently
     /// into an HTTP 500 on every call.
@@ -32,6 +30,7 @@ namespace Jellyfin.Providers.Tests.Plugins.NetShort
         [Fact]
         public async Task Search_FindsTheSeriesForItsOwnTitleThroughTheEncryptedApi()
         {
+            LiveProviderIntegrationTestEnvironment.SkipUnlessEnabled();
             using var client = CreateClient();
 
             var matches = await client.SearchAsync("perdões", 12, CancellationToken.None);
@@ -48,6 +47,7 @@ namespace Jellyfin.Providers.Tests.Plugins.NetShort
         [Fact]
         public async Task GetSeries_ReturnsTheWholeSeriesWithItsRealEpisodeList()
         {
+            LiveProviderIntegrationTestEnvironment.SkipUnlessEnabled();
             using var client = CreateClient();
 
             var series = await client.GetSeriesAsync(SeriesId, CancellationToken.None);
@@ -71,6 +71,7 @@ namespace Jellyfin.Providers.Tests.Plugins.NetShort
         [Fact]
         public async Task GetSeries_ResolvesAPastedUrlAndFallsBackToTheRenderedPage()
         {
+            LiveProviderIntegrationTestEnvironment.SkipUnlessEnabled();
             using var client = CreateClient();
 
             // Ids are the only route that works for the fallback, and this is the URL shape a user
@@ -89,6 +90,7 @@ namespace Jellyfin.Providers.Tests.Plugins.NetShort
         [Fact]
         public async Task MatchByTitle_IdentifiesTheSeriesFromTheTitleMulletaFlixStores()
         {
+            LiveProviderIntegrationTestEnvironment.SkipUnlessEnabled();
             using var client = CreateClient();
 
             var match = await client.MatchByTitleAsync("Além do 99 Perdões", 0.92, CancellationToken.None);

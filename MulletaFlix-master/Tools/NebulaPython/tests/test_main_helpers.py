@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import os
 from pathlib import Path
 from types import SimpleNamespace
@@ -15,6 +16,7 @@ from main import (
     doc_download_timestamp,
     extract_media_year,
     get_contiguous_uploaded_parts,
+    get_uploaded_parts_by_id,
     get_media_category_priority,
     get_small_upload_worker_count,
     get_upload_worker_count,
@@ -89,12 +91,28 @@ def test_uploaded_parts_only_returns_contiguous_valid_prefix():
         {"part_id": 1, "tg_file": "second", "file_size": 10},
         {"part_id": 3, "tg_file": "fourth", "file_size": 0},
     ]
-
     assert [part["part_id"] for part in get_contiguous_uploaded_parts(parts)] == [0, 1, 2]
     assert get_contiguous_uploaded_parts(parts, total_parts=2) == [
         {"part_id": 0, "tg_file": "first", "file_size": 10},
         {"part_id": 1, "tg_file": "second", "file_size": 10},
     ]
+
+
+def test_uploaded_parts_by_id_preserves_sparse_valid_parts_for_retry(monkeypatch):
+    monkeypatch.setattr(main_module, "CHUNK_SIZE", 4)
+    parts = [
+        {"part_id": 1, "tg_file": "second", "file_size": 4},
+        {"part_id": 0, "tg_file": "first", "file_size": 3},
+        {"part_id": 2, "tg_file": "oversized", "file_size": 1},
+        {"part_id": "1", "tg_file": "duplicate", "file_size": 4},
+        {"part_id": 3, "tg_file": "out-of-range", "file_size": 4},
+        {"part_id": 0, "tg_file": "missing-size", "file_size": 0},
+    ]
+
+    recovered = get_uploaded_parts_by_id(parts, total_parts=2, total_size=8)
+
+    assert [part["part_id"] for part in recovered] == [1]
+    assert recovered[0]["tg_file"] == "second"
 
 
 @pytest.mark.parametrize(
@@ -120,12 +138,28 @@ def test_worker_counts_respect_bot_and_configuration_limits(monkeypatch):
     assert get_upload_worker_count(8) == 4
     # A large bot pool must not override the configured global upload cap.
     assert get_upload_worker_count(27) == 4
-    assert get_upload_worker_count(0) == 1
+    assert get_upload_worker_count(0) == 0
+    assert get_small_upload_worker_count(0) == 0
     monkeypatch.setenv("SMALL_WORKERS", "20")
     assert get_small_upload_worker_count(3) == 3
     monkeypatch.setenv("SMALL_WORKERS", "bad")
     with pytest.raises(ValueError):
         get_small_upload_worker_count(3)
+
+
+@pytest.mark.asyncio
+async def test_upload_task_stays_in_durable_queue_when_no_bot_is_active(monkeypatch):
+    queue = asyncio.Queue()
+    task = {"filename": "queued.mkv"}
+    monkeypatch.setattr(main_module, "UPLOAD_QUEUE", queue)
+    monkeypatch.setattr(main_module.MongoDBPathIO, "tg", [])
+
+    assert await main_module.enqueue_upload_if_available(task) is False
+    assert queue.empty()
+
+    monkeypatch.setattr(main_module.MongoDBPathIO, "tg", [object()])
+    assert await main_module.enqueue_upload_if_available(task) is True
+    assert await queue.get() == task
 
 
 def test_bot_rotation_wraps_and_empty_pool_is_safe(monkeypatch):
@@ -228,13 +262,90 @@ async def test_resolve_media_parent_preserves_authoritative_library_and_routes_e
     monkeypatch.setenv("NEBULA_LIBRARY_USER", "raphael")
 
     class Files:
-        async def find(self, query):
+        def find(self, query):
             raise AssertionError(f"database lookup should not be needed: {query}")
 
     mongo = SimpleNamespace(files=Files())
     assert await resolve_media_parent(mongo, "/raphael/Doramas", "Drama S01E01.mkv") == "/raphael/Doramas"
     assert await resolve_media_parent(mongo, "/raphael/staging", "Drama S02E03.mkv") == "/raphael/Series/Drama/Season 02"
     assert await resolve_media_parent(mongo, "/raphael/Series/Drama", "readme.txt") == "/raphael/Series/Drama"
+
+
+@pytest.mark.asyncio
+async def test_resolve_media_parent_prefers_shallow_exact_movie_folder(monkeypatch):
+    monkeypatch.setenv("NEBULA_LIBRARY_USER", "raphael")
+
+    class Cursor:
+        def __init__(self, items):
+            self.items = items
+
+        async def to_list(self, length):
+            return self.items[:length]
+
+    class Files:
+        def find(self, query):
+            if query.get("name") == "Carnaval (2021)":
+                return Cursor([
+                    {"name": "Carnaval (2021)", "parent": "/raphael/Filmes/Arquivo"},
+                    {"name": "Carnaval (2021)", "parent": "/raphael/Filmes"},
+                ])
+            raise AssertionError(f"unexpected query after exact match: {query}")
+
+    mongo = SimpleNamespace(files=Files())
+    assert await resolve_media_parent(mongo, "/raphael/staging", "Carnaval (2021).mkv") == (
+        "/raphael/Filmes/Carnaval (2021)"
+    )
+
+
+@pytest.mark.asyncio
+async def test_resolve_media_parent_uses_matching_existing_movie_folder(monkeypatch):
+    monkeypatch.setenv("NEBULA_LIBRARY_USER", "raphael")
+
+    class Cursor:
+        def __init__(self, items):
+            self.items = items
+
+        async def to_list(self, length):
+            return self.items[:length]
+
+    class Files:
+        def find(self, query):
+            if "name" in query:
+                return Cursor([])
+            assert query == {"type": "dir", "parent": "/raphael/Filmes"}
+            return Cursor([{"name": "Dune Part Two (2024)", "parent": "/raphael/Filmes"}])
+
+    mongo = SimpleNamespace(files=Files())
+    assert await resolve_media_parent(
+        mongo, "/raphael/staging", "Dune.Part.Two.2024.1080p.WEB-DL.mkv"
+    ) == "/raphael/Filmes/Dune Part Two (2024)"
+
+
+@pytest.mark.asyncio
+async def test_resolve_media_parent_creates_movie_folder_only_after_no_match(monkeypatch):
+    monkeypatch.setenv("NEBULA_LIBRARY_USER", "raphael")
+    updates = []
+
+    class Cursor:
+        async def to_list(self, length):
+            return []
+
+    class Files:
+        def find(self, _query):
+            return Cursor()
+
+        async def update_one(self, query, update, upsert):
+            updates.append((query, update, upsert))
+
+    mongo = SimpleNamespace(files=Files())
+    assert await resolve_media_parent(mongo, "/raphael/staging", "Another Film (2024).mkv") == (
+        "/raphael/Filmes/Another Film (2024)"
+    )
+    assert [query for query, _update, _upsert in updates] == [
+        {"name": "Filmes", "parent": "/raphael"},
+        {"name": "Another Film (2024)", "parent": "/raphael/Filmes"},
+    ]
+    assert all(upsert for _query, _update, upsert in updates)
 
 
 def test_get_required_config_reads_supported_bot_token_variables(monkeypatch):

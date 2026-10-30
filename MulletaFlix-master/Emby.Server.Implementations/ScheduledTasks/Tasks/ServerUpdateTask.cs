@@ -14,6 +14,7 @@ using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using MediaBrowser.Common.Configuration;
+using MediaBrowser.Common.Updates;
 using MediaBrowser.Model.Tasks;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -265,7 +266,7 @@ public sealed class ServerUpdateTask : IScheduledTask
             }
 
             version = parsed;
-            var zipAsset = release.Assets?.FirstOrDefault(a => a.Name.EndsWith(".zip", StringComparison.OrdinalIgnoreCase));
+            var zipAsset = ServerUpdateArchiveSelector.Select(release.Assets, asset => asset.Name);
             if (zipAsset is not null)
             {
                 archiveUrl = zipAsset.BrowserDownloadUrl;

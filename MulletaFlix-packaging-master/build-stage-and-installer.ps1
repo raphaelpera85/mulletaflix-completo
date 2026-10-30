@@ -507,8 +507,7 @@ function Copy-RuntimeExtras {
     $mariaDbExe = Join-Path $mariaDbDir 'bin\mysqld.exe'
     if (-not (Test-Path -LiteralPath $mariaDbExe)) {
         Write-Step 'Downloading MariaDB portable'
-        # Use official MariaDB download API
-        $mariaDbUrl = 'https://downloads.mariadb.org/rest-api/mariadb/11.4.4/mariadb-11.4.4-winx64.zip'
+        $mariaDbUrl = 'https://archive.mariadb.org/mariadb-11.4.13/winx64-packages/mariadb-11.4.13-winx64.zip'
         $zipPath = Join-Path $env:TEMP 'mariadb-portable.zip'
         try {
             Write-Host "Downloading from $mariaDbUrl ..." -ForegroundColor Gray
@@ -517,8 +516,8 @@ function Copy-RuntimeExtras {
                 Remove-Item -LiteralPath $mariaDbDir -Recurse -Force
             }
             Expand-Archive -Path $zipPath -DestinationPath $stageDir -Force
-            # The extracted folder is named mariadb-11.4.4-winx64, rename to mariadb
-            $extractedDir = Join-Path $stageDir 'mariadb-11.4.4-winx64'
+            # The extracted folder is named mariadb-11.4.13-winx64, rename to mariadb
+            $extractedDir = Join-Path $stageDir 'mariadb-11.4.13-winx64'
             if (Test-Path -LiteralPath $extractedDir) {
                 Move-Item -LiteralPath $extractedDir -Destination $mariaDbDir -Force
             }

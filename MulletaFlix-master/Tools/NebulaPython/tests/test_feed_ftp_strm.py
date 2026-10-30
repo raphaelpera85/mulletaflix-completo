@@ -13,6 +13,31 @@ import pytest
 from tools import feed_ftp
 
 
+def test_wait_for_disk_capacity_retries_when_volume_probe_fails(tmp_path, monkeypatch, capsys):
+    target = tmp_path / "stage" / "media.mkv"
+    checks = []
+    sleeps = []
+
+    def disk_usage(path):
+        checks.append(Path(path))
+        if len(checks) == 1:
+            raise OSError("staging volume unavailable")
+        return SimpleNamespace(total=100, free=80)
+
+    def record_first_sleep(seconds):
+        if not sleeps:
+            sleeps.append(seconds)
+
+    monkeypatch.setattr(feed_ftp.shutil, "disk_usage", disk_usage)
+    monkeypatch.setattr(feed_ftp.time, "sleep", record_first_sleep)
+
+    feed_ftp.wait_for_disk_capacity(target, required_bytes=10, minimum_free_percent=10)
+
+    assert checks == [target.parent, target.parent]
+    assert sleeps == [10]
+    assert "download pausado" in capsys.readouterr().out
+
+
 class _Response:
     def __init__(self, payload: bytes, *, headers=None, status=200):
         self._stream = BytesIO(payload)
@@ -197,6 +222,22 @@ def test_materialize_strm_rejects_mismatched_content_range_and_preserves_existin
         feed_ftp.materialize_strm(source, overwrite=True, target=target)
 
     assert target.read_bytes() == b"previous-good-media"
+
+
+def test_materialize_strm_rejects_partial_probe_without_content_range_and_preserves_target(
+    tmp_path, monkeypatch
+):
+    source = _write_strm(tmp_path)
+    target = tmp_path / "title.mp4"
+    target.write_bytes(b"previous-good-media")
+    monkeypatch.setattr(feed_ftp.socket, "setdefaulttimeout", lambda *_args: None)
+    monkeypatch.setattr(feed_ftp, "urlopen", lambda *_args, **_kwargs: _Response(b"x", status=206))
+
+    with pytest.raises(IOError, match="Content-Range"):
+        feed_ftp.materialize_strm(source, overwrite=True, target=target)
+
+    assert target.read_bytes() == b"previous-good-media"
+    assert not (tmp_path / ".title.download").exists()
 
 
 def test_materialize_or_reuse_strm_copies_known_materialization_without_network(tmp_path, monkeypatch):
@@ -1391,7 +1432,21 @@ def test_feeder_main_materializes_strm_and_drains_upload_queue(tmp_path, monkeyp
     monkeypatch.setattr(feed_ftp, "mongo_parent_for", lambda *_args: "/Doramas/Drama")
     monkeypatch.setattr(feed_ftp, "cleanup_stale_downloads", lambda *_args: (0, 0))
     monkeypatch.setattr(feed_ftp, "get_best_staging_root", lambda **_kwargs: tmp_path / "stage")
-    monkeypatch.setattr(feed_ftp.shutil, "disk_usage", lambda *_args: SimpleNamespace(free=80, total=100))
+    disk_checks = []
+    sleeps = []
+
+    def disk_usage(_path):
+        disk_checks.append(_path)
+        if len(disk_checks) == 1:
+            raise OSError("staging volume unavailable")
+        return SimpleNamespace(free=80, total=100)
+
+    def record_first_sleep(seconds):
+        if not sleeps:
+            sleeps.append(seconds)
+
+    monkeypatch.setattr(feed_ftp.shutil, "disk_usage", disk_usage)
+    monkeypatch.setattr(feed_ftp.time, "sleep", record_first_sleep)
     monkeypatch.setattr(feed_ftp, "remote_content_size", lambda *_args: None)
     monkeypatch.setattr(feed_ftp, "materialize_or_reuse_strm", materialize)
 
@@ -1401,6 +1456,8 @@ def test_feeder_main_materializes_strm_and_drains_upload_queue(tmp_path, monkeyp
     assert result == 0
     assert expected_destination.read_bytes() == b"materialized episode"
     assert materialization_calls == [(strm, False, None)]
+    assert sleeps == [1]
+    assert len(disk_checks) >= 2
     assert len(stats_updates) == 1
     assert stats_updates[0][0][0] == {"_id": "feeder"}
     assert "Finalizado: fila=1 copiados=1 ignorados=0 falhas=0" in capsys.readouterr().out

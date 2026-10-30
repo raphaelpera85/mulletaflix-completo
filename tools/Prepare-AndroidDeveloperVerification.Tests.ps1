@@ -2,7 +2,14 @@
 
 Describe 'Prepare-AndroidDeveloperVerification' {
     It 'rejects an empty registration snippet' {
-        { Assert-AndroidDeveloperVerificationSnippet -Value '   ' } | Should Throw
+        $exception = $null
+        try {
+            Assert-AndroidDeveloperVerificationSnippet -Value '   '
+        } catch {
+            $exception = $_.Exception
+        }
+
+        $exception.Message | Should Be 'Registration snippet cannot be empty.'
     }
 
     It 'accepts the MulletaFlix package name' {
@@ -10,7 +17,14 @@ Describe 'Prepare-AndroidDeveloperVerification' {
     }
 
     It 'rejects a different package name' {
-        { Assert-AndroidDeveloperVerificationPackageName -PackageName 'org.example.other' } | Should Throw
+        $exception = $null
+        try {
+            Assert-AndroidDeveloperVerificationPackageName -PackageName 'org.example.other'
+        } catch {
+            $exception = $_.Exception
+        }
+
+        $exception.Message | Should Be "Unexpected Android package 'org.example.other'. Expected 'org.mulletaflix.android'."
     }
 
     It 'writes the registration snippet exactly as UTF-8 text' {

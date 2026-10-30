@@ -2,6 +2,8 @@ using System;
 using System.IO;
 using System.Linq;
 using System.Net.Sockets;
+using MediaBrowser.Controller;
+using MediaBrowser.Controller.Entities;
 using MediaBrowser.Model.Entities;
 using MulletaFlix.Database.Implementations;
 using MulletaFlix.Database.Implementations.Entities;
@@ -16,6 +18,221 @@ namespace Jellyfin.Server.Implementations.Tests.Item;
 
 public class ItemPersistenceServiceTests
 {
+    [Fact]
+    public void SaveItems_EmptyBatchDoesNotCreateDatabaseContext()
+    {
+        var dbFactory = new Mock<IDbContextFactory<MulletaFlixDbContext>>(MockBehavior.Strict);
+        var service = new ItemPersistenceService(
+            dbFactory.Object,
+            Mock.Of<IServerApplicationHost>(),
+            NullLogger<ItemPersistenceService>.Instance);
+
+        service.SaveItems(Array.Empty<BaseItem>(), default);
+
+        dbFactory.Verify(factory => factory.CreateDbContext(), Times.Never);
+    }
+
+    [Fact]
+    public void GetItemIdsOwnedBy_QueriesOwnerIdsInBatches()
+    {
+        using var context = CreateContext();
+        var ownerIds = Enumerable.Range(0, 2005).Select(_ => Guid.NewGuid()).ToArray();
+        var expectedIds = new[] { Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid() };
+        context.BaseItems.AddRange(
+            new BaseItemEntity { Id = expectedIds[0], Type = "Movie", OwnerId = ownerIds[0] },
+            new BaseItemEntity { Id = expectedIds[1], Type = "Movie", OwnerId = ownerIds[1000] },
+            new BaseItemEntity { Id = expectedIds[2], Type = "Movie", OwnerId = ownerIds[^1] });
+        context.SaveChanges();
+
+        var actualIds = ItemPersistenceService.GetItemIdsOwnedBy(context, ownerIds);
+
+        Assert.Equal(expectedIds.ToHashSet(), actualIds);
+    }
+
+    [Fact]
+    public void GetOwnedDescendantIdsBatch_TraversesMoreThanOneQueryBatch()
+    {
+        using var context = CreateContext();
+        var parent = new BaseItemEntity { Id = Guid.NewGuid(), Type = "Folder", IsFolder = true };
+        var children = Enumerable.Range(0, 2005)
+            .Select(_ => new BaseItemEntity { Id = Guid.NewGuid(), Type = "Movie" })
+            .ToArray();
+        context.BaseItems.AddRange([parent, .. children]);
+        context.AncestorIds.AddRange(children.Select(child => new AncestorId
+        {
+            ParentItemId = parent.Id,
+            ItemId = child.Id,
+            ParentItem = parent,
+            Item = child
+        }));
+        context.SaveChanges();
+
+        var actualIds = DescendantQueryHelper.GetOwnedDescendantIdsBatch(context, [parent.Id]);
+
+        Assert.Equal(children.Length, actualIds.Count);
+        Assert.All(children, child => Assert.Contains(child.Id, actualIds));
+    }
+
+    [Fact]
+    public void GetOwnedDescendantIdsBatch_ChunksMoreThanOneBatchOfRootFolders()
+    {
+        using var context = CreateContext();
+        var parents = Enumerable.Range(0, 2005)
+            .Select(_ => new BaseItemEntity { Id = Guid.NewGuid(), Type = "Folder", IsFolder = true })
+            .ToArray();
+        var children = parents.Select(_ => new BaseItemEntity { Id = Guid.NewGuid(), Type = "Movie" }).ToArray();
+        context.BaseItems.AddRange([.. parents, .. children]);
+        context.AncestorIds.AddRange(parents.Zip(children, (parent, child) => new AncestorId
+        {
+            ParentItemId = parent.Id,
+            ItemId = child.Id,
+            ParentItem = parent,
+            Item = child
+        }));
+        context.SaveChanges();
+
+        var actualIds = DescendantQueryHelper.GetOwnedDescendantIdsBatch(context, parents.Select(parent => parent.Id).ToArray());
+
+        Assert.Equal(children.Length, actualIds.Count);
+        Assert.All(children, child => Assert.Contains(child.Id, actualIds));
+    }
+
+    [Fact]
+    public void ImageInfoMapper_PreservesProviderAndLanguage()
+    {
+        var itemId = Guid.NewGuid();
+        var entity = new BaseItemImageInfo
+        {
+            Id = Guid.NewGuid(),
+            ItemId = itemId,
+            ImageType = ImageInfoImageType.Primary,
+            Path = "poster.jpg",
+            ProviderName = "TheMovieDb",
+            Language = "pt-br",
+            Item = null!
+        };
+
+        var mapped = BaseItemMapper.MapImageFromEntity(entity, null);
+        var remapped = BaseItemMapper.MapImageToEntity(itemId, mapped);
+
+        Assert.Equal("TheMovieDb", mapped.ProviderName);
+        Assert.Equal("pt-br", mapped.Language);
+        Assert.Equal("TheMovieDb", remapped.ProviderName);
+        Assert.Equal("pt-br", remapped.Language);
+    }
+
+    [Fact]
+    public void ImageInfosMatch_DetectsProviderAndLanguageChanges()
+    {
+        var existing = new BaseItemImageInfo
+        {
+            Id = Guid.NewGuid(),
+            ItemId = Guid.NewGuid(),
+            ImageType = ImageInfoImageType.Primary,
+            Path = "poster.jpg",
+            ProviderName = "TheMovieDb",
+            Language = "en",
+            Item = null!
+        };
+        var same = new BaseItemImageInfo
+        {
+            Id = Guid.NewGuid(),
+            ItemId = existing.ItemId,
+            ImageType = ImageInfoImageType.Primary,
+            Path = "poster.jpg",
+            ProviderName = "TheMovieDb",
+            Language = "en",
+            Item = null!
+        };
+        var changedLanguage = new BaseItemImageInfo
+        {
+            Id = Guid.NewGuid(),
+            ItemId = existing.ItemId,
+            ImageType = ImageInfoImageType.Primary,
+            Path = "poster.jpg",
+            ProviderName = "TheMovieDb",
+            Language = "pt-br",
+            Item = null!
+        };
+        var changedProvider = new BaseItemImageInfo
+        {
+            Id = Guid.NewGuid(),
+            ItemId = existing.ItemId,
+            ImageType = ImageInfoImageType.Primary,
+            Path = "poster.jpg",
+            ProviderName = "Fanart",
+            Item = null!
+        };
+
+        Assert.True(ItemPersistenceService.ImageInfosMatch(existing, same));
+        Assert.False(ItemPersistenceService.ImageInfosMatch(existing, changedLanguage));
+        Assert.False(ItemPersistenceService.ImageInfosMatch(existing, changedProvider));
+    }
+
+    [Fact]
+    public void ImageInfoCollectionsMatch_IsOrderIndependentAndMatchesDuplicatesOneToOne()
+    {
+        var itemId = Guid.NewGuid();
+        var existing = new[]
+        {
+            CreateImageInfo(itemId, "poster.jpg", "en"),
+            CreateImageInfo(itemId, "poster.jpg", "pt-br")
+        };
+        var sameInReverseOrder = new[]
+        {
+            CreateImageInfo(itemId, "poster.jpg", "pt-br"),
+            CreateImageInfo(itemId, "poster.jpg", "en")
+        };
+        var changedDuplicate = new[]
+        {
+            CreateImageInfo(itemId, "poster.jpg", "en"),
+            CreateImageInfo(itemId, "poster.jpg", "en")
+        };
+
+        Assert.True(ItemPersistenceService.ImageInfoCollectionsMatch(existing, sameInReverseOrder));
+        Assert.False(ItemPersistenceService.ImageInfoCollectionsMatch(existing, changedDuplicate));
+    }
+
+    [Fact]
+    public void ImageInfoCollectionsMatch_DetectsAddedAndRemovedImages()
+    {
+        var itemId = Guid.NewGuid();
+        var existing = new[] { CreateImageInfo(itemId, "poster.jpg", "pt-br") };
+
+        Assert.False(ItemPersistenceService.ImageInfoCollectionsMatch(existing, Array.Empty<BaseItemImageInfo>()));
+        Assert.False(ItemPersistenceService.ImageInfoCollectionsMatch(
+            Array.Empty<BaseItemImageInfo>(),
+            existing));
+    }
+
+    [Fact]
+    public void TrailerTypeCollectionsMatch_IgnoresOrderAndPreservesDuplicateCounts()
+    {
+        var existing = new[]
+        {
+            new BaseItemTrailerType { Id = 1, ItemId = Guid.NewGuid(), Item = null! },
+            new BaseItemTrailerType { Id = 2, ItemId = Guid.NewGuid(), Item = null! },
+            new BaseItemTrailerType { Id = 2, ItemId = Guid.NewGuid(), Item = null! }
+        };
+        var sameInDifferentOrder = new[]
+        {
+            new BaseItemTrailerType { Id = 2, ItemId = Guid.NewGuid(), Item = null! },
+            new BaseItemTrailerType { Id = 1, ItemId = Guid.NewGuid(), Item = null! },
+            new BaseItemTrailerType { Id = 2, ItemId = Guid.NewGuid(), Item = null! }
+        };
+        var missingDuplicate = new[]
+        {
+            new BaseItemTrailerType { Id = 2, ItemId = Guid.NewGuid(), Item = null! },
+            new BaseItemTrailerType { Id = 1, ItemId = Guid.NewGuid(), Item = null! }
+        };
+
+        Assert.True(ItemPersistenceService.TrailerTypeCollectionsMatch(existing, sameInDifferentOrder));
+        Assert.False(ItemPersistenceService.TrailerTypeCollectionsMatch(existing, missingDuplicate));
+        Assert.False(ItemPersistenceService.TrailerTypeCollectionsMatch(
+            existing,
+            [.. sameInDifferentOrder, new BaseItemTrailerType { Id = 3, ItemId = Guid.NewGuid(), Item = null! }]));
+    }
+
     [Fact]
     public void ItemValueKeyComparer_TreatsValuesAsCaseInsensitiveWithinSameType()
     {
@@ -355,5 +572,19 @@ public class ItemPersistenceServiceTests
             NullLogger<MulletaFlixDbContext>.Instance,
             dbProvider.Object,
             lockingBehavior.Object);
+    }
+
+    private static BaseItemImageInfo CreateImageInfo(Guid itemId, string path, string? language)
+    {
+        return new BaseItemImageInfo
+        {
+            Id = Guid.NewGuid(),
+            ItemId = itemId,
+            ImageType = ImageInfoImageType.Primary,
+            Path = path,
+            ProviderName = "TheMovieDb",
+            Language = language,
+            Item = null!
+        };
     }
 }

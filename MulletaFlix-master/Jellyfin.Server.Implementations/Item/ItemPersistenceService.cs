@@ -31,6 +31,7 @@ namespace MulletaFlix.Server.Implementations.Item;
 public class ItemPersistenceService : IItemPersistenceService
 {
     internal static readonly IEqualityComparer<(ItemValueType MagicNumber, string Value)> ItemValueKeyComparer = new ItemValueKeyEqualityComparer();
+    private const int DeleteBatchSize = 1000;
     private static readonly SemaphoreSlim[] _updateOrInsertLocks = Enumerable.Range(0, 16).Select(_ => new SemaphoreSlim(1, 1)).ToArray();
 
     // Path is retained only for migrating legacy links that predate ItemId.
@@ -80,79 +81,96 @@ public class ItemPersistenceService : IItemPersistenceService
             descendantIds.Add(id);
         }
 
-        var extraIds = context.BaseItems
-            .Where(e => e.OwnerId.HasValue)
-            .WhereOneOrMany(descendantIds.ToList(), e => e.OwnerId!.Value)
-            .Select(e => e.Id)
-            .ToArray();
-
-        foreach (var extraId in extraIds)
+        var ownerIdsToCheck = new HashSet<Guid>(descendantIds);
+        while (ownerIdsToCheck.Count > 0)
         {
-            descendantIds.Add(extraId);
+            var ownedItemIds = GetItemIdsOwnedBy(context, ownerIdsToCheck);
+            ownedItemIds.ExceptWith(descendantIds);
+            descendantIds.UnionWith(ownedItemIds);
+            ownerIdsToCheck = ownedItemIds;
         }
 
         var relatedItems = descendantIds.ToArray();
 
-        // Achado P1 / DeleteItem: chunk deletions in batches of 1,000 to avoid inlining tens
-        // of thousands of GUIDs in a single query (which can generate ~65MB SQL bursts and
-        // hit max_allowed_packet or transaction limits).
-        const int DeleteBatchSize = 1000;
+        // OwnerId uses NoAction; clear references inside the deletion set before chunk order can delete a parent first.
+        foreach (var ownerIdChunk in relatedItems.Chunk(DeleteBatchSize))
+        {
+            context.BaseItems
+                .Where(e => e.OwnerId.HasValue)
+                .WhereOneOrMany(ownerIdChunk, e => e.OwnerId!.Value)
+                .ExecuteUpdate(e => e.SetProperty(item => item.OwnerId, (Guid?)null));
+        }
+
+        // Migrate every UserData batch before deleting any BaseItem; ParentId cascades can
+        // otherwise remove later batches before their retention rows reach PlaceholderId.
         for (var offset = 0; offset < relatedItems.Length; offset += DeleteBatchSize)
         {
             var chunk = relatedItems.Length <= DeleteBatchSize
                 ? relatedItems
                 : relatedItems.Skip(offset).Take(DeleteBatchSize).ToArray();
 
-            // When batch-deleting, multiple items may have UserData for the same (UserId, CustomDataKey).
-            // Moving all of them to PlaceholderId would violate the UNIQUE constraint.
-            // Deduplicate by loading keys client-side, keeping the best row per group.
             var batchUserData = context.UserData.WhereOneOrMany(chunk, e => e.ItemId);
-
-            var allRows = batchUserData
-                .Select(ud => new { ud.ItemId, ud.UserId, ud.CustomDataKey, ud.LastPlayedDate, ud.PlayCount })
-                .ToList();
-
-            var duplicateRows = allRows
-                .GroupBy(ud => new { ud.UserId, ud.CustomDataKey })
-                .Where(g => g.Count() > 1)
-                .SelectMany(g => g
-                    .OrderByDescending(ud => ud.LastPlayedDate)
-                    .ThenByDescending(ud => ud.PlayCount)
-                    .Skip(1))
-                .ToList();
-
-            if (duplicateRows.Count > 0)
-            {
-                var dupItemIds = duplicateRows.Select(d => d.ItemId).Distinct().ToList();
-                var candidates = context.UserData
-                    .WhereOneOrMany(dupItemIds, ud => ud.ItemId)
-                    .ToList();
-                var duplicateKeys = duplicateRows
-                    .Select(d => (d.ItemId, d.UserId, d.CustomDataKey))
-                    .ToHashSet();
-                var toDelete = candidates
-                    .Where(ud => duplicateKeys.Contains((ud.ItemId, ud.UserId, ud.CustomDataKey)))
-                    .ToList();
-                if (toDelete.Count > 0)
-                {
-                    context.UserData.RemoveRange(toDelete);
-                }
-            }
-
-            // Delete existing placeholder rows that would conflict with the incoming ones
-            context.UserData
+            var userDataRows = batchUserData.AsNoTracking().ToList();
+            var placeholderRows = context.UserData
+                .Where(ud => ud.ItemId == BaseItemRepository.PlaceholderId)
                 .Join(
                     batchUserData,
                     placeholder => new { placeholder.UserId, placeholder.CustomDataKey },
                     userData => new { userData.UserId, userData.CustomDataKey },
-                    (placeholder, userData) => placeholder)
-                .Where(e => e.ItemId == BaseItemRepository.PlaceholderId)
-                .ExecuteDelete();
+                    (placeholder, _) => placeholder)
+                .AsNoTracking()
+                .ToList()
+                .DistinctBy(ud => (ud.UserId, ud.CustomDataKey))
+                .ToDictionary(ud => (ud.UserId, ud.CustomDataKey));
+
+            var userDataToDelete = new List<UserData>();
+            foreach (var group in userDataRows.GroupBy(ud => (ud.UserId, ud.CustomDataKey)))
+            {
+                var candidate = group
+                    .OrderByDescending(ud => ud, Comparer<UserData>.Create(CompareUserDataPreference))
+                    .ThenBy(ud => ud.ItemId)
+                    .First();
+
+                if (placeholderRows.TryGetValue(group.Key, out var placeholder)
+                    && !IsUserDataPreferred(candidate, placeholder))
+                {
+                    userDataToDelete.AddRange(group);
+                    context.UserData
+                        .Where(ud => ud.ItemId == BaseItemRepository.PlaceholderId
+                            && ud.UserId == group.Key.UserId
+                            && ud.CustomDataKey == group.Key.CustomDataKey)
+                        .ExecuteUpdate(e => e.SetProperty(f => f.RetentionDate, date));
+                }
+                else
+                {
+                    userDataToDelete.AddRange(group.Where(ud => ud != candidate));
+                    if (placeholderRows.TryGetValue(group.Key, out placeholder))
+                    {
+                        userDataToDelete.Add(placeholder);
+                    }
+                }
+            }
+
+            if (userDataToDelete.Count > 0)
+            {
+                context.UserData.RemoveRange(userDataToDelete);
+                context.SaveChanges();
+            }
 
             batchUserData
                 .ExecuteUpdate(e => e
                     .SetProperty(f => f.RetentionDate, date)
                     .SetProperty(f => f.ItemId, BaseItemRepository.PlaceholderId));
+        }
+
+        // Achado P1 / DeleteItem: chunk deletions in batches of 1,000 to avoid inlining tens
+        // of thousands of GUIDs in a single query (which can generate ~65MB SQL bursts and
+        // hit max_allowed_packet or transaction limits).
+        for (var offset = 0; offset < relatedItems.Length; offset += DeleteBatchSize)
+        {
+            var chunk = relatedItems.Length <= DeleteBatchSize
+                ? relatedItems
+                : relatedItems.Skip(offset).Take(DeleteBatchSize).ToArray();
 
             context.AncestorIds.WhereOneOrMany(chunk, e => e.ItemId).ExecuteDelete();
             context.AncestorIds.WhereOneOrMany(chunk, e => e.ParentItemId).ExecuteDelete();
@@ -187,6 +205,91 @@ public class ItemPersistenceService : IItemPersistenceService
         transaction.Commit();
     }
 
+    private static bool IsUserDataPreferred(UserData candidate, UserData current)
+    {
+        return CompareUserDataPreference(candidate, current) > 0;
+    }
+
+    private static int CompareUserDataPreference(UserData candidate, UserData current)
+    {
+        var comparison = Nullable.Compare(candidate.LastPlayedDate, current.LastPlayedDate);
+        if (comparison != 0)
+        {
+            return comparison;
+        }
+
+        comparison = candidate.PlayCount.CompareTo(current.PlayCount);
+        if (comparison != 0)
+        {
+            return comparison;
+        }
+
+        comparison = candidate.IsFavorite.CompareTo(current.IsFavorite);
+        if (comparison != 0)
+        {
+            return comparison;
+        }
+
+        comparison = candidate.Played.CompareTo(current.Played);
+        if (comparison != 0)
+        {
+            return comparison;
+        }
+
+        comparison = Nullable.Compare(candidate.Likes, current.Likes);
+        if (comparison != 0)
+        {
+            return comparison;
+        }
+
+        comparison = candidate.PlaybackPositionTicks.CompareTo(current.PlaybackPositionTicks);
+        if (comparison != 0)
+        {
+            return comparison;
+        }
+
+        comparison = Nullable.Compare(candidate.Rating, current.Rating);
+        if (comparison != 0)
+        {
+            return comparison;
+        }
+
+        comparison = CompareStreamIndexPreference(candidate.AudioStreamIndex, current.AudioStreamIndex);
+        if (comparison != 0)
+        {
+            return comparison;
+        }
+
+        return CompareStreamIndexPreference(candidate.SubtitleStreamIndex, current.SubtitleStreamIndex);
+    }
+
+    private static int CompareStreamIndexPreference(int? candidate, int? current)
+    {
+        var hasValueComparison = candidate.HasValue.CompareTo(current.HasValue);
+        return hasValueComparison != 0
+            ? hasValueComparison
+            : current.GetValueOrDefault().CompareTo(candidate.GetValueOrDefault());
+    }
+
+    internal static HashSet<Guid> GetItemIdsOwnedBy(MulletaFlixDbContext context, IEnumerable<Guid> ownerIds)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        ArgumentNullException.ThrowIfNull(ownerIds);
+
+        var itemIds = new HashSet<Guid>();
+        foreach (var ownerIdChunk in ownerIds.Chunk(DeleteBatchSize))
+        {
+            var matchingIds = context.BaseItems
+                .Where(e => e.OwnerId.HasValue)
+                .WhereOneOrMany(ownerIdChunk, e => e.OwnerId!.Value)
+                .Select(e => e.Id)
+                .ToArray();
+            itemIds.UnionWith(matchingIds);
+        }
+
+        return itemIds;
+    }
+
     /// <inheritdoc />
     public void UpdateInheritedValues()
     {
@@ -211,80 +314,132 @@ public class ItemPersistenceService : IItemPersistenceService
         ArgumentNullException.ThrowIfNull(item);
 
         var images = item.ImageInfos.Select(e => BaseItemMapper.MapImageToEntity(item.Id, e)).ToArray();
+        var itemLock = _updateOrInsertLocks[GetItemLockIndex(item.Id)];
+        await itemLock.WaitAsync(cancellationToken).ConfigureAwait(false);
 
-        for (var attempt = 1; ; attempt++)
+        try
         {
-            try
+            for (var attempt = 1; ; attempt++)
             {
-                var context = await _dbProvider.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
-                await using (context.ConfigureAwait(false))
+                try
                 {
-                    await using var transaction = await context.Database
-                        .BeginTransactionAsync(cancellationToken)
-                        .ConfigureAwait(false);
-
-                    if (!await context.BaseItems
-                        .AnyAsync(bi => bi.Id == item.Id, cancellationToken)
-                        .ConfigureAwait(false))
+                    var context = await _dbProvider.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
+                    await using (context.ConfigureAwait(false))
                     {
-                        _logger.LogWarning("Unable to save ImageInfo for non existing BaseItem {ItemId}", item.Id);
-                        return;
-                    }
+                        await using var transaction = await context.Database
+                            .BeginTransactionAsync(cancellationToken)
+                            .ConfigureAwait(false);
 
-                    var existingImages = await context.BaseItemImageInfos
-                        .Where(e => e.ItemId == item.Id)
-                        .ToArrayAsync(cancellationToken)
-                        .ConfigureAwait(false);
-
-                    bool hasChanges = existingImages.Length != images.Length;
-                    if (!hasChanges)
-                    {
-                        for (int i = 0; i < images.Length; i++)
+                        if (!await context.BaseItems
+                            .AnyAsync(bi => bi.Id == item.Id, cancellationToken)
+                            .ConfigureAwait(false))
                         {
-                            var newImg = images[i];
-                            var oldImg = existingImages.FirstOrDefault(e => e.ImageType == newImg.ImageType && e.Path == newImg.Path);
-                            if (oldImg == null
-                                || oldImg.Width != newImg.Width
-                                || oldImg.Height != newImg.Height
-                                || oldImg.DateModified != newImg.DateModified
-                                || !NullableSequenceEqual(oldImg.Blurhash, newImg.Blurhash))
-                            {
-                                hasChanges = true;
-                                break;
-                            }
+                            _logger.LogWarning("Unable to save ImageInfo for non existing BaseItem {ItemId}", item.Id);
+                            return;
                         }
+
+                        var existingImages = await context.BaseItemImageInfos
+                            .Where(e => e.ItemId == item.Id)
+                            .ToArrayAsync(cancellationToken)
+                            .ConfigureAwait(false);
+
+                        if (ImageInfoCollectionsMatch(existingImages, images))
+                        {
+                            return;
+                        }
+
+                        await context.BaseItemImageInfos
+                            .Where(e => e.ItemId == item.Id)
+                            .ExecuteDeleteAsync(cancellationToken)
+                            .ConfigureAwait(false);
+
+                        await context.BaseItemImageInfos
+                            .AddRangeAsync(images, cancellationToken)
+                            .ConfigureAwait(false);
+
+                        await context.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+                        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
                     }
 
-                    if (!hasChanges)
-                    {
-                        return;
-                    }
-
-                    await context.BaseItemImageInfos
-                        .Where(e => e.ItemId == item.Id)
-                        .ExecuteDeleteAsync(cancellationToken)
-                        .ConfigureAwait(false);
-
-                    await context.BaseItemImageInfos
-                        .AddRangeAsync(images, cancellationToken)
-                        .ConfigureAwait(false);
-
-                    await context.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
-                    await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+                    return;
                 }
-
-                return;
-            }
-            catch (Exception ex) when (attempt < 3 && IsTransientImagePersistenceFailure(ex))
-            {
-                _logger.LogWarning(
-                    ex,
-                    "Transient database failure while saving images for item {ItemId}; retrying attempt {Attempt}",
-                    item.Id,
-                    attempt + 1);
-                await Task.Delay(TimeSpan.FromMilliseconds(attempt * 150), cancellationToken).ConfigureAwait(false);
+                catch (Exception ex) when (attempt < 3 && IsTransientImagePersistenceFailure(ex))
+                {
+                    _logger.LogWarning(
+                        ex,
+                        "Transient database failure while saving images for item {ItemId}; retrying attempt {Attempt}",
+                        item.Id,
+                        attempt + 1);
+                    await Task.Delay(TimeSpan.FromMilliseconds(attempt * 150), cancellationToken).ConfigureAwait(false);
+                }
             }
         }
+        finally
+        {
+            itemLock.Release();
+        }
+    }
+
+    internal static bool ImageInfosMatch(BaseItemImageInfo existing, BaseItemImageInfo incoming)
+    {
+        return existing.ImageType == incoming.ImageType
+            && existing.Path == incoming.Path
+            && existing.Width == incoming.Width
+            && existing.Height == incoming.Height
+            && existing.DateModified == incoming.DateModified
+            && existing.ProviderName == incoming.ProviderName
+            && existing.Language == incoming.Language
+            && NullableSequenceEqual(existing.Blurhash, incoming.Blurhash);
+    }
+
+    internal static bool ImageInfoCollectionsMatch(
+        IReadOnlyCollection<BaseItemImageInfo> existing,
+        IReadOnlyCollection<BaseItemImageInfo> incoming)
+    {
+        if (existing.Count != incoming.Count)
+        {
+            return false;
+        }
+
+        // Match each row at most once. ImageType and Path are not unique in the database, so a
+        // FirstOrDefault comparison can incorrectly match multiple incoming duplicates to one row.
+        var unmatched = existing.ToList();
+        foreach (var incomingImage in incoming)
+        {
+            var matchIndex = unmatched.FindIndex(existingImage => ImageInfosMatch(existingImage, incomingImage));
+            if (matchIndex < 0)
+            {
+                return false;
+            }
+
+            unmatched.RemoveAt(matchIndex);
+        }
+
+        return true;
+    }
+
+    internal static bool TrailerTypeCollectionsMatch(
+        IReadOnlyCollection<BaseItemTrailerType> existing,
+        IReadOnlyCollection<BaseItemTrailerType> incoming)
+    {
+        if (existing.Count != incoming.Count)
+        {
+            return false;
+        }
+
+        var unmatchedIds = existing.Select(row => row.Id).ToList();
+        foreach (var incomingType in incoming)
+        {
+            var matchIndex = unmatchedIds.IndexOf(incomingType.Id);
+            if (matchIndex < 0)
+            {
+                return false;
+            }
+
+            unmatchedIds.RemoveAt(matchIndex);
+        }
+
+        return true;
     }
 
     private static bool IsTransientImagePersistenceFailure(Exception exception)
@@ -340,6 +495,10 @@ public class ItemPersistenceService : IItemPersistenceService
     {
         ArgumentNullException.ThrowIfNull(items);
         cancellationToken.ThrowIfCancellationRequested();
+        if (items.Count == 0)
+        {
+            return;
+        }
 
         // Every item in the batch can hash to a different lock stripe. Picking the stripe from
         // just items[0] let two batches that share no items but disagree only on their *first*
@@ -348,7 +507,7 @@ public class ItemPersistenceService : IItemPersistenceService
         // distinct stripe touched by the batch and acquire them all, always in ascending index
         // order, so two batches with overlapping stripe sets can never deadlock on each other.
         var lockIndices = items.Count > 0
-            ? items.Select(e => e.Id.GetHashCode() & 15).Distinct().Order().ToArray()
+            ? items.Select(e => GetItemLockIndex(e.Id)).Distinct().Order().ToArray()
             : [0];
 
         // This whole path is intentionally synchronous (called from library scans and scheduled
@@ -399,6 +558,8 @@ public class ItemPersistenceService : IItemPersistenceService
             }
         }
     }
+
+    private static int GetItemLockIndex(Guid itemId) => itemId.GetHashCode() & 15;
 
     private void UpdateOrInsertItemsCore(IReadOnlyList<BaseItemDto> items)
     {
@@ -639,6 +800,34 @@ public class ItemPersistenceService : IItemPersistenceService
                 .ToDictionary(g => g.Key, g => g.ToList())
             : new Dictionary<Guid, List<BaseItemMetadataField>>();
 
+        var imageItemIds = tuples
+            .Where(item => existingItems.ContainsKey(item.Item.Id) && item.Item.ImageInfos is not null)
+            .Select(item => item.Item.Id)
+            .Distinct()
+            .ToArray();
+        var existingImages = imageItemIds.Length > 0
+            ? context.BaseItemImageInfos
+                .AsNoTracking()
+                .WhereOneOrMany(imageItemIds, e => e.ItemId)
+                .ToList()
+                .GroupBy(e => e.ItemId)
+                .ToDictionary(g => g.Key, g => (IReadOnlyCollection<BaseItemImageInfo>)g.ToArray())
+            : new Dictionary<Guid, IReadOnlyCollection<BaseItemImageInfo>>();
+
+        var trailerTypeItemIds = tuples
+            .Where(item => existingItems.ContainsKey(item.Item.Id) && item.Item is Trailer)
+            .Select(item => item.Item.Id)
+            .Distinct()
+            .ToArray();
+        var existingTrailerTypes = trailerTypeItemIds.Length > 0
+            ? context.BaseItemTrailerTypes
+                .AsNoTracking()
+                .WhereOneOrMany(trailerTypeItemIds, e => e.ItemId)
+                .ToList()
+                .GroupBy(e => e.ItemId)
+                .ToDictionary(g => g.Key, g => (IReadOnlyCollection<BaseItemTrailerType>)g.ToArray())
+            : new Dictionary<Guid, IReadOnlyCollection<BaseItemTrailerType>>();
+
         foreach (var item in tuples)
         {
             var entity = BaseItemMapper.Map(item.Item, _appHost);
@@ -685,8 +874,12 @@ public class ItemPersistenceService : IItemPersistenceService
                     }
                 }
 
-                // Check if Images changed (only touch if entity.Images is explicitly defined/not null)
-                if (currentImages is not null)
+                // Avoid replacing identical image rows on every library rescan. Besides the write
+                // cost, each replacement creates new image IDs and rebuilds the item/type index.
+                if (currentImages is not null
+                    && !ImageInfoCollectionsMatch(
+                        existingImages.GetValueOrDefault(entity.Id, Array.Empty<BaseItemImageInfo>()),
+                        currentImages))
                 {
                     context.BaseItemImageInfos.Where(e => e.ItemId == entity.Id).ExecuteDelete();
                     if (currentImages.Length > 0)
@@ -710,7 +903,10 @@ public class ItemPersistenceService : IItemPersistenceService
                     }
                 }
 
-                if (currentTrailerTypes is not null)
+                if (currentTrailerTypes is not null
+                    && !TrailerTypeCollectionsMatch(
+                        existingTrailerTypes.GetValueOrDefault(entity.Id, Array.Empty<BaseItemTrailerType>()),
+                        currentTrailerTypes))
                 {
                     context.BaseItemTrailerTypes.Where(e => e.ItemId == entity.Id).ExecuteDelete();
                     if (currentTrailerTypes.Length > 0)

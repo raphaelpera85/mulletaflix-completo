@@ -2,9 +2,11 @@
 
 This shall provide context on how to work with the migrations of the database layer.
 
-MulletaFlix runs on a single provider: MariaDB/MySQL (`MulletaFlix-MySQL`). SQLite was
-removed — the server never creates a local database file, so every schema operation has
-to be expressed in SQL that MariaDB accepts and that Pomelo can translate.
+MulletaFlix uses MariaDB as its only relational database. The provider key remains
+`MulletaFlix-MySQL` for compatibility with the existing provider implementation; this
+does not mean the server uses or requires a MySQL server. SQLite was removed — the server
+never creates a local database file, so every schema operation has to be expressed in SQL
+that MariaDB accepts and that Pomelo can translate.
 
 The provider registers its models through `MySqlDatabaseProvider`, and the design-time
 factory lives in `Migrations/MySqlDesignTimeMulletaFlixDbFactory.cs`. When creating a new

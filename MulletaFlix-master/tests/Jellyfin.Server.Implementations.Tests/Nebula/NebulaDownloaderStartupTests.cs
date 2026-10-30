@@ -101,6 +101,22 @@ public sealed class NebulaDownloaderStartupTests
         Assert.Equal(expected, NebulaFtpManager.IsExpectedPythonWorkerHealth(payload, expectedProcessId));
     }
 
+    [Theory]
+    [InlineData(503, "{}", 42, "HTTP 503")]
+    [InlineData(200, "{}", 42, "HTTP 200 sem PID válido")]
+    [InlineData(200, "not-json", 42, "HTTP 200 respondeu JSON inválido")]
+    [InlineData(200, "{\"pid\":7}", 42, "HTTP 200 respondeu com PID 7; esperado 42")]
+    public void DescribePythonWorkerHealthFailure_ReportsSafeProbeCause(
+        int statusCode,
+        string payload,
+        int expectedProcessId,
+        string expected)
+    {
+        Assert.Equal(
+            expected,
+            NebulaFtpManager.DescribePythonWorkerHealthFailure(statusCode, payload, expectedProcessId));
+    }
+
     [Fact]
     public void IsPythonDownloaderReadyOutput_RequiresMongoIndexBeforeLibraryDiscovery()
     {

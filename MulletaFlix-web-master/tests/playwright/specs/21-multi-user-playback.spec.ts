@@ -11,7 +11,7 @@ import { ensureWizardCompleted } from '../support/wizard.mjs';
 import { navigateStage } from '../support/stage.mjs';
 import {
     ensureMediaLibrariesReady,
-    getFirstItemFromVirtualFolder,
+    getVirtualFolderItemByName,
     getVirtualFolderByLibrary,
     MOVIES_LIBRARY
 } from '../support/media-library.mjs';
@@ -30,6 +30,9 @@ async function createPlayableUser(page, username, password) {
             EnableAllChannels: true,
             EnableMediaPlayback: true,
             EnableLiveTvAccess: true,
+            EnablePlaybackRemuxing: false,
+            EnableVideoPlaybackTranscoding: false,
+            EnableAudioPlaybackTranscoding: false,
             IsAdministrator: false
         });
 
@@ -92,11 +95,13 @@ test.describe.serial('21 - Multi user playback', () => {
         const folderId = moviesFolder?.ItemId || moviesFolder?.Id;
         expect(folderId, 'movie library folder not found').toBeTruthy();
 
-        const movie = await getFirstItemFromVirtualFolder(page, folderId);
+        const movie = await getVirtualFolderItemByName(page, folderId, 'Playwright Long Playback Fixture');
         if (!movie?.id) {
-            // A clean stage may legitimately contain no media library.
-            test.skip(true, 'no movie item available to validate concurrent playback');
+            throw new Error('Long playback fixture was not indexed; cannot validate concurrent playback.');
         }
+
+        expect(movie.runtimeTicks, 'long playback fixture must last beyond the session polling window')
+            .toBeGreaterThan(120 * 10_000_000);
 
         const firstUsername = `mflx-playback-${crypto.randomUUID().slice(0, 8)}@example.com`;
         const secondUsername = `mflx-playback-${crypto.randomUUID().slice(0, 8)}@example.com`;

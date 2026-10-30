@@ -407,10 +407,21 @@ def get_best_staging_root(
 
 
 def wait_for_disk_capacity(target: Path, required_bytes: int | None, minimum_free_percent: int = 10) -> None:
-    target.parent.mkdir(parents=True, exist_ok=True)
     last_notice = 0.0
     while True:
-        usage = shutil.disk_usage(target.parent)
+        try:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            usage = shutil.disk_usage(target.parent)
+        except OSError as exc:
+            now = time.time()
+            if now - last_notice >= 30:
+                print(
+                    f"[STRM] Nao foi possivel validar o volume {target.parent}; download pausado: {exc}",
+                    flush=True,
+                )
+                last_notice = now
+            time.sleep(10)
+            continue
         reserve = usage.total * minimum_free_percent // 100
         if usage.free - (required_bytes or 0) >= reserve:
             return
@@ -426,18 +437,20 @@ def wait_for_disk_capacity(target: Path, required_bytes: int | None, minimum_fre
 
 
 def _validate_content_range(response, requested_start: int, requested_end: int, total: int) -> None:
-    """Reject explicit partial-response ranges that do not match the request."""
+    """Reject partial responses unless their range exactly matches the request."""
     if getattr(response, "status", None) != 206:
         return
     content_range = response.headers.get("Content-Range")
     if not content_range:
-        return
+        raise IOError("Resposta HTTP 206 sem Content-Range")
     match = re.fullmatch(r"\s*bytes\s+(\d+)-(\d+)/(\d+|\*)\s*", content_range, re.IGNORECASE)
     if (
         match is None
         or int(match.group(1)) != requested_start
         or int(match.group(2)) != requested_end
-        or (match.group(3) != "*" and int(match.group(3)) != total)
+        or match.group(3) == "*"
+        or int(match.group(3)) != total
+        or total <= requested_end
     ):
         raise IOError(
             f"Content-Range incompatível com bytes {requested_start}-{requested_end} de {total}"
@@ -468,14 +481,22 @@ def materialize_strm(src: Path, overwrite: bool = False, target: Path | None = N
     try:
         probe = Request(url, headers={"Range": "bytes=0-0", "User-Agent": "Mozilla/5.0"})
         with urlopen(probe, timeout=read_timeout) as response:
-            content_range = response.headers.get("Content-Range", "")
-            match = re.match(r"bytes\s+0-0/(\d+)", content_range)
-            if not match:
+            status = getattr(response, "status", None)
+            if status == 206:
+                content_range = response.headers.get("Content-Range", "")
+                match = re.fullmatch(r"\s*bytes\s+0-0/(\d+)\s*", content_range, re.IGNORECASE)
+                if match is None or int(match.group(1)) <= 0:
+                    raise IOError("Resposta HTTP 206 inválida: Content-Range ausente ou malformado")
+                total = int(match.group(1))
+                _validate_content_range(response, 0, 0, total)
+            elif status == 200:
                 with tmp_path.open("wb") as out:
                     shutil.copyfileobj(response, out, length=1024 * 1024)
                 total = tmp_path.stat().st_size
             else:
-                total = int(match.group(1))
+                raise IOError(f"Resposta HTTP inesperada ao verificar mídia: {status}")
+
+            if status == 206:
                 parts_count = min(max(int(os.getenv("STRM_DOWNLOAD_PARTS", "20")), 1), 32)
                 part_size = (total + parts_count - 1) // parts_count
                 part_paths = [Path(f"{tmp_path}.part{index}") for index in range(parts_count)]
@@ -1556,16 +1577,23 @@ def main() -> int:
     last_cache_update = 0.0
     last_disk_check = 0.0
     disk_waiting = False
+    last_disk_error: str | None = None
 
     def check_disk_space() -> bool:
         """Check if staging disk has enough free space (percentage-based)."""
+        nonlocal last_disk_error
         try:
             stage_root = get_best_staging_root()
             usage = shutil.disk_usage(stage_root)
             free_pct = (usage.free / usage.total) * 100
+            last_disk_error = None
             return free_pct >= args.disk_free_threshold
-        except Exception:
-            return True  # If can't check, assume OK
+        except Exception as exc:
+            message = str(exc)
+            if message != last_disk_error:
+                print(f"[DISK] Nao foi possivel verificar o staging; downloads pausados: {message}", flush=True)
+            last_disk_error = message
+            return False
 
     def wait_for_disk_space():
         """Wait until disk has enough free space."""
@@ -1573,7 +1601,10 @@ def main() -> int:
         if disk_waiting:
             return
         disk_waiting = True
-        print(f"[DISK] Espaco em disco abaixo de {args.disk_free_threshold}%. Aguardando liberacao...", flush=True)
+        print(
+            f"[DISK] Downloads pausados ate validar o staging e confirmar a reserva de {args.disk_free_threshold}%...",
+            flush=True,
+        )
         while True:
             time.sleep(args.poll_seconds)
             if check_disk_space():

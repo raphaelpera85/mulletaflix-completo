@@ -388,6 +388,8 @@ public static class BaseItemMapper
             DateModified = e.DateModified ?? DateTime.SpecifyKind(DateTime.MinValue, DateTimeKind.Utc),
             Height = e.Height,
             Width = e.Width,
+            ProviderName = e.ProviderName,
+            Language = e.Language,
             Type = (ImageType)e.ImageType
         };
     }
@@ -409,6 +411,8 @@ public static class BaseItemMapper
             DateModified = e.DateModified,
             Height = e.Height,
             Width = e.Width,
+            ProviderName = e.ProviderName,
+            Language = e.Language,
             ImageType = (ImageInfoImageType)e.Type,
             Item = null!
         };

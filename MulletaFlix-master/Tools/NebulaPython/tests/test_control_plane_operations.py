@@ -439,6 +439,8 @@ async def test_feeder_supervisor_validates_roots_clamps_options_and_builds_comma
         {"sources": ["{source}"], "excludeDirectories": "not-array"},
         {"sources": ["{source}"], "excludeDirectories": ["../escape"]},
         {"sources": ["{source}"], "sourcePolicy": "delete-always"},
+        {"sources": ["{source}"], "overwrite": "false"},
+        {"sources": ["{source}"], "allFiles": "false"},
     ],
 )
 async def test_feeder_supervisor_rejects_invalid_configuration_before_spawning(tmp_path, monkeypatch, config):
@@ -460,6 +462,28 @@ async def test_feeder_supervisor_rejects_invalid_configuration_before_spawning(t
     with pytest.raises((ValueError, OSError)):
         await feeder.start(resolved)
     assert not spawned
+
+
+@pytest.mark.asyncio
+async def test_feeder_supervisor_reports_immediate_child_exit_as_startup_failure(tmp_path, monkeypatch):
+    source = tmp_path / "source"
+    source.mkdir()
+    script = tmp_path / "tools" / "feed.py"
+    script.parent.mkdir()
+    script.touch()
+
+    async def spawn(*_args, **_kwargs):
+        return FakeProcess(running=False)
+
+    monkeypatch.setattr(control_module.asyncio, "create_subprocess_exec", spawn)
+    feeder = FeederSupervisor(
+        script, source_roots=(source,), destination_roots=(source,), state_dir=tmp_path / "state"
+    )
+
+    with pytest.raises(RuntimeError, match=r"exited during startup \(exit code 0\)"):
+        await feeder.start({"sources": [str(source)]})
+
+    assert feeder.status()["running"] is False
 
 
 @pytest.mark.asyncio
