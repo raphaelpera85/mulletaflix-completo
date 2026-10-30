@@ -361,7 +361,7 @@ namespace MediaBrowser.Providers.Manager
 
             var results = await Task.WhenAll(tasks).ConfigureAwait(false);
 
-            return results.SelectMany(i => i);
+            return results.SelectMany(i => i).OrderByLanguageDescending(preferredLanguage);
         }
 
         /// <summary>

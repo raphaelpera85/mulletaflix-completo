@@ -16,7 +16,9 @@ using MediaBrowser.Controller.MediaSegments;
 using MediaBrowser.Controller.Providers;
 using MediaBrowser.Controller.Subtitles;
 using MediaBrowser.Model.Configuration;
+using MediaBrowser.Model.Entities;
 using MediaBrowser.Model.IO;
+using MediaBrowser.Model.Providers;
 using MediaBrowser.Providers.Manager;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging;
@@ -31,6 +33,42 @@ namespace MulletaFlix.Providers.Tests.Manager
 {
     public partial class ProviderManagerTests
     {
+        [Fact]
+        public async Task GetAvailableRemoteImages_PrioritizesPreferredLanguageAcrossProviders()
+        {
+            var item = new Movie
+            {
+                PreferredMetadataLanguage = "pt-BR",
+                PreferredMetadataCountryCode = "BR"
+            };
+            var fanartProvider = new Mock<IRemoteImageProvider>(MockBehavior.Strict);
+            fanartProvider.Setup(provider => provider.Name).Returns("Fanart");
+            fanartProvider.Setup(provider => provider.Supports(item)).Returns(true);
+            fanartProvider.Setup(provider => provider.GetSupportedImages(item)).Returns([ImageType.Primary]);
+            fanartProvider.Setup(provider => provider.GetImages(item, It.IsAny<CancellationToken>()))
+                .ReturnsAsync([new RemoteImageInfo { Type = ImageType.Primary, Language = "en", Url = "fanart-en" }]);
+
+            var tmdbProvider = new Mock<IRemoteImageProvider>(MockBehavior.Strict);
+            tmdbProvider.Setup(provider => provider.Name).Returns("TheMovieDb");
+            tmdbProvider.Setup(provider => provider.Supports(item)).Returns(true);
+            tmdbProvider.Setup(provider => provider.GetSupportedImages(item)).Returns([ImageType.Primary]);
+            tmdbProvider.Setup(provider => provider.GetImages(item, It.IsAny<CancellationToken>()))
+                .ReturnsAsync([new RemoteImageInfo { Type = ImageType.Primary, Language = "pt-br", Url = "tmdb-pt-br" }]);
+
+            var baseItemManager = new Mock<IBaseItemManager>(MockBehavior.Strict);
+            baseItemManager.Setup(manager => manager.IsImageFetcherEnabled(item, It.IsAny<TypeOptions>(), It.IsAny<string>()))
+                .Returns(true);
+
+            using var providerManager = GetProviderManager(libraryOptions: new LibraryOptions(), baseItemManager: baseItemManager.Object);
+            AddParts(providerManager, imageProviders: [fanartProvider.Object, tmdbProvider.Object]);
+
+            var images = await providerManager.GetAvailableRemoteImages(
+                item,
+                new RemoteImageQuery(string.Empty) { IncludeAllLanguages = true },
+                CancellationToken.None);
+
+            Assert.Equal(new[] { "tmdb-pt-br", "fanart-en" }, images.Select(image => image.Url));
+        }
 
         public static TheoryData<int, int[]?, int[]?, int?[]?, int[]> GetImageProvidersOrderData()
             => new()

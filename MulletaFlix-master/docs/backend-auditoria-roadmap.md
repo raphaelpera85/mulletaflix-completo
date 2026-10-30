@@ -1,3 +1,11 @@
+## Download automático de imagens por idioma — 2026-10-30 01:15 BRT
+
+- `ItemImageProvider` agora coleta candidatos dos provedores remotos habilitados em paralelo, classifica pelo idioma efetivo do item/biblioteca/servidor e baixa pelo provedor que forneceu cada candidato. Se o candidato preferido falha, tenta o próximo conforme a ordem resultante; mantém idioma/proveniência originais da imagem.
+- Poster e backdrop passam pelo mesmo fluxo em filmes e `Series`, incluindo animações modeladas como séries. A seleção manual já usava ordenação compartilhada entre provedores.
+- Revisão adversarial detectou e corrigiu isolamento insuficiente: erro de `GetSupportedImages` em um provider agora é registrado sem impedir os outros. Regressão dedicada comprova continuidade com o provider saudável.
+- `Jellyfin.Providers.Tests`: 840 aprovados, 13 ignorados (integrações externas opt-in), 0 falhas/853; classe de refresh 65/65. `EnumerableExtensionsTests` passou 14/14 para prioridade regional, equivalência e fallback. Nenhuma chamada a serviço externo nem mídia existente foi alterada.
+- Ainda pendem TMDb/Fanart reais, reprocessamento de capas já persistidas, Windows instalado, Linux, hardware, CI hospedada e produção. Candidata 12.1.46 sem release; homologação formal permanece 2/7.
+
 ## Concorrência entre revarredura e atualização de imagens — 2026-10-30 00:11 BRT
 
 - Adicionado teste MariaDB determinístico para `SaveItems` e `SaveImagesAsync` sobre o mesmo item. A fábrica de contexto bloqueia a revarredura depois da aquisição do lock e comprova que a atualização de imagens não abre contexto antes da liberação.
