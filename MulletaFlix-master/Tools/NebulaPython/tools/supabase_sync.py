@@ -16,6 +16,7 @@ import urllib.request
 import urllib.error
 from os import environ
 from datetime import datetime, timezone
+from decimal import Decimal
 from typing import Optional, Dict, Any, List, Union
 from pathlib import Path
 
@@ -30,6 +31,7 @@ except ImportError:  # pragma: no cover
 from motor.motor_asyncio import AsyncIOMotorClient
 from pymongo import MongoClient, ReplaceOne
 from bson import BSON, ObjectId
+from bson.decimal128 import Decimal128
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -223,6 +225,25 @@ class SupabaseSync:
                                 doc[key] = datetime.fromisoformat(value.replace("Z", "+00:00"))
                             except ValueError:
                                 pass
+
+            seen_ids = set()
+            for doc in documents:
+                item_id = doc["_id"]
+                if isinstance(item_id, bool):
+                    id_key = ("bool", item_id)
+                elif isinstance(item_id, (int, float, Decimal128)):
+                    if isinstance(item_id, Decimal128):
+                        number = item_id.to_decimal()
+                    elif isinstance(item_id, float):
+                        number = Decimal.from_float(item_id)
+                    else:
+                        number = Decimal(item_id)
+                    id_key = ("number", "NaN" if number.is_nan() else number)
+                else:
+                    id_key = ("bson", BSON.encode({"_id": item_id}))
+                if id_key in seen_ids:
+                    return {"success": False, "error": "Incomplete or invalid backup data"}
+                seen_ids.add(id_key)
 
             # Restore to MongoDB
             db = self._mongo_client[self.mongo_db]

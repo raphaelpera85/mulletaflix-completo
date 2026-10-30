@@ -228,6 +228,7 @@ public sealed class NebulaSupabaseFileRestoreTests
         using var service = new NebulaSupabaseSyncService(mongo, NullLogger<NebulaSupabaseSyncService>.Instance, null!, handler);
         var persistedCount = 0;
         var persistCalls = 0;
+        var reportedCount = 0;
 
         var error = await Assert.ThrowsAsync<InvalidOperationException>(() => service.RestoreFilesFromSupabaseAsync(
             "https://supabase.invalid",
@@ -239,10 +240,12 @@ public sealed class NebulaSupabaseFileRestoreTests
                 return Task.FromResult(batch.Count);
             },
             progressAction: null,
-            CancellationToken.None));
+            CancellationToken.None,
+            count => reportedCount = count));
 
         Assert.Contains("HTTP 500", error.Message, StringComparison.Ordinal);
         Assert.Equal(NebulaSupabaseSyncService.SupabaseRestorePageSize, persistedCount);
+        Assert.Equal(NebulaSupabaseSyncService.SupabaseRestorePageSize, reportedCount);
         Assert.Equal(1, persistCalls);
         Assert.Equal(2, handler.Requests.Count);
         Assert.Contains("id=gt.%22partial-099%22", handler.Requests[1].Uri, StringComparison.Ordinal);

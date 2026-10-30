@@ -229,6 +229,98 @@ public sealed class NebulaSupabaseRestoreMongoTests : IDisposable
     }
 
     [Fact]
+    public async Task Restore_ReportsBotTokensPersistedBeforeMalformedRow()
+    {
+        Assert.SkipUnless(_mongoAvailable, _skipReason);
+
+        var userOptions = new DbContextOptionsBuilder<UsersDbContext>()
+            .UseInMemoryDatabase(Guid.NewGuid().ToString("N"))
+            .Options;
+        var usersFactory = new Mock<IDbContextFactory<UsersDbContext>>();
+        usersFactory.Setup(factory => factory.CreateDbContextAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(() => new UsersDbContext(userOptions, NullLogger<UsersDbContext>.Instance));
+        var handler = new RestoreResponseHandler(
+            new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("[]") },
+            new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("[]") },
+            new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("[]") },
+            new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("[]") },
+            new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("[]") },
+            new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("[]") },
+            new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent("[{\"index\":1,\"token\":\"persisted-token\"},{\"index\":2,\"token\":42}]")
+            },
+            new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("[]") });
+        using var mongoContext = new NebulaMongoContext(
+            _testConnectionString,
+            _databaseName,
+            NullLogger<NebulaMongoContext>.Instance);
+        using var service = new NebulaSupabaseSyncService(
+            mongoContext,
+            NullLogger<NebulaSupabaseSyncService>.Instance,
+            usersFactory.Object,
+            handler);
+
+        var result = await service.PerformRestoreAsync(
+            "https://supabase.invalid",
+            "sb_secret_test",
+            progressAction: null,
+            forceFullRestore: true,
+            TestContext.Current.CancellationToken);
+
+        Assert.False(result.Success);
+        Assert.Equal(1, result.BotTokensRestored);
+        Assert.Equal(["persisted-token"], await mongoContext.GetBotTokensAsync(cancellationToken: TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
+    public async Task Restore_ReportsDirectoryRefreshesPersistedBeforeInvalidRow()
+    {
+        Assert.SkipUnless(_mongoAvailable, _skipReason);
+
+        var userOptions = new DbContextOptionsBuilder<UsersDbContext>()
+            .UseInMemoryDatabase(Guid.NewGuid().ToString("N"))
+            .Options;
+        var usersFactory = new Mock<IDbContextFactory<UsersDbContext>>();
+        usersFactory.Setup(factory => factory.CreateDbContextAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(() => new UsersDbContext(userOptions, NullLogger<UsersDbContext>.Instance));
+        var handler = new RestoreResponseHandler(
+            new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("[]") },
+            new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("[]") },
+            new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("[]") },
+            new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("[]") },
+            new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("[]") },
+            new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("[]") },
+            new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("[]") },
+            new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("[]") },
+            new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent("[{\"directory_path\":\"/Series/Restored/Season 1\"},{\"directory_path\":42}]")
+            },
+            new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("[]") });
+        using var mongoContext = new NebulaMongoContext(
+            _testConnectionString,
+            _databaseName,
+            NullLogger<NebulaMongoContext>.Instance);
+        using var service = new NebulaSupabaseSyncService(
+            mongoContext,
+            NullLogger<NebulaSupabaseSyncService>.Instance,
+            usersFactory.Object,
+            handler);
+
+        var result = await service.PerformRestoreAsync(
+            "https://supabase.invalid",
+            "sb_secret_test",
+            progressAction: null,
+            forceFullRestore: true,
+            TestContext.Current.CancellationToken);
+
+        Assert.False(result.Success);
+        Assert.Equal(1, result.DirectoryRefreshesRestored);
+        Assert.Equal(["/Series/Restored/Season 1"], await mongoContext.GetPendingDirectoryRefreshesAsync(TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
     public async Task Restore_ReservesExclusiveAdmissionUntilActiveUploadCompletes()
     {
         Assert.SkipUnless(_mongoAvailable, _skipReason);

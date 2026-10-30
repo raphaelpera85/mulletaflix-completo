@@ -990,7 +990,8 @@ public sealed class NebulaSupabaseSyncService : IDisposable
                     return await _mongoContext.BulkUpsertRawDocsAsync(documents, token).ConfigureAwait(false);
                 },
                 progressAction,
-                cancellationToken).ConfigureAwait(false);
+                cancellationToken,
+                restoredCount => result.FilesRestored = restoredCount).ConfigureAwait(false);
             result.FilesRestored = restoredFiles;
 
             // Restaura usuários
@@ -1007,6 +1008,8 @@ public sealed class NebulaSupabaseSyncService : IDisposable
                     "Supabase rejeitou a restauração de usuários FTP",
                     cancellationToken).ConfigureAwait(false);
 
+                result.FtpUsersRestored = 0;
+                result.UsersRestored = 0;
                 foreach (var item in users)
                 {
                     if (item.TryGetProperty("doc_data", out var userDocData) && userDocData.ValueKind == JsonValueKind.Object)
@@ -1014,6 +1017,8 @@ public sealed class NebulaSupabaseSyncService : IDisposable
                         var userBson = BsonDocument.Parse(userDocData.GetRawText());
                         await _mongoContext.UpsertRawUserDocAsync(userBson, cancellationToken).ConfigureAwait(false);
                         restoredUsers++;
+                        result.FtpUsersRestored = restoredUsers;
+                        result.UsersRestored = restoredUsers;
                     }
                     else if (item.TryGetProperty("login", out var loginProp) && loginProp.ValueKind == JsonValueKind.String)
                     {
@@ -1022,6 +1027,8 @@ public sealed class NebulaSupabaseSyncService : IDisposable
                         var createdAt = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
                         await _mongoContext.UpsertLegacyFtpUserAsync(login, passHash, createdAt, cancellationToken).ConfigureAwait(false);
                         restoredUsers++;
+                        result.FtpUsersRestored = restoredUsers;
+                        result.UsersRestored = restoredUsers;
                     }
                 }
             }
@@ -1050,6 +1057,7 @@ public sealed class NebulaSupabaseSyncService : IDisposable
                     "Supabase rejeitou a restauração de tokens de bot",
                     cancellationToken).ConfigureAwait(false);
 
+                result.BotTokensRestored = 0;
                 foreach (var item in tokens)
                 {
                     var token = item.TryGetProperty("token", out var tProp) ? tProp.GetString() : (item.TryGetProperty("bot_token", out var btProp) ? btProp.GetString() : null);
@@ -1066,6 +1074,7 @@ public sealed class NebulaSupabaseSyncService : IDisposable
                         };
                         await _mongoContext.UpsertRawTokenDocAsync(tokenBson, cancellationToken, _botTokensCollection).ConfigureAwait(false);
                         restoredTokens++;
+                        result.BotTokensRestored = restoredTokens;
                     }
                 }
             }
@@ -1087,6 +1096,7 @@ public sealed class NebulaSupabaseSyncService : IDisposable
                 "directory_path",
                 "Supabase rejeitou a restauração da fila de refresh VFS",
                 cancellationToken).ConfigureAwait(false);
+            result.DirectoryRefreshesRestored = 0;
             foreach (var row in refreshRows)
             {
                 if (!row.TryGetProperty("directory_path", out var pathValue) || pathValue.ValueKind != JsonValueKind.String)
@@ -1096,6 +1106,7 @@ public sealed class NebulaSupabaseSyncService : IDisposable
 
                 await _mongoContext.PersistDirectoryRefreshAsync(pathValue.GetString()!, cancellationToken).ConfigureAwait(false);
                 restoredDirectoryRefreshes++;
+                result.DirectoryRefreshesRestored = restoredDirectoryRefreshes;
             }
 
             result.DirectoryRefreshesRestored = restoredDirectoryRefreshes;
@@ -1143,7 +1154,8 @@ public sealed class NebulaSupabaseSyncService : IDisposable
         string supabaseKey,
         Func<IReadOnlyCollection<BsonDocument>, CancellationToken, Task<int>> persistBatch,
         Action<string>? progressAction,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        Action<int>? restoredCountChanged = null)
     {
         ArgumentNullException.ThrowIfNull(persistBatch);
 
@@ -1214,6 +1226,7 @@ public sealed class NebulaSupabaseSyncService : IDisposable
             }
 
             restored += await persistBatch(batch, cancellationToken).ConfigureAwait(false);
+            restoredCountChanged?.Invoke(restored);
             cursorValue = nextCursorValue!;
             var restoreBatchMsg = $"[SUPABASE-RESTORE] Catálogo Nebula: {restored} registros mesclados.";
             _logger.LogInformation("{Message}", restoreBatchMsg);

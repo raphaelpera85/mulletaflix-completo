@@ -1,9 +1,16 @@
+## Restore Supabase rejeita IDs MongoDB equivalentes — 2026-10-30 01:39 BRT
+
+- `restore_collection` valida agora duplicidade de `_id` antes de tocar no MongoDB. A verificação respeita igualdade numérica BSON (por exemplo, inteiro e double equivalentes), preserva a distinção de booleanos e compara outros IDs por BSON codificado.
+- Foram cobertos restore integral e seletivo, IDs ObjectId/documento repetidos e números iguais em representações BSON diferentes. Testes focais Supabase: 63/63; suíte Nebula Python: 714/714; `git diff --check` passou.
+- Não foi conectado MongoDB/Supabase real nem executado restore em produção. Falha de `bulk_write` depois de aplicar parte das operações ainda pode deixar mutação parcial; item segue pendente da auditoria. Candidata 12.1.46, sem release; produção 12.1.45; homologação formal 2/7.
+
 ## Download automático de imagens por idioma — 2026-10-30 01:15 BRT
 
 - `ItemImageProvider` agora coleta candidatos dos provedores remotos habilitados em paralelo, classifica pelo idioma efetivo do item/biblioteca/servidor e baixa pelo provedor que forneceu cada candidato. Se o candidato preferido falha, tenta o próximo conforme a ordem resultante; mantém idioma/proveniência originais da imagem.
 - Poster e backdrop passam pelo mesmo fluxo em filmes e `Series`, incluindo animações modeladas como séries. A seleção manual já usava ordenação compartilhada entre provedores.
 - Revisão adversarial detectou e corrigiu isolamento insuficiente: erro de `GetSupportedImages` em um provider agora é registrado sem impedir os outros. Regressão dedicada comprova continuidade com o provider saudável.
 - `Jellyfin.Providers.Tests`: 840 aprovados, 13 ignorados (integrações externas opt-in), 0 falhas/853; classe de refresh 65/65. `EnumerableExtensionsTests` passou 14/14 para prioridade regional, equivalência e fallback. Nenhuma chamada a serviço externo nem mídia existente foi alterada.
+- Complemento 2026-10-30 01:31 BRT: `RefreshImages_RemoteImages_PrefersLibraryLanguageAcrossProviders` passou 8/8, cobrindo `Movie` e `Series`; animações são tratadas como `Series` pelo servidor. A suíte completa `Jellyfin.Server.Implementations.Tests` passou 1.668, ignorou 85 e teve 0 falhas (1.753 total, Windows/.NET 10). MariaDB e casos específicos de Linux não foram executados nesta suíte por pré-condição/plataforma.
 - Ainda pendem TMDb/Fanart reais, reprocessamento de capas já persistidas, Windows instalado, Linux, hardware, CI hospedada e produção. Candidata 12.1.46 sem release; homologação formal permanece 2/7.
 
 ## Concorrência entre revarredura e atualização de imagens — 2026-10-30 00:11 BRT
@@ -999,6 +1006,13 @@ Análise dos três logs FFmpeg do teste: fonte Matroska contém H.264 High 1920�
 - Integração em MariaDB 11.4.4 descartável validou 2.005 descendentes com cascata `ParentId`, cadeia `OwnerId`, retenção do UserData mais recente, empates entre candidatos e Placeholder preservando Favorito/progresso/avaliação/faixas e prazo expirado renovado: 1/1; regressão focal completa: 34/34. Servidor de teste na porta 33251 foi encerrado; a porta MariaDB de produção 3306 permaneceu intocada.
 - Sem medição em catálogo real, validação Linux/CI hospedada, acesso a dados de produção ou aceite em hardware. Produção 12.1.45; homologação formal 2/7; sem release.
 
+### Contagem parcial no restore Supabase — 2026-10-30 01:48 BRT
+
+- `PerformRestoreCoreAsync` atualiza `FilesRestored` depois de cada página de catálogo que `BulkUpsertRawDocsAsync` confirma. Uma falha HTTP em página posterior preserva no DTO a quantidade já confirmada, em vez de retornar zero.
+- `NebulaSupabaseFileRestoreTests`: 9/9 aprovados em Release. Cenário: primeira página persistida, segunda chamada HTTP 500 e contagem da primeira página preservada.
+- Limite confirmado pela revisão: se `BulkWriteAsync` lançar após aplicar parte de uma página não ordenada, o callback não recebe o número parcial dessa página. O teste valida o callback, não a resposta DTO do método completo com persistência Mongo. Os outros contadores do restore também são atribuídos após etapas completas e permanecem como área de auditoria; não foram alterados nesta correção. `forceFullRestore` é recebido mas atualmente ignorado; sem especificação segura para restore destrutivo, comportamento permanece pendente de decisão.
+- Sem MongoDB/Supabase real, dados de produção, runtime instalado ou homologação formal. Produção conhecida 12.1.45; candidata 12.1.46 não publicada; homologação formal 2/7.
+
 ### Navegação no fullscreen forçado do webOS — 2026-10-30 00:00 BRT
 
 - O encerramento do fullscreen forçado podia disparar appRouter.back() sem que a reprodução terminasse, compatível com o player saindo da tela enquanto a mídia continuava.
@@ -1006,3 +1020,10 @@ Análise dos três logs FFmpeg do teste: fonte Matroska contém H.264 High 1920�
 - Verificação desta sessão: Vitest web 425/425; npm run build:check; git diff --check. O E2E com STRM real e webOS simulado tem novas asserções de avanço de quadros antes/depois do fullscreen, ainda sem execução nesta sessão. Stage/TV física não foram testados; produção 12.1.45 não foi alterada.
 - Causa do retorno à Home sustentada pelo fluxo do código; a ausência de vídeo/continuidade de áudio na TV não foi reproduzida. Homologação formal segue 2/7; candidata 12.1.46 sem release.
 - Arquivos: MulletaFlix-web-master/src/controllers/playback/video/index.ts, MulletaFlix-web-master/tests/playwright/specs/22-adsense-flow.spec.ts, MulletaFlix-master/docs/releases/12.1.46.md, MulletaFlix-master/docs/backend-auditoria-roadmap.md.
+
+## Reauditoria das consultas quentes — 2026-10-30 01:27 BRT
+
+- Conferidos `BaseItemRepository.Querying.cs` e `NextUpService.cs`. A seleção de filmes/séries recentes mantém streaming até o limite de itens distintos; `AsEnumerable` posterior é necessário para deduplicação/serialização e `NextUp` usa projeção leve depois dos filtros do banco. Nesta revisão não foi encontrado um limite prematuro que pudesse truncar duplicatas antes da deduplicação.
+- Testes focais: `BaseItemRepositoryLatestTvShowTests` e `NextUpQueryOptimizationTests` passaram 8/9; 1 integração MariaDB foi ignorada porque o opt-in de conexão não está configurado. Sem benchmark de catálogo real, SQL/EXPLAIN MariaDB ou produção.
+- Resultado limitado à inspeção dos métodos e testes locais; não conclui a auditoria de consultas nem valida desempenho. O bloco permanece em andamento.
+- Suíte ampla `Jellyfin.Server.Implementations.Tests`: 1.668 aprovados, 85 ignorados e 0 falhas/1.753 em Windows/.NET 10; os ignorados incluem MariaDB opt-in e casos exclusivos de Linux. O resultado não mede desempenho real.

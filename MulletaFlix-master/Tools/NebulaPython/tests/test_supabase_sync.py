@@ -9,6 +9,7 @@ from unittest.mock import AsyncMock, Mock
 
 import pytest
 from bson import BSON, ObjectId
+from bson.decimal128 import Decimal128
 
 supabase_sync = importlib.import_module("tools.supabase_sync")
 
@@ -428,6 +429,45 @@ async def test_full_restore_rejects_query_limited_snapshot_before_mongo_mutation
     collection = mongo.database["files"]
     assert result["success"] is False
     assert "query" in result["error"]
+    assert collection.bulk_writes == []
+    assert collection.deleted_queries == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("backup_id", [None, "selected-backup"])
+@pytest.mark.parametrize("file_id", [str(ObjectId()), {"nested": "value"}])
+async def test_restore_collection_rejects_duplicate_ids_before_mongo_mutation(backup_id, file_id):
+    backup = {
+        "document_count": 2,
+        "data": {"version": 2, "documents": [{"_id": file_id}, {"_id": file_id}]},
+    }
+    cloud = Supabase(results={"mongo_backups": SimpleNamespace(data=[backup])})
+    mongo = MongoClient()
+    sync = initialized_sync(mongo, cloud)
+
+    result = await sync.restore_collection("files", backup_id=backup_id)
+
+    collection = mongo.database["files"]
+    assert result == {"success": False, "error": "Incomplete or invalid backup data"}
+    assert collection.bulk_writes == []
+    assert collection.deleted_queries == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("file_ids", [(1, 1.0), (1, Decimal128("1")), (Decimal128("1.0"), Decimal128("1.00"))])
+async def test_restore_collection_rejects_equal_numeric_ids_across_bson_types(file_ids):
+    backup = {
+        "document_count": 2,
+        "data": {"version": 2, "documents": [{"_id": file_ids[0]}, {"_id": file_ids[1]}]},
+    }
+    cloud = Supabase(results={"mongo_backups": SimpleNamespace(data=[backup])})
+    mongo = MongoClient()
+    sync = initialized_sync(mongo, cloud)
+
+    result = await sync.restore_collection("files")
+
+    collection = mongo.database["files"]
+    assert result == {"success": False, "error": "Incomplete or invalid backup data"}
     assert collection.bulk_writes == []
     assert collection.deleted_queries == []
 
