@@ -40,6 +40,9 @@ public interface INebulaFtpManager
 
     Task<NebulaStatusDto> GetStatusAsync(CancellationToken cancellationToken = default);
 
+    /// <summary>Reports whether the downloader worker process is currently alive.</summary>
+    bool IsDownloaderRunning { get; }
+
     Task<NebulaComponentHealthDto> GetComponentHealthAsync(CancellationToken cancellationToken = default);
 
     Task<NebulaUploadQueueSummaryDto> GetUploadQueueSummaryAsync(CancellationToken cancellationToken = default);

@@ -145,6 +145,7 @@ public class RemoteImageController : BaseMulletaFlixApiController
     /// <param name="itemId">Item Id.</param>
     /// <param name="type">The image type.</param>
     /// <param name="imageUrl">The image url.</param>
+    /// <param name="providerName">Optional. The image provider.</param>
     /// <response code="204">Remote image downloaded.</response>
     /// <response code="404">Remote image not found.</response>
     /// <returns>Download status.</returns>
@@ -155,7 +156,8 @@ public class RemoteImageController : BaseMulletaFlixApiController
     public async Task<ActionResult> DownloadRemoteImage(
         [FromRoute, Required] Guid itemId,
         [FromQuery, Required] ImageType type,
-        [FromQuery] string? imageUrl)
+        [FromQuery] string? imageUrl,
+        [FromQuery] string? providerName = null)
     {
         var item = _libraryManager.GetItemById<BaseItem>(itemId, User.GetUserId());
         if (item is null)
@@ -163,8 +165,29 @@ public class RemoteImageController : BaseMulletaFlixApiController
             return NotFound();
         }
 
+        RemoteImageInfo? remoteImage = null;
+        if (!string.IsNullOrWhiteSpace(providerName))
+        {
+            var images = await _providerManager.GetAvailableRemoteImages(
+                item,
+                new RemoteImageQuery(providerName)
+                {
+                    IncludeAllLanguages = true,
+                    IncludeDisabledProviders = true,
+                    ImageType = type
+                },
+                CancellationToken.None).ConfigureAwait(false);
+            remoteImage = images.FirstOrDefault(image => string.Equals(image.Url, imageUrl, StringComparison.Ordinal));
+        }
+
         await _providerManager.SaveImage(item, imageUrl, type, null, CancellationToken.None)
             .ConfigureAwait(false);
+
+        if (remoteImage is not null && item.GetImageInfo(type, 0) is { } imageInfo)
+        {
+            imageInfo.ProviderName = remoteImage.ProviderName;
+            imageInfo.Language = remoteImage.Language;
+        }
 
         await item.UpdateToRepositoryAsync(ItemUpdateType.ImageUpdate, CancellationToken.None).ConfigureAwait(false);
         return NoContent();

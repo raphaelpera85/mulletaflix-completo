@@ -156,7 +156,7 @@ public sealed class NebulaSupabaseBackupBotTokensMongoTests : IDisposable
             "https://supabase.invalid",
             "sb_secret_test",
             progressAction: null,
-            forceFullRestore: true,
+            forceFullRestore: false,
             TestContext.Current.CancellationToken);
 
         Assert.True(restoreResult.Success, restoreResult.Message);

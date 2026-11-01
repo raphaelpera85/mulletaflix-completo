@@ -917,6 +917,7 @@ public sealed class NebulaSupabaseSyncService : IDisposable
     /// <summary>
     /// Restaura o catálogo, usuários FTP, usuários do MulletaFlix e tokens do Supabase.
     /// </summary>
+    /// <param name="forceFullRestore">Solicita restauração completa. O modo é recusado sem consultar ou alterar dados até que seu escopo destrutivo seja definido.</param>
     public async Task<NebulaSupabaseRestoreResultDto> PerformRestoreAsync(
         string supabaseUrl,
         string supabaseKey,
@@ -938,7 +939,6 @@ public sealed class NebulaSupabaseSyncService : IDisposable
         bool forceFullRestore,
         CancellationToken cancellationToken)
     {
-        _ = forceFullRestore;
         var result = new NebulaSupabaseRestoreResultDto();
         var startTime = DateTime.UtcNow;
 
@@ -953,6 +953,14 @@ public sealed class NebulaSupabaseSyncService : IDisposable
         {
             result.Success = false;
             result.Message = ServiceRoleKeyRequiredMessage;
+            progressAction?.Invoke($"[SUPABASE-ERRO] {result.Message}");
+            return result;
+        }
+
+        if (forceFullRestore)
+        {
+            result.Success = false;
+            result.Message = "A restauração completa não está disponível neste fluxo; nenhuma alteração foi feita.";
             progressAction?.Invoke($"[SUPABASE-ERRO] {result.Message}");
             return result;
         }
@@ -987,7 +995,13 @@ public sealed class NebulaSupabaseSyncService : IDisposable
                         throw new InvalidOperationException("MongoDB não está disponível para restaurar o catálogo Nebula.");
                     }
 
-                    return await _mongoContext.BulkUpsertRawDocsAsync(documents, token).ConfigureAwait(false);
+                    return await _mongoContext.BulkUpsertRawDocsAsync(documents, token, partialCount =>
+                    {
+                        result.FilesRestored = (result.FilesRestored ?? 0) + partialCount;
+                        var partialMessage = $"[SUPABASE-RESTORE] Falha durante lote; {result.FilesRestored} arquivos confirmados no MongoDB antes do erro.";
+                        _logger.LogWarning("{Message}", partialMessage);
+                        progressAction?.Invoke(partialMessage);
+                    }).ConfigureAwait(false);
                 },
                 progressAction,
                 cancellationToken,
@@ -1015,6 +1029,11 @@ public sealed class NebulaSupabaseSyncService : IDisposable
                     if (item.TryGetProperty("doc_data", out var userDocData) && userDocData.ValueKind == JsonValueKind.Object)
                     {
                         var userBson = BsonDocument.Parse(userDocData.GetRawText());
+                        if (!userBson.Contains("_id"))
+                        {
+                            continue;
+                        }
+
                         await _mongoContext.UpsertRawUserDocAsync(userBson, cancellationToken).ConfigureAwait(false);
                         restoredUsers++;
                         result.FtpUsersRestored = restoredUsers;
@@ -1023,6 +1042,11 @@ public sealed class NebulaSupabaseSyncService : IDisposable
                     else if (item.TryGetProperty("login", out var loginProp) && loginProp.ValueKind == JsonValueKind.String)
                     {
                         var login = loginProp.GetString()!;
+                        if (string.IsNullOrWhiteSpace(login))
+                        {
+                            continue;
+                        }
+
                         var passHash = item.TryGetProperty("password_hash", out var pProp) ? pProp.GetString() ?? string.Empty : string.Empty;
                         var createdAt = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
                         await _mongoContext.UpsertLegacyFtpUserAsync(login, passHash, createdAt, cancellationToken).ConfigureAwait(false);

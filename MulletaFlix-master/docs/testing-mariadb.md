@@ -1,3 +1,8 @@
+## Homologação da faixa Home de séries recentes — 2026-11-01 03:21 BRT
+
+BaseItemRepositoryLatestTvShowTests passou 8/8 em Release/.NET 10 contra MariaDB 11.4.4 descartável em 127.0.0.1:33127. O cenário integrado aplica IncludeItemTypes=Episode, IsVirtualItem=false e TopParentIds das bibliotecas visíveis, excluindo conteúdo de outra biblioteca. Sem a variável opt-in, a mesma classe havia executado 6 testes locais e ignorado 2 testes MariaDB; com a instância isolada, os dois foram executados.
+
+A instância de teste foi desligada pelo cliente administrativo; PID do processo de teste terminou e a porta 33127 ficou fechada. A porta operacional 3306 não foi acessada. A política da ferramenta bloqueou remoção recursiva da pasta de dados temporários, que permanece em %TEMP% sem credenciais. Não houve acesso ao banco de produção. EXPLAIN ANALYZE e latência em catálogo representativo continuam pendentes.
 # Testes de integração MariaDB
 
 ## Regressão local de inicialização — 2026-10-29

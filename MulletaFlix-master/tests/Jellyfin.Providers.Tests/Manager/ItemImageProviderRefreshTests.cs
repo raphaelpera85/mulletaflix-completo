@@ -628,13 +628,23 @@ namespace MulletaFlix.Providers.Tests.Manager
         [InlineData(true, ImageType.Backdrop, false)]
         [InlineData(false, ImageType.Backdrop, true)]
         [InlineData(true, ImageType.Backdrop, true)]
-        public async Task RefreshImages_RemoteImages_PrefersLibraryLanguageAcrossProviders(bool isSeries, ImageType imageType, bool preferredImageFails)
+        [InlineData(false, ImageType.Logo, false)]
+        [InlineData(true, ImageType.Logo, false)]
+        [InlineData(false, ImageType.Logo, true)]
+        [InlineData(true, ImageType.Logo, true)]
+        [InlineData(false, ImageType.Thumb, false)]
+        [InlineData(true, ImageType.Thumb, false)]
+        [InlineData(false, ImageType.Thumb, true)]
+        [InlineData(true, ImageType.Thumb, true)]
+        public async Task RefreshImages_RemoteImages_PrefersLibraryLanguageForMoviesAndSeries(bool isSeries, ImageType imageType, bool preferredImageFails)
         {
             BaseItem item = isSeries
-                ? new Series { Path = "series path", PreferredMetadataLanguage = "pt-BR", PreferredMetadataCountryCode = "BR" }
-                : new Movie { Path = "movie path", PreferredMetadataLanguage = "pt-BR", PreferredMetadataCountryCode = "BR" };
+                ? new Series { Path = "series path" }
+                : new Movie { Path = "movie path" };
             BaseItem.MediaSourceManager = Mock.Of<IMediaSourceManager>();
             var libraryOptions = GetLibraryOptions(item, imageType, 1);
+            libraryOptions.PreferredMetadataLanguage = "pt";
+            libraryOptions.MetadataCountryCode = "BR";
             const string englishUrl = "https://images.example/english.jpg";
             const string portugueseUrl = "https://images.example/portuguese.jpg";
             var englishProvider = CreateImageProvider("EnglishFirst", englishUrl, false, imageType);

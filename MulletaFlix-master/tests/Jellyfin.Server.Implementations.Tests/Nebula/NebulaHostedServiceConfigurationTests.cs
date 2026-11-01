@@ -46,6 +46,21 @@ public sealed class NebulaHostedServiceConfigurationTests
             NullLogger<NebulaHostedService>.Instance,
             delayAsync);
 
+    private static NebulaHostedService CreateService(
+        Mock<INebulaFtpManager> manager,
+        Mock<IServerConfigurationManager> configManager,
+        IHostApplicationLifetime lifetime,
+        Func<TimeSpan, CancellationToken, Task> delayAsync,
+        Func<TimeSpan, CancellationToken, Task> runtimeDelayAsync)
+        => new(
+            manager.Object,
+            configManager.Object,
+            lifetime,
+            Mock.Of<ILibraryManager>(),
+            NullLogger<NebulaHostedService>.Instance,
+            delayAsync,
+            runtimeDelayAsync);
+
     private static Mock<IServerConfigurationManager> CreateConfigManager(NebulaFtpConfiguration config)
     {
         var configManager = new Mock<IServerConfigurationManager>();
@@ -193,6 +208,233 @@ public sealed class NebulaHostedServiceConfigurationTests
 
         manager.Verify(m => m.StartDownloaderAsync(It.IsAny<CancellationToken>()), Times.Exactly(2));
         manager.Verify(m => m.StartEnvioAsync(false, It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task DownloaderExitAfterStartup_IsDetectedAndRestartedWithoutRestartingEnvio()
+    {
+        var config = new NebulaFtpConfiguration { Enabled = true, UseMappedDrive = false };
+        var configuration = CreateConfigManager(config);
+        var downloaderAlive = false;
+        var manager = new Mock<INebulaFtpManager>();
+        manager.Setup(m => m.StartEnvioAsync(false, It.IsAny<CancellationToken>())).ReturnsAsync(true);
+        manager.Setup(m => m.StartDownloaderAsync(It.IsAny<CancellationToken>())).Returns(() =>
+        {
+            downloaderAlive = true;
+            return Task.FromResult(true);
+        });
+        manager.SetupGet(m => m.IsDownloaderRunning).Returns(() => downloaderAlive);
+        manager.Setup(m => m.StopDownloaderAsync(It.IsAny<CancellationToken>())).ReturnsAsync(true);
+        manager.Setup(m => m.StopEnvioAsync(It.IsAny<CancellationToken>())).ReturnsAsync(true);
+
+        using var lifetime = new TestLifetime();
+        using var service = CreateService(manager, configuration, lifetime);
+        await service.StartAsync(CancellationToken.None);
+        lifetime.TriggerStarted();
+        await service.WaitForPendingWorkAsync();
+
+        await service.CheckDownloaderRuntimeAsync();
+        manager.Verify(m => m.StartDownloaderAsync(It.IsAny<CancellationToken>()), Times.Once);
+
+        downloaderAlive = false;
+        await service.CheckDownloaderRuntimeAsync();
+
+        manager.Verify(m => m.StartDownloaderAsync(It.IsAny<CancellationToken>()), Times.Exactly(2));
+        manager.Verify(m => m.StartEnvioAsync(false, It.IsAny<CancellationToken>()), Times.Once);
+        Assert.True(downloaderAlive);
+        await service.StopAsync(CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task DownloaderRuntimeCheck_WhenNebulaDisabled_DoesNotRestartWorker()
+    {
+        var config = new NebulaFtpConfiguration { Enabled = true, UseMappedDrive = false };
+        var configuration = CreateConfigManager(config);
+        var manager = new Mock<INebulaFtpManager>();
+        manager.Setup(m => m.StartEnvioAsync(false, It.IsAny<CancellationToken>())).ReturnsAsync(true);
+        manager.Setup(m => m.StartDownloaderAsync(It.IsAny<CancellationToken>())).ReturnsAsync(true);
+        manager.Setup(m => m.StopDownloaderAsync(It.IsAny<CancellationToken>())).ReturnsAsync(true);
+        manager.Setup(m => m.StopEnvioAsync(It.IsAny<CancellationToken>())).ReturnsAsync(true);
+
+        using var lifetime = new TestLifetime();
+        using var service = CreateService(manager, configuration, lifetime);
+        await service.StartAsync(CancellationToken.None);
+        lifetime.TriggerStarted();
+        await service.WaitForPendingWorkAsync();
+
+        config.Enabled = false;
+        await service.CheckDownloaderRuntimeAsync();
+
+        manager.Verify(m => m.StartDownloaderAsync(It.IsAny<CancellationToken>()), Times.Once);
+        await service.StopAsync(CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task DownloaderRuntimeCheck_WhenShutdownIsPending_DoesNotRestartWorker()
+    {
+        var config = new NebulaFtpConfiguration { Enabled = true, UseMappedDrive = false };
+        var configuration = CreateConfigManager(config);
+        var downloaderAlive = false;
+        var manager = new Mock<INebulaFtpManager>();
+        manager.Setup(m => m.StartEnvioAsync(false, It.IsAny<CancellationToken>())).ReturnsAsync(true);
+        manager.Setup(m => m.StartDownloaderAsync(It.IsAny<CancellationToken>())).Returns(() =>
+        {
+            downloaderAlive = true;
+            return Task.FromResult(true);
+        });
+        manager.SetupGet(m => m.IsDownloaderRunning).Returns(() => downloaderAlive);
+        manager.Setup(m => m.StopDownloaderAsync(It.IsAny<CancellationToken>())).ReturnsAsync(false);
+        manager.Setup(m => m.StopEnvioAsync(It.IsAny<CancellationToken>())).ReturnsAsync(true);
+
+        using var lifetime = new TestLifetime();
+        using var service = CreateService(manager, configuration, lifetime);
+        await service.StartAsync(CancellationToken.None);
+        lifetime.TriggerStarted();
+        await service.WaitForPendingWorkAsync();
+
+        config.Enabled = false;
+        configuration.Raise(m => m.NamedConfigurationUpdated += null, new ConfigurationUpdateEventArgs("nebulaftp", config));
+        await service.WaitForPendingWorkAsync();
+
+        config.Enabled = true;
+        downloaderAlive = false;
+        await service.CheckDownloaderRuntimeAsync();
+
+        manager.Verify(m => m.StartDownloaderAsync(It.IsAny<CancellationToken>()), Times.Once);
+        manager.Verify(m => m.StopEnvioAsync(It.IsAny<CancellationToken>()), Times.Once);
+        manager.Setup(m => m.StopDownloaderAsync(It.IsAny<CancellationToken>())).ReturnsAsync(true);
+        await service.StopAsync(CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task RuntimeMonitor_DetectsExitAndRetriesUntilDownloaderRecovers()
+    {
+        var config = new NebulaFtpConfiguration { Enabled = true, UseMappedDrive = false };
+        var configuration = CreateConfigManager(config);
+        var monitorTick = new SemaphoreSlim(0);
+        var monitorWaiting = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var retriesExhausted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var recovered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var downloaderAlive = false;
+        var startAttempts = 0;
+        var manager = new Mock<INebulaFtpManager>();
+        manager.Setup(m => m.StartEnvioAsync(false, It.IsAny<CancellationToken>())).ReturnsAsync(true);
+        manager.Setup(m => m.StartDownloaderAsync(It.IsAny<CancellationToken>())).Returns(() =>
+        {
+            startAttempts++;
+            if (startAttempts == 1 || startAttempts == 5)
+            {
+                downloaderAlive = true;
+                if (startAttempts == 5)
+                {
+                    recovered.TrySetResult();
+                }
+
+                return Task.FromResult(true);
+            }
+
+            if (startAttempts == 4)
+            {
+                retriesExhausted.TrySetResult();
+            }
+
+            return Task.FromResult(false);
+        });
+        manager.SetupGet(m => m.IsDownloaderRunning).Returns(() => downloaderAlive);
+        manager.Setup(m => m.StopDownloaderAsync(It.IsAny<CancellationToken>())).ReturnsAsync(true);
+        manager.Setup(m => m.StopEnvioAsync(It.IsAny<CancellationToken>())).ReturnsAsync(true);
+        var runtimeDelayCalls = 0;
+        Task RuntimeDelayAsync(TimeSpan _, CancellationToken token)
+        {
+            if (Interlocked.Increment(ref runtimeDelayCalls) == 1)
+            {
+                monitorWaiting.TrySetResult();
+            }
+
+            return monitorTick.WaitAsync(token);
+        }
+
+        using var lifetime = new TestLifetime();
+        using var service = CreateService(manager, configuration, lifetime, (_, _) => Task.CompletedTask, RuntimeDelayAsync);
+        await service.StartAsync(CancellationToken.None);
+        lifetime.TriggerStarted();
+        await service.WaitForPendingWorkAsync();
+        await monitorWaiting.Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+
+        downloaderAlive = false;
+        monitorTick.Release();
+        await retriesExhausted.Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+        Assert.Equal(4, startAttempts);
+        await monitorWaiting.Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+        monitorTick.Release();
+        await recovered.Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+
+        Assert.Equal(5, startAttempts);
+        manager.Verify(m => m.StartEnvioAsync(false, It.IsAny<CancellationToken>()), Times.Once);
+        await service.StopAsync(CancellationToken.None);
+        monitorTick.Dispose();
+    }
+
+    [Fact]
+    public async Task Stop_WaitsForRuntimeMonitorRestartBeforeStoppingNebulaResources()
+    {
+        var config = new NebulaFtpConfiguration { Enabled = true, UseMappedDrive = false };
+        var configuration = CreateConfigManager(config);
+        var monitorTick = new SemaphoreSlim(0);
+        var monitorWaiting = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var restartEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var restartCompletion = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var downloaderAlive = false;
+        var startAttempts = 0;
+        var manager = new Mock<INebulaFtpManager>();
+        manager.Setup(m => m.StartEnvioAsync(false, It.IsAny<CancellationToken>())).ReturnsAsync(true);
+        manager.Setup(m => m.StartDownloaderAsync(It.IsAny<CancellationToken>())).Returns(() =>
+        {
+            startAttempts++;
+            if (startAttempts == 1)
+            {
+                downloaderAlive = true;
+                return Task.FromResult(true);
+            }
+
+            restartEntered.TrySetResult();
+            return restartCompletion.Task;
+        });
+        manager.SetupGet(m => m.IsDownloaderRunning).Returns(() => downloaderAlive);
+        manager.Setup(m => m.StopDownloaderAsync(It.IsAny<CancellationToken>())).ReturnsAsync(true);
+        manager.Setup(m => m.StopEnvioAsync(It.IsAny<CancellationToken>())).ReturnsAsync(true);
+        var runtimeDelayCalls = 0;
+        Task RuntimeDelayAsync(TimeSpan _, CancellationToken token)
+        {
+            if (Interlocked.Increment(ref runtimeDelayCalls) == 1)
+            {
+                monitorWaiting.TrySetResult();
+            }
+
+            return monitorTick.WaitAsync(token);
+        }
+
+        using var lifetime = new TestLifetime();
+        using var service = CreateService(manager, configuration, lifetime, (_, _) => Task.CompletedTask, RuntimeDelayAsync);
+        await service.StartAsync(CancellationToken.None);
+        lifetime.TriggerStarted();
+        await service.WaitForPendingWorkAsync();
+        await monitorWaiting.Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+        downloaderAlive = false;
+        monitorTick.Release();
+        await restartEntered.Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+
+        var stopTask = service.StopAsync(CancellationToken.None);
+        Assert.False(stopTask.IsCompleted);
+        manager.Verify(m => m.StopDownloaderAsync(It.IsAny<CancellationToken>()), Times.Never);
+        manager.Verify(m => m.StopEnvioAsync(It.IsAny<CancellationToken>()), Times.Never);
+
+        restartCompletion.TrySetResult(true);
+        await stopTask.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+
+        manager.Verify(m => m.StopDownloaderAsync(It.IsAny<CancellationToken>()), Times.Once);
+        manager.Verify(m => m.StopEnvioAsync(It.IsAny<CancellationToken>()), Times.Once);
+        monitorTick.Dispose();
     }
 
     [Fact]
@@ -525,6 +767,7 @@ public sealed class NebulaHostedServiceConfigurationTests
 
         public void Dispose()
         {
+            StopApplication();
             _started.Dispose();
             _stopping.Dispose();
             _stopped.Dispose();

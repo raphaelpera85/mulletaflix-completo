@@ -10,6 +10,7 @@ using MediaBrowser.Controller.BaseItemManager;
 using MediaBrowser.Controller.Configuration;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Entities.Movies;
+using MediaBrowser.Controller.Entities.TV;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.Lyrics;
 using MediaBrowser.Controller.MediaSegments;
@@ -33,14 +34,14 @@ namespace MulletaFlix.Providers.Tests.Manager
 {
     public partial class ProviderManagerTests
     {
-        [Fact]
-        public async Task GetAvailableRemoteImages_PrioritizesPreferredLanguageAcrossProviders()
+        [Theory]
+        [InlineData(false)]
+        [InlineData(true)]
+        public async Task GetAvailableRemoteImages_PrioritizesPreferredLanguageAcrossProviders(bool isSeries)
         {
-            var item = new Movie
-            {
-                PreferredMetadataLanguage = "pt-BR",
-                PreferredMetadataCountryCode = "BR"
-            };
+            BaseItem item = isSeries ? new Series() : new Movie();
+            item.PreferredMetadataLanguage = "pt-BR";
+            item.PreferredMetadataCountryCode = "BR";
             var fanartProvider = new Mock<IRemoteImageProvider>(MockBehavior.Strict);
             fanartProvider.Setup(provider => provider.Name).Returns("Fanart");
             fanartProvider.Setup(provider => provider.Supports(item)).Returns(true);

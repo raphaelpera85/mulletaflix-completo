@@ -289,6 +289,81 @@ public sealed class BaseItemRepositoryLatestTvShowTests : IDisposable
 
     [Fact]
     [Trait("Category", "Integration")]
+    public void GetLatestItemList_TvShows_UsesHomeLibraryFiltersAndDeduplicatesBeforeApplyingLimit()
+    {
+        using var database = new IsolatedMariaDbDatabase();
+        var now = new DateTime(2026, 6, 27, 12, 0, 0, DateTimeKind.Utc);
+        var homeLibraryId = Guid.NewGuid();
+        var seriesA = CreateSeries("MariaDB Series A");
+        var seasonA = CreateSeason(seriesA, "MariaDB Series A - Season 1");
+        var seriesAEpisodes = new[]
+        {
+            CreateEpisode(seriesA.Name, seriesA, seasonA, now.AddHours(-1)),
+            CreateEpisode(seriesA.Name, seriesA, seasonA, now.AddHours(-4))
+        };
+        var seriesB = CreateSeries("MariaDB Series B");
+        var seasonB = CreateSeason(seriesB, "MariaDB Series B - Season 1");
+        var seriesBEpisodes = new[]
+        {
+            CreateEpisode(seriesB.Name, seriesB, seasonB, now.AddHours(-2)),
+            CreateEpisode(seriesB.Name, seriesB, seasonB, now.AddHours(-5))
+        };
+        var seriesC = CreateSeries("MariaDB Series C");
+        var seasonC = CreateSeason(seriesC, "MariaDB Series C - Season 1");
+        var seriesCEpisode = CreateEpisode(seriesC.Name, seriesC, seasonC, now.AddHours(-3));
+
+        foreach (var episode in seriesAEpisodes.Concat(seriesBEpisodes).Append(seriesCEpisode))
+        {
+            episode.TopParentId = homeLibraryId;
+        }
+
+        var unrelatedSeries = CreateSeries("Unrelated Library Series");
+        var unrelatedSeason = CreateSeason(unrelatedSeries, "Unrelated Library Series - Season 1");
+        var unrelatedEpisode = CreateEpisode(unrelatedSeries.Name, unrelatedSeries, unrelatedSeason, now);
+        unrelatedEpisode.TopParentId = Guid.NewGuid();
+
+        using (var context = database.CreateDbContext())
+        {
+            context.Database.EnsureCreated();
+            context.BaseItems.AddRange(
+                seriesA,
+                seasonA,
+                seriesAEpisodes[0],
+                seriesAEpisodes[1],
+                seriesB,
+                seasonB,
+                seriesBEpisodes[0],
+                seriesBEpisodes[1],
+                seriesC,
+                seasonC,
+                seriesCEpisode,
+                unrelatedSeries,
+                unrelatedSeason,
+                unrelatedEpisode);
+            context.SaveChanges();
+        }
+
+        var factory = new Mock<IDbContextFactory<MulletaFlixDbContext>>();
+        factory.Setup(f => f.CreateDbContext()).Returns(database.CreateDbContext);
+        factory.Setup(f => f.CreateDbContextAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(database.CreateDbContext);
+
+        var result = CreateRepository(factory.Object).GetLatestItemList(
+            new InternalItemsQuery
+            {
+                IncludeItemTypes = [BaseItemKind.Episode],
+                IsVirtualItem = false,
+                Limit = 2,
+                TopParentIds = [homeLibraryId]
+            },
+            CollectionType.tvshows);
+
+        Assert.Equal(2, result.Count);
+        Assert.Equal(new[] { seriesA.Id, seriesB.Id }, result.Select(item => item.Id));
+    }
+
+    [Fact]
+    [Trait("Category", "Integration")]
     public void GetLatestItemList_Music_UsesMariaDbSubqueryForMatchingAlbums()
     {
         using var database = new IsolatedMariaDbDatabase();

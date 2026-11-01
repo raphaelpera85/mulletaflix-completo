@@ -796,7 +796,7 @@ public class NebulaSupabaseSyncTests
     }
 
     [Fact]
-    public async Task FullRestore_WritesAndQueriesApplicationUserFromIsolatedSupabaseFixture()
+    public async Task Restore_WritesAndQueriesApplicationUserFromIsolatedSupabaseFixture()
     {
         var options = new DbContextOptionsBuilder<UsersDbContext>()
             .UseInMemoryDatabase(Guid.NewGuid().ToString("N"))
@@ -824,7 +824,7 @@ public class NebulaSupabaseSyncTests
             "https://supabase.invalid",
             "sb_secret_test",
             progressAction: null,
-            forceFullRestore: true,
+            forceFullRestore: false,
             TestContext.Current.CancellationToken);
 
         Assert.True(result.Success, result.Message);
@@ -875,6 +875,30 @@ public class NebulaSupabaseSyncTests
         Assert.Contains("restauração de usuários FTP", result.Message, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("HTTP 503", result.Message, StringComparison.Ordinal);
         Assert.Equal(new[] { HttpMethod.Get, HttpMethod.Get }, handler.Methods);
+    }
+
+    [Fact]
+    public async Task MongoFullRestoreFailsClosedWithoutCallingSupabase()
+    {
+        var handler = new StaticResponseHandler(new HttpResponseMessage(HttpStatusCode.OK));
+        using var service = new NebulaSupabaseSyncService(
+            null!,
+            NullLogger<NebulaSupabaseSyncService>.Instance,
+            usersDbProvider: null!,
+            handler);
+
+        var result = await service.PerformRestoreAsync(
+            "https://supabase.invalid",
+            "sb_secret_test",
+            progressAction: null,
+            forceFullRestore: true,
+            TestContext.Current.CancellationToken);
+
+        Assert.False(result.Success);
+        Assert.Contains("restauração completa não está disponível", result.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("nenhuma alteração foi feita", result.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(0, handler.RequestCount);
+        Assert.Null(service.LastSuccessfulRestoreTime);
     }
 
     [Fact]
@@ -986,7 +1010,7 @@ public class NebulaSupabaseSyncTests
         Assert.Equal(0, result.FilesRestored);
         Assert.Equal(0, result.FtpUsersRestored);
         Assert.Null(result.AppUsersRestored);
-        Assert.Null(result.UsersRestored);
+        Assert.Equal(0, result.UsersRestored);
     }
 
     [Fact]

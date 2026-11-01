@@ -2790,7 +2790,13 @@ public sealed class NebulaMongoContext : IDisposable
     /// <param name="docs">Documentos BSON recuperados do Supabase.</param>
     /// <param name="cancellationToken">Token de cancelamento.</param>
     /// <returns>Quantidade de documentos mesclados.</returns>
-    public async Task<int> BulkUpsertRawDocsAsync(IReadOnlyCollection<BsonDocument> docs, CancellationToken cancellationToken = default)
+    public Task<int> BulkUpsertRawDocsAsync(IReadOnlyCollection<BsonDocument> docs, CancellationToken cancellationToken = default)
+        => BulkUpsertRawDocsAsync(docs, cancellationToken, partialWriteCountChanged: null);
+
+    internal async Task<int> BulkUpsertRawDocsAsync(
+        IReadOnlyCollection<BsonDocument> docs,
+        CancellationToken cancellationToken,
+        Action<int>? partialWriteCountChanged)
     {
         if (docs == null || docs.Count == 0)
         {
@@ -2842,10 +2848,27 @@ public sealed class NebulaMongoContext : IDisposable
             return 0;
         }
 
-        await _filesCollection.BulkWriteAsync(
-            writes,
-            new BulkWriteOptions { IsOrdered = false },
-            cancellationToken).ConfigureAwait(false);
+        try
+        {
+            await _filesCollection.BulkWriteAsync(
+                writes,
+                new BulkWriteOptions { IsOrdered = false },
+                cancellationToken).ConfigureAwait(false);
+        }
+        catch (MongoBulkWriteException<BsonDocument> ex)
+        {
+            if (ex.WriteConcernError is null && ex.Result.IsAcknowledged)
+            {
+                var confirmedCount = checked((int)(ex.Result.MatchedCount + ex.Result.Upserts.Count));
+                if (confirmedCount > 0)
+                {
+                    partialWriteCountChanged?.Invoke(confirmedCount);
+                }
+            }
+
+            throw;
+        }
+
         return writes.Count;
     }
 

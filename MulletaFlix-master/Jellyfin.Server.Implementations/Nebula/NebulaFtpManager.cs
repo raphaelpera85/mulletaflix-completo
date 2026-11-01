@@ -945,7 +945,7 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable, IAsyncDis
             NebulaEnabled = config.Enabled,
             IsEnvioRunning = _isEnvioRunning && ((_ftpServerHost != null && _ftpServerHost.IsRunning) || (_pythonStreamProcess is { HasExited: false })),
             StreamOnly = _streamOnly,
-            IsDownloaderRunning = _isDownloaderRunning && ((_downloaderEngine != null && _downloaderEngine.IsRunning) || (_pythonDownloaderProcess is { HasExited: false })),
+            IsDownloaderRunning = IsDownloaderRunning,
             TurboActive = config.TurboEnabled,
             IsDriveNMounted = isDriveNMounted,
             DriveNStatus = isDriveNMounted ? "Unidade N: Montada" : "Unidade N: Desconectada"
@@ -1051,6 +1051,9 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable, IAsyncDis
 
         return status;
     }
+
+    public bool IsDownloaderRunning => _isDownloaderRunning
+        && ((_downloaderEngine != null && _downloaderEngine.IsRunning) || (_pythonDownloaderProcess is { HasExited: false }));
 
     public async Task<NebulaComponentHealthDto> GetComponentHealthAsync(CancellationToken cancellationToken = default)
     {
@@ -4317,6 +4320,16 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable, IAsyncDis
 
     public async Task<NebulaSupabaseRestoreResultDto> RestoreSupabaseToMongoAsync(string? idempotencyKey = null, bool forceFull = false, CancellationToken cancellationToken = default)
     {
+        if (forceFull)
+        {
+            return new NebulaSupabaseRestoreResultDto
+            {
+                Success = false,
+                Message = "A restauração completa não está disponível neste fluxo; nenhuma alteração foi feita.",
+                Timestamp = DateTime.UtcNow
+            };
+        }
+
         if (await TryGetOperationReplayAsync<NebulaSupabaseRestoreResultDto>("supabase-restore", idempotencyKey, cancellationToken).ConfigureAwait(false))
         {
             TryGetOperationReplay("supabase-restore", idempotencyKey, out NebulaSupabaseRestoreResultDto? cached);

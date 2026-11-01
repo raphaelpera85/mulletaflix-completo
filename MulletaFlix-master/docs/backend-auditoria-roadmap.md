@@ -1,3 +1,37 @@
+## Homologação da consulta Home de séries recentes — 2026-11-01 03:21 BRT
+
+- A classe BaseItemRepositoryLatestTvShowTests foi executada inicialmente sem conexão opt-in: 6 aprovados, 2 ignorados, 0 falhas. Isso confirmou que os cenários MariaDB ainda não tinham sido executados.
+- Foi inicializada uma instância descartável MariaDB 11.4.4 em 127.0.0.1:33127, com datadir exclusivo temporário. A mesma classe passou 8/8, 0 ignorados, 0 falhas; inclui o teste com filtros reais da Home (Episode, itens não virtuais e raízes de biblioteca) e exclusão de episódios de outra biblioteca.
+- O processo de teste foi encerrado, 127.0.0.1:33127 foi confirmado fechado e a porta operacional 3306 não foi acessada. A remoção recursiva do diretório temporário foi bloqueada pela política da ferramenta; dados e logs sem credenciais continuam em %TEMP%.
+- Isto valida resultados funcionais no MariaDB, não plano/latência com catálogo representativo. EXPLAIN ANALYZE, volume real, CI hospedada e produção permanecem pendentes; nenhuma mudança de runtime, índice, release ou gate formal.
+## Reauditoria do monitor Downloader após startup — 2026-11-01 01:42 BRT
+
+- Revisão adversarial identificou que o monitor podia ignorar `_stopPending` após uma tentativa de shutdown incompleta. `CheckDownloaderRuntimeAsync` agora falha fechado nesse estado.
+- Testes exercitam parada incompleta e duas rodadas temporizadas do monitor: todas as tentativas de uma rodada falham e a próxima rodada recupera o Downloader.
+- `NebulaHostedServiceConfigurationTests`: 22/22; regressão combinada `NebulaHostedServiceConfigurationTests`, `NebulaDownloaderStartupTests` e `NebulaCleanupLifecycleTests`: 67/67 em Release/.NET 10. Runtime Python, instalação e produção não foram exercitados.
+
+## Idempotência de upsert do catálogo Mongo — 2026-10-30 02:47 BRT
+
+- Adicionado teste de integração que chama duas vezes, em sequência, o upsert do mesmo snapshot via `$set` e confirma um único registro, atualização de campos remotos e preservação de campo local. A primeira chamada conclui com sucesso; não representa resposta perdida.
+- Teste focal passou 1/1; suíte `Category=RequiresMongo` passou 30/30 em Release/.NET 10 contra MongoDB 8.3 descartável em `127.0.0.1:27099`. Processo terminou e porta ficou fechada.
+- Isto valida idempotência de chamadas sequenciais do upsert, não perda real de resposta de transporte nem replay de `PerformRestoreAsync`. Transporte/write concern ambíguo, sobrescrita snapshot-authoritative de campos presentes e semântica de `forceFullRestore` seguem pendentes. Produção 12.1.45; formal 2/7; sem release.
+
+## Restore completo Supabase falha fechado — 2026-10-30 02:55 BRT
+
+- `PerformRestoreAsync(forceFullRestore: true)` agora retorna falha antes de iniciar chamadas HTTP, adquirir admissão Mongo ou alterar dados. A resposta diz que nenhuma alteração foi feita.
+- Reauditoria encontrou replay idempotente anterior à chamada do serviço. `RestoreSupabaseToMongoAsync` agora rejeita `forceFull=true` antes de consultar replay em memória/Mongo; teste semeia resposta incremental de sucesso com a mesma chave e confirma que ela não mascara a recusa.
+- A auditoria corrigiu uma conclusão anterior: o endpoint `POST Supabase/Restore` aceita `forceFull` e encaminha o valor ao serviço, embora o restore automático e a tela web usem o padrão `false`. Antes, o serviço ignorava a flag e podia apresentar um restore incremental comum como sucesso.
+- O restore completo permanece indisponível por segurança: o legado Python define remoção de registros ausentes no snapshot, mas o serviço C# restaura várias categorias, incluindo usuários do aplicativo, sem contrato que delimite quais dados podem ser removidos. Nenhuma exclusão foi implementada.
+- Testes `MongoFullRestoreFailsClosedWithoutCallingSupabase` e `FullRestore_RejectsBeforeReturningIncrementalIdempotencyReplay` passaram. Suítes combinadas `NebulaSupabase*` + `NebulaBackupStatusTests`: 74 aprovados, 8 ignorados por exigirem Mongo, 0 falhas/82; Release/.NET 10. A aprovação não cobre Mongo real, Supabase real nem produção.
+- Sem mudança estrutural. Produção conhecida 12.1.45; 12.1.46 segue candidata; homologação formal 2/7; sem release.
+
+## Resultado parcial do bulk restore Mongo — 2026-10-30 02:21 BRT
+
+- Corrigida a perda da contagem quando `BulkWriteAsync` não ordenado aplica alguns upserts e depois lança `MongoBulkWriteException`. O contexto Mongo informa ao restore somente operações reconhecidas (`MatchedCount + Upserts.Count`) quando o resultado é acknowledged e não há `WriteConcernError`; o erro original continua sendo propagado.
+- Regressão real com MongoDB 8.3.7 descartável validou 1 documento confirmado antes da falha do item inválido. Categoria `RequiresMongo`: 29/29 Debug e 29/29 Release.
+- Contrato local do portal passou 421/421; sétima evidência do lote local, ainda aguardando o total de dez para publicação.
+- Sem mudança de APIs públicas, dependências, módulos ou fluxo macro. Não cobre exceções de transporte cujo resultado de escrita seja desconhecido. `forceFullRestore` continua inerte, sem exclusão automática. Produção 12.1.45; candidata 12.1.46 sem publicação; homologação formal 2/7.
+
 ## Restore Supabase rejeita IDs MongoDB equivalentes — 2026-10-30 01:39 BRT
 
 - `restore_collection` valida agora duplicidade de `_id` antes de tocar no MongoDB. A verificação respeita igualdade numérica BSON (por exemplo, inteiro e double equivalentes), preserva a distinção de booleanos e compara outros IDs por BSON codificado.
@@ -11,7 +45,14 @@
 - Revisão adversarial detectou e corrigiu isolamento insuficiente: erro de `GetSupportedImages` em um provider agora é registrado sem impedir os outros. Regressão dedicada comprova continuidade com o provider saudável.
 - `Jellyfin.Providers.Tests`: 840 aprovados, 13 ignorados (integrações externas opt-in), 0 falhas/853; classe de refresh 65/65. `EnumerableExtensionsTests` passou 14/14 para prioridade regional, equivalência e fallback. Nenhuma chamada a serviço externo nem mídia existente foi alterada.
 - Complemento 2026-10-30 01:31 BRT: `RefreshImages_RemoteImages_PrefersLibraryLanguageAcrossProviders` passou 8/8, cobrindo `Movie` e `Series`; animações são tratadas como `Series` pelo servidor. A suíte completa `Jellyfin.Server.Implementations.Tests` passou 1.668, ignorou 85 e teve 0 falhas (1.753 total, Windows/.NET 10). MariaDB e casos específicos de Linux não foram executados nesta suíte por pré-condição/plataforma.
+- Revalidação 2026-10-30 02:11 BRT: a regressão foi ajustada para deixar de setar idioma diretamente em `BaseItem` e exercitar `LibraryOptions` (`pt` + `BR`). `RefreshImages_RemoteImages_PrefersLibraryLanguageAcrossProviders`: 8/8 em Release, cobrindo `Movie` e `Series` e fallback inglês quando o candidato localizado falha. Animações não têm entidade própria: filmes animados seguem `Movie` e séries animadas `Series`; não há ramo exclusivo por categoria.
 - Ainda pendem TMDb/Fanart reais, reprocessamento de capas já persistidas, Windows instalado, Linux, hardware, CI hospedada e produção. Candidata 12.1.46 sem release; homologação formal permanece 2/7.
+
+### Revalidação dos provedores de imagens — 2026-10-30 02:43 BRT
+
+- A suíte completa `Jellyfin.Providers.Tests` passou 840/853 em Release/.NET 10: 840 aprovados, 13 testes de integração externa ignorados e nenhuma falha.
+- A regressão focal de idioma para pôster/fundo cobre `Movie` e `Series` (8/8 nesta tarefa). Filmes animados são `Movie`; séries animadas são `Series`, sem categoria de entidade separada.
+- Esta reexecução não acessou TMDb/Fanart nem mídia real. Não reprocessa imagens já salvas; atualização dessas capas ainda exige refresh/substituição explícita. Formal 2/7; produção 12.1.45; sem release.
 
 ## Concorrência entre revarredura e atualização de imagens — 2026-10-30 00:11 BRT
 
@@ -128,11 +169,13 @@ Rotas já declaradas `/dashboard/logs` e `/dashboard/logs/:file` estavam sem tel
 - `ApplyUpdateFailClosed.Tests.ps1` foi incluído no CI de packaging e no gate pré-publicação; ambos exercitam também Windows PowerShell 5.1, que o serviço usa em produção.
 - Pendências: smoke em instalação Windows isolada, execução do workflow hospedado, runtime Linux e produção. Nenhuma release publicada nem crédito à homologação formal; esta segue 2/7 (28,6%). MariaDB permanece o único banco relacional operacional.
 
-### Lacunas de teste do restore MariaDB — revisão read-only — 2026-10-29
+### Recuperação de restore após encerramento do processo — reconciliação 2026-10-30
 
-- A suíte atual cobre falha de insert/rollback e recuperação após commit, mas não encerra um processo durante a transação de restore antes do commit. Adicionar exercício isolado com filho morto nessa janela e validar que não sobrevivem linhas parciais nem sidecars/journal indevidos.
-- A exportação de bancos primário, domínio e participante ocorre em transações distintas. Falta especificar se backups precisam de consistência point-in-time entre stores; sem esse requisito decidido, isso é lacuna de contrato/teste, não bug confirmado.
-- Não houve acesso a banco operacional; análise usa somente fonte e testes versionados. MariaDB é o único banco relacional operacional.
+- **Correção da lacuna anterior:** `BackupRestoreMariaDbTests.RestoreBackupAsync_ReplaysAfterProcessTerminationBetweenDatabaseAndFileCommit` já existe. O teste encerra o processo filho antes do commit relacional e após esse commit, mas antes do commit dos arquivos; em seguida, executa a recuperação e verifica estado do banco, arquivo restaurado e limpeza do journal/sidecars.
+- Evidência histórica: a auditoria de 2026-10-26 registra 16/16 testes do filtro MariaDB em uma instância descartável MariaDB 11.4.13, incluindo esse cenário. A revalidação do código compilou o teste em Windows/.NET 10 Release em 2026-10-29, mas foi ignorada por falta de `MULLETAFLIX_TEST_MARIADB_CONNECTION_STRING`; isso não equivale a nova execução integrada.
+- Nesta sessão não houve conexão MariaDB: a variável de teste está ausente e `127.0.0.1:3306` tem `mysqld.exe` ativo, tratado como produção. O teste exige explicitamente instância descartável em loopback e porta diferente de 3306. CI hospedada ainda precisa de execução observável para esta revisão.
+- **Pendente distinto:** exportação dos bancos primário, domínio e participante usa transações separadas. A necessidade de consistência point-in-time entre stores ainda não tem contrato definido; é lacuna de requisito, não bug confirmado.
+- MariaDB é o único banco relacional operacional.
 
 ## Skills Utilizadas
 
@@ -1006,12 +1049,12 @@ Análise dos três logs FFmpeg do teste: fonte Matroska contém H.264 High 1920�
 - Integração em MariaDB 11.4.4 descartável validou 2.005 descendentes com cascata `ParentId`, cadeia `OwnerId`, retenção do UserData mais recente, empates entre candidatos e Placeholder preservando Favorito/progresso/avaliação/faixas e prazo expirado renovado: 1/1; regressão focal completa: 34/34. Servidor de teste na porta 33251 foi encerrado; a porta MariaDB de produção 3306 permaneceu intocada.
 - Sem medição em catálogo real, validação Linux/CI hospedada, acesso a dados de produção ou aceite em hardware. Produção 12.1.45; homologação formal 2/7; sem release.
 
-### Contagem parcial no restore Supabase — 2026-10-30 01:48 BRT
+### Contagem parcial no restore Supabase — 2026-10-30 01:49–01:56 BRT
 
-- `PerformRestoreCoreAsync` atualiza `FilesRestored` depois de cada página de catálogo que `BulkUpsertRawDocsAsync` confirma. Uma falha HTTP em página posterior preserva no DTO a quantidade já confirmada, em vez de retornar zero.
-- `NebulaSupabaseFileRestoreTests`: 9/9 aprovados em Release. Cenário: primeira página persistida, segunda chamada HTTP 500 e contagem da primeira página preservada.
-- Limite confirmado pela revisão: se `BulkWriteAsync` lançar após aplicar parte de uma página não ordenada, o callback não recebe o número parcial dessa página. O teste valida o callback, não a resposta DTO do método completo com persistência Mongo. Os outros contadores do restore também são atribuídos após etapas completas e permanecem como área de auditoria; não foram alterados nesta correção. `forceFullRestore` é recebido mas atualmente ignorado; sem especificação segura para restore destrutivo, comportamento permanece pendente de decisão.
-- Sem MongoDB/Supabase real, dados de produção, runtime instalado ou homologação formal. Produção conhecida 12.1.45; candidata 12.1.46 não publicada; homologação formal 2/7.
+- `PerformRestoreCoreAsync` atualiza `FilesRestored` depois de cada página de catálogo que `BulkUpsertRawDocsAsync` confirma. O mesmo progresso agora é refletido em usuários FTP, tokens de bot e refreshes VFS, após cada upsert Mongo confirmado. Linhas FTP sem `_id` ou login válido não contam como persistidas. `UsersRestored` acompanha os usuários FTP confirmados; usuários do app só entram na soma após `SaveChangesAsync` bem-sucedido.
+- `NebulaSupabaseFileRestoreTests`: 9/9 aprovados em Debug e 9/9 em Release. Foram adicionados testes de integração para falha depois de persistir token/refresh, mas os 4 testes de `NebulaSupabaseRestoreMongoTests` foram ignorados nesta sessão porque a instância Mongo descartável em `127.0.0.1:27099` não está disponível; os testes compilam.
+- Limite: se `BulkWriteAsync` lançar após aplicar parte de uma página não ordenada, o callback não recebe o número parcial dessa página. `forceFullRestore` é recebido mas atualmente ignorado; sem especificação segura para restore destrutivo, comportamento permanece pendente de decisão.
+- Sem MongoDB/Supabase operacionais, dados de produção, runtime instalado ou homologação formal. Produção conhecida 12.1.45; candidata 12.1.46 não publicada; homologação formal 2/7.
 
 ### Navegação no fullscreen forçado do webOS — 2026-10-30 00:00 BRT
 
@@ -1027,3 +1070,107 @@ Análise dos três logs FFmpeg do teste: fonte Matroska contém H.264 High 1920�
 - Testes focais: `BaseItemRepositoryLatestTvShowTests` e `NextUpQueryOptimizationTests` passaram 8/9; 1 integração MariaDB foi ignorada porque o opt-in de conexão não está configurado. Sem benchmark de catálogo real, SQL/EXPLAIN MariaDB ou produção.
 - Resultado limitado à inspeção dos métodos e testes locais; não conclui a auditoria de consultas nem valida desempenho. O bloco permanece em andamento.
 - Suíte ampla `Jellyfin.Server.Implementations.Tests`: 1.668 aprovados, 85 ignorados e 0 falhas/1.753 em Windows/.NET 10; os ignorados incluem MariaDB opt-in e casos exclusivos de Linux. O resultado não mede desempenho real.
+
+## Restore Supabase — contadores por etapa com Mongo descartável — 2026-10-30 02:08 BRT
+
+- `NebulaSupabaseSyncService` mantém os totais confirmados de catálogo, usuários FTP, tokens de bot e refreshes VFS quando uma etapa posterior falha. Linhas FTP sem `_id` ou login não incrementam o subtotal. Sem mudança de API pública, módulo ou dependência.
+- `NebulaSupabaseRestoreMongoTests`: 4/4 aprovados em Debug e Release usando MongoDB 8.3.7 descartável em loopback. Todos os testes `Category=RequiresMongo` de `Jellyfin.Server.Implementations.Tests`: 28/28 aprovados em Release. A primeira tentativa da regressão VFS encontrou resposta vazia sobrando no fixture; o fixture foi corrigido e repetido com sucesso.
+- O processo de teste foi encerrado e a porta `27099` fechada. Os arquivos do banco de teste continuam em `%TEMP%`; remoção foi recusada pela política do shell. Sem Supabase real, MongoDB 7.0, produção ou runtime instalado.
+- Riscos restantes: falha parcial dentro de `BulkWriteAsync` sem contagem das operações aplicadas; `forceFullRestore` ainda é ignorado até existir contrato seguro para exclusão. Produção conhecida 12.1.45; candidata 12.1.46 sem release; homologação formal 2/7.
+- Reauditoria dos callers 2026-10-30 02:13 BRT: todos os chamadores de produção encontrados passam `forceFullRestore: false`; o caminho público que não recebe o parâmetro também fixa `false`. Nenhum caller com `true` foi encontrado. O parâmetro é atualmente inerte, e removê-lo ou atribuir semântica continua dependendo do contrato de restore; nenhuma deleção foi introduzida.
+
+### Regressão local atualizada — 2026-10-30 02:35 BRT
+
+- Solução .NET Release: 17 assemblies, 5.395 aprovados, 267 ignorados, 0 falhas/5.662; `LiveIntegrationTests` excluídos. Um teste inicialmente falhou por esperar `UsersRestored=null` apesar de o subtotal FTP conhecido ser zero; a asserção foi alinhada ao contrato existente (`UsersRestored=0`, etapa do aplicativo ainda nula). Teste focal e regressão completa repetidos; saída final da solução 0.
+- Nebula Python: 714/714 aprovados. Esses resultados não executam CI hospedada nem provam runtime instalado/produção. Integrações opt-in ignoradas continuam pendentes; MongoDB operacional em 3306 não foi acessado.
+- Mudança desta rodada limitada a uma asserção de teste; nenhum código de runtime, módulo, API, dependência ou fluxo mudou. Mapa técnico conferido e permanece igual. Produção conhecida 12.1.45; candidata 12.1.46 sem release; homologação formal permanece 2/7.
+## Revalidação de imagens para séries e animações — 2026-11-01 01:01 BRT
+
+- `ItemImageProvider` aplica a ordenação compartilhada para `Movie` e `Series`. A cobertura focal agora verifica Primary, Backdrop, Logo e Thumb e confirma fallback inglês quando o candidato localizado falha.
+- `ProviderManager` confirma prioridade `pt-BR` entre provedores também para `Series`; animações são representadas por `Movie` ou `Series`, sem entidade independente.
+- Testes focais Release/.NET 10: 18 aprovados, 0 ignorados/falhas. Testes locais simulam provedores; não confirmam TMDb/Fanart reais, atualização de imagens persistidas ou produção.
+
+## Ordenação determinística de “Continuar assistindo” — 2026-11-01 01:05 BRT
+
+- `NextUpService.GetNextUpSeriesKeys` agora desempata séries com a mesma data de reprodução pela chave da série, antes de aplicar `Limit`; resultados não dependem da ordem acidental do banco.
+- Regressão insere três séries com data igual, limita a duas e confirma as chaves `SeriesA`, `SeriesB`. `NextUpQueryOptimizationTests`: 3/3 em Release/.NET 10.
+- O teste usa EF InMemory; tradução SQL, plano MariaDB e ordenação de catálogo real não foram medidos. Sem mudança de esquema, API ou dependência.
+
+## Lacuna de paginação de Next Up — 2026-11-01 01:07 BRT
+
+- Inspeção estática confirmou que `TvSeriesManager.GetNextUp` recebe `request.Limit`, mas passa `Limit = null` para `GetNextUpSeriesKeys` no fluxo global. O serviço materializa todas as chaves elegíveis; a resolução dos episódios e a página ocorrem depois.
+- Isso comprova trabalho sem limite de séries antes da paginação, não uma regressão de latência medida. Não apliquei um `Take` antecipado: séries sem próximo episódio podem consumir a janela e excluir resultados válidos.
+- Próximo passo seguro: paginação progressiva de chaves ordenadas até preencher a página requisitada ou esgotar os candidatos; validar ordenação/contagem em MariaDB descartável e medir `EXPLAIN ANALYZE` antes de alterar índice ou consulta.
+
+### Revalidação focal — 2026-11-01 01:49 BRT
+
+- `NextUpQueryOptimizationTests` e `BaseItemRepositoryLatestTvShowTests`: 9 aprovados, 2 ignorados, 0 falhas em Release/.NET 10. Os ignorados são integrações MariaDB opt-in sem conexão descartável configurada.
+- A reexecução valida os testes de desempate e deduplicação existentes, mas não mede desempenho, tradução SQL MariaDB ou catálogo de produção. O fluxo global ainda materializa as chaves antes da paginação final; a correção segue pendente até haver paginação progressiva que preserve a contagem exata e não perca séries sem episódio elegível.
+- Não houve alteração de runtime nem de estrutura do servidor.
+
+### Contagem de NextUp encaminhada pelo UserView — 2026-11-01 01:52 BRT
+
+- `UserViewBuilder.GetTvNextUp` agora encaminha `InternalItemsQuery.EnableTotalRecordCount` à `NextUpQuery`. O caminho de filhos da `UserView` desativa a contagem total; antes, a query nova voltava ao padrão `true` e fazia `TVSeriesManager.GetResult` materializar novamente todos os resultados para contar.
+- O teste `UserViewBuilderTests.GetUserItems_TvNextUp_PropagatesDisabledTotalCount` reproduziu a regressão antes da correção e passou depois. `Jellyfin.Controller.Tests`: 74/74 em Release/.NET 10.
+- Isso remove uma materialização duplicada quando a contagem está desativada; não limita a busca de chaves/episódios do fluxo global. Paginação progressiva, SQL/EXPLAIN MariaDB e desempenho com biblioteca real seguem pendentes.
+- Mudança localizada ao encaminhamento de uma opção existente; sem alteração de API pública, esquema ou dependência.
+
+## Consulta de séries recentes — cobertura MariaDB — 2026-11-01 01:11 BRT
+
+- `GetLatestTvShowItems` ordena episódios no banco, depois percorre o resultado para reter a primeira ocorrência de cada `SeriesId` e aplicar o limite. A consulta pode percorrer mais episódios que a quantidade de cards retornados; ainda não há medição do custo em catálogo real.
+- Adicionada regressão MariaDB opt-in com episódios repetidos por série, ordenação por data e limite após deduplicação. Em MariaDB 11.4.4 descartável, os testes de séries recentes e subconsulta de álbuns passaram 2/2; as seis regressões sem banco passaram na suíte Release.
+- A tradução e o resultado funcional foram validados no provider MariaDB. Nenhuma consulta ou índice foi alterado. `EXPLAIN ANALYZE` com volume representativo e comparação de desempenho seguem pendentes antes de redesenhar a deduplicação.
+
+## Seleção manual de imagens preserva idioma e provider — 2026-11-01 01:22 BRT
+
+- `RemoteImageController.DownloadRemoteImage` agora aceita `providerName` opcional, que já é enviado pelo seletor web. O servidor reconsulta esse provider para a URL selecionada entre todos os idiomas e persiste `ProviderName`/`Language` no registro da imagem.
+- Cobertura para `Movie` e `Series` (inclui animação representada por qualquer tipo), locales `pt-br`, `en-us`, `zh-hant`; clientes antigos sem `providerName` continuam compatíveis. Se a URL não for retornada, a gravação segue sem preencher proveniência desconhecida.
+- `RemoteImageControllerTests`: 8/8; suíte `Jellyfin.Api.Tests`: 805 aprovados, 3 ignorados, 0 falhas/808 em Windows/.NET 10 Release. Portal local: 427/427; nono evento do lote 9/10.
+- Provedores reais, arquivos MariaDB já persistidos, ambiente instalado e produção não foram validados. Nenhuma release publicada; produção conhecida 12.1.45, candidata 12.1.46, homologação formal 2/7.
+## Supervisão do processo Downloader Nebula — 2026-11-01 01:34 BRT
+
+- `NebulaHostedService` agora verifica a cada 30 segundos se o processo downloader iniciado continua ativo. Se encerrou, tenta recuperá-lo pelo `INebulaFtpManager` sob o lock de transição existente; Envio e montagem do disco não são reiniciados por essa rotina.
+- O sinal de vida foi extraído para `NebulaFtpManager.IsDownloaderRunning` e reutilizado pelo DTO de status. A verificação evita `GetStatusAsync`, que também consulta filas MongoDB.
+- `NebulaHostedServiceConfigurationTests`: 21/21 aprovados em Release/.NET 10, incluindo o monitor periódico real sob espera controlada, retry após falha e shutdown durante recuperação. A regressão combinada `NebulaHostedServiceConfigurationTests`, `NebulaDownloaderStartupTests` e `NebulaCleanupLifecycleTests` passou 66/66. Build mostrou avisos XML preexistentes em `NebulaSupabaseSyncService` e avisos de análise já distribuídos pela suíte.
+- Não executado com processo Python real, runtime instalado, disco de produção, Telegram, MongoDB operacional ou produção. 12.1.46 segue candidata; produção conhecida 12.1.45; homologação formal 2/7, sem crédito.
+
+## Paginação progressiva de Next Up — 2026-11-01
+
+- O caminho global de `TVSeriesManager.GetNextUp` agora busca séries candidatas em blocos de 50, mantendo a ordenação por `LastPlayedDate` e chave. Continua consultando até preencher a página e comprovar que os candidatos seguintes não podem alterar a ordem; empate na fronteira continua a busca. `EnableTotalRecordCount`, rewatching e solicitações sem limite continuam usando o caminho completo.
+- Regressões cobrem início da próxima página quando necessário, lotes sem episódio elegível, empate na fronteira, parada somente quando datas candidatas são estritamente anteriores e `StartIndex` aplicado após desempate estável.
+- Suíte `Jellyfin.Server.Implementations.Tests`: 1.680 aprovados, 90 ignorados, 0 falhas/1.770 em Release/.NET 10. Testes MariaDB do provider seguem opt-in e não rodaram; sem medição com biblioteca real, produção ou benchmark.
+- Mudança candidata 12.1.46, sem release publicada; produção conhecida 12.1.45; homologação formal permanece 2/7. O contrato de `GetNextUpSeriesKeys` agora retorna também a data máxima candidata. Mapa técnico conferido: interfaces/callers existentes alterados, sem módulo ou dependência nova. Risco de offset sob alteração concorrente do histórico está documentado no código.
+
+## Next Up validado pelo provider MariaDB — 2026-11-01 02:21:40 BRT
+
+- Adicionado teste opt-in NextUpServiceMariaDbTests para validar a query real de candidatos com o provider Pomelo/MariaDB: agrupamento por série, MAX(LastPlayedDate), desempate alfabético, Skip/Take e retorno da data persistida.
+- Executado em MariaDB 11.4.4 descartável, loopback 127.0.0.1:33127, schema aleatório com prefixo mfx_nextup_test_: 1/1 aprovado. O provider traduziu e executou a consulta. A diferença de precisão sub-microssegundo foi normalizada na asserção (DATETIME(6)).
+- Regressão focal sem conexão opt-in: 7 aprovados, 1 ignorado/8 (o teste MariaDB); com MariaDB, o teste de integração passou 1/1. A instância temporária foi encerrada, porta fechada e diretório de dados descartável removido. O PID 19840 de produção permaneceu em execução e não recebeu conexão.
+- Sem EXPLAIN ANALYZE, benchmark ou catálogo real. Produção conhecida 12.1.45; candidata 12.1.46 sem release; homologação formal 2/7.
+
+## Paginação progressiva Next Up por cursor — 2026-11-01 02:32 BRT
+
+- `TVSeriesManager.GetNextUp` agora continua os lotes com o par `(LastPlayedDate, SeriesKey)` em vez de `StartIndex`; inserções/remoções antes do lote já lido não deslocam o próximo lote e evitam repetição/pulo causado por offset.
+- `NextUpService` aplica `LastPlayedDate < cursorDate OR (LastPlayedDate = cursorDate AND SeriesKey > cursorKey)` depois do agrupamento; ordem, predicado e paginação foram executados pelo Pomelo/MariaDB.
+- Testes focais Release/.NET 10: `TVSeriesManagerNextUpPaginationTests` + `NextUpQueryOptimizationTests` + integração opt-in: 8 aprovados, 1 ignorado sem conexão; com MariaDB 11.4.4 descartável em `127.0.0.1:33127`, `NextUpServiceMariaDbTests` passou 1/1 e verificou cursor no empate. O teste do manager insere uma chave anterior ao cursor entre páginas.
+- Reexecução da suíte completa `Jellyfin.Server.Implementations.Tests`: 1.681 aprovados, 91 ignorados por opt-in/plataforma, 0 falhas/1.772 em Release/.NET 10.
+- Limite: `LastPlayedDate` pode mudar através do cursor durante a mesma requisição; a paginação não cria snapshot transacional. Não houve EXPLAIN, benchmark, biblioteca real ou produção. O teste temporário foi encerrado e seus dados removidos; MariaDB de produção PID 19840 não recebeu conexão.
+- Candidata 12.1.46; produção 12.1.45; homologação formal 2/7; sem release. Ver sessão `2026-11-01-MulletaFlix-nextup-keyset-pagination-0232`.
+## Plano de execução de séries recentes — 2026-11-01 02:50 BRT
+
+- O SQL foi capturado do teste MariaDB real de `GetLatestItemList_TvShows_UsesMariaDbAndDeduplicatesBeforeApplyingLimit`: filtra `SeriesId IS NOT NULL` e versões/owners elegíveis, ordena por `DateCreated DESC, Id DESC` e transmite episódios para deduplicação em C#.
+- Em MariaDB 11.4.4 descartável, com 100.000 linhas sintéticas (80.000 episódios e 5.001 séries, uma série longa com 65.000 episódios), `ANALYZE FORMAT=JSON` observou full scan + filesort: 45,7 ms, 100.000 linhas lidas e 80.000 ordenadas. Forçar índice isolado `DateCreated` levou 127,8 ms e 300.315 páginas acessadas. A forma equivalente com `ROW_NUMBER()` leu 80.000 episódios, materializou a janela e levou 63,8 ms.
+- Mantida a consulta atual: as alternativas medidas pioraram; não há evidência que justifique mudança de código ou índice. Os números são sintéticos e não predizem latência da biblioteca real. O teste do plano executa a consulta inteira; o consumidor de produção pode parar a enumeração depois de atingir seu limite.
+- A instância e o datadir descartáveis foram removidos; PID operacional 19840 continuou ativo em `127.0.0.1:3306` e não recebeu conexão. Produção, tamanho/distribuição do catálogo real e impacto no tempo da primeira linha seguem pendentes.
+
+## Filtros reais da faixa de séries recentes — 2026-11-01 02:58 BRT
+
+- Revisão do caminho `UserViewManager` → `LibraryManager.GetLatestItemList` → `BaseItemRepository` confirmou filtros da Home ausentes da medição anterior: `IncludeItemTypes=Episode`, `IsVirtualItem=false` e `TopParentIds` derivados das bibliotecas visíveis. A captura/benchmark de 02:50 representa o método do repositório sem esses filtros e não é evidência do plano efetivo da Home.
+- A integração MariaDB foi ampliada para aplicar os mesmos três filtros e incluir um episódio mais recente pertencente a outra biblioteca; a asserção garante que o conteúdo de fora da biblioteca não entre no resultado. A compilação Release passou, mas a execução do teste MariaDB foi ignorada porque `MULLETAFLIX_TEST_MARIADB_CONNECTION_STRING` não está configurada nesta rodada.
+- Portanto, SQL final com filtros de biblioteca, plano `ANALYZE FORMAT=JSON`, volume real e latência até a primeira série continuam pendentes. Nenhuma mudança de runtime/índice ou conclusão de desempenho foi feita; nenhuma conexão ao banco operacional foi aberta.
+
+## Gate .NET Release do servidor — 2026-11-01 03:15 BRT
+
+- `dotnet test MulletaFlix.sln --configuration Release --no-restore --no-build --filter "FullyQualifiedName!~Integration"` terminou com exit 0 em 15 assemblies: 5.387 aprovados, 93 ignorados, 0 falhas (5.480 casos). Os 93 ignorados incluem testes opt-in, Linux/macOS e a suíte de integração removida pelo filtro; não equivalem a validação dessas plataformas/integrações.
+- Separadamente, o contrato do portal passou 73/73 depois de remover os asserts de mês fixo e isolar o evento de teste antigo da janela de eventos recentes.
+- A compilação reportou warnings XML/StyleCop/xUnit já presentes, sem warnings tratados como falha. Nenhum serviço, runtime, banco operacional, provedor externo ou mídia real foi usado; sem prova de produção, instalação, Linux nativo, smoke de reprodução ou homologação formal.

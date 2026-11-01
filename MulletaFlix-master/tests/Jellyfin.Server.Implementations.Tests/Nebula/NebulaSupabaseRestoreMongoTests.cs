@@ -153,7 +153,7 @@ public sealed class NebulaSupabaseRestoreMongoTests : IDisposable
             "https://supabase.invalid",
             "sb_secret_test",
             progressAction: null,
-            forceFullRestore: true,
+            forceFullRestore: false,
             TestContext.Current.CancellationToken);
         Assert.True(result.Success, result.Message);
         Assert.Equal(1, result.FilesRestored);
@@ -241,9 +241,10 @@ public sealed class NebulaSupabaseRestoreMongoTests : IDisposable
             .ReturnsAsync(() => new UsersDbContext(userOptions, NullLogger<UsersDbContext>.Instance));
         var handler = new RestoreResponseHandler(
             new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("[]") },
-            new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("[]") },
-            new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("[]") },
-            new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("[]") },
+            new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent("[{\"login\":\"persisted-ftp-user\",\"password_hash\":\"hash\"},{\"login\":\"ignored-missing-id\",\"doc_data\":{\"password_hash\":\"not-persisted\"}}]")
+            },
             new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("[]") },
             new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("[]") },
             new HttpResponseMessage(HttpStatusCode.OK)
@@ -265,12 +266,94 @@ public sealed class NebulaSupabaseRestoreMongoTests : IDisposable
             "https://supabase.invalid",
             "sb_secret_test",
             progressAction: null,
-            forceFullRestore: true,
+            forceFullRestore: false,
             TestContext.Current.CancellationToken);
 
         Assert.False(result.Success);
+        Assert.Equal(1, result.FtpUsersRestored);
+        Assert.Equal(1, result.UsersRestored);
+        Assert.Equal(0, result.AppUsersRestored);
         Assert.Equal(1, result.BotTokensRestored);
+        var restoredFtpUsers = await mongoContext.GetAllUsersForSyncAsync(TestContext.Current.CancellationToken);
+        var restoredFtpUser = Assert.Single(restoredFtpUsers);
+        Assert.Equal("persisted-ftp-user", restoredFtpUser["_id"].AsString);
         Assert.Equal(["persisted-token"], await mongoContext.GetBotTokensAsync(cancellationToken: TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
+    public async Task Restore_ReportsAcknowledgedUpsertsFromPartiallyFailedUnorderedFileBatch()
+    {
+        Assert.SkipUnless(_mongoAvailable, _skipReason);
+
+        var userOptions = new DbContextOptionsBuilder<UsersDbContext>()
+            .UseInMemoryDatabase(Guid.NewGuid().ToString("N"))
+            .Options;
+        var usersFactory = new Mock<IDbContextFactory<UsersDbContext>>();
+        usersFactory.Setup(factory => factory.CreateDbContextAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(() => new UsersDbContext(userOptions, NullLogger<UsersDbContext>.Instance));
+        var handler = new RestoreResponseHandler(
+            new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(
+                    "[{\"id\":\"partial-good\",\"doc_data\":{\"_id\":\"partial-good\",\"name\":\"Persisted title.mkv\"}},{\"id\":\"partial-bad\",\"doc_data\":{\"_id\":\"partial-bad\",\"a..b\":\"bad update path\"}}]")
+            });
+        using var mongoContext = new NebulaMongoContext(
+            _testConnectionString,
+            _databaseName,
+            NullLogger<NebulaMongoContext>.Instance);
+        using var service = new NebulaSupabaseSyncService(
+            mongoContext,
+            NullLogger<NebulaSupabaseSyncService>.Instance,
+            usersFactory.Object,
+            handler);
+
+        var result = await service.PerformRestoreAsync(
+            "https://supabase.invalid",
+            "sb_secret_test",
+            progressAction: null,
+            forceFullRestore: false,
+            TestContext.Current.CancellationToken);
+
+        Assert.False(result.Success);
+        var files = await mongoContext.GetAllFilesForSyncAsync(TestContext.Current.CancellationToken);
+        Assert.True(result.FilesRestored == 1, $"{result.Message}; filesPersisted={files.Count}");
+        var persistedFile = Assert.Single(files);
+        Assert.Equal("partial-good", persistedFile["_id"].AsString);
+        Assert.Equal("Persisted title.mkv", persistedFile["name"].AsString);
+    }
+
+    [Fact]
+    public async Task BulkUpsertSameSnapshotTwice_IsIdempotentAndPreservesLocalFields()
+    {
+        Assert.SkipUnless(_mongoAvailable, _skipReason);
+
+        using var mongoContext = new NebulaMongoContext(
+            _testConnectionString,
+            _databaseName,
+            NullLogger<NebulaMongoContext>.Instance);
+        await mongoContext.UpsertRawDocAsync(
+            new BsonDocument
+            {
+                { "_id", "restore-retry-fixture" },
+                { "local_only_marker", "keep-local" },
+                { "remote_marker", "old-snapshot" }
+            },
+            TestContext.Current.CancellationToken);
+
+        var snapshot = new BsonDocument
+        {
+            { "_id", "restore-retry-fixture" },
+            { "name", "Restored title.mkv" },
+            { "remote_marker", "latest-snapshot" }
+        };
+        Assert.Equal(1, await mongoContext.BulkUpsertRawDocsAsync([snapshot], TestContext.Current.CancellationToken));
+        Assert.Equal(1, await mongoContext.BulkUpsertRawDocsAsync([snapshot], TestContext.Current.CancellationToken));
+
+        var files = await mongoContext.GetAllFilesForSyncAsync(TestContext.Current.CancellationToken);
+        var restoredFile = Assert.Single(files);
+        Assert.Equal("keep-local", restoredFile["local_only_marker"].AsString);
+        Assert.Equal("Restored title.mkv", restoredFile["name"].AsString);
+        Assert.Equal("latest-snapshot", restoredFile["remote_marker"].AsString);
     }
 
     [Fact]
@@ -285,10 +368,6 @@ public sealed class NebulaSupabaseRestoreMongoTests : IDisposable
         usersFactory.Setup(factory => factory.CreateDbContextAsync(It.IsAny<CancellationToken>()))
             .ReturnsAsync(() => new UsersDbContext(userOptions, NullLogger<UsersDbContext>.Instance));
         var handler = new RestoreResponseHandler(
-            new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("[]") },
-            new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("[]") },
-            new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("[]") },
-            new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("[]") },
             new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("[]") },
             new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("[]") },
             new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("[]") },
@@ -312,10 +391,11 @@ public sealed class NebulaSupabaseRestoreMongoTests : IDisposable
             "https://supabase.invalid",
             "sb_secret_test",
             progressAction: null,
-            forceFullRestore: true,
+            forceFullRestore: false,
             TestContext.Current.CancellationToken);
 
         Assert.False(result.Success);
+        Assert.Equal(0, result.BotTokensRestored);
         Assert.Equal(1, result.DirectoryRefreshesRestored);
         Assert.Equal(["/Series/Restored/Season 1"], await mongoContext.GetPendingDirectoryRefreshesAsync(TestContext.Current.CancellationToken));
     }
@@ -353,7 +433,7 @@ public sealed class NebulaSupabaseRestoreMongoTests : IDisposable
             "https://supabase.invalid",
             "sb_secret_test",
             progressAction: null,
-            forceFullRestore: true,
+            forceFullRestore: false,
             cancellationToken);
 
         var admissionCollection = _mongoClient!

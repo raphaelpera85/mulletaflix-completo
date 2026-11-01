@@ -1,5 +1,17 @@
 # Nebula STRM Downloader
 
+## Supervisão de processo após startup — 2026-11-01 01:34 BRT
+
+- `NebulaHostedService` inicia monitor de vida quando o pipeline é habilitado e reavalia o downloader a cada 30 segundos. Se o processo terminou, tenta novo `StartDownloaderAsync` com o retry existente; não reinicia Envio nem remonta o disco.
+- `INebulaFtpManager.IsDownloaderRunning` consulta o processo/engine real e é compartilhado pelo status exibido. O monitor usa esse sinal leve em vez de `GetStatusAsync`, que pode consultar filas MongoDB.
+- `NebulaHostedServiceConfigurationTests` passou 21/21 e, junto de `NebulaDownloaderStartupTests` e `NebulaCleanupLifecycleTests`, passou 66/66 em Release/.NET 10. A cobertura exercita o tick periódico, falha/retry e shutdown durante recuperação com waits controlados; processo Python real e produção não foram validados.
+
+### Reauditoria de shutdown pendente — 2026-11-01 01:42 BRT
+
+- O monitor agora respeita `_stopPending`: após parada incompleta, ele não tenta iniciar o Downloader antes que a limpeza seja resolvida.
+- A regressão exige duas rodadas do monitor: a primeira esgota as três tentativas sem sucesso; a próxima rodada recupera o processo. Outro teste garante que parada parcial bloqueie o restart.
+- `NebulaHostedServiceConfigurationTests`: 22/22; regressão combinada de lifecycle/startup/cleanup: 67/67 em Release/.NET 10. Produção e processo Python real continuam sem validação.
+
 ## Validação incremental — 2026-10-29 01:14 (-03)
 
 - Revisadas e revalidadas as alterações locais em andamento: resposta HTTP 206 sem `Content-Range` agora falha sem substituir mídia anterior; a detecção de fila ativa usa caminho e identidade (incluindo série/temporada/episódio), evitando bloquear títulos diferentes só por compartilharem o nome/episódio; o feeder detecta saída imediata no startup e valida opções booleanas; erro ao persistir prioridade solicitada é devolvido ao caller.

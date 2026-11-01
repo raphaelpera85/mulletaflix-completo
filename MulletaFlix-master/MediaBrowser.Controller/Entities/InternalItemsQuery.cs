@@ -296,6 +296,10 @@ namespace MediaBrowser.Controller.Entities
 
         public string? SeriesPresentationUniqueKey { get; set; }
 
+        public DateTime? NextUpLastPlayedDateAfter { get; set; }
+
+        public string? NextUpSeriesKeyAfter { get; set; }
+
         public bool GroupByPresentationUniqueKey { get; set; }
 
         public bool GroupBySeriesPresentationUniqueKey { get; set; }
