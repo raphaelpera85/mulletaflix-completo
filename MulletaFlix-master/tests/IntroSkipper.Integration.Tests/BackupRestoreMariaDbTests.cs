@@ -1858,7 +1858,7 @@ public sealed class BackupRestoreMariaDbTests
                 "https://supabase.invalid",
                 "sb_secret_test",
                 progressAction: null,
-                forceFullRestore: true,
+                forceFullRestore: false,
                 cancellationToken);
 
             Assert.True(restore.Success, restore.Message);
