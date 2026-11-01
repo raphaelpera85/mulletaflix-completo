@@ -26,7 +26,9 @@ function Invoke-UpdaterScenario {
         [System.IO.File]::WriteAllText((Join-Path $installDirectory 'MulletaFlix.exe'), 'fixture')
         [System.IO.File]::WriteAllText((Join-Path $installDirectory 'MulletaFlix.dll'), 'old server')
         [System.IO.File]::WriteAllText((Join-Path $sourceDirectory 'MulletaFlix.dll'), 'new server')
-        [System.IO.File]::SetLastWriteTimeUtc((Join-Path $sourceDirectory 'MulletaFlix.dll'), [DateTime]::UtcNow.AddMinutes(1))
+        $collisionTimestamp = [DateTime]::UtcNow.AddMinutes(-1)
+        [System.IO.File]::SetLastWriteTimeUtc((Join-Path $installDirectory 'MulletaFlix.dll'), $collisionTimestamp)
+        [System.IO.File]::SetLastWriteTimeUtc((Join-Path $sourceDirectory 'MulletaFlix.dll'), $collisionTimestamp)
         [System.IO.File]::WriteAllText((Join-Path $sourceDirectory 'new-component.dll'), 'new component')
         [System.IO.File]::WriteAllText((Join-Path $updatesDirectory 'package.zip'), 'package')
         [System.IO.File]::WriteAllText((Join-Path $updatesDirectory 'update_state.json'), '{}')
@@ -118,6 +120,13 @@ function Invoke-WebRequest {
 function Start-Process {
     param([string]`$FilePath, [string]`$ArgumentList, [switch]`$Wait, [switch]`$PassThru, [switch]`$NoNewWindow, [string]`$WorkingDirectory, [string]`$WindowStyle)
     if (`$FilePath -eq 'robocopy.exe') {
+        `$sourceTimestamp = [System.IO.File]::GetLastWriteTimeUtc((Join-Path '$($quoted.SourceDirectory)' 'MulletaFlix.dll'))
+        `$installTimestamp = [System.IO.File]::GetLastWriteTimeUtc((Join-Path '$($quoted.InstallDirectory)' 'MulletaFlix.dll'))
+        if (`$sourceTimestamp -le `$installTimestamp) { throw 'Updater did not force Robocopy to replace a same-size, same-timestamp file with different content.' }
+        if ('$($quoted.Scenario)' -eq 'process-ready') {
+            `$copy = Microsoft.PowerShell.Management\Start-Process -FilePath `$FilePath -ArgumentList `$ArgumentList -Wait -PassThru -NoNewWindow
+            return [pscustomobject]@{ ExitCode = `$copy.ExitCode }
+        }
         [System.IO.File]::WriteAllText('$($quoted.RobocopyMarker)', 'called')
         [System.IO.File]::WriteAllText((Join-Path '$($quoted.InstallDirectory)' 'MulletaFlix.dll'), 'new server')
         [System.IO.File]::WriteAllText((Join-Path '$($quoted.InstallDirectory)' 'new-component.dll'), 'new component')
@@ -147,6 +156,9 @@ function Start-Process {
             }
             if ([System.IO.File]::ReadAllText((Join-Path $installDirectory 'MulletaFlix.dll')) -ne 'new server') {
                 throw 'Updater did not keep the new files after readiness and listener ownership were confirmed.'
+            }
+            if ([System.IO.File]::GetLastWriteTimeUtc((Join-Path $installDirectory 'MulletaFlix.dll')) -ne $collisionTimestamp) {
+                throw 'Updater did not preserve the timestamp from the update package.'
             }
             return
         }

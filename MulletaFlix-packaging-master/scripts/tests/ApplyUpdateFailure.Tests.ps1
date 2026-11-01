@@ -17,7 +17,9 @@ try {
     [System.IO.File]::WriteAllText((Join-Path $installDirectory 'MulletaFlix.exe'), 'fixture')
     [System.IO.File]::WriteAllText((Join-Path $installDirectory 'MulletaFlix.dll'), 'old server')
     [System.IO.File]::WriteAllText((Join-Path $sourceDirectory 'MulletaFlix.dll'), 'new server')
-    [System.IO.File]::SetLastWriteTimeUtc((Join-Path $sourceDirectory 'MulletaFlix.dll'), [DateTime]::UtcNow.AddMinutes(1))
+    $collisionTimestamp = [DateTime]::UtcNow.AddMinutes(-1)
+    [System.IO.File]::SetLastWriteTimeUtc((Join-Path $installDirectory 'MulletaFlix.dll'), $collisionTimestamp)
+    [System.IO.File]::SetLastWriteTimeUtc((Join-Path $sourceDirectory 'MulletaFlix.dll'), $collisionTimestamp)
     [System.IO.File]::WriteAllText((Join-Path $sourceDirectory 'new-component.dll'), 'new component')
     [System.IO.File]::WriteAllText((Join-Path $updatesDirectory 'package.zip'), 'package')
     [System.IO.File]::WriteAllText((Join-Path $updatesDirectory 'update_state.json'), '{}')
@@ -37,6 +39,9 @@ function Get-Service { return `$null }
 function Start-Process {
     param([string]`$FilePath, [string]`$ArgumentList, [switch]`$Wait, [switch]`$PassThru, [switch]`$NoNewWindow, [string]`$WorkingDirectory, [string]`$WindowStyle)
     if (`$FilePath -eq 'robocopy.exe') {
+        `$sourceTimestamp = [System.IO.File]::GetLastWriteTimeUtc((Join-Path '$quotedSourceDirectory' 'MulletaFlix.dll'))
+        `$installTimestamp = [System.IO.File]::GetLastWriteTimeUtc((Join-Path '$quotedInstallDirectory' 'MulletaFlix.dll'))
+        if (`$sourceTimestamp -le `$installTimestamp) { throw 'Updater did not force Robocopy to replace a same-size, same-timestamp file with different content.' }
         [System.IO.File]::WriteAllText((Join-Path '$quotedInstallDirectory' 'MulletaFlix.dll'), 'partially copied server')
         [System.IO.File]::WriteAllText((Join-Path '$quotedInstallDirectory' 'new-component.dll'), 'partially copied component')
         return [pscustomobject]@{ ExitCode = 11 }
@@ -68,7 +73,10 @@ function Start-Process {
         throw 'Update source was removed after robocopy failed.'
     }
     if ([System.IO.File]::ReadAllText((Join-Path $installDirectory 'MulletaFlix.dll')) -ne 'old server') {
-        throw 'An existing installation file was not restored after a partial copy.'
+        throw 'An existing same-size, same-timestamp installation file was not restored after a partial copy.'
+    }
+    if ([System.IO.File]::GetLastWriteTimeUtc((Join-Path $sourceDirectory 'MulletaFlix.dll')) -ne $collisionTimestamp) {
+        throw 'The retained update source timestamp was not restored after the failed copy.'
     }
     if (Test-Path -LiteralPath (Join-Path $installDirectory 'new-component.dll')) {
         throw 'A new installation file was not removed after a partial copy.'

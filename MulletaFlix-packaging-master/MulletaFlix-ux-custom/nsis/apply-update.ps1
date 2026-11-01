@@ -91,6 +91,7 @@ if (Get-Process -Id $ProcessId -ErrorAction SilentlyContinue) {
 Log "Copying update files from $UpdateSourceDirectory to $InstallDirectory..."
 $rollbackDirectory = Join-Path $env:TEMP "mulletaflix-update-rollback-$([guid]::NewGuid().ToString('N'))"
 $rollbackRecords = [System.Collections.Generic.List[object]]::new()
+$sameMetadataContentChanges = [System.Collections.Generic.List[object]]::new()
 $installRoot = [System.IO.Path]::GetFullPath($InstallDirectory).TrimEnd([System.IO.Path]::DirectorySeparatorChar) + [System.IO.Path]::DirectorySeparatorChar
 $sourceRoot = [System.IO.Path]::GetFullPath($UpdateSourceDirectory).TrimEnd([System.IO.Path]::DirectorySeparatorChar) + [System.IO.Path]::DirectorySeparatorChar
 [void][System.IO.Directory]::CreateDirectory($rollbackDirectory)
@@ -118,7 +119,19 @@ try {
         }
         if ($existed) {
             $destinationFile = [System.IO.FileInfo]::new($destination)
-            if ($sourceFile.Length -eq $destinationFile.Length -and $sourceFile.LastWriteTimeUtc -eq $destinationFile.LastWriteTimeUtc -and $sourceFile.Attributes -eq $destinationFile.Attributes) { continue }
+            $sameLengthAndTimestamp = $sourceFile.Length -eq $destinationFile.Length -and $sourceFile.LastWriteTimeUtc -eq $destinationFile.LastWriteTimeUtc
+            if ($sameLengthAndTimestamp) {
+                $sameContent = (Get-FileHash -LiteralPath $sourceFile.FullName -Algorithm SHA256 -ErrorAction Stop).Hash -eq
+                    (Get-FileHash -LiteralPath $destination -Algorithm SHA256 -ErrorAction Stop).Hash
+                if ($sameContent -and $sourceFile.Attributes -eq $destinationFile.Attributes) { continue }
+                if (-not $sameContent) {
+                    $sameMetadataContentChanges.Add([pscustomobject]@{
+                        Source = $sourceFile.FullName
+                        Destination = $destination
+                        LastWriteTimeUtc = $sourceFile.LastWriteTimeUtc
+                    })
+                }
+            }
             $record.Backup = Join-Path $rollbackDirectory $relativePath
             $record.LastWriteTimeUtc = [System.IO.File]::GetLastWriteTimeUtc($destination)
             $record.Attributes = [System.IO.File]::GetAttributes($destination)
@@ -144,15 +157,39 @@ $robocopyArgs = @(
     "/XF", "apply-update.ps1", "*.log", "*.tmp"
 )
 
-$robocopyProcess = Start-Process -FilePath "robocopy.exe" -ArgumentList ($robocopyArgs -join " ") -Wait -PassThru -NoNewWindow
+$sourceTimestampRestoreError = $null
+try {
+    foreach ($change in $sameMetadataContentChanges) {
+        [System.IO.File]::SetLastWriteTimeUtc($change.Source, $change.LastWriteTimeUtc.AddSeconds(5))
+    }
+    $robocopyProcess = Start-Process -FilePath "robocopy.exe" -ArgumentList ($robocopyArgs -join " ") -Wait -PassThru -NoNewWindow
+} finally {
+    foreach ($change in $sameMetadataContentChanges) {
+        try { [System.IO.File]::SetLastWriteTimeUtc($change.Source, $change.LastWriteTimeUtc) }
+        catch { $sourceTimestampRestoreError = $_ }
+    }
+}
 $exitCode = $robocopyProcess.ExitCode
+if ($null -ne $sourceTimestampRestoreError) {
+    Log "ERROR: could not restore an update source timestamp: $sourceTimestampRestoreError"
+    $exitCode = 16
+}
 Log "Robocopy completed with exit code: $exitCode"
 
 # Robocopy exit codes: 0 to 7 indicate success (files copied or identical). 8 or higher indicates failure.
 if ($exitCode -lt 8) {
-    Log "Files copied successfully."
-} else {
-    Log "ERROR: Robocopy failed with exit code $exitCode. Restoring the installation snapshot."
+    try {
+        foreach ($change in $sameMetadataContentChanges) {
+            [System.IO.File]::SetLastWriteTimeUtc($change.Destination, $change.LastWriteTimeUtc)
+        }
+        Log "Files copied successfully."
+    } catch {
+        Log "ERROR: could not restore packaged timestamps after copying: $_. Restoring the installation snapshot."
+        $exitCode = 16
+    }
+}
+if ($exitCode -ge 8) {
+    Log "ERROR: Robocopy/update copy failed with exit code $exitCode. Restoring the installation snapshot."
     $rollbackErrors = [System.Collections.Generic.List[string]]::new()
     foreach ($record in $rollbackRecords) {
         try {
