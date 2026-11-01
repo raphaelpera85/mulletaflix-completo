@@ -1,5 +1,11 @@
 # Autorização administrativa do GetAvatar
 
+## Username como componente do diretório de perfil — 2026-11-01
+
+`UserManager` rejeita os componentes exatos `.` e `..` em todos os sistemas; no Windows também rejeita username terminado em ponto ou espaço e nomes de dispositivos DOS reservados (`CON`, `NUL`, `COM1` etc.). O Object Manager remove espaços ASCII iniciais e ponto/espaço finais; nomes reservados podem resolver a dispositivos em vez de diretórios. Upload/exclusão nativos, `AvatarService`, validação de restore e exclusão rooted usam `FileSystemHelper.IsWindowsDeviceName`/`TryGetChildPath`. O helper exige nome simples, containment lexical e rejeita links/reparse points já existentes no diretório filho, além de sufixos, nomes de dispositivo e aliases com espaço ASCII inicial no Windows. Registros legados inseguros falham sem escrever; a remoção do avatar preserva o arquivo. A regra de espaço inicial segue [Microsoft — Whitespace characters in file and folder names](https://learn.microsoft.com/en-us/troubleshoot/windows-client/shell-experience/file-folder-name-whitespace-characters) e a lista de dispositivos segue [Microsoft — Naming Files, Paths, and Namespaces](https://learn.microsoft.com/en-us/windows/win32/fileio/naming-a-file).
+
+Validação Windows/.NET 10 Release em 2026-11-01: `FileSystemHelperPathSafetyTests` 19/19; `RootedFileSystemTests` 5 aprovados/1 ignorado por plataforma; UserManager e regras de restore 30/30. Regressões incluem ` NUL.txt`, links existentes, pontos/espaços finais, nomes de dispositivo Windows e comportamento por plataforma. Limite: a verificação de reparse point antecede operações por pathname e ainda permite troca concorrente; I/O relativo a handle continua necessário para fechar TOCTOU. Runtime instalado, Linux, produção e release não foram validados.
+
 ## Estado atual — implementação por handle — 2026-10-20
 
 Os arquivos do catálogo GetAvatar agora são acessados através de `AvatarFileStore`, ancorado a um handle do diretório aberto no construtor. `AvatarService.OpenAvatarRead` retorna um stream já aberto e validado; os endpoints e a cópia para o perfil não reabrem o caminho por nome. A criação usa criação exclusiva relativa ao diretório. A exclusão persiste primeiro a remoção do catálogo/mapeamentos e só então remove o arquivo; se a persistência falhar, restaura listas e snapshot do XML e mantém o arquivo. Se a exclusão posterior falhar, a remoção já persistida é mantida e um aviso registra possível arquivo órfão.
@@ -161,6 +167,10 @@ O processo MulletaFlix instalado ativo reporta versão 12.1.21 e usa `--datadir`
 Foi encontrada outra árvore sob ProgramData com ACE herdada de `BUILTIN\Users:Write`, mas ela não corresponde ao `--datadir` do processo ativo; o conteúdo não foi examinado e nada foi alterado. Não atribuir essa árvore à instância ativa nem removê-la sem confirmar proprietário/uso.
 
 Conclusão limitada: não se observou permissão de escrita para o grupo geral Users na árvore ativa; a presença de um Capability SID com FullControl e o limite de identidade compartilhada (processos sob a mesma conta interativa) impedem afirmar isolamento completo. A árvore ProgramData separada requer triagem de instalação/ACL. TOCTOU permanece aberto. Fontes: [Microsoft — Capability SIDs](https://learn.microsoft.com/en-us/troubleshoot/windows-server/windows-security/sids-not-resolve-into-friendly-names), [Microsoft — AppContainer tokens and ACLs](https://learn.microsoft.com/en-us/windows/win32/secauthz/implementing-an-appcontainer).
+
+### Auditoria da exclusão nativa de imagem de perfil — 2026-11-01
+
+`ImageController.PostUserImage` e `DeleteUserImage` ainda delegam exclusão por pathname após containment lexical. A tentativa de usar `BackupRestoreDirectory` foi retirada: o helper aplica política específica de ACL/ancestrais do restore, e a chamada retornou HTTP 500 no teste com diretório temporário. A exceção detalhada não foi capturada, e a ACL da raiz de perfil atualmente instalada não foi verificada; não afirmar que essa causa foi reproduzida em produção. `ImageControllerDeleteUserImageTests` e `ImageControllerUserImageAuthorizationTests` passaram 20/20 em Windows/.NET 10 Release após retirar a tentativa. A lacuna TOCTOU continua aberta. Próxima etapa é definir operação handle-relative compartilhada que use a raiz configurada como autoridade e provar comportamento em Windows/Linux sem herdar a política de restore.
 
 ## Containment do caminho do catálogo de avatares — 2026-10-19 23:47 (-03)
 

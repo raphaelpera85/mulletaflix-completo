@@ -198,6 +198,10 @@ async def test_main_stops_started_bots_when_mongo_indexes_fail(monkeypatch, tmp_
         def __getitem__(self, _name):
             return object()
 
+        def close(self):
+            events.append("mongo-close")
+            raise RuntimeError("mongo close failed")
+
     async def broken_indexes(_database):
         raise RuntimeError("mongo index unavailable")
 
@@ -211,7 +215,7 @@ async def test_main_stops_started_bots_when_mongo_indexes_fail(monkeypatch, tmp_
     monkeypatch.setenv("MONGO_DATABASE", "nebula-test")
 
     assert await main_module.main() == 1
-    assert events == ["bot-start", "bot-stop"]
+    assert events == ["bot-start", "mongo-close", "bot-stop"]
 
 
 @pytest.mark.asyncio
@@ -232,6 +236,9 @@ async def test_main_stops_started_bots_when_ftp_security_configuration_is_invali
         def __getitem__(self, _name):
             return object()
 
+        def close(self):
+            events.append("mongo-close")
+
     async def setup_indexes(_database):
         return None
 
@@ -249,7 +256,63 @@ async def test_main_stops_started_bots_when_ftp_security_configuration_is_invali
     monkeypatch.setenv("MONGO_DATABASE", "nebula-test")
 
     assert await main_module.main() == 1
-    assert events == ["bot-start", "bot-stop"]
+    assert events == ["bot-start", "mongo-close", "bot-stop"]
+
+
+@pytest.mark.asyncio
+async def test_main_refuses_plaintext_when_tls_context_cannot_be_loaded(monkeypatch, tmp_path):
+    events = []
+
+    class Bot:
+        async def start(self):
+            events.append("bot-start")
+
+        async def stop(self):
+            events.append("bot-stop")
+
+    class MotorClient:
+        def __init__(self, *_args, **_kwargs):
+            pass
+
+        def __getitem__(self, _name):
+            return object()
+
+        def close(self):
+            events.append("mongo-close")
+
+    class FTPServer:
+        def __init__(self, *_args, **_kwargs):
+            pass
+
+        def _build_ssl_context(self, *_args):
+            raise FileNotFoundError("certificate not found")
+
+        def set_ssl_context(self, _context):
+            raise AssertionError("invalid TLS context must not be installed")
+
+        async def start(self, *_args):
+            events.append("ftp-start")
+
+    monkeypatch.setattr(main_module, "get_required_config", lambda: (123, "hash", ["token"]))
+    monkeypatch.setattr(main_module, "Client", lambda *_args, **_kwargs: Bot())
+    monkeypatch.setattr(main_module, "AsyncIOMotorClient", MotorClient)
+    monkeypatch.setattr(main_module, "Server", FTPServer)
+    monkeypatch.setattr(main_module, "MongoDBUserManager", lambda _mongo: object())
+    monkeypatch.setattr(main_module, "resolve_channel", lambda _bot: asyncio.sleep(0, result="channel"))
+    monkeypatch.setattr(main_module, "setup_database_indexes", lambda *_args: asyncio.sleep(0))
+    monkeypatch.setattr(main_module, "validate_ftp_security", lambda *_args: True)
+    monkeypatch.setattr(main_module, "FTP_SECURITY_MODE", "explicit")
+    monkeypatch.setattr(main_module, "TLS_CERTFILE", "missing-cert.pem")
+    monkeypatch.setattr(main_module, "TLS_KEYFILE", "missing-key.pem")
+    monkeypatch.setattr(main_module, "TLS_REQUIRED", True)
+    monkeypatch.setattr(main_module, "TLS_REQUIRE_CLIENT_CERT", False)
+    monkeypatch.setattr(main_module, "PASSIVE_PORTS", None)
+    monkeypatch.setenv("SESSIONS_DIR", str(tmp_path / "sessions"))
+    monkeypatch.setenv("MONGODB", "mongodb://fake")
+    monkeypatch.setenv("MONGO_DATABASE", "nebula-test")
+
+    assert await main_module.main() == 1
+    assert events == ["bot-start", "mongo-close", "bot-stop"]
 
 
 @pytest.mark.asyncio
@@ -434,6 +497,9 @@ async def test_stream_only_lifecycle_starts_services_and_stops_resources(monkeyp
             events.append(("mongo-database", name))
             return database
 
+        def close(self):
+            events.append("mongo-close")
+
     class FTPServer:
         connections = set()
 
@@ -503,6 +569,8 @@ async def test_stream_only_lifecycle_starts_services_and_stops_resources(monkeyp
     assert "http-close" in events
     assert "http-wait-closed" in events
     assert "bot-stop" in events
+    assert events.count("mongo-close") == 1
+    assert events.index("mongo-close") < events.index("bot-stop")
     assert events.index("ftp-close") < events.index("bot-stop")
 
 
@@ -526,6 +594,9 @@ async def test_main_rejects_ftp_port_collision_and_stops_started_bots(monkeypatc
 
         def __getitem__(self, _name):
             return object()
+
+        def close(self):
+            events.append("mongo-close")
 
     class FTPServer:
         def __init__(self, *_args, **_kwargs):
@@ -567,5 +638,117 @@ async def test_main_rejects_ftp_port_collision_and_stops_started_bots(monkeypatc
     assert await main_module.main() == 1
     assert ("ftp-start", "127.0.0.1", 21210) in events
     assert "http-start" not in events
+    assert events.count("mongo-close") == 1
     assert events.count("bot-start") == 1
     assert events.count("bot-stop") == 1
+
+
+@pytest.mark.parametrize("failure_stage", ["construct", "start"])
+@pytest.mark.asyncio
+async def test_control_plane_startup_failure_returns_nonzero_after_cleanup(monkeypatch, tmp_path, failure_stage):
+    events = []
+
+    class Bot:
+        async def start(self):
+            events.append("bot-start")
+
+        async def stop(self):
+            events.append("bot-stop")
+
+    class MotorClient:
+        def __init__(self, *_args, **_kwargs):
+            pass
+
+        def __getitem__(self, _name):
+            return object()
+
+        def close(self):
+            events.append("mongo-close")
+
+    class FTPServer:
+        connections = set()
+        disconnect_user = None
+
+        def __init__(self, *_args, **_kwargs):
+            self.closed = asyncio.Event()
+
+        async def start(self, *_args):
+            events.append("ftp-start")
+
+        async def serve_forever(self):
+            await self.closed.wait()
+
+        async def close(self):
+            events.append("ftp-close")
+            self.closed.set()
+
+    class HTTPServer:
+        def close(self):
+            events.append("http-close")
+
+        async def wait_closed(self):
+            events.append("http-wait-closed")
+
+    class ControlPlane:
+        draining = False
+
+        def __init__(self, **_kwargs):
+            events.append("control-construct")
+            if failure_stage == "construct":
+                raise OSError("control socket unavailable")
+
+        async def start(self, *_args):
+            events.append("control-start")
+            raise ValueError("invalid control configuration")
+
+        async def close(self):
+            events.append("control-close")
+
+    async def background(*_args, **_kwargs):
+        return None
+
+    async def close_sessions(_bots):
+        events.append("upload-sessions-close")
+
+    monkeypatch.setattr(main_module, "get_required_config", lambda: (123, "hash", ["token"]))
+    monkeypatch.setattr(main_module, "Client", lambda *_args, **_kwargs: Bot())
+    monkeypatch.setattr(main_module, "AsyncIOMotorClient", MotorClient)
+    monkeypatch.setattr(main_module, "Server", FTPServer)
+    monkeypatch.setattr(main_module, "MongoDBUserManager", lambda _mongo: object())
+    monkeypatch.setattr(main_module, "resolve_channel", lambda _bot: asyncio.sleep(0, result="channel"))
+    monkeypatch.setattr(main_module, "setup_database_indexes", background)
+    monkeypatch.setattr(main_module, "validate_ftp_security", lambda *_args: False)
+    monkeypatch.setattr(main_module, "start_http_stream_server", lambda *_args: asyncio.sleep(0, result=HTTPServer()))
+    monkeypatch.setattr(main_module, "garbage_collector", background)
+    monkeypatch.setattr(main_module, "stats_reporter", background)
+    monkeypatch.setattr(main_module, "staging_scanner", background)
+    monkeypatch.setattr(main_module, "FeederSupervisor", lambda *_args, **_kwargs: object())
+    monkeypatch.setattr(main_module, "ControlPlane", ControlPlane)
+    monkeypatch.setattr(main_module, "close_upload_sessions", close_sessions)
+    monkeypatch.setattr(main_module, "STREAM_ONLY", True)
+    monkeypatch.setattr(main_module, "CONTROL_ENABLED", True)
+    monkeypatch.setattr(main_module, "FTP_SECURITY_MODE", "disabled")
+    monkeypatch.setattr(main_module, "TLS_CERTFILE", "")
+    monkeypatch.setattr(main_module, "TLS_KEYFILE", "")
+    monkeypatch.setattr(main_module, "TLS_REQUIRED", False)
+    monkeypatch.setattr(main_module, "TLS_REQUIRE_CLIENT_CERT", False)
+    monkeypatch.setattr(main_module, "PASSIVE_PORTS", None)
+    monkeypatch.setattr(main_module, "UPLOAD_QUEUE", asyncio.Queue())
+    monkeypatch.setenv("SESSIONS_DIR", str(tmp_path / "sessions"))
+    monkeypatch.setenv("MONGODB", "mongodb://fake")
+    monkeypatch.setenv("MONGO_DATABASE", "nebula-test")
+    monkeypatch.setenv("HOST", "127.0.0.1")
+    monkeypatch.setenv("PORT", "21210")
+
+    assert await main_module.main() == 1
+    assert "ftp-close" in events
+    assert "http-close" in events
+    assert "http-wait-closed" in events
+    assert "upload-sessions-close" in events
+    assert "mongo-close" in events
+    assert "bot-stop" in events
+    assert events.count("mongo-close") == 1
+    assert events.index("ftp-close") < events.index("mongo-close") < events.index("bot-stop")
+    assert events.index("http-close") < events.index("mongo-close")
+    if failure_stage == "start":
+        assert "control-close" in events

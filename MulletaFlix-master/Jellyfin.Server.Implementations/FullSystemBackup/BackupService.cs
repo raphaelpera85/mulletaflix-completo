@@ -18,6 +18,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using MediaBrowser.Common;
 using MediaBrowser.Controller;
+using MediaBrowser.Controller.IO;
 using MediaBrowser.Controller.SystemBackupService;
 using MediaBrowser.Model.Tasks;
 using Microsoft.EntityFrameworkCore;
@@ -1428,7 +1429,7 @@ public class BackupService : IBackupService, IDisposable
                 || (OperatingSystem.IsWindows() && segments.Any(segment =>
                     segment[^1] is ' ' or '.'
                     || segment.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0
-                    || IsWindowsDeviceName(segment))))
+                    || FileSystemHelper.IsWindowsDeviceName(segment))))
             {
                 throw new InvalidDataException($"Backup archive contains an unsafe entry path '{entry.FullName}'.");
             }
@@ -1479,21 +1480,6 @@ public class BackupService : IBackupService, IDisposable
         {
             throw new InvalidDataException("Backup archive must contain exactly one manifest.json file.");
         }
-    }
-
-    private static bool IsWindowsDeviceName(string segment)
-    {
-        var stem = segment.Split('.')[0].TrimEnd(' ', '.');
-        return stem.Equals("CON", StringComparison.OrdinalIgnoreCase)
-            || stem.Equals("PRN", StringComparison.OrdinalIgnoreCase)
-            || stem.Equals("AUX", StringComparison.OrdinalIgnoreCase)
-            || stem.Equals("NUL", StringComparison.OrdinalIgnoreCase)
-            || stem.Equals("CONIN$", StringComparison.OrdinalIgnoreCase)
-            || stem.Equals("CONOUT$", StringComparison.OrdinalIgnoreCase)
-            || (stem.Length == 4
-                && (stem.StartsWith("COM", StringComparison.OrdinalIgnoreCase)
-                    || stem.StartsWith("LPT", StringComparison.OrdinalIgnoreCase))
-                && (stem[3] is >= '1' and <= '9' or '\u00B9' or '\u00B2' or '\u00B3'));
     }
 
     private static (string Name, Type Type)[] GetExpectedDatabaseEntities(

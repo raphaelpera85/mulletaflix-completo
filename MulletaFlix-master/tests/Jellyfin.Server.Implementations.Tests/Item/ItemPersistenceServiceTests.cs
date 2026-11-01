@@ -4,6 +4,7 @@ using System.Linq;
 using System.Net.Sockets;
 using MediaBrowser.Controller;
 using MediaBrowser.Controller.Entities;
+using MediaBrowser.Controller.Entities.Movies;
 using MediaBrowser.Model.Entities;
 using MulletaFlix.Database.Implementations;
 using MulletaFlix.Database.Implementations.Entities;
@@ -28,6 +29,20 @@ public class ItemPersistenceServiceTests
             NullLogger<ItemPersistenceService>.Instance);
 
         service.SaveItems(Array.Empty<BaseItem>(), default);
+
+        dbFactory.Verify(factory => factory.CreateDbContext(), Times.Never);
+    }
+
+    [Fact]
+    public void SaveItems_PlaceholderOnlyBatchDoesNotCreateDatabaseContext()
+    {
+        var dbFactory = new Mock<IDbContextFactory<MulletaFlixDbContext>>(MockBehavior.Strict);
+        var service = new ItemPersistenceService(
+            dbFactory.Object,
+            Mock.Of<IServerApplicationHost>(),
+            NullLogger<ItemPersistenceService>.Instance);
+
+        service.SaveItems([new Movie { Id = BaseItemRepository.PlaceholderId }], default);
 
         dbFactory.Verify(factory => factory.CreateDbContext(), Times.Never);
     }

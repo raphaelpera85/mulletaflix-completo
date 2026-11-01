@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using AsyncKeyedLock;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Persistence;
 using MediaBrowser.Model.Querying;
@@ -27,6 +28,7 @@ namespace MulletaFlix.Server.Implementations.Item;
 public class PeopleRepository(IDbContextFactory<MulletaFlixDbContext> dbProvider, IItemTypeLookup itemTypeLookup) : IPeopleRepository
 {
     private readonly IDbContextFactory<MulletaFlixDbContext> _dbProvider = dbProvider;
+    private static readonly AsyncKeyedLocker<Guid> _updateLock = new();
 
     /// <inheritdoc/>
     public QueryResult<PersonInfo> GetPeople(InternalPeopleQuery filter)
@@ -97,6 +99,8 @@ public class PeopleRepository(IDbContextFactory<MulletaFlixDbContext> dbProvider
     /// <inheritdoc />
     public void UpdatePeople(Guid itemId, IReadOnlyList<PersonInfo> people)
     {
+        using var updateLock = _updateLock.Lock(itemId);
+
         foreach (var person in people)
         {
             person.Name = person.Name.Trim();
@@ -142,14 +146,17 @@ public class PeopleRepository(IDbContextFactory<MulletaFlixDbContext> dbProvider
 
         var personsEntities = toAdd.Concat(existingPersons).ToArray();
 
-        var existingMaps = context.PeopleBaseItemMap.Include(e => e.People).Where(e => e.ItemId == itemId).ToList();
+        var existingMaps = context.PeopleBaseItemMap.Where(e => e.ItemId == itemId).ToList();
+        var mapsToReplace = new List<PeopleBaseItemMap>();
 
         var listOrder = 0;
 
         foreach (var person in people)
         {
             var entityPerson = personsEntities.First(e => string.Equals(e.Name, person.Name, StringComparison.OrdinalIgnoreCase) && e.PersonType == person.Type.ToString());
-            var existingMap = existingMaps.FirstOrDefault(e => string.Equals(e.People.Name, person.Name, StringComparison.OrdinalIgnoreCase) && e.People.PersonType == person.Type.ToString() && e.Role == person.Role);
+            // Role is part of the database key, but MariaDB may compare it using a case-insensitive collation.
+            // Match the existing relation by PeopleId so a casing-only role update changes the row instead of inserting a duplicate key.
+            var existingMap = existingMaps.FirstOrDefault(e => e.PeopleId == entityPerson.Id);
             if (existingMap is null)
             {
                 context.PeopleBaseItemMap.Add(new PeopleBaseItemMap()
@@ -165,10 +172,26 @@ public class PeopleRepository(IDbContextFactory<MulletaFlixDbContext> dbProvider
             }
             else
             {
-                // Update the order for existing mappings
-                existingMap.ListOrder = listOrder;
-                existingMap.SortOrder = person.SortOrder;
-                // person mapping already exists so remove from list
+                if (!string.Equals(existingMap.Role, person.Role, StringComparison.Ordinal))
+                {
+                    context.PeopleBaseItemMap.Remove(existingMap);
+                    mapsToReplace.Add(new PeopleBaseItemMap
+                    {
+                        Item = null!,
+                        ItemId = itemId,
+                        People = null!,
+                        PeopleId = entityPerson.Id,
+                        ListOrder = listOrder,
+                        SortOrder = person.SortOrder,
+                        Role = person.Role
+                    });
+                }
+                else
+                {
+                    existingMap.ListOrder = listOrder;
+                    existingMap.SortOrder = person.SortOrder;
+                }
+
                 existingMaps.Remove(existingMap);
             }
 
@@ -179,6 +202,12 @@ public class PeopleRepository(IDbContextFactory<MulletaFlixDbContext> dbProvider
 
         // See the AddRange call above: this method and its DbContext are entirely synchronous.
         context.SaveChanges();
+        if (mapsToReplace.Count > 0)
+        {
+            context.PeopleBaseItemMap.AddRange(mapsToReplace);
+            context.SaveChanges();
+        }
+
         transaction.Commit();
     }
 

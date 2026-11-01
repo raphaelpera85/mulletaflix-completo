@@ -704,6 +704,74 @@ namespace MulletaFlix.Providers.Tests.Manager
         }
 
         [Fact]
+        public async Task RefreshImages_FullRefresh_ReplacesExistingEnglishPosterWithPreferredLanguage()
+        {
+            var item = new Movie { Path = "movie path" };
+            item.SetImage(new ItemImageInfo { Path = "existing English poster", Type = ImageType.Primary, Language = "en" }, 0);
+            BaseItem.MediaSourceManager = Mock.Of<IMediaSourceManager>();
+            var libraryOptions = GetLibraryOptions(item, ImageType.Primary, 1);
+            libraryOptions.PreferredMetadataLanguage = "pt";
+            libraryOptions.MetadataCountryCode = "BR";
+            const string englishUrl = "https://images.example/english.jpg";
+            const string portugueseUrl = "https://images.example/portuguese.jpg";
+            var englishProvider = CreateImageProvider("EnglishFirst", englishUrl);
+            var portugueseProvider = CreateImageProvider("PortugueseSecond", portugueseUrl);
+
+            var providerManager = new Mock<IProviderManager>(MockBehavior.Strict);
+            providerManager.Setup(manager => manager.GetAvailableRemoteImages(
+                    item,
+                    It.Is<RemoteImageQuery>(query => query.ProviderName == "EnglishFirst"),
+                    It.IsAny<CancellationToken>()))
+                .ReturnsAsync(new[] { new RemoteImageInfo { Type = ImageType.Primary, Url = englishUrl, Language = "en" } });
+            providerManager.Setup(manager => manager.GetAvailableRemoteImages(
+                    item,
+                    It.Is<RemoteImageQuery>(query => query.ProviderName == "PortugueseSecond"),
+                    It.IsAny<CancellationToken>()))
+                .ReturnsAsync(new[] { new RemoteImageInfo { Type = ImageType.Primary, Url = portugueseUrl, Language = "pt-BR" } });
+            providerManager.Setup(manager => manager.SaveImage(
+                    item,
+                    It.IsAny<Stream>(),
+                    MediaTypeNames.Image.Jpeg,
+                    ImageType.Primary,
+                    0,
+                    It.IsAny<CancellationToken>()))
+                .Callback<BaseItem, Stream, string, ImageType, int?, CancellationToken>((savedItem, _, _, type, _, _) =>
+                    savedItem.SetImage(new ItemImageInfo { Path = "saved localized poster", Type = type, Language = "pt-br" }, 0))
+                .Returns(Task.CompletedTask);
+
+            var imageProvider = GetItemImageProvider(providerManager.Object, null);
+            await imageProvider.RefreshImages(
+                item,
+                libraryOptions,
+                [englishProvider.Object, portugueseProvider.Object],
+                new ImageRefreshOptions(Mock.Of<IDirectoryService>())
+                {
+                    ImageRefreshMode = MetadataRefreshMode.FullRefresh,
+                    ReplaceAllImages = true
+                },
+                CancellationToken.None);
+
+            Assert.Equal("saved localized poster", item.GetImageInfo(ImageType.Primary, 0)?.Path);
+            Assert.Equal("pt-br", item.GetImageInfo(ImageType.Primary, 0)?.Language);
+            portugueseProvider.Verify(provider => provider.GetImageResponse(portugueseUrl, It.IsAny<CancellationToken>()), Times.Once);
+            englishProvider.Verify(provider => provider.GetImageResponse(englishUrl, It.IsAny<CancellationToken>()), Times.Never());
+
+            static Mock<IRemoteImageProvider> CreateImageProvider(string name, string imageUrl)
+            {
+                var provider = new Mock<IRemoteImageProvider>(MockBehavior.Strict);
+                provider.Setup(imageProvider => imageProvider.Name).Returns(name);
+                provider.Setup(imageProvider => imageProvider.GetSupportedImages(It.IsAny<BaseItem>())).Returns([ImageType.Primary]);
+                provider.Setup(imageProvider => imageProvider.GetImageResponse(imageUrl, It.IsAny<CancellationToken>()))
+                    .ReturnsAsync(new HttpResponseMessage(HttpStatusCode.OK)
+                    {
+                        RequestMessage = new HttpRequestMessage(HttpMethod.Get, imageUrl),
+                        Content = new StringContent("image content", Encoding.UTF8, MediaTypeNames.Image.Jpeg)
+                    });
+                return provider;
+            }
+        }
+
+        [Fact]
         public async Task RefreshImages_RemoteProviderSupportedImagesFailure_DoesNotBlockOtherProviders()
         {
             var item = new Movie { Path = "movie path", PreferredMetadataLanguage = "pt-BR", PreferredMetadataCountryCode = "BR" };
@@ -769,15 +837,35 @@ namespace MulletaFlix.Providers.Tests.Manager
         }
 
         [Fact]
-        public void GetPreferredImageLanguage_PreservesExplicitPortuguesePortugalPreference()
+        public void GetPreferredImageLanguage_PrefersServerLocaleOverExplicitItemAndLibrary()
         {
             var language = ItemImageProvider.GetPreferredImageLanguage(
                 new Video { PreferredMetadataLanguage = "pt-PT", PreferredMetadataCountryCode = "BR" },
-                new LibraryOptions(),
+                new LibraryOptions { PreferredMetadataLanguage = "en", MetadataCountryCode = "US" },
                 null,
                 new ServerConfiguration { PreferredMetadataLanguage = "pt", MetadataCountryCode = "BR" });
 
-            Assert.Equal("pt-PT", language);
+            Assert.Equal("pt-BR", language);
+        }
+
+        [Theory]
+        [InlineData("pt", "BR", "pt-BR")]
+        [InlineData("es", "MX", "es-MX")]
+        [InlineData("en", "US", "en-US")]
+        [InlineData("zh-Hant", "TW", "zh-Hant")]
+        [InlineData("pt-BR", "BR", "pt-BR")]
+        [InlineData("de", "", "de")]
+        public void GetPreferredImageLanguage_UsesConfiguredServerLocale(string language, string country, string expected)
+        {
+            var result = ItemImageProvider.GetPreferredImageLanguage(
+                new Video(),
+                new LibraryOptions(),
+                null,
+                new ServerConfiguration { PreferredMetadataLanguage = language, MetadataCountryCode = country },
+                out var preferredCountryCode);
+
+            Assert.Equal(expected, result);
+            Assert.Equal(country, preferredCountryCode);
         }
     }
 }

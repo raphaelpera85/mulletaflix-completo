@@ -141,6 +141,19 @@ public class EnumerableExtensionsTests
         Assert.Equal(expected, EnumerableExtensions.IsLanguageMatch(imageLanguage, requestedLanguage));
     }
 
+    [Theory]
+    [InlineData("pt", "BR", "pt-BR")]
+    [InlineData("es", "mx", "es-MX")]
+    [InlineData("en", "US", "en-US")]
+    [InlineData("zh-Hant", "TW", "zh-Hant")]
+    [InlineData("zh_Hant", "TW", "zh-Hant")]
+    [InlineData("de", "", "de")]
+    [InlineData("", "BR", "")]
+    public void NormalizeLanguageTag_UsesRegionOnlyWhenLanguageHasNoSubtag(string language, string countryCode, string expected)
+    {
+        Assert.Equal(expected, EnumerableExtensions.NormalizeLanguageTag(language, countryCode));
+    }
+
     [Fact]
     public void OrderByLanguageDescending_RegionalMatchComesBeforeEnglishFallback()
     {

@@ -196,6 +196,49 @@ public sealed class ServerPersistenceMariaDbTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task SaveItems_UpdatingProvidersAcrossDeleteBatchBoundary_RewritesEveryProvider()
+    {
+        MariaDbTestEnvironment.SkipUnlessConfigured();
+        var persistence = new ItemPersistenceService(
+            Contexts,
+            CreateAppHost(),
+            NullLogger<ItemPersistenceService>.Instance);
+        var itemIds = Enumerable.Range(0, 1001).Select(_ => Guid.NewGuid()).ToArray();
+        var initialItems = itemIds
+            .Select((id, index) =>
+            {
+                var item = CreateSeries(id, $"Batch provider {index}", 2026, $"N:\\Series\\Batch provider {index}");
+                item.SetProviderId("BatchAudit", $"old-{index}");
+                return item;
+            })
+            .ToArray();
+
+        persistence.SaveItems(initialItems, CancellationToken.None);
+
+        var updatedItems = initialItems
+            .Select((item, index) =>
+            {
+                var updated = CreateSeries(item.Id, item.Name, item.ProductionYear!.Value, item.Path!);
+                updated.SetProviderId("BatchAudit", $"provider-{index}");
+                return updated;
+            })
+            .ToArray();
+        persistence.SaveItems(updatedItems, CancellationToken.None);
+
+        await using var context = await Contexts.CreateDbContextAsync();
+        var itemIdList = itemIds.ToList();
+        var providers = await context.BaseItemProviders
+            .Where(provider => itemIdList.Contains(provider.ItemId))
+            .ToArrayAsync();
+
+        Assert.Equal(itemIds.Length, providers.Length);
+        Assert.Equal(itemIds.Order(), providers.Select(provider => provider.ItemId).Order());
+        Assert.Equal(
+            Enumerable.Range(0, itemIds.Length).Select(index => $"provider-{index}").Order(StringComparer.Ordinal),
+            providers.Select(provider => provider.ProviderValue).Order(StringComparer.Ordinal));
+    }
+
+    [Fact]
     public async Task PeopleValidationTask_QueriesDuplicateGroupsOnceAcrossBatchBoundary()
     {
         MariaDbTestEnvironment.SkipUnlessConfigured();
@@ -456,6 +499,52 @@ public sealed class ServerPersistenceMariaDbTests : IAsyncLifetime
         var maps = context.PeopleBaseItemMap.Where(e => e.ItemId == itemId && e.PeopleId == person.Id).ToArray();
 
         // The second call must reuse the row instead of inserting a duplicate.
+        Assert.Single(maps);
+    }
+
+    [Fact]
+    public void UpdatePeople_RoleCasingChange_UpdatesExistingMapping()
+    {
+        MariaDbTestEnvironment.SkipUnlessConfigured();
+        var persistence = new ItemPersistenceService(
+            Contexts,
+            CreateAppHost(),
+            NullLogger<ItemPersistenceService>.Instance);
+
+        var itemId = Guid.NewGuid();
+        persistence.SaveItems([CreateSeries(itemId, "Elenco com papel atualizado", 2026, "N:\\Series\\Elenco com papel atualizado")], CancellationToken.None);
+
+        var repository = new PeopleRepository(Contexts, Mock.Of<IItemTypeLookup>());
+        repository.UpdatePeople(itemId, [new PersonInfo { Name = "Pessoa com papel", Role = "Diretor", Type = PersonKind.Actor }]);
+        repository.UpdatePeople(itemId, [new PersonInfo { Name = "Pessoa com papel", Role = "diretor", Type = PersonKind.Actor }]);
+
+        using var context = Contexts.CreateDbContext();
+        var mapping = Assert.Single(context.PeopleBaseItemMap.Where(e => e.ItemId == itemId));
+        Assert.Equal("diretor", mapping.Role);
+    }
+
+    [Fact]
+    public async Task UpdatePeople_ConcurrentUpdatesForSameItem_DoNotInsertDuplicateMappings()
+    {
+        MariaDbTestEnvironment.SkipUnlessConfigured();
+        var persistence = new ItemPersistenceService(
+            Contexts,
+            CreateAppHost(),
+            NullLogger<ItemPersistenceService>.Instance);
+
+        var itemId = Guid.NewGuid();
+        persistence.SaveItems([CreateSeries(itemId, "Concorrência de elenco", 2026, "N:\\Series\\Concorrência de elenco")], CancellationToken.None);
+        var repository = new PeopleRepository(Contexts, Mock.Of<IItemTypeLookup>());
+        var seedPerson = new PersonInfo { Name = "Pessoa Concorrente", Type = PersonKind.Actor };
+        repository.UpdatePeople(itemId, [seedPerson]);
+        var writes = Enumerable.Range(0, 8)
+            .Select(_ => Task.Run(() => repository.UpdatePeople(itemId, [new PersonInfo { Name = seedPerson.Name, Type = seedPerson.Type }])));
+
+        await Task.WhenAll(writes);
+
+        using var context = Contexts.CreateDbContext();
+        var person = context.Peoples.Single(e => e.Name == "Pessoa Concorrente");
+        var maps = context.PeopleBaseItemMap.Where(e => e.ItemId == itemId && e.PeopleId == person.Id).ToArray();
         Assert.Single(maps);
     }
 

@@ -26,16 +26,25 @@ namespace MulletaFlix.Providers.Tests.Tmdb
         }
 
         [Theory]
-        [InlineData("en", "en-US", "en-us")]
-        [InlineData("fr-CA", "fr-BE", "fr-ca")]
-        [InlineData("fr-CA", "fr", "fr-ca")]
-        [InlineData("zh", "ZH-Hant", "zh-hant")]
-        [InlineData("PT", "", "pt")]
-        [InlineData("de", "en-US", "de")]
-        [InlineData("", "en-US", "")]
-        public static void AdjustImageLanguage_Valid_Success(string imageLanguage, string requestLanguage, string? expected)
+        // A regional request is only answered with a region when the image contradicts it.
+        [InlineData("pt", "BR", "pt-BR", "pt-BR")]
+        [InlineData("pt", "PT", "pt-BR", "pt-PT")]
+        [InlineData("en", "GB", "en-US", "en-GB")]
+        [InlineData("en", "US", "en-US", "en-US")]
+        [InlineData("en", null, "en-US", "en-US")]
+        // TMDb files nearly every image under a region, which must not stop a plain request matching.
+        [InlineData("en", "US", "en", "en")]
+        [InlineData("pt", "PT", "pt", "pt")]
+        // An image in another language keeps its bare code, so the English fallback still resolves.
+        [InlineData("en", "US", "pt-BR", "en")]
+        [InlineData("de", "DE", "en-US", "de")]
+        // TMDb returns xx rather than an empty string for an image with no text.
+        [InlineData("xx", "US", "en-US", "")]
+        [InlineData("", "US", "en-US", "")]
+        [InlineData(null, null, "en-US", "")]
+        public static void GetImageLanguage_Valid_Success(string? imageLanguage, string? imageRegion, string? requestLanguage, string expected)
         {
-            Assert.Equal(expected, TmdbUtils.AdjustImageLanguage(imageLanguage, requestLanguage));
+            Assert.Equal(expected, TmdbUtils.GetImageLanguage(imageLanguage, imageRegion, requestLanguage));
         }
 
         [Theory]
@@ -50,6 +59,23 @@ namespace MulletaFlix.Providers.Tests.Tmdb
         public static void GetImageLanguagesParam_IncludesRegionalAndBaseLanguageWithFallbacks(string language, string country, string expected)
         {
             Assert.Equal(expected, TmdbUtils.GetImageLanguagesParam(language, country));
+        }
+
+        [Fact]
+        public static void GetImageLanguagesParam_IncludesAllLanguagesOnlyWhenRequested()
+        {
+            Assert.Equal(string.Empty, TmdbUtils.GetImageLanguagesParam("pt-BR", "BR", includeAllLanguages: true));
+            Assert.Equal("pt-BR,pt,null,en", TmdbUtils.GetImageLanguagesParam("pt-BR", "BR", includeAllLanguages: false));
+        }
+
+        [Theory]
+        [InlineData("pt-BR")]
+        [InlineData("en-US")]
+        [InlineData("ja-JP")]
+        public static void GetImageQueryLanguage_OmitsLanguageFilterOnlyWhenAllLanguagesRequested(string language)
+        {
+            Assert.Equal(string.Empty, TmdbUtils.GetImageQueryLanguage(language, includeAllLanguages: true));
+            Assert.Equal(language, TmdbUtils.GetImageQueryLanguage(language, includeAllLanguages: false));
         }
 
         [Fact]

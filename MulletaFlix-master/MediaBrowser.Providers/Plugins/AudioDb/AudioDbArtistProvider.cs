@@ -151,21 +151,15 @@ namespace MediaBrowser.Providers.Plugins.AudioDb
         internal async Task DownloadArtistInfo(string musicBrainzId, CancellationToken cancellationToken)
         {
             cancellationToken.ThrowIfCancellationRequested();
+            musicBrainzId = NormalizeMusicBrainzId(musicBrainzId);
 
             var url = BaseUrl + "/artist-mb.php?i=" + musicBrainzId;
 
-            using var response = await _httpClientFactory.CreateClient(NamedClient.Default).GetAsync(url, cancellationToken).ConfigureAwait(false);
-            response.EnsureSuccessStatusCode();
+            using var response = await _httpClientFactory.CreateClient(NamedClient.Default)
+                .GetAsync(url, HttpCompletionOption.ResponseHeadersRead, cancellationToken)
+                .ConfigureAwait(false);
             var path = GetArtistInfoPath(_config.ApplicationPaths, musicBrainzId);
-            Directory.CreateDirectory(Path.GetDirectoryName(path));
-
-            var fileStreamOptions = AsyncFile.WriteOptions;
-            fileStreamOptions.Mode = FileMode.Create;
-            var xmlFileStream = new FileStream(path, fileStreamOptions);
-            await using (xmlFileStream.ConfigureAwait(false))
-            {
-                await response.Content.CopyToAsync(xmlFileStream, cancellationToken).ConfigureAwait(false);
-            }
+            await AudioDbCacheFile.WriteResponseAsync(response, path, cancellationToken).ConfigureAwait(false);
         }
 
         /// <summary>
@@ -187,9 +181,20 @@ namespace MediaBrowser.Providers.Plugins.AudioDb
 
         internal static string GetArtistInfoPath(IApplicationPaths appPaths, string musicBrainzArtistId)
         {
+            musicBrainzArtistId = NormalizeMusicBrainzId(musicBrainzArtistId);
             var dataPath = GetArtistDataPath(appPaths, musicBrainzArtistId);
 
             return Path.Combine(dataPath, "artist.json");
+        }
+
+        internal static string NormalizeMusicBrainzId(string musicBrainzId)
+        {
+            if (!Guid.TryParseExact(musicBrainzId, "D", out var parsedId))
+            {
+                throw new ArgumentException("MusicBrainz ID must be a UUID in 8-4-4-4-12 format.", nameof(musicBrainzId));
+            }
+
+            return parsedId.ToString("D");
         }
 
         /// <inheritdoc />

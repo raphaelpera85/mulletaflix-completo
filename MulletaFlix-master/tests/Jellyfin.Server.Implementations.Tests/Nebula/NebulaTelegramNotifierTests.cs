@@ -166,6 +166,19 @@ public class NebulaTelegramNotifierTests
     }
 
     [Fact]
+    public void MetadataReadiness_DoesNotRequireOptionalImageOrNfoSidecars()
+    {
+        var item = new MediaBrowser.Controller.Entities.Movies.Movie
+        {
+            Name = "Mídia reconhecida no banco"
+        };
+
+        Assert.True(NotificationsLibraryNotifier.IsMetadataReady(item));
+        item.Name = string.Empty;
+        Assert.False(NotificationsLibraryNotifier.IsMetadataReady(item));
+    }
+
+    [Fact]
     public async Task StopAsync_CancelsMetadataWorkersAndReleasesScheduledEntries()
     {
         using var notifier = CreateNotifier();

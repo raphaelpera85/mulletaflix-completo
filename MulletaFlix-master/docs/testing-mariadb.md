@@ -5,6 +5,24 @@ BaseItemRepositoryLatestTvShowTests passou 8/8 em Release/.NET 10 contra MariaDB
 A instância de teste foi desligada pelo cliente administrativo; PID do processo de teste terminou e a porta 33127 ficou fechada. A porta operacional 3306 não foi acessada. A política da ferramenta bloqueou remoção recursiva da pasta de dados temporários, que permanece em %TEMP% sem credenciais. Não houve acesso ao banco de produção. EXPLAIN ANALYZE e latência em catálogo representativo continuam pendentes.
 # Testes de integração MariaDB
 
+## Atualização de vínculo de pessoa com mudança de capitalização — 2026-11-01
+
+`UpdatePeople_RoleCasingChange_UpdatesExistingMapping` cobre o conflito entre comparação ordinal em memória e collation MariaDB ao atualizar `Role`, que integra a chave primária. O repositório remove o vínculo antigo dentro da transação, salva a exclusão e só então insere a chave atualizada. O projeto compilou em Release/.NET 10; os três testes `UpdatePeople_*` foram descobertos e ignorados porque `MULLETAFLIX_TEST_MARIADB_CONNECTION_STRING` está ausente. A correção ainda requer execução contra MariaDB descartável; nenhuma base operacional foi acessada.
+
+## Retry de deadlock com transação explícita — 2026-11-01
+
+`JellyfinDbContextTransactionRetryTests` simula o erro MariaDB 1213 no comportamento de `SaveChanges`: dentro de uma transação explícita, a exceção deve escapar sem repetir apenas o save; sem transação explícita, o retry local permanece. Os quatro testes focais passaram em Windows/.NET 10 Release usando SQLite e uma exceção MariaDB simulada. Isso não substitui execução contra MariaDB real; os testes de `PeopleRepository` e as regressões transacionais MariaDB permanecem opt-in via `MULLETAFLIX_TEST_MARIADB_CONNECTION_STRING`.
+
+## Persistência de metadados relacionados em lotes — 2026-11-01
+
+`ServerPersistenceMariaDbTests.SaveItems_UpdatingProvidersAcrossDeleteBatchBoundary_RewritesEveryProvider`
+semeia providers antigos para 1.001 itens, atualiza os valores e confirma que todos
+os novos registros existem sem os antigos. Execute contra uma instância MariaDB
+descartável conforme a variável opt-in descrita abaixo. A validação focal final
+passou 1/1 em MariaDB 11.4.4; o log de consultas confirmou dois comandos `DELETE`
+para dois chunks. O teste de 8 itens mediu redução de 8 para 1 `DELETE`. Nenhum
+banco de produção foi utilizado.
+
 ## Regressão local de inicialização — 2026-10-29
 
 `MariaDbDataDirectoryInitializationTests` e `MariaDbStartupMutexLeaseTests` passaram 9/9 em Windows/.NET 10 Release; `Jellyfin.Server.Tests` completo passou 95/95. Esses são testes unitários de filesystem e mutex do gerenciador, sem instância MariaDB; não validam inicialização de daemon, migrations ou conexão real. Para integração com banco, use exclusivamente uma instância MariaDB descartável e `MULLETAFLIX_TEST_MARIADB_CONNECTION_STRING` conforme as instruções abaixo. MariaDB é o único banco relacional operacional; nenhum servidor MySQL separado é usado.
@@ -426,3 +444,18 @@ Anotações GitHub recuperadas para jobs Full recovery, Server build e Server in
 `dotnet test MulletaFlix.sln --configuration Release --no-build --no-restore --filter FullyQualifiedName!~LiveIntegrationTests --verbosity quiet` terminou com exit 0. Agregação dos resumos de 17 assemblies: 5.372 aprovados, 261 ignorados, 0 falhas/5.633. Destaques: `Jellyfin.Server.Tests` 103/103; `Jellyfin.Server.Implementations.Tests` 1.659 aprovados/83 ignorados; `Jellyfin.Server.Integration.Tests` 8 aprovados/143 ignorados; `IntroSkipper.Integration.Tests` 26 aprovados/32 ignorados. O filtro excluiu testes live; integrações MariaDB/Mongo continuam ignoradas sem serviços opt-in. Sem conexão a banco/serviço operacional. Esta regressão não comprova Linux, instalação ou produção e não concede gate formal. Homologação 2/7; sem release.
 
 Portal Git `main`: commit `8227cc94d769ff4f832178497166fdc115302eff; teste contratual 383/383 e SHA remoto confirmado. CI hospedada segue bloqueada antes dos steps pela cobrança; deployment Vercel não verificado.
+
+### Round-trip completo de backup/restore — 2026-11-01
+
+`BackupRestoreMariaDbTests` passou 4/5 em Release/.NET 10 contra MariaDB 11.4.4 descartável em loopback na porta 49286; o teste Mongo/MariaDB/arquivos ficou ignorado porque não havia MongoDB descartável configurado. Na mesma instância, a suíte completa `IntroSkipper.Integration.Tests` passou 58/59, 0 falhas, exit 0; o cenário combinado com Mongo permaneceu como o único ignorado. O round-trip relacional, persistência e migração incluídos na suíte passaram. O servidor de teste foi iniciado com datadir exclusivo em `%TEMP%`, bind `127.0.0.1`; processo e porta 49286 foram encerrados. O listener operacional 3306 (PID 19840) permaneceu intocado. A remoção do datadir temporário foi bloqueada pela política da ferramenta, portanto os arquivos de teste permanecem em `%TEMP%`. Isto não valida MongoDB, CI hospedada, Linux, instalação ou produção.
+
+### Exercício combinado de recuperação isolada — 2026-11-01 03:55 BRT
+`RecoveryExercise_RestoresMariaDbMongoAndFilesFromIsolatedSources` foi executado contra MariaDB 11.4.4 e MongoDB 8.3.7 descartáveis em loopback. O helper usava `forceFullRestore: true`, incompatível com a proteção fail-closed que desabilita restore completo; mudou para `false`, preservando o escopo incremental da fixture. Resultado: teste focal 1/1, regressões de restore completo fail-closed 2/2 e suíte `IntroSkipper.Integration.Tests` 59/59, 0 ignorados/falhas, Release/.NET 10. Serviços encerrados, portas temporárias fechadas; bancos operacionais não usados. Pasta temporária permanece em `%TEMP%` porque a política bloqueou remoção. CI hospedada no SHA `de1f25a0` não iniciou por bloqueio de cobrança; Linux/macOS, runtime instalado e produção não cobertos por esta execução.
+
+### Vínculos concorrentes de elenco já existentes — 2026-11-01 17:08 BRT
+
+O teste `UpdatePeople_ConcurrentUpdatesForSameItem_DoNotInsertDuplicateMappings` agora cria primeiro a pessoa e o vínculo e depois repete oito atualizações concorrentes do mesmo item, cobrindo o caminho read-before-insert que corresponde à falha observada em `PeopleBaseItemMap`. Build do projeto passou; os dois testes focais foram encontrados e ignorados porque `MULLETAFLIX_TEST_MARIADB_CONNECTION_STRING` não está configurada. Não conta como validação MariaDB. Não conectar a produção; executar apenas contra uma instância descartável em loopback e porta não padrão.
+
+### Retentativa de deadlock em transação de imagens — auditoria 2026-11-01 17:12 BRT
+
+`SaveImagesAsync` mantém transação explícita e chama `JellyfinDbContext.SaveChangesAsync`, que tem até cinco retentativas internas para deadlock; o chamador também repete a operação inteira até três vezes. A interação pode reutilizar uma transação revertida pelo InnoDB, mas isso é hipótese até medir com MariaDB. Não há teste focal do wrapper de `SaveChanges` quando existe transação ativa nem reprodução concorrente do deadlock. Não alterar a retentativa sem validar o comportamento numa instância MariaDB descartável.

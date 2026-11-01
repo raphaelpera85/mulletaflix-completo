@@ -131,14 +131,45 @@ namespace MediaBrowser.Providers.Plugins.StudioImages
             {
                 var httpClient = _httpClientFactory.CreateClient(NamedClient.Default);
 
-                Directory.CreateDirectory(Path.GetDirectoryName(file));
-                var response = await httpClient.GetStreamAsync(url, cancellationToken).ConfigureAwait(false);
-                await using (response.ConfigureAwait(false))
+                var directory = Path.GetDirectoryName(file)
+                    ?? throw new ArgumentException("The cache file must have a parent directory.", nameof(file));
+                Directory.CreateDirectory(directory);
+                var temporaryFile = Path.Combine(directory, $".{Path.GetFileName(file)}.{Guid.NewGuid():N}.tmp");
+                Exception operationException = null;
+                try
                 {
-                    var fileStream = new FileStream(file, FileMode.Create, FileAccess.Write, FileShare.None, IODefaults.FileStreamBufferSize, FileOptions.Asynchronous);
-                    await using (fileStream.ConfigureAwait(false))
+                    var response = await httpClient.GetStreamAsync(url, cancellationToken).ConfigureAwait(false);
+                    await using (response.ConfigureAwait(false))
                     {
-                        await response.CopyToAsync(fileStream, cancellationToken).ConfigureAwait(false);
+                        var fileStream = new FileStream(
+                            temporaryFile,
+                            FileMode.CreateNew,
+                            FileAccess.Write,
+                            FileShare.None,
+                            IODefaults.FileStreamBufferSize,
+                            FileOptions.Asynchronous | FileOptions.SequentialScan);
+                        await using (fileStream.ConfigureAwait(false))
+                        {
+                            await response.CopyToAsync(fileStream, cancellationToken).ConfigureAwait(false);
+                        }
+                    }
+
+                    File.Move(temporaryFile, file, overwrite: true);
+                }
+                catch (Exception exception)
+                {
+                    operationException = exception;
+                    throw;
+                }
+                finally
+                {
+                    try
+                    {
+                        File.Delete(temporaryFile);
+                    }
+                    catch (Exception cleanupException) when (operationException is not null)
+                    {
+                        operationException.Data["TemporaryFileCleanupException"] = cleanupException;
                     }
                 }
             }

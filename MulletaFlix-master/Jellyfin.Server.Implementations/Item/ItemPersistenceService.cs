@@ -578,6 +578,11 @@ public class ItemPersistenceService : IItemPersistenceService
             tuples.Add((item, ancestorIds, topParent, userdataKey, inheritedTags));
         }
 
+        if (tuples.Count == 0)
+        {
+            return;
+        }
+
         using var context = _dbProvider.CreateDbContext();
         using var transaction = context.Database.BeginTransaction();
 
@@ -828,6 +833,15 @@ public class ItemPersistenceService : IItemPersistenceService
                 .ToDictionary(g => g.Key, g => (IReadOnlyCollection<BaseItemTrailerType>)g.ToArray())
             : new Dictionary<Guid, IReadOnlyCollection<BaseItemTrailerType>>();
 
+        var providerItemIdsToDelete = new List<Guid>();
+        var providersToAdd = new List<BaseItemProvider>();
+        var imageItemIdsToDelete = new List<Guid>();
+        var imagesToAdd = new List<BaseItemImageInfo>();
+        var metadataFieldItemIdsToDelete = new List<Guid>();
+        var metadataFieldsToAdd = new List<BaseItemMetadataField>();
+        var trailerTypeItemIdsToDelete = new List<Guid>();
+        var trailerTypesToAdd = new List<BaseItemTrailerType>();
+
         foreach (var item in tuples)
         {
             var entity = BaseItemMapper.Map(item.Item, _appHost);
@@ -867,10 +881,10 @@ public class ItemPersistenceService : IItemPersistenceService
 
                 if (providersChanged)
                 {
-                    context.BaseItemProviders.Where(e => e.ItemId == entity.Id).ExecuteDelete();
+                    providerItemIdsToDelete.Add(entity.Id);
                     if (currentProviders.Length > 0)
                     {
-                        context.BaseItemProviders.AddRange(currentProviders);
+                        providersToAdd.AddRange(currentProviders);
                     }
                 }
 
@@ -881,10 +895,10 @@ public class ItemPersistenceService : IItemPersistenceService
                         existingImages.GetValueOrDefault(entity.Id, Array.Empty<BaseItemImageInfo>()),
                         currentImages))
                 {
-                    context.BaseItemImageInfos.Where(e => e.ItemId == entity.Id).ExecuteDelete();
+                    imageItemIdsToDelete.Add(entity.Id);
                     if (currentImages.Length > 0)
                     {
-                        context.BaseItemImageInfos.AddRange(currentImages);
+                        imagesToAdd.AddRange(currentImages);
                     }
                 }
 
@@ -896,10 +910,10 @@ public class ItemPersistenceService : IItemPersistenceService
 
                 if (lockedFieldsChanged)
                 {
-                    context.BaseItemMetadataFields.Where(e => e.ItemId == entity.Id).ExecuteDelete();
+                    metadataFieldItemIdsToDelete.Add(entity.Id);
                     if (currentLockedFields.Length > 0)
                     {
-                        context.BaseItemMetadataFields.AddRange(currentLockedFields);
+                        metadataFieldsToAdd.AddRange(currentLockedFields);
                     }
                 }
 
@@ -908,10 +922,10 @@ public class ItemPersistenceService : IItemPersistenceService
                         existingTrailerTypes.GetValueOrDefault(entity.Id, Array.Empty<BaseItemTrailerType>()),
                         currentTrailerTypes))
                 {
-                    context.BaseItemTrailerTypes.Where(e => e.ItemId == entity.Id).ExecuteDelete();
+                    trailerTypeItemIdsToDelete.Add(entity.Id);
                     if (currentTrailerTypes.Length > 0)
                     {
-                        context.BaseItemTrailerTypes.AddRange(currentTrailerTypes);
+                        trailerTypesToAdd.AddRange(currentTrailerTypes);
                     }
                 }
 
@@ -925,6 +939,31 @@ public class ItemPersistenceService : IItemPersistenceService
                 context.Entry(current).CurrentValues.SetValues(entity);
             }
         }
+
+        foreach (var itemIdChunk in providerItemIdsToDelete.Chunk(DeleteBatchSize))
+        {
+            context.BaseItemProviders.WhereOneOrMany(itemIdChunk, e => e.ItemId).ExecuteDelete();
+        }
+
+        foreach (var itemIdChunk in imageItemIdsToDelete.Chunk(DeleteBatchSize))
+        {
+            context.BaseItemImageInfos.WhereOneOrMany(itemIdChunk, e => e.ItemId).ExecuteDelete();
+        }
+
+        foreach (var itemIdChunk in metadataFieldItemIdsToDelete.Chunk(DeleteBatchSize))
+        {
+            context.BaseItemMetadataFields.WhereOneOrMany(itemIdChunk, e => e.ItemId).ExecuteDelete();
+        }
+
+        foreach (var itemIdChunk in trailerTypeItemIdsToDelete.Chunk(DeleteBatchSize))
+        {
+            context.BaseItemTrailerTypes.WhereOneOrMany(itemIdChunk, e => e.ItemId).ExecuteDelete();
+        }
+
+        context.BaseItemProviders.AddRange(providersToAdd);
+        context.BaseItemImageInfos.AddRange(imagesToAdd);
+        context.BaseItemMetadataFields.AddRange(metadataFieldsToAdd);
+        context.BaseItemTrailerTypes.AddRange(trailerTypesToAdd);
     }
 
     internal static void ClearTrackedNavigationProperties(BaseItemEntity entity)

@@ -27,6 +27,30 @@ class Files:
         return SimpleNamespace(upserted_id=inserted_id)
 
 
+class QueryMatchingFiles(Files):
+    def __init__(self, documents):
+        super().__init__()
+        self.documents = documents
+
+    async def find_one(self, query):
+        self.find_queries.append(query)
+        return next((document for document in self.documents if _matches(document, query)), None)
+
+
+def _matches(document, query):
+    if "$or" in query:
+        return any(_matches(document, clause) for clause in query["$or"])
+
+    for key, value in query.items():
+        actual = document.get(key)
+        if isinstance(value, dict) and "$in" in value:
+            if actual not in value["$in"]:
+                return False
+        elif actual != value:
+            return False
+    return True
+
+
 class Queue:
     def __init__(self):
         self.items = []
@@ -39,6 +63,7 @@ def _configure(monkeypatch, files, queue, stage):
     monkeypatch.setattr(main, "STAGING_DIRS", [str(stage)])
     monkeypatch.setattr(main, "ACTIVE_UPLOADS", set())
     monkeypatch.setattr(main, "UPLOAD_QUEUE", queue)
+    monkeypatch.setattr(main.MongoDBPathIO, "tg", [object()])
     monkeypatch.setattr(main, "resolve_media_parent", _parent)
     return SimpleNamespace(files=files)
 
@@ -204,7 +229,12 @@ async def test_stats_reporter_removes_staging_duplicate_when_catalog_is_complete
     stage.mkdir()
     media = stage / "already-sent.mkv"
     media.write_bytes(b"video")
-    files = Files(find_results=[None, {"_id": "completed", "status": "completed"}])
+    files = QueryMatchingFiles([{
+        "_id": "completed",
+        "name": "already-sent.mkv",
+        "parent": "/raphael/Filmes",
+        "status": "completed",
+    }])
     queue = Queue()
     mongo = _configure(monkeypatch, files, queue, stage)
 
@@ -219,6 +249,38 @@ async def test_stats_reporter_removes_staging_duplicate_when_catalog_is_complete
     assert not media.exists()
     assert queue.items == []
     assert files.updates == []
+
+
+@pytest.mark.asyncio
+async def test_stats_reporter_queues_same_filename_for_another_parent(monkeypatch, tmp_path):
+    stage = tmp_path / "stage"
+    stage.mkdir()
+    media = stage / "same-name.mkv"
+    media.write_bytes(b"different title")
+    files = QueryMatchingFiles([{
+        "_id": "other-title",
+        "name": "same-name.mkv",
+        "parent": "/raphael/Series/Other Title",
+        "status": "completed",
+    }])
+    queue = Queue()
+    mongo = _configure(monkeypatch, files, queue, stage)
+
+    async def sleep(seconds):
+        if seconds == 5:
+            raise asyncio.CancelledError
+
+    monkeypatch.setattr(main.asyncio, "sleep", sleep)
+    monkeypatch.setattr(main, "log_queue_state", _noop)
+
+    with pytest.raises(asyncio.CancelledError):
+        await main.stats_reporter(mongo)
+
+    assert media.read_bytes() == b"different title"
+    assert queue.items == [{
+        "path": str(media), "filename": "same-name.mkv", "parent": "/raphael/Filmes", "size": 15,
+    }]
+    assert files.find_queries[1]["parent"] == "/raphael/Filmes"
 
 
 @pytest.mark.asyncio

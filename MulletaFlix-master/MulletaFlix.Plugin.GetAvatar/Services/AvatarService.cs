@@ -481,9 +481,13 @@ namespace MulletaFlix.Plugin.GetAvatar.Services
 
             // Use Jellyfin's native user profile image path and save pipeline.
             // This mirrors Jellyfin.Api.Controllers.ImageController.PostUserImage.
-            var userDataPath = Path.Combine(
-                _serverConfigurationManager.ApplicationPaths.UserConfigurationDirectoryPath,
-                user.Username);
+            if (!FileSystemHelper.TryGetChildPath(
+                    _serverConfigurationManager.ApplicationPaths.UserConfigurationDirectoryPath,
+                    user.Username,
+                    out var userDataPath))
+            {
+                throw new InvalidOperationException("User profile directory is outside the configured root.");
+            }
 
             _logger.LogInformation("User profile image directory: {Path}", userDataPath);
 
@@ -1127,26 +1131,33 @@ namespace MulletaFlix.Plugin.GetAvatar.Services
 
                     if (!string.IsNullOrEmpty(oldProfileImagePath))
                     {
-                        var userDataPath = Path.Combine(
-                            _serverConfigurationManager.ApplicationPaths.UserConfigurationDirectoryPath,
-                            user.Username);
-                        try
+                        if (!FileSystemHelper.TryGetChildPath(
+                                _serverConfigurationManager.ApplicationPaths.UserConfigurationDirectoryPath,
+                                user.Username,
+                                out var userDataPath))
                         {
-                            var result = TryDeleteProfileImageFile(oldProfileImagePath, userDataPath);
-                            if (result == AvatarFileDeleteResult.Deleted)
-                            {
-                                _logger.LogInformation("Deleted profile image for user {UserId}", userId);
-                            }
-                            else if (result == AvatarFileDeleteResult.Unsafe)
-                            {
-                                _logger.LogWarning(
-                                    "Retaining profile image outside or unsafe for the user's configuration directory for user {UserId}",
-                                    userId);
-                            }
+                            _logger.LogWarning("Retaining profile image because the user's directory name is unsafe for user {UserId}", userId);
                         }
-                        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or Win32Exception or PlatformNotSupportedException)
+                        else
                         {
-                            _logger.LogWarning(ex, "Could not delete profile image file for user {UserId}", userId);
+                            try
+                            {
+                                var result = TryDeleteProfileImageFile(oldProfileImagePath, userDataPath);
+                                if (result == AvatarFileDeleteResult.Deleted)
+                                {
+                                    _logger.LogInformation("Deleted profile image for user {UserId}", userId);
+                                }
+                                else if (result == AvatarFileDeleteResult.Unsafe)
+                                {
+                                    _logger.LogWarning(
+                                        "Retaining profile image outside or unsafe for the user's configuration directory for user {UserId}",
+                                        userId);
+                                }
+                            }
+                            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or Win32Exception or PlatformNotSupportedException)
+                            {
+                                _logger.LogWarning(ex, "Could not delete profile image file for user {UserId}", userId);
+                            }
                         }
                     }
 

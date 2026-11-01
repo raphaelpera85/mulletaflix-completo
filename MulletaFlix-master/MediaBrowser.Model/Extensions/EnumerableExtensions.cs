@@ -77,6 +77,28 @@ namespace MediaBrowser.Model.Extensions
                     StringComparison.OrdinalIgnoreCase);
         }
 
+        /// <summary>
+        /// Combines a base language with its configured country when the language has no region or script subtag.
+        /// </summary>
+        /// <param name="language">The configured language.</param>
+        /// <param name="countryCode">The configured country code.</param>
+        /// <returns>A normalized language tag.</returns>
+        public static string NormalizeLanguageTag(string? language, string? countryCode)
+        {
+            if (string.IsNullOrWhiteSpace(language))
+            {
+                return string.Empty;
+            }
+
+            var normalizedLanguage = language.Trim().Replace('_', '-');
+            if (normalizedLanguage.Contains('-', StringComparison.Ordinal) || string.IsNullOrWhiteSpace(countryCode))
+            {
+                return normalizedLanguage;
+            }
+
+            return string.Concat(normalizedLanguage, "-", countryCode.Trim().ToUpperInvariant());
+        }
+
         private static string NormalizeLanguageTag(string language)
         {
             return language.Replace('_', '-').Trim();

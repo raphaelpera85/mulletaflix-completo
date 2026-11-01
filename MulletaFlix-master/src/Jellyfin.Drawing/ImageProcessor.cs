@@ -32,6 +32,7 @@ public sealed class ImageProcessor : IImageProcessor, IDisposable
 {
     // Increment this when there's a change requiring caches to be invalidated
     private const char Version = '3';
+    private const int BlurHashReadAttempts = 4;
 
     private static readonly HashSet<string> _transparentImageTypes
         = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { ".png", ".webp", ".gif", ".svg" };
@@ -405,7 +406,20 @@ public sealed class ImageProcessor : IImageProcessor, IDisposable
         int xComp = Math.Min((int)xCompF + 1, 9);
         int yComp = Math.Min((int)yCompF + 1, 9);
 
-        return _imageEncoder.GetImageBlurHash(xComp, yComp, path);
+        for (int attempt = 1; ; attempt++)
+        {
+            try
+            {
+                return _imageEncoder.GetImageBlurHash(xComp, yComp, path);
+            }
+            catch (IOException ex) when (attempt < BlurHashReadAttempts
+                && OperatingSystem.IsWindows()
+                && (ex.HResult & 0xFFFF) == 32)
+            {
+                // Image providers replace metadata files atomically; retry transient Windows sharing violations.
+                Thread.Sleep(TimeSpan.FromMilliseconds(50 * attempt));
+            }
+        }
     }
 
     /// <inheritdoc />

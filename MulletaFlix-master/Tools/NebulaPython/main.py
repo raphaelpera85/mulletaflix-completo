@@ -504,13 +504,13 @@ STAGING_SAFE_NAME_RE = re.compile(r"^[0-9a-f]{32}_.+")
 class SafeStreamHandler(logging.StreamHandler):
     def emit(self, record):
         try:
-            super().emit(record)
-        except UnicodeEncodeError:
             msg = self.format(record)
             encoding = getattr(self.stream, "encoding", None) or "utf-8"
             msg = msg.encode(encoding, errors="replace").decode(encoding, errors="replace")
             self.stream.write(msg + self.terminator)
             self.flush()
+        except Exception:
+            self.handleError(record)
 
 
 class CompactingFileHandler(RotatingFileHandler):
@@ -520,9 +520,12 @@ class CompactingFileHandler(RotatingFileHandler):
         self.context_file = context_file
         self.line_count = 0
         self.recent_lines = deque(maxlen=self.compact_lines)
+        self.compaction_disabled = False
 
     def emit(self, record):
         super().emit(record)
+        if self.compaction_disabled:
+            return
         self.line_count += 1
         self.recent_lines.append(self.format(record))
         if self.line_count >= self.compact_lines:
@@ -554,7 +557,8 @@ class CompactingFileHandler(RotatingFileHandler):
             with open(self.context_file, "a", encoding="utf-8", errors="replace") as fh:
                 fh.write("\n".join(summary))
         except Exception:
-            pass
+            self.compaction_disabled = True
+            return
         if self.stream:
             try:
                 self.stream.flush()
@@ -833,15 +837,6 @@ async def stats_reporter(mongo):
                         if root == staging_dir and STAGING_SAFE_NAME_RE.match(f):
                             display_name = f[33:]
 
-                        existing_active = await mongo.files.find_one({
-                            "name": display_name,
-                            "status": {"$in": ["queued", "uploading", "completed", "staging"]}
-                        })
-                        if existing_active:
-                            if existing_active.get("status") == "completed":
-                                safe_remove_staging_file(fp, force_delete=True)
-                            continue
-
                         rel_dir = os.path.relpath(root, staging_dir)
 
                         if rel_dir == ".":
@@ -851,6 +846,17 @@ async def stats_reporter(mongo):
                             parent_path = f"/{normalized_rel}"
 
                         parent_path = await resolve_media_parent(mongo, parent_path, display_name)
+
+                        existing_active = await mongo.files.find_one({
+                            "name": display_name,
+                            "parent": parent_path,
+                            "status": {"$in": ["queued", "uploading", "completed", "staging"]}
+                        })
+                        if existing_active:
+                            if existing_active.get("status") == "completed":
+                                safe_remove_staging_file(fp, force_delete=True)
+                            continue
+
                         doc = await mongo.files.find_one({"name": display_name, "parent": parent_path})
                         if not doc and existing_by_path and existing_by_path.get("status") in {"failed", "staging"}:
                             doc = existing_by_path
@@ -1188,10 +1194,10 @@ async def queued_mongo_scanner(mongo, max_workers=None):
                     logger.warning("Scanner Mongo: retry de recuperação staging aguardando banco (%s): %s", file_id, retry_exc)
 
             found = 0
-            # If large lane is running low, prioritize pulling large files so large workers never starve
-            large_needed = hasattr(UPLOAD_QUEUE, "large_qsize") and UPLOAD_QUEUE.large_qsize() < 6
 
             for _ in range(batch_limit):
+                # If large lane is running low, prioritize pulling large files so large workers never starve
+                large_needed = hasattr(UPLOAD_QUEUE, "large_qsize") and UPLOAD_QUEUE.large_qsize() < 6
                 # Registros cujo stage sumiu ficam preservados para recuperação,
                 # mas não devem ser revendidos em loop a cada segundo.
                 q = {
@@ -1223,9 +1229,7 @@ async def queued_mongo_scanner(mongo, max_workers=None):
                         },
                         sort=[("mtime", 1), ("ctime", 1), ("_id", 1)],
                     )
-                    if doc:
-                        large_needed = hasattr(UPLOAD_QUEUE, "large_qsize") and UPLOAD_QUEUE.large_qsize() < 6
-                    else:
+                    if not doc:
                         large_needed = False
 
                 if not doc:
@@ -1364,16 +1368,17 @@ async def staging_scanner(mongo, staging_dirs):
                             except (ValueError, IndexError):
                                 pass
 
-                            # Verifica se ja existe no MongoDB por local_path ou por nome
+                            parent = await resolve_media_parent(mongo, "", inferred_name)
+
+                            # A identidade do arquivo usa parent + name; só o caminho exato pode ignorar o parent.
                             existing = await mongo.files.find_one({
                                 "$or": [
                                     {"local_path": str(file_path)},
-                                    {"name": inferred_name, "status": "completed"},
-                                    {"name": file_path.name, "status": "completed"},
-                                    {"name": inferred_name, "status": {"$in": ["queued", "staging", "uploading"]}},
-                                    {"name": file_path.name, "status": {"$in": ["queued", "staging", "uploading"]}},
-                                    {"name": inferred_name, "status": "failed"},
-                                    {"name": file_path.name, "status": "failed"},
+                                    {
+                                        "name": {"$in": list(dict.fromkeys((inferred_name, file_path.name)))},
+                                        "parent": parent,
+                                        "status": {"$in": ["completed", "queued", "staging", "uploading", "failed"]},
+                                    },
                                 ]
                             })
 
@@ -1409,7 +1414,6 @@ async def staging_scanner(mongo, staging_dirs):
                                 continue
 
                             # Arquivo novo no stage - registra como queued no MongoDB
-                            parent = await resolve_media_parent(mongo, "", inferred_name)
                             doc = {
                                 "type": "file",
                                 "name": inferred_name,
@@ -2698,6 +2702,13 @@ async def main():
         target_chat_id = None
 
     loop = asyncio.get_event_loop()
+    mongo_client = None
+
+    def close_mongo_client():
+        if mongo_client is not None:
+            with contextlib.suppress(Exception):
+                mongo_client.close()
+
     try:
         mongo_uri = environ.get("MONGODB")
         mongo_database = environ.get("MONGO_DATABASE", "ftp")
@@ -2706,6 +2717,7 @@ async def main():
         await setup_database_indexes(mongo)
     except Exception as e:
         logger.critical(f"❌ Erro DB: {e}")
+        close_mongo_client()
         for bot in bots:
             await bot.stop()
         return 1
@@ -2720,6 +2732,7 @@ async def main():
         )
     except ValueError as exc:
         logger.critical("FTP security configuration failed: %s", exc)
+        close_mongo_client()
         for bot in bots:
             await bot.stop()
         return 1
@@ -2741,6 +2754,7 @@ async def main():
             )
         except (FileNotFoundError, ssl.SSLError, OSError) as exc:
             logger.critical("TLS configuration failed; refusing plaintext fallback: %s", exc)
+            close_mongo_client()
             for bot in bots:
                 await bot.stop()
             return 1
@@ -2753,6 +2767,7 @@ async def main():
         await server.start(host, port)
     except OSError as exc:
         logger.critical("❌ Não foi possível abrir %s:%s. Feche outro NebulaFTP usando essa porta. Erro: %s", host, port, exc)
+        close_mongo_client()
         for bot in bots:
             await bot.stop()
         return 1
@@ -2765,7 +2780,7 @@ async def main():
             await server.close()
         except Exception:
             logger.exception("Falha ao fechar FTP apos erro no HTTP Stream")
-        mongo_client.close()
+        close_mongo_client()
         await asyncio.gather(*(bot.stop() for bot in bots), return_exceptions=True)
         return 1
 
@@ -2823,6 +2838,7 @@ async def main():
 
     ftp_server_task = asyncio.create_task(server.serve_forever())
     control_plane = None
+    control_plane_startup_failed = False
 
     async def drain_and_stop():
         server.stop_accepting()
@@ -2887,6 +2903,7 @@ async def main():
             logger.info("Control plane v1 listening on %s:%s", CONTROL_HOST, control_plane.bound_port)
         except (OSError, ValueError) as exc:
             logger.critical("Control plane configuration failed: %s", exc)
+            control_plane_startup_failed = True
             stop_event.set()
     try:
         loop.add_signal_handler(signal.SIGINT, stop_event.set)
@@ -2928,10 +2945,11 @@ async def main():
             task.cancel()
         await asyncio.gather(*background_tasks, return_exceptions=True)
         await close_upload_sessions(bots)
+        close_mongo_client()
         for bot in bots:
             await bot.stop()
         logger.info("👋 Desligado.")
-    return 0
+    return 1 if control_plane_startup_failed else 0
 
 async def _confirm_upload_bots(bots, target_chat_id, first_index=1):
     """Validate channel access concurrently without flooding Telegram at startup."""

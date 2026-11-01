@@ -1,5 +1,15 @@
 # Nebula STRM Downloader
 
+## Deduplicação respeita a pasta de destino — 2026-11-01
+
+`stats_reporter` e `staging_scanner` agora tratam `(parent, name)` como identidade da mídia ao detectar registros ativos/concluídos. O caminho local exato continua sendo reconhecido independentemente do parent para reconciliar o mesmo arquivo. Um título com nome igual em outra pasta deixa de bloquear a fila ou causar remoção do arquivo local.
+
+Regressões usam fixtures que avaliam o filtro Mongo em vez de devolver resultado fixo: testes focais `test_stats_reporter.py`, `test_staging_scanner.py` e `test_main_helpers.py` passaram 73/73; suíte Nebula Python 3.10 passou 726/726. MongoDB de produção, runtime instalado, Linux e transferência real não foram testados.
+
+## Erro ao iniciar o Control Plane — 2026-11-01
+
+Quando `CONTROL_ENABLED` está ativo, erro de configuração, construção ou bind do Control Plane aciona o encerramento do Nebula. O processo conclui o cleanup de FTP, HTTP, tarefas, Mongo e bots e retorna código de falha para o supervisor. Isso evita classificar como sucesso um processo que se encerrou durante o startup. Testes de lifecycle cobrem falha no construtor e em `start()`; Linux, instalação e produção continuam pendentes.
+
 ## Supervisão de processo após startup — 2026-11-01 01:34 BRT
 
 - `NebulaHostedService` inicia monitor de vida quando o pipeline é habilitado e reavalia o downloader a cada 30 segundos. Se o processo terminou, tenta novo `StartDownloaderAsync` com o retry existente; não reinicia Envio nem remonta o disco.
@@ -921,3 +931,13 @@ Evidência: teste completo Python 3.10 682/682; teste específico de retomada 20
 A suíte atual da venv Python 3.10.11 passou 682/682 em 10,63 s; `compileall -q .` passou. Execução unitária local, sem Telegram, FTP, MongoDB, mídia ou servidor instalado. Não substitui integração/runtime nem altera homologação formal (2/7).
 
 Portal Git `main` atualizado com a suíte Nebula, commit `439bea42b5402844ef5d2c52f1d5a546b5bb887c`; contrato 384/384 e SHA remoto confirmado. Deployment Vercel não verificado.
+
+### Limite da faixa de arquivos grandes — 2026-11-01
+
+O scanner consulta `large_qsize()` imediatamente antes de cada seleção, evitando tanto usar a profundidade anterior à inserção quanto carregar uma decisão obsoleta enquanto aguarda confirmação Mongo. A consulta geral continua processando arquivos elegíveis normalmente.
+
+Regressão reproduzida antes da correção com cinco itens grandes já aguardando: o teste falhava porque o segundo arquivo grande também era selecionado pela consulta prioritária. Outro teste simula consumo concorrente durante a confirmação Mongo e confirma que a priorização volta quando a fila cai abaixo de seis. `test_queued_mongo_scanner.py`: 9/9; suíte Nebula Python Windows/Python 3.10: 724/724, cobertura agregada 93%. Sem MongoDB real, Linux, CI hospedada, runtime instalado ou produção; a CI do PR segue bloqueada por cobrança GitHub. Candidata 12.1.46, sem release publicada; homologação formal permanece 2/7.
+
+### Varredura de MonitorPaths e links — 2026-11-01
+
+O downloader aceita apenas raízes `MonitorPaths` que não contenham componentes reparse point. Enumera mídia com `EnumerationOptions.AttributesToSkip = ReparsePoint`, impedindo que symlink/junction sob uma raiz alcance arquivos fora dela. Os limpadores removem apenas diretórios realmente vazios com exclusão não recursiva; links e árvores que os contêm ficam preservados. Testes Windows/.NET 10 Release `NebulaPathSafetyTests|NebulaDownloaderEngineTests`: 51/51, incluindo uma raiz linkada e uma subpasta linkada para mídia externa. Não verificamos links nas bibliotecas reais, runtime Linux, produção ou a política dos scanners de upload separados. Consulte [[Sessões/2026-11-01-MulletaFlix-auditoria-nebula-image-people-1638]].

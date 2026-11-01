@@ -159,7 +159,14 @@ public class ImageController : BaseMulletaFlixApiController
 
                 // Handle image/png; charset=utf-8
                 var mimeType = Request.ContentType?.Split(';').FirstOrDefault();
-                var userDataPath = Path.Combine(_serverConfigurationManager.ApplicationPaths.UserConfigurationDirectoryPath, user.Username);
+                if (!FileSystemHelper.TryGetChildPath(
+                        _serverConfigurationManager.ApplicationPaths.UserConfigurationDirectoryPath,
+                        user.Username,
+                        out var userDataPath))
+                {
+                    return BadRequest("Invalid username path.");
+                }
+
                 Directory.CreateDirectory(userDataPath);
                 var previousProfileImage = user.ProfileImage;
                 var newProfileImagePath = Path.Combine(userDataPath, "profile-" + Guid.NewGuid().ToString("N") + extension);
@@ -365,9 +372,14 @@ public class ImageController : BaseMulletaFlixApiController
                 return NoContent();
             }
 
-            var userDataPath = Path.Combine(
-                _serverConfigurationManager.ApplicationPaths.UserConfigurationDirectoryPath,
-                user.Username);
+            if (!FileSystemHelper.TryGetChildPath(
+                    _serverConfigurationManager.ApplicationPaths.UserConfigurationDirectoryPath,
+                    user.Username,
+                    out var userDataPath))
+            {
+                return StatusCode(StatusCodes.Status500InternalServerError, "Image could not be deleted.");
+            }
+
             if (!FileSystemHelper.IsPathWithinRoot(user.ProfileImage.Path, userDataPath))
             {
                 _logger.LogWarning(

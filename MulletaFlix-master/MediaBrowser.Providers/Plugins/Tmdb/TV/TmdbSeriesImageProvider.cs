@@ -17,7 +17,7 @@ namespace MediaBrowser.Providers.Plugins.Tmdb.TV
     /// <summary>
     /// TV series image provider powered by TheMovieDb.
     /// </summary>
-    public class TmdbSeriesImageProvider : IRemoteImageProvider, IHasOrder
+    public class TmdbSeriesImageProvider : ILanguageAwareRemoteImageProvider, IHasOrder
     {
         private readonly IHttpClientFactory _httpClientFactory;
         private readonly TmdbClientManager _tmdbClientManager;
@@ -55,8 +55,22 @@ namespace MediaBrowser.Providers.Plugins.Tmdb.TV
         ];
 
         /// <inheritdoc />
-        public async Task<IEnumerable<RemoteImageInfo>> GetImages(BaseItem item, CancellationToken cancellationToken)
+        public Task<IEnumerable<RemoteImageInfo>> GetImages(BaseItem item, CancellationToken cancellationToken)
         {
+            return GetImages(item, item.GetPreferredMetadataLanguage(), item.GetPreferredMetadataCountryCode(), cancellationToken);
+        }
+
+        /// <inheritdoc />
+        public async Task<IEnumerable<RemoteImageInfo>> GetImages(BaseItem item, string metadataLanguage, string metadataCountryCode, CancellationToken cancellationToken)
+        {
+            return await GetImages(item, metadataLanguage, metadataCountryCode, false, cancellationToken).ConfigureAwait(false);
+        }
+
+        /// <inheritdoc />
+        public async Task<IEnumerable<RemoteImageInfo>> GetImages(BaseItem item, string metadataLanguage, string metadataCountryCode, bool includeAllLanguages, CancellationToken cancellationToken)
+        {
+            var language = TmdbUtils.GetImageQueryLanguage(metadataLanguage, includeAllLanguages);
+            var countryCode = metadataCountryCode;
             var tmdbId = item.GetProviderId(MetadataProvider.Tmdb);
 
             if (string.IsNullOrEmpty(tmdbId))
@@ -64,14 +78,11 @@ namespace MediaBrowser.Providers.Plugins.Tmdb.TV
                 return Enumerable.Empty<RemoteImageInfo>();
             }
 
-            var language = item.GetPreferredMetadataLanguage();
-            var countryCode = item.GetPreferredMetadataCountryCode();
-
             var series = await _tmdbClientManager
                 .GetSeriesAsync(
                     Convert.ToInt32(tmdbId, CultureInfo.InvariantCulture),
                     language,
-                    TmdbUtils.GetImageLanguagesParam(language, countryCode),
+                    TmdbUtils.GetImageLanguagesParam(language, countryCode, includeAllLanguages),
                     countryCode,
                     cancellationToken)
                 .ConfigureAwait(false);

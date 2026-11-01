@@ -230,6 +230,25 @@ namespace MediaBrowser.Providers.Plugins.Tmdb
         }
 
         /// <summary>
+        /// Gets the TMDb image language parameter, or an empty string to omit it.
+        /// </summary>
+        /// <param name="preferredLanguage">The preferred metadata language.</param>
+        /// <param name="countryCode">The preferred metadata country code.</param>
+        /// <param name="includeAllLanguages">Whether to include images in every language.</param>
+        /// <returns>The image language parameter, or an empty string when all languages are requested.</returns>
+        public static string GetImageLanguagesParam(string preferredLanguage, string? countryCode, bool includeAllLanguages)
+            => includeAllLanguages ? string.Empty : GetImageLanguagesParam(preferredLanguage, countryCode);
+
+        /// <summary>
+        /// Gets the TMDb query language, or an empty string to avoid filtering images by language.
+        /// </summary>
+        /// <param name="preferredLanguage">The preferred metadata language.</param>
+        /// <param name="includeAllLanguages">Whether images in every language should be returned.</param>
+        /// <returns>The preferred metadata language, or an empty string when all languages are requested.</returns>
+        public static string GetImageQueryLanguage(string preferredLanguage, bool includeAllLanguages)
+            => includeAllLanguages ? string.Empty : preferredLanguage;
+
+        /// <summary>
         /// Normalizes a language string for use with TMDb's language parameter.
         /// </summary>
         /// <param name="language">The language code.</param>
@@ -271,30 +290,41 @@ namespace MediaBrowser.Providers.Plugins.Tmdb
         }
 
         /// <summary>
-        /// Adjusts the image's language code preferring the 5 letter language code eg. en-US.
+        /// Determines the language code to report for an image.
         /// </summary>
-        /// <param name="imageLanguage">The image's actual language code.</param>
+        /// <remarks>
+        /// TMDb keeps an image's region in iso_3166_1, which is what separates a pt-PT poster from a pt-BR
+        /// one. The region is added to the returned code only when it differs from the requested one, as in
+        /// a pt-PT image for a pt-BR request. TMDb files nearly every image under a region, so adding it
+        /// unconditionally would return en-US for an image that has to keep matching a plain "en" request.
+        /// </remarks>
+        /// <param name="imageLanguage">The image's ISO 639-1 language code.</param>
+        /// <param name="imageRegion">The image's ISO 3166-1 country code.</param>
         /// <param name="requestLanguage">The requested language code.</param>
         /// <returns>The language code.</returns>
-        public static string AdjustImageLanguage(string? imageLanguage, string requestLanguage)
+        public static string GetImageLanguage(string? imageLanguage, string? imageRegion, string? requestLanguage)
         {
-            if (string.IsNullOrEmpty(imageLanguage))
+            // TMDb now returns xx for no language instead of an empty string.
+            if (string.IsNullOrEmpty(imageLanguage) || string.Equals(imageLanguage, "xx", StringComparison.OrdinalIgnoreCase))
             {
                 return string.Empty;
             }
 
-            if (!string.IsNullOrEmpty(requestLanguage)
-                && requestLanguage.Length > 2
-                && imageLanguage.Length == 2
-                && requestLanguage.StartsWith(imageLanguage, StringComparison.OrdinalIgnoreCase))
+            if (string.IsNullOrEmpty(requestLanguage))
             {
-                return requestLanguage.ToLowerInvariant();
+                return imageLanguage;
             }
 
-            // TMDb now returns xx for no language instead of an empty string.
-            return string.Equals(imageLanguage, "xx", StringComparison.OrdinalIgnoreCase)
-                ? string.Empty
-                : imageLanguage.ToLowerInvariant();
+            var requestParts = requestLanguage.Split('-');
+
+            if (requestParts.Length != 2 || !string.Equals(requestParts[0], imageLanguage, StringComparison.OrdinalIgnoreCase))
+            {
+                return imageLanguage;
+            }
+
+            return string.IsNullOrEmpty(imageRegion) || string.Equals(imageRegion, requestParts[1], StringComparison.OrdinalIgnoreCase)
+                ? requestLanguage
+                : imageLanguage + "-" + imageRegion.ToUpperInvariant();
         }
 
         /// <summary>

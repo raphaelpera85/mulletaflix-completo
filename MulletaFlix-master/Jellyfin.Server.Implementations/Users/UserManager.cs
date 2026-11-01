@@ -16,6 +16,7 @@ using MediaBrowser.Controller.Authentication;
 using MediaBrowser.Controller.Configuration;
 using MediaBrowser.Controller.Drawing;
 using MediaBrowser.Controller.Events;
+using MediaBrowser.Controller.IO;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.Net;
 using MediaBrowser.Model.Configuration;
@@ -1059,7 +1060,10 @@ namespace MulletaFlix.Server.Implementations.Users
 
         private static bool IsValidUsername(string name)
         {
-            if (string.IsNullOrWhiteSpace(name))
+            if (string.IsNullOrWhiteSpace(name)
+                || name is "." or ".."
+                || (OperatingSystem.IsWindows()
+                    && (name.EndsWith('.') || name.EndsWith(' ') || FileSystemHelper.IsWindowsDeviceName(name))))
             {
                 return false;
             }

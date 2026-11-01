@@ -18,5 +18,9 @@ namespace MediaBrowser.Model.Providers
         public bool IncludeDisabledProviders { get; set; }
 
         public bool IncludeAllLanguages { get; set; }
+
+        public string? PreferredMetadataLanguage { get; set; }
+
+        public string? PreferredMetadataCountryCode { get; set; }
     }
 }

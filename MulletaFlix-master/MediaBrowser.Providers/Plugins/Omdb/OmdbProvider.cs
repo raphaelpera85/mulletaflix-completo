@@ -316,7 +316,7 @@ namespace MediaBrowser.Providers.Plugins.Omdb
                 throw new ArgumentNullException(nameof(imdbId));
             }
 
-            var imdbParam = imdbId.StartsWith("tt", StringComparison.OrdinalIgnoreCase) ? imdbId : "tt" + imdbId;
+            var imdbParam = NormalizeImdbId(imdbId);
 
             var path = GetDataFilePath(imdbParam);
             var fileLock = _fileLocks.GetOrAdd(path, _ => new SemaphoreSlim(1, 1));
@@ -378,7 +378,7 @@ namespace MediaBrowser.Providers.Plugins.Omdb
                 throw new ArgumentException("The series IMDb ID was null or whitespace.", nameof(seriesImdbId));
             }
 
-            var imdbParam = seriesImdbId.StartsWith("tt", StringComparison.OrdinalIgnoreCase) ? seriesImdbId : "tt" + seriesImdbId;
+            var imdbParam = NormalizeImdbId(seriesImdbId);
 
             var path = GetSeasonFilePath(imdbParam, seasonId);
             var fileLock = _fileLocks.GetOrAdd(path, _ => new SemaphoreSlim(1, 1));
@@ -436,7 +436,7 @@ namespace MediaBrowser.Providers.Plugins.Omdb
 
         internal string GetDataFilePath(string imdbId)
         {
-            ArgumentException.ThrowIfNullOrEmpty(imdbId);
+            imdbId = NormalizeImdbId(imdbId);
 
             var dataPath = Path.Combine(_configurationManager.ApplicationPaths.CachePath, "omdb");
 
@@ -447,13 +447,34 @@ namespace MediaBrowser.Providers.Plugins.Omdb
 
         internal string GetSeasonFilePath(string imdbId, int seasonId)
         {
-            ArgumentException.ThrowIfNullOrEmpty(imdbId);
+            imdbId = NormalizeImdbId(imdbId);
 
             var dataPath = Path.Combine(_configurationManager.ApplicationPaths.CachePath, "omdb");
 
             var filename = string.Format(CultureInfo.InvariantCulture, "{0}_season_{1}.json", imdbId, seasonId);
 
             return Path.Combine(dataPath, filename);
+        }
+
+        private static string NormalizeImdbId(string imdbId)
+        {
+            ArgumentException.ThrowIfNullOrWhiteSpace(imdbId);
+
+            var digits = imdbId.StartsWith("tt", StringComparison.OrdinalIgnoreCase) ? imdbId.AsSpan(2) : imdbId.AsSpan();
+            if (digits.IsEmpty)
+            {
+                throw new ArgumentException("IMDb ID must contain digits.", nameof(imdbId));
+            }
+
+            foreach (var digit in digits)
+            {
+                if (!char.IsAsciiDigit(digit))
+                {
+                    throw new ArgumentException("IMDb ID must contain only digits, optionally prefixed by 'tt'.", nameof(imdbId));
+                }
+            }
+
+            return "tt" + digits.ToString();
         }
 
         private static void ParseAdditionalMetadata<T>(MetadataResult<T> itemResult, RootObject result, bool isEnglishRequested)

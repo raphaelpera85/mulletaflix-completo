@@ -166,6 +166,7 @@ namespace MediaBrowser.Providers.Plugins.AudioDb
         internal async Task DownloadInfo(string musicBrainzReleaseGroupId, CancellationToken cancellationToken)
         {
             cancellationToken.ThrowIfCancellationRequested();
+            musicBrainzReleaseGroupId = AudioDbArtistProvider.NormalizeMusicBrainzId(musicBrainzReleaseGroupId);
 
             var url = AudioDbArtistProvider.BaseUrl + "/album-mb.php?i=" + musicBrainzReleaseGroupId;
 
@@ -176,16 +177,10 @@ namespace MediaBrowser.Providers.Plugins.AudioDb
                 return;
             }
 
-            Directory.CreateDirectory(Path.GetDirectoryName(path));
-
-            using var response = await _httpClientFactory.CreateClient(NamedClient.Default).GetAsync(url, cancellationToken).ConfigureAwait(false);
-            var fileStreamOptions = AsyncFile.WriteOptions;
-            fileStreamOptions.Mode = FileMode.Create;
-            var fs = new FileStream(path, fileStreamOptions);
-            await using (fs.ConfigureAwait(false))
-            {
-                await response.Content.CopyToAsync(fs, cancellationToken).ConfigureAwait(false);
-            }
+            using var response = await _httpClientFactory.CreateClient(NamedClient.Default)
+                .GetAsync(url, HttpCompletionOption.ResponseHeadersRead, cancellationToken)
+                .ConfigureAwait(false);
+            await AudioDbCacheFile.WriteResponseAsync(response, path, cancellationToken).ConfigureAwait(false);
         }
 
         private static string GetAlbumDataPath(IApplicationPaths appPaths, string musicBrainzReleaseGroupId)
@@ -204,6 +199,7 @@ namespace MediaBrowser.Providers.Plugins.AudioDb
 
         internal static string GetAlbumInfoPath(IApplicationPaths appPaths, string musicBrainzReleaseGroupId)
         {
+            musicBrainzReleaseGroupId = AudioDbArtistProvider.NormalizeMusicBrainzId(musicBrainzReleaseGroupId);
             var dataPath = GetAlbumDataPath(appPaths, musicBrainzReleaseGroupId);
 
             return Path.Combine(dataPath, "album.json");

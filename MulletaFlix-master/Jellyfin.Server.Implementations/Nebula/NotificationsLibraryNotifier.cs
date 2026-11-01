@@ -27,7 +27,7 @@ public sealed class NotificationsLibraryNotifier : IHostedService, IDisposable
     private sealed record WorkItem(string MessageHtml, string? ImagePath);
     private sealed record ScheduledMetadataCheck(Guid ItemId, CancellationTokenSource CancellationSource);
 
-    /// <summary>How long an item's cover and nfo are given to stabilise before giving up.</summary>
+    /// <summary>How long item metadata and sidecar files are given to stabilise before giving up.</summary>
     private const int MetadataWaitSeconds = 180;
 
     /// <summary>
@@ -242,7 +242,9 @@ public sealed class NotificationsLibraryNotifier : IHostedService, IDisposable
             // items used to start a thousand concurrent polling loops, each one reloading the item
             // from the database and stat'ing its cover and nfo files on every attempt.
             BaseItem? ready = null;
+            BaseItem? lastObserved = null;
             string? previousSnapshot = null;
+            var snapshotStable = false;
             var deadline = DateTime.UtcNow.AddSeconds(MetadataWaitSeconds);
             var delay = InitialAttemptDelay;
 
@@ -255,8 +257,10 @@ public sealed class NotificationsLibraryNotifier : IHostedService, IDisposable
                     return;
                 }
 
+                lastObserved = current;
                 var snapshot = GetMetadataSnapshot(current);
-                if (snapshot == previousSnapshot && IsMetadataReady(current))
+                snapshotStable = snapshot == previousSnapshot;
+                if (snapshotStable && IsMetadataReady(current))
                 {
                     ready = current;
                     break;
@@ -272,7 +276,15 @@ public sealed class NotificationsLibraryNotifier : IHostedService, IDisposable
 
             if (ready is null)
             {
-                _logger.LogWarning("[NOTIFICATIONS] Capa/NFO da mídia {ItemId} não estabilizaram em {Seconds} segundos; nenhuma notificação foi enviada.", itemId, MetadataWaitSeconds);
+                var nfoPath = lastObserved is null ? null : GetNfoPath(lastObserved);
+                _logger.LogWarning(
+                    "[NOTIFICATIONS] Metadados da mídia {ItemId} não estabilizaram em {Seconds} segundos; nenhuma notificação foi enviada. NomePreenchido={HasName}, SnapshotEstavel={SnapshotStable}, CapaDisponivel={HasCover}, NfoDisponivel={HasNfo}.",
+                    itemId,
+                    MetadataWaitSeconds,
+                    !string.IsNullOrWhiteSpace(lastObserved?.Name),
+                    snapshotStable,
+                    lastObserved is not null && FindCoverPath(lastObserved) is not null,
+                    !string.IsNullOrWhiteSpace(nfoPath) && File.Exists(nfoPath));
                 return;
             }
 
@@ -344,17 +356,9 @@ public sealed class NotificationsLibraryNotifier : IHostedService, IDisposable
         return string.Join('|', item.Name, item.Overview, item.ProductionYear, image, imageState, nfo, nfoState);
     }
 
-    private bool IsMetadataReady(BaseItem item)
-    {
-        var imagePath = FindCoverPath(item);
-        var nfoPath = GetNfoPath(item);
-        return !string.IsNullOrWhiteSpace(item.Name)
-            && !string.IsNullOrWhiteSpace(imagePath)
-            && File.Exists(imagePath)
-            && !string.IsNullOrWhiteSpace(nfoPath)
-            && File.Exists(nfoPath)
-            && new FileInfo(nfoPath).Length > 0;
-    }
+    internal static bool IsMetadataReady(BaseItem item)
+        // Sidecars are optional; the stable snapshot is checked by the caller and delivery supports text-only messages.
+        => !string.IsNullOrWhiteSpace(item.Name);
 
     private static string? GetNfoPath(BaseItem item)
         => string.IsNullOrWhiteSpace(item.Path) ? null : Path.ChangeExtension(item.Path, ".nfo");

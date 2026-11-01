@@ -18,7 +18,7 @@ namespace MediaBrowser.Providers.Plugins.Tmdb.Movies
     /// <summary>
     /// Movie image provider powered by TMDb.
     /// </summary>
-    public class TmdbMovieImageProvider : IRemoteImageProvider, IHasOrder
+    public class TmdbMovieImageProvider : ILanguageAwareRemoteImageProvider, IHasOrder
     {
         private readonly IHttpClientFactory _httpClientFactory;
         private readonly TmdbClientManager _tmdbClientManager;
@@ -56,10 +56,22 @@ namespace MediaBrowser.Providers.Plugins.Tmdb.Movies
         ];
 
         /// <inheritdoc />
-        public async Task<IEnumerable<RemoteImageInfo>> GetImages(BaseItem item, CancellationToken cancellationToken)
+        public Task<IEnumerable<RemoteImageInfo>> GetImages(BaseItem item, CancellationToken cancellationToken)
         {
-            var language = item.GetPreferredMetadataLanguage();
-            var countryCode = item.GetPreferredMetadataCountryCode();
+            return GetImages(item, item.GetPreferredMetadataLanguage(), item.GetPreferredMetadataCountryCode(), cancellationToken);
+        }
+
+        /// <inheritdoc />
+        public async Task<IEnumerable<RemoteImageInfo>> GetImages(BaseItem item, string metadataLanguage, string metadataCountryCode, CancellationToken cancellationToken)
+        {
+            return await GetImages(item, metadataLanguage, metadataCountryCode, false, cancellationToken).ConfigureAwait(false);
+        }
+
+        /// <inheritdoc />
+        public async Task<IEnumerable<RemoteImageInfo>> GetImages(BaseItem item, string metadataLanguage, string metadataCountryCode, bool includeAllLanguages, CancellationToken cancellationToken)
+        {
+            var language = TmdbUtils.GetImageQueryLanguage(metadataLanguage, includeAllLanguages);
+            var countryCode = metadataCountryCode;
 
             var movieTmdbId = Convert.ToInt32(item.GetProviderId(MetadataProvider.Tmdb), CultureInfo.InvariantCulture);
             if (movieTmdbId <= 0)
@@ -86,7 +98,7 @@ namespace MediaBrowser.Providers.Plugins.Tmdb.Movies
                 .GetMovieAsync(
                     movieTmdbId,
                     language,
-                    TmdbUtils.GetImageLanguagesParam(language, countryCode),
+                    TmdbUtils.GetImageLanguagesParam(language, countryCode, includeAllLanguages),
                     countryCode,
                     cancellationToken)
                 .ConfigureAwait(false);

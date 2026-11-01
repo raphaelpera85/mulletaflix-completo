@@ -158,11 +158,13 @@ namespace MediaBrowser.Providers.Manager
             var typeOptions = libraryOptions.GetTypeOptions(typeName) ?? new TypeOptions { Type = typeName };
             var imageProviders = providers.ToList();
 
+            var serverConfiguration = BaseItem.ConfigurationManager?.Configuration;
             var preferredImageLanguage = GetPreferredImageLanguage(
                 item,
                 libraryOptions,
                 BaseItem.LibraryManager,
-                BaseItem.ConfigurationManager?.Configuration);
+                serverConfiguration,
+                out var preferredImageCountryCode);
             var remoteProviders = imageProviders.OfType<IRemoteImageProvider>().ToList();
             var refreshedRemoteProviders = false;
 
@@ -176,7 +178,7 @@ namespace MediaBrowser.Providers.Manager
                 {
                     if (!refreshedRemoteProviders)
                     {
-                        await RefreshFromProviders(item, remoteProviders, refreshOptions, typeOptions, preferredImageLanguage, backdropLimit, downloadedImages, result, cancellationToken).ConfigureAwait(false);
+                        await RefreshFromProviders(item, remoteProviders, refreshOptions, typeOptions, preferredImageLanguage, preferredImageCountryCode, backdropLimit, downloadedImages, result, cancellationToken).ConfigureAwait(false);
                         refreshedRemoteProviders = true;
                     }
 
@@ -288,6 +290,7 @@ namespace MediaBrowser.Providers.Manager
         /// <param name="refreshOptions">The refresh options.</param>
         /// <param name="savedOptions">The saved options.</param>
         /// <param name="preferredImageLanguage">The effective preferred image language.</param>
+        /// <param name="preferredImageCountryCode">The effective preferred image country code.</param>
         /// <param name="backdropLimit">The backdrop limit.</param>
         /// <param name="downloadedImages">The downloaded images.</param>
         /// <param name="result">The result.</param>
@@ -299,6 +302,7 @@ namespace MediaBrowser.Providers.Manager
             ImageRefreshOptions refreshOptions,
             TypeOptions savedOptions,
             string preferredImageLanguage,
+            string preferredImageCountryCode,
             int backdropLimit,
             List<ImageType> downloadedImages,
             RefreshResult result,
@@ -348,6 +352,8 @@ namespace MediaBrowser.Providers.Manager
                             {
                                 IncludeAllLanguages = true,
                                 IncludeDisabledProviders = false,
+                                PreferredMetadataLanguage = preferredImageLanguage,
+                                PreferredMetadataCountryCode = preferredImageCountryCode,
                             },
                             cancellationToken).ConfigureAwait(false);
 
@@ -763,6 +769,22 @@ namespace MediaBrowser.Providers.Manager
             ILibraryManager? libraryManager,
             ServerConfiguration? serverConfiguration)
         {
+            return GetPreferredImageLanguage(item, libraryOptions, libraryManager, serverConfiguration, out _);
+        }
+
+        internal static string GetPreferredImageLanguage(
+            BaseItem item,
+            LibraryOptions libraryOptions,
+            ILibraryManager? libraryManager,
+            ServerConfiguration? serverConfiguration,
+            out string preferredCountryCode)
+        {
+            if (!string.IsNullOrWhiteSpace(serverConfiguration?.PreferredMetadataLanguage))
+            {
+                preferredCountryCode = serverConfiguration.MetadataCountryCode ?? string.Empty;
+                return NormalizeImageLanguage(serverConfiguration.PreferredMetadataLanguage, serverConfiguration.MetadataCountryCode);
+            }
+
             var language = item.PreferredMetadataLanguage;
             var countryCode = item.PreferredMetadataCountryCode;
 
@@ -825,13 +847,18 @@ namespace MediaBrowser.Providers.Manager
                 countryCode = serverConfiguration?.MetadataCountryCode;
             }
 
-            if (string.Equals(countryCode, "BR", StringComparison.OrdinalIgnoreCase)
-                && string.Equals(language, "pt", StringComparison.OrdinalIgnoreCase))
+            preferredCountryCode = countryCode ?? string.Empty;
+            return NormalizeImageLanguage(language, countryCode);
+        }
+
+        private static string NormalizeImageLanguage(string? language, string? countryCode)
+        {
+            if (string.IsNullOrWhiteSpace(language))
             {
-                return "pt-BR";
+                return string.Empty;
             }
 
-            return language ?? string.Empty;
+            return MediaBrowser.Model.Extensions.EnumerableExtensions.NormalizeLanguageTag(language, countryCode);
         }
 
         private void SaveImageStub(BaseItem item, ImageType imageType, IEnumerable<string> urls)

@@ -26,6 +26,7 @@ using Xunit;
 
 namespace MulletaFlix.Providers.Tests.Manager
 {
+    [Collection("BaseItem.FileSystem")]
     public partial class ItemImageProviderTests
     {
         private static readonly CompositeFormat _testDataImagePath = CompositeFormat.Parse("Test Data/Images/blank{0}.jpg");

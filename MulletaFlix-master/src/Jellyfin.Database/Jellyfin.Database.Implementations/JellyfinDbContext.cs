@@ -312,7 +312,9 @@ public class MulletaFlixDbContext : DbContext
     {
         HandleConcurrencyToken();
 
-        var maxRetries = 5;
+        // MariaDB rolls back the whole transaction on a deadlock; only retry SaveChanges when
+        // there is no caller-owned transaction to replay as a unit.
+        var maxRetries = Database.CurrentTransaction is null ? 5 : 0;
         var attempt = 0;
         while (true)
         {
@@ -349,7 +351,9 @@ public class MulletaFlixDbContext : DbContext
     {
         HandleConcurrencyToken();
 
-        var maxRetries = 5;
+        // MariaDB rolls back the whole transaction on a deadlock; only retry SaveChanges when
+        // there is no caller-owned transaction to replay as a unit.
+        var maxRetries = Database.CurrentTransaction is null ? 5 : 0;
         var attempt = 0;
         while (true)
         {

@@ -92,6 +92,50 @@ public sealed class NebulaPathSafetyTests
         }
     }
 
+    [Fact]
+    public void GetValidMonitorSources_RejectsSymlinkRoot()
+    {
+        var parent = CreateTemporaryDirectory();
+        var actualRoot = Path.Combine(parent, "actual");
+        var linkedRoot = Path.Combine(parent, "linked-root");
+        Directory.CreateDirectory(actualRoot);
+
+        try
+        {
+            Directory.CreateSymbolicLink(linkedRoot, actualRoot);
+
+            Assert.Empty(NebulaDownloaderEngine.GetValidMonitorSources(new[] { linkedRoot }));
+        }
+        finally
+        {
+            Directory.Delete(parent, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void EnumerateFilesWithoutReparsePoints_DoesNotEnterLinkedSubdirectory()
+    {
+        var parent = CreateTemporaryDirectory();
+        var root = Path.Combine(parent, "root");
+        var outside = Path.Combine(parent, "outside");
+        Directory.CreateDirectory(root);
+        Directory.CreateDirectory(outside);
+        var outsideMedia = Path.Combine(outside, "outside.mkv");
+        File.WriteAllText(outsideMedia, "media");
+
+        try
+        {
+            Directory.CreateSymbolicLink(Path.Combine(root, "linked"), outside);
+
+            Assert.Empty(NebulaDownloaderEngine.EnumerateFilesWithoutReparsePoints(root, "*.*"));
+            Assert.True(File.Exists(outsideMedia));
+        }
+        finally
+        {
+            Directory.Delete(parent, recursive: true);
+        }
+    }
+
     private static string CreateTemporaryDirectory()
     {
         var path = Path.Combine(Path.GetTempPath(), "nebula-path-safety-" + Guid.NewGuid().ToString("N"));

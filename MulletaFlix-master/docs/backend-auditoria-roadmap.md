@@ -1,3 +1,152 @@
+## BlurHash sob bloqueio temporário de arquivo — 2026-11-01 17:38 BRT
+
+- O log 12.1.45 prova uma falha de compartilhamento ao abrir `folder.jpg` para calcular BlurHash, mas não identifica o processo que mantinha o handle. A imagem continuou no fluxo; o código já captura falha e persiste hash vazio.
+- `ImageProcessor.GetImageBlurHash` agora repete somente a violação Windows `ERROR_SHARING_VIOLATION` (código 32), até quatro aberturas com espera crescente. Outros `IOException` não são repetidos.
+- Testes focais Windows/.NET 10: 2/2. Não houve reprodução com processo concorrente real nem validação em Linux/runtime instalado/produção; diagnóstico externo permanece pendente. Candidata 12.1.46, sem release; homologação formal 2/7; snapshot local 2/10.
+
+## Cache de resposta HTTP AudioDB — 2026-11-01 16:43 BRT
+
+- Os caches `artist.json` e `album.json` eram abertos com `FileMode.Create` antes de a cópia da resposta HTTP terminar. Agora ambos fazem streaming para temporário exclusivo e promovem após cópia completa; status HTTP inválido não grava cache.
+- `AudioDbCacheFileTests` + `AudioDbCachePathSafetyTests`: 10/10; suíte `Jellyfin.Providers.Tests`: 930 aprovados, 14 ignorados, 0 falhas/944 em Windows/.NET 10 Release. `dotnet format style --verify-no-changes` passou nos arquivos tocados.
+- Teste exercita interrupção parcial, preservação do cache, promoção bem-sucedida e status de erro. API real, catálogo/produção e Linux não foram verificados. Homologação formal 2/7; snapshot local 5/10; sem release.
+
+## Reauditoria do CI da PR #1 — 2026-11-01 16:03 BRT
+
+- A conexão GitHub confirmou o run mais recente `41283703952` no HEAD `cbc380c94e8c88278c44309f586faf9c0e1c134f`: os 16 checks têm anotação de bloqueio por problema de cobrança e não iniciaram steps.
+- Cinco logs de jobs do run anexado `41005367220` e o log do build do run mais recente retornaram `BlobNotFound`; detalhes dos jobs atuais têm `steps=[]`. Não há falha de código diagnosticável.
+- `gh` local continua sem autenticação. Nenhum arquivo de runtime foi alterado, nenhum commit/push foi feito; rerun depende de desbloquear Actions e autenticar o CLI.
+- Testes locais focais de imagens nesta sessão: 36/36. Homologação formal permanece 2/7, sem crédito.
+
+## Revalidação do ImageSaver e publicação da homologação — 2026-11-01 15:55 BRT
+
+- `ImageSaverTests`: 4 aprovados, 1 ignorado, 0 falhas/5 em Windows/.NET 10 Release. A falha de cópia preserva destino antigo e limpa temporário.
+- A cobertura Unix retorna cedo no host Windows e não exercita modo POSIX; a escrita rooted e corridas de symlink/rename permanecem sem teste. `ImageSaver` segue pathname-based.
+- O portal publicou o lote 10/10 em main (`f33689f`, `f3e5609`); GET público confirmou HTTP 200, snapshot `2026-11-01T15:55:46-03:00`, 730 eventos e formal 2/7.
+- Nenhuma mudança de runtime/release. Próximo gate: gravador rooted com preservação de ACL/modo e promoção atômica, adversarial Windows/Linux.
+
+## Revalidação de fronteira do writer de imagens — 2026-11-01 15:49 BRT
+
+- `BackupRestoreDirectory` é interna a `Jellyfin.Server.Implementations` e suas validações de ACL são específicas ao restore; `MediaBrowser.Providers` não pode depender diretamente desse helper sem cruzar camadas.
+- O caminho de escrita do `ImageSaver` permanece baseado em pathname. O rename Linux existente ainda carece de teste adversarial para substituição concorrente do nome antes da operação.
+- Windows/.NET 10 Release: `BackupRestoreDirectoryTests` 47 aprovados, 11 ignorados por plataforma, 0 falhas/58. Nenhum código runtime alterado; 11 casos Linux não foram executados.
+- Próximo gate: primitiva rooted na camada compartilhada correta, preservando ACL/modos, comportamento de fallback e promoção atômica; cobertura concorrencial Windows e Linux antes de migrar os callers de `ImageSaver`.
+- Homologação formal 2/7; snapshot local do portal 9/10, ainda sem publicação do lote.
+
+## Revalidação da suíte e contratos locais do portal — 2026-11-01 15:41 BRT
+
+- Repetição da solução .NET Release/.NET 10 em Windows: `dotnet test MulletaFlix.sln --no-build --no-restore --configuration Release --logger "console;verbosity=quiet"` terminou exit 0; 17 assemblies, 5.544 aprovados, 286 ignorados, 0 falhas/5.830.
+- Contratos locais passaram: portal dedicado 448/448; espelho no repositório 107/107. Corrigidas asserções para manter métricas de eventos históricos e conferir o audit agregado atual.
+- O snapshot local segue em 8/10 evidências do lote; publicação remota não feita. Homologação formal permanece 2/7 (28,6%), sem crédito ou release.
+- PR #1: último run conhecido `41283703952`, HEAD `cbc380c94e8c88278c44309f586faf9c0e1c134f`; os 16 jobs foram bloqueados antes dos steps por cobrança da conta GitHub. `gh` local sem autenticação. Nenhuma falha de código foi comprovada e nenhum commit/push foi feito.
+- Testes MariaDB/Mongo opt-in, LiveIntegrationTests, Linux, runtime instalado e produção não foram exercitados nesta rodada. Mapa técnico conferido; módulos, APIs, classes, dependências e fluxo permanecem iguais.
+
+## Regressão completa e disponibilidade de produção — 2026-11-01 14:21 BRT
+
+- Regressão Release/.NET 10 em Windows terminou com exit 0: 17 relatórios TRX, 5.538 aprovados, 273 ignorados, 0 falhas/5.811. O filtro excluiu `LiveIntegrationTests`; integrações MariaDB/Mongo e verificações exclusivas de Linux continuam ignoradas neste host.
+- Nebula Python 3.10, usando o venv do projeto: 726/726. Sem Mongo operacional ou transferência real.
+- Run mais recente do PR #1 (`41283703952`, head `cbc380c94e8c88278c44309f586faf9c0e1c134f`): 16 jobs bloqueados antes dos steps por bloqueio de cobrança da conta. `gh` local sem login; sem logs de execução. Não há diagnóstico de falha de código.
+- Instância local consultada às 14:16 BRT indisponível: processo/listener ausentes e conexão em `127.0.0.1:8096` recusada. Nenhuma ação de inicialização ou alteração de produção.
+- Contrato do portal atualizado e validado: `node --test tests/homologacao.test.mjs`, 441/441. Portal público em commit `128b39a` / Vercel `READY`; evento local 1/10 do próximo lote.
+- Homologação formal 2/7, sem crédito; candidata 12.1.46 sem release. Mapa técnico conferido sem alteração estrutural.
+
+## Deduplicação STRM por destino — 2026-11-01 13:44 BRT
+
+- `stats_reporter` e `staging_scanner` já não procuram registro ativo/concluído apenas pelo nome global: comparam nome e pasta de destino (`parent`). O caminho local exato continua sendo correspondência para reconciliação.
+- Regressão coberta para arquivos homônimos em destinos diferentes, impedindo que uma mídia concluída em outra pasta suprima a fila ou apague o arquivo da mídia atual. Fixtures de consulta Mongo agora avaliam os operadores usados em vez de retornar documento independente do filtro.
+- Testes focais `test_stats_reporter.py`, `test_staging_scanner.py` e `test_main_helpers.py`: 73/73; suíte Nebula Python 3.10: 726/726. Mongo real, Linux, runtime instalado e produção não validados. CI do PR #1 segue bloqueada antes dos jobs por billing; formal 2/7, sem crédito; 12.1.46 candidata, sem release.
+
+## Regressão local completa do servidor e Nebula — 2026-11-01 12:53 BRT
+
+- `dotnet test MulletaFlix.sln --configuration Release --no-restore --filter "FullyQualifiedName!~LiveIntegrationTests" --verbosity quiet` terminou com exit code 0 em Windows/.NET 10 Release. O processo reportou resultados por projeto, mas a saída truncada não reteve um agregado global. `MulletaFlix.Server.Implementations.Tests`: 1.683 aprovados, 91 ignorados, 0 falhas (1.774 casos).
+- Nebula Python 3.10: `pytest -q --tb=short` passou 724/724.
+- Os testes `LiveIntegrationTests` foram excluídos; testes ignorados não contam como aprovados. Linux nativo, runtime instalado, bancos operacionais, produção e CI hospedada não foram verificados. A CI do PR #1 continua bloqueada antes dos steps por cobrança da conta GitHub.
+- Homologação formal permanece 2/7 (28,6%), sem crédito novo. Release 12.1.46 continua candidata, não publicada. Nenhuma mudança de runtime nesta rodada.
+- Snapshot local do portal recebeu este evento e teste de contrato, passando 435/435. Acumulado 5/10 para o próximo lote público; deployment remoto não foi atualizado. Mapa técnico conferido, sem mudança estrutural.
+- Revisão semântica posterior do contrato do portal separou o timestamp do snapshot local (12:53) da publicação pública (11:41); a suíte repetida passou 435/435.
+## Regressão local completa e reconciliação do espelho de homologação — 2026-11-01 11:51 BRT
+
+- `dotnet test MulletaFlix.sln --configuration Release --no-restore --filter "FullyQualifiedName!~Integration" --verbosity minimal`: exit 0 em 15 assemblies, 5.465 aprovados, 95 ignorados, 0 falhas/5.560 executados. Os casos `Integration` foram filtrados; os ignorados permanecem pendentes, incluindo pré-condições de banco e plataforma.
+- Nebula Python 3.10: `pytest tests -q --tb=short`, 724/724. Focal `ImageSaverTests|RootedFileSystemTests`: 4 aprovados, 1 ignorado por plataforma em Windows/.NET 10 Release. O caso sibling `metadata-backup` segue protegido pelo `RootedFileSystem.TryDeleteFile` atual; nenhuma correção duplicada foi necessária.
+- A auditoria encontrou o espelho `portal-site/homologacao-status.json` com gates formais nulos, embora o portal público e seu `latestAudit` confirmem 2/7 (28,6%). O espelho foi reconciliado para 2/7 e recebeu a regressão atual; o contrato local passou 99/99.
+- O teste valida exclusão confinada, não escrita handle-relative. A lacuna de escrita por pathname permanece aberta; Linux, MariaDB/Mongo opt-in, runtime instalado e produção não foram validados. CI hospedada do PR #1 continua bloqueada por billing antes dos steps. Nenhum gate formal novo ou release.
+- Lote no espelho embutido local aguarda publicação conforme batching de dez. Mapa técnico conferido; módulos, APIs, classes e dependências não mudaram.
+
+## Mídia Storage Online: preservar erro original durante limpeza temporária — 2026-11-01 11:37 BRT
+
+`MidiaStorageOnlineAtomicFile.WriteAtomically` já mantinha o erro de escrita/promoção quando a exclusão do temporário também falhava, guardando a exceção secundária em `Exception.Data["TemporaryFileCleanupException"]`. A revisão encontrou que a regressão da promoção aceitava um tipo também usado pela falha de limpeza; o teste agora exige o tipo da falha principal por plataforma e `UnauthorizedAccessException` na limpeza. Código de produção não mudou nesta rodada.
+
+`MidiaStorageOnlineAtomicFileTests`: 5/5; `Jellyfin.Providers.Tests`: 914 aprovados, 14 ignorados, 0 falhas/928 em Windows/.NET 10 Release. Os 14 ignorados são integrações/precondições opcionais. O comportamento de falha de limpeza sem erro principal foi conferido estaticamente pelo `finally`, mas não recebeu teste isolado determinístico; não foi introduzido seam artificial. Linux, filesystem remoto, runtime instalado, produção e CI hospedada não foram verificados. CI do PR #1 segue bloqueada antes dos steps por cobrança GitHub. Formal 2/7, sem crédito; 12.1.46 candidata, sem release.
+
+## Gravação de legendas: validação do token Language — 2026-11-01 08:49 BRT
+
+`SubtitleManager.TrySaveSubtitle` agora valida no ponto compartilhado de gravação o token `SubtitleResponse.Language`, aceitando letras/números ASCII e os separadores `-`/`_`. A checagem abrange upload da API e respostas remotas de providers; rejeita `:` (ADS NTFS), separadores de path, controles e caracteres fora do formato. A exceção também fecha o stream recebido antes de sair. `SubtitleManagerPathSafetyTests` passou 13/13 e a suíte `Jellyfin.Providers.Tests` 900 aprovados, 13 ignorados, 0 falhas/913 em Windows/.NET 10 Release. Cavecrew review estática sem achados. `UploadSubtitleDto` continua com validação `[Required]`; o middleware mapeia `ArgumentException` a HTTP 400. Não foram verificados plugins instalados, endpoint HTTP real, Linux, runtime ou produção. CI do PR bloqueada por faturamento; sem release ou crédito formal, 2/7 gates.
+Contrato do portal: 433/433; commit `7ac8992245420e245b4de471390ee8d290750d9f` foi publicado em `main`, Vercel Production `READY`, JSON público HTTP 200 com o novo evento. A página mantém a homologação formal em 2/7.
+
+## Nebula: falha no startup do Control Plane reporta sucesso — 2026-11-01 08:10 BRT
+
+Quando `CONTROL_ENABLED` estava ativo e o construtor ou `ControlPlane.start()` falhava, `main()` sinalizava shutdown, fechava FTP/HTTP, Mongo, tasks e bots, mas retornava `0`. Isso podia informar sucesso ao supervisor embora o Nebula encerrasse. `main()` agora mantém o retorno não zero após a limpeza existente. A regressão exercita falha no construtor e no start.
+
+`test_main_lifecycle.py`: 2/2 casos focais; suíte Nebula Python em Windows/Python 3.10: 722/722. A suíte anterior à correção tinha 720 casos; estes 722 refletem os dois cenários recém-adicionados. CI hospedada permanece bloqueada antes dos steps por cobrança GitHub; Linux, runtime instalado e produção não foram verificados. Formal 2/7; sem release.
+
+### PR #1 — rechecagem das falhas fornecidas — 2026-11-01 07:52 BRT
+
+A execução indicada (`41005367220`, 16 jobs) e a mais recente observada para o PR (`41283703952`, head `cbc380c94e8c88278c44309f586faf9c0e1c134f`) não iniciaram steps. As anotações dos 16 checks atribuem o failure ao bloqueio de cobrança da conta GitHub. Os logs solicitados por job não existem (`BlobNotFound`/404), sem saída de testes. `gh` local continua sem autenticação; o diagnóstico foi obtido pela conexão GitHub e a API pública do workflow. Não há causa de código comprovada: sem alteração, commit/push ou crédito de homologação; formal permanece 2/7. Contrato portal atualizado e validado: 90/90. Primeira execução encontrou uma asserção textual antiga no evento; evidência foi ajustada mantendo os fatos e a repetição passou. Próxima ação: regularizar cobrança, autenticar gh e rerodar CI no HEAD atual.
+
+## Regressão local ampla .NET — 2026-11-01 08:06 BRT
+
+`dotnet test MulletaFlix.sln --configuration Release --no-restore --filter "FullyQualifiedName!~Integration" --verbosity minimal` terminou com exit code 0 em Windows/.NET 10 Release. Resultados visíveis: `Jellyfin.Providers.Tests` 882/882; `Jellyfin.Api.Tests` 805 aprovados, 3 ignorados; `Jellyfin.Server.Implementations.Tests` 1.683 aprovados, 90 ignorados. A saída completa não foi retida, portanto não registro total agregado da solução. Os ignorados incluem cenários MongoDB/MariaDB opt-in, Unix/Linux/macOS e outros pré-requisitos locais; eles não contam como aprovados.
+
+A reexecução cobre o estado local atual sem validar CI hospedada, os cenários de integração excluídos pelo filtro, bancos operacionais, Linux, runtime instalado ou produção. Foram emitidos avisos de analisadores; não foi feita limpeza de avisos fora do escopo. Homologação formal permanece 2/7, sem crédito ou release.
+## Prioridade de idioma de imagens — 2026-11-01
+
+- Ajustado o idioma efetivo de consulta de imagens para preferir a configuração global do servidor sobre item/biblioteca; a preferência local continua fallback quando o servidor não define idioma. Normalização regional cobre códigos simples e tags com subtags, como `pt` + `BR` → `pt-BR` e `zh-Hant` + `TW` → `zh-Hant`.
+- `ILanguageAwareRemoteImageProvider` permite que o `ProviderManager` passe o locale resolvido sem quebrar providers legados. Movie, Series, Season, Episode, BoxSet e Person do TMDb implementam essa interface. A ordenação mantém idioma do servidor primeiro, inglês como fallback, sem idioma e demais idiomas.
+- `Jellyfin.Model.Tests`: 699/699 aprovados. `Jellyfin.Providers.Tests`: 887 aprovados, 13 integrações externas ignoradas, 0 falhas (900 total), Windows/.NET 10 Release. O primeiro teste amplo revelou acesso a estado global não inicializado; a resolução passou a fornecer idioma e país no mesmo caminho, eliminando a dependência de `LibraryManager` estático no teste.
+- Não houve chamadas ao TMDb/Fanart, refresh de biblioteca real, substituição automática de imagens persistidas, Linux, instalação ou produção. Providers externos que não implementam locale-aware não passam a solicitar idioma; seus resultados só podem ser ordenados quando contêm a tag de idioma. Imagens já salvas não mudam automaticamente.
+
+## Reexecução local do job de integridade de empacotamento Windows — 2026-11-01 07:00 BRT
+
+- O workflow `.github/workflows/ci.yml` executa nove scripts PowerShell de integridade e repete `ApplyUpdateFailClosed.Tests.ps1` em Windows PowerShell 5.1. Os nove scripts passaram em PowerShell 7; a repetição em PowerShell 5.1 também passou.
+- Cobertura observada: integridade do stage e ZIP, bootstrap Rclone, ACL dos dados do serviço, rollback de cópia e startup, updater fail-closed, recuperação de backup de stage e opções do stage. As fixtures foram temporárias; o teste ACL confirmou que o sentinel externo permaneceu intacto.
+- Isso reproduz localmente o job `Windows packaging integrity scripts`, mas não substitui o runner hospedado. Os 16 checks atuais do PR #1 seguem falhando antes do início por bloqueio de cobrança; nenhum passo hospedado foi executado.
+- Contrato do portal: 87/87. Nenhum código/artefato de produção foi alterado; não cria release nem crédito formal. Homologação formal continua 2/7. Evento 2/10 do próximo lote permanece local, sem publicação remota.
+
+## Build, testes unitários e auditoria de dependências da solução — 2026-11-01 06:52 BRT
+
+- Reproduzidas localmente as etapas do job Server build & unit tests em Windows/.NET 10 Release. dotnet build MulletaFlix.sln --configuration Release --no-restore terminou com 0 erros e 592 avisos de analisadores.
+- dotnet test MulletaFlix.sln --configuration Release --no-build --no-restore --filter FullyQualifiedName!~Integration --verbosity minimal terminou com exit code 0. No assembly Server.Implementations foram 1.683 aprovados, 90 ignorados, 0 falhas (1.773 casos); a saída global completa não foi retida, então não se declara contagem agregada da solução. Os cenários MariaDB/MongoDB opt-in e os testes explicitamente de integração não foram executados por esse filtro.
+- dotnet list MulletaFlix.sln package --vulnerable --include-transitive terminou com exit code 0 e não reportou pacotes vulneráveis nos projetos consultados.
+- O diagnóstico GitHub conectado confirmou no HEAD cbc380c94e8c88278c44309f586faf9c0e1c134f que os 16 checks do run 41283703952 não iniciaram devido ao bloqueio de cobrança da conta. Os logs de job retornaram BlobNotFound; isso não comprova falha de código. gh pr view/gh pr checks continuam indisponíveis sem autenticação local.
+- Nenhuma alteração de runtime, commit ou push nesta sessão. Homologação formal segue 2/7; Linux, bancos opt-in, CI hospedado, runtime instalado e produção continuam pendentes.
+- A decisão de escrita segura permanece: não reutilizar o helper específico do restore em raízes de provider/perfil. BackupRestoreDirectory está no assembly Implementations; o projeto Providers declara dependências diretas de Controller e Model. A primitiva compartilhada handle-relative ainda exige desenho e testes multiplataforma.
+# Auditoria local e bloqueio de CI — 2026-11-01
+
+## Revalidação focal de persistência, provedores, Nebula e ACL — 2026-11-01 06:37 BRT
+
+- Nesta sessão, sem alteração de runtime: `ItemPersistenceServiceTests` passou 34/34 em Release/.NET 10; regressões de path OMDb/AudioDB passaram 15/15; Nebula Python passou 720/720 pelo `.venv` versionado do projeto.
+- `BackupRestoreDirectoryTests` passou 47 testes e ignorou 11 cenários exclusivos de Linux no Windows. Isso valida apenas o comportamento Windows executado; o caminho Linux/ACL segue sem runtime nesta rodada.
+- MariaDB integrado não foi executado: `MULLETAFLIX_TEST_MARIADB_CONNECTION_STRING` está ausente. O processo `mysqld` ativo foi preservado e não acessado. Nenhum banco de produção foi consultado.
+- O portal dedicado recebeu o lote de dez eventos em `main`, commit `21d6bd1f81e4ba3374a347b6bfca506a26b4bbe2`; contrato 433/433, Vercel Production `READY`, JSON público HTTP 200 com `generatedAt=2026-11-01T06:37:00-03:00`. Gates formais continuam 2/7, sem crédito novo.
+- Mapa técnico conferido, sem alteração estrutural. A revalidação não cria crédito de homologação formal, não valida CI hospedada, instalação, produção ou release. A correção segura da exclusão de imagem por pathname permanece pendente.
+
+## Persistência de coleções relacionadas em lotes — 2026-11-01 05:20 BRT
+
+- `SaveBaseItemEntities` continua pré-carregando providers, imagens, campos bloqueados e tipos de trailer em lote. Agora acumula os IDs alterados durante a passagem dos itens e executa as exclusões em chunks de até `DeleteBatchSize` (1.000), antes dos `AddRange` de reposição e na mesma transação.
+- O teste MariaDB focal confirmou que atualizar providers de 8 itens reduz os comandos `DELETE` de 8 para 1. `SaveItems_UpdatingProvidersAcrossDeleteBatchBoundary_RewritesEveryProvider` semeia e substitui 1.001 providers antigos e passou 1/1; a fronteira gera dois chunks e nenhum registro antigo permanece.
+- `ItemPersistenceServiceTests`: 34/34 Release/.NET 10. `ServerPersistenceMariaDbTests`: 12/12 e `IntroSkipper.Integration.Tests`: 59 aprovados, 1 ignorado, 0 falhas, ambos executados antes da expansão final do fixture para 1.001 itens; o teste de fronteira final passou separadamente. Revisão independente confirmou a semeadura e substituição dos registros.
+- MariaDB 11.4.4 descartável foi encerrado; a porta temporária 33129 foi confirmada fechada e o arquivo local de conexão neutralizado. Banco operacional, biblioteca real, Linux e CI hospedada não foram validados; Actions segue bloqueada por billing. Sem medição em catálogo de produção, crédito formal ou release publicada.
+- Fluxo interno de persistência mudou, sem novos módulos, APIs ou dependências. Mapa técnico conferido; atualização descrita na ficha e no registro de sessão.
+
+## Persistência de lote composto apenas por placeholders — 2026-11-01 04:41 BRT
+
+- `ItemPersistenceService.UpdateOrInsertItemsCore` agora retorna antes de abrir contexto/transação quando todos os itens são descartados por usarem `PlaceholderId`.
+- O teste `SaveItems_PlaceholderOnlyBatchDoesNotCreateDatabaseContext` falhou antes da correção ao observar a criação do contexto e passou após a mudança. Suíte focal `ItemPersistenceServiceTests`: 34/34 em Release/.NET 10.
+- Nenhum item válido é ignorado por esse retorno: ele só ocorre quando a lista após o filtro está vazia. Sem alteração de API, esquema ou dependências. Não foi executado benchmark nem teste de banco nesta fatia.
+- Mapa técnico conferido e sem mudança estrutural. É evidência local em andamento, sem crédito de homologação formal e sem release publicada; CI hospedada continua pendente por bloqueio de cobrança.
+- Contrato do espelho no repositório servidor: 77/77. Portal dedicado `Mulletaflix-Portal` recebeu lote de 12 eventos; contrato 432/432 e Vercel Production `READY`; JSON e página pública HTTP 200. Homologação formal 2/7, sem promoção.
+
+Na branch do PR #1 (`codex/fail-closed-inplace-updater`), a regressão local passou: solução .NET Release, 5.387 aprovados, 93 ignorados, 0 falhas/5.480; Nebula Python 714/714; contrato do portal 73/73. Separadamente, `IntroSkipper.Integration.Tests` passou 58/59, 0 falhas, em MariaDB 11.4.4 descartável; 1 cenário combinado foi ignorado por exigir MongoDB. O workflow GitHub Actions do PR (run 41280792962, SHA `bc29e779fc3f864ae3f67aa1621730d4039c048d`) não iniciou os 16 jobs: as anotações dizem que a conta está bloqueada por cobrança; não há etapas nem logs de execução. Isso não demonstra falha de código e também não substitui CI hospedada. Requer desbloqueio da conta e nova execução. MongoDB, Linux, runtime instalado, produção e homologação formal continuam sem validação; sem nova release ou crédito de homologação. O datadir MariaDB descartável não pôde ser removido pela política da ferramenta e permanece em `%TEMP%`.
+
 ## Homologação da consulta Home de séries recentes — 2026-11-01 03:21 BRT
 
 - A classe BaseItemRepositoryLatestTvShowTests foi executada inicialmente sem conexão opt-in: 6 aprovados, 2 ignorados, 0 falhas. Isso confirmou que os cenários MariaDB ainda não tinham sido executados.
@@ -1174,3 +1323,262 @@ Análise dos três logs FFmpeg do teste: fonte Matroska contém H.264 High 1920�
 - `dotnet test MulletaFlix.sln --configuration Release --no-restore --no-build --filter "FullyQualifiedName!~Integration"` terminou com exit 0 em 15 assemblies: 5.387 aprovados, 93 ignorados, 0 falhas (5.480 casos). Os 93 ignorados incluem testes opt-in, Linux/macOS e a suíte de integração removida pelo filtro; não equivalem a validação dessas plataformas/integrações.
 - Separadamente, o contrato do portal passou 73/73 depois de remover os asserts de mês fixo e isolar o evento de teste antigo da janela de eventos recentes.
 - A compilação reportou warnings XML/StyleCop/xUnit já presentes, sem warnings tratados como falha. Nenhum serviço, runtime, banco operacional, provedor externo ou mídia real foi usado; sem prova de produção, instalação, Linux nativo, smoke de reprodução ou homologação formal.
+
+## PR #1 — recuperação isolada no CI — 2026-11-01 03:55 BRT
+- Diagnóstico do teste reproduziu que o helper invocava restore completo, que o serviço rejeita antes de modificar dados; o cenário é opt-in/integrado e sua intenção é recuperar fontes isoladas.
+- Alteração mínima em `BackupRestoreMariaDbTests.cs`: helper passa a solicitar restore incremental. Contrato de produção fail-closed e teste que prova a rejeição do restore completo foram preservados.
+- Verificação local: teste focal 1/1; regressões de fail-closed 2/2; suíte `IntroSkipper.Integration.Tests` 59/59 em Release/.NET 10 contra MariaDB 11.4.4 e MongoDB 8.3.7 descartáveis.
+- Commit `de1f25a0` enviado à branch `codex/fail-closed-inplace-updater`. Novo run GitHub `41282646578` no SHA `de1f25a0df3fe94b2864570f836b62288e75a3a7`: 16 jobs em failure sem execução. Anotação consultada para `Full recovery exercise` confirma bloqueio da conta por billing; não há log de teste remoto. Regularizar cobrança e executar novo run continuam pendentes.
+- Sem mudança de runtime, release, produção ou crédito de homologação formal. Dados temporários do teste mantidos em `%TEMP%` após rejeição da política de remoção.
+
+## Gate Release amplo da solução — 2026-11-01 04:01 BRT
+dotnet test MulletaFlix.sln --configuration Release --no-restore --filter "FullyQualifiedName!~LiveIntegrationTests" --verbosity quiet terminou com exit 0 e zero falhas nos assemblies que reportaram resultado. Exemplos confirmados no console: Server.Implementations 1.681 aprovados/91 ignorados; IntroSkipper.Integration 26 aprovados/33 ignorados; API 805/3; Providers 849/0; Server.Tests 104/0. Vários projetos adicionais também passaram. O log desta execução não forneceu agregado global auditável, então não atribuo um total geral. Avisos XML/analisadores foram exibidos, sem erro de build. O filtro exclui testes live; opt-ins de banco/plataforma permanecem ignorados. GitHub Actions no SHA atual continua sem iniciar por bloqueio de billing (run 41282646578); produção, release e homologação formal não mudaram. Mapa técnico conferido, sem alteração estrutural. Ver [[Sessões/2026-11-01-MulletaFlix-release-solution-regression-0401]].
+
+## Regressão .NET e Nebula Python — 2026-11-01 04:02 BRT
+- `dotnet test MulletaFlix.sln --configuration Release --no-restore --filter "FullyQualifiedName!~LiveIntegrationTests" --verbosity quiet`: exit 0 e zero falhas nos projetos que reportaram resultados. Server.Implementations 1.681 aprovados/91 ignorados; IntroSkipper.Integration 26/33; API 805/3; Providers 849/0; Server.Tests 104/0. Sem agregado global auditável; não inferido. Avisos XML/analisadores sem erro de build.
+- Nebula `.venv` Python 3.10: `python -m pytest -q --tb=short`: 714/714 em 9,12 s.
+- WSL está habilitado sem distribuição Linux; testes Linux nativos não executados. GitHub Actions run 41282646578 continua sem iniciar por bloqueio de billing. `LiveIntegrationTests` excluídos; skips MariaDB/Mongo/plataforma pendentes. Sem mudança runtime/release/gate formal. Mapa técnico conferido e inalterado. Ver [[Sessões/2026-11-01-MulletaFlix-nebula-python-regression-0402]].
+
+## PR #1 — updater copia conteúdo mesmo com metadados coincidentes — 2026-11-01 04:08 BRT
+- Reprodução red: o teste de falha demonstrou que arquivos antigos e novos com mesmo tamanho e timestamp podiam não ser copiados pelo Robocopy, e que esse caminho também não possuía snapshot do conteúdo antigo.
+- Correção mínima em `apply-update.ps1`: comparar SHA-256 apenas quando tamanho e timestamp coincidem; se os bytes diferirem, salvar snapshot, avançar temporariamente o timestamp de origem para acionar Robocopy e restaurar os timestamps da origem e do pacote. Falhas de restauração de timestamp entram no rollback.
+- Testes `ApplyUpdateFailure`, `ApplyUpdateFailClosed` e `ApplyUpdateStartupFailure` passaram no PowerShell 5.1 e PowerShell 7.6.9; nove scripts Windows de integridade/empacotamento passaram. O caminho `process-ready` usou o Robocopy real. `UpdateInfoControllerTests`: 30/30 em Release e confirma o recurso embutido.
+- `git diff --check` passou antes da edição documental. CI GitHub, runtime instalado, instalação e produção ainda pendentes; Actions estava bloqueado antes dos runners por cobrança. Sem crédito de homologação formal e sem release publicada.
+- Mapa técnico conferido; fluxo e módulos existentes, sem mudança estrutural ou dependência.
+
+- Atualização após push: commit `cbc380c9` enviado ao PR #1. Actions run `41283703952` falhou antes de iniciar todos os jobs por bloqueio de billing; anotações de servidor, empacotamento Windows e recuperação integral confirmam a causa. Não há log de execução para aferir o CI. CLI `gh` sem login; consulta via conexão GitHub Codex.
+
+- Revalidação adicional em 04:13 BRT: os nove scripts Windows de integridade/empacotamento passaram também em Windows PowerShell 5.1; o cenário de update com Robocopy e as regressões de rollback passaram. Reviewer read-only do commit cbc380c9 não encontrou problemas. Docker não está instalado e não há distribuição WSL ativa; Linux permanece pendente. CI hospedada bloqueada por cobrança antes dos runners.
+
+## Nebula main.py — auditoria de cobertura — 2026-11-01 04:15 BRT
+- `python -m pytest -q --cov=main --cov-report=term-missing:skip-covered`: 714/714 em Python 3.10.11. Cobertura focal `main.py` 77%, 1.780 statements, 404 ausentes; não representa cobertura global.
+- Lacunas incluem handlers/compactação de logs, fila e ramos de `main()` para startup/control-plane/shutdown. Os testes existentes de lifecycle cobrem algumas falhas e modo streaming; ampliar com mocks e sem serviços reais antes de mudar runtime.
+- Linux/MariaDB case-sensitive não validado: Docker ausente e WSL sem distribuição ativa. CI Actions continua bloqueada antes dos runners por billing. Nenhuma alteração de runtime.
+
+### Nebula Python: falha de startup e encerramento de MongoClient — 2026-11-01
+
+- A auditoria encontrou que os retornos de erro após criar `AsyncIOMotorClient` não fechavam a conexão, e o shutdown normal também não fechava o cliente. `main()` agora fecha o cliente nas falhas de índice Mongo, configuração FTP/TLS, bind FTP/HTTP e no encerramento normal; erro de fechamento não mascara o erro original.
+- Testes primeiro falharam nos três retornos de erro cobertos, reproduzindo o vazamento. Após correção, os cenários focalizados de erro e shutdown passaram 5/5. Suíte Nebula Python passou 719/719; `main.py` 80% (1.794 statements, 364 ausentes). `compileall` e `git diff --check` passaram.
+- Também corrigidos nesta fatia os handlers de log: fallback de encoding substitui caracteres que o terminal não suporta; falha ao gravar contexto de compactação mantém o log ativo intacto. Testes focais de logging 5/5.
+- Testes usam doubles e arquivos temporários; não validam runtime instalado, MongoDB de produção ou serviço em produção. CI GitHub Actions do PR #1 continua bloqueada antes dos runners por cobrança da conta; não houve release nem crédito de homologação formal.
+
+### Nebula: teste de falha ao carregar TLS — 2026-11-01
+
+- Caminho de `main()` sem teste agora verifica o comportamento de certificado TLS ausente: startup retorna erro, não chama `FTPServer.start` em texto puro, fecha Mongo e para os bots já iniciados.
+- Teste focal passou 1/1. Suíte Nebula Python passou 720/720; `main.py` ficou em 80% (1.794 statements, 356 sem cobertura). `compileall` aprovado.
+- Só teste e documentação mudaram nesta fatia; a proteção TLS já existia. Sem validação de certificado/runtime instalado, Linux, produção ou CI hospedada. Não há crédito de homologação formal nem release publicada.
+
+
+## Regressão ampla local do servidor — 2026-11-01 05:27 BRT
+
+dotnet test MulletaFlix.sln --configuration Release --no-restore --filter 'FullyQualifiedName!~LiveIntegrationTests' --verbosity minimal encerrou com exit 0. O assembly MulletaFlix.Server.Implementations.Tests reportou 1.682 aprovados, 91 ignorados e zero falhas (1.773 total). Nebula Python 3.10.11: pytest tests -q, 720/720 aprovados. Os testes .NET ignorados incluem dependências opt-in de MariaDB/MongoDB e condições exclusivas de plataforma; LiveIntegrationTests foram explicitamente excluídos. Isso é regressão local, não homologação formal, CI hospedada ou validação em produção; homologação permanece 2/7 e candidata 12.1.46 não foi publicada. Mapa técnico conferido sem alteração estrutural. Ver [[Sessões/2026-11-01-MulletaFlix-server-full-regression-0527]].
+
+- Contrato do espelho local do portal: 79/79 em 2026-11-01; o novo evento não altera coverage.completed=328 nem coverage.pending=65.
+
+
+## Backup restore: caminho da raiz trocado após abrir handle — 2026-11-01 05:32 BRT
+
+Adicionado teste adversarial de troca do caminho Config durante o restore, após a transação já ter aberto o diretório e movido o original para backup. No Windows, exige que a renomeação seja bloqueada pelo handle; no Linux, tenta renomear o diretório e colocar symlink para pasta externa. O arquivo externo sentinela precisa permanecer intacto; conteúdo restaurado deve permanecer no diretório originalmente aberto. Focal passou 1/1 em Windows/.NET 10 Release; FullSystemBackup passou 155, ignorou 16, falhou 0. O ramo Linux ainda não foi executado; a lacuna TOCTOU global em outros fluxos permanece P0. Sem mudança de runtime. Formal 2/7, sem release/produção. Mapa estrutural inalterado. Ver [[Sessões/2026-11-01-MulletaFlix-restore-root-path-replacement-0532]].
+
+- Contrato do espelho local do portal passou 80/80; evento não altera coverage.completed=328 nem coverage.pending=65. Dois eventos novos estão no lote local pendente.
+### 2026-11-01 — OMDb cache path traversal guard
+
+Validated every OMDb cache path boundary (`GetDataFilePath`, `GetSeasonFilePath`) and normalized incoming IMDb IDs to `tt` plus ASCII digits before path composition and HTTP lookup. New path-safety tests cover valid prefixed/unprefixed IDs and slash, backslash, traversal, alphabetic, and empty-suffix cases. Focused OMDb suite: 20/20 Release on Windows/.NET 10. This does not close cache-directory symlink/TOCTOU risks or grant formal homologation; formal remains 2/7. No production or external provider request was made.
+### 2026-11-01 — AudioDB MBID cache path validation
+
+Artist and album cache directories now require canonical MusicBrainz UUIDs (`Guid.TryParseExact`, format D) before path composition. Direct download methods validate before any HTTP request. Focused safety suite: 7/7 Release on Windows/.NET 10, including traversal rejection and no request for invalid IDs. Official MBID format is a 36-character UUID. Cache-directory symlink/TOCTOU remains separate; no formal homologation credit.
+
+## Revalidação da PR #1 — bloqueio de cobrança do GitHub Actions — 2026-11-01 06:03 BRT
+
+O diagnóstico conectado do GitHub confirmou o PR #1 no HEAD `cbc380c94e8c88278c44309f586faf9c0e1c134f` e o run mais recente observado, [41283703952](https://github.com/raphaelpera85/mulletaflix-completo/actions/runs/41283703952). Os 16 jobs falharam antes de iniciar com a anotação `The job was not started because your account is locked due to a billing issue.` O endpoint de detalhe do job retornou `log: null`; não existem steps executados para diagnosticar como falha de código. `gh pr view`/`gh pr checks` continuam sem sessão CLI autenticada. Nenhuma alteração de código, commit, push ou reexecução ocorreu. Próximo passo depende de resolver a cobrança/desbloquear a conta e autenticar `gh`; depois, reexecutar os checks antes de qualquer correção de código.
+
+## Fechamento da auditoria estática de gravadores — 2026-11-01 06:03 BRT
+
+O escopo de callers de legendas e imagens foi ampliado. `SubtitleManager.TrySaveToFiles` valida destino antes de criar diretório/abrir arquivo por pathname; `FileMode.CreateNew` evita sobrescrever o arquivo final, mas não ancora os diretórios validados. `ImageSaver.SaveImageToLocation` cria o diretório e abre com `FileMode.Create`, sem proteção observada no ponto de escrita contra symlink no arquivo final. Callers incluem uploads em `SubtitleController`/`ImageController`, providers e `ProviderManager`. São achados de revisão estática; nenhuma exploração de corrida foi reproduzida e as raízes/capacidade de alteração não foram validadas em produção.
+
+Não há primitiva handle-relative reutilizável nas camadas `MediaBrowser.Model`/`MediaBrowser.Common`; `BackupRestoreDirectory` contém operações seguras por handle, mas é interno a `Jellyfin.Server.Implementations`, acima de `MediaBrowser.Providers`. `AsyncFile` e `IConfigurationManager` permanecem baseados em pathname. A auditoria foi concluída; o reparo da escrita segura permanece pendente e requer uma primitiva compartilhada em camada inferior, compatível com Windows/Linux, mais testes adversariais em ambas as plataformas. Nenhuma API, dependência ou fluxo runtime mudou nesta sessão; mapa técnico conferido.
+
+### Proveniência de raízes em ImageSaver — 2026-11-01 06:12 BRT
+
+Revisão dos destinos confirmou três classes de raiz: pasta da biblioteca (`ContainingFolderPath`, `SeriesPath` ou pasta do arquivo), metadata interno (`GetInternalMetadataPath`) e configuração do servidor para upload de perfil (`UserConfigurationDirectoryPath`). Em erro de escrita local, `ImageSaver` tenta metadata interno como fallback. `CollectionFolder` não impõe uma política global de rejeição de symlink/junction; logo, reutilizar `BackupRestoreDirectory.OpenRoot` sem política por raiz pode recusar caminhos hoje válidos. O plugin `AvatarFileStore` tem implementação nativa Windows/Linux, mas valida propriedade/permissões próprias de um diretório privado e não é apropriado como helper genérico.
+
+Decisão: não aplicar rejeição global de links nem política ACL de avatar a bibliotecas, cache e perfil. A implementação handle-relative precisa aceitar raiz configurada como autoridade de confiança, preservar as diferenças `CreateNew` (legendas) e substituição (imagem/letra), e avaliar fallback de imagem sem transformar erro de segurança em gravação alternativa. Não há evidência sobre uso de symlink/junction nos caminhos de produção. Sem alteração runtime ou crédito formal; coverage do portal permanece 328/397 e homologação formal 2/7.
+
+### Reavaliação da exclusão de imagem nativa de perfil — 2026-11-01
+
+Uma tentativa local conectou `ImageController` a `BackupRestoreDirectory` e exigiu `ValidateTrustedWriteBoundary`. O teste de exclusão bem-sucedida recebeu `ObjectResult` em vez de 204. O logger nulo não capturou a exceção exata; não atribuir falha a ACL sem observar a exceção. Como a política do helper pertence ao restore e a compatibilidade com raízes de perfil não está demonstrada, a chamada, `InternalsVisibleTo` e os testes específicos da tentativa foram retirados. Os testes existentes `ImageControllerDeleteUserImageTests` + `ImageControllerUserImageAuthorizationTests` passaram 20/20 após a reversão. Estado final: exclusões nativas continuam pathname-based, TOCTOU aberta. Próximo passo é desenhar e testar uma primitiva handle-relative compartilhada em camada adequada; esta sessão não alterou runtime, produção, release nem contagem formal.
+## Mídia Storage Online: promoção de download preserva o arquivo final — 2026-11-01
+
+`MidiaStorageOnlineSyncTask.DownloadMediaFileAsync` grava a resposta em um temporário irmão e agora o promove com `File.Move(tempPath, filePath, overwrite: true)`. Foi removida a exclusão explícita do arquivo final antes do move; se a promoção falhar, o arquivo existente não é removido primeiro. O endpoint equivalente já usava a sobrecarga com `overwrite: true`. Teste focal `MidiaStorageOnlineSyncTaskTests`: 9/9 em Windows/.NET 10 Release; o cenário de destino aberto exclusivamente é específico de Windows e agora é explicitamente ignorado em outras plataformas. Contrato do portal: 87/87. O evento desta sessão é o 3º de 10 do lote local, ainda sem publicação. `git diff --check` passou. CI hospedada não iniciou os jobs por bloqueio de cobrança; runtime/produção não foram alterados nem validados. Sem release ou crédito formal de homologação; formal permanece 2/7. Mapa conferido, sem alteração estrutural. Ver [[Sessões/2026-11-01-0713-MulletaFlix-midia-storage-download-promotion]].
+
+## Mídia Storage Online: colisão e gravação concorrente de logos — 2026-11-01 07:24 BRT
+
+`MidiaStorageOnlineLogoLibrary.BuildLogoFileName` agora incorpora 64 bits do SHA-256 da URL no nome local, mantendo a extensão e limitando o filename a 120 caracteres. As coleções de URL usam comparação ordinal para respeitar diferenças de caixa em paths. O downloader grava em temporário exclusivo e promove com `File.Move(..., overwrite: true)`, sem expor um arquivo parcial nem competir por `FileMode.Create` no destino. `MidiaStorageOnlineLogoLibraryTests`: 2/2; suíte `Jellyfin.Providers.Tests`: 867 aprovados, 13 ignorados por integrações externas, 0 falhas; contrato do portal 88/88. Teste de nomes não é HTTP end-to-end. Linux, produção e CI hospedada não validados; os 16 jobs do PR #1 não iniciaram por bloqueio de cobrança. Arquivos antigos sem hash ficam no cache e serão baixados novamente ao serem requisitados; limpeza de órfãos pendente. Homologação formal 2/7, sem crédito ou release. Mapa técnico conferido, sem mudança de módulos/APIs/dependências. Ver [[Sessões/2026-11-01-0724-MulletaFlix-logo-cache-collision]].
+
+## Mídia Storage Online: confinamento das chaves do manifesto na limpeza — 2026-11-01 07:29 BRT
+
+`MidiaStorageOnlineController` agora valida cada chave legada antes de compor o destino de exclusão. A validação rejeita caminhos absolutos, drive/UNC, componentes `.`/`..` nas sintaxes `/` e `\\`, e confirma que o caminho normalizado permanece sob a raiz STRM. Chaves inválidas são registradas e ignoradas; a gravação do manifesto novo continua removendo entradas que não pertencem à sincronização atual. `MidiaStorageOnlineManifestPathTests`: 13/13 em Windows/.NET 10 Release; suíte `Jellyfin.Providers.Tests`: 880 aprovados, 13 ignorados por integrações externas, 0 falhas (893 total); contrato local do portal 89/89. A validação é lexical: symlinks/junctions e TOCTOU permanecem fora deste fix; Linux, runtime instalado e produção não foram testados. Homologação formal 2/7, sem crédito ou release publicada. Mapa conferido; helper interno na mesma classe, sem novo módulo, API pública ou dependência. Ver [[Sessões/2026-11-01-0729-MulletaFlix-manifest-path-confinement]].
+### 2026-11-01 07:42 BRT — escopo da auditoria de escritas por pathname confirmado
+
+Auditoria estática ampliou a seção das gravações em `MediaBrowser.Providers`: `ImageSaver.SaveImageToLocation` é o ponto compartilhado dos três overloads de `ProviderManager.SaveImage`; `LyricManager` e `SubtitleManager` validam/confinam por pathname antes de abrir e ainda têm janela de troca concorrente. `LyricManager` usa `FileMode.Create`; `SubtitleManager` usa `CreateNew`, mas exclusão de legendas remove `stream.Path` diretamente. Foram rastreados também os dois escritores STRM/download do Mídia Storage Online (endpoint manual e tarefa agendada), além da limpeza por manifesto: a verificação existente é lexical e não ancora operações a um diretório aberto.
+
+Não há exploit reproduzido e esta rodada não executou testes. O helper `BackupRestoreDirectory` não pode ser reutilizado diretamente: pertence à camada `Jellyfin.Server.Implementations` e impõe ACL de restore. `FileSystemHelper` só valida pathname e não fecha TOCTOU. Decisão: não adicionar outra checagem lexical nem aplicar ACL de restore a bibliotecas; a próxima correção deve introduzir I/O relativo a handle numa camada abaixo de Providers, preservar permissões atuais dos caminhos confiáveis e integrar os escritores compartilhados com testes de symlink/troca em Windows e Linux. Sem mudança de runtime, release ou produção; homologação formal 2/7. Mapa técnico conferido e estrutura inalterada.
+## Nebula — limite da fila prioritária validado localmente — 2026-11-01
+
+`queued_mongo_scanner` agora consulta `large_qsize()` imediatamente antes de cada seleção. Regressão RED confirmou que com cinco arquivos grandes na faixa, a lógica anterior selecionava dois itens pela consulta grande antes de alternar para a geral; outro teste cobre consumo concorrente durante confirmação Mongo. Focal 9/9, suíte Nebula Python 724/724, cobertura 93%. CI do PR #1 não iniciou os jobs por bloqueio de cobrança; Linux, MongoDB real, runtime instalado e produção não verificados. Candidata 12.1.46; sem release nem crédito de homologação formal (2/7).
+## Auditoria de exclusão de imagens do ImageSaver — 2026-11-01 09:06 BRT
+
+- **Achado reproduzido na lógica:** `ImageSaver` decide se um caminho está sob `InternalMetadataPath` usando `string.Contains`. Quando `saveLocally` é falso, para a raiz `C:\ProgramData\Mulletaflix\metadata` o caminho irmão `C:\ProgramData\Mulletaflix\metadata-backup\poster.jpg` também satisfaz o teste textual, embora esteja fora da raiz (`Path.GetRelativePath` começa com `..`). Com `saveLocally=true`, o `||` curto-circuita e essa chamada a `Contains` não decide a remoção. O único call site do predicado foi encontrado em `MediaBrowser.Providers/Manager/ImageSaver.cs:180`.
+- **Estado/risco:** isso pode classificar incorretamente caminhos irmãos durante a limpeza da imagem anterior. Não foi executada exclusão real nem validado impacto em produção. Uma troca lexical isolada não resolve symlink/TOCTOU; manter correção runtime pendente até haver operação de arquivo ancorada por handle na raiz apropriada, sem reutilizar a política específica de restore.
+- **Validação:** demonstração local do predicado e do caminho relativo; nenhuma alteração runtime, teste de servidor, release ou homologação formal. Gate formal continua 2/7.
+
+### Correção da exclusão da imagem anterior — 2026-11-01
+
+`ImageSaver` deixou de decidir remoção por `string.Contains` e passou a chamar `MediaBrowser.Controller.IO.RootedFileSystem.TryDeleteFile` sob raízes de escrita permitidas. No Windows, a primitiva ancora a operação em handle da raiz, mantém todos os diretórios ancestrais abertos sem compartilhamento de exclusão até o término e não segue reparse points descendentes. Linux/macOS lançam `PlatformNotSupportedException`, capturada no caller e registrada como aviso; a imagem anterior permanece até haver primitiva validada contra renomeação concorrente. Caso sem contenção ou alvo ausente também preserva o arquivo. A limpeza de diretórios vazios de episódios foi removida porque ainda usaria pathname.
+
+Verificado em Windows/.NET 10 Release: `RootedFileSystemTests` 4 aprovados, 1 ignorado; foram adicionados testes diretos do caller em `ImageSaverTests`: 2 executados e 1 ignorado (cenário não-Windows); suíte `Jellyfin.Providers.Tests` 902 aprovados, 14 ignorados, 0 falhas/916. Os testes diretos confirmam que a imagem sob a raiz é removida após salvar a substituta e a pasta irmã `metadata-backup` permanece intacta. Sem execução Linux/macOS do caller, runtime instalado, mídia/produção ou CI hospedada; a limpeza antiga continua desabilitada fora do Windows. Falhas de exclusão Windows por compartilhamento/ACL são registradas, sem reverter nova referência e sem rotina de reconciliação. A escrita da imagem segue pathname-based. Sem release publicada nem crédito formal (2/7). O mapa técnico foi conferido e não houve mudança estrutural.
+## TMDb — idioma regional real das imagens — 2026-11-01
+
+- **Achado:** o fork usava `Iso_639_1` sozinho e promovia `pt` para a região pedida (`pt-BR`), apagando a região real `Iso_3166_1`. Isso permite confundir arte portuguesa com brasileira e também impacta outras variantes regionais.
+- **Correção:** `TmdbClientManager` passa idioma e região ao novo `TmdbUtils.GetImageLanguage`, portado do upstream Jellyfin PR #18150. Região divergente é conservada; região correspondente usa o locale pedido; consulta sem região mantém idioma genérico. O fluxo central atende imagens de filmes, séries, temporadas, episódios e coleções, incluindo animações tratadas como `Series`.
+- **Verificação:** `TmdbUtilsTests` 32/32; ordenação `Jellyfin.Model.Tests` 8/8; `Jellyfin.Providers.Tests` 907 aprovados, 14 ignorados e 0 falhas/921, todos em Windows/.NET 10 Release.
+- **Limites:** sem chamada à API TMDb, refresh de arte persistida, Linux/runtime instalado ou produção; providers externos como Fanart/TVDB não usam esse conversor. Homologação formal 2/7; sem release/crédito.
+
+
+## Revalidação local TMDb e CI PR #1 — 2026-11-01 10:17 BRT
+
+A suíte `Jellyfin.Providers.Tests` passou 907, ignorou 14 e falhou 0/921; `Jellyfin.Model.Tests` passou 699/699 em Windows/.NET 10 Release. O run mais recente do PR #1 (`41283703952`, HEAD `cbc380c94e8c88278c44309f586faf9c0e1c134f`) bloqueou todos os 16 jobs antes de iniciar por problema de cobrança do GitHub; logs não foram gerados. Isso não demonstra falha de código. Homologação formal permanece 2/7; 12.1.46 continua candidata sem publicação. TMDb ao vivo, imagens já persistidas, Linux e produção permanecem pendentes.
+## Mídia Storage Online: inventário dos writers de filesystem — 2026-11-01 10:48 BRT
+
+Reauditoria estática dos dois caminhos de sincronização (`MidiaStorageOnlineSyncTask` agendada e `MidiaStorageOnlineController` manual) confirmou estes acessos por pathname sob a raiz STRM ou diretório de dados configurado:
+
+- STRM de filmes e episódios usa `File.WriteAllTextAsync` diretamente; downloads usam temporário irmão e `File.Move(..., overwrite: true)`. Na tarefa agendada o temporário fixo usa `FileMode.Create`; no controller ocorre o mesmo. A promoção preserva o destino se falhar, mas não ancora a árvore de diretórios.
+- Os dois writers de `sync_manifest.json` agora usam temporário irmão exclusivo e promoção por rename; cache `guides.json` e M3U de canais continuam em escrita direta. Os locks do manifesto são distintos e ainda permitem snapshots concorrentes perdidos.
+- XMLTV cria `.new` e tenta `File.Replace`/`File.Move`, mas há fallback de `File.Copy(..., overwrite: true)` que volta à escrita por pathname.
+- Migração de STRM legado move/apaga por pathname. Limpeza manual usa `TryGetConfinedManifestPath` para bloquear traversal lexical, depois `File.Delete`, enumeração e remoção de diretórios por pathname. Isso não resolve symlinks/junctions nem corrida entre validação e uso.
+- `MidiaStorageOnlineLogoLibrary` é melhor isolado: temporário aleatório exclusivo (`CreateNew`) e promoção por move com overwrite. Ainda não prova confinamento handle-relative da raiz.
+
+`RootedFileSystem.TryDeleteFile` existente não fecha essa lacuna: fornece apenas exclusão, e lança `PlatformNotSupportedException` fora do Windows. Não pode ser adotado para writes nem como solução multiplataforma. A implementação interna de restore também não é compartilhável diretamente; sua validação ACL atende outro domínio.
+
+É inventário estático, não exploit reproduzido. Os testes históricos `MidiaStorageOnlineSyncTaskTests` 8/8 não cobrem raiz com link/troca concorrente nem endpoint manual; nenhum teste de código foi executado nesta sessão. Próxima ação: primitiva handle-relative abaixo de Providers, Windows e Linux, com criação, substituição, remoção e regressões adversariais para ambos os fluxos antes de integrar. Não atribuir crédito formal nem release; gates formais seguem 2/7.
+
+### Revisão independente do helper existente — 2026-11-01 10:50 BRT
+
+A revisão Cavecrew confirmou que `RootedFileSystem.TryDeleteFile` não é chamado pelo Mídia Storage Online; o único caller de produção encontrado é `ImageSaver`. No Windows, a deleção abre raiz e descendentes relativamente a handles com share mask `0x3`, sem `FILE_SHARE_DELETE`, bloqueando renames desses diretórios enquanto os handles ficam abertos. Fora do Windows, lança `PlatformNotSupportedException`. Portanto, a lacuna do plugin continua sendo escrita/alterações por pathname; não se deve descrever o helper como pathname-only para deleção Windows. Os testes de `RootedFileSystem` verificam traversal, links e fail-closed fora do Windows, mas não foram executados nesta sessão e não cobrem writers do plugin.
+
+### Persistência atômica do manifesto Mídia Storage Online — 2026-11-01 11:01 BRT
+
+Os dois `SaveManifest` (tarefa agendada e endpoint manual) agora gravam JSON em um temporário exclusivo no mesmo diretório e promovem com `File.Move(..., overwrite: true)`. Uma falha durante gravação ou substituição não trunca primeiro o manifesto anterior. Teste focal: 3/3; filtro Mídia Storage Online: 40/40; suíte `Jellyfin.Providers.Tests` em Windows/.NET 10 Release: 912 aprovados, 14 ignorados, 0 falhas/926. A revisão Cavecrew confirmou o limite de concorrência.
+
+Essa alteração não é confinamento handle-relative: caminhos de diretório continuam por pathname, temporários podem permanecer se a limpeza falhar, e atomicidade/durabilidade em filesystems de rede ou após queda de energia não foi verificada. Os locks continuam separados e cobrem apenas Load/Save; execuções concorrentes ainda podem sobrescrever snapshots e perder entradas. Outros escritores STRM/M3U/XMLTV seguem na auditoria. Não há crédito formal, mudança de release ou validação Linux/produção.
+
+### Mídia Storage Online: serialização por manifesto — 2026-11-01 12:32 BRT
+
+O endpoint manual e a tarefa agendada agora adquirem o mesmo lease assíncrono identificado pelo caminho canonicalizado de `sync_manifest.json` antes de iniciar a sincronização completa; o lease cobre leitura, materialização/limpeza dos arquivos e gravação do manifesto. Bibliotecas com manifestos diferentes continuam independentes. Espera cancelável limitada a 15 minutos; o caller em espera recebe timeout sem cancelar o dono do lease. Os locks locais de Load/Save permanecem dentro das rotinas.
+
+Windows/.NET 10 Release: `MidiaStorageOnlineSyncGateTests` 4/4; filtro `Plugins.MidiaStorageOnline` 46/46. Testes exercitam os delegates dos dois tipos de caller usando caminhos equivalentes, isolamento de manifests distintos, cancelamento da espera e liberação após exceção. Não validam sync ponta a ponta contra mídia real. Coordenação é intra-processo; múltiplas instâncias, Linux, filesystem de rede, runtime instalado e produção não foram verificados. Homologação formal 2/7; sem crédito formal ou release. CI hospedada do PR #1 continua bloqueada antes dos runners por billing.
+
+## ImageSaver: escritores por pathname seguem sem proteção contra troca concorrente — 2026-11-01 11:18 BRT
+
+Call graph revisado: destinos de item e retries convergem em `ImageSaver.SaveImageToLocation`; o overload `ProviderManager.SaveImage(Stream, mimeType, path)` chega ao mesmo writer e, no checkout, é usado por `AvatarService` para imagem de perfil. Todos ainda usam operações por pathname. `RootedFileSystem.TryDeleteFile` não participa das gravações.
+
+Testes focais Release no host Windows passaram (`ImageSaverTests`: 4 aprovados/1 ignorado; `RootedFileSystemTests`: 4/1), mas não cobrem symlink ou troca concorrente durante escrita. Nenhuma mudança de comportamento nem crédito de homologação. Próximo passo: projetar gravação handle-relative que preserve substituição atômica e permissões atuais, testar Windows/Linux, depois migrar ImageSaver e AvatarService.
+
+Reauditoria estática em 2026-11-01 13:53 BRT: os três overloads `BaseItem` têm 13 ingressos de produção (5 stream, 2 caminho e 6 URL). O overload `SaveImage(Stream, mimeType, path)` também tem dois callers diretos: `Jellyfin.Api.Controllers.ImageController` e `MulletaFlix.Plugin.GetAvatar.Services.AvatarService`. Ambos, retries e destinos de item chegam ao writer por pathname. A primitiva existente continua limitada à exclusão no Windows; nenhuma gravação rooted cross-platform foi encontrada. Esta sessão não executou testes nem alterou comportamento. Próxima ação permanece projetar e testar operação rooted de criação/substituição antes de migrar os três grupos de callers.
+
+## Comparação do fluxo de imagens com Jellyfin — 2026-11-01
+
+A auditoria de `ProviderManager`/`ItemImageProvider` upstream confirma a separação entre descoberta, ordenação por `RemoteImageInfo.Language` e salvamento da primeira imagem elegível. No fork, o controller remoto preserva a ordem já calculada pelo servidor; os providers TMDb language-aware também solicitam locale/região e fallback. A revalidação local Windows/.NET 10 Release passou: ProviderManager 3/3, ItemImageProvider locale/fallback 26/26, TMDb utils 32/32 e controller 8/8. O legado `MetadataService` carrega URL/tipo sem proveniência linguística, e imagens singulares já existentes não são trocadas automaticamente. Sem runtime, produção, providers reais ou renderização; homologação formal inalterada. Detalhes e fontes: `image-metadata-flow-audit.md` e sessão [[Sessões/2026-11-01-MulletaFlix-image-language-jellyfin-comparison-1208]].
+
+### Proveniência ausente no contrato legado — 2026-11-01 12:18 BRT
+
+O caminho `MetadataService.SaveRemoteResultImages` recebe `MetadataResult.RemoteImages` como pares URL/tipo. NFO e OpenLibrary produzem esses pares; OpenLibrary os converte em `RemoteImageInfo` sem idioma. `ResultLanguage` se refere aos metadados textuais e não prova o idioma da capa. Não alterar o contrato público ou atribuir esse valor à imagem sem sinal por arte na fonte. Testes locais focados: Model 21/21 e Providers 23/23 em Windows/.NET 10 Release. Próximo passo: só estender o fluxo legado quando uma fonte fornecer idioma por imagem; homologação formal 2/7, sem crédito/release.
+## Username legado não pode escapar do diretório de perfil — 2026-11-01 13:11 BRT
+
+`UserManager` rejeita `.` e `..`; no Windows também rejeita ponto/espaço finais e nomes DOS reservados. `FileSystemHelper.IsWindowsDeviceName` centraliza os aliases (`CON`, `NUL`, `CONIN$`, `COM1`–`COM9`, `COM¹`–`COM³`, `LPT1`–`LPT9` e `LPT¹`–`LPT³`, inclusive com extensão), e é usado em caminhos de perfil, exclusão rooted e restore de backup. `FileSystemHelper.TryGetChildPath` exige um único nome, containment lexical e recusa filho reparse point. `ImageController` e `AvatarService` falham fechados para username legado inseguro. A revisão encontrou symlink existente, ponto/espaço finais e aliases de dispositivo; API 72/72, RootedFileSystem 5 aprovados/1 ignorado pela plataforma e UserManager+restore 29/29 em Windows/.NET 10 Release. Nomes reservados documentados pela [Microsoft](https://learn.microsoft.com/en-us/windows/win32/fileio/naming-a-file).
+
+Windows/.NET 10 Release: filtros `AvatarControllerUserAvatarAuthorizationTests`, `ImageControllerUserImageAuthorizationTests` e `FileSystemHelperPathSafetyTests` passaram 65/65; `UserManagerTests` passou 16/16. O primeiro run de UserManager detectou a fixture válida antiga `0@_-' .`; ela foi ajustada para manter ponto interno (`0@_-' .x`) e o re-run passou. `gh` não autenticado e Actions bloqueados por cobrança persistem, sem logs de CI. Mapa técnico atualizado; alteração adiciona método ao `FileSystemHelper` existente, sem novo módulo ou dependência. Reparse check continua preflight por pathname e deixa corrida TOCTOU aberta; Linux/produção/release sem validação, homologação formal 2/7.
+## TMDb: modo todos os idiomas — 2026-11-01 14:31 BRT
+
+- `RemoteImageQuery.IncludeAllLanguages=true` já desativava a filtragem local, mas cinco image providers TMDb ainda limitavam a requisição à língua preferida, sua variante base, sem texto e inglês. O filtro do provider agora também é removido no modo todos.
+- A interface `ILanguageAwareRemoteImageProvider` ganhou overload com implementação default para manter compatibilidade com implementadores antigos; providers TMDb de filme, série, temporada, episódio e coleção usam a opção. `TmdbPersonImageProvider` já não restringia idiomas na requisição.
+- Focais: 33/33; suíte Providers: 920 aprovados, 14 ignorados, 0 falhas/934 em Windows/.NET 10 Release. Sem API live, runtime, Linux ou produção. Candidata 12.1.46; formal 2/7; CI do PR #1 segue bloqueada por cobrança.
+- Mapa estrutural atualizado para o overload e fluxo de idioma. Portal local recebe a evidência como 2/10 do lote; sem publicação nesta rodada.
+
+### 2026-11-01 — consulta TMDb com todos os idiomas
+
+`ProviderManager` propaga `RemoteImageQuery.IncludeAllLanguages` para os providers language-aware. Os providers TMDb de filme, série, temporada, episódio e coleção agora omitem `include_image_language` quando a opção está ativa; o modo padrão conserva locale/região, idioma base, imagens sem texto e inglês. Focais: 33/33; `Jellyfin.Providers.Tests`: 920 aprovados, 14 ignorados, 0 falhas/934 em Windows/.NET 10 Release. Portal local 442/442, 2/10 eventos no lote ainda não publicado. CI do PR #1 bloqueada antes da execução por cobrança (16/16 jobs); formal 2/7, sem release ou produção. Ver `docs/image-metadata-flow-audit.md` e `docs/releases/12.1.46.md`.
+
+## Rechecagem CI PR #1 e writer de imagens — 2026-11-01 14:49 BRT
+
+Runs 41005367220 e 41283703952 do PR #1 foram rechecados. Os dois falharam antes de executar steps; o run mais recente confirma em todos os jobs que a conta está bloqueada por cobrança. No run anterior, 16 jobs têm `steps: []`; downloads de logs representativos retornaram `BlobNotFound`/404. A CLI `gh` local está sem autenticação. Nenhuma falha de código foi comprovada e nenhum runtime/commit/push foi alterado.
+
+Releitura do `ImageSaver` confirma que a escrita ainda cria diretórios, temporários e promove destinos por pathname. A auditoria anterior mapeou 13 ingressos em `ProviderManager.SaveImage` e dois callers diretos (`ImageController`, `AvatarService`). `RootedFileSystem` fornece apenas exclusão rooted Windows; não existe escrita rooted multiplataforma validada. Nenhum teste foi executado ou ataque reproduzido nesta sessão. Próximo passo é desenhar e validar criação/substituição rooted em Windows/Linux antes de migrar callers.
+
+## Revalidação focal do writer de imagens — 2026-11-01 14:58 BRT
+
+Em Windows/.NET 10 Release, `RootedFileSystemTests` passou 5/5 e ignorou 1 caso reservado a não-Windows; `ImageSaverTests` passou 4/4 e ignorou 1 caso reservado a não-Windows. Os testes confirmam exclusão confinada, preservação da imagem anterior quando a cópia falha, substituição atômica e o comportamento de exclusão sibling. Eles não validam escrita handle-relative nem corrida de symlink/rename. A primeira tentativa paralela de executar os projetos colidiu no `MediaBrowser.Controller.dll` com `CS2012`; a reexecução sequencial do projeto Providers passou. Sem mudança de runtime, sem exploit concorrente reproduzido e sem Linux/produção. Próximo passo permanece desenhar e validar criação/substituição rooted em Windows/Linux.
+
+## Inventário de todos os fluxos de gravação de imagem — 2026-11-01 15:20 BRT
+
+`rg` e revisão dos callers confirmaram 13 entradas por `ProviderManager.SaveImage(BaseItem, ...)`: 5 por stream, 2 por caminho de arquivo e 6 por URL. URLs passam pelo overload de stream antes de chegar ao `ImageSaver`. O overload direto `SaveImage(Stream, mimeType, path)` também tem dois callers no checkout: `AvatarService` e `ImageController`; ambos gravam imagens de perfil sob pastas de usuário.
+
+`ImageSaver` continua criando pasta, temporário e destino por pathname, com promoção `File.Replace`/`File.Move`. Isso conserva escrita temporária e substituição atômica, mas não evita symlink/junction ou troca concorrente de diretório. `RootedFileSystem` fornece somente exclusão segura no Windows; não há primitiva rooted de escrita/replace. Não foi aplicada verificação lexical adicional, pois não fecharia TOCTOU e contraria a decisão registrada em `Decisões/2026-11-01-MulletaFlix-provider-safe-file-writes.md`.
+
+Revalidação Windows/.NET 10 Release: `ImageSaverTests` 4 aprovados, 1 ignorado; `RootedFileSystemTests` 5 aprovados, 1 ignorado. Execuções foram sequenciais depois que builds paralelos colidiram em `MediaBrowser.Controller.dll` (`CS2012`). Os casos ignorados cobrem comportamento não-Windows; isso não prova a implementação Linux. Não houve teste de corrida de escrita, execução Linux/macOS, runtime instalado ou produção. Nenhum código runtime foi alterado.
+
+Próximo passo: especificar primitiva rooted de criação e substituição por handle para os roots distintos (biblioteca, metadata, perfil), preservar comportamento de fallback/ACL e validar symlink, rename concorrente e falha de cópia em Windows e Linux antes de migrar qualquer caller. Homologação formal permanece 2/7; snapshot local do portal 5/10, sem publicação remota ou release.
+
+## Regressão completa do servidor e Nebula — 2026-11-01 15:10 BRT
+
+- `dotnet test MulletaFlix.sln --configuration Release --no-restore --filter "FullyQualifiedName!~LiveIntegrationTests" --verbosity minimal`: exit 0; 17 assemblies, 5.543 aprovados, 273 ignorados e 0 falhas/5.816. Os testes `LiveIntegrationTests` foram excluídos; casos opt-in de MariaDB/Mongo e cenários Linux seguem fora da validação nesta máquina.
+- Nebula Python 3.10: `pytest tests -q --tb=short`, 726/726 em venv descartável, criada com o lock e dependências de teste declarados pelo CI. A tentativa de rodar Python global foi corretamente recusada pelo guard do runtime.
+- Contrato do portal revalidado após a atualização local: 444/444. Snapshot atualizado para evidência 4/10; deployment público permanece inalterado. Homologação formal 2/7, sem crédito ou release.
+- GitHub Actions do PR #1 ainda bloqueada antes dos runners por cobrança; `gh` sem autenticação. Não há falha de código remota comprovada.
+- Uma tentativa preliminar executou o guard de dependências do Nebula do servidor usando a venv compartilhada do checkout NebulaFTP; a instalação do lock do servidor falhou com `WinError 5`. `pip check` posterior não encontrou dependências quebradas, mas não há inventário anterior para provar que as versões ficaram intactas. Não executar esse runtime/venv até verificar ou restaurar as versões esperadas.
+- Sem alteração de runtime, bancos operacionais, Linux ou produção. Mapa técnico conferido e permanece correto. Escrita rooted cross-platform de imagens segue pendente.
+## Next Up: API paginada ainda força contagem exata — 2026-11-01 15:24 BRT
+
+- A reauditoria confirmou que `TVSeriesManager.GetNextUp` usa paginação progressiva por cursor somente quando `EnableTotalRecordCount=false`, rewatching está desativado e existe `Limit > 0`.
+- `TvShowsController.GetNextUp` mantém `enableTotalRecordCount=true` como padrão compatível. Uma chamada `Shows/NextUp?Limit=5` sem parâmetro explícito cai no caminho completo: materializa chaves de todas as séries e resolve os episódios antes de aplicar a página. A Home via `UserViewBuilder` encaminha a opção recebida e pode desativar a contagem.
+- Focais Release/.NET 10: `TVSeriesManagerNextUpPaginationTests` + `NextUpQueryOptimizationTests` + `NextUpServiceMariaDbTests`: 8 aprovados, 1 ignorado (MariaDB opt-in sem conexão nesta execução), 0 falhas/9. Isso revalida o código existente; não mede latência ou plano SQL.
+- Decisão: preservar o padrão público de contagem exata até definir contrato/versionamento ou uma otimização que mantenha `TotalRecordCount`. Não aplicar limite arbitrário, pois séries sem episódio elegível podem deixar a página incompleta.
+- Pendentes: medir endpoint com biblioteca grande e MariaDB descartável; avaliar cliente que não usa contagem; desenhar contagem exata com memória limitada sem alterar ordenação/paginação. Sem mudança runtime, homologação formal 2/7, sem crédito de release.
+## Atualização concorrente de elenco — 2026-11-01 16:37 BRT
+
+- Recontagem do log 12.1.45: três comandos SQL distintos em `BaseItemImageInfos` receberam retentativa após deadlock; um comando final em `PeopleBaseItemMap` falhou por chave duplicada. Mensagens repetidas de exceções aninhadas não são operações adicionais. A PK de `PeopleBaseItemMap` é composta por item, pessoa e papel. No repository, consulta e inserção dos vínculos de uma mídia não eram serializadas; chamadas concorrentes podiam inserir a mesma relação.
+- `PeopleRepository` agora usa o `AsyncKeyedLocker<Guid>` já instalado para serializar a seção síncrona por `itemId`; mídia diferente continua concorrente. Teste de integração MariaDB repete oito chamadas simultâneas e verifica um só vínculo.
+- Verificação Windows/.NET 10 Release: build de `IntroSkipper.Integration.Tests` passou; os dois testes focais foram descobertos e ignorados porque `MULLETAFLIX_TEST_MARIADB_CONNECTION_STRING` não aponta para MariaDB descartável. Sem validação contra banco real. Formatação focal passou.
+- Limite: não há evidência de falha final nas três operações com deadlock; somente o comando People é uma falha final observada. O teste de concorrência aguarda MariaDB isolado. As 132 notificações expiradas no mesmo recorte não discriminam se faltava NFO, capa ou estabilidade.
+
+## Regressão PeopleBaseItemMap com vínculo existente — 2026-11-01 17:08 BRT
+
+- O teste concorrente agora semeia pessoa e vínculo antes de disparar oito atualizações do mesmo item, exercitando explicitamente o cenário de read-before-insert que pode colidir com a PK composta.
+- Build Release do projeto de integração passou. Os dois casos focais foram descobertos, mas ignorados sem `MULLETAFLIX_TEST_MARIADB_CONNECTION_STRING`; não há validação real do lock nesta rodada.
+- Limite: `AsyncKeyedLocker` coordena apenas processos deste servidor. Concorrência de múltiplos processos e o relatório InnoDB do deadlock permanecem sem evidência; a instância operacional não foi acessada.
+
+## Auditoria das retentativas de deadlock em gravação de imagens — 2026-11-01 17:12 BRT
+
+- `SaveImagesAsync` abre transação explícita, chama `SaveChangesAsync` (até cinco tentativas no `JellyfinDbContext`) e ainda repete a operação externa até três vezes. O log mostra três INSERTs distintos que receberam aviso de retry; não prova falha final nem transação inválida.
+- Não existe teste focal para erro 1213 durante `SaveChanges` com transação ativa. A hipótese de nova tentativa na mesma transação após rollback InnoDB requer reprodução em MariaDB; não mudar o runtime com base apenas na leitura estática.
+- MariaDB e Docker não estão disponíveis/configurados nesta máquina. Próximo passo: reproduzir transação+deadlock em MariaDB descartável, verificar se `CurrentTransaction` é reutilizada e capturar o relatório InnoDB; nunca usar produção.
+
+## Notificações de novas mídias sem sidecars locais — 2026-11-01
+
+- `NotificationsLibraryNotifier` agora aceita metadados estáveis com nome preenchido mesmo quando não existem `.nfo` ou capa ao lado da mídia. O envio já oferece fallback textual sem arte; isso evita descartar mídia cuja ficha está no banco, mas não tem sidecars locais.
+- O log tem 132 expirações de 180 s, porém não registra qual pré-condição falhou; a dependência de sidecars foi confirmada no código, mas não explica necessariamente todas as ocorrências.
+- O timeout agora registra flags de nome preenchido, estabilidade de snapshot, capa e NFO, sem registrar título ou caminho, para discriminar ocorrências futuras.
+- `NebulaTelegramNotifierTests`: 14/14 em Windows/.NET 10 Release. Sem teste em banco/biblioteca real, Telegram, Linux, runtime instalado ou produção. Candidata 12.1.46; homologação formal 2/7, sem crédito.
+## Deadlocks no SaveChanges dentro de transação — 2026-11-01 17:21 BRT
+
+- `JellyfinDbContext` não repete mais apenas `SaveChanges` quando há transação explícita. Deadlock MariaDB desfaz a transação inteira; o retry precisa ocorrer na unidade transacional do chamador. Sem transação explícita, os cinco retries locais permanecem.
+- `JellyfinDbContextTransactionRetryTests`: 4/4 em Windows/.NET 10 Release, cobrindo SaveChanges síncrono/assíncrono com e sem transação.
+- O log 12.1.45 confirma deadlocks em comandos de `BaseItemImageInfos`, sem falha final desses comandos demonstrada; também confirma uma falha distinta por chave duplicada em `PeopleBaseItemMap` e leitura de `folder.jpg` bloqueada durante blurhash. O lock por item já existente é candidato a evitar corrida local de elenco, mas os testes MariaDB de concorrência não rodaram por falta de banco descartável.
+- Outros escritores com transação explícita ainda precisam de retry na operação inteira para recuperar erros transitórios. MariaDB real, Linux, CI hospedada, runtime instalado e produção não validados. Homologação formal 2/7; 12.1.46 continua candidata, sem release.
+
+## Duplicidade de vínculo ao atualizar papel da pessoa — 2026-11-01 17:30 BRT
+
+- O log 12.1.45 aponta uma falha final em `PeopleRepository.UpdatePeople`: `Duplicate entry ... for key 'PRIMARY'` ao inserir em `PeopleBaseItemMap`. A tabela usa chave `(ItemId, PeopleId, Role)`; o código comparava `Role` ordinalmente em memória, diferente da collation MariaDB que pode considerar maiúsculas/minúsculas equivalentes.
+- A procura do vínculo agora usa `PeopleId`. Quando `Role` muda, a transação remove e salva o vínculo antigo antes de inserir a nova chave, evitando inserir uma chave que o banco considera equivalente e evitando mutação de chave rastreada no EF Core.
+- Foi adicionado `UpdatePeople_RoleCasingChange_UpdatesExistingMapping`. O projeto de integração compilou em Release/.NET 10; os três testes `UpdatePeople_*` foram encontrados e ignorados sem `MULLETAFLIX_TEST_MARIADB_CONNECTION_STRING`.
+- Sem validação MariaDB real ou produção. Os deadlocks de `BaseItemImageInfos` no log receberam retentativas sem falha final demonstrada; o erro de leitura de `folder.jpg` durante blurhash continua separado e pendente. Mapa técnico conferido; nenhuma API, módulo, dependência ou contrato público mudou.

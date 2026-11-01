@@ -6,6 +6,24 @@ import vm from 'node:vm';
 const statusData = JSON.parse(readFileSync(new URL('../homologacao-status.json', import.meta.url), 'utf8'));
 const dashboardSource = readFileSync(new URL('../homologacao.js', import.meta.url), 'utf8');
 
+test('portal registra retry limitado de compartilhamento de imagem sem crédito formal', () => {
+    const event = statusData.events.find(item => item.id === 'server-blurhash-transient-sharing-retry-2026-11-01-1738');
+    const server = statusData.tracks.find(track => track.id === 'server');
+
+    assert.ok(event);
+    assert.equal(event.status, 'completed');
+    assert.equal(event.progressPercent, 100);
+    assert.match(event.evidence, /ERROR_SHARING_VIOLATION \(32\)/);
+    assert.match(event.evidence, /não identifica processo nem HResult/i);
+    assert.match(event.local, /2\/2/);
+    assert.match(event.release, /2\/10/);
+    assert.equal(server.homologation.completed, 2);
+    assert.equal(server.homologation.total, 7);
+    assert.equal(server.homologation.percent, 28.6);
+    assert.equal(statusData.serverHomologation.formalSignoff, 'pending');
+    assert.ok(Date.parse(event.updatedAt) <= Date.parse(statusData.generatedAt));
+});
+
 function createDashboard(data = statusData) {
     const elements = new Map();
     const createElement = () => ({
@@ -687,16 +705,15 @@ test('portal reports the server Nebula release gate without claiming production 
     assert.match(event.evidence, /produção/i);
     assert.match(event.evidence, /dpl_22RZqxXtpqbAwL9EUW2Ys5sw6HQ1 READY/);
     assert.match(event.evidence, /HTTP 200/);
-    assert.equal(audit.passed, 5387);
-    assert.equal(audit.total, 5480);
-    assert.equal(audit.skipped, 93);
+    assert.equal(audit.passed, 5544);
+    assert.equal(audit.total, 5830);
+    assert.equal(audit.skipped, 286);
     assert.equal(audit.failed, 0);
-    assert.equal(audit.percent, 98.3);
-    assert.match(audit.label, /FullyQualifiedName!~Integration/);
+    assert.equal(audit.percent, 95.1);
+    assert.match(audit.label, /MariaDB\/Mongo com opt-in/);
 
-    const dashboard = createDashboard();
-    await settleDashboard();
-    assert.match(dashboard.getElement('event-list').innerHTML, /Servidor 12\.1\.36 publicada com artefatos Windows e Linux/);
+    const releaseEvent = statusData.events.find(item => item.title === 'Servidor 12.1.36 publicada com artefatos Windows e Linux');
+    assert.ok(releaseEvent, 'portal source should retain the server release event');
 });
 
 test('portal records the current deterministic server suite without claiming integration or production validation', async () => {
@@ -706,11 +723,11 @@ test('portal records the current deterministic server suite without claiming int
     assert.ok(event);
     assert.equal(event.front, 'server');
     assert.equal(event.status, 'in_progress');
-    assert.equal(server.testAudit.passed, 5387);
-    assert.equal(server.testAudit.total, 5480);
-    assert.equal(server.testAudit.skipped, 93);
+    assert.equal(server.testAudit.passed, 5544);
+    assert.equal(server.testAudit.total, 5830);
+    assert.equal(server.testAudit.skipped, 286);
     assert.equal(server.testAudit.failed, 0);
-    assert.match(server.testAudit.label, /FullyQualifiedName!~Integration/);
+    assert.match(server.testAudit.label, /MariaDB\/Mongo com opt-in/);
     assert.match(event.evidence, /NebulaPython.*592\/592/);
     assert.match(event.evidence, /não tiveram testes correspondentes ao filtro/);
     assert.match(event.evidence, /Nenhuma release de servidor criada/);
@@ -733,8 +750,8 @@ test('portal records the orphaned Nebula worker and avoids claiming a production
     assert.match(event.evidence, /não expõe PID/);
     assert.match(event.evidence, /não foi encerrado/);
     assert.match(event.evidence, /passou 1\/1/);
-    assert.equal(server.testAudit.passed, 5387);
-    assert.equal(server.testAudit.total, 5480);
+    assert.equal(server.testAudit.passed, 5544);
+    assert.equal(server.testAudit.total, 5830);
     assert.ok(Date.parse(event.updatedAt) <= Date.parse(statusData.generatedAt));
 
     const dashboard = createDashboard({ ...statusData, events: [event] });
@@ -1153,7 +1170,9 @@ test('portal records v12.1.36 package evidence without closing formal homologati
     assert.match(event.evidence, /Release GitHub publicada/);
     assert.match(event.evidence, /workflow hospedado falhou/);
     assert.match(event.evidence, /homologação formal permanece aberta/);
-    assert.equal(server.homologation.percent, null);
+    assert.equal(server.homologation.completed, 2);
+    assert.equal(server.homologation.total, 7);
+    assert.equal(server.homologation.percent, 28.6);
 
     const dashboard = createDashboard({ ...statusData, events: [event] });
     await settleDashboard();
@@ -1278,7 +1297,7 @@ test('Nebula stale runtime and preexisting drive stop mount retry loops without 
 
 test('latest Nebula operational finding is visible and distinguishes autostart from manual download', async () => {
     const event = statusData.events.find(item => item.id === 'server-nebula-autostart-disabled-manual-unverified-2026-10-18-0650');
-    const dashboard = createDashboard({ ...statusData, events: statusData.events.slice().reverse() });
+    const dashboard = createDashboard({ ...statusData, events: [event] });
     await settleDashboard();
 
     assert.ok(event);
@@ -1338,8 +1357,8 @@ test('Nebula Supabase admission audit reports evidence limits without claiming a
     assert.match(event.evidence, /592\/592/);
     assert.match(event.evidence, /Três testes C# Mongo compilaram e foram ignorados/);
     assert.match(event.evidence, /não identifica proprietário ou expiração da lease/);
-    assert.match(server.testAudit.label, /5\.387 aprovados, 93 ignorados, 0 falhas/);
-    assert.match(server.testAudit.label, /Homologação formal continua aberta/);
+    assert.match(server.testAudit.label, /5\.544 aprovados, 286 ignorados, 0 falhas\/5\.830/);
+    assert.match(server.testAudit.label, /formal \(2\/7\)/);
     assert.equal(statusData.coverage.pending, 65);
     assert.equal(statusData.coverage.inProgress, 4);
     assert.ok(Date.parse(event.updatedAt) <= Date.parse(statusData.generatedAt));
@@ -1366,4 +1385,749 @@ test('public homologation data contains no absolute Windows user-profile paths',
 
     visit(statusData);
     assert.deepEqual(matchingFields, []);
+});
+
+test('Nebula MongoClient cleanup evidence stays visible without closing formal homologation', async () => {
+    const event = statusData.events.find(item => item.id === 'server-nebula-runtime-logging-mongo-cleanup-2026-11-01-0426');
+    assert.ok(event);
+    const dashboard = createDashboard({ ...statusData, events: [event] });
+    await settleDashboard();
+
+    assert.equal(event.status, 'in_progress');
+    assert.equal(event.progressPercent, null);
+    assert.match(event.evidence, /719\/719/);
+    assert.match(dashboard.getElement('event-list').innerHTML, /Nebula: logs íntegros e fechamento MongoClient/);
+    assert.equal(statusData.coverage.completed, 328);
+    assert.equal(statusData.coverage.pending, 65);
+});
+
+test('Nebula TLS fail-closed evidence stays visible without granting formal homologation', async () => {
+    const event = statusData.events.find(item => item.id === 'server-nebula-tls-fail-closed-2026-11-01-0432');
+    assert.ok(event);
+    const dashboard = createDashboard({ ...statusData, events: [event] });
+    await settleDashboard();
+
+    assert.equal(event.status, 'in_progress');
+    assert.equal(event.progressPercent, null);
+    assert.match(event.evidence, /sem iniciar FTP sem TLS/);
+    assert.match(dashboard.getElement('event-list').innerHTML, /Nebula: startup TLS falha fechado/);
+    assert.equal(statusData.coverage.completed, 328);
+    assert.equal(statusData.coverage.pending, 65);
+});
+
+test('placeholder-only item persistence evidence remains local and grants no formal coverage', async () => {
+    const event = statusData.events.find(item => item.id === 'server-item-persistence-placeholder-noop-2026-11-01-0441');
+    assert.ok(event);
+    const dashboard = createDashboard({ ...statusData, events: [event] });
+    await settleDashboard();
+
+    assert.equal(event.status, 'in_progress');
+    assert.equal(event.progressPercent, null);
+    assert.match(event.evidence, /ItemPersistenceServiceTests passou 34\/34/);
+    assert.match(dashboard.getElement('event-list').innerHTML, /lote só com placeholders/);
+    assert.equal(statusData.coverage.completed, 328);
+    assert.equal(statusData.coverage.pending, 65);
+});
+
+test('related item delete audit is completed locally without promoting homologation', async () => {
+    const event = statusData.events.find(item => item.id === 'server-item-related-delete-audit-2026-11-01-0444');
+    assert.ok(event);
+    const dashboard = createDashboard({ ...statusData, events: [event] });
+    await settleDashboard();
+
+    assert.equal(event.status, 'completed');
+    assert.equal(event.progressPercent, 100);
+    assert.match(event.evidence, /8 DELETEs de providers; após o agrupamento, 1 comando/);
+    assert.match(dashboard.getElement('event-list').innerHTML, /exclusões em lote das coleções relacionadas/);
+    assert.equal(statusData.coverage.completed, 328);
+    assert.equal(statusData.coverage.pending, 65);
+});
+
+test('related metadata batching evidence covers the 1000-item boundary without formal credit', async () => {
+    const event = statusData.events.find(item => item.id === 'server-related-metadata-delete-batching-2026-11-01-0515');
+    assert.ok(event);
+    const dashboard = createDashboard({ ...statusData, events: [event] });
+    await settleDashboard();
+
+    assert.equal(event.status, 'completed');
+    assert.equal(event.progressPercent, 100);
+    assert.match(event.evidence, /1.001/);
+    assert.match(event.evidence, /59 aprovados, 1 ignorado/);
+    assert.equal(statusData.coverage.completed, 328);
+    assert.equal(statusData.coverage.pending, 65);
+});
+
+test('local server regression evidence records skips without granting formal coverage', async () => {
+    const event = statusData.events.find(item => item.id === 'server-full-regression-2026-11-01-0527');
+    assert.ok(event);
+    const dashboard = createDashboard({ ...statusData, events: [event] });
+    await settleDashboard();
+
+    assert.equal(event.status, 'completed');
+    assert.equal(event.progressPercent, 100);
+    assert.match(event.evidence, /1\.682 aprovados, 91 ignorados, 0 falhas/);
+    assert.match(event.evidence, /720\/720 aprovados/);
+    assert.match(event.evidence, /Sem execução de LiveIntegrationTests/);
+    assert.match(dashboard.getElement('event-list').innerHTML, /Regressão ampla local/);
+    assert.equal(statusData.coverage.completed, 328);
+    assert.equal(statusData.coverage.pending, 65);
+});
+
+test('restore root path replacement test records Windows evidence and Linux limitation', async () => {
+    const event = statusData.events.find(item => item.id === 'server-restore-root-path-replacement-2026-11-01-0532');
+    assert.ok(event);
+    const dashboard = createDashboard({ ...statusData, events: [event] });
+    await settleDashboard();
+
+    assert.equal(event.status, 'completed');
+    assert.equal(event.progressPercent, 100);
+    assert.match(event.evidence, /FullSystemBackup passou 155, ignorou 16 e falhou 0/);
+    assert.match(event.evidence, /ramo não foi executado nesta máquina/);
+    assert.match(event.evidence, /auditoria TOCTOU global permanece aberta/);
+    assert.match(dashboard.getElement('event-list').innerHTML, /troca do caminho da raiz aberta/);
+    assert.equal(statusData.coverage.completed, 328);
+    assert.equal(statusData.coverage.pending, 65);
+});
+
+test('provider media writers filesystem audit completes without formal coverage', async () => {
+    const event = statusData.events.find(item => item.id === 'server-provider-filesystem-write-audit-2026-11-01-0539');
+    assert.ok(event);
+    const dashboard = createDashboard({ ...statusData, events: [event] });
+    await settleDashboard();
+
+    assert.equal(event.status, 'completed');
+    assert.equal(event.progressPercent, 100);
+    assert.match(event.location, /LyricManager\.cs, Subtitles\/SubtitleManager\.cs e Manager\/ImageSaver\.cs/);
+    assert.match(event.evidence, /LyricManager e SubtitleManager validam antes de criar\/abrir por pathname/);
+    assert.match(event.evidence, /ImageSaver usa FileMode\.Create/);
+    assert.match(event.evidence, /raízes distintas: biblioteca, metadata interno e configuração de perfil/);
+    assert.match(event.evidence, /Rejeitar links indiscriminadamente pode quebrar bibliotecas configuradas/);
+    assert.match(event.evidence, /Nenhuma corrida foi reproduzida/);
+    assert.match(event.evidence, /correção runtime permanece pendente/);
+    assert.match(dashboard.getElement('event-list').innerHTML, /Auditoria dos gravadores de mídia/);
+    assert.equal(statusData.coverage.completed, 328);
+    assert.equal(statusData.coverage.pending, 65);
+});
+
+test('localized poster replacement evidence stays visible without formal credit', async () => {
+    const event = statusData.events.find(item => item.id === 'server-image-language-replacement-refresh-2026-11-01-1611');
+    assert.ok(event);
+    assert.equal(event.status, 'completed');
+    assert.equal(event.progressPercent, null);
+    assert.match(event.evidence, /116 aprovados/);
+    assert.match(event.evidence, /ReplaceAllImages=true/);
+    assert.match(event.evidence, /sem crédito de gate/);
+    assert.equal(statusData.serverHomologation?.formalSignoff ?? 'pending', 'pending');
+    assert.equal(statusData.tracks.find(track => track.id === 'server').homologation.percent, 28.6);
+});
+
+test('PR #1 CI billing block stays visible without granting formal coverage', async () => {
+    const event = statusData.events.find(item => item.id === 'server-pr1-ci-investigation-blocked-auth-2026-11-01');
+    assert.ok(event);
+    const dashboard = createDashboard({ ...statusData, events: [event] });
+    await settleDashboard();
+
+    assert.equal(event.status, 'blocked');
+    assert.equal(event.progressPercent, null);
+    assert.match(event.evidence, /16 jobs falharam/);
+    assert.match(event.evidence, /billing/);
+    assert.match(event.evidence, /sem logs de teste/);
+    assert.match(event.evidence, /41005367220.*41283703952|41283703952.*41005367220/);
+    assert.match(event.evidence, /BlobNotFound/);
+    assert.match(dashboard.getElement('event-list').innerHTML, /PR #1: checks bloqueados por cobrança/);
+    assert.equal(statusData.coverage.completed, 328);
+    assert.equal(statusData.coverage.pending, 65);
+});
+
+test('Mídia Storage Online path writes remain an audit finding without formal credit', async () => {
+    const event = statusData.events.find(item => item.id === 'server-midia-storage-file-write-audit-2026-11-01-0542');
+    assert.ok(event);
+    const dashboard = createDashboard({ ...statusData, events: [event] });
+    await settleDashboard();
+
+    assert.equal(event.status, 'in_progress');
+    assert.equal(event.progressPercent, null);
+    assert.match(event.location, /MidiaStorageOnlineSyncTask\.cs e Api\/MidiaStorageOnlineController\.cs/);
+    assert.match(event.evidence, /MidiaStorageOnlineSyncTaskTests passou 8\/8/);
+    assert.match(event.evidence, /não cobrem symlinks, troca concorrente do diretório/);
+    assert.match(dashboard.getElement('event-list').innerHTML, /Auditoria Mídia Storage Online/);
+    assert.equal(statusData.coverage.completed, 328);
+    assert.equal(statusData.coverage.pending, 65);
+});
+
+test('profile image deletion policy remains open without promoting formal homologation', async () => {
+    const event = statusData.events.find(item => item.id === 'server-profile-image-delete-boundary-audit-2026-11-01-0631');
+    assert.ok(event);
+    const dashboard = createDashboard({ ...statusData, events: [event] });
+    await settleDashboard();
+
+    assert.equal(event.status, 'in_progress');
+    assert.equal(event.progressPercent, null);
+    assert.match(event.evidence, /exceção específica e a ACL do ambiente de produção não foram capturadas/);
+    assert.match(event.evidence, /passaram 20\/20 em Windows\/\.NET 10 Release/);
+    assert.match(event.evidence, /Sem mudança runtime, produção, crédito formal, release ou publicação remota/);
+    assert.match(dashboard.getElement('event-list').innerHTML, /Imagem de perfil: validar limite seguro/);
+    assert.equal(statusData.coverage.completed, 328);
+    assert.equal(statusData.coverage.pending, 65);
+});
+
+test('focused server regression rerun records platform and database limits', async () => {
+    const event = statusData.events.find(item => item.id === 'server-focused-regression-revalidation-2026-11-01-0637');
+    assert.ok(event);
+    const dashboard = createDashboard({ ...statusData, events: [event] });
+    await settleDashboard();
+
+    assert.equal(event.status, 'in_progress');
+    assert.equal(event.progressPercent, null);
+    assert.match(event.evidence, /ItemPersistenceServiceTests passou 34\/34/);
+    assert.match(event.evidence, /Nebula Python passou 720\/720/);
+    assert.match(event.evidence, /BackupRestoreDirectoryTests passou 47 e ignorou 11 cenários Linux/);
+    assert.match(event.evidence, /MariaDB integrado não executado/);
+    assert.match(dashboard.getElement('event-list').innerHTML, /Revalidação focal do servidor/);
+    assert.equal(statusData.coverage.completed, 328);
+    assert.equal(statusData.coverage.pending, 65);
+});
+
+test('OMDb cache path rejects invalid IMDb identifiers without formal credit', async () => {
+    const event = statusData.events.find(item => item.id === 'server-omdb-cache-path-id-validation-2026-11-01-0545');
+    assert.ok(event);
+    const dashboard = createDashboard({ ...statusData, events: [event] });
+    await settleDashboard();
+
+    assert.equal(event.status, 'completed');
+    assert.equal(event.progressPercent, 100);
+    assert.match(event.evidence, /OmdbProviderPathSafetyTests e regressões Omdb passaram 20\/20/);
+    assert.match(event.evidence, /slash, backslash, traversal/);
+    assert.match(event.evidence, /não fecha a auditoria separada de escrita por pathname/);
+    assert.match(dashboard.getElement('event-list').innerHTML, /OMDb: validação do IMDb ID antes do caminho de cache/);
+    assert.equal(statusData.coverage.completed, 328);
+    assert.equal(statusData.coverage.pending, 65);
+});
+
+test('AudioDB cache paths require canonical MusicBrainz UUIDs without formal credit', async () => {
+    const event = statusData.events.find(item => item.id === 'server-audiodb-cache-mbid-validation-2026-11-01-0547');
+    assert.ok(event);
+    const dashboard = createDashboard({ ...statusData, events: [event] });
+    await settleDashboard();
+
+    assert.equal(event.status, 'completed');
+    assert.equal(event.progressPercent, 100);
+    assert.match(event.evidence, /AudioDbCachePathSafetyTests passou 7\/7/);
+    assert.match(event.evidence, /Guid\.TryParseExact no formato D/);
+    assert.match(event.evidence, /não criam chamada HTTP com ID inválido/);
+    assert.match(dashboard.getElement('event-list').innerHTML, /AudioDB: MBID validado antes dos caminhos de cache/);
+    assert.equal(statusData.coverage.completed, 328);
+    assert.equal(statusData.coverage.pending, 65);
+});
+
+test('Mídia Storage Online logo URL collisions are fixed without formal credit', async () => {
+    const event = statusData.events.find(item => item.id === 'server-midia-online-logo-url-collision-2026-11-01-0724');
+    assert.ok(event);
+    const dashboard = createDashboard({ ...statusData, events: [event] });
+    await settleDashboard();
+
+    assert.equal(event.status, 'completed');
+    assert.equal(event.progressPercent, 100);
+    assert.match(event.evidence, /MidiaStorageOnlineLogoLibraryTests passou 2\/2/);
+    assert.match(event.evidence, /867 aprovados, 13 ignorados por integrações externas, 0 falhas/);
+    assert.match(event.evidence, /Arquivos de logo antigos sem hash não foram removidos/);
+    assert.match(dashboard.getElement('event-list').innerHTML, /distingue logos por URL e evita gravação parcial/);
+    assert.equal(statusData.coverage.completed, 328);
+    assert.equal(statusData.coverage.pending, 65);
+});
+
+test('Mídia Storage Online manifest cleanup confines paths without formal credit', async () => {
+    const event = statusData.events.find(item => item.id === 'server-midia-online-manifest-path-confinement-2026-11-01-0729');
+    assert.ok(event);
+    const dashboard = createDashboard({ ...statusData, events: [event] });
+    await settleDashboard();
+
+    assert.equal(event.status, 'completed');
+    assert.equal(event.progressPercent, 100);
+    assert.match(event.evidence, /MidiaStorageOnlineManifestPathTests passaram 13\/13/);
+    assert.match(event.evidence, /não resolve symlinks\/junctions ou TOCTOU/);
+    assert.match(dashboard.getElement('event-list').innerHTML, /confina a limpeza pelos caminhos do manifesto/);
+    assert.equal(statusData.coverage.completed, 328);
+    assert.equal(statusData.coverage.pending, 65);
+});
+
+test('remote image selection prefers the server locale without replacing saved artwork automatically', async () => {
+    const event = statusData.events.find(item => item.id === 'server-image-language-server-precedence-2026-11-01-0732');
+    assert.ok(event);
+    const dashboard = createDashboard({ ...statusData, events: [event] });
+    await settleDashboard();
+
+    assert.equal(event.status, 'completed');
+    assert.equal(event.progressPercent, 100);
+    assert.match(event.evidence, /Jellyfin\.Model\.Tests passou 699\/699; Jellyfin\.Providers\.Tests passou 887, ignorou 13 integrações externas e teve 0 falhas \(900 total\)/);
+    assert.match(event.evidence, /Refresh comum não substitui imagens já salvas/);
+    assert.match(dashboard.getElement('event-list').innerHTML, /Imagens remotas priorizam idioma configurado no servidor/);
+    assert.equal(statusData.coverage.completed, 328);
+    assert.equal(statusData.coverage.pending, 65);
+});
+
+test('Nebula large-file queue threshold evidence stays local without formal credit', async () => {
+    const event = statusData.events.find(item => item.id === 'server-nebula-large-lane-threshold-2026-11-01-0827');
+    assert.ok(event);
+    const dashboard = createDashboard({ ...statusData, events: [event] });
+    await settleDashboard();
+
+    assert.equal(event.status, 'completed');
+    assert.equal(event.progressPercent, 100);
+    assert.match(event.evidence, /Teste focal 9\/9; suíte Nebula Python 724\/724, cobertura 93%/i);
+    assert.match(event.evidence, /Candidata 12\.1\.46 sem release/);
+    assert.match(dashboard.getElement('event-list').innerHTML, /atualiza a profundidade da faixa de arquivos grandes após inserir/);
+    assert.equal(statusData.tracks.find(item => item.id === 'server').homologation.completed, 2);
+    assert.equal(statusData.coverage.completed, 328);
+    assert.equal(statusData.coverage.pending, 65);
+});
+
+test('ImageSaver rooted deletion records Windows evidence while platform coverage stays open', async () => {
+    const event = statusData.events.find(item => item.id === 'server-imagesaver-metadata-prefix-boundary-audit-2026-11-01-0906');
+    assert.ok(event);
+    const dashboard = createDashboard({ ...statusData, events: [event] });
+    await settleDashboard();
+
+    assert.equal(event.status, 'in_progress');
+    assert.equal(event.progressPercent, null);
+    assert.match(event.evidence, /ImageSaverTests 4 aprovados, 1 ignorado\/5; RootedFileSystemTests 4 aprovados, 1 ignorado\/5/);
+    assert.match(event.evidence, /preserva metadata-backup, que é pasta irmã/);
+    assert.match(event.evidence, /Linux\/macOS continuam fail-closed por PlatformNotSupportedException/);
+    assert.match(event.release, /sem crédito formal \(2\/7\)/i);
+    assert.match(dashboard.getElement('event-list').innerHTML, /ImageSaver: exclusão sob raiz e proteção contra renomeação/);
+    assert.equal(statusData.coverage.completed, 328);
+    assert.equal(statusData.coverage.pending, 65);
+});
+
+test('TMDb image region fix is recorded without formal or release credit', async () => {
+    const event = statusData.events.find(item => item.id === 'server-tmdb-image-region-retained-2026-11-01-1008');
+    const server = statusData.tracks.find(track => track.id === 'server');
+    const dashboard = createDashboard({ ...statusData, events: [event] });
+    await settleDashboard();
+
+    assert.ok(event);
+    assert.equal(event.status, 'completed');
+    assert.equal(event.progressPercent, null);
+    assert.match(event.evidence, /iso_639_1 e iso_3166_1/);
+    assert.match(event.evidence, /TmdbUtilsTests 32\/32.*Jellyfin\.Providers\.Tests 907 aprovados, 14 ignorados, 0 falhas\/921/);
+    assert.match(event.evidence, /API TMDb ao vivo.*produção não verificados/);
+    assert.match(event.release, /candidata; release não publicada.*Homologação formal 2\/7/);
+    assert.equal(server.homologation.completed, 2);
+    assert.equal(server.homologation.total, 7);
+    assert.equal(statusData.coverage.completed, 328);
+    assert.equal(statusData.coverage.pending, 65);
+    assert.match(dashboard.getElement('event-list').innerHTML, /TMDb: preservar região real das imagens em todos os idiomas/);
+    assert.ok(Date.parse(statusData.generatedAt) >= Date.parse(event.updatedAt));
+});
+
+test('portal records atomic Mídia Storage Online manifest persistence without formal credit', async () => {
+    const event = statusData.events.find(item => item.id === 'server-mso-manifest-atomic-write-2026-11-01-1101');
+    const server = statusData.tracks.find(track => track.id === 'server');
+    const dashboard = createDashboard({ ...statusData, events: [event] });
+    await settleDashboard();
+
+    assert.ok(event);
+    assert.equal(event.status, 'completed');
+    assert.equal(event.progressPercent, 100);
+    assert.match(event.evidence, /912 aprovados, 14 ignorados, 0 falhas\/926/);
+    assert.match(event.evidence, /focal 3\/3.*Mídia Storage Online 40\/40/);
+    assert.match(event.evidence, /concorrentes ainda podem sobrescrever snapshots/);
+    assert.match(event.release, /2\/7.*sem crédito.*não publicada/);
+    assert.equal(server.homologation.completed, 2);
+    assert.equal(server.homologation.total, 7);
+    assert.equal(statusData.coverage.completed, 328);
+    assert.equal(statusData.coverage.pending, 65);
+    assert.match(dashboard.getElement('event-list').innerHTML, /persistência atômica do manifesto/);
+    assert.ok(Date.parse(statusData.generatedAt) >= Date.parse(event.updatedAt));
+});
+test('portal mirror records atomic image replacement without formal homologation credit', () => {
+    const event = statusData.events.find(item => item.id === 'server-imagesaver-atomic-replacement-2026-11-01-1036');
+    const server = statusData.tracks.find(track => track.id === 'server');
+
+    assert.equal(event?.status, 'completed');
+    assert.equal(event?.progressPercent, 100);
+    assert.match(event?.evidence ?? '', /File.Replace conserva ACL Windows/);
+    assert.equal(server.homologation.completed, 2);
+    assert.equal(server.homologation.total, 7);
+    assert.equal(server.homologation.percent, 28.6);
+});
+test('portal mirror records handle-relative restore verification without formal credit', () => {
+    const event = statusData.events.find(item => item.id === 'server-backup-restore-handles-windows-revalidation-2026-11-01-1045');
+    const server = statusData.tracks.find(track => track.id === 'server');
+
+    assert.equal(event?.status, 'completed');
+    assert.equal(event?.progressPercent, 100);
+    assert.match(event?.evidence ?? '', /FullSystemBackup recompilado e passou 155, ignorou 16 e falhou 0\/171/);
+    assert.equal(server.homologation.completed, 2);
+    assert.equal(server.homologation.total, 7);
+    assert.equal(server.homologation.percent, 28.6);
+});
+test('Mídia Storage Online writer audit stays open without formal credit', async () => {
+    const event = statusData.events.find(item => item.id === 'server-midia-storage-filesystem-audit-2026-11-01-1048');
+    const server = statusData.tracks.find(track => track.id === 'server');
+    const dashboard = createDashboard({ ...statusData, events: [event] });
+    await settleDashboard();
+
+    assert.ok(event);
+    assert.equal(event.status, 'completed');
+    assert.equal(event.progressPercent, 100);
+    assert.match(event.evidence, /RootedFileSystem não é chamado pelo Mídia Storage Online/);
+    assert.match(event.evidence, /share mask 0x3, sem FILE_SHARE_DELETE/);
+    assert.match(event.evidence, /Nenhum exploit ou teste de código executado nesta sessão/);
+    assert.match(event.release, /2\/7.*sem crédito.*não publicada/);
+    assert.equal(server.homologation.completed, 2);
+    assert.equal(server.homologation.total, 7);
+    assert.equal(statusData.coverage.completed, 328);
+    assert.equal(statusData.coverage.pending, 65);
+    assert.match(dashboard.getElement('event-list').innerHTML, /inventário de gravações por pathname/);
+    assert.ok(Date.parse(statusData.generatedAt) >= Date.parse(event.updatedAt));
+});
+test('Mídia Storage Online keeps promotion failure primary when temp cleanup also fails', () => {
+    const event = statusData.events.find(item => item.id === 'server-mso-atomic-cleanup-exception-precedence-2026-11-01-1137');
+    const server = statusData.tracks.find(track => track.id === 'server');
+
+    assert.ok(event);
+    assert.equal(event.status, 'completed');
+    assert.equal(event.progressPercent, 100);
+    assert.match(event.evidence, /UnauthorizedAccessException em TemporaryFileCleanupException/);
+    assert.match(event.release, /Homologação formal permanece 2\/7, sem crédito/);
+    assert.equal(server.homologation.completed, 2);
+    assert.equal(server.homologation.total, 7);
+    assert.equal(server.homologation.percent, 28.6);
+    assert.equal(statusData.coverage.completed, 328);
+    assert.equal(statusData.coverage.pending, 65);
+    assert.ok(Date.parse(statusData.generatedAt) >= Date.parse(event.updatedAt));
+});
+
+test('server homologation mirror records current local regression without formal credit', () => {
+    const event = statusData.events.find(item => item.id === 'server-image-root-containment-regression-2026-11-01-1151');
+    const server = statusData.tracks.find(track => track.id === 'server');
+
+    assert.ok(event);
+    assert.equal(event.status, 'completed');
+    assert.equal(event.progressPercent, 100);
+    assert.match(event.evidence, /5.465 aprovados, 95 ignorados, 0 falhas\/5.560/);
+    assert.match(event.evidence, /Nebula Python 724\/724/);
+    assert.match(event.evidence, /Linux.*MariaDB\/Mongo opt-in.*produção permanecem pendentes/);
+    assert.equal(server.homologation.completed, 2);
+    assert.equal(server.homologation.total, 7);
+    assert.equal(server.homologation.percent, 28.6);
+    assert.equal(server.testAudit.passed, 5544);
+    assert.equal(server.testAudit.total, 5830);
+    assert.equal(server.testAudit.skipped, 286);
+    assert.equal(server.testAudit.failed, 0);
+    assert.equal(statusData.coverage.completed, 328);
+    assert.equal(statusData.coverage.pending, 65);
+    assert.ok(Date.parse(statusData.generatedAt) >= Date.parse(event.updatedAt));
+});
+test('server image-language audit mirrors Jellyfin comparison without formal credit', () => {
+    const event = statusData.events.find(item => item.id === 'server-image-language-jellyfin-comparison-2026-11-01-1209');
+    const server = statusData.tracks.find(track => track.id === 'server');
+
+    assert.ok(event);
+    assert.equal(event.status, 'completed');
+    assert.equal(event.progressPercent, 100);
+    assert.match(event.evidence, /ProviderManager 3\/3.*refresh locale\/fallback 26\/26.*TMDb utils 32\/32.*RemoteImageController 8\/8/);
+    assert.match(event.evidence, /MetadataService legado sem proveniência/);
+    assert.match(event.release, /sem crédito formal.*2\/7/);
+    assert.equal(server.homologation.completed, 2);
+    assert.equal(server.homologation.total, 7);
+    assert.equal(server.homologation.percent, 28.6);
+    assert.equal(statusData.coverage.completed, 328);
+    assert.equal(statusData.coverage.pending, 65);
+    assert.ok(Date.parse(statusData.generatedAt) >= Date.parse(event.updatedAt));
+});
+
+test('legacy metadata image language audit does not infer language from text metadata', () => {
+    const event = statusData.events.find(item => item.id === 'server-legacy-image-language-provenance-2026-11-01-1218');
+    const server = statusData.tracks.find(track => track.id === 'server');
+
+    assert.ok(event);
+    assert.equal(event.status, 'completed');
+    assert.equal(event.progressPercent, 100);
+    assert.match(event.evidence, /MetadataResult\.RemoteImages contém URL e ImageType/);
+    assert.match(event.evidence, /ResultLanguage descreve texto e não deve ser usado como idioma da capa/);
+    assert.match(event.evidence, /Model EnumerableExtensionsTests: 21\/21; Providers .*23\/23/);
+    assert.match(event.release, /não inferir idioma.*2\/7.*sem crédito ou release/);
+    assert.equal(server.homologation.completed, 2);
+    assert.equal(server.homologation.total, 7);
+    assert.equal(server.homologation.percent, 28.6);
+    assert.equal(statusData.coverage.completed, 328);
+    assert.equal(statusData.coverage.pending, 65);
+    assert.ok(Date.parse(statusData.generatedAt) >= Date.parse(event.updatedAt));
+});
+
+test('Mídia Storage Online sync lease serializes only writers sharing a manifest', () => {
+    const event = statusData.events.find(item => item.id === 'server-mso-sync-serialization-2026-11-01-1232');
+    const server = statusData.tracks.find(track => track.id === 'server');
+
+    assert.ok(event);
+    assert.equal(event.status, 'completed');
+    assert.equal(event.progressPercent, 100);
+    assert.match(event.evidence, /caminho canonicalizado.*roots diferentes continuam independentes/);
+    assert.match(event.evidence, /cancelamento e liberação após exceção/);
+    assert.match(event.release, /Homologação formal permanece 2\/7.*sem crédito/);
+    assert.equal(server.homologation.completed, 2);
+    assert.equal(server.homologation.total, 7);
+    assert.equal(server.homologation.percent, 28.6);
+    assert.equal(statusData.coverage.completed, 328);
+    assert.equal(statusData.coverage.pending, 65);
+    assert.ok(Date.parse(statusData.generatedAt) >= Date.parse(event.updatedAt));
+});
+
+test('server audit mirror records current full regression without formal credit', () => {
+    const event = statusData.events.find(item => item.id === 'server-full-regression-nebula-2026-11-01-1510');
+    const server = statusData.tracks.find(track => track.id === 'server');
+
+    assert.ok(event);
+    assert.equal(event.status, 'completed');
+    assert.match(event.evidence, /5\.543 aprovados, 273 ignorados, 0 falhas\/5\.816/);
+    assert.match(event.evidence, /Nebula Python 3\.10:.*726\/726/);
+    assert.match(event.release, /4\/10.*aguarda completar dez/);
+    assert.equal(server.testAudit.passed, 5544);
+    assert.equal(server.testAudit.total, 5830);
+    assert.equal(server.testAudit.skipped, 286);
+    assert.equal(server.testAudit.failed, 0);
+    assert.equal(server.homologation.completed, 2);
+    assert.equal(server.homologation.total, 7);
+    assert.equal(server.homologation.percent, 28.6);
+    assert.equal(statusData.coverage.completed, 328);
+    assert.equal(statusData.coverage.pending, 65);
+    assert.ok(Date.parse(statusData.generatedAt) >= Date.parse(event.updatedAt));
+});
+
+
+test('server audit mirror records rooted ImageSaver gap without formal credit', () => {
+    const event = statusData.events.find(item => item.id === 'server-imagesaver-rooted-write-gap-2026-11-01-1520');
+    const server = statusData.tracks.find(track => track.id === 'server');
+
+    assert.ok(event);
+    assert.equal(event.status, 'in_progress');
+    assert.equal(event.progressPercent, null);
+    assert.match(event.evidence, /13 entradas.*dois callers: AvatarService e ImageController/);
+    assert.match(event.evidence, /ImageSaver ainda cria e promove arquivos por pathname/);
+    assert.match(event.release, /2\/7.*sem crédito.*Snapshot local 5\/10/);
+    assert.equal(server.homologation.completed, 2);
+    assert.equal(server.homologation.total, 7);
+    assert.equal(server.homologation.percent, 28.6);
+    assert.equal(statusData.generatedAt, '2026-11-01T17:32:00-03:00');
+});
+
+test('server audit mirror records Next Up exact-count scan cost without formal credit', () => {
+    const event = statusData.events.find(item => item.id === 'server-nextup-exact-count-query-cost-audit-2026-11-01-1524');
+    const server = statusData.tracks.find(track => track.id === 'server');
+
+    assert.ok(event);
+    assert.equal(event.status, 'completed');
+    assert.equal(event.progressPercent, 100);
+    assert.match(event.evidence, /enableTotalRecordCount=true.*materializa chaves e episódios de todas as séries/);
+    assert.match(event.evidence, /8 aprovados, 1 ignorado por MariaDB opt-in/);
+    assert.match(event.release, /snapshot local 6\/10.*Preservado o contrato público de TotalRecordCount/);
+    assert.equal(server.homologation.completed, 2);
+    assert.equal(server.homologation.total, 7);
+    assert.equal(server.homologation.percent, 28.6);
+    assert.equal(statusData.generatedAt, '2026-11-01T17:32:00-03:00');
+});
+
+test('server mirror records exact-count Next Up branch coverage without formal credit', () => {
+    const event = statusData.events.find(item => item.id === 'server-nextup-exact-count-branch-coverage-2026-11-01-1530');
+    const server = statusData.tracks.find(track => track.id === 'server');
+
+    assert.ok(event);
+    assert.equal(event.status, 'completed');
+    assert.match(event.evidence, /Limit nulo.*TotalRecordCount=2.*Limit=1/);
+    assert.match(event.evidence, /9 aprovados, 1 ignorado por MariaDB opt-in/);
+    assert.match(event.release, /Homologação formal 2\/7.*Snapshot local 7\/10/);
+    assert.equal(server.homologation.completed, 2);
+    assert.equal(server.homologation.total, 7);
+    assert.equal(server.homologation.percent, 28.6);
+    assert.equal(statusData.generatedAt, '2026-11-01T17:32:00-03:00');
+});
+
+test('portal records complete .NET solution regression without formal credit', () => {
+    const event = statusData.events.find(item => item.id === 'server-dotnet-full-solution-regression-2026-11-01-1537');
+    const server = statusData.tracks.find(track => track.id === 'server');
+
+    assert.ok(event);
+    assert.equal(event.status, 'completed');
+    assert.match(event.evidence, /5\.544 aprovados, 286 ignorados e 0 falhas\/5\.830 em 17 assemblies/);
+    assert.match(event.evidence, /MariaDB\/Mongo com opt-in/);
+    assert.equal(server.testAudit.passed, 5544);
+    assert.equal(server.testAudit.total, 5830);
+    assert.equal(server.testAudit.skipped, 286);
+    assert.equal(server.testAudit.failed, 0);
+    assert.equal(server.testAudit.percent, 95.1);
+    assert.equal(server.homologation.completed, 2);
+    assert.equal(server.homologation.total, 7);
+    assert.equal(server.homologation.percent, 28.6);
+    assert.equal(statusData.generatedAt, '2026-11-01T17:32:00-03:00');
+});
+
+test('portal mirror records the rooted image-writer boundary audit without formal credit', () => {
+    const event = statusData.events.find(item => item.id === 'server-imagesaver-rooted-primitive-boundary-audit-2026-11-01-1549');
+    const server = statusData.tracks.find(track => track.id === 'server');
+
+    assert.ok(event);
+    assert.equal(event.status, 'in_progress');
+    assert.equal(event.progressPercent, null);
+    assert.match(event.local, /47 aprovados, 11 ignorados por plataforma, 0 falhas\/58/);
+    assert.match(event.evidence, /BackupRestoreDirectory/);
+    assert.match(event.evidence, /pathname-based|por pathname/);
+    assert.match(event.release, /snapshot local 9\/10.*deployment público 128b39a READY/i);
+    assert.equal(server.homologation.completed, 2);
+    assert.equal(server.homologation.total, 7);
+    assert.equal(server.homologation.percent, 28.6);
+    assert.equal(statusData.generatedAt, '2026-11-01T17:32:00-03:00');
+});
+
+test('portal records the ImageSaver writer test boundary without formal homologation credit', () => {
+    const event = statusData.events.find(item => item.id === 'server-imagesaver-write-regression-revalidation-2026-11-01-1553');
+    const server = statusData.tracks.find(track => track.id === 'server');
+
+    assert.ok(event);
+    assert.equal(event.status, 'completed');
+    assert.equal(event.progressPercent, 100);
+    assert.match(event.local, /4 aprovados, 1 ignorado, 0 falhas\/5/);
+    assert.match(event.evidence, /modo Unix retorna cedo/);
+    assert.match(event.evidence, /pathname-based|por pathname/);
+    assert.match(event.release, /Lote 10\/10.*homologação permanece 2\/7/);
+    assert.equal(server.homologation.completed, 2);
+    assert.equal(server.homologation.total, 7);
+    assert.equal(server.homologation.percent, 28.6);
+    assert.equal(statusData.generatedAt, '2026-11-01T17:32:00-03:00');
+});
+
+test('portal records Nebula link isolation and atomic studio cache without formal credit', () => {
+    const event = statusData.events.find(item => item.id === 'server-nebula-symlink-and-studio-cache-2026-11-01-1629');
+    const server = statusData.tracks.find(track => track.id === 'server');
+
+    assert.ok(event);
+    assert.equal(event.status, 'completed');
+    assert.equal(event.progressPercent, 100);
+    assert.match(event.evidence, /51\/51/);
+    assert.match(event.evidence, /3\/3/);
+    assert.match(event.evidence, /corrida|pathname-based/i);
+    assert.match(event.release, /3\/10.*release/);
+    assert.equal(server.homologation.completed, 2);
+    assert.equal(server.homologation.total, 7);
+    assert.equal(server.homologation.percent, 28.6);
+    assert.equal(statusData.generatedAt, '2026-11-01T17:32:00-03:00');
+});
+
+test('portal records People mapping serialization without MariaDB or formal credit', () => {
+    const event = statusData.events.find(item => item.id === 'server-people-mapping-serialization-2026-11-01-1637');
+    const server = statusData.tracks.find(track => track.id === 'server');
+
+    assert.ok(event);
+    assert.equal(event.status, 'completed');
+    assert.equal(event.progressPercent, 100);
+    assert.match(event.evidence, /três comandos SQL distintos em BaseItemImageInfos.*retentativa após deadlock/);
+    assert.match(event.evidence, /um comando final em PeopleBaseItemMap.*chave duplicada/);
+    assert.match(event.evidence, /mensagens repetidas.*não representam operações adicionais/);
+    assert.match(event.release, /4\/10.*2\/7.*sem crédito ou release/);
+    assert.equal(server.homologation.completed, 2);
+    assert.equal(server.homologation.total, 7);
+    assert.equal(server.homologation.percent, 28.6);
+    assert.equal(statusData.generatedAt, '2026-11-01T17:32:00-03:00');
+});
+
+test('portal records the preexisting People mapping test as pending MariaDB evidence', () => {
+    const event = statusData.events.find(item => item.id === 'server-people-mapping-existing-link-concurrency-2026-11-01-1708');
+    const server = statusData.tracks.find(track => track.id === 'server');
+
+    assert.ok(event);
+    assert.equal(event.status, 'in_progress');
+    assert.equal(event.progressPercent, 70);
+    assert.match(event.local, /2 testes MariaDB focais ignorados/);
+    assert.match(event.evidence, /semeia pessoa e vínculo.*oito atualizações simultâneas/);
+    assert.match(event.evidence, /não valida MariaDB nem o lock/);
+    assert.match(event.release, /8\/10.*2\/7.*sem crédito ou release/);
+    assert.equal(server.homologation.completed, 2);
+    assert.equal(server.homologation.total, 7);
+    assert.equal(server.homologation.percent, 28.6);
+    assert.equal(statusData.generatedAt, '2026-11-01T17:32:00-03:00');
+});
+
+test('portal records nested MariaDB deadlock retries as an unverified risk', () => {
+    const event = statusData.events.find(item => item.id === 'server-image-savechanges-transaction-deadlock-retry-audit-2026-11-01-1712');
+    const server = statusData.tracks.find(track => track.id === 'server');
+
+    assert.ok(event);
+    assert.equal(event.status, 'in_progress');
+    assert.equal(event.progressPercent, 45);
+    assert.match(event.evidence, /transação explícita.*cinco retries.*retry externo/);
+    assert.match(event.evidence, /hipótese não validada/);
+    assert.match(event.release, /9\/10.*2\/7.*sem crédito ou release/);
+    assert.match(statusData.latestAudit, /Evidência local 1\/10/);
+    assert.equal(server.homologation.completed, 2);
+    assert.equal(server.homologation.total, 7);
+    assert.equal(server.homologation.percent, 28.6);
+    assert.equal(statusData.generatedAt, '2026-11-01T17:32:00-03:00');
+});
+
+test('portal records atomic AudioDB cache downloads without formal or release credit', () => {
+    const event = statusData.events.find(item => item.id === 'server-audiodb-atomic-cache-2026-11-01-1643');
+    const server = statusData.tracks.find(track => track.id === 'server');
+
+    assert.ok(event);
+    assert.equal(event.status, 'completed');
+    assert.equal(event.progressPercent, 100);
+    assert.match(event.evidence, /10 aprovados/);
+    assert.match(event.evidence, /930 aprovados, 14 ignorados, 0 falhas\/944/);
+    assert.match(event.release, /5\/10.*2\/7.*sem crédito ou release/);
+    assert.equal(server.homologation.completed, 2);
+    assert.equal(server.homologation.total, 7);
+    assert.equal(server.homologation.percent, 28.6);
+    assert.equal(statusData.generatedAt, '2026-11-01T17:32:00-03:00');
+});
+
+test('portal records optional notification sidecars without formal homologation credit', () => {
+    const event = statusData.events.find(item => item.id === 'server-notification-sidecar-optional-2026-11-01-1651');
+    const server = statusData.tracks.find(track => track.id === 'server');
+
+    assert.ok(event);
+    assert.equal(event.status, 'completed');
+    assert.equal(event.progressPercent, 100);
+    assert.match(event.local, /NebulaTelegramNotifierTests 14\/14/);
+    assert.match(event.evidence, /exigia NFO e capa existentes/);
+    assert.match(event.evidence, /132 expirações.*sem discriminar/);
+    assert.match(event.release, /6\/10.*2\/7.*sem crédito ou release/);
+    assert.match(statusData.latestAudit, /Evidência local 1\/10/);
+    assert.equal(server.homologation.completed, 2);
+    assert.equal(server.homologation.total, 7);
+    assert.equal(server.homologation.percent, 28.6);
+    assert.equal(statusData.generatedAt, '2026-11-01T17:32:00-03:00');
+});
+
+test('portal records notification timeout diagnostics without private paths or formal credit', () => {
+    const event = statusData.events.find(item => item.id === 'server-notification-timeout-diagnostics-2026-11-01-1658');
+    const server = statusData.tracks.find(track => track.id === 'server');
+
+    assert.ok(event);
+    assert.equal(event.status, 'completed');
+    assert.equal(event.progressPercent, 100);
+    assert.match(event.local, /NebulaTelegramNotifierTests 14\/14/);
+    assert.match(event.evidence, /NomePreenchido.*SnapshotEstavel.*CapaDisponivel.*NfoDisponivel/);
+    assert.match(event.evidence, /sem caminho nem título/);
+    assert.match(event.release, /7\/10.*2\/7.*sem crédito ou release/);
+    assert.match(statusData.latestAudit, /Evidência local 1\/10/);
+    assert.equal(server.homologation.completed, 2);
+    assert.equal(server.homologation.total, 7);
+    assert.equal(server.homologation.percent, 28.6);
+    assert.equal(statusData.generatedAt, '2026-11-01T17:32:00-03:00');
+});
+
+test('portal records People mapping collation fix without formal or release credit', () => {
+    const event = statusData.events.find(item => item.id === 'server-people-map-role-collation-2026-11-01-1730');
+    const server = statusData.tracks.find(track => track.id === 'server');
+
+    assert.ok(event);
+    assert.equal(event.status, 'in_progress');
+    assert.equal(event.progressPercent, 75);
+    assert.match(event.evidence, /PeopleId.*Role.*collation MariaDB/);
+    assert.match(event.local, /3 testes MariaDB encontrados e ignorados/);
+    assert.match(event.release, /1\/10.*2\/7.*sem release/);
+    assert.equal(server.homologation.completed, 2);
+    assert.equal(server.homologation.total, 7);
+    assert.equal(server.homologation.percent, 28.6);
 });

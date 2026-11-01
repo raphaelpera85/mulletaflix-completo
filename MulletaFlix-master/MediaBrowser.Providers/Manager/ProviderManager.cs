@@ -355,9 +355,25 @@ namespace MediaBrowser.Providers.Manager
                 providers = providers.Where(i => i.GetSupportedImages(item).Contains(query.ImageType.Value));
             }
 
-            var preferredLanguage = item.GetPreferredMetadataLanguage();
+            var preferredLanguage = string.IsNullOrWhiteSpace(query.PreferredMetadataLanguage)
+                ? _configurationManager.Configuration.PreferredMetadataLanguage
+                : query.PreferredMetadataLanguage;
+            if (string.IsNullOrWhiteSpace(preferredLanguage))
+            {
+                preferredLanguage = item.GetPreferredMetadataLanguage();
+            }
 
-            var tasks = providers.Select(i => GetImages(item, i, preferredLanguage, query.IncludeAllLanguages, cancellationToken, query.ImageType));
+            var preferredCountryCode = string.IsNullOrWhiteSpace(query.PreferredMetadataCountryCode)
+                ? _configurationManager.Configuration.MetadataCountryCode
+                : query.PreferredMetadataCountryCode;
+            if (string.IsNullOrWhiteSpace(preferredCountryCode))
+            {
+                preferredCountryCode = item.GetPreferredMetadataCountryCode();
+            }
+
+            preferredLanguage = MediaBrowser.Model.Extensions.EnumerableExtensions.NormalizeLanguageTag(preferredLanguage, preferredCountryCode);
+
+            var tasks = providers.Select(i => GetImages(item, i, preferredLanguage, preferredCountryCode, query.IncludeAllLanguages, cancellationToken, query.ImageType));
 
             var results = await Task.WhenAll(tasks).ConfigureAwait(false);
 
@@ -370,6 +386,7 @@ namespace MediaBrowser.Providers.Manager
         /// <param name="item">The item.</param>
         /// <param name="provider">The provider.</param>
         /// <param name="preferredLanguage">The preferred language.</param>
+        /// <param name="preferredCountryCode">The preferred country code.</param>
         /// <param name="includeAllLanguages">Whether to include all languages in results.</param>
         /// <param name="cancellationToken">The cancellation token.</param>
         /// <param name="type">The type.</param>
@@ -378,6 +395,7 @@ namespace MediaBrowser.Providers.Manager
             BaseItem item,
             IRemoteImageProvider provider,
             string preferredLanguage,
+            string preferredCountryCode,
             bool includeAllLanguages,
             CancellationToken cancellationToken,
             ImageType? type = null)
@@ -386,7 +404,9 @@ namespace MediaBrowser.Providers.Manager
 
             try
             {
-                var result = await provider.GetImages(item, cancellationToken).ConfigureAwait(false);
+                var result = provider is ILanguageAwareRemoteImageProvider languageAwareProvider
+                    ? await languageAwareProvider.GetImages(item, preferredLanguage, preferredCountryCode, includeAllLanguages, cancellationToken).ConfigureAwait(false)
+                    : await provider.GetImages(item, cancellationToken).ConfigureAwait(false);
 
                 if (type.HasValue)
                 {

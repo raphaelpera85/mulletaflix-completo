@@ -1565,6 +1565,7 @@ public sealed class BackupServiceTests : IDisposable
 
     [Theory]
     [InlineData("Config/NUL.txt")]
+    [InlineData("Config/ NUL.txt")]
     [InlineData("Config/COM¹.txt")]
     [InlineData("Config/COM².txt")]
     [InlineData("Config/COM³.txt")]
@@ -1690,6 +1691,90 @@ public sealed class BackupServiceTests : IDisposable
             if (Directory.Exists(linkPath))
             {
                 Directory.Delete(linkPath);
+            }
+
+            if (Directory.Exists(isolatedRoot))
+            {
+                Directory.Delete(isolatedRoot, recursive: true);
+            }
+        }
+    }
+
+    [Fact]
+    public async Task RestoreBackupAsync_DoesNotFollowRestoreRootPathReplacementAfterOpeningDirectory()
+    {
+        Assert.SkipWhen(!OperatingSystem.IsWindows() && !OperatingSystem.IsLinux(), "Restore directory handles support Windows and Linux.");
+
+        var isolatedRoot = CreateRestoreTestRoot("restore-root-path-replacement");
+        var configPath = Path.Combine(isolatedRoot, "config");
+        var displacedConfigPath = Path.Combine(isolatedRoot, "config-displaced");
+        var outsidePath = Path.Combine(isolatedRoot, "outside");
+        var archivePath = Path.Combine(isolatedRoot, "restore.zip");
+        var targetPath = Path.Combine(configPath, "server.json");
+        var outsideFilePath = Path.Combine(outsidePath, "server.json");
+        Directory.CreateDirectory(configPath);
+        Directory.CreateDirectory(outsidePath);
+        await File.WriteAllTextAsync(targetPath, "original-content");
+        await File.WriteAllTextAsync(outsideFilePath, "outside-sentinel");
+
+        var swapped = false;
+        var renameWasBlocked = false;
+        try
+        {
+            _applicationPathsMock.Setup(paths => paths.ConfigurationDirectoryPath).Returns(configPath);
+            _applicationPathsMock.Setup(paths => paths.DataPath).Returns(Path.Combine(isolatedRoot, "data"));
+            _applicationPathsMock.Setup(paths => paths.CachePath).Returns(Path.Combine(isolatedRoot, "cache"));
+            _applicationPathsMock.Setup(paths => paths.ProgramDataPath).Returns(Path.Combine(isolatedRoot, "program-data"));
+            _applicationPathsMock.Setup(paths => paths.RootFolderPath).Returns(Path.Combine(isolatedRoot, "root"));
+            _applicationPathsMock.Setup(paths => paths.InternalMetadataPath).Returns(Path.Combine(isolatedRoot, "metadata"));
+            _applicationPathsMock.Setup(paths => paths.DefaultInternalMetadataPath).Returns(Path.Combine(isolatedRoot, "metadata-default"));
+
+            var manifest = new BackupManifest
+            {
+                ServerVersion = new Version(10, 0, 0),
+                BackupEngineVersion = new Version(0, 2, 0),
+                DateCreated = DateTimeOffset.UtcNow,
+                DatabaseTables = [],
+                Options = new BackupOptions { Database = false, Metadata = false, Subtitles = false, Trickplay = false }
+            };
+            using (var archive = ZipFile.Open(archivePath, ZipArchiveMode.Create))
+            {
+                await WriteArchiveEntryAsync(archive, "manifest.json", JsonSerializer.Serialize(manifest));
+                await WriteArchiveEntryAsync(archive, "Config/server.json", "restored-content");
+            }
+
+            var service = CreateService(restoreBackupSidecarCreatedForTesting: _ =>
+            {
+                try
+                {
+                    Directory.Move(configPath, displacedConfigPath);
+                    Directory.CreateSymbolicLink(configPath, outsidePath);
+                    swapped = true;
+                }
+                catch (IOException) when (OperatingSystem.IsWindows())
+                {
+                    renameWasBlocked = true;
+                }
+                catch (UnauthorizedAccessException) when (OperatingSystem.IsWindows())
+                {
+                    renameWasBlocked = true;
+                }
+            });
+
+            await service.RestoreBackupAsync(archivePath);
+
+            Assert.Equal(OperatingSystem.IsWindows(), renameWasBlocked);
+            Assert.Equal(OperatingSystem.IsLinux(), swapped);
+            Assert.Equal("outside-sentinel", await File.ReadAllTextAsync(outsideFilePath));
+            Assert.Equal(
+                "restored-content",
+                await File.ReadAllTextAsync(swapped ? Path.Combine(displacedConfigPath, "server.json") : targetPath));
+        }
+        finally
+        {
+            if (Directory.Exists(configPath) && (File.GetAttributes(configPath) & FileAttributes.ReparsePoint) != 0)
+            {
+                Directory.Delete(configPath);
             }
 
             if (Directory.Exists(isolatedRoot))

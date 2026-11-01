@@ -210,4 +210,63 @@ public sealed class TVSeriesManagerNextUpPaginationTests
         Assert.Equal([(null, (string?)null), (candidateDate, "Series49")], requestedCursors);
         Assert.Same(lastEpisode, Assert.Single(result.Items));
     }
+
+    [Fact]
+    public void GetNextUp_WithExactCount_ResolvesAllCandidatesBeforeApplyingLimit()
+    {
+        var user = new MulletaFlix.Database.Implementations.Entities.User("testuser", "auth", "auth");
+        var lastPlayedDate = DateTime.UtcNow.AddDays(-1);
+        var episodes = new Dictionary<string, Episode>
+        {
+            ["SeriesA"] = new Episode { Name = "Episode A" },
+            ["SeriesB"] = new Episode { Name = "Episode B" }
+        };
+        int? candidateLimit = -1;
+        IReadOnlyList<string>? resolvedKeys = null;
+
+        var libraryManager = new Mock<ILibraryManager>();
+        libraryManager
+            .Setup(manager => manager.GetNextUpSeriesKeys(
+                It.IsAny<InternalItemsQuery>(),
+                It.IsAny<IReadOnlyCollection<BaseItem>>(),
+                It.IsAny<DateTime>()))
+            .Returns((InternalItemsQuery query, IReadOnlyCollection<BaseItem> _, DateTime _) =>
+            {
+                candidateLimit = query.Limit;
+                return episodes.Keys.Select(key => (key, lastPlayedDate)).ToArray();
+            });
+        libraryManager
+            .Setup(manager => manager.GetNextUpEpisodesBatch(
+                It.IsAny<InternalItemsQuery>(),
+                It.IsAny<IReadOnlyList<string>>(),
+                It.IsAny<bool>(),
+                It.IsAny<bool>()))
+            .Returns((InternalItemsQuery _, IReadOnlyList<string> keys, bool _, bool _) =>
+            {
+                resolvedKeys = keys;
+                return keys.ToDictionary(key => key, key => new NextUpEpisodeBatchResult
+                {
+                    LastWatched = episodes[key],
+                    NextUp = episodes[key]
+                });
+            });
+
+        var userDataManager = new Mock<IUserDataManager>();
+        userDataManager
+            .Setup(manager => manager.GetUserData(user, It.IsAny<BaseItem>()))
+            .Returns(new UserItemData { Key = string.Empty, LastPlayedDate = lastPlayedDate });
+        var configurationManager = new Mock<IServerConfigurationManager>();
+        configurationManager.SetupGet(manager => manager.Configuration).Returns(new ServerConfiguration());
+        var manager = new TVSeriesManager(userDataManager.Object, libraryManager.Object, configurationManager.Object);
+
+        var result = manager.GetNextUp(
+            new NextUpQuery { User = user, Limit = 1, EnableTotalRecordCount = true },
+            [],
+            new DtoOptions());
+
+        Assert.Null(candidateLimit);
+        Assert.Equal(["SeriesA", "SeriesB"], resolvedKeys);
+        Assert.Equal(2, result.TotalRecordCount);
+        Assert.Single(result.Items);
+    }
 }

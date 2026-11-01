@@ -200,17 +200,17 @@ namespace MediaBrowser.Providers.Subtitles
                 var stream = response.Stream;
                 await using (stream.ConfigureAwait(false))
                 {
+                    if (!IsSafeSubtitleLanguage(response.Language))
+                    {
+                        throw new ArgumentException("Language contains invalid characters.", nameof(response));
+                    }
+
                     await stream.CopyToAsync(memoryStream).ConfigureAwait(false);
                     memoryStream.Position = 0;
                 }
 
                 var savePaths = new List<string>();
                 var language = response.Language.ToLowerInvariant();
-                if (language.AsSpan().IndexOfAny(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar) >= 0)
-                {
-                    throw new ArgumentException("Language contains invalid characters.");
-                }
-
                 var saveFileName = Path.GetFileNameWithoutExtension(video.Path) + "." + language;
 
                 if (response.IsForced)
@@ -236,6 +236,27 @@ namespace MediaBrowser.Providers.Subtitles
 
                 await TrySaveToFiles(memoryStream, savePaths, video, response.Format.ToLowerInvariant()).ConfigureAwait(false);
             }
+        }
+
+        internal static bool IsSafeSubtitleLanguage(string? language)
+        {
+            if (string.IsNullOrEmpty(language))
+            {
+                return false;
+            }
+
+            foreach (var character in language)
+            {
+                if (!((character >= 'a' && character <= 'z')
+                    || (character >= 'A' && character <= 'Z')
+                    || (character >= '0' && character <= '9')
+                    || character is '-' or '_'))
+                {
+                    return false;
+                }
+            }
+
+            return true;
         }
 
         private async Task TrySaveToFiles(Stream stream, List<string> savePaths, Video video, string extension)

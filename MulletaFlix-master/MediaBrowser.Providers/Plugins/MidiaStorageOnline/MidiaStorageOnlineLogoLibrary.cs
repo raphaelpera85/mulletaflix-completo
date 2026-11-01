@@ -9,6 +9,7 @@ using System.IO;
 using System.Linq;
 using System.Net;
 using System.Net.Http;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
@@ -22,7 +23,7 @@ namespace MediaBrowser.Providers.Plugins.MidiaStorageOnline
     {
         private static readonly HttpClient _httpClient = CreateHttpClient();
         private static readonly SemaphoreSlim _catalogLock = new(1, 1);
-        private static readonly ConcurrentDictionary<string, string> _resolvedLogoCache = new(StringComparer.OrdinalIgnoreCase);
+        private static readonly ConcurrentDictionary<string, string> _resolvedLogoCache = new(StringComparer.Ordinal);
         private static IptvOrgLogoCatalog? _catalog;
 
         private static readonly TimeSpan _catalogTtl = TimeSpan.FromDays(7);
@@ -59,7 +60,7 @@ namespace MediaBrowser.Providers.Plugins.MidiaStorageOnline
 
             var uniqueEntries = channelEntries
                 .Select(entry => new LogoRequest(entry, entry.TvgLogo!.Trim()))
-                .GroupBy(x => x.LogoUrl, StringComparer.OrdinalIgnoreCase)
+                .GroupBy(x => x.LogoUrl, StringComparer.Ordinal)
                 .Select(g => g.First())
                 .ToList();
 
@@ -68,7 +69,7 @@ namespace MediaBrowser.Providers.Plugins.MidiaStorageOnline
                 return;
             }
 
-            var results = new ConcurrentDictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            var results = new ConcurrentDictionary<string, string>(StringComparer.Ordinal);
             var degree = Math.Min(100, Math.Max(4, Environment.ProcessorCount * 2));
 
             await Parallel.ForEachAsync(uniqueEntries, new ParallelOptions
@@ -187,6 +188,7 @@ namespace MediaBrowser.Providers.Plugins.MidiaStorageOnline
                 return BuildLocalLogoUrl(baseUrl, Path.GetFileName(localPath));
             }
 
+            string? tempPath = null;
             try
             {
                 using var response = await _httpClient.GetAsync(uri, HttpCompletionOption.ResponseHeadersRead, ct).ConfigureAwait(false);
@@ -201,15 +203,19 @@ namespace MediaBrowser.Providers.Plugins.MidiaStorageOnline
                 localPath = Path.Combine(logoDir, localFileName);
 
                 await using var input = await response.Content.ReadAsStreamAsync(ct).ConfigureAwait(false);
-                await using var output = new FileStream(localPath, FileMode.Create, FileAccess.Write, FileShare.None, 81920, FileOptions.Asynchronous);
-                await input.CopyToAsync(output, ct).ConfigureAwait(false);
-
-                if (new FileInfo(localPath).Length == 0)
+                tempPath = localPath + "." + Guid.NewGuid().ToString("N") + ".download";
+                await using (var output = new FileStream(tempPath, FileMode.CreateNew, FileAccess.Write, FileShare.None, 81920, FileOptions.Asynchronous))
                 {
-                    File.Delete(localPath);
+                    await input.CopyToAsync(output, ct).ConfigureAwait(false);
+                }
+
+                if (new FileInfo(tempPath).Length == 0)
+                {
                     return null;
                 }
 
+                File.Move(tempPath, localPath, overwrite: true);
+                tempPath = null;
                 _resolvedLogoCache[cacheKey] = localPath;
                 return BuildLocalLogoUrl(baseUrl, Path.GetFileName(localPath));
             }
@@ -217,9 +223,22 @@ namespace MediaBrowser.Providers.Plugins.MidiaStorageOnline
             {
                 return null;
             }
+            finally
+            {
+                if (tempPath is not null && File.Exists(tempPath))
+                {
+                    try
+                    {
+                        File.Delete(tempPath);
+                    }
+                    catch
+                    {
+                    }
+                }
+            }
         }
 
-        private static string BuildLogoFileName(string channelName, Uri uri, string fallbackExtension)
+        internal static string BuildLogoFileName(string channelName, Uri uri, string fallbackExtension)
         {
             var baseName = Uri.UnescapeDataString(Path.GetFileName(uri.AbsolutePath));
             var extension = Path.GetExtension(baseName);
@@ -238,7 +257,26 @@ namespace MediaBrowser.Providers.Plugins.MidiaStorageOnline
                 candidate += extension;
             }
 
-            return string.IsNullOrWhiteSpace(candidate) ? $"logo{extension}" : candidate;
+            candidate = string.IsNullOrWhiteSpace(candidate) ? $"logo{extension}" : candidate;
+            var candidateExtension = Path.GetExtension(candidate);
+            if (candidateExtension.Length > 16)
+            {
+                candidateExtension = fallbackExtension.StartsWith(".", StringComparison.Ordinal) ? fallbackExtension : "." + fallbackExtension;
+                if (candidateExtension.Length > 16)
+                {
+                    candidateExtension = ".img";
+                }
+            }
+
+            var stem = Path.GetFileNameWithoutExtension(candidate);
+            var urlHash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(uri.AbsoluteUri)))[..16];
+            var maximumStemLength = Math.Max(1, 120 - urlHash.Length - 1 - candidateExtension.Length);
+            if (stem.Length > maximumStemLength)
+            {
+                stem = stem[..maximumStemLength].TrimEnd();
+            }
+
+            return $"{stem}_{urlHash}{candidateExtension}";
         }
 
         private static string SanitizeFileName(string? text)

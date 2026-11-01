@@ -1,3 +1,53 @@
+### 2026-11-01 16:43 BRT — Cache HTTP atômico para AudioDB
+
+- Os providers de artista e álbum transmitiam HTTP para o arquivo cache final já aberto com `FileMode.Create`. A cópia parcial podia descartar o cache anterior. Agora usam streaming por `ResponseHeadersRead`, validam o status e promovem um temporário após a cópia integral.
+- Focais AudioDB 10/10; suíte Providers 930 aprovados, 14 ignorados, 0 falhas/944; `dotnet format style --verify-no-changes` passou. Sem chamada à API real ou validação em produção/Linux.
+- Mapa técnico conferido, sem mudança estrutural. Homologação formal 2/7; evidência local 5/10; sem crédito ou release. Sessão: [[Sessões/2026-11-01-MulletaFlix-auditoria-nebula-image-people-1638]].
+
+### 2026-11-01 16:37 BRT — Sincronização de vínculos de elenco por item
+
+- Log MariaDB da versão 12.1.45 mostra 13 `DbUpdateException`, nove deadlocks e quatro chaves duplicadas; uma duplicata é lançada em `PeopleRepository.UpdatePeople`. O método consulta vínculos e insere os ausentes na PK composta de `PeopleBaseItemMap`, sem serialização por item.
+- `PeopleRepository` agora usa `AsyncKeyedLocker<Guid>` por `itemId`; foi adicionado teste MariaDB com oito atualizações simultâneas da mesma mídia.
+- O build Release de `IntroSkipper.Integration.Tests` passou. Os dois testes focais foram descobertos e ignorados por ausência de MariaDB descartável configurado. Formatação passou. Os outros deadlocks/duplicatas permanecem sem atribuição e sem correção.
+- Evidência local 4/10 do próximo lote; homologação formal 2/7, sem crédito ou release. Mapa conferido, sem novo módulo/API/dependência. Sessão: [[Sessões/2026-11-01-MulletaFlix-auditoria-nebula-image-people-1638]].
+
+### 2026-11-01 16:31 BRT — Cache de estúdios íntegro e isolamento de links no Nebula
+
+- `StudiosImageProvider.EnsureList` passa a gravar em temporário e substituir o cache só após download completo; falha remota preserva a lista anterior.
+- Downloader Nebula rejeita raiz monitorada linkada, ignora reparse points na busca e impede que as rotinas de limpeza atravessem/removam árvores por exclusão recursiva. Regressões testam root symlink e subpasta linkada apontando para mídia externa.
+- Windows/.NET 10 Release: `NebulaPathSafetyTests|NebulaDownloaderEngineTests` 51/51; `StudiosImageProviderTests` 3/3; suíte Providers 927 aprovados, 14 ignorados, 0 falhas/941. Formatação verificada sem diferenças.
+- Auditoria estática encontrou risco condicional de arquivos externos alcançados por symlink; existência de links em produção não foi verificada. Links presentes durante enumeração são ignorados, mas corrida de troca do diretório entre validação e uso permanece sem cobertura handle-relative. CI PR #1 continua sem steps por bloqueio de cobrança. Homologação formal 2/7, sem crédito, release ou produção.
+- Portal local: evidência 3/10 do próximo lote; não publicar até completar dez. Mapa técnico conferido: nenhum módulo, API, dependência ou componente novo.
+- Sessão: [[Sessões/2026-11-01-MulletaFlix-auditoria-nebula-image-people-1638]].
+
+### 2026-11-01 14:49 BRT — Rechecagem CI PR #1 e writers de imagem
+
+- Runs 41005367220 e 41283703952: 16/16 jobs não iniciaram steps; anotações do último run confirmam bloqueio de cobrança. Logs representativos do run anterior retornam BlobNotFound/404. `gh` local sem login. Sem falha de código demonstrada; nenhuma correção/commit/push nesta rodada.
+- `ImageSaver` continua criando diretórios, temporários e promovendo arquivos por pathname. Os 13 ingressos do `ProviderManager.SaveImage` e dois callers diretos do writer foram mapeados; `RootedFileSystem` existente protege somente exclusão. Escrita rooted multiplataforma segue pendente de desenho e validação.
+- Verificações foram de inspeção/API; nenhum teste de produto executado. Homologação formal 2/7, sem crédito/release. Portal dedicado atualizado localmente, lote 2/10; contrato Node passou 442/442 após preservar histórico, sem publicação.
+- Mapa técnico conferido: sem alteração estrutural nesta sessão.
+### 2026-11-01 14:32 BRT — consulta TMDb com todos os idiomas
+
+- `IncludeAllLanguages` agora atravessa `ProviderManager` e chega aos providers TMDb de filme, série, temporada, episódio e coleção. Quando ativo, a requisição não limita os idiomas; desligado, permanece a lista de locale/região, idioma base, sem texto e inglês.
+- Verificação local Windows/.NET 10 Release: foco TMDb/ProviderManager 33/33; `Jellyfin.Providers.Tests` 920 aprovados, 14 ignorados, 0 falhas/934. Portal local: 442/442 contratos; evidência 2/10 do próximo lote, sem publicação.
+- CI PR #1 não chegou a executar: anotações dos 16 jobs indicam bloqueio de cobrança; os logs não demonstram falha de código. Formal 2/7; 12.1.46 candidata, sem release. TMDb ao vivo, refresh real, visual, Linux, produção e CI executada não verificados.
+- Mapa técnico conferido e atualizado para o fluxo do overload language-aware. Ver [[Sessões/2026-11-01-MulletaFlix-tmdb-all-image-languages-1431]].
+
+### 2026-11-01 14:21 BRT — Regressão completa, disponibilidade da instância e rechecagem do PR #1
+
+- Repetida a suíte Release/.NET 10 em Windows: `dotnet test MulletaFlix.sln --configuration Release --no-restore --filter "FullyQualifiedName!~LiveIntegrationTests" --verbosity quiet --logger "trx;LogFilePrefix=server-audit"`. Os 17 relatórios TRX somaram 5.538 aprovados, 273 ignorados, 0 falhas (5.811 casos); `LiveIntegrationTests` foi filtrado. Casos de MariaDB/Mongo e Linux permanecem ignorados por pré-condição/plataforma.
+- Nebula Python 3.10 via `.venv`: 726/726 aprovados. Não valida transferência real, Mongo operacional ou Linux.
+- Rechecagem do PR #1, head `cbc380c94e8c88278c44309f586faf9c0e1c134f`, run `41283703952`: os 16/16 jobs foram bloqueados antes dos steps; anotações dizem que a conta GitHub está bloqueada por cobrança. A integração não retornou jobs/logs, e `gh auth status` informa CLI sem autenticação. Não há falha de código demonstrada; nenhuma alteração de runtime, commit ou push foi feito.
+- Verificação local read-only às 14:16 BRT: processo MulletaFlix ausente, nenhum listener em `127.0.0.1:8096`; `/System/Info/Public` recusou conexão. Nenhum serviço foi iniciado ou alterado.
+- Contrato do portal atualizado e validado: `node --test tests/homologacao.test.mjs`, 441/441. Evento local 1/10 do próximo lote; o deploy público `128b39a` está READY.
+- Homologação formal permanece 2/7 (28,6%); 12.1.46 segue candidata, sem release. Mapa técnico conferido: módulos, contratos e dependências permaneceram iguais.
+
+### 2026-11-01 05:39 BRT — auditoria estática de escrita de arquivos em Providers
+
+### 2026-11-01 05:39 BRT — auditoria estática de escrita de arquivos em Providers
+
+Revisados os writers de letras, legendas e imagens em `MediaBrowser.Providers`. Lyrics e subtitles validam antes de criar/abrir por pathname, deixando janela TOCTOU sob árvore gravável por outro ator. ImageSaver também escreve por pathname; escopo dos callers ainda não foi avaliado, então risco equivalente não está confirmado. Não houve alteração runtime: o helper handle-relative existente pertence a `Jellyfin.Server.Implementations`, camada não referenciada por `MediaBrowser.Providers`. Próximo passo: projetar primitiva compartilhada numa camada inferior e testar a corrida em Windows/Linux. Mapa técnico conferido e sem mudança de estrutura. Portal local recebe evidência em andamento; formal 2/7; sem release.
+
 ### 29/10/2026 00:05 BRT — Auditoria por blocos: rollback de update, filas Nebula e pedidos (T0.1/T6/T9 parcial)
 
 - Corrigido o atualizador Windows: mantém o snapshot e os dados do pacote até validar o estado `Running` do serviço ou confirmar que o processo standalone sobreviveu à verificação de 10 s. Falha de startup agora tenta restaurar os arquivos anteriores e preserva o pacote/dados para recuperação. Teste novo cobre serviço que não inicia; teste anterior de falha Robocopy continua cobrindo rollback de cópia.
@@ -1099,6 +1149,10 @@ Limite de evidência atual: `ClaimFileForUploadAsync` realiza claim atômico, ma
 Este documento é backlog em execução; não autoriza publicar uma release antes do gate acima.
 
 ## Registro de execução
+
+### 2026-11-01 05:20 BRT — Exclusões relacionadas da persistência em lote
+
+`ItemPersistenceService.SaveBaseItemEntities` acumula IDs de providers, imagens, campos bloqueados e tipos de trailer alterados; remove-os em chunks de até 1.000 antes de inserir as substituições na mesma transação. MariaDB 11.4.4 descartável confirmou 8→1 comandos `DELETE` para 8 itens e teste de fronteira substituiu 1.001 itens em dois chunks (1/1). Unidade `ItemPersistenceServiceTests` 34/34; suíte integrada completa 59 aprovados, 1 ignorado, 0 falhas (executada antes do último ajuste de tamanho do fixture). Revisão independente sem achados. Não foram usados banco operacional, mídia real ou Linux; catálogo de produção e CI hospedada não foram medidos. Actions segue bloqueada por faturamento. Portal dedicado atualizado em `Mulletaflix-Portal/main`, commit `44ff9d4eedeaccab4b8bbf0d7c1e4aaf2dd15da1`; contrato dedicado 432/432 e espelho local 78/78. Vercel Production `dpl_CD2ATvh26iD8LedcxySwAA9pxwpm` ficou `READY`; JSON público contém 686 eventos e os dois registros concluídos, mantendo homologação formal 2/7. Candidata 12.1.46, sem publicação; nenhuma API, módulo ou dependência nova. Mapa conferido e atualizado. Ver [[Sessões/2026-11-01-MulletaFlix-item-persistence-related-delete-batching-0520]].
 
 ### 16/10/2026 — Iniciar o download antes de indexar a categoria inteira (T0.3/T2.1 parcial)
 
@@ -4091,3 +4145,77 @@ TRX histórico registrava 12,71 s no teste GetLatestItemList_TvShows_DoesNotMerg
 Portal Git main atualizado no commit 16566bbd023a537be9ee02becf0d1cb429dfdca6; contrato 368/368. Vercel não mostra deployment deste SHA; o último Production READY confirmado permanece no commit 348ac4e5f2f9bd991d995f640bb6e583a3a3627a. A nova evidência está no Git, não confirmada no site.
 
 Sem banco operacional ou produção. MariaDB é o único banco relacional operacional. Homologação formal 2/7; sem release. Mapa técnico conferido, módulos/APIs/dependências/fluxos inalterados nesta fatia.
+
+### 2026-11-01 03:41 BRT — Round-trip de backup/restore MariaDB isolado
+
+`BackupRestoreMariaDbTests` passou 4/5 em Release/.NET 10 contra MariaDB 11.4.4 descartável, loopback `127.0.0.1:49286`; 1 caso Mongo/MariaDB/arquivos foi ignorado por falta de Mongo isolado. O round-trip relacional e a recuperação após término entre commits passaram. A instância de teste foi encerrada e a porta ficou fechada; o MariaDB operacional na 3306/PID 19840 não foi usado. A ferramenta bloqueou a remoção do datadir temporário em `%TEMP%`. CI hospedada continua bloqueada antes dos runners pelo problema de cobrança do GitHub Actions; Linux, Mongo real, runtime instalado e produção continuam pendentes. Homologação formal permanece não consolidada; sem release.
+
+### Reexecução ampliada MariaDB — 2026-11-01 03:43 BRT
+
+A suíte completa `IntroSkipper.Integration.Tests` passou 58/59 em Release/.NET 10, 0 falhas, exit 0 contra a mesma instância MariaDB 11.4.4 descartável. Round-trip backup/restore, persistência e migração passaram; 1 cenário combinado foi ignorado por exigir MongoDB opt-in. A instância encerrou e porta 49286 fechou; produção 3306/PID 19840 preservada. Datadir temporário permaneceu em `%TEMP%` porque a política bloqueou sua remoção. Contrato do portal validado depois da atualização: 73/73. CI GitHub segue sem iniciar jobs por bloqueio de cobrança; homologação formal e release continuam sem avanço.
+
+### PR #1: restore incremental no exercício combinado — 2026-11-01 03:55 BRT
+Helper do cenário MariaDB+MongoDB+arquivos atualizado para chamar restore incremental, pois o restore completo está indisponível e falha fechado por projeto. Cenário focal 1/1, checks fail-closed 2/2 e `IntroSkipper.Integration.Tests` 59/59 em Release com bancos descartáveis. Commit `de1f25a0` enviado ao branch do PR. O novo Actions run falhou antes de iniciar: anotação do GitHub aponta bloqueio de cobrança. Aguardando regularização da conta e novo CI; sem release ou homologação formal. Pasta de teste não removida após bloqueio da política.
+
+
+## Regressão ampla local — 2026-11-01 05:27 BRT
+
+A solução .NET Release terminou exit 0; MulletaFlix.Server.Implementations.Tests reportou 1.682 aprovados/91 ignorados/0 falhas. Nebula Python 3.10.11 passou 720/720. LiveIntegrationTests foram excluídos; MariaDB/Mongo opt-in e Linux nativo continuam sem validação nesta execução. Evidência local não altera a homologação formal (2/7), produção ou estado da candidata 12.1.46. Portal local atualizado, sem publicação remota neste lote. Mapa técnico conferido; nenhuma alteração estrutural. Ver [[Sessões/2026-11-01-MulletaFlix-server-full-regression-0527]].
+
+O contrato local do portal passou 79/79 e o JSON foi validado; contadores formais permaneceram inalterados.
+
+
+## Backup restore: troca do caminho da raiz — 2026-11-01 05:32 BRT
+
+Nova regressão troca a raiz Config após abrir o handle: Windows deve negar rename; Linux tenta redirecionar o nome para um symlink externo. Ambos exigem sentinel externo intacto e conteúdo restaurado no diretório aberto. Focal Windows 1/1; FullSystemBackup 155 aprovados, 16 ignorados, 0 falhas. Linux não foi executado e a TOCTOU global em Avatar, letras e Nebula segue aberta. Sem mudança de runtime, produção, homologação formal (2/7) ou release. Portal local atualizado; publicação remota aguarda o lote. Ver [[Sessões/2026-11-01-MulletaFlix-restore-root-path-replacement-0532]].
+
+O contrato do portal local passou 80/80; coverage formal permaneceu 328 concluídos/65 pendentes. Dois eventos aguardam a próxima publicação em lote.
+### 2026-11-01 05:42 BRT — auditoria dos writers do plugin Mídia Storage Online
+
+Foram rastreados os fluxos da tarefa agendada e do endpoint que criam STRM/arquivos baixados a partir de nomes M3U. Ambos saneiam os segmentos usando caracteres inválidos da plataforma e abrem destinos por pathname sob a raiz configurada. Os 8 testes focais passaram no Windows; não cobrem symlink, corrida de troca de pasta ou o caminho do endpoint. Trata-se de lacuna de auditoria, sem exploit reproduzido. Formal 2/7; sem release.
+### 2026-11-01 05:45 BRT — validação de IMDb ID no cache OMDb
+
+Fechada a entrada de path traversal nos nomes de cache OMDb: IDs agora aceitam somente dígitos com prefixo `tt` opcional, normalizado em minúsculas antes de compor caminhos e URLs. Suíte focal/regressões OMDb 20/20 em Windows/.NET 10 Release. Symlinks/TOCTOU do diretório continuam fora do escopo desta correção; formal 2/7; sem release/produção.
+### 2026-11-01 05:47 BRT — validação de MBID nos caches AudioDB
+
+Os caches AudioDB de artistas e álbuns agora validam IDs como UUID no formato canônico antes de formar path ou enviar HTTP. Testes focais: 7/7 em Windows/.NET 10 Release, incluindo garantia de não chamar HTTP com ID inválido. O formato de 36 caracteres segue a documentação oficial MusicBrainz. Symlink/TOCTOU continua em auditoria; formal 2/7; sem release/produção.
+### 2026-11-01 07:42 BRT — auditoria dos escritores de mídia por pathname
+
+- Call graph confirmado: `ProviderManager.SaveImage` converge em `ImageSaver`; letras e legendas têm validação de caminho antes da abertura/exclusão; Mídia Storage Online escreve por dois fluxos (endpoint manual e tarefa agendada) e remove entradas do manifesto após contenção lexical.
+- Lacuna permanece: a árvore pode mudar entre validação e uso; não foi reproduzido acesso externo nesta rodada. `LyricManager` abre com `FileMode.Create`, tornando a confirmação de confinamento especialmente importante. A checagem de `FileSystemHelper` não elimina corrida. O helper de restore é inacessível à camada Providers e carrega política ACL própria.
+- Próximo passo seguro: avaliar primitiva multiplataforma handle-relative em camada compartilhável abaixo de Providers, sem herdar ACL específica do restore; integrar escrita/exclusão dos fluxos e provar sentinela externa intacta em Windows/Linux. Não marcar o gate de segurança concluído antes dessas provas.
+- Auditoria estática somente: nenhum teste ou exploit foi executado. Mapa técnico conferido; módulos/APIs/dependências não mudaram. Homologação formal 2/7; sem release/produção.
+### 2026-11-01 08:01 BRT — Locale do servidor nos providers de imagem
+
+- A interface `ILanguageAwareRemoteImageProvider` transporta idioma e país configurados pelo servidor até os seis providers de imagem TMDb (filme, série, temporada, episódio, coleção e pessoa). Preferências do item/biblioteca permanecem fallback quando não há locale global.
+- `Jellyfin.Model.Tests` passou 699/699; `Jellyfin.Providers.Tests` passou 887, ignorou 13 integrações externas e falhou 0 (900 total), Windows/.NET 10 Release.
+- Não houve TMDb/Fanart ao vivo, refresh/visual em catálogo real, Linux, instalação ou produção. Refresh comum preserva imagens existentes; providers externos que não aceitam locale e artes já persistidas ainda requerem validação específica.
+### Região de idioma das artes TMDb — 2026-11-01
+
+`TmdbClientManager.ConvertToRemoteImageInfo` antes ignorava `ImageData.Iso_3166_1` e rotulava arte genérica no locale solicitado. Agora usa idioma e região da própria imagem por `TmdbUtils.GetImageLanguage`, baseado no Jellyfin upstream PR #18150. Isso corrige a classificação regional usada pelo ranking comum em filmes, séries, temporadas, episódios e coleções; animações entram pelo tipo `Series`. Testes locais Windows/.NET 10 Release: `TmdbUtilsTests` 32/32, ordenação de idiomas `Jellyfin.Model.Tests` 8/8, `Jellyfin.Providers.Tests` 907 aprovados, 14 ignorados, 0 falhas/921. Sem API TMDb ao vivo, refresh de capas persistidas, providers externos ou produção. Mapa técnico atualizado; homologação formal 2/7 e release 12.1.46 candidata sem publicação.
+
+
+## Restore por handles: revalidação da fonte atual — 2026-11-01 10:45 BRT
+
+- A auditoria corrente confirmou que apply, rollback, staging, replay e cleanup usam `BackupRestoreDirectory` com handles abertos; `OpenTargetDirectoryCore` resolve a âncora e valida ACL/mount antes das mutações relativas ao diretório.
+- `FullSystemBackup` Release no Windows/.NET 10: 155 aprovados, 16 ignorados, 0 falhas/171. Os skips incluem ACL/syscalls/symlinks Linux, mount e macOS.
+- O estado atual substitui notas históricas que descreviam o lifecycle como pathname-based. Não significa homologação Linux, runtime instalado ou produção; o backend Linux e corrida adversarial continuam sem execução nativa. CI hospedada segue bloqueada antes dos steps por cobrança.
+- T4.3 e SRV-H03 permanecem parciais/abertos; gates formais 2/7, sem release ou crédito.
+- Mapa técnico conferido: sem alteração estrutural nesta revalidação.
+
+## Imagens por idioma: comparação upstream — 2026-11-01
+
+A implementação usa o fluxo existente: idioma preferido na consulta, ordenação global dos candidatos, download/persistência e proveniência no controller. Comparação com Jellyfin upstream e testes locais registrados em `MulletaFlix-master/docs/image-metadata-flow-audit.md`. Lacunas: providers sem suporte a locale e a rota legada de `MetadataService` não preservam idioma da imagem; refresh normal não substitui arte singular já persistida. Testes Windows/.NET 10 Release: 3 + 26 + 32 + 8 aprovados. Nenhuma mudança runtime ou crédito formal nesta auditoria; produção/imagens reais seguem pendentes.
+
+### Imagens de metadados legados — 2026-11-01
+
+`MetadataResult.RemoteImages` expõe somente URL e tipo; NFO e OpenLibrary usam essa rota. `ResultLanguage` é idioma dos metadados textuais, não idioma comprovado da capa. Atribuí-lo à imagem pode rotular arte errada; o contrato público não deve ser trocado sem evidência por imagem e compatibilidade para plugins. Testes adicionais de ordenação/localização passaram 21/21 Model e 23/23 Providers em Windows/.NET 10 Release. Sem alteração de runtime, crédito formal ou validação em produção. Ver `MulletaFlix-master/docs/image-metadata-flow-audit.md` e o evento local de homologação.
+### 2026-11-01 12:32 BRT — Mídia Storage Online serializa writers do mesmo manifesto
+
+- Sincronização manual e agendada agora compartilham lease assíncrono indexado pelo caminho canonicalizado do manifesto. O lease abrange a sincronização completa; roots diferentes continuam em paralelo. Espera limitada a 15 min e cancelável.
+- Windows/.NET 10 Release: testes do gate 4/4 e filtro Mídia Storage Online 46/46. Sem sync com biblioteca real, validação Linux ou produção; coordenação é intra-processo. Homologação formal permanece 2/7, sem crédito ou release. CI hospedada do PR #1 não iniciou jobs por bloqueio de cobrança.
+### 2026-11-01 14:31 BRT — TMDb consulta idiomas conforme a opção do catálogo
+
+- Corrigido o conflito entre `RemoteImageQuery.IncludeAllLanguages` e as consultas de imagens TMDb: modo todos envia parâmetro sem filtro; modo padrão mantém idioma/região preferidos, variante base, imagens sem texto e inglês fallback.
+- Filme, série, temporada, episódio e coleção usam o flag; implementadores antigos de `ILanguageAwareRemoteImageProvider` continuam cobertos pelo método default. Testes focais 33/33; suíte Providers 920 aprovados/14 ignorados/0 falhas.
+- Sem TMDb live, biblioteca real, arte persistida, renderização, Linux, runtime, produção ou CI hospedada. 12.1.46 candidata; formal 2/7. Portal local 2/10, sem publicação.

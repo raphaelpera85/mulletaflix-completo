@@ -9,7 +9,7 @@ namespace MulletaFlix.Server.Implementations.Tests.Users
         [Theory]
         [InlineData("this_is_valid")]
         [InlineData("this is also valid")]
-        [InlineData("0@_-' .")]
+        [InlineData("0@_-' .x")]
         [InlineData("Aa0@_-' .+")]
         [InlineData("thisisa+testemail@test.foo")]
         [InlineData("------@@@--+++----@@--abcdefghijklmn---------@----_-_-___-_ .9foo+")]
@@ -27,9 +27,26 @@ namespace MulletaFlix.Server.Implementations.Tests.Users
         [InlineData(" thishasaspaceatthestart")]
         [InlineData(" thishasaspaceatbothends ")]
         [InlineData(" this has a space at both ends and inbetween ")]
+        [InlineData(".")]
+        [InlineData("..")]
+        [InlineData("username.")]
+        [InlineData("username ")]
+        [InlineData("NUL")]
+        [InlineData("NUL.txt")]
+        [InlineData("CONIN$")]
+        [InlineData("COM1")]
+        [InlineData("COM¹")]
+        [InlineData("LPT³.log")]
         public void ThrowIfInvalidUsername_WhenInvalidUsername_ThrowsArgumentException(string username)
         {
-            Assert.Throws<ArgumentException>(() => UserManager.ThrowIfInvalidUsername(username));
+            if (OperatingSystem.IsWindows() || username is "." or "..")
+            {
+                Assert.Throws<ArgumentException>(() => UserManager.ThrowIfInvalidUsername(username));
+            }
+            else
+            {
+                Assert.Null(Record.Exception(() => UserManager.ThrowIfInvalidUsername(username)));
+            }
         }
     }
 }

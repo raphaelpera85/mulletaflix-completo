@@ -112,7 +112,10 @@ namespace MediaBrowser.Providers.Plugins.MidiaStorageOnline.ScheduledTasks
                     return;
                 }
 
-                await SyncInternal(config, progress, cancellationToken).ConfigureAwait(false);
+                await MidiaStorageOnlineSyncGate.RunAsync(
+                    Path.Combine(GetDataDir(), "sync_manifest.json"),
+                    () => SyncInternal(config, progress, cancellationToken),
+                    cancellationToken).ConfigureAwait(false);
                 result = config.LastSyncError is null ? "success" : "failure";
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -168,7 +171,7 @@ namespace MediaBrowser.Providers.Plugins.MidiaStorageOnline.ScheduledTasks
                 try
                 {
                     var json = System.Text.Json.JsonSerializer.Serialize(manifest, new System.Text.Json.JsonSerializerOptions { WriteIndented = true });
-                    System.IO.File.WriteAllText(path, json);
+                    MidiaStorageOnlineAtomicFile.WriteAllText(path, json);
                 }
                 catch (Exception ex)
                 {
@@ -1917,12 +1920,7 @@ namespace MediaBrowser.Providers.Plugins.MidiaStorageOnline.ScheduledTasks
                     await responseStream.CopyToAsync(fileStream, ct).ConfigureAwait(false);
                 }
 
-                if (System.IO.File.Exists(filePath))
-                {
-                    System.IO.File.Delete(filePath);
-                }
-
-                System.IO.File.Move(tempPath, filePath);
+                System.IO.File.Move(tempPath, filePath, overwrite: true);
             }
             finally
             {

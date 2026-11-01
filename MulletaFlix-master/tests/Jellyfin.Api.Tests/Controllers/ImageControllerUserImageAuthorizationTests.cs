@@ -99,6 +99,53 @@ public sealed class ImageControllerUserImageAuthorizationTests
     }
 
     [Fact]
+    public async Task PostUserImage_RejectsLegacyTraversalUsernameBeforeWriting()
+    {
+        var user = CreateUser();
+        user.Username = "..";
+        var testDataRoot = Path.Combine(Path.GetTempPath(), "mfx-profile-traversal-" + Guid.NewGuid().ToString("N"));
+        var userManager = new Mock<IUserManager>();
+        userManager.Setup(manager => manager.GetUserById(user.Id)).Returns(user);
+        userManager.Setup(manager => manager.AcquireProfileImageUpdateLockAsync(user.Id))
+            .ReturnsAsync(Mock.Of<IDisposable>());
+        var providerManager = new Mock<IProviderManager>();
+        var appPaths = new Mock<IServerApplicationPaths>();
+        appPaths.Setup(paths => paths.UserConfigurationDirectoryPath).Returns(testDataRoot);
+        var serverConfigurationManager = new Mock<IServerConfigurationManager>();
+        serverConfigurationManager.SetupGet(manager => manager.ApplicationPaths).Returns(appPaths.Object);
+        var controller = new ImageController(
+            userManager.Object,
+            Mock.Of<ILibraryManager>(),
+            providerManager.Object,
+            Mock.Of<IImageProcessor>(),
+            Mock.Of<IFileSystem>(),
+            NullLogger<ImageController>.Instance,
+            serverConfigurationManager.Object,
+            appPaths.Object,
+            Mock.Of<INetworkManager>(),
+            Mock.Of<IDeviceManager>())
+        {
+            ControllerContext = new ControllerContext
+            {
+                HttpContext = new DefaultHttpContext
+                {
+                    User = CreateAuthenticatedPrincipal(user.Id)
+                }
+            }
+        };
+        controller.Request.ContentType = "image/png";
+        controller.Request.Body = new MemoryStream(Encoding.UTF8.GetBytes(Convert.ToBase64String([1, 2, 3])));
+
+        var result = await controller.PostUserImage(user.Id);
+
+        Assert.IsType<BadRequestObjectResult>(result);
+        providerManager.Verify(
+            manager => manager.SaveImage(It.IsAny<Stream>(), It.IsAny<string>(), It.IsAny<string>()),
+            Times.Never);
+        Assert.False(Directory.Exists(testDataRoot));
+    }
+
+    [Fact]
     public async Task PostUserImage_WhenSavingReplacementFails_PreservesExistingProfileImage()
     {
         var user = CreateUser();

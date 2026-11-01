@@ -60,7 +60,10 @@ namespace MulletaFlix.Providers.Tests.Manager
             baseItemManager.Setup(manager => manager.IsImageFetcherEnabled(item, It.IsAny<TypeOptions>(), It.IsAny<string>()))
                 .Returns(true);
 
-            using var providerManager = GetProviderManager(libraryOptions: new LibraryOptions(), baseItemManager: baseItemManager.Object);
+            using var providerManager = GetProviderManager(
+                serverConfiguration: new ServerConfiguration { PreferredMetadataLanguage = "pt", MetadataCountryCode = "BR" },
+                libraryOptions: new LibraryOptions(),
+                baseItemManager: baseItemManager.Object);
             AddParts(providerManager, imageProviders: [fanartProvider.Object, tmdbProvider.Object]);
 
             var images = await providerManager.GetAvailableRemoteImages(
@@ -69,6 +72,39 @@ namespace MulletaFlix.Providers.Tests.Manager
                 CancellationToken.None);
 
             Assert.Equal(new[] { "tmdb-pt-br", "fanart-en" }, images.Select(image => image.Url));
+        }
+
+        [Theory]
+        [InlineData(false)]
+        [InlineData(true)]
+        public async Task GetAvailableRemoteImages_UsesServerLocaleAndLanguageSettingForLanguageAwareProviders(bool includeAllLanguages)
+        {
+            var item = new Movie { PreferredMetadataLanguage = "pt-BR", PreferredMetadataCountryCode = "BR" };
+            var provider = new Mock<ILanguageAwareRemoteImageProvider>(MockBehavior.Strict);
+            provider.Setup(imageProvider => imageProvider.Name).Returns("TheMovieDb");
+            provider.Setup(imageProvider => imageProvider.Supports(item)).Returns(true);
+            provider.Setup(imageProvider => imageProvider.GetSupportedImages(item)).Returns([ImageType.Primary]);
+            provider.Setup(imageProvider => imageProvider.GetImages(item, "es-MX", "MX", includeAllLanguages, It.IsAny<CancellationToken>()))
+                .ReturnsAsync([new RemoteImageInfo { Type = ImageType.Primary, Language = "es-MX", Url = "server-locale" }]);
+
+            var baseItemManager = new Mock<IBaseItemManager>(MockBehavior.Strict);
+            baseItemManager.Setup(manager => manager.IsImageFetcherEnabled(item, It.IsAny<TypeOptions>(), It.IsAny<string>()))
+                .Returns(true);
+
+            using var providerManager = GetProviderManager(
+                serverConfiguration: new ServerConfiguration { PreferredMetadataLanguage = "es", MetadataCountryCode = "MX" },
+                libraryOptions: new LibraryOptions(),
+                baseItemManager: baseItemManager.Object);
+            AddParts(providerManager, imageProviders: [provider.Object]);
+
+            var images = await providerManager.GetAvailableRemoteImages(
+                item,
+                new RemoteImageQuery("TheMovieDb") { IncludeAllLanguages = includeAllLanguages },
+                CancellationToken.None);
+
+            Assert.Equal("server-locale", Assert.Single(images).Url);
+            provider.Verify(imageProvider => imageProvider.GetImages(item, "es-MX", "MX", includeAllLanguages, It.IsAny<CancellationToken>()), Times.Once);
+            provider.Verify(imageProvider => imageProvider.GetImages(item, It.IsAny<CancellationToken>()), Times.Never);
         }
 
         public static TheoryData<int, int[]?, int[]?, int?[]?, int[]> GetImageProvidersOrderData()

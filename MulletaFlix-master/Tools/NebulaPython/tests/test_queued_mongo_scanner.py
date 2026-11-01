@@ -86,11 +86,14 @@ def _apply_update(doc, update):
 
 
 class Queue:
-    def __init__(self):
+    def __init__(self, large_depth=10):
         self.items = []
+        self.large_depth = large_depth
 
     def large_qsize(self):
-        return 10
+        return self.large_depth + sum(
+            item["size"] > main.SMALL_FILE_MAX_BYTES for item in self.items
+        )
 
     async def put(self, item):
         self.items.append(item)
@@ -121,6 +124,67 @@ async def test_queued_scanner_claims_oldest_item_and_enqueues_existing_stage(mon
     assert queue.items == [{"path": str(media), "filename": "Movie.mkv", "parent": "/raphael/Filmes/Movie", "size": 5}]
     assert files.docs[0]["status"] == "queued"
     assert files.docs[0]["scanner_enqueued"] is True
+
+
+@pytest.mark.asyncio
+async def test_queued_scanner_prioritizes_large_files_when_large_lane_is_low(monkeypatch, tmp_path):
+    small = tmp_path / "small.mkv"
+    large = tmp_path / "large.mkv"
+    next_large = tmp_path / "next-large.mkv"
+    small.write_bytes(b"small")
+    large.write_bytes(b"large")
+    next_large.write_bytes(b"next-large")
+    files = Files([
+        {"_id": "small", "type": "file", "name": "Small.mkv", "local_path": str(small), "size": 5, "mtime": 1, "status": "queued"},
+        {"_id": "large", "type": "file", "name": "Large.mkv", "local_path": str(large), "size": main.SMALL_FILE_MAX_BYTES + 1, "mtime": 2, "status": "queued"},
+        {"_id": "next-large", "type": "file", "name": "Next Large.mkv", "local_path": str(next_large), "size": main.SMALL_FILE_MAX_BYTES + 1, "mtime": 3, "status": "queued"},
+    ])
+    queue = Queue(large_depth=5)
+    mongo = SimpleNamespace(files=files)
+    monkeypatch.setattr(main, "UPLOAD_QUEUE", queue)
+    monkeypatch.setattr(main, "resolve_local_path", lambda _mongo, doc: _resolved(doc["local_path"]))
+    monkeypatch.setattr(main, "resolve_media_parent", lambda *_args: _parent())
+    monkeypatch.setattr(main.asyncio, "sleep", _cancel_after_one_iteration)
+
+    with pytest.raises(asyncio.CancelledError):
+        await main.queued_mongo_scanner(mongo, max_workers=1)
+
+    assert [item["filename"] for item in queue.items[:2]] == ["Large.mkv", "Small.mkv"]
+    assert files.queries[0][0]["size"] == {"$gt": main.SMALL_FILE_MAX_BYTES}
+    assert "size" not in files.queries[1][0]
+    assert sum("size" in query for query, _, _ in files.queries) == 1
+
+
+@pytest.mark.asyncio
+async def test_queued_scanner_rechecks_large_lane_after_worker_consumes_item(monkeypatch, tmp_path):
+    small = tmp_path / "small.mkv"
+    large = tmp_path / "large.mkv"
+    small.write_bytes(b"small")
+    large.write_bytes(b"large")
+    queue = Queue(large_depth=6)
+
+    class FilesWithConcurrentLargeConsumer(Files):
+        async def update_one(self, query, update):
+            await super().update_one(query, update)
+            if query.get("_id") == "small" and update.get("$set", {}).get("scanner_enqueued") is True:
+                queue.large_depth -= 1
+
+    files = FilesWithConcurrentLargeConsumer([
+        {"_id": "small", "type": "file", "name": "Small.mkv", "local_path": str(small), "size": 5, "mtime": 1, "status": "queued"},
+        {"_id": "large", "type": "file", "name": "Large.mkv", "local_path": str(large), "size": main.SMALL_FILE_MAX_BYTES + 1, "mtime": 2, "status": "queued"},
+    ])
+    mongo = SimpleNamespace(files=files)
+    monkeypatch.setattr(main, "UPLOAD_QUEUE", queue)
+    monkeypatch.setattr(main, "resolve_local_path", lambda _mongo, doc: _resolved(doc["local_path"]))
+    monkeypatch.setattr(main, "resolve_media_parent", lambda *_args: _parent())
+    monkeypatch.setattr(main.asyncio, "sleep", _cancel_after_one_iteration)
+
+    with pytest.raises(asyncio.CancelledError):
+        await main.queued_mongo_scanner(mongo, max_workers=1)
+
+    assert [item["filename"] for item in queue.items] == ["Small.mkv", "Large.mkv"]
+    assert "size" not in files.queries[0][0]
+    assert files.queries[1][0]["size"] == {"$gt": main.SMALL_FILE_MAX_BYTES}
 
 
 @pytest.mark.asyncio
