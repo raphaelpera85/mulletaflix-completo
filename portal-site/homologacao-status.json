@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-10-27T18:13:08-03:00",
+  "generatedAt": "2026-11-01T04:44:01-03:00",
   "source": {
     "roadmap": "https://github.com/raphaelpera85/mulletaflix-completo/blob/main/docs/roadmap-evolucao-tecnologica-servidor-e-web.md",
     "repository": "https://github.com/raphaelpera85/mulletaflix-completo"
@@ -28,12 +28,12 @@
         "label": "Homologação formal não consolidada; testes parciais e bloqueios continuam em investigação."
       },
       "testAudit": {
-        "passed": 4977,
-        "total": 5041,
-        "skipped": 64,
+        "passed": 5387,
+        "total": 5480,
+        "skipped": 93,
         "failed": 0,
-        "percent": 98.7,
-    "label": "Gate determinístico da solução .NET Release (FullyQualifiedName!~Integration): 4.977 aprovados, 64 ignorados, 0 falhas (5.041 total). NebulaPython completo revalidado em 18/10: 592/592. Três testes C# de admissão Mongo compilaram, mas foram ignorados porque o Mongo isolado 127.0.0.1:27099 não estava disponível. O log histórico não comprova lease órfã; integração C#/Python, CI remoto, instalação, operação e smoke test continuam pendentes. Homologação formal continua aberta."
+        "percent": 98.3,
+        "label": "Gate da solução .NET Release (FullyQualifiedName!~Integration): 5.387 aprovados, 93 ignorados, 0 falhas (5.480 total, 15 assemblies; exit 0). Os ignorados não contam como aprovação. Integrações opt-in, CI hospedada, runtime instalado e produção não são comprovados por esse gate. Homologação formal continua aberta."
       }
     },
     {
@@ -3001,7 +3001,10 @@
       "title": "Nebula: guard fail-closed e contratos de empacotamento revalidados",
       "agent": "Codex",
       "front": "server",
-      "featureIds": ["T2.1", "T4.2"],
+      "featureIds": [
+        "T2.1",
+        "T4.2"
+      ],
       "local": "Windows PowerShell, venv Nebula Python 3.10 e Node.js",
       "location": "Tools/NebulaPython/tools/check_deps.py; install-python-if-missing.ps1; contratos de packaging",
       "scope": "Revalidar proteção contra reparo de Python global e corrigir contrato estático desatualizado, sem instalar ou alterar o runtime do produto.",
@@ -3016,7 +3019,9 @@
       "title": "Nebula: runtime ativo ainda está na versão 12.1.21",
       "agent": "Codex",
       "front": "server",
-      "featureIds": ["T2.1"],
+      "featureIds": [
+        "T2.1"
+      ],
       "local": "GET público local, processo/portas e hashes do worker instalado e da fonte",
       "location": "MulletaFlix 12.1.21; Nebula FTP 2121; HTTP stream 2123",
       "scope": "Verificar se o runtime de produção local contém o worker e a correção de prontidão validados na fonte, sem reiniciar/alterar serviço.",
@@ -3031,7 +3036,9 @@
       "title": "Nebula: revalidação ampliada do contrato de prontidão STRM",
       "agent": "Codex",
       "front": "server",
-      "featureIds": ["T2.1"],
+      "featureIds": [
+        "T2.1"
+      ],
       "local": "Testes C# Release e NebulaPython 3.10",
       "location": "NebulaFtpManager; downloader STRM; mount N:",
       "scope": "Reexecutar os testes de inicialização/montagem após exigir scan efetivo antes de confirmar downloader pronto.",
@@ -3046,7 +3053,9 @@
       "title": "Nebula: downloader só confirma prontidão quando o scan começa",
       "agent": "Codex",
       "front": "server",
-      "featureIds": ["T2.1"],
+      "featureIds": [
+        "T2.1"
+      ],
       "local": "Testes .NET Release e NebulaPython 3.10",
       "location": "NebulaFtpManager.StartDownloaderAsync; STRM-SCAN-STARTED",
       "scope": "Evitar sucesso falso do start quando o processo inicia, mas falha ao validar o índice Mongo antes de iniciar a varredura.",
@@ -3061,7 +3070,9 @@
       "title": "Nebula: startup usa runtime vivo para promover streaming a transferência",
       "agent": "Codex",
       "front": "server",
-      "featureIds": ["T2.1"],
+      "featureIds": [
+        "T2.1"
+      ],
       "local": "Testes de fonte C# Release e revisão do log anexado",
       "location": "NebulaFtpManager.StartEnvioAsync; FTP 2121; STREAM_ONLY",
       "scope": "Evitar que uma flag lógica atrasada inicie uma segunda instância enquanto o worker FTP ainda está vivo; preservar o modo completo de transferência.",
@@ -3076,7 +3087,9 @@
       "title": "Nebula: autostart desativado; Downloader manual ainda não homologado",
       "agent": "Codex",
       "front": "server",
-      "featureIds": ["T2.1"],
+      "featureIds": [
+        "T2.1"
+      ],
       "local": "Configuração local read-only, runtime e testes C#/Python focados",
       "location": "NebulaFTP Enabled=false; StartDownloaderAsync; portas 2121/2123",
       "scope": "Distinguir o autostart global desabilitado da ação manual de download, sem ativar componentes nem disparar mídia produtiva.",
@@ -6132,7 +6145,9 @@
       "title": "Nebula: autostart do Downloader ignorado porque o serviço está desabilitado",
       "agent": "Codex",
       "front": "server",
-      "featureIds": ["T2.1"],
+      "featureIds": [
+        "T2.1"
+      ],
       "local": "Logs locais de produção, estado read-only da interface e fonte do servidor",
       "location": "NebulaHostedService startup; configuração NebulaFTP; ação StartDownloader",
       "scope": "Identificar por que o Downloader STRM permanece parado, sem iniciar varredura ou transferências em massa.",
@@ -6147,7 +6162,9 @@
       "title": "Nebula: bind FTP colide após reinícios; download STRM não comprovado",
       "agent": "Codex",
       "front": "server",
-      "featureIds": ["T2.1"],
+      "featureIds": [
+        "T2.1"
+      ],
       "local": "Log operacional anexado, GET local somente leitura e testes focados Release",
       "location": "NebulaHostedService; NebulaFtpManager; FTP 2121; mount N:; worker STRM",
       "scope": "Registrar o conflito repetido de porta e distinguir streaming/mount do Downloader STRM sem alterar produção.",
@@ -6162,7 +6179,9 @@
       "title": "Nebula: autosave preserva Enabled; log antigo não comprova download STRM",
       "agent": "Codex",
       "front": "server",
-      "featureIds": ["T2.1"],
+      "featureIds": [
+        "T2.1"
+      ],
       "local": "Log operacional anexado, regressões JavaScript/Python/C#",
       "location": "Jellyfin.Api/Web/NebulaFTP/configPage.js; Nebula downloader startup e mount N:",
       "scope": "Evitar que autosave altere o estado global do Nebula e registrar a limitação de evidência do runtime sem iniciar operação de produção.",
@@ -6177,7 +6196,9 @@
       "title": "Nebula: log confirma modo streaming, colisão de porta e Downloader sem readiness",
       "agent": "Codex",
       "front": "server",
-      "featureIds": ["T2.1"],
+      "featureIds": [
+        "T2.1"
+      ],
       "local": "Log operacional anexado, código-fonte e regressões locais",
       "location": "NebulaHostedService; NebulaFtpManager; worker STRM; FTP 2121 e mount N:",
       "scope": "Validar a hipótese do Downloader não iniciado e separar evidência do modo streaming, conflito FTP e montagem sem homologar produção.",
@@ -6192,7 +6213,9 @@
       "title": "Nebula: promoção Python de Somente Streaming para Envio libera FTP antes do novo worker",
       "agent": "Codex",
       "front": "server",
-      "featureIds": ["T2.1"],
+      "featureIds": [
+        "T2.1"
+      ],
       "local": "Log operacional, fonte C#/Python e testes focados",
       "location": "NebulaFtpManager.StartEnvioAsync; runtime Python; FTP 2121",
       "scope": "Corrigir a colisão de porta ao promover o mesmo serviço de Somente Streaming para Envio completo.",
@@ -6207,7 +6230,9 @@
       "title": "Auditoria: visibilidade do avatar customizado ainda precisa de validação HTTP",
       "agent": "Codex",
       "front": "server",
-      "featureIds": ["T6.1"],
+      "featureIds": [
+        "T6.1"
+      ],
       "local": "Inspeção estática de controllers e testes HTTP focados",
       "location": "MulletaFlix.Plugin.GetAvatar/Controllers/AvatarController.cs; Jellyfin.Api/Controllers/ImageController.cs",
       "scope": "Registrar diferença de autorização em GET /GetAvatar/UserAvatar/{userId} e definir a matriz de compatibilidade antes de alterar o contrato.",
@@ -6222,7 +6247,9 @@
       "title": "Nebula: rechecagem do log e validação local de startup/download",
       "agent": "Codex",
       "front": "server",
-      "featureIds": ["T2.1"],
+      "featureIds": [
+        "T2.1"
+      ],
       "local": "Log operacional de 16–17/10, fonte C#/Python e testes focados",
       "location": "NebulaHostedService; NebulaFtpManager; runtime Python; mount N:",
       "scope": "Verificar se o Downloader STRM inicia após falha do Envio e revalidar correções de promoção e montagem.",
@@ -6237,7 +6264,9 @@
       "title": "Nebula: falha do Envio não bloqueia mais a tentativa do Downloader",
       "agent": "Codex",
       "front": "server",
-      "featureIds": ["T2.1"],
+      "featureIds": [
+        "T2.1"
+      ],
       "local": "Log operacional de 16–17/10, fonte C# e testes Release",
       "location": "NebulaHostedService.StartComponentsAsync; Envio FTP 2121; Downloader STRM",
       "scope": "Isolar falha de startup do Envio para que o Downloader STRM ainda seja tentado; preservar cancelamento e mount condicionado ao FTP.",
@@ -6252,7 +6281,9 @@
       "title": "Nebula: evita retry infinito quando runtime morreu ou N: está ocupado",
       "agent": "Codex",
       "front": "server",
-      "featureIds": ["T2.1"],
+      "featureIds": [
+        "T2.1"
+      ],
       "local": "Log operacional de 16–17/10, fonte C#/Python e testes Release focados",
       "location": "NebulaFtpManager.MountDriveNAsync; Tools/mount_drive_n.py; porta FTP 2121 e mount N:",
       "scope": "Corrigir a recuperação do runtime FTP após saída do worker e impedir que a existência de N: em outra sessão seja reportada como montagem saudável.",
@@ -6267,7 +6298,9 @@
       "title": "Nebula: log não comprova acionamento do Downloader STRM",
       "agent": "Codex",
       "front": "server",
-      "featureIds": ["T2.1"],
+      "featureIds": [
+        "T2.1"
+      ],
       "local": "Log operacional de 16–17/10; GET local de versão; testes C# Release e Python 3.10",
       "location": "NebulaHostedService.StartComponentsAsync; NebulaFtp/Actions/StartDownloader; portas 2121/2123",
       "scope": "Separar falha do modo Envio de evidência de início do Downloader e revalidar o comportamento da fonte sem tocar no runtime produtivo.",
@@ -6282,7 +6315,9 @@
       "title": "Nebula: runtime presente, mas log não comprova download",
       "agent": "Codex",
       "front": "server",
-      "featureIds": ["T2.1"],
+      "featureIds": [
+        "T2.1"
+      ],
       "local": "Log histórico anexado; GET de versão e consultas read-only de processos/listeners",
       "location": "NebulaHostedService; NebulaFtpManager; FTP 2121; downloader STRM",
       "scope": "Revalidar o log recebido e distinguir presença de processos de scan/transferência confirmados, sem interromper produção.",
@@ -6297,7 +6332,9 @@
       "title": "GetAvatar limpa arquivo parcial quando a configuração não persiste",
       "agent": "Codex",
       "front": "server",
-      "featureIds": ["T6.1.25"],
+      "featureIds": [
+        "T6.1.25"
+      ],
       "local": "Fonte GetAvatar e teste Release em diretório temporário",
       "location": "AvatarService.SaveAvatarAsync; catálogo XML e pasta de avatares",
       "scope": "Garantir rollback de arquivo e entrada em memória se a persistência da imagem ou catálogo falhar.",
@@ -6312,7 +6349,9 @@
       "title": "Nebula pausa retries quando outro helper possui o lock de montagem",
       "agent": "Codex",
       "front": "server",
-      "featureIds": ["T2.1"],
+      "featureIds": [
+        "T2.1"
+      ],
       "local": "MulletaFlix-master/Jellyfin.Server.Implementations/Nebula e testes C# Nebula",
       "location": "NebulaFtpManager.MountDriveNAsync; mount_drive_n.py; lock global de N:",
       "scope": "Eliminar o ciclo de tentativas de mount a cada três segundos quando outro helper já possui o lock, sem interferir no processo proprietário.",
@@ -6327,7 +6366,9 @@
       "title": "Nebula/Supabase: admissão auditada, lease órfã não comprovada",
       "agent": "Codex",
       "front": "server",
-      "featureIds": ["T4.2"],
+      "featureIds": [
+        "T4.2"
+      ],
       "local": "NebulaPython 3.10 e testes C# de admissão Mongo",
       "location": "NebulaSupabaseSyncService; NebulaMongoContext; mongo_admission.py",
       "scope": "Auditar adiamentos recorrentes do backup sem consultar banco de produção.",
@@ -6357,7 +6398,10 @@
       "title": "Nebula: prontidão do Downloader revalidada; runtime ainda pendente",
       "agent": "Codex",
       "front": "server",
-      "featureIds": ["T2.1", "T4.2"],
+      "featureIds": [
+        "T2.1",
+        "T4.2"
+      ],
       "local": "Suítes Release .NET, pytest Nebula e health checks read-only",
       "location": "NebulaFtpManager.StartDownloaderAsync; mount_drive_n.py; Python STRM worker",
       "scope": "Revalidar o log de inicialização e cobertura local sem interromper produção.",
@@ -6372,7 +6416,10 @@
       "title": "Servidor: regressão local .NET, web, Nebula e empacotamento",
       "agent": "Codex",
       "front": "server",
-      "featureIds": ["T2.1", "T4.2"],
+      "featureIds": [
+        "T2.1",
+        "T4.2"
+      ],
       "local": "Windows PowerShell, .NET, Node/Vitest e venv Nebula isolada",
       "location": "Solução .NET, MulletaFlix-web, Tools/NebulaPython e harnesses de packaging",
       "scope": "Registrar cobertura de regressão local e limites conhecidos; sem alterar runtime, instalar produto ou criar release.",
@@ -6399,6 +6446,186 @@
       "startedAt": "2026-10-27T18:08:17-03:00",
       "updatedAt": "2026-10-27T18:13:08-03:00",
       "evidence": "Gate .NET Release sem Integration: 4.417 aprovados, 68 ignorados, 0 falhas; build Release concluído. Stage e integridade passaram. instalador Windows x64: 452.336.601 bytes, SHA-256 B11F97DA2F34439C774C0CBB593EA3003E8B4AEA702C11BF499FC6311BBDDF03. ZIP atualização Windows: 417.648.937 bytes, SHA-256 00C18CE9BB568B7E92DBF6F0FB364CD6206E122C567481B3EEEE6BD37583A34A. Pacote Linux x64 cross-publish em Windows: 137.191.054 bytes, SHA-256 4A5646A947F40EF343D75CA381E266588792538B995F62DA67D77BB5E819C278; conteúdo esperado conferido. Ainda não comprovados: CI hospedada/Linux nativo, smoke de instalação/serviço, produção e homologação formal. Este evento registra validação de artefatos, não aceite funcional; homologação formal permanece aberta. Release GitHub publicada: https://github.com/raphaelpera85/mulletaflix-completo/releases/tag/v12.1.36, com os três artefatos anexados. O workflow hospedado falhou antes de expor etapas/logs; causa não confirmada. A publicação usou os artefatos locais verificados. CI nativa/hospedada, instalação, produção e homologação formal continuam pendentes."
+    },
+    {
+      "id": "server-home-latest-series-filters-2026-11-01-0258",
+      "title": "Auditoria da Home: filtros da biblioteca na faixa de séries recentes",
+      "agent": "Codex",
+      "front": "server",
+      "featureIds": [],
+      "local": "UserViewManager, LibraryManager, BaseItemRepository e integração MariaDB",
+      "location": "UserViewManager.GetLatestItems; LibraryManager.GetLatestItemList; BaseItemRepository.GetLatestTvShowItems",
+      "scope": "Alinhar o teste de séries recentes aos filtros reais da Home e corrigir o escopo da medição de desempenho.",
+      "status": "in_progress",
+      "progressPercent": null,
+      "startedAt": "2026-11-01T02:56:00-03:00",
+      "updatedAt": "2026-11-01T03:21:00-03:00",
+      "evidence": "Integração da consulta da Home passou 8/8 em MariaDB 11.4.4 descartável, com filtros Episode, IsVirtualItem=false e TopParentIds de bibliotecas visíveis; exclui episódio de outra biblioteca. Inicialmente sem variável opt-in: 6 passaram e 2 ficaram ignorados; depois executados 8/8. PID temporário encerrou e porta 33127 fechou; porta 3306 não foi acessada. Pasta de dados temporária permanece em %TEMP% porque a política bloqueou remoção recursiva. Ainda pendentes EXPLAIN ANALYZE, volume representativo, CI hospedada e produção. Sem mudança de runtime/índice, release ou crédito à homologação formal."
+    },
+    {
+      "id": "server-jellyfin-image-language-compare-2026-11-01-0305",
+      "title": "Comparação do fluxo de imagens por idioma com Jellyfin upstream",
+      "agent": "Codex",
+      "front": "server",
+      "featureIds": [],
+      "local": "Código oficial Jellyfin master, documentação oficial e comparação estática com o fork",
+      "location": "ProviderManager; ItemImageProvider; providers de imagem TMDb; ImageSaver",
+      "scope": "Documentar como o Jellyfin coleta, ordena, baixa e persiste imagens por idioma e comparar com o fluxo existente do MulletFlix.",
+      "status": "in_progress",
+      "progressPercent": null,
+      "startedAt": "2026-11-01T03:04:00-03:00",
+      "updatedAt": "2026-11-01T03:15:00-03:00",
+      "evidence": "Pesquisa do fluxo upstream/fork e validação Release: testes focais de idioma TMDb, ordenação entre providers, locale de biblioteca/servidor, Movie/Series, backdrop/logo/thumb e fallback 48/48; solução .NET não integrada, 5.387 aprovados, 93 ignorados, 0 falhas/5.480 em 15 assemblies (exit 0; todas as categorias Integration excluídas); suíte do portal 73/73. Inclui atualização de asserts ISO de generatedAt e isolamento da fixture de evento antigo. Provedores externos, mídia real, instalação, Linux/macOS, bancos operacionais, renderização e produção não verificados. Sem release ou aceite formal."
+    },
+    {
+      "id": "server-ci-billing-blocked-local-regression-2026-11-01-0336",
+      "title": "Regressão local aprovada; CI hospedada bloqueada por cobrança",
+      "agent": "Codex",
+      "front": "server",
+      "featureIds": [],
+      "local": "Gate .NET Release, suíte Nebula Python e contrato do portal",
+      "location": "PR #1 — codex/fail-closed-inplace-updater → main",
+      "scope": "Registrar a evidência de regressão local e o bloqueio externo dos jobs do GitHub Actions.",
+      "status": "in_progress",
+      "progressPercent": null,
+      "startedAt": "2026-11-01T03:24:00-03:00",
+      "updatedAt": "2026-11-01T03:36:00-03:00",
+      "evidence": "No SHA bc29e779fc3f864ae3f67aa1621730d4039c048d: .NET Release 5.387 aprovados, 93 ignorados, 0 falhas/5.480 (teste não integrado); Nebula Python 714/714; contrato do portal 73/73. GitHub Actions run 41280792962: os 16 jobs não iniciaram; anotações atribuem o bloqueio a problema de cobrança da conta. Sem etapas ou logs de execução, portanto CI hospedada não validada. O SHA foi encontrado já publicado na branch durante a sessão; nenhuma alteração de código, commit ou push foi feita nesta rodada. Integrações opt-in, runtime instalado, Linux/macOS, produção e homologação formal permanecem pendentes. Sem release nova; este evento não altera os contadores de cobertura nem o gate formal."
+    },
+    {
+      "id": "server-backup-restore-mariadb-roundtrip-2026-11-01-0341",
+      "title": "Round-trip de backup/restore validado em MariaDB descartável",
+      "agent": "Codex",
+      "front": "server",
+      "featureIds": [],
+      "local": "BackupRestoreMariaDbTests em Release/.NET 10",
+      "location": "IntroSkipper.Integration.Tests; restore MariaDB e recuperação após interrupção",
+      "scope": "Executar os testes de backup e restore relacional em instância MariaDB descartável isolada.",
+      "status": "in_progress",
+      "progressPercent": null,
+      "startedAt": "2026-11-01T03:37:00-03:00",
+      "updatedAt": "2026-11-01T03:43:00-03:00",
+      "evidence": "A suíte completa IntroSkipper.Integration.Tests passou 58/59, 0 falhas, exit 0 em Release/.NET 10 contra MariaDB 11.4.4 descartável no loopback 127.0.0.1:49286; BackupRestoreMariaDbTests passou 4/5. Round-trip relacional, persistência, migração e replay após encerramento entre commits passaram. O único ignorado exige MongoDB descartável para o cenário combinado Mongo/MariaDB/arquivos. PID de teste encerrou e porta 49286 fechou; listener operacional 3306/PID 19840 permaneceu intacto. Datadir descartável e logs seguem em %TEMP% porque a política bloqueou a remoção. CI hospedada, Linux, Mongo, runtime instalado, produção e homologação formal continuam pendentes; sem release."
+    },
+    {
+      "id": "server-pr1-incremental-recovery-test-fix-2026-11-01-0355",
+      "title": "PR #1: exercício incremental de recuperação validado localmente; CI bloqueada",
+      "agent": "Codex",
+      "front": "server",
+      "featureIds": [],
+      "local": "IntroSkipper.Integration.Tests; MariaDB e MongoDB descartáveis",
+      "location": "PR #1 — codex/fail-closed-inplace-updater → main",
+      "scope": "Corrigir o helper de teste que solicitava restore completo indisponível e verificar recuperação incremental combinada.",
+      "status": "in_progress",
+      "progressPercent": null,
+      "startedAt": "2026-11-01T03:44:00-03:00",
+      "updatedAt": "2026-11-01T03:55:00-03:00",
+      "evidence": "Commit de teste de uma linha de1f25a0 enviado ao branch do PR. Restore completo continua fail-closed; o cenário foi alinhado ao restore incremental suportado. Teste focal 1/1, regressões fail-closed 2/2 e IntroSkipper.Integration.Tests 59/59, 0 ignorados/falhas, Release/.NET 10 contra MariaDB 11.4.4 e MongoDB 8.3.7 descartáveis. Portas temporárias fechadas; Mongo 27017 e MariaDB 3306 operacionais não usados. Run Actions 41282646578 no SHA de1f25a0: 16 jobs em failure sem início; anotação consultada confirma bloqueio da conta por cobrança, portanto CI remota não validou código. Sem runtime, produção, release ou crédito de homologação formal. Pasta temporária do teste segue em %TEMP% porque a política bloqueou remoção recursiva; regularizar cobrança e repetir CI permanecem pendentes."
+    },
+    {
+      "id": "server-release-solution-regression-2026-11-01-0401",
+      "title": "Gate Release amplo do servidor passou localmente; skips e CI seguem pendentes",
+      "agent": "Codex",
+      "front": "server",
+      "featureIds": [],
+      "local": "MulletaFlix.sln — testes Release em Windows/.NET 10",
+      "location": "Regressão local da branch codex/fail-closed-inplace-updater",
+      "scope": "Reexecutar regressão ampla da solução do servidor após correção do teste de restore do PR #1.",
+      "status": "in_progress",
+      "progressPercent": null,
+      "startedAt": "2026-11-01T03:56:00-03:00",
+      "updatedAt": "2026-11-01T04:01:00-03:00",
+      "evidence": "dotnet test MulletaFlix.sln --configuration Release --no-restore --filter FullyQualifiedName!~LiveIntegrationTests --verbosity quiet terminou exit 0 e 0 falhas nos assemblies com saída. Exemplos: Server.Implementations 1.681 aprovados/91 ignorados; IntroSkipper.Integration 26/33; API 805/3; Providers 849/0; Server.Tests 104/0. O console não forneceu agregado global auditável; nenhum total inferido. Avisos de analisadores/XML sem erro de build. LiveIntegrationTests excluídos e opt-ins/plataforma continuam pendentes. CI Actions run 41282646578 falhou antes dos steps por bloqueio de cobrança; produção, Linux completo, release e homologação formal sem validação/alteração. Nenhuma fonte runtime mudou."
+    },
+    {
+      "id": "server-dotnet-nebula-regression-2026-11-01-0402",
+      "title": "Regressão local .NET e Nebula passou; Linux e CI hospedada pendentes",
+      "agent": "Codex",
+      "front": "server",
+      "featureIds": [],
+      "local": "MulletaFlix.sln Release e Nebula Python 3.10",
+      "location": "Servidor Windows; WSL sem distribuição Linux",
+      "scope": "Revalidar o conjunto .NET do servidor e os testes unitários do Nebula após correção do PR #1.",
+      "status": "in_progress",
+      "progressPercent": null,
+      "startedAt": "2026-11-01T03:56:00-03:00",
+      "updatedAt": "2026-11-01T04:02:00-03:00",
+      "evidence": "dotnet test MulletaFlix.sln --configuration Release --no-restore --filter FullyQualifiedName!~LiveIntegrationTests --verbosity quiet encerrou exit 0, sem falhas nos assemblies com resultado; inclui Server.Implementations 1.681 aprovados/91 ignorados, IntroSkipper.Integration 26/33, API 805/3, Providers 849/0 e Server.Tests 104/0. O console não deu agregado confiável. Nebula Python 3.10: pytest 714/714 em 9,12 s. WSL sem distribuição, então Linux nativo não validado. Actions 41282646578 segue bloqueado por cobrança antes de iniciar jobs. LiveIntegrationTests, skips opt-in, Linux, runtime, produção e homologação formal permanecem pendentes. Sem mudança de runtime ou release."
+    },
+    {
+      "id": "server-pr1-updater-metadata-collision-2026-11-01-0409",
+      "title": "PR #1: updater trata arquivos com conteúdo diferente e metadados coincidentes",
+      "agent": "Codex",
+      "front": "server",
+      "featureIds": [],
+      "local": "Scripts PowerShell Windows; API Release/.NET 10",
+      "location": "PR #1 — codex/fail-closed-inplace-updater → main",
+      "scope": "Corrigir cópia e rollback de arquivos do pacote quando tamanho e timestamp coincidem com a instalação.",
+      "status": "in_progress",
+      "progressPercent": null,
+      "startedAt": "2026-11-01T04:03:00-03:00",
+      "updatedAt": "2026-11-01T04:15:00-03:00",
+      "evidence": "Reprodução red confirmou que Robocopy podia pular bytes diferentes sob mesmo tamanho/timestamp e o snapshot também ignorava o arquivo. A correção compara SHA-256 só nesse caso, salva o conteúdo anterior para rollback, avança o timestamp da origem antes do Robocopy e restaura timestamps após a cópia. ApplyUpdateFailure, ApplyUpdateFailClosed e ApplyUpdateStartupFailure passaram em Windows PowerShell 5.1 e PowerShell 7.6.9; nove scripts Windows de integridade/empacotamento passaram, com Robocopy real no caminho de sucesso. UpdateInfoControllerTests 30/30 em Release confirmou o script embutido. CI hospedada, instalação e produção ainda não validadas; o último Actions run foi bloqueado antes dos runners por cobrança. Não é release nem homologação formal. Commit cbc380c94e8c88278c44309f586faf9c0e1c134f enviado. Actions run 41283703952 voltou a falhar antes dos runners: anotações de jobs de servidor, empacotamento e recuperação confirmam bloqueio por billing; nenhum log de etapa disponível. CLI gh sem login; diagnóstico obtido pela integração GitHub Codex. PR permanece aberto, sem CI hospedada validada. Revalidação 04:13 BRT: os nove scripts Windows de empacotamento passaram em Windows PowerShell 5.1. Reviewer read-only do commit cbc380c9 sem findings. Docker não instalado e sem distribuição WSL ativa, então Linux permanece pendente. Sem mudança de código nesta rodada. Auditoria separada de cobertura Nebula: `.venv/Scripts/python.exe -m pytest -q --cov=main --cov-report=term-missing:skip-covered` passou 714/714; main.py 77% (1.780 statements, 404 sem cobertura). Não é total do Nebula. Próximo gap são handlers/compactação e ramos startup/control/shutdown. Linux ainda sem ambiente local; nenhum código alterado nesta rodada."
+    },
+    {
+      "id": "server-nebula-runtime-logging-mongo-cleanup-2026-11-01-0426",
+      "title": "Nebula: logs íntegros e fechamento MongoClient",
+      "agent": "Codex",
+      "front": "server",
+      "featureIds": [],
+      "local": "Nebula Python 3.10.11; pytest, cobertura e compileall",
+      "location": "Tools/NebulaPython/main.py — logging e lifecycle Mongo",
+      "scope": "Corrigir fallback de encoding, preservação dos logs e fechamento do MongoClient em erro de startup e shutdown.",
+      "status": "in_progress",
+      "progressPercent": null,
+      "startedAt": "2026-11-01T04:28:14-03:00",
+      "updatedAt": "2026-11-01T04:28:14-03:00",
+      "evidence": "RED reproduziu três retornos de startup sem close Mongo; pós-patch lifecycle 5/5, logging focal 5/5 e suíte Nebula 719/719. main.py: 80% (1.794 statements, 364 ausentes). compileall e git diff --check passaram. Mongo real, runtime instalado, Linux, produção e CI hospedada pendentes; Actions 41283703952 não iniciou por bloqueio de cobrança. Contrato do portal 74/74. Sem crédito formal ou release. Evidência local; portal remoto aguarda lote de dez."
+    },
+    {
+      "id": "server-nebula-tls-fail-closed-2026-11-01-0432",
+      "title": "Nebula: startup TLS falha fechado",
+      "agent": "Codex",
+      "front": "server",
+      "featureIds": [],
+      "local": "Nebula Python 3.10.11; teste de lifecycle e suíte pytest",
+      "location": "Tools/NebulaPython/main.py — startup TLS do FTP",
+      "scope": "Cobrir certificado TLS ausente, confirmar que FTP não inicia em plaintext e recursos são liberados.",
+      "status": "in_progress",
+      "progressPercent": null,
+      "startedAt": "2026-11-01T04:32:01-03:00",
+      "updatedAt": "2026-11-01T04:32:01-03:00",
+      "evidence": "Teste focal 1/1: certificado ausente faz startup retornar erro, sem iniciar FTP sem TLS; Mongo fecha e bots param. Suíte Nebula 720/720; main.py 80% (1.794 statements, 356 sem cobertura); compileall aprovado. Certificado real, runtime instalado, Linux, produção e CI hospedada pendentes. Contrato do portal 75/75. Não altera contadores formais nem cria release."
+    },
+    {
+      "id": "server-item-persistence-placeholder-noop-2026-11-01-0441",
+      "title": "Persistência: lote só com placeholders evita acesso ao banco",
+      "agent": "Codex",
+      "front": "server",
+      "featureIds": [],
+      "local": "Release/.NET 10; ItemPersistenceServiceTests",
+      "location": "Jellyfin.Server.Implementations/Item/ItemPersistenceService.cs",
+      "scope": "Evitar criação de contexto e transação quando o lote não possui nenhum item persistível.",
+      "status": "in_progress",
+      "progressPercent": null,
+      "startedAt": "2026-11-01T04:41:42-03:00",
+      "updatedAt": "2026-11-01T04:41:42-03:00",
+      "evidence": "RED reproduziu criação desnecessária do DbContext para lote apenas com PlaceholderId; após correção, ItemPersistenceServiceTests passou 34/34 em Release/.NET 10. O retorno só é aplicado após o filtro resultar em lista vazia. Sem teste de banco ou benchmark. CI hospedada, produção e homologação formal pendentes; não altera cobertura formal nem publica release."
+    },
+    {
+      "id": "server-item-related-delete-audit-2026-11-01-0444",
+      "title": "Auditoria: exclusões isoladas de coleções relacionadas por item",
+      "agent": "Codex",
+      "front": "server",
+      "featureIds": [],
+      "local": "Inspeção estática de persistência e chamadores",
+      "location": "Jellyfin.Server.Implementations/Item/ItemPersistenceService.cs — SaveBaseItemEntities",
+      "scope": "Determinar se as exclusões relacionadas durante a atualização de itens podem ser agrupadas com segurança.",
+      "status": "in_progress",
+      "progressPercent": null,
+      "startedAt": "2026-11-01T04:44:01-03:00",
+      "updatedAt": "2026-11-01T04:44:01-03:00",
+      "evidence": "Inspeção encontrou ExecuteDelete dentro do loop para providers, imagens, campos bloqueados e tipos de trailer, até quatro comandos por item se todas as coleções mudarem. LibraryManager.CreateItems e UpdateItemsAsync passam listas recebidas diretamente. WhereOneOrMany não fragmenta listas; limites SQL e ordem delete-before-insert exigem cuidado. Sem MariaDB de teste configurada e sem contagem SQL; tamanho real dos lotes e impacto não medidos. Nenhuma alteração runtime; não altera cobertura formal nem release."
     }
   ]
 }
