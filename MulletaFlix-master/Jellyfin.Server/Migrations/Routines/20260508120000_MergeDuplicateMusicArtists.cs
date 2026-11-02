@@ -86,7 +86,7 @@ public class MergeDuplicateMusicArtists : IAsyncMigrationRoutine
                 // (the resolver-created artist with a filesystem path); the duplicates are usually
                 // empty stubs created by the validator's case-sensitive miss.
                 var stats = await context.BaseItems
-                    .Where(b => groupIds.Contains(b.Id))
+                    .Where(b => Enumerable.Contains(groupIds, b.Id))
                     .Select(b => new
                     {
                         b.Id,

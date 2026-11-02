@@ -13,11 +13,14 @@ internal static class MidiaStorageOnlineSyncGate
         OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal);
 
     internal static Task RunAsync(string manifestPath, Func<Task> operation, CancellationToken cancellationToken)
-        => RunAsync(manifestPath, async () =>
-        {
-            await operation().ConfigureAwait(false);
-            return true;
-        }, cancellationToken);
+        => RunAsync(
+            manifestPath,
+            async () =>
+            {
+                await operation().ConfigureAwait(false);
+                return true;
+            },
+            cancellationToken);
 
     internal static async Task<T> RunAsync<T>(string manifestPath, Func<Task<T>> operation, CancellationToken cancellationToken)
     {

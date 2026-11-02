@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-11-01T17:38:00-03:00",
+  "generatedAt": "2026-11-02T03:16:21-03:00",
   "source": {
     "roadmap": "https://github.com/raphaelpera85/mulletaflix-completo/blob/main/docs/roadmap-evolucao-tecnologica-servidor-e-web.md",
     "repository": "https://github.com/raphaelpera85/mulletaflix-completo"
@@ -10,7 +10,7 @@
     "pending": 65,
     "total": 397,
     "definition": "Checklists de funcionalidades do roadmap (cada checkbox conta como um item); tarefas com evento ativo identificado aparecem como em execução.",
-    "inProgress": 4
+    "inProgress": 6
   },
   "tracks": [
     {
@@ -28,12 +28,12 @@
         "label": "2 de 7 gates com evidência técnica local validada; 1 em andamento, 3 pendentes e 1 bloqueado. SRV-H02 validado em MariaDB descartável; aceite formal de produção permanece pendente."
       },
       "testAudit": {
-        "passed": 5544,
-        "total": 5830,
-        "skipped": 286,
+        "passed": 5584,
+        "total": 5869,
+        "skipped": 285,
         "failed": 0,
         "percent": 95.1,
-        "label": "Regressão .NET Release em Windows/.NET 10: 17 assemblies, 5.544 aprovados, 286 ignorados, 0 falhas/5.830. Nebula Python 3.10: 726/726 (execução local registrada às 15:13). Testes MariaDB/Mongo com opt-in e cenários Linux não executaram; Linux, runtime instalado, CI hospedada e produção permanecem pendentes. Execução local não comprova homologação formal (2/7)."
+        "label": "Regressão .NET Release em Windows/.NET 10: 17 assemblies, 5.584 aprovados, 285 ignorados, 0 falhas/5.869; LiveIntegrationTests excluídos. Nebula Python 3.10.11: 791/791. Os demais cenários MariaDB/Mongo opt-in e Linux não executaram; Linux, runtime instalado, CI hospedada e produção permanecem pendentes. Esta execução local não comprova homologação formal (2/7)."
       }
     },
     {
@@ -2996,6 +2996,23 @@
     }
   ],
   "events": [
+    {
+      "id": "server-nuget-vulnerability-audit-2026-11-01-1759",
+      "title": "Auditoria local de vulnerabilidades NuGet sem achados",
+      "agent": "Codex",
+      "front": "server",
+      "featureIds": [],
+      "links": [],
+      "local": "Windows/.NET SDK 10.0.300: solução consultada com dotnet package list --vulnerable --include-transitive --no-restore; Jellyfin.Server e MediaBrowser.Providers reconsultados com restore implícito para atualizar advisories.",
+      "location": "MulletaFlix-master/MulletaFlix.sln; Jellyfin.Server/Jellyfin.Server.csproj; MediaBrowser.Providers/MediaBrowser.Providers.csproj.",
+      "scope": "Auditar vulnerabilidades conhecidas nos grafos NuGet resolvidos do servidor sem alterar dependências.",
+      "status": "completed",
+      "progressPercent": 100,
+      "startedAt": "2026-11-01T17:59:11-03:00",
+      "updatedAt": "2026-11-01T17:59:11-03:00",
+      "evidence": "A saída JSON da solução não listou pacotes vulneráveis; consultas com restore implícito dos projetos Jellyfin.Server e MediaBrowser.Providers também não retornaram entradas de vulnerabilidade nos advisories atuais da fonte NuGet configurada. A busca da solução reutilizou project.assets.json (--no-restore); os dois projetos focais atualizaram os dados de auditoria por restore. Isso não certifica o runtime instalado nem produção. Nenhuma dependência foi atualizada porque não houve achado que justificasse mudança.",
+      "release": "Auditoria de dependências sem mudança de runtime ou release. Evidência local 4/10; homologação formal permanece 2/7, sem crédito ou release publicada."
+    },
     {
       "id": "server-notification-timeout-diagnostics-2026-11-01-1658",
       "title": "Timeouts de notificação identificam o estado de metadados sem dados privados",
@@ -7390,15 +7407,15 @@
       "agent": "Codex",
       "front": "server",
       "featureIds": [],
-      "local": "Windows/.NET 10 Release; projeto de integração compilou; contratos portal espelho 118/118 e dedicado 458/458; 3 testes MariaDB encontrados e ignorados sem conexão descartável; revisão estática sem achados.",
+      "local": "Windows/.NET 10 Release: UpdatePeople_ 3/3 em MariaDB 11.4.4 descartável (porta 33099, lower_case_table_names=1); produção na porta 3306 não acessada. NebulaTelegramNotifierTests 14/14 revalidado.",
       "location": "MulletaFlix-master/Jellyfin.Server.Implementations/Item/PeopleRepository.cs; tests/IntroSkipper.Integration.Tests/ServerPersistenceMariaDbTests.cs",
       "scope": "Identificar vínculo de pessoa por PeopleId e substituir Role com delete+insert sequencial na transação para respeitar chave e collation MariaDB.",
-      "status": "in_progress",
-      "progressPercent": 75,
+      "status": "completed",
+      "progressPercent": 100,
       "startedAt": "2026-11-01T17:27:00-03:00",
-      "updatedAt": "2026-11-01T17:32:00-03:00",
-      "evidence": "Log 12.1.45 atribui a falha Duplicate entry da chave primária a PeopleRepository.UpdatePeople. Role integra (ItemId, PeopleId, Role); igualdade ordinal em memória pode divergir da collation MariaDB. Vínculo agora é localizado por PeopleId e Role atualizado com delete+insert na transação. Três testes focais foram ignorados por ausência de MULLETAFLIX_TEST_MARIADB_CONNECTION_STRING. Nenhum banco operacional foi acessado.",
-      "release": "Evidência local 1/10 do próximo lote; homologação formal 2/7 (28,6%); 12.1.46 continua candidata sem release. MariaDB descartável, blurhash IOException, Linux e CI hospedada pendentes."
+      "updatedAt": "2026-11-01T17:49:02-03:00",
+      "evidence": "Log 12.1.45 atribui a falha Duplicate entry da chave primária a PeopleRepository.UpdatePeople. Role integra (ItemId, PeopleId, Role); igualdade ordinal em memória pode divergir da collation MariaDB. O vínculo agora é localizado por PeopleId e Role substituído dentro da transação. MariaDB 11.4.4 descartável no Windows: os três testes UpdatePeople_ passaram, cobrindo pessoa existente, mudança de caixa e oito atualizações concorrentes; lower_case_table_names=1. Produção não foi acessada.",
+      "release": "Evidência local 3/10 do lote; homologação formal 2/7 (28,6%); 12.1.46 continua candidata sem release. MariaDB Linux lower_case_table_names=0, CI hospedada, runtime e produção ainda pendentes."
     },
     {
       "id": "server-blurhash-transient-sharing-retry-2026-11-01-1738",
@@ -7406,7 +7423,7 @@
       "agent": "Codex",
       "front": "server",
       "featureIds": [],
-      "local": "Windows/.NET 10 Release: ImageProcessorBlurHashTests 2/2; dotnet format style nos arquivos alterados passou.",
+      "local": "Windows/.NET 10 Debug: ImageProcessorBlurHashTests 2/2; dotnet format style nos arquivos alterados passou.",
       "location": "MulletaFlix-master/src/Jellyfin.Drawing/ImageProcessor.cs; tests/Jellyfin.Server.Implementations.Tests/Drawing/ImageProcessorBlurHashTests.cs",
       "scope": "Repetir apenas a violação de compartilhamento Windows ao abrir imagem para BlurHash; limitar a quatro tentativas e preservar a propagação de erros permanentes.",
       "status": "completed",
@@ -7415,7 +7432,847 @@
       "updatedAt": "2026-11-01T17:38:00-03:00",
       "evidence": "Log 12.1.45 registra IOException ao abrir folder.jpg para BlurHash e informa bloqueio por outro processo, mas não identifica processo nem HResult. ImageProcessor agora tenta novamente somente ERROR_SHARING_VIOLATION (32) no Windows; demais IOException propagam normalmente. Dois testes focais passaram. Não houve reprodução com writer concorrente real.",
       "release": "Evidência local 2/10 do lote; homologação formal 2/7 (28,6%); 12.1.46 continua candidata sem release publicada. Linux, runtime instalado, CI hospedada e produção pendentes."
+    },
+    {
+      "id": "server-rooted-image-writer-design-audit-2026-11-01-1807",
+      "title": "Auditoria: gravação rooted atômica para imagens",
+      "agent": "Codex",
+      "front": "server",
+      "featureIds": [],
+      "local": "Inspeção de código e documentação oficial; sem alteração de runtime. Regressão UI de progresso nulo: portal embarcado 122/122 e portal dedicado 462/462.",
+      "location": "MulletaFlix-master/MediaBrowser.Providers/Manager/ImageSaver.cs; MediaBrowser.Controller/IO/RootedFileSystem.cs; Jellyfin.Server.Implementations/FullSystemBackup/BackupRestoreDirectory.cs; MulletaFlix.Plugin.GetAvatar/Services/AvatarFileStore.cs",
+      "scope": "Definir requisitos para criação e substituição atômicas relativas a diretório aberto, sem reutilizar política específica de restore nem declarar garantias multiplataforma não demonstradas.",
+      "status": "in_progress",
+      "startedAt": "2026-11-01T18:02:00-03:00",
+      "updatedAt": "2026-11-01T18:17:11-03:00",
+      "evidence": "A leitura dos callers confirmou que ImageSaver cria diretório, temporário e destino por pathname nos fluxos de ProviderManager; a gravação direta também atende ImageController e AvatarService. RootedFileSystem cobre exclusão Windows; BackupRestoreDirectory é interno à camada de implementação e carrega validação ACL de restore; AvatarFileStore só cobre nomes simples. Linux openat2/renameat ancora resolução/operação a dirfds, mas rename não impede que diretório aberto seja movido; Windows sem FILE_SHARE_DELETE pode bloquear rename enquanto handles ancestrais ficam abertos. Não há primitiva existente que complete escrita e replace nos roots de biblioteca, metadata e perfil, preservando atomicidade e metadados com política comum. Fontes: man7 openat2/rename(2); Microsoft CreateFileW/ReplaceFileW. A lista de eventos omite progressPercent nulo/ausente em vez de renderizar 0%; teste de regressão passou nos dois portais. Sem teste de corrida do writer, Linux nativo, runtime instalado ou produção.",
+      "release": "Evidência local 5/10 do lote; homologação formal permanece 2/7 (28,6%); 12.1.46 continua candidata, sem release. Projeto da primitiva e testes adversariais Windows/Linux pendentes."
+    },
+    {
+      "id": "server-filesystem-technique-review-2026-11-01-1824",
+      "title": "Auditoria contínua: padrões de filesystem do servidor",
+      "agent": "Codex",
+      "front": "server",
+      "featureIds": [],
+      "local": "Contratos locais do portal: espelho 123/123 e portal dedicado 463/463; git diff --check passou. Nenhum teste de runtime do produto servidor executado.",
+      "location": "MulletaFlix-master (fontes); docs/roadmap-evolucao-tecnologica-servidor-e-web.md; MulletaFlix-master/docs/backend-auditoria-roadmap.md",
+      "scope": "Revisar técnicas atuais de escrita de arquivos e registrar evidência sem adotar dependências sem ganho demonstrado.",
+      "status": "in_progress",
+      "progressPercent": null,
+      "startedAt": "2026-11-01T18:24:06-03:00",
+      "updatedAt": "2026-11-01T18:25:34-03:00",
+      "evidence": "Busca heurística, não exaustiva, encontrou 122 arquivos-fonte e 411 ocorrências. ImageSaver mantém temporário no diretório de destino; documentação .NET alerta que movimento entre volumes pode usar cópia e exclusão. Escrita rooted depende da política da raiz e de teste adversarial nativo.",
+      "release": "Evidência local 6/10 do lote; homologação formal 2/7 (28,6%); 12.1.46 continua candidata sem release. Não houve alteração de runtime, produção ou homologação nesta rodada."
+    },
+    {
+      "id": "server-release-build-analyzer-fix-2026-11-01-1838",
+      "title": "Build Release: correção StyleCop SA1117 no gate de sincronização",
+      "agent": "Codex",
+      "front": "server",
+      "featureIds": [],
+      "local": "dotnet build MulletaFlix.sln Release/no-restore: 0 erros. Teste focado MidiaStorageOnlineSyncGateTests 4/4; solução no-build: 17 TRX, 5.560 aprovados, 275 ignorados/não executados, 0 falhas/5.835. Nebula Python 3.10 com requirements.lock em venv isolada: 726/726.",
+      "location": "MulletaFlix-master/MediaBrowser.Providers/Plugins/MidiaStorageOnline/MidiaStorageOnlineSyncGate.cs; MulletaFlix-master/docs/releases/12.1.46.md",
+      "scope": "Corrigir o formato multiline dos argumentos do RunAsync para cumprir SA1117 e manter o comportamento do lease de sincronização.",
+      "status": "completed",
+      "progressPercent": null,
+      "startedAt": "2026-11-01T18:29:00-03:00",
+      "updatedAt": "2026-11-01T18:38:42-03:00",
+      "evidence": "A compilação inicial reportou SA1117 em MidiaStorageOnlineSyncGate.cs. O overload foi reformatado para um parâmetro por linha; build completo Release passou com 0 erros e o teste focal passou 4/4. Regressão no-build: 5.560 aprovados, 275 ignorados/não executados, 0 falhas/5.835 em 17 TRX; Nebula Python 726/726 na venv isolada. LiveIntegrationTests foi excluído; testes MariaDB/Mongo opt-in e Linux continuam sem validação nesta rodada.",
+      "release": "Evidência local 7/10 do lote; homologação formal 2/7; release 12.1.46 continua candidata e não publicada. Sem validação de runtime instalado/produção."
+    },
+    {
+      "id": "server-people-cross-item-lock-2026-11-01-1905",
+      "title": "Concorrência do cadastro de pessoas entre itens distintos",
+      "agent": "Codex",
+      "front": "server",
+      "featureIds": [],
+      "links": [],
+      "local": "Windows/.NET SDK 10.0.300: build Release de IntroSkipper.Integration.Tests sem erros; teste novo concorrente 1/1 e conjunto UpdatePeople_ 4/4 contra MariaDB descartável 11.4.4 em 127.0.0.1:33099.",
+      "location": "MulletaFlix-master/Jellyfin.Server.Implementations/Item/PeopleRepository.cs; MulletaFlix-master/tests/IntroSkipper.Integration.Tests/ServerPersistenceMariaDbTests.cs; docs/releases/12.1.46.md.",
+      "scope": "Evitar que atualizações simultâneas de itens diferentes criem linhas duplicadas para a mesma pessoa e tipo.",
+      "status": "completed",
+      "progressPercent": null,
+      "startedAt": "2026-11-01T18:55:00-03:00",
+      "updatedAt": "2026-11-01T19:05:30-03:00",
+      "evidence": "A corrida foi reproduzida/endereçada com bloqueio local por identidade ausente em ordem determinística e nova leitura dentro da transação. O teste cria dois itens diferentes, executa 16 atualizações concorrentes e confirma uma linha People compartilhada pelos dois vínculos. Todos os quatro casos UpdatePeople_ passaram. O banco MariaDB foi isolado na porta 33099; produção não foi acessada. Build do projeto Release passou com 0 erros e avisos existentes.",
+      "release": "Registrado nas notas candidatas 12.1.46; sem publicação ou implantação. Proteção é local ao processo, não reconcilia duplicatas históricas; MariaDB Linux/case-sensitive, múltiplos processos, runtime instalado e produção pendentes. Evidência local 8/10; homologação formal permanece 2/7."
+    },
+    {
+      "id": "server-direct-mariadb-lock-retry-2026-11-01-1923",
+      "title": "Retry de conflitos MariaDB lançados diretamente em comandos de metadados",
+      "agent": "Codex",
+      "front": "server",
+      "featureIds": [],
+      "links": [],
+      "local": "Windows/.NET 10 Release: build do projeto de testes concluiu com 0 erros; classificador 9/9, ItemPersistenceServiceTests 38/38 e suíte Jellyfin.Server.Implementations.Tests 1.704 aprovados, 91 ignorados, 0 falhas/1.795. dotnet format whitespace focal aprovado.",
+      "location": "MulletaFlix-master/Jellyfin.Server.Implementations/Item/ItemPersistenceService.cs; MulletaFlix-master/tests/Jellyfin.Server.Implementations.Tests/Item/ItemPersistenceServiceTests.cs; docs/releases/12.1.46.md.",
+      "scope": "Repetir a transação inteira de persistência de itens quando comandos de lote lançam diretamente erros MariaDB de deadlock ou timeout de lock.",
+      "status": "completed",
+      "progressPercent": 100,
+      "startedAt": "2026-11-01T19:11:00-03:00",
+      "updatedAt": "2026-11-01T19:28:31-03:00",
+      "evidence": "O retry existente reconhecia 1213/1205 encapsulados em DbUpdateException, mas não a MySqlException direta de ExecuteSqlRaw/ExecuteDelete. Agora esses dois códigos repetem o fluxo com contexto/transação novos, até três tentativas. Duplicidade/FK diretas não são repetidas. Classificador 9/9, ItemPersistenceServiceTests 38/38 e suíte completa Jellyfin.Server.Implementations.Tests: 1.704 aprovados, 91 ignorados, 0 falhas/1.795. Sem reprodução de erro em MariaDB nesta rodada.",
+      "release": "Anotado na candidata 12.1.46; sem release ou deploy. Homologação formal permanece 2/7. Reprodução MariaDB para o caminho direto, Linux, CI hospedada, runtime instalado e produção pendentes. Evidência local 8/10 no lote."
+    },
+    {
+      "id": "server-image-writer-cross-platform-design-2026-11-01-1934",
+      "title": "Desenho seguro da gravação de imagens em Windows e Linux",
+      "agent": "Codex",
+      "front": "server",
+      "featureIds": [],
+      "links": [
+        "https://man7.org/linux/man-pages/man2/openat2.2.html",
+        "https://learn.microsoft.com/en-us/windows/win32/api/winbase/ns-winbase-file_rename_info",
+        "https://learn.microsoft.com/en-us/windows/win32/api/winbase/nf-winbase-replacefilew"
+      ],
+      "local": "Linux não foi validado: este host não tem distro WSL, Docker ou Podman. Nenhum teste de produto foi executado.",
+      "location": "MulletaFlix-master/docs/backend-auditoria-roadmap.md; docs/backend-auditoria-roadmap-tecnico.md",
+      "scope": "Atualizar o desenho e os gates da escrita rooted de imagens, usando contratos documentados do Linux e Windows.",
+      "status": "completed",
+      "progressPercent": null,
+      "startedAt": "2026-11-01T19:30:00-03:00",
+      "updatedAt": "2026-11-01T19:41:53-03:00",
+      "evidence": "Linux openat2 existe desde 5.6; RESOLVE_BENEATH/RESOLVE_NO_SYMLINKS restringem resolução, EAGAIN pode indicar corrida, e ENOSYS requer fail-closed. Windows FILE_RENAME_INFO.RootDirectory documenta rename relativo a handle. ReplaceFileW preserva ACL/atributos mas usa paths. Roots ainda precisam de autoridade contra rename concorrente. Sem implementação, testes Linux ou validação de produção.",
+      "release": "Evidência local 9/10 do lote; homologação formal permanece 2/7; 12.1.46 candidata, sem release. O resultado é auditoria de desenho, não validação formal."
+    },
+    {
+      "id": "server-nebula-checkpoint-transient-retry-2026-11-01-1953",
+      "title": "Retry seletivo do checkpoint Mongo nos uploads Nebula",
+      "agent": "Codex",
+      "front": "server",
+      "featureIds": [],
+      "links": [
+        "https://www.mongodb.com/docs/languages/python/pymongo-driver/current/connect/connection-targets/",
+        "https://www.mongodb.com/docs/languages/python/pymongo-driver/current/connect/connection-options/csot/"
+      ],
+      "local": "Windows/Python 3.10, venv isolada: testes focais de upload 27/27; suíte Nebula Python completa 728/728.",
+      "location": "MulletaFlix-master/Tools/NebulaPython/main.py; MulletaFlix-master/Tools/NebulaPython/tests/test_main_upload_worker.py; MulletaFlix-master/docs/releases/12.1.46.md",
+      "scope": "Manter retry automático de checkpoint para conexão/timeout Mongo transitórios sem deixar erros permanentes prender worker nem reenviar partes Telegram.",
+      "status": "completed",
+      "progressPercent": 100,
+      "startedAt": "2026-11-01T19:42:00-03:00",
+      "updatedAt": "2026-11-01T19:53:19-03:00",
+      "evidence": "OperationFailure permanente é propagado após uma chamada; ServerSelectionTimeoutError recupera via retry com backoff. Timeout/cancelamento preservam retry automático e limpeza do worker. O mesmo update $set/$unset determinístico é repetido no Mongo; checkpoint não chama Telegram. Focais 27/27 e suíte 728/728. Sem Mongo/Telegram reais, Linux, runtime instalado, CI hospedada ou produção.",
+      "release": "Evidência local 10/10 do lote; homologação formal 2/7 (28,6%), sem crédito; 12.1.46 candidata, sem release. Produção não acessada."
+    },
+    {
+      "id": "server-polly-save-failure-propagation-2026-11-01-2011",
+      "title": "Propagação de falhas de persistência no retry do banco",
+      "agent": "Codex",
+      "front": "server",
+      "featureIds": [],
+      "links": [
+        "https://github.com/App-vNext/Polly/blob/8.6.6/src/Polly/Policy.ExecuteOverloads.cs",
+        "https://github.com/App-vNext/Polly/blob/8.6.6/src/Polly/AsyncPolicy.ExecuteOverloads.cs",
+        "https://github.com/App-vNext/Polly/blob/main/docs/migration-v8.md"
+      ],
+      "local": "Windows/.NET 10 Release: JellyfinDbContextTransactionRetryTests 10/10; retries sync/async transitórios, falha permanente e exceção original após o limite cobertos. Compilação sem erros; avisos preexistentes de analisadores permanecem.",
+      "location": "MulletaFlix-master/src/Jellyfin.Database/Jellyfin.Database.Implementations/Locking/OptimisticLockBehavior.cs; MulletaFlix-master/tests/IntroSkipper.Integration.Tests/JellyfinDbContextTransactionRetryTests.cs; MulletaFlix-master/docs/releases/12.1.46.md",
+      "scope": "Propagar exceções finais dos caminhos de SaveChanges sync/async após a política de retry, evitando falso sucesso quando a persistência falha.",
+      "status": "completed",
+      "progressPercent": 100,
+      "startedAt": "2026-11-01T19:58:00-03:00",
+      "updatedAt": "2026-11-01T20:27:22-03:00",
+      "evidence": "ExecuteAndCapture descartava a falha final. Além da correção de propagação em Execute/ExecuteAsync, a 15.ª tentativa usava índice 15 num array de 15 delays e mascarava o erro original com IndexOutOfRangeException; o callback agora converte retryAttempt 1-based para índice zero-based. Suite focal 10/10 cobre retry e exceção original após o limite. Sem bloqueio MariaDB real.",
+      "release": "Evidência local 1/10 do lote; homologação formal 2/7, sem crédito; 12.1.46 candidata, sem release. Linux, runtime instalado e produção pendentes."
+    },
+    {
+      "id": "server-http-resilience-policy-audit-2026-11-01-2033",
+      "title": "Auditoria da política HTTP de retry e circuit breaker",
+      "agent": "Codex",
+      "front": "server",
+      "featureIds": [],
+      "links": [
+        "https://learn.microsoft.com/en-us/dotnet/core/resilience/http-resilience",
+        "https://github.com/App-vNext/Polly/blob/main/docs/migration-v8.md"
+      ],
+      "local": "Windows/.NET 10 Release: StartupHttpRetryPolicyTests 3/3; retries 503, não-retry 404 e abertura do circuit breaker após 5 falhas caracterizados sem rede externa.",
+      "location": "MulletaFlix-master/Jellyfin.Server/Startup.cs; MulletaFlix-master/tests/Jellyfin.Server.Tests/StartupHttpRetryPolicyTests.cs; MulletaFlix-master/docs/backend-auditoria-roadmap.md",
+      "scope": "Caracterizar a política HTTP atual e avaliar as APIs modernas de resiliência antes de migrar dependências.",
+      "status": "completed",
+      "progressPercent": 100,
+      "startedAt": "2026-11-01T20:28:00-03:00",
+      "updatedAt": "2026-11-01T20:38:05-03:00",
+      "evidence": "Default, MusicBrainz e DirectIp usam 3 retries de 2/4/8 s e circuito clássico configurado para 5 falhas/30 s. StartupHttpRetryPolicyTests 3/3 confirma 503 transitório, 404 permanente e breaker contando tentativas HTTP individuais: quatro falhas na primeira execução e a quinta na segunda abrem o circuito e bloqueiam a próxima chamada. Microsoft.Extensions.Http.Resilience/Polly v8 são evolução disponível, mas o handler padrão e breaker por razão/janela diferem do contrato atual; migração não é drop-in. Nenhuma dependência ou comportamento de produção foi alterado.",
+      "release": "Auditoria local 2/10 do lote; sem crédito de homologação; release 12.1.46 candidata, não publicada. Linux, providers reais, CI hospedada, runtime e produção pendentes."
+    },
+    {
+      "id": "server-http-429-retry-after-gap-2026-11-01-2047",
+      "title": "Auditoria de rate limit HTTP e Retry-After",
+      "agent": "Codex",
+      "front": "server",
+      "featureIds": [],
+      "links": [
+        "https://www.rfc-editor.org/rfc/rfc9110.html#section-10.2.3",
+        "https://learn.microsoft.com/en-us/dotnet/core/resilience/http-resilience",
+        "https://github.com/App-vNext/Polly.Extensions.Http"
+      ],
+      "local": "Windows/.NET 10 Release: StartupHttpRetryPolicyTests 4/4; caracteriza 429 com Retry-After retornado após uma tentativa.",
+      "location": "MulletaFlix-master/Jellyfin.Server/Startup.cs; MulletaFlix-master/tests/Jellyfin.Server.Tests/StartupHttpRetryPolicyTests.cs; MulletaFlix-master/docs/backend-auditoria-roadmap.md",
+      "scope": "Verificar se a política HTTP atual trata 429 e Retry-After antes de decidir qualquer mudança de comportamento.",
+      "status": "completed",
+      "progressPercent": 100,
+      "startedAt": "2026-11-01T20:40:00-03:00",
+      "updatedAt": "2026-11-01T20:47:37-03:00",
+      "evidence": "StartupHttpRetryPolicyTests 4/4 confirma 429 com Retry-After: 1 retornado após uma tentativa. HandleTransientHttpError cobre HttpRequestException, 408 e 5xx, não 429; a política atual não honra Retry-After. Documentação Microsoft do handler moderno recomenda retry para 429 e respeita Retry-After; RFC 9110 aceita segundos ou data HTTP. Sem alteração de runtime ou dependência. 85 usos explícitos do cliente Default foram pesquisados; POSTs observados em NetShort/DramaFinds são chamadas de busca/detalhes, mas cobertura semântica completa de métodos ainda é pendente.",
+      "release": "Auditoria local 3/10 do lote; sem crédito formal; homologação 2/7; 12.1.46 candidata, sem release. Linux, CI hospedada, runtime instalado e produção pendentes."
+    },
+    {
+      "id": "server-http-429-idempotent-retry-2026-11-01-2111",
+      "title": "Retry HTTP 429 seguro com Retry-After",
+      "agent": "Codex",
+      "front": "server",
+      "featureIds": [],
+      "links": [
+        "https://www.rfc-editor.org/rfc/rfc9110.html#section-10.2.3",
+        "https://learn.microsoft.com/en-us/dotnet/core/resilience/http-resilience",
+        "https://learn.microsoft.com/en-us/dotnet/api/system.net.http.headers.retryconditionheadervalue?view=net-8.0"
+      ],
+      "local": "Windows/.NET 10 Release: StartupHttpRetryPolicyTests 8/8; dotnet build MulletaFlix.sln Release: 0 erros, 1.849 avisos existentes.",
+      "location": "MulletaFlix-master/Jellyfin.Server/Startup.cs; MulletaFlix-master/tests/Jellyfin.Server.Tests/StartupHttpRetryPolicyTests.cs; MulletaFlix-master/docs/backend-auditoria-roadmap.md; MulletaFlix-master/docs/releases/12.1.46.md",
+      "scope": "Repetir respostas HTTP 429 com respeito a Retry-After sem alterar a semântica do circuit breaker compartilhado.",
+      "status": "completed",
+      "progressPercent": 100,
+      "startedAt": "2026-11-01T20:48:00-03:00",
+      "updatedAt": "2026-11-01T21:11:27-03:00",
+      "evidence": "Retry-After delta/data e fallback exponencial cobertos. GET/HEAD/OPTIONS/TRACE/PUT/DELETE idempotentes podem ser repetidos; POST não. O circuito preserva o filtro de transporte, 408 e 5xx: 8 respostas 429 não o abrem. Os registros Default, MusicBrainz e DirectIp seguem usando a política. Nenhuma dependência foi atualizada.",
+      "release": "Evidência local 4/10 do lote; homologação formal permanece 2/7 (28,6%); 12.1.46 candidata, sem release publicada. Provedores externos, Linux, CI hospedada, runtime instalado e produção pendentes."
+    },
+    {
+      "id": "server-http-circuit-breaker-recovery-2026-11-01-2131",
+      "title": "Circuit breaker HTTP recupera após o intervalo de produção",
+      "agent": "Codex",
+      "front": "server",
+      "featureIds": [],
+      "links": [
+        "https://github.com/App-vNext/Polly/blob/main/docs/strategies/circuit-breaker.md",
+        "https://github.com/App-vNext/Polly/blob/main/src/Snippets/Docs/Migration.CircuitBreaker.cs"
+      ],
+      "local": "Windows/.NET 10 Release: StartupHttpRetryPolicyTests 9/9; novo teste esperou 31 s e confirmou HTTP 200 após recuperação.",
+      "location": "MulletaFlix-master/Jellyfin.Server/Startup.cs; MulletaFlix-master/tests/Jellyfin.Server.Tests/StartupHttpRetryPolicyTests.cs; MulletaFlix-master/docs/backend-auditoria-roadmap.md; MulletaFlix-master/docs/releases/12.1.46.md",
+      "scope": "Validar bloqueio e recuperação da política HTTP com o período de 30 segundos configurado em produção.",
+      "status": "completed",
+      "progressPercent": 100,
+      "startedAt": "2026-11-01T21:29:00-03:00",
+      "updatedAt": "2026-11-01T21:32:00-03:00",
+      "evidence": "O breaker abriu após falhas transitórias, rejeitou chamadas enquanto aberto e aceitou nova execução depois dos 30 segundos configurados, que retornou HTTP 200. GetRetryPolicy manteve o padrão de produção sem parâmetro de teste; Default, MusicBrainz e DirectIp continuam usando a política compartilhada. Teste focal passou 9/9 em Release/.NET 10.",
+      "release": "Evidência local 5/10 no lote; homologação formal permanece 2/7 (28,6%); 12.1.46 candidata, sem release publicada. Linux, CI hospedada, runtime instalado, provedores externos e produção pendentes."
+    },
+    {
+      "id": "server-explicit-transaction-retry-audit-2026-11-01-2135",
+      "title": "Auditoria de retries em transações explícitas",
+      "agent": "Codex",
+      "front": "server",
+      "featureIds": [],
+      "links": [
+        "https://learn.microsoft.com/en-us/ef/core/miscellaneous/connection-resiliency"
+      ],
+      "local": "Auditoria estática dos callsites BeginTransaction/BeginTransactionAsync; nenhum teste de runtime executado nesta auditoria.",
+      "location": "MulletaFlix-master/Jellyfin.Server.Implementations/Item; Emby.Server.Implementations; MulletaFlix.Plugin.IntroSkipper; Jellyfin.Server.Implementations/FullSystemBackup; docs/backend-auditoria-roadmap.md",
+      "scope": "Mapear operações transacionais de gravação e separar retry de comando do retry seguro da unidade transacional, com atenção a MariaDB e falha ambígua no commit.",
+      "status": "completed",
+      "progressPercent": 100,
+      "startedAt": "2026-11-01T21:33:30-03:00",
+      "updatedAt": "2026-11-01T21:35:08-03:00",
+      "evidence": "Foram encontrados replaces relacionais em MediaStreamRepository, MediaAttachmentRepository, ChapterRepository e KeyframeRepository, além de operações em PeopleRepository, ItemPersistenceService, UserDataManager, IntroSkipper, limpeza, migrations e backup/restore. A política existente para locks SQLite em comandos isolados não comprova retry seguro da transação MariaDB; operações com arquivos e efeitos colaterais precisam de tratamento separado. A documentação EF Core recomenda executar a transação manual como uma unidade e verificar sucesso quando o commit pode ser ambíguo. Nenhuma mudança de runtime foi feita.",
+      "release": "Auditoria local 6/10 do lote; homologação formal permanece 2/7 (28,6%); 12.1.46 candidata, sem release publicada. Teste MariaDB descartável, Linux, CI hospedada, runtime instalado e produção pendentes."
+    },
+    {
+      "id": "server-ef9-csharp14-array-contains-2026-11-01-2142",
+      "title": "Correção de Contains em arrays nas consultas EF Core",
+      "agent": "Codex",
+      "front": "server",
+      "featureIds": [],
+      "links": [
+        "https://github.com/PomeloFoundation/Pomelo.EntityFrameworkCore.MySql#compatibility",
+        "https://github.com/PomeloFoundation/Pomelo.EntityFrameworkCore.MySql/issues/2018",
+        "https://github.com/PomeloFoundation/Pomelo.EntityFrameworkCore.MySql/pulls"
+      ],
+      "local": "Windows/.NET 10 Release: teste Pomelo reproduziu a falha antes do ajuste e passou 1/1 depois, cobrindo SQL para tags incluídas e excluídas sem conexão MariaDB.",
+      "location": "MulletaFlix-master/Jellyfin.Server.Implementations/Item/BaseItemRepository.TranslateQuery.cs; MulletaFlix-master/tests/Jellyfin.Server.Implementations.Tests/Item/BaseItemRepositoryTagQueryTranslationTests.cs; docs/backend-auditoria-roadmap.md; MulletaFlix-master/docs/releases/12.1.46.md",
+      "scope": "Corrigir binding de array.Contains em consultas EF no runtime .NET 10/C# 14 com EF Core 9.",
+      "status": "completed",
+      "progressPercent": 100,
+      "startedAt": "2026-11-01T21:40:00-03:00",
+      "updatedAt": "2026-11-01T21:42:58-03:00",
+      "evidence": "LangVersion efetivo 14.0; EF Core 9.0.0 e Pomelo 9.0.0. O teste focal reproduziu falha de avaliação de parâmetro no caminho anterior e, após qualificar Enumerable.Contains para excludedTags e includeTags, ToQueryString gerou SQL para ambos os filtros. O caminho paralelo QueryBuilding já usa a forma qualificada. Matriz oficial do Pomelo 9.0.0 lista EF Core 9.0.x; suporte EF 10 permanece em PRs abertos. Nenhum pacote foi atualizado; nenhuma conexão MariaDB foi aberta.",
+      "release": "Evento local 7/10 do lote; homologação formal permanece 2/7 (28,6%) sem crédito; release 12.1.46 candidata, não publicada. Execução MariaDB, busca completa das árvores LINQ EF, Linux, CI hospedada, runtime instalado e produção pendentes."
+    },
+    {
+      "id": "server-ef-array-contains-sweep-2026-11-01-2152",
+      "title": "Varredura C# 14 de Contains em consultas EF",
+      "agent": "Codex",
+      "front": "server",
+      "featureIds": [],
+      "links": [
+        "https://learn.microsoft.com/en-us/dotnet/core/compatibility/core-libraries/10.0/csharp-overload-resolution"
+      ],
+      "local": "Windows/.NET 10 Release: teste Pomelo BaseItemRepositoryTagQueryTranslationTests 1/1 e compilação dos projetos Server e Server.Implementations. Jellyfin.Server.Tests sem saída visível, interrompida e não aprovada.",
+      "location": "MulletaFlix-master/Jellyfin.Server.Implementations/Item/BaseItemRepository.TranslateQuery.cs; MulletaFlix-master/Jellyfin.Server.Implementations/MediaSegments/MediaSegmentManager.cs; MulletaFlix-master/Jellyfin.Server/Migrations/Routines/20260508130000_MergeDuplicatePeople.cs; MulletaFlix-master/Jellyfin.Server/Migrations/Routines/20260508120000_MergeDuplicateMusicArtists.cs; MulletaFlix-master/Jellyfin.Server/Migrations/Routines/20260115120000_FixIncorrectOwnerIdRelationships.cs; MulletaFlix-master/docs/backend-auditoria-roadmap.md; MulletaFlix-master/docs/releases/12.1.46.md",
+      "scope": "Eliminar overload MemoryExtensions.Contains(ReadOnlySpan<T>, T) de arrays capturados por expressões EF com Enumerable.Contains explícito; preservar semântica de filtros e migrations.",
+      "status": "completed",
+      "progressPercent": 100,
+      "startedAt": "2026-11-01T21:42:00-03:00",
+      "updatedAt": "2026-11-01T21:52:19-03:00",
+      "evidence": "A auditoria encontrou e corrigiu nove callsites adicionais com Enumerable.Contains explícito: arrays de ContributingArtistIds, OfficialRatings, BlockUnratedItems e providerIds, além de groupIds/item/videoTypes em migrations. Tipos IReadOnlyList e subconsultas IQueryable foram classificados como falsos positivos e mantidos. Teste SQL Pomelo focal passou 1/1; MariaDB não foi conectado e migrations não foram executadas. O teste amplo Jellyfin.Server.Tests foi interrompido sem resultado e não foi contado como aprovado. Nenhum crédito foi dado à homologação formal.",
+      "release": "Evento local 8/10 do lote; homologação formal permanece 2/7 (28,6%); 12.1.46 candidata, sem release. MariaDB real, migrations, Linux, runtime instalado, CI hospedada e produção pendentes."
+    },
+    {
+      "id": "server-mariadb-attachment-replace-atomicity-2026-11-01-2211",
+      "title": "Rollback MariaDB no replace de anexos de mídia",
+      "agent": "Codex",
+      "front": "server",
+      "featureIds": [],
+      "links": [
+        "https://learn.microsoft.com/en-us/ef/core/miscellaneous/connection-resiliency",
+        "https://mariadb.com/docs/server/server-management/starting-and-stopping-mariadb/running-multiple-mariadb-server-processes"
+      ],
+      "local": "Windows/.NET 10 Release: ServerPersistenceMariaDbTests 16/16 com MariaDB 11.4.4 descartável em 127.0.0.1:33141; produção :3306 não acessada.",
+      "location": "MulletaFlix-master/Jellyfin.Server.Implementations/Item/MediaAttachmentRepository.cs; MulletaFlix-master/tests/IntroSkipper.Integration.Tests/ServerPersistenceMariaDbTests.cs; MulletaFlix-master/docs/backend-auditoria-roadmap.md; MulletaFlix-master/docs/releases/12.1.46.md",
+      "scope": "Validar rollback do replace delete+insert de anexos, substituição bem-sucedida e limpeza com lista vazia sem implementar retry de runtime.",
+      "status": "completed",
+      "progressPercent": 100,
+      "startedAt": "2026-11-01T22:06:00-03:00",
+      "updatedAt": "2026-11-01T22:11:41-03:00",
+      "evidence": "Teste MariaDB real falha no gatilho BEFORE INSERT após DELETE e confirma que o conjunto anterior persiste; depois confirma novo conjunto e lista vazia. A primeira tentativa usava duplicidade interceptada pelo change tracker EF antes do SQL e foi corrigida. A suíte passou 16/16 sem skips. Cobre atomicidade, não retry, deadlock ou confirmação de commit ambíguo; três outros repositories, Linux e produção não foram validados.",
+      "release": "Evento local 9/10 do lote; homologação formal permanece 2/7 (28,6%); 12.1.46 candidata, sem release publicada. Retry transacional, Linux, CI hospedada, runtime instalado e produção pendentes."
+    },
+    {
+      "id": "server-mariadb-media-replace-atomicity-2026-11-01-2219",
+      "title": "Rollback MariaDB nos replaces relacionais de mídia",
+      "agent": "Codex",
+      "front": "server",
+      "featureIds": [],
+      "links": [
+        "https://learn.microsoft.com/en-us/ef/core/miscellaneous/connection-resiliency",
+        "https://mariadb.com/docs/server/reference/sql-statements/transactions/rollback"
+      ],
+      "local": "Windows/.NET 10 Release: ServerPersistenceMariaDbTests 19/19 com MariaDB 11.4.4 descartável em 127.0.0.1:33141; produção :3306 não acessada.",
+      "location": "MulletaFlix-master/Jellyfin.Server.Implementations/Item; MulletaFlix-master/tests/IntroSkipper.Integration.Tests/ServerPersistenceMariaDbTests.cs; docs/backend-auditoria-roadmap.md; MulletaFlix-master/docs/releases/12.1.46.md",
+      "scope": "Validar rollback após falha no replace de anexos, streams, capítulos e keyframes; sem implementar retry de runtime.",
+      "status": "completed",
+      "progressPercent": 100,
+      "startedAt": "2026-11-01T22:12:00-03:00",
+      "updatedAt": "2026-11-01T22:20:00-03:00",
+      "evidence": "Trigger MariaDB falha em BEFORE INSERT após DELETE e cada teste confirma rollback do conjunto anterior para anexos, streams, capítulos e keyframes; também valida substituição e limpeza vazia. ServerPersistenceMariaDbTests passou 19/19 sem skips em MariaDB 11.4.4 descartável. Cobre atomicidade dos quatro replaces, não retry, deadlock nem commit ambíguo. O processo de produção na porta 3306 não foi acessado.",
+      "release": "Evento local 10/10 do lote; homologação formal permanece 2/7 (28,6%); 12.1.46 candidata, sem release publicada. Retry transacional, Linux, CI hospedada, runtime instalado e produção pendentes."
+    },
+    {
+      "id": "server-mariadb-people-role-replacement-rollback-2026-11-01-2228",
+      "title": "Rollback MariaDB na troca de papel de elenco",
+      "agent": "Codex",
+      "front": "server",
+      "featureIds": [],
+      "links": [
+        "https://learn.microsoft.com/en-us/ef/core/miscellaneous/connection-resiliency",
+        "https://mariadb.com/docs/server/reference/sql-statements/transactions/rollback"
+      ],
+      "local": "Windows/.NET 10 Release: ServerPersistenceMariaDbTests 20/20 com MariaDB 11.4.4 descartável em 127.0.0.1:33141; processo temporário encerrado, produção :3306 intocada.",
+      "location": "MulletaFlix-master/Jellyfin.Server.Implementations/Item/PeopleRepository.cs; MulletaFlix-master/tests/IntroSkipper.Integration.Tests/ServerPersistenceMariaDbTests.cs; docs/backend-auditoria-roadmap.md; docs/releases/12.1.46.md",
+      "scope": "Comprovar rollback do replace do papel de elenco quando o INSERT falha após remover o vínculo anterior.",
+      "status": "completed",
+      "progressPercent": 100,
+      "startedAt": "2026-11-01T22:21:00-03:00",
+      "updatedAt": "2026-11-01T22:28:00-03:00",
+      "evidence": "Trigger MariaDB BEFORE INSERT rejeita a nova linha após a remoção do papel anterior; a verificação confirma que o papel original permanece após rollback. ServerPersistenceMariaDbTests passou 20/20 sem skips. Isso valida atomicidade desse replace, não retry, deadlock nem commit ambíguo.",
+      "release": "Evento 1/10 do novo lote; homologação formal permanece 2/7 (28,6%); 12.1.46 candidata, sem release publicada. Linux, CI hospedada, runtime instalado e produção pendentes."
+    },
+    {
+      "id": "server-mariadb-images-save-rollback-2026-11-01-2240",
+      "title": "Rollback MariaDB na substituição de imagens",
+      "agent": "Codex",
+      "front": "server",
+      "featureIds": [],
+      "links": [
+        "https://learn.microsoft.com/en-us/ef/core/saving/transactions",
+        "https://mariadb.com/docs/server/reference/sql-statements/transactions/rollback"
+      ],
+      "local": "Windows/.NET 10 Release: ServerPersistenceMariaDbTests 21/21 com MariaDB 11.4.4 descartável em 127.0.0.1:33141; instância temporária encerrada, produção :3306 intocada.",
+      "location": "MulletaFlix-master/Jellyfin.Server.Implementations/Item/ItemPersistenceService.cs; MulletaFlix-master/tests/IntroSkipper.Integration.Tests/ServerPersistenceMariaDbTests.cs; docs/backend-auditoria-roadmap.md; docs/releases/12.1.46.md",
+      "scope": "Provar que SaveImagesAsync restaura as imagens antigas se o INSERT falha depois de ExecuteDelete.",
+      "status": "completed",
+      "progressPercent": 100,
+      "startedAt": "2026-11-01T22:36:00-03:00",
+      "updatedAt": "2026-11-01T22:40:00-03:00",
+      "evidence": "Trigger MariaDB BEFORE INSERT injeta falha depois de ExecuteDelete. O teste confirma que ID, caminho e idioma da imagem anterior permanecem após rollback. ServerPersistenceMariaDbTests passou 21/21 sem skips. Cobre atomicidade, não retry, deadlock ou commit ambíguo.",
+      "release": "Evento 2/10 do lote local; homologação formal permanece 2/7 (28,6%); 12.1.46 candidata, sem release publicada. Linux, CI hospedada, runtime instalado e produção pendentes."
+    },
+    {
+      "id": "server-userdata-key-mutation-rollback-2026-11-01-2252",
+      "title": "UserData mantém a chave do caller quando a transação falha",
+      "agent": "Codex",
+      "front": "server",
+      "featureIds": [],
+      "links": [],
+      "local": "Windows/.NET 10 Release: teste MariaDB focal 1/1; ServerPersistenceMariaDbTests 22/22; UserDataManagerTests 1/1.",
+      "location": "MulletaFlix-master/Emby.Server.Implementations/Library/UserDataManager.cs; tests/IntroSkipper.Integration.Tests/ServerPersistenceMariaDbTests.cs.",
+      "scope": "Evitar mutar UserItemData.Key recebido pelo caller ao persistir chaves de provedores dentro de uma transação.",
+      "status": "completed",
+      "progressPercent": 100,
+      "startedAt": "2026-11-01T22:52:19-03:00",
+      "updatedAt": "2026-11-01T22:52:19-03:00",
+      "evidence": "O teste usa a referência do batch cache, atualiza duas chaves de provedor e descarta a inserção da terceira; confirma rollback das duas alterações, ausência de evento e preservação da chave de entrada. A classe inteira passou 22/22 em MariaDB 11.4.4 descartável; o teste unitário UserDataManagerTests passou 1/1. O servidor temporário foi encerrado; a porta de produção 3306 não foi acessada. Linux, CI hospedada, runtime instalado e produção não foram validados.",
+      "release": "Evento local 3/10 do lote; homologação formal permanece 2/7 (28,6%), sem crédito; 12.1.46 candidata, sem release publicada. Linux, CI hospedada, runtime instalado e produção pendentes."
+    },
+    {
+      "id": "server-image-transaction-lockwait-retry-2026-11-01-2314",
+      "title": "Retry transacional de imagens validado com lock wait MariaDB",
+      "agent": "Codex",
+      "front": "server",
+      "featureIds": [],
+      "links": [],
+      "local": "Windows/.NET 10 Release: ServerPersistenceMariaDbTests 23/23; teste focal repetido 1/1 após limitar o descarte ao pool de teste.",
+      "location": "MulletaFlix-master/Jellyfin.Server.Implementations/Item/ItemPersistenceService.cs; tests/IntroSkipper.Integration.Tests/ServerPersistenceMariaDbTests.cs; docs/testing-mariadb.md.",
+      "scope": "Confirmar o retry da unidade SaveImagesAsync após lock wait MariaDB 1205 sem alterar a política de runtime.",
+      "status": "completed",
+      "progressPercent": 100,
+      "startedAt": "2026-11-01T23:14:02-03:00",
+      "updatedAt": "2026-11-01T23:14:02-03:00",
+      "evidence": "MariaDB 11.4.4 descartável em 127.0.0.1:33143: uma transação de teste manteve a imagem antiga bloqueada; SaveImagesAsync recebeu 1205, emitiu o sinal de retry, abriu tentativa nova, e após liberação persistiu a imagem nova. A classe ServerPersistenceMariaDbTests passou 23/23; o focal foi repetido 1/1 após o helper limpar somente o pool de conexão isolado. A instância foi encerrada. O executor bloqueou a remoção recursiva do datadir temporário; a produção :3306 permaneceu ativa e intocada. Sem prova de deadlock 1213, commit ambíguo, Linux, CI hospedada, runtime instalado ou produção.",
+      "release": "Evento local 4/10; homologação formal permanece 2/7 (28,6%), sem crédito. 12.1.46 candidata, sem release publicada; Linux, CI hospedada, runtime instalado e produção pendentes."
+    },
+    {
+      "id": "server-media-stream-transaction-lockwait-retry-2026-11-01-2332",
+      "title": "Retry transacional de MediaStream validado com lock wait MariaDB",
+      "agent": "Codex",
+      "front": "server",
+      "featureIds": [],
+      "links": [
+        "https://mariadb.com/docs/server/reference/error-codes/mariadb-error-codes-1200-to-1299",
+        "https://learn.microsoft.com/en-us/ef/core/miscellaneous/connection-resiliency"
+      ],
+      "local": "Windows/.NET 10 Release: teste focal MariaDB 2/2; ServerPersistenceMariaDbTests 24/24 contra MariaDB 11.4.4 descartável em 127.0.0.1:49288.",
+      "location": "MulletaFlix-master/Jellyfin.Server.Implementations/Item/MediaStreamRepository.cs; MulletaFlix-master/tests/IntroSkipper.Integration.Tests/ServerPersistenceMariaDbTests.cs; docs/backend-auditoria-roadmap.md; docs/testing-mariadb.md; MulletaFlix-master/docs/releases/12.1.46.md",
+      "scope": "Repetir toda a substituição de streams, com contexto e transação novos, apenas em erro MariaDB 1205/1213, preservando rollback para erros permanentes.",
+      "status": "completed",
+      "progressPercent": 100,
+      "startedAt": "2026-11-01T23:26:00-03:00",
+      "updatedAt": "2026-11-01T23:32:00-03:00",
+      "evidence": "O lock wait MariaDB 1205 provocou retry após descarte da transação/contexto e a nova lista foi persistida; o trigger de erro permanente manteve a lista anterior sem retry. Os dois testes focais passaram 2/2 e ServerPersistenceMariaDbTests passou 24/24 em Windows/.NET 10 Release contra instância temporária 11.4.4 em loopback, isolada, iniciada com skip-grant-tables e encerrada após o teste. A porta de produção 3306 não foi acessada. Deadlock 1213 real, autenticação/ACL do banco, Linux, CI hospedada, runtime instalado e produção não foram validados.",
+      "release": "Evento local 5/10 do lote; homologação formal permanece 2/7 (28,6%), sem crédito. 12.1.46 candidata, não publicada; teste real 1213, autenticação/ACL, Linux, CI hospedada, runtime instalado e produção pendentes."
+    },
+    {
+      "id": "server-nextup-bounded-exact-count-2026-11-01-2344",
+      "title": "NextUp limita episódios retidos com contagem exata",
+      "agent": "Codex",
+      "front": "server",
+      "featureIds": [],
+      "links": [
+        "https://learn.microsoft.com/en-us/ef/core/performance/efficient-querying",
+        "https://learn.microsoft.com/en-us/dotnet/api/system.collections.generic.priorityqueue-2?view=net-10.0"
+      ],
+      "local": "Windows/.NET 10 Release: TVSeriesManagerNextUpPaginationTests 5/5; NextUpQueryOptimizationTests 4/4; MariaDB opt-in 1 ignorado; endpoint integration 2 ignorados; dotnet format focal passou.",
+      "location": "MulletaFlix-master/Emby.Server.Implementations/TV/TVSeriesManager.cs; MulletaFlix-master/tests/Jellyfin.Server.Implementations.Tests/TV/TVSeriesManagerNextUpPaginationTests.cs; MulletaFlix-master/docs/backend-auditoria-roadmap.md; MulletaFlix-master/docs/releases/12.1.46.md",
+      "scope": "Resolver NextUp em blocos de 50 para contagem exata com limite, reter apenas a página necessária e preservar ordem estável.",
+      "status": "completed",
+      "progressPercent": 100,
+      "startedAt": "2026-11-01T23:44:05-03:00",
+      "updatedAt": "2026-11-01T23:50:36-03:00",
+      "evidence": "A regressão reproduziu a resolução de 51 séries em um único lote. A alteração foi verificada com lotes [50, 1], total exato 51 e página StartIndex=1/Limit=2 estável no empate entre lotes. Testes unitários passaram; PriorityQueue da BCL mantém o prefixo solicitado com atualizações O(log K), além do lote corrente; a página final mantém o desempate estável. GetNextUpSeriesKeys ainda materializa todas as chaves; não houve benchmark de latência ou memória com biblioteca real, execução em MariaDB, Linux, CI, runtime instalado ou produção. As consultas adicionais ampliam a janela para alteração concorrente do histórico.",
+      "release": "Evento local 6/10 do lote; homologação formal permanece 2/7, sem crédito; 12.1.46 candidata, sem release publicada. Benchmark com MariaDB e catálogo representativo, Linux, CI hospedada, runtime instalado e produção pendentes."
+    },
+    {
+      "id": "server-nextup-keyset-snapshot-safety-2026-11-01-2357",
+      "title": "NextUp: adiada paginação por cursor sem snapshot",
+      "agent": "Codex",
+      "front": "server",
+      "featureIds": [],
+      "links": [
+        "https://mariadb.com/docs/server/reference/sql-statements/transactions/transactions-repeatable-read",
+        "https://learn.microsoft.com/en-us/ef/core/saving/transactions",
+        "https://learn.microsoft.com/en-us/ef/core/performance/efficient-querying"
+      ],
+      "local": "Auditoria de código e documentação oficial; nenhuma alteração de runtime/teste. MariaDB opt-in não executado: não há conexão descartável configurada; a porta 3306 pertence ao serviço do servidor.",
+      "location": "MulletaFlix-master/Jellyfin.Server.Implementations/Item/NextUpService.cs; MulletaFlix-master/Emby.Server.Implementations/TV/TVSeriesManager.cs; tests/Jellyfin.Server.Implementations.Tests/Item/NextUpServiceMariaDbTests.cs; docs/backend-auditoria-roadmap.md; docs/releases/12.1.46.md",
+      "scope": "Avaliar paginação keyset das chaves de série no NextUp com contagem exata, preservando o total e a ordem sob concorrência.",
+      "status": "completed",
+      "progressPercent": 100,
+      "startedAt": "2026-11-01T23:57:02-03:00",
+      "updatedAt": "2026-11-01T23:57:02-03:00",
+      "evidence": "NextUpService ordena por LastPlayedDate, mas o cursor usa essa mesma data mutável. Alteração entre páginas pode mover uma série para antes/depois do cursor ou atravessar o cutoff, causando omissão, repetição ou desvio no total. O teste MariaDB existente prova cursor estável apenas sem alteração concorrente. Uma leitura coerente exige compartilhar a mesma transação REPEATABLE READ; hoje a busca de chaves e a resolução de episódios criam contextos separados. Por segurança, a implementação mantém a lista de chaves materializada até haver desenho e teste de snapshot que cubram todo o fluxo.",
+      "release": "Evento local 7/10; homologação formal permanece 2/7 (28,6%), sem crédito. 12.1.46 candidata, sem release publicada. Próximo gate: contrato de snapshot e teste MariaDB de movimento do LastPlayedDate/cutoff."
+    },
+    {
+      "id": "server-nebula-remove-unused-image-dependencies-2026-11-02-0011",
+      "title": "Nebula remove dependências de imagem sem uso e vulneráveis",
+      "agent": "Codex",
+      "front": "server",
+      "featureIds": [],
+      "links": [
+        "https://github.com/python-pillow/Pillow/security/advisories/GHSA-5x8w-8jj5-q52h",
+        "https://pillow.readthedocs.io/en/stable/releasenotes/13.0.0.html",
+        "https://pypi.org/project/pillow/13.0.0/"
+      ],
+      "local": "Windows/Python 3.10.11: test_check_deps.py 31/31, Nebula completa 728/728; pip install --dry-run --require-hashes passou. pip-audit após atualizar lock: nenhum aviso conhecido.",
+      "location": "MulletaFlix-master/Tools/NebulaPython/requirements.in; requirements.lock; tools/check_deps.py; tests/test_check_deps.py; docs/releases/12.1.46.md",
+      "scope": "Remover pystray e Pillow não utilizados do runtime Nebula, eliminar 39 advisories Pillow reportados e preservar suporte Python 3.10.",
+      "status": "completed",
+      "progressPercent": 100,
+      "startedAt": "2026-11-02T00:11:03-03:00",
+      "updatedAt": "2026-11-02T00:11:03-03:00",
+      "evidence": "A varredura do código rastreado não encontrou usos de pystray ou PIL fora do guard de dependências. O lock instalava Pillow 12.3.0 transitivamente via pystray; pip-audit encontrou 39 advisories, com correção upstream em Pillow 13.0.0. As notas oficiais do Pillow 13 removem Python 3.10, que permanece na matriz Nebula Windows/Linux; por isso foram removidos os dois pacotes sem uso, em vez de aumentar o runtime. Um teste impede retorno dessas dependências ao manifesto e ao lock. A reauditoria do lock resultante não achou vulnerabilidades conhecidas.",
+      "release": "Evento local 8/10; homologação formal permanece 2/7 (28,6%), sem crédito. 12.1.46 candidata, não publicada. Linux, pacote instalado, runtime instalado, CI hospedada e produção não foram validados."
+    },
+    {
+      "id": "server-nebula-cleanup-url-scheme-hardening-2026-11-02-0025",
+      "title": "Nebula restringe permissões de cleanup e esquemas de URL",
+      "agent": "Codex",
+      "front": "server",
+      "featureIds": [],
+      "links": [
+        "https://docs.python.org/3.10/library/os.html#os.chmod",
+        "https://docs.python.org/3.10/library/urllib.request.html",
+        "https://bandit.readthedocs.io/en/latest/blacklists/blacklist_calls.html#b310-urllib-urlopen"
+      ],
+      "local": "Windows/Python 3.10.11: suíte Nebula 746/746; foco cleanup/feeder/downloader 208/208. Bandit: execução anterior 0 High, 12 Medium; não repetido nesta rodada (ferramenta ausente).",
+      "location": "MulletaFlix-master/Tools/NebulaPython/main.py; tools/feed_ftp.py; tools/strm_downloader.py; tests/test_main_cleanup.py; tests/test_feed_ftp_strm.py; tests/test_strm_downloader.py; tests/test_strm_downloader_helpers.py; docs/releases/12.1.46.md",
+      "scope": "Remover permissões globais excessivas no cleanup e bloquear esquemas não HTTP(S) antes de probes e downloads STRM.",
+      "status": "completed",
+      "progressPercent": 100,
+      "startedAt": "2026-11-02T00:25:20-03:00",
+      "updatedAt": "2026-11-02T00:31:12-03:00",
+      "evidence": "Os dois caminhos chmod(0o777) foram removidos; a recuperação ajusta apenas permissão do proprietário em POSIX, incluindo leitura/escrita/execução em diretórios para enumeração, sem seguir symlinks, e limpa somente leitura no Windows. Falha final de remoção não é registrada como sucesso. Feeder e downloader recusam file://, esquemas fora de HTTP(S), host ausente e porta malformada/fora do intervalo antes de qualquer chamada de rede. Testes regressivos passam em Windows/Python 3.10.11: suíte 746/746, foco 208/208. Bandit da execução anterior não registrava High e mantinha 11 alertas B310 em urlopen e um B104 para o bind configurável; não foi repetido nesta rodada porque a ferramenta não está no ambiente ativo. Endereços privados e redirects não são bloqueados; a exposição SSRF permanece uma pendência explícita.",
+      "release": "Evento local 9/10; homologação formal permanece 2/7 (28,6%), sem crédito. 12.1.46 candidata, não publicada. Linux, runtime instalado, CI hospedada e produção não foram validados."
+    },
+    {
+      "id": "server-nebula-supabase-http-redirect-boundaries-2026-11-02-0040",
+      "title": "Nebula valida destinos Supabase e restringe redirects STRM",
+      "agent": "Codex",
+      "front": "server",
+      "featureIds": [],
+      "links": [
+        "https://docs.python.org/3.10/library/urllib.request.html",
+        "https://github.com/python/cpython/blob/main/Lib/urllib/request.py",
+        "https://cheatsheetseries.owasp.org/cheatsheets/Server_Side_Request_Forgery_Prevention_Cheat_Sheet.html"
+      ],
+      "local": "Windows/Python 3.10.11: testes focais 334/334; suíte Nebula 789/789; portal 147/147.",
+      "location": "MulletaFlix-master/Tools/NebulaPython/tools/supabase_sync.py; tools/feed_ftp.py; tools/strm_downloader.py; control_plane.py; generate_strm.py; testes correspondentes; MulletaFlix-master/docs/backend-auditoria-roadmap.md; MulletaFlix-master/docs/releases/12.1.46.md",
+      "scope": "Validar URLs Supabase e base STRM antes dos efeitos colaterais; impedir redirects Supabase e limitar redirects de mídia a HTTP(S) válido.",
+      "status": "completed",
+      "progressPercent": 100,
+      "startedAt": "2026-11-02T00:40:48-03:00",
+      "updatedAt": "2026-11-02T00:50:08-03:00",
+      "evidence": "Supabase valida HTTP(S), host, porta, credenciais, query, fragmento e delimitadores vazios antes de inicializar Mongo; apikey/Authorization ficam em headers unredirected e o opener recusa redirects. Control Plane e gerador direto validam a URL antes do Mongo e da criação da saída. Feeder/downloader seguem redirects HTTP(S) com host/porta válidos, preservando loopback/LAN/CDN. Testes de URL inválida, headers sensíveis, redirects reais via servidor HTTP local e compatibilidade passaram: focal 334/334 e suíte completa 789/789. Hosts privados continuam permitidos para compatibilidade de streaming; mitigação SSRF DNS-aware, Linux, pacote/runtime instalado, CI hospedada e produção não foram validados.",
+      "release": "Evento local 10/10 do lote; homologação formal permanece 2/7 (28,6%), sem crédito. 12.1.46 candidata, não publicada. Próximo gate: política de destino SSRF compatível com mídias LAN e validação Linux/runtime/CI."
+    },
+    {
+      "id": "server-nebula-telegram-time-no-redirect-2026-11-02-0050",
+      "title": "Nebula impede redirect no probe de horário do Telegram",
+      "agent": "Codex",
+      "front": "server",
+      "featureIds": [],
+      "links": [
+        "https://docs.python.org/3.10/library/urllib.request.html"
+      ],
+      "local": "Windows/Python 3.10.11: teste focal 1/1; suíte Nebula 790/790.",
+      "location": "MulletaFlix-master/Tools/NebulaPython/main.py; tests/test_main_helpers.py; MulletaFlix-master/docs/backend-auditoria-roadmap.md; MulletaFlix-master/docs/releases/12.1.46.md",
+      "scope": "Impedir que o probe de horário executado na importação do Nebula siga redirects para esquemas ou destinos inesperados; preservar fallback para o relógio local.",
+      "status": "completed",
+      "progressPercent": 100,
+      "startedAt": "2026-11-02T00:50:08-03:00",
+      "updatedAt": "2026-11-02T00:50:08-03:00",
+      "evidence": "O opener do probe Telegram recusa redirects; um servidor HTTP local responde 302 para FTP loopback e o teste confirma que o redirect não é seguido. O bootstrap continua tolerante a falha e usa o relógio local. Teste focal 1/1 e suíte completa Nebula 790/790 em Windows/Python 3.10.11.",
+      "release": "Novo lote local 1/10; homologação formal permanece 2/7, sem crédito. 12.1.46 candidata, não publicada. Linux, runtime empacotado, CI hospedada e produção não foram verificados."
+    },
+    {
+      "id": "server-image-resized-cache-atomic-publish-2026-11-02-0102",
+      "title": "Cache de imagens redimensionadas publicado atomicamente",
+      "agent": "Codex",
+      "front": "server",
+      "featureIds": [],
+      "links": [
+        "https://github.com/jellyfin/jellyfin/issues/17135",
+        "https://learn.microsoft.com/en-us/dotnet/api/system.io.file.move"
+      ],
+      "local": "Windows/.NET 10 Release: ImageProcessorCacheTests 2/2; filtro ImageProcessor 4/4; dotnet format style --verify-no-changes passou.",
+      "location": "MulletaFlix-master/src/Jellyfin.Drawing/ImageProcessor.cs; MulletaFlix-master/tests/Jellyfin.Server.Implementations.Tests/Drawing/ImageProcessorCacheTests.cs; docs/backend-auditoria-roadmap.md; docs/releases/12.1.46.md",
+      "scope": "Evitar que chamadas concorrentes leiam imagem de cache enquanto o encoder ainda grava o arquivo.",
+      "status": "completed",
+      "progressPercent": 100,
+      "startedAt": "2026-11-02T01:02:00-03:00",
+      "updatedAt": "2026-11-02T01:02:00-03:00",
+      "evidence": "O encoder escreve em arquivo temporário único no mesmo diretório; o caminho final só aparece após File.Move e conclusão da codificação. Lock por chave evita duplicar o mesmo encode, mantendo o limite global existente. Entradas vazias são regeneradas e a versão de cache passou de 3 para 4 para invalidar arquivos potencialmente parciais antigos. Teste concorrente comprova que leitores não veem o temporário e compartilham a imagem completa; teste de IOException confirma que não sobra cache truncado e o caller recebe o original. Em Windows/.NET 10 Release, ImageProcessorCacheTests passou 2/2 e filtro ImageProcessor 4/4; formatação focal passou.",
+      "release": "Evento local 2/10; homologação formal permanece 2/7 (28,6%), sem crédito. 12.1.46 candidata, não publicada. Linux, CI hospedada, runtime instalado e produção não foram verificados."
+    },
+    {
+      "id": "server-nebula-sequential-download-length-validation-2026-11-02-0111",
+      "title": "Nebula rejeita download sequencial truncado",
+      "agent": "Codex",
+      "front": "server",
+      "featureIds": [],
+      "links": [
+        "https://docs.python.org/3.10/library/urllib.request.html",
+        "https://docs.python.org/3.10/library/http.client.html"
+      ],
+      "local": "Windows/Python 3.10.11: downloader focal 122/122; suíte Nebula completa 791/791; portal local 150/150.",
+      "location": "MulletaFlix-master/Tools/NebulaPython/tools/strm_downloader.py; tests/test_strm_downloader.py; docs/nebula-strm-download.md; docs/releases/12.1.46.md",
+      "scope": "Validar tamanho esperado no fallback sequencial antes de promover arquivo temporário para o destino final.",
+      "status": "completed",
+      "progressPercent": 100,
+      "startedAt": "2026-11-02T01:05:00-03:00",
+      "updatedAt": "2026-11-02T01:11:00-03:00",
+      "evidence": "A regressão reproduz sonda e resposta anunciando 100 bytes com corpo sequencial de 7 bytes. Antes da correção, o teste falhou porque nenhum erro era lançado. Agora tamanhos divergentes falham; o temporário é conferido antes da promoção, o destino válido anterior permanece e o temporário parcial é limpo. Downloader focal 122/122 e suíte completa Nebula 791/791 passaram em Windows/Python 3.10.11.",
+      "release": "Evento local 3/10; homologação formal permanece 2/7 (28,6%), sem crédito. 12.1.46 candidata, não publicada. Linux, transferência real, runtime instalado, CI hospedada e produção não foram verificados."
+    },
+    {
+      "id": "server-provider-refresh-queue-ownership-2026-11-02-0123",
+      "title": "ProviderManager processa itens enfileirados durante o lote",
+      "agent": "Codex",
+      "front": "server",
+      "featureIds": [],
+      "links": [
+        "https://learn.microsoft.com/en-us/dotnet/standard/collections/thread-safe/"
+      ],
+      "local": "Windows/.NET 10 Release: teste focal 1/1; Jellyfin.Providers.Tests 931 aprovados, 14 ignorados, 0 falhas/945.",
+      "location": "MulletaFlix-master/MediaBrowser.Providers/Manager/ProviderManager.cs; tests/Jellyfin.Providers.Tests/Manager/ProviderManagerRefreshTests.cs; docs/backend-auditoria-roadmap.md; docs/releases/12.1.46.md",
+      "scope": "Evitar que itens adicionados enquanto o lote de refresh está em execução permaneçam presos na fila.",
+      "status": "completed",
+      "progressPercent": 100,
+      "startedAt": "2026-11-02T01:23:49-03:00",
+      "updatedAt": "2026-11-02T01:23:49-03:00",
+      "evidence": "O caso foi reproduzido antes da correção: o primeiro refresh bloqueou, um segundo item foi enfileirado e não começou antes do timeout. Após a correção, o worker mantém ownership e reavalia a fila sob lock; o segundo refresh iniciou. Teste focal 1/1 e suíte completa 931/945, sem falhas.",
+      "release": "Evento local 4/10; homologação formal permanece 2/7 (28,6%), sem crédito. 12.1.46 candidata, não publicada. Stress prolongado, Linux, CI hospedada, runtime instalado e produção não foram verificados."
+    },
+    {
+      "id": "server-provider-refresh-item-serialization-2026-11-02-0132",
+      "title": "Refresh de metadados e imagens serializado por título",
+      "agent": "Codex",
+      "front": "server",
+      "featureIds": [],
+      "links": [
+        "https://learn.microsoft.com/en-us/dotnet/api/system.threading.semaphoreslim.waitasync",
+        "https://github.com/MarkCiliaVincenti/AsyncKeyedLock"
+      ],
+      "local": "Windows/.NET 10 Release: Jellyfin.Providers.Tests 932 aprovados, 14 ignorados, 0 falhas/946; dotnet format style --verify-no-changes e git diff --check passaram.",
+      "location": "MulletaFlix-master/MediaBrowser.Providers/Manager/ProviderManager.cs; tests/Jellyfin.Providers.Tests/Manager/ProviderManagerRefreshTests.cs; docs/backend-auditoria-roadmap.md; docs/releases/12.1.46.md",
+      "scope": "Impedir atualizações concorrentes do mesmo item de disputarem metadados e índices de imagens; manter concorrência entre itens distintos.",
+      "status": "completed",
+      "progressPercent": 100,
+      "startedAt": "2026-11-02T01:30:00-03:00",
+      "updatedAt": "2026-11-02T01:32:02-03:00",
+      "evidence": "O teste RefreshSingleItem_DoesNotRefreshSameItemConcurrently reproduziu o defeito antes da correção: o segundo refresh entrou no serviço enquanto o primeiro ainda estava bloqueado. ProviderManager agora aguarda AsyncKeyedLocker<Guid> pela chave do item, com cancelamento, enquanto itens diferentes continuam em paralelo. A busca dos callers encontrou BaseItem, Series e controller convergindo para RefreshSingleItem. A suíte Providers Release passou 932/946; 14 casos foram ignorados, incluindo integrações reais externas. Não foi feito refresh completo de biblioteca.",
+      "release": "Novo lote local 5/10; homologação formal permanece 2/7 (28,6%), sem crédito. 12.1.46 candidata, não publicada. Linux, CI hospedada, runtime instalado e produção não foram verificados."
+    },
+    {
+      "id": "server-full-regression-image-writer-audit-2026-11-02-0140",
+      "title": "Regressão completa do servidor e Nebula consolidada; writer de imagem auditado",
+      "agent": "Codex",
+      "front": "server",
+      "featureIds": [],
+      "links": [
+        "https://learn.microsoft.com/en-us/dotnet/api/system.io.file.openhandle",
+        "https://www.man7.org/linux/man-pages/man2/open.2.html"
+      ],
+      "local": "Windows/.NET 10 Release: 17 TRX, 5.584 aprovados, 285 ignorados, 0 falhas/5.869; Nebula Python 3.10.11: 791/791.",
+      "location": "MulletaFlix-master/MediaBrowser.Providers/Manager/ImageSaver.cs; MediaBrowser.Controller/IO/RootedFileSystem.cs; MulletaFlix.sln; Tools/NebulaPython/tests",
+      "scope": "Consolidar regressão atual do servidor/Nebula e avaliar a fronteira de segurança da gravação de imagens multiplataforma.",
+      "status": "completed",
+      "progressPercent": 100,
+      "startedAt": "2026-11-02T01:32:02-03:00",
+      "updatedAt": "2026-11-02T01:40:23-03:00",
+      "evidence": "A repetição sem rebuild gerou 17 relatórios TRX: 5.584 aprovados, 285 ignorados e 0 falhas; o filtro excluiu LiveIntegrationTests. Nebula passou 791/791 no venv e diretório corretos. O primeiro comando Nebula foi invocado do diretório pai e falhou na coleta por imports; a execução repetida na raiz Tools/NebulaPython passou. A inspeção do ImageSaver confirmou escrita por pathname; File.OpenHandle também recebe pathname, enquanto a documentação POSIX recomenda operações relativas a descritores de diretório para evitar corrida em componentes do caminho. A proteção completa precisa cobrir criação de diretórios, gravação temporária, promoção atômica e permissões, com testes nativos Linux e Windows; nenhuma correção parcial foi marcada como segura. Build mostrou avisos de analisadores existentes em várias áreas; build/teste terminou com sucesso.",
+      "release": "Evento local 6/10; homologação formal permanece 2/7 (28,6%), sem crédito. 12.1.46 candidata, não publicada. Linux, CI hospedada, runtime instalado e produção não foram verificados."
+    },
+    {
+      "id": "server-image-writer-platform-contracts-2026-11-02-0144",
+      "title": "Primitivas rooted de gravação de imagem pesquisadas para Linux, Windows e SMB",
+      "agent": "Codex",
+      "front": "server",
+      "featureIds": [],
+      "links": [
+        "https://learn.microsoft.com/en-us/windows/win32/api/winbase/ns-winbase-file_rename_info",
+        "https://learn.microsoft.com/en-us/windows/win32/fileio/file-security-and-access-rights",
+        "https://www.man7.org/linux/man-pages/man2/open.2.html",
+        "https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-fscc/52aa0b70-8094-4971-862d-79793f41e6a8"
+      ],
+      "local": "Pesquisa documental oficial; nenhum teste/código de produto executado ou alterado nesta rodada.",
+      "location": "MulletaFlix-master/MediaBrowser.Providers/Manager/ImageSaver.cs; MediaBrowser.Controller/IO/RootedFileSystem.cs; ImageSaver callers",
+      "scope": "Comparar contratos de operação rooted, promoção atômica e permissões entre Windows local, Linux local e SMB.",
+      "status": "completed",
+      "progressPercent": 100,
+      "startedAt": "2026-11-02T01:40:23-03:00",
+      "updatedAt": "2026-11-02T01:44:00-03:00",
+      "evidence": "Linux documenta operações openat relativas a dirfd. Windows FILE_RENAME_INFO aceita RootDirectory para nomes relativos locais; especificação SMB exige RootDirectory zero. ACLs de objetos criados herdam do pai, então promoção com temporário pode divergir de ACL explícita anterior. ImageSaver tem callers de metadados, ImageController e AvatarService e raízes distintas. Escrita rooted multiplataforma não foi implementada; falta desenho de suporte a SMB e preservação de ACL/modo/atributos. Sem crédito de homologação.",
+      "release": "Evento local 7/10, não publicado externamente. Formal 2/7 (28,6%). Nenhuma release criada; 12.1.46 segue candidata."
+    },
+    {
+      "id": "server-tmdb-image-language-selection-audit-2026-11-02-0157",
+      "title": "Auditoria da seleção automática do idioma das imagens TMDb",
+      "agent": "Codex",
+      "front": "server",
+      "featureIds": [],
+      "links": [
+        "https://developer.themoviedb.org/docs/image-languages",
+        "https://developer.themoviedb.org/reference/movie-images",
+        "https://developer.themoviedb.org/reference/tv-episode-images"
+      ],
+      "local": "Auditoria estática do refresh e dos provedores; nenhum teste de produto executado nesta sessão.",
+      "location": "MulletaFlix-master/MediaBrowser.Providers/Manager/ItemImageProvider.cs; MediaBrowser.Providers/Plugins/Tmdb; tests/Jellyfin.Providers.Tests",
+      "scope": "Confirmar a prioridade de idioma na seleção automática de capas e imagens em filmes, séries, temporadas e episódios.",
+      "status": "completed",
+      "progressPercent": 100,
+      "startedAt": "2026-11-02T01:44:00-03:00",
+      "updatedAt": "2026-11-02T01:57:00-03:00",
+      "evidence": "O refresh busca todos os idiomas e ordena por locale preferido, idioma base, inglês, sem idioma e demais locais. Provedores TMDb compartilham o caminho de prioridade. Testes existentes cobrem filmes/séries, fallback e locale regional. Documentação TMDb informa que language filtra a resposta, include_image_language adiciona idiomas e variantes regionais não são uniformes nas imagens. Não foi encontrado defeito novo de seleção; imagens persistidas exigem refresh para substituição.",
+      "release": "Evento local 8/10, ainda não publicado externamente. Homologação formal permanece 2/7 (28,6%), sem crédito. 12.1.46 candidata, não publicada. Provedores reais, catálogo, Linux, CI hospedada e produção não foram verificados."
+    },
+    {
+      "id": "server-rooted-delete-linux-rename-race-audit-2026-11-02-0202",
+      "title": "Auditoria da exclusão rooted Linux: rename concorrente impede afirmar confinamento à raiz",
+      "agent": "Codex",
+      "front": "server",
+      "featureIds": [],
+      "links": [
+        "https://man7.org/linux/man-pages/man2/openat2.2.html",
+        "https://man7.org/linux/man-pages/man2/open.2.html",
+        "https://man7.org/linux/man-pages/man2/unlink.2.html"
+      ],
+      "local": "Inspeção estática e pesquisa em man-pages Linux; nenhum teste de produto/Linux executado e nenhum código alterado.",
+      "location": "MulletaFlix-master/MediaBrowser.Controller/IO/RootedFileSystem.cs; tests/Jellyfin.Controller.Tests/IO/RootedFileSystemTests.cs; MulletaFlix-master/MediaBrowser.Providers/Manager/ImageSaver.cs",
+      "scope": "Verificar se dirfd/openat2/unlinkat bastam para remover com segurança imagens antigas no Linux sob raiz configurada.",
+      "status": "completed",
+      "progressPercent": 100,
+      "startedAt": "2026-11-02T01:57:00-03:00",
+      "updatedAt": "2026-11-02T02:02:00-03:00",
+      "evidence": "openat2 com RESOLVE_BENEATH restringe resolução de caminhos sob dirfd, e unlinkat opera relativamente ao diretório aberto. Contudo, a documentação de open(2) afirma que o descritor continua referindo a mesma pasta mesmo após rename; logo um diretório descendente pode ser movido para fora da raiz antes da exclusão. Não foi encontrada garantia no contrato dessas primitivas que bloqueie rename concorrente como os handles Windows sem FILE_SHARE_DELETE. O helper permanece fail-closed fora do Windows. Suporte Linux depende de threat model verificável ou mecanismo que impeça a corrida, implementação nativa e teste concorrente em Linux; WSL disponível sem distribuição e Docker/Podman ausentes neste host.",
+      "release": "Evento local 9/10; ainda não publicado externamente. Homologação formal 2/7 (28,6%), sem crédito. 12.1.46 candidata, não publicada. Linux, CI hospedada, runtime instalado e produção não foram verificados."
+    },
+    {
+      "id": "server-nebula-http-range-resume-etag-2026-11-02-0213",
+      "title": "Retomada de download Nebula vinculada ao ETag da mídia",
+      "agent": "Codex",
+      "front": "server",
+      "featureIds": [],
+      "links": [
+        "https://www.rfc-editor.org/rfc/rfc9110.html#section-13.1.5",
+        "https://www.rfc-editor.org/rfc/rfc9110.html#section-14"
+      ],
+      "local": "Windows/Python 3.10.11: testes focais 126/126; suíte Nebula 799/799; compileall passou. HTTP simulado; sem transferência real.",
+      "location": "MulletaFlix-master/Tools/NebulaPython/tools/strm_downloader.py; tools/feed_ftp.py; tests/test_strm_downloader.py; tests/test_feed_ftp_strm.py",
+      "scope": "Garantir que partes retomadas ou paralelas pertençam à mesma representação da origem, mesmo quando o tamanho não muda.",
+      "status": "completed",
+      "progressPercent": 100,
+      "startedAt": "2026-11-02T02:02:00-03:00",
+      "updatedAt": "2026-11-02T02:16:00-03:00",
+      "evidence": "Os dois fluxos persistem total, ETag forte e part count, enviam If-Range e invalidam partes antigas ao detectar mudança; sem ETag forte usam GET sequencial e recusam HTTP 206 nesse fallback. Regressões cobrem troca de ETag com tamanho constante, metadata inválida, fallback sem validador e retomada com mesmo ETag. O fallback sequencial pode reduzir throughput; medir os provedores reais é pendente.",
+      "release": "Evento local 10/10 do lote; ainda não publicado externamente. Homologação formal 2/7 (28,6%), sem crédito. Release 12.1.46 continua candidata e não foi criada. Linux, mídia/CDN real, CI hospedada, runtime instalado e produção não foram verificados."
+    },
+    {
+      "id": "server-saveimages-snapshot-after-item-lock-2026-11-02-0223",
+      "title": "SaveImagesAsync captura imagens após obter lock do item",
+      "agent": "Codex",
+      "front": "server",
+      "featureIds": [],
+      "links": [],
+      "local": "Projeto IntroSkipper.Integration.Tests compilou em Windows/.NET 10 Release; teste MariaDB focal foi ignorado porque MULLETAFLIX_TEST_MARIADB_CONNECTION_STRING não está configurada.",
+      "location": "MulletaFlix-master/Jellyfin.Server.Implementations/Item/ItemPersistenceService.cs; tests/IntroSkipper.Integration.Tests/ServerPersistenceMariaDbTests.cs",
+      "scope": "Capturar ImageInfos após aguardar o lock compartilhado para evitar persistir snapshot antigo quando o mesmo item muda durante a espera.",
+      "status": "completed",
+      "progressPercent": 100,
+      "startedAt": "2026-11-02T02:16:00-03:00",
+      "updatedAt": "2026-11-02T02:23:21-03:00",
+      "evidence": "A captura de ImageInfos foi movida para dentro da região protegida. O teste determina a espera usando SaveItems bloqueado na fábrica de contexto, atualiza o mesmo objeto antes de liberar o lock e verifica o conjunto final. A compilação passou; execução funcional MariaDB permanece pendente.",
+      "release": "Evento local 1/10 do próximo lote; publicação externa pendente. Homologação formal 2/7 (28,6%), sem crédito. Release 12.1.46 continua candidata, não publicada. MariaDB descartável/CI, Linux, runtime instalado e produção não foram verificados."
+    },
+    {
+      "id": "server-config-atomic-persist-acl-2026-11-02-0229",
+      "title": "Gravação atômica de configurações preserva ACLs",
+      "agent": "Codex",
+      "front": "server",
+      "featureIds": [],
+      "links": [
+        "https://learn.microsoft.com/en-us/dotnet/api/system.io.file.replace",
+        "https://learn.microsoft.com/en-us/windows/win32/api/winbase/nf-winbase-replacefilew",
+        "https://learn.microsoft.com/en-us/dotnet/api/system.io.file.move"
+      ],
+      "local": "Windows/.NET 10 Release: ServerConfigurationManagerFilePermissionsTests 5 aprovados, 1 ignorado (Unix); ACL temporária protegida antes da serialização, ACL final preservada e recuperação do backup validada. NamedConfigurationConcurrencyTests 33/33.",
+      "location": "MulletaFlix-master/Emby.Server.Implementations/AppBase/BaseConfigurationManager.cs; tests/Jellyfin.Server.Implementations.Tests/Configuration/ServerConfigurationManagerFilePermissionsTests.cs",
+      "scope": "Evitar truncamento de configuração durante falha de serialização e preservar ACL Windows ao substituir tanto configuração principal quanto nomeadas.",
+      "status": "completed",
+      "progressPercent": 100,
+      "startedAt": "2026-11-02T02:25:00-03:00",
+      "updatedAt": "2026-11-02T02:41:53-03:00",
+      "evidence": "Configuração principal e nomeada serializam para temporário irmão; Windows protege o temporário antes de conter segredos com ACL explícita para serviço, Administradores e SYSTEM. File.Replace preserva DACL/ACL do destino; passa caminho de backup para recuperar o original se o destino desaparecer durante a falha. Unix restringe o modo antes de serializar e promove com File.Move no mesmo diretório. Testes confirmaram DACL protegida antes de chamar serializador, ACL explícita no destino após save, e bytes originais/ausência de temporário após falha na serialização. Teste da rotina de recuperação confirma restauração quando o destino está ausente e preserva destino novo. A recuperação do estado parcial nativo de ReplaceFile não foi injetada em teste.",
+      "release": "Evento local 2/10 do lote; não publicado externamente. Homologação formal 2/7 (28,6%), sem crédito. Release 12.1.46 continua candidata, não publicada. Linux, SMB, falha nativa parcial de ReplaceFile, runtime instalado e produção não foram verificados."
+    },
+    {
+      "id": "server-http-resilience-modernization-audit-2026-11-02-0244",
+      "title": "Auditoria da resiliência HTTP e migração segura",
+      "agent": "Codex",
+      "front": "server",
+      "featureIds": [],
+      "links": [
+        "https://learn.microsoft.com/en-us/dotnet/core/resilience/http-resilience",
+        "https://github.com/App-vNext/Polly/blob/main/docs/strategies/circuit-breaker.md",
+        "https://www.nuget.org/packages/Microsoft.Extensions.Http.Resilience"
+      ],
+      "local": "Auditoria estática: três clientes nomeados usam Microsoft.Extensions.Http.Polly 8.0.14 e o contrato StartupHttpRetryPolicyTests foi inspecionado. Nenhum código, teste de produto ou dependência foi alterado/executado.",
+      "location": "MulletaFlix-master/Jellyfin.Server/Startup.cs; MulletaFlix-master/Directory.Packages.props; MulletaFlix-master/tests/Jellyfin.Server.Tests/StartupHttpRetryPolicyTests.cs",
+      "scope": "Comparar a política Polly atual com as recomendações .NET/Polly vigentes e evitar migração que mude silenciosamente retries, timeouts ou abertura do circuito.",
+      "status": "completed",
+      "progressPercent": 100,
+      "startedAt": "2026-11-02T02:44:54-03:00",
+      "updatedAt": "2026-11-02T02:44:54-03:00",
+      "evidence": "Microsoft recomenda Microsoft.Extensions.Http.Resilience/AddResilienceHandler. O handler padrão adiciona timeout e rate limiter e faz retry para todos os métodos por padrão. O breaker Polly v8 usa janela/razão, diferente das cinco falhas consecutivas por 30 s do servidor. Migração direta rejeitada; qualquer implementação equivalente precisa contrato e testes de cancelamento, idempotência, 429/Retry-After, circuito e recuperação. Mapa técnico conferido; estrutura permaneceu igual.",
+      "release": "Evento local 3/10 do lote; não publicado externamente. Homologação formal permanece 2/7 (28,6%); release 12.1.46 continua candidata, não publicada. Produção e CI hospedada não foram verificadas."
+    },
+    {
+      "id": "server-chapter-mariadb-lock-retry-2026-11-02-0252",
+      "title": "Retry integral de capítulos após lock MariaDB",
+      "agent": "Codex",
+      "front": "server",
+      "featureIds": [],
+      "links": [
+        "https://learn.microsoft.com/en-us/ef/core/miscellaneous/connection-resiliency",
+        "https://mariadb.com/docs/server/reference/error-codes/mariadb-error-codes-1200-to-1299"
+      ],
+      "local": "Projeto IntroSkipper.Integration.Tests compilado em Windows/.NET 10 Release; o teste MariaDB foi ignorado porque MULLETAFLIX_TEST_MARIADB_CONNECTION_STRING não está configurada.",
+      "location": "MulletaFlix-master/Jellyfin.Server.Implementations/Item/ChapterRepository.cs; MulletaFlix-master/tests/IntroSkipper.Integration.Tests/ServerPersistenceMariaDbTests.cs",
+      "scope": "Repetir o replace transacional completo de capítulos após deadlock/lock wait MariaDB sem repetir falhas permanentes.",
+      "status": "in_progress",
+      "progressPercent": 80,
+      "startedAt": "2026-11-02T02:44:54-03:00",
+      "updatedAt": "2026-11-02T02:52:46-03:00",
+      "evidence": "SaveChaptersAsync cria DbContext/transação novos por tentativa, limita a três tentativas para códigos MariaDB 1205/1213 e usa atraso curto crescente. Regressão segura a linha antiga, aguarda o log do retry, libera o lock e verifica o conjunto novo. O projeto compilou; a execução funcional ainda depende de MariaDB isolado. A tentativa de iniciar processo descartável foi bloqueada pela política do executor; nenhum serviço MariaDB foi alterado.",
+      "release": "Evento local 4/10 do lote; não publicado externamente. Homologação formal permanece 2/7 (28,6%); versão 12.1.46 candidata, não publicada. MariaDB real de teste, CI hospedada, runtime instalado e produção não foram verificados."
+    },
+    {
+      "id": "server-keyframe-mariadb-lock-retry-2026-11-02-0302",
+      "title": "Retry transacional de keyframes após lock MariaDB",
+      "agent": "Codex",
+      "front": "server",
+      "featureIds": [],
+      "links": [
+        "https://learn.microsoft.com/en-us/ef/core/miscellaneous/connection-resiliency",
+        "https://mariadb.com/docs/server/reference/error-codes/mariadb-error-codes-1200-to-1299"
+      ],
+      "local": "Projeto IntroSkipper.Integration.Tests compilado em Windows/.NET 10 Release; o teste MariaDB foi ignorado porque MULLETAFLIX_TEST_MARIADB_CONNECTION_STRING não está configurada.",
+      "location": "MulletaFlix-master/Jellyfin.Server.Implementations/Item/KeyframeRepository.cs; MulletaFlix-master/tests/IntroSkipper.Integration.Tests/ServerPersistenceMariaDbTests.cs",
+      "scope": "Repetir delete+insert de keyframes como unidade após lock wait/deadlock MariaDB, usando DbContext e transação novos.",
+      "status": "in_progress",
+      "progressPercent": 80,
+      "startedAt": "2026-11-02T02:54:00-03:00",
+      "updatedAt": "2026-11-02T03:02:02-03:00",
+      "evidence": "SaveKeyframeDataAsync agora cria contexto e transação assíncronos por tentativa e restringe retry a exceções aninhadas MariaDB 1205/1213, até três tentativas. O teste mantém a linha anterior bloqueada, aguarda o log, libera o lock e verifica os keyframes substitutos. Compilação passou; execução contra MariaDB isolado segue pendente. Nenhum serviço de banco foi alterado.",
+      "release": "Evento local 5/10 do lote; não publicado externamente. Homologação formal permanece 2/7 (28,6%); 12.1.46 candidata, não publicada. MariaDB isolado, CI hospedada, runtime instalado e produção não foram verificados."
+    },
+    {
+      "id": "server-backup-storage-provider-tests-2026-11-02-0316",
+      "title": "Testes de backup independentes do espaço livre do host",
+      "agent": "Codex",
+      "front": "server",
+      "featureIds": [],
+      "links": [],
+      "local": "Suíte completa da solução Windows/.NET 10 Release: 5.589 aprovados, 300 ignorados e 0 falhas em 5.889 testes. Filtro de criação de backup: 6/6. CI do GitHub examinada via API pública: os 16 jobs não iniciaram porque a conta está bloqueada por cobrança; sem passos nem logs de execução.",
+      "location": "MulletaFlix-master/Jellyfin.Server.Implementations/FullSystemBackup/BackupService.cs; MulletaFlix-master/tests/Jellyfin.Server.Implementations.Tests/FullSystemBackup/BackupServiceTests.cs",
+      "scope": "Usar o IStorageSpaceProvider já registrado na DI para consultar espaço do backup e simular capacidade nos testes sem depender do disco do runner.",
+      "status": "completed",
+      "progressPercent": 100,
+      "startedAt": "2026-11-02T03:04:00-03:00",
+      "updatedAt": "2026-11-02T03:16:21-03:00",
+      "evidence": "A primeira regressão completa expôs três falhas por leitura estática da capacidade real, abaixo do requisito de 5 GiB. BackupService agora consome a interface IStorageSpaceProvider, já registrada na aplicação, com StorageSpaceProvider real como fallback para construtores compatíveis; os testes injetam espaço suficiente ou abaixo do limite. Após a correção, a suíte completa passou. As anotações do check-run GitHub indicam que todos os 16 jobs da execução falharam antes de iniciar por bloqueio de cobrança da conta; isso não é falha de código nem foi resolvido pela mudança local.",
+      "release": "Correção local candidata a 12.1.46; evento 6/10 do lote local, ainda não publicado externamente. Homologação formal permanece 2/7 (28,6%), sem crédito. PR CI segue bloqueada por cobrança; Linux, MariaDB isolado, runtime instalado e produção não foram validados."
     }
   ],
-  "latestAudit": "01/11/2026 17:38 BRT: ImageProcessor repete somente ERROR_SHARING_VIOLATION ao calcular BlurHash, com limite de quatro tentativas. Focais Windows/.NET 10 2/2 e formatação verificada. O log não identifica processo/HResult e não houve teste com writer real. Evidência local 2/10; homologação formal 2/7; sem release."
+  "latestAudit": "02/11/2026, 03:16 BRT: backup consulta IStorageSpaceProvider e seus testes simulam espaço; suíte da solução passou 5.589/5.589 executados, 300 ignorados. Os 16 checks do PR não iniciaram por bloqueio de cobrança do GitHub. Homologação 2/7; evento local 6/10; 12.1.46 candidata."
 }

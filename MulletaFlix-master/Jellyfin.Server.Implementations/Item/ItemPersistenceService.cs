@@ -313,12 +313,12 @@ public class ItemPersistenceService : IItemPersistenceService
     {
         ArgumentNullException.ThrowIfNull(item);
 
-        var images = item.ImageInfos.Select(e => BaseItemMapper.MapImageToEntity(item.Id, e)).ToArray();
         var itemLock = _updateOrInsertLocks[GetItemLockIndex(item.Id)];
         await itemLock.WaitAsync(cancellationToken).ConfigureAwait(false);
 
         try
         {
+            var images = item.ImageInfos.Select(e => BaseItemMapper.MapImageToEntity(item.Id, e)).ToArray();
             for (var attempt = 1; ; attempt++)
             {
                 try
@@ -536,6 +536,11 @@ public class ItemPersistenceService : IItemPersistenceService
                     // This is not on the request hot path and is reached only on transient DB conflicts.
                     Thread.Sleep(attempt * 75);
                 }
+                catch (MySqlException ex) when (attempt < 3 && IsTransientMetadataConflict(ex))
+                {
+                    _logger.LogWarning(ex, "Transient MariaDB lock conflict on attempt {Attempt} while saving items. Retrying...", attempt);
+                    Thread.Sleep(attempt * 75);
+                }
                 catch (Exception ex) when (attempt < 3 && IsTransientConnectionFailure(ex))
                 {
                     // The MariaDB connection itself failed (pool exhausted, connect timeout, socket
@@ -639,6 +644,9 @@ public class ItemPersistenceService : IItemPersistenceService
 
         return false;
     }
+
+    internal static bool IsTransientMetadataConflict(MySqlException exception)
+        => exception.Number is 1213 or 1205;
 
     /// <summary>
     /// Determines whether a save failed because the MariaDB connection did, rather than because the

@@ -112,6 +112,18 @@ public sealed class BackupServiceTests : IDisposable
         }
 
         var mockDbProvider = new Mock<IDbContextFactory<MulletaFlixDbContext>>();
+        var storageSpaceProvider = new Mock<IStorageSpaceProvider>();
+        storageSpaceProvider
+            .Setup(provider => provider.GetFreeSpaceOf(It.IsAny<string>()))
+            .Returns((string path) => storageInfo ?? new FolderStorageInfo
+            {
+                Path = path,
+                ResolvedPath = path,
+                FreeSpace = 10_737_418_240,
+                UsedSpace = 1_073_741_824,
+                StorageType = "Fixed",
+                DeviceId = "test"
+            });
 
         return new BackupService(
             _loggerMock.Object,
@@ -126,7 +138,8 @@ public sealed class BackupServiceTests : IDisposable
             null,
             null,
             restoreBackupSidecarCreatedForTesting,
-            null);
+            null,
+            storageSpaceProvider.Object);
     }
 
     private static BackupRestoreRecoveryJournal CreateRecoveryJournal(string programDataPath)
@@ -440,32 +453,6 @@ public sealed class BackupServiceTests : IDisposable
         // Arrange
         var service = CreateService();
 
-        // Mock the storage check to pass
-        var storageInfo = new FolderStorageInfo
-        {
-            Path = Path.GetTempPath(),
-            ResolvedPath = Path.GetTempPath(),
-            FreeSpace = 10_737_418_240, // 10 GB
-            UsedSpace = 1_073_741_824, // 1 GB
-            StorageType = "Fixed",
-            DeviceId = "C:"
-        };
-        _applicationPathsMock.Setup(x => x.BackupPath).Returns(Path.Combine(Path.GetTempPath(), "MulletaFlixTestBackups"));
-
-        // We need to mock StorageHelper.GetFreeSpaceOf
-        // Since it's a static class, we'll just set up a path with enough space
-        // by using a temp directory that should have enough space
-
-        var options = new BackupOptionsDto
-        {
-            Database = true,
-            Metadata = true,
-            Subtitles = true,
-            Trickplay = true
-        };
-
-        // Act - This will fail on the storage check, but that's OK for testing the mock
-        // We just verify the service is created and the mock is called
         var mockDbProvider = new Mock<IDbContextFactory<MulletaFlixDbContext>>();
         var fullService = new BackupService(
             _loggerMock.Object,
@@ -475,9 +462,31 @@ public sealed class BackupServiceTests : IDisposable
             _databaseProviderMock.Object,
             _applicationLifetimeMock.Object);
 
-        // Since we can't easily mock the static StorageHelper, we'll skip this test
-        // and just verify the service construction works
         Assert.NotNull(fullService);
+    }
+
+    [Fact]
+    public async Task CreateBackupAsync_RejectsInsufficientStorage()
+    {
+        using var service = CreateService(new FolderStorageInfo
+        {
+            Path = Path.GetTempPath(),
+            ResolvedPath = Path.GetTempPath(),
+            FreeSpace = 5_368_709_114,
+            UsedSpace = 0,
+            StorageType = "Fixed",
+            DeviceId = "test"
+        });
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => service.CreateBackupAsync(new BackupOptionsDto
+        {
+            Database = false,
+            Metadata = false,
+            Subtitles = false,
+            Trickplay = false
+        }));
+
+        Assert.Contains("Cannot create backup", exception.Message, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -504,13 +513,30 @@ public sealed class BackupServiceTests : IDisposable
             _applicationPathsMock.Setup(paths => paths.DefaultInternalMetadataPath).Returns(Path.Combine(isolatedRoot, "metadata-default"));
 
             var dbContextFactory = new Mock<IDbContextFactory<MulletaFlixDbContext>>(MockBehavior.Strict);
+            var storageSpaceProvider = new Mock<IStorageSpaceProvider>();
+            storageSpaceProvider
+                .Setup(provider => provider.GetFreeSpaceOf(backupPath))
+                .Returns(new FolderStorageInfo
+                {
+                    Path = backupPath,
+                    ResolvedPath = backupPath,
+                    FreeSpace = 10_737_418_240,
+                    StorageType = "Fixed",
+                    DeviceId = "test"
+                });
             var service = new BackupService(
                 _loggerMock.Object,
                 dbContextFactory.Object,
                 _applicationHostMock.Object,
                 _applicationPathsMock.Object,
                 _databaseProviderMock.Object,
-                _applicationLifetimeMock.Object);
+                _applicationLifetimeMock.Object,
+                null,
+                null,
+                null,
+                null,
+                [],
+                storageSpaceProvider.Object);
 
             var result = await service.CreateBackupAsync(new BackupOptionsDto
             {

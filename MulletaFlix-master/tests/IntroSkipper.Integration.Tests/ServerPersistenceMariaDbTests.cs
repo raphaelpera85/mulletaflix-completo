@@ -4,6 +4,7 @@
 using System.Diagnostics.Metrics;
 using System.Globalization;
 using System.IO;
+using Emby.Server.Implementations.Library;
 using Emby.Server.Implementations.ScheduledTasks.Tasks;
 using MediaBrowser.Common;
 using MediaBrowser.Common.Net;
@@ -524,6 +525,48 @@ public sealed class ServerPersistenceMariaDbTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task UpdatePeople_RollsBackRoleReplacementWhenInsertFails()
+    {
+        MariaDbTestEnvironment.SkipUnlessConfigured();
+        var cancellationToken = TestContext.Current.CancellationToken;
+        var persistence = new ItemPersistenceService(
+            Contexts,
+            CreateAppHost(),
+            NullLogger<ItemPersistenceService>.Instance);
+
+        var itemId = Guid.NewGuid();
+        persistence.SaveItems([CreateSeries(itemId, "Rollback de elenco", 2026, "N:\\Series\\Rollback de elenco")], CancellationToken.None);
+
+        var repository = new PeopleRepository(Contexts, Mock.Of<IItemTypeLookup>());
+        repository.UpdatePeople(itemId, [new PersonInfo { Name = "Pessoa com papel", Role = "Diretor", Type = PersonKind.Actor }]);
+
+        await using (var context = await Contexts.CreateDbContextAsync(cancellationToken))
+        {
+            await context.Database.OpenConnectionAsync(cancellationToken);
+            await using var command = context.Database.GetDbConnection().CreateCommand();
+            command.CommandText = "CREATE TRIGGER `TestPeopleMapReject` BEFORE INSERT ON `PeopleBaseItemMap` "
+                + "FOR EACH ROW SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'forced integration-test failure';";
+            await command.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        try
+        {
+            Assert.Throws<DbUpdateException>(() => repository.UpdatePeople(
+                itemId,
+                [new PersonInfo { Name = "Pessoa com papel", Role = "diretor", Type = PersonKind.Actor }]));
+        }
+        finally
+        {
+            await using var context = await Contexts.CreateDbContextAsync(cancellationToken);
+            await context.Database.ExecuteSqlRawAsync("DROP TRIGGER IF EXISTS TestPeopleMapReject;", cancellationToken);
+        }
+
+        using var verify = Contexts.CreateDbContext();
+        var mapping = Assert.Single(verify.PeopleBaseItemMap.Where(e => e.ItemId == itemId));
+        Assert.Equal("Diretor", mapping.Role);
+    }
+
+    [Fact]
     public async Task UpdatePeople_ConcurrentUpdatesForSameItem_DoNotInsertDuplicateMappings()
     {
         MariaDbTestEnvironment.SkipUnlessConfigured();
@@ -546,6 +589,44 @@ public sealed class ServerPersistenceMariaDbTests : IAsyncLifetime
         var person = context.Peoples.Single(e => e.Name == "Pessoa Concorrente");
         var maps = context.PeopleBaseItemMap.Where(e => e.ItemId == itemId && e.PeopleId == person.Id).ToArray();
         Assert.Single(maps);
+    }
+
+    [Fact]
+    public async Task UpdatePeople_ConcurrentUpdatesForDifferentItems_ReuseTheSamePersonRow()
+    {
+        MariaDbTestEnvironment.SkipUnlessConfigured();
+        var persistence = new ItemPersistenceService(
+            Contexts,
+            CreateAppHost(),
+            NullLogger<ItemPersistenceService>.Instance);
+
+        var itemIds = new[] { Guid.NewGuid(), Guid.NewGuid() };
+        persistence.SaveItems(
+        [
+            CreateSeries(itemIds[0], "Elenco compartilhado A", 2026, "N:\\Series\\Elenco compartilhado A"),
+            CreateSeries(itemIds[1], "Elenco compartilhado B", 2026, "N:\\Series\\Elenco compartilhado B")
+        ],
+        CancellationToken.None);
+
+        var repository = new PeopleRepository(Contexts, Mock.Of<IItemTypeLookup>());
+        var start = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var writes = Enumerable.Range(0, 16)
+            .Select(index => Task.Run(async () =>
+            {
+                await start.Task;
+                repository.UpdatePeople(itemIds[index % itemIds.Length], [new PersonInfo { Name = "Pessoa compartilhada", Type = PersonKind.Actor }]);
+            }));
+
+        start.SetResult();
+        await Task.WhenAll(writes);
+
+        using var context = Contexts.CreateDbContext();
+        var person = Assert.Single(context.Peoples.Where(e => e.Name == "Pessoa compartilhada" && e.PersonType == PersonKind.Actor.ToString()));
+        foreach (var itemId in itemIds)
+        {
+            var mapping = Assert.Single(context.PeopleBaseItemMap.Where(e => e.ItemId == itemId));
+            Assert.Equal(person.Id, mapping.PeopleId);
+        }
     }
 
     [Fact]
@@ -642,6 +723,226 @@ public sealed class ServerPersistenceMariaDbTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task SaveImagesAsync_RollsBackDeletedImagesWhenInsertFails()
+    {
+        MariaDbTestEnvironment.SkipUnlessConfigured();
+        var cancellationToken = TestContext.Current.CancellationToken;
+        var persistence = new ItemPersistenceService(
+            Contexts,
+            CreateAppHost(),
+            NullLogger<ItemPersistenceService>.Instance);
+
+        var itemId = Guid.NewGuid();
+        var initialItem = CreateSeries(itemId, "Rollback de imagens", 2026, "N:\\Movies\\Rollback de imagens");
+        initialItem.AddImage(CreateImage("old/poster.jpg", "pt-br"));
+        persistence.SaveItems([initialItem], cancellationToken);
+
+        Guid originalImageId;
+        await using (var context = await Contexts.CreateDbContextAsync(cancellationToken))
+        {
+            originalImageId = await context.BaseItemImageInfos
+                .Where(image => image.ItemId == itemId)
+                .Select(image => image.Id)
+                .SingleAsync(cancellationToken);
+
+            await context.Database.OpenConnectionAsync(cancellationToken);
+            await using var command = context.Database.GetDbConnection().CreateCommand();
+            command.CommandText = "CREATE TRIGGER `TestImageReject` BEFORE INSERT ON `BaseItemImageInfos` "
+                + "FOR EACH ROW SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'forced integration-test failure';";
+            await command.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        try
+        {
+            var replacement = CreateSeries(itemId, "Rollback de imagens", 2026, "N:\\Movies\\Rollback de imagens");
+            replacement.AddImage(CreateImage("new/poster.jpg", "en"));
+            await Assert.ThrowsAsync<DbUpdateException>(() => persistence.SaveImagesAsync(replacement, cancellationToken));
+        }
+        finally
+        {
+            await using var context = await Contexts.CreateDbContextAsync(cancellationToken);
+            await context.Database.ExecuteSqlRawAsync("DROP TRIGGER IF EXISTS TestImageReject;", cancellationToken);
+        }
+
+        await using var verify = await Contexts.CreateDbContextAsync(cancellationToken);
+        var image = await verify.BaseItemImageInfos.SingleAsync(entry => entry.ItemId == itemId, cancellationToken);
+        Assert.Equal(originalImageId, image.Id);
+        Assert.Equal("old/poster.jpg", image.Path);
+        Assert.Equal("pt-br", image.Language);
+    }
+
+    [Fact]
+    public async Task SaveImagesAsync_RetriesWholeTransactionAfterMariaDbLockWaitTimeout()
+    {
+        MariaDbTestEnvironment.SkipUnlessConfigured();
+        var cancellationToken = TestContext.Current.CancellationToken;
+        var itemId = Guid.NewGuid();
+        const string path = "N:\\Movies\\Image lock retry (2026)";
+        var initialItem = CreateSeries(itemId, "Image lock retry", 2026, path);
+        initialItem.AddImage(CreateImage("old/poster.jpg", "pt-br"));
+        new ItemPersistenceService(Contexts, CreateAppHost(), NullLogger<ItemPersistenceService>.Instance)
+            .SaveItems([initialItem], cancellationToken);
+
+        var previousTimeout = await SetMariaDbLockWaitTimeoutAsync(1, cancellationToken);
+        try
+        {
+            var lockContext = await Contexts.CreateDbContextAsync(cancellationToken);
+            await using (lockContext.ConfigureAwait(false))
+            {
+                await lockContext.Database.OpenConnectionAsync(cancellationToken);
+                await using var lockTransaction = await lockContext.Database
+                    .BeginTransactionAsync(cancellationToken);
+                _ = await lockContext.BaseItemImageInfos
+                    .FromSqlInterpolated($"SELECT * FROM `BaseItemImageInfos` WHERE `ItemId` = {itemId} FOR UPDATE")
+                    .AsNoTracking()
+                    .SingleAsync(cancellationToken);
+
+                var retryLogger = new ImageRetryLogger();
+                var persistence = new ItemPersistenceService(Contexts, CreateAppHost(), retryLogger);
+                var replacement = CreateSeries(itemId, "Image lock retry", 2026, path);
+                replacement.AddImage(CreateImage("new/poster.jpg", "pt-br"));
+                var saveTask = persistence.SaveImagesAsync(replacement, cancellationToken);
+
+                Exception? retrySignalError = null;
+                try
+                {
+                    await retryLogger.RetryObserved.WaitAsync(TimeSpan.FromSeconds(15), cancellationToken)
+                        ;
+                }
+                catch (Exception exception)
+                {
+                    retrySignalError = exception;
+                }
+                finally
+                {
+                    await lockTransaction.RollbackAsync(CancellationToken.None);
+                }
+
+                if (retrySignalError is not null)
+                {
+                    try
+                    {
+                        await saveTask;
+                    }
+                    catch
+                    {
+                        // The retry-signal assertion below is the primary failure for this path.
+                    }
+
+                    Assert.Fail($"SaveImagesAsync did not enter the whole-operation retry path: {retrySignalError.Message}");
+                }
+
+                await saveTask;
+                Assert.Equal(1, retryLogger.RetryCount);
+            }
+
+            await using var verify = await Contexts.CreateDbContextAsync(cancellationToken);
+            var image = await verify.BaseItemImageInfos.SingleAsync(entry => entry.ItemId == itemId, cancellationToken);
+            Assert.Equal("new/poster.jpg", image.Path);
+            Assert.Equal("pt-br", image.Language);
+        }
+        finally
+        {
+            _ = await SetMariaDbLockWaitTimeoutAsync(previousTimeout, CancellationToken.None);
+        }
+    }
+
+    [Fact]
+    public async Task SaveUserDataAsync_RollsBackUpdatedKeysWhenInsertFails()
+    {
+        MariaDbTestEnvironment.SkipUnlessConfigured();
+        var cancellationToken = TestContext.Current.CancellationToken;
+        const string providerKey = "tvdb-userdata-rollback";
+        var item = CreateSeries(Guid.NewGuid(), "Rollback de progresso", 2026, "N:\\Series\\Rollback de progresso");
+        item.SetProviderId("Tvdb", providerKey);
+        item.SetProviderId("Imdb", "imdb-userdata-rollback");
+        new ItemPersistenceService(Contexts, CreateAppHost(), NullLogger<ItemPersistenceService>.Instance)
+            .SaveItems([item], cancellationToken);
+
+        var userId = Guid.NewGuid();
+        var username = "userdata-rollback-" + userId.ToString("N", CultureInfo.InvariantCulture);
+        await using (var seedUsers = await UserContexts.CreateDbContextAsync(cancellationToken))
+        {
+            var seededUser = new MulletaFlix.Database.Implementations.Entities.User(username, "test-authentication", "test-password-reset");
+            seededUser.Id = userId;
+            seedUsers.Users.Add(seededUser);
+            await seedUsers.SaveChangesAsync(cancellationToken);
+        }
+
+        MulletaFlix.Database.Implementations.Entities.User user;
+        await using (var users = await UserContexts.CreateDbContextAsync(cancellationToken))
+        {
+            user = await users.Users.SingleAsync(entry => entry.Id == userId, cancellationToken);
+        }
+
+        await using (var context = await Contexts.CreateDbContextAsync(cancellationToken))
+        {
+            context.UserData.Add(new UserData
+            {
+                ItemId = item.Id,
+                UserId = user.Id,
+                CustomDataKey = providerKey,
+                PlayCount = 2,
+                Played = false,
+                IsFavorite = false,
+                Item = null,
+                User = null
+            });
+            context.UserData.Add(new UserData
+            {
+                ItemId = item.Id,
+                UserId = user.Id,
+                CustomDataKey = "imdb-userdata-rollback",
+                PlayCount = 2,
+                Played = false,
+                IsFavorite = false,
+                Item = null,
+                User = null
+            });
+            await context.SaveChangesAsync(cancellationToken);
+        }
+
+        var userDataManager = new UserDataManager(
+            _services!.GetRequiredService<IServerConfigurationManager>(),
+            Contexts);
+        var savedEventCount = 0;
+        userDataManager.UserDataSaved += (_, _) => savedEventCount++;
+
+        var request = userDataManager.GetUserDataBatch([item], user)[item.Id];
+        request.Key = providerKey;
+        request.PlayCount = 9;
+        request.Played = true;
+        request.IsFavorite = true;
+        await AssertMariaDbInsertFailureAsync(
+            "UserData",
+            "TestUserDataReject",
+            () => userDataManager.SaveUserDataAsync(
+                user,
+                item,
+                request,
+                UserDataSaveReason.PlaybackProgress,
+                cancellationToken),
+            cancellationToken);
+
+        Assert.Equal(providerKey, request.Key);
+
+        await using var verify = await Contexts.CreateDbContextAsync(cancellationToken);
+        var savedRows = await verify.UserData
+            .Where(entry => entry.ItemId == item.Id && entry.UserId == user.Id)
+            .ToListAsync(cancellationToken);
+
+        Assert.Equal(2, savedRows.Count);
+        Assert.All(savedRows, savedRow =>
+        {
+            Assert.Contains(savedRow.CustomDataKey, new[] { providerKey, "imdb-userdata-rollback" });
+            Assert.Equal(2, savedRow.PlayCount);
+            Assert.False(savedRow.Played);
+            Assert.False(savedRow.IsFavorite);
+        });
+        Assert.Equal(0, savedEventCount);
+    }
+
+    [Fact]
     public async Task SaveImagesAsync_ConcurrentWritesForSameItem_DoNotMixImageSets()
     {
         MariaDbTestEnvironment.SkipUnlessConfigured();
@@ -680,7 +981,7 @@ public sealed class ServerPersistenceMariaDbTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task SaveImagesAsync_WaitsForConcurrentSaveItemsForTheSameItem()
+    public async Task SaveImagesAsync_UsesLatestImagesAfterWaitingForConcurrentSaveItems()
     {
         MariaDbTestEnvironment.SkipUnlessConfigured();
         var cancellationToken = TestContext.Current.CancellationToken;
@@ -715,6 +1016,7 @@ public sealed class ServerPersistenceMariaDbTests : IAsyncLifetime
         {
             await blockingFactory.SynchronousCreateEntered.Task.WaitAsync(TimeSpan.FromSeconds(30), cancellationToken);
             saveImagesTask = persistence.SaveImagesAsync(saveImages, cancellationToken);
+            saveImages.AddImage(CreateImage("save-images/latest-after-wait.jpg", "save-images"));
             saveImagesReachedFactoryBeforeRelease = blockingFactory.AsynchronousCreateEntered.Task.IsCompleted;
 
             blockingFactory.ReleaseSynchronousCreate();
@@ -749,6 +1051,7 @@ public sealed class ServerPersistenceMariaDbTests : IAsyncLifetime
         var expectedSet = new[]
         {
             ("save-images/backdrop.jpg", "save-images"),
+            ("save-images/latest-after-wait.jpg", "save-images"),
             ("save-images/poster.jpg", "save-images")
         };
         Assert.Equal(expectedSet, storedSet);
@@ -822,6 +1125,467 @@ public sealed class ServerPersistenceMariaDbTests : IAsyncLifetime
             await context.Database.ExecuteSqlRawAsync("DROP TRIGGER IF EXISTS TestTrailerTypeInsertAudit;");
             await context.Database.ExecuteSqlRawAsync("DROP TRIGGER IF EXISTS TestTrailerTypeDeleteAudit;");
             await context.Database.ExecuteSqlRawAsync("DROP TABLE IF EXISTS TestTrailerTypeWriteAudit;");
+        }
+    }
+
+    [Fact]
+    public async Task SaveMediaAttachments_ReplacesExistingSetAndEmptyInputClearsIt()
+    {
+        MariaDbTestEnvironment.SkipUnlessConfigured();
+        var cancellationToken = TestContext.Current.CancellationToken;
+        var itemId = Guid.NewGuid();
+        var persistence = new ItemPersistenceService(
+            Contexts,
+            CreateAppHost(),
+            NullLogger<ItemPersistenceService>.Instance);
+        persistence.SaveItems([CreateSeries(itemId, "Anexos de teste", 2026, "N:\\Series\\Anexos de teste")], CancellationToken.None);
+
+        var repository = new MediaAttachmentRepository(Contexts);
+        repository.SaveMediaAttachments(
+            itemId,
+            [new MediaAttachment { Index = 1, FileName = "old.bin", MimeType = "application/old" }],
+            CancellationToken.None);
+
+        await using (var context = await Contexts.CreateDbContextAsync(cancellationToken))
+        {
+            await context.Database.ExecuteSqlRawAsync(
+                "CREATE TRIGGER TestMediaAttachmentReject BEFORE INSERT ON AttachmentStreamInfos "
+                + "FOR EACH ROW SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'forced integration-test failure';",
+                cancellationToken);
+        }
+
+        try
+        {
+            await Assert.ThrowsAsync<DbUpdateException>(() => repository.SaveMediaAttachmentsAsync(
+                itemId,
+                [new MediaAttachment { Index = 2, FileName = "force-failure.bin", MimeType = "application/octet-stream" }],
+                cancellationToken));
+        }
+        finally
+        {
+            using var context = Contexts.CreateDbContext();
+            context.Database.ExecuteSqlRaw("DROP TRIGGER IF EXISTS TestMediaAttachmentReject;");
+        }
+
+        var afterFailedReplace = repository.GetMediaAttachments(new MediaAttachmentQuery { ItemId = itemId });
+        Assert.Collection(
+            afterFailedReplace,
+            attachment =>
+            {
+                Assert.Equal(1, attachment.Index);
+                Assert.Equal("old.bin", attachment.FileName);
+            });
+
+        await repository.SaveMediaAttachmentsAsync(
+            itemId,
+            [
+                new MediaAttachment { Index = 2, FileName = "cover.bin", MimeType = "application/cover" },
+                new MediaAttachment { Index = 3, FileName = "font.ttf", MimeType = "font/ttf" }
+            ],
+            cancellationToken);
+
+        var saved = repository.GetMediaAttachments(new MediaAttachmentQuery { ItemId = itemId })
+            .OrderBy(attachment => attachment.Index)
+            .Select(attachment => (attachment.Index, attachment.FileName, attachment.MimeType));
+        Assert.Equal(
+            new[] { (2, "cover.bin", "application/cover"), (3, "font.ttf", "font/ttf") },
+            saved);
+
+        repository.SaveMediaAttachments(itemId, [], CancellationToken.None);
+        Assert.Empty(repository.GetMediaAttachments(new MediaAttachmentQuery { ItemId = itemId }));
+    }
+
+    [Fact]
+    public async Task SaveMediaStreamsAsync_RollsBackFailedReplacement()
+    {
+        MariaDbTestEnvironment.SkipUnlessConfigured();
+        var cancellationToken = TestContext.Current.CancellationToken;
+        var itemId = Guid.NewGuid();
+        var persistence = new ItemPersistenceService(
+            Contexts,
+            CreateAppHost(),
+            NullLogger<ItemPersistenceService>.Instance);
+        persistence.SaveItems([CreateSeries(itemId, "Streams de teste", 2026, "N:\\Series\\Streams de teste")], CancellationToken.None);
+
+        var retryLogger = new MediaStreamRetryLogger();
+        var repository = new MediaStreamRepository(Contexts, CreateAppHost(), Mock.Of<ILocalizationManager>(), retryLogger);
+        await repository.SaveMediaStreamsAsync(
+            itemId,
+            [new MediaStream { Index = 0, Type = MediaStreamType.Video, Codec = "h264" }],
+            cancellationToken);
+
+        await AssertMariaDbInsertFailureAsync(
+            "MediaStreamInfos",
+            "TestMediaStreamReject",
+            () => repository.SaveMediaStreamsAsync(
+                itemId,
+                [new MediaStream { Index = 1, Type = MediaStreamType.Video, Codec = "hevc" }],
+                cancellationToken),
+            cancellationToken);
+        Assert.Equal(0, retryLogger.RetryCount);
+
+        var afterFailedReplace = repository.GetMediaStreams(new MediaStreamQuery { ItemId = itemId });
+        var previous = Assert.Single(afterFailedReplace);
+        Assert.Equal(0, previous.Index);
+        Assert.Equal("h264", previous.Codec);
+
+        await repository.SaveMediaStreamsAsync(
+            itemId,
+            [new MediaStream { Index = 1, Type = MediaStreamType.Video, Codec = "hevc" }],
+            cancellationToken);
+        var saved = Assert.Single(repository.GetMediaStreams(new MediaStreamQuery { ItemId = itemId }));
+        Assert.Equal(1, saved.Index);
+        Assert.Equal("hevc", saved.Codec);
+    }
+
+    [Fact]
+    public async Task SaveMediaStreamsAsync_RetriesWholeTransactionAfterMariaDbLockWaitTimeout()
+    {
+        MariaDbTestEnvironment.SkipUnlessConfigured();
+        var cancellationToken = TestContext.Current.CancellationToken;
+        var itemId = Guid.NewGuid();
+        var persistence = new ItemPersistenceService(
+            Contexts,
+            CreateAppHost(),
+            NullLogger<ItemPersistenceService>.Instance);
+        persistence.SaveItems([CreateSeries(itemId, "Retry de streams", 2026, "N:\\Series\\Retry de streams")], CancellationToken.None);
+
+        var repository = new MediaStreamRepository(
+            Contexts,
+            CreateAppHost(),
+            Mock.Of<ILocalizationManager>(),
+            NullLogger<MediaStreamRepository>.Instance);
+        await repository.SaveMediaStreamsAsync(
+            itemId,
+            [new MediaStream { Index = 0, Type = MediaStreamType.Video, Codec = "h264" }],
+            cancellationToken);
+
+        var retryLogger = new MediaStreamRetryLogger();
+        repository = new MediaStreamRepository(Contexts, CreateAppHost(), Mock.Of<ILocalizationManager>(), retryLogger);
+        var previousTimeout = await SetMariaDbLockWaitTimeoutAsync(1, cancellationToken);
+        try
+        {
+            var lockContext = await Contexts.CreateDbContextAsync(cancellationToken);
+            await using (lockContext.ConfigureAwait(false))
+            {
+                await lockContext.Database.OpenConnectionAsync(cancellationToken);
+                await using var lockTransaction = await lockContext.Database
+                    .BeginTransactionAsync(cancellationToken);
+                _ = await lockContext.MediaStreamInfos
+                    .FromSqlInterpolated($"SELECT * FROM `MediaStreamInfos` WHERE `ItemId` = {itemId} FOR UPDATE")
+                    .AsNoTracking()
+                    .SingleAsync(cancellationToken);
+
+                var saveTask = repository.SaveMediaStreamsAsync(
+                    itemId,
+                    [new MediaStream { Index = 1, Type = MediaStreamType.Video, Codec = "hevc" }],
+                    cancellationToken);
+                Exception? retrySignalError = null;
+                try
+                {
+                    await retryLogger.RetryObserved.WaitAsync(TimeSpan.FromSeconds(15), cancellationToken);
+                }
+                catch (Exception exception)
+                {
+                    retrySignalError = exception;
+                }
+                finally
+                {
+                    await lockTransaction.RollbackAsync(CancellationToken.None);
+                }
+
+                if (retrySignalError is not null)
+                {
+                    try
+                    {
+                        await saveTask;
+                    }
+                    catch
+                    {
+                        // The retry-signal assertion below is the primary failure for this path.
+                    }
+
+                    Assert.Fail($"SaveMediaStreamsAsync did not enter the whole-operation retry path: {retrySignalError.Message}");
+                }
+
+                await saveTask;
+                Assert.Equal(1, retryLogger.RetryCount);
+            }
+        }
+        finally
+        {
+            _ = await SetMariaDbLockWaitTimeoutAsync(previousTimeout, CancellationToken.None);
+        }
+
+        var saved = Assert.Single(repository.GetMediaStreams(new MediaStreamQuery { ItemId = itemId }));
+        Assert.Equal(1, saved.Index);
+        Assert.Equal("hevc", saved.Codec);
+    }
+
+    [Fact]
+    public async Task SaveChaptersAsync_RollsBackFailedReplacement()
+    {
+        MariaDbTestEnvironment.SkipUnlessConfigured();
+        var cancellationToken = TestContext.Current.CancellationToken;
+        var itemId = Guid.NewGuid();
+        var persistence = new ItemPersistenceService(
+            Contexts,
+            CreateAppHost(),
+            NullLogger<ItemPersistenceService>.Instance);
+        persistence.SaveItems([CreateSeries(itemId, "Capítulos de teste", 2026, "N:\\Series\\Capítulos de teste")], CancellationToken.None);
+
+        var repository = new ChapterRepository(Contexts, Mock.Of<IImageProcessor>());
+        await repository.SaveChaptersAsync(
+            itemId,
+            [new ChapterInfo { StartPositionTicks = 10, Name = "Capítulo antigo" }],
+            cancellationToken);
+
+        await AssertMariaDbInsertFailureAsync(
+            "Chapters",
+            "TestChapterReject",
+            () => repository.SaveChaptersAsync(
+                itemId,
+                [new ChapterInfo { StartPositionTicks = 20, Name = "Capítulo novo" }],
+                cancellationToken),
+            cancellationToken);
+
+        var previous = Assert.Single(repository.GetChapters(itemId));
+        Assert.Equal(10, previous.StartPositionTicks);
+        Assert.Equal("Capítulo antigo", previous.Name);
+
+        await repository.SaveChaptersAsync(
+            itemId,
+            [new ChapterInfo { StartPositionTicks = 20, Name = "Capítulo novo" }],
+            cancellationToken);
+        var saved = Assert.Single(repository.GetChapters(itemId));
+        Assert.Equal(20, saved.StartPositionTicks);
+        Assert.Equal("Capítulo novo", saved.Name);
+    }
+
+    [Fact]
+    public async Task SaveChaptersAsync_RetriesWholeTransactionAfterMariaDbLockWaitTimeout()
+    {
+        MariaDbTestEnvironment.SkipUnlessConfigured();
+        var cancellationToken = TestContext.Current.CancellationToken;
+        var itemId = Guid.NewGuid();
+        var persistence = new ItemPersistenceService(
+            Contexts,
+            CreateAppHost(),
+            NullLogger<ItemPersistenceService>.Instance);
+        persistence.SaveItems([CreateSeries(itemId, "Retry de capítulos", 2026, "N:\\Series\\Retry de capítulos")], CancellationToken.None);
+
+        var repository = new ChapterRepository(Contexts, Mock.Of<IImageProcessor>());
+        await repository.SaveChaptersAsync(
+            itemId,
+            [new ChapterInfo { StartPositionTicks = 10, Name = "Capítulo antigo" }],
+            cancellationToken);
+
+        var retryLogger = new ChapterRetryLogger();
+        repository = new ChapterRepository(Contexts, Mock.Of<IImageProcessor>(), retryLogger);
+        var previousTimeout = await SetMariaDbLockWaitTimeoutAsync(1, cancellationToken);
+        try
+        {
+            var lockContext = await Contexts.CreateDbContextAsync(cancellationToken);
+            await using (lockContext.ConfigureAwait(false))
+            {
+                await lockContext.Database.OpenConnectionAsync(cancellationToken);
+                await using var lockTransaction = await lockContext.Database.BeginTransactionAsync(cancellationToken);
+                _ = await lockContext.Chapters
+                    .FromSqlInterpolated($"SELECT * FROM `Chapters` WHERE `ItemId` = {itemId} FOR UPDATE")
+                    .AsNoTracking()
+                    .SingleAsync(cancellationToken);
+
+                var saveTask = repository.SaveChaptersAsync(
+                    itemId,
+                    [new ChapterInfo { StartPositionTicks = 20, Name = "Capítulo novo" }],
+                    cancellationToken);
+                Exception? retrySignalError = null;
+                try
+                {
+                    await retryLogger.RetryObserved.WaitAsync(TimeSpan.FromSeconds(15), cancellationToken);
+                }
+                catch (Exception exception)
+                {
+                    retrySignalError = exception;
+                }
+                finally
+                {
+                    await lockTransaction.RollbackAsync(CancellationToken.None);
+                }
+
+                if (retrySignalError is not null)
+                {
+                    try
+                    {
+                        await saveTask;
+                    }
+                    catch
+                    {
+                        // The retry-signal assertion below is the primary failure for this path.
+                    }
+
+                    Assert.Fail($"SaveChaptersAsync did not enter the whole-operation retry path: {retrySignalError.Message}");
+                }
+
+                await saveTask;
+                Assert.Equal(1, retryLogger.RetryCount);
+            }
+        }
+        finally
+        {
+            _ = await SetMariaDbLockWaitTimeoutAsync(previousTimeout, CancellationToken.None);
+        }
+
+        var saved = Assert.Single(repository.GetChapters(itemId));
+        Assert.Equal(20, saved.StartPositionTicks);
+        Assert.Equal("Capítulo novo", saved.Name);
+    }
+
+    [Fact]
+    public async Task SaveKeyframeDataAsync_RetriesWholeTransactionAfterMariaDbLockWaitTimeout()
+    {
+        MariaDbTestEnvironment.SkipUnlessConfigured();
+        var cancellationToken = TestContext.Current.CancellationToken;
+        var itemId = Guid.NewGuid();
+        var persistence = new ItemPersistenceService(
+            Contexts,
+            CreateAppHost(),
+            NullLogger<ItemPersistenceService>.Instance);
+        persistence.SaveItems([CreateSeries(itemId, "Retry de keyframes", 2026, "N:\\Series\\Retry de keyframes")], CancellationToken.None);
+
+        var repository = new KeyframeRepository(Contexts);
+        await repository.SaveKeyframeDataAsync(
+            itemId,
+            new MulletaFlix.MediaEncoding.Keyframes.KeyframeData(100, [10, 20]),
+            cancellationToken);
+
+        var retryLogger = new KeyframeRetryLogger();
+        repository = new KeyframeRepository(Contexts, retryLogger);
+        var previousTimeout = await SetMariaDbLockWaitTimeoutAsync(1, cancellationToken);
+        try
+        {
+            var lockContext = await Contexts.CreateDbContextAsync(cancellationToken);
+            await using (lockContext.ConfigureAwait(false))
+            {
+                await lockContext.Database.OpenConnectionAsync(cancellationToken);
+                await using var lockTransaction = await lockContext.Database.BeginTransactionAsync(cancellationToken);
+                _ = await lockContext.KeyframeData
+                    .FromSqlInterpolated($"SELECT * FROM `KeyframeData` WHERE `ItemId` = {itemId} FOR UPDATE")
+                    .AsNoTracking()
+                    .SingleAsync(cancellationToken);
+
+                var saveTask = repository.SaveKeyframeDataAsync(
+                    itemId,
+                    new MulletaFlix.MediaEncoding.Keyframes.KeyframeData(200, [30, 40]),
+                    cancellationToken);
+                Exception? retrySignalError = null;
+                try
+                {
+                    await retryLogger.RetryObserved.WaitAsync(TimeSpan.FromSeconds(15), cancellationToken);
+                }
+                catch (Exception exception)
+                {
+                    retrySignalError = exception;
+                }
+                finally
+                {
+                    await lockTransaction.RollbackAsync(CancellationToken.None);
+                }
+
+                if (retrySignalError is not null)
+                {
+                    try
+                    {
+                        await saveTask;
+                    }
+                    catch
+                    {
+                        // The retry-signal assertion below is the primary failure for this path.
+                    }
+
+                    Assert.Fail($"SaveKeyframeDataAsync did not enter the whole-operation retry path: {retrySignalError.Message}");
+                }
+
+                await saveTask;
+                Assert.Equal(1, retryLogger.RetryCount);
+            }
+        }
+        finally
+        {
+            _ = await SetMariaDbLockWaitTimeoutAsync(previousTimeout, CancellationToken.None);
+        }
+
+        var saved = Assert.Single(repository.GetKeyframeData(itemId));
+        Assert.Equal(200, saved.TotalDuration);
+        Assert.Equal(new long[] { 30, 40 }, saved.KeyframeTicks);
+    }
+
+    [Fact]
+    public async Task SaveKeyframeDataAsync_RollsBackFailedReplacement()
+    {
+        MariaDbTestEnvironment.SkipUnlessConfigured();
+        var cancellationToken = TestContext.Current.CancellationToken;
+        var itemId = Guid.NewGuid();
+        var persistence = new ItemPersistenceService(
+            Contexts,
+            CreateAppHost(),
+            NullLogger<ItemPersistenceService>.Instance);
+        persistence.SaveItems([CreateSeries(itemId, "Keyframes de teste", 2026, "N:\\Series\\Keyframes de teste")], CancellationToken.None);
+
+        var repository = new KeyframeRepository(Contexts);
+        await repository.SaveKeyframeDataAsync(
+            itemId,
+            new MulletaFlix.MediaEncoding.Keyframes.KeyframeData(100, [10, 20]),
+            cancellationToken);
+
+        await AssertMariaDbInsertFailureAsync(
+            "KeyframeData",
+            "TestKeyframeReject",
+            () => repository.SaveKeyframeDataAsync(
+                itemId,
+                new MulletaFlix.MediaEncoding.Keyframes.KeyframeData(200, [30, 40]),
+                cancellationToken),
+            cancellationToken);
+
+        var previous = Assert.Single(repository.GetKeyframeData(itemId));
+        Assert.Equal(100, previous.TotalDuration);
+        Assert.Equal(new long[] { 10, 20 }, previous.KeyframeTicks);
+
+        await repository.SaveKeyframeDataAsync(
+            itemId,
+            new MulletaFlix.MediaEncoding.Keyframes.KeyframeData(200, [30, 40]),
+            cancellationToken);
+        var saved = Assert.Single(repository.GetKeyframeData(itemId));
+        Assert.Equal(200, saved.TotalDuration);
+        Assert.Equal(new long[] { 30, 40 }, saved.KeyframeTicks);
+    }
+
+    private async Task AssertMariaDbInsertFailureAsync(
+        string tableName,
+        string triggerName,
+        Func<Task> saveAction,
+        CancellationToken cancellationToken)
+    {
+        await using (var context = await Contexts.CreateDbContextAsync(cancellationToken))
+        {
+            await context.Database.OpenConnectionAsync(cancellationToken);
+            await using var command = context.Database.GetDbConnection().CreateCommand();
+            command.CommandText = $"CREATE TRIGGER `{triggerName}` BEFORE INSERT ON `{tableName}` "
+                + "FOR EACH ROW SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'forced integration-test failure';";
+            await command.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        try
+        {
+            await Assert.ThrowsAsync<DbUpdateException>(saveAction);
+        }
+        finally
+        {
+            using var context = Contexts.CreateDbContext();
+            context.Database.OpenConnection();
+            using var command = context.Database.GetDbConnection().CreateCommand();
+            command.CommandText = $"DROP TRIGGER IF EXISTS `{triggerName}`;";
+            command.ExecuteNonQuery();
         }
     }
 
@@ -998,6 +1762,35 @@ public sealed class ServerPersistenceMariaDbTests : IAsyncLifetime
         return services.BuildServiceProvider();
     }
 
+    private async Task<int> SetMariaDbLockWaitTimeoutAsync(int seconds, CancellationToken cancellationToken)
+    {
+        ArgumentOutOfRangeException.ThrowIfLessThan(seconds, 1);
+        await using var context = await Contexts.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
+        var connectionString = context.Database.GetConnectionString()
+            ?? throw new InvalidOperationException("The isolated MariaDB test connection is not configured.");
+        await using var connection = new MySqlConnector.MySqlConnection(connectionString);
+        await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
+
+        await using var getTimeout = new MySqlConnector.MySqlCommand(
+            "SELECT @@GLOBAL.innodb_lock_wait_timeout;",
+            connection);
+        var previous = Convert.ToInt32(
+            await getTimeout.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false),
+            CultureInfo.InvariantCulture);
+
+        await using var setTimeout = new MySqlConnector.MySqlCommand(
+            "SET GLOBAL innodb_lock_wait_timeout = @seconds;",
+            connection);
+        setTimeout.Parameters.AddWithValue("@seconds", seconds);
+        await setTimeout.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        await connection.CloseAsync().ConfigureAwait(false);
+
+        // New physical sessions inherit the updated server value. Clear only this isolated test
+        // connection pool, never unrelated MariaDB pools in the test runner.
+        MySqlConnector.MySqlConnection.ClearPool(connection);
+        return previous;
+    }
+
     private void InitializeUserSchema()
     {
         var configurationManager = _services!.GetRequiredService<IServerConfigurationManager>();
@@ -1019,6 +1812,130 @@ public sealed class ServerPersistenceMariaDbTests : IAsyncLifetime
             [authenticationProvider, new InvalidAuthProvider()]);
 
         _ = userManager.GetFirstUser();
+    }
+
+    private sealed class ImageRetryLogger : ILogger<ItemPersistenceService>
+    {
+        private readonly TaskCompletionSource _retryObserved = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private int _retryCount;
+
+        public Task RetryObserved => _retryObserved.Task;
+
+        public int RetryCount => Volatile.Read(ref _retryCount);
+
+        public IDisposable? BeginScope<TState>(TState state)
+            where TState : notnull
+            => null;
+
+        public bool IsEnabled(LogLevel logLevel) => true;
+
+        public void Log<TState>(
+            LogLevel logLevel,
+            EventId eventId,
+            TState state,
+            Exception? exception,
+            Func<TState, Exception?, string> formatter)
+        {
+            if (logLevel == LogLevel.Warning
+                && formatter(state, exception).Contains("Transient database failure while saving images", StringComparison.Ordinal))
+            {
+                Interlocked.Increment(ref _retryCount);
+                _retryObserved.TrySetResult();
+            }
+        }
+    }
+
+    private sealed class MediaStreamRetryLogger : ILogger<MediaStreamRepository>
+    {
+        private readonly TaskCompletionSource _retryObserved = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private int _retryCount;
+
+        public Task RetryObserved => _retryObserved.Task;
+
+        public int RetryCount => Volatile.Read(ref _retryCount);
+
+        public IDisposable? BeginScope<TState>(TState state)
+            where TState : notnull
+            => null;
+
+        public bool IsEnabled(LogLevel logLevel) => true;
+
+        public void Log<TState>(
+            LogLevel logLevel,
+            EventId eventId,
+            TState state,
+            Exception? exception,
+            Func<TState, Exception?, string> formatter)
+        {
+            if (logLevel == LogLevel.Warning
+                && formatter(state, exception).Contains("Transient MariaDB lock failure while saving media streams", StringComparison.Ordinal))
+            {
+                Interlocked.Increment(ref _retryCount);
+                _retryObserved.TrySetResult();
+            }
+        }
+    }
+
+    private sealed class ChapterRetryLogger : ILogger<ChapterRepository>
+    {
+        private readonly TaskCompletionSource _retryObserved = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private int _retryCount;
+
+        public Task RetryObserved => _retryObserved.Task;
+
+        public int RetryCount => Volatile.Read(ref _retryCount);
+
+        public IDisposable? BeginScope<TState>(TState state)
+            where TState : notnull
+            => null;
+
+        public bool IsEnabled(LogLevel logLevel) => true;
+
+        public void Log<TState>(
+            LogLevel logLevel,
+            EventId eventId,
+            TState state,
+            Exception? exception,
+            Func<TState, Exception?, string> formatter)
+        {
+            if (logLevel == LogLevel.Warning
+                && formatter(state, exception).Contains("Transient MariaDB lock failure while saving chapters", StringComparison.Ordinal))
+            {
+                Interlocked.Increment(ref _retryCount);
+                _retryObserved.TrySetResult();
+            }
+        }
+    }
+
+    private sealed class KeyframeRetryLogger : ILogger<KeyframeRepository>
+    {
+        private readonly TaskCompletionSource _retryObserved = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private int _retryCount;
+
+        public Task RetryObserved => _retryObserved.Task;
+
+        public int RetryCount => Volatile.Read(ref _retryCount);
+
+        public IDisposable? BeginScope<TState>(TState state)
+            where TState : notnull
+            => null;
+
+        public bool IsEnabled(LogLevel logLevel) => true;
+
+        public void Log<TState>(
+            LogLevel logLevel,
+            EventId eventId,
+            TState state,
+            Exception? exception,
+            Func<TState, Exception?, string> formatter)
+        {
+            if (logLevel == LogLevel.Warning
+                && formatter(state, exception).Contains("Transient MariaDB lock failure while saving keyframe data", StringComparison.Ordinal))
+            {
+                Interlocked.Increment(ref _retryCount);
+                _retryObserved.TrySetResult();
+            }
+        }
     }
 
     private sealed class BlockingDbContextFactory : IDbContextFactory<MulletaFlixDbContext>

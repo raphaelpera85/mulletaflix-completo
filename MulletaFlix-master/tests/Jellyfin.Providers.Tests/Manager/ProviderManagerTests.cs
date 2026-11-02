@@ -183,13 +183,14 @@ namespace MulletaFlix.Providers.Tests.Manager
             LibraryOptions? libraryOptions = null,
             IBaseItemManager? baseItemManager = null,
             IServerApplicationPaths? appPaths = null,
-            IImageEncoder? imageEncoder = null)
+            IImageEncoder? imageEncoder = null,
+            Mock<ILibraryManager>? libraryManagerMock = null)
         {
             var serverConfigurationManager = new Mock<IServerConfigurationManager>(MockBehavior.Strict);
             serverConfigurationManager.Setup(i => i.Configuration)
                 .Returns(serverConfiguration ?? new ServerConfiguration());
 
-            var libraryManager = new Mock<ILibraryManager>(MockBehavior.Strict);
+            var libraryManager = libraryManagerMock ?? new Mock<ILibraryManager>(MockBehavior.Strict);
             libraryManager.Setup(i => i.GetLibraryOptions(It.IsAny<BaseItem>()))
                 .Returns(libraryOptions ?? new LibraryOptions());
 

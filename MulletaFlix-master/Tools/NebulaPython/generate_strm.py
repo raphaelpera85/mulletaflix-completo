@@ -6,6 +6,7 @@ import os
 import re
 from pathlib import Path, PurePosixPath
 from typing import Any
+from urllib.parse import urlsplit
 
 from pymongo import MongoClient
 
@@ -107,9 +108,26 @@ def generate_strm_files(
     if prune:
         raise ValueError("STRM pruning is not supported by the control-plane generator")
 
+    base_url = (stream_base_url or os.getenv("STREAM_BASE_URL", "http://127.0.0.1:2122")).rstrip("/")
+    try:
+        parsed = urlsplit(base_url)
+        parsed.port
+    except ValueError as exc:
+        raise ValueError("STREAM_BASE_URL must be an HTTP(S) URL with a valid port and without credentials") from exc
+    if (
+        parsed.scheme.lower() not in {"http", "https"}
+        or not parsed.hostname
+        or parsed.username is not None
+        or parsed.password is not None
+        or parsed.query
+        or parsed.fragment
+        or "?" in base_url
+        or "#" in base_url
+    ):
+        raise ValueError("STREAM_BASE_URL must be an HTTP(S) URL without credentials, query, or fragment")
+
     client = MongoClient(mongo_url or os.getenv("MONGODB", "mongodb://localhost:27017"))
     output = Path(output_root or os.getenv("STRM_OUTPUT_DIR", "strm_library")).resolve()
-    base_url = (stream_base_url or os.getenv("STREAM_BASE_URL", "http://127.0.0.1:2122")).rstrip("/")
     user = (library_user or os.getenv("NEBULA_LIBRARY_USER", "raphael")).strip()
     generated: set[Path] = set()
 

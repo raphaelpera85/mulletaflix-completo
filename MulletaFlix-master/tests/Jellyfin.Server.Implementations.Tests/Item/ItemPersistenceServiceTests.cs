@@ -365,6 +365,16 @@ public class ItemPersistenceServiceTests
         Assert.Equal(expected, result);
     }
 
+    [Theory]
+    [InlineData(1213, true)]
+    [InlineData(1205, true)]
+    [InlineData(1062, false)]
+    [InlineData(1452, false)]
+    public void IsTransientMetadataConflict_RecognizesDirectMariaDbLockErrors(int errorCode, bool expected)
+    {
+        Assert.Equal(expected, ItemPersistenceService.IsTransientMetadataConflict(CreateMySqlException(errorCode)));
+    }
+
     /// <summary>
     /// Reproduces the production failure: re-inserted child rows are mapped by
     /// <c>BaseItemMapper.Map</c> with <c>Item</c> pointing at the freshly mapped

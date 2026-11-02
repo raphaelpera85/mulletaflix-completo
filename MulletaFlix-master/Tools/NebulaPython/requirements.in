@@ -18,6 +18,4 @@ supabase>=2.0,<3
 aiohttp>=3.10,<4
 pyaes>=1.6,<2
 pysocks>=1.7,<2
-pystray>=0.19,<1
-Pillow>=10,<13
 packaging>=26.3,<27

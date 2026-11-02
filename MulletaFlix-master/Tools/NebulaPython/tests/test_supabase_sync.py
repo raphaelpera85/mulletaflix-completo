@@ -4,6 +4,8 @@ import importlib
 import base64
 import motor.motor_asyncio
 from datetime import datetime, timezone
+from http.server import BaseHTTPRequestHandler, HTTPServer
+from threading import Thread
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
 
@@ -574,13 +576,17 @@ def test_post_batch_serializes_bson_and_returns_count(monkeypatch):
         responses.append((request, timeout))
         return Response()
 
-    monkeypatch.setattr(supabase_sync.urllib.request, "urlopen", open_request)
+    monkeypatch.setattr(supabase_sync._SUPABASE_OPENER, "open", open_request)
     record = {"_id": ObjectId(), "created_at": datetime(2026, 10, 7, tzinfo=timezone.utc)}
 
     assert supabase_sync.post_batch_to_supabase("https://example.test/", "key", "nebula_files", [record]) == 1
     request, timeout = responses[0]
     assert request.full_url == "https://example.test/rest/v1/nebula_files"
     assert timeout == 30
+    assert "Apikey" not in request.headers
+    assert "Authorization" not in request.headers
+    assert request.unredirected_hdrs["Apikey"] == "key"
+    assert request.unredirected_hdrs["Authorization"] == "Bearer key"
     assert str(record["_id"]) in request.data.decode("utf-8")
 
 
@@ -601,7 +607,7 @@ def test_fetch_from_supabase_parses_response_and_constructs_paging_url(monkeypat
         seen.append((request, timeout))
         return Response()
 
-    monkeypatch.setattr(supabase_sync.urllib.request, "urlopen", open_request)
+    monkeypatch.setattr(supabase_sync._SUPABASE_OPENER, "open", open_request)
 
     result = supabase_sync.fetch_from_supabase("https://example.test/", "key", "nebula_users", limit=50, offset=100)
 
@@ -616,7 +622,7 @@ def test_post_batch_raises_with_cloud_http_error_details(monkeypatch):
     def fail_request(_request, timeout):
         raise urllib.error.HTTPError("https://example.test", 503, "offline", {}, None)
 
-    monkeypatch.setattr(supabase_sync.urllib.request, "urlopen", fail_request)
+    monkeypatch.setattr(supabase_sync._SUPABASE_OPENER, "open", fail_request)
 
     with pytest.raises(RuntimeError, match="PostgREST Error 503"):
         supabase_sync.post_batch_to_supabase("https://example.test", "key", "files", [{"id": "1"}])
@@ -631,6 +637,81 @@ async def test_initialize_rejects_missing_credentials_without_opening_mongo(monk
     assert await sync.initialize() is False
     assert sync._sync_enabled is False
     mongo_factory.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "ftp://supabase.example",
+        "https:///missing-host",
+        "https://supabase.example:bad-port",
+        "https://supabase.example:65536",
+        "https://user:pass@supabase.example",
+        "https://supabase.example/path?query=1",
+        "https://supabase.example/path?",
+        "https://supabase.example/path#fragment",
+        "https://supabase.example/path#",
+    ],
+)
+def test_supabase_rest_rejects_unsafe_base_urls_before_network(monkeypatch, url):
+    monkeypatch.setattr(
+        supabase_sync._SUPABASE_OPENER,
+        "open",
+        lambda *_args, **_kwargs: pytest.fail("network must not be used"),
+    )
+
+    with pytest.raises(ValueError, match="URL Supabase inválida"):
+        supabase_sync.fetch_from_supabase(url, "key", "nebula_users")
+
+
+@pytest.mark.asyncio
+async def test_initialize_rejects_invalid_supabase_url_before_opening_mongo(monkeypatch):
+    sync = supabase_sync.SupabaseSync(supabase_url="ftp://supabase.example", supabase_key="key")
+    mongo_factory = Mock(side_effect=AssertionError("Mongo must stay closed"))
+    monkeypatch.setattr(supabase_sync, "SUPABASE_AVAILABLE", True)
+    monkeypatch.setattr(supabase_sync, "AsyncIOMotorClient", mongo_factory)
+
+    assert await sync.initialize() is False
+    mongo_factory.assert_not_called()
+
+
+def test_supabase_opener_rejects_http_redirect():
+    from urllib.request import Request
+
+    handler = supabase_sync._NoRedirectHandler()
+    assert handler.redirect_request(
+        Request("https://example.test/rest/v1/nebula_users"), None, 302, "Found", {}, "https://other.test"
+    ) is None
+
+
+def test_supabase_rest_does_not_send_credentials_to_redirect_target():
+    import urllib.error
+
+    requests = []
+
+    class RedirectHandler(BaseHTTPRequestHandler):
+        def do_GET(self):
+            requests.append(self.headers.get("apikey"))
+            self.send_response(302)
+            self.send_header("Location", "http://127.0.0.1:1/credential-target")
+            self.end_headers()
+
+        def log_message(self, *_args):
+            pass
+
+    server = HTTPServer(("127.0.0.1", 0), RedirectHandler)
+    thread = Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        url = f"http://127.0.0.1:{server.server_port}"
+        with pytest.raises(urllib.error.HTTPError) as exc:
+            supabase_sync.fetch_from_supabase(url, "test-secret", "nebula_users")
+        assert exc.value.code == 302
+        assert requests == ["test-secret"]
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
 
 
 @pytest.mark.asyncio
@@ -994,7 +1075,7 @@ def test_connection_check_treats_authenticated_404_as_reachable(monkeypatch):
     def not_found(_request, timeout):
         raise urllib.error.HTTPError("https://example.test/rest/v1/", 404, "Not Found", {}, None)
 
-    monkeypatch.setattr(supabase_sync.urllib.request, "urlopen", not_found)
+    monkeypatch.setattr(supabase_sync._SUPABASE_OPENER, "open", not_found)
 
     assert supabase_sync.test_supabase_connection("https://example.test/", "key") is True
 

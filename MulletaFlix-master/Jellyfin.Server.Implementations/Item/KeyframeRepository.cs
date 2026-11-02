@@ -5,8 +5,11 @@ using System.Threading;
 using System.Threading.Tasks;
 using MediaBrowser.Controller.Persistence;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using MulletaFlix.Database.Implementations;
 using MulletaFlix.Database.Implementations.Entities;
+using MySqlConnector;
 
 namespace MulletaFlix.Server.Implementations.Item;
 
@@ -15,15 +18,28 @@ namespace MulletaFlix.Server.Implementations.Item;
 /// </summary>
 public class KeyframeRepository : IKeyframeRepository
 {
+    private const int MaxSaveAttempts = 3;
     private readonly IDbContextFactory<MulletaFlixDbContext> _dbProvider;
+    private readonly ILogger<KeyframeRepository> _logger;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="KeyframeRepository"/> class.
     /// </summary>
     /// <param name="dbProvider">The EFCore db factory.</param>
     public KeyframeRepository(IDbContextFactory<MulletaFlixDbContext> dbProvider)
+        : this(dbProvider, NullLogger<KeyframeRepository>.Instance)
+    {
+    }
+
+    /// <summary>
+    /// Initializes a new instance of the <see cref="KeyframeRepository"/> class.
+    /// </summary>
+    /// <param name="dbProvider">The EFCore db factory.</param>
+    /// <param name="logger">The logger.</param>
+    public KeyframeRepository(IDbContextFactory<MulletaFlixDbContext> dbProvider, ILogger<KeyframeRepository> logger)
     {
         _dbProvider = dbProvider;
+        _logger = logger;
     }
 
     private static MediaEncoding.Keyframes.KeyframeData Map(KeyframeData entity)
@@ -54,15 +70,45 @@ public class KeyframeRepository : IKeyframeRepository
     /// <inheritdoc />
     public async Task SaveKeyframeDataAsync(Guid itemId, MediaEncoding.Keyframes.KeyframeData data, CancellationToken cancellationToken)
     {
-        using var context = _dbProvider.CreateDbContext();
-        var transaction = await context.Database.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
-        await using (transaction.ConfigureAwait(false))
+        for (var attempt = 1; ; attempt++)
         {
-            await context.KeyframeData.Where(e => e.ItemId.Equals(itemId)).ExecuteDeleteAsync(cancellationToken).ConfigureAwait(false);
-            await context.KeyframeData.AddAsync(Map(data, itemId), cancellationToken).ConfigureAwait(false);
-            await context.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
-            await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+            try
+            {
+                var context = await _dbProvider.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
+                await using (context.ConfigureAwait(false))
+                {
+                    await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+                    await context.KeyframeData.Where(e => e.ItemId.Equals(itemId)).ExecuteDeleteAsync(cancellationToken).ConfigureAwait(false);
+                    await context.KeyframeData.AddAsync(Map(data, itemId), cancellationToken).ConfigureAwait(false);
+                    await context.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+                    await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+                }
+
+                return;
+            }
+            catch (Exception exception) when (attempt < MaxSaveAttempts && IsTransientLockFailure(exception))
+            {
+                _logger.LogWarning(
+                    exception,
+                    "Transient MariaDB lock failure while saving keyframe data for item {ItemId}; retrying attempt {Attempt}",
+                    itemId,
+                    attempt + 1);
+                await Task.Delay(TimeSpan.FromMilliseconds(attempt * 150), cancellationToken).ConfigureAwait(false);
+            }
         }
+    }
+
+    private static bool IsTransientLockFailure(Exception exception)
+    {
+        for (Exception? current = exception; current is not null; current = current.InnerException)
+        {
+            if (current is MySqlException mySqlException && mySqlException.Number is 1205 or 1213)
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /// <inheritdoc />

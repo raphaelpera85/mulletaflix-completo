@@ -29,6 +29,40 @@ public class PeopleRepository(IDbContextFactory<MulletaFlixDbContext> dbProvider
 {
     private readonly IDbContextFactory<MulletaFlixDbContext> _dbProvider = dbProvider;
     private static readonly AsyncKeyedLocker<Guid> _updateLock = new();
+    private static readonly AsyncKeyedLocker<string> _missingPersonLock = new(o =>
+    {
+        o.PoolSize = 20;
+        o.PoolInitialFill = 1;
+    });
+
+    private sealed class MissingPersonLockLease : IDisposable
+    {
+        private readonly List<IDisposable> _locks = new();
+
+        public MissingPersonLockLease(IEnumerable<string> keys)
+        {
+            try
+            {
+                foreach (var key in keys)
+                {
+                    _locks.Add(_missingPersonLock.Lock(key));
+                }
+            }
+            catch
+            {
+                Dispose();
+                throw;
+            }
+        }
+
+        public void Dispose()
+        {
+            for (var index = _locks.Count - 1; index >= 0; index--)
+            {
+                _locks[index].Dispose();
+            }
+        }
+    }
 
     /// <inheritdoc/>
     public QueryResult<PersonInfo> GetPeople(InternalPeopleQuery filter)
@@ -112,7 +146,6 @@ public class PeopleRepository(IDbContextFactory<MulletaFlixDbContext> dbProvider
         var personKeys = people.Select(e => e.Name.ToLowerInvariant() + "-" + e.Type).ToArray();
 
         using var context = _dbProvider.CreateDbContext();
-        using var transaction = context.Database.BeginTransaction();
 
         // Filter on the indexed Name column first. The previous form projected a key computed in memory
         // (lowercased name + "-" + person type) and matched it with Enumerable.Contains, which EF cannot
@@ -132,9 +165,30 @@ public class PeopleRepository(IDbContextFactory<MulletaFlixDbContext> dbProvider
         var candidateNames = people.Select(e => e.Name).ToArray();
         var existingPersons = context.Peoples
             .Where(e => Enumerable.Contains(candidateNames, e.Name))
+            .AsNoTracking()
             .AsEnumerable()
             .Where(e => personKeys.Contains(e.Name.ToLower() + "-" + e.PersonType, StringComparer.Ordinal))
             .ToArray();
+
+        // Different items may be refreshed at once. Lock only missing identities, then re-read them
+        // after acquiring the locks so concurrent updates reuse the same row.
+        var missingPersonKeys = people
+            .Where(e => !existingPersons.Any(f => string.Equals(f.Name, e.Name, StringComparison.OrdinalIgnoreCase) && f.PersonType == e.Type.ToString()))
+            .Select(e => e.Name.ToLowerInvariant() + "-" + e.Type)
+            .Distinct(StringComparer.Ordinal)
+            .OrderBy(e => e, StringComparer.Ordinal)
+            .ToArray();
+        using var personLocks = new MissingPersonLockLease(missingPersonKeys);
+
+        using var transaction = context.Database.BeginTransaction();
+        if (missingPersonKeys.Length > 0)
+        {
+            existingPersons = context.Peoples
+                .Where(e => Enumerable.Contains(candidateNames, e.Name))
+                .AsEnumerable()
+                .Where(e => personKeys.Contains(e.Name.ToLower() + "-" + e.PersonType, StringComparer.Ordinal))
+                .ToArray();
+        }
 
         var toAdd = people
             .Where(e => !existingPersons.Any(f => string.Equals(f.Name, e.Name, StringComparison.OrdinalIgnoreCase) && f.PersonType == e.Type.ToString()))

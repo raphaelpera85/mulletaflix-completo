@@ -56,7 +56,6 @@ RUNTIME_REQUIRED: tuple[tuple[str, str], ...] = (
     # para casar com `_read_pinned_specs`.
     ("socks", "pysocks"),
     ("pyftpdlib", "pyftpdlib"),
-    ("PIL", "Pillow"),
 )
 
 

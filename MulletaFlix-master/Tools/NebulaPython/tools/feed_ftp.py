@@ -19,12 +19,31 @@ import unicodedata
 from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
-from urllib.request import Request, urlopen
+from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 from bson import ObjectId
 from dotenv import load_dotenv
 from pymongo import MongoClient
 from pymongo.errors import DuplicateKeyError, PyMongoError
+
+
+class _HttpOnlyRedirectHandler(HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        try:
+            parsed = urlsplit(newurl)
+            parsed.port
+        except (TypeError, ValueError):
+            return None
+        if parsed.scheme.lower() not in {"http", "https"} or not parsed.hostname:
+            return None
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
+_HTTP_OPENER = build_opener(_HttpOnlyRedirectHandler())
+
+
+def urlopen(url, timeout=None):
+    return _HTTP_OPENER.open(url, timeout=timeout)
 
 UPLOADABLE_EXTENSIONS = {
     ".mkv", ".mp4", ".avi", ".mov", ".wmv", ".m4v",
@@ -339,6 +358,16 @@ def read_strm_url(src: Path) -> str:
     raise ValueError(f"Arquivo .strm vazio: {src}")
 
 
+def _validate_http_url(url: str) -> None:
+    try:
+        parsed = urlsplit(url)
+        parsed.port  # Access validates malformed and out-of-range ports.
+    except ValueError as exc:
+        raise ValueError(f"URL .strm invalida: {url}") from exc
+    if parsed.scheme.lower() not in {"http", "https"} or not parsed.hostname:
+        raise ValueError(f"URL .strm invalida: {url}")
+
+
 def guess_media_extension(url: str, content_type: str | None = None) -> str:
     ext = Path(urlsplit(url).path).suffix.lower()
     if ext and len(ext) <= 8:
@@ -351,6 +380,7 @@ def guess_media_extension(url: str, content_type: str | None = None) -> str:
 
 
 def remote_content_size(url: str) -> int | None:
+    _validate_http_url(url)
     request = Request(url, headers={"Range": "bytes=0-0", "User-Agent": "Mozilla/5.0"})
     with urlopen(request, timeout=30) as response:
         match = re.match(r"bytes\s+\d+-\d+/(\d+)", response.headers.get("Content-Range", ""))
@@ -459,9 +489,7 @@ def _validate_content_range(response, requested_start: int, requested_end: int, 
 
 def materialize_strm(src: Path, overwrite: bool = False, target: Path | None = None) -> Path:
     url = read_strm_url(src)
-    parsed = urlsplit(url)
-    if parsed.scheme not in {"http", "https"}:
-        raise ValueError(f"URL .strm invalida: {url}")
+    _validate_http_url(url)
 
     target = target or src.with_name(f"{src.stem}{guess_media_extension(url)}")
     target.parent.mkdir(parents=True, exist_ok=True)
@@ -477,18 +505,63 @@ def materialize_strm(src: Path, overwrite: bool = False, target: Path | None = N
     read_timeout = max(5, int(os.getenv("STRM_READ_TIMEOUT", "20")))
     socket.setdefaulttimeout(read_timeout)
     tmp_path = target.parent / f".{src.stem}.download"
+    meta_path = Path(f"{tmp_path}.meta")
     part_paths: list[Path] = []
     try:
         probe = Request(url, headers={"Range": "bytes=0-0", "User-Agent": "Mozilla/5.0"})
         with urlopen(probe, timeout=read_timeout) as response:
             status = getattr(response, "status", None)
+            etag = response.headers.get("ETag", "")
+            strong_etag = etag if etag and not etag.startswith("W/") else None
             if status == 206:
                 content_range = response.headers.get("Content-Range", "")
                 match = re.fullmatch(r"\s*bytes\s+0-0/(\d+)\s*", content_range, re.IGNORECASE)
                 if match is None or int(match.group(1)) <= 0:
                     raise IOError("Resposta HTTP 206 inválida: Content-Range ausente ou malformado")
+            if status == 206 and strong_etag:
                 total = int(match.group(1))
                 _validate_content_range(response, 0, 0, total)
+                try:
+                    with meta_path.open("r", encoding="utf-8") as f:
+                        saved_meta = json.load(f)
+                except Exception:
+                    saved_meta = {}
+                if not isinstance(saved_meta, dict):
+                    saved_meta = {}
+                try:
+                    saved_parts_count = int(saved_meta.get("parts_count", 0))
+                except (TypeError, ValueError):
+                    saved_parts_count = 0
+                resume_valid = (
+                    saved_meta.get("total") == total
+                    and saved_meta.get("etag") == strong_etag
+                    and 1 <= saved_parts_count <= 32
+                )
+                if not resume_valid:
+                    for stale_path in target.parent.glob(f"{tmp_path.name}*"):
+                        with contextlib.suppress(Exception):
+                            stale_path.unlink(missing_ok=True)
+            elif status == 206:
+                # Do not resume or combine ranges when the origin has no strong validator.
+                close_response = getattr(response, "close", None)
+                if close_response is not None:
+                    close_response()
+                for stale_path in target.parent.glob(f"{tmp_path.name}*"):
+                    with contextlib.suppress(Exception):
+                        stale_path.unlink(missing_ok=True)
+                request = Request(url, headers={"User-Agent": "Mozilla/5.0"})
+                with urlopen(request, timeout=read_timeout) as full_response:
+                    if getattr(full_response, "status", None) != 200:
+                        raise IOError(f"Resposta HTTP inesperada no download sequencial: {getattr(full_response, 'status', None)}")
+                    with tmp_path.open("wb") as out:
+                        shutil.copyfileobj(full_response, out, length=1024 * 1024)
+                    try:
+                        expected = int(full_response.headers.get("Content-Length", ""))
+                    except (TypeError, ValueError):
+                        expected = None
+                    if expected is not None and tmp_path.stat().st_size != expected:
+                        raise IOError(f"Download sequencial incompleto ({tmp_path.stat().st_size}/{expected} bytes)")
+                total = tmp_path.stat().st_size
             elif status == 200:
                 with tmp_path.open("wb") as out:
                     shutil.copyfileobj(response, out, length=1024 * 1024)
@@ -496,10 +569,14 @@ def materialize_strm(src: Path, overwrite: bool = False, target: Path | None = N
             else:
                 raise IOError(f"Resposta HTTP inesperada ao verificar mídia: {status}")
 
-            if status == 206:
+            if status == 206 and strong_etag:
                 parts_count = min(max(int(os.getenv("STRM_DOWNLOAD_PARTS", "20")), 1), 32)
+                if resume_valid:
+                    parts_count = saved_parts_count
                 part_size = (total + parts_count - 1) // parts_count
                 part_paths = [Path(f"{tmp_path}.part{index}") for index in range(parts_count)]
+                with meta_path.open("w", encoding="utf-8") as f:
+                    json.dump({"total": total, "etag": strong_etag, "parts_count": parts_count}, f)
                 progress_lock = threading.Lock()
                 progress = {"downloaded": 0, "next_percent": 1, "last_logged_bytes": 0}
 
@@ -557,19 +634,16 @@ def materialize_strm(src: Path, overwrite: bool = False, target: Path | None = N
                                 flush=True,
                             )
                             req_start = start + existing
-                            request = Request(url, headers={"Range": f"bytes={req_start}-{end}", "User-Agent": "Mozilla/5.0"})
+                            request = Request(url, headers={"Range": f"bytes={req_start}-{end}", "If-Range": strong_etag, "User-Agent": "Mozilla/5.0"})
                             with urlopen(request, timeout=read_timeout) as part_response:
                                 status = getattr(part_response, "status", None)
-                                if status and status not in (200, 206):
+                                if status != 206:
                                     raise IOError(f"HTTP status {status} ao baixar parte {index + 1}")
+                                response_etag = part_response.headers.get("ETag")
+                                if response_etag and response_etag != strong_etag:
+                                    raise IOError(f"ETag mudou durante o download da parte {index + 1}")
                                 _validate_content_range(part_response, req_start, end, total)
-                                if req_start > 0 and status == 200:
-                                    with progress_lock:
-                                        progress["downloaded"] = max(0, progress["downloaded"] - existing)
-                                    existing = 0
-                                    mode = "wb"
-                                else:
-                                    mode = "ab" if existing > 0 else "wb"
+                                mode = "ab" if existing > 0 else "wb"
 
                                 sock = getattr(getattr(getattr(part_response, "fp", None), "raw", None), "_sock", None)
                                 if sock is not None:

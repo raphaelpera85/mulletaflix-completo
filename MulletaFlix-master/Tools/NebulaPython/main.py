@@ -26,6 +26,7 @@ import re
 import shutil
 import signal
 import ssl
+import stat
 import subprocess
 import sys
 import time
@@ -38,24 +39,32 @@ from os.path import exists
 from pathlib import Path, PurePosixPath
 from typing import Any
 from urllib.parse import parse_qs, quote, urlsplit
+import urllib.request
 
 import aiofiles
 from bson import ObjectId
 from motor.motor_asyncio import AsyncIOMotorClient
 from pymongo import ReturnDocument
-from pymongo.errors import DuplicateKeyError
+from pymongo.errors import ConnectionFailure, DuplicateKeyError
 from pyrogram import Client
 from pyrogram import utils as pyrogram_utils
 from pyrogram.errors import FloodWait, RPCError
 import pyrogram.session.internals.msg_id as pyrogram_msg_id
 
+
+class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, *_args, **_kwargs):
+        return None
+
+
+_TELEGRAM_TIME_OPENER = urllib.request.build_opener(_NoRedirectHandler())
+
 # Auto-sync time offset com Telegram (previne SecurityCheckMismatch em relógios dessincronizados)
 try:
-    import urllib.request
     import email.utils
     if environ.get("NEBULA_STREAM_SERVICE") != "1":
         _req = urllib.request.Request('https://api.telegram.org', headers={'User-Agent': 'Mozilla/5.0'})
-        with urllib.request.urlopen(_req, timeout=5) as _resp:
+        with _TELEGRAM_TIME_OPENER.open(_req, timeout=5) as _resp:
             _date_str = _resp.headers.get('Date')
             if _date_str:
                 _server_time = email.utils.parsedate_to_datetime(_date_str).timestamp()
@@ -411,6 +420,21 @@ MEDIA_EXTENSIONS = {
 }
 
 
+def _make_owner_writable(path: str):
+    mode = os.lstat(path).st_mode
+    if stat.S_ISLNK(mode):
+        raise PermissionError(f"Refusing to change permissions on symlink: {path}")
+    if os.name == "nt":
+        os.chmod(path, stat.S_IWRITE)
+        return
+    if os.chmod not in os.supports_follow_symlinks:
+        raise OSError("Safe permission update without following symlinks is unavailable")
+    permissions = stat.S_IMODE(mode) | stat.S_IWUSR
+    if stat.S_ISDIR(mode):
+        permissions |= stat.S_IRUSR | stat.S_IXUSR
+    os.chmod(path, permissions, follow_symlinks=False)
+
+
 def _cleanup_empty_parent_dirs(parent_dir: str):
     """Remove parent directories if no media files remain inside them."""
     current = os.path.abspath(parent_dir)
@@ -444,7 +468,7 @@ def _cleanup_empty_parent_dirs(parent_dir: str):
         try:
             def _onerror(func, p, _):
                 with contextlib.suppress(Exception):
-                    os.chmod(p, 0o777)
+                    _make_owner_writable(p)
                     func(p)
             shutil.rmtree(current, onerror=_onerror)
             if not os.path.exists(current):
@@ -468,9 +492,8 @@ def safe_remove_staging_file(path, force_delete=False):
         try:
             os.remove(target)
         except PermissionError:
-            with contextlib.suppress(Exception):
-                os.chmod(target, 0o777)
-                os.remove(target)
+            _make_owner_writable(target)
+            os.remove(target)
         logger.info("Removido arquivo: %s", target)
         _cleanup_empty_parent_dirs(os.path.dirname(target))
     except OSError as exc:
@@ -1759,7 +1782,7 @@ async def persist_upload_checkpoint(mongo, query, update, *, filename, worker_id
         try:
             await mongo.files.update_one(query, update)
             return
-        except Exception as exc:
+        except (TimeoutError, ConnectionError, ConnectionFailure) as exc:
             logger.warning(
                 "[W%s] Mongo indisponível ao salvar checkpoint de %s (%s); nova tentativa em %ss",
                 worker_id,

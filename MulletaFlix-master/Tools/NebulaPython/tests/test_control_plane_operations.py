@@ -194,6 +194,13 @@ async def test_feeder_http_routes_surface_status_and_start_stop_results():
         ({"outputRoot": "", "streamBaseUrl": "https://stream.example", "libraryUser": "raphael"}, "outside configured roots"),
         ({"outputRoot": "{output}", "streamBaseUrl": "ftp://stream.example", "libraryUser": "raphael"}, "HTTP(S) URL"),
         ({"outputRoot": "{output}", "streamBaseUrl": "https://user:pw@stream.example", "libraryUser": "raphael"}, "without credentials"),
+        ({"outputRoot": "{output}", "streamBaseUrl": "https://:pw@stream.example", "libraryUser": "raphael"}, "without credentials"),
+        ({"outputRoot": "{output}", "streamBaseUrl": "https://stream.example:bad-port", "libraryUser": "raphael"}, "valid port"),
+        ({"outputRoot": "{output}", "streamBaseUrl": "https://stream.example:65536", "libraryUser": "raphael"}, "valid port"),
+        ({"outputRoot": "{output}", "streamBaseUrl": "https:///missing-host", "libraryUser": "raphael"}, "without credentials"),
+        ({"outputRoot": "{output}", "streamBaseUrl": "https://stream.example/path?token=x", "libraryUser": "raphael"}, "without credentials"),
+        ({"outputRoot": "{output}", "streamBaseUrl": "https://stream.example/path?", "libraryUser": "raphael"}, "without credentials"),
+        ({"outputRoot": "{output}", "streamBaseUrl": "https://stream.example/path#", "libraryUser": "raphael"}, "without credentials"),
         ({"outputRoot": "{output}", "streamBaseUrl": "https://stream.example", "libraryUser": "bad user"}, "invalid libraryUser"),
     ],
 )

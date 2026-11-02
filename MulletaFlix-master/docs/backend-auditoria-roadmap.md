@@ -1,8 +1,73 @@
+## Auditoria da seleção automática de idioma das imagens TMDb — 2026-11-02 01:57 BRT
+
+- O refresh consulta imagens em todos os idiomas (`IncludeAllLanguages = true`) e ordena os candidatos por locale preferido, idioma base, inglês, sem idioma e demais locais. Filmes, séries, temporadas e episódios usam a mesma ordenação de `ItemImageProvider`; testes existentes cobrem filmes/séries, fallback e locale regional.
+- Os provedores TMDb repassam idioma/código regional e incluem idioma base, imagens sem idioma e inglês como fallback. A documentação atual do TMDb confirma que `language` filtra a resposta e `include_image_language` adiciona idiomas; variantes regionais não são suportadas uniformemente para imagens.
+- Nesta revisão, não encontrei defeito novo que justificasse alterar código. O comportamento automático já prioriza idioma configurado; alterar o filtro poderia excluir imagens válidas. Imagens já persistidas não são corrigidas por esta lógica sem refresh de imagens.
+- Referências: [TMDb — idiomas de imagens](https://developer.themoviedb.org/docs/image-languages), [TMDb — imagens de filmes](https://developer.themoviedb.org/reference/movie-images), [TMDb — imagens de episódios](https://developer.themoviedb.org/reference/tv-episode-images). Nenhum teste de produto, chamada real à API ou produção foi executado nesta auditoria.
+
+## Pesquisa de gravação rooted multiplataforma do ImageSaver — 2026-11-02 01:44 BRT
+
+- Fontes oficiais confirmam que Linux pode ancorar operações por descritor de diretório (`openat`), com `O_NOFOLLOW` para o componente final; Windows oferece `FILE_RENAME_INFO.RootDirectory` para resolver destino relativo a um handle de diretório em operações locais.
+- O contrato SMB exige `RootDirectory=0` em operações de rede; além disso, arquivos criados recebem ACL herdada do pai e uma substituição pode mudar a ACL explícita anterior. O writer atual atende caminhos absolutos e preserva modo Unix; trocar por uma única estratégia rooted sem identificar o tipo de volume pode quebrar imagens em compartilhamentos ou alterar permissões.
+- Decisão desta rodada: não alterar o `ImageSaver` ainda. Próximo passo exige desenho que detecte/rejeite com erro explícito tipos de volume sem primitiva comprovada, preserve ACL/modo/atributos, e cubra Linux local, Windows local e SMB suportado em CI. Não usar fallback pathname silencioso após falha rooted.
+- Fontes: [FILE_RENAME_INFO (Microsoft)](https://learn.microsoft.com/en-us/windows/win32/api/winbase/ns-winbase-file_rename_info), [File Security and Access Rights (Microsoft)](https://learn.microsoft.com/en-us/windows/win32/fileio/file-security-and-access-rights), [open(2)/openat (Linux man-pages)](https://www.man7.org/linux/man-pages/man2/open.2.html), [FileRenameInformation para SMB2 (Microsoft Open Specifications)](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-fscc/52aa0b70-8094-4971-862d-79793f41e6a8).
+- A pesquisa percorreu o código e callers: `ImageSaver` é o writer comum; `ProviderManager`, `ImageController` e `AvatarService` dependem dele. Nenhum módulo/API/dependência mudou. Auditoria e documentação não equivalem a correção, release ou homologação de produção.
+
+## Regressão integral e fronteira de gravação do ImageSaver — 2026-11-02 01:40 BRT
+
+- `dotnet test MulletaFlix.sln --no-build --no-restore --configuration Release --filter "FullyQualifiedName!~LiveIntegrationTests"` em Windows/.NET 10 gerou 17 TRX: 5.584 aprovados, 285 ignorados, 0 falhas/5.869. A suíte Nebula Python 3.10.11 passou 791/791 no diretório/venv corretos. Build/teste inicial e repetição sem rebuild terminaram com exit 0; o build exibiu avisos de analisadores em múltiplas áreas, não triados individualmente.
+- Opt-in de bancos e testes específicos de Linux/macOS ficaram ignorados; `LiveIntegrationTests` foi filtrado. O total é evidência local de regressão, não valida banco operacional, instalação, CI hospedada ou produção. Portal local atualizado: 316 eventos, lote 6/10; homologação formal 2/7.
+- Auditoria do `ImageSaver`: gravação, atributos e promoção continuam pathname-based. `File.OpenHandle` abre pelo caminho e não substitui operações relativas a descritores; em Linux, `openat` documenta o uso de dirfd para evitar corrida nos componentes do caminho. Um writer seguro precisa tratar criação de diretórios, temporário exclusivo, escrita, permissões e promoção atômica sob referências rooted; não foi aplicada mitigação parcial. Próxima etapa: desenho/implementação integrada com testes concorrentes nativos Windows/Linux e preservação de ACL/modo.
+- Fontes atuais: [File.OpenHandle (.NET)](https://learn.microsoft.com/en-us/dotnet/api/system.io.file.openhandle), [open(2)/openat (Linux)](https://www.man7.org/linux/man-pages/man2/open.2.html). 12.1.46 continua candidata e não publicada; produção não foi acessada.
+
+## ProviderManager: refresh do mesmo item serializado — 2026-11-02 01:30 BRT
+
+- `RefreshSingleItem` agora usa o `AsyncKeyedLocker<Guid>` já presente no projeto, chaveado pelo ID do item. Providers de metadados e imagens do mesmo título não executam juntos; itens diferentes continuam podendo ser atualizados em paralelo e a espera respeita cancelamento.
+- A regressão `RefreshSingleItem_DoesNotRefreshSameItemConcurrently` falhava antes da correção porque o segundo refresh entrava no serviço antes do primeiro terminar. Depois do ajuste: `Jellyfin.Providers.Tests` passou com 932 aprovados, 14 ignorados, 0 falhas/946 em Windows/.NET 10 Release. `dotnet format style --verify-no-changes` e `git diff --check` passaram.
+- As chamadas de `BaseItem`, `Series` e controller convergem para `ProviderManager.RefreshSingleItem`; não foi encontrado outro ingresso direto para `IMetadataService.RefreshMetadata` no código consultado. Sem Linux, CI hospedada, runtime instalado, refresh completo de biblioteca ou produção.
+- Mapa técnico conferido: mesmo módulo e dependência existentes; fluxo de refresh agora serializa por item. Snapshot local do portal 5/10; homologação formal 2/7 (28,6%); candidata 12.1.46 sem release publicada.
+
+## Nebula: resposta sequencial truncada não é aceita — 2026-11-02 01:11 BRT
+
+- O caminho sem suporte a `Range` valida bytes recebidos contra o `Content-Length` da resposta sequencial (ou da sonda quando a resposta não anuncia tamanho) antes da promoção atômica. Tamanhos anunciados divergentes também falham. O arquivo anterior é preservado.
+- O teste de regressão reproduz anúncio de 100 bytes com entrega de 7; exige exceção, remoção do temporário e preservação do destino anterior.
+- Windows/Python 3.10.11: downloader focal 126/126; suíte completa Nebula 791/791. Linux, runtime instalado, rede/transferência real, CI hospedada e produção não validados. Formal 2/7; evento local portal 3/10; 12.1.46 candidata sem publicação.
+- Regressão adjacente corrigida: `ProviderManager.StartProcessingRefreshQueue` agora mantém a posse da fila até verificar atomicamente se novos itens chegaram durante `Task.WhenAll`; veja entrada de 2026-11-02 abaixo. O teste cobre item enfileirado durante a execução do lote.
+
+## ProviderManager: itens enfileirados durante refresh não ficam presos — 2026-11-02 01:23 BRT
+
+- Corrigida a corrida em que o trabalhador drenava a fila e aguardava o lote; um produtor podia adicionar outro item enquanto `_isProcessingRefreshQueue` ainda era `true`, e o `finally` anterior então liberava a flag sem reiniciar o processamento.
+- O trabalhador agora termina um lote, confere fila e ownership sob `_refreshQueueLock` e continua consumindo enquanto houver trabalho. Encerramento sincroniza `_disposed`/token com a mesma trava; falhas ao limpar o cache de regras são registradas sem criar ciclo de reexecução.
+- Regressão reproduzida antes da correção (segundo refresh excedeu o timeout) e passou após: focal 1/1; `Jellyfin.Providers.Tests` 931 aprovados, 14 ignorados, 0 falhas/945 em Release/.NET 10. `git diff --check` e formato focal passaram. Busca twin em loops TryDequeue/ownership encontrou apenas esta fila.
+- Limites: execução Windows/.NET 10 local; sem Linux, CI hospedada, runtime instalado, stress prolongado ou produção. Teste usa sincronização via `TaskCompletionSource` e pequena janela de 100 ms para permitir a drenagem do lote; não conta como prova de stress exaustiva.
+- Fonte: [Microsoft Learn — thread-safe collections](https://learn.microsoft.com/en-us/dotnet/standard/collections/thread-safe/). Evento local do portal 4/10; homologação formal permanece 2/7 (28,6%); 12.1.46 candidata, sem release.
+
+
+## Nebula: permissões de cleanup e URLs de mídia — 2026-11-02
+
+- Removida a ampliação `chmod(0o777)` dos dois caminhos de cleanup. O ajuste local concede somente bits do proprietário em POSIX, sem seguir symlinks; em diretórios também restaura leitura para permitir enumeração; Windows usa `stat.S_IWRITE` para o atributo somente leitura. Se o retry de remoção falha, o fluxo não registra sucesso.
+- `feed_ftp` e `strm_downloader` validam esquema HTTP(S), hostname e porta válida antes dos probes e downloads, bloqueando leitura via `file://` nas entradas `.strm`.
+- Evidência local: Nebula Python 3.10.11 passou 746/746; foco cleanup/feeder/downloader 208/208. Bandit anterior reportou zero High e 12 Medium (11 B310, 1 B104); não repetido nesta rodada porque a ferramenta não está no ambiente ativo. A busca do padrão `chmod(..., 0o777)` no servidor Python não encontrou outros usos.
+- Pendências: SSRF para endereços privados e redirects HTTP continua possível e exige política compatível com fontes de mídia locais; `SUPABASE_URL` também precisa validação de esquema/destino antes de enviar backups; bind FTP `0.0.0.0` depende da configuração de segurança de produção. Linux nativo, pacote/runtime instalado e produção não foram validados.
+- Homologação formal 2/7 (28,6%); evento local 9/10; 12.1.46 candidata sem release.
+
+## Auditoria de vulnerabilidades NuGet — 2026-11-01 17:59 BRT
+
+- `dotnet package list --project MulletaFlix.sln --vulnerable --include-transitive --no-restore --format json` terminou sem entradas de pacotes vulneráveis. Confirmação focal nos projetos `Jellyfin.Server` e `MediaBrowser.Providers` também não listou achados.
+- A auditoria usou os grafos já restaurados em `project.assets.json` e a fonte NuGet configurada na máquina; ela não atualiza dependências nem certifica o runtime instalado ou produção. Nenhum pacote foi alterado.
+- Próxima lacuna técnica mantida: escrita rooted multiplataforma e atômica do `ImageSaver`, com preservação de ACL/modo e testes contra troca concorrente de path. Não introduzir implementação parcial só para reduzir a lista de pendências.
+- Homologação formal 2/7 (28,6%); evento local do portal 4/10, sem publicação externa; 12.1.46 continua candidata, sem release.
+## Revalidação PeopleRepository com MariaDB descartável — 2026-11-01 17:49 BRT
+
+- `UpdatePeople_` executou 3/3 em MariaDB 11.4.4 descartável no Windows, porta 33099 e datadir temporário próprio: pessoa existente, mudança de capitalização de `Role` e oito atualizações concorrentes do mesmo item.
+- A instância reportou `lower_case_table_names=1`; isso valida o provider MariaDB e o fluxo de persistência no Windows, mas não o caso Linux `lower_case_table_names=0` nem a instância de produção.
+- MariaDB de produção observado em 3306 permaneceu sem acesso; o processo descartável encerrou normalmente e a porta 33099 fechou. Homologação formal permanece 2/7; 12.1.46 candidata sem release.
+
 ## BlurHash sob bloqueio temporário de arquivo — 2026-11-01 17:38 BRT
 
 - O log 12.1.45 prova uma falha de compartilhamento ao abrir `folder.jpg` para calcular BlurHash, mas não identifica o processo que mantinha o handle. A imagem continuou no fluxo; o código já captura falha e persiste hash vazio.
 - `ImageProcessor.GetImageBlurHash` agora repete somente a violação Windows `ERROR_SHARING_VIOLATION` (código 32), até quatro aberturas com espera crescente. Outros `IOException` não são repetidos.
-- Testes focais Windows/.NET 10: 2/2. Não houve reprodução com processo concorrente real nem validação em Linux/runtime instalado/produção; diagnóstico externo permanece pendente. Candidata 12.1.46, sem release; homologação formal 2/7; snapshot local 2/10.
+- Testes focais Windows/.NET 10 Debug: 2/2. Não houve reprodução com processo concorrente real nem validação em Linux/runtime instalado/produção; diagnóstico externo permanece pendente. Candidata 12.1.46, sem release; homologação formal 2/7; snapshot local 2/10.
 
 ## Cache de resposta HTTP AudioDB — 2026-11-01 16:43 BRT
 
@@ -1529,6 +1594,12 @@ Revalidação Windows/.NET 10 Release: `ImageSaverTests` 4 aprovados, 1 ignorado
 
 Próximo passo: especificar primitiva rooted de criação e substituição por handle para os roots distintos (biblioteca, metadata, perfil), preservar comportamento de fallback/ACL e validar symlink, rename concorrente e falha de cópia em Windows e Linux antes de migrar qualquer caller. Homologação formal permanece 2/7; snapshot local do portal 5/10, sem publicação remota ou release.
 
+## Retry de locks em comandos diretos de metadados — 2026-11-01
+
+`UpdateOrInsertItemsCore` combina `ExecuteSqlRaw`/`ExecuteDelete` com `SaveChanges` dentro de uma transação. O retry existente reconhecia deadlock e lock wait timeout quando encapsulados em `DbUpdateException`, mas não tratava `MySqlException` direto lançado pelos comandos em lote. A persistência agora repete, em contexto/transação novos, somente códigos MariaDB 1213 e 1205; erros diretos 1062/1452 continuam sem retry. Limite permanece três tentativas com backoff curto.
+
+Evidência: testes Release do classificador 9/9, classe `ItemPersistenceServiceTests` 38/38 e suíte completa `Jellyfin.Server.Implementations.Tests` 1.704 aprovados, 91 ignorados, 0 falhas/1.795; formatação focal e `git diff --check` aprovados. A semântica de rollback de 1205/1213 foi conferida na [documentação oficial MariaDB para lock wait timeout e deadlock](https://mariadb.com/docs/server/reference/error-codes/mariadb-error-codes-1200-to-1299). Não houve reprodução do conflito em uma instância MariaDB descartável, teste Linux, CI hospedada, runtime instalado nem produção. A estrutura não mudou; 12.1.46 permanece candidata, sem release; homologação formal permanece 2/7.
+
 ## Regressão completa do servidor e Nebula — 2026-11-01 15:10 BRT
 
 - `dotnet test MulletaFlix.sln --configuration Release --no-restore --filter "FullyQualifiedName!~LiveIntegrationTests" --verbosity minimal`: exit 0; 17 assemblies, 5.543 aprovados, 273 ignorados e 0 falhas/5.816. Os testes `LiveIntegrationTests` foram excluídos; casos opt-in de MariaDB/Mongo e cenários Linux seguem fora da validação nesta máquina.
@@ -1582,3 +1653,286 @@ Próximo passo: especificar primitiva rooted de criação e substituição por h
 - A procura do vínculo agora usa `PeopleId`. Quando `Role` muda, a transação remove e salva o vínculo antigo antes de inserir a nova chave, evitando inserir uma chave que o banco considera equivalente e evitando mutação de chave rastreada no EF Core.
 - Foi adicionado `UpdatePeople_RoleCasingChange_UpdatesExistingMapping`. O projeto de integração compilou em Release/.NET 10; os três testes `UpdatePeople_*` foram encontrados e ignorados sem `MULLETAFLIX_TEST_MARIADB_CONNECTION_STRING`.
 - Sem validação MariaDB real ou produção. Os deadlocks de `BaseItemImageInfos` no log receberam retentativas sem falha final demonstrada; o erro de leitura de `folder.jpg` durante blurhash continua separado e pendente. Mapa técnico conferido; nenhuma API, módulo, dependência ou contrato público mudou.
+
+## Writer de imagens rooted: requisitos multiplataforma — 2026-11-01 18:07 BRT
+
+A reauditoria dos callsites confirmou que `ImageSaver` cria diretório, temporário e destino por pathname; `ProviderManager` concentra os fluxos de metadados e os dois callers diretos (`ImageController` e `AvatarService`) salvam imagens de perfil pelo mesmo writer. Os roots diferem: biblioteca, metadata interno e pasta de configuração de perfil.
+
+Os helpers atuais não formam uma primitiva reutilizável completa: `RootedFileSystem` cobre exclusão Windows; `BackupRestoreDirectory` é interno ao assembly de implementação e está acoplado à validação ACL do restore; `AvatarFileStore` trabalha apenas com nome simples e grava direto no destino. Não se deve reutilizar esses tipos sem contrato específico.
+
+A documentação Linux confirma que `openat2` restringe a resolução sob dirfd e sem symlinks, e que `renameat` é relativo a dirfds e substitui o destino atomicamente. Isso não evita mover fisicamente o diretório já aberto. No Windows, manter handles ancestrais sem `FILE_SHARE_DELETE` pode bloquear operações de rename enquanto os handles permanecem abertos; a política de replace precisa ainda preservar ACL e atributos. Fontes primárias: [openat2(2)](https://www.man7.org/linux/man-pages/man2/openat2.2.html), [rename(2)](https://man7.org/linux/man-pages/man2/renameat2.2.html), [CreateFileW](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-createfilew), [ReplaceFileW](https://learn.microsoft.com/en-us/windows/win32/api/winbase/nf-winbase-replacefilew).
+
+Próxima etapa: definir confiança e autoridade para cada tipo de root, incluindo quem pode renomear os ancestrais; especificar metadados preservados por plataforma; implementar na camada compartilhada abaixo de Providers; testar deterministicamente troca de symlink/reparse point, rename, falha de cópia e replace atômico em Windows e Linux. Nenhum runtime ou teste do writer foi alterado/executado nesta auditoria; não há evidência Linux, runtime instalado ou produção. Homologação formal permanece 2/7; lote local do portal 5/10; sem release.
+
+### Portal de homologação: percentual nulo — 2026-11-01
+
+A renderização de eventos exibe percentual somente quando `progressPercent` é número finito. Isso evita `Number(null) === 0` e o falso “0%”. Teste de regressão cobre evento com `null` nas duas cópias do portal; suites: 122/122 e 462/462. Não altera créditos de homologação nem status de release.
+
+## Revisão de técnicas e writers de filesystem — 2026-11-01 18:22 BRT
+
+Busca heurística sobre fontes encontrou 122 arquivos/411 ocorrências de operações de filesystem; isso orienta a auditoria, sem afirmar cobertura exaustiva. Nenhum pacote novo foi indicado. O `ImageSaver` mantém temporário no mesmo diretório: a API .NET documenta que movimento entre volumes pode ser cópia seguida de exclusão. A lacuna principal é a contenção contra troca concorrente de ancestrais e política de confiança de roots; aguarda decisão antes de implementar. Sem alteração de runtime/testes ou release. Ver [[Sessões/2026-11-01-MulletaFlix-revisao-tecnicas-filesystem-1822]].
+
+### Revalidação do portal — 2026-11-01 18:25 BRT
+
+Snapshot local de auditoria atualizado (6/10). A suíte Node passou 123/123 no espelho e 463/463 no portal dedicado após substituir expectativas temporais fixas pelo contrato do evento mais recente. `git diff --check` passou. Nenhum teste de runtime do servidor foi executado nesta rodada; sem release. Homologação formal 2/7. Ver [[Sessões/2026-11-01-MulletaFlix-revisao-tecnicas-filesystem-1822]].
+## Regressão e build Release — 2026-11-01 18:39 BRT
+
+A build encontrou SA1117 na chamada multiline de `MidiaStorageOnlineSyncGate`; correção apenas de formatação. `dotnet build` solução Release passou com 0 erros; teste focal 4/4. Regressão completa no-build: 5.560 aprovados, 275 não executados, 0 falhas/5.835 em 17 TRX; excluiu `LiveIntegrationTests`. Nebula Python 3.10 isolado: 726/726. Portal 124/124 e 464/464; local 7/10, formal 2/7, sem release. Ver [[Sessões/2026-11-01-MulletaFlix-server-regression-stylecop-1839]].
+## Pesquisa contínua de técnicas — 2026-11-01 18:46 BRT
+
+Diretriz: cada rodada de engenharia deve procurar melhorias atuais para todo o servidor (runtime, APIs, persistência MariaDB, Nebula, mídia, filesystem, segurança, observabilidade, operação e testes), usando fontes oficiais e evidência do checkout. Registrar compatibilidade e gates; não adotar versão nova só por atualidade.
+
+O checkout confirma `net10.0` nos projetos centrais e EF Core/Pomelo 9 no gerenciamento de pacotes. A documentação Microsoft descreve melhorias de runtime/diagnósticos no .NET 10 e recomenda que uma estratégia de repetição envolva a transação explícita inteira; falha durante commit pode deixar resultado ambíguo e requer verificação do estado. Isso é oportunidade de revisão para operações transacionais existentes, incluindo `PeopleRepository`, não prova de defeito nem autorização para retry genérico.
+
+MariaDB 11.8.9 é GA na série LTS mantida até junho de 2028, segundo a documentação MariaDB consultada em 2026-11-01. Tratar como candidata a matriz de compatibilidade em instância descartável, incluindo migrations, Pomelo, lower_case_table_names e backup/restore; sem atualização da produção nesta rodada. Fontes: [What's new in .NET 10](https://learn.microsoft.com/en-us/dotnet/core/whats-new/dotnet-10/overview), [EF Core connection resiliency](https://learn.microsoft.com/en-us/ef/core/miscellaneous/connection-resiliency), [ASP.NET Core 10 release notes](https://learn.microsoft.com/en-us/aspnet/core/release-notes/aspnetcore-10.0?view=aspnetcore-10.0), [MariaDB 11.8 release notes](https://mariadb.com/docs/release-notes/community-server/11.8/what-is-mariadb-118).
+
+Pendências: revisar alinhamento EF/Pomelo 9 com .NET 10 sem atualizar pacotes; medir uso das métricas novas no servidor; desenhar e validar retry transacional com MariaDB isolado; avaliar compatibilidade 11.8.9 em CI ou instância descartável antes de qualquer decisão de runtime. Nenhuma mudança de runtime, pacote, produção ou release nesta pesquisa.
+
+## Compatibilidade de consultas EF Core com C# 14 — 2026-11-01 21:40 BRT
+
+O checkout usa .NET 10 com LangVersion efetivo 14.0, EF Core 9.0.0 e Pomelo 9.0.0. A matriz oficial publicada pelo Pomelo lista EF Core 9.0.x para sua versão estável 9.0.0; o suporte a EF Core 10 ainda está em pull requests abertos, então não há atualização segura de provider a fazer agora. A combinação .NET 10/C# 14 + EF 9 também tem regressão upstream reportada quando `array.Contains` dentro de uma expression tree é ligado a `MemoryExtensions.Contains(ReadOnlySpan<T>, T)`.
+
+A busca encontrou dois casos reais no filtro de tags herdadas de `BaseItemRepository.TranslateQuery`: arrays capturados `excludedTags` e `includeTags` usavam `.Contains` implícito. O caminho paralelo em `BaseItemRepository.QueryBuilding` já qualifica `Enumerable.Contains`. O teste Pomelo offline reproduziu a exceção de avaliação EF antes da alteração; após qualificar os dois callsites, `ToQueryString()` gerou SQL para os filtros de inclusão e exclusão sem abrir conexão MariaDB. Nenhuma dependência, versão de linguagem ou API mudou.
+
+Próximos passos: concluir uma busca sistemática por arrays capturados em todas as árvores LINQ EF do servidor; aguardar provider estável compatível com EF Core 10 antes de planejar upgrade; executar as consultas em MariaDB descartável quando o ambiente estiver disponível. Este teste comprova geração local de SQL, não execução em MariaDB, Linux, CI hospedada, runtime instalado ou produção. Fontes primárias: [matriz Pomelo](https://github.com/PomeloFoundation/Pomelo.EntityFrameworkCore.MySql#compatibility), [issue de compatibilidade .NET 10/EF 9](https://github.com/PomeloFoundation/Pomelo.EntityFrameworkCore.MySql/issues/2018), [PRs EF Core 10 no Pomelo](https://github.com/PomeloFoundation/Pomelo.EntityFrameworkCore.MySql/pulls). 12.1.46 permanece candidata sem release; homologação formal 2/7; evento local do portal 7/10.
+
+## Reutilização de pessoas sob concorrência — 2026-11-01 19:04 BRT
+
+Revisão de `PeopleRepository.UpdatePeople` confirmou que seu lock anterior era por `itemId`: chamadas concorrentes de itens distintos podiam consultar a mesma identidade ausente e inserir linhas duplicadas `(Name, PersonType)`, pois a tabela não tem índice único nessa chave lógica. A correção bloqueia somente identidades inicialmente ausentes, em ordem ordinal determinística, e reconsulta dentro da transação antes de inserir. Teste novo usa dois itens e 16 gravações concorrentes. Build Release do projeto de integração passou; teste novo 1/1 e os quatro testes `UpdatePeople_` passaram 4/4 contra MariaDB 11.4.4 descartável no Windows. A proteção é por processo: clusters com mais de um processo compartilhando o banco exigem índice único e reconciliação prévia dos dados. Duplicatas já existentes não são removidas. Linux case-sensitive, CI hospedada, runtime instalado e produção pendentes; mapa técnico e ficha atualizados nesta rodada.
+
+## Escrita rooted de imagens: desenho multiplataforma atualizado — 2026-11-01 19:34 BRT
+
+- Fontes oficiais: Linux `openat2(2)` existe desde kernel 5.6; `RESOLVE_BENEATH` e `RESOLVE_NO_SYMLINKS` restringem resolução abaixo do dirfd e links descendentes; `EAGAIN` pode indicar corrida na verificação, e `ENOSYS` deve falhar fechado. Não usar `RESOLVE_NO_XDEV` indiscriminadamente, pois isso bloqueia bind mounts usados por clientes. [man7 openat2](https://man7.org/linux/man-pages/man2/openat2.2.html).
+- O mecanismo Linux precisa abrir o root configurado uma vez, aceitar link somente na raiz conforme o contrato existente, criar/abrir cada descendente relativamente a handles e promover temporário por rename relativo ao handle do diretório. Retry de `EAGAIN` deve ser limitado; kernels sem `openat2` não podem voltar ao pathname.
+- `openat2` restringe cada resolução de caminho, mas não impede outro principal autorizado a renomear o diretório já aberto. Cada tipo de raiz (biblioteca, metadata e perfil) precisa definir quem pode renomear ancestrais e provar que a lease/ACL de diretório mantém autoridade durante a operação.
+- Windows documenta rename relativo a handle: `SetFileInformationByHandle` com `FILE_RENAME_INFO.RootDirectory` resolve nome relativo ao diretório aberto. [Microsoft FILE_RENAME_INFO](https://learn.microsoft.com/en-us/windows/win32/api/winbase/ns-winbase-file_rename_info). `ReplaceFileW` preserva ACL/atributos, mas recebe paths e não prova por si só confinement rooted; a troca deve validar ACL do arquivo existente sem abrir janela TOCTOU. [Microsoft ReplaceFileW](https://learn.microsoft.com/en-us/windows/win32/api/winbase/nf-winbase-replacefilew).
+- Sem mudança no runtime. Este host Windows não tem distro WSL nem Docker/Podman; portanto o teste POSIX de `ImageSaver` sai cedo e Linux não foi validado. A implementação permanece pendente até decidir autoridade dos roots e testar links, rename concorrente, criação, substituição/ACL, falha de cópia e comportamento de kernel sem `openat2` em Windows e Linux.
+- Portal local: evidência de auditoria 9/10 no lote; homologação formal 2/7; 12.1.46 candidata sem release. Este desenho não conta como validação formal nem como correção de produto. Contratos após a correção do contador: 126/126 no espelho e 466/466 no portal dedicado; publicação aguarda o décimo evento.
+## Checkpoint de upload Nebula — retry seletivo Mongo — 2026-11-01 19:52 BRT
+
+- `persist_upload_checkpoint` repetia qualquer exceção para sempre, incluindo falhas permanentes; agora continua repetindo timeout/erro de conexão e encerra imediatamente em erros permanentes. Os três chamadores foram conferidos: upload de partes, finalização paralela e worker de arquivo pequeno; o envio Telegram não é repetido pelo retry Mongo.
+- O update usa `$set`/`$unset` com valores estáveis, então repetir o checkpoint após resposta perdida é idempotente. Em erro permanente, o fluxo existente preserva o arquivo de origem e registra a falha.
+- Testes focais: 27/27; suíte Nebula Python 3.10: 728/728 em Windows e venv isolada. Nenhum Mongo/Telegram real, runtime instalado, Linux, CI hospedada ou produção acessados.
+- Anotado na candidata 12.1.46, sem release; homologação formal 2/7. Evento local 10/10 para o lote do portal.
+
+## Auditoria de migração HTTP resilience — 2026-11-02 02:44 BRT
+
+- A implementação usa `Microsoft.Extensions.Http.Polly` 8.0.14 em três clientes nomeados e mantém Polly clássico para `GetRetryPolicy`; Polly 8.6.6 continua necessário por outro uso direto no projeto de banco.
+- Microsoft recomenda `Microsoft.Extensions.Http.Resilience` e `AddResilienceHandler`. O handler padrão inclui rate limiter e timeouts e faz retry para todos os métodos por padrão; a versão customizada permite definir predicados e circuit breaker. Polly v8, porém, não oferece breaker clássico por cinco falhas consecutivas: o breaker atual usa janela/ratio e cinco ocorrências individuais de falha contam mesmo quando uma chamada HTTP está em retry.
+- Decisão: não migrar nesta etapa. Troca direta mudaria retries, timeouts, limite de concorrência e abertura/recuperação do circuito; criar um breaker customizado para imitar a semântica antiga aumentaria código e risco. A oportunidade fica registrada para uma migração isolada com contrato revisto ou prova de equivalência.
+- Próximo gate: antes da migração, definir se o breaker por janela é aceitável; comparar o tempo total de espera em 429/`Retry-After`; provar que métodos não idempotentes não são repetidos; caracterizar cancelamento e recuperação/half-open; executar testes focais, suíte Server e restore/build dos clientes nomeados.
+- Pesquisa baseada em documentação oficial atual: [Microsoft HTTP resilience](https://learn.microsoft.com/en-us/dotnet/core/resilience/http-resilience), [Polly circuit breaker](https://github.com/App-vNext/Polly/blob/main/docs/strategies/circuit-breaker.md), [NuGet Microsoft.Extensions.Http.Resilience](https://www.nuget.org/packages/Microsoft.Extensions.Http.Resilience). Código e testes do contrato foram inspecionados; nenhum código, dependência, teste ou comportamento de runtime foi alterado ou executado nesta auditoria. Mapa técnico conferido e permaneceu igual. Produção e CI hospedada não foram verificadas.
+
+## Erros permanentes não podem parecer gravações concluídas — 2026-11-01
+
+- `OptimisticLockBehavior.OnSaveChanges` e sua variante async descartavam o resultado de `ExecuteAndCapture`; exceções finais, inclusive falhas permanentes não tratadas pelo filtro de retry, eram absorvidas. O chamador podia observar `SaveChanges` como concluído sem a gravação ter sido persistida.
+- Ambos usam agora `Execute`/`ExecuteAsync`, que preservam o retry configurado e propagam a falha final. O callback de backoff recebe tentativas indexadas a partir de 1, enquanto o array começa em 0; o índice agora é convertido com `index - 1`. Antes, a 15.ª retentativa lançava `IndexOutOfRangeException`, mascarando a falha original em sync/async.
+- `JellyfinDbContextTransactionRetryTests`: 10/10 em Windows/.NET 10 Release; cobre falhas permanentes, retry transitório e propagação da exceção original após as 15 tentativas configuradas.
+- Pesquisa oficial: a documentação de `WaitAndRetryAsync` confirma que a primeira tentativa de retry é número 1 ([Polly](https://github.com/App-vNext/Polly/blob/main/src/Polly/Retry/AsyncRetrySyntax.cs)); a compatibilidade da API existente segue validada pelo build local. Sem atualização de dependência.
+- Pendente: validar bloqueio SQLite/MariaDB real; Linux, CI hospedada, runtime instalado e produção não foram verificados. 12.1.46 continua candidata sem release; homologação formal permanece 2/7.
+
+## Auditoria da política HTTP de Startup e técnicas de resiliência — 2026-11-01
+
+- Três clientes nomeados (`Default`, `MusicBrainz`, `DirectIp`) recebem a política `GetRetryPolicy`: 3 retries com atrasos exponenciais atuais de 2, 4 e 8 segundos, mais circuit breaker clássico configurado para 5 falhas consecutivas por 30 segundos.
+- Testes de caracterização isolados passaram 3/3 em Windows/.NET 10 Release: 503 transitório é repetido; 404 não; quatro falhas na primeira chamada e a quinta na segunda abrem o circuito e bloqueiam chamadas posteriores. A fábrica foi tornada `internal` para a assembly de testes já autorizada; nenhum comportamento de produção foi alterado.
+- O teste confirmou a ordem `Policy.WrapAsync(retry, circuitBreaker)`: retry é outer e breaker inner; o breaker conta tentativas HTTP individuais (a primeira requisição contribui quatro falhas), não apenas o resultado final de cada requisição.
+- A pilha usa as APIs Polly legadas via `Microsoft.Extensions.Http.Polly` 8.0.14 e Polly 8.6.6. Microsoft agora mantém `Microsoft.Extensions.Http.Resilience`; a migração pode usar `AddResilienceHandler`, mas o handler padrão inclui estratégias/predicados diferentes. Polly v8 não reproduz o circuit breaker clássico de contagem consecutiva, então troca direta não preservaria o contrato. Fontes oficiais: [Microsoft HTTP resilience](https://learn.microsoft.com/en-us/dotnet/core/resilience/http-resilience), [Polly migration v8](https://github.com/App-vNext/Polly/blob/main/docs/migration-v8.md).
+- Decisão da auditoria: não trocar o pacote nem alterar breaker/retries sem caracterizar tratamento de 429/Retry-After e a recuperação após 30 segundos. Nenhuma dependência foi atualizada. Próxima etapa é avaliar migração customizada mantendo semântica validada.
+- Sem rede externa, testes com providers reais, Linux, CI hospedada, runtime instalado ou produção. Esta auditoria não concede crédito de homologação; 12.1.46 segue candidata sem release e homologação formal 2/7.
+
+## Dependências Nebula sem uso e advisories Pillow — 2026-11-02 00:11 BRT
+
+- `pip-audit -r requirements.lock` encontrou 39 advisories para Pillow 12.3.0; versão corrigida 13.0.0 requer Python >=3.11, enquanto o runtime/CI Nebula permanece Python 3.10 em Windows e Linux.
+- Busca no repositório não encontrou uso runtime de `PIL` ou `pystray`; o lock mostrava Pillow como dependência transitiva do `pystray`. Removidos os dois pacotes não utilizados, mantendo o Python 3.10 e os demais pins.
+- Regressão do guard confere manifesto e lock. Windows/Python 3.10: `test_check_deps.py` 31/31, Nebula completa 728/728; instalação hash-pinned em dry-run passou. Reauditoria do lock via `pip-audit` não encontrou vulnerabilidades conhecidas. Sem validação Linux, runtime final instalado ou produção.
+- A verificação NuGet sem restore reportou explicitamente nenhum pacote vulnerável em 43 projetos. Quatro linhas do resultado não trouxeram uma declaração por projeto; não extrapolar o resultado para elas. O comando anterior informou 45/47 projetos já atualizados para restore e restaurou os outros dois.
+- Referências: [Pillow 13.0.0](https://pillow.readthedocs.io/en/stable/releasenotes/13.0.0.html), [GHSA Pillow crítico](https://github.com/python-pillow/Pillow/security/advisories/GHSA-5x8w-8jj5-q52h), [PyPI Pillow 13.0.0](https://pypi.org/project/pillow/13.0.0/). Portal local 8/10; homologação formal 2/7; 12.1.46 candidata sem release. Mapa técnico conferido; estrutura e APIs não mudaram. Ver [[Sessões/2026-11-02-MulletaFlix-nebula-pillow-dependency-audit-0011]] e [[Decisões/2026-11-02-MulletaFlix-nebula-remove-unused-image-dependencies]].
+
+## Premissa contínua: técnicas atuais para todo o servidor — 2026-11-01 20:39 BRT
+
+Em cada rodada de desenvolvimento do servidor, buscar técnicas, práticas e atualizações relevantes para o sistema como um todo: arquitetura, APIs, persistência MariaDB/MongoDB, segurança, filesystem, rede/resiliência, desempenho, observabilidade, testes, empacotamento e operação. Comparar documentação oficial atual com o código e as dependências efetivamente usados; registrar oportunidades e evidências no roadmap. Adotar mudança somente quando houver benefício demonstrável, compatibilidade, plano de testes e validação adequada; pesquisa não autoriza atualização automática de dependências nem crédito de homologação/release. Esta auditoria HTTP confirmou 3/3 testes in-memory e 129/129 contratos do portal; ainda faltam 429/Retry-After e recuperação após 30 s. Fontes atuais: Microsoft Learn Resilience e Polly v8 migration guide.
+
+## Auditoria de rate limit na política HTTP — 2026-11-01 20:45 BRT
+
+`HttpPolicyExtensions.HandleTransientHttpError()` cobre `HttpRequestException`, HTTP 408 e 5xx; não cobre 429. A política customizada do startup portanto retorna imediatamente respostas 429, mesmo com `Retry-After`. RFC 9110 define `Retry-After` como data HTTP ou segundos; Microsoft documenta que o handler padrão moderno tenta novamente 429 e respeita esse cabeçalho. `Microsoft.Extensions.Http.Polly` está depreciado em favor de `Microsoft.Extensions.Http.Resilience`. Fontes: [RFC 9110 §10.2.3](https://www.rfc-editor.org/rfc/rfc9110.html#section-10.2.3), [Microsoft HTTP resilience](https://learn.microsoft.com/en-us/dotnet/core/resilience/http-resilience), [Polly.Extensions.Http](https://github.com/App-vNext/Polly.Extensions.Http).
+
+A busca no checkout encontrou 85 chamadas explícitas a `CreateClient(NamedClient.Default)`; GET e HEAD predominam. POSTs encontrados em NetShort e DramaFinds enviam busca/detalhes; a semântica observada é leitura. Não se conclui que política global possa repetir qualquer POST com segurança sem auditar clientes tipados e todos os request builders. Nenhum comportamento foi alterado nesta auditoria. Teste StartupHttpRetryPolicyTests passou 4/4 e confirma que 429 com Retry-After: 1 retorna após uma tentativa. Próximo gate é decidir filtro de método/idempotência e limites de espera antes de mudança de produção.
+
+## Correção de retry HTTP 429 sem alterar o breaker — 2026-11-01 21:11 BRT
+
+- A política compartilhada agora repete 429 apenas para métodos idempotentes (GET, HEAD, OPTIONS, TRACE, PUT e DELETE), respeita `Retry-After` em segundos ou data HTTP e usa o backoff exponencial existente quando o header falta ou é inválido. POST não é repetido automaticamente.
+- O circuito mantém seu predicado original (transporte, 408 e 5xx). Os builders Polly são separados porque `OrResult` muta o builder: compartilhar a extensão de 429 com o circuito alteraria quais falhas contam para abri-lo.
+- Os três registrations continuam sendo `Default`, `MusicBrainz` e `DirectIp`. Testes `StartupHttpRetryPolicyTests`: 8/8, incluindo delta/data/fallback, POST sem retry e 8 respostas 429 sem abrir o breaker. Build completo da solução Release: 0 erros e 1.849 avisos já existentes.
+- Fontes atuais: [RFC 9110 §10.2.3](https://www.rfc-editor.org/rfc/rfc9110.html#section-10.2.3), [Microsoft HTTP resilience](https://learn.microsoft.com/en-us/dotnet/core/resilience/http-resilience), [RetryConditionHeaderValue](https://learn.microsoft.com/en-us/dotnet/api/system.net.http.headers.retryconditionheadervalue?view=net-8.0). Nenhuma dependência atualizada.
+- Sem execução com provedores externos, Linux, runtime instalado, CI hospedada ou produção. 12.1.46 continua candidata sem release publicada; homologação formal permanece 2/7. Portal local no evento 4/10 do lote.
+
+## Recuperação do circuit breaker HTTP — 2026-11-01 21:30 BRT
+
+- O teste focal cobre o padrão efetivo de produção: após a quinta falha HTTP transitória, o breaker rejeita chamadas durante 30 segundos e permite uma nova chamada após esse intervalo.
+- `Startup.GetRetryPolicy` continua sem parâmetros e com 30 segundos fixos; os registros `Default`, `MusicBrainz` e `DirectIp` seguem apontando para a mesma política. Nenhuma dependência, API pública ou comportamento de produção foi alterado nesta rodada.
+- `StartupHttpRetryPolicyTests`: 9/9 em Windows/.NET 10 Release. A chamada de recuperação retornou HTTP 200 após o período aberto. O teste cobre a política Polly local, não disponibilidade de provedores externos.
+- Fonte técnica atual: documentação oficial Polly descreve a recuperação após o período de abertura e tentativa half-open: [circuit breaker](https://github.com/App-vNext/Polly/blob/main/docs/strategies/circuit-breaker.md) e [migração de semântica](https://github.com/App-vNext/Polly/blob/main/src/Snippets/Docs/Migration.CircuitBreaker.cs). Não foi iniciada migração para Polly v8.
+- Linux, CI hospedada, runtime instalado e produção não foram validados. 12.1.46 continua candidata, sem release publicada; homologação formal permanece 2/7. Evento local 5/10 do lote.
+
+## Auditoria de retry em transações explícitas — 2026-11-01 21:35 BRT
+
+- A revisão estática de `BeginTransaction`/`BeginTransactionAsync` encontrou gravações transacionais em `MediaStreamRepository`, `MediaAttachmentRepository`, `ChapterRepository`, `KeyframeRepository`, `PeopleRepository`, `ItemPersistenceService`, `UserDataManager`, `CleanDatabaseScheduledTask`, IntroSkipper, migrations e backup/restore.
+- O retry existente em `OptimisticLockBehavior` trata mensagens de lock SQLite e interceta comandos/transações individualmente; isso não equivale a repetir toda a unidade transacional em MariaDB. Para operações de replace (delete + insert), repetir comandos soltos dentro de uma transação anulada é incorreto. A documentação EF Core também exige envolver a transação manual inteira na estratégia de execução e tratar falha ambígua no commit com verificação do estado.
+- Candidatos de menor efeito colateral para um piloto são os replaces exclusivamente relacionais por chave estável (`MediaStreamRepository`, `MediaAttachmentRepository`, `ChapterRepository`, `KeyframeRepository`). Backup/restore, limpeza de biblioteca, migrations e transações que alteram arquivo/UserData precisam avaliação separada; não devem entrar num retry genérico.
+- Nenhuma implementação ou dependência mudou nesta auditoria. Próximo passo: escolher um replace relacional, criar teste MariaDB descartável que injete lock/deadlock antes e durante commit, usar contexto novo por tentativa e verificar que o resultado final contém apenas o snapshot esperado. Se o harness real não estiver disponível, manter o caso marcado como pendente em vez de inferir compatibilidade por SQLite/InMemory.
+- Fonte primária: [EF Core connection resiliency](https://learn.microsoft.com/en-us/ef/core/miscellaneous/connection-resiliency), incluindo execução de transação como unidade e `verifySucceeded` para confirmar commits ambíguos. MariaDB operacional, Linux, runtime instalado, CI hospedada e produção não foram acessados. 12.1.46 segue candidata sem release; homologação formal 2/7. Evento local do portal 6/10.
+
+## Auditoria C# 14: `Contains` em arrays capturados por consultas EF — 2026-11-01 21:52 BRT
+
+- A busca em árvores LINQ do servidor encontrou nove callsites adicionais que passavam arrays para `Contains` dentro de expressões EF, além dos dois filtros de tags já corrigidos: filtros de artistas/classificação/segmentos e rotinas de migration para mesclar pessoas/artistas e reparar relações.
+- C# 14 pode escolher `MemoryExtensions.Contains(ReadOnlySpan<T>, T)` sobre `Enumerable.Contains`; o EF/Pomelo espera o método LINQ e pode falhar ao avaliar/traduzir a expressão. Os nove callsites foram qualificados com `Enumerable.Contains`, sem alterar o filtro ou materializar subconsultas.
+- Revisão adversarial classificou os demais candidatos: `IReadOnlyList<T>` e `IQueryable<T>` não têm a conversão de receiver de array para span e foram mantidos.
+- Teste SQL Pomelo focal passou 1/1 em Windows/.NET 10 Release. A compilação dos projetos Server e Server.Implementations passou como dependência do teste. A suíte ampla `Jellyfin.Server.Tests` foi interrompida após ficar sem saída; não conta como aprovada. MariaDB real, migrations executadas, Linux, runtime instalado, CI hospedada e produção não foram verificados.
+- Documentação C# 14: [Microsoft Learn — overload resolution with span parameters](https://learn.microsoft.com/en-us/dotnet/core/compatibility/core-libraries/10.0/csharp-overload-resolution). Próximo passo da auditoria: manter guard contra esse binding nas consultas EF e revisar o piloto de retry transacional com MariaDB descartável. Portal local 8/10 do lote; homologação formal segue 2/7; 12.1.46 continua candidata sem release.
+
+## Persistência atômica de anexos de mídia — 2026-11-01 22:11 BRT
+
+- A auditoria dos replaces transacionais avançou para `MediaAttachmentRepository`, sem adicionar retry de runtime: um deadlock exige repetir a unidade inteira com contexto novo; falha no commit pode ser ambígua e não foi simulada nesta rodada.
+- `SaveMediaAttachments_ReplacesExistingSetAndEmptyInputClearsIt` injeta erro SQL no `BEFORE INSERT` depois do `DELETE` e verifica que a transação conserva o conjunto antigo. Também valida replace bem-sucedido e que lista vazia remove todos os anexos.
+- A suíte `ServerPersistenceMariaDbTests` passou 16/16 em Windows/.NET 10 Release contra MariaDB 11.4.4 descartável em loopback, porta 33141. O servidor de produção na porta 3306 não foi acessado. A primeira tentativa do teste usava conflito detectado pelo tracker EF antes do SQL; ela foi substituída por falha no servidor MariaDB para exercitar rollback real.
+- Isso valida atomicidade do replace de anexos, não política de retry, commit ambíguo, os outros três repositórios, Linux, runtime instalado ou produção. Próximo passo é exercitar falhas transitórias com injeção MariaDB segura e contexto por tentativa antes de propor retry.
+- Referências: [EF Core connection resiliency](https://learn.microsoft.com/en-us/ef/core/miscellaneous/connection-resiliency) e [MariaDB multiple server processes](https://mariadb.com/docs/server/server-management/starting-and-stopping-mariadb/running-multiple-mariadb-server-processes). Portal local 9/10 do lote; homologação formal permanece 2/7; 12.1.46 candidata, sem release.
+
+## Atomicidade dos replaces relacionais de mídia — 2026-11-01 22:19 BRT
+
+- A mesma falha SQL após `DELETE` foi exercitada nos replaces de `MediaStreamRepository`, `ChapterRepository` e `KeyframeRepository`; cada caso confirmou que o estado anterior é restaurado. Depois, cada repository gravou e limpou o conjunto com sucesso.
+- `ServerPersistenceMariaDbTests` passou 19/19 em Windows/.NET 10 Release contra MariaDB 11.4.4 descartável em `127.0.0.1:33141`. O servidor de produção na porta 3306 não foi acessado.
+- Os quatro replaces relacionais agora têm cobertura de rollback real MariaDB, mas nenhum retry foi implementado ou validado; deadlock, falha ambígua de commit, outros writers, Linux, CI hospedada, runtime instalado e produção continuam pendentes.
+- Referências: [EF Core connection resiliency](https://learn.microsoft.com/en-us/ef/core/miscellaneous/connection-resiliency) e [MariaDB ROLLBACK](https://mariadb.com/docs/server/reference/sql-statements/transactions/rollback). Portal local completou o lote 10/10; homologação formal permanece 2/7; 12.1.46 segue candidata sem release.
+
+## Rollback da troca de papel em PeopleRepository — 2026-11-01 22:28 BRT
+
+- `PeopleRepository.UpdatePeople` substitui o mapa de papéis de uma pessoa dentro de transação explícita. Foi acrescentado teste MariaDB que rejeita o `INSERT` após a remoção do vínculo anterior e confirma que o papel original continua persistido.
+- `ServerPersistenceMariaDbTests` passou 20/20 no Windows/.NET 10 Release, MariaDB 11.4.4 descartável; a instância foi encerrada após o teste e `:3306` permaneceu ativa/intocada.
+- Isso cobre rollback desse replace, não retry, deadlock nem commit ambíguo. Linux, CI hospedada, runtime instalado e produção continuam pendentes. Homologação formal 2/7; 12.1.46 candidata, sem release. Novo lote local do portal: 1/10.
+
+## Rollback de imagens em `SaveImagesAsync` — 2026-11-01 22:40 BRT
+
+- A troca de imagens executa `ExecuteDelete` antes do `INSERT` dentro de transação explícita. Foi adicionado teste MariaDB que injeta falha no insert e verifica que ID, caminho e idioma da capa anterior permanecem intactos.
+- `ServerPersistenceMariaDbTests` passou 21/21 em Windows/.NET 10 Release com MariaDB 11.4.4 descartável; a instância foi encerrada e a produção `:3306` permaneceu intocada.
+- Evidência de atomicidade do replace de imagens; não cobre retry, deadlock ou commit ambíguo. Linux, CI hospedada, runtime instalado e produção seguem pendentes. Homologação formal 2/7; 12.1.46 candidata, sem release. Lote local do portal: 2/10.
+
+## UserData não muta o objeto recebido durante transação — 2026-11-01 22:52 BRT
+
+- `UserDataManager.SaveUserDataAsync` sobrescrevia `UserItemData.Key` para mapear cada chave do item. Em itens com IDs de provedor múltiplos, isso alterava o objeto entregue pelo caller antes do commit e deixava estado em memória divergente se uma inserção falhasse.
+- O mapeamento agora recebe a chave da iteração separadamente, sem alterar `userData`. O teste MariaDB atualiza duas chaves de provedor e injeta falha ao inserir a terceira, confirmando rollback das atualizações, ausência de evento e preservação da chave original no objeto compartilhado pelo cache.
+- `SaveUserDataAsync_RollsBackUpdatedKeysWhenInsertFails`: 1/1; `ServerPersistenceMariaDbTests`: 22/22 em MariaDB 11.4.4 descartável; `UserDataManagerTests`: 1/1; `git diff --check` passou. O serviço MariaDB temporário foi encerrado; produção `:3306` não foi acessada.
+- Sem mudança estrutural de módulo/API/dependência. Linux, CI hospedada, runtime instalado e produção permanecem pendentes. Homologação formal 2/7; 12.1.46 candidata sem release. Lote local do portal: 3/10.
+
+## Retry integral em `SaveImagesAsync` validado com lock wait — 2026-11-01 23:12 BRT
+
+- O método existente já recria `DbContext` e transação em cada tentativa para deadlock/lock wait MariaDB. O novo teste segura a linha antiga com `SELECT ... FOR UPDATE`, confirma que `SaveImagesAsync` recebe o erro 1205 e entra no retry, libera a linha e valida que a tentativa seguinte persiste a nova imagem completa.
+- `SaveImagesAsync_RetriesWholeTransactionAfterMariaDbLockWaitTimeout`: 1/1; classe `ServerPersistenceMariaDbTests`: 23/23 em Windows/.NET 10 Release contra MariaDB 11.4.4 descartável em `127.0.0.1:33143`. Após restringir o descarte de pool à conexão do teste, o focal passou novamente 1/1. Formatação focal e `git diff --check` passaram.
+- Nenhum comportamento de produção ou dependência mudou. O teste valida lock wait 1205 e retry de replace, não deadlock 1213, commit ambíguo, indisponibilidade de conexão, Linux, CI hospedada, runtime instalado ou produção. A instância descartável foi encerrada; o executor bloqueou a remoção recursiva do datadir temporário; produção `:3306` permaneceu ativa e intocada.
+- A documentação EF Core recomenda executar operações transacionais como unidade repetível e verificar o resultado de commits ambíguos: [Connection resiliency](https://learn.microsoft.com/en-us/ef/core/miscellaneous/connection-resiliency). Portal local 4/10; homologação formal 2/7; 12.1.46 candidata, sem release.
+
+## Retry transacional de MediaStreamRepository — 2026-11-01 23:33 BRT
+
+SaveMediaStreamsAsync agora repete a unidade inteira em falhas MariaDB 1205/1213, com contexto e transação novos, até três tentativas e backoff curto; erros permanentes, conexão e commit ambíguo não entram no retry. Em Windows/.NET 10 Release, o teste focal passou 2/2 e ServerPersistenceMariaDbTests passou 24/24 contra MariaDB 11.4.4 temporário, loopback 127.0.0.1:49288; o cenário real de lock wait 1205 persistiu o conjunto novo e o trigger permanente preservou o anterior sem retry. A instância foi encerrada; era isolada e iniciou com skip-grant-tables, portanto autenticação/ACL não foi validada. Deadlock 1213 real, Linux, CI hospedada, runtime instalado e produção não foram validados. Homologação formal 2/7; evento local do portal 5/10; 12.1.46 candidata, não publicada. O mapa técnico foi conferido e permaneceu estruturalmente igual. A revisão contínua de técnicas para todo o servidor permanece premissa. Fontes: [MariaDB error codes](https://mariadb.com/docs/server/reference/error-codes/mariadb-error-codes-1200-to-1299), [EF Core connection resiliency](https://learn.microsoft.com/en-us/ef/core/miscellaneous/connection-resiliency). Ver [[Sessões/2026-11-01-MulletaFlix-mariadb-media-stream-transaction-retry-2333]].
+
+## NextUp com contagem exata e limite — 2026-11-01 23:44 BRT
+
+- A documentação oficial do EF Core alerta que `ToList`/`ToArray` fazem buffering e recomenda limitar resultados/paginar quando a consulta pode ser grande. O caminho padrão de `Shows/NextUp` materializava todos os episódios candidatos antes de aplicar `Limit` para calcular a contagem exata.
+- `TVSeriesManager` agora resolve candidatos em blocos de 50 quando a contagem exata e um limite positivo estão ativos. `PriorityQueue` da BCL mantém o prefixo `StartIndex + Limit` com atualizações O(log K); a ordenação final preserva empates e rewatch.
+- O snapshot de chaves de série ainda é completo. O novo caminho aumenta consultas ao banco e a janela temporal de leitura; não há benchmark MariaDB/catálogo real que prove ganho de latência ou memória em produção.
+- `TVSeriesManagerNextUpPaginationTests` passou 5/5; `NextUpQueryOptimizationTests` 4/4; o opt-in MariaDB foi ignorado e as duas integrações HTTP foram ignoradas pela fixture. `dotnet format style` focal passou. Registrar como otimização local, sem crédito formal: 2/7; portal local 6/10; 12.1.46 candidata, sem release.
+- Fontes: [EF Core efficient querying](https://learn.microsoft.com/en-us/ef/core/performance/efficient-querying) e [PriorityQueue .NET 10](https://learn.microsoft.com/en-us/dotnet/api/system.collections.generic.priorityqueue-2?view=net-10.0). Ver [[Sessões/2026-11-01-MulletaFlix-nextup-bounded-exact-count-2344]].
+
+## NextUp: manter as chaves materializadas até haver snapshot compartilhado — 2026-11-01 23:57 BRT
+
+- Reavaliada a paginação keyset de `GetNextUpSeriesKeys` no caminho de contagem exata. O cursor ordena por `LastPlayedDate` e `SeriesKey`, mas `LastPlayedDate` pode mudar entre páginas; uma série pode atravessar o cursor ou o cutoff, causando omissão, repetição ou desvio no total.
+- O teste MariaDB atual valida desempate e páginas sem mutação concorrente. `NextUpService.GetNextUpSeriesKeys` e as consultas em lote criam contextos separados; não compartilham atualmente uma transação/snapshot.
+- Decisão: manter a lista completa de chaves. Antes de paginar, definir leitura consistente compartilhada em todo o fluxo e adicionar teste MariaDB que altere `LastPlayedDate` entre páginas e valide omissões, duplicações e total. MariaDB `REPEATABLE READ` fornece snapshot consistente dentro da mesma transação; EF Core documenta controle transacional explícito.
+- Auditoria local somente; nenhum teste MariaDB executado. O serviço na porta 3306 é de produção e não foi acessado; nenhum endpoint descartável está configurado nesta sessão. Sem alteração de runtime ou dependência. Homologação formal 2/7; evento local 7/10; 12.1.46 candidata sem publicação.
+- Fontes: [MariaDB REPEATABLE READ](https://mariadb.com/docs/server/reference/sql-statements/transactions/transactions-repeatable-read), [EF Core transactions](https://learn.microsoft.com/en-us/ef/core/saving/transactions), [EF Core efficient querying](https://learn.microsoft.com/en-us/ef/core/performance/efficient-querying). Ver sessão `2026-11-01-MulletaFlix-nextup-keyset-snapshot-audit-2357`.
+## Segurança de redirects em Supabase e mídia STRM — 2026-11-02 00:45 BRT
+
+- A revisão oficial do `urllib` confirma que `HTTPRedirectHandler` segue redirects e que cabeçalhos comuns copiados podem acompanhar uma nova requisição. OWASP recomenda não seguir redirects automaticamente em fluxos SSRF sem validar o destino.
+- O REST do Supabase agora valida a URL base antes do Mongo/HTTP, incluindo delimitadores vazios `?`/`#`, move `apikey` e `Authorization` para `unredirected_hdrs` e usa opener sem redirect. Isso evita exfiltração de credenciais por redirecionamento.
+- O feeder e downloader STRM mantêm o seam `urlopen` e seguem apenas redirecionamentos HTTP(S) com host/porta válidos. URLs privadas/LAN continuam válidas para streams legítimos; a política atual não mitiga SSRF por DNS ou destino privado.
+- Control Plane e `generate_strm.py` verificam porta, host, credenciais e query/fragmento antes de inicializar MongoDB ou criar a saída, inclusive quando o gerador é chamado diretamente.
+- Testes Windows/Python 3.10.11: focais 334/334; suíte Nebula completa 789/789, incluindo redirects HTTP exercitados com servidor local. Portal 147/147. Linux, runtime empacotado/instalado, CI hospedada e produção não foram verificados. Formal 2/7; candidata 12.1.46 não publicada.
+- Fontes: [Python urllib.request 3.10](https://docs.python.org/3.10/library/urllib.request.html), [CPython urllib.request](https://github.com/python/cpython/blob/main/Lib/urllib/request.py), [OWASP SSRF Prevention Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Server_Side_Request_Forgery_Prevention_Cheat_Sheet.html). Ver [[Sessões/2026-11-02-MulletaFlix-supabase-strm-redirect-boundaries-0040]] e [[Decisões/2026-11-02-MulletaFlix-http-redirect-boundaries]].
+
+## Probe de horário Telegram sem redirects — 2026-11-02 00:50 BRT
+
+- O probe HTTP executado na importação do Nebula usava o opener padrão. Um redirect poderia trocar o destino/esquema antes da resposta; o tratamento já existente tolera falhas do probe e usa a hora local.
+- O opener agora recusa redirects. O teste usa servidor HTTP local com resposta 302 para `ftp://127.0.0.1:1/private` e confirma que a tentativa falha no redirect, sem seguir FTP; fallback do bootstrap permanece inalterado.
+- Windows/Python 3.10.11: teste focal 1/1; suíte Nebula 790/790. Sem dependência ou alteração de API/módulo. Linux, pacote/runtime instalado, CI hospedada e produção não foram verificados. Formal 2/7; lote local do portal 1/10; 12.1.46 candidata, não publicada.
+- Fonte: [Python 3.10 urllib.request](https://docs.python.org/3.10/library/urllib.request.html). Ver [[Sessões/2026-11-02-MulletaFlix-telegram-time-no-redirect-0050]].
+
+
+## Cache redimensionado publicado sem leitura parcial — 2026-11-02 01:02 BRT
+
+- `ImageProcessor.ProcessImage` agora serializa geração pelo caminho de cache, mantém o limitador global de codificação e grava em temporário exclusivo no mesmo diretório. O caminho final só é promovido com `File.Move` após o encoder concluir; temporários são removidos em sucesso ou falha.
+- Entradas ausentes e vazias são refeitas. A versão da chave de cache subiu de 3 para 4 para invalidar arquivos potencialmente truncados já existentes.
+- Testes Windows/.NET 10 Release: `ImageProcessorCacheTests` 2/2 e filtro `ImageProcessor` 4/4. `dotnet format style --verify-no-changes` passou. O teste concorrente comprova um único encode por chave e ausência de arquivo final antes da conclusão; falha sintética comprova remoção do temporário e fallback para a origem.
+- Pesquisa no Jellyfin encontrou a mesma classe de corrida em [issue #17135](https://github.com/jellyfin/jellyfin/issues/17135), ainda aberta; isso serviu como evidência do risco, não como mudança upstream incorporada. O contrato de publicação usa o rename/move no mesmo diretório.
+- Twin search: os três call sites de `SKFileWStream(outputPath)` em collage/splash e os dois do encoder gravam saídas próprias; apenas `ImageProcessor` gerava o cache redimensionado lido por requisições concorrentes. Nenhum outro cache final compartilhado foi confirmado na busca focal.
+- Sem módulo, API ou dependência nova. O fluxo interno de cache mudou. Formal 2/7; lote local do portal 2/10; 12.1.46 candidata, sem publicação. Linux, CI hospedada, runtime instalado e produção não foram verificados.
+- Fontes: [Jellyfin issue #17135](https://github.com/jellyfin/jellyfin/issues/17135), [File.Move .NET](https://learn.microsoft.com/en-us/dotnet/api/system.io.file.move). Ver [[Sessões/2026-11-02-MulletaFlix-atomic-resized-image-cache-0102]] e [[Decisões/2026-11-02-MulletaFlix-atomic-resized-image-cache]].
+## Auditoria da seleção automática de idioma das imagens TMDb — 2026-11-02 01:57 BRT
+
+- O refresh consulta imagens em todos os idiomas (`IncludeAllLanguages = true`) e ordena os candidatos por locale preferido, idioma base, inglês, sem idioma e demais locais. Filmes, séries, temporadas e episódios usam a mesma ordenação de `ItemImageProvider`; testes existentes cobrem filmes/séries, fallback e locale regional.
+- Os provedores TMDb repassam idioma/código regional e incluem idioma base, imagens sem idioma e inglês como fallback. A documentação atual do TMDb confirma que `language` filtra a resposta e `include_image_language` adiciona idiomas; variantes regionais não são suportadas uniformemente para imagens.
+- Nesta revisão, não encontrei defeito novo que justificasse alterar código. O comportamento automático já prioriza idioma configurado; alterar o filtro poderia excluir imagens válidas. Imagens já persistidas não são corrigidas por esta lógica sem refresh de imagens.
+- Referências: [TMDb — idiomas de imagens](https://developer.themoviedb.org/docs/image-languages), [TMDb — imagens de filmes](https://developer.themoviedb.org/reference/movie-images), [TMDb — imagens de episódios](https://developer.themoviedb.org/reference/tv-episode-images). Nenhum teste de produto, chamada real à API ou produção foi executado nesta auditoria.
+
+## Auditoria da seleção automática de idioma das imagens TMDb — 2026-11-02 01:57 BRT
+
+- O refresh consulta imagens em todos os idiomas (`IncludeAllLanguages = true`) e ordena os candidatos por locale preferido, idioma base, inglês, sem idioma e demais locais. Filmes, séries, temporadas e episódios usam a mesma ordenação de `ItemImageProvider`; testes existentes cobrem filmes/séries, fallback e locale regional.
+- Os provedores TMDb repassam idioma/código regional e incluem idioma base, imagens sem idioma e inglês como fallback. A documentação atual do TMDb confirma que `language` filtra a resposta e `include_image_language` adiciona idiomas; variantes regionais não são suportadas uniformemente para imagens.
+- Nesta revisão, não encontrei defeito novo que justificasse alterar código. O comportamento automático já prioriza idioma configurado; alterar o filtro poderia excluir imagens válidas. Imagens já persistidas não são corrigidas por esta lógica sem refresh de imagens.
+- Referências: [TMDb — idiomas de imagens](https://developer.themoviedb.org/docs/image-languages), [TMDb — imagens de filmes](https://developer.themoviedb.org/reference/movie-images), [TMDb — imagens de episódios](https://developer.themoviedb.org/reference/tv-episode-images). Nenhum teste de produto, chamada real à API ou produção foi executado nesta auditoria.
+## Auditoria do limite de rename concorrente na exclusão rooted Linux — 2026-11-02 02:02 BRT
+
+- A documentação oficial Linux confirma que `openat2` com `RESOLVE_BENEATH` limita resolução ao `dirfd` e `unlinkat` remove um nome relativo a esse descritor. `open(2)` também documenta que o descritor permanece referência estável à pasta mesmo se ela for renomeada.
+- Consequência: abrir cada ancestral com `openat2`/`O_NOFOLLOW` impede traversal por symlink, mas não demonstra que um descendente não foi movido para fora da raiz antes da exclusão. O contrato consultado não bloqueia rename concorrente. A primitiva atual mantém fail-closed em Linux/macOS.
+- Não foi alterado código: habilitar exclusão nesse estado pode remover uma imagem fora da raiz configurada. Próxima etapa precisa de garantia contra rename conforme threat model, implementação nativa e teste concorrente em Linux; também deve preservar SMB, ACL/modo/atributos.
+- Ambiente deste host: `wsl.exe` sem distribuição Linux configurada; Docker/Podman indisponíveis. Não foi possível validar a corrida em runtime Linux. Mapa técnico conferido; nenhum módulo/API/dependência mudou.
+- Fontes: [openat2(2)](https://man7.org/linux/man-pages/man2/openat2.2.html), [open(2)](https://man7.org/linux/man-pages/man2/open.2.html), [unlink(2)](https://man7.org/linux/man-pages/man2/unlink.2.html). Portal local 9/10; formal 2/7; release 12.1.46 candidata, sem publicação.
+
+## Auditoria de integridade do download retomável Nebula — 2026-11-02
+
+Retomada multipart agora se vincula ao ETag forte da representação: a chave inclui tamanho/ETag e part count no feeder, as requisições enviam `If-Range`, e partes antigas ou sem metadata confiável são descartadas. Sem ETag forte, o caminho é sequencial. `test_strm_downloader.py` + `test_feed_ftp_strm.py`: 126/126; suíte completa Nebula Python 3.10.11: 799/799; `compileall` passou em Windows. Fonte normativa: [RFC 9110 §13.1.5](https://www.rfc-editor.org/rfc/rfc9110.html#section-13.1.5). Nenhuma transferência externa ou validação de runtime/produção. Medir disponibilidade de ETag e impacto no throughput real permanece pendente. Atualizar ficha/roteiro e retestar antes de atribuir crédito de homologação.
+
+## Snapshot de imagens após o lock por item — 2026-11-02 02:23 BRT
+
+- `SaveImagesAsync` agora aguarda a faixa do item antes de ler `ImageInfos`. Uma chamada que esperou por `SaveItems` ou outra persistência lê o array atual quando entra na região serializada, em vez de gravar snapshot capturado antes da espera.
+- O teste MariaDB `SaveImagesAsync_UsesLatestImagesAfterWaitingForConcurrentSaveItems` altera o mesmo item enquanto a persistência aguarda o lock e exige que as imagens mais recentes sejam gravadas. O projeto de integração compilou, mas o teste foi ignorado localmente porque `MULLETAFLIX_TEST_MARIADB_CONNECTION_STRING` não está configurada; a job CI MariaDB ainda precisa executar este caso.
+- Caller direto de produção continua sendo `LibraryManager.UpdateImagesAsync`; nenhuma API, classe, dependência ou módulo mudou. Mapa técnico conferido e estruturalmente igual.
+- Registro de 2026-11-02 02:30 BRT: a gravação direta da configuração principal foi removida e ambas as rotas agora serializam em temporário irmão. Windows usa `File.Replace` para preservar ACL do destino; Unix promove o arquivo com modo restrito por `File.Move`. Ver seção `Persistência de configuração com substituição segura` abaixo.
+- Homologação formal permanece 2/7; candidata 12.1.46 não publicada. Nenhum banco de produção foi acessado.
+
+## Persistência de configuração com substituição segura — 2026-11-02 02:30 BRT
+
+`BaseConfigurationManager.SaveConfiguration()` e `SaveConfiguration(key, configuration)` convergem agora em `PersistConfigurationToFile`: criam um temporário exclusivo no diretório final, restringem permissões Unix antes da serialização de segredos, serializam por completo e só então promovem. Em Windows, quando o destino existe, `File.Replace` usa o contrato de `ReplaceFileW` para preservar DACL/ACL e outros atributos do arquivo anterior; no primeiro save usa `File.Move`. Em Unix, `File.Move(..., overwrite: true)` renomeia o temporário no mesmo diretório e mantém seu modo restrito.
+
+`ServerConfigurationManagerFilePermissionsTests`: 5 aprovados e um teste Unix ignorado em Windows; inclui ACL do temporário protegida antes do serializador, ACL explícita final preservada, falha de serialização mantendo bytes do arquivo anterior e recuperação que restaura backup quando o destino falta sem sobrescrever destino novo. A falha parcial nativa de ReplaceFile não foi injetada. `NamedConfigurationConcurrencyTests`: 33/33. Teste de permissões executado apenas em Windows; não houve validação Linux, SMB, runtime instalado ou produção. Se a substituição Windows falhar, a exceção é propagada; se o destino tiver desaparecido, a rotina tenta restaurar backup e preserva o backup se a recuperação falhar. Sem mudança de módulos, API ou dependências; o fluxo interno de persistência foi consolidado.
+
+Fontes Microsoft: [File.Replace](https://learn.microsoft.com/en-us/dotnet/api/system.io.file.replace), [ReplaceFileW e preservação de DACL](https://learn.microsoft.com/en-us/windows/win32/api/winbase/nf-winbase-replacefilew), [File.Move](https://learn.microsoft.com/en-us/dotnet/api/system.io.file.move). Portal local 2/10; homologação formal 2/7; release 12.1.46 candidata sem publicação.
+## Retry da substituição transacional de capítulos — 2026-11-02 02:52 BRT
+
+`ChapterRepository.SaveChaptersAsync` agora repete a unidade inteira de delete+insert em contexto e transação novos após MariaDB 1205/1213, até três tentativas com backoff curto crescente. Erros permanentes, cancelamento e falhas de commit não são repetidos. O overload original de dois argumentos foi preservado; o logger é obtido pelo construtor de três argumentos usado pela DI.
+
+`SaveChaptersAsync_RetriesWholeTransactionAfterMariaDbLockWaitTimeout` foi adicionado: bloqueia a linha anterior, observa o retry, libera o lock e verifica o novo capítulo. `IntroSkipper.Integration.Tests` compilou em Windows/.NET 10 Release; teste foi ignorado porque `MULLETAFLIX_TEST_MARIADB_CONNECTION_STRING` não está configurada. A tentativa de subir MariaDB descartável foi bloqueada pela política do executor; nenhum serviço existente foi tocado. A validação funcional contra MariaDB isolado é obrigatória antes de concluir o item. Fontes: [EF Core connection resiliency](https://learn.microsoft.com/en-us/ef/core/miscellaneous/connection-resiliency), [códigos de erro MariaDB 1200–1299](https://mariadb.com/docs/server/reference/error-codes/mariadb-error-codes-1200-to-1299). Mapa técnico conferido; sem novo módulo, API pública ou dependência. Portal local 4/10; homologação formal 2/7; versão 12.1.46 candidata, não publicada.
+
+## Retry e contexto assíncrono na gravação de keyframes — 2026-11-02 03:02 BRT
+
+`KeyframeRepository.SaveKeyframeDataAsync` agora cria o `DbContext` com `CreateDbContextAsync` e repete o replace completo (delete+insert+commit) em contexto/transação novos somente para MariaDB 1205/1213, no máximo três tentativas com backoff curto. Erros permanentes, cancelamento e falha ambígua de commit propagam. O construtor de um argumento foi preservado e a DI pode injetar o logger pelo overload.
+
+`SaveKeyframeDataAsync_RetriesWholeTransactionAfterMariaDbLockWaitTimeout` foi criado; projeto de integração compilou em Windows/.NET 10 Release, mas o teste foi ignorado sem `MULLETAFLIX_TEST_MARIADB_CONNECTION_STRING`. O teste do portal passou a validar o evento e manteve a homologação 2/7. Mapa conferido e atualizado. MariaDB isolado, Linux, CI hospedada, runtime instalado e produção seguem pendentes. Fontes: [EF Core connection resiliency](https://learn.microsoft.com/en-us/ef/core/miscellaneous/connection-resiliency), [códigos MariaDB 1205–1213](https://mariadb.com/docs/server/reference/error-codes/mariadb-error-codes-1200-to-1299). Portal local 5/10; 12.1.46 candidata, sem release publicada.
+
+
+## Testabilidade da capacidade de backup — 2026-11-02 03:16 BRT
+
+`BackupService.CreateBackupCoreAsync` passou a consultar `IStorageSpaceProvider`, interface que já é registrada por `ApplicationHost`; a implementação de produção continua sendo `StorageSpaceProvider` e mantém o limite de 5 GiB. A chamada estável permite testar o limite sem depender do espaço disponível no runner.
+
+A primeira execução completa falhou em três testes porque a leitura estática real retornou menos de 5 GiB no diretório temporário. Após injeção do provedor nos testes, `CreateBackupAsync` focal passou 6/6 e a solução Release Windows/.NET 10 passou 5.589 aprovados, 300 ignorados e 0 falhas/5.889 testes. `git diff --check` ainda será repetido após atualizar documentação.
+
+A falha do workflow remoto de 30/10 é independente: as anotações GitHub dos 16 check-runs dizem que os jobs não iniciaram por bloqueio de cobrança da conta; não há steps/logs de execução. A CLI `gh` não tem autenticação local; a API GitHub pública forneceu estado e anotações. Não atribuir essas falhas a código nem considerar CI remota validada. Sem Linux, MariaDB/Mongo opt-in, runtime instalado ou produção nesta rodada. Release 12.1.46 candidata; homologação formal permanece 2/7; portal local 6/10, sem publicação externa.

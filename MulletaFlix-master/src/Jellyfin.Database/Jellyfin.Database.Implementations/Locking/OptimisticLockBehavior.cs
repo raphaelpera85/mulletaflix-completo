@@ -48,7 +48,7 @@ public class OptimisticLockBehavior : IEntityFrameworkCoreLockingBehavior
 
         Func<int, Context, TimeSpan> backoffProvider = (index, context) =>
         {
-            var backoff = sleepDurations[index];
+            var backoff = sleepDurations[index - 1];
             return backoff + TimeSpan.FromMilliseconds(RandomNumberGenerator.GetInt32(0, (int)(backoff.TotalMilliseconds * .5)));
         };
 
@@ -88,13 +88,14 @@ public class OptimisticLockBehavior : IEntityFrameworkCoreLockingBehavior
     /// <inheritdoc/>
     public void OnSaveChanges(MulletaFlixDbContext context, Action saveChanges)
     {
-        _writePolicy.ExecuteAndCapture(saveChanges);
+        // ExecuteAndCapture returns failures in PolicyResult; ignoring it would report a failed save as successful.
+        _writePolicy.Execute(saveChanges);
     }
 
     /// <inheritdoc/>
     public async Task OnSaveChangesAsync(MulletaFlixDbContext context, Func<Task> saveChanges)
     {
-        await _writeAsyncPolicy.ExecuteAndCaptureAsync(saveChanges).ConfigureAwait(false);
+        await _writeAsyncPolicy.ExecuteAsync(saveChanges).ConfigureAwait(false);
     }
 
     private sealed class TransactionLockingInterceptor : DbTransactionInterceptor

@@ -1,5 +1,11 @@
 # Nebula STRM Downloader
 
+## Fallback sequencial valida o tamanho recebido — 2026-11-02
+
+Quando uma origem não atende `Range`, o downloader compara o tamanho real do temporário com `Content-Length` anunciado antes de promovê-lo. Se a sonda e a resposta sequencial divergirem, ou o corpo terminar antes do tamanho esperado, a tentativa falha e o destino anterior permanece intacto. Se nenhuma resposta informar o tamanho, o fallback mantém o comportamento sem validação de comprimento; respostas chunked continuam suportadas.
+
+Regressão: sonda e GET anunciam 100 bytes, mas entregam 7; deve lançar erro, apagar `.download` e preservar mídia anterior. Windows/Python 3.10.11: downloader focal 126/126; suíte Nebula completa 791/791. Linux, runtime instalado, transferência real e produção não verificados. Formal 2/7; snapshot local do portal 3/10; 12.1.46 candidata, sem release.
+
 ## Deduplicação respeita a pasta de destino — 2026-11-01
 
 `stats_reporter` e `staging_scanner` agora tratam `(parent, name)` como identidade da mídia ao detectar registros ativos/concluídos. O caminho local exato continua sendo reconhecido independentemente do parent para reconciliar o mesmo arquivo. Um título com nome igual em outra pasta deixa de bloquear a fila ou causar remoção do arquivo local.
@@ -941,3 +947,10 @@ Regressão reproduzida antes da correção com cinco itens grandes já aguardand
 ### Varredura de MonitorPaths e links — 2026-11-01
 
 O downloader aceita apenas raízes `MonitorPaths` que não contenham componentes reparse point. Enumera mídia com `EnumerationOptions.AttributesToSkip = ReparsePoint`, impedindo que symlink/junction sob uma raiz alcance arquivos fora dela. Os limpadores removem apenas diretórios realmente vazios com exclusão não recursiva; links e árvores que os contêm ficam preservados. Testes Windows/.NET 10 Release `NebulaPathSafetyTests|NebulaDownloaderEngineTests`: 51/51, incluindo uma raiz linkada e uma subpasta linkada para mídia externa. Não verificamos links nas bibliotecas reais, runtime Linux, produção ou a política dos scanners de upload separados. Consulte [[Sessões/2026-11-01-MulletaFlix-auditoria-nebula-image-people-1638]].
+### Retomada multipart vinculada à representação HTTP — 2026-11-02 02:13 BRT
+
+`tools/strm_downloader.py::download_strm_multipart` e `tools/feed_ftp.py::materialize_strm` persistem e retomam partes somente quando total e ETag forte correspondem. Cada Range envia `If-Range`; respostas diferentes de 206 ou com ETag divergente falham antes da união. Origens sem ETag forte usam GET sequencial. Arquivos temporários/partes legados sem metadata validada são descartados, e o destino anterior só é substituído após completar a validação de tamanho.
+
+Regressões reproduzem troca de representação com mesmo tamanho, fallback sequencial para ETag fraco e retomada da mesma representação. Focais: 126/126; suíte Nebula Python 3.10.11: 799/799; `compileall` passou. Testes HTTP simulados em Windows: sem origem/CDN real, Linux, runtime instalado, CI hospedada ou produção. O modo sequencial sem ETag forte pode reduzir throughput; disponibilidade de ETags das bibliotecas reais ainda precisa ser medida. Nenhuma dependência/API pública nova; fluxo interno do downloader e feeder mudou. Homologação formal 2/7; portal local 10/10, sem publicação externa; 12.1.46 candidata, sem release.
+
+Fontes: [RFC 9110 §13.1.5 — If-Range](https://www.rfc-editor.org/rfc/rfc9110.html#section-13.1.5), [RFC 9110 §14 — Range Requests](https://www.rfc-editor.org/rfc/rfc9110.html#section-14). Ver [[Sessões/2026-11-02-MulletaFlix-nebula-validator-bound-resume-0213]] e [[Decisões/2026-11-02-MulletaFlix-nebula-resume-etag]].

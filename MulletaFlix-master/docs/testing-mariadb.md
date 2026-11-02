@@ -13,6 +13,8 @@ A instância de teste foi desligada pelo cliente administrativo; PID do processo
 
 `JellyfinDbContextTransactionRetryTests` simula o erro MariaDB 1213 no comportamento de `SaveChanges`: dentro de uma transação explícita, a exceção deve escapar sem repetir apenas o save; sem transação explícita, o retry local permanece. Os quatro testes focais passaram em Windows/.NET 10 Release usando SQLite e uma exceção MariaDB simulada. Isso não substitui execução contra MariaDB real; os testes de `PeopleRepository` e as regressões transacionais MariaDB permanecem opt-in via `MULLETAFLIX_TEST_MARIADB_CONNECTION_STRING`.
 
+`OptimisticLockBehavior` deve propagar falhas após a política de retry, inclusive violações permanentes que não correspondem ao filtro de bloqueio SQLite. Use `Execute`/`ExecuteAsync`, não `ExecuteAndCapture`, a menos que o resultado capturado seja inspecionado e relançado; descartar `PolicyResult` faria `SaveChanges` aparentar sucesso sem persistir. Testes de contrato síncrono e assíncrono cobrem essa propagação.
+
 ## Persistência de metadados relacionados em lotes — 2026-11-01
 
 `ServerPersistenceMariaDbTests.SaveItems_UpdatingProvidersAcrossDeleteBatchBoundary_RewritesEveryProvider`
@@ -163,6 +165,16 @@ resultados TRX não expõem o código final do processo; ele não foi recuperado
 após a sessão de execução desaparecer, então não se afirma exit code 0. Os
 skips com MariaDB foram explicados pela ausência de
 `MULLETAFLIX_TEST_MARIADB_CONNECTION_STRING`; nenhum banco real foi sondado.
+
+### Retry integral de `SaveImagesAsync` em lock wait
+
+`ServerPersistenceMariaDbTests.SaveImagesAsync_RetriesWholeTransactionAfterMariaDbLockWaitTimeout` mantém uma transação independente com `SELECT ... FOR UPDATE` sobre a imagem antiga, observa o erro 1205 e o log de retry, libera o lock e confirma que a repetição persiste a nova imagem. O teste altera `innodb_lock_wait_timeout` apenas na instância explicitamente configurada para integração, restaura o valor anterior e descarta somente o pool daquela conexão. A fixture rejeita `:3306` e hosts não-loopback.
+
+Validação em 2026-11-01: focal 1/1; `ServerPersistenceMariaDbTests` 23/23 no Windows/.NET 10 Release contra MariaDB 11.4.4 descartável em `127.0.0.1:33143`; focal repetido após restringir `ClearPool` para 1/1. A instância foi encerrada. O datadir temporário permaneceu porque o executor bloqueou exclusão recursiva; a porta de produção 3306 não foi acessada. A cobertura não inclui deadlock 1213 ou commit ambíguo.
+
+### Snapshot atualizado após espera pelo lock de item
+
+`ServerPersistenceMariaDbTests.SaveImagesAsync_UsesLatestImagesAfterWaitingForConcurrentSaveItems` pausa a revarredura após adquirir o lock, inicia `SaveImagesAsync`, adiciona imagem ao mesmo objeto enquanto a persistência aguarda e verifica que o conjunto salvo contém essa imagem. O caso compilou localmente, mas foi ignorado por falta de `MULLETAFLIX_TEST_MARIADB_CONNECTION_STRING`. A job MariaDB/Linux deve executá-lo; compilação e skip não validam o comportamento.
 `Server.Implementations.Tests` teve 1.508 aprovados/64 ignorados e também incluiu
 testes opt-in MariaDB/Mongo. Não foram executados 198 casos MariaDB opt-in e 24
 casos Mongo opt-in. A classe `DramaFindsLiveIntegrationTests` foi excluída para
@@ -459,3 +471,7 @@ O teste `UpdatePeople_ConcurrentUpdatesForSameItem_DoNotInsertDuplicateMappings`
 ### Retentativa de deadlock em transação de imagens — auditoria 2026-11-01 17:12 BRT
 
 `SaveImagesAsync` mantém transação explícita e chama `JellyfinDbContext.SaveChangesAsync`, que tem até cinco retentativas internas para deadlock; o chamador também repete a operação inteira até três vezes. A interação pode reutilizar uma transação revertida pelo InnoDB, mas isso é hipótese até medir com MariaDB. Não há teste focal do wrapper de `SaveChanges` quando existe transação ativa nem reprodução concorrente do deadlock. Não alterar a retentativa sem validar o comportamento numa instância MariaDB descartável.
+
+### Retry de replace de streams no lock wait — 2026-11-01 23:33 BRT
+
+SaveMediaStreamsAsync_RetriesWholeTransactionAfterMariaDbLockWaitTimeout reproduz 1205 mantendo a linha antiga bloqueada, observa o retry e confirma o novo conjunto após liberar o lock. SaveMediaStreamsAsync_RollsBackFailedReplacement injeta erro permanente após o delete e confirma rollback sem retry. Os dois focais passaram 2/2 e ServerPersistenceMariaDbTests passou 24/24, Release/.NET 10, contra MariaDB 11.4.4 descartável em 127.0.0.1:49288; instância temporária encerrada. Ela foi iniciada com skip-grant-tables, limitada a loopback; autenticação/ACL, deadlock 1213 real, Linux, CI, runtime instalado e produção não foram cobertos.

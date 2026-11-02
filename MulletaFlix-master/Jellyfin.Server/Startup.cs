@@ -400,20 +400,54 @@ namespace MulletaFlix.Server
             });
         }
 
-        private static IAsyncPolicy<HttpResponseMessage> GetRetryPolicy()
+        internal static IAsyncPolicy<HttpResponseMessage> GetRetryPolicy()
         {
-            var transientErrors = HttpPolicyExtensions
+            var retryableErrors = HttpPolicyExtensions
                 .HandleTransientHttpError()
-                .Or<TimeoutRejectedException>();
+                .Or<TimeoutRejectedException>()
+                .OrResult(response =>
+                    response.StatusCode == HttpStatusCode.TooManyRequests
+                    && response.RequestMessage is not null
+                    && IsIdempotentHttpMethod(response.RequestMessage.Method));
 
-            var retry = transientErrors.WaitAndRetryAsync(
+            var retry = retryableErrors.WaitAndRetryAsync(
                 3,
-                retryAttempt => TimeSpan.FromSeconds(Math.Pow(2, retryAttempt)));
-            var circuitBreaker = transientErrors.CircuitBreakerAsync(
-                handledEventsAllowedBeforeBreaking: 5,
-                durationOfBreak: TimeSpan.FromSeconds(30));
+                (int retryAttempt, DelegateResult<HttpResponseMessage> outcome, Polly.Context _) =>
+                    GetRetryDelay(retryAttempt, outcome),
+                (_, _, _, _) => System.Threading.Tasks.Task.CompletedTask);
+            var circuitBreaker = HttpPolicyExtensions
+                .HandleTransientHttpError()
+                .Or<TimeoutRejectedException>()
+                .CircuitBreakerAsync(
+                    handledEventsAllowedBeforeBreaking: 5,
+                    durationOfBreak: TimeSpan.FromSeconds(30));
 
             return Policy.WrapAsync(retry, circuitBreaker);
+        }
+
+        private static bool IsIdempotentHttpMethod(HttpMethod method)
+            => method == HttpMethod.Get
+                || method == HttpMethod.Head
+                || method == HttpMethod.Options
+                || method == HttpMethod.Trace
+                || method == HttpMethod.Put
+                || method == HttpMethod.Delete;
+
+        private static TimeSpan GetRetryDelay(int retryAttempt, DelegateResult<HttpResponseMessage> outcome)
+        {
+            var retryAfter = outcome.Result?.Headers.RetryAfter;
+            if (retryAfter?.Delta is TimeSpan delta)
+            {
+                return delta > TimeSpan.Zero ? delta : TimeSpan.Zero;
+            }
+
+            if (retryAfter?.Date is DateTimeOffset date)
+            {
+                var remaining = date - DateTimeOffset.UtcNow;
+                return remaining > TimeSpan.Zero ? remaining : TimeSpan.Zero;
+            }
+
+            return TimeSpan.FromSeconds(Math.Pow(2, retryAttempt));
         }
     }
 }

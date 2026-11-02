@@ -5,6 +5,7 @@ import importlib
 from types import SimpleNamespace
 
 import pytest
+from pymongo.errors import OperationFailure, ServerSelectionTimeoutError
 
 main = importlib.import_module("main")
 
@@ -34,6 +35,56 @@ async def test_upload_checkpoint_retries_transient_mongo_failures(monkeypatch):
     assert len(attempts) == 3
     assert delays == [1, 2]
     assert all(attempt == (query, update) for attempt in attempts)
+
+
+@pytest.mark.asyncio
+async def test_upload_checkpoint_retries_mongo_connection_failures(monkeypatch):
+    attempts = []
+    delays = []
+
+    class Files:
+        async def update_one(self, _query, _update):
+            attempts.append(True)
+            if len(attempts) == 1:
+                raise ServerSelectionTimeoutError("Mongo unavailable")
+
+    async def record_delay(delay):
+        delays.append(delay)
+
+    monkeypatch.setattr(main.asyncio, "sleep", record_delay)
+
+    await main.persist_upload_checkpoint(
+        SimpleNamespace(files=Files()), {"_id": "uploaded-media"}, {"$set": {"status": "completed"}},
+        filename="media.mkv", worker_id=4,
+    )
+
+    assert len(attempts) == 2
+    assert delays == [1]
+
+
+@pytest.mark.asyncio
+async def test_upload_checkpoint_does_not_retry_permanent_mongo_errors(monkeypatch):
+    attempts = []
+    delays = []
+
+    class Files:
+        async def update_one(self, _query, _update):
+            attempts.append(True)
+            raise OperationFailure("not authorized")
+
+    async def record_delay(delay):
+        delays.append(delay)
+
+    monkeypatch.setattr(main.asyncio, "sleep", record_delay)
+
+    with pytest.raises(OperationFailure, match="not authorized"):
+        await main.persist_upload_checkpoint(
+            SimpleNamespace(files=Files()), {"_id": "uploaded-media"}, {"$set": {"status": "completed"}},
+            filename="media.mkv", worker_id=4,
+        )
+
+    assert len(attempts) == 1
+    assert delays == []
 
 
 @pytest.mark.asyncio

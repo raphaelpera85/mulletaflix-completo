@@ -590,7 +590,7 @@ public sealed partial class BaseItemRepository
         if (filter.ContributingArtistIds.Length > 0)
         {
             var contributingNames = context.BaseItems
-                .Where(b => filter.ContributingArtistIds.Contains(b.Id))
+                .Where(b => Enumerable.Contains(filter.ContributingArtistIds, b.Id))
                 .Select(b => b.CleanName);
 
             baseQuery = baseQuery.Where(e =>
@@ -648,7 +648,7 @@ public sealed partial class BaseItemRepository
         if (filter.OfficialRatings.Length > 0)
         {
             var ratings = filter.OfficialRatings;
-            baseQuery = baseQuery.WhereItemOrDescendantMatches(context, e => ratings.Contains(e.OfficialRating));
+            baseQuery = baseQuery.WhereItemOrDescendantMatches(context, e => Enumerable.Contains(ratings, e.OfficialRating));
         }
 
         Expression<Func<BaseItemEntity, bool>>? minParentalRatingFilter = null;
@@ -685,7 +685,7 @@ public sealed partial class BaseItemRepository
         else if (filter.BlockUnratedItems.Length > 0)
         {
             var unratedItemTypes = filter.BlockUnratedItems.Select(f => f.ToString()).ToArray();
-            Expression<Func<BaseItemEntity, bool>> unratedItemFilter = e => e.InheritedParentalRatingValue != null || !unratedItemTypes.Contains(e.UnratedType);
+            Expression<Func<BaseItemEntity, bool>> unratedItemFilter = e => e.InheritedParentalRatingValue != null || !Enumerable.Contains(unratedItemTypes, e.UnratedType);
 
             if (minParentalRatingFilter != null && maxParentalRatingFilter != null)
             {
@@ -1073,7 +1073,7 @@ public sealed partial class BaseItemRepository
         {
             var excludedTags = filter.ExcludeInheritedTags.Select(e => e.GetCleanValue()).ToArray();
             var blockedTagItemIds = context.ItemValuesMap
-                .Where(f => f.ItemValue.Type == ItemValueType.Tags && excludedTags.Contains(f.ItemValue.CleanValue))
+                .Where(f => f.ItemValue.Type == ItemValueType.Tags && Enumerable.Contains(excludedTags, f.ItemValue.CleanValue))
                 .Select(f => f.ItemId);
 
             baseQuery = baseQuery.Where(e =>
@@ -1088,7 +1088,7 @@ public sealed partial class BaseItemRepository
             var includeTags = filter.IncludeInheritedTags.Select(e => e.GetCleanValue()).ToArray();
             var isPlaylistOnlyQuery = includeTypes.Length == 1 && includeTypes.FirstOrDefault() == BaseItemKind.Playlist;
             var allowedTagItemIds = context.ItemValuesMap
-                .Where(f => f.ItemValue.Type == ItemValueType.Tags && includeTags.Contains(f.ItemValue.CleanValue))
+                .Where(f => f.ItemValue.Type == ItemValueType.Tags && Enumerable.Contains(includeTags, f.ItemValue.CleanValue))
                 .Select(f => f.ItemId);
 
             baseQuery = baseQuery.Where(e =>

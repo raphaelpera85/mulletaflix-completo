@@ -14,6 +14,7 @@ import logging
 import argparse
 import urllib.request
 import urllib.error
+from urllib.parse import urlsplit
 from os import environ
 from datetime import datetime, timezone
 from decimal import Decimal
@@ -37,6 +38,44 @@ from dotenv import load_dotenv
 load_dotenv()
 
 logger = logging.getLogger("SupabaseSync")
+
+
+class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, *_args, **_kwargs):
+        return None
+
+
+_SUPABASE_OPENER = urllib.request.build_opener(_NoRedirectHandler())
+
+
+def validate_supabase_url(url: str) -> None:
+    """Reject malformed or non-HTTP Supabase endpoints before network access."""
+    try:
+        parsed = urlsplit(url)
+        parsed.port
+    except (TypeError, ValueError) as exc:
+        raise ValueError("URL Supabase inválida: esperado HTTP(S), host e porta válida") from exc
+    if (
+        parsed.scheme.lower() not in {"http", "https"}
+        or not parsed.hostname
+        or parsed.username is not None
+        or parsed.password is not None
+        or parsed.query
+        or parsed.fragment
+        or "?" in url
+        or "#" in url
+    ):
+        raise ValueError("URL Supabase inválida: esperado HTTP(S), host e sem credenciais, query ou fragmento")
+
+
+def _supabase_request(url: str, *, data=None, headers=None, method="GET"):
+    request = urllib.request.Request(url, data=data, headers=headers or {}, method=method)
+    for name in ("Apikey", "Authorization"):
+        value = request.get_header(name)
+        if value is not None:
+            request.remove_header(name)
+            request.add_unredirected_header(name, value)
+    return request
 
 
 class SupabaseSync:
@@ -68,6 +107,12 @@ class SupabaseSync:
 
         if not self.supabase_url or not self.supabase_key:
             logger.warning("SUPABASE_URL or SUPABASE_ANON_KEY not configured")
+            return False
+
+        try:
+            validate_supabase_url(self.supabase_url)
+        except ValueError as e:
+            logger.error("Invalid SUPABASE_URL: %s", e)
             return False
 
         try:
@@ -416,6 +461,12 @@ def test_supabase_connection(url: str, key: str) -> bool:
         print("[ERRO] Supabase URL e API Key são obrigatórios.")
         return False
     
+    try:
+        validate_supabase_url(url)
+    except ValueError as ex:
+        print(f"[ERRO] {ex}")
+        return False
+
     clean_url = url.rstrip("/") + "/rest/v1/"
     headers = {
         "apikey": key,
@@ -425,8 +476,8 @@ def test_supabase_connection(url: str, key: str) -> bool:
     }
     
     try:
-        req = urllib.request.Request(clean_url, headers=headers, method="GET")
-        with urllib.request.urlopen(req, timeout=10) as resp:
+        req = _supabase_request(clean_url, headers=headers, method="GET")
+        with _SUPABASE_OPENER.open(req, timeout=10) as resp:
             print(f"[OK] Conexão com Supabase bem-sucedida! HTTP {resp.status}")
             return True
     except urllib.error.HTTPError as e:
@@ -442,6 +493,8 @@ def test_supabase_connection(url: str, key: str) -> bool:
 def post_batch_to_supabase(url: str, key: str, table: str, records: list[dict]) -> int:
     if not records:
         return 0
+
+    validate_supabase_url(url)
     
     endpoint = f"{url.rstrip('/')}/rest/v1/{table}"
     headers = get_supabase_headers(key)
@@ -449,9 +502,9 @@ def post_batch_to_supabase(url: str, key: str, table: str, records: list[dict]) 
     # Serializa BSON types (ObjectId, datetime, etc.) para JSON puro
     data_json = json.dumps(records, default=str).encode("utf-8")
     
-    req = urllib.request.Request(endpoint, data=data_json, headers=headers, method="POST")
+    req = _supabase_request(endpoint, data=data_json, headers=headers, method="POST")
     try:
-        with urllib.request.urlopen(req, timeout=30) as resp:
+        with _SUPABASE_OPENER.open(req, timeout=30) as resp:
             if resp.status in (200, 201, 204):
                 return len(records)
             return len(records)
@@ -464,6 +517,7 @@ def post_batch_to_supabase(url: str, key: str, table: str, records: list[dict]) 
         raise
 
 def fetch_from_supabase(url: str, key: str, table: str, limit: int = 1000, offset: int = 0) -> list[dict]:
+    validate_supabase_url(url)
     endpoint = f"{url.rstrip('/')}/rest/v1/{table}?select=*&limit={limit}&offset={offset}"
     headers = {
         "apikey": key,
@@ -473,8 +527,8 @@ def fetch_from_supabase(url: str, key: str, table: str, limit: int = 1000, offse
     }
 
     
-    req = urllib.request.Request(endpoint, headers=headers, method="GET")
-    with urllib.request.urlopen(req, timeout=30) as resp:
+    req = _supabase_request(endpoint, headers=headers, method="GET")
+    with _SUPABASE_OPENER.open(req, timeout=30) as resp:
         content = resp.read().decode("utf-8")
         return json.loads(content)
 

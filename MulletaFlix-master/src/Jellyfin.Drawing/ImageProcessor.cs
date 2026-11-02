@@ -9,7 +9,6 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using AsyncKeyedLock;
-using MulletaFlix.Database.Implementations.Entities;
 using MediaBrowser.Common.Extensions;
 using MediaBrowser.Controller;
 using MediaBrowser.Controller.Configuration;
@@ -21,6 +20,7 @@ using MediaBrowser.Model.Entities;
 using MediaBrowser.Model.IO;
 using MediaBrowser.Model.Net;
 using Microsoft.Extensions.Logging;
+using MulletaFlix.Database.Implementations.Entities;
 using Photo = MediaBrowser.Controller.Entities.Photo;
 
 namespace MulletaFlix.Drawing;
@@ -31,7 +31,7 @@ namespace MulletaFlix.Drawing;
 public sealed class ImageProcessor : IImageProcessor, IDisposable
 {
     // Increment this when there's a change requiring caches to be invalidated
-    private const char Version = '3';
+    private const char Version = '4';
     private const int BlurHashReadAttempts = 4;
 
     private static readonly HashSet<string> _transparentImageTypes
@@ -43,6 +43,11 @@ public sealed class ImageProcessor : IImageProcessor, IDisposable
     private readonly IImageEncoder _imageEncoder;
 
     private readonly AsyncNonKeyedLocker _parallelEncodingLimit;
+    private readonly AsyncKeyedLocker<string> _imageCacheLocks = new(o =>
+    {
+        o.PoolSize = 20;
+        o.PoolInitialFill = 1;
+    });
 
     private bool _disposed;
 
@@ -195,19 +200,54 @@ public sealed class ImageProcessor : IImageProcessor, IDisposable
 
         try
         {
-            if (!File.Exists(cacheFilePath))
+            if (!IsCacheEntryUsable(cacheFilePath))
             {
-                string resultPath;
+                var cacheDirectory = Path.GetDirectoryName(cacheFilePath)
+                    ?? throw new InvalidOperationException("The resized image cache path has no parent directory.");
+                Directory.CreateDirectory(cacheDirectory);
+                var temporaryPath = Path.Combine(
+                    cacheDirectory,
+                    Path.GetFileName(cacheFilePath) + "." + Guid.NewGuid().ToString("N", CultureInfo.InvariantCulture) + ".tmp");
 
-                // Limit number of parallel (more precisely: concurrent) image encodings to prevent a high memory usage
-                using (await _parallelEncodingLimit.LockAsync().ConfigureAwait(false))
+                try
                 {
-                    resultPath = _imageEncoder.EncodeImage(originalImagePath, dateModified, cacheFilePath, autoOrient, orientation, quality, options, outputFormat);
+                    string resultPath = cacheFilePath;
+
+                    using (await _imageCacheLocks.LockAsync(cacheFilePath).ConfigureAwait(false))
+                    {
+                        if (!IsCacheEntryUsable(cacheFilePath))
+                        {
+                            // Limit concurrent encodings and publish only after the output is complete.
+                            using (await _parallelEncodingLimit.LockAsync().ConfigureAwait(false))
+                            {
+                                resultPath = _imageEncoder.EncodeImage(originalImagePath, dateModified, temporaryPath, autoOrient, orientation, quality, options, outputFormat);
+                                if (!string.Equals(resultPath, originalImagePath, StringComparison.OrdinalIgnoreCase))
+                                {
+                                    File.Move(temporaryPath, cacheFilePath, overwrite: true);
+                                }
+                            }
+                        }
+                    }
+
+                    if (string.Equals(resultPath, originalImagePath, StringComparison.OrdinalIgnoreCase))
+                    {
+                        return (originalImagePath, MimeTypes.GetMimeType(originalImagePath), dateModified);
+                    }
                 }
-
-                if (string.Equals(resultPath, originalImagePath, StringComparison.OrdinalIgnoreCase))
+                finally
                 {
-                    return (originalImagePath, MimeTypes.GetMimeType(originalImagePath), dateModified);
+                    try
+                    {
+                        File.Delete(temporaryPath);
+                    }
+                    catch (IOException ex)
+                    {
+                        _logger.LogWarning(ex, "Failed to remove temporary resized image {Path}", temporaryPath);
+                    }
+                    catch (UnauthorizedAccessException ex)
+                    {
+                        _logger.LogWarning(ex, "Failed to remove temporary resized image {Path}", temporaryPath);
+                    }
                 }
             }
 
@@ -220,6 +260,9 @@ public sealed class ImageProcessor : IImageProcessor, IDisposable
             return (originalImagePath, MimeTypes.GetMimeType(originalImagePath), dateModified);
         }
     }
+
+    private static bool IsCacheEntryUsable(string path)
+        => File.Exists(path) && new FileInfo(path).Length > 0;
 
     private ImageFormat GetOutputFormat(IReadOnlyCollection<ImageFormat> clientSupportedFormats, bool requiresTransparency)
     {
@@ -562,6 +605,7 @@ public sealed class ImageProcessor : IImageProcessor, IDisposable
         }
 
         _parallelEncodingLimit?.Dispose();
+        _imageCacheLocks.Dispose();
 
         _disposed = true;
     }

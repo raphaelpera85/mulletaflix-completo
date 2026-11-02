@@ -12,10 +12,6 @@ using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 using AsyncKeyedLock;
-using MulletaFlix.Data.Enums;
-using MulletaFlix.Data.Events;
-using MulletaFlix.Extensions;
-using MulletaFlix.Extensions.Json;
 using MediaBrowser.Common.Net;
 using MediaBrowser.Controller;
 using MediaBrowser.Controller.BaseItemManager;
@@ -39,6 +35,10 @@ using MediaBrowser.Model.Providers;
 using MediaBrowser.Model.Querying;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging;
+using MulletaFlix.Data.Enums;
+using MulletaFlix.Data.Events;
+using MulletaFlix.Extensions;
+using MulletaFlix.Extensions.Json;
 using Book = MediaBrowser.Controller.Entities.Book;
 using Episode = MediaBrowser.Controller.Entities.TV.Episode;
 using Movie = MediaBrowser.Controller.Entities.Movies.Movie;
@@ -65,6 +65,12 @@ namespace MediaBrowser.Providers.Manager
         private readonly IServerConfigurationManager _configurationManager;
         private readonly IBaseItemManager _baseItemManager;
         private readonly ConcurrentDictionary<Guid, double> _activeRefreshes = new();
+        // Metadata refresh also mutates indexed images, so updates for one item must not overlap.
+        private readonly AsyncKeyedLocker<Guid> _itemRefreshLock = new(o =>
+        {
+            o.PoolSize = 20;
+            o.PoolInitialFill = 1;
+        });
         private readonly CancellationTokenSource _disposeCancellationTokenSource = new();
         private readonly PriorityQueue<(Guid ItemId, MetadataRefreshOptions RefreshOptions), RefreshPriority> _refreshQueue = new();
         private readonly IMemoryCache _memoryCache;
@@ -178,20 +184,23 @@ namespace MediaBrowser.Providers.Manager
         }
 
         /// <inheritdoc/>
-        public Task<ItemUpdateType> RefreshSingleItem(BaseItem item, MetadataRefreshOptions options, CancellationToken cancellationToken)
+        public async Task<ItemUpdateType> RefreshSingleItem(BaseItem item, MetadataRefreshOptions options, CancellationToken cancellationToken)
         {
-            var type = item.GetType();
-
-            var service = _metadataServices.FirstOrDefault(current => current.CanRefreshPrimary(type))
-                ?? _metadataServices.FirstOrDefault(current => current.CanRefresh(item));
-
-            if (service is null)
+            using (await _itemRefreshLock.LockAsync(item.Id, cancellationToken).ConfigureAwait(false))
             {
-                _logger.LogError("Unable to find a metadata service for item of type {TypeName}", type.Name);
-                return Task.FromResult(ItemUpdateType.None);
-            }
+                var type = item.GetType();
 
-            return service.RefreshMetadata(item, options, cancellationToken);
+                var service = _metadataServices.FirstOrDefault(current => current.CanRefreshPrimary(type))
+                    ?? _metadataServices.FirstOrDefault(current => current.CanRefresh(item));
+
+                if (service is null)
+                {
+                    _logger.LogError("Unable to find a metadata service for item of type {TypeName}", type.Name);
+                    return ItemUpdateType.None;
+                }
+
+                return await service.RefreshMetadata(item, options, cancellationToken).ConfigureAwait(false);
+            }
         }
 
         /// <inheritdoc/>
@@ -1345,6 +1354,11 @@ namespace MediaBrowser.Providers.Manager
             // ordering, or an index exception).
             lock (_refreshQueueLock)
             {
+                if (_disposed)
+                {
+                    return;
+                }
+
                 _refreshQueue.Enqueue((itemId, options), priority);
 
                 if (!_isProcessingRefreshQueue)
@@ -1358,53 +1372,98 @@ namespace MediaBrowser.Providers.Manager
         private async Task StartProcessingRefreshQueue()
         {
             var libraryManager = _libraryManager;
-
-            if (_disposed)
-            {
-                return;
-            }
-
-            var cancellationToken = _disposeCancellationTokenSource.Token;
-
-            libraryManager.ClearIgnoreRuleCache();
-
-            var tasks = new List<Task>();
+            var queueOwnershipReleased = false;
             try
             {
-                // Drain the entire queue, launching items as tasks. Concurrency is gated inside
-                // ProcessRefreshItemAsync via _refreshConcurrency, allowing I/O idle time of one
-                // item to overlap with active processing of others. Each TryDequeue is taken under
-                // _refreshQueueLock because PriorityQueue is not thread-safe against concurrent
-                // Enqueue from QueueRefresh. The lock is never held across an await, so the drain
-                // loop itself stays synchronous and short.
-                while (true)
+                CancellationToken cancellationToken;
+                lock (_refreshQueueLock)
                 {
                     if (_disposed)
                     {
                         return;
                     }
 
-                    (Guid ItemId, MetadataRefreshOptions RefreshOptions) refreshItem;
+                    cancellationToken = _disposeCancellationTokenSource.Token;
+                }
+
+                ClearIgnoreRuleCache();
+
+                while (true)
+                {
+                    var tasks = new List<Task>();
+                    // Drain one batch, launching items as tasks. Concurrency is gated inside
+                    // ProcessRefreshItemAsync via _refreshConcurrency. Each TryDequeue is taken
+                    // under _refreshQueueLock because PriorityQueue is not thread-safe against
+                    // concurrent Enqueue from QueueRefresh.
+                    while (true)
+                    {
+                        if (_disposed)
+                        {
+                            return;
+                        }
+
+                        (Guid ItemId, MetadataRefreshOptions RefreshOptions) refreshItem;
+                        lock (_refreshQueueLock)
+                        {
+                            if (!_refreshQueue.TryDequeue(out refreshItem, out _))
+                            {
+                                break;
+                            }
+                        }
+
+                        tasks.Add(ProcessRefreshItemAsync(refreshItem, libraryManager, cancellationToken));
+                    }
+
+                    await Task.WhenAll(tasks).ConfigureAwait(false);
+
+                    // Keep ownership while the batch runs, then atomically check for work queued
+                    // during that wait. QueueRefresh can start a worker only after ownership is
+                    // released under this same lock.
                     lock (_refreshQueueLock)
                     {
-                        if (!_refreshQueue.TryDequeue(out refreshItem, out _))
+                        if (_refreshQueue.Count == 0)
                         {
+                            _isProcessingRefreshQueue = false;
+                            queueOwnershipReleased = true;
                             break;
                         }
                     }
-
-                    tasks.Add(ProcessRefreshItemAsync(refreshItem, libraryManager, cancellationToken));
                 }
-
-                await Task.WhenAll(tasks).ConfigureAwait(false);
             }
             finally
             {
-                lock (_refreshQueueLock)
+                var restartWorker = false;
+                if (!queueOwnershipReleased)
                 {
-                    _isProcessingRefreshQueue = false;
-                    libraryManager.ClearIgnoreRuleCache();
+                    lock (_refreshQueueLock)
+                    {
+                        _isProcessingRefreshQueue = false;
+                        if (!_disposed && _refreshQueue.Count > 0)
+                        {
+                            _isProcessingRefreshQueue = true;
+                            restartWorker = true;
+                        }
+                    }
                 }
+
+                if (restartWorker)
+                {
+                    _ = Task.Run(StartProcessingRefreshQueue);
+                }
+
+                ClearIgnoreRuleCache();
+            }
+        }
+
+        private void ClearIgnoreRuleCache()
+        {
+            try
+            {
+                _libraryManager.ClearIgnoreRuleCache();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to clear the library ignore rule cache after metadata refresh");
             }
         }
 
@@ -1524,9 +1583,14 @@ namespace MediaBrowser.Providers.Manager
         /// <param name="disposing"><c>true</c> to release both managed and unmanaged resources; <c>false</c> to release only unmanaged resources.</param>
         protected virtual void Dispose(bool disposing)
         {
-            if (_disposed)
+            lock (_refreshQueueLock)
             {
-                return;
+                if (_disposed)
+                {
+                    return;
+                }
+
+                _disposed = true;
             }
 
             if (disposing)
@@ -1539,10 +1603,10 @@ namespace MediaBrowser.Providers.Manager
                 }
 
                 _disposeCancellationTokenSource.Dispose();
+                _itemRefreshLock.Dispose();
                 _imageSaveLock.Dispose();
             }
 
-            _disposed = true;
         }
 
         private void OnLibraryOptionsUpdated(object? sender, LibraryOptionsUpdatedEventArgs e)

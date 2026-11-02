@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using Emby.Server.Implementations.TV;
 using MediaBrowser.Controller.Configuration;
 using MediaBrowser.Controller.Dto;
 using MediaBrowser.Controller.Entities;
@@ -9,7 +10,6 @@ using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.Persistence;
 using MediaBrowser.Model.Configuration;
 using MediaBrowser.Model.Querying;
-using Emby.Server.Implementations.TV;
 using Moq;
 using Xunit;
 
@@ -212,17 +212,14 @@ public sealed class TVSeriesManagerNextUpPaginationTests
     }
 
     [Fact]
-    public void GetNextUp_WithExactCount_ResolvesAllCandidatesBeforeApplyingLimit()
+    public void GetNextUp_WithExactCountAndLimit_ResolvesInBatchesAndPreservesStablePage()
     {
         var user = new MulletaFlix.Database.Implementations.Entities.User("testuser", "auth", "auth");
         var lastPlayedDate = DateTime.UtcNow.AddDays(-1);
-        var episodes = new Dictionary<string, Episode>
-        {
-            ["SeriesA"] = new Episode { Name = "Episode A" },
-            ["SeriesB"] = new Episode { Name = "Episode B" }
-        };
+        var episodes = Enumerable.Range(0, 51)
+            .ToDictionary(index => $"Series{index:D2}", index => new Episode { Name = $"Episode {index:D2}" });
+        var batchSizes = new List<int>();
         int? candidateLimit = -1;
-        IReadOnlyList<string>? resolvedKeys = null;
 
         var libraryManager = new Mock<ILibraryManager>();
         libraryManager
@@ -243,7 +240,7 @@ public sealed class TVSeriesManagerNextUpPaginationTests
                 It.IsAny<bool>()))
             .Returns((InternalItemsQuery _, IReadOnlyList<string> keys, bool _, bool _) =>
             {
-                resolvedKeys = keys;
+                batchSizes.Add(keys.Count);
                 return keys.ToDictionary(key => key, key => new NextUpEpisodeBatchResult
                 {
                     LastWatched = episodes[key],
@@ -260,13 +257,13 @@ public sealed class TVSeriesManagerNextUpPaginationTests
         var manager = new TVSeriesManager(userDataManager.Object, libraryManager.Object, configurationManager.Object);
 
         var result = manager.GetNextUp(
-            new NextUpQuery { User = user, Limit = 1, EnableTotalRecordCount = true },
+            new NextUpQuery { User = user, StartIndex = 1, Limit = 2, EnableTotalRecordCount = true },
             [],
             new DtoOptions());
 
         Assert.Null(candidateLimit);
-        Assert.Equal(["SeriesA", "SeriesB"], resolvedKeys);
-        Assert.Equal(2, result.TotalRecordCount);
-        Assert.Single(result.Items);
+        Assert.Equal([50, 1], batchSizes);
+        Assert.Equal(51, result.TotalRecordCount);
+        Assert.Equal([episodes["Series01"], episodes["Series02"]], result.Items);
     }
 }

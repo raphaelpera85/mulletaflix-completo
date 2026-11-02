@@ -187,6 +187,7 @@ public class BackupService : IBackupService, IDisposable
     private readonly IServerApplicationPaths _applicationPaths;
     private readonly IMulletaFlixDatabaseProvider _MulletaFlixDatabaseProvider;
     private readonly IHostApplicationLifetime _hostApplicationLifetime;
+    private readonly IStorageSpaceProvider _storageSpaceProvider;
     private readonly Func<Func<Task>, Task>? _relationalCommitForTesting;
     private readonly Action<string>? _restoreBackupSidecarCreatedForTesting;
     private readonly SemaphoreSlim _backupHistoryLock = new(1, 1);
@@ -278,6 +279,38 @@ public class BackupService : IBackupService, IDisposable
     {
     }
 
+    /// <summary>Initializes the backup service with registered plugin database participants and storage inspection.</summary>
+    public BackupService(
+        ILogger<BackupService> logger,
+        IDbContextFactory<MulletaFlixDbContext> dbProvider,
+        IServerApplicationHost applicationHost,
+        IServerApplicationPaths applicationPaths,
+        IMulletaFlixDatabaseProvider MulletaFlixDatabaseProvider,
+        IHostApplicationLifetime applicationLifetime,
+        IDbContextFactory<MoviesDbContext>? moviesDbProvider,
+        IDbContextFactory<SeriesDbContext>? seriesDbProvider,
+        IDbContextFactory<ChannelsDbContext>? channelsDbProvider,
+        IDbContextFactory<BooksDbContext>? booksDbProvider,
+        IEnumerable<IBackupDatabaseParticipant> backupDatabaseParticipants,
+        IStorageSpaceProvider storageSpaceProvider)
+        : this(
+            logger,
+            dbProvider,
+            applicationHost,
+            applicationPaths,
+            MulletaFlixDatabaseProvider,
+            applicationLifetime,
+            moviesDbProvider,
+            seriesDbProvider,
+            channelsDbProvider,
+            booksDbProvider,
+            null,
+            null,
+            backupDatabaseParticipants,
+            storageSpaceProvider)
+    {
+    }
+
     internal BackupService(
         ILogger<BackupService> logger,
         IDbContextFactory<MulletaFlixDbContext> dbProvider,
@@ -291,7 +324,8 @@ public class BackupService : IBackupService, IDisposable
         IDbContextFactory<BooksDbContext>? booksDbProvider,
         Func<Func<Task>, Task>? relationalCommitForTesting,
         Action<string>? restoreBackupSidecarCreatedForTesting = null,
-        IEnumerable<IBackupDatabaseParticipant>? backupDatabaseParticipants = null)
+        IEnumerable<IBackupDatabaseParticipant>? backupDatabaseParticipants = null,
+        IStorageSpaceProvider? storageSpaceProvider = null)
     {
         _logger = logger;
         _dbProvider = dbProvider;
@@ -308,6 +342,7 @@ public class BackupService : IBackupService, IDisposable
         _applicationPaths = applicationPaths;
         _MulletaFlixDatabaseProvider = MulletaFlixDatabaseProvider;
         _hostApplicationLifetime = applicationLifetime;
+        _storageSpaceProvider = storageSpaceProvider ?? new StorageSpaceProvider();
         _relationalCommitForTesting = relationalCommitForTesting;
         _restoreBackupSidecarCreatedForTesting = restoreBackupSidecarCreatedForTesting;
     }
@@ -2060,7 +2095,7 @@ public class BackupService : IBackupService, IDisposable
             Directory.CreateDirectory(backupFolder);
         }
 
-        var backupStorageSpace = StorageHelper.GetFreeSpaceOf(_applicationPaths.BackupPath);
+        var backupStorageSpace = _storageSpaceProvider.GetFreeSpaceOf(_applicationPaths.BackupPath);
 
         const long FiveGigabyte = 5_368_709_115;
         if (backupStorageSpace.FreeSpace < FiveGigabyte)

@@ -396,8 +396,21 @@ class ControlPlane:
         body = await self._json(request)
         output = _resolve_allowed(str(body.get("outputRoot", "")), self._output_roots)
         base_url = str(body.get("streamBaseUrl", "")).rstrip("/")
-        parsed = urlsplit(base_url)
-        if parsed.scheme not in {"http", "https"} or not parsed.hostname or parsed.username:
+        try:
+            parsed = urlsplit(base_url)
+            parsed.port
+        except ValueError as exc:
+            raise ValueError("streamBaseUrl must be an HTTP(S) URL with a valid port and without credentials") from exc
+        if (
+            parsed.scheme.lower() not in {"http", "https"}
+            or not parsed.hostname
+            or parsed.username is not None
+            or parsed.password is not None
+            or parsed.query
+            or parsed.fragment
+            or "?" in base_url
+            or "#" in base_url
+        ):
             raise ValueError("streamBaseUrl must be an HTTP(S) URL without credentials")
         library_user = str(body.get("libraryUser", "")).strip()
         if not LOGIN_RE.fullmatch(library_user):

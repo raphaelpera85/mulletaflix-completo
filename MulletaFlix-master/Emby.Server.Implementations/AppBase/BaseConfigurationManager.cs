@@ -4,6 +4,8 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Linq;
+using System.Security.AccessControl;
+using System.Security.Principal;
 using System.Threading;
 using MediaBrowser.Common.Configuration;
 using MediaBrowser.Common.Events;
@@ -161,12 +163,9 @@ namespace Emby.Server.Implementations.AppBase
             Logger.LogInformation("Saving system configuration");
             var path = CommonApplicationPaths.SystemConfigurationFilePath;
 
-            Directory.CreateDirectory(Path.GetDirectoryName(path) ?? throw new InvalidOperationException("Path can't be a root directory."));
-
             lock (_configurationSyncLock)
             {
-                XmlSerializer.SerializeToFile(CommonConfiguration, path);
-                RestrictConfigurationFilePermissions(path);
+                PersistConfigurationToFile(CommonConfiguration, path);
             }
 
             OnConfigurationUpdated();
@@ -378,6 +377,13 @@ namespace Emby.Server.Implementations.AppBase
             NamedConfigurationUpdating?.Invoke(this, new ConfigurationUpdateEventArgs(key, configuration));
 
             var path = GetConfigurationFile(key);
+            PersistConfigurationToFile(configuration, path);
+
+            _configurations.AddOrUpdate(key, configuration, (_, _) => configuration);
+        }
+
+        private void PersistConfigurationToFile(object configuration, string path)
+        {
             Directory.CreateDirectory(Path.GetDirectoryName(path) ?? throw new InvalidOperationException("Path can't be a root directory."));
 
             var temporaryPath = path + "." + Guid.NewGuid().ToString("N") + ".tmp";
@@ -389,22 +395,91 @@ namespace Emby.Server.Implementations.AppBase
                 }
 
                 RestrictConfigurationFilePermissions(temporaryPath);
+                RestrictWindowsConfigurationFilePermissions(temporaryPath);
                 XmlSerializer.SerializeToFile(configuration, temporaryPath);
-                File.Move(temporaryPath, path, overwrite: true);
+
+                if (OperatingSystem.IsWindows() && File.Exists(path))
+                {
+                    // ReplaceFile preserves the existing Windows ACL while atomically replacing contents.
+                    var backupPath = temporaryPath + ".bak";
+                    try
+                    {
+                        File.Replace(temporaryPath, path, backupPath);
+                    }
+                    catch
+                    {
+                        try
+                        {
+                            RestoreConfigurationBackupIfDestinationMissing(path, backupPath);
+                        }
+                        catch (Exception recoveryException) when (recoveryException is IOException or UnauthorizedAccessException)
+                        {
+                            Logger.LogCritical(recoveryException, "Unable to restore configuration backup after replacement failed: {Path}", backupPath);
+                        }
+
+                        throw;
+                    }
+                    finally
+                    {
+                        if (File.Exists(path))
+                        {
+                            TryDeleteTemporaryConfigurationFile(backupPath);
+                        }
+                    }
+                }
+                else
+                {
+                    File.Move(temporaryPath, path, overwrite: true);
+                }
             }
             finally
             {
-                try
-                {
-                    File.Delete(temporaryPath);
-                }
-                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-                {
-                    Logger.LogWarning(ex, "Unable to remove temporary configuration file: {Path}", temporaryPath);
-                }
+                TryDeleteTemporaryConfigurationFile(temporaryPath);
+            }
+        }
+
+        internal static void RestoreConfigurationBackupIfDestinationMissing(string path, string backupPath)
+        {
+            if (!File.Exists(path) && File.Exists(backupPath))
+            {
+                File.Move(backupPath, path);
+            }
+        }
+
+        private void RestrictWindowsConfigurationFilePermissions(string path)
+        {
+            if (!OperatingSystem.IsWindows())
+            {
+                return;
             }
 
-            _configurations.AddOrUpdate(key, configuration, (_, _) => configuration);
+            var serviceIdentity = WindowsIdentity.GetCurrent().User
+                ?? throw new InvalidOperationException("Current Windows identity has no SID.");
+            var security = new FileSecurity();
+            security.SetAccessRuleProtection(isProtected: true, preserveInheritance: false);
+            security.SetOwner(serviceIdentity);
+            security.AddAccessRule(new FileSystemAccessRule(serviceIdentity, FileSystemRights.FullControl, AccessControlType.Allow));
+            security.AddAccessRule(new FileSystemAccessRule(
+                new SecurityIdentifier(WellKnownSidType.BuiltinAdministratorsSid, null),
+                FileSystemRights.FullControl,
+                AccessControlType.Allow));
+            security.AddAccessRule(new FileSystemAccessRule(
+                new SecurityIdentifier(WellKnownSidType.LocalSystemSid, null),
+                FileSystemRights.FullControl,
+                AccessControlType.Allow));
+            new FileInfo(path).SetAccessControl(security);
+        }
+
+        private void TryDeleteTemporaryConfigurationFile(string path)
+        {
+            try
+            {
+                File.Delete(path);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                Logger.LogWarning(ex, "Unable to remove temporary configuration file: {Path}", path);
+            }
         }
 
         /// <summary>

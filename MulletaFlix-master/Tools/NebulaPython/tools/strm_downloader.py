@@ -32,8 +32,27 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable
 from urllib.parse import parse_qs, urlsplit
-from urllib.request import Request, urlopen
+from urllib.request import HTTPRedirectHandler, Request, build_opener
 import urllib.error
+
+
+class _HttpOnlyRedirectHandler(HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        try:
+            parsed = urlsplit(newurl)
+            parsed.port
+        except (TypeError, ValueError):
+            return None
+        if parsed.scheme.lower() not in {"http", "https"} or not parsed.hostname:
+            return None
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
+_HTTP_OPENER = build_opener(_HttpOnlyRedirectHandler())
+
+
+def urlopen(url, timeout=None):
+    return _HTTP_OPENER.open(url, timeout=timeout)
 
 from bson import ObjectId
 from dotenv import load_dotenv
@@ -232,6 +251,16 @@ def read_strm_url(src: Path) -> str:
     raise ValueError(f"Arquivo .strm vazio ou inválido: {src}")
 
 
+def _validate_http_url(url: str) -> None:
+    try:
+        parsed = urlsplit(url)
+        parsed.port  # Access validates malformed and out-of-range ports.
+    except ValueError as exc:
+        raise ValueError("URL .strm invalida: esperado HTTP(S) com host e porta válida") from exc
+    if parsed.scheme.lower() not in {"http", "https"} or not parsed.hostname:
+        raise ValueError("URL .strm invalida: esperado HTTP(S) com host")
+
+
 def guess_media_extension(url: str, content_type: str | None = None) -> str:
     """Infere a extensão de mídia (.mkv, .mp4, etc.) a partir da URL."""
     path_suffix = Path(urlsplit(url).path).suffix.lower()
@@ -247,6 +276,7 @@ def guess_media_extension(url: str, content_type: str | None = None) -> str:
 def remote_content_size(url: str, timeout: int = 15) -> int | None:
     """Obtém o tamanho remoto do arquivo via Range request 0-0 ou Content-Length."""
     try:
+        _validate_http_url(url)
         request = Request(url, headers={"Range": "bytes=0-0", "User-Agent": "VLC/3.0.21 LibVLC/3.0.21"})
         with urlopen(request, timeout=timeout) as response:
             match = re.match(r"bytes\s+\d+-\d+/(\d+)", response.headers.get("Content-Range", ""))
@@ -931,6 +961,7 @@ def download_strm_multipart(
     Realiza o download de uma URL com suporte a Range requests em múltiplas partes,
     com retomada (resume) de partes baixadas e retentativas automáticas.
     """
+    _validate_http_url(url)
     target_path.parent.mkdir(parents=True, exist_ok=True)
     tmp_path = target_path.parent / f".{target_path.stem}.download"
     meta_path = Path(f"{tmp_path}.meta")
@@ -943,12 +974,14 @@ def download_strm_multipart(
         with urlopen(probe, timeout=read_timeout) as response:
             content_range = response.headers.get("Content-Range", "")
             match = re.match(r"bytes\s+0-0/(\d+)", content_range)
+            etag = response.headers.get("ETag", "")
+            strong_etag = etag if etag and not etag.startswith("W/") else None
 
-            if not match:
-                if getattr(response, "status", None) == 206:
+            if not match or not strong_etag:
+                if not match and getattr(response, "status", None) == 206:
                     raise IOError("Resposta HTTP 206 do teste de Range sem Content-Range válido")
-                # Servidor não suporta Range: download sequencial direto
-                logger.info("Download direto sem suporte a Range: %s", target_path.name)
+                # Without a strong validator, parallel ranges cannot safely be resumed or joined.
+                logger.info("Download sequencial sem ETag forte: %s", target_path.name)
                 try:
                     content_length = int(response.headers.get("Content-Length", ""))
                 except (TypeError, ValueError):
@@ -963,13 +996,57 @@ def download_strm_multipart(
                     headers={"User-Agent": "VLC/3.0.21 LibVLC/3.0.21"},
                 )
                 with urlopen(sequential_request, timeout=read_timeout) as sequential_response:
+                    if getattr(sequential_response, "status", None) != 200:
+                        raise IOError(
+                            f"Resposta HTTP inesperada no download sequencial: "
+                            f"{getattr(sequential_response, 'status', None)}"
+                        )
+                    try:
+                        sequential_content_length = int(sequential_response.headers.get("Content-Length", ""))
+                    except (TypeError, ValueError):
+                        sequential_content_length = None
+
+                    if (
+                        content_length is not None
+                        and sequential_content_length is not None
+                        and content_length != sequential_content_length
+                    ):
+                        raise IOError(
+                            "Content-Length do teste de Range difere da resposta sequencial "
+                            f"({content_length} != {sequential_content_length} bytes)"
+                        )
+
+                    expected_content_length = (
+                        sequential_content_length if sequential_content_length is not None else content_length
+                    )
                     with tmp_path.open("wb") as out:
                         while chunk := sequential_response.read(1024 * 1024):
                             wait_for_disk_capacity(target_path, len(chunk), min_free_percent)
                             out.write(chunk)
                 total = tmp_path.stat().st_size
+                if expected_content_length is not None and total != expected_content_length:
+                    raise IOError(
+                        f"Download sequencial incompleto ({total}/{expected_content_length} bytes)"
+                    )
             else:
                 total = int(match.group(1))
+
+                saved_meta = {}
+                try:
+                    with meta_path.open("r", encoding="utf-8") as f:
+                        saved_meta = json.load(f)
+                except Exception:
+                    saved_meta = {}
+                if not isinstance(saved_meta, dict):
+                    saved_meta = {}
+                resume_valid = (
+                    saved_meta.get("total") == total
+                    and saved_meta.get("etag") == strong_etag
+                )
+                if not resume_valid:
+                    for stale_path in target_path.parent.glob(f"{tmp_path.name}*"):
+                        with contextlib.suppress(Exception):
+                            stale_path.unlink(missing_ok=True)
 
                 # Checar se já existe no destino completo
                 if target_path.exists():
@@ -984,7 +1061,7 @@ def download_strm_multipart(
                     # commits the new file atomically at the end.
 
                 # Checar se o arquivo já foi completamente unido antes de uma parada inesperada
-                if tmp_path.exists() and tmp_path.stat().st_size == total:
+                if resume_valid and tmp_path.exists() and tmp_path.stat().st_size == total:
                     logger.info("Arquivo unido já existente completo (%d bytes): %s", total, target_path.name)
                     tmp_path.replace(target_path)
                     meta_path.unlink(missing_ok=True)
@@ -996,14 +1073,18 @@ def download_strm_multipart(
                 wait_for_disk_capacity(target_path, total, min_free_percent)
 
                 # Recupera parts_count original caso salvo em sessão anterior
-                if meta_path.exists():
+                if resume_valid:
                     try:
-                        with meta_path.open("r", encoding="utf-8") as f:
-                            saved_meta = json.load(f)
-                        if saved_meta.get("total") == total and saved_meta.get("parts_count"):
-                            parts_count = int(saved_meta["parts_count"])
-                    except Exception:
-                        pass
+                        saved_parts_count = int(saved_meta.get("parts_count", 0))
+                    except (TypeError, ValueError):
+                        saved_parts_count = 0
+                    if 1 <= saved_parts_count <= 32:
+                        parts_count = saved_parts_count
+                    else:
+                        resume_valid = False
+                        for stale_path in target_path.parent.glob(f"{tmp_path.name}*"):
+                            with contextlib.suppress(Exception):
+                                stale_path.unlink(missing_ok=True)
 
                 parts_count = min(max(parts_count, 1), 32)
                 part_size = (total + parts_count - 1) // parts_count
@@ -1011,7 +1092,7 @@ def download_strm_multipart(
 
                 try:
                     with meta_path.open("w", encoding="utf-8") as f:
-                        json.dump({"total": total, "parts_count": parts_count, "part_size": part_size}, f)
+                        json.dump({"total": total, "parts_count": parts_count, "part_size": part_size, "etag": strong_etag}, f)
                 except Exception:
                     pass
 
@@ -1076,20 +1157,17 @@ def download_strm_multipart(
                             req_start = start + existing
                             req = Request(
                                 url,
-                                headers={"Range": f"bytes={req_start}-{end}", "User-Agent": "VLC/3.0.21 LibVLC/3.0.21"},
+                                headers={"Range": f"bytes={req_start}-{end}", "If-Range": strong_etag, "User-Agent": "VLC/3.0.21 LibVLC/3.0.21"},
                             )
                             with urlopen(req, timeout=read_timeout) as part_resp:
                                 status = getattr(part_resp, "status", None)
-                                if status and status not in (200, 206):
+                                if status != 206:
                                     raise IOError(f"HTTP status {status} na parte {index + 1}")
+                                response_etag = part_resp.headers.get("ETag")
+                                if response_etag and response_etag != strong_etag:
+                                    raise IOError(f"ETag mudou durante o download da parte {index + 1}")
                                 _validate_content_range(part_resp, req_start, end, total)
-                                if req_start > 0 and status == 200:
-                                    with progress_lock:
-                                        progress["downloaded"] = max(0, progress["downloaded"] - existing)
-                                    existing = 0
-                                    mode = "wb"
-                                else:
-                                    mode = "ab" if existing > 0 else "wb"
+                                mode = "ab" if existing > 0 else "wb"
 
                                 with part_tmp.open(mode) as out:
                                     while chunk := part_resp.read(64 * 1024):
@@ -1159,9 +1237,9 @@ def download_strm_multipart(
                 for part_path in part_paths:
                     part_path.unlink(missing_ok=True)
                     Path(f"{part_path}.tmp").unlink(missing_ok=True)
-                meta_path.unlink(missing_ok=True)
 
         tmp_path.replace(target_path)
+        meta_path.unlink(missing_ok=True)
         # Limpar sobras de arquivos temporários
         for leftover in target_path.parent.glob(f".{target_path.stem}.*.download*"):
             with contextlib.suppress(Exception):

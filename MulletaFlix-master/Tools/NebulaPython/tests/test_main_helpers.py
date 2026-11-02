@@ -2,8 +2,11 @@ from __future__ import annotations
 
 import asyncio
 import os
+import urllib.error
+from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from types import SimpleNamespace
+from threading import Thread
 
 import pytest
 from bson import ObjectId
@@ -34,6 +37,30 @@ from main import (
     series_parent_from_filename,
     setup_database_indexes,
 )
+
+
+def test_telegram_time_opener_does_not_follow_redirects():
+    class RedirectHandler(BaseHTTPRequestHandler):
+        def do_GET(self):
+            self.send_response(302)
+            self.send_header("Location", "ftp://127.0.0.1:1/private")
+            self.end_headers()
+
+        def log_message(self, *_args):
+            pass
+
+    server = HTTPServer(("127.0.0.1", 0), RedirectHandler)
+    thread = Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        request = main_module.urllib.request.Request(f"http://127.0.0.1:{server.server_port}/time")
+        with pytest.raises(urllib.error.HTTPError) as exc:
+            main_module._TELEGRAM_TIME_OPENER.open(request, timeout=2)
+        assert exc.value.code == 302
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
 
 
 @pytest.mark.parametrize(

@@ -2,12 +2,147 @@ from __future__ import annotations
 
 import asyncio
 import importlib
+import logging
+import os
+import stat
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
 main = importlib.import_module("main")
+
+
+def test_safe_remove_staging_file_only_adds_owner_write_for_readonly_file(
+    monkeypatch, tmp_path
+):
+    target = tmp_path / "readonly.mkv"
+    target.write_bytes(b"temporary")
+    permissions_before = stat.S_IMODE(os.stat(target).st_mode)
+    real_remove = os.remove
+    real_chmod = os.chmod
+    remove_calls = 0
+    chmod_modes = []
+
+    def remove(path):
+        nonlocal remove_calls
+        remove_calls += 1
+        if remove_calls == 1:
+            raise PermissionError("simulated read-only file")
+        real_remove(path)
+
+    def chmod(path, mode, **kwargs):
+        chmod_modes.append(mode)
+        real_chmod(path, mode, **kwargs)
+
+    monkeypatch.setattr(main, "is_staging_path", lambda _path: True)
+    monkeypatch.setattr(main.os, "remove", remove)
+    monkeypatch.setattr(main.os, "chmod", chmod)
+    monkeypatch.setattr(main, "_cleanup_empty_parent_dirs", lambda _path: None)
+
+    main.safe_remove_staging_file(target)
+
+    assert not target.exists()
+    expected = stat.S_IWRITE if os.name == "nt" else permissions_before | stat.S_IWUSR
+    assert chmod_modes == [expected]
+
+
+def test_make_owner_writable_adds_owner_read_write_and_directory_execute(
+    monkeypatch, tmp_path
+):
+    target = tmp_path / "readonly-dir"
+    target.mkdir()
+    permissions_before = stat.S_IMODE(os.stat(target).st_mode)
+    real_chmod = os.chmod
+    chmod_modes = []
+
+    def chmod(path, mode, **kwargs):
+        chmod_modes.append(mode)
+        real_chmod(path, mode, **kwargs)
+
+    monkeypatch.setattr(main.os, "chmod", chmod)
+
+    main._make_owner_writable(str(target))
+
+    expected = (
+        stat.S_IWRITE
+        if os.name == "nt"
+        else permissions_before | stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR
+    )
+    assert chmod_modes == [expected]
+
+
+def test_make_owner_writable_restores_owner_access_for_mode_zero_directory(monkeypatch):
+    chmod_calls = []
+
+    def chmod(path, mode, **kwargs):
+        chmod_calls.append((path, mode, kwargs))
+
+    monkeypatch.setattr(main.os, "name", "posix")
+    monkeypatch.setattr(main.os, "lstat", lambda _path: SimpleNamespace(st_mode=stat.S_IFDIR))
+    monkeypatch.setattr(main.os, "chmod", chmod)
+    monkeypatch.setattr(main.os, "supports_follow_symlinks", {chmod})
+
+    main._make_owner_writable("unreadable-dir")
+
+    assert chmod_calls == [
+        ("unreadable-dir", stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR, {"follow_symlinks": False})
+    ]
+
+
+def test_make_owner_writable_posix_preserves_other_bits_and_disables_symlink_following(
+    monkeypatch, tmp_path
+):
+    target = tmp_path / "readonly-file"
+    target.write_bytes(b"temporary")
+    permissions_before = stat.S_IMODE(os.stat(target).st_mode)
+    chmod_calls = []
+
+    def chmod(path, mode, **kwargs):
+        chmod_calls.append((path, mode, kwargs))
+
+    monkeypatch.setattr(main.os, "chmod", chmod)
+    monkeypatch.setattr(main.os, "name", "posix")
+    monkeypatch.setattr(main.os, "supports_follow_symlinks", {chmod})
+
+    main._make_owner_writable(str(target))
+
+    assert chmod_calls == [
+        (str(target), permissions_before | stat.S_IWUSR, {"follow_symlinks": False})
+    ]
+
+
+def test_make_owner_writable_refuses_symlinks(monkeypatch):
+    monkeypatch.setattr(
+        main.os,
+        "lstat",
+        lambda _path: SimpleNamespace(st_mode=stat.S_IFLNK | 0o777),
+    )
+    monkeypatch.setattr(main.os, "chmod", lambda *_args, **_kwargs: pytest.fail("must not chmod a symlink"))
+
+    with pytest.raises(PermissionError, match="symlink"):
+        main._make_owner_writable("link")
+
+
+def test_safe_remove_does_not_log_success_when_permission_retry_fails(
+    monkeypatch, tmp_path, caplog
+):
+    target = tmp_path / "still-present.mkv"
+    target.write_bytes(b"temporary")
+    monkeypatch.setattr(main, "is_staging_path", lambda _path: True)
+    monkeypatch.setattr(main.os, "remove", lambda _path: (_ for _ in ()).throw(PermissionError()))
+    monkeypatch.setattr(
+        main,
+        "_make_owner_writable",
+        lambda _path: (_ for _ in ()).throw(PermissionError("cannot change permissions")),
+    )
+    monkeypatch.setattr(main, "_cleanup_empty_parent_dirs", lambda _path: pytest.fail("must not cleanup parents"))
+
+    with caplog.at_level(logging.INFO):
+        main.safe_remove_staging_file(target)
+
+    assert target.exists()
+    assert "Removido arquivo:" not in caplog.text
 
 
 class AsyncCursor:

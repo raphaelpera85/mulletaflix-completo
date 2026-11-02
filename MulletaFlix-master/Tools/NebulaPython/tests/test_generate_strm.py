@@ -39,6 +39,31 @@ def test_prune_is_rejected_before_opening_mongo(monkeypatch, tmp_path):
         generate_strm.generate_strm_files(output_root=tmp_path, prune=True)
 
 
+@pytest.mark.parametrize(
+    "url",
+    [
+        "ftp://stream.example",
+        "https:///missing-host",
+        "https://stream.example:bad-port",
+        "https://stream.example:65536",
+        "https://user:pass@stream.example",
+        "https://:pass@stream.example",
+        "https://stream.example/path?token=x",
+        "https://stream.example/path?",
+        "https://stream.example/path#fragment",
+        "https://stream.example/path#",
+    ],
+)
+def test_invalid_stream_base_url_is_rejected_before_mongo_or_output_creation(monkeypatch, tmp_path, url):
+    output = tmp_path / "must-not-exist"
+    monkeypatch.setattr(generate_strm, "MongoClient", lambda *_args, **_kwargs: pytest.fail("Mongo must not be opened"))
+
+    with pytest.raises(ValueError, match="STREAM_BASE_URL"):
+        generate_strm.generate_strm_files(output_root=output, stream_base_url=url)
+
+    assert not output.exists()
+
+
 def test_client_closes_when_output_write_fails(monkeypatch, tmp_path):
     class Files:
         def find(self, query, projection):

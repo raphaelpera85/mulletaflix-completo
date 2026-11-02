@@ -41,7 +41,7 @@ def test_wait_for_disk_capacity_retries_when_volume_probe_fails(tmp_path, monkey
 class _Response:
     def __init__(self, payload: bytes, *, headers=None, status=200):
         self._stream = BytesIO(payload)
-        self.headers = headers or {}
+        self.headers = {"ETag": '"v1"', **(headers or {})}
         self.status = status
 
     def __enter__(self):
@@ -52,6 +52,9 @@ class _Response:
 
     def read(self, size=-1):
         return self._stream.read(size)
+
+    def close(self):
+        self._stream.close()
 
 
 class _FakeFiles:
@@ -127,6 +130,17 @@ def test_materialize_strm_rejects_non_http_source_before_network(tmp_path, monke
         feed_ftp.materialize_strm(source)
 
 
+@pytest.mark.parametrize(
+    "url",
+    ["file:///private/title.mp4", "http:///missing-host", "http://example.test:badport/title.mp4", "http://example.test:65536/title.mp4"],
+)
+def test_remote_content_size_rejects_unsupported_or_hostless_url_before_network(monkeypatch, url):
+    monkeypatch.setattr(feed_ftp, "urlopen", lambda *_args, **_kwargs: pytest.fail("network must not be used"))
+
+    with pytest.raises(ValueError, match="URL .strm invalida"):
+        feed_ftp.remote_content_size(url)
+
+
 def test_materialize_strm_downloads_non_range_response_atomically(tmp_path, monkeypatch):
     source = _write_strm(tmp_path)
     monkeypatch.setattr(feed_ftp.socket, "setdefaulttimeout", lambda *_args: None)
@@ -146,6 +160,9 @@ def test_materialize_strm_reuses_complete_parts_when_resuming(tmp_path, monkeypa
     (tmp_path / ".title.download.part0").write_bytes(b"ab")
     (tmp_path / ".title.download.part1").write_bytes(b"cd")
     (tmp_path / ".title.download.part2").write_bytes(b"ef")
+    (tmp_path / ".title.download.meta").write_text(
+        json.dumps({"total": 6, "etag": '"v1"', "parts_count": 3}), encoding="utf-8"
+    )
     requests = []
     monkeypatch.setenv("STRM_DOWNLOAD_PARTS", "3")
     monkeypatch.setattr(feed_ftp.socket, "setdefaulttimeout", lambda *_args: None)
@@ -193,6 +210,113 @@ def test_materialize_strm_downloads_and_joins_parallel_ranges(tmp_path, monkeypa
     assert target.read_bytes() == payload
     assert len(ranges) == 4
     assert list(tmp_path.glob(".title.*.download*")) == []
+
+
+def test_materialize_strm_discards_same_size_parts_when_etag_changes(tmp_path, monkeypatch):
+    source = _write_strm(tmp_path)
+    target = tmp_path / "title.mp4"
+    (tmp_path / ".title.download").write_bytes(b"oldbytes")
+    (tmp_path / ".title.download.part0").write_bytes(b"oldb")
+    (tmp_path / ".title.download.part1").write_bytes(b"ytes")
+    (tmp_path / ".title.download.meta").write_text(
+        json.dumps({"total": 8, "etag": '"old"'}), encoding="utf-8"
+    )
+    payload = b"newbytes"
+    requests = []
+    monkeypatch.setenv("STRM_DOWNLOAD_PARTS", "2")
+    monkeypatch.setattr(feed_ftp.socket, "setdefaulttimeout", lambda *_args: None)
+
+    def fake_urlopen(request, **_kwargs):
+        range_header = request.get_header("Range")
+        if range_header == "bytes=0-0":
+            return _Response(b"x", headers={"Content-Range": "bytes 0-0/8", "ETag": '"new"'}, status=206)
+        requests.append((range_header, request.get_header("If-range")))
+        start, end = map(int, range_header.removeprefix("bytes=").split("-"))
+        return _Response(
+            payload[start : end + 1],
+            headers={"Content-Range": f"bytes {start}-{end}/8", "ETag": '"new"'},
+            status=206,
+        )
+
+    monkeypatch.setattr(feed_ftp, "urlopen", fake_urlopen)
+
+    feed_ftp.materialize_strm(source, overwrite=True, target=target)
+
+    assert target.read_bytes() == payload
+    assert sorted(requests) == [("bytes=0-3", '"new"'), ("bytes=4-7", '"new"')]
+
+
+def test_materialize_strm_discards_parts_with_invalid_saved_part_count(tmp_path, monkeypatch):
+    source = _write_strm(tmp_path)
+    target = tmp_path / "title.mp4"
+    (tmp_path / ".title.download.part0").write_bytes(b"oldbytes")
+    (tmp_path / ".title.download.meta").write_text(
+        json.dumps({"total": 8, "etag": '"v1"', "parts_count": 99}), encoding="utf-8"
+    )
+    payload = b"newbytes"
+    ranges = []
+    monkeypatch.setenv("STRM_DOWNLOAD_PARTS", "2")
+    monkeypatch.setattr(feed_ftp.socket, "setdefaulttimeout", lambda *_args: None)
+
+    def fake_urlopen(request, **_kwargs):
+        range_header = request.get_header("Range")
+        if range_header == "bytes=0-0":
+            return _Response(b"x", headers={"Content-Range": "bytes 0-0/8"}, status=206)
+        ranges.append(range_header)
+        start, end = map(int, range_header.removeprefix("bytes=").split("-"))
+        return _Response(
+            payload[start : end + 1],
+            headers={"Content-Range": f"bytes {start}-{end}/8"},
+            status=206,
+        )
+
+    monkeypatch.setattr(feed_ftp, "urlopen", fake_urlopen)
+
+    feed_ftp.materialize_strm(source, overwrite=True, target=target)
+
+    assert target.read_bytes() == payload
+    assert ranges == ["bytes=0-3", "bytes=4-7"]
+
+
+def test_materialize_strm_without_strong_etag_uses_sequential_response(tmp_path, monkeypatch):
+    source = _write_strm(tmp_path)
+    target = tmp_path / "title.mp4"
+    requests = []
+    monkeypatch.setattr(feed_ftp.socket, "setdefaulttimeout", lambda *_args: None)
+
+    def fake_urlopen(request, **_kwargs):
+        requests.append(request.get_header("Range"))
+        if request.get_header("Range") == "bytes=0-0":
+            return _Response(b"x", headers={"Content-Range": "bytes 0-0/8", "ETag": 'W/"weak"'}, status=206)
+        return _Response(b"newbytes", headers={"Content-Length": "8"}, status=200)
+
+    monkeypatch.setattr(feed_ftp, "urlopen", fake_urlopen)
+
+    feed_ftp.materialize_strm(source, overwrite=True, target=target)
+
+    assert target.read_bytes() == b"newbytes"
+    assert requests == ["bytes=0-0", None]
+
+
+def test_materialize_strm_rejects_partial_response_to_sequential_get(tmp_path, monkeypatch):
+    source = _write_strm(tmp_path)
+    target = tmp_path / "title.mp4"
+    target.write_bytes(b"previous-good-media")
+    monkeypatch.setattr(feed_ftp.socket, "setdefaulttimeout", lambda *_args: None)
+
+    def fake_urlopen(request, **_kwargs):
+        if request.get_header("Range") == "bytes=0-0":
+            return _Response(
+                b"x", headers={"Content-Range": "bytes 0-0/8", "ETag": 'W/"weak"'}, status=206
+            )
+        return _Response(b"partial", headers={"Content-Range": "bytes 0-6/8"}, status=206)
+
+    monkeypatch.setattr(feed_ftp, "urlopen", fake_urlopen)
+
+    with pytest.raises(IOError, match="Resposta HTTP inesperada no download sequencial: 206"):
+        feed_ftp.materialize_strm(source, overwrite=True, target=target)
+
+    assert target.read_bytes() == b"previous-good-media"
 
 
 @pytest.mark.parametrize("bad_content_range", ["bytes 3-5/6", "bytes 0-2/7", "invalid range"])

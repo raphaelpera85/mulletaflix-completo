@@ -3,7 +3,9 @@ from __future__ import annotations
 import importlib
 import json
 import urllib.error
+from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
+from threading import Thread
 from types import SimpleNamespace
 
 import pytest
@@ -114,6 +116,54 @@ def test_read_strm_url_ignores_bom_blank_lines_and_comments(tmp_path):
     assert downloader.read_strm_url(source) == "https://media.example/title.mkv?token=x"
 
 
+@pytest.mark.parametrize("module_name", ["tools.feed_ftp", "tools.strm_downloader"])
+@pytest.mark.parametrize(
+    ("target", "allowed"),
+    [
+        ("https://cdn.example/video.mkv", True),
+        ("http://127.0.0.1/video.mkv", True),
+        ("ftp://cdn.example/video.mkv", False),
+        ("file:///etc/passwd", False),
+        ("http://cdn.example:bad-port/video.mkv", False),
+        ("http:///missing-host", False),
+    ],
+)
+def test_redirects_allow_only_valid_http_schemes(module_name, target, allowed):
+    from urllib.request import Request
+
+    handler = importlib.import_module(module_name)._HttpOnlyRedirectHandler()
+    redirected = handler.redirect_request(
+        Request("https://origin.example/media"), None, 302, "Found", {}, target
+    )
+
+    assert (redirected is not None) is allowed
+
+
+@pytest.mark.parametrize("module_name", ["tools.feed_ftp", "tools.strm_downloader"])
+def test_urlopen_does_not_follow_media_redirect_to_ftp(module_name):
+    class RedirectHandler(BaseHTTPRequestHandler):
+        def do_GET(self):
+            self.send_response(302)
+            self.send_header("Location", "ftp://127.0.0.1:1/private-media")
+            self.end_headers()
+
+        def log_message(self, *_args):
+            pass
+
+    server = HTTPServer(("127.0.0.1", 0), RedirectHandler)
+    thread = Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        url = f"http://127.0.0.1:{server.server_port}/media"
+        with pytest.raises(urllib.error.HTTPError) as exc:
+            importlib.import_module(module_name).urlopen(url, timeout=2)
+        assert exc.value.code == 302
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
+
+
 @pytest.mark.parametrize("content", ["", "# only a comment\n\n"])
 def test_read_strm_url_rejects_empty_or_comment_only_file(tmp_path, content):
     source = tmp_path / "empty.strm"
@@ -164,6 +214,15 @@ def test_remote_content_size_parses_range_and_length(monkeypatch, headers, statu
 def test_remote_content_size_treats_network_errors_as_unknown(monkeypatch):
     monkeypatch.setattr(downloader, "urlopen", lambda *_args, **_kwargs: (_ for _ in ()).throw(OSError("offline")))
     assert downloader.remote_content_size("https://cdn.example/media") is None
+
+
+@pytest.mark.parametrize(
+    "url",
+    ["file:///private/title.mp4", "http:///missing-host", "http://example.test:badport/title.mp4", "http://example.test:65536/title.mp4"],
+)
+def test_remote_content_size_rejects_unsupported_or_hostless_url_before_network(monkeypatch, url):
+    monkeypatch.setattr(downloader, "urlopen", lambda *_args, **_kwargs: pytest.fail("network must not be used"))
+    assert downloader.remote_content_size(url) is None
 
 
 @pytest.mark.parametrize(
