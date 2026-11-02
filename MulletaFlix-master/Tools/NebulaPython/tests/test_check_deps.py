@@ -112,6 +112,9 @@ def test_headless_nebula_does_not_install_unused_tray_or_image_packages():
     assert ("PIL", "Pillow") not in check_deps.RUNTIME_REQUIRED
     assert "pillow" not in requirements
     assert "pillow" not in locked_versions
+    assert ("motor", "motor") not in check_deps.RUNTIME_REQUIRED
+    assert "motor" not in requirements
+    assert "motor" not in locked_versions
 
 
 def test_cryptography_runtime_requirement_excludes_known_vulnerable_versions():

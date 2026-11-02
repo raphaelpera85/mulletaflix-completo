@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import queue
+import socket
 import threading
 from io import BytesIO
 from pathlib import Path
@@ -36,6 +37,29 @@ def test_wait_for_disk_capacity_retries_when_volume_probe_fails(tmp_path, monkey
     assert checks == [target.parent, target.parent]
     assert sleeps == [10]
     assert "download pausado" in capsys.readouterr().out
+
+
+def test_feeder_console_escapes_line_breaks_and_redacts_exception_details(tmp_path, monkeypatch, capsys):
+    target = tmp_path / "stage\r\nFAKE SUCCESS" / "media.mkv"
+
+    def disk_usage(_path):
+        raise OSError("secret token\r\nforged line")
+
+    def interrupt_sleep(_seconds):
+        raise InterruptedError()
+
+    monkeypatch.setattr(feed_ftp.shutil, "disk_usage", disk_usage)
+    monkeypatch.setattr(feed_ftp.time, "sleep", interrupt_sleep)
+
+    with pytest.raises(InterruptedError):
+        feed_ftp.wait_for_disk_capacity(target, required_bytes=10, minimum_free_percent=10)
+
+    output = capsys.readouterr().out
+    assert len(output.splitlines()) == 1
+    assert r"\r\nFAKE SUCCESS" in output
+    assert "OSError" in output
+    assert "secret token" not in output
+    assert "forged line" not in output
 
 
 class _Response:
@@ -143,13 +167,25 @@ def test_remote_content_size_rejects_unsupported_or_hostless_url_before_network(
 
 def test_materialize_strm_downloads_non_range_response_atomically(tmp_path, monkeypatch):
     source = _write_strm(tmp_path)
-    monkeypatch.setattr(feed_ftp.socket, "setdefaulttimeout", lambda *_args: None)
-    monkeypatch.setattr(feed_ftp, "urlopen", lambda *_args, **_kwargs: _Response(b"media-bytes"))
+    monkeypatch.setenv("STRM_READ_TIMEOUT", "37")
+    request_timeouts = []
+    monkeypatch.setattr(
+        socket,
+        "setdefaulttimeout",
+        lambda *_args: pytest.fail("materialize_strm must not change the process-wide socket timeout"),
+    )
+
+    def fake_urlopen(*_args, timeout=None, **_kwargs):
+        request_timeouts.append(timeout)
+        return _Response(b"media-bytes")
+
+    monkeypatch.setattr(feed_ftp, "urlopen", fake_urlopen)
 
     target = feed_ftp.materialize_strm(source)
 
     assert target == tmp_path / "title.mp4"
     assert target.read_bytes() == b"media-bytes"
+    assert request_timeouts and set(request_timeouts) == {37}
     assert list(tmp_path.glob(".title.*.download*")) == []
 
 
@@ -165,7 +201,11 @@ def test_materialize_strm_reuses_complete_parts_when_resuming(tmp_path, monkeypa
     )
     requests = []
     monkeypatch.setenv("STRM_DOWNLOAD_PARTS", "3")
-    monkeypatch.setattr(feed_ftp.socket, "setdefaulttimeout", lambda *_args: None)
+    monkeypatch.setattr(
+        socket,
+        "setdefaulttimeout",
+        lambda *_args: pytest.fail("materialize_strm must not change the process-wide socket timeout"),
+    )
 
     def fake_urlopen(request, **_kwargs):
         range_header = request.get_header("Range")
@@ -189,7 +229,11 @@ def test_materialize_strm_downloads_and_joins_parallel_ranges(tmp_path, monkeypa
     payload = b"parallel-media"
     ranges = []
     monkeypatch.setenv("STRM_DOWNLOAD_PARTS", "4")
-    monkeypatch.setattr(feed_ftp.socket, "setdefaulttimeout", lambda *_args: None)
+    monkeypatch.setattr(
+        socket,
+        "setdefaulttimeout",
+        lambda *_args: pytest.fail("materialize_strm must not change the process-wide socket timeout"),
+    )
 
     def fake_urlopen(request, **_kwargs):
         range_header = request.get_header("Range")
@@ -224,7 +268,11 @@ def test_materialize_strm_discards_same_size_parts_when_etag_changes(tmp_path, m
     payload = b"newbytes"
     requests = []
     monkeypatch.setenv("STRM_DOWNLOAD_PARTS", "2")
-    monkeypatch.setattr(feed_ftp.socket, "setdefaulttimeout", lambda *_args: None)
+    monkeypatch.setattr(
+        socket,
+        "setdefaulttimeout",
+        lambda *_args: pytest.fail("materialize_strm must not change the process-wide socket timeout"),
+    )
 
     def fake_urlopen(request, **_kwargs):
         range_header = request.get_header("Range")
@@ -256,7 +304,11 @@ def test_materialize_strm_discards_parts_with_invalid_saved_part_count(tmp_path,
     payload = b"newbytes"
     ranges = []
     monkeypatch.setenv("STRM_DOWNLOAD_PARTS", "2")
-    monkeypatch.setattr(feed_ftp.socket, "setdefaulttimeout", lambda *_args: None)
+    monkeypatch.setattr(
+        socket,
+        "setdefaulttimeout",
+        lambda *_args: pytest.fail("materialize_strm must not change the process-wide socket timeout"),
+    )
 
     def fake_urlopen(request, **_kwargs):
         range_header = request.get_header("Range")
@@ -275,14 +327,18 @@ def test_materialize_strm_discards_parts_with_invalid_saved_part_count(tmp_path,
     feed_ftp.materialize_strm(source, overwrite=True, target=target)
 
     assert target.read_bytes() == payload
-    assert ranges == ["bytes=0-3", "bytes=4-7"]
+    assert sorted(ranges) == ["bytes=0-3", "bytes=4-7"]
 
 
 def test_materialize_strm_without_strong_etag_uses_sequential_response(tmp_path, monkeypatch):
     source = _write_strm(tmp_path)
     target = tmp_path / "title.mp4"
     requests = []
-    monkeypatch.setattr(feed_ftp.socket, "setdefaulttimeout", lambda *_args: None)
+    monkeypatch.setattr(
+        socket,
+        "setdefaulttimeout",
+        lambda *_args: pytest.fail("materialize_strm must not change the process-wide socket timeout"),
+    )
 
     def fake_urlopen(request, **_kwargs):
         requests.append(request.get_header("Range"))
@@ -302,7 +358,11 @@ def test_materialize_strm_rejects_partial_response_to_sequential_get(tmp_path, m
     source = _write_strm(tmp_path)
     target = tmp_path / "title.mp4"
     target.write_bytes(b"previous-good-media")
-    monkeypatch.setattr(feed_ftp.socket, "setdefaulttimeout", lambda *_args: None)
+    monkeypatch.setattr(
+        socket,
+        "setdefaulttimeout",
+        lambda *_args: pytest.fail("materialize_strm must not change the process-wide socket timeout"),
+    )
 
     def fake_urlopen(request, **_kwargs):
         if request.get_header("Range") == "bytes=0-0":
@@ -328,7 +388,11 @@ def test_materialize_strm_rejects_mismatched_content_range_and_preserves_existin
     target.write_bytes(b"previous-good-media")
     monkeypatch.setenv("STRM_DOWNLOAD_PARTS", "2")
     monkeypatch.setenv("STRM_PART_RETRIES", "1")
-    monkeypatch.setattr(feed_ftp.socket, "setdefaulttimeout", lambda *_args: None)
+    monkeypatch.setattr(
+        socket,
+        "setdefaulttimeout",
+        lambda *_args: pytest.fail("materialize_strm must not change the process-wide socket timeout"),
+    )
 
     def fake_urlopen(request, **_kwargs):
         range_header = request.get_header("Range")
@@ -354,7 +418,11 @@ def test_materialize_strm_rejects_partial_probe_without_content_range_and_preser
     source = _write_strm(tmp_path)
     target = tmp_path / "title.mp4"
     target.write_bytes(b"previous-good-media")
-    monkeypatch.setattr(feed_ftp.socket, "setdefaulttimeout", lambda *_args: None)
+    monkeypatch.setattr(
+        socket,
+        "setdefaulttimeout",
+        lambda *_args: pytest.fail("materialize_strm must not change the process-wide socket timeout"),
+    )
     monkeypatch.setattr(feed_ftp, "urlopen", lambda *_args, **_kwargs: _Response(b"x", status=206))
 
     with pytest.raises(IOError, match="Content-Range"):
@@ -703,7 +771,7 @@ def test_completed_destination_loads_media_identities_when_cache_is_not_supplied
     monkeypatch.setattr(
         feed_ftp,
         "completed_media_identities",
-        lambda uri: (identity_calls.append(uri) or (set(), {("the agency", 1, 2)})),
+        lambda uri, _mongo_client=None: (identity_calls.append(uri) or (set(), {("the agency", 1, 2)})),
     )
 
     assert feed_ftp.is_completed_destination(
@@ -798,6 +866,33 @@ def test_completed_media_identities_reads_movie_and_episode_records_and_closes_c
     assert movies == {("arrival", "2016")}
     assert episodes == {("the agency", 1, 1)}
     assert client.closed is True
+
+
+def test_completed_media_identities_keeps_caller_owned_client_open(monkeypatch):
+    class Files:
+        def find(self, *_args, **_kwargs):
+            return iter(())
+
+    client = _FakeMongoClient(Files())
+    monkeypatch.setattr(
+        feed_ftp, "MongoClient", lambda *_args, **_kwargs: pytest.fail("must reuse caller client")
+    )
+
+    assert feed_ftp.completed_media_identities("mongodb://fake", client) == (set(), set())
+    assert client.closed is False
+
+
+def test_completed_destination_keeps_caller_owned_client_open(tmp_path, monkeypatch):
+    client = _FakeMongoClient(_FakeFiles())
+    monkeypatch.setattr(
+        feed_ftp, "MongoClient", lambda *_args, **_kwargs: pytest.fail("must reuse caller client")
+    )
+    monkeypatch.setattr(feed_ftp, "mongo_parent_for", lambda *_args: "/library")
+
+    assert feed_ftp.is_completed_destination(
+        "mongodb://fake", tmp_path, tmp_path / "Title.mkv", mongo_client=client
+    ) is False
+    assert client.closed is False
 
 
 @pytest.mark.parametrize("mongo_uri", ["", "mongodb://test"])
@@ -1062,6 +1157,30 @@ def test_register_one_deduplicates_legacy_destination_name(tmp_path, monkeypatch
     assert client.closed is True
 
 
+def test_register_one_reuses_caller_owned_client_for_file_records(tmp_path, monkeypatch):
+    source = tmp_path / "source.mkv"
+    source.write_bytes(b"media bytes")
+    files = _FakeFiles(by_path={"_id": "existing-id", "status": "queued"})
+    client = _FakeMongoClient(files)
+    metadata_clients = []
+
+    def ensure_metadata(_uri, _root, _parent, supplied_client):
+        metadata_clients.append(supplied_client)
+
+    monkeypatch.setattr(feed_ftp, "ensure_nebula_metadata", ensure_metadata)
+    monkeypatch.setattr(feed_ftp, "mongo_parent_for", lambda *_args: "/library")
+    monkeypatch.setattr(feed_ftp, "MongoClient", lambda *_args, **_kwargs: pytest.fail("must reuse client"))
+
+    result = feed_ftp.register_one(
+        source, tmp_path / "library" / "renamed.mkv", tmp_path, "mongodb://fake", False,
+        mongo_client=client,
+    )
+
+    assert result == feed_ftp.RegistrationResult(0, "queued")
+    assert metadata_clients == [client]
+    assert client.closed is False
+
+
 def test_ensure_nebula_metadata_creates_and_reuses_nested_directory_chain(tmp_path, monkeypatch):
     dest_root = tmp_path / "library"
     destination_parent = dest_root / "Series" / "Example" / "Season 01"
@@ -1089,6 +1208,27 @@ def test_ensure_nebula_metadata_creates_and_reuses_nested_directory_chain(tmp_pa
     ]
     assert all(document["type"] == "dir" and document["ctime"] == 1234 for document in records.values())
     assert client.closed is True
+
+
+def test_ensure_nebula_metadata_keeps_caller_owned_client_open(tmp_path, monkeypatch):
+    records = {}
+
+    class Files:
+        def find_one(self, query, _projection):
+            return records.get((query["parent"], query["name"]))
+
+        def insert_one(self, document):
+            records[(document["parent"], document["name"])] = document
+
+    client = _FakeMongoClient(Files())
+    monkeypatch.setattr(feed_ftp, "MongoClient", lambda *_args, **_kwargs: pytest.fail("must reuse client"))
+
+    feed_ftp.ensure_nebula_metadata(
+        "mongodb://fake", tmp_path / "library", tmp_path / "library" / "Series", client
+    )
+
+    assert ("/raphael", "Series") in records
+    assert client.closed is False
 
 
 def test_ensure_nebula_metadata_returns_for_paths_outside_destination_root(tmp_path, monkeypatch):
@@ -1222,6 +1362,7 @@ def test_upload_worker_records_success_and_releases_pending_item(tmp_path, monke
     jobs.put((source, destination))
     jobs.put(None)
     monkeypatch.setattr(feed_ftp, "copy_one", lambda *_args, **_kwargs: len(b"media"))
+    monkeypatch.setattr(feed_ftp, "MongoClient", lambda *_args, **_kwargs: SimpleNamespace(close=lambda: None))
     stats = feed_ftp.Stats(queued=1)
     lock = threading.Lock()
     pending = {str(source)}
@@ -1250,6 +1391,7 @@ def test_upload_worker_records_terminal_failure_and_releases_pending_item(tmp_pa
         raise OSError("destination unavailable")
 
     monkeypatch.setattr(feed_ftp, "copy_one", fail_copy)
+    monkeypatch.setattr(feed_ftp, "MongoClient", lambda *_args, **_kwargs: SimpleNamespace(close=lambda: None))
     stats = feed_ftp.Stats(queued=1)
     pending = {str(source)}
     failed = set()
@@ -1292,6 +1434,8 @@ def test_upload_worker_direct_mongo_honors_registration_and_source_cleanup(
         lambda *args: registrations.append(args)
         or feed_ftp.RegistrationResult(registered_size, existing_status),
     )
+    client = SimpleNamespace(close=lambda: None)
+    monkeypatch.setattr(feed_ftp, "MongoClient", lambda *_args, **_kwargs: client)
     stats = feed_ftp.Stats(queued=1)
     pending = {str(source)}
     seen = set()
@@ -1302,12 +1446,59 @@ def test_upload_worker_direct_mongo_honors_registration_and_source_cleanup(
     )
 
     assert len(registrations) == 1
-    assert registrations[0] == (source, destination, tmp_path, "mongodb://fake", False, True)
+    assert registrations[0][:6] == (source, destination, tmp_path, "mongodb://fake", False, True)
+    assert registrations[0][6] is client
     assert getattr(stats, expected_stat) == 1
     assert stats.failed == 0
     assert source.exists() is source_should_exist
     assert pending == set()
     assert seen == {str(source)}
+    assert jobs.unfinished_tasks == 0
+
+
+@pytest.mark.parametrize("direct_mongo", [False, True])
+def test_upload_worker_reuses_and_closes_one_mongo_client_for_its_queue(tmp_path, monkeypatch, direct_mongo):
+    class Client:
+        closed = False
+
+        def close(self):
+            self.closed = True
+
+    client = Client()
+    created = []
+    passed = []
+    monkeypatch.setattr(
+        feed_ftp,
+        "MongoClient",
+        lambda *_args, **_kwargs: created.append(client) or client,
+    )
+    monkeypatch.setattr(
+        feed_ftp,
+        "register_one",
+        lambda *args: passed.append(args[-1]) or feed_ftp.RegistrationResult(1),
+    )
+    monkeypatch.setattr(
+        feed_ftp,
+        "copy_one",
+        lambda *args: passed.append(args[-1]) or 1,
+    )
+    jobs = queue.Queue()
+    sources = [tmp_path / f"media-{index}.mkv" for index in range(2)]
+    for source in sources:
+        source.write_bytes(b"x")
+        jobs.put((source, tmp_path / "library" / source.name))
+    jobs.put(None)
+    stats = feed_ftp.Stats(queued=2)
+
+    feed_ftp.worker(
+        1, jobs, stats, threading.Lock(), tmp_path, "mongodb://fake", False, 1,
+        set(), threading.Lock(), {str(source) for source in sources}, direct_mongo,
+    )
+
+    assert created == [client]
+    assert passed == [client, client]
+    assert client.closed is True
+    assert (stats.copied, stats.failed) == (2, 0)
     assert jobs.unfinished_tasks == 0
 
 
@@ -1328,6 +1519,7 @@ def test_upload_worker_retries_transient_copy_failure_then_records_success(tmp_p
         return len(b"media")
 
     monkeypatch.setattr(feed_ftp, "copy_one", flaky_copy)
+    monkeypatch.setattr(feed_ftp, "MongoClient", lambda *_args, **_kwargs: SimpleNamespace(close=lambda: None))
     monkeypatch.setattr(feed_ftp.time, "sleep", sleeps.append)
     stats = feed_ftp.Stats(queued=1)
     pending = {str(source)}
@@ -1452,6 +1644,7 @@ def test_feeder_main_processes_one_local_media_and_drains_worker_queues(tmp_path
     destination_root.mkdir()
     state_file = tmp_path / "feeder-state.json"
     stats_updates = []
+    created_clients = []
 
     class StatsCollection:
         def update_one(self, *args, **kwargs):
@@ -1463,6 +1656,7 @@ def test_feeder_main_processes_one_local_media_and_drains_worker_queues(tmp_path
     class FakeMongoClient:
         def __init__(self, *_args, **_kwargs):
             self.closed = False
+            created_clients.append(self)
 
         def __getitem__(self, _name):
             return FakeDatabase()
@@ -1499,6 +1693,8 @@ def test_feeder_main_processes_one_local_media_and_drains_worker_queues(tmp_path
     assert len(stats_updates) == 1
     assert stats_updates[0][0][0] == {"_id": "feeder"}
     assert stats_updates[0][1]["upsert"] is True
+    assert len(created_clients) == 1
+    assert created_clients[0].closed is True
 
 
 def test_feeder_main_materializes_strm_and_drains_upload_queue(tmp_path, monkeypatch, capsys):

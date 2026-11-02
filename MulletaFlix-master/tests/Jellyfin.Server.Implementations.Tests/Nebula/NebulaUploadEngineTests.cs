@@ -112,6 +112,7 @@ public class NebulaUploadEngineTests
         long uploadCount = 0;
         double uploadDuration = -1;
         string? outcomeTag = null;
+        KeyValuePair<string, object?>[]? metricTags = null;
         using var listener = new ActivityListener
         {
             ShouldListenTo = source => source.Name == NebulaUploadEngine.ActivitySourceName,
@@ -135,6 +136,7 @@ public class NebulaUploadEngineTests
             {
                 uploadCount += measurement;
                 outcomeTag = GetOutcomeTag(tags);
+                metricTags = tags.ToArray();
             }
         });
         meterListener.SetMeasurementEventCallback<double>((instrument, measurement, tags, _) =>
@@ -143,6 +145,7 @@ public class NebulaUploadEngineTests
             {
                 uploadDuration = measurement;
                 outcomeTag = GetOutcomeTag(tags);
+                metricTags = tags.ToArray();
             }
         });
         meterListener.Start();
@@ -165,6 +168,7 @@ public class NebulaUploadEngineTests
         Assert.Equal(1, uploadCount);
         Assert.True(uploadDuration >= 0);
         Assert.Equal("failure", outcomeTag);
+        Assert.Equal(new[] { new KeyValuePair<string, object?>("outcome", "failure") }, metricTags);
         Assert.DoesNotContain(recordedActivity.TagObjects, tag =>
             tag.Value?.ToString()?.Contains("private-title", StringComparison.Ordinal) == true ||
             tag.Value?.ToString()?.Contains("private-parent", StringComparison.Ordinal) == true);

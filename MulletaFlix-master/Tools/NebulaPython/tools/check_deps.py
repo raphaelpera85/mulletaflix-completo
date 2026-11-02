@@ -43,8 +43,6 @@ RUNTIME_REQUIRED: tuple[tuple[str, str], ...] = (
     ("dotenv", "python-dotenv"),
     ("aiofiles", "aiofiles"),
     ("pymongo", "pymongo"),
-    # ``motor`` exige pymongo, importa top-level sem side-effects.
-    ("motor", "motor"),
     # ``aiohttp`` top-level é seguro.
     ("aiohttp", "aiohttp"),
     # Pyrofork keeps the public ``pyrogram`` namespace.

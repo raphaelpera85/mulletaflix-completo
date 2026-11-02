@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import importlib
+import asyncio
 import base64
-import motor.motor_asyncio
+import sys
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from threading import Thread
@@ -98,7 +99,7 @@ class MongoClient:
     def __getitem__(self, _name):
         return self.database
 
-    def close(self):
+    async def close(self):
         self.closed = True
 
 
@@ -222,14 +223,19 @@ async def test_backup_collection_returns_failure_when_sync_is_disabled():
 
 
 @pytest.mark.asyncio
-async def test_backup_collection_redacts_no_error_and_returns_failure_when_cloud_insert_raises():
+async def test_backup_collection_does_not_return_untrusted_exception_text():
     sync = initialized_sync(MongoClient(), Supabase())
-    sync._supabase.table = Mock(side_effect=RuntimeError("cloud unavailable"))
+    sync._supabase.table = Mock(side_effect=RuntimeError(
+        "cloud unavailable https://user:password@supabase.example/rest?apikey=secret\r\nforged"
+    ))
 
     result = await sync.backup_collection("files")
 
     assert result["success"] is False
-    assert "cloud unavailable" in result["error"]
+    assert result["error"] == "RuntimeError"
+    assert "password" not in str(result)
+    assert "secret" not in str(result)
+    assert "forged" not in str(result)
 
 
 @pytest.mark.asyncio
@@ -504,7 +510,7 @@ async def test_restore_collection_does_not_delete_snapshot_extras_when_upsert_fa
     result = await sync.restore_collection("files")
 
     assert result["success"] is False
-    assert "simulated write failure" in result["error"]
+    assert result["error"] == "RuntimeError"
     assert collection.deleted_queries == []
 
 
@@ -518,6 +524,18 @@ async def test_restore_collection_reports_missing_backup_without_touching_mongo(
     assert result == {"success": False, "error": "No backup found"}
     assert mongo.database["users"].deleted_queries == []
     assert mongo.database["users"].bulk_writes == []
+
+
+@pytest.mark.asyncio
+async def test_restore_collection_does_not_return_untrusted_cloud_exception_text():
+    sync = initialized_sync(MongoClient(), Supabase())
+    sync._supabase.table = Mock(side_effect=RuntimeError(
+        "https://user:password@supabase.example/rest?apikey=secret\r\nforged"
+    ))
+
+    result = await sync.restore_collection("files")
+
+    assert result == {"success": False, "error": "RuntimeError"}
 
 
 @pytest.mark.asyncio
@@ -546,8 +564,11 @@ async def test_sync_config_and_load_config_handle_disabled_and_cloud_errors():
     assert await disabled.load_config_from_supabase() is None
 
     sync = initialized_sync(MongoClient(), Supabase())
-    sync._supabase.table = Mock(side_effect=RuntimeError("network error"))
-    assert (await sync.sync_config_to_supabase({"VERSION": "test"}))["success"] is False
+    sync._supabase.table = Mock(side_effect=RuntimeError(
+        "network error https://user:password@supabase.example/rest?apikey=secret"
+    ))
+    result = await sync.sync_config_to_supabase({"VERSION": "test"})
+    assert result == {"success": False, "error": "RuntimeError"}
     assert await sync.load_config_from_supabase() is None
 
 
@@ -616,23 +637,49 @@ def test_fetch_from_supabase_parses_response_and_constructs_paging_url(monkeypat
     assert seen[0][1] == 30
 
 
-def test_post_batch_raises_with_cloud_http_error_details(monkeypatch):
+def test_post_batch_omits_untrusted_cloud_http_body(monkeypatch, capsys):
+    from io import BytesIO
     import urllib.error
+    body = BytesIO(b"server\r\nservice_key=secret")
 
     def fail_request(_request, timeout):
-        raise urllib.error.HTTPError("https://example.test", 503, "offline", {}, None)
+        raise urllib.error.HTTPError(
+            "https://example.test", 503, "offline", {}, body
+        )
 
     monkeypatch.setattr(supabase_sync._SUPABASE_OPENER, "open", fail_request)
 
     with pytest.raises(RuntimeError, match="PostgREST Error 503"):
         supabase_sync.post_batch_to_supabase("https://example.test", "key", "files", [{"id": "1"}])
 
+    output = capsys.readouterr().out
+    assert "503" in output
+    assert "service_key" not in output
+    assert "secret" not in output
+    assert "\\r\\n" not in output
+    assert body.closed
+
+
+def test_supabase_logger_flattens_message_and_traceback(caplog):
+    try:
+        raise RuntimeError("remote failure\r\nERROR forged entry")
+    except RuntimeError:
+        exc_info = sys.exc_info()
+
+    with caplog.at_level("ERROR", logger="SupabaseSync"):
+        supabase_sync.logger.error("backup failed for %s", "movie.mkv\r\nWARNING forged entry", exc_info=exc_info)
+
+    assert len(caplog.messages) == 1
+    assert "\\r\\nERROR forged entry" in caplog.messages[0]
+    assert "\\r\\nWARNING forged entry" in caplog.messages[0]
+    assert "Traceback" in caplog.messages[0]
+
 
 @pytest.mark.asyncio
 async def test_initialize_rejects_missing_credentials_without_opening_mongo(monkeypatch):
     sync = supabase_sync.SupabaseSync(supabase_url="", supabase_key="")
     mongo_factory = Mock(side_effect=AssertionError("Mongo must stay closed"))
-    monkeypatch.setattr(supabase_sync, "AsyncIOMotorClient", mongo_factory)
+    monkeypatch.setattr(supabase_sync, "AsyncMongoClient", mongo_factory)
 
     assert await sync.initialize() is False
     assert sync._sync_enabled is False
@@ -669,7 +716,7 @@ async def test_initialize_rejects_invalid_supabase_url_before_opening_mongo(monk
     sync = supabase_sync.SupabaseSync(supabase_url="ftp://supabase.example", supabase_key="key")
     mongo_factory = Mock(side_effect=AssertionError("Mongo must stay closed"))
     monkeypatch.setattr(supabase_sync, "SUPABASE_AVAILABLE", True)
-    monkeypatch.setattr(supabase_sync, "AsyncIOMotorClient", mongo_factory)
+    monkeypatch.setattr(supabase_sync, "AsyncMongoClient", mongo_factory)
 
     assert await sync.initialize() is False
     mongo_factory.assert_not_called()
@@ -718,7 +765,7 @@ def test_supabase_rest_does_not_send_credentials_to_redirect_target():
 async def test_initialize_connects_to_mongo_and_supabase_and_close_releases_mongo(monkeypatch):
     mongo = MongoClient()
     cloud = Supabase()
-    monkeypatch.setattr(supabase_sync, "AsyncIOMotorClient", lambda *_args: mongo)
+    monkeypatch.setattr(supabase_sync, "AsyncMongoClient", lambda *_args: mongo)
     monkeypatch.setattr(supabase_sync, "create_client", lambda *_args: cloud)
     monkeypatch.setattr(supabase_sync, "SUPABASE_AVAILABLE", True)
     sync = supabase_sync.SupabaseSync(
@@ -740,7 +787,7 @@ async def test_initialize_reports_mongo_failure_and_disables_sync(monkeypatch):
         raise ConnectionError("mongo unavailable")
 
     mongo.admin.command = fail_ping
-    monkeypatch.setattr(supabase_sync, "AsyncIOMotorClient", lambda *_args: mongo)
+    monkeypatch.setattr(supabase_sync, "AsyncMongoClient", lambda *_args: mongo)
     monkeypatch.setattr(supabase_sync, "SUPABASE_AVAILABLE", True)
     sync = supabase_sync.SupabaseSync(supabase_url="https://example.test", supabase_key="key")
 
@@ -756,12 +803,32 @@ async def test_initialize_reports_supabase_failure_and_closes_mongo(monkeypatch)
     def fail_supabase(*_args):
         raise ConnectionError("supabase unavailable")
 
-    monkeypatch.setattr(supabase_sync, "AsyncIOMotorClient", lambda *_args: mongo)
+    monkeypatch.setattr(supabase_sync, "AsyncMongoClient", lambda *_args: mongo)
     monkeypatch.setattr(supabase_sync, "create_client", fail_supabase)
     monkeypatch.setattr(supabase_sync, "SUPABASE_AVAILABLE", True)
     sync = supabase_sync.SupabaseSync(supabase_url="https://example.test", supabase_key="key")
 
     assert await sync.initialize() is False
+    assert sync._sync_enabled is False
+    assert sync._mongo_client is None
+    assert mongo.closed is True
+
+
+@pytest.mark.asyncio
+async def test_initialize_closes_mongo_and_propagates_cancellation(monkeypatch):
+    mongo = MongoClient()
+
+    async def cancel_ping(_name):
+        raise asyncio.CancelledError
+
+    mongo.admin.command = cancel_ping
+    monkeypatch.setattr(supabase_sync, "AsyncMongoClient", lambda *_args: mongo)
+    monkeypatch.setattr(supabase_sync, "SUPABASE_AVAILABLE", True)
+    sync = supabase_sync.SupabaseSync(supabase_url="https://example.test", supabase_key="key")
+
+    with pytest.raises(asyncio.CancelledError):
+        await sync.initialize()
+
     assert sync._sync_enabled is False
     assert sync._mongo_client is None
     assert mongo.closed is True
@@ -810,8 +877,8 @@ async def test_legacy_mongo_backup_serializes_files_and_users_and_closes_client(
         batches.append((table, records))
         return len(records)
 
-    monkeypatch.setattr(supabase_sync, "AsyncIOMotorClient", lambda *_args: client)
-    monkeypatch.setattr(motor.motor_asyncio, "AsyncIOMotorClient", lambda *_args: client)
+    monkeypatch.setattr(supabase_sync, "AsyncMongoClient", lambda *_args: client)
+    monkeypatch.setattr(supabase_sync, "AsyncMongoClient", lambda *_args: client)
     monkeypatch.setattr(supabase_sync, "post_batch_to_supabase", save_batch)
 
     result = await supabase_sync.backup_mongo_to_supabase(
@@ -830,7 +897,7 @@ async def test_legacy_mongo_backup_serializes_files_and_users_and_closes_client(
 
 
 @pytest.mark.asyncio
-async def test_legacy_backup_records_failed_status_and_raises_when_a_file_batch_fails(monkeypatch):
+async def test_legacy_backup_hides_mongo_uri_and_records_failed_status(monkeypatch, capsys):
     files = MongoCollection([{"_id": index, "name": f"file-{index}.mkv"} for index in range(101)])
     database = MongoDatabase({"files": files, "users": MongoCollection()})
     client = MongoClient(database)
@@ -846,13 +913,24 @@ async def test_legacy_backup_records_failed_status_and_raises_when_a_file_batch_
         if table == "nebula_backups":
             history.extend(records)
 
-    monkeypatch.setattr(motor.motor_asyncio, "AsyncIOMotorClient", lambda *_args: client)
+    monkeypatch.setattr(supabase_sync, "AsyncMongoClient", lambda *_args: client)
     monkeypatch.setattr(supabase_sync, "post_batch_to_supabase", save_batch)
 
     with pytest.raises(RuntimeError, match="Backup incompleto: files batch"):
         await supabase_sync.backup_mongo_to_supabase(
-            "mongodb://test", "ftp", "https://example.test", "service-key"
+            "mongodb://backup-user:top-secret@private-db.example:27017/ftp?authSource=admin",
+            "ftp\r\n[FAKE] injected",
+            "https://example.test",
+            "service-key",
         )
+
+    output = capsys.readouterr().out
+    assert "private-db.example:27017" in output
+    assert "backup-user" not in output
+    assert "top-secret" not in output
+    assert "authSource" not in output
+    assert r"DB: ftp\r\n[FAKE] injected" in output
+    assert "\n[FAKE] injected" not in output
 
     assert history[0]["status"] == "failed"
     assert history[0]["total_files"] == 1
@@ -874,7 +952,7 @@ async def test_legacy_backup_records_failed_status_and_raises_when_user_batch_fa
         if table == "nebula_backups":
             history.extend(records)
 
-    monkeypatch.setattr(motor.motor_asyncio, "AsyncIOMotorClient", lambda *_args: client)
+    monkeypatch.setattr(supabase_sync, "AsyncMongoClient", lambda *_args: client)
     monkeypatch.setattr(supabase_sync, "post_batch_to_supabase", save_batch)
 
     with pytest.raises(RuntimeError, match="Backup incompleto: users batch"):
@@ -897,7 +975,7 @@ async def test_legacy_backup_fails_closed_when_history_cannot_be_recorded(monkey
         if table == "nebula_backups":
             raise OSError("history store unavailable")
 
-    monkeypatch.setattr(motor.motor_asyncio, "AsyncIOMotorClient", lambda *_args: client)
+    monkeypatch.setattr(supabase_sync, "AsyncMongoClient", lambda *_args: client)
     monkeypatch.setattr(supabase_sync, "post_batch_to_supabase", save_batch)
 
     with pytest.raises(RuntimeError, match="Backup não confirmado: falha ao registrar histórico"):
@@ -924,8 +1002,8 @@ async def test_legacy_restore_pages_files_and_recreates_indexes(monkeypatch):
         requests.append((table, limit, offset))
         return pages[table] if offset == 0 else []
 
-    monkeypatch.setattr(supabase_sync, "AsyncIOMotorClient", lambda *_args: client)
-    monkeypatch.setattr(motor.motor_asyncio, "AsyncIOMotorClient", lambda *_args: client)
+    monkeypatch.setattr(supabase_sync, "AsyncMongoClient", lambda *_args: client)
+    monkeypatch.setattr(supabase_sync, "AsyncMongoClient", lambda *_args: client)
     monkeypatch.setattr(supabase_sync, "fetch_from_supabase", fetch)
 
     result = await supabase_sync.restore_supabase_to_mongo(
@@ -959,8 +1037,8 @@ async def test_legacy_restore_reports_partial_file_restore_when_later_page_fails
             return first_page
         raise OSError("simulated Supabase page failure")
 
-    monkeypatch.setattr(supabase_sync, "AsyncIOMotorClient", lambda *_args: client)
-    monkeypatch.setattr(motor.motor_asyncio, "AsyncIOMotorClient", lambda *_args: client)
+    monkeypatch.setattr(supabase_sync, "AsyncMongoClient", lambda *_args: client)
+    monkeypatch.setattr(supabase_sync, "AsyncMongoClient", lambda *_args: client)
     monkeypatch.setattr(supabase_sync, "fetch_from_supabase", fetch)
 
     with pytest.raises(RuntimeError, match=r"offset 500.*500 arquivos"):
@@ -989,8 +1067,8 @@ async def test_legacy_restore_reports_user_fetch_failure(monkeypatch, capsys):
         assert table == "nebula_files" and offset == 0
         return []
 
-    monkeypatch.setattr(supabase_sync, "AsyncIOMotorClient", lambda *_args: client)
-    monkeypatch.setattr(motor.motor_asyncio, "AsyncIOMotorClient", lambda *_args: client)
+    monkeypatch.setattr(supabase_sync, "AsyncMongoClient", lambda *_args: client)
+    monkeypatch.setattr(supabase_sync, "AsyncMongoClient", lambda *_args: client)
     monkeypatch.setattr(supabase_sync, "fetch_from_supabase", fetch)
 
     with pytest.raises(RuntimeError, match="usuários"):
@@ -1032,8 +1110,8 @@ async def test_legacy_restore_preserves_partial_user_count_when_update_fails(mon
         assert table == "nebula_files" and offset == 0
         return []
 
-    monkeypatch.setattr(supabase_sync, "AsyncIOMotorClient", lambda *_args: client)
-    monkeypatch.setattr(motor.motor_asyncio, "AsyncIOMotorClient", lambda *_args: client)
+    monkeypatch.setattr(supabase_sync, "AsyncMongoClient", lambda *_args: client)
+    monkeypatch.setattr(supabase_sync, "AsyncMongoClient", lambda *_args: client)
     monkeypatch.setattr(supabase_sync, "fetch_from_supabase", fetch)
 
     with pytest.raises(RuntimeError, match="usuários"):
@@ -1057,8 +1135,8 @@ async def test_legacy_restore_reports_index_creation_failure(monkeypatch):
     def fetch(_url, _key, _table, limit, offset=0):
         return []
 
-    monkeypatch.setattr(supabase_sync, "AsyncIOMotorClient", lambda *_args: client)
-    monkeypatch.setattr(motor.motor_asyncio, "AsyncIOMotorClient", lambda *_args: client)
+    monkeypatch.setattr(supabase_sync, "AsyncMongoClient", lambda *_args: client)
+    monkeypatch.setattr(supabase_sync, "AsyncMongoClient", lambda *_args: client)
     monkeypatch.setattr(supabase_sync, "fetch_from_supabase", fetch)
 
     with pytest.raises(RuntimeError, match="índices"):

@@ -331,8 +331,9 @@ async def test_strm_generation_uses_packaged_generator_for_legacy_and_object_id_
     class MongoClient:
         instances = []
 
-        def __init__(self, uri):
+        def __init__(self, uri, **options):
             self.uri = uri
+            self.options = options
             self.closed = False
             self.instances.append(self)
 
@@ -374,6 +375,7 @@ async def test_strm_generation_uses_packaged_generator_for_legacy_and_object_id_
     }
     assert len(MongoClient.instances) == 1
     assert MongoClient.instances[0].closed
+    assert MongoClient.instances[0].options["serverSelectionTimeoutMS"] == 3000
 
 
 class FakeProcess:

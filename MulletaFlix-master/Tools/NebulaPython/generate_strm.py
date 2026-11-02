@@ -126,7 +126,10 @@ def generate_strm_files(
     ):
         raise ValueError("STREAM_BASE_URL must be an HTTP(S) URL without credentials, query, or fragment")
 
-    client = MongoClient(mongo_url or os.getenv("MONGODB", "mongodb://localhost:27017"))
+    client = MongoClient(
+        mongo_url or os.getenv("MONGODB", "mongodb://localhost:27017"),
+        serverSelectionTimeoutMS=3000,
+    )
     output = Path(output_root or os.getenv("STRM_OUTPUT_DIR", "strm_library")).resolve()
     user = (library_user or os.getenv("NEBULA_LIBRARY_USER", "raphael")).strip()
     generated: set[Path] = set()

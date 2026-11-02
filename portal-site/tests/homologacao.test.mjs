@@ -6,6 +6,366 @@ import vm from 'node:vm';
 const statusData = JSON.parse(readFileSync(new URL('../homologacao-status.json', import.meta.url), 'utf8'));
 const dashboardSource = readFileSync(new URL('../homologacao.js', import.meta.url), 'utf8');
 
+test('portal registra retry integral de UpdatePeople e mantém homologação formal pendente', () => {
+    const event = statusData.events.find(item => item.id === 'server-people-mariadb-whole-transaction-retry-2026-11-02-1603');
+    const server = statusData.tracks.find(track => track.id === 'server');
+
+    assert.ok(event);
+    assert.equal(event.status, 'completed');
+    assert.match(event.local, /1205 e 1213 simulados 2\/2.*seis testes opt-in MariaDB ignorados.*0 avisos\/erros/i);
+    assert.match(event.evidence, /DbContext e transação novos.*no máximo três vezes.*1205\/1213/i);
+    assert.match(event.release, /1\/10.*2\/7.*12\.1\.46 candidata, não publicada.*Linux.*produção/i);
+    assert.equal(statusData.events.length, 410);
+    assert.equal(server.homologation.completed, 2);
+    assert.equal(server.homologation.total, 7);
+    assert.equal(server.homologation.percent, 28.6);
+});
+
+test('portal registra retry síncrono de capítulos sem avançar homologação formal', () => {
+    const event = statusData.events.find(item => item.id === 'server-chapters-mariadb-sync-retry-2026-11-02-1615');
+    const server = statusData.tracks.find(track => track.id === 'server');
+
+    assert.ok(event);
+    assert.equal(event.status, 'completed');
+    assert.match(event.local, /1205 e 1213 simulados 2\/2.*build focal.*0 avisos\/erros.*MariaDB opt-in ignorado/i);
+    assert.match(event.evidence, /no máximo três vezes.*1205\/1213.*SQLite.*2\/2/i);
+    assert.match(event.release, /2\/10.*2\/7.*12\.1\.46 candidata, não publicada.*produção/i);
+    assert.equal(statusData.events.length, 410);
+    assert.equal(server.homologation.completed, 2);
+    assert.equal(server.homologation.total, 7);
+    assert.equal(server.homologation.percent, 28.6);
+});
+
+test('portal registra TRX da CI .NET sem promover homologação hospedada', () => {
+    const event = statusData.events.find(item => item.id === 'server-ci-dotnet-trx-artifacts-2026-11-02-1621');
+    const server = statusData.tracks.find(track => track.id === 'server');
+
+    assert.ok(event);
+    assert.equal(event.status, 'completed');
+    assert.match(event.local, /2\/2.*17 TRX distintos.*contrato CI 16\/16, portal 238\/238.*parse YAML passou/i);
+    assert.match(event.evidence, /sete jobs.*if: always\(\).*17 arquivos TRX sem colisão.*não workflow hospedado/is);
+    assert.match(event.release, /3\/10.*2\/7.*12\.1\.46 candidata, não publicada.*billing/i);
+    assert.equal(statusData.events.length, 410);
+    assert.equal(server.homologation.completed, 2);
+    assert.equal(server.homologation.total, 7);
+    assert.equal(server.homologation.percent, 28.6);
+});
+
+test('portal registra regressão ampla .NET e Nebula sem conceder homologação formal', () => {
+    const event = statusData.events.find(item => item.id === 'server-full-regression-2026-11-02-1629');
+    const server = statusData.tracks.find(track => track.id === 'server');
+
+    assert.ok(event);
+    assert.equal(event.status, 'completed');
+    assert.match(event.local, /17 TRX.*5\.671 aprovados.*290 ignorados.*0 falhas\/5\.961.*Nebula Python 3\.10\.11: 806\/806.*93%/i);
+    assert.match(event.evidence, /excluiu LiveIntegrationTests.*cenários opt-in.*Windows.*produção não validados/i);
+    assert.match(event.release, /4\/10.*2\/7 \(28,6%\).*12\.1\.46 candidata, não publicada/i);
+    assert.deepEqual(server.testAudit, {
+        passed: 5671,
+        total: 5961,
+        skipped: 290,
+        failed: 0,
+        percent: 95.1,
+        label: 'Regressão .NET Release em Windows/.NET 10: 17 assemblies, 5.671 aprovados, 290 ignorados, 0 falhas/5.961; filtro FullyQualifiedName!~LiveIntegrationTests. Percentual é taxa de aprovação dos casos incluídos, não completude funcional nem homologação formal (2/7, 28,6%). Nebula Python: 806/806 no Windows/Python 3.10.11, cobertura total 93%. CI hospedada, Linux/macOS, bancos opt-in, runtime instalado e produção permanecem pendentes.'
+    });
+    assert.match(statusData.latestAudit, /CI ganhou job isolado para o lease.*snapshot local 410 eventos, lote 10\/10.*homologação formal 2\/7/i);
+    assert.equal(statusData.events.length, 410);
+    assert.equal(server.homologation.completed, 2);
+    assert.equal(server.homologation.total, 7);
+    assert.equal(server.homologation.percent, 28.6);
+});
+
+test('portal registra propagação de cancelamento em testes novos do servidor sem crédito formal', () => {
+    const event = statusData.events.find(item => item.id === 'server-test-cancellation-platform-warnings-2026-11-02-1658');
+    const server = statusData.tracks.find(track => track.id === 'server');
+
+    assert.ok(event);
+    assert.equal(event.status, 'completed');
+    assert.match(event.local, /build focal.*0 erros.*15 aprovados, 1 ignorado.*11 avisos novos resolvidos/i);
+    assert.match(event.evidence, /TestContext\.Current\.CancellationToken.*xUnit1030.*UnsupportedOSPlatform.*nenhuma fonte de produção/i);
+    assert.match(event.release, /5\/10.*homologação formal permanece 2\/7.*12\.1\.46 candidata, não publicada/i);
+    assert.equal(server.homologation.completed, 2);
+    assert.equal(server.homologation.total, 7);
+    assert.equal(server.homologation.percent, 28.6);
+});
+
+
+test('portal registra atualização candidata do runtime Python Nebula e deixa produção pendente', () => {
+    const event = statusData.events.find(item => item.id === 'server-nebula-python-runtime-314-installer-2026-11-02-1108');
+    const server = statusData.tracks.find(track => track.id === 'server');
+
+    assert.ok(event);
+    assert.equal(event.status, 'completed');
+    assert.match(event.local, /Python 3\.14\.7.*806\/806.*3\.14\.10.*SHA-256/is);
+    assert.match(event.evidence, /3\.14\.10.*Python Software Foundation.*3\.14\.7.*Linux.*produção/is);
+    assert.match(event.release, /3\/10.*2\/7.*12\.1\.46 candidata, não publicada/i);
+    assert.equal(statusData.events.length, 410);
+    assert.equal(server.homologation.completed, 2);
+    assert.equal(server.homologation.total, 7);
+    assert.equal(server.homologation.percent, 28.6);
+});
+test('portal registra auditoria de ciclo de vida do runtime Nebula sem presumir homologação de produção', () => {
+    const event = statusData.events.find(item => item.id === 'server-nebula-python-runtime-compat-audit-2026-11-02-1101');
+    const server = statusData.tracks.find(track => track.id === 'server');
+
+    assert.ok(event);
+    assert.equal(event.status, 'completed');
+    assert.match(event.local, /Python 3\.14\.7.*lock.*806\/806/is);
+    assert.match(event.evidence, /Python 3\.10.*fora de suporte.*3\.13\.7.*3\.14\.10.*bootstrap C\#/is);
+    assert.match(event.release, /2\/10.*2\/7.*12\.1\.46 candidata, não publicada/i);
+    assert.equal(statusData.events.length, 410);
+    assert.equal(server.homologation.completed, 2);
+    assert.equal(server.homologation.total, 7);
+    assert.equal(server.homologation.percent, 28.6);
+});
+test('portal registra proteção dos logs Supabase e mantém homologação formal separada', () => {
+    const event = statusData.events.find(item => item.id === 'server-supabase-credential-safe-logs-2026-11-02-1038');
+    const server = statusData.tracks.find(track => track.id === 'server');
+
+    assert.ok(event);
+    assert.equal(event.status, 'completed');
+    assert.match(event.local, /805\/805.*77\/77.*compileall/is);
+    assert.match(event.evidence, /host e porta.*sem userinfo.*corpo.*feed_ftp\.py/i);
+    assert.match(event.release, /9\/10.*2\/7.*12\.1\.46 candidata, não publicada/i);
+    assert.equal(statusData.events.length, 410);
+    assert.equal(server.homologation.completed, 2);
+    assert.equal(server.homologation.total, 7);
+    assert.equal(server.homologation.percent, 28.6);
+});
+
+test('portal registra proteção contra injeção CR/LF nos logs Nebula sem homologar produção', () => {
+    const event = statusData.events.find(item => item.id === 'server-nebula-single-line-logs-2026-11-02-1028');
+    const server = statusData.tracks.find(track => track.id === 'server');
+
+    assert.ok(event);
+    assert.equal(event.status, 'completed');
+    assert.match(event.local, /803\/803.*test_main_logging 7\/7.*compileall.*--help/is);
+    assert.match(event.evidence, /CR.*LF.*linha física.*traceback.*primeira suíte completa/is);
+    assert.match(event.release, /8\/10.*2\/7.*12\.1\.46 candidata, não publicada/i);
+    assert.equal(statusData.events.length, 410);
+    assert.equal(server.homologation.completed, 2);
+    assert.equal(server.homologation.total, 7);
+    assert.equal(server.homologation.percent, 28.6);
+});
+
+test('portal registra auditoria de persistência das versões alternativas sem sugerir implementação ou homologação', () => {
+    const event = statusData.events.find(item => item.id === 'server-alternate-media-persistence-batch-audit-2026-11-02-0907');
+    const server = statusData.tracks.find(track => track.id === 'server');
+
+    assert.ok(event);
+    assert.equal(event.status, 'completed');
+    assert.match(event.evidence, /UpdateItemsAsync.*um único parent/is);
+    assert.match(event.evidence, /código não foi alterado nem o custo medido/i);
+    assert.match(event.release, /10\/10.*2\/7.*12\.1\.46 candidata, não publicada/i);
+    assert.equal(statusData.events.length, 410);
+    assert.equal(server.homologation.completed, 2);
+    assert.equal(server.homologation.total, 7);
+    assert.equal(server.homologation.percent, 28.6);
+});
+
+test('portal registra DTOs assíncronos de playback sem promover homologação formal', () => {
+    const event = statusData.events.find(item => item.id === 'server-playback-async-dto-2026-11-02-0928');
+    const server = statusData.tracks.find(track => track.id === 'server');
+
+    assert.ok(event);
+    assert.equal(event.status, 'completed');
+    assert.match(event.local, /SessionManagerTests 12\/12.*DtoService focal 11\/11/is);
+    assert.match(event.evidence, /GetBaseItemDtoAsync.*ReportNowViewingItem.*não foram verificados/is);
+    assert.match(event.release, /1\/10.*2\/7.*12\.1\.46 candidata, não publicada/i);
+    assert.equal(statusData.events.length, 410);
+    assert.equal(server.homologation.completed, 2);
+    assert.equal(server.homologation.total, 7);
+    assert.equal(server.homologation.percent, 28.6);
+    assert.ok(Date.parse(event.updatedAt) <= Date.parse(statusData.generatedAt));
+});
+
+test('portal registra fallback Happy Eyeballs assíncrono sem promover homologação formal', () => {
+    const event = statusData.events.find(item => item.id === 'server-happy-eyeballs-async-fallback-2026-11-02-0934');
+    const server = statusData.tracks.find(track => track.id === 'server');
+
+    assert.ok(event);
+    assert.equal(event.status, 'completed');
+    assert.match(event.local, /HappyEyeballsConnectCallback 3\/3.*HTTP 200/is);
+    assert.match(event.evidence, /GetAwaiter\(\)\.GetResult\(\).*await ConfigureAwait\(false\).*não foram verificados/is);
+    assert.match(event.release, /2\/10.*2\/7.*12\.1\.46 candidata, não publicada/i);
+    assert.equal(statusData.events.length, 410);
+    assert.equal(server.homologation.completed, 2);
+    assert.equal(server.homologation.total, 7);
+    assert.equal(server.homologation.percent, 28.6);
+    assert.ok(Date.parse(event.updatedAt) <= Date.parse(statusData.generatedAt));
+});
+
+test('portal registra a suíte local e oportunidades técnicas sem homologar o servidor', () => {
+    const event = statusData.events.find(item => item.id === 'server-full-suite-and-engineering-techniques-2026-11-02-0843');
+    const server = statusData.tracks.find(track => track.id === 'server');
+
+    assert.ok(event);
+    assert.equal(event.status, 'completed');
+    assert.match(event.local, /exit 0.*sem falhas.*filtro excluiu integração/is);
+    assert.match(event.evidence, /Startup\.GetRetryPolicy.*OpenTelemetry OTLP.*BlobNotFound/is);
+    assert.match(event.release, /8\/10.*2\/7.*12\.1\.46 candidata, não publicada/i);
+    assert.equal(statusData.events.length, 410);
+    assert.equal(server.homologation.completed, 2);
+    assert.equal(server.homologation.total, 7);
+    assert.equal(server.homologation.percent, 28.6);
+    assert.ok(Date.parse(event.updatedAt) <= Date.parse(statusData.generatedAt));
+});
+
+test('portal registra auditoria de persistência de playlists externas sem promover homologação', () => {
+    const event = statusData.events.find(item => item.id === 'server-playlist-file-persistence-audit-2026-11-02-0833');
+    const server = statusData.tracks.find(track => track.id === 'server');
+
+    assert.ok(event);
+    assert.equal(event.status, 'completed');
+    assert.match(event.local, /cinco formatos.*dois callers/is);
+    assert.match(event.evidence, /ACL.*SMB/is);
+    assert.match(event.release, /7\/10.*2\/7.*12\.1\.46 candidata, não publicada/i);
+    assert.equal(statusData.events.length, 410);
+    assert.equal(server.homologation.completed, 2);
+    assert.equal(server.homologation.total, 7);
+    assert.equal(server.homologation.percent, 28.6);
+    assert.ok(Date.parse(event.updatedAt) <= Date.parse(statusData.generatedAt));
+});
+
+test('portal registra refresh de backdrops localizados e persistência concorrente do ID do servidor', () => {
+    const event = statusData.events.find(item => item.id === 'server-image-language-backdrop-device-id-2026-11-02-0826');
+    const server = statusData.tracks.find(track => track.id === 'server');
+
+    assert.ok(event);
+    assert.equal(event.status, 'completed');
+    assert.match(event.local, /backdrop.*2\/2.*84\/84.*DeviceIdTests.*3\/3/is);
+    assert.match(event.evidence, /se não há candidato.*preserva a imagem.*lock da instância.*temporário irmão/is);
+    assert.match(event.release, /6\/10.*2\/7.*12\.1\.46 candidata, não publicada/i);
+    assert.equal(statusData.events.length, 410);
+    assert.equal(server.homologation.completed, 2);
+    assert.equal(server.homologation.total, 7);
+    assert.equal(server.homologation.percent, 28.6);
+});
+
+test('portal registra a serialização local da alocação de InternalId e suas limitações', () => {
+    const event = statusData.events.find(item => item.id === 'server-user-internal-id-concurrent-create-2026-11-02-0638');
+    const server = statusData.tracks.find(track => track.id === 'server');
+
+    assert.ok(event);
+    assert.equal(event.status, 'completed');
+    assert.match(event.local, /14\/14.*37 aprovados, 27 ignorados, 0 falhas\/64/);
+    assert.match(event.evidence, /antes da correção.*depois.*EF InMemory.*somente uma instância\/processo/is);
+    assert.match(event.release, /6\/10.*2\/7.*proteção entre processos permanece pendente/i);
+    assert.equal(statusData.events.length, 410);
+    assert.equal(server.homologation.completed, 2);
+    assert.equal(server.homologation.total, 7);
+});
+
+test('portal registra o fast path de read-ahead do Nebula e limita o alcance do benchmark', () => {
+    const event = statusData.events.find(item => item.id === 'server-nebula-readahead-ready-queue-fast-path-2026-11-02-0624');
+    const server = statusData.tracks.find(track => track.id === 'server');
+
+    assert.ok(event);
+    assert.equal(event.status, 'completed');
+    assert.match(event.local, /3 esperas.*801\/801.*Microbenchmark sintético/);
+    assert.match(event.evidence, /falhou antes.*passou após.*não mede Telegram/s);
+    assert.match(event.release, /5\/10.*2\/7.*não validados/i);
+    assert.equal(statusData.events.length, 410);
+    assert.equal(server.homologation.completed, 2);
+    assert.equal(server.homologation.total, 7);
+    assert.ok(Date.parse(event.updatedAt) <= Date.parse(statusData.generatedAt));
+});
+
+test('portal registra persistência protegida do estado do updater sem promover homologação formal', () => {
+    const event = statusData.events.find(item => item.id === 'server-update-state-protected-write-2026-11-02-0806');
+    const server = statusData.tracks.find(track => track.id === 'server');
+
+    assert.ok(event);
+    assert.equal(event.status, 'completed');
+    assert.match(event.local, /PersistText.*4\/4.*Jellyfin\.Common\.Tests: 40\/40/s);
+    assert.match(event.evidence, /falha fechada.*cancelamento.*produção/s);
+    assert.match(event.release, /5\/10.*2\/7.*12\.1\.46 candidata, não publicada/i);
+    assert.equal(statusData.events.length, 410);
+    assert.equal(server.homologation.completed, 2);
+    assert.equal(server.homologation.total, 7);
+    assert.equal(server.homologation.percent, 28.6);
+    assert.ok(Date.parse(event.updatedAt) <= Date.parse(statusData.generatedAt));
+});
+
+test('portal registra a regressão de idioma validada na suíte completa de providers', () => {
+    const event = statusData.events.find(item => item.id === 'server-provider-suite-image-language-regression-2026-11-02-0620');
+    const server = statusData.tracks.find(track => track.id === 'server');
+
+    assert.ok(event);
+    assert.equal(event.status, 'completed');
+    assert.match(event.local, /Jellyfin\.Providers\.Tests: 934 aprovados, 14 ignorados, 0 falhas\/948/);
+    assert.match(event.evidence, /--no-build --no-restore.*Linux foram ignorados/s);
+    assert.match(event.release, /4\/10.*2\/7.*não validados/i);
+    assert.equal(statusData.events.length, 410);
+    assert.equal(server.homologation.completed, 2);
+    assert.equal(server.homologation.total, 7);
+    assert.ok(Date.parse(event.updatedAt) <= Date.parse(statusData.generatedAt));
+});
+
+test('portal registra a persistência do idioma da imagem por ItemImageProvider', () => {
+    const event = statusData.events.find(item => item.id === 'server-image-language-metadata-regression-test-2026-11-02-0618');
+    const server = statusData.tracks.find(track => track.id === 'server');
+
+    assert.ok(event);
+    assert.equal(event.status, 'completed');
+    assert.match(event.local, /passou 2\/2.*não provava o metadado/i);
+    assert.match(event.evidence, /sem Language.*atribui pt-br/s);
+    assert.match(event.release, /3\/10.*2\/7.*não verificados/i);
+    assert.equal(statusData.events.length, 410);
+    assert.equal(server.homologation.completed, 2);
+    assert.equal(server.homologation.total, 7);
+    assert.ok(Date.parse(event.updatedAt) <= Date.parse(statusData.generatedAt));
+});
+
+test('portal registra os requisitos pendentes para coordenação MariaDB entre processos', () => {
+    const event = statusData.events.find(item => item.id === 'server-user-admin-lock-prerequisites-2026-11-02-0614');
+    const server = statusData.tracks.find(track => track.id === 'server');
+
+    assert.ok(event);
+    assert.equal(event.status, 'completed');
+    assert.match(event.local, /UpdateUserAsync troca de DbContext.*nenhum teste real/i);
+    assert.match(event.evidence, /GET_LOCK.*RELEASE_LOCK.*todos os writers cooperarem/s);
+    assert.match(event.release, /2\/10.*2\/7.*não publicada/i);
+    assert.equal(statusData.events.length, 410);
+    assert.equal(server.homologation.completed, 2);
+    assert.equal(server.homologation.total, 7);
+    assert.ok(Date.parse(event.updatedAt) <= Date.parse(statusData.generatedAt));
+});
+
+test('portal registra a publicação do cache após salvar options.xml sem declarar atomicidade completa', () => {
+    const event = statusData.events.find(item => item.id === 'server-collection-folder-cache-after-persist-2026-11-02-0540');
+    const server = statusData.tracks.find(track => track.id === 'server');
+
+    assert.ok(event);
+    assert.equal(event.status, 'completed');
+    assert.equal(event.progressPercent, 100);
+    assert.match(event.local, /Jellyfin\.Controller\.Tests 80 aprovados, 1 ignorado, 0 falhas\/81/);
+    assert.match(event.evidence, /ainda usa SerializeToFile direto.*corromper o arquivo/s);
+    assert.match(event.release, /9\/10.*2\/7.*12\.1\.46 candidata, não publicada/s);
+    assert.equal(statusData.events.length, 410);
+    assert.equal(server.homologation.completed, 2);
+    assert.equal(server.homologation.total, 7);
+    assert.equal(server.homologation.percent, 28.6);
+    assert.ok(Date.parse(event.updatedAt) <= Date.parse(statusData.generatedAt));
+});
+
+test('portal registra a proteção concorrente do último administrador sem avançar homologação formal', () => {
+    const event = statusData.events.find(item => item.id === 'server-user-admin-delete-concurrency-2026-11-02-0529');
+    const server = statusData.tracks.find(track => track.id === 'server');
+
+    assert.ok(event);
+    assert.equal(event.status, 'completed');
+    assert.equal(event.progressPercent, 100);
+    assert.match(event.local, /namespace Users 17\/17.*UserManagerAuthenticationLockTests 12\/12/);
+    assert.match(event.evidence, /SemaphoreSlim.*dentro do processo/i);
+    assert.match(event.release, /8\/10.*2\/7.*não publicada/i);
+    assert.equal(statusData.events.length, 410);
+    assert.equal(server.homologation.completed, 2);
+    assert.equal(server.homologation.total, 7);
+    assert.equal(server.homologation.percent, 28.6);
+    assert.ok(Date.parse(event.updatedAt) <= Date.parse(statusData.generatedAt));
+});
+
 test('portal registra a validação de tamanho no fallback sequencial do Nebula sem homologar formalmente', () => {
     const event = statusData.events.find(item => item.id === 'server-nebula-sequential-download-length-validation-2026-11-02-0111');
     const server = statusData.tracks.find(track => track.id === 'server');
@@ -16,7 +376,7 @@ test('portal registra a validação de tamanho no fallback sequencial do Nebula 
     assert.match(event.local, /downloader focal 122\/122.*Nebula completa 791\/791/);
     assert.match(event.evidence, /100 bytes.*7 bytes.*destino válido anterior permanece/s);
     assert.match(event.release, /3\/10.*2\/7.*não foram verificados/s);
-    assert.equal(statusData.events.length, 326);
+    assert.equal(statusData.events.length, 410);
     assert.equal(server.homologation.completed, 2);
     assert.equal(server.homologation.total, 7);
     assert.equal(server.homologation.percent, 28.6);
@@ -34,7 +394,7 @@ test('portal registra publicação atômica do cache de imagens sem homologar fo
     assert.match(event.evidence, /arquivo temporário.*File.Move/s);
     assert.match(event.evidence, /lock por chave/i);
     assert.match(event.release, /2\/10.*2\/7.*não foram verificados/i);
-    assert.equal(statusData.events.length, 326);
+    assert.equal(statusData.events.length, 410);
     assert.equal(server.homologation.completed, 2);
     assert.equal(server.homologation.total, 7);
     assert.equal(server.homologation.percent, 28.6);
@@ -52,7 +412,7 @@ test('portal registra retry MariaDB de MediaStream sem promover homologação fo
     assert.match(event.evidence, /MariaDB 1205 provocou retry/i);
     assert.match(event.evidence, /1213 real.*não foram validados/i);
     assert.match(event.release, /5\/10.*2\/7.*não publicada/i);
-    assert.equal(statusData.events.length, 326);
+    assert.equal(statusData.events.length, 410);
     assert.equal(server.homologation.completed, 2);
     assert.equal(server.homologation.total, 7);
     assert.equal(server.homologation.percent, 28.6);
@@ -70,7 +430,7 @@ test('portal registra atomicidade dos quatro replaces MariaDB no décimo item do
     assert.match(event.evidence, /anexos, streams, capítulos e keyframes/i);
     assert.match(event.evidence, /rollback.*conjunto anterior/i);
     assert.match(event.release, /10\/10.*2\/7.*sem release/i);
-    assert.equal(statusData.events.length, 326);
+    assert.equal(statusData.events.length, 410);
     assert.equal(server.homologation.completed, 2);
     assert.equal(server.homologation.total, 7);
     assert.equal(server.homologation.percent, 28.6);
@@ -88,7 +448,7 @@ test('portal registra a proteção do cleanup e URLs STRM sem promover homologa�
     assert.match(event.evidence, /0o777.*file:\/\//s);
     assert.match(event.evidence, /endereços privados e redirects não são bloqueados/i);
     assert.match(event.release, /9\/10.*2\/7.*não publicada/i);
-    assert.equal(statusData.events.length, 326);
+    assert.equal(statusData.events.length, 410);
     assert.equal(server.homologation.completed, 2);
     assert.equal(server.homologation.total, 7);
     assert.equal(server.homologation.percent, 28.6);
@@ -107,7 +467,7 @@ test('portal records Supabase and STRM redirect validation without promoting for
     assert.match(event.evidence, /delimitadores vazios/i);
     assert.match(event.evidence, /hosts privados continuam permitidos/i);
     assert.match(event.release, /10\/10.*2\/7.*não publicada/i);
-    assert.equal(statusData.events.length, 326);
+    assert.equal(statusData.events.length, 410);
     assert.equal(server.homologation.completed, 2);
     assert.equal(server.homologation.total, 7);
     assert.equal(server.homologation.percent, 28.6);
@@ -925,12 +1285,12 @@ test('portal reports the server Nebula release gate without claiming production 
     assert.match(event.evidence, /produção/i);
     assert.match(event.evidence, /dpl_22RZqxXtpqbAwL9EUW2Ys5sw6HQ1 READY/);
     assert.match(event.evidence, /HTTP 200/);
-    assert.equal(audit.passed, 5584);
-    assert.equal(audit.total, 5869);
-    assert.equal(audit.skipped, 285);
+    assert.equal(audit.passed, 5671);
+    assert.equal(audit.total, 5961);
+    assert.equal(audit.skipped, 290);
     assert.equal(audit.failed, 0);
     assert.equal(audit.percent, 95.1);
-    assert.match(audit.label, /demais cenários MariaDB\/Mongo opt-in/);
+    assert.match(audit.label, /bancos opt-in/);
 
     const releaseEvent = statusData.events.find(item => item.title === 'Servidor 12.1.36 publicada com artefatos Windows e Linux');
     assert.ok(releaseEvent, 'portal source should retain the server release event');
@@ -943,11 +1303,11 @@ test('portal records the current deterministic server suite without claiming int
     assert.ok(event);
     assert.equal(event.front, 'server');
     assert.equal(event.status, 'in_progress');
-    assert.equal(server.testAudit.passed, 5584);
-    assert.equal(server.testAudit.total, 5869);
-    assert.equal(server.testAudit.skipped, 285);
+    assert.equal(server.testAudit.passed, 5671);
+    assert.equal(server.testAudit.total, 5961);
+    assert.equal(server.testAudit.skipped, 290);
     assert.equal(server.testAudit.failed, 0);
-    assert.match(server.testAudit.label, /demais cenários MariaDB\/Mongo opt-in/);
+    assert.match(server.testAudit.label, /bancos opt-in/);
     assert.match(event.evidence, /NebulaPython.*592\/592/);
     assert.match(event.evidence, /não tiveram testes correspondentes ao filtro/);
     assert.match(event.evidence, /Nenhuma release de servidor criada/);
@@ -970,8 +1330,8 @@ test('portal records the orphaned Nebula worker and avoids claiming a production
     assert.match(event.evidence, /não expõe PID/);
     assert.match(event.evidence, /não foi encerrado/);
     assert.match(event.evidence, /passou 1\/1/);
-    assert.equal(server.testAudit.passed, 5584);
-    assert.equal(server.testAudit.total, 5869);
+    assert.equal(server.testAudit.passed, 5671);
+    assert.equal(server.testAudit.total, 5961);
     assert.ok(Date.parse(event.updatedAt) <= Date.parse(statusData.generatedAt));
 
     const dashboard = createDashboard({ ...statusData, events: [event] });
@@ -1577,10 +1937,10 @@ test('Nebula Supabase admission audit reports evidence limits without claiming a
     assert.match(event.evidence, /592\/592/);
     assert.match(event.evidence, /Três testes C# Mongo compilaram e foram ignorados/);
     assert.match(event.evidence, /não identifica proprietário ou expiração da lease/);
-    assert.match(server.testAudit.label, /5\.584 aprovados, 285 ignorados, 0 falhas\/5\.869/);
-    assert.match(server.testAudit.label, /formal \(2\/7\)/);
+    assert.match(server.testAudit.label, /5\.671 aprovados, 290 ignorados, 0 falhas\/5\.961/);
+    assert.match(server.testAudit.label, /formal \(2\/7,/);
     assert.equal(statusData.coverage.pending, 65);
-    assert.equal(statusData.coverage.inProgress, 6);
+    assert.equal(statusData.coverage.inProgress, 8);
     assert.ok(Date.parse(event.updatedAt) <= Date.parse(statusData.generatedAt));
 });
 
@@ -1757,6 +2117,22 @@ test('PR #1 CI billing block stays visible without granting formal coverage', as
     assert.match(dashboard.getElement('event-list').innerHTML, /PR #1: checks bloqueados por cobrança/);
     assert.equal(statusData.coverage.completed, 328);
     assert.equal(statusData.coverage.pending, 65);
+});
+
+test('PR #1 check failure is recorded without attributing a cause when GitHub exposes no steps or logs', () => {
+    const event = statusData.events.find(item => item.id === 'server-pr1-checks-no-steps-no-logs-2026-11-02-1520');
+    const server = statusData.tracks.find(track => track.id === 'server');
+
+    assert.ok(event);
+    assert.equal(event.status, 'blocked');
+    assert.equal(event.progressPercent, null);
+    assert.match(event.evidence, /16 jobs.*steps vazias.*runner não atribuído.*BlobNotFound.*sem causa confirmada/is);
+    assert.match(event.release, /6\/10.*homologação formal 2\/7.*12\.1\.46 candidata, não publicada/i);
+    assert.equal(statusData.events.length, 410);
+    assert.ok(Date.parse(event.updatedAt) <= Date.parse(statusData.generatedAt));
+    assert.equal(server.homologation.completed, 2);
+    assert.equal(server.homologation.total, 7);
+    assert.equal(server.homologation.percent, 28.6);
 });
 
 test('Mídia Storage Online path writes remain an audit finding without formal credit', async () => {
@@ -2032,9 +2408,9 @@ test('server homologation mirror records current local regression without formal
     assert.equal(server.homologation.completed, 2);
     assert.equal(server.homologation.total, 7);
     assert.equal(server.homologation.percent, 28.6);
-    assert.equal(server.testAudit.passed, 5584);
-    assert.equal(server.testAudit.total, 5869);
-    assert.equal(server.testAudit.skipped, 285);
+    assert.equal(server.testAudit.passed, 5671);
+    assert.equal(server.testAudit.total, 5961);
+    assert.equal(server.testAudit.skipped, 290);
     assert.equal(server.testAudit.failed, 0);
     assert.equal(statusData.coverage.completed, 328);
     assert.equal(statusData.coverage.pending, 65);
@@ -2104,9 +2480,9 @@ test('server audit mirror records current full regression without formal credit'
     assert.match(event.evidence, /5\.543 aprovados, 273 ignorados, 0 falhas\/5\.816/);
     assert.match(event.evidence, /Nebula Python 3\.10:.*726\/726/);
     assert.match(event.release, /4\/10.*aguarda completar dez/);
-    assert.equal(server.testAudit.passed, 5584);
-    assert.equal(server.testAudit.total, 5869);
-    assert.equal(server.testAudit.skipped, 285);
+    assert.equal(server.testAudit.passed, 5671);
+    assert.equal(server.testAudit.total, 5961);
+    assert.equal(server.testAudit.skipped, 290);
     assert.equal(server.testAudit.failed, 0);
     assert.equal(server.homologation.completed, 2);
     assert.equal(server.homologation.total, 7);
@@ -2172,9 +2548,9 @@ test('portal records complete .NET solution regression without formal credit', (
     assert.equal(event.status, 'completed');
     assert.match(event.evidence, /5\.544 aprovados, 286 ignorados e 0 falhas\/5\.830 em 17 assemblies/);
     assert.match(event.evidence, /MariaDB\/Mongo com opt-in/);
-    assert.equal(server.testAudit.passed, 5584);
-    assert.equal(server.testAudit.total, 5869);
-    assert.equal(server.testAudit.skipped, 285);
+    assert.equal(server.testAudit.passed, 5671);
+    assert.equal(server.testAudit.total, 5961);
+    assert.equal(server.testAudit.skipped, 290);
     assert.equal(server.testAudit.failed, 0);
     assert.equal(server.testAudit.percent, 95.1);
     assert.equal(server.homologation.completed, 2);
@@ -2652,7 +3028,7 @@ test('portal records Telegram time probe redirect protection without formal cred
     assert.equal(server.homologation.completed, 2);
     assert.equal(server.homologation.total, 7);
     assert.equal(server.homologation.percent, 28.6);
-    assert.equal(statusData.events.length, 326);
+    assert.equal(statusData.events.length, 410);
     assert.ok(Date.parse(event.updatedAt) <= Date.parse(statusData.generatedAt));
 });
 
@@ -2667,7 +3043,7 @@ test('portal registra a recuperação da fila de refresh durante um lote sem cr�
     assert.match(event.local, /teste focal 1\/1.*931 aprovados, 14 ignorados/);
     assert.match(event.evidence, /antes da correção.*timeout.*segundo refresh iniciou/s);
     assert.match(event.release, /4\/10.*2\/7.*não foram verificados/s);
-    assert.equal(statusData.events.length, 326);
+    assert.equal(statusData.events.length, 410);
     assert.equal(server.homologation.completed, 2);
     assert.equal(server.homologation.total, 7);
     assert.equal(server.homologation.percent, 28.6);
@@ -2685,7 +3061,7 @@ test('portal registra refresh de imagem por item serializado sem crédito formal
     assert.match(event.evidence, /reproduziu o defeito antes da correção/i);
     assert.match(event.evidence, /itens diferentes continuam em paralelo/);
     assert.match(event.release, /5\/10.*2\/7.*12\.1\.46 candidata, não publicada/);
-    assert.equal(statusData.events.length, 326);
+    assert.equal(statusData.events.length, 410);
     assert.equal(server.homologation.completed, 2);
     assert.equal(server.homologation.total, 7);
     assert.equal(server.homologation.percent, 28.6);
@@ -2704,14 +3080,14 @@ test('portal registra regressão integral do servidor e Nebula sem homologar pro
     assert.match(event.evidence, /File\.OpenHandle também recebe pathname/);
     assert.match(event.evidence, /proteção completa precisa cobrir criação de diretórios/);
     assert.match(event.release, /6\/10.*2\/7.*12\.1\.46 candidata, não publicada/);
-    assert.equal(server.testAudit.passed, 5584);
-    assert.equal(server.testAudit.total, 5869);
-    assert.equal(server.testAudit.skipped, 285);
+    assert.equal(server.testAudit.passed, 5671);
+    assert.equal(server.testAudit.total, 5961);
+    assert.equal(server.testAudit.skipped, 290);
     assert.equal(server.testAudit.failed, 0);
     assert.equal(server.homologation.completed, 2);
     assert.equal(server.homologation.total, 7);
     assert.equal(server.homologation.percent, 28.6);
-    assert.equal(statusData.events.length, 326);
+    assert.equal(statusData.events.length, 410);
     assert.ok(Date.parse(event.updatedAt) <= Date.parse(statusData.generatedAt));
 });
 
@@ -2722,7 +3098,7 @@ test('portal records the ImageSaver platform-contract audit without formal homol
     assert.match(event.evidence, /SMB.*RootDirectory zero/i);
     assert.match(event.evidence, /não foi implementada/i);
     assert.match(event.release, /7\/10.*não publicado/i);
-    assert.equal(statusData.events.length, 326);
+    assert.equal(statusData.events.length, 410);
     assert.equal(statusData.generatedAt, statusData.events.at(-1).updatedAt);
 });
 
@@ -2736,7 +3112,7 @@ test('portal registra auditoria de idioma TMDb sem crédito formal de homologaç
     assert.match(event.evidence, /busca todos os idiomas.*ordena por locale preferido/s);
     assert.match(event.evidence, /variantes regionais não são uniformes/i);
     assert.match(event.release, /8\/10.*2\/7.*12\.1\.46 candidata, não publicada/);
-    assert.equal(statusData.events.length, 326);
+    assert.equal(statusData.events.length, 410);
     assert.equal(server.homologation.completed, 2);
     assert.equal(server.homologation.total, 7);
     assert.equal(server.homologation.percent, 28.6);
@@ -2752,7 +3128,7 @@ test('portal registra os limites de segurança de unlinkat sob rename concorrent
     assert.match(event.evidence, /descritor continua referindo.*após rename/i);
     assert.match(event.evidence, /permanece fail-closed fora do Windows/i);
     assert.match(event.release, /9\/10.*2\/7.*12\.1\.46 candidata, não publicada/);
-    assert.equal(statusData.events.length, 326);
+    assert.equal(statusData.events.length, 410);
     assert.equal(server.homologation.completed, 2);
     assert.equal(server.homologation.total, 7);
     assert.equal(server.homologation.percent, 28.6);
@@ -2769,7 +3145,7 @@ test('portal registra retomada Nebula vinculada a ETag sem crédito formal', () 
     assert.match(event.local, /focais 126\/126.*Nebula 799\/799/);
     assert.match(event.evidence, /If-Range.*HTTP 206/i);
     assert.match(event.release, /10\/10.*2\/7.*12\.1\.46 continua candidata/);
-    assert.equal(statusData.events.length, 326);
+    assert.equal(statusData.events.length, 410);
     assert.equal(server.homologation.completed, 2);
     assert.equal(server.homologation.total, 7);
     assert.equal(server.homologation.percent, 28.6);
@@ -2785,7 +3161,7 @@ test('portal registra correção do snapshot de imagens após espera pelo lock s
     assert.equal(event.progressPercent, 100);
     assert.match(event.evidence, /captura de ImageInfos.*região protegida/i);
     assert.match(event.release, /1\/10.*2\/7.*12\.1\.46 continua candidata, não publicada/);
-    assert.equal(statusData.events.length, 326);
+    assert.equal(statusData.events.length, 410);
     assert.equal(server.homologation.completed, 2);
     assert.equal(server.homologation.total, 7);
     assert.equal(server.homologation.percent, 28.6);
@@ -2806,7 +3182,7 @@ test('portal registra persistência atômica de configurações preservando ACLs
     assert.match(event.evidence, /destino está ausente/i);
     assert.match(event.evidence, /preserva destino novo/i);
     assert.match(event.release, /2\/10.*2\/7.*12\.1\.46 continua candidata, não publicada/);
-    assert.equal(statusData.events.length, 326);
+    assert.equal(statusData.events.length, 410);
     assert.equal(server.homologation.completed, 2);
     assert.equal(server.homologation.total, 7);
     assert.equal(server.homologation.percent, 28.6);
@@ -2824,7 +3200,7 @@ test('portal registra a auditoria de migração da resiliência HTTP sem homolog
     assert.match(event.evidence, /Microsoft\.Extensions\.Http\.Resilience/);
     assert.match(event.evidence, /janela\/razão.*cinco falhas consecutivas/s);
     assert.match(event.release, /3\/10.*2\/7.*12\.1\.46 continua candidata, não publicada/);
-    assert.equal(statusData.events.length, 326);
+    assert.equal(statusData.events.length, 410);
     assert.equal(server.homologation.completed, 2);
     assert.equal(server.homologation.total, 7);
     assert.equal(server.homologation.percent, 28.6);
@@ -2841,7 +3217,7 @@ test('portal registra retry de capítulos em andamento sem crédito de homologa�
     assert.match(event.local, /projeto .* compilado.*teste MariaDB foi ignorado/i);
     assert.match(event.evidence, /DbContext\/transação novos.*três tentativas.*1205\/1213/s);
     assert.match(event.release, /4\/10.*2\/7.*12\.1\.46 candidata, não publicada/);
-    assert.equal(statusData.events.length, 326);
+    assert.equal(statusData.events.length, 410);
     assert.equal(server.homologation.completed, 2);
     assert.equal(server.homologation.total, 7);
     assert.equal(server.homologation.percent, 28.6);
@@ -2858,7 +3234,7 @@ test('portal registra retry de keyframes em andamento sem crédito de homologaç
     assert.match(event.local, /projeto .* compilado.*teste MariaDB foi ignorado/i);
     assert.match(event.evidence, /contexto e transação assíncronos.*1205\/1213.*três tentativas/s);
     assert.match(event.release, /5\/10.*2\/7.*12\.1\.46 candidata, não publicada/);
-    assert.equal(statusData.events.length, 326);
+    assert.equal(statusData.events.length, 410);
     assert.equal(server.homologation.completed, 2);
     assert.equal(server.homologation.total, 7);
     assert.equal(server.homologation.percent, 28.6);
@@ -2876,9 +3252,999 @@ test('portal registra a suíte de backup estável sem crédito formal e marca CI
     assert.match(event.evidence, /IStorageSpaceProvider.*jobs .*falharam antes de iniciar por bloqueio de cobrança/s);
     assert.match(event.release, /6\/10.*2\/7/);
     assert.match(event.release, /candidata a 12\.1\.46/);
-    assert.equal(statusData.events.length, 326);
+    assert.equal(statusData.events.length, 410);
     assert.equal(server.homologation.completed, 2);
     assert.equal(server.homologation.total, 7);
     assert.equal(server.homologation.percent, 28.6);
-    assert.equal(statusData.generatedAt, event.updatedAt);
+    assert.ok(Date.parse(event.updatedAt) <= Date.parse(statusData.generatedAt));
+});
+
+test('portal registra a avaliação do Dev Proxy como proposta sem crédito de homologação', () => {
+    const event = statusData.events.find(item => item.id === 'server-devproxy-http-pipeline-test-audit-2026-11-02-0337');
+    const server = statusData.tracks.find(track => track.id === 'server');
+
+    assert.ok(event);
+    assert.equal(event.status, 'completed');
+    assert.equal(event.progressPercent, 100);
+    assert.match(event.evidence, /ConnectCallback.*não foi provada/);
+    assert.match(event.evidence, /RetryAfterPlugin.*LatencyPlugin/);
+    assert.match(event.release, /7\/10.*2\/7.*12\.1\.46 candidata, não publicada/);
+    assert.equal(statusData.events.length, 410);
+    assert.equal(server.homologation.completed, 2);
+    assert.equal(server.homologation.total, 7);
+    assert.equal(server.homologation.percent, 28.6);
+    assert.ok(Date.parse(event.updatedAt) <= Date.parse(statusData.generatedAt));
+});
+
+test('portal registra o teste de cancelamento do Retry-After sem homologar produção', () => {
+    const event = statusData.events.find(item => item.id === 'server-http-retry-cancellation-2026-11-02-0342');
+    const server = statusData.tracks.find(track => track.id === 'server');
+
+    assert.ok(event);
+    assert.equal(event.status, 'completed');
+    assert.match(event.local, /StartupHttpRetryPolicyTests.*passou 1\/1/);
+    assert.match(event.evidence, /não comprova pipeline.*produção/);
+    assert.match(event.release, /8\/10.*2\/7.*12\.1\.46 candidata, não publicada/);
+    assert.equal(statusData.events.length, 410);
+    assert.equal(server.homologation.completed, 2);
+    assert.equal(server.homologation.total, 7);
+    assert.equal(server.homologation.percent, 28.6);
+});
+
+test('portal registra correção de charset do teste do servidor sem crédito formal', () => {
+    const event = statusData.events.find(item => item.id === 'server-test-source-utf8-2026-11-02-0345');
+    const server = statusData.tracks.find(track => track.id === 'server');
+
+    assert.ok(event);
+    assert.equal(event.status, 'completed');
+    assert.match(event.local, /dotnet format whitespace Jellyfin.Server.Tests --verify-no-changes passou/);
+    assert.match(event.evidence, /sem mudança textual no conteúdo/);
+    assert.match(event.release, /9\/10.*2\/7.*12\.1\.46 candidata, não publicada/);
+    assert.equal(statusData.events.length, 410);
+    assert.equal(server.homologation.completed, 2);
+    assert.equal(server.homologation.total, 7);
+    assert.equal(server.homologation.percent, 28.6);
+});
+
+test('portal registra o retry dos três clientes HTTP via transporte loopback sem crédito formal', () => {
+    const event = statusData.events.find(item => item.id === 'server-http-clients-local-pipeline-retry-2026-11-02-0347');
+    const server = statusData.tracks.find(track => track.id === 'server');
+
+    assert.ok(event);
+    assert.equal(event.status, 'completed');
+    assert.match(event.local, /StartupHttpClientRegistrationTests passou 3\/3/);
+    assert.match(event.evidence, /Default, MusicBrainz e DirectIp|IHttpClientFactory/);
+    assert.match(event.evidence, /não proxy, TLS interceptado.*produção/);
+    assert.match(event.release, /10\/10.*2\/7.*12\.1\.46 candidata, não publicada/);
+    assert.equal(statusData.events.length, 410);
+    assert.equal(server.homologation.completed, 2);
+    assert.equal(server.homologation.total, 7);
+    assert.equal(server.homologation.percent, 28.6);
+});
+
+test('portal registra proxy HTTP via callback Happy Eyeballs sem crédito formal', () => {
+    const event = statusData.events.find(item => item.id === 'server-http-proxy-happy-eyeballs-2026-11-02-0416');
+    const server = statusData.tracks.find(track => track.id === 'server');
+
+    assert.ok(event);
+    assert.equal(event.status, 'completed');
+    assert.match(event.local, /proxy HTTP de loopback.*4\/4/);
+    assert.match(event.evidence, /GET absoluto.*unresolvable\.invalid.*HTTP 200/);
+    assert.match(event.release, /1\/10.*2\/7.*12\.1\.46 candidata, não publicada/);
+    assert.equal(statusData.events.length, 410);
+    assert.equal(server.homologation.completed, 2);
+    assert.equal(server.homologation.total, 7);
+    assert.equal(server.homologation.percent, 28.6);
+});
+
+test('portal registra túnel HTTPS interceptado via callback sem crédito formal', () => {
+    const event = statusData.events.find(item => item.id === 'server-http-tls-proxy-happy-eyeballs-2026-11-02-0420');
+    const server = statusData.tracks.find(track => track.id === 'server');
+
+    assert.ok(event);
+    assert.equal(event.status, 'completed');
+    assert.match(event.local, /StartupHttpClientRegistrationTests passou 5\/5/);
+    assert.match(event.evidence, /CONNECT unresolvable\.invalid:443.*GET \/media.*não houve conexão externa/s);
+    assert.match(event.release, /2\/10.*2\/7.*12\.1\.46 candidata, não publicada/);
+    assert.equal(statusData.events.length, 410);
+    assert.equal(server.homologation.completed, 2);
+    assert.equal(server.homologation.total, 7);
+    assert.equal(server.homologation.percent, 28.6);
+});
+
+test('portal registra a auditoria de writers XML sem marcar persistência como corrigida', () => {
+    const event = statusData.events.find(item => item.id === 'server-xml-writers-atomicity-audit-2026-11-02-0427');
+    const server = statusData.tracks.find(track => track.id === 'server');
+
+    assert.ok(event);
+    assert.equal(event.status, 'in_progress');
+    assert.equal(event.progressPercent, 50);
+    assert.match(event.local, /SaveConfiguration.*SaveLibraryOptions.*ConfigurationHelper.*nenhuma suíte C# dos writers foi executada/i);
+    assert.match(event.evidence, /[Cc]onfigs de plugin podem conter segredos.*ACLs/);
+    assert.match(event.release, /3\/10.*2\/7.*12\.1\.46 candidata, não publicada/);
+    assert.equal(statusData.events.length, 410);
+    assert.equal(statusData.coverage.inProgress, 8);
+    assert.equal(server.homologation.completed, 2);
+    assert.equal(server.homologation.total, 7);
+    assert.equal(server.homologation.percent, 28.6);
+    assert.ok(Date.parse(event.updatedAt) <= Date.parse(statusData.generatedAt));
+});
+
+
+test('portal registra CI do PR sem steps como diagnóstico inconclusivo', () => {
+    const event = statusData.events.find(item => item.id === 'server-pr-ci-no-steps-diagnostic-2026-11-02-0438');
+    const server = statusData.tracks.find(track => track.id === 'server');
+
+    assert.ok(event);
+    assert.equal(event.status, 'in_progress');
+    assert.equal(event.progressPercent, 50);
+    assert.match(event.local, /StartupHttpClientRegistrationTests.*22\/22/);
+    assert.match(event.evidence, /sem steps.*BlobNotFound.*causa permanece desconhecida/);
+    assert.match(event.evidence, /cbc380c9.*e50f7a8f/);
+    assert.match(event.release, /4\/10.*2\/7.*12\.1\.46 candidata, não publicada/);
+    assert.equal(statusData.events.length, 410);
+    assert.equal(statusData.coverage.inProgress, 8);
+    assert.equal(server.homologation.completed, 2);
+    assert.equal(server.homologation.total, 7);
+    assert.equal(server.homologation.percent, 28.6);
+    assert.ok(Date.parse(event.updatedAt) <= Date.parse(statusData.generatedAt));
+});
+
+test('portal registra a pesquisa inicial de métricas dos health checks', () => {
+    const event = statusData.events.find(item => item.id === 'server-health-check-otel-metrics-research-2026-11-02-0445');
+    const server = statusData.tracks.find(track => track.id === 'server');
+
+    assert.ok(event);
+    assert.equal(event.status, 'completed');
+    assert.match(event.local, /AddTelemetryHealthCheckPublisher.*não implementado/);
+    assert.match(event.evidence, /\/health.*\/ready.*dotnet\.health_check\.reports.*modo push/);
+    assert.match(event.evidence, /linha 9\.0\.0.*alvo é \.NET 10/);
+    assert.match(event.release, /5\/10.*2\/7.*12\.1\.46 candidata, não publicada/);
+    assert.equal(statusData.events.length, 410);
+    assert.equal(statusData.coverage.inProgress, 8);
+    assert.equal(server.homologation.completed, 2);
+    assert.equal(server.homologation.total, 7);
+    assert.equal(server.homologation.percent, 28.6);
+});
+
+test('portal registra métricas de health checks implementadas sem crédito formal', () => {
+    const event = statusData.events.find(item => item.id === 'server-health-check-otel-metrics-implementation-2026-11-02-0456');
+    const server = statusData.tracks.find(track => track.id === 'server');
+
+    assert.ok(event);
+    assert.equal(event.status, 'completed');
+    assert.match(event.local, /HealthChecks\.Common 9\.0\.0.*passou 3\/3/);
+    assert.match(event.evidence, /somente quando `MetricsEnabled`.*[Ss]em endpoint.*30 s.*produção/s);
+    assert.match(event.release, /6\/10.*2\/7.*12\.1\.46 candidata, não publicada/);
+    assert.equal(statusData.events.length, 410);
+    assert.equal(statusData.coverage.inProgress, 8);
+    assert.equal(server.homologation.completed, 2);
+    assert.equal(server.homologation.total, 7);
+    assert.equal(server.homologation.percent, 28.6);
+});
+
+
+test('portal registra refresh de imagens por idioma e recuperação de falha no read-ahead', () => {
+    const event = statusData.events.find(item => item.id === 'server-image-language-nebula-readahead-2026-11-02-0515');
+    const server = statusData.tracks.find(track => track.id === 'server');
+
+    assert.ok(event);
+    assert.equal(event.status, 'completed');
+    assert.match(event.scope, /idioma preferido.*fallback.*falha do produtor/s);
+    assert.match(event.local, /Imagens existentes sem idioma explícito.*preservadas/i);
+    assert.ok(event.release.includes('7/10') && event.release.includes('2/7') && event.release.includes('12.1.46 candidata, não publicada'));
+    assert.equal(statusData.events.length, 410);
+    assert.equal(server.homologation.completed, 2);
+    assert.equal(server.homologation.total, 7);
+    assert.equal(server.homologation.percent, 28.6);
+});
+
+test('portal registra auditoria multi-processo sem alegar correção ou crédito formal', () => {
+    const event = statusData.events.find(item => item.id === 'server-user-admin-cross-process-audit-2026-11-02-0549');
+    const server = statusData.tracks.find(track => track.id === 'server');
+
+    assert.ok(event);
+    assert.equal(event.status, 'completed');
+    assert.match(event.local, /SemaphoreSlim por processo.*nenhum teste de concorrência multi-instância/i);
+    assert.match(event.evidence, /AuthenticateUser grava.*DbContext\.Update\(user\).*produção multi-processo não foi consultada/s);
+    assert.match(event.release, /lote 10\/10.*2\/7.*12\.1\.46 candidata, não publicada/);
+    assert.equal(statusData.events.length, 410);
+    assert.equal(server.homologation.completed, 2);
+    assert.equal(server.homologation.total, 7);
+    assert.equal(server.homologation.percent, 28.6);
+    assert.ok(Date.parse(event.updatedAt) <= Date.parse(statusData.generatedAt));
+});
+
+test('portal registra recarga das permissões após autenticação externa', () => {
+    const event = statusData.events.find(item => item.id === 'server-auth-refresh-permissions-after-provider-2026-11-02-0608');
+    const server = statusData.tracks.find(track => track.id === 'server');
+
+    assert.ok(event);
+    assert.equal(event.status, 'completed');
+    assert.match(event.evidence, /falhou antes da mudança.*passou depois da recarga/s);
+    assert.match(event.evidence, /MariaDB multi-instância.*produção não foram validados/s);
+    assert.match(event.release, /1\/10.*2\/7.*12\.1\.46 candidata, não publicada/s);
+    assert.equal(statusData.events.length, 410);
+    assert.equal(server.homologation.completed, 2);
+    assert.equal(server.homologation.total, 7);
+    assert.equal(server.homologation.percent, 28.6);
+    assert.ok(Date.parse(event.updatedAt) <= Date.parse(statusData.generatedAt));
+});
+test('portal records the latest .NET solution TRX regression without formal credit', () => {
+    const event = statusData.events.find(item => item.id === 'server-dotnet-solution-regression-trx-2026-11-02-0701');
+    const server = statusData.tracks.find(track => track.id === 'server');
+
+    assert.ok(event);
+    assert.equal(event.status, 'completed');
+    assert.match(event.evidence, /5\.649, executed\/passed 5\.554, falhas 0, 95 não executados\/ignorados/);
+    assert.match(event.evidence, /MariaDB\/MongoDB.*Linux.*produção/);
+    assert.match(event.release, /8\/10.*2\/7.*12\.1\.46 candidata, não publicada/);
+    assert.equal(server.testAudit.passed, 5671);
+    assert.equal(server.testAudit.total, 5961);
+    assert.equal(server.testAudit.skipped, 290);
+    assert.equal(server.testAudit.failed, 0);
+    assert.equal(server.homologation.completed, 2);
+    assert.equal(server.homologation.total, 7);
+    assert.equal(server.homologation.percent, 28.6);
+    assert.equal(statusData.events.length, 410);
+    assert.equal(statusData.generatedAt, statusData.events.at(-1).updatedAt);
+});
+test('portal registra a serialização concorrente de options.xml sem alegar atomicidade', () => {
+    const event = statusData.events.find(item => item.id === 'server-library-options-concurrent-serialization-2026-11-02-0708');
+    const server = statusData.tracks.find(track => track.id === 'server');
+
+    assert.ok(event);
+    assert.equal(event.status, 'completed');
+    assert.match(event.local, /CollectionFolderTests 2\/2.*81 aprovados, 1 ignorado.*0 falhas\/82/);
+    assert.match(event.evidence, /Lock é local ao processo.*não torna escrita atômica/s);
+    assert.match(event.evidence, /Linux\/SMB, CI hospedada e produção não foram validados/);
+    assert.match(event.release, /9\/10.*2\/7.*12\.1\.46 candidata, não publicada/);
+    assert.equal(server.homologation.completed, 2);
+    assert.equal(server.homologation.total, 7);
+    assert.equal(server.homologation.percent, 28.6);
+    assert.equal(statusData.events.length, 410);
+    assert.equal(statusData.generatedAt, statusData.events.at(-1).updatedAt);
+});
+test('portal registra substituição atômica de options.xml sem crédito formal', () => {
+    const event = statusData.events.find(item => item.id === 'server-library-options-atomic-save-2026-11-02-0713');
+    const server = statusData.tracks.find(track => track.id === 'server');
+
+    assert.ok(event);
+    assert.equal(event.status, 'completed');
+    assert.match(event.scope, /temporário irmão.*ACL Windows.*modo Unix/s);
+    assert.match(event.evidence, /Falha de serialização mantém o arquivo anterior.*File.Replace.*File.Move/s);
+    assert.match(event.evidence, /modo POSIX está incluído mas não foi executado.*Linux em runtime.*produção/s);
+    assert.match(event.release, /10\/10.*2\/7.*12\.1\.46 candidata, não publicada/);
+    assert.equal(server.homologation.completed, 2);
+    assert.equal(server.homologation.total, 7);
+    assert.equal(server.homologation.percent, 28.6);
+    assert.equal(statusData.events.length, 410);
+    assert.equal(statusData.generatedAt, statusData.events.at(-1).updatedAt);
+});
+
+test('portal registra auditoria do writer XML de bootstrap sem alegar correção', () => {
+    const event = statusData.events.find(item => item.id === 'server-bootstrap-config-direct-write-audit-2026-11-02-0717');
+    const server = statusData.tracks.find(track => track.id === 'server');
+
+    assert.ok(event);
+    assert.equal(event.status, 'completed');
+    assert.match(event.evidence, /único caller interno.*FileMode\.Create.*truncar/s);
+    assert.match(event.evidence, /temporário protegido.*File\.Replace.*Nenhuma correção foi aplicada/s);
+    assert.match(event.release, /1\/10.*sem mudança funcional.*2\/7.*12\.1\.46 candidata, não publicada/);
+    assert.equal(server.homologation.completed, 2);
+    assert.equal(server.homologation.total, 7);
+    assert.equal(server.homologation.percent, 28.6);
+    assert.equal(statusData.events.length, 410);
+    assert.equal(statusData.generatedAt, statusData.events.at(-1).updatedAt);
+});
+
+test('portal registra writer atômico compartilhado no bootstrap e na API pública', () => {
+    const event = statusData.events.find(item => item.id === 'server-bootstrap-config-safe-writer-2026-11-02-0721');
+    const server = statusData.tracks.find(track => track.id === 'server');
+
+    assert.ok(event);
+    assert.equal(event.status, 'completed');
+    assert.match(event.scope, /fluxos interno e público.*writer atômico protegido.*assinatura pública/);
+    assert.match(event.evidence, /caller interno.*sobrecarga pública.*PersistConfigurationAtomically.*assinatura pública não mudou/s);
+    assert.match(event.release, /2\/10.*12\.1\.46.*sem publicação.*2\/7/);
+    assert.equal(server.homologation.completed, 2);
+    assert.equal(server.homologation.total, 7);
+    assert.equal(server.homologation.percent, 28.6);
+    assert.equal(statusData.events.length, 410);
+    assert.equal(statusData.generatedAt, statusData.events.at(-1).updatedAt);
+});
+
+test('portal registra a persistência protegida de configurações de plugins', () => {
+    const event = statusData.events.find(item => item.id === 'server-plugin-config-protected-writer-2026-11-02-0745');
+    const server = statusData.tracks.find(track => track.id === 'server');
+
+    assert.ok(event);
+    assert.equal(event.status, 'completed');
+    assert.match(event.scope, /writer protegido.*restringindo o temporário antes de serializar segredos/);
+    assert.match(event.evidence, /Falha parcial do serializer mantém o XML anterior.*modo POSIX/s);
+    assert.match(event.evidence, /ACL Windows/);
+    assert.match(event.evidence, /Linux real, SMB.*produção não foram verificados/);
+    assert.match(event.release, /3\/10.*2\/7.*12\.1\.46 candidata, não publicada/);
+    assert.equal(server.homologation.completed, 2);
+    assert.equal(server.homologation.total, 7);
+    assert.equal(server.homologation.percent, 28.6);
+    assert.equal(statusData.events.length, 410);
+    assert.equal(statusData.generatedAt, statusData.events.at(-1).updatedAt);
+});
+
+
+test('portal registra as migrações XML protegidas sem crédito de homologação formal', () => {
+    const event = statusData.events.find(item => item.id === 'server-prestartup-xml-atomic-migrations-2026-11-02-0754');
+    const server = statusData.tracks.find(track => track.id === 'server');
+
+    assert.ok(event);
+    assert.equal(event.status, 'completed');
+    assert.match(event.local, /BasePluginConfigurationPersistenceTests 4\/4.*PreStartupXmlMigrationPersistenceTests 3\/3/);
+    assert.match(event.evidence, /arquivo anterior.*CertificatePassword.*vEthernet\*.*XML inválido/);
+    assert.match(event.release, /4\/10.*2\/7.*12\.1\.46 candidata, não publicada/);
+    assert.equal(statusData.events.length, 410);
+    assert.equal(server.homologation.completed, 2);
+    assert.equal(server.homologation.total, 7);
+    assert.equal(server.homologation.percent, 28.6);
+    assert.ok(Date.parse(event.updatedAt) <= Date.parse(statusData.generatedAt));
+});
+
+
+test('portal registra retry HTTP limitado a métodos idempotentes', () => {
+    const event = statusData.events.find(item => item.id === 'server-http-retry-idempotent-methods-2026-11-02-0854');
+    const server = statusData.tracks.find(track => track.id === 'server');
+
+    assert.ok(event);
+    assert.equal(event.status, 'completed');
+    assert.match(event.local, /19\/19.*POST.*503.*uma requisição/s);
+    assert.match(event.evidence, /método não idempotente não é repetido.*circuit breaker por cliente nomeado/s);
+    assert.match(event.evidence, /compartilham o mesmo circuit breaker.*abertura após cinco falhas foi comprovada/s);
+    assert.match(event.evidence, /chamadas com IHttpClientFactory sem nome não foram alteradas/);
+    assert.match(event.release, /9\/10.*2\/7.*12\.1\.46 candidata, não publicada/);
+    assert.equal(statusData.events.length, 410);
+    assert.ok(Date.parse(event.updatedAt) <= Date.parse(statusData.generatedAt));
+    assert.equal(server.homologation.completed, 2);
+    assert.equal(server.homologation.total, 7);
+    assert.equal(server.homologation.percent, 28.6);
+});
+
+test('portal registra piloto MTP sem alterar runner padrão nem homologação formal', () => {
+    const event = statusData.events.find(item => item.id === 'server-mtp-isolated-pilot-2026-11-02-0953');
+    const server = statusData.tracks.find(track => track.id === 'server');
+
+    assert.ok(event);
+    assert.equal(event.status, 'completed');
+    assert.match(event.local, /Jellyfin\.Networking\.Tests passou 124\/124 em VSTest e MTP.*1\.769 ms.*1\.301 ms/s);
+    assert.match(event.evidence, /coverlet\.MTP.*filtros VSTest.*Linux, macOS.*não foram verificados/s);
+    assert.match(event.release, /4\/10.*2\/7.*12\.1\.46 candidata, não publicada/);
+    assert.equal(statusData.events.length, 410);
+    assert.equal(server.homologation.completed, 2);
+    assert.equal(server.homologation.total, 7);
+    assert.equal(server.homologation.percent, 28.6);
+    assert.ok(Date.parse(event.updatedAt) <= Date.parse(statusData.generatedAt));
+});
+
+test('portal registra a remoção de consultas bootstrap sem plugins na inicialização', () => {
+    const event = statusData.events.find(item => item.id === 'server-plugin-bootstrap-empty-catalog-startup-2026-11-02-1002');
+    const server = statusData.tracks.find(track => track.id === 'server');
+
+    assert.ok(event);
+    assert.equal(event.status, 'completed');
+    assert.match(event.local, /BootstrapPluginCatalogTests.*PluginManagerTests.*21\/21/);
+    assert.match(event.evidence, /PluginIds vazias.*HttpClient.*100 segundos.*Não foi medido startup real em produção/s);
+    assert.match(event.release, /5\/10.*2\/7.*12\.1\.46 candidata, não publicada/);
+    assert.equal(statusData.events.length, 410);
+    assert.equal(server.homologation.completed, 2);
+    assert.equal(server.homologation.total, 7);
+    assert.equal(server.homologation.percent, 28.6);
+    assert.ok(Date.parse(event.updatedAt) <= Date.parse(statusData.generatedAt));
+});
+
+test('portal registra sanitização dos logs do feeder e helper obrigatório no stage Windows', () => {
+    const event = statusData.events.find(item => item.id === 'server-nebula-feeder-safe-console-stage-2026-11-02-1050');
+    const server = statusData.tracks.find(track => track.id === 'server');
+
+    assert.ok(event);
+    assert.equal(event.status, 'completed');
+    assert.match(event.local, /Nebula Python 806\/806.*test_feed_ftp_strm\.py 96\/96.*Assert-StageIntegrity/);
+    assert.match(event.evidence, /exceções.*CR\/LF.*logging_safety\.py/s);
+    assert.match(event.release, /10\/10.*2\/7.*12\.1\.46 candidata, não publicada/);
+    assert.equal(statusData.events.length, 410);
+    assert.equal(server.homologation.completed, 2);
+    assert.equal(server.homologation.total, 7);
+    assert.equal(server.homologation.percent, 28.6);
+    assert.ok(Date.parse(event.updatedAt) <= Date.parse(statusData.generatedAt));
+});
+
+test('portal registra saída segura do SupabaseSync sem alterar SQL ou dados do backup', () => {
+    const event = statusData.events.find(item => item.id === 'server-nebula-supabase-cli-safe-console-2026-11-02-1055');
+    const server = statusData.tracks.find(track => track.id === 'server');
+
+    assert.ok(event);
+    assert.equal(event.status, 'completed');
+    assert.match(event.local, /Nebula Python 806\/806.*test_supabase_sync\.py 77\/77.*SQL schema/);
+    assert.match(event.evidence, /nome de banco.*CR\/LF.*SQL schema.*multilinha intencional/s);
+    assert.match(event.release, /1\/10.*2\/7.*12\.1\.46 candidata, não publicada/);
+    assert.equal(statusData.events.length, 410);
+    assert.equal(server.homologation.completed, 2);
+    assert.equal(server.homologation.total, 7);
+    assert.equal(server.homologation.percent, 28.6);
+    assert.ok(Date.parse(event.updatedAt) <= Date.parse(statusData.generatedAt));
+});
+
+
+test('portal registra auditoria SSRF STRM e preserva o bloqueio de homologação formal', () => {
+    const event = statusData.events.find(item => item.id === 'server-strm-ssrf-compatibility-audit-2026-11-02-1013');
+    const server = statusData.tracks.find(track => track.id === 'server');
+
+    assert.ok(event);
+    assert.equal(event.status, 'completed');
+    assert.equal(event.progressPercent, 100);
+    assert.match(event.local, /41\.650 arquivos STRM.*porta local 2124.*nenhum URL com userinfo/i);
+    assert.match(event.evidence, /loopback.*interromperia o fluxo normal/i);
+    assert.match(event.evidence, /vincular a conexão ao IP efetivamente aprovado/i);
+    assert.match(event.release, /6\/10.*2\/7.*12\.1\.46 candidata, não publicada/i);
+    assert.equal(statusData.events.length, 410);
+    assert.equal(server.homologation.completed, 2);
+    assert.equal(server.homologation.total, 7);
+    assert.equal(server.homologation.percent, 28.6);
+    assert.ok(Date.parse(event.updatedAt) <= Date.parse(statusData.generatedAt));
+});
+
+
+test('portal registra auditoria de logging Nebula sem alegar vazamento confirmado ou homologação', () => {
+    const event = statusData.events.find(item => item.id === 'server-nebula-log-data-exposure-audit-2026-11-02-1021');
+    const server = statusData.tracks.find(track => track.id === 'server');
+
+    assert.ok(event);
+    assert.equal(event.status, 'completed');
+    assert.equal(event.progressPercent, 100);
+    assert.match(event.local, /41\.650 STRMs.*nenhum URL com userinfo.*apenas a chave id/i);
+    assert.match(event.evidence, /não foi reproduzido vazamento de segredo/i);
+    assert.match(event.evidence, /sanitizar CR\/LF/i);
+    assert.match(event.release, /7\/10.*2\/7.*12\.1\.46 candidata, não publicada/i);
+    assert.equal(statusData.events.length, 410);
+    assert.equal(server.homologation.completed, 2);
+    assert.equal(server.homologation.total, 7);
+    assert.equal(server.homologation.percent, 28.6);
+    assert.ok(Date.parse(event.updatedAt) <= Date.parse(statusData.generatedAt));
+});
+
+
+test('portal registra persistência resiliente das playlists externas sem homologar SMB ou produção', () => {
+    const event = statusData.events.find(item => item.id === 'server-playlist-atomic-persistence-2026-11-02-1116');
+    const server = statusData.tracks.find(track => track.id === 'server');
+
+    assert.ok(event);
+    assert.equal(event.status, 'completed');
+    assert.equal(event.progressPercent, 100);
+    assert.match(event.local, /PlaylistManagerTests.*6 aprovados.*1 ignorado/);
+    assert.match(event.evidence, /symlink.*Linux.*SMB.*produção/s);
+    assert.ok(event.release.includes('4/10') && event.release.includes('2/7') && event.release.includes('12.1.46 candidata, não publicada'));
+    assert.equal(statusData.events.length, 410);
+    assert.equal(server.homologation.completed, 2);
+    assert.equal(server.homologation.total, 7);
+    assert.equal(server.homologation.percent, 28.6);
+    assert.ok(Date.parse(event.updatedAt) <= Date.parse(statusData.generatedAt));
+});
+
+
+test('portal registra regressão ampla C# sem tratar os ignorados como homologação', () => {
+    const event = statusData.events.find(item => item.id === 'server-full-regression-mtp-audit-2026-11-02-1125');
+    const server = statusData.tracks.find(track => track.id === 'server');
+
+    assert.ok(event);
+    assert.equal(event.status, 'completed');
+    assert.equal(event.progressPercent, 100);
+    assert.ok(event.local.includes('17 assemblies') && event.local.includes('5.636 aprovados') && event.local.includes('288 ignorados') && event.local.includes('0 falhas/5.924'));
+    assert.ok(event.evidence.includes('LiveIntegrationTests') && event.evidence.includes('Linux/macOS') && event.evidence.includes('produção'));
+    assert.ok(event.release.includes('5/10') && event.release.includes('2/7') && event.release.includes('12.1.46 candidata, não publicada'));
+    assert.equal(statusData.events.length, 410);
+    assert.equal(server.homologation.completed, 2);
+    assert.equal(server.homologation.total, 7);
+    assert.equal(server.homologation.percent, 28.6);
+    assert.ok(Date.parse(event.updatedAt) <= Date.parse(statusData.generatedAt));
+});
+
+
+test('portal registra o inventário STRM e mantém a política SSRF pendente sem interromper fontes locais', () => {
+    const event = statusData.events.find(item => item.id === 'server-strm-redirect-origin-inventory-2026-11-02-1135');
+    const server = statusData.tracks.find(track => track.id === 'server');
+
+    assert.ok(event);
+    assert.equal(event.status, 'completed');
+    assert.equal(event.progressPercent, 100);
+    assert.match(event.local, /41\.650 STRMs válidos.*127\.0\.0\.1:2124.*sem userinfo/);
+    assert.match(event.local, /Python 3\.13\.7 sem pytest/);
+    assert.match(event.evidence, /STREAM_PORT configurável com padrão 2122.*nenhum listener.*produção.*DNS rebinding/s);
+    assert.match(event.evidence, /Não foi lido \.env nem consultada produção/);
+    assert.match(event.release, /6\/10.*2\/7.*12\.1\.46 candidata, não publicada/);
+    assert.equal(statusData.events.length, 410);
+    assert.equal(server.homologation.completed, 2);
+    assert.equal(server.homologation.total, 7);
+    assert.equal(server.homologation.percent, 28.6);
+    assert.ok(Date.parse(event.updatedAt) <= Date.parse(statusData.generatedAt));
+});
+
+
+test('portal registra o inventário de Contains para C# 14 e EF sem creditar homologação formal', () => {
+    const event = statusData.events.find(item => item.id === 'server-ef-csharp14-contains-inventory-2026-11-02-1150');
+    const server = statusData.tracks.find(track => track.id === 'server');
+
+    assert.ok(event);
+    assert.equal(event.status, 'completed');
+    assert.equal(event.progressPercent, 100);
+    assert.match(event.local, /arrays capturados usam Enumerable\.Contains explícito/);
+    assert.match(event.local, /BaseItemRepositoryTagQueryTranslationTests 1\/1/);
+    assert.match(event.evidence, /dotnet\/docs #43952.*EF Core #37176/s);
+    assert.match(event.evidence, /Linux, MariaDB, CI hospedada, runtime instalado e produção não foram validados/);
+    assert.match(event.release, /7\/10.*2\/7 \(28,6%\).*12\.1\.46 candidata, não publicada/);
+    assert.equal(statusData.events.length, 410);
+    assert.equal(server.homologation.completed, 2);
+    assert.equal(server.homologation.total, 7);
+    assert.equal(server.homologation.percent, 28.6);
+    assert.ok(Date.parse(event.updatedAt) <= Date.parse(statusData.generatedAt));
+});
+
+
+test('portal registra correção async do cache de keyframes HLS e mantém pendências de homologação explícitas', () => {
+    const event = statusData.events.find(item => item.id === 'server-hls-keyframe-sync-db-playback-audit-2026-11-02-1157');
+    const server = statusData.tracks.find(track => track.id === 'server');
+
+    assert.ok(event);
+    assert.equal(event.status, 'completed');
+    assert.equal(event.progressPercent, 100);
+    assert.match(event.evidence, /CreateMainPlaylistAsync.*GetKeyframeDataAsync.*SaveKeyframeDataAsync/s);
+    assert.match(event.evidence, /FFprobe.*ReadLineAsync\(CancellationToken\)/s);
+    assert.match(event.evidence, /Matroska\/NEbml síncrono/);
+    assert.match(event.evidence, /Keyframes 7\/7.*HLS 21\/21/s);
+    assert.match(event.evidence, /MariaDB isolado.*produção não validados/);
+    assert.match(event.release, /8\/10.*2\/7 \(28,6%\).*12\.1\.46 candidata, não publicada/);
+    assert.equal(statusData.events.length, 410);
+    assert.equal(server.homologation.completed, 2);
+    assert.equal(server.homologation.total, 7);
+    assert.equal(server.homologation.percent, 28.6);
+    assert.ok(Date.parse(event.updatedAt) <= Date.parse(statusData.generatedAt));
+});
+
+
+test('portal registra a auditoria do parser EBML síncrono sem inventar progresso ou homologação', () => {
+    const event = statusData.events.find(item => item.id === 'server-hls-ebml-async-investigation-2026-11-02-1226');
+    const server = statusData.tracks.find(track => track.id === 'server');
+
+    assert.ok(event);
+    assert.equal(event.status, 'in_progress');
+    assert.equal(Object.hasOwn(event, 'progressPercent'), false);
+    assert.match(event.evidence, /DynamicHlsPlaylistGenerator.*metadata-based.*NEbml.Core 1.1.0.5/s);
+    assert.match(event.evidence, /IKeyframeExtractor async padr[aã]o chama TryExtractKeyframes s[ií]ncrono/);
+    assert.match(event.evidence, /Task.Run mant[eé]m bloqueio de worker/);
+    assert.ok(event.release.includes('Evento local 9/10 do lote; snapshot ainda não publicado no Git. Homologação formal 2/7 (28,6%); release 12.1.46 candidata, não publicada.'));
+    assert.equal(statusData.events.length, 410);
+    assert.equal(server.homologation.completed, 2);
+    assert.equal(server.homologation.total, 7);
+    assert.equal(server.homologation.percent, 28.6);
+    assert.ok(Date.parse(event.updatedAt) <= Date.parse(statusData.generatedAt));
+});
+
+
+test('portal registra o leitor EBML assíncrono e explicita a matriz de validação pendente', () => {
+    const event = statusData.events.find(item => item.id === 'server-hls-ebml-async-reader-2026-11-02-1234');
+    const server = statusData.tracks.find(track => track.id === 'server');
+
+    assert.ok(event);
+    assert.equal(event.status, 'completed');
+    assert.equal(event.progressPercent, 100);
+    assert.match(event.local, /Keyframes 10\/10.*HLS 22\/22/);
+    assert.match(event.evidence, /ReadExactlyAsync.*CancellationToken/);
+    assert.match(event.evidence, /fixture Matroska sintética.*mesmos ticks/);
+    assert.match(event.evidence, /[Bb]enchmark.*mídia real.*produção não foram verificados/);
+    assert.match(event.release, /10\/10.*2\/7 \(28,6%\).*12\.1\.46 candidata, não publicada/);
+    assert.equal(statusData.events.length, 410);
+    assert.equal(server.homologation.completed, 2);
+    assert.equal(server.homologation.total, 7);
+    assert.equal(server.homologation.percent, 28.6);
+    assert.equal(statusData.generatedAt, statusData.events.at(-1).updatedAt);
+});
+
+test('portal registra fallback de imagens após timeout sem confundir cancelamento ou homologação', () => {
+    const event = statusData.events.find(item => item.id === 'server-image-provider-timeout-fallback-2026-11-02-1244');
+    const server = statusData.tracks.find(track => track.id === 'server');
+
+    assert.ok(event);
+    assert.equal(event.status, 'completed');
+    assert.match(event.local, /ItemImageProviderTests 88\/88.*940 aprovados.*14 ignorados.*0 falhas/is);
+    assert.match(event.evidence, /TimeoutException interna.*cancelamento explícito.*Linux.*produção/is);
+    assert.match(event.release, /1\/10.*2\/7.*12\.1\.46 candidata, não publicada/i);
+    assert.equal(statusData.events.length, 410);
+    assert.equal(server.homologation.completed, 2);
+    assert.equal(server.homologation.total, 7);
+    assert.equal(server.homologation.percent, 28.6);
+});
+
+test('portal registra reconciliação segura de renomeação no backup Supabase', () => {
+    const event = statusData.events.find(item => item.id === 'server-supabase-user-rename-reconcile-2026-11-02-1257');
+    const server = statusData.tracks.find(track => track.id === 'server');
+
+    assert.ok(event);
+    assert.equal(event.status, 'completed');
+    assert.match(event.local, /NebulaSupabaseSyncTests 60\/60.*1\.731 aprovados.*92 ignorados.*0 falhas/);
+    assert.match(event.evidence, /on_conflict.*chave primária.*UNIQUE.*23505.*falha antes de qualquer escrita/s);
+    assert.match(event.evidence, /troca cíclica de nomes permanece não suportada.*produção não foram validados/s);
+    assert.match(event.release, /2\/10.*2\/7 \(28,6%\).*12\.1\.46 candidata, não publicada/);
+    assert.equal(server.homologation.completed, 2);
+    assert.equal(server.homologation.total, 7);
+    assert.equal(server.homologation.percent, 28.6);
+    assert.equal(statusData.events.length, 410);
+    assert.equal(statusData.generatedAt, statusData.events.at(-1).updatedAt);
+});
+
+test('portal registra diagnóstico limitado do código PostgREST sem expor o corpo', () => {
+    const event = statusData.events.find(item => item.id === 'server-supabase-cursor-error-code-2026-11-02-1311');
+    const server = statusData.tracks.find(track => track.id === 'server');
+
+    assert.ok(event);
+    assert.equal(event.status, 'completed');
+    assert.match(event.local, /NebulaSupabaseSyncTests 62\/62.*1\.733 aprovados.*92 ignorados.*0 falhas/);
+    assert.match(event.scope, /Manter os retries.*somente o código.*cursor de arquivos e do histórico/);
+    assert.match(event.evidence, /4 KiB.*message, details ou hint.*PGRST000.*CR\/LF/);
+    assert.match(event.release, /3\/10.*2\/7 \(28,6%\).*12\.1\.46 candidata, não publicada/);
+    assert.equal(statusData.events.length, 410);
+    assert.equal(server.homologation.completed, 2);
+    assert.equal(server.homologation.total, 7);
+    assert.equal(server.homologation.percent, 28.6);
+    assert.equal(statusData.generatedAt, statusData.events.at(-1).updatedAt);
+});
+
+
+test('portal registra correção de CueTrackPositions múltiplas nos leitores Matroska', () => {
+    const event = statusData.events.find(item => item.id === 'server-matroska-multitrack-cues-2026-11-02-1322');
+    const server = statusData.tracks.find(track => track.id === 'server');
+
+    assert.ok(event);
+    assert.equal(event.status, 'completed');
+    assert.match(event.local, /Keyframes.Tests 14\/14.*Hls.Tests 22\/22/);
+    assert.match(event.evidence, /CueTrackPositions como repetível.*áudio antes e depois do vídeo.*síncrono e assíncrono/);
+    assert.match(event.release, /4\/10.*2\/7 \(28,6%\).*12\.1\.46 candidata, não publicada/);
+    assert.equal(statusData.events.length, 410);
+    assert.equal(server.homologation.completed, 2);
+    assert.equal(server.homologation.total, 7);
+    assert.equal(server.homologation.percent, 28.6);
+    assert.ok(Date.parse(event.updatedAt) <= Date.parse(statusData.generatedAt));
+});
+
+test('portal registra regressão ampla da solução .NET sem elevar homologação formal', () => {
+    const event = statusData.events.find(item => item.id === 'server-dotnet-solution-regression-2026-11-02-1329');
+    const server = statusData.tracks.find(track => track.id === 'server');
+
+    assert.ok(event);
+    assert.equal(event.status, 'completed');
+    assert.equal(event.progressPercent, 100);
+    assert.match(event.local, /dotnet test MulletaFlix\.sln.*Release.*exit code 0.*17 assemblies: 5\.660 aprovados, 288 ignorados, 0 falhas\/5\.948/s);
+    assert.match(event.local, /Server\.Implementations 1\.733\/1\.825.*Server 127\/127.*API 823\/826/s);
+    assert.match(event.evidence, /TRX nomeados por assembly.*corrigido teste de heartbeat.*teste de restore.*Linux, CI hospedada, MariaDB\/MongoDB reais, runtime instalado e produção não foram validados/is);
+    assert.match(event.release, /5\/10.*2\/7 \(28,6%\).*12\.1\.46 candidata, não publicada/);
+    assert.equal(statusData.events.length, 410);
+    assert.deepEqual(server.testAudit, {
+        passed: 5671,
+        total: 5961,
+        skipped: 290,
+        failed: 0,
+        percent: 95.1,
+        label: 'Regressão .NET Release em Windows/.NET 10: 17 assemblies, 5.671 aprovados, 290 ignorados, 0 falhas/5.961; filtro FullyQualifiedName!~LiveIntegrationTests. Percentual é taxa de aprovação dos casos incluídos, não completude funcional nem homologação formal (2/7, 28,6%). Nebula Python: 806/806 no Windows/Python 3.10.11, cobertura total 93%. CI hospedada, Linux/macOS, bancos opt-in, runtime instalado e produção permanecem pendentes.'
+    });
+    assert.equal(server.homologation.completed, 2);
+    assert.equal(server.homologation.total, 7);
+    assert.equal(server.homologation.percent, 28.6);
+    assert.equal(statusData.generatedAt, statusData.events.at(-1).updatedAt);
+});
+
+test('portal registra revisão de tecnologias HTTP sem promover migração ou homologação', () => {
+    const event = statusData.events.find(item => item.id === 'server-http-resilience-and-polly-maintenance-review-2026-11-02-1346');
+    const server = statusData.tracks.find(track => track.id === 'server');
+
+    assert.ok(event);
+    assert.equal(event.status, 'completed');
+    assert.equal(event.progressPercent, 100);
+    assert.match(event.evidence, /Microsoft.Extensions.Http.Polly.*obsoleto.*handler padrão altera retries.*Polly oficial 8\.9\.0/is);
+    assert.match(event.evidence, /OSMF apenas para referência direta.*Receita\/termos aplicáveis.*não foram verificados/is);
+    assert.match(event.release, /6\/10.*2\/7 \(28,6%\).*12\.1\.46 candidata, não publicada/);
+    assert.equal(statusData.events.length, 410);
+    assert.equal(event.updatedAt, '2026-11-02T13:46:00-03:00');
+    assert.equal(statusData.events.at(-1).updatedAt, statusData.generatedAt);
+    assert.equal(server.homologation.completed, 2);
+    assert.equal(server.homologation.total, 7);
+    assert.equal(server.homologation.percent, 28.6);
+});
+
+test('portal registra a auditoria de batching sem marcar homologação nem release como concluídas', () => {
+    const event = statusData.events.find(item => item.id === 'server-library-alternate-version-batching-gate-2026-11-02-1402');
+    const server = statusData.tracks.find(track => track.id === 'server');
+
+    assert.ok(event);
+    assert.equal(event.status, 'completed');
+    assert.match(event.local, /LibraryManagerDeleteAsyncTests 4\/4.*1\.734 aprovados, 92 ignorados/is);
+    assert.match(event.evidence, /protótipo foi removido.*frequência\/duração.*MariaDB descartável/is);
+    assert.match(event.release, /7\/10.*2\/7.*12\.1\.46 candidata, não publicada/i);
+    assert.equal(server.homologation.completed, 2);
+    assert.equal(server.homologation.total, 7);
+    assert.equal(server.homologation.percent, 28.6);
+});
+
+test('portal registra o gate de equivalência HTTP sem elevar homologação nem aprovar migração', () => {
+    const event = statusData.events.find(item => item.id === 'server-http-resilience-contract-audit-2026-11-02-1412');
+    const server = statusData.tracks.find(track => track.id === 'server');
+
+    assert.ok(event);
+    assert.equal(event.status, 'completed');
+    assert.match(event.local, /StartupHttpRetryPolicyTests \+ StartupHttpClientRegistrationTests 20\/20/);
+    assert.match(event.evidence, /handler padr[aã]o repete todos os m[eé]todos.*PUT\/DELETE.*breaker cl[aá]ssico/s);
+    assert.match(event.evidence, /pipeline customizado.*Linux.*produ[cç][aã]o permanecem pendentes/i);
+    assert.match(event.release, /8\/10.*2\/7 \(28,6%\).*12\.1\.46 candidata, n[aã]o publicada/i);
+    assert.equal(statusData.events.length, 410);
+    assert.equal(statusData.generatedAt, statusData.events.at(-1).updatedAt);
+    assert.equal(statusData.events.at(-1).updatedAt, statusData.generatedAt);
+    assert.equal(server.homologation.completed, 2);
+    assert.equal(server.homologation.total, 7);
+    assert.equal(server.homologation.percent, 28.6);
+});
+
+test('portal registra auditoria dos consumidores das probes sem alterar homologação', () => {
+    const event = statusData.events.find(item => item.id === 'server-health-probe-consumer-audit-2026-11-02-1418');
+    const server = statusData.tracks.find(track => track.id === 'server');
+
+    assert.ok(event);
+    assert.equal(event.status, 'completed');
+    assert.match(event.local, /Jellyfin\.Server\.Tests Health 14\/14.*portal 224\/224/i);
+    assert.match(event.evidence, /\/health executa todos os checks.*\/ready filtra.*Docker usa \/health.*updater Windows usam \/ready/is);
+    assert.match(event.evidence, /não encontrou \/live.*rotas existentes foram preservadas.*produção não foi verificada/is);
+    assert.match(event.release, /9\/10.*2\/7 \(28,6%\).*12\.1\.46 candidata, não publicada/i);
+    assert.equal(statusData.events.length, 410);
+    assert.equal(statusData.generatedAt, statusData.events.at(-1).updatedAt);
+    assert.equal(statusData.events.at(-1).updatedAt, statusData.generatedAt);
+    assert.match(statusData.latestAudit, /CI ganhou job isolado para o lease.*snapshot local 410 eventos, lote 10\/10.*2\/7.*12\.1\.46 candidata, não publicada/i);
+    assert.equal(server.homologation.completed, 2);
+    assert.equal(server.homologation.total, 7);
+    assert.equal(server.homologation.percent, 28.6);
+});
+
+test('portal registra regressão ampla .NET e Nebula sem concluir homologação formal', () => {
+    const event = statusData.events.find(item => item.id === 'server-full-regression-dotnet-nebula-2026-11-02-1435');
+    const server = statusData.tracks.find(track => track.id === 'server');
+
+    assert.ok(event);
+    assert.equal(event.status, 'completed');
+    assert.equal(event.progressPercent, 100);
+    assert.match(event.local, /17 assemblies, 5\.660 aprovados, 288 ignorados, 0 falhas\/5\.948.*Nebula Python 3\.10\.11: 806\/806/s);
+    assert.match(event.evidence, /LiveIntegrationTests.*17 arquivos únicos.*Python.*MariaDB.*Mongo.*Linux.*produção permanecem pendentes/is);
+    assert.match(event.release, /10\/10.*2\/7 \(28,6%\).*12\.1\.46 candidata, não publicada/i);
+    assert.equal(statusData.events.length, 410);
+    assert.equal(statusData.generatedAt, statusData.events.at(-1).updatedAt);
+    assert.equal(statusData.events.at(-1).updatedAt, statusData.generatedAt);
+    assert.equal(server.homologation.completed, 2);
+    assert.equal(server.homologation.total, 7);
+    assert.equal(server.homologation.percent, 28.6);
+});
+
+test('portal registra a validação de ACL das playlists sem concluir homologação formal', () => {
+    const event = statusData.events.find(item => item.id === 'server-playlist-windows-acl-regression-2026-11-02-1447');
+    const server = statusData.tracks.find(track => track.id === 'server');
+
+    assert.ok(event);
+    assert.equal(event.status, 'completed');
+    assert.match(event.local, /PlaylistManagerTests 7 aprovados, 1 ignorado.*ACL Windows 1\/1/is);
+    assert.match(event.evidence, /ACE explícita.*File\.Replace.*teste POSIX de modo foi ignorado/is);
+    assert.match(event.evidence, /logs dos jobs retornam 404.*head atual do PR não tem workflow run/is);
+    assert.match(event.release, /1\/10 do lote.*homologação formal 2\/7.*12\.1\.46 candidata, não publicada/i);
+    assert.equal(statusData.events.length, 410);
+    assert.equal(statusData.generatedAt, statusData.events.at(-1).updatedAt);
+    assert.equal(statusData.events.at(-1).updatedAt, statusData.generatedAt);
+    assert.equal(server.homologation.completed, 2);
+    assert.equal(server.homologation.total, 7);
+    assert.equal(server.homologation.percent, 28.6);
+});
+
+
+test('portal registra auditoria HLS Matroska sem concluir homologação formal', () => {
+    const event = statusData.events.find(item => item.id === 'server-hls-matroska-validation-audit-2026-11-02-1454');
+    const server = statusData.tracks.find(track => track.id === 'server');
+
+    assert.ok(event);
+    assert.equal(event.status, 'completed');
+    assert.match(event.local, /Keyframes\.Tests 14\/14.*Hls\.Tests 22\/22.*nenhum arquivo de vídeo encontrado/i);
+    assert.match(event.evidence, /paridade sync\/async.*cancelamento.*CueTrackPositions.*não mídia de vídeo.*nem justificativa.*dependências/i);
+    assert.match(event.release, /2\/10.*2\/7 \(28,6%\).*12\.1\.46 candidata, não publicada/i);
+    assert.equal(statusData.events.length, 410);
+    assert.equal(statusData.generatedAt, statusData.events.at(-1).updatedAt);
+    assert.equal(server.homologation.completed, 2);
+    assert.equal(server.homologation.total, 7);
+    assert.equal(server.homologation.percent, 28.6);
+});
+
+test('portal registra o limite de rename rooted em SMB sem homologar o servidor', () => {
+    const event = statusData.events.find(item => item.id === 'server-image-writer-smb-compatibility-2026-11-02-1503');
+    const server = statusData.tracks.find(track => track.id === 'server');
+
+    assert.ok(event);
+    assert.equal(event.status, 'completed');
+    assert.match(event.evidence, /ImageSaver.*pathname.*RootDirectory=0.*openat2.*sem mudança estrutural/is);
+    assert.match(event.release, /3\/10.*homologação formal 2\/7.*12\.1\.46 candidata, não publicada/i);
+    assert.equal(statusData.events.length, 410);
+    assert.ok(Date.parse(event.updatedAt) <= Date.parse(statusData.generatedAt));
+    assert.equal(server.homologation.completed, 2);
+    assert.equal(server.homologation.total, 7);
+    assert.equal(server.homologation.percent, 28.6);
+});
+
+test('portal registra o contrato HTTP de Retry-After sem declarar migração ou homologação', () => {
+    const event = statusData.events.find(item => item.id === 'server-http-resilience-contract-validation-2026-11-02-1507');
+    const server = statusData.tracks.find(track => track.id === 'server');
+
+    assert.ok(event);
+    assert.equal(event.status, 'completed');
+    assert.match(event.local, /StartupHttpRetryPolicyTests 10\/10.*1m09s/i);
+    assert.match(event.evidence, /Retry-After por delta e data HTTP.*não repetição de POST.*recuperação após 30 s.*semântica diferente/is);
+    assert.match(event.release, /4\/10.*homologação formal 2\/7.*12\.1\.46 candidata, não publicada/i);
+    assert.equal(statusData.events.length, 410);
+    assert.ok(Date.parse(event.updatedAt) <= Date.parse(statusData.generatedAt));
+    assert.equal(server.homologation.completed, 2);
+    assert.equal(server.homologation.total, 7);
+    assert.equal(server.homologation.percent, 28.6);
+});
+
+test('portal registra FakeTimeProvider como oportunidade condicionada à migração da política HTTP', () => {
+    const event = statusData.events.find(item => item.id === 'server-http-retry-virtual-time-review-2026-11-02-1512');
+    const server = statusData.tracks.find(track => track.id === 'server');
+
+    assert.ok(event);
+    assert.equal(event.status, 'completed');
+    assert.match(event.evidence, /FakeTimeProvider.*TimeProvider.*Polly clássico.*não virtualiza/is);
+    assert.match(event.evidence, /sem dependência, código ou mudança de runtime/i);
+    assert.match(event.release, /5\/10.*homologação formal 2\/7.*12\.1\.46 candidata, não publicada/i);
+    assert.equal(statusData.events.length, 410);
+    assert.ok(Date.parse(event.updatedAt) <= Date.parse(statusData.generatedAt));
+    assert.equal(server.homologation.completed, 2);
+    assert.equal(server.homologation.total, 7);
+    assert.equal(server.homologation.percent, 28.6);
+});
+
+test('portal registra documentação XML completa do restore Nebula sem mudar homologação formal', () => {
+    const event = statusData.events.find(item => item.id === 'server-nebula-restore-xml-doc-warning-2026-11-02-1529');
+    const server = statusData.tracks.find(track => track.id === 'server');
+
+    assert.ok(event);
+    assert.equal(event.status, 'completed');
+    assert.equal(event.progressPercent, 100);
+    assert.match(event.evidence, /0 avisos, 0 erros/i);
+    assert.match(event.release, /7\/10.*homologação formal 2\/7.*12\.1\.46 candidata, não publicada/i);
+    assert.equal(statusData.events.length, 410);
+    assert.ok(Date.parse(event.updatedAt) <= Date.parse(statusData.generatedAt));
+    assert.equal(server.homologation.completed, 2);
+    assert.equal(server.homologation.total, 7);
+    assert.equal(server.homologation.percent, 28.6);
+});
+
+test('portal registra oportunidade TRX de CI sem alegar diagnóstico nem homologação formal', () => {
+    const event = statusData.events.find(item => item.id === 'server-ci-trx-artifact-audit-2026-11-02-1531');
+    const server = statusData.tracks.find(track => track.id === 'server');
+
+    assert.ok(event);
+    assert.equal(event.status, 'completed');
+    assert.match(event.evidence, /LogFilePrefix.*sem etapas ou runner/is);
+    assert.match(event.release, /8\/10.*implementação de CI pendente.*homologação formal 2\/7/i);
+    assert.equal(statusData.events.length, 410);
+    assert.ok(Date.parse(event.updatedAt) <= Date.parse(statusData.generatedAt));
+    assert.equal(server.homologation.completed, 2);
+    assert.equal(server.homologation.total, 7);
+    assert.equal(server.homologation.percent, 28.6);
+});
+
+test('portal registra os testes opt-in Nebula em Mongo descartável sem validar produção', () => {
+    const event = statusData.events.find(item => item.id === 'server-nebula-mongodb-optin-2026-11-02-1535');
+    const server = statusData.tracks.find(track => track.id === 'server');
+
+    assert.ok(event);
+    assert.equal(event.status, 'completed');
+    assert.match(event.local, /MongoDB 8\.3 isolado.*27099.*30\/30/i);
+    assert.match(event.evidence, /remoção.*bloqueada.*TEMP.*27017 e 3306 não foram usadas/i);
+    assert.match(event.release, /9\/10.*homologação formal 2\/7.*12\.1\.46 candidata, não publicada/i);
+    assert.equal(statusData.events.length, 410);
+    assert.ok(Date.parse(event.updatedAt) <= Date.parse(statusData.generatedAt));
+    assert.equal(server.homologation.completed, 2);
+    assert.equal(server.homologation.total, 7);
+    assert.equal(server.homologation.percent, 28.6);
+});
+
+
+test('portal registra preferência regional de imagens sem elevar homologação formal', () => {
+    const event = statusData.events.find(item => item.id === 'server-image-regional-language-refresh-2026-11-02-1542');
+    const server = statusData.tracks.find(track => track.id === 'server');
+
+    assert.ok(event);
+    assert.equal(event.status, 'completed');
+    assert.match(event.local, /ItemImageProviderTests.*94\/94.*pt-PT.*pt-BR/is);
+    assert.match(event.release, /10\/10.*homologação formal 2\/7.*12\.1\.46 candidata, não publicada/i);
+    assert.equal(statusData.events.length, 410);
+    assert.ok(Date.parse(event.updatedAt) <= Date.parse(statusData.generatedAt));
+    assert.equal(server.homologation.completed, 2);
+    assert.equal(server.homologation.total, 7);
+    assert.equal(server.homologation.percent, 28.6);
+});
+
+test('portal registra timeout por chamada no Nebula sem homologar produção', () => {
+    const event = statusData.events.find(item => item.id === 'nebula-socket-timeout-scope-2026-11-02-1704');
+    const server = statusData.tracks.find(track => track.id === 'server');
+
+    assert.ok(event);
+    assert.equal(event.status, 'completed');
+    assert.match(event.local, /Nebula Python: 806\/806.*proíbem setdefaulttimeout global/i);
+    assert.match(event.evidence, /altera o timeout dos novos sockets.*urlopen já passa timeout explicitamente.*não se mediu impacto em produção/is);
+    assert.match(event.release, /6\/10.*homologação formal permanece 2\/7.*12\.1\.46 candidata, não publicada/i);
+    assert.equal(statusData.events.length, 410);
+    assert.ok(Date.parse(statusData.generatedAt) >= Date.parse(event.updatedAt));
+    assert.equal(server.homologation.completed, 2);
+    assert.equal(server.homologation.total, 7);
+    assert.equal(server.homologation.percent, 28.6);
+});
+
+
+test('portal registra limite de seleção Mongo para geração STRM sem homologar produção', () => {
+    const event = statusData.events.find(item => item.id === 'nebula-strm-mongo-selection-timeout-2026-11-02-1714');
+    const server = statusData.tracks.find(track => track.id === 'server');
+
+    assert.ok(event);
+    assert.equal(event.status, 'completed');
+    assert.match(event.local, /14\/14.*serverSelectionTimeoutMS.*3000/is);
+    assert.match(event.evidence, /30000 ms.*não foi adicionado timeout de operação\/socket.*não validados/is);
+    assert.match(event.release, /7\/10.*homologação formal permanece 2\/7.*12\.1\.46 candidata, não publicada/i);
+    assert.equal(statusData.events.length, 410);
+    assert.ok(Date.parse(statusData.generatedAt) >= Date.parse(event.updatedAt));
+    assert.equal(server.homologation.completed, 2);
+    assert.equal(server.homologation.total, 7);
+    assert.equal(server.homologation.percent, 28.6);
+});
+
+
+test('portal registra o piloto PyMongo Async sem alegar ganho nem homologação', () => {
+    const event = statusData.events.find(item => item.id === 'server-nebula-pymongo-async-playback-pilot-2026-11-02-1724');
+    const server = statusData.tracks.find(track => track.id === 'server');
+
+    assert.ok(event);
+    assert.equal(event.status, 'completed');
+    assert.match(event.local, /test_stream_service 4\/4.*timeout esperado.*close\(\)/i);
+    assert.match(event.evidence, /pode melhorar ou degradar.*nenhum ganho.*sem Mongo real, benchmark, Linux, CI hospedada ou produção/i);
+    assert.match(event.release, /8\/10.*homologação formal permanece 2\/7.*12\.1\.46 candidata, não publicada/i);
+    assert.equal(statusData.events.length, 410);
+    assert.equal(server.homologation.completed, 2);
+    assert.equal(server.homologation.total, 7);
+    assert.equal(server.homologation.percent, 28.6);
+});
+
+test('portal registra migração PyMongo Async do Nebula principal e Supabase', () => {
+    const event = statusData.events.find(item => item.id === 'server-nebula-pymongo-async-main-supabase-2026-11-02-1738');
+    const server = statusData.tracks.find(track => track.id === 'server');
+
+    assert.ok(event);
+    assert.equal(event.status, 'completed');
+    assert.match(event.local, /suíte Nebula 808\/808.*focais.*131\/131/i);
+    assert.match(event.evidence, /remove io_loop.*Motor deprecated.*sem ganho presumido.*não houve acesso ao Mongo real, benchmark, Linux, CI hospedada ou produção/i);
+    assert.match(event.release, /9\/10.*homologação formal permanece 2\/7.*12\.1\.46 candidata, não publicada/i);
+    assert.equal(statusData.events.length, 410);
+    assert.equal(server.homologation.completed, 2);
+    assert.equal(server.homologation.total, 7);
+    assert.equal(server.homologation.percent, 28.6);
+});
+
+test('portal registra o teste de lease Nebula contra Mongo real sem creditar homologação', () => {
+    const event = statusData.events.find(item => item.id === 'server-nebula-mongo-admission-real-ci-2026-11-02-1854');
+    const server = statusData.tracks.find(track => track.id === 'server');
+
+    assert.ok(event);
+    assert.equal(event.status, 'completed');
+    assert.match(event.local, /809 aprovados, 1 ignorado.*URI 7 aprovados.*contrato CI 2\/2/i);
+    assert.match(event.evidence, /MongoDB 7.*não houve benchmark.*produção nem homologação formal/i);
+    assert.match(event.release, /lote local 10\/10.*não publicado.*homologação formal permanece 2\/7.*12\.1\.46 candidata, não publicada/i);
+    assert.equal(statusData.events.length, 410);
+    assert.equal(server.homologation.completed, 2);
+    assert.equal(server.homologation.total, 7);
+    assert.equal(server.homologation.percent, 28.6);
 });

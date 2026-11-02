@@ -373,7 +373,7 @@ function Copy-RuntimeExtras {
         Copy-Item -Destination $stagePythonFtp -Force
     $stagePythonTools = Join-Path $nebulaPythonStage 'tools'
     New-Item -ItemType Directory -Force -Path $stagePythonTools | Out-Null
-    foreach ($runtimeTool in @('__init__.py', 'check_deps.py', 'strm_downloader.py', 'feed_ftp.py', 'supabase_sync.py', 'mongo_admission.py')) {
+    foreach ($runtimeTool in @('__init__.py', 'check_deps.py', 'strm_downloader.py', 'feed_ftp.py', 'supabase_sync.py', 'mongo_admission.py', 'logging_safety.py')) {
         $runtimeToolPath = Join-Path $nebulaPythonSource (Join-Path 'tools' $runtimeTool)
         if (Test-Path -LiteralPath $runtimeToolPath -PathType Leaf) {
             Copy-Item -LiteralPath $runtimeToolPath -Destination $stagePythonTools -Force

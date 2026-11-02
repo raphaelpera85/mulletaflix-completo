@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import json
+import socket
+import sys
 from pathlib import Path
 from io import BytesIO
 from types import SimpleNamespace
-import sys
 
 import pytest
 
@@ -31,7 +32,11 @@ class _Response:
 
 
 def _silence_network_globals(monkeypatch):
-    monkeypatch.setattr(strm_downloader.socket, "setdefaulttimeout", lambda *_args: None)
+    monkeypatch.setattr(
+        socket,
+        "setdefaulttimeout",
+        lambda *_args: pytest.fail("download must not change the process-wide socket timeout"),
+    )
     monkeypatch.setattr(strm_downloader, "wait_for_disk_capacity", lambda *_args: None)
     monkeypatch.setattr(strm_downloader.time, "sleep", lambda *_args: None)
 
@@ -634,11 +639,13 @@ def test_multipart_download_rejects_206_without_content_range_and_preserves_prev
 def test_non_range_response_replaces_stale_nonempty_destination(tmp_path, monkeypatch):
     target = tmp_path / "episode.mkv"
     target.write_bytes(b"old")
+    request_timeouts = []
     _silence_network_globals(monkeypatch)
     requests = []
 
-    def fake_urlopen(request, **_kwargs):
+    def fake_urlopen(request, **kwargs):
         requests.append(request)
+        request_timeouts.append(kwargs.get("timeout"))
         return _Response(b"complete replacement", headers={"Content-Length": "20"}, status=200)
 
     monkeypatch.setattr(strm_downloader, "urlopen", fake_urlopen)
@@ -652,6 +659,7 @@ def test_non_range_response_replaces_stale_nonempty_destination(tmp_path, monkey
     assert len(requests) == 2
     assert requests[0].get_header("Range") == "bytes=0-0"
     assert requests[1].get_header("Range") is None
+    assert request_timeouts == [20, 20]
 
 
 def test_non_range_download_rejects_truncated_content_length_and_preserves_existing_target(

@@ -201,7 +201,13 @@ public sealed class ServerUpdateTask : IScheduledTask
                 ExtractedPath = extractDir,
                 CompletedAt = DateTime.UtcNow
             };
-            await File.WriteAllTextAsync(stateFile, JsonSerializer.Serialize(state), cancellationToken).ConfigureAwait(false);
+            ProtectedConfigurationWriter.PersistText(
+                JsonSerializer.Serialize(state),
+                stateFile,
+                _logger,
+                restrictExistingWindowsAcl: true,
+                failClosedUnixPermissions: true,
+                cancellationToken: cancellationToken);
 
             _logger.LogInformation(
                 "Server update {RemoteVersion} downloaded and extracted automatically in background. Awaiting user approval to apply in Dashboard.",

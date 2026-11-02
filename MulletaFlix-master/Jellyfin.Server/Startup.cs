@@ -68,6 +68,55 @@ namespace MulletaFlix.Server
             _serverConfigurationManager = appHost.ConfigurationManager;
         }
 
+        internal static void AddHttpClients(IServiceCollection services, ProductInfoHeaderValue productHeader, string applicationUserAgentAddress)
+        {
+            var acceptJsonHeader = new MediaTypeWithQualityHeaderValue(MediaTypeNames.Application.Json, 1.0);
+            var acceptXmlHeader = new MediaTypeWithQualityHeaderValue(MediaTypeNames.Application.Xml, 0.9);
+            var acceptAnyHeader = new MediaTypeWithQualityHeaderValue("*/*", 0.8);
+            Func<IServiceProvider, HttpMessageHandler> eyeballsHttpClientHandlerDelegate = (_) => new SocketsHttpHandler()
+            {
+                AutomaticDecompression = DecompressionMethods.All,
+                RequestHeaderEncodingSelector = (_, _) => Encoding.UTF8,
+                ConnectCallback = HttpClientExtension.OnConnect
+            };
+
+            Func<IServiceProvider, HttpMessageHandler> defaultHttpClientHandlerDelegate = (_) => new SocketsHttpHandler()
+            {
+                AutomaticDecompression = DecompressionMethods.All,
+                RequestHeaderEncodingSelector = (_, _) => Encoding.UTF8
+            };
+
+            services.AddHttpClient(NamedClient.Default, c =>
+                {
+                    c.DefaultRequestHeaders.UserAgent.Add(productHeader);
+                    c.DefaultRequestHeaders.Accept.Add(acceptJsonHeader);
+                    c.DefaultRequestHeaders.Accept.Add(acceptXmlHeader);
+                    c.DefaultRequestHeaders.Accept.Add(acceptAnyHeader);
+                })
+                .ConfigurePrimaryHttpMessageHandler(eyeballsHttpClientHandlerDelegate)
+                .AddPolicyHandler(GetRetryPolicySelector());
+
+            services.AddHttpClient(NamedClient.MusicBrainz, c =>
+                {
+                    c.DefaultRequestHeaders.UserAgent.Add(productHeader);
+                    c.DefaultRequestHeaders.UserAgent.Add(new ProductInfoHeaderValue($"({applicationUserAgentAddress})"));
+                    c.DefaultRequestHeaders.Accept.Add(acceptXmlHeader);
+                    c.DefaultRequestHeaders.Accept.Add(acceptAnyHeader);
+                })
+                .ConfigurePrimaryHttpMessageHandler(eyeballsHttpClientHandlerDelegate)
+                .AddPolicyHandler(GetRetryPolicySelector());
+
+            services.AddHttpClient(NamedClient.DirectIp, c =>
+                {
+                    c.DefaultRequestHeaders.UserAgent.Add(productHeader);
+                    c.DefaultRequestHeaders.Accept.Add(acceptJsonHeader);
+                    c.DefaultRequestHeaders.Accept.Add(acceptXmlHeader);
+                    c.DefaultRequestHeaders.Accept.Add(acceptAnyHeader);
+                })
+                .ConfigurePrimaryHttpMessageHandler(defaultHttpClientHandlerDelegate)
+                .AddPolicyHandler(GetRetryPolicySelector());
+        }
+
         /// <summary>
         /// Configures the service collection for the webhost.
         /// </summary>
@@ -122,51 +171,7 @@ namespace MulletaFlix.Server
             var productHeader = new ProductInfoHeaderValue(
                 _serverApplicationHost.Name.Replace(' ', '-'),
                 _serverApplicationHost.ApplicationVersionString);
-            var acceptJsonHeader = new MediaTypeWithQualityHeaderValue(MediaTypeNames.Application.Json, 1.0);
-            var acceptXmlHeader = new MediaTypeWithQualityHeaderValue(MediaTypeNames.Application.Xml, 0.9);
-            var acceptAnyHeader = new MediaTypeWithQualityHeaderValue("*/*", 0.8);
-            Func<IServiceProvider, HttpMessageHandler> eyeballsHttpClientHandlerDelegate = (_) => new SocketsHttpHandler()
-            {
-                AutomaticDecompression = DecompressionMethods.All,
-                RequestHeaderEncodingSelector = (_, _) => Encoding.UTF8,
-                ConnectCallback = HttpClientExtension.OnConnect
-            };
-
-            Func<IServiceProvider, HttpMessageHandler> defaultHttpClientHandlerDelegate = (_) => new SocketsHttpHandler()
-            {
-                AutomaticDecompression = DecompressionMethods.All,
-                RequestHeaderEncodingSelector = (_, _) => Encoding.UTF8
-            };
-
-            services.AddHttpClient(NamedClient.Default, c =>
-                {
-                    c.DefaultRequestHeaders.UserAgent.Add(productHeader);
-                    c.DefaultRequestHeaders.Accept.Add(acceptJsonHeader);
-                    c.DefaultRequestHeaders.Accept.Add(acceptXmlHeader);
-                    c.DefaultRequestHeaders.Accept.Add(acceptAnyHeader);
-                })
-                .ConfigurePrimaryHttpMessageHandler(eyeballsHttpClientHandlerDelegate)
-                .AddPolicyHandler(GetRetryPolicy());
-
-            services.AddHttpClient(NamedClient.MusicBrainz, c =>
-                {
-                    c.DefaultRequestHeaders.UserAgent.Add(productHeader);
-                    c.DefaultRequestHeaders.UserAgent.Add(new ProductInfoHeaderValue($"({_serverApplicationHost.ApplicationUserAgentAddress})"));
-                    c.DefaultRequestHeaders.Accept.Add(acceptXmlHeader);
-                    c.DefaultRequestHeaders.Accept.Add(acceptAnyHeader);
-                })
-                .ConfigurePrimaryHttpMessageHandler(eyeballsHttpClientHandlerDelegate)
-                .AddPolicyHandler(GetRetryPolicy());
-
-            services.AddHttpClient(NamedClient.DirectIp, c =>
-                {
-                    c.DefaultRequestHeaders.UserAgent.Add(productHeader);
-                    c.DefaultRequestHeaders.Accept.Add(acceptJsonHeader);
-                    c.DefaultRequestHeaders.Accept.Add(acceptXmlHeader);
-                    c.DefaultRequestHeaders.Accept.Add(acceptAnyHeader);
-                })
-                .ConfigurePrimaryHttpMessageHandler(defaultHttpClientHandlerDelegate)
-                .AddPolicyHandler(GetRetryPolicy());
+            AddHttpClients(services, productHeader, _serverApplicationHost.ApplicationUserAgentAddress);
 
             services.AddHsts(options =>
             {
@@ -401,7 +406,31 @@ namespace MulletaFlix.Server
         }
 
         internal static IAsyncPolicy<HttpResponseMessage> GetRetryPolicy()
+            => GetRetryPolicy(HttpMethod.Get);
+
+        internal static IAsyncPolicy<HttpResponseMessage> GetRetryPolicy(HttpMethod method)
         {
+            ArgumentNullException.ThrowIfNull(method);
+
+            return Policy.WrapAsync(CreateRetryPolicy(method), CreateCircuitBreakerPolicy());
+        }
+
+        private static Func<IServiceProvider, HttpRequestMessage, IAsyncPolicy<HttpResponseMessage>> GetRetryPolicySelector()
+        {
+            var circuitBreaker = CreateCircuitBreakerPolicy();
+            var retryablePolicy = Policy.WrapAsync(CreateRetryPolicy(HttpMethod.Get), circuitBreaker);
+            var noRetryPolicy = Policy.WrapAsync(Policy.NoOpAsync<HttpResponseMessage>(), circuitBreaker);
+
+            return (_, request) => IsIdempotentHttpMethod(request.Method) ? retryablePolicy : noRetryPolicy;
+        }
+
+        private static IAsyncPolicy<HttpResponseMessage> CreateRetryPolicy(HttpMethod method)
+        {
+            if (!IsIdempotentHttpMethod(method))
+            {
+                return Policy.NoOpAsync<HttpResponseMessage>();
+            }
+
             var retryableErrors = HttpPolicyExtensions
                 .HandleTransientHttpError()
                 .Or<TimeoutRejectedException>()
@@ -410,19 +439,21 @@ namespace MulletaFlix.Server
                     && response.RequestMessage is not null
                     && IsIdempotentHttpMethod(response.RequestMessage.Method));
 
-            var retry = retryableErrors.WaitAndRetryAsync(
+            return retryableErrors.WaitAndRetryAsync(
                 3,
                 (int retryAttempt, DelegateResult<HttpResponseMessage> outcome, Polly.Context _) =>
                     GetRetryDelay(retryAttempt, outcome),
                 (_, _, _, _) => System.Threading.Tasks.Task.CompletedTask);
-            var circuitBreaker = HttpPolicyExtensions
+        }
+
+        private static IAsyncPolicy<HttpResponseMessage> CreateCircuitBreakerPolicy()
+        {
+            return HttpPolicyExtensions
                 .HandleTransientHttpError()
                 .Or<TimeoutRejectedException>()
                 .CircuitBreakerAsync(
                     handledEventsAllowedBeforeBreaking: 5,
                     durationOfBreak: TimeSpan.FromSeconds(30));
-
-            return Policy.WrapAsync(retry, circuitBreaker);
         }
 
         private static bool IsIdempotentHttpMethod(HttpMethod method)

@@ -64,11 +64,12 @@ public sealed class NebulaMongoAdmissionLeaseTests
         var renewalCount = 0;
         var releaseCount = 0;
         var lease = new NebulaMongoAdmissionLease(
-            _ =>
+            async cancellationToken =>
             {
                 Interlocked.Increment(ref renewalCount);
                 renewalStarted.TrySetResult();
-                return Task.FromResult(true);
+                await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+                return true;
             },
             _ =>
             {

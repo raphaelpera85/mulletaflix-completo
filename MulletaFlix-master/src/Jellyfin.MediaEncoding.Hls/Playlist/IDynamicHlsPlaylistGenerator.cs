@@ -1,4 +1,7 @@
-﻿namespace MulletaFlix.MediaEncoding.Hls.Playlist;
+﻿using System.Threading;
+using System.Threading.Tasks;
+
+namespace MulletaFlix.MediaEncoding.Hls.Playlist;
 
 /// <summary>
 /// Generator for dynamic HLS playlists where the segment lengths aren't known in advance.
@@ -11,5 +14,17 @@ public interface IDynamicHlsPlaylistGenerator
     /// <param name="request">An instance of the <see cref="CreateMainPlaylistRequest"/> class.</param>
     /// <returns>The playlist as a formatted string.</returns>
     string CreateMainPlaylist(CreateMainPlaylistRequest request);
+
+    /// <summary>
+    /// Creates the main playlist asynchronously.
+    /// </summary>
+    /// <param name="request">An instance of the <see cref="CreateMainPlaylistRequest"/> class.</param>
+    /// <param name="cancellationToken">The cancellation token.</param>
+    /// <returns>The playlist as a formatted string.</returns>
+    Task<string> CreateMainPlaylistAsync(CreateMainPlaylistRequest request, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        return Task.FromResult(CreateMainPlaylist(request));
+    }
 }
 

@@ -1,8 +1,9 @@
-﻿using System;
+using System;
 using System.IO;
 using System.Xml;
 using System.Xml.Serialization;
 using Emby.Server.Implementations;
+using MediaBrowser.Common.Configuration;
 using Microsoft.Extensions.Logging;
 
 namespace MulletaFlix.Server.Migrations.PreStartupRoutines;
@@ -43,8 +44,11 @@ public class CreateNetworkConfiguration : IMigrationRoutine
 
         var networkConfigSerializer = new XmlSerializer(typeof(OldNetworkConfiguration), new XmlRootAttribute("NetworkConfiguration"));
         var xmlWriterSettings = new XmlWriterSettings { Indent = true };
-        using var xmlWriter = XmlWriter.Create(path, xmlWriterSettings);
-        networkConfigSerializer.Serialize(xmlWriter, networkSettings);
+        ProtectedConfigurationWriter.PersistXml(path, stream =>
+        {
+            using var xmlWriter = XmlWriter.Create(stream, xmlWriterSettings);
+            networkConfigSerializer.Serialize(xmlWriter, networkSettings);
+        });
     }
 
 #pragma warning disable

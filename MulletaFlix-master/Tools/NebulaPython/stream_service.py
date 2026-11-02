@@ -8,7 +8,7 @@ import os
 from pathlib import Path
 
 import main as nebula
-from motor.motor_asyncio import AsyncIOMotorClient
+from pymongo import AsyncMongoClient
 from pyrogram import Client
 from pyrogram.errors import FloodWait
 
@@ -84,7 +84,7 @@ async def run() -> int:
     mongo_client = None
     server = None
     try:
-        mongo_client = AsyncIOMotorClient(
+        mongo_client = AsyncMongoClient(
             os.environ["MONGODB"],
             serverSelectionTimeoutMS=int(os.environ.get("MONGO_SERVER_SELECTION_TIMEOUT_MS", "5000")),
             connectTimeoutMS=int(os.environ.get("MONGO_CONNECT_TIMEOUT_MS", "5000")),
@@ -102,7 +102,7 @@ async def run() -> int:
             server.close()
             await server.wait_closed()
         if mongo_client:
-            mongo_client.close()
+            await mongo_client.close()
         await asyncio.gather(*(bot.stop() for bot in active_bots), return_exceptions=True)
 
 

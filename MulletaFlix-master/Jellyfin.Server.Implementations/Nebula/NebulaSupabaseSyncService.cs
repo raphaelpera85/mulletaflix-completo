@@ -531,7 +531,9 @@ public sealed class NebulaSupabaseSyncService : IDisposable
             using var resp = await _httpClient.SendAsync(req, cancellationToken).ConfigureAwait(false);
             if (!resp.IsSuccessStatusCode)
             {
-                throw new InvalidOperationException($"Falha ao consultar o histórico do Supabase: HTTP {(int)resp.StatusCode} {resp.ReasonPhrase}.");
+                var errorCode = await TryReadSupabaseErrorCodeAsync(resp.Content, cancellationToken).ConfigureAwait(false);
+                var codeDetail = errorCode is null ? string.Empty : $" Código: {errorCode}.";
+                throw new InvalidOperationException($"Falha ao consultar o histórico do Supabase: HTTP {(int)resp.StatusCode} {resp.ReasonPhrase}.{codeDetail}");
             }
 
             var body = await resp.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
@@ -605,7 +607,9 @@ public sealed class NebulaSupabaseSyncService : IDisposable
                         var retryableStatus = resp.StatusCode == HttpStatusCode.TooManyRequests || (int)resp.StatusCode >= 500;
                         if (!retryableStatus || attempt == 3)
                         {
-                            throw new InvalidOperationException($"Falha ao consultar o cursor do Supabase: HTTP {(int)resp.StatusCode} {resp.ReasonPhrase}.");
+                            var errorCode = await TryReadSupabaseErrorCodeAsync(resp.Content, cancellationToken).ConfigureAwait(false);
+                            var codeDetail = errorCode is null ? string.Empty : $" Código: {errorCode}.";
+                            throw new InvalidOperationException($"Falha ao consultar o cursor do Supabase: HTTP {(int)resp.StatusCode} {resp.ReasonPhrase}.{codeDetail}");
                         }
 
                         _logger.LogWarning("[SUPABASE-TIMESTAMP] Falha transitória ao consultar o cursor (tentativa {Attempt}/3): HTTP {StatusCode}.", attempt, (int)resp.StatusCode);
@@ -676,6 +680,54 @@ public sealed class NebulaSupabaseSyncService : IDisposable
         {
             _logger.LogWarning(ex, "[SUPABASE-TIMESTAMP] Falha ao obter o updated_at mais recente do Supabase; a sincronização delta foi interrompida para evitar fallback integral.");
             throw new InvalidOperationException("Não foi possível obter com segurança o cursor delta do Supabase.", ex);
+        }
+    }
+
+    private static async Task<string?> TryReadSupabaseErrorCodeAsync(HttpContent content, CancellationToken cancellationToken)
+    {
+        const int maxErrorBodyBytes = 4096;
+        var buffer = new byte[maxErrorBodyBytes + 1];
+        int length = 0;
+        try
+        {
+            await using var stream = await content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
+            while (length < buffer.Length)
+            {
+                var bytesRead = await stream.ReadAsync(buffer.AsMemory(length), cancellationToken).ConfigureAwait(false);
+                if (bytesRead == 0)
+                {
+                    break;
+                }
+
+                length += bytesRead;
+            }
+        }
+        catch (Exception ex) when (ex is IOException or HttpRequestException)
+        {
+            return null;
+        }
+
+        if (length == 0 || length > maxErrorBodyBytes)
+        {
+            return null;
+        }
+
+        try
+        {
+            using var document = JsonDocument.Parse(buffer.AsMemory(0, length));
+            if (document.RootElement.ValueKind != JsonValueKind.Object
+                || !document.RootElement.TryGetProperty("code", out var codeElement)
+                || codeElement.ValueKind != JsonValueKind.String)
+            {
+                return null;
+            }
+
+            var code = codeElement.GetString();
+            return code is { Length: > 0 and <= 32 } && code.All(char.IsAsciiLetterOrDigit) ? code : null;
+        }
+        catch (JsonException)
+        {
+            return null;
         }
     }
 
@@ -776,7 +828,7 @@ public sealed class NebulaSupabaseSyncService : IDisposable
             foreach (var batch in fileRecords.Chunk(100))
             {
                 batchIndex++;
-                await SendSupabaseBatchWithRetryAsync(supabaseUrl, supabaseKey, "nebula_files?on_conflict=id", batch, cancellationToken).ConfigureAwait(false);
+                await SendSupabaseRequestWithRetryAsync(supabaseUrl, supabaseKey, "nebula_files?on_conflict=id", batch, cancellationToken).ConfigureAwait(false);
                 var progressMessage = $"[SUPABASE-SYNC] Lote {batchIndex}/{totalBatches} enviado com sucesso ({Math.Min(batchIndex * 100, syncedFiles)}/{syncedFiles} arquivos).";
                 _logger.LogInformation("{Message}", progressMessage);
                 progressAction?.Invoke(progressMessage);
@@ -917,7 +969,11 @@ public sealed class NebulaSupabaseSyncService : IDisposable
     /// <summary>
     /// Restaura o catálogo, usuários FTP, usuários do MulletaFlix e tokens do Supabase.
     /// </summary>
+    /// <param name="supabaseUrl">URL base do projeto Supabase.</param>
+    /// <param name="supabaseKey">Chave de serviço usada para autenticar as chamadas REST.</param>
+    /// <param name="progressAction">Callback opcional para informar o progresso da restauração.</param>
     /// <param name="forceFullRestore">Solicita restauração completa. O modo é recusado sem consultar ou alterar dados até que seu escopo destrutivo seja definido.</param>
+    /// <param name="cancellationToken">Token que cancela as chamadas e operações da restauração.</param>
     public async Task<NebulaSupabaseRestoreResultDto> PerformRestoreAsync(
         string supabaseUrl,
         string supabaseKey,
@@ -1584,27 +1640,29 @@ public sealed class NebulaSupabaseSyncService : IDisposable
         }
     }
 
-    private async Task SendSupabaseBatchWithRetryAsync<T>(
+    private async Task SendSupabaseRequestWithRetryAsync(
         string supabaseUrl,
         string supabaseKey,
         string endpoint,
-        IReadOnlyCollection<T> records,
-        CancellationToken cancellationToken)
+        object payload,
+        CancellationToken cancellationToken,
+        HttpMethod? method = null)
     {
-        var json = JsonSerializer.Serialize(records);
+        var json = JsonSerializer.Serialize(payload);
         var uri = $"{supabaseUrl.TrimEnd('/')}/rest/v1/{endpoint}";
+        var requestMethod = method ?? HttpMethod.Post;
 
         for (var attempt = 1; attempt <= 3; attempt++)
         {
             try
             {
-                using var request = new HttpRequestMessage(HttpMethod.Post, uri)
+                using var request = new HttpRequestMessage(requestMethod, uri)
                 {
                     Content = new StringContent(json, Encoding.UTF8, "application/json")
                 };
                 request.Headers.Add("apikey", supabaseKey);
                 request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", supabaseKey);
-                request.Headers.Add("Prefer", "resolution=merge-duplicates,return=minimal");
+                request.Headers.Add("Prefer", requestMethod == HttpMethod.Post ? "resolution=merge-duplicates,return=minimal" : "return=minimal");
 
                 using var response = await _httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
                 if (response.IsSuccessStatusCode)
@@ -1616,20 +1674,20 @@ public sealed class NebulaSupabaseSyncService : IDisposable
                 var retryable = response.StatusCode == HttpStatusCode.TooManyRequests || (int)response.StatusCode >= 500;
                 if (!retryable || attempt == 3)
                 {
-                    throw new InvalidOperationException($"Supabase rejeitou o lote: HTTP {(int)response.StatusCode} - {body}");
+                    throw new InvalidOperationException($"Supabase rejeitou a solicitação: HTTP {(int)response.StatusCode} - {body}");
                 }
 
-                _logger.LogWarning("[SUPABASE-SYNC] Falha transitória no lote (tentativa {Attempt}/3): HTTP {Code} - {Body}", attempt, response.StatusCode, body);
+                _logger.LogWarning("[SUPABASE-SYNC] Falha transitória na solicitação (tentativa {Attempt}/3): HTTP {Code} - {Body}", attempt, response.StatusCode, body);
             }
             catch (Exception ex) when (attempt < 3 && !cancellationToken.IsCancellationRequested && (ex is HttpRequestException or TaskCanceledException))
             {
-                _logger.LogWarning(ex, "[SUPABASE-SYNC] Erro transitório no lote (tentativa {Attempt}/3).", attempt);
+                _logger.LogWarning(ex, "[SUPABASE-SYNC] Erro transitório na solicitação (tentativa {Attempt}/3).", attempt);
             }
 
             await Task.Delay(TimeSpan.FromMilliseconds(250 * attempt), cancellationToken).ConfigureAwait(false);
         }
 
-        throw new InvalidOperationException("Não foi possível enviar o lote ao Supabase após 3 tentativas.");
+        throw new InvalidOperationException("Não foi possível enviar a solicitação ao Supabase após 3 tentativas.");
     }
 
     /// <summary>
@@ -1663,7 +1721,7 @@ public sealed class NebulaSupabaseSyncService : IDisposable
             return 0;
         }
 
-        await SendSupabaseBatchWithRetryAsync(supabaseUrl, supabaseKey, "nebula_bot_tokens?on_conflict=index", tokenRecords, cancellationToken).ConfigureAwait(false);
+        await SendSupabaseRequestWithRetryAsync(supabaseUrl, supabaseKey, "nebula_bot_tokens?on_conflict=index", tokenRecords, cancellationToken).ConfigureAwait(false);
         return tokenRecords.Count;
     }
 
@@ -1680,7 +1738,7 @@ public sealed class NebulaSupabaseSyncService : IDisposable
         var records = paths.Select(static path => new SupabaseDirectoryRefreshRecord { DirectoryPath = path }).ToList();
         foreach (var batch in records.Chunk(100))
         {
-            await SendSupabaseBatchWithRetryAsync(
+            await SendSupabaseRequestWithRetryAsync(
                 supabaseUrl,
                 supabaseKey,
                 "nebula_directory_refreshes?on_conflict=directory_path",
@@ -1855,12 +1913,63 @@ public sealed class NebulaSupabaseSyncService : IDisposable
         .Select(group => group.First())
         .ToList();
 
-        // Conflict target must match the remote unique index. Using only id
-        // caused HTTP 409 when a stale row kept the same username.
+        if (records.Count > 0)
+        {
+            List<JsonElement> remoteUsers;
+            try
+            {
+                remoteUsers = await FetchSupabaseRowsPagedAsync(
+                    supabaseUrl,
+                    supabaseKey,
+                    "mulletaflix_users",
+                    "id,normalized_username",
+                    "id.asc",
+                    "id",
+                    "Falha ao verificar identidades dos usuários remotos",
+                    cancellationToken).ConfigureAwait(false);
+            }
+            catch (InvalidOperationException ex) when (ex.Message.Contains("PGRST205", StringComparison.Ordinal))
+            {
+                throw new InvalidOperationException(
+                    "A tabela mulletaflix_users não existe no projeto Supabase; aplique a migração antes de declarar o backup concluído.", ex);
+            }
+            var remoteById = remoteUsers.ToDictionary(
+                row => Guid.Parse(row.GetProperty("id").GetString()!),
+                row => row.GetProperty("normalized_username").GetString() ?? string.Empty);
+            var remoteIdByUsername = remoteUsers.ToDictionary(
+                row => row.GetProperty("normalized_username").GetString() ?? string.Empty,
+                row => Guid.Parse(row.GetProperty("id").GetString()!),
+                StringComparer.Ordinal);
+            var renamedUsers = records
+                .Where(record => remoteById.TryGetValue(record.Id, out var remoteUsername)
+                    && !string.Equals(remoteUsername, record.NormalizedUsername, StringComparison.Ordinal))
+                .ToArray();
+
+            // Validate every rename before writing any, so a username swap or another
+            // user's occupied name cannot leave a partially renamed remote catalog.
+            if (renamedUsers.Any(record => remoteIdByUsername.TryGetValue(record.NormalizedUsername, out var ownerId) && ownerId != record.Id))
+            {
+                throw new InvalidOperationException("Não foi possível reconciliar uma renomeação de usuário: o novo nome já pertence a outro registro remoto.");
+            }
+
+            foreach (var record in renamedUsers)
+            {
+                await SendSupabaseRequestWithRetryAsync(
+                    supabaseUrl,
+                    supabaseKey,
+                    $"mulletaflix_users?id=eq.{Uri.EscapeDataString(record.Id.ToString("D"))}",
+                    record,
+                    cancellationToken,
+                    HttpMethod.Patch).ConfigureAwait(false);
+            }
+        }
+
+        // Conflict target must match the remote unique index. The ID preflight above
+        // updates renamed identities first while preserving username-based stale-row recovery.
         const string endpoint = "mulletaflix_users?on_conflict=normalized_username";
         try
         {
-            await SendSupabaseBatchWithRetryAsync(supabaseUrl, supabaseKey, endpoint, records, cancellationToken).ConfigureAwait(false);
+            await SendSupabaseRequestWithRetryAsync(supabaseUrl, supabaseKey, endpoint, records, cancellationToken).ConfigureAwait(false);
         }
         catch (InvalidOperationException ex) when (ex.Message.Contains("PGRST205", StringComparison.Ordinal))
         {

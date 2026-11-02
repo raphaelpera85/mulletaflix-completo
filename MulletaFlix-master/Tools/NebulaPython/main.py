@@ -5,7 +5,7 @@ try:
 except RuntimeError:
     asyncio.set_event_loop(asyncio.new_event_loop())
 
-# Garante runtime dependencies antes de qualquer import de pyrogram/motor/
+# Garante runtime dependencies antes de qualquer import de pyrogram/pymongo.
 # bson abaixo. Importar `tools.check_deps` não carrega módulos de runtime;
 # o guard usa packaging para comparar pins e só então verifica os imports.
 try:
@@ -43,8 +43,7 @@ import urllib.request
 
 import aiofiles
 from bson import ObjectId
-from motor.motor_asyncio import AsyncIOMotorClient
-from pymongo import ReturnDocument
+from pymongo import AsyncMongoClient, ReturnDocument
 from pymongo.errors import ConnectionFailure, DuplicateKeyError
 from pyrogram import Client
 from pyrogram import utils as pyrogram_utils
@@ -88,6 +87,7 @@ from ftp.pathio import MongoDBMemoryIO, Node, is_uploadable_name, movie_folder_s
 from ftp.range import parse_range as _parse_range
 from ftp.tg import close_upload_sessions, install_reliable_upload, send_document_bot_api
 from tools.mongo_admission import acquire_upload_admission
+from tools.logging_safety import SingleLineFormatter
 
 
 async def acquire_worker_upload_admission(mongo, owner):
@@ -628,7 +628,7 @@ def _get_writable_file_path(filename: str) -> str:
 
 
 # --- LOGGING ---
-log_formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
+log_formatter = SingleLineFormatter('%(asctime)s - %(levelname)s - %(message)s')
 console_handler = SafeStreamHandler()
 console_handler.setFormatter(log_formatter)
 logger = logging.getLogger("NebulaFTP")
@@ -1900,7 +1900,25 @@ async def upload_worker_parallel(bots, target_chat_id, mongo, worker_id):
                 # Collect pre-read chunks from the queue (or fallback to disk)
                 chunk_map: dict[int, bytes] = {}
                 for _ in range(batch_size):
-                    item = await readahead_queue.get()
+                    try:
+                        item = readahead_queue.get_nowait()
+                    except asyncio.QueueEmpty:
+                        get_task = asyncio.create_task(readahead_queue.get())
+                        try:
+                            done, _ = await asyncio.wait(
+                                (get_task, producer_task),
+                                return_when=asyncio.FIRST_COMPLETED,
+                            )
+                            if get_task not in done:
+                                await producer_task
+                                item = await readahead_queue.get()
+                            else:
+                                item = get_task.result()
+                        finally:
+                            if not get_task.done():
+                                get_task.cancel()
+                                with contextlib.suppress(asyncio.CancelledError):
+                                    await get_task
                     if item is None:
                         break
                     part_num, chunk_data = item
@@ -2000,9 +2018,10 @@ async def upload_worker_parallel(bots, target_chat_id, mongo, worker_id):
             await log_queue_state(mongo, f"falha:{filename}")
         finally:
             try:
-                if producer_task is not None and not producer_task.done():
-                    producer_task.cancel()
-                    with contextlib.suppress(asyncio.CancelledError):
+                if producer_task is not None:
+                    if not producer_task.done():
+                        producer_task.cancel()
+                    with contextlib.suppress(asyncio.CancelledError, Exception):
                         await producer_task
             finally:
                 try:
@@ -2724,23 +2743,27 @@ async def main():
         upload_bots = []
         target_chat_id = None
 
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
     mongo_client = None
 
-    def close_mongo_client():
+    async def close_mongo_client():
         if mongo_client is not None:
             with contextlib.suppress(Exception):
-                mongo_client.close()
+                await mongo_client.close()
 
     try:
         mongo_uri = environ.get("MONGODB")
         mongo_database = environ.get("MONGO_DATABASE", "ftp")
-        mongo_client = AsyncIOMotorClient(mongo_uri, io_loop=loop, w="majority")
+        mongo_client = AsyncMongoClient(mongo_uri, w="majority")
         mongo = mongo_client[mongo_database]
         await setup_database_indexes(mongo)
+    except asyncio.CancelledError:
+        await close_mongo_client()
+        await asyncio.gather(*(bot.stop() for bot in bots), return_exceptions=True)
+        raise
     except Exception as e:
         logger.critical(f"❌ Erro DB: {e}")
-        close_mongo_client()
+        await close_mongo_client()
         for bot in bots:
             await bot.stop()
         return 1
@@ -2755,7 +2778,7 @@ async def main():
         )
     except ValueError as exc:
         logger.critical("FTP security configuration failed: %s", exc)
-        close_mongo_client()
+        await close_mongo_client()
         for bot in bots:
             await bot.stop()
         return 1
@@ -2777,7 +2800,7 @@ async def main():
             )
         except (FileNotFoundError, ssl.SSLError, OSError) as exc:
             logger.critical("TLS configuration failed; refusing plaintext fallback: %s", exc)
-            close_mongo_client()
+            await close_mongo_client()
             for bot in bots:
                 await bot.stop()
             return 1
@@ -2790,7 +2813,7 @@ async def main():
         await server.start(host, port)
     except OSError as exc:
         logger.critical("❌ Não foi possível abrir %s:%s. Feche outro NebulaFTP usando essa porta. Erro: %s", host, port, exc)
-        close_mongo_client()
+        await close_mongo_client()
         for bot in bots:
             await bot.stop()
         return 1
@@ -2803,7 +2826,7 @@ async def main():
             await server.close()
         except Exception:
             logger.exception("Falha ao fechar FTP apos erro no HTTP Stream")
-        close_mongo_client()
+        await close_mongo_client()
         await asyncio.gather(*(bot.stop() for bot in bots), return_exceptions=True)
         return 1
 
@@ -2968,7 +2991,7 @@ async def main():
             task.cancel()
         await asyncio.gather(*background_tasks, return_exceptions=True)
         await close_upload_sessions(bots)
-        close_mongo_client()
+        await close_mongo_client()
         for bot in bots:
             await bot.stop()
         logger.info("👋 Desligado.")

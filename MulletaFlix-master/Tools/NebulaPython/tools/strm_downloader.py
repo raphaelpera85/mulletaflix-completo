@@ -21,7 +21,6 @@ import os
 import queue
 import re
 import shutil
-import socket
 import stat
 import sys
 import threading
@@ -34,6 +33,10 @@ from typing import Any, Callable
 from urllib.parse import parse_qs, urlsplit
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 import urllib.error
+try:
+    from tools.logging_safety import SingleLineFormatter
+except ModuleNotFoundError:  # Direct script execution sets sys.path to this directory.
+    from logging_safety import SingleLineFormatter
 
 
 class _HttpOnlyRedirectHandler(HTTPRedirectHandler):
@@ -143,7 +146,7 @@ def setup_logger(verbose: bool = False) -> None:
             sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 
     level = logging.DEBUG if verbose else logging.INFO
-    formatter = logging.Formatter("[%(asctime)s][%(levelname)s][STRM] %(message)s", datefmt="%H:%M:%S")
+    formatter = SingleLineFormatter("[%(asctime)s][%(levelname)s][STRM] %(message)s", datefmt="%H:%M:%S")
     handler = logging.StreamHandler(sys.stdout)
     handler.setFormatter(formatter)
     logger.setLevel(level)
@@ -966,8 +969,6 @@ def download_strm_multipart(
     tmp_path = target_path.parent / f".{target_path.stem}.download"
     meta_path = Path(f"{tmp_path}.meta")
     part_paths: list[Path] = []
-
-    socket.setdefaulttimeout(read_timeout)
 
     try:
         probe = Request(url, headers={"Range": "bytes=0-0", "User-Agent": "VLC/3.0.21 LibVLC/3.0.21"})

@@ -4,8 +4,6 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Linq;
-using System.Security.AccessControl;
-using System.Security.Principal;
 using System.Threading;
 using MediaBrowser.Common.Configuration;
 using MediaBrowser.Common.Events;
@@ -109,7 +107,11 @@ namespace Emby.Server.Implementations.AppBase
                         return _configuration;
                     }
 
-                    return _configuration = (BaseApplicationConfiguration)ConfigurationHelper.GetXmlConfiguration(ConfigurationType, CommonApplicationPaths.SystemConfigurationFilePath, XmlSerializer);
+                    return _configuration = (BaseApplicationConfiguration)ConfigurationHelper.GetXmlConfiguration(
+                        ConfigurationType,
+                        CommonApplicationPaths.SystemConfigurationFilePath,
+                        XmlSerializer,
+                        PersistConfigurationToFile);
                 }
             }
 
@@ -383,129 +385,13 @@ namespace Emby.Server.Implementations.AppBase
         }
 
         private void PersistConfigurationToFile(object configuration, string path)
-        {
-            Directory.CreateDirectory(Path.GetDirectoryName(path) ?? throw new InvalidOperationException("Path can't be a root directory."));
+            => ProtectedConfigurationWriter.Persist(configuration, path, XmlSerializer, Logger);
 
-            var temporaryPath = path + "." + Guid.NewGuid().ToString("N") + ".tmp";
-            try
-            {
-                // Create and restrict the empty file before serializing any secrets into it.
-                using (new FileStream(temporaryPath, FileMode.CreateNew, FileAccess.Write, FileShare.None))
-                {
-                }
-
-                RestrictConfigurationFilePermissions(temporaryPath);
-                RestrictWindowsConfigurationFilePermissions(temporaryPath);
-                XmlSerializer.SerializeToFile(configuration, temporaryPath);
-
-                if (OperatingSystem.IsWindows() && File.Exists(path))
-                {
-                    // ReplaceFile preserves the existing Windows ACL while atomically replacing contents.
-                    var backupPath = temporaryPath + ".bak";
-                    try
-                    {
-                        File.Replace(temporaryPath, path, backupPath);
-                    }
-                    catch
-                    {
-                        try
-                        {
-                            RestoreConfigurationBackupIfDestinationMissing(path, backupPath);
-                        }
-                        catch (Exception recoveryException) when (recoveryException is IOException or UnauthorizedAccessException)
-                        {
-                            Logger.LogCritical(recoveryException, "Unable to restore configuration backup after replacement failed: {Path}", backupPath);
-                        }
-
-                        throw;
-                    }
-                    finally
-                    {
-                        if (File.Exists(path))
-                        {
-                            TryDeleteTemporaryConfigurationFile(backupPath);
-                        }
-                    }
-                }
-                else
-                {
-                    File.Move(temporaryPath, path, overwrite: true);
-                }
-            }
-            finally
-            {
-                TryDeleteTemporaryConfigurationFile(temporaryPath);
-            }
-        }
+        internal static void PersistConfigurationAtomically(object configuration, string path, IXmlSerializer xmlSerializer, ILogger? logger = null)
+            => ProtectedConfigurationWriter.Persist(configuration, path, xmlSerializer, logger);
 
         internal static void RestoreConfigurationBackupIfDestinationMissing(string path, string backupPath)
-        {
-            if (!File.Exists(path) && File.Exists(backupPath))
-            {
-                File.Move(backupPath, path);
-            }
-        }
-
-        private void RestrictWindowsConfigurationFilePermissions(string path)
-        {
-            if (!OperatingSystem.IsWindows())
-            {
-                return;
-            }
-
-            var serviceIdentity = WindowsIdentity.GetCurrent().User
-                ?? throw new InvalidOperationException("Current Windows identity has no SID.");
-            var security = new FileSecurity();
-            security.SetAccessRuleProtection(isProtected: true, preserveInheritance: false);
-            security.SetOwner(serviceIdentity);
-            security.AddAccessRule(new FileSystemAccessRule(serviceIdentity, FileSystemRights.FullControl, AccessControlType.Allow));
-            security.AddAccessRule(new FileSystemAccessRule(
-                new SecurityIdentifier(WellKnownSidType.BuiltinAdministratorsSid, null),
-                FileSystemRights.FullControl,
-                AccessControlType.Allow));
-            security.AddAccessRule(new FileSystemAccessRule(
-                new SecurityIdentifier(WellKnownSidType.LocalSystemSid, null),
-                FileSystemRights.FullControl,
-                AccessControlType.Allow));
-            new FileInfo(path).SetAccessControl(security);
-        }
-
-        private void TryDeleteTemporaryConfigurationFile(string path)
-        {
-            try
-            {
-                File.Delete(path);
-            }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-            {
-                Logger.LogWarning(ex, "Unable to remove temporary configuration file: {Path}", path);
-            }
-        }
-
-        /// <summary>
-        /// Restricts a just-written configuration file to owner-only read/write on Unix. Config
-        /// files can hold plaintext secrets (e.g. NebulaFtpConfiguration's Password, ApiHash,
-        /// BotTokens, SupabaseKey, MongoDbConnectionString), and the OS default permissions on
-        /// most Linux distributions (typically 644) leave them world-readable to any local
-        /// account. Windows ACLs are left untouched — <c>File.SetUnixFileMode</c> throws
-        /// <see cref="PlatformNotSupportedException"/> there, and NTFS already restricts access by
-        /// default to the file's owner/administrators.
-        /// </summary>
-        /// <param name="path">The configuration file that was just written.</param>
-        private void RestrictConfigurationFilePermissions(string path)
-        {
-            if (!OperatingSystem.IsWindows())
-            {
-                try
-                {
-                    File.SetUnixFileMode(path, UnixFileMode.UserRead | UnixFileMode.UserWrite);
-                }
-                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-                {
-                    Logger.LogWarning(ex, "Unable to restrict permissions on configuration file: {Path}", path);
-                }
-            }
-        }
+            => ProtectedConfigurationWriter.RestoreBackupIfDestinationMissing(path, backupPath);
 
         /// <summary>
         /// Event handler for when a named configuration has been updated.

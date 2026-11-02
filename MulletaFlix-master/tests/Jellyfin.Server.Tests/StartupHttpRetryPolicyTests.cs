@@ -1,8 +1,10 @@
+using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Net;
 using System.Net.Http;
 using System.Threading.Tasks;
+using System.Threading;
 using MulletaFlix.Server;
 using Polly.CircuitBreaker;
 using Xunit;
@@ -153,6 +155,30 @@ public sealed class StartupHttpRetryPolicyTests
                 request.Dispose();
             }
         }
+    }
+
+    [Fact]
+    public async Task GetRetryPolicy_CancellationDuringRetryAfterStopsFurtherAttempts()
+    {
+        using var cancellationTokenSource = new CancellationTokenSource();
+        using var request = new HttpRequestMessage(HttpMethod.Get, "https://example.invalid/");
+        using var response = new HttpResponseMessage(HttpStatusCode.TooManyRequests)
+        {
+            RequestMessage = request
+        };
+        response.Headers.RetryAfter = new System.Net.Http.Headers.RetryConditionHeaderValue(System.TimeSpan.FromSeconds(30));
+        var attempts = 0;
+        cancellationTokenSource.CancelAfter(TimeSpan.FromMilliseconds(50));
+        var task = Startup.GetRetryPolicy().ExecuteAsync(
+            _ =>
+            {
+                attempts++;
+                return Task.FromResult(response);
+            },
+            cancellationTokenSource.Token);
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => task);
+        Assert.Equal(1, attempts);
     }
 
     [Fact]

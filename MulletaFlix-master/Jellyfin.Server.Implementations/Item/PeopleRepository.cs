@@ -1,15 +1,19 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading;
 using AsyncKeyedLock;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Persistence;
 using MediaBrowser.Model.Querying;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using MulletaFlix.Data.Enums;
 using MulletaFlix.Database.Implementations;
 using MulletaFlix.Database.Implementations.Entities;
 using MulletaFlix.Extensions;
+using MySqlConnector;
 
 namespace MulletaFlix.Server.Implementations.Item;
 #pragma warning disable RS0030 // Do not use banned APIs
@@ -22,12 +26,18 @@ namespace MulletaFlix.Server.Implementations.Item;
 /// </summary>
 /// <param name="dbProvider">Efcore Factory.</param>
 /// <param name="itemTypeLookup">Items lookup service.</param>
+/// <param name="logger">Repository logger.</param>
 /// <remarks>
 /// Initializes a new instance of the <see cref="PeopleRepository"/> class.
 /// </remarks>
-public class PeopleRepository(IDbContextFactory<MulletaFlixDbContext> dbProvider, IItemTypeLookup itemTypeLookup) : IPeopleRepository
+public class PeopleRepository(
+    IDbContextFactory<MulletaFlixDbContext> dbProvider,
+    IItemTypeLookup itemTypeLookup,
+    ILogger<PeopleRepository>? logger = null) : IPeopleRepository
 {
+    private const int MaxUpdateAttempts = 3;
     private readonly IDbContextFactory<MulletaFlixDbContext> _dbProvider = dbProvider;
+    private readonly ILogger<PeopleRepository> _logger = logger ?? NullLogger<PeopleRepository>.Instance;
     private static readonly AsyncKeyedLocker<Guid> _updateLock = new();
     private static readonly AsyncKeyedLocker<string> _missingPersonLock = new(o =>
     {
@@ -144,7 +154,29 @@ public class PeopleRepository(IDbContextFactory<MulletaFlixDbContext> dbProvider
         // multiple metadata providers can provide the _same_ person; dedupe case-insensitively.
         people = people.DistinctBy(e => e.Name.ToLowerInvariant() + "-" + e.Type).ToArray();
         var personKeys = people.Select(e => e.Name.ToLowerInvariant() + "-" + e.Type).ToArray();
+        var candidateNames = people.Select(e => e.Name).ToArray();
 
+        for (var attempt = 1; ; attempt++)
+        {
+            try
+            {
+                UpdatePeople(itemId, people, personKeys, candidateNames);
+                return;
+            }
+            catch (Exception exception) when (attempt < MaxUpdateAttempts && IsTransientLockFailure(exception))
+            {
+                _logger.LogWarning(
+                    exception,
+                    "Transient MariaDB lock failure while saving people for item {ItemId}; retrying attempt {Attempt}",
+                    itemId,
+                    attempt + 1);
+                Thread.Sleep(TimeSpan.FromMilliseconds(attempt * 150));
+            }
+        }
+    }
+
+    private void UpdatePeople(Guid itemId, IReadOnlyList<PersonInfo> people, string[] personKeys, string[] candidateNames)
+    {
         using var context = _dbProvider.CreateDbContext();
 
         // Filter on the indexed Name column first. The previous form projected a key computed in memory
@@ -162,7 +194,6 @@ public class PeopleRepository(IDbContextFactory<MulletaFlixDbContext> dbProvider
         // "GenericArguments[1], 'System.ReadOnlySpan`1[System.String]' ... violates the constraint of type
         // parameter 'TRet'", and every UpdatePeople call threw. All the other 20 call sites in this
         // assembly already qualify the call for the same reason.
-        var candidateNames = people.Select(e => e.Name).ToArray();
         var existingPersons = context.Peoples
             .Where(e => Enumerable.Contains(candidateNames, e.Name))
             .AsNoTracking()
@@ -263,6 +294,19 @@ public class PeopleRepository(IDbContextFactory<MulletaFlixDbContext> dbProvider
         }
 
         transaction.Commit();
+    }
+
+    private static bool IsTransientLockFailure(Exception exception)
+    {
+        for (Exception? current = exception; current is not null; current = current.InnerException)
+        {
+            if (current is MySqlException mySqlException && mySqlException.Number is 1205 or 1213)
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /// <inheritdoc/>

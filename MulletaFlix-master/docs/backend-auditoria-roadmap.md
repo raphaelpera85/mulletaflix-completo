@@ -1,3 +1,14 @@
+## DACL na gravação atômica de playlists e verificação do PR — 2026-11-02 14:47 BRT
+
+- `PlaylistManagerTests`: 7 aprovados, 1 ignorado (teste de modo POSIX); novo teste ACL Windows 1/1. O teste confirma que `File.Replace` mantém ACE explícita no destino durante atualização local NTFS. Sem mudança de implementação.
+- SMB/NAS e ACL POSIX estendida não foram executados; teste local Windows não valida esses sistemas. A documentação SMB2 confirma que `RootDirectory` não zero é inválido na operação de rename em rede; manter o fluxo pathname-based até existir matriz de compatibilidade real.
+- PR #1: os 16 jobs listados do run 41005367220 estão em `failure`, mas sem etapas, logs retornam 404 e o head atual não possui workflow/status. Sem diagnóstico de causa, não alterar código por inferência.
+- Homologação formal 2/7; portal local 391 eventos, lote 1/10; release 12.1.46 candidata, não publicada.
+
+## Gate de atualização HTTP resilience — 2026-11-02 14:12 BRT
+
+`Microsoft.Extensions.Http.Polly` está obsoleto, mas o substituto padrão altera métodos elegíveis, tempos limite e limitação de concorrência. `Default`, `MusicBrainz` e `DirectIp` dependem de retries idempotentes, `Retry-After` e breaker clássico. Focais de política/registro: 20/20 Windows/.NET 10 Release; sem teste de migração. Não trocar o pacote ainda. Próximos gates: especificar política customizada equivalente, decidir orçamento de espera baseado em métricas operacionais, validar os três clientes via fábrica HTTP e repetir testes nos sistemas suportados. Fontes Microsoft: https://learn.microsoft.com/en-us/dotnet/core/resilience/ e https://learn.microsoft.com/en-us/dotnet/core/resilience/http-resilience.
+
 ## Auditoria da seleção automática de idioma das imagens TMDb — 2026-11-02 01:57 BRT
 
 - O refresh consulta imagens em todos os idiomas (`IncludeAllLanguages = true`) e ordena os candidatos por locale preferido, idioma base, inglês, sem idioma e demais locais. Filmes, séries, temporadas e episódios usam a mesma ordenação de `ItemImageProvider`; testes existentes cobrem filmes/séries, fallback e locale regional.
@@ -1936,3 +1947,247 @@ Fontes Microsoft: [File.Replace](https://learn.microsoft.com/en-us/dotnet/api/sy
 A primeira execução completa falhou em três testes porque a leitura estática real retornou menos de 5 GiB no diretório temporário. Após injeção do provedor nos testes, `CreateBackupAsync` focal passou 6/6 e a solução Release Windows/.NET 10 passou 5.589 aprovados, 300 ignorados e 0 falhas/5.889 testes. `git diff --check` ainda será repetido após atualizar documentação.
 
 A falha do workflow remoto de 30/10 é independente: as anotações GitHub dos 16 check-runs dizem que os jobs não iniciaram por bloqueio de cobrança da conta; não há steps/logs de execução. A CLI `gh` não tem autenticação local; a API GitHub pública forneceu estado e anotações. Não atribuir essas falhas a código nem considerar CI remota validada. Sem Linux, MariaDB/Mongo opt-in, runtime instalado ou produção nesta rodada. Release 12.1.46 candidata; homologação formal permanece 2/7; portal local 6/10, sem publicação externa.
+
+## SSRF em fontes STRM e limite de confiança — 2026-11-02
+
+O catálogo ativo em `biblioteca STRM configurada` foi contado sem imprimir URLs: 41.650 arquivos `.strm`; todos usam HTTP, porta 2124 e caminho `/stream`; nenhum contém userinfo. A porta local 2124 estava indisponível nesta sessão. O código do feeder/downloader aceita origens HTTP(S) privadas e redirects HTTP(S), então a superfície de SSRF por redirect/DNS privado continua existente. Não bloquear loopback/LAN sem política compatível: isso quebraria todas as fontes observadas. Direção segura segundo OWASP: desabilitar redirect ou revalidar cada salto, validar o IP efetivamente conectado e vincular a conexão ao endereço validado; DNS resolvido em etapa separada não basta contra rebinding. Não alterei runtime; precisam ser confirmados em produção as origens permitidas e os redirects legítimos antes de escolher o allowlist de confiança e adicionar teste HTTP local de redirect bloqueado e origem autorizada. Escopo desta contagem limitado à pasta observada; sem validação de outras origens, Linux ou produção. Fontes: [OWASP SSRF Prevention](https://cheatsheetseries.owasp.org/cheatsheets/Server_Side_Request_Forgery_Prevention_Cheat_Sheet.html), [Python urllib.request 3.10](https://docs.python.org/3.10/library/urllib.request.html). Mapa técnico conferido; estrutura e fluxo permanecem iguais. Portal local `node --test tests/homologacao.test.mjs`: 201/201 aprovados; lote 6/10. Homologação formal 2/7; 12.1.46 candidata, sem publicação.
+
+## Dados de evento não confiáveis nos logs Nebula — 2026-11-02
+
+Auditoria estática em `strm_downloader.py`, `main.py` e `supabase_sync.py` encontrou sinks que registram texto de exceção ou nomes/caminhos de mídia. `format_download_error` reduz erros HTTP 401/403/404/406 a mensagens sem URL, mas o fallback genérico retorna `str(exc)`; `SupabaseSync` também registra e retorna a string de exceções. Inventário agregado da biblioteca observada: 41.650 STRMs, nenhum userinfo nem chave de query indicativa de segredo (todas as queries têm somente `id`). Não foi reproduzido vazamento, nem foram consultados logs de produção.
+
+### Sanitização CR/LF nos logs Nebula — 2026-11-02
+
+Reprodução local confirmou que nomes de mídia ou textos de exceção com CR/LF viravam linhas físicas adicionais. O módulo padrão compartilhado `Tools/NebulaPython/tools/logging_safety.py` adiciona `SingleLineFormatter`, que escapa quebras depois de formatar mensagem e traceback sem mutar `LogRecord`. Processo Nebula (`main.py`), handlers console/arquivo/contexto e downloader STRM autônomo usam o formatter. Nenhuma dependência foi adicionada. Em Windows/Python do projeto: suíte Nebula 803/803, teste focal 7/7, `compileall`, `strm_downloader.py --help` e contrato local do portal 203/203 passaram. Uma execução inicial teve uma falha de ordem concorrente em teste de download por ranges; o caso passou isolado e a execução completa seguinte passou. Pesquisa: [OWASP Logging Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Logging_Cheat_Sheet.html) recomenda sanitizar CR/LF; [Python logging 3.10](https://docs.python.org/3.10/library/logging.html) permite formatter customizado. Ainda não validados Linux/CI hospedada, subprocesso/produção ou os caminhos de `print` e logger isolado do `supabase_sync.py`; o patch não deve ser tratado como prova de ausência de segredos nem homologação de produção. Mapa técnico atualizado; portal local 8/10, ainda não publicado; homologação formal 2/7; 12.1.46 candidata, não publicada.
+
+A OWASP recomenda não registrar tokens, senhas ou strings de conexão e sanitizar CR/LF em dados não confiáveis. Nomes de arquivos podem vir de mídia externa; em Linux, caracteres de controle em nomes podem forjar linhas se forem emitidos sem sanitização. Antes de mudar os logs, criar teste com nome contendo CR/LF e garantir um único registro, preservando diagnóstico útil de exceções. Escopo parcial por buscas estáticas; nenhum patch/runtime, Linux ou produção validado. Fontes: [OWASP Logging Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Logging_Cheat_Sheet.html), [Python logging 3.10](https://docs.python.org/3.10/library/logging.html). Mapa técnico conferido; estrutura permaneceu igual. Portal local 7/10; testes `homologacao.test.mjs` 202/202; formal 2/7; 12.1.46 candidata, sem publicação.
+
+## Logs seguros do SupabaseSync — 2026-11-02
+
+O fluxo de backup/restauração autônomo em `Tools/NebulaPython/tools/supabase_sync.py` usa o helper compartilhado `tools/logging_safety.py` (fallback de import para execução direta). `safe_endpoint_for_log` limita a exibição a esquema, host e porta; não imprime userinfo, caminho nem query. O `SingleLineFilter` do logger `SupabaseSync` combina mensagem/traceback e escapa CR/LF. Saídas HTTP exibem código/tabela ou classe de exceção, sem razão/corpo remoto; a estrutura dos retornos foi preservada, mas o texto bruto de exceção foi substituído pela classe segura; os dados persistidos não mudaram. Testes `test_supabase_sync.py` validam URI com usuário/senha/query fictícios, corpo PostgREST com CR/LF e traceback malicioso.
+
+Suíte Nebula Python 805/805; foco Supabase 77/77; `compileall`, invocação direta de `supabase_sync.py` e contrato local do portal 204/204. Sem novas dependências. A estrutura ganhou integração do logger Supabase ao helper comum; mapa técnico atualizado. `feed_ftp.py` ainda tem caminhos `print` com texto de exceção/caminho fora do logger compartilhado; auditoria estática confirma pendência, sem evidência de exposição em produção. Sem MongoDB/Supabase externos, Linux, CI hospedada, runtime instalado ou produção. Portal local 369 eventos, lote 9/10, sem publicação externa. Homologação formal 2/7 (28,6%); release 12.1.46 candidata e não publicada. Ver [[Sessões/2026-11-02-MulletaFlix-supabase-safe-logs-1038]].
+
+## Saída de console do feeder Nebula — 2026-11-02
+
+`feed_ftp.py` reutiliza `logging_safety.safe_print` em todos os `print` ativos e resume exceções externas com `safe_exception_summary`; CR/LF é escapado e texto bruto da exceção não é emitido. O empacotador Windows copia `logging_safety.py` pela allowlist explícita e o stage falha se o helper não existir. Teste adversarial de linha única, suíte Nebula 806/806 e fixture de stage passaram. Não foram validados Linux, CI hospedada ou produção. Fontes oficiais: OWASP Logging Cheat Sheet e Python logging/traceback. `last_verified: 2026-11-02`.
+## Console do SupabaseSync — 2026-11-02
+
+`Tools/NebulaPython/tools/supabase_sync.py` usa agora `safe_print` para mensagens operacionais de conexão, backup e restauração. Nomes de banco/configuração e outros valores interpolados têm CR/LF escapado; texto bruto de exceções não é emitido. `print(sql)` foi mantido para exportar o schema SQL multilinha intencionalmente. Sem mudança de payload, retorno, coleções ou dados persistidos. O teste adversarial injeta CR/LF no nome do banco e confirma que a saída fica em uma única linha escapada.
+
+Windows/Python 3.10: suíte Nebula 806/806, foco Supabase 77/77, `compileall`, execução CLI `--sql-schema` e contrato local portal 206/206. Nenhum MongoDB/Supabase externo foi consultado. Fontes: [OWASP Logging Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Logging_Cheat_Sheet.html), [Python logging](https://docs.python.org/3.10/library/logging.html). A documentação atual recomenda o módulo padrão de logging para integração de eventos e sinks; conversão do CLI para logging estruturado fica como oportunidade separada, condicionada a compatibilidade de consumidores. Sem dependência/runtime novo. Linux, CI hospedada, backup real e produção pendentes. Snapshot local 371 eventos, evento 1/10 do próximo lote; sem publicação Git nesta sessão. Homologação formal 2/7; 12.1.46 candidata, não publicada. `last_verified: 2026-11-02`.
+## Ciclo de vida do runtime Python Nebula — 2026-11-02
+
+O CI fixa Python 3.10, cujo suporte oficial terminou em 2026-10; o instalador Windows procura Python 3.11–3.13 sem validar o patch e seu fallback continua em 3.13.7. Python 3.13.17 é a última versão dessa linha com instalador Windows tradicional; 3.14.10 está na linha ativa com instaladores. A suíte foi executada em venv temporário limpo com Python 3.14.7: lock instalado via --require-hashes e 806/806 testes passaram. Isso demonstra compatibilidade isolada do Nebula e do lock nesse patch/Windows, mas não valida inicialização integrada do serviço, instalador de produção, Linux ou 3.14.10. Próxima oportunidade: validar instalador assinado de 3.14.10, seleção/upgrade de runtime, orquestração C# e matriz Windows/Linux antes de atualizar runtime-alvo e CI. Não houve atualização de runtime/dependência nesta auditoria. Fontes oficiais: https://devguide.python.org/versions/ ; https://www.python.org/downloads/release/python-31317/ ; https://www.python.org/downloads/release/python-31318/ ; https://www.python.org/downloads/release/python-31410/ . Homologação formal 2/7; 12.1.46 continua candidata, não publicada.
+
+## Runtime Python 3.14 no Nebula — 2026-11-02
+
+Os workflows CI e release passam a usar Python 3.14. O instalador Windows prioriza Python314 e usa o instalador oficial 3.14.10 se não há runtime instalado; o servidor já prioriza o marcador python.path e inclui caminhos Python314 como fallback. O lock foi instalado com hashes em venv limpa Python 3.14.7 e a suíte Nebula passou 806/806. O instalador 3.14.10 oficial teve assinatura Authenticode PSF válida e SHA-256 92480239264744FE0386A1BD8275786FEFA126E3129E56A68E22B52C73329965, mas sua execução isolada foi recusada pelo ambiente, portanto essa versão exata não foi instalada. Teste de integridade do stage, parse AST do instalador e NebulaDownloaderStartupTests Release 35/35 passaram. Ainda pendem CI hospedada, inicialização integrada com o runtime 3.14.10, Linux e produção. Sem mudança de lock ou dependências. Fontes: ciclo de vida https://devguide.python.org/versions/ ; Python 3.14.10 https://www.python.org/downloads/release/python-31410/ ; setup-python https://github.com/actions/setup-python . Homologação formal 2/7; 12.1.46 candidata, não publicada.
+
+## Auditoria do caminho Matroska no HLS sob demanda — 2026-11-02 12:26 BRT
+
+**Fato verificado:** `DynamicHlsPlaylistGenerator` filtra `IKeyframeExtractor` por `IsMetadataBased`. `FfProbeKeyframeExtractor.IsMetadataBased` é `false`; `MatroskaKeyframeExtractor.IsMetadataBased` é `true`. Portanto, no método `CreateMainPlaylistAsync`, o extrator Matroska é o único caminho selecionado. `IKeyframeExtractor.TryExtractKeyframesAsync` tem implementação padrão que chama o método síncrono; Matroska não sobrescreve o método async. `GetKeyframeData` usa `File.OpenRead` e o `EbmlReader` da NEbml 1.1.0.5. Reflection local do assembly confirmou métodos públicos síncronos sem método `Async`.
+
+**Técnica pesquisada:** `FileStream.ReadAsync(Memory<byte>, CancellationToken)` no .NET 10 permite I/O cancelável real. NEbml não fornece API async para o reader existente. `Task.Run` só deslocaria I/O síncrono para ThreadPool; FFprobe alteraria o custo e contorna a decisão de manter probing fora do caminho on-demand. Não foram adotados.
+
+**Próxima ação:** protótipo pequeno de leitor EBML assíncrono para os elementos já consumidos pelo extrator; comparar paridade com fixtures `.mkv` existentes. Adicionar casos de arquivo truncado/malformado, cancelamento e posições/seeks, depois medir leitura local e em volume de rede. Não atualizar NEbml ou runtime até compatibilidade/benefício serem demonstrados.
+
+**Limites:** esta rodada foi auditoria estática/reflection; não houve leitura de mídia real, benchmark, runtime instalado, Linux, CI hospedada ou produção. Nenhum código de servidor mudou. Mapa técnico conferido; sem mudança estrutural. Portal local atualizado para evento 379; contrato `node --test portal-site/tests/homologacao.test.mjs` passou 214/214; lote 9/10; homologação formal 2/7 (28,6%); release 12.1.46 candidata, não publicada. Fontes: [FileStream.ReadAsync .NET 10](https://learn.microsoft.com/en-us/dotnet/api/system.io.filestream.readasync?view=net-10.0), [NEbml 1.1.0.5](https://www.nuget.org/packages/NEbml/1.1.0.5).
+## Leitor EBML assíncrono para HLS Matroska — 2026-11-02 12:34 BRT
+
+Adicionado `AsyncMatroskaKeyframeReader` usando `Stream.ReadExactlyAsync` cancelável; lê apenas SeekHead, Info, Tracks e Cues já necessários ao extrator. O adaptador HLS passa a chamar `GetKeyframeDataAsync`, preservando a API síncrona para callers existentes. Fixture MKV sintética comparada ao parser NEbml: duração e todos os timestamps idênticos. Testes de cancelamento em leitura pendente e de EBML truncado aprovados. Release Windows/.NET 10: Keyframes 10/10, HLS 22/22.
+
+Sem benchmark, arquivo real, storage de rede, Linux, CI ou produção. A fixture não cobre todos os perfis/ordens válidas de elementos Matroska; validar matriz real antes de release. Nenhuma dependência/runtime foi atualizada.
+
+
+## Erros do cursor Supabase com diagnóstico seguro — 2026-11-02 13:11 BRT
+
+- O GET do cursor de arquivos e o GET do histórico retornavam apenas HTTP/reason phrase após falha, embora PostgREST responda com JSON estruturado e campo `code`. Os retries do cursor para 429/5xx foram preservados.
+- O helper compartilhado lê até 4 KiB + 1 byte para detectar excesso e aceita somente um `code` ASCII alfanumérico de até 32 caracteres. Não propaga corpo, mensagem, detalhes ou hint. CancellationToken continua sendo respeitado; erro de leitura do corpo mantém o status original sem diagnóstico adicional.
+- Windows/.NET 10 Release: `NebulaSupabaseSyncTests` 62/62; suíte `Jellyfin.Server.Implementations.Tests` 1.733 aprovados, 92 ignorados, 0 falhas/1.825; `dotnet format` focal passou. Portal local 218/218.
+- Twins: a busca encontrou o mesmo padrão no reader do histórico; os dois usam o helper. Outras mensagens HTTP na área não foram alteradas por não pertencerem a esses readers.
+- Pesquisa oficial: [PostgREST errors](https://docs.postgrest.org/en/v12/references/errors.html) define o campo `code`; [.NET Stream.ReadAsync](https://learn.microsoft.com/en-us/dotnet/api/system.io.stream.readasync?view=net-10.0) fornece leitura cancelável. Sem dependências/runtime novos. Supabase/MariaDB reais, Linux, CI hospedada e produção pendentes. Snapshot local 383 eventos, lote 3/10; homologação 2/7; 12.1.46 candidata, não publicada.
+
+## Matroska HLS: posições de múltiplas trilhas por cue — 2026-11-02 13:22 BRT
+
+- RFC 9559 e a tabela oficial de elementos Matroska definem `CueTrackPositions` repetível (`mult.`), permitindo posições para diferentes trilhas no mesmo `CuePoint`.
+- Os leitores síncrono e assíncrono consideravam somente uma posição. Com áudio antes ou depois do vídeo, um deles perdia o cue da trilha de vídeo. Ambos agora percorrem todas as posições e acrescentam o timestamp uma vez quando qualquer posição corresponde ao vídeo.
+- Fixture EBML mínima cobre as duas ordens nos dois leitores; teste inicialmente reproduziu uma falha por ordem em cada caminho. Resultado final Windows/.NET 10 Release: `Jellyfin.MediaEncoding.Keyframes.Tests` 14/14 e `Jellyfin.MediaEncoding.Hls.Tests` 22/22. Formatação focal passou.
+- Nenhuma API, dependência ou módulo novo. HLS continua usando os leitores existentes. Mídia real, Linux, CI hospedada, instalação e produção não foram validados; homologação formal 2/7, release 12.1.46 candidata. Portal local atualizado para evento 4/10, sem publicação Git.
+- Fontes: [RFC 9559 §5.1.5.1.2](https://www.rfc-editor.org/rfc/rfc9559.html#section-5.1.5.1.2) e [Matroska Element Specification](https://www.matroska.org/technical/elements.html). Ver [[Sessões/2026-11-02-MulletaFlix-matroska-multitrack-cues-1322]] e [[Decisões/2026-11-02-MulletaFlix-cue-multitrack-video-keyframes]].
+
+## Regressão ampla da solução .NET — 2026-11-02 13:29 BRT
+
+A solução `MulletaFlix.sln` terminou em Windows/.NET 10 Release com exit code 0 usando `dotnet test MulletaFlix.sln --no-restore --configuration Release --filter "FullyQualifiedName!~LiveIntegrationTests"`. Todos os projetos selecionados passaram. Saídas detalhadas capturadas durante a execução: `Jellyfin.Server.Implementations.Tests` 1.733 aprovados, 92 ignorados, 0 falhas/1.825; `Jellyfin.Server.Tests` 127/127; `Jellyfin.Api.Tests` 823 aprovados, 3 ignorados/826; Keyframes 14/14; HLS 22/22. IntroSkipper.Integration terminou 36 aprovados, 48 ignorados/84. A execução global não gerou contagem agregada consolidada; não inferir total somando projetos parcialmente observados.
+
+O filtro excluiu `LiveIntegrationTests`; integrações opt-in, MariaDB/MongoDB externos, Linux, CI hospedada, runtime instalado e produção não foram validados. A documentação Microsoft descreve logger TRX para produzir artefatos de resultado; para a próxima regressão ampla, emitir arquivo por projeto/assembly com nome único e agregar pass/fail/skip a partir dos relatórios, mantendo o runner atual até verificar compatibilidade com cada projeto. Fontes: https://learn.microsoft.com/en-us/dotnet/core/tools/dotnet-test-vstest e https://learn.microsoft.com/en-us/dotnet/core/testing/microsoft-testing-platform-test-reports.
+
+Sem mudança de código, contrato, módulo, API, dependência ou runtime. Portal local: evento 5/10 do próximo lote, 385 eventos, sem publicação Git. Homologação formal 2/7 (28,6%); release 12.1.46 continua candidata, não publicada.
+
+## Resultado final TRX — 2026-11-02 13:40 BRT
+
+A regressão ampla final foi aprovada: 17 assemblies, 5.660 aprovados, 288 ignorados e 0 falhas/5.948. Os TRX individuais ficaram em `tests/**/TestResults/server-regression-verified-20261102_net10.0_*.trx`. Filtro: `FullyQualifiedName!~LiveIntegrationTests`. `Jellyfin.Server.Implementations.Tests` 1.733/1.825; `Jellyfin.Server.Tests` 127/127; `Jellyfin.Api.Tests` 823/826.
+
+A execução anterior encontrou duas condições intermitentes em testes: heartbeat dependia do scheduler executar em janela fixa de 10 ms; o teste de recuperação por encerramento do processo filho encerrava o processo no primeiro evento do arquivo temporário, antes de confirmar journal legível. As fixtures agora sincronizam pelo token de cancelamento e pelo journal persistido. Testes focais e regressão completa passaram. Código de produção inalterado.
+
+Percentual de aprovação da auditoria é 95,2% (5.660/5.948), com 288 ignorados; não representa completude do roadmap nem homologação formal. `LiveIntegrationTests` excluído. Linux, CI hospedada, MariaDB/MongoDB reais, runtime instalado e produção continuam pendentes. Fonte oficial Microsoft sobre TRX: https://learn.microsoft.com/en-us/dotnet/core/tools/dotnet-test-vstest. Portal local 385 eventos, lote 5/10; formal 2/7; 12.1.46 candidata, não publicada.
+
+## Revisão tecnológica contínua — integração HTTP resilience e dependência Polly — 2026-11-02 13:46 BRT
+
+Auditoria no código confirma três clientes nomeados em `Jellyfin.Server/Startup.cs` usando `Microsoft.Extensions.Http.Polly` 8.0.14 e política customizada. A política repete somente métodos idempotentes selecionados para erros transitórios/408/5xx/429, respeita `Retry-After` e usa circuit breaker clássico por cinco falhas com pausa de 30 s. `Polly` 8.6.6 também é referência direta em `Jellyfin.Database.Implementations` para retry de escrita SQLite; não é apenas uma dependência transitiva.
+
+Documentação Microsoft atual declara `Microsoft.Extensions.Http.Polly` obsoleto e recomenda `Microsoft.Extensions.Http.Resilience`. O handler padrão tem comportamento diferente (inclui timeouts/rate limiter e retry amplo por padrão), então migração mecânica pode repetir métodos não idempotentes e alterar latência/recuperação. Manter como oportunidade de migração customizada com contrato explícito e testes, sem substituir o código até provar equivalência/correção. A versão estável recente Polly 8.9.0 (28/10/2026) adicionou target `net10.0`; isso não constitui justificativa isolada para atualizar o pin 8.6.6.
+
+Governança da dependência: o projeto Polly esclareceu que a taxa de manutenção aplica-se somente à próxima versão principal após 16/11/2026 e a referências diretas; versões existentes não são afetadas. O repositório tem referência direta Polly, mas não foi verificado se o projeto/organização alcança o limiar de receita nem se os termos se aplicam ao seu uso. Antes de atualizar para uma próxima major, revisar licença/termos e decidir conscientemente; isso não é aconselhamento jurídico.
+
+Próximos passos: comparar os release notes 8.7–8.9 com o uso atual; mapear os alvos de compatibilidade do pacote Microsoft resilience; especificar timeout/limiter e predicados por método/status; criar teste de contrato HTTP que prove não-retry de POST, tempos 429/Retry-After, cancelamento e breaker; então decidir migração/pin. Sem código ou dependências alterados e sem testes executados nesta rodada. Mapa técnico conferido; módulos/APIs/dependências permanecem iguais. Produção, CI hospedada e validação jurídica/organizacional pendentes.
+
+Fontes oficiais: [Microsoft — resiliência .NET](https://learn.microsoft.com/en-us/dotnet/core/resilience/), [Microsoft — resiliência HTTP](https://learn.microsoft.com/en-us/dotnet/core/resilience/http-resilience), [Polly — anúncio e esclarecimento OSMF](https://thepollyproject.org/2026/07/14/polly-osmf-announcement.html), [Polly — releases](https://github.com/App-vNext/Polly/releases).
+
+## Compatibilidade de gravação rooted em SMB — 2026-11-02 15:00 BRT
+
+- A investigação de `ImageSaver.SaveImageToLocation` confirmou que diretório, arquivo temporário e promoção continuam pathname-based; os fluxos passam pelo `ProviderManager` e incluem imagens locais de biblioteca, metadata e perfil. O fallback de gravação local para metadata também precisa manter o mesmo limite de segurança.
+- Nova restrição de compatibilidade: `FILE_RENAME_INFO.RootDirectory` permite nome de destino relativo a um handle de diretório para o caminho local, mas a especificação Microsoft de rename via SMB exige `RootDirectory = 0` em operações de rede. Logo, essa primitiva sozinha não confina uma substituição em compartilhamentos de rede; o servidor precisa classificar roots locais/remotos e validar o comportamento real do filesystem antes de adotar um writer.
+- `openat2` continua sendo candidato Linux para abrir caminhos relativos com `RESOLVE_BENEATH` e `RESOLVE_NO_SYMLINKS`; `EAGAIN` de corrida pode ser retentado com limite, enquanto `ENOSYS` não deve cair para pathname. O `FileStreamOptions.UnixCreateMode` do .NET 10 controla o modo inicial do arquivo, mas não ancora abertura nem replace a um diretório.
+- O menor próximo passo seguro é especificar um contrato por filesystem: autoridade para renomear ancestrais, suporte a SMB/NFS e links de raiz configurada, ACL/modo/atributos a preservar, atomicidade e comportamento fail-closed. Depois criar testes de escrita/substituição concorrente em NTFS, SMB, Linux e os storages realmente suportados; não migrar callers antes disso.
+- Nenhum runtime/dependência alterado e nenhum teste do writer executado nesta rodada. Mapa técnico conferido, sem mudança estrutural. Snapshot local do portal atualizado para 393 eventos, lote 3/10; suíte portal 228/228; sem publicação Git. Homologação formal 2/7 (28,6%); 12.1.46 candidata, não publicada.
+
+Fontes oficiais: [Linux openat2(2)](https://man7.org/linux/man-pages/man2/openat2.2.html), [Microsoft FILE_RENAME_INFO](https://learn.microsoft.com/en-us/windows/win32/api/winbase/ns-winbase-file_rename_info), [Microsoft MS-FSCC FileRenameInformation](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-fscc/52aa0b70-8094-4971-862d-79793f41e6a8), [.NET FileStreamOptions](https://learn.microsoft.com/en-us/dotnet/api/system.io.filestreamoptions?view=net-10.0).
+
+## Revalidação de resiliência HTTP e testes de contrato — 2026-11-02 15:07 BRT
+
+- O estado atual contradiz notas históricas que ainda marcavam 429/`Retry-After` como não caracterizados: `StartupHttpRetryPolicyTests` agora cobre 503/404, `Retry-After` por delta e data HTTP, cancelamento durante espera, backoff sem header, não repetição de POST, exclusão de 429 da contagem do breaker e recuperação após 30 s.
+- Windows/.NET 10 Release: `StartupHttpRetryPolicyTests` passou 10/10, 0 falhas/ignorados, em 1m09s. A suíte exercita esperas reais (incluindo a janela do breaker); esse custo pode ser reduzido numa melhoria posterior de testes temporizados, desde que preserve ao menos a verificação dos tempos/política efetiva.
+- Microsoft continua marcando `Microsoft.Extensions.Http.Polly` como deprecated e recomenda `Microsoft.Extensions.Http.Resilience`. O handler padrão usa predicados, timeouts e breaker de janela/razão distintos do contrato atual; Polly v8 também não implementa o breaker clássico de cinco falhas consecutivas. A migração deve continuar customizada e separada, sem atualização de pacote automática.
+- Próximo gate: reconciliar as notas históricas de auditoria com esses testes existentes; para uma migração, provar os três clientes nomeados, status e métodos elegíveis, `Retry-After`, cancelamento, timeout, métrica e abertura/recuperação do breaker. Nenhuma alteração de runtime/dependência nesta rodada.
+- Mapa técnico conferido, sem mudança estrutural. Snapshot local do portal: 394 eventos, lote 4/10; contrato do portal 229/229 após a atualização; sem publicação Git. Homologação formal 2/7 (28,6%); 12.1.46 candidata, não publicada. Linux, CI hospedada, provedores reais, runtime instalado e produção seguem sem validação.
+
+Fontes oficiais: [Microsoft .NET resilience](https://learn.microsoft.com/en-us/dotnet/core/resilience/), [Microsoft HTTP resilience](https://learn.microsoft.com/en-us/dotnet/core/resilience/http-resilience), [Polly v8 migration](https://github.com/App-vNext/Polly/blob/main/docs/migration-v8.md), [Polly testing](https://github.com/App-vNext/Polly/blob/main/docs/advanced/testing.md).
+
+## Testes temporizados da política HTTP — 2026-11-02 15:12 BRT
+
+- A classe `StartupHttpRetryPolicyTests` espera tempo real para validar `Retry-After`, backoff exponencial e recuperação do circuit breaker; sua execução recente foi 10/10, mas levou 1m09s.
+- A orientação Microsoft para `FakeTimeProvider` se aplica a código que injeta `TimeProvider` e agenda atrasos por essa abstração. O Polly clássico usado atualmente em `Startup.GetRetryPolicy` não recebe essa dependência; adicionar apenas o pacote de fake time não virtualiza os temporizadores do Polly.
+- Opção de evolução: após a migração customizada para `Microsoft.Extensions.Http.Resilience`/Polly v8, conectar relógio controlável aos atrasos suportados pelo pipeline e cobrir tempos e recuperação de forma determinística. Isso exige confirmar disponibilidade de relógio virtual na versão alvo; preservar retry apenas em métodos elegíveis, `Retry-After`, cancelamento, timeout, métricas e breaker antes de substituir o contrato atual.
+- Compatibilidade e risco: migração altera implementação de retry/breaker e pode afetar latência e semântica; não foi incluída dependência, código nem mudança de runtime. Próxima validação: protótipo isolado do pipeline, teste de contrato determinístico contra a política atual e medição de duração; manter smoke test temporal real se necessário para verificar integração com timer do runtime.
+- Fonte oficial: [Microsoft — Testing with FakeTimeProvider](https://learn.microsoft.com/en-us/dotnet/core/extensions/timeprovider-testing) e [Microsoft — .NET resilience](https://learn.microsoft.com/en-us/dotnet/core/resilience/). Mapa técnico conferido, sem mudança estrutural. Contrato local do portal: 230/230; nenhum teste .NET ou benchmark executado nesta rodada.
+- Snapshot local do portal: 395 eventos, lote 5/10; sem publicação Git. Homologação formal 2/7 (28,6%); 12.1.46 candidata, não publicada. Linux, CI hospedada, runtime instalado e produção seguem pendentes.
+
+## Diagnóstico atual do PR #1 sem logs de execução — 2026-11-02 15:20 BRT
+
+- PR #1 segue aberto, base `main`, head `codex/fail-closed-inplace-updater`; a conexão GitHub retornou head `e50f7a8f67f357217b82d372a3f3df15a8a16d31` e `mergeable=false`.
+- O run `41005367220` tem 16 jobs marcados como falha; REST de jobs confirma `steps: []`, `runner_id: 0` e `runner_name` vazio nos exemplos consultados. A lista de jobs é completa (16/16), mas não revela o erro.
+- GitHub job-log API retornou HTTP 404 `BlobNotFound` para os logs consultados. `gh pr view/checks/run` não pode autenticar neste host (`gh auth login` requerido); `gh` permanece a fonte primária solicitada, mas não está autorizado aqui. A ferramenta de diagnósticos do Codex não retornou após aguardar e foi encerrada.
+- Conclusão permitida: não há evidência para associar essa execução a erro do código, cobrança ou configuração do workflow; não alterar arquivos com base nesses checks. Próxima ação para o PR exige logs/annotations disponíveis ou autenticação `gh` funcional. Isso bloqueia apenas o diagnóstico remoto do PR; a auditoria local do servidor continua.
+- Nenhum código, workflow, dependência ou runtime alterado. Mapa técnico conferido, sem mudança estrutural. Contrato local do portal 231/231; snapshot 396 eventos, lote 6/10; sem publicação Git. Homologação formal segue 2/7 (28,6%); 12.1.46 candidata, não publicada.
+
+Fontes: [PR #1](https://github.com/raphaelpera85/mulletaflix-completo/pull/1), [run GitHub Actions 41005367220](https://github.com/raphaelpera85/mulletaflix-completo/actions/runs/41005367220).
+
+## Diagnóstico do PR #1 sem logs recuperáveis — 2026-11-02 15:20 BRT
+
+- GitHub confirma PR #1 aberto, base `main`, head `codex/fail-closed-inplace-updater`, e run `41005367220` concluído com 16 jobs em falha.
+- Respostas consultadas dos jobs não incluem etapas (`steps: []`), identificam `runner_id: 0` e não trazem nome do runner. Quatro downloads de log consultados retornaram HTTP 404 `BlobNotFound`; `gh` neste host exige autenticação. A consulta integrada de diagnóstico não retornou resultado útil.
+- Causa não confirmada. Não há fundamento para atribuir a falha ao código, ao workflow ou a billing; nenhuma correção de código foi feita. Para continuar o PR é necessário recuperar logs/annotations pelo GitHub ou disponibilizar `gh` autenticado.
+- Mapa técnico conferido e sem mudança estrutural. Portal local: 396 eventos, lote 6/10; contrato 231/231 após validação local; sem publicação Git. Homologação formal 2/7 (28,6%); release 12.1.46 candidata, não publicada.
+
+Fontes: [PR #1](https://github.com/raphaelpera85/mulletaflix-completo/pull/1), [run 41005367220](https://github.com/raphaelpera85/mulletaflix-completo/actions/runs/41005367220).
+
+## Retry transacional síncrono de capítulos — 2026-11-02 16:15 BRT
+
+`ChapterManager.SaveChapters` é o caller ativo do overload síncrono `ChapterRepository.SaveChapters`. Esse caminho agora reexecuta o delete+insert inteiro, com `DbContext` e transação novos por tentativa, até três tentativas apenas para MariaDB 1205/1213. Erros permanentes permanecem propagados; assinatura e execução síncronas foram preservadas.
+
+`ChapterRepositoryRetryTests`: 2/2 com falhas simuladas 1205/1213 em SQLite, rollback e contexto novo. O teste opt-in `SaveChapters_RetriesWholeTransactionAfterMariaDbLockWaitTimeout` foi compilado, mas ignorado sem `MULLETAFLIX_TEST_MARIADB_CONNECTION_STRING`. A suíte de integração compilou incluindo a alteração de implementação. Não foi reproduzido lock real; Linux, MariaDB descartável, CI hospedada e produção pendentes. Sem dependência/runtime/API nova; mapa técnico conferido e sem mudança estrutural.
+
+O caminho síncrono `MediaStreamRepository.SaveMediaStreams` segue sem retry e não possui caller no checkout atual; não foi alterado. A documentação EF Core recomenda repetir a unidade completa de operações quando há transação explícita; MariaDB identifica 1205 como lock wait timeout e 1213 como deadlock. Fontes: [EF Core — Connection resiliency](https://learn.microsoft.com/en-us/ef/core/miscellaneous/connection-resiliency), [MariaDB — error codes](https://mariadb.com/docs/server/reference/error-codes/mariadb-error-codes-1200-to-1299).
+
+Portal local: contrato 237/237, 402 eventos, lote 2/10; sem publicação Git. Homologação formal 2/7 (28,6%); 12.1.46 candidata, não publicada.
+
+## Regressão ampla após as alterações recentes — 2026-11-02 15:29 BRT
+
+- Windows/.NET SDK 10.0.300: `dotnet test MulletaFlix.sln --no-restore --configuration Release --filter "FullyQualifiedName!~LiveIntegrationTests" --verbosity quiet` terminou com exit 0. Resumos observados de 17 assemblies: 5.661 aprovados, 288 ignorados, 0 falhas/5.949. `LiveIntegrationTests` foi excluído; 288 skips continuam dependentes de opt-in/plataforma e não são validação desses cenários.
+- Nebula, venv do repositório: `.venv\Scripts\python.exe -m pytest tests -q` passou 806/806 em Python 3.10.
+- A regressão .NET emitiu muitos avisos de analisadores/style na solução. Um aviso CS1573 concreto na sobrecarga pública `PerformRestoreAsync(..., forceFullRestore, ...)` apontava quatro parâmetros sem tags XML enquanto `forceFullRestore` era documentado. Completei as tags sem alterar assinatura ou comportamento. Build focal `Jellyfin.Server.Implementations.csproj --no-restore --configuration Release`: 0 avisos, 0 erros. Os demais avisos de estilo da solução não foram triados nesta rodada.
+- Mapa técnico conferido; classes/contratos/dependências permaneceram iguais. Portal local: 397 eventos, lote 7/10; atualização não publicada no Git. Homologação formal permanece 2/7 (28,6%); 12.1.46 candidata, não publicada. Linux, integrações externas reais, CI hospedada, runtime instalado e produção pendentes.
+
+## Observabilidade dos testes .NET no CI — pesquisa oficial 2026-11-02 15:31 BRT
+
+A inspeção de `.github/workflows/ci.yml` encontrou cobertura Cobertura como artefato, mas não configuração explícita de relatório TRX para a execução da solução. A documentação VSTest da Microsoft suporta `--logger trx` e `LogFilePrefix` para manter nomes distintos por framework/projeto; a documentação MTP oferece `--report-trx` e `merge-trx`, mas exige que a extensão esteja registrada nos test apps. Os projetos atuais usam `Microsoft.NET.Test.Sdk`/VSTest e não configuram MTP.
+
+Oportunidade compatível: prototipar logger TRX VSTest e upload do diretório de resultados com `if: always()` num workflow isolado, verificando geração por projeto, nomes sem colisão, filtros/integrações e custo de artefatos. Isso preserva resultados dos passos de teste que chegam a executar; não explica run sem etapas/runner. Não alterei CI, runner ou dependências enquanto o PR falho continua sem logs recuperáveis. Mapa técnico conferido, sem mudança estrutural. Portal local: 398 eventos, lote 8/10; contrato Node 233/233 nesta rodada; sem publicação Git. Homologação formal 2/7 (28,6%); release 12.1.46 candidata, não publicada.
+
+Fontes oficiais: [VSTest: dotnet test e TRX](https://learn.microsoft.com/en-us/dotnet/core/tools/dotnet-test-vstest), [Microsoft.Testing.Platform: relatórios TRX e merge](https://learn.microsoft.com/en-us/dotnet/core/testing/microsoft-testing-platform-test-reports), [Migração VSTest para MTP](https://learn.microsoft.com/en-us/dotnet/core/testing/migrating-vstest-microsoft-testing-platform).
+
+## Testes opt-in da persistência MongoDB do Nebula — 2026-11-02 15:35 BRT
+
+- A máquina tem uma instância operacional em `127.0.0.1:27017` e MariaDB em `3306`; os testes exigem endpoints explicitamente locais em portas não padrão. Nenhum teste foi apontado a essas portas.
+- Iniciei MongoDB 8.3 isolado, recém-criado, com dbpath descartável, bind em `127.0.0.1` e porta 27099. `Category=RequiresMongo` em `Jellyfin.Server.Implementations.Tests` passou 30/30 em Release/.NET 10, sem ignorados/falhas.
+- Encerramento Mongo foi confirmado pelo processo encerrado e porta 27099 fechada. O executor bloqueou a remoção recursiva do diretório de dados/log; 131 arquivos (212.542.169 bytes) descartáveis continuam em TEMP; o executor recusou a limpeza recursiva por política, sem fornecer justificativa detalhada. Produção e portas 27017/3306 não foram acessadas/alteradas.
+- Mapa técnico conferido e sem mudança estrutural. Portal local: 399 eventos, lote 9/10; contrato 234/234; sem publicação Git. Homologação formal permanece 2/7 (28,6%); 12.1.46 candidata, não publicada. MariaDB opt-in, Mongo em topologia de réplica, CI hospedada, Linux e produção permanecem pendentes.
+
+
+## Retry transacional de pessoas em MariaDB — 2026-11-02 16:03 BRT
+
+O log da versão 12.1.45 registra lock timeout/deadlock durante operações relacionais de metadata. `PeopleRepository.UpdatePeople` agora reexecuta a unidade transacional completa, cada vez com `DbContext` novo, no máximo três tentativas e somente para MariaDB 1205/1213; falhas permanentes seguem propagadas. Build focal passou com 0 avisos/erros. Testes SQLite simulados 2/2, incluindo fail-fast para 1062; seis casos MariaDB opt-in ignorados por ausência de `MULLETAFLIX_TEST_MARIADB_CONNECTION_STRING`. Não houve conexão operacional. EF Core recomenda repetir todo o bloco iniciado por transação explícita; MariaDB documenta 1205 como lock wait timeout e 1213 como deadlock. Nenhuma dependência/runtime mudou. Linux, MariaDB descartável, CI hospedada e produção pendentes; homologação formal 2/7, release 12.1.46 candidata. A revisão de pares encontrou `ChapterRepository.SaveChapters` e `MediaStreamRepository.SaveMediaStreams` síncronos sem retry, com equivalentes assíncronos protegidos; testar separadamente antes de ligar ao mesmo incidente.
+
+Fontes: [EF Core — Connection resiliency](https://learn.microsoft.com/en-us/ef/core/miscellaneous/connection-resiliency), [MariaDB — códigos 1200–1299](https://mariadb.com/docs/server/reference/error-codes/mariadb-error-codes-1200-to-1299).
+
+## CI .NET: persistência dos relatórios TRX — 2026-11-02 16:21 BRT
+
+A oportunidade registrada às 15:31 foi implementada nos sete jobs .NET de `.github/workflows/ci.yml`: logger VSTest com prefixo por job, results directory explícito e upload de TRX em `if: always()`. Os nomes são únicos inclusive nos dois jobs de matriz; ausência de TRX usa `warn`, pois pode haver falha antes do início dos testes.
+
+Evidência local: workflow YAML parseia; teste de contrato 16/16; execução focal da solução Release 2/2 gerou 17 TRXs distintos. Isso não valida GitHub Actions hospedado nem etapas que não iniciam. Sem dependências/runtime alterados. Referências: https://learn.microsoft.com/en-us/dotnet/core/tools/dotnet-test-vstest e https://github.com/actions/upload-artifact. Portal local 403 eventos, lote 3/10, sem publicação; homologação formal 2/7; release 12.1.46 candidata, não publicada.
+
+## Regressão ampla .NET e Nebula Python — 2026-11-02 16:29 BRT
+
+Revalidação em Windows: 17 TRX agregados, 5.671 aprovados, 290 ignorados, 0 falhas/5.961; filtro `FullyQualifiedName!~LiveIntegrationTests`. Nebula Python 3.10.11: 806/806, cobertura 93%. Portal 239/239 após atualizar a auditoria. Ignorados e exclusões não contam como aprovados; CI hospedado, Linux/macOS, bancos externos, runtime instalado e produção pendentes. Portal snapshot 404 eventos, lote 4/10, não publicado; formal 2/7; 12.1.46 candidata.
+
+Build completo pós-fonte: 0 erros, 638 avisos de analisadores. PR #1 via GitHub connector: 16 jobs falhos sem passos/URLs de logs; artifacts ausentes; download log retorna 404 `BlobNotFound`. A causa não está observável e não foi especulada. `gh` não autenticado neste ambiente.
+
+## Testes xUnit: cancelamento e chamadas de plataforma — 2026-11-02
+
+A auditoria completa do build identificou 11 avisos nos hunks novos. Os testes de recuperação de restore passaram a propagar `TestContext.Current.CancellationToken` por espera do journal e processo; teste evita `ConfigureAwait(false)` sob o scheduler limitado do xUnit. Consultas concorrentes do `UserManager` usam token em `CountAsync`. Teste de permissão Unix declara incompatibilidade Windows e mantém skip explícito.
+
+Build padrão do projeto de testes Release passou com 0 erros; 490 avisos totais do projeto. Rebuild isolado do assembly passou, sem avisos nas 11 posições alteradas. Testes focais: 15 aprovados, 1 ignorado em Windows, 0 falhas. Nenhuma fonte de produção mudou; Linux e CI hospedada não validados. Fontes oficiais: https://xunit.net/xunit.analyzers/rules/xUnit1051 ; https://xunit.net/xunit.analyzers/rules/xUnit1030 ; https://learn.microsoft.com/en-us/dotnet/fundamentals/code-analysis/quality-rules/ca1416.
+
+Snapshot local 405 eventos, lote 5/10, não publicado. Homologação formal 2/7 (28,6%); 12.1.46 candidata, não publicada. Mapa técnico conferido; sem alteração estrutural.
+## Timeout de socket global no Nebula — 2026-11-02
+
+Removido `socket.setdefaulttimeout` de `download_strm_multipart` e `materialize_strm`: a função modifica o padrão dos novos sockets do processo, enquanto o downloader e feeder já passam timeout por chamada `urlopen`. Testes existentes desses fluxos agora falham se houver regressão de estado global. Nebula Python passou 806/806 em Windows/Python 3.10. Próximo gate: validar em Linux e medir comportamento com os clientes Mongo/FTP concorrentes; nenhuma alegação de ganho de velocidade ou homologação de produção. Fontes: [Python socket](https://docs.python.org/3/library/socket.html#socket.setdefaulttimeout), [urllib.request.urlopen](https://docs.python.org/3/library/urllib.request.html#urllib.request.urlopen).
+
+
+## Nebula — limite de espera para seleção Mongo na geração STRM — 2026-11-02
+
+Auditoria dos 13 clientes PyMongo síncronos do Nebula encontrou `generate_strm.py` como único fluxo sem `serverSelectionTimeoutMS`; os outros caminhos síncronos usam 1–3 s. Adicionado limite de 3 s à geração STRM. Não se aplicou `socketTimeoutMS`/`timeoutMS` globalmente: a geração percorre cursores e cria arquivos durante a iteração, então expiração de operação poderia deixar uma árvore parcial. Teste focal 14/14 no Windows/Python 3.10. O cenário de Mongo indisponível ainda precisa de validação de integração, além de Linux/CI/produção. Referência oficial: [PyMongo MongoClient 4.19](https://pymongo.readthedocs.io/en/stable/api/pymongo/mongo_client.html), opções `serverSelectionTimeoutMS`, `socketTimeoutMS` e `timeoutMS`.
+
+
+### Nebula playback — piloto de migração do Motor (2026-11-02)
+
+Motor está depreciado desde 14/05/2026 e recebe correções críticas até 14/05/2027. A documentação MongoDB recomenda avaliar PyMongo Async para workloads nativamente asyncio, mas alerta que o desempenho pode piorar conforme a carga. Foi migrado somente stream_service.py, worker isolado com um cliente por event loop: AsyncMongoClient substitui Motor e close() é aguardado. A dependência mínima declarada sobe de PyMongo 4.8 para 4.13 (GA da API Async); lock preserva versões atuais compatíveis. Motor continua necessário em main.py e supabase_sync.py.
+
+`tests/test_stream_service.py`: 4/4; suíte Nebula completa 806/806 no Windows/Python 3.10.11/PyMongo 4.18.3. Um fixture do gerador STRM passou a aceitar e verificar serverSelectionTimeoutMS=3000. Smoke tests do driver real tentaram localhost porta 1 em Python 3.10.11/PyMongo 4.18.3 e Python 3.13.7/PyMongo 4.19.0, observaram timeout de seleção esperado e concluíram close() assíncrono. Nenhum Mongo real, backup/restore, Linux, carga ou benchmark foi executado; não há evidência de ganho de desempenho. Antes de ampliar: integrar ao CI Ubuntu/Windows e comparar latência/CPU/conexões do worker; depois planejar em separado main.py (inclui remoção de io_loop) e backup/restore. Referências oficiais: https://www.mongodb.com/docs/languages/python/pymongo-driver/current/reference/migration/ e https://pymongo.readthedocs.io/en/stable/api/pymongo/asynchronous/mongo_client.html.
+
+### Nebula: migração completa dos clientes assíncronos para PyMongo Async — 2026-11-02 17:38 BRT
+
+A migração iniciada no worker de playback foi estendida ao processo principal e aos caminhos de sync/backup/restore Supabase. `main.py` remove o argumento Motor `io_loop` e usa `asyncio.get_running_loop()` no ciclo ativo; todos os fechamentos de `AsyncMongoClient` são aguardados. Cancelamento durante `setup_database_indexes` fecha o cliente e para bots antes de propagar. `tools/supabase_sync.py` fecha o cliente se o ping/validação inicial for cancelado e propaga `CancelledError`; backup e restore mantêm cleanup em `finally`. `requirements.in` e lock deixam de instalar Motor; PyMongo mínimo segue em 4.13.
+
+Testes focais de lifecycle, Supabase, playback e dependências: 131/131; suíte Nebula completa: 808/808, Windows/Python 3.10.11/PyMongo 4.18.3. Não houve banco Mongo real, carga/benchmark, CI hospedada, Linux nem produção. A mudança reduz dependência deprecated, mas nenhum ganho de desempenho é afirmado. Antes de produção: CI Ubuntu/Windows, backup/restore contra Mongo descartável, avaliação de throughput/latência e smoke instalado.
+
+Fontes oficiais: https://www.mongodb.com/docs/languages/python/pymongo-driver/current/reference/migration/ ; https://pymongo.readthedocs.io/en/stable/api/pymongo/asynchronous/mongo_client.html.
+
+## CI de integração Nebula com MongoDB real — 2026-11-02 18:54 BRT
+
+- A migração de Motor para PyMongo Async tinha testes unitários, mas nenhum exercício do fluxo de admissão contra servidor MongoDB. Foi criado um job Ubuntu independente com MongoDB 7 descartável para executar um teste Python opt-in, sem configuração ou credenciais de produção.
+- O cenário cobre a reserva de backup bloqueando upload, a aquisição da lease após liberar a reserva e a remoção da lease no fechamento. A base usa nome único e é descartada no `finally`; se o CI não fornecer URI, o teste marca-se como ignorado em vez de conectar a uma instância arbitrária.
+- Verificação local Windows/Python 3.10.11: Nebula 809 aprovados, 1 ignorado (Mongo real sem URI); testes de admissão/URI 7/7; contrato do job CI 1/1; `git diff --check` passou. A integração real ainda aguarda GitHub Actions; sem Mongo em produção, Linux local, benchmark ou homologação funcional.
+- Compatibilidade: service container do GitHub exige runner Linux; o job usa `ubuntu-latest`. Nenhuma dependência, runtime ou código de produção mudou. Não há alegação de ganho de desempenho.
+- Snapshot local do portal: 410 eventos, lote 10/10, sem publicação no Git. Homologação formal 2/7 (28,6%); 12.1.46 segue candidata, não publicada.
+
+Fontes oficiais: [PyMongo migration para Async](https://www.mongodb.com/docs/languages/python/pymongo-driver/current/reference/migration/), [GitHub service containers](https://docs.github.com/en/actions/tutorials/use-containerized-services/use-docker-service-containers).
+
+## Nebula feeder — pool Mongo compartilhado no processo — 2026-11-02 18:14 BRT
+
+A varredura principal, o worker STRM, os workers de cópia/registro, as verificações de mídia concluída e a gravação de estatísticas agora compartilham o mesmo `MongoClient` e pool PyMongo. O cliente é fechado depois de as filas serem drenadas e as threads encerradas. Chamadores isolados continuam podendo omitir o cliente e manter o lifecycle local. A checagem por índice em memória continua sem abrir conexão quando há cache, e a verificação exata de ID STRM continua consultando Mongo.
+
+**Evidência:** `Tools/NebulaPython/tests/test_feed_ftp_strm.py` — 102/102; suíte `Tools/NebulaPython` — 815 aprovados, 1 ignorado, 0 falhas; o teste de `main()` confirma um cliente criado e fechado após o término. Sem benchmark, medição do Mongo/FTP, Linux, CI hospedado ou produção; portanto a redução de churn de clientes é confirmada pelo teste, mas nenhum ganho de latência/throughput está quantificado. `ruff` ficou indisponível: módulo não instalado na `.venv` deste checkout. O mapa técnico foi conferido e atualizado para refletir o lifecycle compartilhado. Portal permanece sem atualização nesta rodada: seu snapshot registra `generatedAt` às 18:54 BRT, 40 minutos à frente do relógio local das 18:14; não vou publicar nem gravar uma data fora de ordem. Release 12.1.46 permanece candidata, não publicada.
+
+Fonte técnica: [PyMongo — MongoClient, thread safety e connection pooling](https://www.mongodb.com/docs/languages/python/pymongo-driver/current/connect/mongoclient/).

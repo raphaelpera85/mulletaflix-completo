@@ -18,7 +18,15 @@ namespace Emby.Server.Implementations.AppBase
         /// <param name="xmlSerializer">The XML serializer.</param>
         /// <returns>System.Object.</returns>
         public static object GetXmlConfiguration(Type type, string path, IXmlSerializer xmlSerializer)
+            => GetXmlConfiguration(
+                type,
+                path,
+                xmlSerializer,
+                (configuration, targetPath) => BaseConfigurationManager.PersistConfigurationAtomically(configuration, targetPath, xmlSerializer));
+
+        internal static object GetXmlConfiguration(Type type, string path, IXmlSerializer xmlSerializer, Action<object, string> persistConfiguration)
         {
+            ArgumentNullException.ThrowIfNull(persistConfiguration);
             object configuration;
 
             byte[]? buffer = null;
@@ -49,11 +57,8 @@ namespace Emby.Server.Implementations.AppBase
 
                 Directory.CreateDirectory(directory);
 
-                // Save it after load in case we got new items
-                using (var fs = new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.None))
-                {
-                    fs.Write(newBytes);
-                }
+                // Save it after load in case we got new items.
+                persistConfiguration(configuration, path);
             }
 
             return configuration;

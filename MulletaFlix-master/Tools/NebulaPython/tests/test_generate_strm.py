@@ -82,7 +82,13 @@ def test_client_closes_when_output_write_fails(monkeypatch, tmp_path):
 
     client = Client()
 
-    monkeypatch.setattr(generate_strm, "MongoClient", lambda *_args, **_kwargs: client)
+    client_options = {}
+
+    def create_client(*_args, **kwargs):
+        client_options.update(kwargs)
+        return client
+
+    monkeypatch.setattr(generate_strm, "MongoClient", create_client)
     target = tmp_path / "Series"
     target.mkdir()
     (target / "Show").write_text("not a directory", encoding="utf-8")
@@ -90,4 +96,5 @@ def test_client_closes_when_output_write_fails(monkeypatch, tmp_path):
     with pytest.raises((FileExistsError, NotADirectoryError, OSError)):
         generate_strm.generate_strm_files(output_root=tmp_path)
 
+    assert client_options["serverSelectionTimeoutMS"] == 3000
     assert client.closed

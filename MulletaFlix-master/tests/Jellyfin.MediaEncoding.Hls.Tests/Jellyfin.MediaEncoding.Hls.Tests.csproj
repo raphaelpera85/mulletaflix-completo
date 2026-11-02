@@ -18,6 +18,9 @@
   </ItemGroup>
 
   <ItemGroup>
+    <None Include="..\Jellyfin.MediaEncoding.Keyframes.Tests\Matroska\Test Data\keyframes.mkv" Link="Matroska\Test Data\keyframes.mkv">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </None>
     <ProjectReference Include="..\..\src\Jellyfin.MediaEncoding.Hls\Jellyfin.MediaEncoding.Hls.csproj" />
     <ProjectReference Include="..\..\src\Jellyfin.MediaEncoding.Keyframes\Jellyfin.MediaEncoding.Keyframes.csproj" />
   </ItemGroup>

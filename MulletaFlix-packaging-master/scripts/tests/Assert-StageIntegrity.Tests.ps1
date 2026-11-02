@@ -8,6 +8,16 @@ if ($pythonInstaller -notmatch 'MULLETAFLIX_DATA_PATH' -or
     $pythonInstaller -notmatch 'Join-Path \$dataDirectory .+Tools\\NebulaPython') {
     throw 'Nebula Python runtime must be installed under the writable server data directory.'
 }
+if ($pythonInstaller -notmatch 'ProgramFiles.*Python314\\python\.exe' -or
+    $pythonInstaller -notmatch 'C:\\Python314\\python\.exe' -or
+    $pythonInstaller -notmatch 'python/3\.14\.10/python-3\.14\.10-amd64\.exe' -or
+    $pythonInstaller -match 'python-3\.13\.7-amd64\.exe') {
+    throw 'Nebula installer must prefer the supported Python 3.14 runtime and avoid the obsolete 3.13.7 fallback.'
+}
+$stageBuilder = Get-Content -LiteralPath (Join-Path $PSScriptRoot '..\..\build-stage-and-installer.ps1') -Raw
+if ($stageBuilder -notmatch "'logging_safety\.py'") {
+    throw 'Windows stage builder must copy the shared Nebula logging safety module.'
+}
 
 $fixtureRoot = Join-Path ([System.IO.Path]::GetTempPath()) "mflx-stage-integrity-$([guid]::NewGuid().ToString('N'))"
 $stageDirectory = Join-Path $fixtureRoot 'stage'
@@ -26,6 +36,7 @@ $requiredFiles = @(
     'Tools\NebulaPython\stream_service.py',
     'Tools\NebulaPython\generate_strm.py',
     'Tools\NebulaPython\ftp\pathio.py',
+    'Tools\NebulaPython\tools\logging_safety.py',
     'Tools\NebulaPython\tools\mongo_admission.py',
     'Tools\NebulaPython\requirements.in',
     'Tools\NebulaPython\requirements.txt',
@@ -139,7 +150,20 @@ try {
         throw 'Stage integrity accepted a Python worker package missing mongo_admission.py.'
     }
 
-    Write-Host 'Stage integrity accepted matching Nebula modules and dependency lock, and rejected stale downloader or lock, missing readiness contract, generator, or admission module.'
+    $stagedLoggingSafety = Join-Path $stageDirectory 'Tools\NebulaPython\tools\logging_safety.py'
+    [System.IO.File]::Delete($stagedLoggingSafety)
+    $missingLoggingSafetyRejected = $false
+    try {
+        Assert-StageIntegrity -StageDirectory $stageDirectory -ProjectRoot $projectRoot -PublishDirectory $publishDirectory
+    } catch {
+        $missingLoggingSafetyRejected = $_.Exception.Message -like '*logging_safety.py*'
+        if (-not $missingLoggingSafetyRejected) { throw }
+    }
+    if (-not $missingLoggingSafetyRejected) {
+        throw 'Stage integrity accepted a Python worker package missing logging_safety.py.'
+    }
+
+    Write-Host 'Stage integrity accepted matching Nebula modules and dependency lock, and rejected stale downloader or lock, missing readiness contract, generator, admission, or logging safety module.'
 }
 finally {
     if ([System.IO.Directory]::Exists($fixtureRoot)) {

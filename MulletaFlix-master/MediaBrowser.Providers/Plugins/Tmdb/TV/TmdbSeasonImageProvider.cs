@@ -94,7 +94,7 @@ namespace MediaBrowser.Providers.Plugins.Tmdb.TV
                 return Enumerable.Empty<RemoteImageInfo>();
             }
 
-            return _tmdbClientManager.ConvertPostersToRemoteImageInfo(posters, language);
+            return _tmdbClientManager.ConvertPostersToRemoteImageInfo(posters, metadataLanguage);
         }
 
         /// <inheritdoc />

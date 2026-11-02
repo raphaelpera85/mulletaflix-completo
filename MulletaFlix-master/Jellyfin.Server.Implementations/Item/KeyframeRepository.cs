@@ -68,6 +68,18 @@ public class KeyframeRepository : IKeyframeRepository
     }
 
     /// <inheritdoc />
+    public async Task<IReadOnlyList<MediaEncoding.Keyframes.KeyframeData>> GetKeyframeDataAsync(Guid itemId, CancellationToken cancellationToken)
+    {
+        await using var context = await _dbProvider.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
+
+        return await context.KeyframeData.AsNoTracking()
+            .Where(e => e.ItemId.Equals(itemId))
+            .Select(e => Map(e))
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
+    }
+
+    /// <inheritdoc />
     public async Task SaveKeyframeDataAsync(Guid itemId, MediaEncoding.Keyframes.KeyframeData data, CancellationToken cancellationToken)
     {
         for (var attempt = 1; ; attempt++)

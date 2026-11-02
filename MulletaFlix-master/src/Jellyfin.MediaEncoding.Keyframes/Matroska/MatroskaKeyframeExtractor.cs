@@ -1,6 +1,8 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Threading;
+using System.Threading.Tasks;
 using MulletaFlix.MediaEncoding.Keyframes.Matroska.Extensions;
 using MulletaFlix.MediaEncoding.Keyframes.Matroska.Models;
 using NEbml.Core;
@@ -44,22 +46,23 @@ public static class MatroskaKeyframeExtractor
         while (reader.FindElement(MatroskaConstants.CuePoint))
         {
             reader.EnterContainer();
-            ulong? trackNumber = null;
+            var hasVideoTrackPosition = false;
             // Mandatory element
             reader.FindElement(MatroskaConstants.CueTime);
             var cueTime = reader.ReadUInt();
 
-            // Mandatory element
-            reader.FindElement(MatroskaConstants.CueTrackPositions);
-            reader.EnterContainer();
-            if (reader.FindElement(MatroskaConstants.CuePointTrackNumber))
+            while (reader.FindElement(MatroskaConstants.CueTrackPositions))
             {
-                trackNumber = reader.ReadUInt();
+                reader.EnterContainer();
+                if (reader.FindElement(MatroskaConstants.CuePointTrackNumber))
+                {
+                    hasVideoTrackPosition |= reader.ReadUInt() == videoTrackNumber;
+                }
+
+                reader.LeaveContainer();
             }
 
-            reader.LeaveContainer();
-
-            if (trackNumber == videoTrackNumber)
+            if (hasVideoTrackPosition)
             {
                 keyframes.Add(ScaleToTicks(cueTime, info.TimestampScale));
             }
@@ -71,6 +74,34 @@ public static class MatroskaKeyframeExtractor
 
         var result = new KeyframeData(ScaleToTicks(info.Duration ?? 0, info.TimestampScale), keyframes);
         return result;
+    }
+
+    /// <summary>
+    /// Asynchronously extracts keyframes from the Matroska container.
+    /// </summary>
+    /// <param name="filePath">The file path.</param>
+    /// <param name="cancellationToken">The cancellation token.</param>
+    /// <returns>An instance of <see cref="KeyframeData"/>.</returns>
+    public static async Task<KeyframeData> GetKeyframeDataAsync(string filePath, CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(filePath);
+        cancellationToken.ThrowIfCancellationRequested();
+
+        await using var stream = new FileStream(
+            filePath,
+            FileMode.Open,
+            FileAccess.Read,
+            FileShare.Read,
+            4096,
+            FileOptions.Asynchronous | FileOptions.RandomAccess);
+
+        return await AsyncMatroskaKeyframeReader.ReadAsync(stream, cancellationToken).ConfigureAwait(false);
+    }
+
+    internal static Task<KeyframeData> GetKeyframeDataAsync(Stream stream, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(stream);
+        return AsyncMatroskaKeyframeReader.ReadAsync(stream, cancellationToken);
     }
 
     private static long ScaleToTicks(ulong unscaledValue, long timestampScale)

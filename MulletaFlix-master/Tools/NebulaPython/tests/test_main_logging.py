@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import builtins
 import logging
+import sys
 
 import main as main_module
 
@@ -30,6 +31,45 @@ def test_safe_stream_handler_replaces_text_unsupported_by_terminal_encoding(monk
     handler.emit(record)
 
     assert stream.writes == ["Invas?o conclu?da\n"]
+
+
+def test_single_line_formatter_escapes_untrusted_line_breaks_and_tracebacks():
+    formatter = main_module.SingleLineFormatter("%(levelname)s %(message)s")
+    assert all(isinstance(handler.formatter, main_module.SingleLineFormatter) for handler in main_module.logger.handlers)
+    try:
+        raise ValueError("invalid media\r\nINFO forged entry")
+    except ValueError:
+        exc_info = sys.exc_info()
+    record = logging.LogRecord("nebula-test", logging.ERROR, __file__, 1, "Failed: %s", ("movie.mkv\r\nWARNING forged entry",), exc_info)
+
+    formatted = formatter.format(record)
+
+    assert "\n" not in formatted
+    assert "\r" not in formatted
+    assert r"movie.mkv\r\nWARNING forged entry" in formatted
+    assert r"invalid media\r\nINFO forged entry" in formatted
+    assert "Traceback" in formatted
+
+
+def test_strm_downloader_uses_single_line_formatter(monkeypatch):
+    import io
+    from tools import strm_downloader
+
+    stream = io.StringIO()
+    monkeypatch.setattr(strm_downloader.sys, "stdout", stream)
+    logger = strm_downloader.logger
+    previous_handlers = logger.handlers[:]
+    previous_level = logger.level
+    try:
+        strm_downloader.setup_logger()
+        logger.warning("bad title: %s", "movie.mkv\r\nERROR forged entry")
+        assert stream.getvalue().count("\n") == 1
+        assert r"movie.mkv\r\nERROR forged entry" in stream.getvalue()
+    finally:
+        for handler in logger.handlers:
+            handler.close()
+        logger.handlers[:] = previous_handlers
+        logger.setLevel(previous_level)
 
 
 def test_compacting_file_handler_summarizes_and_clears_rotating_log(tmp_path):

@@ -22,6 +22,7 @@ using MediaBrowser.Model.Globalization;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Microsoft.EntityFrameworkCore;
 using Moq;
 using MulletaFlix.Server.Implementations.FullSystemBackup;
@@ -192,11 +193,26 @@ public sealed class MulletaFlixOpenTelemetryExportTests
             Environment.SetEnvironmentVariable("OTEL_EXPORTER_OTLP_METRICS_HEADERS", null);
 
             var services = new ServiceCollection();
+            services.AddLogging();
             var signals = MulletaFlixOpenTelemetryExtensions.ConfigureOpenTelemetry(services, Environment.GetEnvironmentVariable);
             Assert.True(signals.MetricsEnabled);
 
             await using var provider = services.BuildServiceProvider();
             var meterProvider = provider.GetRequiredService<MeterProvider>();
+            var healthPublisher = Assert.Single(provider.GetServices<IHealthCheckPublisher>());
+            var healthEntries = new Dictionary<string, HealthReportEntry>
+            {
+                ["MariaDB"] = new(HealthStatus.Healthy, "ready", TimeSpan.Zero, null, null),
+                ["Nebula"] = new(
+                    HealthStatus.Unhealthy,
+                    "failed",
+                    TimeSpan.Zero,
+                    new InvalidOperationException("db.internal.secret:27017"),
+                    null)
+            };
+            await healthPublisher.PublishAsync(
+                new HealthReport(healthEntries, HealthStatus.Unhealthy, TimeSpan.Zero),
+                TestContext.Current.CancellationToken);
             var applicationPaths = Mock.Of<IServerApplicationPaths>(paths =>
                 paths.ProgramDataPath == programDataPath
                 && paths.ConfigurationDirectoryPath == Path.Combine(restoreRootsPath, "config")
@@ -570,6 +586,9 @@ public sealed class MulletaFlixOpenTelemetryExportTests
             Assert.Contains("mulletaflix.plugin_updates.active_runs", encodedPayload, StringComparison.Ordinal);
             Assert.Contains("mulletaflix.jobs.enqueued", encodedPayload, StringComparison.Ordinal);
             Assert.Contains("mulletaflix.jobs.cancelled", encodedPayload, StringComparison.Ordinal);
+            Assert.Contains("dotnet.health_check.reports", encodedPayload, StringComparison.Ordinal);
+            Assert.Contains("dotnet.health_check.unhealthy_checks", encodedPayload, StringComparison.Ordinal);
+            Assert.Contains("Nebula", encodedPayload, StringComparison.Ordinal);
             Assert.Contains("no_items", encodedPayload, StringComparison.Ordinal);
             Assert.Contains("MulletaFlix.Server", encodedPayload, StringComparison.Ordinal);
             Assert.DoesNotContain(privatePath, encodedPayload, StringComparison.OrdinalIgnoreCase);
@@ -577,6 +596,7 @@ public sealed class MulletaFlixOpenTelemetryExportTests
             Assert.DoesNotContain("sb_publishable_private-test-key", encodedPayload, StringComparison.OrdinalIgnoreCase);
             Assert.DoesNotContain("Sensitive title", encodedPayload, StringComparison.OrdinalIgnoreCase);
             Assert.DoesNotContain("PrivateKind", encodedPayload, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("db.internal.secret", encodedPayload, StringComparison.OrdinalIgnoreCase);
         }
         finally
         {
@@ -625,6 +645,7 @@ public sealed class MulletaFlixOpenTelemetryExportTests
 
             await using var provider = services.BuildServiceProvider();
             Assert.Null(provider.GetService<TracerProvider>());
+            Assert.Empty(provider.GetServices<IHealthCheckPublisher>());
 
             // Sem pipeline não há listener registrado, então o próprio
             // StartActivity devolve null: o custo de telemetria é zero.

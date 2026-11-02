@@ -89,20 +89,34 @@ public class ChapterRepository : IChapterRepository
     /// <inheritdoc />
     public void SaveChapters(Guid itemId, IReadOnlyList<ChapterInfo> chapters)
     {
-        using var context = _dbProvider.CreateDbContext();
-        using var transaction = context.Database.BeginTransaction();
-        context.Chapters.Where(e => e.ItemId.Equals(itemId)).ExecuteDelete();
-        for (var i = 0; i < chapters.Count; i++)
+        for (var attempt = 1; ; attempt++)
         {
-            var chapter = chapters[i];
-            context.Chapters.Add(Map(chapter, i, itemId));
-        }
+            try
+            {
+                using var context = _dbProvider.CreateDbContext();
+                using var transaction = context.Database.BeginTransaction();
+                context.Chapters.Where(e => e.ItemId.Equals(itemId)).ExecuteDelete();
+                for (var i = 0; i < chapters.Count; i++)
+                {
+                    var chapter = chapters[i];
+                    context.Chapters.Add(Map(chapter, i, itemId));
+                }
 
-        // This method, its DbContext and its transaction are all synchronous (see the async
-        // SaveChaptersAsync sibling below for the real async path); use the genuine synchronous
-        // SaveChanges API instead of sync-over-async (Achado B-7).
-        context.SaveChanges();
-        transaction.Commit();
+                // Keep this sync path synchronous; replay the complete transaction on transient locks.
+                context.SaveChanges();
+                transaction.Commit();
+                return;
+            }
+            catch (Exception exception) when (attempt < MaxSaveAttempts && IsTransientLockFailure(exception))
+            {
+                _logger.LogWarning(
+                    exception,
+                    "Transient MariaDB lock failure while saving chapters for item {ItemId}; retrying attempt {Attempt}",
+                    itemId,
+                    attempt + 1);
+                Thread.Sleep(TimeSpan.FromMilliseconds(attempt * 150));
+            }
+        }
     }
 
     /// <inheritdoc />

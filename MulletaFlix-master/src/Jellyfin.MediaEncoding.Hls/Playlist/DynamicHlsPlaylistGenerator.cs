@@ -5,6 +5,8 @@ using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Text;
+using System.Threading;
+using System.Threading.Tasks;
 using MulletaFlix.MediaEncoding.Hls.Extractors;
 using MulletaFlix.MediaEncoding.Keyframes;
 using MediaBrowser.Common.Configuration;
@@ -46,6 +48,29 @@ public class DynamicHlsPlaylistGenerator : IDynamicHlsPlaylistGenerator
             segments = ComputeEqualLengthSegments(request.DesiredSegmentLengthMs, request.TotalRuntimeTicks);
         }
 
+        return BuildPlaylist(request, segments);
+    }
+
+    /// <inheritdoc />
+    public async Task<string> CreateMainPlaylistAsync(CreateMainPlaylistRequest request, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+
+        KeyframeData? keyframeData = null;
+        if (request.IsRemuxingVideo && request.MediaSourceId is Guid itemId)
+        {
+            keyframeData = await TryExtractKeyframesAsync(itemId, request.FilePath, cancellationToken).ConfigureAwait(false);
+        }
+
+        var segments = keyframeData is null
+            ? ComputeEqualLengthSegments(request.DesiredSegmentLengthMs, request.TotalRuntimeTicks)
+            : ComputeSegments(keyframeData, request.DesiredSegmentLengthMs);
+
+        return BuildPlaylist(request, segments);
+    }
+
+    private static string BuildPlaylist(CreateMainPlaylistRequest request, IReadOnlyList<double> segments)
+    {
         var segmentExtension = EncodingHelper.GetSegmentFileExtension(request.SegmentContainer);
 
         // http://ffmpeg.org/ffmpeg-all.html#toc-hls-2
@@ -128,6 +153,25 @@ public class DynamicHlsPlaylistGenerator : IDynamicHlsPlaylistGenerator
         }
 
         return false;
+    }
+
+    private async ValueTask<KeyframeData?> TryExtractKeyframesAsync(Guid itemId, string filePath, CancellationToken cancellationToken)
+    {
+        if (!IsExtractionAllowedForFile(filePath, _serverConfigurationManager.GetEncodingOptions().AllowOnDemandMetadataBasedKeyframeExtractionForExtensions))
+        {
+            return null;
+        }
+
+        foreach (var extractor in _extractors)
+        {
+            var result = await extractor.TryExtractKeyframesAsync(itemId, filePath, cancellationToken).ConfigureAwait(false);
+            if (result is not null)
+            {
+                return result;
+            }
+        }
+
+        return null;
     }
 
     internal static bool IsExtractionAllowedForFile(ReadOnlySpan<char> filePath, IReadOnlyList<string> allowedExtensions)

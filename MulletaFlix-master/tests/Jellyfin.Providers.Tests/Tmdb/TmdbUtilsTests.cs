@@ -68,6 +68,13 @@ namespace MulletaFlix.Providers.Tests.Tmdb
             Assert.Equal("pt-BR,pt,null,en", TmdbUtils.GetImageLanguagesParam("pt-BR", "BR", includeAllLanguages: false));
         }
 
+        [Fact]
+        public static void GetImageLanguage_PreservesImageRegionWhenQueryIncludesAllLanguages()
+        {
+            Assert.Equal(string.Empty, TmdbUtils.GetImageQueryLanguage("pt-BR", includeAllLanguages: true));
+            Assert.Equal("pt-PT", TmdbUtils.GetImageLanguage("pt", "PT", "pt-BR"));
+        }
+
         [Theory]
         [InlineData("pt-BR")]
         [InlineData("en-US")]

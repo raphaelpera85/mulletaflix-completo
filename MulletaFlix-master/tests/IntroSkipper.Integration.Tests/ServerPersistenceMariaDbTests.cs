@@ -592,6 +592,82 @@ public sealed class ServerPersistenceMariaDbTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task UpdatePeople_RetriesWholeTransactionAfterMariaDbLockWaitTimeout()
+    {
+        MariaDbTestEnvironment.SkipUnlessConfigured();
+        var cancellationToken = TestContext.Current.CancellationToken;
+        var persistence = new ItemPersistenceService(
+            Contexts,
+            CreateAppHost(),
+            NullLogger<ItemPersistenceService>.Instance);
+
+        var itemId = Guid.NewGuid();
+        persistence.SaveItems([CreateSeries(itemId, "Retry de elenco", 2026, "N:\\Series\\Retry de elenco")], CancellationToken.None);
+
+        var repository = new PeopleRepository(Contexts, Mock.Of<IItemTypeLookup>());
+        repository.UpdatePeople(itemId, [new PersonInfo { Name = "Pessoa com lock", Role = "Diretor", Type = PersonKind.Actor }]);
+
+        var retryLogger = new PeopleRetryLogger();
+        repository = new PeopleRepository(Contexts, Mock.Of<IItemTypeLookup>(), retryLogger);
+        var previousTimeout = await SetMariaDbLockWaitTimeoutAsync(1, cancellationToken);
+        try
+        {
+            var lockContext = await Contexts.CreateDbContextAsync(cancellationToken);
+            await using (lockContext.ConfigureAwait(false))
+            {
+                await lockContext.Database.OpenConnectionAsync(cancellationToken);
+                await using var lockTransaction = await lockContext.Database.BeginTransactionAsync(cancellationToken);
+                _ = await lockContext.PeopleBaseItemMap
+                    .FromSqlInterpolated($"SELECT * FROM `PeopleBaseItemMap` WHERE `ItemId` = {itemId} FOR UPDATE")
+                    .AsNoTracking()
+                    .SingleAsync(cancellationToken);
+
+                var saveTask = Task.Run(
+                    () => repository.UpdatePeople(itemId, [new PersonInfo { Name = "Pessoa com lock", Role = "Produtor", Type = PersonKind.Actor }]),
+                    cancellationToken);
+                Exception? retrySignalError = null;
+                try
+                {
+                    await retryLogger.RetryObserved.WaitAsync(TimeSpan.FromSeconds(15), cancellationToken);
+                }
+                catch (Exception exception)
+                {
+                    retrySignalError = exception;
+                }
+                finally
+                {
+                    await lockTransaction.RollbackAsync(CancellationToken.None);
+                }
+
+                if (retrySignalError is not null)
+                {
+                    try
+                    {
+                        await saveTask;
+                    }
+                    catch
+                    {
+                        // The retry-signal assertion below is the primary failure for this path.
+                    }
+
+                    Assert.Fail($"UpdatePeople did not enter the whole-operation retry path: {retrySignalError.Message}");
+                }
+
+                await saveTask;
+                Assert.Equal(1, retryLogger.RetryCount);
+            }
+        }
+        finally
+        {
+            _ = await SetMariaDbLockWaitTimeoutAsync(previousTimeout, CancellationToken.None);
+        }
+
+        using var context = Contexts.CreateDbContext();
+        var mapping = Assert.Single(context.PeopleBaseItemMap.Where(e => e.ItemId == itemId));
+        Assert.Equal("Produtor", mapping.Role);
+    }
+
+    [Fact]
     public async Task UpdatePeople_ConcurrentUpdatesForDifferentItems_ReuseTheSamePersonRow()
     {
         MariaDbTestEnvironment.SkipUnlessConfigured();
@@ -1442,6 +1518,81 @@ public sealed class ServerPersistenceMariaDbTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task SaveChapters_RetriesWholeTransactionAfterMariaDbLockWaitTimeout()
+    {
+        MariaDbTestEnvironment.SkipUnlessConfigured();
+        var cancellationToken = TestContext.Current.CancellationToken;
+        var itemId = Guid.NewGuid();
+        var persistence = new ItemPersistenceService(
+            Contexts,
+            CreateAppHost(),
+            NullLogger<ItemPersistenceService>.Instance);
+        persistence.SaveItems([CreateSeries(itemId, "Retry síncrono de capítulos", 2026, "N:\\Series\\Retry síncrono de capítulos")], CancellationToken.None);
+
+        var repository = new ChapterRepository(Contexts, Mock.Of<IImageProcessor>());
+        repository.SaveChapters(itemId, [new ChapterInfo { StartPositionTicks = 10, Name = "Capítulo antigo" }]);
+
+        var retryLogger = new ChapterRetryLogger();
+        repository = new ChapterRepository(Contexts, Mock.Of<IImageProcessor>(), retryLogger);
+        var previousTimeout = await SetMariaDbLockWaitTimeoutAsync(1, cancellationToken);
+        try
+        {
+            var lockContext = await Contexts.CreateDbContextAsync(cancellationToken);
+            await using (lockContext.ConfigureAwait(false))
+            {
+                await lockContext.Database.OpenConnectionAsync(cancellationToken);
+                await using var lockTransaction = await lockContext.Database.BeginTransactionAsync(cancellationToken);
+                _ = await lockContext.Chapters
+                    .FromSqlInterpolated($"SELECT * FROM `Chapters` WHERE `ItemId` = {itemId} FOR UPDATE")
+                    .AsNoTracking()
+                    .SingleAsync(cancellationToken);
+
+                var saveTask = Task.Run(
+                    () => repository.SaveChapters(itemId, [new ChapterInfo { StartPositionTicks = 20, Name = "Capítulo novo" }]),
+                    cancellationToken);
+                Exception? retrySignalError = null;
+                try
+                {
+                    await retryLogger.RetryObserved.WaitAsync(TimeSpan.FromSeconds(15), cancellationToken);
+                }
+                catch (Exception exception)
+                {
+                    retrySignalError = exception;
+                }
+                finally
+                {
+                    await lockTransaction.RollbackAsync(CancellationToken.None);
+                }
+
+                if (retrySignalError is not null)
+                {
+                    try
+                    {
+                        await saveTask;
+                    }
+                    catch
+                    {
+                        // The retry-signal assertion below is the primary failure for this path.
+                    }
+
+                    Assert.Fail($"SaveChapters did not enter the whole-operation retry path: {retrySignalError.Message}");
+                }
+
+                await saveTask;
+                Assert.Equal(1, retryLogger.RetryCount);
+            }
+        }
+        finally
+        {
+            _ = await SetMariaDbLockWaitTimeoutAsync(previousTimeout, CancellationToken.None);
+        }
+
+        var saved = Assert.Single(repository.GetChapters(itemId));
+        Assert.Equal(20, saved.StartPositionTicks);
+        Assert.Equal("Capítulo novo", saved.Name);
+    }
+
+    [Fact]
     public async Task SaveKeyframeDataAsync_RetriesWholeTransactionAfterMariaDbLockWaitTimeout()
     {
         MariaDbTestEnvironment.SkipUnlessConfigured();
@@ -1931,6 +2082,37 @@ public sealed class ServerPersistenceMariaDbTests : IAsyncLifetime
         {
             if (logLevel == LogLevel.Warning
                 && formatter(state, exception).Contains("Transient MariaDB lock failure while saving keyframe data", StringComparison.Ordinal))
+            {
+                Interlocked.Increment(ref _retryCount);
+                _retryObserved.TrySetResult();
+            }
+        }
+    }
+
+    private sealed class PeopleRetryLogger : ILogger<PeopleRepository>
+    {
+        private readonly TaskCompletionSource _retryObserved = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private int _retryCount;
+
+        public Task RetryObserved => _retryObserved.Task;
+
+        public int RetryCount => Volatile.Read(ref _retryCount);
+
+        public IDisposable? BeginScope<TState>(TState state)
+            where TState : notnull
+            => null;
+
+        public bool IsEnabled(LogLevel logLevel) => true;
+
+        public void Log<TState>(
+            LogLevel logLevel,
+            EventId eventId,
+            TState state,
+            Exception? exception,
+            Func<TState, Exception?, string> formatter)
+        {
+            if (logLevel == LogLevel.Warning
+                && formatter(state, exception).Contains("Transient MariaDB lock failure while saving people", StringComparison.Ordinal))
             {
                 Interlocked.Increment(ref _retryCount);
                 _retryObserved.TrySetResult();

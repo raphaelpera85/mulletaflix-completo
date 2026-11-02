@@ -1,9 +1,10 @@
-﻿using System;
+using System;
 using System.IO;
 using System.Linq;
 using System.Text;
 using System.Xml.Linq;
 using Emby.Server.Implementations;
+using MediaBrowser.Common.Configuration;
 using Microsoft.Extensions.Logging;
 
 namespace MulletaFlix.Server.Migrations.PreStartupRoutines;
@@ -38,21 +39,26 @@ public class RenameEnableGroupingIntoCollections : IMigrationRoutine
             return;
         }
 
+        XDocument xmlDocument;
         try
         {
-            XDocument xmlDocument = XDocument.Load(path);
-            var element = xmlDocument.Descendants("EnableGroupingIntoCollections").FirstOrDefault();
-            if (element is not null)
-            {
-                element.Name = "EnableGroupingMoviesIntoCollections";
-                _logger.LogInformation("The tag <EnableGroupingIntoCollections> was successfully renamed to <EnableGroupingMoviesIntoCollections>.");
-                xmlDocument.Save(path);
-            }
+            xmlDocument = XDocument.Load(path);
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "An error occurred while updating the XML file: {Message}", ex.Message);
+            throw;
         }
+
+        var element = xmlDocument.Descendants("EnableGroupingIntoCollections").FirstOrDefault();
+        if (element is null)
+        {
+            return;
+        }
+
+        element.Name = "EnableGroupingMoviesIntoCollections";
+        _logger.LogInformation("The tag <EnableGroupingIntoCollections> was successfully renamed to <EnableGroupingMoviesIntoCollections>.");
+        ProtectedConfigurationWriter.PersistXml(path, stream => xmlDocument.Save(stream));
     }
 }
 

@@ -103,7 +103,7 @@ namespace MediaBrowser.Providers.Plugins.Tmdb.TV
                 return Enumerable.Empty<RemoteImageInfo>();
             }
 
-            return _tmdbClientManager.ConvertStillsToRemoteImageInfo(stills, language);
+            return _tmdbClientManager.ConvertStillsToRemoteImageInfo(stills, metadataLanguage);
         }
 
         /// <inheritdoc />

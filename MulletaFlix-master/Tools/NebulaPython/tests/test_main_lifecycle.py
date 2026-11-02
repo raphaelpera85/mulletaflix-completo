@@ -191,14 +191,14 @@ async def test_main_stops_started_bots_when_mongo_indexes_fail(monkeypatch, tmp_
         async def stop(self):
             events.append("bot-stop")
 
-    class MotorClient:
+    class AsyncClient:
         def __init__(self, *_args, **_kwargs):
             pass
 
         def __getitem__(self, _name):
             return object()
 
-        def close(self):
+        async def close(self):
             events.append("mongo-close")
             raise RuntimeError("mongo close failed")
 
@@ -207,7 +207,7 @@ async def test_main_stops_started_bots_when_mongo_indexes_fail(monkeypatch, tmp_
 
     monkeypatch.setattr(main_module, "get_required_config", lambda: (123, "hash", ["token"]))
     monkeypatch.setattr(main_module, "Client", lambda *_args, **_kwargs: Bot())
-    monkeypatch.setattr(main_module, "AsyncIOMotorClient", MotorClient)
+    monkeypatch.setattr(main_module, "AsyncMongoClient", AsyncClient)
     monkeypatch.setattr(main_module, "resolve_channel", lambda _bot: asyncio.sleep(0, result="channel"))
     monkeypatch.setattr(main_module, "setup_database_indexes", broken_indexes)
     monkeypatch.setenv("SESSIONS_DIR", str(tmp_path / "sessions"))
@@ -215,6 +215,45 @@ async def test_main_stops_started_bots_when_mongo_indexes_fail(monkeypatch, tmp_
     monkeypatch.setenv("MONGO_DATABASE", "nebula-test")
 
     assert await main_module.main() == 1
+    assert events == ["bot-start", "mongo-close", "bot-stop"]
+
+
+@pytest.mark.asyncio
+async def test_main_closes_mongo_and_stops_bots_when_index_setup_is_cancelled(monkeypatch, tmp_path):
+    events = []
+
+    class Bot:
+        async def start(self):
+            events.append("bot-start")
+
+        async def stop(self):
+            events.append("bot-stop")
+
+    class AsyncClient:
+        def __init__(self, *_args, **_kwargs):
+            pass
+
+        def __getitem__(self, _name):
+            return object()
+
+        async def close(self):
+            events.append("mongo-close")
+
+    async def cancel_indexes(_database):
+        raise asyncio.CancelledError
+
+    monkeypatch.setattr(main_module, "get_required_config", lambda: (123, "hash", ["token"]))
+    monkeypatch.setattr(main_module, "Client", lambda *_args, **_kwargs: Bot())
+    monkeypatch.setattr(main_module, "AsyncMongoClient", AsyncClient)
+    monkeypatch.setattr(main_module, "resolve_channel", lambda _bot: asyncio.sleep(0, result="channel"))
+    monkeypatch.setattr(main_module, "setup_database_indexes", cancel_indexes)
+    monkeypatch.setenv("SESSIONS_DIR", str(tmp_path / "sessions"))
+    monkeypatch.setenv("MONGODB", "mongodb://fake")
+    monkeypatch.setenv("MONGO_DATABASE", "nebula-test")
+
+    with pytest.raises(asyncio.CancelledError):
+        await main_module.main()
+
     assert events == ["bot-start", "mongo-close", "bot-stop"]
 
 
@@ -229,14 +268,14 @@ async def test_main_stops_started_bots_when_ftp_security_configuration_is_invali
         async def stop(self):
             events.append("bot-stop")
 
-    class MotorClient:
+    class AsyncClient:
         def __init__(self, *_args, **_kwargs):
             pass
 
         def __getitem__(self, _name):
             return object()
 
-        def close(self):
+        async def close(self):
             events.append("mongo-close")
 
     async def setup_indexes(_database):
@@ -247,7 +286,7 @@ async def test_main_stops_started_bots_when_ftp_security_configuration_is_invali
 
     monkeypatch.setattr(main_module, "get_required_config", lambda: (123, "hash", ["token"]))
     monkeypatch.setattr(main_module, "Client", lambda *_args, **_kwargs: Bot())
-    monkeypatch.setattr(main_module, "AsyncIOMotorClient", MotorClient)
+    monkeypatch.setattr(main_module, "AsyncMongoClient", AsyncClient)
     monkeypatch.setattr(main_module, "resolve_channel", lambda _bot: asyncio.sleep(0, result="channel"))
     monkeypatch.setattr(main_module, "setup_database_indexes", setup_indexes)
     monkeypatch.setattr(main_module, "validate_ftp_security", invalid_security)
@@ -277,7 +316,7 @@ async def test_main_refuses_plaintext_when_tls_context_cannot_be_loaded(monkeypa
         def __getitem__(self, _name):
             return object()
 
-        def close(self):
+        async def close(self):
             events.append("mongo-close")
 
     class FTPServer:
@@ -295,7 +334,7 @@ async def test_main_refuses_plaintext_when_tls_context_cannot_be_loaded(monkeypa
 
     monkeypatch.setattr(main_module, "get_required_config", lambda: (123, "hash", ["token"]))
     monkeypatch.setattr(main_module, "Client", lambda *_args, **_kwargs: Bot())
-    monkeypatch.setattr(main_module, "AsyncIOMotorClient", MotorClient)
+    monkeypatch.setattr(main_module, "AsyncMongoClient", MotorClient)
     monkeypatch.setattr(main_module, "Server", FTPServer)
     monkeypatch.setattr(main_module, "MongoDBUserManager", lambda _mongo: object())
     monkeypatch.setattr(main_module, "resolve_channel", lambda _bot: asyncio.sleep(0, result="channel"))
@@ -333,7 +372,7 @@ async def test_main_closes_ftp_and_stops_before_upload_when_http_stream_bind_fai
         def __getitem__(self, _name):
             return object()
 
-        def close(self):
+        async def close(self):
             events.append("mongo-close")
 
     class FTPServer:
@@ -356,7 +395,7 @@ async def test_main_closes_ftp_and_stops_before_upload_when_http_stream_bind_fai
 
     monkeypatch.setattr(main_module, "get_required_config", lambda: (123, "hash", ["token"]))
     monkeypatch.setattr(main_module, "Client", lambda *_args, **_kwargs: Bot())
-    monkeypatch.setattr(main_module, "AsyncIOMotorClient", MotorClient)
+    monkeypatch.setattr(main_module, "AsyncMongoClient", MotorClient)
     monkeypatch.setattr(main_module, "Server", FTPServer)
     monkeypatch.setattr(main_module, "MongoDBUserManager", lambda _mongo: object())
     monkeypatch.setattr(main_module, "resolve_channel", lambda _bot: asyncio.sleep(0, result="channel"))
@@ -425,7 +464,7 @@ async def test_main_preserves_upload_queue_when_all_telegram_bots_fail(monkeypat
 
     monkeypatch.setattr(main_module, "get_required_config", lambda: (123, "hash", ["token"]))
     monkeypatch.setattr(main_module, "Client", lambda *_args, **_kwargs: Bot())
-    monkeypatch.setattr(main_module, "AsyncIOMotorClient", MotorClient)
+    monkeypatch.setattr(main_module, "AsyncMongoClient", MotorClient)
     monkeypatch.setattr(main_module, "Server", FTPServer)
     monkeypatch.setattr(main_module, "MongoDBUserManager", lambda _mongo: object())
     monkeypatch.setattr(main_module, "setup_database_indexes", background)
@@ -497,7 +536,7 @@ async def test_stream_only_lifecycle_starts_services_and_stops_resources(monkeyp
             events.append(("mongo-database", name))
             return database
 
-        def close(self):
+        async def close(self):
             events.append("mongo-close")
 
     class FTPServer:
@@ -531,7 +570,7 @@ async def test_stream_only_lifecycle_starts_services_and_stops_resources(monkeyp
 
     monkeypatch.setattr(main_module, "get_required_config", lambda: (123, "hash", ["token"]))
     monkeypatch.setattr(main_module, "Client", Bot)
-    monkeypatch.setattr(main_module, "AsyncIOMotorClient", MotorClient)
+    monkeypatch.setattr(main_module, "AsyncMongoClient", MotorClient)
     monkeypatch.setattr(main_module, "Server", FTPServer)
     monkeypatch.setattr(main_module, "MongoDBUserManager", lambda _mongo: object())
     monkeypatch.setattr(main_module, "resolve_channel", lambda _bot: asyncio.sleep(0, result="channel"))
@@ -595,7 +634,7 @@ async def test_main_rejects_ftp_port_collision_and_stops_started_bots(monkeypatc
         def __getitem__(self, _name):
             return object()
 
-        def close(self):
+        async def close(self):
             events.append("mongo-close")
 
     class FTPServer:
@@ -615,7 +654,7 @@ async def test_main_rejects_ftp_port_collision_and_stops_started_bots(monkeypatc
 
     monkeypatch.setattr(main_module, "get_required_config", lambda: (123, "hash", ["token"]))
     monkeypatch.setattr(main_module, "Client", Bot)
-    monkeypatch.setattr(main_module, "AsyncIOMotorClient", MotorClient)
+    monkeypatch.setattr(main_module, "AsyncMongoClient", MotorClient)
     monkeypatch.setattr(main_module, "Server", FTPServer)
     monkeypatch.setattr(main_module, "MongoDBUserManager", lambda _mongo: object())
     monkeypatch.setattr(main_module, "resolve_channel", lambda _bot: asyncio.sleep(0, result="channel"))
@@ -662,7 +701,7 @@ async def test_control_plane_startup_failure_returns_nonzero_after_cleanup(monke
         def __getitem__(self, _name):
             return object()
 
-        def close(self):
+        async def close(self):
             events.append("mongo-close")
 
     class FTPServer:
@@ -712,7 +751,7 @@ async def test_control_plane_startup_failure_returns_nonzero_after_cleanup(monke
 
     monkeypatch.setattr(main_module, "get_required_config", lambda: (123, "hash", ["token"]))
     monkeypatch.setattr(main_module, "Client", lambda *_args, **_kwargs: Bot())
-    monkeypatch.setattr(main_module, "AsyncIOMotorClient", MotorClient)
+    monkeypatch.setattr(main_module, "AsyncMongoClient", MotorClient)
     monkeypatch.setattr(main_module, "Server", FTPServer)
     monkeypatch.setattr(main_module, "MongoDBUserManager", lambda _mongo: object())
     monkeypatch.setattr(main_module, "resolve_channel", lambda _bot: asyncio.sleep(0, result="channel"))

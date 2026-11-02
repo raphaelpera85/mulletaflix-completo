@@ -962,11 +962,17 @@ namespace Emby.Server.Implementations.Plugins
 
         private async Task EnsureBootstrapPluginsInstalledAsync(IReadOnlyCollection<LocalPlugin> existingPlugins)
         {
+            var bootstrapRepositories = BootstrapPluginCatalog.GetRepositoriesWithBootstrapPlugins();
+            if (bootstrapRepositories.Length == 0)
+            {
+                return;
+            }
+
             var repositoryPackages = new Dictionary<string, PackageInfo[]>(StringComparer.OrdinalIgnoreCase);
 
             using var client = new HttpClient();
 
-            foreach (var bootstrapRepository in BootstrapPluginCatalog.BootstrapRepositories)
+            foreach (var bootstrapRepository in bootstrapRepositories)
             {
                 var repository = _config.PluginRepositories.FirstOrDefault(r => r.Enabled
                     && !string.IsNullOrWhiteSpace(r.Url)
@@ -1015,7 +1021,7 @@ namespace Emby.Server.Implementations.Plugins
             var installedIds = existingPlugins.Select(plugin => plugin.Id).ToHashSet();
             var processingIds = new HashSet<Guid>();
 
-            foreach (var bootstrapRepository in BootstrapPluginCatalog.BootstrapRepositories)
+            foreach (var bootstrapRepository in bootstrapRepositories)
             {
                 foreach (var pluginId in bootstrapRepository.PluginIds)
                 {

@@ -116,6 +116,10 @@ namespace MulletaFlix.Server.Implementations.Users
                     throw new AuthenticationException("Invalid username or password entered.");
                 }
 
+                // External providers can take long enough for another server instance to change the account.
+                user = _userManager.GetUserById(user.Id)
+                    ?? throw new AuthenticationException("The user account no longer exists.");
+
                 // Check for expired license only during login.
                 if (!user.HasPermission(PermissionKind.IsAdministrator))
                 {

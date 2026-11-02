@@ -3868,17 +3868,26 @@ public sealed class BackupServiceTests : IDisposable
             watcher.EnableRaisingEvents = true;
 
             restoreProcess = StartRestoreCrashTestProcess("restore", isolatedRoot);
-            var restoreFinished = restoreProcess.WaitForExitAsync();
-            var firstStagingFile = await Task.WhenAny(stagingFileCreated.Task, restoreFinished, Task.Delay(TimeSpan.FromSeconds(60))).ConfigureAwait(false);
-            Assert.Same(stagingFileCreated.Task, firstStagingFile);
+            var cancellationToken = TestContext.Current.CancellationToken;
+            var restoreFinished = restoreProcess.WaitForExitAsync(cancellationToken);
+            await stagingFileCreated.Task.WaitAsync(TimeSpan.FromSeconds(60), cancellationToken);
+
+            var journal = CreateRecoveryJournal(programDataPath);
+            var journalEntry = await journal.ReadAsync(cancellationToken);
+            var journalDeadline = DateTime.UtcNow + TimeSpan.FromSeconds(30);
+            while (journalEntry is null && DateTime.UtcNow < journalDeadline)
+            {
+                await Task.Delay(TimeSpan.FromMilliseconds(10), cancellationToken);
+                journalEntry = await journal.ReadAsync(cancellationToken);
+            }
+
+            Assert.NotNull(journalEntry);
 
             restoreProcess.Kill(entireProcessTree: true);
-            await restoreProcess.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(30)).ConfigureAwait(false);
+            await restoreProcess.WaitForExitAsync(cancellationToken).WaitAsync(TimeSpan.FromSeconds(30), cancellationToken);
             restoreProcess.Dispose();
             restoreProcess = null;
 
-            var journal = CreateRecoveryJournal(programDataPath);
-            Assert.NotNull(await journal.ReadAsync());
             Assert.True(Directory.EnumerateFiles(configPath, ".mfx-restore-*.tmp").Any());
 
             recoveryProcess = StartRestoreCrashTestProcess("recover", isolatedRoot);

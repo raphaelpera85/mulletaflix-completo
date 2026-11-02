@@ -59,6 +59,7 @@ namespace MulletaFlix.Server.Implementations.Users
         private readonly PasswordResetService _passwordResetService;
 
         private readonly AsyncKeyedLocker<Guid> _userLock = new();
+        private readonly SemaphoreSlim _userAdministrationLock = new(1, 1);
         private readonly AsyncKeyedLocker<Guid> _profileImageUpdateLock = new();
         private readonly SemaphoreSlim _schemaInitializationLock = new(1, 1);
         private readonly SemaphoreSlim _userInitializationLock = new(1, 1);
@@ -313,7 +314,36 @@ namespace MulletaFlix.Server.Implementations.Users
         {
             using (await _userLock.LockAsync(user.Id).ConfigureAwait(false))
             {
-                await UpdateUserInternalAsync(user).ConfigureAwait(false);
+                await _userAdministrationLock.WaitAsync().ConfigureAwait(false);
+                try
+                {
+                    if (!user.HasPermission(PermissionKind.IsAdministrator))
+                    {
+                        var dbContext = await _dbProvider.CreateDbContextAsync().ConfigureAwait(false);
+                        await using (dbContext.ConfigureAwait(false))
+                        {
+                            var wasAdministrator = await dbContext.Users
+                                .AnyAsync(u => u.Id == user.Id
+                                    && u.Permissions.Any(p => p.Kind == PermissionKind.IsAdministrator && p.Value))
+                                .ConfigureAwait(false);
+                            if (wasAdministrator
+                                && await dbContext.Users
+                                    .CountAsync(u => u.Permissions.Any(p => p.Kind == PermissionKind.IsAdministrator && p.Value))
+                                    .ConfigureAwait(false) == 1)
+                            {
+                                throw new ArgumentException(
+                                    "The last administrator cannot be demoted.",
+                                    nameof(user));
+                            }
+                        }
+                    }
+
+                    await UpdateUserInternalAsync(user).ConfigureAwait(false);
+                }
+                finally
+                {
+                    _userAdministrationLock.Release();
+                }
             }
         }
 
@@ -349,26 +379,34 @@ namespace MulletaFlix.Server.Implementations.Users
             await EnsureSchemaCreatedAsync().ConfigureAwait(false);
             ThrowIfInvalidUsername(name);
 
+            await _userAdministrationLock.WaitAsync().ConfigureAwait(false);
             User newUser;
-            var dbContext = await _dbProvider.CreateDbContextAsync().ConfigureAwait(false);
-            await using (dbContext.ConfigureAwait(false))
+            try
             {
-#pragma warning disable CA1862 // Use the 'StringComparison' method overloads to perform case-insensitive string comparisons
-                if (await dbContext.Users
-                        .AnyAsync(u => u.NormalizedUsername == name.ToUpperInvariant())
-                        .ConfigureAwait(false))
+                var dbContext = await _dbProvider.CreateDbContextAsync().ConfigureAwait(false);
+                await using (dbContext.ConfigureAwait(false))
                 {
-                    throw new ArgumentException(string.Format(
-                        CultureInfo.InvariantCulture,
-                        "A user with the name '{0}' already exists.",
-                        name));
-                }
+#pragma warning disable CA1862 // Use the 'StringComparison' method overloads to perform case-insensitive string comparisons
+                    if (await dbContext.Users
+                            .AnyAsync(u => u.NormalizedUsername == name.ToUpperInvariant())
+                            .ConfigureAwait(false))
+                    {
+                        throw new ArgumentException(string.Format(
+                            CultureInfo.InvariantCulture,
+                            "A user with the name '{0}' already exists.",
+                            name));
+                    }
 #pragma warning restore CA1862 // Use the 'StringComparison' method overloads to perform case-insensitive string comparisons
 
-                newUser = await CreateUserInternalAsync(name, dbContext).ConfigureAwait(false);
+                    newUser = await CreateUserInternalAsync(name, dbContext).ConfigureAwait(false);
 
-                dbContext.Users.Add(newUser);
-                await dbContext.SaveChangesAsync().ConfigureAwait(false);
+                    dbContext.Users.Add(newUser);
+                    await dbContext.SaveChangesAsync().ConfigureAwait(false);
+                }
+            }
+            finally
+            {
+                _userAdministrationLock.Release();
             }
 
             await _eventManager.PublishAsync(new UserCreatedEventArgs(newUser)).ConfigureAwait(false);
@@ -383,42 +421,50 @@ namespace MulletaFlix.Server.Implementations.Users
             User? user;
             using (await _userLock.LockAsync(userId).ConfigureAwait(false))
             {
-                var dbContext = await _dbProvider.CreateDbContextAsync().ConfigureAwait(false);
-                await using (dbContext.ConfigureAwait(false))
+                await _userAdministrationLock.WaitAsync().ConfigureAwait(false);
+                try
                 {
-                    user = await dbContext.Users
-                        .Include(u => u.Permissions)
-                        .FirstOrDefaultAsync(u => u.Id.Equals(userId))
-                        .ConfigureAwait(false);
-                    if (user is null)
+                    var dbContext = await _dbProvider.CreateDbContextAsync().ConfigureAwait(false);
+                    await using (dbContext.ConfigureAwait(false))
                     {
-                        throw new ResourceNotFoundException(nameof(userId));
-                    }
+                        user = await dbContext.Users
+                            .Include(u => u.Permissions)
+                            .FirstOrDefaultAsync(u => u.Id.Equals(userId))
+                            .ConfigureAwait(false);
+                        if (user is null)
+                        {
+                            throw new ResourceNotFoundException(nameof(userId));
+                        }
 
-                    var userCount = await dbContext.Users.CountAsync().ConfigureAwait(false);
-                    if (userCount == 1)
-                    {
-                        throw new InvalidOperationException(string.Format(
-                            CultureInfo.InvariantCulture,
-                            "The user '{0}' cannot be deleted because there must be at least one user in the system.",
-                            user.Username));
-                    }
-
-                    if (user.HasPermission(PermissionKind.IsAdministrator)
-                        && await dbContext.Users
-                            .CountAsync(i => i.Permissions.Any(p => p.Kind == PermissionKind.IsAdministrator && p.Value))
-                            .ConfigureAwait(false) == 1)
-                    {
-                        throw new ArgumentException(
-                            string.Format(
+                        var userCount = await dbContext.Users.CountAsync().ConfigureAwait(false);
+                        if (userCount == 1)
+                        {
+                            throw new InvalidOperationException(string.Format(
                                 CultureInfo.InvariantCulture,
-                                "The user '{0}' cannot be deleted because there must be at least one admin user in the system.",
-                                user.Username),
-                            nameof(userId));
-                    }
+                                "The user '{0}' cannot be deleted because there must be at least one user in the system.",
+                                user.Username));
+                        }
 
-                    dbContext.Users.Remove(user);
-                    await dbContext.SaveChangesAsync().ConfigureAwait(false);
+                        if (user.HasPermission(PermissionKind.IsAdministrator)
+                            && await dbContext.Users
+                                .CountAsync(i => i.Permissions.Any(p => p.Kind == PermissionKind.IsAdministrator && p.Value))
+                                .ConfigureAwait(false) == 1)
+                        {
+                            throw new ArgumentException(
+                                string.Format(
+                                    CultureInfo.InvariantCulture,
+                                    "The user '{0}' cannot be deleted because there must be at least one admin user in the system.",
+                                    user.Username),
+                                nameof(userId));
+                        }
+
+                        dbContext.Users.Remove(user);
+                        await dbContext.SaveChangesAsync().ConfigureAwait(false);
+                    }
+                }
+                finally
+                {
+                    _userAdministrationLock.Release();
                 }
             }
 
@@ -599,43 +645,51 @@ namespace MulletaFlix.Server.Implementations.Users
             try
             {
                 await EnsureSchemaCreatedAsync(force: true).ConfigureAwait(false);
+                await _userAdministrationLock.WaitAsync().ConfigureAwait(false);
 
-                // TODO: Refactor the startup wizard so that it doesn't require a user to already exist.
-                var dbContext = await _dbProvider.CreateDbContextAsync().ConfigureAwait(false);
-                await using (dbContext.ConfigureAwait(false))
+                try
                 {
-                    try
+                    // TODO: Refactor the startup wizard so that it doesn't require a user to already exist.
+                    var dbContext = await _dbProvider.CreateDbContextAsync().ConfigureAwait(false);
+                    await using (dbContext.ConfigureAwait(false))
                     {
-                        if (await dbContext.Users.AnyAsync().ConfigureAwait(false))
+                        try
                         {
-                            return;
+                            if (await dbContext.Users.AnyAsync().ConfigureAwait(false))
+                            {
+                                return;
+                            }
                         }
-                    }
-                    catch (Exception ex) when (IsMissingTableException(ex))
-                    {
-                        await EnsureSchemaCreatedAsync(force: true).ConfigureAwait(false);
-                        if (await dbContext.Users.AnyAsync().ConfigureAwait(false))
+                        catch (Exception ex) when (IsMissingTableException(ex))
                         {
-                            return;
+                            await EnsureSchemaCreatedAsync(force: true).ConfigureAwait(false);
+                            if (await dbContext.Users.AnyAsync().ConfigureAwait(false))
+                            {
+                                return;
+                            }
                         }
+
+                        var defaultName = Environment.UserName;
+                        if (string.IsNullOrWhiteSpace(defaultName) || !ValidUsernameRegex().IsMatch(defaultName))
+                        {
+                            defaultName = "MyMulletaFlixUser";
+                        }
+
+                        _logger.LogWarning("No users, creating one with username {UserName}", defaultName);
+
+                        var newUser = await CreateUserInternalAsync(defaultName, dbContext).ConfigureAwait(false);
+                        newUser.SetPermission(PermissionKind.IsAdministrator, true);
+                        newUser.SetPermission(PermissionKind.EnableContentDeletion, true);
+                        newUser.SetPermission(PermissionKind.EnableRemoteControlOfOtherUsers, true);
+
+                        dbContext.Users.Add(newUser);
+                        await dbContext.SaveChangesAsync().ConfigureAwait(false);
+                        SyncNebulaFtpCredentials(newUser.Username, null);
                     }
-
-                    var defaultName = Environment.UserName;
-                    if (string.IsNullOrWhiteSpace(defaultName) || !ValidUsernameRegex().IsMatch(defaultName))
-                    {
-                        defaultName = "MyMulletaFlixUser";
-                    }
-
-                    _logger.LogWarning("No users, creating one with username {UserName}", defaultName);
-
-                    var newUser = await CreateUserInternalAsync(defaultName, dbContext).ConfigureAwait(false);
-                    newUser.SetPermission(PermissionKind.IsAdministrator, true);
-                    newUser.SetPermission(PermissionKind.EnableContentDeletion, true);
-                    newUser.SetPermission(PermissionKind.EnableRemoteControlOfOtherUsers, true);
-
-                    dbContext.Users.Add(newUser);
-                    await dbContext.SaveChangesAsync().ConfigureAwait(false);
-                    SyncNebulaFtpCredentials(newUser.Username, null);
+                }
+                finally
+                {
+                    _userAdministrationLock.Release();
                 }
             }
             finally
@@ -955,74 +1009,96 @@ namespace MulletaFlix.Server.Implementations.Users
         {
             using (await _userLock.LockAsync(userId).ConfigureAwait(false))
             {
-                var dbContext = await _dbProvider.CreateDbContextAsync().ConfigureAwait(false);
-                await using (dbContext.ConfigureAwait(false))
+                await _userAdministrationLock.WaitAsync().ConfigureAwait(false);
+                try
                 {
-                    var user = UserQuery(dbContext)
-                        .AsTracking()
-                        .FirstOrDefault(u => u.Id.Equals(userId))
-                        ?? throw new ArgumentException("No user exists with given Id!");
-
-                    // The default number of login attempts is 3, but for some god forsaken reason it's sent to the server as "0"
-                    int? maxLoginAttempts = policy.LoginAttemptsBeforeLockout switch
+                    var dbContext = await _dbProvider.CreateDbContextAsync().ConfigureAwait(false);
+                    await using (dbContext.ConfigureAwait(false))
                     {
-                        -1 => null,
-                        0 => 3,
-                        _ => policy.LoginAttemptsBeforeLockout
-                    };
+                        var user = UserQuery(dbContext)
+                            .AsTracking()
+                            .FirstOrDefault(u => u.Id.Equals(userId))
+                            ?? throw new ArgumentException("No user exists with given Id!");
 
-                    user.MaxParentalRatingScore = policy.MaxParentalRating;
-                    user.MaxParentalRatingSubScore = policy.MaxParentalSubRating;
-                    user.EnableUserPreferenceAccess = policy.EnableUserPreferenceAccess;
-                    user.RemoteClientBitrateLimit = policy.RemoteClientBitrateLimit;
-                    user.AuthenticationProviderId = policy.AuthenticationProviderId;
-                    user.PasswordResetProviderId = policy.PasswordResetProviderId;
-                    user.InvalidLoginAttemptCount = policy.InvalidLoginAttemptCount;
-                    user.LoginAttemptsBeforeLockout = maxLoginAttempts;
-                    user.MaxActiveSessions = policy.MaxActiveSessions;
-                    user.SyncPlayAccess = policy.SyncPlayAccess;
-                    user.SetPermission(PermissionKind.IsAdministrator, policy.IsAdministrator);
-                    user.SetPermission(PermissionKind.IsHidden, policy.IsHidden);
-                    user.SetPermission(PermissionKind.IsDisabled, policy.IsDisabled);
-                    user.SetPermission(PermissionKind.EnableSharedDeviceControl, policy.EnableSharedDeviceControl);
-                    user.SetPermission(PermissionKind.EnableRemoteAccess, policy.EnableRemoteAccess);
-                    user.SetPermission(PermissionKind.EnableLiveTvManagement, policy.EnableLiveTvManagement);
-                    user.SetPermission(PermissionKind.EnableLiveTvAccess, policy.EnableLiveTvAccess);
-                    user.SetPermission(PermissionKind.EnableMediaPlayback, policy.EnableMediaPlayback);
-                    user.SetPermission(PermissionKind.EnableAudioPlaybackTranscoding, policy.EnableAudioPlaybackTranscoding);
-                    user.SetPermission(PermissionKind.EnableVideoPlaybackTranscoding, policy.EnableVideoPlaybackTranscoding);
-                    user.SetPermission(PermissionKind.EnableContentDeletion, policy.EnableContentDeletion);
-                    user.SetPermission(PermissionKind.EnableContentDownloading, policy.EnableContentDownloading);
-                    user.SetPermission(PermissionKind.EnableSyncTranscoding, policy.EnableSyncTranscoding);
-                    user.SetPermission(PermissionKind.EnableMediaConversion, policy.EnableMediaConversion);
-                    user.SetPermission(PermissionKind.EnableAllChannels, policy.EnableAllChannels);
-                    user.SetPermission(PermissionKind.EnableAllDevices, policy.EnableAllDevices);
-                    user.SetPermission(PermissionKind.EnableAllFolders, policy.EnableAllFolders);
-                    user.SetPermission(PermissionKind.EnableRemoteControlOfOtherUsers, policy.EnableRemoteControlOfOtherUsers);
-                    user.SetPermission(PermissionKind.EnablePlaybackRemuxing, policy.EnablePlaybackRemuxing);
-                    user.SetPermission(PermissionKind.EnableCollectionManagement, policy.EnableCollectionManagement);
-                    user.SetPermission(PermissionKind.EnableSubtitleManagement, policy.EnableSubtitleManagement);
-                    user.SetPermission(PermissionKind.EnableLyricManagement, policy.EnableLyricManagement);
-                    user.SetPermission(PermissionKind.ForceRemoteSourceTranscoding, policy.ForceRemoteSourceTranscoding);
-                    user.SetPermission(PermissionKind.EnablePublicSharing, policy.EnablePublicSharing);
+                        if (user.HasPermission(PermissionKind.IsAdministrator)
+                            && !policy.IsAdministrator
+                            && await dbContext.Users
+                                .CountAsync(i => i.Permissions.Any(p => p.Kind == PermissionKind.IsAdministrator && p.Value))
+                                .ConfigureAwait(false) == 1)
+                        {
+                            throw new ArgumentException(
+                                string.Format(
+                                    CultureInfo.InvariantCulture,
+                                    "The user '{0}' cannot be demoted because there must be at least one admin user in the system.",
+                                    user.Username),
+                                nameof(policy));
+                        }
 
-                    user.AccessSchedules.Clear();
-                    foreach (var policyAccessSchedule in policy.AccessSchedules)
-                    {
-                        user.AccessSchedules.Add(policyAccessSchedule);
+                        // The default number of login attempts is 3, but for some god forsaken reason it's sent to the server as "0"
+                        int? maxLoginAttempts = policy.LoginAttemptsBeforeLockout switch
+                        {
+                            -1 => null,
+                            0 => 3,
+                            _ => policy.LoginAttemptsBeforeLockout
+                        };
+
+                        user.MaxParentalRatingScore = policy.MaxParentalRating;
+                        user.MaxParentalRatingSubScore = policy.MaxParentalSubRating;
+                        user.EnableUserPreferenceAccess = policy.EnableUserPreferenceAccess;
+                        user.RemoteClientBitrateLimit = policy.RemoteClientBitrateLimit;
+                        user.AuthenticationProviderId = policy.AuthenticationProviderId;
+                        user.PasswordResetProviderId = policy.PasswordResetProviderId;
+                        user.InvalidLoginAttemptCount = policy.InvalidLoginAttemptCount;
+                        user.LoginAttemptsBeforeLockout = maxLoginAttempts;
+                        user.MaxActiveSessions = policy.MaxActiveSessions;
+                        user.SyncPlayAccess = policy.SyncPlayAccess;
+                        user.SetPermission(PermissionKind.IsAdministrator, policy.IsAdministrator);
+                        user.SetPermission(PermissionKind.IsHidden, policy.IsHidden);
+                        user.SetPermission(PermissionKind.IsDisabled, policy.IsDisabled);
+                        user.SetPermission(PermissionKind.EnableSharedDeviceControl, policy.EnableSharedDeviceControl);
+                        user.SetPermission(PermissionKind.EnableRemoteAccess, policy.EnableRemoteAccess);
+                        user.SetPermission(PermissionKind.EnableLiveTvManagement, policy.EnableLiveTvManagement);
+                        user.SetPermission(PermissionKind.EnableLiveTvAccess, policy.EnableLiveTvAccess);
+                        user.SetPermission(PermissionKind.EnableMediaPlayback, policy.EnableMediaPlayback);
+                        user.SetPermission(PermissionKind.EnableAudioPlaybackTranscoding, policy.EnableAudioPlaybackTranscoding);
+                        user.SetPermission(PermissionKind.EnableVideoPlaybackTranscoding, policy.EnableVideoPlaybackTranscoding);
+                        user.SetPermission(PermissionKind.EnableContentDeletion, policy.EnableContentDeletion);
+                        user.SetPermission(PermissionKind.EnableContentDownloading, policy.EnableContentDownloading);
+                        user.SetPermission(PermissionKind.EnableSyncTranscoding, policy.EnableSyncTranscoding);
+                        user.SetPermission(PermissionKind.EnableMediaConversion, policy.EnableMediaConversion);
+                        user.SetPermission(PermissionKind.EnableAllChannels, policy.EnableAllChannels);
+                        user.SetPermission(PermissionKind.EnableAllDevices, policy.EnableAllDevices);
+                        user.SetPermission(PermissionKind.EnableAllFolders, policy.EnableAllFolders);
+                        user.SetPermission(PermissionKind.EnableRemoteControlOfOtherUsers, policy.EnableRemoteControlOfOtherUsers);
+                        user.SetPermission(PermissionKind.EnablePlaybackRemuxing, policy.EnablePlaybackRemuxing);
+                        user.SetPermission(PermissionKind.EnableCollectionManagement, policy.EnableCollectionManagement);
+                        user.SetPermission(PermissionKind.EnableSubtitleManagement, policy.EnableSubtitleManagement);
+                        user.SetPermission(PermissionKind.EnableLyricManagement, policy.EnableLyricManagement);
+                        user.SetPermission(PermissionKind.ForceRemoteSourceTranscoding, policy.ForceRemoteSourceTranscoding);
+                        user.SetPermission(PermissionKind.EnablePublicSharing, policy.EnablePublicSharing);
+
+                        user.AccessSchedules.Clear();
+                        foreach (var policyAccessSchedule in policy.AccessSchedules)
+                        {
+                            user.AccessSchedules.Add(policyAccessSchedule);
+                        }
+
+                        // TODO: fix this at some point
+                        user.SetPreference(PreferenceKind.BlockUnratedItems, policy.BlockUnratedItems ?? Array.Empty<UnratedItem>());
+                        user.SetPreference(PreferenceKind.BlockedTags, policy.BlockedTags);
+                        user.SetPreference(PreferenceKind.AllowedTags, policy.AllowedTags);
+                        user.SetPreference(PreferenceKind.EnabledChannels, policy.EnabledChannels);
+                        user.SetPreference(PreferenceKind.EnabledDevices, policy.EnabledDevices);
+                        user.SetPreference(PreferenceKind.EnabledFolders, policy.EnabledFolders);
+                        user.SetPreference(PreferenceKind.EnableContentDeletionFromFolders, policy.EnableContentDeletionFromFolders);
+
+                        dbContext.Update(user);
+                        await dbContext.SaveChangesAsync().ConfigureAwait(false);
                     }
-
-                    // TODO: fix this at some point
-                    user.SetPreference(PreferenceKind.BlockUnratedItems, policy.BlockUnratedItems ?? Array.Empty<UnratedItem>());
-                    user.SetPreference(PreferenceKind.BlockedTags, policy.BlockedTags);
-                    user.SetPreference(PreferenceKind.AllowedTags, policy.AllowedTags);
-                    user.SetPreference(PreferenceKind.EnabledChannels, policy.EnabledChannels);
-                    user.SetPreference(PreferenceKind.EnabledDevices, policy.EnabledDevices);
-                    user.SetPreference(PreferenceKind.EnabledFolders, policy.EnabledFolders);
-                    user.SetPreference(PreferenceKind.EnableContentDeletionFromFolders, policy.EnableContentDeletionFromFolders);
-
-                    dbContext.Update(user);
-                    await dbContext.SaveChangesAsync().ConfigureAwait(false);
+                }
+                finally
+                {
+                    _userAdministrationLock.Release();
                 }
             }
         }
@@ -1146,6 +1222,7 @@ namespace MulletaFlix.Server.Implementations.Users
             if (disposing)
             {
                 _userLock.Dispose();
+                _userAdministrationLock.Dispose();
                 _profileImageUpdateLock.Dispose();
                 _userInitializationLock.Dispose();
             }

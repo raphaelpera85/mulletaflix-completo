@@ -1,6 +1,8 @@
 ﻿using System;
 using System.Diagnostics.CodeAnalysis;
 using System.IO;
+using System.Threading;
+using System.Threading.Tasks;
 using Emby.Naming.Common;
 using MulletaFlix.Extensions;
 using MulletaFlix.MediaEncoding.Keyframes;
@@ -54,6 +56,30 @@ public class FfProbeKeyframeExtractor : IKeyframeExtractor
 
         keyframeData = null;
         return false;
+    }
+
+    /// <inheritdoc />
+    public async ValueTask<KeyframeData?> TryExtractKeyframesAsync(Guid itemId, string filePath, CancellationToken cancellationToken)
+    {
+        if (!_namingOptions.VideoFileExtensions.Contains(Path.GetExtension(filePath.AsSpan()), StringComparison.OrdinalIgnoreCase))
+        {
+            return null;
+        }
+
+        try
+        {
+            var keyframeData = await Extractor.GetKeyframeDataAsync(_mediaEncoder.ProbePath, filePath, cancellationToken).ConfigureAwait(false);
+            return keyframeData.KeyframeTicks.Count > 0 ? keyframeData : null;
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Extracting keyframes from {FilePath} using ffprobe failed", filePath);
+            return null;
+        }
     }
 }
 

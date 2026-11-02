@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import gc
 import importlib
 from types import SimpleNamespace
 
@@ -96,6 +97,7 @@ async def test_parallel_upload_worker_completes_file_and_cleans_staging(monkeypa
     claims = []
     uploaded = []
     removed = []
+    read_waits = []
 
     class Files:
         async def find_one(self, query):
@@ -122,12 +124,27 @@ async def test_parallel_upload_worker_completes_file_and_cleans_staging(monkeypa
     async def log_state(*_args):
         return None
 
+    async def prefill_readahead(path, total_parts, read_queue, *_args):
+        with open(path, "rb") as source:
+            for part_num in range(total_parts):
+                await read_queue.put((part_num, source.read(main.CHUNK_SIZE)))
+        await read_queue.put(None)
+
     monkeypatch.setattr(main, "resolve_media_parent", resolve_parent)
     monkeypatch.setattr(main, "log_queue_state", log_state)
+    monkeypatch.setattr(main, "_readahead_producer", prefill_readahead)
     monkeypatch.setattr(main, "safe_remove_staging_file", lambda path, **_kwargs: removed.append(path))
     monkeypatch.setattr(main.Metrics, "log_success", lambda size: uploaded.append(("success", size)))
     monkeypatch.setattr(main.Metrics, "log_fail", lambda: uploaded.append(("failure", None)))
     monkeypatch.setattr(main.uuid, "uuid4", lambda: "stable-uuid")
+
+    original_wait = main.asyncio.wait
+
+    async def count_read_waits(*args, **kwargs):
+        read_waits.append(None)
+        return await original_wait(*args, **kwargs)
+
+    monkeypatch.setattr(main.asyncio, "wait", count_read_waits)
 
     async def upload_part(_worker_id, _bots, _chat, _path, file_uuid, part_num, chunk_data, *_args, **_kwargs):
         uploaded.append((part_num, chunk_data, file_uuid))
@@ -157,6 +174,7 @@ async def test_parallel_upload_worker_completes_file_and_cleans_staging(monkeypa
         (1, b"efgh"),
         (2, b"ij"),
     ]
+    assert len(read_waits) < 3
     assert len([update for _query, update in updates if "$set" in update and "status" not in update["$set"]]) == 2
     final_update = updates[-1][1]
     assert final_update["$set"]["status"] == "completed"
@@ -330,6 +348,135 @@ async def test_parallel_upload_worker_cancels_blocked_readahead_after_upload_fai
                 producer.cancel()
         if producer_tasks:
             await asyncio.gather(*producer_tasks, return_exceptions=True)
+
+
+@pytest.mark.asyncio
+async def test_parallel_upload_worker_records_readahead_read_failure_and_releases_file(monkeypatch, tmp_path):
+    media = tmp_path / "unreadable-episode.mkv"
+    media.write_bytes(b"x" * 40)
+    file_doc = {"_id": "file-read-fail", "status": "queued", "parts": []}
+    updates = []
+
+    class Files:
+        async def find_one(self, _query):
+            return file_doc
+
+        async def find_one_and_update(self, _query, _update, *, return_document):
+            return file_doc
+
+        async def update_one(self, query, update):
+            updates.append((query, update))
+
+    async def fail_readahead(*_args, **_kwargs):
+        raise OSError("simulated disk read failure")
+
+    async def resolve_parent(*_args):
+        return "Series"
+
+    async def log_state(*_args):
+        return None
+
+    queue = asyncio.Queue()
+    monkeypatch.setattr(main, "UPLOAD_QUEUE", queue)
+    monkeypatch.setattr(main, "ACTIVE_UPLOADS", set())
+    monkeypatch.setattr(main, "CHUNK_SIZE", 4)
+    monkeypatch.setattr(main, "PART_WORKERS_PER_FILE", 2)
+    monkeypatch.setattr(main, "_readahead_producer", fail_readahead)
+    monkeypatch.setattr(main, "resolve_media_parent", resolve_parent)
+    monkeypatch.setattr(main, "log_queue_state", log_state)
+    monkeypatch.setattr(main.Metrics, "log_fail", lambda: None)
+    await queue.put({"path": str(media), "filename": media.name, "parent": "Series"})
+    worker = asyncio.create_task(
+        main.upload_worker_parallel([SimpleNamespace(name="bot")], -100, SimpleNamespace(files=Files()), 9)
+    )
+
+    try:
+        await asyncio.wait_for(queue.join(), timeout=3)
+        assert any(
+            update.get("$set", {}).get("status") == "failed"
+            and "simulated disk read failure" in update["$set"].get("failed_reason", "")
+            for _query, update in updates
+        )
+        assert str(media) not in main.ACTIVE_UPLOADS
+    finally:
+        worker.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await worker
+
+
+@pytest.mark.asyncio
+async def test_parallel_upload_worker_retrieves_readahead_error_when_upload_fails(monkeypatch, tmp_path):
+    media = tmp_path / "concurrent-failure.mkv"
+    media.write_bytes(b"x" * 40)
+    file_doc = {"_id": "file-concurrent-fail", "status": "queued", "parts": []}
+    updates = []
+    producer_can_fail = asyncio.Event()
+    producer_failed = asyncio.Event()
+    unhandled_task_errors = []
+
+    class Files:
+        async def find_one(self, _query):
+            return file_doc
+
+        async def find_one_and_update(self, _query, _update, *, return_document):
+            return file_doc
+
+        async def update_one(self, query, update):
+            updates.append((query, update))
+
+    async def fail_after_batch(_path, _total_parts, queue, *_args, **_kwargs):
+        await queue.put((0, b"xxxx"))
+        await queue.put((1, b"xxxx"))
+        await producer_can_fail.wait()
+        producer_failed.set()
+        raise OSError("simulated concurrent read failure")
+
+    async def resolve_parent(*_args):
+        return "Series"
+
+    async def log_state(*_args):
+        return None
+
+    async def fail_upload(*_args, **_kwargs):
+        producer_can_fail.set()
+        raise RuntimeError("simulated upload failure")
+
+    queue = asyncio.Queue()
+    loop = asyncio.get_running_loop()
+    original_exception_handler = loop.get_exception_handler()
+    loop.set_exception_handler(lambda _loop, context: unhandled_task_errors.append(context))
+    monkeypatch.setattr(main, "UPLOAD_QUEUE", queue)
+    monkeypatch.setattr(main, "ACTIVE_UPLOADS", set())
+    monkeypatch.setattr(main, "CHUNK_SIZE", 4)
+    monkeypatch.setattr(main, "PART_WORKERS_PER_FILE", 2)
+    monkeypatch.setattr(main, "_readahead_producer", fail_after_batch)
+    monkeypatch.setattr(main, "resolve_media_parent", resolve_parent)
+    monkeypatch.setattr(main, "log_queue_state", log_state)
+    monkeypatch.setattr(main, "classify_media_type", lambda *_args: "series")
+    monkeypatch.setattr(main, "build_part_caption", lambda *_args: "caption")
+    monkeypatch.setattr(main, "upload_part_with_retries", fail_upload)
+    monkeypatch.setattr(main.Metrics, "log_fail", lambda: None)
+    await queue.put({"path": str(media), "filename": media.name, "parent": "Series"})
+    worker = asyncio.create_task(
+        main.upload_worker_parallel([SimpleNamespace(name="bot")], -100, SimpleNamespace(files=Files()), 10)
+    )
+
+    try:
+        await asyncio.wait_for(producer_failed.wait(), timeout=3)
+        await asyncio.wait_for(queue.join(), timeout=3)
+        worker.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await worker
+        gc.collect()
+        assert any(update.get("$set", {}).get("status") == "failed" for _query, update in updates)
+        assert str(media) not in main.ACTIVE_UPLOADS
+        assert not any("Task exception was never retrieved" in context.get("message", "") for context in unhandled_task_errors)
+    finally:
+        loop.set_exception_handler(original_exception_handler)
+        if not worker.done():
+            worker.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await worker
 
 
 @pytest.mark.asyncio

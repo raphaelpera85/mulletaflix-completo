@@ -80,7 +80,7 @@ public static class HttpClientExtension
                 return tryConnectAsyncIPv6.GetAwaiter().GetResult();
             }
 
-            return tryConnectAsyncIPv4.GetAwaiter().GetResult();
+            return await tryConnectAsyncIPv4.ConfigureAwait(false);
         }
         else
         {
@@ -90,7 +90,7 @@ public static class HttpClientExtension
                 return tryConnectAsyncIPv4.GetAwaiter().GetResult();
             }
 
-            return tryConnectAsyncIPv6.GetAwaiter().GetResult();
+            return await tryConnectAsyncIPv6.ConfigureAwait(false);
         }
     }
 

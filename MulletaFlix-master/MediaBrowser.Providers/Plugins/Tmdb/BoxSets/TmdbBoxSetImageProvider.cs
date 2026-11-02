@@ -97,12 +97,12 @@ namespace MediaBrowser.Providers.Plugins.Tmdb.BoxSets
 
             if (posters is not null)
             {
-                remoteImages.AddRange(_tmdbClientManager.ConvertPostersToRemoteImageInfo(posters, language));
+                remoteImages.AddRange(_tmdbClientManager.ConvertPostersToRemoteImageInfo(posters, metadataLanguage));
             }
 
             if (backdrops is not null)
             {
-                remoteImages.AddRange(_tmdbClientManager.ConvertBackdropsToRemoteImageInfo(backdrops, language));
+                remoteImages.AddRange(_tmdbClientManager.ConvertBackdropsToRemoteImageInfo(backdrops, metadataLanguage));
             }
 
             return remoteImages;

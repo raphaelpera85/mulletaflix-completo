@@ -1,5 +1,7 @@
 ﻿using System;
 using System.Diagnostics.CodeAnalysis;
+using System.Threading;
+using System.Threading.Tasks;
 using MulletaFlix.MediaEncoding.Keyframes;
 
 namespace MulletaFlix.MediaEncoding.Hls.Extractors;
@@ -22,5 +24,18 @@ public interface IKeyframeExtractor
     /// <param name="keyframeData">The keyframes.</param>
     /// <returns>A value indicating whether the keyframe extraction was successful.</returns>
     bool TryExtractKeyframes(Guid itemId, string filePath, [NotNullWhen(true)] out KeyframeData? keyframeData);
+
+    /// <summary>
+    /// Attempts to read or extract keyframes asynchronously.
+    /// </summary>
+    /// <param name="itemId">The item id.</param>
+    /// <param name="filePath">The path to the file.</param>
+    /// <param name="cancellationToken">The cancellation token.</param>
+    /// <returns>The keyframes, or <see langword="null"/> when extraction is unavailable.</returns>
+    ValueTask<KeyframeData?> TryExtractKeyframesAsync(Guid itemId, string filePath, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        return ValueTask.FromResult(TryExtractKeyframes(itemId, filePath, out var keyframeData) ? keyframeData : null);
+    }
 }
 
