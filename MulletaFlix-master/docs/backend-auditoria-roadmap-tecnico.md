@@ -1,5 +1,13 @@
 # Auditoria Tecnica do Backend MulletaFlix
 
+## Retry síncrono de gravação das faixas de mídia — 2026-11-03
+
+- `MediaStreamRepository.SaveMediaStreams` agora repete a substituição completa em erros de lock MariaDB 1205/1213, com contexto e transação novos, até três tentativas e backoff progressivo. Falhas permanentes continuam sendo propagadas; o contrato síncrono e o método assíncrono não mudaram.
+- `MediaStreamRepositoryRetryTests`: 1205/1213 simulados aprovados e falha permanente sem retry preservando a linha anterior; total 3/3 em SQLite. Build Release do projeto de integração passou com 0 erros; MariaDB opt-in, Linux, CI hospedada e produção não foram validados.
+- O build revelou e corrigiu formatação StyleCop recente em `MigrateMusicBrainzTimeout.cs` (1 erro); o build final passou com 1.680 avisos de analisadores no conjunto. Nenhum runtime ou pacote foi atualizado.
+- MariaDB documenta 1205 como lock wait timeout e 1213 como deadlock. EF Core recomenda executar a transação inteira como unidade repetível. Fontes: [MariaDB 1200–1299](https://mariadb.com/docs/server/reference/error-codes/mariadb-error-codes-1200-to-1299), [EF Core connection resiliency](https://learn.microsoft.com/en-us/ef/core/miscellaneous/connection-resiliency).
+- O mapa técnico foi conferido: mesmos módulos, APIs e dependências; somente fluxo interno síncrono de persistência alterado. Homologação formal permanece 2/7 (28,6%); release 12.1.46 candidata, não publicada.
+
 ## Cobertura do startup Nebula com upload habilitado — 2026-11-03
 
 - `test_main_lifecycle.py` agora executa o caminho full com bots: cleanup e restore da fila, watcher, scanner e workers, além do modo somente streaming. Lifecycle passou 23/23.

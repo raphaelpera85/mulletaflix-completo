@@ -65,11 +65,14 @@ public class MigrateMusicBrainzTimeout : IMigrationRoutine
     {
         var pluginConfigurationSerializer = new XmlSerializer(typeof(PluginConfiguration), new XmlRootAttribute("PluginConfiguration"));
         var xmlWriterSettings = new XmlWriterSettings { Indent = true };
-        ProtectedConfigurationWriter.PersistXml(path, stream =>
-        {
-            using var xmlWriter = XmlWriter.Create(stream, xmlWriterSettings);
-            pluginConfigurationSerializer.Serialize(xmlWriter, newPluginConfiguration);
-        }, restrictExistingWindowsAcl: true);
+        ProtectedConfigurationWriter.PersistXml(
+            path,
+            stream =>
+            {
+                using var xmlWriter = XmlWriter.Create(stream, xmlWriterSettings);
+                pluginConfigurationSerializer.Serialize(xmlWriter, newPluginConfiguration);
+            },
+            restrictExistingWindowsAcl: true);
     }
 
 #pragma warning disable

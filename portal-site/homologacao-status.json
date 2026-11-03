@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-11-03T00:27:00-03:00",
+  "generatedAt": "2026-11-03T00:37:00-03:00",
   "source": {
     "roadmap": "https://github.com/raphaelpera85/mulletaflix-completo/blob/main/docs/roadmap-evolucao-tecnologica-servidor-e-web.md",
     "repository": "https://github.com/raphaelpera85/mulletaflix-completo"
@@ -9877,25 +9877,25 @@
       "evidence": "A auditoria encontrou socket.setdefaulttimeout(read_timeout) nos dois fluxos. Essa API altera o timeout dos novos sockets do processo; cada chamada urlopen já passa timeout explicitamente. Removidas as duas mutações e os imports sem uso. Testes existentes substituem setdefaulttimeout por falha para detectar regressão nos caminhos de materialização e download. Suíte completa Nebula Python passou 806/806. Não se mediu impacto em produção, clientes Mongo/FTP concorrentes, Linux ou CI hospedada; não alegar ganho de throughput.",
       "release": "Evento local 6/10 do lote; snapshot atualizado localmente, sem publicação Git. Homologação formal permanece 2/7 (28,6%); release 12.1.46 candidata, não publicada."
     },
-{
-    "id": "nebula-strm-mongo-selection-timeout-2026-11-02-1714",
-    "title": "Nebula limita espera de descoberta Mongo na geração STRM",
-    "agent": "Codex",
-    "front": "server",
-    "featureIds": [],
-    "links": [
+    {
+      "id": "nebula-strm-mongo-selection-timeout-2026-11-02-1714",
+      "title": "Nebula limita espera de descoberta Mongo na geração STRM",
+      "agent": "Codex",
+      "front": "server",
+      "featureIds": [],
+      "links": [
         "https://pymongo.readthedocs.io/en/stable/api/pymongo/mongo_client.html"
-    ],
-    "local": "Pytest focal da geração STRM: 14/14 em Windows/Python 3.10; serverSelectionTimeoutMS configurado para 3000 ms.",
-    "location": "MulletaFlix-master/Tools/NebulaPython/generate_strm.py; MulletaFlix-master/Tools/NebulaPython/tests/test_generate_strm.py",
-    "scope": "Evitar espera padrão de 30 segundos para descobrir Mongo indisponível no endpoint de geração STRM sem impor prazo às leituras ou gravações do catálogo.",
-    "status": "completed",
-    "progressPercent": 100,
-    "startedAt": "2026-11-02T17:10:00-03:00",
-    "updatedAt": "2026-11-02T17:16:00-03:00",
-    "evidence": "A auditoria encontrou 13 clientes PyMongo síncronos Nebula; somente generate_strm.py não definia serverSelectionTimeoutMS. Os outros usam 1–3 s. A referência oficial PyMongo 4.19 documenta padrão de seleção 30000 ms e separa esse controle de socketTimeoutMS e timeoutMS. Geração percorre cursores e escreve STRM incrementalmente; por isso não foi adicionado timeout de operação/socket. Teste valida o argumento e fechamento do cliente em falha de escrita. Mongo indisponível real, Linux, CI hospedada e produção não validados.",
-    "release": "Evento local 7/10 do lote; snapshot atualizado localmente, sem publicação Git. Homologação formal permanece 2/7 (28,6%); release 12.1.46 candidata, não publicada."
-},
+      ],
+      "local": "Pytest focal da geração STRM: 14/14 em Windows/Python 3.10; serverSelectionTimeoutMS configurado para 3000 ms.",
+      "location": "MulletaFlix-master/Tools/NebulaPython/generate_strm.py; MulletaFlix-master/Tools/NebulaPython/tests/test_generate_strm.py",
+      "scope": "Evitar espera padrão de 30 segundos para descobrir Mongo indisponível no endpoint de geração STRM sem impor prazo às leituras ou gravações do catálogo.",
+      "status": "completed",
+      "progressPercent": 100,
+      "startedAt": "2026-11-02T17:10:00-03:00",
+      "updatedAt": "2026-11-02T17:16:00-03:00",
+      "evidence": "A auditoria encontrou 13 clientes PyMongo síncronos Nebula; somente generate_strm.py não definia serverSelectionTimeoutMS. Os outros usam 1–3 s. A referência oficial PyMongo 4.19 documenta padrão de seleção 30000 ms e separa esse controle de socketTimeoutMS e timeoutMS. Geração percorre cursores e escreve STRM incrementalmente; por isso não foi adicionado timeout de operação/socket. Teste valida o argumento e fechamento do cliente em falha de escrita. Mongo indisponível real, Linux, CI hospedada e produção não validados.",
+      "release": "Evento local 7/10 do lote; snapshot atualizado localmente, sem publicação Git. Homologação formal permanece 2/7 (28,6%); release 12.1.46 candidata, não publicada."
+    },
     {
       "id": "server-nebula-pymongo-async-playback-pilot-2026-11-02-1724",
       "title": "Nebula playback adota PyMongo Async em piloto isolado",
@@ -9993,7 +9993,27 @@
       "updatedAt": "2026-11-03T00:27:00-03:00",
       "evidence": "O teste de lifecycle parametrizado executa ambos os modos e exige a ordem cleanup da fila, restore e agendamento de scanner/workers. Suíte completa: 820 aprovados e 1 ignorado por MongoDB opt-in. coverage.py com branches: 82% combinado no escopo main.py, ftp/ e tools/; por arquivo, main 80%, feed_ftp 78%, strm_downloader 79%, ftp/pathio 81%. Esses módulos permanecem candidatos para expansão dirigida de testes. A documentação oficial Python 3.14 descreve TaskGroup; sua semântica de cancelar tarefas irmãs ao primeiro erro difere do lifecycle atual, portanto nenhuma migração foi feita. Sem validação Linux, CI hospedada ou produção.",
       "release": "Snapshot de 412 eventos enviado no commit 72a53edb ao branch do PR; API pública lista 0 check-runs para esse SHA. Portal público aguarda merge em main. Homologação formal permanece 2/7 (28,6%); release 12.1.46 candidata, não publicada."
+    },
+    {
+      "id": "server-media-stream-mariadb-sync-retry-2026-11-03-0037",
+      "title": "Retry síncrono protege a substituição das faixas de mídia",
+      "agent": "Codex",
+      "front": "server",
+      "featureIds": [],
+      "links": [
+        "https://mariadb.com/docs/server/reference/error-codes/mariadb-error-codes-1200-to-1299",
+        "https://learn.microsoft.com/en-us/ef/core/miscellaneous/connection-resiliency"
+      ],
+      "local": "Windows/.NET 10 Release: MediaStreamRepositoryRetryTests 3/3 em SQLite; build IntroSkipper.Integration.Tests passou, 0 erros e 1.680 avisos de analisadores.",
+      "location": "MulletaFlix-master/Jellyfin.Server.Implementations/Item/MediaStreamRepository.cs; MulletaFlix-master/tests/IntroSkipper.Integration.Tests/MediaStreamRepositoryRetryTests.cs",
+      "scope": "Repetir a transação síncrona de substituição das faixas após locks transitórios MariaDB, sem retry de erro permanente.",
+      "status": "completed",
+      "progressPercent": 100,
+      "startedAt": "2026-11-03T00:37:00-03:00",
+      "updatedAt": "2026-11-03T00:37:00-03:00",
+      "evidence": "O caminho síncrono agora repete somente MariaDB 1205/1213, com contexto/transação novos e até três tentativas. Três casos simulados em SQLite passaram: 1205, 1213 e falha permanente sem retry, preservando as linhas anteriores. Build Release passou com 0 erros e 1.680 avisos no conjunto; um erro StyleCop anterior de formatação foi corrigido. MariaDB real opt-in, Linux, CI hospedada, runtime instalado e produção não foram validados. O mapa foi conferido e não houve alteração estrutural.",
+      "release": "Snapshot atualizado para 413 eventos no branch do PR; publicação do portal aguarda merge em main. Homologação formal permanece 2/7 (28,6%); release 12.1.46 candidata, não publicada."
     }
   ],
-  "latestAudit": "03/11/2026, 00:27 BRT: teste de lifecycle também cobre startup full; suite Nebula 820 aprovados, 1 ignorado/821 e coverage.py combinado linha/branch 82% no escopo main, FTP e tools. GitHub não iniciou 16 jobs anteriores por bloqueio de cobrança; API pública lista 0 check-runs para o commit 72a53edb. Snapshot de 412 eventos está no branch do PR; implantação pública aguarda merge em main. Homologação formal permanece 2/7 (28,6%); release 12.1.46 candidata, não publicada. Linux e produção pendentes."
+  "latestAudit": "03/11/2026, 00:37 BRT: retry síncrono de MediaStreamRepository coberto em 3/3 testes SQLite; build Release de integração passou com 0 erros e 1.680 avisos do conjunto. MariaDB real opt-in, Linux, CI hospedada e produção pendentes. Nebula: 820 aprovados, 1 ignorado/821 e coverage.py linha/branch 82%. GitHub não iniciou 16 jobs anteriores por bloqueio de cobrança; API pública listou 0 check-runs para 72a53edb. Snapshot de 413 eventos no branch do PR; portal público aguarda merge em main. Homologação formal permanece 2/7 (28,6%); release 12.1.46 candidata, não publicada."
 }

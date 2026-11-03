@@ -1,4 +1,8 @@
 
+## Retry síncrono para persistência de faixas de mídia — 2026-11-03 00:37 BRT
+
+`MediaStreamRepository.SaveMediaStreams` repete a substituição completa em transação/contexto novos apenas para erros MariaDB 1205/1213, até três vezes. Falhas permanentes propagam e o rollback preserva as faixas existentes. `MediaStreamRepositoryRetryTests`: 3/3 em SQLite com falhas MariaDB simuladas; build Release do projeto de integração passou com 0 erros e 1.680 avisos do conjunto. MariaDB real opt-in, Linux, CI hospedada e produção pendentes. Mesmos módulos, contratos e dependências; sem atualização de runtime. Fontes oficiais: [MariaDB](https://mariadb.com/docs/server/reference/error-codes/mariadb-error-codes-1200-to-1299), [EF Core resiliency](https://learn.microsoft.com/en-us/ef/core/miscellaneous/connection-resiliency). Mapa técnico conferido, sem mudança estrutural. Homologação formal 2/7; release 12.1.46 candidata, não publicada.
+
 ## Nebula: startup full e cobertura de runtime — 2026-11-03 00:23 BRT
 
 O teste de lifecycle cobre agora os modos streaming-only e upload habilitado, verificando cleanup/restore da fila, watcher, scanner e workers. Windows/Python 3.14.7: suíte Nebula 820 aprovados, 1 ignorado/821; lifecycle 23/23; coverage.py combinado linha/branch 82% no recorte `main.py`, `ftp/` e `tools/`. `feed_ftp.py` 78%, `strm_downloader.py` 79%, `main.py` 80% e `ftp/pathio.py` 81% são próximos alvos para testes dirigidos. O contrato local do portal passou 247/247 com o evento e snapshot de 412 itens; homologação formal permanece 2/7.

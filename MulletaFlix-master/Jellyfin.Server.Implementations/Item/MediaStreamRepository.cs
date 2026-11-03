@@ -64,17 +64,31 @@ public class MediaStreamRepository : IMediaStreamRepository
     /// <inheritdoc />
     public void SaveMediaStreams(Guid id, IReadOnlyList<MediaStream> streams, CancellationToken cancellationToken)
     {
-        using var context = _dbProvider.CreateDbContext();
-        using var transaction = context.Database.BeginTransaction();
+        for (var attempt = 1; ; attempt++)
+        {
+            try
+            {
+                using var context = _dbProvider.CreateDbContext();
+                using var transaction = context.Database.BeginTransaction();
 
-        context.MediaStreamInfos.Where(e => e.ItemId.Equals(id)).ExecuteDelete();
-        context.MediaStreamInfos.AddRange(streams.Select(f => Map(f, id)));
-        // This method, its DbContext and its transaction are all synchronous (see the async
-        // SaveMediaStreamsAsync sibling below for the real async path); use the genuine
-        // synchronous SaveChanges API instead of sync-over-async (Achado B-7).
-        context.SaveChanges();
+                context.MediaStreamInfos.Where(e => e.ItemId.Equals(id)).ExecuteDelete();
+                context.MediaStreamInfos.AddRange(streams.Select(f => Map(f, id)));
+                // Keep this sync path synchronous; replay the complete transaction on transient locks.
+                context.SaveChanges();
 
-        transaction.Commit();
+                transaction.Commit();
+                return;
+            }
+            catch (Exception exception) when (attempt < MaxSaveAttempts && IsTransientLockFailure(exception))
+            {
+                _logger.LogWarning(
+                    exception,
+                    "Transient MariaDB lock failure while saving media streams for item {ItemId}; retrying attempt {Attempt}",
+                    id,
+                    attempt + 1);
+                Thread.Sleep(TimeSpan.FromMilliseconds(attempt * 150));
+            }
+        }
     }
 
     /// <inheritdoc />
