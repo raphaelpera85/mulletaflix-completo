@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-11-03T00:14:00-03:00",
+  "generatedAt": "2026-11-03T00:18:00-03:00",
   "source": {
     "roadmap": "https://github.com/raphaelpera85/mulletaflix-completo/blob/main/docs/roadmap-evolucao-tecnologica-servidor-e-web.md",
     "repository": "https://github.com/raphaelpera85/mulletaflix-completo"
@@ -9971,10 +9971,10 @@
       "status": "completed",
       "progressPercent": 100,
       "startedAt": "2026-11-03T00:14:00-03:00",
-      "updatedAt": "2026-11-03T00:14:00-03:00",
+      "updatedAt": "2026-11-03T00:18:00-03:00",
       "evidence": "Falha normal durante a preparação encerra recursos e retorna código 1. Cancelamento encerra recursos e propaga CancelledError. A suíte isolada passou em Windows; não houve teste em produção ou Linux. O GitHub informou que os 16 jobs do run 41283703952 não foram iniciados devido a bloqueio de cobrança da conta; essa execução não fornece resultado de código.",
-      "release": "Snapshot com 411 eventos enviado no branch do PR em 93d8a020; implantação pública aguarda merge em main. Homologação formal permanece 2/7 (28,6%); release 12.1.46 candidata, não publicada. CI hospedada bloqueada por cobrança; gh sem autenticação nesta máquina."
+      "release": "Correção em 93d8a020 e snapshot de homologação enviado no branch do PR em 32b04fc8; implantação pública aguarda merge em main. Homologação formal permanece 2/7 (28,6%); release 12.1.46 candidata, não publicada. CI hospedada bloqueada por cobrança; gh sem autenticação nesta máquina."
     }
   ],
-  "latestAudit": "03/11/2026, 00:14 BRT: falhas de cleanup/restore na inicialização Nebula agora encerram listeners, tarefas e clientes; cancelamento propaga após cleanup. Windows/Python 3.14.7: 819 aprovados, 1 ignorado/820; lifecycle 22/22. O GitHub não iniciou 16 jobs anteriores por bloqueio de cobrança. Commit 93d8a020 enviado ao branch do PR; API pública ainda mostra 0 checks no novo SHA e portal aguarda merge em main. Homologação formal permanece 2/7 (28,6%); release 12.1.46 candidata, não publicada. Linux e produção pendentes."
+  "latestAudit": "03/11/2026, 00:18 BRT: falhas de cleanup/restore na inicialização Nebula agora encerram listeners, tarefas e clientes; cancelamento propaga após cleanup. Windows/Python 3.14.7: 819 aprovados, 1 ignorado/820; lifecycle 22/22. O GitHub não iniciou 16 jobs anteriores por bloqueio de cobrança. Correção 93d8a020 e portal 32b04fc8 estão no branch do PR; API pública lista 0 checks para 32b04fc8. Portal aguarda merge em main. Homologação formal permanece 2/7 (28,6%); release 12.1.46 candidata, não publicada. Linux e produção pendentes."
 }
