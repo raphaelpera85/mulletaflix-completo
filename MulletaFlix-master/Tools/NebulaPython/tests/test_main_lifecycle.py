@@ -682,7 +682,10 @@ async def test_main_rejects_ftp_port_collision_and_stops_started_bots(monkeypatc
     assert events.count("bot-stop") == 1
 
 
-@pytest.mark.parametrize("failure_stage", ["construct", "start"])
+@pytest.mark.parametrize(
+    "failure_stage",
+    ["construct", "start", "cleanup", "restore", "cleanup-cancel", "restore-cancel"],
+)
 @pytest.mark.asyncio
 async def test_control_plane_startup_failure_returns_nonzero_after_cleanup(monkeypatch, tmp_path, failure_stage):
     events = []
@@ -744,7 +747,30 @@ async def test_control_plane_startup_failure_returns_nonzero_after_cleanup(monke
             events.append("control-close")
 
     async def background(*_args, **_kwargs):
+        try:
+            await asyncio.Future()
+        except asyncio.CancelledError:
+            events.append("background-cancelled")
+            raise
+
+    async def setup_indexes(*_args, **_kwargs):
         return None
+
+    async def cleanup_records(_mongo):
+        events.append("duplicate-cleanup")
+        await asyncio.sleep(0)
+        if failure_stage == "cleanup-cancel":
+            raise asyncio.CancelledError
+        if failure_stage == "cleanup":
+            raise RuntimeError("duplicate cleanup failed")
+
+    async def restore_uploads(_mongo):
+        events.append("restore-uploads")
+        await asyncio.sleep(0)
+        if failure_stage == "restore-cancel":
+            raise asyncio.CancelledError
+        if failure_stage == "restore":
+            raise RuntimeError("pending restore failed")
 
     async def close_sessions(_bots):
         events.append("upload-sessions-close")
@@ -755,16 +781,19 @@ async def test_control_plane_startup_failure_returns_nonzero_after_cleanup(monke
     monkeypatch.setattr(main_module, "Server", FTPServer)
     monkeypatch.setattr(main_module, "MongoDBUserManager", lambda _mongo: object())
     monkeypatch.setattr(main_module, "resolve_channel", lambda _bot: asyncio.sleep(0, result="channel"))
-    monkeypatch.setattr(main_module, "setup_database_indexes", background)
+    monkeypatch.setattr(main_module, "setup_database_indexes", setup_indexes)
     monkeypatch.setattr(main_module, "validate_ftp_security", lambda *_args: False)
     monkeypatch.setattr(main_module, "start_http_stream_server", lambda *_args: asyncio.sleep(0, result=HTTPServer()))
     monkeypatch.setattr(main_module, "garbage_collector", background)
     monkeypatch.setattr(main_module, "stats_reporter", background)
     monkeypatch.setattr(main_module, "staging_scanner", background)
+    monkeypatch.setattr(main_module, "folder_watcher", background)
+    monkeypatch.setattr(main_module, "cleanup_strm_duplicate_records", cleanup_records)
+    monkeypatch.setattr(main_module, "restore_pending_uploads", restore_uploads)
     monkeypatch.setattr(main_module, "FeederSupervisor", lambda *_args, **_kwargs: object())
     monkeypatch.setattr(main_module, "ControlPlane", ControlPlane)
     monkeypatch.setattr(main_module, "close_upload_sessions", close_sessions)
-    monkeypatch.setattr(main_module, "STREAM_ONLY", True)
+    monkeypatch.setattr(main_module, "STREAM_ONLY", failure_stage in ("construct", "start"))
     monkeypatch.setattr(main_module, "CONTROL_ENABLED", True)
     monkeypatch.setattr(main_module, "FTP_SECURITY_MODE", "disabled")
     monkeypatch.setattr(main_module, "TLS_CERTFILE", "")
@@ -779,7 +808,11 @@ async def test_control_plane_startup_failure_returns_nonzero_after_cleanup(monke
     monkeypatch.setenv("HOST", "127.0.0.1")
     monkeypatch.setenv("PORT", "21210")
 
-    assert await main_module.main() == 1
+    if failure_stage.endswith("-cancel"):
+        with pytest.raises(asyncio.CancelledError):
+            await main_module.main()
+    else:
+        assert await main_module.main() == 1
     assert "ftp-close" in events
     assert "http-close" in events
     assert "http-wait-closed" in events
@@ -791,3 +824,18 @@ async def test_control_plane_startup_failure_returns_nonzero_after_cleanup(monke
     assert events.index("http-close") < events.index("mongo-close")
     if failure_stage == "start":
         assert "control-close" in events
+    if failure_stage in ("cleanup", "restore", "cleanup-cancel", "restore-cancel"):
+        assert "duplicate-cleanup" in events
+        assert "http-close" in events
+        assert "http-wait-closed" in events
+        assert "ftp-close" in events
+        assert "upload-sessions-close" in events
+        assert "mongo-close" in events
+        assert "bot-stop" in events
+        assert "background-cancelled" in events
+        assert events.index("ftp-close") < events.index("mongo-close") < events.index("bot-stop")
+        assert events.index("http-close") < events.index("mongo-close")
+    if failure_stage in ("cleanup", "cleanup-cancel"):
+        assert "restore-uploads" not in events
+    if failure_stage in ("restore", "restore-cancel"):
+        assert "restore-uploads" in events

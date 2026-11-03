@@ -1,5 +1,12 @@
 # Auditoria Tecnica do Backend MulletaFlix
 
+## Cleanup de falha na inicialização da fila Nebula — 2026-11-03
+
+- `Tools/NebulaPython/main.py::main` cria listeners e tarefas antes de preparar a fila. Falha em `cleanup_strm_duplicate_records` ou `restore_pending_uploads` agora fecha os recursos iniciados e retorna código 1; cancelamento fecha os mesmos recursos e relança `CancelledError`.
+- Testes Windows/Python 3.14.7: `tests/test_main_lifecycle.py` 22/22; suíte Nebula 819 aprovados, 1 ignorado/820. O teste ignorado exige MongoDB opt-in.
+- GitHub Actions marcou 16 jobs do run 41283703952 como não iniciados devido a bloqueio de cobrança. Essa execução não valida nem refuta o código. Linux e produção permanecem sem teste.
+- Homologação formal permanece 2/7 (28,6%). A alteração integra a candidata 12.1.46; não foi publicada.
+
 ## Regressão focal de contratos de servidor — 2026-10-29
 
 - `SystemControllerTests`, `NativeIntroProviderTests`, `MariaDbStartupMutexLeaseTests` e `SecureConnectionProcessManagerTests`: 30/30 aprovados em Release/.NET 10; saída detalhada em `%TEMP%/mflx-server-current-focals-confirm-20261029.log`, exit 0.

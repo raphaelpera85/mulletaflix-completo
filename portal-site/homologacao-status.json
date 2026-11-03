@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-11-02T18:54:00-03:00",
+  "generatedAt": "2026-11-03T00:14:00-03:00",
   "source": {
     "roadmap": "https://github.com/raphaelpera85/mulletaflix-completo/blob/main/docs/roadmap-evolucao-tecnologica-servidor-e-web.md",
     "repository": "https://github.com/raphaelpera85/mulletaflix-completo"
@@ -33,7 +33,7 @@
         "skipped": 290,
         "failed": 0,
         "percent": 95.1,
-        "label": "Regressão .NET Release em Windows/.NET 10: 17 assemblies, 5.671 aprovados, 290 ignorados, 0 falhas/5.961; filtro FullyQualifiedName!~LiveIntegrationTests. Percentual é taxa de aprovação dos casos incluídos, não completude funcional nem homologação formal (2/7, 28,6%). Nebula Python: 806/806 no Windows/Python 3.10.11, cobertura total 93%. CI hospedada, Linux/macOS, bancos opt-in, runtime instalado e produção permanecem pendentes."
+        "label": "Regressão .NET Release em Windows/.NET 10: 17 assemblies, 5.671 aprovados, 290 ignorados, 0 falhas/5.961; filtro FullyQualifiedName!~LiveIntegrationTests. Percentual é taxa de aprovação dos casos incluídos, não completude funcional nem homologação formal (2/7, 28,6%). Nebula Python: 819 aprovados, 1 ignorado/820 em Windows/Python 3.14.7; CI hospedada, Linux/macOS, bancos opt-in, runtime instalado e produção permanecem pendentes."
       }
     },
     {
@@ -9955,7 +9955,26 @@
       "updatedAt": "2026-11-02T18:54:00-03:00",
       "evidence": "Um job Ubuntu dedicado sobe MongoDB 7 descartável e executa o teste Python separadamente dos testes .NET, sem configuração ou credenciais de produção. Localmente, a suíte completa teve 809 aprovados e 1 cenário opt-in ignorado; os testes de admissão e URI passaram 7/7 e o contrato CI 2/2. O exercício contra Mongo real aguarda execução hospedada; não houve benchmark, Linux local, produção nem homologação formal.",
       "release": "Lote local 10/10 concluído, snapshot atualizado apenas no checkout; não publicado no Git. Homologação formal permanece 2/7 (28,6%); release 12.1.46 candidata, não publicada."
+    },
+    {
+      "id": "server-nebula-startup-queue-failure-cleanup-2026-11-03-0014",
+      "title": "Nebula encerra recursos quando preparação da fila falha",
+      "agent": "Codex",
+      "front": "server",
+      "featureIds": [],
+      "links": [
+        "https://docs.python.org/3/library/asyncio-task.html#task-cancellation"
+      ],
+      "local": "Windows/Python 3.14.7: suíte Nebula 819 aprovados, 1 ignorado/820; lifecycle 22/22.",
+      "location": "MulletaFlix-master/Tools/NebulaPython/main.py; MulletaFlix-master/Tools/NebulaPython/tests/test_main_lifecycle.py",
+      "scope": "Encerrar listeners, tarefas, sessões, MongoDB e bots quando limpeza de duplicatas ou restauração da fila falhar durante a inicialização.",
+      "status": "completed",
+      "progressPercent": 100,
+      "startedAt": "2026-11-03T00:14:00-03:00",
+      "updatedAt": "2026-11-03T00:14:00-03:00",
+      "evidence": "Falha normal durante a preparação encerra recursos e retorna código 1. Cancelamento encerra recursos e propaga CancelledError. A suíte isolada passou em Windows; não houve teste em produção ou Linux. O GitHub informou que os 16 jobs do run 41283703952 não foram iniciados devido a bloqueio de cobrança da conta; essa execução não fornece resultado de código.",
+      "release": "Snapshot local 411 eventos, atualizado no checkout; não publicado no Git. Homologação formal permanece 2/7 (28,6%); release 12.1.46 candidata, não publicada. CI hospedada bloqueada por cobrança e gh sem autenticação nesta máquina."
     }
   ],
-  "latestAudit": "02/11/2026, 18:54 BRT: CI ganhou job isolado para o lease PyMongo Async contra MongoDB 7 descartável. Local: Nebula 809 aprovados, 1 integração ignorada; admissão/URI 7/7 e contrato CI 2/2. Snapshot local 410 eventos, lote 10/10, não publicado no Git. Homologação formal 2/7 (28,6%); 12.1.46 candidata, não publicada. Execução CI hospedada, Mongo real, Linux e produção pendentes."
+  "latestAudit": "03/11/2026, 00:14 BRT: falhas de cleanup/restore na inicialização Nebula agora encerram listeners, tarefas e clientes; cancelamento propaga após cleanup. Windows/Python 3.14.7: 819 aprovados, 1 ignorado/820; lifecycle 22/22. O GitHub não iniciou 16 jobs por bloqueio de cobrança. Snapshot local 411 eventos, não publicado. Homologação formal permanece 2/7 (28,6%); release 12.1.46 candidata, não publicada. Linux e produção pendentes."
 }

@@ -2846,14 +2846,42 @@ async def main():
     # Initialize upload semaphore with correct bot count
     import os
     os.environ["BOT_COUNT"] = str(len(upload_bots))
+
+    async def cleanup_failed_startup():
+        stop_event.set()
+        with contextlib.suppress(Exception):
+            server.stop_accepting()
+        if http_stream_server:
+            with contextlib.suppress(Exception):
+                http_stream_server.close()
+            with contextlib.suppress(Exception):
+                await http_stream_server.wait_closed()
+        with contextlib.suppress(Exception):
+            await server.close()
+        for task in background_tasks:
+            task.cancel()
+        await asyncio.gather(*background_tasks, return_exceptions=True)
+        with contextlib.suppress(Exception):
+            await close_upload_sessions(bots)
+        await close_mongo_client()
+        await asyncio.gather(*(bot.stop() for bot in bots), return_exceptions=True)
+
     if STREAM_ONLY:
         logger.info("Modo somente streaming: feeder, fila e workers de upload desativados.")
     else:
         folder_task = asyncio.create_task(folder_watcher(mongo))
         background_tasks.append(folder_task)
         if upload_bots:
-            await cleanup_strm_duplicate_records(mongo)
-            await restore_pending_uploads(mongo)
+            try:
+                await cleanup_strm_duplicate_records(mongo)
+                await restore_pending_uploads(mongo)
+            except asyncio.CancelledError:
+                await cleanup_failed_startup()
+                raise
+            except Exception as exc:
+                logger.critical("❌ Falha ao preparar a fila de upload; startup cancelado: %s", exc)
+                await cleanup_failed_startup()
+                return 1
             upload_worker_count = get_upload_worker_count(len(upload_bots))
             small_worker_count = get_small_upload_worker_count(len(upload_bots))
             logger.info(
