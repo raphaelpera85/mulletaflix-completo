@@ -68,7 +68,7 @@ test('portal registra regressão ampla .NET e Nebula sem conceder homologação 
         percent: 95.1,
         label: 'Regressão .NET Release em Windows/.NET 10: 17 assemblies, 5.671 aprovados, 290 ignorados, 0 falhas/5.961; filtro FullyQualifiedName!~LiveIntegrationTests. Percentual é taxa de aprovação dos casos incluídos, não completude funcional nem homologação formal (2/7, 28,6%). Nebula Python: 819 aprovados, 1 ignorado/820 em Windows/Python 3.14.7; CI hospedada, Linux/macOS, bancos opt-in, runtime instalado e produção permanecem pendentes.'
     });
-    assert.match(statusData.latestAudit, /03\/11\/2026.*819 aprovados, 1 ignorado\/820.*snapshot local 411 eventos.*homologação formal permanece 2\/7/i);
+    assert.match(statusData.latestAudit, /03\/11\/2026.*819 aprovados, 1 ignorado\/820.*93d8a020.*aguarda merge em main.*homologação formal permanece 2\/7/i);
     assert.equal(statusData.events.length, 411);
     assert.equal(server.homologation.completed, 2);
     assert.equal(server.homologation.total, 7);
@@ -4001,7 +4001,7 @@ test('portal registra auditoria dos consumidores das probes sem alterar homologa
     assert.equal(statusData.events.length, 411);
     assert.equal(statusData.generatedAt, statusData.events.at(-1).updatedAt);
     assert.equal(statusData.events.at(-1).updatedAt, statusData.generatedAt);
-    assert.match(statusData.latestAudit, /03\/11\/2026.*819 aprovados, 1 ignorado\/820.*snapshot local 411 eventos.*2\/7.*12\.1\.46 candidata, não publicada/i);
+    assert.match(statusData.latestAudit, /03\/11\/2026.*819 aprovados, 1 ignorado\/820.*93d8a020.*aguarda merge em main.*2\/7.*12\.1\.46 candidata, não publicada/i);
     assert.equal(server.homologation.completed, 2);
     assert.equal(server.homologation.total, 7);
     assert.equal(server.homologation.percent, 28.6);
@@ -4257,7 +4257,7 @@ test('portal registra cleanup de falhas no startup Nebula sem creditar homologa�
     assert.equal(event.status, 'completed');
     assert.match(event.local, /Python 3\.14\.7.*819 aprovados, 1 ignorado\/820.*lifecycle 22\/22/i);
     assert.match(event.evidence, /Falha normal.*encerra recursos.*retorna código 1.*Cancelamento.*propaga CancelledError.*16 jobs.*bloqueio de cobrança/is);
-    assert.match(event.release, /411 eventos.*não publicado.*2\/7 \(28,6%\).*12\.1\.46 candidata/i);
+    assert.match(event.release, /411 eventos.*branch do PR.*aguarda merge em main.*2\/7 \(28,6%\).*12\.1\.46 candidata/i);
     assert.equal(statusData.events.length, 411);
     assert.equal(server.homologation.completed, 2);
     assert.equal(server.homologation.total, 7);
