@@ -6,6 +6,21 @@ import vm from 'node:vm';
 const statusData = JSON.parse(readFileSync(new URL('../homologacao-status.json', import.meta.url), 'utf8'));
 const dashboardSource = readFileSync(new URL('../homologacao.js', import.meta.url), 'utf8');
 
+test('portal registra cobertura do startup Nebula sem promover homologação', () => {
+    const event = statusData.events.find(item => item.id === 'server-nebula-upload-enabled-startup-coverage-2026-11-03-0023');
+    const server = statusData.tracks.find(track => track.id === 'server');
+
+    assert.ok(event);
+    assert.equal(event.status, 'completed');
+    assert.match(event.local, /820 aprovados, 1 ignorado\/821.*82%/);
+    assert.match(event.evidence, /lifecycle parametrizado.*82% combinado.*Sem validação Linux, CI hospedada ou produção/i);
+    assert.match(event.release, /412 eventos.*2\/7 \(28,6%\).*12\.1\.46 candidata, não publicada/i);
+    assert.equal(statusData.events.length, 412);
+    assert.equal(server.homologation.completed, 2);
+    assert.equal(server.homologation.total, 7);
+    assert.equal(server.homologation.percent, 28.6);
+});
+
 test('portal registra retry integral de UpdatePeople e mantém homologação formal pendente', () => {
     const event = statusData.events.find(item => item.id === 'server-people-mariadb-whole-transaction-retry-2026-11-02-1603');
     const server = statusData.tracks.find(track => track.id === 'server');
@@ -15,7 +30,7 @@ test('portal registra retry integral de UpdatePeople e mantém homologação for
     assert.match(event.local, /1205 e 1213 simulados 2\/2.*seis testes opt-in MariaDB ignorados.*0 avisos\/erros/i);
     assert.match(event.evidence, /DbContext e transação novos.*no máximo três vezes.*1205\/1213/i);
     assert.match(event.release, /1\/10.*2\/7.*12\.1\.46 candidata, não publicada.*Linux.*produção/i);
-    assert.equal(statusData.events.length, 411);
+    assert.equal(statusData.events.length, 412);
     assert.equal(server.homologation.completed, 2);
     assert.equal(server.homologation.total, 7);
     assert.equal(server.homologation.percent, 28.6);
@@ -30,7 +45,7 @@ test('portal registra retry síncrono de capítulos sem avançar homologação f
     assert.match(event.local, /1205 e 1213 simulados 2\/2.*build focal.*0 avisos\/erros.*MariaDB opt-in ignorado/i);
     assert.match(event.evidence, /no máximo três vezes.*1205\/1213.*SQLite.*2\/2/i);
     assert.match(event.release, /2\/10.*2\/7.*12\.1\.46 candidata, não publicada.*produção/i);
-    assert.equal(statusData.events.length, 411);
+    assert.equal(statusData.events.length, 412);
     assert.equal(server.homologation.completed, 2);
     assert.equal(server.homologation.total, 7);
     assert.equal(server.homologation.percent, 28.6);
@@ -45,7 +60,7 @@ test('portal registra TRX da CI .NET sem promover homologação hospedada', () =
     assert.match(event.local, /2\/2.*17 TRX distintos.*contrato CI 16\/16, portal 238\/238.*parse YAML passou/i);
     assert.match(event.evidence, /sete jobs.*if: always\(\).*17 arquivos TRX sem colisão.*não workflow hospedado/is);
     assert.match(event.release, /3\/10.*2\/7.*12\.1\.46 candidata, não publicada.*billing/i);
-    assert.equal(statusData.events.length, 411);
+    assert.equal(statusData.events.length, 412);
     assert.equal(server.homologation.completed, 2);
     assert.equal(server.homologation.total, 7);
     assert.equal(server.homologation.percent, 28.6);
@@ -66,10 +81,10 @@ test('portal registra regressão ampla .NET e Nebula sem conceder homologação 
         skipped: 290,
         failed: 0,
         percent: 95.1,
-        label: 'Regressão .NET Release em Windows/.NET 10: 17 assemblies, 5.671 aprovados, 290 ignorados, 0 falhas/5.961; filtro FullyQualifiedName!~LiveIntegrationTests. Percentual é taxa de aprovação dos casos incluídos, não completude funcional nem homologação formal (2/7, 28,6%). Nebula Python: 819 aprovados, 1 ignorado/820 em Windows/Python 3.14.7; CI hospedada, Linux/macOS, bancos opt-in, runtime instalado e produção permanecem pendentes.'
+        label: 'Regressão .NET Release em Windows/.NET 10: 17 assemblies, 5.671 aprovados, 290 ignorados, 0 falhas/5.961; filtro FullyQualifiedName!~LiveIntegrationTests. Percentual é taxa de aprovação dos casos incluídos, não completude funcional nem homologação formal (2/7, 28,6%). Nebula Python: 820 aprovados, 1 ignorado/821 em Windows/Python 3.14.7; coverage.py combinado linha/branch: 82% em main, FTP e tools. CI hospedada, Linux/macOS, bancos opt-in, runtime instalado e produção permanecem pendentes.'
     });
-    assert.match(statusData.latestAudit, /03\/11\/2026.*819 aprovados, 1 ignorado\/820.*93d8a020.*32b04fc8.*0 checks.*aguarda merge em main.*homologação formal permanece 2\/7/i);
-    assert.equal(statusData.events.length, 411);
+    assert.match(statusData.latestAudit, /03\/11\/2026.*820 aprovados, 1 ignorado\/821.*82%.*bloqueio de cobrança.*412 eventos.*aguarda merge em main.*2\/7.*12\.1\.46 candidata, não publicada/i);
+    assert.equal(statusData.events.length, 412);
     assert.equal(server.homologation.completed, 2);
     assert.equal(server.homologation.total, 7);
     assert.equal(server.homologation.percent, 28.6);
@@ -99,7 +114,7 @@ test('portal registra atualização candidata do runtime Python Nebula e deixa p
     assert.match(event.local, /Python 3\.14\.7.*806\/806.*3\.14\.10.*SHA-256/is);
     assert.match(event.evidence, /3\.14\.10.*Python Software Foundation.*3\.14\.7.*Linux.*produção/is);
     assert.match(event.release, /3\/10.*2\/7.*12\.1\.46 candidata, não publicada/i);
-    assert.equal(statusData.events.length, 411);
+    assert.equal(statusData.events.length, 412);
     assert.equal(server.homologation.completed, 2);
     assert.equal(server.homologation.total, 7);
     assert.equal(server.homologation.percent, 28.6);
@@ -113,7 +128,7 @@ test('portal registra auditoria de ciclo de vida do runtime Nebula sem presumir 
     assert.match(event.local, /Python 3\.14\.7.*lock.*806\/806/is);
     assert.match(event.evidence, /Python 3\.10.*fora de suporte.*3\.13\.7.*3\.14\.10.*bootstrap C\#/is);
     assert.match(event.release, /2\/10.*2\/7.*12\.1\.46 candidata, não publicada/i);
-    assert.equal(statusData.events.length, 411);
+    assert.equal(statusData.events.length, 412);
     assert.equal(server.homologation.completed, 2);
     assert.equal(server.homologation.total, 7);
     assert.equal(server.homologation.percent, 28.6);
@@ -127,7 +142,7 @@ test('portal registra proteção dos logs Supabase e mantém homologação forma
     assert.match(event.local, /805\/805.*77\/77.*compileall/is);
     assert.match(event.evidence, /host e porta.*sem userinfo.*corpo.*feed_ftp\.py/i);
     assert.match(event.release, /9\/10.*2\/7.*12\.1\.46 candidata, não publicada/i);
-    assert.equal(statusData.events.length, 411);
+    assert.equal(statusData.events.length, 412);
     assert.equal(server.homologation.completed, 2);
     assert.equal(server.homologation.total, 7);
     assert.equal(server.homologation.percent, 28.6);
@@ -142,7 +157,7 @@ test('portal registra proteção contra injeção CR/LF nos logs Nebula sem homo
     assert.match(event.local, /803\/803.*test_main_logging 7\/7.*compileall.*--help/is);
     assert.match(event.evidence, /CR.*LF.*linha física.*traceback.*primeira suíte completa/is);
     assert.match(event.release, /8\/10.*2\/7.*12\.1\.46 candidata, não publicada/i);
-    assert.equal(statusData.events.length, 411);
+    assert.equal(statusData.events.length, 412);
     assert.equal(server.homologation.completed, 2);
     assert.equal(server.homologation.total, 7);
     assert.equal(server.homologation.percent, 28.6);
@@ -157,7 +172,7 @@ test('portal registra auditoria de persistência das versões alternativas sem s
     assert.match(event.evidence, /UpdateItemsAsync.*um único parent/is);
     assert.match(event.evidence, /código não foi alterado nem o custo medido/i);
     assert.match(event.release, /10\/10.*2\/7.*12\.1\.46 candidata, não publicada/i);
-    assert.equal(statusData.events.length, 411);
+    assert.equal(statusData.events.length, 412);
     assert.equal(server.homologation.completed, 2);
     assert.equal(server.homologation.total, 7);
     assert.equal(server.homologation.percent, 28.6);
@@ -172,7 +187,7 @@ test('portal registra DTOs assíncronos de playback sem promover homologação f
     assert.match(event.local, /SessionManagerTests 12\/12.*DtoService focal 11\/11/is);
     assert.match(event.evidence, /GetBaseItemDtoAsync.*ReportNowViewingItem.*não foram verificados/is);
     assert.match(event.release, /1\/10.*2\/7.*12\.1\.46 candidata, não publicada/i);
-    assert.equal(statusData.events.length, 411);
+    assert.equal(statusData.events.length, 412);
     assert.equal(server.homologation.completed, 2);
     assert.equal(server.homologation.total, 7);
     assert.equal(server.homologation.percent, 28.6);
@@ -188,7 +203,7 @@ test('portal registra fallback Happy Eyeballs assíncrono sem promover homologa�
     assert.match(event.local, /HappyEyeballsConnectCallback 3\/3.*HTTP 200/is);
     assert.match(event.evidence, /GetAwaiter\(\)\.GetResult\(\).*await ConfigureAwait\(false\).*não foram verificados/is);
     assert.match(event.release, /2\/10.*2\/7.*12\.1\.46 candidata, não publicada/i);
-    assert.equal(statusData.events.length, 411);
+    assert.equal(statusData.events.length, 412);
     assert.equal(server.homologation.completed, 2);
     assert.equal(server.homologation.total, 7);
     assert.equal(server.homologation.percent, 28.6);
@@ -204,7 +219,7 @@ test('portal registra a suíte local e oportunidades técnicas sem homologar o s
     assert.match(event.local, /exit 0.*sem falhas.*filtro excluiu integração/is);
     assert.match(event.evidence, /Startup\.GetRetryPolicy.*OpenTelemetry OTLP.*BlobNotFound/is);
     assert.match(event.release, /8\/10.*2\/7.*12\.1\.46 candidata, não publicada/i);
-    assert.equal(statusData.events.length, 411);
+    assert.equal(statusData.events.length, 412);
     assert.equal(server.homologation.completed, 2);
     assert.equal(server.homologation.total, 7);
     assert.equal(server.homologation.percent, 28.6);
@@ -220,7 +235,7 @@ test('portal registra auditoria de persistência de playlists externas sem promo
     assert.match(event.local, /cinco formatos.*dois callers/is);
     assert.match(event.evidence, /ACL.*SMB/is);
     assert.match(event.release, /7\/10.*2\/7.*12\.1\.46 candidata, não publicada/i);
-    assert.equal(statusData.events.length, 411);
+    assert.equal(statusData.events.length, 412);
     assert.equal(server.homologation.completed, 2);
     assert.equal(server.homologation.total, 7);
     assert.equal(server.homologation.percent, 28.6);
@@ -236,7 +251,7 @@ test('portal registra refresh de backdrops localizados e persistência concorren
     assert.match(event.local, /backdrop.*2\/2.*84\/84.*DeviceIdTests.*3\/3/is);
     assert.match(event.evidence, /se não há candidato.*preserva a imagem.*lock da instância.*temporário irmão/is);
     assert.match(event.release, /6\/10.*2\/7.*12\.1\.46 candidata, não publicada/i);
-    assert.equal(statusData.events.length, 411);
+    assert.equal(statusData.events.length, 412);
     assert.equal(server.homologation.completed, 2);
     assert.equal(server.homologation.total, 7);
     assert.equal(server.homologation.percent, 28.6);
@@ -251,7 +266,7 @@ test('portal registra a serialização local da alocação de InternalId e suas 
     assert.match(event.local, /14\/14.*37 aprovados, 27 ignorados, 0 falhas\/64/);
     assert.match(event.evidence, /antes da correção.*depois.*EF InMemory.*somente uma instância\/processo/is);
     assert.match(event.release, /6\/10.*2\/7.*proteção entre processos permanece pendente/i);
-    assert.equal(statusData.events.length, 411);
+    assert.equal(statusData.events.length, 412);
     assert.equal(server.homologation.completed, 2);
     assert.equal(server.homologation.total, 7);
 });
@@ -265,7 +280,7 @@ test('portal registra o fast path de read-ahead do Nebula e limita o alcance do 
     assert.match(event.local, /3 esperas.*801\/801.*Microbenchmark sintético/);
     assert.match(event.evidence, /falhou antes.*passou após.*não mede Telegram/s);
     assert.match(event.release, /5\/10.*2\/7.*não validados/i);
-    assert.equal(statusData.events.length, 411);
+    assert.equal(statusData.events.length, 412);
     assert.equal(server.homologation.completed, 2);
     assert.equal(server.homologation.total, 7);
     assert.ok(Date.parse(event.updatedAt) <= Date.parse(statusData.generatedAt));
@@ -280,7 +295,7 @@ test('portal registra persistência protegida do estado do updater sem promover 
     assert.match(event.local, /PersistText.*4\/4.*Jellyfin\.Common\.Tests: 40\/40/s);
     assert.match(event.evidence, /falha fechada.*cancelamento.*produção/s);
     assert.match(event.release, /5\/10.*2\/7.*12\.1\.46 candidata, não publicada/i);
-    assert.equal(statusData.events.length, 411);
+    assert.equal(statusData.events.length, 412);
     assert.equal(server.homologation.completed, 2);
     assert.equal(server.homologation.total, 7);
     assert.equal(server.homologation.percent, 28.6);
@@ -296,7 +311,7 @@ test('portal registra a regressão de idioma validada na suíte completa de prov
     assert.match(event.local, /Jellyfin\.Providers\.Tests: 934 aprovados, 14 ignorados, 0 falhas\/948/);
     assert.match(event.evidence, /--no-build --no-restore.*Linux foram ignorados/s);
     assert.match(event.release, /4\/10.*2\/7.*não validados/i);
-    assert.equal(statusData.events.length, 411);
+    assert.equal(statusData.events.length, 412);
     assert.equal(server.homologation.completed, 2);
     assert.equal(server.homologation.total, 7);
     assert.ok(Date.parse(event.updatedAt) <= Date.parse(statusData.generatedAt));
@@ -311,7 +326,7 @@ test('portal registra a persistência do idioma da imagem por ItemImageProvider'
     assert.match(event.local, /passou 2\/2.*não provava o metadado/i);
     assert.match(event.evidence, /sem Language.*atribui pt-br/s);
     assert.match(event.release, /3\/10.*2\/7.*não verificados/i);
-    assert.equal(statusData.events.length, 411);
+    assert.equal(statusData.events.length, 412);
     assert.equal(server.homologation.completed, 2);
     assert.equal(server.homologation.total, 7);
     assert.ok(Date.parse(event.updatedAt) <= Date.parse(statusData.generatedAt));
@@ -326,7 +341,7 @@ test('portal registra os requisitos pendentes para coordenação MariaDB entre p
     assert.match(event.local, /UpdateUserAsync troca de DbContext.*nenhum teste real/i);
     assert.match(event.evidence, /GET_LOCK.*RELEASE_LOCK.*todos os writers cooperarem/s);
     assert.match(event.release, /2\/10.*2\/7.*não publicada/i);
-    assert.equal(statusData.events.length, 411);
+    assert.equal(statusData.events.length, 412);
     assert.equal(server.homologation.completed, 2);
     assert.equal(server.homologation.total, 7);
     assert.ok(Date.parse(event.updatedAt) <= Date.parse(statusData.generatedAt));
@@ -342,7 +357,7 @@ test('portal registra a publicação do cache após salvar options.xml sem decla
     assert.match(event.local, /Jellyfin\.Controller\.Tests 80 aprovados, 1 ignorado, 0 falhas\/81/);
     assert.match(event.evidence, /ainda usa SerializeToFile direto.*corromper o arquivo/s);
     assert.match(event.release, /9\/10.*2\/7.*12\.1\.46 candidata, não publicada/s);
-    assert.equal(statusData.events.length, 411);
+    assert.equal(statusData.events.length, 412);
     assert.equal(server.homologation.completed, 2);
     assert.equal(server.homologation.total, 7);
     assert.equal(server.homologation.percent, 28.6);
@@ -359,7 +374,7 @@ test('portal registra a proteção concorrente do último administrador sem avan
     assert.match(event.local, /namespace Users 17\/17.*UserManagerAuthenticationLockTests 12\/12/);
     assert.match(event.evidence, /SemaphoreSlim.*dentro do processo/i);
     assert.match(event.release, /8\/10.*2\/7.*não publicada/i);
-    assert.equal(statusData.events.length, 411);
+    assert.equal(statusData.events.length, 412);
     assert.equal(server.homologation.completed, 2);
     assert.equal(server.homologation.total, 7);
     assert.equal(server.homologation.percent, 28.6);
@@ -376,7 +391,7 @@ test('portal registra a validação de tamanho no fallback sequencial do Nebula 
     assert.match(event.local, /downloader focal 122\/122.*Nebula completa 791\/791/);
     assert.match(event.evidence, /100 bytes.*7 bytes.*destino válido anterior permanece/s);
     assert.match(event.release, /3\/10.*2\/7.*não foram verificados/s);
-    assert.equal(statusData.events.length, 411);
+    assert.equal(statusData.events.length, 412);
     assert.equal(server.homologation.completed, 2);
     assert.equal(server.homologation.total, 7);
     assert.equal(server.homologation.percent, 28.6);
@@ -394,7 +409,7 @@ test('portal registra publicação atômica do cache de imagens sem homologar fo
     assert.match(event.evidence, /arquivo temporário.*File.Move/s);
     assert.match(event.evidence, /lock por chave/i);
     assert.match(event.release, /2\/10.*2\/7.*não foram verificados/i);
-    assert.equal(statusData.events.length, 411);
+    assert.equal(statusData.events.length, 412);
     assert.equal(server.homologation.completed, 2);
     assert.equal(server.homologation.total, 7);
     assert.equal(server.homologation.percent, 28.6);
@@ -412,7 +427,7 @@ test('portal registra retry MariaDB de MediaStream sem promover homologação fo
     assert.match(event.evidence, /MariaDB 1205 provocou retry/i);
     assert.match(event.evidence, /1213 real.*não foram validados/i);
     assert.match(event.release, /5\/10.*2\/7.*não publicada/i);
-    assert.equal(statusData.events.length, 411);
+    assert.equal(statusData.events.length, 412);
     assert.equal(server.homologation.completed, 2);
     assert.equal(server.homologation.total, 7);
     assert.equal(server.homologation.percent, 28.6);
@@ -430,7 +445,7 @@ test('portal registra atomicidade dos quatro replaces MariaDB no décimo item do
     assert.match(event.evidence, /anexos, streams, capítulos e keyframes/i);
     assert.match(event.evidence, /rollback.*conjunto anterior/i);
     assert.match(event.release, /10\/10.*2\/7.*sem release/i);
-    assert.equal(statusData.events.length, 411);
+    assert.equal(statusData.events.length, 412);
     assert.equal(server.homologation.completed, 2);
     assert.equal(server.homologation.total, 7);
     assert.equal(server.homologation.percent, 28.6);
@@ -448,7 +463,7 @@ test('portal registra a proteção do cleanup e URLs STRM sem promover homologa�
     assert.match(event.evidence, /0o777.*file:\/\//s);
     assert.match(event.evidence, /endereços privados e redirects não são bloqueados/i);
     assert.match(event.release, /9\/10.*2\/7.*não publicada/i);
-    assert.equal(statusData.events.length, 411);
+    assert.equal(statusData.events.length, 412);
     assert.equal(server.homologation.completed, 2);
     assert.equal(server.homologation.total, 7);
     assert.equal(server.homologation.percent, 28.6);
@@ -467,7 +482,7 @@ test('portal records Supabase and STRM redirect validation without promoting for
     assert.match(event.evidence, /delimitadores vazios/i);
     assert.match(event.evidence, /hosts privados continuam permitidos/i);
     assert.match(event.release, /10\/10.*2\/7.*não publicada/i);
-    assert.equal(statusData.events.length, 411);
+    assert.equal(statusData.events.length, 412);
     assert.equal(server.homologation.completed, 2);
     assert.equal(server.homologation.total, 7);
     assert.equal(server.homologation.percent, 28.6);
@@ -2128,7 +2143,7 @@ test('PR #1 check failure is recorded without attributing a cause when GitHub ex
     assert.equal(event.progressPercent, null);
     assert.match(event.evidence, /16 jobs.*steps vazias.*runner não atribuído.*BlobNotFound.*sem causa confirmada/is);
     assert.match(event.release, /6\/10.*homologação formal 2\/7.*12\.1\.46 candidata, não publicada/i);
-    assert.equal(statusData.events.length, 411);
+    assert.equal(statusData.events.length, 412);
     assert.ok(Date.parse(event.updatedAt) <= Date.parse(statusData.generatedAt));
     assert.equal(server.homologation.completed, 2);
     assert.equal(server.homologation.total, 7);
@@ -3028,7 +3043,7 @@ test('portal records Telegram time probe redirect protection without formal cred
     assert.equal(server.homologation.completed, 2);
     assert.equal(server.homologation.total, 7);
     assert.equal(server.homologation.percent, 28.6);
-    assert.equal(statusData.events.length, 411);
+    assert.equal(statusData.events.length, 412);
     assert.ok(Date.parse(event.updatedAt) <= Date.parse(statusData.generatedAt));
 });
 
@@ -3043,7 +3058,7 @@ test('portal registra a recuperação da fila de refresh durante um lote sem cr�
     assert.match(event.local, /teste focal 1\/1.*931 aprovados, 14 ignorados/);
     assert.match(event.evidence, /antes da correção.*timeout.*segundo refresh iniciou/s);
     assert.match(event.release, /4\/10.*2\/7.*não foram verificados/s);
-    assert.equal(statusData.events.length, 411);
+    assert.equal(statusData.events.length, 412);
     assert.equal(server.homologation.completed, 2);
     assert.equal(server.homologation.total, 7);
     assert.equal(server.homologation.percent, 28.6);
@@ -3061,7 +3076,7 @@ test('portal registra refresh de imagem por item serializado sem crédito formal
     assert.match(event.evidence, /reproduziu o defeito antes da correção/i);
     assert.match(event.evidence, /itens diferentes continuam em paralelo/);
     assert.match(event.release, /5\/10.*2\/7.*12\.1\.46 candidata, não publicada/);
-    assert.equal(statusData.events.length, 411);
+    assert.equal(statusData.events.length, 412);
     assert.equal(server.homologation.completed, 2);
     assert.equal(server.homologation.total, 7);
     assert.equal(server.homologation.percent, 28.6);
@@ -3087,7 +3102,7 @@ test('portal registra regressão integral do servidor e Nebula sem homologar pro
     assert.equal(server.homologation.completed, 2);
     assert.equal(server.homologation.total, 7);
     assert.equal(server.homologation.percent, 28.6);
-    assert.equal(statusData.events.length, 411);
+    assert.equal(statusData.events.length, 412);
     assert.ok(Date.parse(event.updatedAt) <= Date.parse(statusData.generatedAt));
 });
 
@@ -3098,7 +3113,7 @@ test('portal records the ImageSaver platform-contract audit without formal homol
     assert.match(event.evidence, /SMB.*RootDirectory zero/i);
     assert.match(event.evidence, /não foi implementada/i);
     assert.match(event.release, /7\/10.*não publicado/i);
-    assert.equal(statusData.events.length, 411);
+    assert.equal(statusData.events.length, 412);
     assert.equal(statusData.generatedAt, statusData.events.at(-1).updatedAt);
 });
 
@@ -3112,7 +3127,7 @@ test('portal registra auditoria de idioma TMDb sem crédito formal de homologaç
     assert.match(event.evidence, /busca todos os idiomas.*ordena por locale preferido/s);
     assert.match(event.evidence, /variantes regionais não são uniformes/i);
     assert.match(event.release, /8\/10.*2\/7.*12\.1\.46 candidata, não publicada/);
-    assert.equal(statusData.events.length, 411);
+    assert.equal(statusData.events.length, 412);
     assert.equal(server.homologation.completed, 2);
     assert.equal(server.homologation.total, 7);
     assert.equal(server.homologation.percent, 28.6);
@@ -3128,7 +3143,7 @@ test('portal registra os limites de segurança de unlinkat sob rename concorrent
     assert.match(event.evidence, /descritor continua referindo.*após rename/i);
     assert.match(event.evidence, /permanece fail-closed fora do Windows/i);
     assert.match(event.release, /9\/10.*2\/7.*12\.1\.46 candidata, não publicada/);
-    assert.equal(statusData.events.length, 411);
+    assert.equal(statusData.events.length, 412);
     assert.equal(server.homologation.completed, 2);
     assert.equal(server.homologation.total, 7);
     assert.equal(server.homologation.percent, 28.6);
@@ -3145,7 +3160,7 @@ test('portal registra retomada Nebula vinculada a ETag sem crédito formal', () 
     assert.match(event.local, /focais 126\/126.*Nebula 799\/799/);
     assert.match(event.evidence, /If-Range.*HTTP 206/i);
     assert.match(event.release, /10\/10.*2\/7.*12\.1\.46 continua candidata/);
-    assert.equal(statusData.events.length, 411);
+    assert.equal(statusData.events.length, 412);
     assert.equal(server.homologation.completed, 2);
     assert.equal(server.homologation.total, 7);
     assert.equal(server.homologation.percent, 28.6);
@@ -3161,7 +3176,7 @@ test('portal registra correção do snapshot de imagens após espera pelo lock s
     assert.equal(event.progressPercent, 100);
     assert.match(event.evidence, /captura de ImageInfos.*região protegida/i);
     assert.match(event.release, /1\/10.*2\/7.*12\.1\.46 continua candidata, não publicada/);
-    assert.equal(statusData.events.length, 411);
+    assert.equal(statusData.events.length, 412);
     assert.equal(server.homologation.completed, 2);
     assert.equal(server.homologation.total, 7);
     assert.equal(server.homologation.percent, 28.6);
@@ -3182,7 +3197,7 @@ test('portal registra persistência atômica de configurações preservando ACLs
     assert.match(event.evidence, /destino está ausente/i);
     assert.match(event.evidence, /preserva destino novo/i);
     assert.match(event.release, /2\/10.*2\/7.*12\.1\.46 continua candidata, não publicada/);
-    assert.equal(statusData.events.length, 411);
+    assert.equal(statusData.events.length, 412);
     assert.equal(server.homologation.completed, 2);
     assert.equal(server.homologation.total, 7);
     assert.equal(server.homologation.percent, 28.6);
@@ -3200,7 +3215,7 @@ test('portal registra a auditoria de migração da resiliência HTTP sem homolog
     assert.match(event.evidence, /Microsoft\.Extensions\.Http\.Resilience/);
     assert.match(event.evidence, /janela\/razão.*cinco falhas consecutivas/s);
     assert.match(event.release, /3\/10.*2\/7.*12\.1\.46 continua candidata, não publicada/);
-    assert.equal(statusData.events.length, 411);
+    assert.equal(statusData.events.length, 412);
     assert.equal(server.homologation.completed, 2);
     assert.equal(server.homologation.total, 7);
     assert.equal(server.homologation.percent, 28.6);
@@ -3217,7 +3232,7 @@ test('portal registra retry de capítulos em andamento sem crédito de homologa�
     assert.match(event.local, /projeto .* compilado.*teste MariaDB foi ignorado/i);
     assert.match(event.evidence, /DbContext\/transação novos.*três tentativas.*1205\/1213/s);
     assert.match(event.release, /4\/10.*2\/7.*12\.1\.46 candidata, não publicada/);
-    assert.equal(statusData.events.length, 411);
+    assert.equal(statusData.events.length, 412);
     assert.equal(server.homologation.completed, 2);
     assert.equal(server.homologation.total, 7);
     assert.equal(server.homologation.percent, 28.6);
@@ -3234,7 +3249,7 @@ test('portal registra retry de keyframes em andamento sem crédito de homologaç
     assert.match(event.local, /projeto .* compilado.*teste MariaDB foi ignorado/i);
     assert.match(event.evidence, /contexto e transação assíncronos.*1205\/1213.*três tentativas/s);
     assert.match(event.release, /5\/10.*2\/7.*12\.1\.46 candidata, não publicada/);
-    assert.equal(statusData.events.length, 411);
+    assert.equal(statusData.events.length, 412);
     assert.equal(server.homologation.completed, 2);
     assert.equal(server.homologation.total, 7);
     assert.equal(server.homologation.percent, 28.6);
@@ -3252,7 +3267,7 @@ test('portal registra a suíte de backup estável sem crédito formal e marca CI
     assert.match(event.evidence, /IStorageSpaceProvider.*jobs .*falharam antes de iniciar por bloqueio de cobrança/s);
     assert.match(event.release, /6\/10.*2\/7/);
     assert.match(event.release, /candidata a 12\.1\.46/);
-    assert.equal(statusData.events.length, 411);
+    assert.equal(statusData.events.length, 412);
     assert.equal(server.homologation.completed, 2);
     assert.equal(server.homologation.total, 7);
     assert.equal(server.homologation.percent, 28.6);
@@ -3269,7 +3284,7 @@ test('portal registra a avaliação do Dev Proxy como proposta sem crédito de h
     assert.match(event.evidence, /ConnectCallback.*não foi provada/);
     assert.match(event.evidence, /RetryAfterPlugin.*LatencyPlugin/);
     assert.match(event.release, /7\/10.*2\/7.*12\.1\.46 candidata, não publicada/);
-    assert.equal(statusData.events.length, 411);
+    assert.equal(statusData.events.length, 412);
     assert.equal(server.homologation.completed, 2);
     assert.equal(server.homologation.total, 7);
     assert.equal(server.homologation.percent, 28.6);
@@ -3285,7 +3300,7 @@ test('portal registra o teste de cancelamento do Retry-After sem homologar produ
     assert.match(event.local, /StartupHttpRetryPolicyTests.*passou 1\/1/);
     assert.match(event.evidence, /não comprova pipeline.*produção/);
     assert.match(event.release, /8\/10.*2\/7.*12\.1\.46 candidata, não publicada/);
-    assert.equal(statusData.events.length, 411);
+    assert.equal(statusData.events.length, 412);
     assert.equal(server.homologation.completed, 2);
     assert.equal(server.homologation.total, 7);
     assert.equal(server.homologation.percent, 28.6);
@@ -3300,7 +3315,7 @@ test('portal registra correção de charset do teste do servidor sem crédito fo
     assert.match(event.local, /dotnet format whitespace Jellyfin.Server.Tests --verify-no-changes passou/);
     assert.match(event.evidence, /sem mudança textual no conteúdo/);
     assert.match(event.release, /9\/10.*2\/7.*12\.1\.46 candidata, não publicada/);
-    assert.equal(statusData.events.length, 411);
+    assert.equal(statusData.events.length, 412);
     assert.equal(server.homologation.completed, 2);
     assert.equal(server.homologation.total, 7);
     assert.equal(server.homologation.percent, 28.6);
@@ -3316,7 +3331,7 @@ test('portal registra o retry dos três clientes HTTP via transporte loopback se
     assert.match(event.evidence, /Default, MusicBrainz e DirectIp|IHttpClientFactory/);
     assert.match(event.evidence, /não proxy, TLS interceptado.*produção/);
     assert.match(event.release, /10\/10.*2\/7.*12\.1\.46 candidata, não publicada/);
-    assert.equal(statusData.events.length, 411);
+    assert.equal(statusData.events.length, 412);
     assert.equal(server.homologation.completed, 2);
     assert.equal(server.homologation.total, 7);
     assert.equal(server.homologation.percent, 28.6);
@@ -3331,7 +3346,7 @@ test('portal registra proxy HTTP via callback Happy Eyeballs sem crédito formal
     assert.match(event.local, /proxy HTTP de loopback.*4\/4/);
     assert.match(event.evidence, /GET absoluto.*unresolvable\.invalid.*HTTP 200/);
     assert.match(event.release, /1\/10.*2\/7.*12\.1\.46 candidata, não publicada/);
-    assert.equal(statusData.events.length, 411);
+    assert.equal(statusData.events.length, 412);
     assert.equal(server.homologation.completed, 2);
     assert.equal(server.homologation.total, 7);
     assert.equal(server.homologation.percent, 28.6);
@@ -3346,7 +3361,7 @@ test('portal registra túnel HTTPS interceptado via callback sem crédito formal
     assert.match(event.local, /StartupHttpClientRegistrationTests passou 5\/5/);
     assert.match(event.evidence, /CONNECT unresolvable\.invalid:443.*GET \/media.*não houve conexão externa/s);
     assert.match(event.release, /2\/10.*2\/7.*12\.1\.46 candidata, não publicada/);
-    assert.equal(statusData.events.length, 411);
+    assert.equal(statusData.events.length, 412);
     assert.equal(server.homologation.completed, 2);
     assert.equal(server.homologation.total, 7);
     assert.equal(server.homologation.percent, 28.6);
@@ -3362,7 +3377,7 @@ test('portal registra a auditoria de writers XML sem marcar persistência como c
     assert.match(event.local, /SaveConfiguration.*SaveLibraryOptions.*ConfigurationHelper.*nenhuma suíte C# dos writers foi executada/i);
     assert.match(event.evidence, /[Cc]onfigs de plugin podem conter segredos.*ACLs/);
     assert.match(event.release, /3\/10.*2\/7.*12\.1\.46 candidata, não publicada/);
-    assert.equal(statusData.events.length, 411);
+    assert.equal(statusData.events.length, 412);
     assert.equal(statusData.coverage.inProgress, 8);
     assert.equal(server.homologation.completed, 2);
     assert.equal(server.homologation.total, 7);
@@ -3382,7 +3397,7 @@ test('portal registra CI do PR sem steps como diagnóstico inconclusivo', () => 
     assert.match(event.evidence, /sem steps.*BlobNotFound.*causa permanece desconhecida/);
     assert.match(event.evidence, /cbc380c9.*e50f7a8f/);
     assert.match(event.release, /4\/10.*2\/7.*12\.1\.46 candidata, não publicada/);
-    assert.equal(statusData.events.length, 411);
+    assert.equal(statusData.events.length, 412);
     assert.equal(statusData.coverage.inProgress, 8);
     assert.equal(server.homologation.completed, 2);
     assert.equal(server.homologation.total, 7);
@@ -3400,7 +3415,7 @@ test('portal registra a pesquisa inicial de métricas dos health checks', () => 
     assert.match(event.evidence, /\/health.*\/ready.*dotnet\.health_check\.reports.*modo push/);
     assert.match(event.evidence, /linha 9\.0\.0.*alvo é \.NET 10/);
     assert.match(event.release, /5\/10.*2\/7.*12\.1\.46 candidata, não publicada/);
-    assert.equal(statusData.events.length, 411);
+    assert.equal(statusData.events.length, 412);
     assert.equal(statusData.coverage.inProgress, 8);
     assert.equal(server.homologation.completed, 2);
     assert.equal(server.homologation.total, 7);
@@ -3416,7 +3431,7 @@ test('portal registra métricas de health checks implementadas sem crédito form
     assert.match(event.local, /HealthChecks\.Common 9\.0\.0.*passou 3\/3/);
     assert.match(event.evidence, /somente quando `MetricsEnabled`.*[Ss]em endpoint.*30 s.*produção/s);
     assert.match(event.release, /6\/10.*2\/7.*12\.1\.46 candidata, não publicada/);
-    assert.equal(statusData.events.length, 411);
+    assert.equal(statusData.events.length, 412);
     assert.equal(statusData.coverage.inProgress, 8);
     assert.equal(server.homologation.completed, 2);
     assert.equal(server.homologation.total, 7);
@@ -3433,7 +3448,7 @@ test('portal registra refresh de imagens por idioma e recuperação de falha no 
     assert.match(event.scope, /idioma preferido.*fallback.*falha do produtor/s);
     assert.match(event.local, /Imagens existentes sem idioma explícito.*preservadas/i);
     assert.ok(event.release.includes('7/10') && event.release.includes('2/7') && event.release.includes('12.1.46 candidata, não publicada'));
-    assert.equal(statusData.events.length, 411);
+    assert.equal(statusData.events.length, 412);
     assert.equal(server.homologation.completed, 2);
     assert.equal(server.homologation.total, 7);
     assert.equal(server.homologation.percent, 28.6);
@@ -3448,7 +3463,7 @@ test('portal registra auditoria multi-processo sem alegar correção ou crédito
     assert.match(event.local, /SemaphoreSlim por processo.*nenhum teste de concorrência multi-instância/i);
     assert.match(event.evidence, /AuthenticateUser grava.*DbContext\.Update\(user\).*produção multi-processo não foi consultada/s);
     assert.match(event.release, /lote 10\/10.*2\/7.*12\.1\.46 candidata, não publicada/);
-    assert.equal(statusData.events.length, 411);
+    assert.equal(statusData.events.length, 412);
     assert.equal(server.homologation.completed, 2);
     assert.equal(server.homologation.total, 7);
     assert.equal(server.homologation.percent, 28.6);
@@ -3464,7 +3479,7 @@ test('portal registra recarga das permissões após autenticação externa', () 
     assert.match(event.evidence, /falhou antes da mudança.*passou depois da recarga/s);
     assert.match(event.evidence, /MariaDB multi-instância.*produção não foram validados/s);
     assert.match(event.release, /1\/10.*2\/7.*12\.1\.46 candidata, não publicada/s);
-    assert.equal(statusData.events.length, 411);
+    assert.equal(statusData.events.length, 412);
     assert.equal(server.homologation.completed, 2);
     assert.equal(server.homologation.total, 7);
     assert.equal(server.homologation.percent, 28.6);
@@ -3486,7 +3501,7 @@ test('portal records the latest .NET solution TRX regression without formal cred
     assert.equal(server.homologation.completed, 2);
     assert.equal(server.homologation.total, 7);
     assert.equal(server.homologation.percent, 28.6);
-    assert.equal(statusData.events.length, 411);
+    assert.equal(statusData.events.length, 412);
     assert.equal(statusData.generatedAt, statusData.events.at(-1).updatedAt);
 });
 test('portal registra a serialização concorrente de options.xml sem alegar atomicidade', () => {
@@ -3502,7 +3517,7 @@ test('portal registra a serialização concorrente de options.xml sem alegar ato
     assert.equal(server.homologation.completed, 2);
     assert.equal(server.homologation.total, 7);
     assert.equal(server.homologation.percent, 28.6);
-    assert.equal(statusData.events.length, 411);
+    assert.equal(statusData.events.length, 412);
     assert.equal(statusData.generatedAt, statusData.events.at(-1).updatedAt);
 });
 test('portal registra substituição atômica de options.xml sem crédito formal', () => {
@@ -3518,7 +3533,7 @@ test('portal registra substituição atômica de options.xml sem crédito formal
     assert.equal(server.homologation.completed, 2);
     assert.equal(server.homologation.total, 7);
     assert.equal(server.homologation.percent, 28.6);
-    assert.equal(statusData.events.length, 411);
+    assert.equal(statusData.events.length, 412);
     assert.equal(statusData.generatedAt, statusData.events.at(-1).updatedAt);
 });
 
@@ -3534,7 +3549,7 @@ test('portal registra auditoria do writer XML de bootstrap sem alegar correção
     assert.equal(server.homologation.completed, 2);
     assert.equal(server.homologation.total, 7);
     assert.equal(server.homologation.percent, 28.6);
-    assert.equal(statusData.events.length, 411);
+    assert.equal(statusData.events.length, 412);
     assert.equal(statusData.generatedAt, statusData.events.at(-1).updatedAt);
 });
 
@@ -3550,7 +3565,7 @@ test('portal registra writer atômico compartilhado no bootstrap e na API públi
     assert.equal(server.homologation.completed, 2);
     assert.equal(server.homologation.total, 7);
     assert.equal(server.homologation.percent, 28.6);
-    assert.equal(statusData.events.length, 411);
+    assert.equal(statusData.events.length, 412);
     assert.equal(statusData.generatedAt, statusData.events.at(-1).updatedAt);
 });
 
@@ -3568,7 +3583,7 @@ test('portal registra a persistência protegida de configurações de plugins', 
     assert.equal(server.homologation.completed, 2);
     assert.equal(server.homologation.total, 7);
     assert.equal(server.homologation.percent, 28.6);
-    assert.equal(statusData.events.length, 411);
+    assert.equal(statusData.events.length, 412);
     assert.equal(statusData.generatedAt, statusData.events.at(-1).updatedAt);
 });
 
@@ -3582,7 +3597,7 @@ test('portal registra as migrações XML protegidas sem crédito de homologaçã
     assert.match(event.local, /BasePluginConfigurationPersistenceTests 4\/4.*PreStartupXmlMigrationPersistenceTests 3\/3/);
     assert.match(event.evidence, /arquivo anterior.*CertificatePassword.*vEthernet\*.*XML inválido/);
     assert.match(event.release, /4\/10.*2\/7.*12\.1\.46 candidata, não publicada/);
-    assert.equal(statusData.events.length, 411);
+    assert.equal(statusData.events.length, 412);
     assert.equal(server.homologation.completed, 2);
     assert.equal(server.homologation.total, 7);
     assert.equal(server.homologation.percent, 28.6);
@@ -3601,7 +3616,7 @@ test('portal registra retry HTTP limitado a métodos idempotentes', () => {
     assert.match(event.evidence, /compartilham o mesmo circuit breaker.*abertura após cinco falhas foi comprovada/s);
     assert.match(event.evidence, /chamadas com IHttpClientFactory sem nome não foram alteradas/);
     assert.match(event.release, /9\/10.*2\/7.*12\.1\.46 candidata, não publicada/);
-    assert.equal(statusData.events.length, 411);
+    assert.equal(statusData.events.length, 412);
     assert.ok(Date.parse(event.updatedAt) <= Date.parse(statusData.generatedAt));
     assert.equal(server.homologation.completed, 2);
     assert.equal(server.homologation.total, 7);
@@ -3617,7 +3632,7 @@ test('portal registra piloto MTP sem alterar runner padrão nem homologação fo
     assert.match(event.local, /Jellyfin\.Networking\.Tests passou 124\/124 em VSTest e MTP.*1\.769 ms.*1\.301 ms/s);
     assert.match(event.evidence, /coverlet\.MTP.*filtros VSTest.*Linux, macOS.*não foram verificados/s);
     assert.match(event.release, /4\/10.*2\/7.*12\.1\.46 candidata, não publicada/);
-    assert.equal(statusData.events.length, 411);
+    assert.equal(statusData.events.length, 412);
     assert.equal(server.homologation.completed, 2);
     assert.equal(server.homologation.total, 7);
     assert.equal(server.homologation.percent, 28.6);
@@ -3633,7 +3648,7 @@ test('portal registra a remoção de consultas bootstrap sem plugins na iniciali
     assert.match(event.local, /BootstrapPluginCatalogTests.*PluginManagerTests.*21\/21/);
     assert.match(event.evidence, /PluginIds vazias.*HttpClient.*100 segundos.*Não foi medido startup real em produção/s);
     assert.match(event.release, /5\/10.*2\/7.*12\.1\.46 candidata, não publicada/);
-    assert.equal(statusData.events.length, 411);
+    assert.equal(statusData.events.length, 412);
     assert.equal(server.homologation.completed, 2);
     assert.equal(server.homologation.total, 7);
     assert.equal(server.homologation.percent, 28.6);
@@ -3649,7 +3664,7 @@ test('portal registra sanitização dos logs do feeder e helper obrigatório no 
     assert.match(event.local, /Nebula Python 806\/806.*test_feed_ftp_strm\.py 96\/96.*Assert-StageIntegrity/);
     assert.match(event.evidence, /exceções.*CR\/LF.*logging_safety\.py/s);
     assert.match(event.release, /10\/10.*2\/7.*12\.1\.46 candidata, não publicada/);
-    assert.equal(statusData.events.length, 411);
+    assert.equal(statusData.events.length, 412);
     assert.equal(server.homologation.completed, 2);
     assert.equal(server.homologation.total, 7);
     assert.equal(server.homologation.percent, 28.6);
@@ -3665,7 +3680,7 @@ test('portal registra saída segura do SupabaseSync sem alterar SQL ou dados do 
     assert.match(event.local, /Nebula Python 806\/806.*test_supabase_sync\.py 77\/77.*SQL schema/);
     assert.match(event.evidence, /nome de banco.*CR\/LF.*SQL schema.*multilinha intencional/s);
     assert.match(event.release, /1\/10.*2\/7.*12\.1\.46 candidata, não publicada/);
-    assert.equal(statusData.events.length, 411);
+    assert.equal(statusData.events.length, 412);
     assert.equal(server.homologation.completed, 2);
     assert.equal(server.homologation.total, 7);
     assert.equal(server.homologation.percent, 28.6);
@@ -3684,7 +3699,7 @@ test('portal registra auditoria SSRF STRM e preserva o bloqueio de homologação
     assert.match(event.evidence, /loopback.*interromperia o fluxo normal/i);
     assert.match(event.evidence, /vincular a conexão ao IP efetivamente aprovado/i);
     assert.match(event.release, /6\/10.*2\/7.*12\.1\.46 candidata, não publicada/i);
-    assert.equal(statusData.events.length, 411);
+    assert.equal(statusData.events.length, 412);
     assert.equal(server.homologation.completed, 2);
     assert.equal(server.homologation.total, 7);
     assert.equal(server.homologation.percent, 28.6);
@@ -3703,7 +3718,7 @@ test('portal registra auditoria de logging Nebula sem alegar vazamento confirmad
     assert.match(event.evidence, /não foi reproduzido vazamento de segredo/i);
     assert.match(event.evidence, /sanitizar CR\/LF/i);
     assert.match(event.release, /7\/10.*2\/7.*12\.1\.46 candidata, não publicada/i);
-    assert.equal(statusData.events.length, 411);
+    assert.equal(statusData.events.length, 412);
     assert.equal(server.homologation.completed, 2);
     assert.equal(server.homologation.total, 7);
     assert.equal(server.homologation.percent, 28.6);
@@ -3721,7 +3736,7 @@ test('portal registra persistência resiliente das playlists externas sem homolo
     assert.match(event.local, /PlaylistManagerTests.*6 aprovados.*1 ignorado/);
     assert.match(event.evidence, /symlink.*Linux.*SMB.*produção/s);
     assert.ok(event.release.includes('4/10') && event.release.includes('2/7') && event.release.includes('12.1.46 candidata, não publicada'));
-    assert.equal(statusData.events.length, 411);
+    assert.equal(statusData.events.length, 412);
     assert.equal(server.homologation.completed, 2);
     assert.equal(server.homologation.total, 7);
     assert.equal(server.homologation.percent, 28.6);
@@ -3739,7 +3754,7 @@ test('portal registra regressão ampla C# sem tratar os ignorados como homologa�
     assert.ok(event.local.includes('17 assemblies') && event.local.includes('5.636 aprovados') && event.local.includes('288 ignorados') && event.local.includes('0 falhas/5.924'));
     assert.ok(event.evidence.includes('LiveIntegrationTests') && event.evidence.includes('Linux/macOS') && event.evidence.includes('produção'));
     assert.ok(event.release.includes('5/10') && event.release.includes('2/7') && event.release.includes('12.1.46 candidata, não publicada'));
-    assert.equal(statusData.events.length, 411);
+    assert.equal(statusData.events.length, 412);
     assert.equal(server.homologation.completed, 2);
     assert.equal(server.homologation.total, 7);
     assert.equal(server.homologation.percent, 28.6);
@@ -3759,7 +3774,7 @@ test('portal registra o inventário STRM e mantém a política SSRF pendente sem
     assert.match(event.evidence, /STREAM_PORT configurável com padrão 2122.*nenhum listener.*produção.*DNS rebinding/s);
     assert.match(event.evidence, /Não foi lido \.env nem consultada produção/);
     assert.match(event.release, /6\/10.*2\/7.*12\.1\.46 candidata, não publicada/);
-    assert.equal(statusData.events.length, 411);
+    assert.equal(statusData.events.length, 412);
     assert.equal(server.homologation.completed, 2);
     assert.equal(server.homologation.total, 7);
     assert.equal(server.homologation.percent, 28.6);
@@ -3779,7 +3794,7 @@ test('portal registra o inventário de Contains para C# 14 e EF sem creditar hom
     assert.match(event.evidence, /dotnet\/docs #43952.*EF Core #37176/s);
     assert.match(event.evidence, /Linux, MariaDB, CI hospedada, runtime instalado e produção não foram validados/);
     assert.match(event.release, /7\/10.*2\/7 \(28,6%\).*12\.1\.46 candidata, não publicada/);
-    assert.equal(statusData.events.length, 411);
+    assert.equal(statusData.events.length, 412);
     assert.equal(server.homologation.completed, 2);
     assert.equal(server.homologation.total, 7);
     assert.equal(server.homologation.percent, 28.6);
@@ -3800,7 +3815,7 @@ test('portal registra correção async do cache de keyframes HLS e mantém pend�
     assert.match(event.evidence, /Keyframes 7\/7.*HLS 21\/21/s);
     assert.match(event.evidence, /MariaDB isolado.*produção não validados/);
     assert.match(event.release, /8\/10.*2\/7 \(28,6%\).*12\.1\.46 candidata, não publicada/);
-    assert.equal(statusData.events.length, 411);
+    assert.equal(statusData.events.length, 412);
     assert.equal(server.homologation.completed, 2);
     assert.equal(server.homologation.total, 7);
     assert.equal(server.homologation.percent, 28.6);
@@ -3819,7 +3834,7 @@ test('portal registra a auditoria do parser EBML síncrono sem inventar progress
     assert.match(event.evidence, /IKeyframeExtractor async padr[aã]o chama TryExtractKeyframes s[ií]ncrono/);
     assert.match(event.evidence, /Task.Run mant[eé]m bloqueio de worker/);
     assert.ok(event.release.includes('Evento local 9/10 do lote; snapshot ainda não publicado no Git. Homologação formal 2/7 (28,6%); release 12.1.46 candidata, não publicada.'));
-    assert.equal(statusData.events.length, 411);
+    assert.equal(statusData.events.length, 412);
     assert.equal(server.homologation.completed, 2);
     assert.equal(server.homologation.total, 7);
     assert.equal(server.homologation.percent, 28.6);
@@ -3839,7 +3854,7 @@ test('portal registra o leitor EBML assíncrono e explicita a matriz de validaç
     assert.match(event.evidence, /fixture Matroska sintética.*mesmos ticks/);
     assert.match(event.evidence, /[Bb]enchmark.*mídia real.*produção não foram verificados/);
     assert.match(event.release, /10\/10.*2\/7 \(28,6%\).*12\.1\.46 candidata, não publicada/);
-    assert.equal(statusData.events.length, 411);
+    assert.equal(statusData.events.length, 412);
     assert.equal(server.homologation.completed, 2);
     assert.equal(server.homologation.total, 7);
     assert.equal(server.homologation.percent, 28.6);
@@ -3855,7 +3870,7 @@ test('portal registra fallback de imagens após timeout sem confundir cancelamen
     assert.match(event.local, /ItemImageProviderTests 88\/88.*940 aprovados.*14 ignorados.*0 falhas/is);
     assert.match(event.evidence, /TimeoutException interna.*cancelamento explícito.*Linux.*produção/is);
     assert.match(event.release, /1\/10.*2\/7.*12\.1\.46 candidata, não publicada/i);
-    assert.equal(statusData.events.length, 411);
+    assert.equal(statusData.events.length, 412);
     assert.equal(server.homologation.completed, 2);
     assert.equal(server.homologation.total, 7);
     assert.equal(server.homologation.percent, 28.6);
@@ -3874,7 +3889,7 @@ test('portal registra reconciliação segura de renomeação no backup Supabase'
     assert.equal(server.homologation.completed, 2);
     assert.equal(server.homologation.total, 7);
     assert.equal(server.homologation.percent, 28.6);
-    assert.equal(statusData.events.length, 411);
+    assert.equal(statusData.events.length, 412);
     assert.equal(statusData.generatedAt, statusData.events.at(-1).updatedAt);
 });
 
@@ -3888,7 +3903,7 @@ test('portal registra diagnóstico limitado do código PostgREST sem expor o cor
     assert.match(event.scope, /Manter os retries.*somente o código.*cursor de arquivos e do histórico/);
     assert.match(event.evidence, /4 KiB.*message, details ou hint.*PGRST000.*CR\/LF/);
     assert.match(event.release, /3\/10.*2\/7 \(28,6%\).*12\.1\.46 candidata, não publicada/);
-    assert.equal(statusData.events.length, 411);
+    assert.equal(statusData.events.length, 412);
     assert.equal(server.homologation.completed, 2);
     assert.equal(server.homologation.total, 7);
     assert.equal(server.homologation.percent, 28.6);
@@ -3905,7 +3920,7 @@ test('portal registra correção de CueTrackPositions múltiplas nos leitores Ma
     assert.match(event.local, /Keyframes.Tests 14\/14.*Hls.Tests 22\/22/);
     assert.match(event.evidence, /CueTrackPositions como repetível.*áudio antes e depois do vídeo.*síncrono e assíncrono/);
     assert.match(event.release, /4\/10.*2\/7 \(28,6%\).*12\.1\.46 candidata, não publicada/);
-    assert.equal(statusData.events.length, 411);
+    assert.equal(statusData.events.length, 412);
     assert.equal(server.homologation.completed, 2);
     assert.equal(server.homologation.total, 7);
     assert.equal(server.homologation.percent, 28.6);
@@ -3923,14 +3938,14 @@ test('portal registra regressão ampla da solução .NET sem elevar homologaçã
     assert.match(event.local, /Server\.Implementations 1\.733\/1\.825.*Server 127\/127.*API 823\/826/s);
     assert.match(event.evidence, /TRX nomeados por assembly.*corrigido teste de heartbeat.*teste de restore.*Linux, CI hospedada, MariaDB\/MongoDB reais, runtime instalado e produção não foram validados/is);
     assert.match(event.release, /5\/10.*2\/7 \(28,6%\).*12\.1\.46 candidata, não publicada/);
-    assert.equal(statusData.events.length, 411);
+    assert.equal(statusData.events.length, 412);
     assert.deepEqual(server.testAudit, {
         passed: 5671,
         total: 5961,
         skipped: 290,
         failed: 0,
         percent: 95.1,
-        label: 'Regressão .NET Release em Windows/.NET 10: 17 assemblies, 5.671 aprovados, 290 ignorados, 0 falhas/5.961; filtro FullyQualifiedName!~LiveIntegrationTests. Percentual é taxa de aprovação dos casos incluídos, não completude funcional nem homologação formal (2/7, 28,6%). Nebula Python: 819 aprovados, 1 ignorado/820 em Windows/Python 3.14.7; CI hospedada, Linux/macOS, bancos opt-in, runtime instalado e produção permanecem pendentes.'
+        label: 'Regressão .NET Release em Windows/.NET 10: 17 assemblies, 5.671 aprovados, 290 ignorados, 0 falhas/5.961; filtro FullyQualifiedName!~LiveIntegrationTests. Percentual é taxa de aprovação dos casos incluídos, não completude funcional nem homologação formal (2/7, 28,6%). Nebula Python: 820 aprovados, 1 ignorado/821 em Windows/Python 3.14.7; coverage.py combinado linha/branch: 82% em main, FTP e tools. CI hospedada, Linux/macOS, bancos opt-in, runtime instalado e produção permanecem pendentes.'
     });
     assert.equal(server.homologation.completed, 2);
     assert.equal(server.homologation.total, 7);
@@ -3948,7 +3963,7 @@ test('portal registra revisão de tecnologias HTTP sem promover migração ou ho
     assert.match(event.evidence, /Microsoft.Extensions.Http.Polly.*obsoleto.*handler padrão altera retries.*Polly oficial 8\.9\.0/is);
     assert.match(event.evidence, /OSMF apenas para referência direta.*Receita\/termos aplicáveis.*não foram verificados/is);
     assert.match(event.release, /6\/10.*2\/7 \(28,6%\).*12\.1\.46 candidata, não publicada/);
-    assert.equal(statusData.events.length, 411);
+    assert.equal(statusData.events.length, 412);
     assert.equal(event.updatedAt, '2026-11-02T13:46:00-03:00');
     assert.equal(statusData.events.at(-1).updatedAt, statusData.generatedAt);
     assert.equal(server.homologation.completed, 2);
@@ -3980,7 +3995,7 @@ test('portal registra o gate de equivalência HTTP sem elevar homologação nem 
     assert.match(event.evidence, /handler padr[aã]o repete todos os m[eé]todos.*PUT\/DELETE.*breaker cl[aá]ssico/s);
     assert.match(event.evidence, /pipeline customizado.*Linux.*produ[cç][aã]o permanecem pendentes/i);
     assert.match(event.release, /8\/10.*2\/7 \(28,6%\).*12\.1\.46 candidata, n[aã]o publicada/i);
-    assert.equal(statusData.events.length, 411);
+    assert.equal(statusData.events.length, 412);
     assert.equal(statusData.generatedAt, statusData.events.at(-1).updatedAt);
     assert.equal(statusData.events.at(-1).updatedAt, statusData.generatedAt);
     assert.equal(server.homologation.completed, 2);
@@ -3998,10 +4013,10 @@ test('portal registra auditoria dos consumidores das probes sem alterar homologa
     assert.match(event.evidence, /\/health executa todos os checks.*\/ready filtra.*Docker usa \/health.*updater Windows usam \/ready/is);
     assert.match(event.evidence, /não encontrou \/live.*rotas existentes foram preservadas.*produção não foi verificada/is);
     assert.match(event.release, /9\/10.*2\/7 \(28,6%\).*12\.1\.46 candidata, não publicada/i);
-    assert.equal(statusData.events.length, 411);
+    assert.equal(statusData.events.length, 412);
     assert.equal(statusData.generatedAt, statusData.events.at(-1).updatedAt);
     assert.equal(statusData.events.at(-1).updatedAt, statusData.generatedAt);
-    assert.match(statusData.latestAudit, /03\/11\/2026.*819 aprovados, 1 ignorado\/820.*93d8a020.*aguarda merge em main.*2\/7.*12\.1\.46 candidata, não publicada/i);
+    assert.match(statusData.latestAudit, /03\/11\/2026.*820 aprovados, 1 ignorado\/821.*82%.*bloqueio de cobrança.*412 eventos.*aguarda merge em main.*2\/7.*12\.1\.46 candidata, não publicada/i);
     assert.equal(server.homologation.completed, 2);
     assert.equal(server.homologation.total, 7);
     assert.equal(server.homologation.percent, 28.6);
@@ -4017,7 +4032,7 @@ test('portal registra regressão ampla .NET e Nebula sem concluir homologação 
     assert.match(event.local, /17 assemblies, 5\.660 aprovados, 288 ignorados, 0 falhas\/5\.948.*Nebula Python 3\.10\.11: 806\/806/s);
     assert.match(event.evidence, /LiveIntegrationTests.*17 arquivos únicos.*Python.*MariaDB.*Mongo.*Linux.*produção permanecem pendentes/is);
     assert.match(event.release, /10\/10.*2\/7 \(28,6%\).*12\.1\.46 candidata, não publicada/i);
-    assert.equal(statusData.events.length, 411);
+    assert.equal(statusData.events.length, 412);
     assert.equal(statusData.generatedAt, statusData.events.at(-1).updatedAt);
     assert.equal(statusData.events.at(-1).updatedAt, statusData.generatedAt);
     assert.equal(server.homologation.completed, 2);
@@ -4035,7 +4050,7 @@ test('portal registra a validação de ACL das playlists sem concluir homologaç
     assert.match(event.evidence, /ACE explícita.*File\.Replace.*teste POSIX de modo foi ignorado/is);
     assert.match(event.evidence, /logs dos jobs retornam 404.*head atual do PR não tem workflow run/is);
     assert.match(event.release, /1\/10 do lote.*homologação formal 2\/7.*12\.1\.46 candidata, não publicada/i);
-    assert.equal(statusData.events.length, 411);
+    assert.equal(statusData.events.length, 412);
     assert.equal(statusData.generatedAt, statusData.events.at(-1).updatedAt);
     assert.equal(statusData.events.at(-1).updatedAt, statusData.generatedAt);
     assert.equal(server.homologation.completed, 2);
@@ -4053,7 +4068,7 @@ test('portal registra auditoria HLS Matroska sem concluir homologação formal',
     assert.match(event.local, /Keyframes\.Tests 14\/14.*Hls\.Tests 22\/22.*nenhum arquivo de vídeo encontrado/i);
     assert.match(event.evidence, /paridade sync\/async.*cancelamento.*CueTrackPositions.*não mídia de vídeo.*nem justificativa.*dependências/i);
     assert.match(event.release, /2\/10.*2\/7 \(28,6%\).*12\.1\.46 candidata, não publicada/i);
-    assert.equal(statusData.events.length, 411);
+    assert.equal(statusData.events.length, 412);
     assert.equal(statusData.generatedAt, statusData.events.at(-1).updatedAt);
     assert.equal(server.homologation.completed, 2);
     assert.equal(server.homologation.total, 7);
@@ -4068,7 +4083,7 @@ test('portal registra o limite de rename rooted em SMB sem homologar o servidor'
     assert.equal(event.status, 'completed');
     assert.match(event.evidence, /ImageSaver.*pathname.*RootDirectory=0.*openat2.*sem mudança estrutural/is);
     assert.match(event.release, /3\/10.*homologação formal 2\/7.*12\.1\.46 candidata, não publicada/i);
-    assert.equal(statusData.events.length, 411);
+    assert.equal(statusData.events.length, 412);
     assert.ok(Date.parse(event.updatedAt) <= Date.parse(statusData.generatedAt));
     assert.equal(server.homologation.completed, 2);
     assert.equal(server.homologation.total, 7);
@@ -4084,7 +4099,7 @@ test('portal registra o contrato HTTP de Retry-After sem declarar migração ou 
     assert.match(event.local, /StartupHttpRetryPolicyTests 10\/10.*1m09s/i);
     assert.match(event.evidence, /Retry-After por delta e data HTTP.*não repetição de POST.*recuperação após 30 s.*semântica diferente/is);
     assert.match(event.release, /4\/10.*homologação formal 2\/7.*12\.1\.46 candidata, não publicada/i);
-    assert.equal(statusData.events.length, 411);
+    assert.equal(statusData.events.length, 412);
     assert.ok(Date.parse(event.updatedAt) <= Date.parse(statusData.generatedAt));
     assert.equal(server.homologation.completed, 2);
     assert.equal(server.homologation.total, 7);
@@ -4100,7 +4115,7 @@ test('portal registra FakeTimeProvider como oportunidade condicionada à migraç
     assert.match(event.evidence, /FakeTimeProvider.*TimeProvider.*Polly clássico.*não virtualiza/is);
     assert.match(event.evidence, /sem dependência, código ou mudança de runtime/i);
     assert.match(event.release, /5\/10.*homologação formal 2\/7.*12\.1\.46 candidata, não publicada/i);
-    assert.equal(statusData.events.length, 411);
+    assert.equal(statusData.events.length, 412);
     assert.ok(Date.parse(event.updatedAt) <= Date.parse(statusData.generatedAt));
     assert.equal(server.homologation.completed, 2);
     assert.equal(server.homologation.total, 7);
@@ -4116,7 +4131,7 @@ test('portal registra documentação XML completa do restore Nebula sem mudar ho
     assert.equal(event.progressPercent, 100);
     assert.match(event.evidence, /0 avisos, 0 erros/i);
     assert.match(event.release, /7\/10.*homologação formal 2\/7.*12\.1\.46 candidata, não publicada/i);
-    assert.equal(statusData.events.length, 411);
+    assert.equal(statusData.events.length, 412);
     assert.ok(Date.parse(event.updatedAt) <= Date.parse(statusData.generatedAt));
     assert.equal(server.homologation.completed, 2);
     assert.equal(server.homologation.total, 7);
@@ -4131,7 +4146,7 @@ test('portal registra oportunidade TRX de CI sem alegar diagnóstico nem homolog
     assert.equal(event.status, 'completed');
     assert.match(event.evidence, /LogFilePrefix.*sem etapas ou runner/is);
     assert.match(event.release, /8\/10.*implementação de CI pendente.*homologação formal 2\/7/i);
-    assert.equal(statusData.events.length, 411);
+    assert.equal(statusData.events.length, 412);
     assert.ok(Date.parse(event.updatedAt) <= Date.parse(statusData.generatedAt));
     assert.equal(server.homologation.completed, 2);
     assert.equal(server.homologation.total, 7);
@@ -4147,7 +4162,7 @@ test('portal registra os testes opt-in Nebula em Mongo descartável sem validar 
     assert.match(event.local, /MongoDB 8\.3 isolado.*27099.*30\/30/i);
     assert.match(event.evidence, /remoção.*bloqueada.*TEMP.*27017 e 3306 não foram usadas/i);
     assert.match(event.release, /9\/10.*homologação formal 2\/7.*12\.1\.46 candidata, não publicada/i);
-    assert.equal(statusData.events.length, 411);
+    assert.equal(statusData.events.length, 412);
     assert.ok(Date.parse(event.updatedAt) <= Date.parse(statusData.generatedAt));
     assert.equal(server.homologation.completed, 2);
     assert.equal(server.homologation.total, 7);
@@ -4163,7 +4178,7 @@ test('portal registra preferência regional de imagens sem elevar homologação 
     assert.equal(event.status, 'completed');
     assert.match(event.local, /ItemImageProviderTests.*94\/94.*pt-PT.*pt-BR/is);
     assert.match(event.release, /10\/10.*homologação formal 2\/7.*12\.1\.46 candidata, não publicada/i);
-    assert.equal(statusData.events.length, 411);
+    assert.equal(statusData.events.length, 412);
     assert.ok(Date.parse(event.updatedAt) <= Date.parse(statusData.generatedAt));
     assert.equal(server.homologation.completed, 2);
     assert.equal(server.homologation.total, 7);
@@ -4179,7 +4194,7 @@ test('portal registra timeout por chamada no Nebula sem homologar produção', (
     assert.match(event.local, /Nebula Python: 806\/806.*proíbem setdefaulttimeout global/i);
     assert.match(event.evidence, /altera o timeout dos novos sockets.*urlopen já passa timeout explicitamente.*não se mediu impacto em produção/is);
     assert.match(event.release, /6\/10.*homologação formal permanece 2\/7.*12\.1\.46 candidata, não publicada/i);
-    assert.equal(statusData.events.length, 411);
+    assert.equal(statusData.events.length, 412);
     assert.ok(Date.parse(statusData.generatedAt) >= Date.parse(event.updatedAt));
     assert.equal(server.homologation.completed, 2);
     assert.equal(server.homologation.total, 7);
@@ -4196,7 +4211,7 @@ test('portal registra limite de seleção Mongo para geração STRM sem homologa
     assert.match(event.local, /14\/14.*serverSelectionTimeoutMS.*3000/is);
     assert.match(event.evidence, /30000 ms.*não foi adicionado timeout de operação\/socket.*não validados/is);
     assert.match(event.release, /7\/10.*homologação formal permanece 2\/7.*12\.1\.46 candidata, não publicada/i);
-    assert.equal(statusData.events.length, 411);
+    assert.equal(statusData.events.length, 412);
     assert.ok(Date.parse(statusData.generatedAt) >= Date.parse(event.updatedAt));
     assert.equal(server.homologation.completed, 2);
     assert.equal(server.homologation.total, 7);
@@ -4213,7 +4228,7 @@ test('portal registra o piloto PyMongo Async sem alegar ganho nem homologação'
     assert.match(event.local, /test_stream_service 4\/4.*timeout esperado.*close\(\)/i);
     assert.match(event.evidence, /pode melhorar ou degradar.*nenhum ganho.*sem Mongo real, benchmark, Linux, CI hospedada ou produção/i);
     assert.match(event.release, /8\/10.*homologação formal permanece 2\/7.*12\.1\.46 candidata, não publicada/i);
-    assert.equal(statusData.events.length, 411);
+    assert.equal(statusData.events.length, 412);
     assert.equal(server.homologation.completed, 2);
     assert.equal(server.homologation.total, 7);
     assert.equal(server.homologation.percent, 28.6);
@@ -4228,7 +4243,7 @@ test('portal registra migração PyMongo Async do Nebula principal e Supabase', 
     assert.match(event.local, /suíte Nebula 808\/808.*focais.*131\/131/i);
     assert.match(event.evidence, /remove io_loop.*Motor deprecated.*sem ganho presumido.*não houve acesso ao Mongo real, benchmark, Linux, CI hospedada ou produção/i);
     assert.match(event.release, /9\/10.*homologação formal permanece 2\/7.*12\.1\.46 candidata, não publicada/i);
-    assert.equal(statusData.events.length, 411);
+    assert.equal(statusData.events.length, 412);
     assert.equal(server.homologation.completed, 2);
     assert.equal(server.homologation.total, 7);
     assert.equal(server.homologation.percent, 28.6);
@@ -4243,7 +4258,7 @@ test('portal registra o teste de lease Nebula contra Mongo real sem creditar hom
     assert.match(event.local, /809 aprovados, 1 ignorado.*URI 7 aprovados.*contrato CI 2\/2/i);
     assert.match(event.evidence, /MongoDB 7.*não houve benchmark.*produção nem homologação formal/i);
     assert.match(event.release, /lote local 10\/10.*não publicado.*homologação formal permanece 2\/7.*12\.1\.46 candidata, não publicada/i);
-    assert.equal(statusData.events.length, 411);
+    assert.equal(statusData.events.length, 412);
     assert.equal(server.homologation.completed, 2);
     assert.equal(server.homologation.total, 7);
     assert.equal(server.homologation.percent, 28.6);
@@ -4258,7 +4273,7 @@ test('portal registra cleanup de falhas no startup Nebula sem creditar homologa�
     assert.match(event.local, /Python 3\.14\.7.*819 aprovados, 1 ignorado\/820.*lifecycle 22\/22/i);
     assert.match(event.evidence, /Falha normal.*encerra recursos.*retorna código 1.*Cancelamento.*propaga CancelledError.*16 jobs.*bloqueio de cobrança/is);
     assert.match(event.release, /correção em 93d8a020.*snapshot.*branch do PR em 32b04fc8.*aguarda merge em main.*2\/7 \(28,6%\).*12\.1\.46 candidata/i);
-    assert.equal(statusData.events.length, 411);
+    assert.equal(statusData.events.length, 412);
     assert.equal(server.homologation.completed, 2);
     assert.equal(server.homologation.total, 7);
     assert.equal(server.homologation.percent, 28.6);

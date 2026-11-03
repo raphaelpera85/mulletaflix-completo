@@ -1,5 +1,13 @@
 # Auditoria Tecnica do Backend MulletaFlix
 
+## Cobertura do startup Nebula com upload habilitado — 2026-11-03
+
+- `test_main_lifecycle.py` agora executa o caminho full com bots: cleanup e restore da fila, watcher, scanner e workers, além do modo somente streaming. Lifecycle passou 23/23.
+- Suíte Nebula no Windows/Python 3.14.7: 820 aprovados, 1 ignorado por requerer MongoDB opt-in. coverage.py com branches: 82% combinado para `main.py`, `ftp/` e `tools/`; arquivos com menor cobertura incluem `feed_ftp.py` (78%), `strm_downloader.py` (79%), `main.py` (80%) e `ftp/pathio.py` (81%). Próxima expansão de testes deve focar esses fluxos por risco, não perseguir percentual isolado.
+- Python 3.14 oferece `asyncio.TaskGroup`, mas ele cancela tarefas irmãs no primeiro erro. O Nebula atual usa tarefas longevas com shutdown explícito; uma migração exige contrato e testes de falha/cancelamento antes de adoção. Nenhuma dependência ou runtime foi alterado.
+- O contrato local do portal passou 247/247 após atualizar o snapshot para 412 eventos; os 2/7 gates formais foram preservados.
+- CI hospedada, Linux e produção continuam pendentes. Homologação formal 2/7 (28,6%); 12.1.46 candidata, não publicada.
+
 ## Cleanup de falha na inicialização da fila Nebula — 2026-11-03
 
 - `Tools/NebulaPython/main.py::main` cria listeners e tarefas antes de preparar a fila. Falha em `cleanup_strm_duplicate_records` ou `restore_pending_uploads` agora fecha os recursos iniciados e retorna código 1; cancelamento fecha os mesmos recursos e relança `CancelledError`.

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import importlib
+import os
 
 import pytest
 
@@ -500,8 +501,9 @@ async def test_main_preserves_upload_queue_when_all_telegram_bots_fail(monkeypat
     assert "upload-pipeline-started" not in events
 
 
+@pytest.mark.parametrize("stream_only", [True, False], ids=["stream-only", "upload-enabled"])
 @pytest.mark.asyncio
-async def test_stream_only_lifecycle_starts_services_and_stops_resources(monkeypatch, tmp_path):
+async def test_main_lifecycle_starts_services_and_stops_resources(monkeypatch, tmp_path, stream_only):
     events = []
 
     class Bot:
@@ -564,6 +566,24 @@ async def test_stream_only_lifecycle_starts_services_and_stops_resources(monkeyp
     async def background(*_args, **_kwargs):
         events.append("background-task")
 
+    async def folder_watcher(_mongo):
+        events.append("folder-watcher")
+
+    async def cleanup_records(_mongo):
+        events.append("queue-cleanup")
+
+    async def restore_uploads(_mongo):
+        events.append("queue-restore")
+
+    async def queued_scanner(_mongo, **_kwargs):
+        events.append("queued-scanner")
+
+    async def upload_worker(*_args):
+        events.append("upload-worker")
+
+    async def small_upload_worker(*_args):
+        events.append("small-upload-worker")
+
     async def start_http(_mongo, _bots):
         events.append("http-start")
         return HTTPServer()
@@ -580,7 +600,15 @@ async def test_stream_only_lifecycle_starts_services_and_stops_resources(monkeyp
     monkeypatch.setattr(main_module, "garbage_collector", background)
     monkeypatch.setattr(main_module, "stats_reporter", background)
     monkeypatch.setattr(main_module, "staging_scanner", background)
-    monkeypatch.setattr(main_module, "STREAM_ONLY", True)
+    monkeypatch.setattr(main_module, "folder_watcher", folder_watcher)
+    monkeypatch.setattr(main_module, "cleanup_strm_duplicate_records", cleanup_records)
+    monkeypatch.setattr(main_module, "restore_pending_uploads", restore_uploads)
+    monkeypatch.setattr(main_module, "queued_mongo_scanner", queued_scanner)
+    monkeypatch.setattr(main_module, "upload_worker_parallel", upload_worker)
+    monkeypatch.setattr(main_module, "upload_small_file_worker", small_upload_worker)
+    monkeypatch.setattr(main_module, "get_upload_worker_count", lambda _count: 1)
+    monkeypatch.setattr(main_module, "get_small_upload_worker_count", lambda _count: 1)
+    monkeypatch.setattr(main_module, "STREAM_ONLY", stream_only)
     monkeypatch.setattr(main_module, "CONTROL_ENABLED", False)
     monkeypatch.setattr(main_module, "STREAM_HOST", "127.0.0.1")
     monkeypatch.setattr(main_module, "STREAM_PORT", 19091)
@@ -596,6 +624,7 @@ async def test_stream_only_lifecycle_starts_services_and_stops_resources(monkeyp
     monkeypatch.setenv("MONGO_DATABASE", "nebula-test")
     monkeypatch.setenv("HOST", "127.0.0.1")
     monkeypatch.setenv("PORT", "21210")
+    monkeypatch.setenv("BOT_COUNT", "prior-value")
 
     result = await main_module.main()
 
@@ -611,6 +640,16 @@ async def test_stream_only_lifecycle_starts_services_and_stops_resources(monkeyp
     assert events.count("mongo-close") == 1
     assert events.index("mongo-close") < events.index("bot-stop")
     assert events.index("ftp-close") < events.index("bot-stop")
+    if stream_only:
+        assert "queue-cleanup" not in events
+        assert "upload-worker" not in events
+    else:
+        assert events.index("queue-cleanup") < events.index("queue-restore")
+        assert "folder-watcher" in events
+        assert "queued-scanner" in events
+        assert "upload-worker" in events
+        assert "small-upload-worker" in events
+    assert os.environ["BOT_COUNT"] == "1"
 
 
 @pytest.mark.asyncio

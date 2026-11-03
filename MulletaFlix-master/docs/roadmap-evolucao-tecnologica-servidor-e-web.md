@@ -1,4 +1,12 @@
 
+## Nebula: startup full e cobertura de runtime — 2026-11-03 00:23 BRT
+
+O teste de lifecycle cobre agora os modos streaming-only e upload habilitado, verificando cleanup/restore da fila, watcher, scanner e workers. Windows/Python 3.14.7: suíte Nebula 820 aprovados, 1 ignorado/821; lifecycle 23/23; coverage.py combinado linha/branch 82% no recorte `main.py`, `ftp/` e `tools/`. `feed_ftp.py` 78%, `strm_downloader.py` 79%, `main.py` 80% e `ftp/pathio.py` 81% são próximos alvos para testes dirigidos. O contrato local do portal passou 247/247 com o evento e snapshot de 412 itens; homologação formal permanece 2/7.
+
+A anotação do GitHub para o run 41283703952 confirmou que os 16 jobs não iniciaram por bloqueio de cobrança; essa execução não é falha de código. O código Nebula e o snapshot do portal estão enviados em `codex/fail-closed-inplace-updater`; o head anterior `dc4f4a77` não tinha checks quando consultado pela API pública. `gh` local não tem autenticação. Merge em `main`, execução CI, Linux e produção permanecem pendentes; homologação formal 2/7 (28,6%) e release 12.1.46 candidata, não publicada.
+
+O manual oficial Python 3.14 recomenda `asyncio.TaskGroup` para tarefas relacionadas, mas cancela irmãs quando uma tarefa falha; não migrar o shutdown atual sem especificar essa semântica e validá-la em testes isolados. Fonte: [asyncio Task Groups](https://docs.python.org/3.14/library/asyncio-task.html#task-groups).
+
 ## Persistência atômica de playlists: DACL local verificada — 2026-11-02 14:47 BRT
 
 `PlaylistManager.PersistPlaylistFile` já substitui playlists externas em arquivo temporário no mesmo diretório. Novo teste Windows aplica ACE explícita `WorldSid/Read`, substitui o arquivo e confirma que a ACE e o conteúdo permanecem; `PlaylistManagerTests`: 7 aprovados, 1 ignorado (modo POSIX), e o teste ACL isolado 1/1. A documentação .NET descreve mesclagem de ACL em `File.Replace`; especificação SMB indica que rename SMB com `RootDirectory` não zero é inválido, portanto não generalizar handles rooted para compartilhamentos. ACL POSIX estendida, SMB/NAS e Linux seguem sem validação. Nenhuma alteração de implementação de produto. Mapa técnico conferido; arquitetura inalterada. Fontes: [File.Replace .NET 10](https://learn.microsoft.com/en-us/dotnet/api/system.io.file.replace?view=net-10.0), [SMB2 FileRenameInformation](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-fscc/52aa0b70-8094-4971-862d-79793f41e6a8).
