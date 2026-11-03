@@ -120,6 +120,7 @@ async def test_queued_scanner_claims_oldest_item_and_enqueues_existing_stage(mon
 
     assert len(files.queries) == 2
     assert files.queries[0][0]["recovery_required"] == {"$ne": True}
+    assert files.queries[0][0]["recovery_blocked"] == {"$ne": True}
     assert files.queries[0][1]["$set"]["status"] == "staging"
     assert queue.items == [{"path": str(media), "filename": "Movie.mkv", "parent": "/raphael/Filmes/Movie", "size": 5}]
     assert files.docs[0]["status"] == "queued"

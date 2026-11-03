@@ -610,6 +610,30 @@ async def test_small_file_worker_marks_upload_failure_without_deleting_source(mo
 
 
 @pytest.mark.asyncio
+async def test_small_file_worker_completes_checkpointed_part_without_resending(monkeypatch, tmp_path):
+    media = tmp_path / "checkpointed-cover.jpg"
+    media.write_bytes(b"cover-bytes")
+    checkpoint = {
+        "part_id": 0,
+        "tg_file": "telegram-file",
+        "tg_message": 91,
+        "file_size": len(b"cover-bytes"),
+        "chunk_name": "existing-upload.part_000",
+    }
+    result = await _run_small_file_worker(
+        monkeypatch, tmp_path, fail_upload=False, existing_parts=[checkpoint]
+    )
+
+    assert result["payloads"] == []
+    final_update = result["updates"][-1][1]["$set"]
+    assert final_update["parts"] == [checkpoint]
+    assert final_update["obfuscated_id"] == "existing-upload"
+    assert final_update["status"] == "completed"
+    assert result["removed"] == [result["path"]]
+    assert result["metrics"] == [("success", len(b"cover-bytes"))]
+
+
+@pytest.mark.asyncio
 async def test_small_file_worker_reroutes_file_above_size_limit(monkeypatch, tmp_path):
     media = tmp_path / "misrouted.bin"
     media.write_bytes(b"12345")
@@ -713,10 +737,10 @@ async def test_small_file_worker_skips_invalid_staging_inputs(
     assert str(media) not in main.ACTIVE_UPLOADS
 
 
-async def _run_small_file_worker(monkeypatch, tmp_path, *, fail_upload):
+async def _run_small_file_worker(monkeypatch, tmp_path, *, fail_upload, existing_parts=None):
     media = tmp_path / "cover.jpg"
     media.write_bytes(b"cover-bytes")
-    file_doc = {"_id": "small-file", "status": "queued", "parts": []}
+    file_doc = {"_id": "small-file", "status": "queued", "parts": existing_parts or []}
     updates = []
     payloads = []
     removed = []

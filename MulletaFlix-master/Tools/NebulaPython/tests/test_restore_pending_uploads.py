@@ -34,6 +34,7 @@ class Files:
 
     def find(self, query, *_args):
         assert query["status"]["$in"] == ["queued", "uploading", "staging"]
+        assert query["recovery_blocked"] == {"$ne": True}
         return AsyncCursor(self.docs)
 
     async def find_one(self, query, *_args):

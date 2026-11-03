@@ -24,7 +24,6 @@ from main import (
     get_small_upload_worker_count,
     get_upload_worker_count,
     get_required_config,
-    has_telegram_parts,
     is_loopback_host,
     is_staging_path,
     library_category,
@@ -140,20 +139,6 @@ def test_uploaded_parts_by_id_preserves_sparse_valid_parts_for_retry(monkeypatch
 
     assert [part["part_id"] for part in recovered] == [1]
     assert recovered[0]["tg_file"] == "second"
-
-
-@pytest.mark.parametrize(
-    ("doc", "expected"),
-    [
-        ({"tg_file_id": "legacy"}, True),
-        ({"parts": [{"file_id": "old"}]}, True),
-        ({"parts": [{"tg_message": 42}]}, True),
-        ({"parts": [{"file_size": 4}]}, False),
-        ({}, False),
-    ],
-)
-def test_has_telegram_parts_detects_legacy_and_part_level_identifiers(doc, expected):
-    assert has_telegram_parts(doc) is expected
 
 
 def test_worker_counts_respect_bot_and_configuration_limits(monkeypatch):

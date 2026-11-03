@@ -187,6 +187,32 @@ async def test_staging_scanner_reactivates_failed_record(monkeypatch, tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_staging_scanner_preserves_recovery_blocked_source_without_requeue(
+    monkeypatch, tmp_path
+):
+    stage = tmp_path / "stage"
+    media = stage / "changed-after-reservation.mkv"
+    stage.mkdir()
+    media.write_bytes(b"source")
+    files = QueryMatchingFiles(existing={
+        "_id": "blocked-id",
+        "name": media.name,
+        "parent": "/raphael/Filmes",
+        "status": "failed",
+        "recovery_blocked": True,
+    })
+    mongo = _configure(monkeypatch, files)
+
+    with pytest.raises(asyncio.CancelledError):
+        await main.staging_scanner(mongo, [str(stage)])
+
+    assert media.read_bytes() == b"source"
+    assert files.updates == []
+    assert files.deletes == []
+    assert files.inserts == []
+
+
+@pytest.mark.asyncio
 async def test_staging_scanner_preserves_duplicate_stage_record_but_deletes_local_copy(monkeypatch, tmp_path):
     stage = tmp_path / "stage"
     media = stage / "duplicate.mkv"

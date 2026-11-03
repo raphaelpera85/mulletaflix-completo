@@ -182,6 +182,216 @@ async def test_upload_part_raises_after_rpc_retries_are_exhausted(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_mtproto_retry_uses_same_random_id_and_fetches_message(monkeypatch):
+    calls = []
+
+    class RawNamespace:
+        class functions:
+            class messages:
+                @staticmethod
+                def SendMedia(**kwargs):
+                    calls.append(kwargs)
+                    return SimpleNamespace(**kwargs)
+
+        class types:
+            @staticmethod
+            def InputMediaUploadedDocument(**kwargs):
+                return SimpleNamespace(**kwargs)
+
+            @staticmethod
+            def DocumentAttributeFilename(**kwargs):
+                return SimpleNamespace(**kwargs)
+
+    raw = RawNamespace()
+    monkeypatch.setattr(main, "raw", raw)
+    message = _message()
+
+    class Bot:
+        def __init__(self):
+            self.saved = []
+
+        async def save_file(self, document, **kwargs):
+            self.saved.append((document.name, kwargs))
+            return SimpleNamespace(id=77)
+
+        def guess_mime_type(self, _name):
+            return "video/x-matroska"
+
+        async def resolve_peer(self, chat):
+            return f"peer:{chat}"
+
+        async def invoke(self, request):
+            return SimpleNamespace(updates=[SimpleNamespace(id=91, random_id=request.random_id)])
+
+        async def get_messages(self, chat, message_ids):
+            assert (chat, message_ids) == (-100, 91)
+            return message
+
+    bot = Bot()
+    result = await main._send_part_document_mtproto(bot, -100, b"payload", "uuid.part_000", "caption", 123456)
+
+    assert result is message
+    assert calls[0]["random_id"] == 123456
+    assert calls[0]["peer"] == "peer:-100"
+    assert bot.saved == [("uuid.part_000", {})]
+
+
+@pytest.mark.asyncio
+async def test_mtproto_missing_part_retries_are_bounded(monkeypatch):
+    class RawNamespace:
+        class functions:
+            class messages:
+                @staticmethod
+                def SendMedia(**kwargs):
+                    return SimpleNamespace(**kwargs)
+
+        class types:
+            @staticmethod
+            def InputMediaUploadedDocument(**kwargs):
+                return SimpleNamespace(**kwargs)
+
+            @staticmethod
+            def DocumentAttributeFilename(**kwargs):
+                return SimpleNamespace(**kwargs)
+
+    monkeypatch.setattr(main, "raw", RawNamespace())
+
+    class Bot:
+        def __init__(self):
+            self.invoke_calls = 0
+            self.repaired_parts = []
+
+        async def save_file(self, document, **kwargs):
+            if kwargs:
+                self.repaired_parts.append(kwargs["file_part"])
+            return SimpleNamespace(id=77)
+
+        def guess_mime_type(self, _name):
+            return "application/octet-stream"
+
+        async def resolve_peer(self, _chat):
+            return SimpleNamespace()
+
+        async def invoke(self, _request):
+            self.invoke_calls += 1
+            raise main.FilePartMissing(value=0)
+
+    bot = Bot()
+    with pytest.raises(RuntimeError, match="continuou rejeitando"):
+        await main._send_part_document_mtproto(bot, -100, b"x", "part", "caption", 123)
+
+    assert bot.invoke_calls == 2
+    assert bot.repaired_parts == [0]
+
+
+@pytest.mark.asyncio
+async def test_persisted_part_retry_pins_bot_and_checkpoints_before_return(monkeypatch):
+    bots = [SimpleNamespace(name="bot-a"), SimpleNamespace(name="bot-b")]
+    reservation = {"random_id": 987, "bot_id": 44, "bot_name": "bot-b"}
+    sends = []
+    updates = []
+    monkeypatch.setattr(main, "MAX_RETRIES", 2)
+
+    async def reserve(*_args):
+        return reservation, 1
+
+    async def send(bot, _chat, _payload, _name, **kwargs):
+        sends.append((bot, kwargs.get("random_id")))
+        if len(sends) == 1:
+            raise TimeoutError("lost response")
+        return _message()
+
+    async def no_wait(_seconds):
+        pass
+
+    class Files:
+        async def update_one(self, query, update):
+            updates.append((query, update))
+
+    mongo = SimpleNamespace(files=Files())
+    monkeypatch.setattr(main, "reserve_part_send", reserve)
+    monkeypatch.setattr(main, "_send_part_on_idle_bot", send)
+    monkeypatch.setattr(main.asyncio, "sleep", no_wait)
+    monkeypatch.setattr(main, "time", SimpleNamespace(monotonic=iter([1.0, 2.0, 3.0]).__next__))
+
+    result = await main.upload_part_with_retries(
+        1, bots, -100, "media.mkv", "uuid", 0, b"payload", caption="caption",
+        mongo=mongo, file_doc_id="file-id",
+    )
+
+    assert sends == [(bots[1], 987), (bots[1], 987)]
+    assert result["bot_id"] == 44
+    assert updates == [(
+        {"_id": "file-id"},
+        {"$addToSet": {"parts": result}, "$unset": {"pending_parts.0": ""}},
+    )]
+
+
+@pytest.mark.asyncio
+async def test_part_reservation_survives_worker_restart_with_same_random_id(monkeypatch):
+    class Files:
+        def __init__(self):
+            self.doc = {"_id": "file-id", "status": "uploading"}
+
+        async def find_one(self, _query):
+            return self.doc
+
+        async def update_one(self, query, update):
+            key = "pending_parts.0"
+            if query.get(key) == {"$exists": False}:
+                self.doc.setdefault("pending_parts", {})["0"] = update["$set"][key]
+                return SimpleNamespace(matched_count=1)
+            return SimpleNamespace(matched_count=0)
+
+    monkeypatch.setattr(main, "next_upload_bot_index", lambda _count: 0)
+    bot = SimpleNamespace(name="bot-a", me=SimpleNamespace(id=44))
+    mongo = SimpleNamespace(files=Files())
+
+    first, index = await main.reserve_part_send(
+        mongo, "file-id", [bot], -100, "uuid", 0, b"payload", "uuid.part_000", "caption"
+    )
+    second, second_index = await main.reserve_part_send(
+        mongo, "file-id", [bot], -100, "uuid", 0, b"payload", "uuid.part_000", "caption"
+    )
+
+    assert index == second_index == 0
+    assert first == second
+    assert 0 < first["random_id"] < 2**63
+    assert first["bot_id"] == 44
+    assert len(mongo.files.doc["pending_parts"]) == 1
+
+
+@pytest.mark.asyncio
+async def test_part_reservation_mismatch_blocks_retry_and_preserves_source(monkeypatch):
+    class Files:
+        def __init__(self):
+            self.doc = {
+                "_id": "file-id", "status": "uploading", "local_path": "source.mkv",
+                "pending_parts": {"0": {
+                    "upload_uuid": "uuid", "random_id": 123, "bot_id": 44,
+                    "sha256": "old-digest", "file_size": 7, "chunk_name": "uuid.part_000",
+                    "caption": "caption", "target_chat_id": "-100",
+                }},
+            }
+
+        async def find_one(self, _query):
+            return self.doc
+
+        async def update_one(self, _query, update):
+            self.doc.update(update["$set"])
+
+    mongo = SimpleNamespace(files=Files())
+    with pytest.raises(RuntimeError, match="recuperação bloqueada"):
+        await main.reserve_part_send(
+            mongo, "file-id", [SimpleNamespace(me=SimpleNamespace(id=44))], -100,
+            "uuid", 0, b"payload", "uuid.part_000", "caption",
+        )
+
+    assert mongo.files.doc["recovery_blocked"] is True
+    assert mongo.files.doc["local_path"] == "source.mkv"
+
+
+@pytest.mark.asyncio
 async def test_readahead_producer_queues_chunks_and_end_marker(monkeypatch, tmp_path):
     media = tmp_path / "readahead.bin"
     media.write_bytes(b"abcdefghij")

@@ -222,6 +222,31 @@ async def test_stats_reporter_requeues_failed_file_without_telegram_parts(monkey
 
 
 @pytest.mark.asyncio
+async def test_stats_reporter_does_not_requeue_recovery_blocked_file(monkeypatch, tmp_path):
+    stage = tmp_path / "stage"
+    stage.mkdir()
+    media = stage / "blocked.mkv"
+    media.write_bytes(b"video")
+    files = Files(find_results=[{
+        "_id": "blocked", "status": "failed", "recovery_blocked": True,
+    }])
+    queue = Queue()
+    mongo = _configure(monkeypatch, files, queue, stage)
+
+    async def stop(_seconds):
+        raise asyncio.CancelledError
+
+    monkeypatch.setattr(main.asyncio, "sleep", stop)
+
+    with pytest.raises(asyncio.CancelledError):
+        await main.stats_reporter(mongo)
+
+    assert media.read_bytes() == b"video"
+    assert queue.items == []
+    assert files.updates == []
+
+
+@pytest.mark.asyncio
 async def test_stats_reporter_removes_staging_duplicate_when_catalog_is_completed(
     monkeypatch, tmp_path
 ):
@@ -284,7 +309,7 @@ async def test_stats_reporter_queues_same_filename_for_another_parent(monkeypatc
 
 
 @pytest.mark.asyncio
-async def test_stats_reporter_removes_file_already_partially_sent_to_telegram(
+async def test_stats_reporter_requeues_file_with_checkpointed_telegram_parts(
     monkeypatch, tmp_path
 ):
     stage = tmp_path / "stage"
@@ -307,9 +332,12 @@ async def test_stats_reporter_removes_file_already_partially_sent_to_telegram(
     with pytest.raises(asyncio.CancelledError):
         await main.stats_reporter(mongo)
 
-    assert not media.exists()
-    assert queue.items == []
-    assert files.updates == []
+    assert media.read_bytes() == b"video"
+    assert queue.items == [{
+        "path": str(media), "filename": "partial-duplicate.mkv", "parent": "/raphael/Filmes", "size": 5,
+    }]
+    assert files.updates[0][1]["$set"]["status"] == "queued"
+    assert files.updates[0][1]["$set"]["local_path"] == str(media)
 
 
 async def _noop(*_args):

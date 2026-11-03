@@ -281,11 +281,17 @@ async def test_garbage_collector_deletes_only_old_failed_and_orphaned_staging_re
         await main.garbage_collector(mongo)
 
     assert files.delete_calls == [
-        {"type": "file", "status": "failed", "failed_at": {"$lt": 9900}},
+        {
+            "type": "file", "status": "failed", "failed_at": {"$lt": 9900},
+            "$or": [{"pending_parts": {"$exists": False}}, {"pending_parts": {}}],
+        },
         {"_id": {"$in": ["old-orphan"]}},
     ]
     assert files.find_calls == [(
-        {"type": "file", "status": "staging", "local_path": {"$exists": True}},
+        {
+            "type": "file", "status": "staging", "local_path": {"$exists": True},
+            "$or": [{"pending_parts": {"$exists": False}}, {"pending_parts": {}}],
+        },
         {"_id": 1, "local_path": 1, "staged_at": 1},
     )]
     assert duplicate_cleanup_calls == [mongo]

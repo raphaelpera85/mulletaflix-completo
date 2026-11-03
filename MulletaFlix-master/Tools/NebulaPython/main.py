@@ -15,6 +15,7 @@ except RuntimeError as exc:
     raise SystemExit(f"[deps] {exc}") from None
 
 import contextlib
+import hashlib
 import hmac
 import io
 import ipaddress
@@ -23,6 +24,7 @@ import logging
 import mimetypes
 import os
 import re
+import secrets
 import shutil
 import signal
 import ssl
@@ -45,9 +47,9 @@ import aiofiles
 from bson import ObjectId
 from pymongo import AsyncMongoClient, ReturnDocument
 from pymongo.errors import ConnectionFailure, DuplicateKeyError
-from pyrogram import Client
+from pyrogram import Client, raw, types
 from pyrogram import utils as pyrogram_utils
-from pyrogram.errors import FloodWait, RPCError
+from pyrogram.errors import FilePartMissing, FloodWait, RPCError
 import pyrogram.session.internals.msg_id as pyrogram_msg_id
 
 
@@ -300,7 +302,13 @@ async def _send_part_document(
     chunk_data,
     chunk_name,
     caption="",
+    random_id=None,
 ):
+    if random_id is not None:
+        return await _send_part_document_mtproto(
+            bot, target_chat_id, chunk_data, chunk_name, caption, random_id
+        )
+
     token = getattr(bot, "_nebula_bot_token", None)
     if not isinstance(token, str) or not token:
         return await bot.send_document(
@@ -320,12 +328,141 @@ async def _send_part_document(
     )
 
 
+async def _send_part_document_mtproto(bot, target_chat_id, chunk_data, chunk_name, caption, random_id):
+    document = io.BytesIO(chunk_data)
+    document.name = chunk_name
+    uploaded = await bot.save_file(document)
+    media = raw.types.InputMediaUploadedDocument(
+        file=uploaded,
+        mime_type=bot.guess_mime_type(chunk_name) or "application/octet-stream",
+        force_file=True,
+        attributes=[raw.types.DocumentAttributeFilename(file_name=chunk_name)],
+    )
+    request = raw.functions.messages.SendMedia(
+        peer=await bot.resolve_peer(target_chat_id),
+        media=media,
+        message=caption,
+        random_id=random_id,
+    )
+
+    # A missing-part response is recoverable, but a broken sender must not loop forever.
+    max_missing_part_retries = max(1, (len(chunk_data) + (512 * 1024) - 1) // (512 * 1024))
+    for retry in range(max_missing_part_retries + 1):
+        try:
+            response = await bot.invoke(request)
+            break
+        except FilePartMissing as exc:
+            if retry == max_missing_part_retries:
+                raise RuntimeError("Telegram continuou rejeitando partes do documento") from exc
+            await bot.save_file(document, file_id=uploaded.id, file_part=exc.value)
+    else:
+        raise RuntimeError("Telegram não confirmou o envio do documento")
+
+    updates = getattr(response, "updates", ())
+    users = {user.id: user for user in getattr(response, "users", ())}
+    chats = {chat.id: chat for chat in getattr(response, "chats", ())}
+    message_id = None
+    for update in updates:
+        update_message = getattr(update, "message", None)
+        if update_message is not None:
+            message = await types.Message._parse(bot, update_message, users, chats)
+            if message.document is not None:
+                return message
+        if getattr(update, "random_id", None) == random_id:
+            message_id = getattr(update, "id", None)
+
+    if message_id is not None:
+        message = await bot.get_messages(target_chat_id, message_ids=message_id)
+        if message and message.document is not None:
+            return message
+    raise RuntimeError("Telegram aceitou ou confirmou o envio sem retornar o documento")
+
+
+async def _get_bot_account_id(bot):
+    me = getattr(bot, "me", None)
+    if me is None:
+        me = await bot.get_me()
+    account_id = getattr(me, "id", None)
+    if not isinstance(account_id, int):
+        raise RuntimeError("Telegram não informou a identidade da conta do bot")
+    return account_id
+
+
+async def reserve_part_send(
+    mongo, file_doc_id, bots, target_chat_id, upload_uuid, part_num, chunk_data, chunk_name, caption,
+):
+    digest = hashlib.sha256(chunk_data).hexdigest()
+    reservation_key = f"pending_parts.{part_num}"
+    target_key = str(target_chat_id)
+
+    for _ in range(20):
+        file_doc = await mongo.files.find_one({"_id": file_doc_id})
+        if not file_doc or file_doc.get("status") != "uploading":
+            raise RuntimeError("Registro do upload deixou de pertencer ao worker")
+
+        reservations = file_doc.get("pending_parts") or {}
+        reservation = reservations.get(str(part_num))
+        if reservation:
+            matches = (
+                reservation.get("upload_uuid") == upload_uuid
+                and reservation.get("sha256") == digest
+                and reservation.get("file_size") == len(chunk_data)
+                and reservation.get("chunk_name") == chunk_name
+                and reservation.get("caption") == caption
+                and reservation.get("target_chat_id") == target_key
+            )
+            if not matches:
+                await mongo.files.update_one(
+                    {"_id": file_doc_id, "status": "uploading"},
+                    {"$set": {
+                        "status": "failed",
+                        "recovery_blocked": True,
+                        "failed_at": int(time.time()),
+                        "failed_reason": "telegram_part_reservation_mismatch",
+                    }},
+                )
+                raise RuntimeError("Origem ou destino mudou após reservar a parte Telegram; recuperação bloqueada")
+            for index, bot in enumerate(bots):
+                if await _get_bot_account_id(bot) == reservation.get("bot_id"):
+                    return reservation, index
+            raise RuntimeError("Bot original da parte reservada não está configurado; origem preservada")
+
+        if not bots:
+            raise RuntimeError("Nenhum bot Telegram disponível para a parte reservada")
+        bot_index = next_upload_bot_index(len(bots))
+        bot = bots[bot_index]
+        reservation = {
+            "upload_uuid": upload_uuid,
+            "random_id": secrets.randbits(63) or 1,
+            "bot_id": await _get_bot_account_id(bot),
+            "bot_name": getattr(bot, "name", None),
+            "sha256": digest,
+            "file_size": len(chunk_data),
+            "chunk_name": chunk_name,
+            "caption": caption,
+            "target_chat_id": target_key,
+        }
+        result = await mongo.files.update_one(
+            {
+                "_id": file_doc_id,
+                "status": "uploading",
+                reservation_key: {"$exists": False},
+            },
+            {"$set": {reservation_key: reservation}},
+        )
+        if result.matched_count:
+            return reservation, bot_index
+
+    raise RuntimeError("Não foi possível reservar a parte Telegram após conflitos concorrentes")
+
+
 async def _send_part_on_idle_bot(
     bot,
     target_chat_id,
     chunk_data,
     chunk_name,
     caption="",
+    random_id=None,
 ):
     """Wait for capacity, reserve the bot, and release it before retries/backoff."""
     async with get_upload_semaphore():
@@ -335,12 +472,15 @@ async def _send_part_on_idle_bot(
             active_uploads = 0
         bot._nebula_uploads = active_uploads + 1
         try:
+            send_options = {"caption": caption}
+            if random_id is not None:
+                send_options["random_id"] = random_id
             return await _send_part_document(
                 bot,
                 target_chat_id,
                 chunk_data,
                 chunk_name,
-                caption=caption,
+                **send_options,
             )
         finally:
             active_uploads = getattr(bot, "_nebula_uploads", 1)
@@ -503,18 +643,6 @@ def safe_remove_staging_file(path, force_delete=False):
 def queue_identity(path: str) -> str:
     """Chave estável para impedir que dois scanners registrem o mesmo arquivo."""
     return os.path.normcase(os.path.abspath(path)).rstrip("\\/")
-
-
-def has_telegram_parts(doc: dict) -> bool:
-    """Indica que o Telegram já recebeu ao menos uma parte do arquivo."""
-    if doc.get("tg_file_id") or doc.get("file_id"):
-        return True
-    return any(
-        isinstance(part, dict) and (
-            part.get("tg_file_id") or part.get("file_id") or part.get("tg_message")
-        )
-        for part in (doc.get("parts") or [])
-    )
 
 
 def _search_key(value):
@@ -846,6 +974,8 @@ async def stats_reporter(mongo):
                             "local_path": fp,
                             "type": "file"
                         })
+                        if existing_by_path and existing_by_path.get("recovery_blocked"):
+                            continue
                         if existing_by_path and existing_by_path.get("status") in {"queued", "uploading", "completed", "staging"}:
                             continue
 
@@ -883,12 +1013,9 @@ async def stats_reporter(mongo):
                         doc = await mongo.files.find_one({"name": display_name, "parent": parent_path})
                         if not doc and existing_by_path and existing_by_path.get("status") in {"failed", "staging"}:
                             doc = existing_by_path
-                        if doc and doc.get("status") in {"queued", "uploading", "completed", "staging"}:
+                        if doc and doc.get("recovery_blocked"):
                             continue
-
-                        if doc and doc.get("status") in {"failed", "staging"} and has_telegram_parts(doc):
-                            safe_remove_staging_file(fp, force_delete=True)
-                            logger.info("Ignorado arquivo já enviado parcialmente ao Telegram: %s", display_name)
+                        if doc and doc.get("status") in {"queued", "uploading", "completed", "staging"}:
                             continue
 
                         if doc and doc.get("status") in {"failed", "staging"}:
@@ -965,7 +1092,11 @@ async def cleanup_strm_duplicate_records(mongo):
     pattern = re.compile(r"^[0-9a-f]{24}\.[^.]+$", re.IGNORECASE)
     removed = 0
     async for doc in mongo.files.find(
-        {"type": "file", "name": {"$regex": pattern}},
+        {
+            "type": "file",
+            "name": {"$regex": pattern},
+            "$or": [{"pending_parts": {"$exists": False}}, {"pending_parts": {}}],
+        },
         {"_id": 1, "name": 1, "local_path": 1, "size": 1},
     ):
         local_path = doc.get("local_path")
@@ -1094,7 +1225,12 @@ async def resolve_local_path(mongo, doc):
 async def restore_pending_uploads(mongo):
     await cleanup_duplicate_target_records(mongo)
     count = 0
-    query = {"type": "file", "status": {"$in": ["queued", "uploading", "staging"]}, "local_path": {"$exists": True}}
+    query = {
+        "type": "file",
+        "status": {"$in": ["queued", "uploading", "staging"]},
+        "local_path": {"$exists": True},
+        "recovery_blocked": {"$ne": True},
+    }
     pending = [doc async for doc in mongo.files.find(query)]
     pending.sort(key=lambda doc: (
         doc_download_timestamp(doc),
@@ -1228,6 +1364,7 @@ async def queued_mongo_scanner(mongo, max_workers=None):
                     "status": "queued",
                     "local_path": {"$exists": True},
                     "recovery_required": {"$ne": True},
+                    "recovery_blocked": {"$ne": True},
                     "scanner_enqueued": {"$ne": True},
                     "$or": [
                         {"scanner_retry_after": {"$exists": False}},
@@ -1406,6 +1543,8 @@ async def staging_scanner(mongo, staging_dirs):
                             })
 
                             if existing:
+                                if existing.get("recovery_blocked"):
+                                    continue
                                 st = existing.get("status")
                                 # Ja enviado e concluido no Telegram: remove do stage local
                                 if st == "completed":
@@ -1418,7 +1557,11 @@ async def staging_scanner(mongo, staging_dirs):
                                         await mongo.files.update_one({"_id": existing["_id"]}, {"$set": updates})
                                     continue
                                 # Se estava com falha por ser duplicado, apaga do disco e limpa do banco
-                                if st == "failed" and existing.get("failed_reason") == "duplicate_target":
+                                if (
+                                    st == "failed"
+                                    and existing.get("failed_reason") == "duplicate_target"
+                                    and not existing.get("pending_parts")
+                                ):
                                     safe_remove_staging_file(str(file_path), force_delete=True)
                                     await mongo.files.delete_one({"_id": existing["_id"]})
                                     continue
@@ -1462,7 +1605,10 @@ async def staging_scanner(mongo, staging_dirs):
         await asyncio.sleep(5)
 
 
-async def upload_part_with_retries(worker_id, bots, target_chat_id, local_path, file_uuid, part_num, chunk_data=None, bot_index_offset=0, caption="", admission=None):
+async def upload_part_with_retries(
+    worker_id, bots, target_chat_id, local_path, file_uuid, part_num, chunk_data=None,
+    bot_index_offset=0, caption="", admission=None, mongo=None, file_doc_id=None,
+):
     """Upload a single part with bot rotation on FloodWait.
 
     Instead of being pinned to one bot, this function accepts the full bots
@@ -1484,7 +1630,17 @@ async def upload_part_with_retries(worker_id, bots, target_chat_id, local_path, 
     # traffic on the same worker-specific subset of bots.
     if not bots:
         raise RuntimeError("Nenhum bot Telegram disponível para upload. Verifique os tokens configurados.")
-    current_bot_idx = next_upload_bot_index(len(bots))
+    reservation = None
+    random_id = None
+    if mongo is not None and file_doc_id is not None:
+        reservation, reserved_index = await reserve_part_send(
+            mongo, file_doc_id, bots, target_chat_id, file_uuid, part_num,
+            chunk_data, chunk_name, caption,
+        )
+        current_bot_idx = reserved_index
+        random_id = reservation["random_id"]
+    else:
+        current_bot_idx = next_upload_bot_index(len(bots))
     sent_msg = None
     attempt = 1
     while attempt <= MAX_RETRIES:
@@ -1496,12 +1652,11 @@ async def upload_part_with_retries(worker_id, bots, target_chat_id, local_path, 
                 admission.ensure_active()
             started_at = time.monotonic()
             logger.info("[UPLOAD] W%s parte=%s bot=#%s iniciando", worker_id, part_num, bot_number)
+            send_options = {"caption": caption}
+            if random_id is not None:
+                send_options["random_id"] = random_id
             sent_msg = await _send_part_on_idle_bot(
-                part_bot,
-                target_chat_id,
-                chunk_data,
-                chunk_name,
-                caption=caption,
+                part_bot, target_chat_id, chunk_data, chunk_name, **send_options
             )
             if sent_msg is None:
                 raise RuntimeError("Telegram encerrou o upload sem retornar mensagem")
@@ -1516,11 +1671,14 @@ async def upload_part_with_retries(worker_id, bots, target_chat_id, local_path, 
             w = e.value + 2
             logger.warning(
                 f"[W{worker_id}] FloodWait bot#{bot_number}: {w}s, "
-                f"rotating to next bot"
+                f"{'retrying reserved bot' if reservation else 'rotating to next bot'}"
             )
             attempt += 1
-            current_bot_idx += 1
-            if len(bots) == 1:
+            if reservation:
+                await asyncio.sleep(w)
+            else:
+                current_bot_idx += 1
+            if len(bots) == 1 and not reservation:
                 await asyncio.sleep(w)
         except (TimeoutError, ConnectionError) as e:
             logger.warning(
@@ -1530,7 +1688,8 @@ async def upload_part_with_retries(worker_id, bots, target_chat_id, local_path, 
                 e,
             )
             attempt += 1
-            current_bot_idx += 1
+            if not reservation:
+                current_bot_idx += 1
             await asyncio.sleep(1)
         except RPCError as e:
             w = 2 ** attempt
@@ -1543,7 +1702,7 @@ async def upload_part_with_retries(worker_id, bots, target_chat_id, local_path, 
             await asyncio.sleep(5)
     if not sent_msg:
         raise Exception(f"Falha upload parte {part_num}")
-    return {
+    result = {
         "part_id": part_num,
         "tg_file": sent_msg.document.file_id,
         "tg_message": sent_msg.id,
@@ -1555,6 +1714,19 @@ async def upload_part_with_retries(worker_id, bots, target_chat_id, local_path, 
         "bot_index": bot_index_offset + (current_bot_idx % len(bots)),
         "bot_name": bot_name,
     }
+    if reservation:
+        result["bot_id"] = reservation["bot_id"]
+        await persist_upload_checkpoint(
+            mongo,
+            {"_id": file_doc_id},
+            {
+                "$addToSet": {"parts": result},
+                "$unset": {f"pending_parts.{part_num}": ""},
+            },
+            filename=os.path.basename(local_path),
+            worker_id=worker_id,
+        )
+    return result
 
 
 async def _readahead_producer(
@@ -1863,11 +2035,17 @@ async def upload_worker_parallel(bots, target_chat_id, mongo, worker_id):
                 f"paralelo={PART_WORKERS_PER_FILE} bots={len(bots)}"
             )
             first_chunk_name = parts_metadata[0].get("chunk_name", "") if parts_metadata else ""
-            file_uuid = (
+            pending_uuid = next((
+                part.get("upload_uuid")
+                for part in (file_doc.get("pending_parts") or {}).values()
+                if isinstance(part, dict) and part.get("upload_uuid")
+            ), None)
+            suggested_uuid = (
                 first_chunk_name.rsplit(".part_", 1)[0]
                 if ".part_" in first_chunk_name
-                else str(uuid.uuid4())
+                else pending_uuid or file_doc.get("obfuscated_id") or str(uuid.uuid4())
             )
+            file_uuid = suggested_uuid
             if resume_part:
                 logger.info(
                     "[W%s] Retomando %s na parte %s/%s (%.2f MB ja enviados)",
@@ -1933,7 +2111,7 @@ async def upload_worker_parallel(bots, target_chat_id, mongo, worker_id):
                     caption = build_part_caption(media_type, filename, pn, total_parts, file_uuid, real_size)
                     return await upload_part_with_retries(
                         worker_id, bots, target_chat_id, local_path, file_uuid, pn, chunk_data, 1,
-                        caption=caption, admission=admission
+                        caption=caption, admission=admission, mongo=mongo, file_doc_id=file_doc["_id"]
                     )
 
                 results = await asyncio.gather(
@@ -2089,17 +2267,32 @@ async def upload_small_file_worker(bots, target_chat_id, mongo, worker_id):
             await log_queue_state(mongo, f"inicio:{filename}")
 
             media_type = classify_media_type(parent, filename)
-            file_uuid = str(uuid.uuid4())
-            async with aiofiles.open(local_path, "rb") as f:
-                chunk_data = await f.read()
-
-            caption = build_part_caption(media_type, filename, 0, 1, file_uuid, real_size)
-            part_result = await upload_part_with_retries(
-                f"S{worker_id}", bots, target_chat_id, local_path, file_uuid, 0, chunk_data, 1,
-                caption=caption, admission=admission
+            parts_metadata = get_uploaded_parts_by_id(file_doc.get("parts"), 1, real_size)
+            first_chunk_name = parts_metadata[0].get("chunk_name", "") if parts_metadata else ""
+            pending_uuid = next((
+                part.get("upload_uuid")
+                for part in (file_doc.get("pending_parts") or {}).values()
+                if isinstance(part, dict) and part.get("upload_uuid")
+            ), None)
+            suggested_uuid = (
+                first_chunk_name.rsplit(".part_", 1)[0]
+                if ".part_" in first_chunk_name
+                else pending_uuid or file_doc.get("obfuscated_id") or str(uuid.uuid4())
             )
+            file_uuid = suggested_uuid
+            if parts_metadata:
+                part_result = parts_metadata[0]
+            else:
+                async with aiofiles.open(local_path, "rb") as f:
+                    chunk_data = await f.read()
 
-            parts_metadata = [part_result]
+                caption = build_part_caption(media_type, filename, 0, 1, file_uuid, real_size)
+                part_result = await upload_part_with_retries(
+                    f"S{worker_id}", bots, target_chat_id, local_path, file_uuid, 0, chunk_data, 1,
+                    caption=caption, admission=admission, mongo=mongo, file_doc_id=file_doc["_id"]
+                )
+                parts_metadata = [part_result]
+
             stream_bot_name = part_result.get("bot_name")
             await persist_upload_checkpoint(
                 mongo,
@@ -2549,6 +2742,10 @@ async def garbage_collector(mongo):
                 "type": "file",
                 "status": "failed",
                 "failed_at": {"$lt": cutoff},
+                "$or": [
+                    {"pending_parts": {"$exists": False}},
+                    {"pending_parts": {}},
+                ],
             })
             if result.deleted_count:
                 logger.info("GC: removidos %s registros falhos antigos.", result.deleted_count)
@@ -2559,7 +2756,10 @@ async def garbage_collector(mongo):
             # Remove staging records whose local_path no longer exists
             stale_staging = [
                 doc async for doc in mongo.files.find(
-                    {"type": "file", "status": "staging", "local_path": {"$exists": True}},
+                    {
+                        "type": "file", "status": "staging", "local_path": {"$exists": True},
+                        "$or": [{"pending_parts": {"$exists": False}}, {"pending_parts": {}}],
+                    },
                     {"_id": 1, "local_path": 1, "staged_at": 1},
                 )
                 if (
