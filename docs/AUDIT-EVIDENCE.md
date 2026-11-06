@@ -1575,3 +1575,33 @@ A solução foi reexecutada localmente em Windows/.NET 10 Release, sem rebuild: 
 O contrato do portal foi atualizado para os novos valores, mantendo os eventos históricos e os 2/7 gates formais. `node --test tests/homologacao.test.mjs`: 372/372. `git diff --check` passou. Portal Git `main` commit `31c9467b8d0da29f0950e5477fee37e588f3121c`, SHA remoto confirmado. Não foi verificado deployment Vercel nesta rodada.
 
 Limites: nenhuma conexão ao banco operacional ou produção; nenhum MariaDB descartável configurado nesta rodada; os skips permanecem pendentes. A integração efetiva MariaDB, Linux nativo, runtime/instalador, CI hospedada e smoke de produção seguem pendentes. Actions run `40795733017` bloqueou 13 jobs antes dos runners por billing; isso não é falha de teste. MariaDB é o único banco relacional operacional. Sem release.
+## Fluxo de release 12.1.46 — regressão ampliada e gate CI — 2026-11-06
+
+- A solução .NET foi executada em Windows/.NET 10 Release com `dotnet test MulletaFlix-master/MulletaFlix.sln --no-restore --configuration Release --filter 'FullyQualifiedName!~Integration' --logger 'console;verbosity=quiet'`; exit code 0. Resumos visíveis: Server.Implementations.Tests 1.734 aprovados, 91 ignorados, 0 falhas; Providers.Tests 943 aprovados, 1 ignorado, 0 falhas. Não tratar ignorados como aprovados nem como cobertura de integração.
+- Também passaram TmdbUtilsTests 37/37, NebulaDownloaderStartupTests 35/35, Nebula Python 823 aprovados/1 ignorado e portal 252/252.
+- PR #1 segue aberta e mergeable no head `2abdc15ce2068746f149fa0d20282dfc70eb1c12`. Run Actions #525 terminou com falha em todos os 17 jobs sem steps; os diagnósticos não retornam checks, statuses ou anotações, e logs de job não existem. A tentativa de rerun via integração GitHub recebeu 403 `Resource not accessible by integration`. O bloqueio de cobrança foi informado nos diagnósticos públicos anteriores, mas não pude validar se continua sendo a causa única deste run; falhas de código não foram demonstradas nem descartadas.
+- Sem push, merge, tag, artefato ou publicação: os checks obrigatórios ainda não foram executados e o acesso não permite rerun. `v12.1.46` continua candidata; homologação formal 2/7 (28,6%), snapshot do portal local 416 eventos/lote 6/10. Última release pública conhecida `v12.1.45`.
+- Auditoria NextUp: consulta aplica filtro, agrupamento, ordenação determinística e cursor no banco; o gestor consome páginas progressivas. A contagem exata mantém um caminho de varredura completa por compatibilidade. O cursor baseado em `LastPlayedDate` pode deslocar-se durante a mesma leitura se houver atualização concorrente; sem reprodução em banco de produção ou benchmark, não foi feita alteração de runtime. A documentação EF recomenda keyset para paginação sequencial e descreve isolamento de leitura repetível como opção com custo/efeitos de bloqueio; estudar snapshot somente com teste MariaDB e medição antes de mudar o contrato.
+- O mapa técnico do projeto foi conferido e permanece sem mudanças: nenhum módulo, API, classe, dependência ou fluxo de runtime foi alterado nesta sessão.
+
+## Regressão restore Windows e revisão acessível do portal — 2026-11-06 18:28 BRT
+
+- `FullyQualifiedName~FullSystemBackup`, Release Windows/.NET 10: 157 aprovados, 16 ignorados, 0 falhas/173. Os ignorados são predominantemente testes de ACL/syscall/symlink/mount Linux/macOS; esta execução não fecha H03 nem a corrida nativa após `statx`.
+- Revisão adversarial detectou que o resumo extenso da auditoria estava marcado como `role=status`/`aria-live=polite`, anunciando todo o texto ao carregar. O markup mantém o cabeçalho e o conteúdo legível, removendo apenas a região de anúncio automático. Testes de contrato portal passaram 252/252 depois da correção.
+- Atualização apenas no snapshot local da página; 416 eventos, lote 6/10, formal 2/7 (28,6%). Sem publicação pública, commit, tag ou pacote. CI #525 permanece bloqueado por cobrança; release pública v12.1.45.
+- Nenhum banco, runtime instalado ou produção acessado. O mapa técnico foi conferido; sem mudança de módulo, API, dependência ou fluxo do servidor.
+- Pesquisa em man-pages oficiais: `openat2` restringe resolução de caminhos; `renameat2`/`unlinkat` ainda mutam entradas pelo nome e não ficam vinculados ao inode validado. Nenhuma adoção foi proposta sem teste Linux determinístico; verificar suporte do filesystem segue pendente.
+
+## Cobertura do idioma retornado pelos providers TMDb — 2026-11-06 18:35 BRT
+
+- `TmdbImageProviderLanguageTests` verifica cinco providers em modo preferido e em modo todas as línguas, incluindo rótulos `pt-BR`, `pt-PT` e inglês fallback: 4/4 focal.
+- Suíte completa `Jellyfin.Providers.Tests` em Windows/.NET 10 Release: 951 aprovados, 14 ignorados, 0 falhas/965. Portal 252/252; `git diff --check` passou.
+- Sem mudança de runtime; cache é pré-carregado nos testes e não há chamada à API TMDb real. Logo não prova disponibilidade de capas no catálogo nem ordenação/renderização em produção.
+- Portal local registra 416 eventos/lote 6/10 e homologação formal 2/7 (28,6%); sem publicação. O mapa técnico foi conferido e permanece estruturalmente igual.
+
+## Revalidação do contrato de idioma dos providers TMDb — 2026-11-06 18:21 BRT
+
+- A suíte completa `Jellyfin.Providers.Tests` passou em Windows/.NET 10 Release: 950 aprovados, 14 ignorados, 0 falhas/964. `TmdbImageProviderLanguageTests`: 3/3, incluindo captura offline das requisições de cinco providers e as modalidades idioma preferido/todos os idiomas.
+- `node --test portal-site/tests/*.test.mjs`: 252/252; `git diff --check`: aprovado. Esses testes não consultam a API TMDb nem homologam servidor instalado/produção.
+- O fluxo de release não avançou: Actions #525 confirma nos diagnósticos que os 17 jobs não começaram por bloqueio de cobrança; `dist` não existe neste checkout; a última release pública segue `v12.1.45`. Sem commit, tag, upload, merge ou publicação.
+- O mapa técnico foi conferido e permanece sem mudança: apenas cobertura de teste e registro da auditoria, sem módulo/API/dependência/fluxo de produção novo.

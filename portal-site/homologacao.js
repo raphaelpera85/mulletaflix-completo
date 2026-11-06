@@ -99,6 +99,9 @@
     const recentEvents = events.slice().sort((a, b) => (Date.parse(b.updatedAt || '') || 0) - (Date.parse(a.updatedAt || '') || 0));
     byId('event-list').innerHTML = recentEvents.length ? recentEvents.slice(0, 25).map(event => { const progressValue = event.progressPercent; const progress = typeof progressValue === 'number' && Number.isFinite(progressValue) ? ` · ${progressValue}%` : ''; return `<li><span class="event-dot ${statusClass(event.status)}"></span><div><strong>${escapeHtml(event.title)}</strong><p>${escapeHtml(event.location || 'Local não informado')} · ${escapeHtml(statusText[event.status] || event.status)}${progress} · ${date(event.updatedAt)}</p></div></li>`; }).join('') : '<li class="empty-event"><strong>Nenhum evento de homologação publicado</strong><p>Quando um agente iniciar um teste, registre-o em <code>portal-site/homologacao-status.json</code> com local, status, percentual e evidência.</p></li>';
   };
+  const renderLatestAudit = data => {
+    byId('latest-audit').textContent = data.latestAudit || 'Sem atualização de auditoria registrada.';
+  };
   const load = async () => {
     const [data, runs, releases] = await Promise.all([
       fetch('homologacao-status.json', { cache: 'no-store' }).then(response => response.json()),
@@ -106,7 +109,7 @@
       fetch(`${apiRoot}/releases?per_page=20`, { headers: { Accept: 'application/vnd.github+json' } }).then(response => response.ok ? response.json() : []).catch(() => [])
     ]);
     latestData = data;
-    renderCoverage(data); renderFeatures(data); renderTracks(data, runs.workflow_runs, releases); renderAndroidHomologation(data); renderEvents(data);
+    renderCoverage(data); renderFeatures(data); renderTracks(data, runs.workflow_runs, releases); renderAndroidHomologation(data); renderEvents(data); renderLatestAudit(data);
     byId('dashboard-state').textContent = 'Atualizado'; byId('dashboard-state').className = 'status-chip is-good';
   };
   byId('feature-search').addEventListener('input', () => { featurePage = 1; if (latestData) renderFeatures(latestData); });
