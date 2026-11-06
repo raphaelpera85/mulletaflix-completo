@@ -1952,7 +1952,9 @@ async def persist_upload_checkpoint(mongo, query, update, *, filename, worker_id
     delay = 1
     while True:
         try:
-            await mongo.files.update_one(query, update)
+            result = await mongo.files.update_one(query, update)
+            if result.matched_count == 0:
+                raise RuntimeError(f"Mongo checkpoint matched no media record for {filename}")
             return
         except (TimeoutError, ConnectionError, ConnectionFailure) as exc:
             logger.warning(

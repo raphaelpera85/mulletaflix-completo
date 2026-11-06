@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-11-03T01:10:00-03:00",
+  "generatedAt": "2026-11-06T19:31:00-03:00",
   "source": {
     "roadmap": "https://github.com/raphaelpera85/mulletaflix-completo/blob/main/docs/roadmap-evolucao-tecnologica-servidor-e-web.md",
     "repository": "https://github.com/raphaelpera85/mulletaflix-completo"
@@ -10066,16 +10066,16 @@
         "https://core.telegram.org/method/messages.sendMedia",
         "https://pymongo.readthedocs.io/en/stable/api/pymongo/asynchronous/collection.html"
       ],
-      "local": "Implementação local em main.py; suíte Nebula completa passou em Windows/Python 3.14.7 do venv.",
+      "local": "Checkpoint Mongo com matched_count=0 falha sem apagar staging. Simulação do Telegram aceitando a mídia e perdendo a resposta confirma retomada com o mesmo random_id; suíte Nebula 826 aprovados, 1 ignorado; coverage 82%.",
       "location": "MulletaFlix-master/Tools/NebulaPython/main.py; tests/test_main_upload_part.py; tests/test_main_upload_worker.py; tests/test_stats_reporter.py; tests/test_main_cleanup.py",
       "scope": "Persistir a identidade aleatória e o bot da parte antes do envio MTProto, para retries após timeout e reinício repetirem a mesma operação sem duplicar mídia.",
       "status": "in_progress",
       "progressPercent": 70,
       "startedAt": "2026-11-03T00:55:00-03:00",
-      "updatedAt": "2026-11-03T01:10:00-03:00",
-      "evidence": "A Bot API sendDocument foi contornada apenas no caminho com reserva persistida: main.py salva random_id, identidade do bot, SHA-256, tamanho, nome, legenda, destino e UUID no Mongo antes de chamar messages.sendMedia; após sucesso, parts é atualizado com $addToSet e a reserva é removida. Retries preservam bot e random_id; divergência de origem/destino marca recovery_blocked e preserva staging. Garbage collector e scanner ignoram reservas pendentes/bloqueadas. Suíte Nebula completa: 823 aprovados, 1 ignorado, 0 falhas; contrato portal local: 251/251. Sem envio Telegram real, teste de restart com storage Mongo real, medição de throughput, Linux, CI hospedada, runtime instalado ou produção; Pyrofork arquivado requer gate de compatibilidade.",
-      "release": "Snapshot local 416 eventos; lote 6/10, portal público não atualizado. Homologação formal permanece 2/7 (28,6%); release 12.1.46 candidata, não publicada."
+      "updatedAt": "2026-11-06T19:31:00-03:00",
+      "evidence": "A Bot API sendDocument foi contornada apenas no caminho com reserva persistida: main.py salva random_id, identidade do bot, SHA-256, tamanho, nome, legenda, destino e UUID no Mongo antes de chamar messages.sendMedia; após sucesso, parts é atualizado com $addToSet e a reserva é removida. Retries preservam bot e random_id; divergência de origem/destino marca recovery_blocked e preserva staging. Garbage collector e scanner ignoram reservas pendentes/bloqueadas. Suíte Nebula completa: 823 aprovados, 1 ignorado, 0 falhas; contrato portal local: 251/251. Sem envio Telegram real, teste de restart com storage Mongo real, medição de throughput, Linux, CI hospedada, runtime instalado ou produção; Pyrofork arquivado requer gate de compatibilidade. persist_upload_checkpoint exige matched_count positivo; teste do worker preserva o staging quando o documento não existe. Teste de reinício simulado comprova uma única parte checkpointada após resposta perdida.",
+      "release": "Snapshot local 416 eventos; lote 6/10, portal público não atualizado. Homologação formal permanece 2/7 (28,6%); CI #527 bloqueada por cobrança e PR #1 aberta. Release 12.1.46 candidata, não publicada."
     }
   ],
-  "latestAudit": "06/11/2026, 18:44 BRT: Após o commit 2a649c06 na PR #1, CI #526/run 42298734118 reportou 17 checks falhos antes de iniciar; a anotação do GitHub confirma bloqueio de cobrança e não há logs de execução. PR segue aberta, sem merge. Regressão local adicional: Nebula Python 823 aprovados, 1 ignorado; o skip requer MongoDB descartável, e não há runtime Mongo/Docker/Podman local. Portal 252/252; Providers 951 aprovados/14 ignorados/965; TmdbImageProviderLanguageTests 4/4; FullSystemBackup Windows 157 aprovados/16 ignorados/173; regressão anterior da solução .NET terminou exit 0. Linux nativo, CI executada, pacote dist, Telegram/Mongo real e produção continuam pendentes. Snapshot 416 eventos, lote 6/10; página atualizada localmente, aguardando publicação até lote e merge em main. Homologação formal 2/7 (28,6%); release 12.1.46 candidata, não publicada."
+  "latestAudit": "06/11/2026, 19:31 BRT: CI #527/run 42299634659 teve 17 checks recusados antes de iniciar; anotação do GitHub confirma bloqueio de cobrança, sem steps ou logs. PR #1 segue aberta e fora de main. Nebula: checkpoint Mongo com matched_count=0 aborta sem excluir staging; teste simula aceite Telegram/resposta perdida e reutiliza o mesmo random_id e checkpointa uma parte; foco 38/38; suíte completa 826 aprovados, 1 ignorado, 0 falhas, coverage 82%. Skip requer Mongo descartável indisponível; nenhum Mongo/Telegram real foi usado. Portal 252/252. Full release não pode prosseguir até desbloquear CI e integrar a PR: dist/tag/assets ausentes. Linux nativo, runtime instalado e produção pendentes. Integridade Windows: 9/9 scripts em PowerShell 7; ApplyUpdateFailClosed também passou em Windows PowerShell 5.1. Providers 951 aprovados/14 ignorados/965; TmdbImageProviderLanguageTests 4/4. FullSystemBackup Windows 157 aprovados/16 ignorados/173; Linux nativo e regressão .NET anterior ainda pendentes ou anteriores. Pesquisa registrada: atestação de proveniência de artefatos é oportunidade ainda não implementada. Snapshot 416 eventos, lote 6/10; atualização local aguarda lote e merge em main. Homologação formal 2/7 (28,6%); release 12.1.46 candidata, não publicada."
 }

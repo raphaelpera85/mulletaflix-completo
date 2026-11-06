@@ -21,6 +21,7 @@ async def test_upload_checkpoint_retries_transient_mongo_failures(monkeypatch):
             attempts.append((query, update))
             if len(attempts) < 3:
                 raise TimeoutError("Mongo temporarily unavailable")
+            return SimpleNamespace(matched_count=1)
 
     async def record_delay(delay):
         delays.append(delay)
@@ -48,6 +49,7 @@ async def test_upload_checkpoint_retries_mongo_connection_failures(monkeypatch):
             attempts.append(True)
             if len(attempts) == 1:
                 raise ServerSelectionTimeoutError("Mongo unavailable")
+            return SimpleNamespace(matched_count=1)
 
     async def record_delay(delay):
         delays.append(delay)
@@ -89,7 +91,35 @@ async def test_upload_checkpoint_does_not_retry_permanent_mongo_errors(monkeypat
 
 
 @pytest.mark.asyncio
-async def test_parallel_upload_worker_completes_file_and_cleans_staging(monkeypatch, tmp_path):
+async def test_upload_checkpoint_rejects_missing_media_record_without_retry(monkeypatch):
+    attempts = []
+    delays = []
+
+    class Files:
+        async def update_one(self, _query, _update):
+            attempts.append(True)
+            return SimpleNamespace(matched_count=0)
+
+    async def record_delay(delay):
+        delays.append(delay)
+
+    monkeypatch.setattr(main.asyncio, "sleep", record_delay)
+
+    with pytest.raises(RuntimeError, match="matched no media record"):
+        await main.persist_upload_checkpoint(
+            SimpleNamespace(files=Files()), {"_id": "deleted-media"}, {"$set": {"status": "completed"}},
+            filename="media.mkv", worker_id=4,
+        )
+
+    assert attempts == [True]
+    assert delays == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("final_checkpoint_matches", [True, False])
+async def test_parallel_upload_worker_respects_final_checkpoint_result(
+    monkeypatch, tmp_path, final_checkpoint_matches
+):
     media = tmp_path / "episode.mkv"
     media.write_bytes(b"abcdefghij")
     file_doc = {"_id": "file-1", "status": "queued", "parts": []}
@@ -109,6 +139,9 @@ async def test_parallel_upload_worker_completes_file_and_cleans_staging(monkeypa
 
         async def update_one(self, query, update):
             updates.append((query, update))
+            if update.get("$set", {}).get("status") == "completed" and not final_checkpoint_matches:
+                return SimpleNamespace(matched_count=0)
+            return SimpleNamespace(matched_count=1)
 
     queue = asyncio.Queue()
     monkeypatch.setattr(main, "UPLOAD_QUEUE", queue)
@@ -176,14 +209,20 @@ async def test_parallel_upload_worker_completes_file_and_cleans_staging(monkeypa
     ]
     assert len(read_waits) < 3
     assert len([update for _query, update in updates if "$set" in update and "status" not in update["$set"]]) == 2
-    final_update = updates[-1][1]
-    assert final_update["$set"]["status"] == "completed"
+    final_update = next(
+        update for _query, update in updates if update.get("$set", {}).get("status") == "completed"
+    )
     assert final_update["$set"]["part_count"] == 3
     assert final_update["$set"]["size"] == 10
     assert final_update["$set"]["obfuscated_id"] == "stable-uuid"
     assert final_update["$unset"] == {"uploadId": 1, "local_path": 1}
-    assert uploaded[-1] == ("success", 10)
-    assert removed == [str(media)]
+    if final_checkpoint_matches:
+        assert uploaded[-1] == ("success", 10)
+        assert removed == [str(media)]
+    else:
+        assert uploaded[-1] == ("failure", None)
+        assert removed == []
+        assert media.exists()
     assert str(media) not in main.ACTIVE_UPLOADS
 
 
@@ -213,6 +252,7 @@ async def test_parallel_upload_checkpoints_successful_sibling_before_retry(monke
                 file_doc.pop(key, None)
             if file_doc.get("status") == "failed":
                 failed_status_saved.set()
+            return SimpleNamespace(matched_count=1)
 
     class Admission:
         async def close(self):
@@ -299,6 +339,7 @@ async def test_parallel_upload_worker_cancels_blocked_readahead_after_upload_fai
 
         async def update_one(self, query, update):
             updates.append((query, update))
+            return SimpleNamespace(matched_count=1)
 
     queue = asyncio.Queue()
     original_producer = main._readahead_producer
@@ -366,6 +407,7 @@ async def test_parallel_upload_worker_records_readahead_read_failure_and_release
 
         async def update_one(self, query, update):
             updates.append((query, update))
+            return SimpleNamespace(matched_count=1)
 
     async def fail_readahead(*_args, **_kwargs):
         raise OSError("simulated disk read failure")
@@ -423,6 +465,7 @@ async def test_parallel_upload_worker_retrieves_readahead_error_when_upload_fail
 
         async def update_one(self, query, update):
             updates.append((query, update))
+            return SimpleNamespace(matched_count=1)
 
     async def fail_after_batch(_path, _total_parts, queue, *_args, **_kwargs):
         await queue.put((0, b"xxxx"))
@@ -755,6 +798,7 @@ async def _run_small_file_worker(monkeypatch, tmp_path, *, fail_upload, existing
 
         async def update_one(self, query, update):
             updates.append((query, update))
+            return SimpleNamespace(matched_count=1)
 
     async def resolve_parent(*_args):
         return "Books"

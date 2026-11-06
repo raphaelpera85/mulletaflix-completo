@@ -307,6 +307,7 @@ async def test_persisted_part_retry_pins_bot_and_checkpoints_before_return(monke
     class Files:
         async def update_one(self, query, update):
             updates.append((query, update))
+            return SimpleNamespace(matched_count=1)
 
     mongo = SimpleNamespace(files=Files())
     monkeypatch.setattr(main, "reserve_part_send", reserve)
@@ -359,6 +360,69 @@ async def test_part_reservation_survives_worker_restart_with_same_random_id(monk
     assert 0 < first["random_id"] < 2**63
     assert first["bot_id"] == 44
     assert len(mongo.files.doc["pending_parts"]) == 1
+
+
+@pytest.mark.asyncio
+async def test_worker_restart_reuses_random_id_after_telegram_accepts_but_response_is_lost(monkeypatch):
+    bot = SimpleNamespace(name="bot-a", me=SimpleNamespace(id=44))
+    sent_messages = {}
+    send_attempts = []
+
+    class Files:
+        def __init__(self):
+            self.doc = {"_id": "file-id", "status": "uploading"}
+
+        async def find_one(self, _query):
+            return self.doc
+
+        async def update_one(self, query, update):
+            reservation_key = "pending_parts.0"
+            if query.get(reservation_key) == {"$exists": False}:
+                if reservation_key in self.doc.get("pending_parts", {}):
+                    return SimpleNamespace(matched_count=0)
+                self.doc.setdefault("pending_parts", {})["0"] = update["$set"][reservation_key]
+                return SimpleNamespace(matched_count=1)
+
+            part = update.get("$addToSet", {}).get("parts")
+            if part is not None and part not in self.doc.setdefault("parts", []):
+                self.doc["parts"].append(part)
+            for key in update.get("$unset", {}):
+                self.doc.get("pending_parts", {}).pop(key.removeprefix("pending_parts."), None)
+            return SimpleNamespace(matched_count=1)
+
+    async def send(_bot, _chat, _payload, _name, *, random_id, caption):
+        send_attempts.append((random_id, caption))
+        if random_id not in sent_messages:
+            sent_messages[random_id] = _message()
+            raise TimeoutError("Telegram accepted the media, response lost")
+        return sent_messages[random_id]
+
+    async def no_wait(_seconds):
+        return None
+
+    monkeypatch.setattr(main, "MAX_RETRIES", 1)
+    monkeypatch.setattr(main, "_send_part_on_idle_bot", send)
+    monkeypatch.setattr(main.asyncio, "sleep", no_wait)
+    monkeypatch.setattr(main, "time", SimpleNamespace(monotonic=lambda: 1.0))
+    mongo = SimpleNamespace(files=Files())
+
+    with pytest.raises(Exception, match="Falha upload parte 0"):
+        await main.upload_part_with_retries(
+            1, [bot], -100, "media.mkv", "uuid", 0, b"payload", caption="caption",
+            mongo=mongo, file_doc_id="file-id",
+        )
+
+    reserved_random_id = mongo.files.doc["pending_parts"]["0"]["random_id"]
+    result = await main.upload_part_with_retries(
+        1, [bot], -100, "media.mkv", "uuid", 0, b"payload", caption="caption",
+        mongo=mongo, file_doc_id="file-id",
+    )
+
+    assert send_attempts == [(reserved_random_id, "caption"), (reserved_random_id, "caption")]
+    assert len(sent_messages) == 1
+    assert result["tg_message"] == sent_messages[reserved_random_id].id
+    assert mongo.files.doc["parts"] == [result]
+    assert mongo.files.doc["pending_parts"] == {}
 
 
 @pytest.mark.asyncio

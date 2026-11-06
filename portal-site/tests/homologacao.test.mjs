@@ -99,7 +99,8 @@ test('portal registra regressão ampla .NET e Nebula sem conceder homologação 
         percent: 95.1,
         label: 'Regressão .NET Release em Windows/.NET 10: 17 assemblies, 5.671 aprovados, 290 ignorados, 0 falhas/5.961; filtro FullyQualifiedName!~LiveIntegrationTests. Percentual é taxa de aprovação dos casos incluídos, não completude funcional nem homologação formal (2/7, 28,6%). Nebula Python: 820 aprovados, 1 ignorado/821 em Windows/Python 3.14.7; coverage.py combinado linha/branch: 82% em main, FTP e tools. CI hospedada, Linux/macOS, bancos opt-in, runtime instalado e produção permanecem pendentes.'
     });
-    assert.match(statusData.latestAudit, /06\/11\/2026.*CI #526.*17 checks falhos antes de iniciar.*bloqueio de cobrança.*252\/252.*416 eventos, lote 6\/10.*2\/7.*12\.1\.46 candidata, não publicada/i);
+    assert.match(statusData.latestAudit, /06\/11\/2026.*CI #527.*17 checks recusados antes de iniciar.*anotação do GitHub confirma bloqueio de cobrança.*252\/252.*atestação de proveniência.*416 eventos, lote 6\/10.*2\/7.*12\.1\.46 candidata, não publicada/i);
+    assert.match(statusData.latestAudit, /checkpoint Mongo com matched_count=0 aborta sem excluir staging.*mesmo random_id.*uma parte.*foco 38\/38.*826 aprovados, 1 ignorado.*coverage 82%/i);
     assert.equal(statusData.events.length, 416);
     assert.equal(server.homologation.completed, 2);
     assert.equal(server.homologation.total, 7);
@@ -715,7 +716,9 @@ test('portal exibe a auditoria atual sem conceder homologação formal', async (
     assert.ok(auditRegion);
     assert.doesNotMatch(auditRegion, /\b(?:role|aria-live)=/);
     assert.equal(dashboard.getElement('latest-audit').textContent, statusData.latestAudit);
-    assert.match(dashboard.getElement('latest-audit').textContent, /CI #526.*17 checks falhos antes de iniciar.*bloqueio de cobrança/);
+    assert.match(dashboard.getElement('latest-audit').textContent, /CI #527.*17 checks recusados antes de iniciar.*anotação do GitHub confirma bloqueio de cobrança/);
+    assert.match(dashboard.getElement('latest-audit').textContent, /checkpoint Mongo com matched_count=0 aborta sem excluir staging.*mesmo random_id.*826 aprovados, 1 ignorado/);
+    assert.match(dashboard.getElement('latest-audit').textContent, /Integridade Windows.*9\/9 scripts.*Windows PowerShell 5\.1/);
     assert.match(dashboard.getElement('latest-audit').textContent, /Providers 951 aprovados\/14 ignorados\/965.*TmdbImageProviderLanguageTests 4\/4/);
     assert.match(dashboard.getElement('latest-audit').textContent, /FullSystemBackup Windows 157 aprovados\/16 ignorados.*Linux nativo/);
     assert.equal(statusData.events.length, 416);
@@ -4047,7 +4050,7 @@ test('portal registra auditoria dos consumidores das probes sem alterar homologa
     assert.equal(statusData.events.length, 416);
     assert.equal(statusData.generatedAt, statusData.events.at(-1).updatedAt);
     assert.equal(statusData.events.at(-1).updatedAt, statusData.generatedAt);
-    assert.match(statusData.latestAudit, /06\/11\/2026.*CI #526.*17 checks falhos antes de iniciar.*bloqueio de cobrança.*252\/252.*416 eventos, lote 6\/10.*2\/7.*12\.1\.46 candidata, não publicada/i);
+    assert.match(statusData.latestAudit, /06\/11\/2026.*CI #527.*17 checks recusados antes de iniciar.*anotação do GitHub confirma bloqueio de cobrança.*252\/252.*atestação de proveniência.*416 eventos, lote 6\/10.*2\/7.*12\.1\.46 candidata, não publicada/i);
     assert.equal(server.homologation.completed, 2);
     assert.equal(server.homologation.total, 7);
     assert.equal(server.homologation.percent, 28.6);
@@ -4349,7 +4352,8 @@ test('portal registra reservas idempotentes por parte no Nebula sem creditar hom
     assert.equal(event.status, 'in_progress');
     assert.equal(event.progressPercent, 70);
     assert.match(event.evidence, /random_id.*identidade do bot.*SHA-256.*\$addToSet.*retries preservam bot e random_id/i);
-    assert.match(event.evidence, /823 aprovados, 1 ignorado.*Sem envio Telegram real.*produção/i);
+    assert.match(event.local, /matched_count=0.*826 aprovados, 1 ignorado.*coverage 82%/i);
+    assert.match(event.evidence, /matched_count positivo.*uma única parte checkpointada.*resposta perdida/i);
     assert.match(event.release, /416 eventos.*lote 6\/10.*2\/7 \(28,6%\).*12\.1\.46 candidata, não publicada/i);
     assert.equal(statusData.events.length, 416);
     assert.equal(server.homologation.completed, 2);
