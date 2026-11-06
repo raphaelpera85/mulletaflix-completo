@@ -99,7 +99,7 @@ test('portal registra regressão ampla .NET e Nebula sem conceder homologação 
         percent: 95.1,
         label: 'Regressão .NET Release em Windows/.NET 10: 17 assemblies, 5.671 aprovados, 290 ignorados, 0 falhas/5.961; filtro FullyQualifiedName!~LiveIntegrationTests. Percentual é taxa de aprovação dos casos incluídos, não completude funcional nem homologação formal (2/7, 28,6%). Nebula Python: 820 aprovados, 1 ignorado/821 em Windows/Python 3.14.7; coverage.py combinado linha/branch: 82% em main, FTP e tools. CI hospedada, Linux/macOS, bancos opt-in, runtime instalado e produção permanecem pendentes.'
     });
-    assert.match(statusData.latestAudit, /06\/11\/2026.*CI GitHub Actions #525 não iniciou os 17 jobs.*bloqueada por cobrança.*252\/252.*416 eventos, lote 6\/10.*2\/7.*12\.1\.46 candidata, não publicada/i);
+    assert.match(statusData.latestAudit, /06\/11\/2026.*CI #526.*17 checks falhos antes de iniciar.*bloqueio de cobrança.*252\/252.*416 eventos, lote 6\/10.*2\/7.*12\.1\.46 candidata, não publicada/i);
     assert.equal(statusData.events.length, 416);
     assert.equal(server.homologation.completed, 2);
     assert.equal(server.homologation.total, 7);
@@ -715,9 +715,9 @@ test('portal exibe a auditoria atual sem conceder homologação formal', async (
     assert.ok(auditRegion);
     assert.doesNotMatch(auditRegion, /\b(?:role|aria-live)=/);
     assert.equal(dashboard.getElement('latest-audit').textContent, statusData.latestAudit);
-    assert.match(dashboard.getElement('latest-audit').textContent, /CI GitHub Actions #525.*17 jobs.*bloqueada por cobrança/);
+    assert.match(dashboard.getElement('latest-audit').textContent, /CI #526.*17 checks falhos antes de iniciar.*bloqueio de cobrança/);
     assert.match(dashboard.getElement('latest-audit').textContent, /Providers 951 aprovados\/14 ignorados\/965.*TmdbImageProviderLanguageTests 4\/4/);
-    assert.match(dashboard.getElement('latest-audit').textContent, /FullSystemBackup: 157 aprovados, 16 ignorados\/173.*Linux\/macOS seguem sem execução/);
+    assert.match(dashboard.getElement('latest-audit').textContent, /FullSystemBackup Windows 157 aprovados\/16 ignorados.*Linux nativo/);
     assert.equal(statusData.events.length, 416);
     assert.equal(statusData.tracks.find(track => track.id === 'server').homologation.percent, 28.6);
 });
@@ -4047,7 +4047,7 @@ test('portal registra auditoria dos consumidores das probes sem alterar homologa
     assert.equal(statusData.events.length, 416);
     assert.equal(statusData.generatedAt, statusData.events.at(-1).updatedAt);
     assert.equal(statusData.events.at(-1).updatedAt, statusData.generatedAt);
-    assert.match(statusData.latestAudit, /06\/11\/2026.*CI GitHub Actions #525 não iniciou os 17 jobs.*bloqueada por cobrança.*252\/252.*416 eventos, lote 6\/10.*2\/7.*12\.1\.46 candidata, não publicada/i);
+    assert.match(statusData.latestAudit, /06\/11\/2026.*CI #526.*17 checks falhos antes de iniciar.*bloqueio de cobrança.*252\/252.*416 eventos, lote 6\/10.*2\/7.*12\.1\.46 candidata, não publicada/i);
     assert.equal(server.homologation.completed, 2);
     assert.equal(server.homologation.total, 7);
     assert.equal(server.homologation.percent, 28.6);

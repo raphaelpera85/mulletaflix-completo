@@ -4836,3 +4836,7 @@ Pesquisa de tecnologia para H03: Linux man-pages documentam `openat2` (Linux 5.6
 
 Cobertura adicional de imagem: os cinco providers TMDb agora têm teste de saída para idioma preferido e todas as línguas, garantindo os rótulos de variantes regionais (`pt-BR`, `pt-PT`) e a presença do fallback inglês. Focal 4/4; suite Providers 951/965 (14 ignorados), sem erro. Isso verifica metadados dos resultados com cache local; API TMDb, preferência visual no cliente e catálogo instalado permanecem fora do teste.
 - Homologação formal 2/7 (28,6%); portal local 416 eventos/lote 6/10, não publicado; release 12.1.46 candidata, não publicada. Pendente: CI com jobs executados, integração Linux, bancos opt-in, pacote/runtime instalado e aceite de produção.
+
+## Regressão final Nebula Python — 2026-11-06 18:44 BRT
+
+A suíte completa usada no workflow de release foi executada no venv local: python -m pytest tests -q passou com 823 aprovados, 1 ignorado e 0 falhas. A repetição com -rs identificou o único skip: 	ests/test_mongo_admission_integration.py exige um MongoDB descartável. Não existe mongod, mongosh, Docker ou Podman disponível nesta máquina; nenhum Mongo em produção foi consultado. O bloqueio CI #526 foi confirmado independentemente: todos os 17 jobs ficaram failed antes do início por billing lock, sem logs de execução. Necessário reexecutar CI depois de regularizar billing; a evidência local não substitui integração Mongo nem validação Linux/produção.
