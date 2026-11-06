@@ -1265,6 +1265,7 @@ public sealed class NebulaDownloaderEngine : IAsyncDisposable, IDisposable
                 var partDownloadedAmounts = new long[partsCount];
                 var progressLock = new object();
                 var startTime = DateTime.UtcNow;
+                long lastProgressReportTimestamp = Stopwatch.GetTimestamp() - Stopwatch.Frequency / 4;
                 var nextPercent = 1;
                 long lastLoggedBytes = 0;
 
@@ -1351,7 +1352,6 @@ public sealed class NebulaDownloaderEngine : IAsyncDisposable, IDisposable
                                 var buf = new byte[64 * 1024];
                                 int r;
                                 long partBytesRead = 0;
-                                var lastProgressReport = DateTime.MinValue;
                                 while ((r = await stream.ReadAsync(buf, 0, buf.Length, readCts.Token).ConfigureAwait(false)) > 0)
                                 {
                                     readCts.CancelAfter(TimeSpan.FromSeconds(45));
@@ -1369,12 +1369,10 @@ public sealed class NebulaDownloaderEngine : IAsyncDisposable, IDisposable
                                     partDownloadedAmounts[index] = partBytesRead;
 
                                     var now = DateTime.UtcNow;
-                                    if (now - lastProgressReport < TimeSpan.FromMilliseconds(250))
+                                    if (!TryReserveProgressReport(ref lastProgressReportTimestamp, Stopwatch.GetTimestamp()))
                                     {
                                         continue;
                                     }
-
-                                    lastProgressReport = now;
 
                                     long currentDownloaded;
                                     lock (progressLock)
@@ -1482,6 +1480,24 @@ public sealed class NebulaDownloaderEngine : IAsyncDisposable, IDisposable
             }
 
             throw;
+        }
+    }
+
+    internal static bool TryReserveProgressReport(ref long lastTimestamp, long nowTimestamp)
+    {
+        var intervalTicks = Stopwatch.Frequency / 4;
+        while (true)
+        {
+            var previousTimestamp = Interlocked.Read(ref lastTimestamp);
+            if (nowTimestamp - previousTimestamp < intervalTicks)
+            {
+                return false;
+            }
+
+            if (Interlocked.CompareExchange(ref lastTimestamp, nowTimestamp, previousTimestamp) == previousTimestamp)
+            {
+                return true;
+            }
         }
     }
 

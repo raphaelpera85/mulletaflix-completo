@@ -153,6 +153,10 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 30
     needs: [validate-server, validate-nebula-python, validate-web, build-linux]
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -249,6 +253,14 @@ jobs:
             -InstallDirectory (Join-Path $smokeRoot 'install') `
             -DataDirectory (Join-Path $smokeRoot 'data') `
             -ExpectedSha256 $hash
+
+      - name: Attest release packages
+        uses: actions/attest@v4
+        with:
+          subject-path: |
+            dist/mulletaflix_*_linux-x64.tar.gz
+            dist/mulletaflix_*_windows-x64.exe
+            dist/mulletaflix-update-win-x64.zip
 
       - name: Publish GitHub Release and platform assets
         shell: pwsh

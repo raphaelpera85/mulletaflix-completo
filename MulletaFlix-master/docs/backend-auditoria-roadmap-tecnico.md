@@ -1,5 +1,18 @@
 # Auditoria Tecnica do Backend MulletaFlix
 
+## Progresso multipart do Nebula — 2026-11-06
+
+- A janela de 250 ms agora é única por download multipart e reservada com `Interlocked.CompareExchange`; antes, cada tarefa/parte tinha seu próprio relógio e podia emitir atualizações simultâneas. O contador de bytes continua por parte e a soma/formatação/evento rodam somente após uma reserva.
+- Validação local Release: regressão concorrente 64 workers e suíte focal combinada 78/78; portal 256/256; contrato do workflow de release 9/9. Sem benchmark real, CI executada ou validação de produção.
+- Compatibilidade confirmada com .NET 10 usando `Stopwatch.GetTimestamp` e `Interlocked`; a documentação oficial descreve `CompareExchange` como operação atômica: [Interlocked.CompareExchange](https://learn.microsoft.com/dotnet/api/system.threading.interlocked.compareexchange) e [Stopwatch](https://learn.microsoft.com/dotnet/api/system.diagnostics.stopwatch).
+- A candidata 12.1.46 continua sem publicação: PR #1 está fora de `main`, Actions foi bloqueado por faturamento antes dos runners e `dist`/tag não foram gerados.
+
+## Proveniência dos pacotes de release — 2026-11-06
+
+- O workflow de release agora solicita atestação de proveniência para os pacotes Linux, instalador Windows e ZIP de atualização após os gates de integridade/smoke test e antes de publicar.
+- Contrato local Node cobre permissões e ordem do gate. GitHub Actions bloqueada por cobrança; assinatura, pacote publicado, Linux e instalação seguem pendentes. Nenhum crédito de homologação formal.
+- Referência oficial: [GitHub artifact attestations](https://docs.github.com/en/actions/how-tos/secure-your-work/use-artifact-attestations/use-artifact-attestations). Sem runtime, API, dependência de produto ou banco novos.
+
 ## Retry síncrono de gravação das faixas de mídia — 2026-11-03
 
 - `MediaStreamRepository.SaveMediaStreams` agora repete a substituição completa em erros de lock MariaDB 1205/1213, com contexto e transação novos, até três tentativas e backoff progressivo. Falhas permanentes continuam sendo propagadas; o contrato síncrono e o método assíncrono não mudaram.
@@ -153,8 +166,8 @@ Se esta conversa ficar sem tokens e for necessario continuar em outra IA, a prox
 - [x] Ajustado `GetLatestMedia` para tentar completar itens incompletos ou desatualizados antes de montar os cards da home.
 - [x] Teste unitario da politica de refresh aprovado com 3 casos de regressao.
 - [x] Revisao do fluxo de frontend da home e da pagina de detalhe feita; nao apareceu bug obvio de fetch, entao o ajuste principal ficou no backend.
-- [x] Corrigido o `GetLatestTvShowItems` para agrupar por `SeriesId`, nao por `SeriesName`, e adicionado indice composto `Type, SeriesId, DateCreated`.
-- [x] Adicionado indice em `UserData` para o `NextUp` (`UserId, Played, LastPlayedDate`).
+- [x] Corrigido o `GetLatestTvShowItems` para deduplicar por `SeriesId`, nao por `SeriesName`, e adicionado indice composto `Type, SeriesId, DateCreated`. Revisao de 2026-11-06 confirmou que `Take(limit)` e enumerado sob demanda e interrompe a leitura cliente apos a quantidade de series pedida. A consulta SQL ainda nao tem `LIMIT`/deduplicacao; custo de sort/scan no banco e chamadas sem limite seguem sem medicao.
+- [ ] Medir o `NextUp` com SQL e plano real. O `UserDataConfiguration` atual declara indices `(ItemId, UserId, LastPlayedDate)` e `(UserId, Played, ItemId)`; nao declara `(UserId, Played, LastPlayedDate)`. A consulta agrupa por serie e aplica o corte de `LastPlayedDate` depois da agregacao. Nao criar indice novo sem `ANALYZE FORMAT=JSON` em copia representativa.
 - [x] Evitado leitura de arquivo para `PrimaryImageAspectRatio` quando `ItemImageInfo.Width/Height` ja estao persistidos.
 - [ ] Medir o impacto real de latencia do refresh sob demanda na home e no detalhe.
 - [ ] Validar no navegador se as artes, overview e metadados reaparecem nas midias recentemente adicionadas.
@@ -162,12 +175,12 @@ Se esta conversa ficar sem tokens e for necessario continuar em outra IA, a prox
 ## Todo Prioritario Por Ganho
 
 1. P0 - Medir a home real com banco grande:
-   - comparar `LatestMedia` de filmes e series com `EXPLAIN ANALYZE`;
-   - confirmar se o custo saiu de SQL e ficou em DTO/imagem.
+   - inspecionar SQL, linhas examinadas e plano de sort de filmes e series; em chamadas limitadas, `GetLatestTvShowItems` para a enumeracao cliente apos obter series distintas suficientes;
+   - medir chamadas sem limite separadamente, comparar custo do banco com DTO/imagem e verificar o indice composto `Type, SeriesId, DateCreated`.
    - ganho esperado: muito alto se ainda existir scan ou sort caro.
 2. P1 - Fechar `NextUp`:
-   - validar o impacto do novo indice em `UserData`;
-   - revisar se `GetNextUpSeriesKeys` ainda materializa mais do que precisa.
+   - conferir DDL e medir `(ItemId, UserId, LastPlayedDate)` e `(UserId, Played, ItemId)` no `GetNextUpSeriesKeys`;
+   - testar se empurrar o corte de data antes do agrupamento reduz leitura sem mudar resultado.
    - ganho esperado: alto em bibliotecas com muitas series.
 3. P2 - Cortar custo de DTO/imagem:
    - revisar `DtoService` e `UpdateImagesAsync` para evitar trabalho repetido em items recentes;
@@ -177,6 +190,12 @@ Se esta conversa ficar sem tokens e for necessario continuar em outra IA, a prox
    - manter as imagens fora da viewport em lazy load;
    - evitar refetch desnecessario em navegacao entre paginas.
    - ganho esperado: baixo a medio, mas barato de manter.
+
+## Auditoria de custo SQL da home e Next Up — 2026-11-06
+
+Revisao de `BaseItemRepository.Querying.GetLatestTvShowItems` confirmou que a ordenacao ocorre no banco e a deduplicacao por `SeriesId` ocorre no processo. A conclusao anterior de que todos os candidatos eram transferidos antes do limite estava incorreta: a sequencia `IEnumerable` e adiada, `Take(limit)` e consumido por `ToList()` e a enumeracao cliente para ao obter series distintas suficientes. A consulta nao aplica `LIMIT` nem deduplica no SQL; o banco ainda pode precisar examinar/ordenar mais linhas, e chamadas sem limite percorrem todo o resultado. `NextUpService.GetNextUpSeriesKeys` agrega historico por serie antes de aplicar `dateCutoff`. O custo real depende do plano e segue sem medicao.
+
+`UserDataConfiguration` declara indices `(ItemId, UserId, LastPlayedDate)` e `(UserId, Played, ItemId)`. O registro anterior que dizia `(UserId, Played, LastPlayedDate)` estava incorreto e foi corrigido. Os testes cobrem resultado/paginacao e a traducao MariaDB em fixtures pequenas. Nao foram consultados DDL ou dados de producao. O proximo teste de escala deve usar copia representativa e `ANALYZE FORMAT=JSON`, que executa a consulta e apresenta estatisticas reais (`r_rows`, loops e tempo); nao executar como leitura irrestrita na producao. Fonte: [MariaDB ANALYZE FORMAT=JSON](https://mariadb.com/docs/server/reference/sql-statements/administrative-sql-statements/analyze-and-explain-statements/analyze-format-json).
 
 ## Skills utilizadas nesta auditoria
 

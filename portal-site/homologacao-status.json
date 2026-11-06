@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-11-06T19:31:00-03:00",
+  "generatedAt": "2026-11-06T20:30:00-03:00",
   "source": {
     "roadmap": "https://github.com/raphaelpera85/mulletaflix-completo/blob/main/docs/roadmap-evolucao-tecnologica-servidor-e-web.md",
     "repository": "https://github.com/raphaelpera85/mulletaflix-completo"
@@ -10075,7 +10075,86 @@
       "updatedAt": "2026-11-06T19:31:00-03:00",
       "evidence": "A Bot API sendDocument foi contornada apenas no caminho com reserva persistida: main.py salva random_id, identidade do bot, SHA-256, tamanho, nome, legenda, destino e UUID no Mongo antes de chamar messages.sendMedia; após sucesso, parts é atualizado com $addToSet e a reserva é removida. Retries preservam bot e random_id; divergência de origem/destino marca recovery_blocked e preserva staging. Garbage collector e scanner ignoram reservas pendentes/bloqueadas. Suíte Nebula completa: 823 aprovados, 1 ignorado, 0 falhas; contrato portal local: 251/251. Sem envio Telegram real, teste de restart com storage Mongo real, medição de throughput, Linux, CI hospedada, runtime instalado ou produção; Pyrofork arquivado requer gate de compatibilidade. persist_upload_checkpoint exige matched_count positivo; teste do worker preserva o staging quando o documento não existe. Teste de reinício simulado comprova uma única parte checkpointada após resposta perdida.",
       "release": "Snapshot local 416 eventos; lote 6/10, portal público não atualizado. Homologação formal permanece 2/7 (28,6%); CI #527 bloqueada por cobrança e PR #1 aberta. Release 12.1.46 candidata, não publicada."
+    },
+    {
+      "id": "server-release-package-provenance-2026-11-06-1948",
+      "title": "Atestação de proveniência dos pacotes do servidor",
+      "agent": "Codex",
+      "front": "server",
+      "featureIds": [],
+      "links": [
+        "https://docs.github.com/en/actions/how-tos/secure-your-work/use-artifact-attestations/use-artifact-attestations",
+        "https://github.com/actions/attest"
+      ],
+      "local": "Workflow solicita atestação para pacote Linux, instalador Windows e ZIP do atualizador, após integridade e smoke test.",
+      "location": ".github/workflows/release.yml; tools/release/tests/ci-packaging-coverage.test.mjs; MulletaFlix-master/docs/releases/12.1.46.md",
+      "scope": "Vincular os hashes dos artefatos Windows/Linux à origem e ao workflow de release por atestação assinada do GitHub.",
+      "status": "in_progress",
+      "progressPercent": 75,
+      "startedAt": "2026-11-06T19:47:00-03:00",
+      "updatedAt": "2026-11-06T19:53:00-03:00",
+      "evidence": "Implementação local adiciona actions/attest@v4 com permissões de OIDC e attestations limitadas ao job final. Contrato do workflow verifica os três artefatos e a ordem: integridade, smoke test, atestação, publicação. A assinatura real ainda depende de CI hospedada; GitHub bloqueia runners por pendência de cobrança.",
+      "release": "Snapshot local 417 eventos, lote 7/10, não publicado. Homologação formal permanece 2/7 (28,6%). PR #1 aberta; release 12.1.46 candidata, sem pacote/tag/assinatura publicada."
+    },
+    {
+      "id": "server-home-nextup-sql-plan-audit-2026-11-06-2001",
+      "title": "Auditoria de custo SQL da Home e do Next Up",
+      "agent": "Codex",
+      "front": "server",
+      "featureIds": [],
+      "links": [
+        "https://mariadb.com/docs/server/reference/sql-statements/administrative-sql-statements/analyze-and-explain-statements/analyze-format-json"
+      ],
+      "local": "Revisão de código: a enumeração cliente do GetLatestTvShowItems é adiada; em chamadas limitadas, Take para após obter séries distintas suficientes. SQL ainda não aplica LIMIT/deduplicação, então custo de scan/sort pode permanecer alto; chamadas sem limite percorrem todos os candidatos. GetNextUpSeriesKeys agrega por série antes do corte. UserDataConfiguration declara (ItemId, UserId, LastPlayedDate) e (UserId, Played, ItemId).",
+      "location": "MulletaFlix-master/Jellyfin.Server.Implementations/Item/BaseItemRepository.Querying.cs; MulletaFlix-master/Jellyfin.Server.Implementations/Item/NextUpService.cs; MulletaFlix-master/src/Jellyfin.Database/Jellyfin.Database.Implementations/ModelConfiguration/UserDataConfiguration.cs; MulletaFlix-master/tests/Jellyfin.Server.Implementations.Tests/Item",
+      "scope": "Medir linhas lidas, agregação, ordenação e custo do Next Up/Home em cópia MariaDB representativa antes de alterar consulta ou índices.",
+      "status": "in_progress",
+      "progressPercent": 40,
+      "startedAt": "2026-11-06T20:01:00-03:00",
+      "updatedAt": "2026-11-06T20:01:00-03:00",
+      "evidence": "A primeira descrição afirmou incorretamente que todos os candidatos eram transferidos antes do limite. A revisão dos consumidores confirma Take(limit) até ToList e interrupção do reader após o número de séries distintas solicitado. Isso limita linhas entregues ao cliente em chamadas paginadas, mas não prova que o banco evitou scan/sort; falta plano representativo. O fixture MariaDB continua pequeno e sem DDL/plano de produção. O próximo passo é ANALYZE FORMAT=JSON em cópia representativa.",
+      "release": "Snapshot local 418 eventos, lote 8/10; sem publicação Git. Homologação formal permanece 2/7 (28,6%). Release 12.1.46 candidata, não publicada; risco de performance ainda não medido."
+    },
+    {
+      "id": "server-home-nextup-lazy-enumeration-correction-2026-11-06-2013",
+      "title": "Correção da análise de paginação da Home",
+      "agent": "Codex",
+      "front": "server",
+      "featureIds": [],
+      "links": [
+        "https://learn.microsoft.com/en-us/dotnet/api/system.linq.enumerable.take",
+        "https://learn.microsoft.com/en-us/dotnet/csharp/programming-guide/concepts/linq/classification-of-standard-query-operators-by-manner-of-execution"
+      ],
+      "local": "A enumeração limitada para depois de obter a quantidade pedida de chaves distintas; SQL ainda pode examinar/ordenar amplo conjunto. Chamadas sem limite percorrem todos os resultados.",
+      "location": "MulletaFlix-master/Jellyfin.Server.Implementations/Item/BaseItemRepository.Querying.cs; MulletaFlix-master/docs/backend-auditoria-roadmap-tecnico.md; MulletaFlix-master/docs/auditoria-completa-performance.md; MulletaFlix-master/docs/roadmap-evolucao-tecnologica-servidor-e-web.md",
+      "scope": "Corrigir a conclusão sobre LINQ diferido e separar limite de linhas entregues ao cliente do custo de execução no MariaDB.",
+      "status": "in_progress",
+      "progressPercent": 45,
+      "startedAt": "2026-11-06T20:13:00-03:00",
+      "updatedAt": "2026-11-06T20:18:00-03:00",
+      "evidence": "Código ordena IQueryable e cruza AsEnumerable com Where/Select diferidos; Take(limit) é enumerado por ToList, e o consumidor da sequência para ao completar o limite. O loop dos filmes também usa break. Documentação oficial do .NET confirma que Enumerable.Take usa execução adiada e enumera até count. O SQL ainda não contém LIMIT; banco pode precisar ordenar/examinar muitos registros. Sem plano MariaDB representativo, nenhuma melhoria de latência foi afirmada. Testes focais BaseItemRepositoryLatestTvShowTests em Release passaram 6/8; 2 casos MariaDB foram ignorados porque a conexão de teste não estava configurada.",
+      "release": "Snapshot local 419 eventos, lote 9/10; portal 255/255 e testes focais Home 6 aprovados/2 ignorados (MariaDB não configurado); sem publicação Git. Homologação formal permanece 2/7 (28,6%). Release 12.1.46 candidata, não publicada; SQL ainda precisa de plano e medição representativos."
+    },
+    {
+      "id": "server-provider-refresh-queue-concurrency-revalidation-2026-11-06-2030",
+      "title": "Revalidação de concorrência na fila de atualização de metadados",
+      "agent": "Codex",
+      "front": "server",
+      "featureIds": [],
+      "links": [
+        "https://learn.microsoft.com/en-us/dotnet/standard/collections/thread-safe/",
+        "https://learn.microsoft.com/en-us/dotnet/api/system.collections.generic.priorityqueue-2"
+      ],
+      "local": "Nenhuma alteração de runtime necessária: Enqueue, TryDequeue e leitura da fila estão serializados por _refreshQueueLock. Regressão focal QueueRefresh_ProcessesItemsAddedWhileCurrentBatchIsRunning passou 1/1 em Windows/.NET 10 Release.",
+      "location": "MulletaFlix-master/MediaBrowser.Providers/Manager/ProviderManager.cs; MulletaFlix-master/tests/Jellyfin.Providers.Tests/Manager/ProviderManagerRefreshTests.cs; MulletaFlix-master/docs/auditoria-completa-performance.md",
+      "scope": "Revalidar o achado B-1 da auditoria de concorrência da PriorityQueue e registrar evidência atual sem duplicar uma correção já integrada no código.",
+      "status": "completed",
+      "progressPercent": 100,
+      "startedAt": "2026-11-06T20:28:00-03:00",
+      "updatedAt": "2026-11-06T20:30:00-03:00",
+      "evidence": "A documentação oficial do .NET informa que PriorityQueue não garante segurança para chamadas concorrentes; o código usa _refreshQueueLock em QueueRefresh/Enqueue, no TryDequeue do worker e em GetRefreshQueue. O teste focal força a entrada de novo item durante o lote ativo e passou 1/1. É uma regressão concorrente direcionada, não um stress exaustivo nem validação de produção. A CLI gh não está autenticada; o diagnóstico GitHub conectado confirma CI #528/run 42305920951 com 17 jobs recusados antes dos runners por bloqueio de cobrança.",
+      "release": "Snapshot local 420 eventos, lote 10/10; portal 256/256 e regressão focal 1/1 aprovados. Sem publicação: PR #1 continua fora de main e a CI não executou. Homologação formal permanece 2/7 (28,6%); release 12.1.46 candidata, não publicada."
     }
   ],
-  "latestAudit": "06/11/2026, 19:31 BRT: CI #527/run 42299634659 teve 17 checks recusados antes de iniciar; anotação do GitHub confirma bloqueio de cobrança, sem steps ou logs. PR #1 segue aberta e fora de main. Nebula: checkpoint Mongo com matched_count=0 aborta sem excluir staging; teste simula aceite Telegram/resposta perdida e reutiliza o mesmo random_id e checkpointa uma parte; foco 38/38; suíte completa 826 aprovados, 1 ignorado, 0 falhas, coverage 82%. Skip requer Mongo descartável indisponível; nenhum Mongo/Telegram real foi usado. Portal 252/252. Full release não pode prosseguir até desbloquear CI e integrar a PR: dist/tag/assets ausentes. Linux nativo, runtime instalado e produção pendentes. Integridade Windows: 9/9 scripts em PowerShell 7; ApplyUpdateFailClosed também passou em Windows PowerShell 5.1. Providers 951 aprovados/14 ignorados/965; TmdbImageProviderLanguageTests 4/4. FullSystemBackup Windows 157 aprovados/16 ignorados/173; Linux nativo e regressão .NET anterior ainda pendentes ou anteriores. Pesquisa registrada: atestação de proveniência de artefatos é oportunidade ainda não implementada. Snapshot 416 eventos, lote 6/10; atualização local aguarda lote e merge em main. Homologação formal 2/7 (28,6%); release 12.1.46 candidata, não publicada."
+  "latestAudit": "06/11/2026, 20:30 BRT: CI #528/run 42305920951 teve 17 jobs recusados antes de iniciar; anotação do GitHub confirma bloqueio de cobrança, sem steps ou logs. PR #1 segue aberta e fora de main. Nebula: checkpoint Mongo com matched_count=0 aborta sem excluir staging; teste simula aceite Telegram/resposta perdida e reutiliza o mesmo random_id e checkpointa uma parte; foco 38/38; suíte completa 826 aprovados, 1 ignorado, 0 falhas, coverage 82%. Skip requer Mongo descartável indisponível; nenhum Mongo/Telegram real foi usado. Portal do evento anterior: 254/254; execução mais recente: 256/256. Full release não pode prosseguir até desbloquear CI e integrar a PR: dist/tag/assets ausentes. Linux nativo, runtime instalado e produção pendentes. Integridade Windows: 9/9 scripts em PowerShell 7; ApplyUpdateFailClosed também passou em Windows PowerShell 5.1. Providers 951 aprovados/14 ignorados/965; TmdbImageProviderLanguageTests 4/4. FullSystemBackup Windows 157 aprovados/16 ignorados/173; Linux nativo e regressão .NET anterior ainda pendentes ou anteriores. Pesquisa registrada: workflow de release solicita atestação para Linux, instalador Windows e ZIP do atualizador; assinatura real depende de CI. Snapshot 420 eventos, lote 10/10; atualização local aguarda lote e merge em main. Homologação formal 2/7 (28,6%); release 12.1.46 candidata, não publicada. Alteração local do workflow: atestação antes da publicação; contrato de release 9/9 e portal 256/256 aprovados localmente. Auditoria corrigida: Take interrompe leitura cliente após limite distinto; SQL ainda pode ordenar/varrer conjunto amplo e chamadas sem limite percorrem tudo. Testes Home Release 6 aprovados/2 ignorados por falta de MariaDB configurado; release CI segue bloqueada. Next Up e plano MariaDB representativo pendentes. Revalidação B-1: PriorityQueue serializada por _refreshQueueLock em enqueue, dequeue e leitura; regressão focal passou 1/1; nenhum código runtime novo. CI permanece bloqueada por cobrança; nenhum pacote/assinatura foi produzido. Revalidação B-2 em 06/11/2026 20:50 BRT: o timestamp monotônico e a reserva Interlocked compartilhada limitam o trabalho de UI a uma emissão por janela de 250 ms mesmo entre partes concorrentes. NebulaDownloaderEngineTests + MediaSourceManagerTests + UserDataManagerTests: 78/78; portal 256/256; contrato de release 9/9; diff check aprovado. PR #1 fora de main; CI 17 jobs barrados antes do runner por billing. dist/tag/artefatos ausentes; sem release ou publicação; formal 2/7. Snapshot continua com 420 eventos e lote 10/10; portal apenas local."
 }

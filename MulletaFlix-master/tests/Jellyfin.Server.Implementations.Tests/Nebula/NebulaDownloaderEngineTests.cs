@@ -333,6 +333,27 @@ public sealed class NebulaDownloaderEngineTests : IDisposable
     #region Range Probe Tests (T3.2 - Validate part reading)
 
     [Fact]
+    public void TryReserveProgressReport_AllowsOnlyOneConcurrentReservationPerInterval()
+    {
+        var intervalTicks = Stopwatch.Frequency / 4;
+        long lastTimestamp = 1_000;
+        var nowTimestamp = lastTimestamp + intervalTicks;
+        var successfulReservations = 0;
+
+        Parallel.For(0, 64, _ =>
+        {
+            if (NebulaDownloaderEngine.TryReserveProgressReport(ref lastTimestamp, nowTimestamp))
+            {
+                Interlocked.Increment(ref successfulReservations);
+            }
+        });
+
+        Assert.Equal(1, successfulReservations);
+        Assert.False(NebulaDownloaderEngine.TryReserveProgressReport(ref lastTimestamp, nowTimestamp + intervalTicks - 1));
+        Assert.True(NebulaDownloaderEngine.TryReserveProgressReport(ref lastTimestamp, nowTimestamp + intervalTicks));
+    }
+
+    [Fact]
     public void TryGetRangeProbeLength_ReturnsTrueAndSize_ForValid206()
     {
         var response = new HttpResponseMessage(HttpStatusCode.PartialContent)

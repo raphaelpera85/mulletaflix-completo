@@ -61,17 +61,25 @@ test('Windows CI runs native server filesystem and restore tests', () => {
 });
 
 test('Release validates the actual update archive and clean installer before publishing', () => {
-    const publishStep = releaseWorkflow.indexOf('- name: Publish GitHub Release and platform assets');
-    const archiveValidation = releaseWorkflow.indexOf('- name: Validate update package against staged payload');
-    const installerSmoke = releaseWorkflow.indexOf('- name: Smoke test clean Windows installer');
-    const archiveCreation = releaseWorkflow.indexOf('- name: Create Update Archive');
+    const jobStart = releaseWorkflow.indexOf('  build-and-release:');
+    assert.notEqual(jobStart, -1, 'release job must exist');
+    const nextJob = releaseWorkflow.slice(jobStart + 1).search(/\r?\n  [a-z0-9_-]+:\r?\n/);
+    const releaseJob = releaseWorkflow.slice(jobStart, nextJob === -1 ? undefined : jobStart + 1 + nextJob);
+    const publishStep = releaseJob.indexOf('- name: Publish GitHub Release and platform assets');
+    const attestationStep = releaseJob.indexOf('- name: Attest release packages');
+    const archiveValidation = releaseJob.indexOf('- name: Validate update package against staged payload');
+    const installerSmoke = releaseJob.indexOf('- name: Smoke test clean Windows installer');
+    const archiveCreation = releaseJob.indexOf('- name: Create Update Archive');
 
     assert.ok(archiveCreation >= 0 && archiveValidation > archiveCreation, 'archive validation must follow package creation');
     assert.ok(installerSmoke > archiveValidation, 'installer smoke must follow archive integrity validation');
-    assert.ok(publishStep > installerSmoke, 'publishing must run only after both artifact gates');
-    assert.match(releaseWorkflow, /Assert-UpdatePackageIntegrity\.ps1 -StageDirectory stage -PackagePath dist\\mulletaflix-update-win-x64\.zip/);
-    assert.match(releaseWorkflow, /Test-CleanInstaller\.ps1[\s\S]*?-ExpectedSha256 \$hash/);
-    assert.match(releaseWorkflow, /Validate updater under production Windows PowerShell 5\.1[\s\S]*?shell:\s*powershell[\s\S]*?ApplyUpdateFailClosed\.Tests\.ps1/);
+    assert.ok(attestationStep > installerSmoke, 'packages must be attested after validation and smoke tests');
+    assert.ok(publishStep > attestationStep, 'publishing must wait for package attestations');
+    assert.match(releaseJob, /permissions:\s*\r?\n\s+contents:\s*write\s*\r?\n\s+id-token:\s*write\s*\r?\n\s+attestations:\s*write/);
+    assert.match(releaseJob, /uses:\s*actions\/attest@v4[\s\S]*?subject-path:\s*\|[\s\S]*?dist\/mulletaflix_\*_linux-x64\.tar\.gz[\s\S]*?dist\/mulletaflix_\*_windows-x64\.exe[\s\S]*?dist\/mulletaflix-update-win-x64\.zip/);
+    assert.match(releaseJob, /Assert-UpdatePackageIntegrity\.ps1 -StageDirectory stage -PackagePath dist\\mulletaflix-update-win-x64\.zip/);
+    assert.match(releaseJob, /Test-CleanInstaller\.ps1[\s\S]*?-ExpectedSha256 \$hash/);
+    assert.match(releaseJob, /Validate updater under production Windows PowerShell 5\.1[\s\S]*?shell:\s*powershell[\s\S]*?ApplyUpdateFailClosed\.Tests\.ps1/);
 });
 
 test('Nebula packaging installs and stages the hash-locked runtime dependencies', () => {
