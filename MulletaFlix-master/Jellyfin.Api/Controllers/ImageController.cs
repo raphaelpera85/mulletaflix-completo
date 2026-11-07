@@ -2542,10 +2542,7 @@ public class ImageController : BaseMulletaFlixApiController
         // and a stale tag for a replaced or deleted image simply will not match here.
         if (hasTag && !disableCaching)
         {
-            var ifNoneMatchEarly = Request.Headers[HeaderNames.IfNoneMatch].ToString();
-            if (!string.IsNullOrEmpty(ifNoneMatchEarly)
-                && (string.Equals(ifNoneMatchEarly, $"\"{tag}\"", StringComparison.Ordinal)
-                    || string.Equals(ifNoneMatchEarly, tag, StringComparison.Ordinal)))
+            if (ConditionalRequestHelper.MatchesIfNoneMatch(Request, $"\"{tag}\""))
             {
                 Response.StatusCode = StatusCodes.Status304NotModified;
                 Response.Headers.Append(HeaderNames.ETag, $"\"{tag}\"");
@@ -2613,10 +2610,7 @@ public class ImageController : BaseMulletaFlixApiController
                 Response.Headers.Append(HeaderNames.ETag, $"\"{tag}\"");
 
                 // Check If-None-Match header for ETag-based validation (preferred over If-Modified-Since)
-                var ifNoneMatch = Request.Headers[HeaderNames.IfNoneMatch].ToString();
-                if (!string.IsNullOrEmpty(ifNoneMatch)
-                    && (string.Equals(ifNoneMatch, $"\"{tag}\"", StringComparison.Ordinal)
-                        || string.Equals(ifNoneMatch, tag, StringComparison.Ordinal)))
+                if (ConditionalRequestHelper.MatchesIfNoneMatch(Request, $"\"{tag}\""))
                 {
                     Response.StatusCode = StatusCodes.Status304NotModified;
                     return new ContentResult();

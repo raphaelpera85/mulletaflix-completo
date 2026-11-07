@@ -22,6 +22,38 @@ namespace MulletaFlix.Api.Tests.Controllers;
 
 public sealed class ImageControllerSplashscreenTests
 {
+    [Theory]
+    [InlineData("W/\"cache-tag\"")]
+    [InlineData("\"older-tag\", \"cache-tag\"")]
+    [InlineData("*")]
+    public async Task GetSplashscreen_WhenIfNoneMatchMatches_Returns304BeforeImageProcessing(string ifNoneMatch)
+    {
+        var directory = Path.Combine(Path.GetTempPath(), "mulletaflix-splashscreen-test-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        try
+        {
+            var imagePath = Path.Combine(directory, "splashscreen.png");
+            await File.WriteAllBytesAsync(imagePath, [1, 2, 3], TestContext.Current.CancellationToken);
+            var configuration = new Mock<IServerConfigurationManager>();
+            configuration.Setup(manager => manager.GetConfiguration("branding"))
+                .Returns(new BrandingOptions { SplashscreenEnabled = true, SplashscreenLocation = imagePath });
+            var imageProcessor = new Mock<IImageProcessor>(MockBehavior.Strict);
+            var controller = CreateController(directory, configuration, imageProcessor.Object);
+            controller.Request.Headers.IfNoneMatch = ifNoneMatch;
+
+            var result = await controller.GetSplashscreen("cache-tag", null);
+
+            Assert.IsType<ContentResult>(result);
+            Assert.Equal(StatusCodes.Status304NotModified, controller.Response.StatusCode);
+            Assert.Equal("\"cache-tag\"", controller.Response.Headers.ETag.ToString());
+            imageProcessor.Verify(processor => processor.ProcessImage(It.IsAny<ImageProcessingOptions>()), Times.Never);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
     [Fact]
     public void DeleteCustomSplashscreen_RemovesManagedFileAfterConfigurationCommit()
     {
