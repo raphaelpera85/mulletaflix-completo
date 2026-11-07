@@ -217,7 +217,7 @@ public sealed class NebulaCleanupLifecycleTests
         SetField(manager, "_cleanupTask", cleanup.Task);
         try
         {
-            await Assert.ThrowsAsync<TimeoutException>(() => DisposeRuntimeAsync(manager));
+            await Assert.ThrowsAsync<TimeoutException>(() => manager.DisposeSharedRuntimeResourcesAsync(TimeSpan.FromMilliseconds(100)));
             Assert.True(cancellation.IsCancellationRequested);
             Assert.Same(cleanup.Task, GetField(manager, "_cleanupTask"));
             Assert.Same(cancellation, GetField(manager, "_cleanupCts"));
@@ -225,7 +225,7 @@ public sealed class NebulaCleanupLifecycleTests
         finally
         {
             cleanup.TrySetResult();
-            await DisposeRuntimeAsync(manager);
+            await manager.DisposeSharedRuntimeResourcesAsync(TimeSpan.FromMilliseconds(100));
             await DisposeLocalQueueAsync(manager);
         }
 
@@ -290,9 +290,6 @@ public sealed class NebulaCleanupLifecycleTests
 
     private static void SetField(NebulaFtpManager manager, string name, object value) =>
         typeof(NebulaFtpManager).GetField(name, BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(manager, value);
-
-    private static Task DisposeRuntimeAsync(NebulaFtpManager manager) =>
-        (Task)typeof(NebulaFtpManager).GetMethod("DisposeSharedRuntimeResourcesAsync", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(manager, null)!;
 
     // These fixtures own only the queue and explicitly injected cleanup task.
     private static ValueTask DisposeLocalQueueAsync(NebulaFtpManager manager) =>

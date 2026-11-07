@@ -135,6 +135,52 @@ public sealed class ChapterImagesTaskTests
     }
 
     [Fact]
+    public async Task ExecuteAsync_RefreshReturnsFalse_AppendsNewFailuresAndCleansTemporaryDirectory()
+    {
+        var cachePath = Path.Combine(Path.GetTempPath(), $"mulletaflix-chapter-images-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(cachePath);
+        var failureHistoryPath = Path.Combine(cachePath, "chapter-failures.txt");
+        const string existingKey = "existing/path.mkv123";
+        await File.WriteAllTextAsync(failureHistoryPath, existingKey);
+        var videoOne = CreateVideo("First", "first/path.mkv");
+        var videoTwo = CreateVideo("Second", "second/path.mkv");
+        var library = new Mock<ILibraryManager>();
+        library.Setup(manager => manager.GetCount(It.IsAny<InternalItemsQuery>())).Returns(2);
+        library.Setup(manager => manager.GetItemList(It.IsAny<InternalItemsQuery>())).Returns([videoOne, videoTwo]);
+        var chapterManager = new Mock<IChapterManager>();
+        chapterManager.Setup(manager => manager.GetChapters(It.IsAny<Guid>())).Returns(Array.Empty<ChapterInfo>());
+        chapterManager.Setup(manager => manager.RefreshChapterImages(
+                It.IsAny<Video>(),
+                It.IsAny<IDirectoryService>(),
+                It.IsAny<IReadOnlyList<ChapterInfo>>(),
+                true,
+                true,
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(false);
+        var task = CreateTask(library.Object, chapterManager.Object, cachePath);
+
+        try
+        {
+            await task.ExecuteAsync(Mock.Of<IProgress<double>>(), CancellationToken.None);
+
+            var expected = new[]
+            {
+                existingKey,
+                videoOne.Path + videoOne.DateModified.Ticks,
+                videoTwo.Path + videoTwo.DateModified.Ticks
+            };
+            var actual = (await File.ReadAllTextAsync(failureHistoryPath)).Split('|');
+            Assert.Equal(expected, actual);
+        }
+        finally
+        {
+            Directory.Delete(cachePath, recursive: true);
+        }
+
+        Assert.False(Directory.Exists(cachePath));
+    }
+
+    [Fact]
     public async Task ExecuteAsync_ProviderThrows_RecordsFailureAndRethrows()
     {
         var measurements = new List<(string Name, object Value, KeyValuePair<string, object?>[] Tags)>();

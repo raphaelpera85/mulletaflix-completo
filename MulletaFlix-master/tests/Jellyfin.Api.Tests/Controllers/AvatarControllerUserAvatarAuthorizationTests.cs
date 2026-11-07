@@ -230,6 +230,22 @@ public sealed class AvatarControllerUserAvatarAuthorizationTests
     }
 
     [Fact]
+    public async Task SetUserAvatarAsync_RejectsLegacyTraversalUsernameBeforeWriting()
+    {
+        using var context = new AvatarTestContext();
+        context.TargetUser.Username = "..";
+        var service = context.CreateAvatarService(context.TargetUser);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(
+            () => service.SetUserAvatarAsync(context.TargetUser.Id, "test-avatar"));
+
+        context.ProviderManager!.Verify(
+            manager => manager.SaveImage(It.IsAny<Stream>(), It.IsAny<string>(), It.IsAny<string>()),
+            Times.Never);
+        Assert.False(Directory.Exists(context.ConfigurationManager.Object.ApplicationPaths.UserConfigurationDirectoryPath));
+    }
+
+    [Fact]
     public async Task SetUserAvatarAsync_RemovesPreviousUniqueProfileImageAfterSuccessfulReplacement()
     {
         using var context = new AvatarTestContext();

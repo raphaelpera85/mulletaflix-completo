@@ -1,7 +1,9 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using MulletaFlix.Server.Helpers;
 using Xunit;
@@ -74,12 +76,47 @@ namespace Jellyfin.Server.Tests.Helpers
         }
 
         [Fact]
+        public async Task EnsureSecureConnectionStartedAsync_ExternalBootstrapDisabled_SkipsExternalServices()
+        {
+            var previousValue = Environment.GetEnvironmentVariable("MFLX_DISABLE_EXTERNAL_BOOTSTRAP");
+            var logger = new RecordingLogger();
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+            try
+            {
+                Environment.SetEnvironmentVariable("MFLX_DISABLE_EXTERNAL_BOOTSTRAP", "true");
+
+                await SecureConnectionProcessManager.EnsureSecureConnectionStartedAsync(null, logger, cts.Token);
+
+                Assert.Contains(logger.Messages, message => message.Contains("Skipping external HTTPS and DuckDNS bootstrap", StringComparison.Ordinal));
+            }
+            finally
+            {
+                Environment.SetEnvironmentVariable("MFLX_DISABLE_EXTERNAL_BOOTSTRAP", previousValue);
+            }
+        }
+
+        [Fact]
         public async Task StopSecureConnectionAsync_NoRunningProcess_CompletesSuccessfully()
         {
             var exception = await Record.ExceptionAsync(() =>
                 SecureConnectionProcessManager.StopSecureConnectionAsync(NullLogger.Instance));
 
             Assert.Null(exception);
+        }
+
+        private sealed class RecordingLogger : ILogger
+        {
+            public List<string> Messages { get; } = new();
+
+            public IDisposable? BeginScope<TState>(TState state)
+                where TState : notnull
+                => null;
+
+            public bool IsEnabled(LogLevel logLevel)
+                => true;
+
+            public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter)
+                => Messages.Add(formatter(state, exception));
         }
     }
 }

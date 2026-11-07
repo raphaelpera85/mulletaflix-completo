@@ -627,8 +627,10 @@ public sealed class NamedConfigurationConcurrencyTests : IDisposable
             .Throws(new IOException("test priority save failure"));
         await using var manager = new NebulaFtpManager(configuration, NullLogger<NebulaFtpManager>.Instance, NullLoggerFactory.Instance);
 
-        manager.PrioritizeMedia(string.Empty, seriesName: "Test Requested Show");
+        var error = Assert.Throws<InvalidOperationException>(
+            () => manager.PrioritizeMedia(string.Empty, seriesName: "Test Requested Show"));
 
+        Assert.Contains("persistir a prioridade", error.Message, StringComparison.OrdinalIgnoreCase);
         Assert.Same(original, configuration.GetConfiguration("nebulaftp"));
         Assert.Empty(((NebulaFtpConfiguration)original).RequestedMediaPriorities);
         Assert.Equal(before, File.ReadAllBytes(ConfigurationPath));

@@ -160,7 +160,7 @@ public class SubtitleControllerTests
 
         // Call second time with If-None-Match header
         var controller2 = CreateController(configManager: configManager.Object, fileSystem: fileSystem.Object);
-        controller2.Request.Headers.IfNoneMatch = etag;
+        controller2.Request.Headers.IfNoneMatch = $"\"older-tag\", W/{etag}";
 
         var result2 = controller2.GetFallbackFontList();
 

@@ -15,7 +15,7 @@ namespace MediaBrowser.Providers.Plugins.Tmdb.People
     /// <summary>
     /// Person image provider powered by TMDb.
     /// </summary>
-    public class TmdbPersonImageProvider : IRemoteImageProvider, IHasOrder
+    public class TmdbPersonImageProvider : ILanguageAwareRemoteImageProvider, IHasOrder
     {
         private readonly IHttpClientFactory _httpClientFactory;
         private readonly TmdbClientManager _tmdbClientManager;
@@ -50,8 +50,16 @@ namespace MediaBrowser.Providers.Plugins.Tmdb.People
         }
 
         /// <inheritdoc />
-        public async Task<IEnumerable<RemoteImageInfo>> GetImages(BaseItem item, CancellationToken cancellationToken)
+        public Task<IEnumerable<RemoteImageInfo>> GetImages(BaseItem item, CancellationToken cancellationToken)
         {
+            return GetImages(item, item.GetPreferredMetadataLanguage(), item.GetPreferredMetadataCountryCode(), cancellationToken);
+        }
+
+        /// <inheritdoc />
+        public async Task<IEnumerable<RemoteImageInfo>> GetImages(BaseItem item, string metadataLanguage, string metadataCountryCode, CancellationToken cancellationToken)
+        {
+            var language = metadataLanguage;
+            var countryCode = metadataCountryCode;
             var person = (Person)item;
 
             if (!person.TryGetProviderId(MetadataProvider.Tmdb, out var personTmdbId))
@@ -59,8 +67,6 @@ namespace MediaBrowser.Providers.Plugins.Tmdb.People
                 return Enumerable.Empty<RemoteImageInfo>();
             }
 
-            var language = item.GetPreferredMetadataLanguage();
-            var countryCode = item.GetPreferredMetadataCountryCode();
             var personResult = await _tmdbClientManager.GetPersonAsync(int.Parse(personTmdbId, CultureInfo.InvariantCulture), language, countryCode, cancellationToken).ConfigureAwait(false);
             if (personResult?.Images?.Profiles is null)
             {

@@ -405,7 +405,7 @@ namespace Emby.Server.Implementations.Playlists
                 }
 
                 string text = new WplContent().ToText(playlist);
-                File.WriteAllText(playlistPath, text);
+                PersistPlaylistFile(playlistPath, text);
             }
             else if (extension.Equals(".zpl", StringComparison.OrdinalIgnoreCase))
             {
@@ -438,7 +438,7 @@ namespace Emby.Server.Implementations.Playlists
                 }
 
                 string text = new ZplContent().ToText(playlist);
-                File.WriteAllText(playlistPath, text);
+                PersistPlaylistFile(playlistPath, text);
             }
             else if (extension.Equals(".m3u", StringComparison.OrdinalIgnoreCase))
             {
@@ -469,7 +469,7 @@ namespace Emby.Server.Implementations.Playlists
                 }
 
                 string text = new M3uContent().ToText(playlist);
-                File.WriteAllText(playlistPath, text);
+                PersistPlaylistFile(playlistPath, text);
             }
             else if (extension.Equals(".m3u8", StringComparison.OrdinalIgnoreCase))
             {
@@ -501,7 +501,7 @@ namespace Emby.Server.Implementations.Playlists
                 }
 
                 string text = new M3uContent().ToText(playlist);
-                File.WriteAllText(playlistPath, text);
+                PersistPlaylistFile(playlistPath, text);
             }
             else if (extension.Equals(".pls", StringComparison.OrdinalIgnoreCase))
             {
@@ -523,7 +523,44 @@ namespace Emby.Server.Implementations.Playlists
                 }
 
                 string text = new PlsContent().ToText(playlist);
-                File.WriteAllText(playlistPath, text);
+                PersistPlaylistFile(playlistPath, text);
+            }
+        }
+
+        internal static void PersistPlaylistFile(string path, string text)
+        {
+            var file = new FileInfo(path);
+            if (file.LinkTarget is not null)
+            {
+                file = file.ResolveLinkTarget(returnFinalTarget: true) as FileInfo
+                    ?? throw new IOException($"Unable to resolve playlist link: {path}");
+            }
+
+            var targetPath = file.FullName;
+            var directory = Path.GetDirectoryName(targetPath)
+                ?? throw new InvalidOperationException("Playlist path can't be a root directory.");
+            var temporaryPath = Path.Combine(directory, "." + Path.GetFileName(targetPath) + "." + Guid.NewGuid().ToString("N") + ".tmp");
+
+            try
+            {
+                File.WriteAllText(temporaryPath, text);
+                if (File.Exists(targetPath))
+                {
+                    if (!OperatingSystem.IsWindows())
+                    {
+                        File.SetUnixFileMode(temporaryPath, File.GetUnixFileMode(targetPath));
+                    }
+
+                    File.Replace(temporaryPath, targetPath, destinationBackupFileName: null);
+                }
+                else
+                {
+                    File.Move(temporaryPath, targetPath);
+                }
+            }
+            finally
+            {
+                File.Delete(temporaryPath);
             }
         }
 

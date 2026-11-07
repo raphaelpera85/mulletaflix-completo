@@ -12,6 +12,8 @@ namespace MulletaFlix.Database.Implementations;
 /// </summary>
 public static class DescendantQueryHelper
 {
+    private const int QueryBatchSize = 1000;
+
     /// <summary>
     /// Gets a queryable of all descendant IDs for a parent item.
     /// Traverses AncestorIds and LinkedChildren to find all descendants.
@@ -137,14 +139,21 @@ public static class DescendantQueryHelper
             var currentFolders = folderStack.ToArray();
             folderStack.Clear();
 
-            var directChildren = context.AncestorIds
-                .WhereOneOrMany(currentFolders, e => e.ParentItemId)
-                .Select(e => e.ItemId)
+            var directChildren = currentFolders
+                .Chunk(QueryBatchSize)
+                .SelectMany(folderChunk => context.AncestorIds
+                    .WhereOneOrMany(folderChunk, e => e.ParentItemId)
+                    .Select(e => e.ItemId)
+                    .ToArray())
+                .Distinct()
                 .ToArray();
 
-            var linkedChildren = context.LinkedChildren
-                .WhereOneOrMany(currentFolders, e => e.ParentId)
-                .Select(e => e.ChildId)
+            var linkedChildren = currentFolders
+                .Chunk(QueryBatchSize)
+                .SelectMany(folderChunk => context.LinkedChildren
+                    .WhereOneOrMany(folderChunk, e => e.ParentId)
+                    .Select(e => e.ChildId)
+                    .ToArray())
                 .ToArray();
 
             var allChildren = directChildren.Concat(linkedChildren).Distinct().ToArray();
@@ -154,10 +163,13 @@ public static class DescendantQueryHelper
                 break;
             }
 
-            var childFolders = context.BaseItems
-                .WhereOneOrMany(allChildren, e => e.Id)
-                .Where(e => e.IsFolder)
-                .Select(e => e.Id)
+            var childFolders = allChildren
+                .Chunk(QueryBatchSize)
+                .SelectMany(childChunk => context.BaseItems
+                    .WhereOneOrMany(childChunk, e => e.Id)
+                    .Where(e => e.IsFolder)
+                    .Select(e => e.Id)
+                    .ToArray())
                 .ToHashSet();
 
             foreach (var childId in allChildren)
@@ -185,9 +197,13 @@ public static class DescendantQueryHelper
             var currentFolders = folderStack.ToArray();
             folderStack.Clear();
 
-            var directChildren = context.AncestorIds
-                .WhereOneOrMany(currentFolders, e => e.ParentItemId)
-                .Select(e => e.ItemId)
+            var directChildren = currentFolders
+                .Chunk(QueryBatchSize)
+                .SelectMany(folderChunk => context.AncestorIds
+                    .WhereOneOrMany(folderChunk, e => e.ParentItemId)
+                    .Select(e => e.ItemId)
+                    .ToArray())
+                .Distinct()
                 .ToArray();
 
             if (directChildren.Length == 0)
@@ -195,10 +211,13 @@ public static class DescendantQueryHelper
                 break;
             }
 
-            var childFolders = context.BaseItems
-                .WhereOneOrMany(directChildren, e => e.Id)
-                .Where(e => e.IsFolder)
-                .Select(e => e.Id)
+            var childFolders = directChildren
+                .Chunk(QueryBatchSize)
+                .SelectMany(childChunk => context.BaseItems
+                    .WhereOneOrMany(childChunk, e => e.Id)
+                    .Where(e => e.IsFolder)
+                    .Select(e => e.Id)
+                    .ToArray())
                 .ToHashSet();
 
             foreach (var childId in directChildren)

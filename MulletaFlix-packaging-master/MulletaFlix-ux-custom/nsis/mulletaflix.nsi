@@ -174,8 +174,7 @@ Function StopRunningMulletaFlixProcesses
     SetOutPath "$PLUGINSDIR"
     File "/oname=stop-nebula-processes.ps1" "${UXPATH}\nsis\stop-nebula-processes.ps1"
     ExecWait 'powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$PLUGINSDIR\stop-nebula-processes.ps1" -InstallDirectory "$INSTDIR"' $0
-    ; Garantia adicional via taskkill para liberar arquivos bloqueados
-    nsExec::Exec 'cmd.exe /c taskkill /F /IM MulletaFlix.exe /IM MulletaFlix.Windows.Tray.exe /IM mysqld.exe /IM mariadbd.exe /IM rclone.exe >nul 2>&1'
+    ; O helper acima filtra processos pelos diretórios desta instalação; taskkill por nome atingiria outras instalações.
     Sleep 1500
 FunctionEnd
 
@@ -201,7 +200,6 @@ Function un.StopRunningMulletaFlixProcesses
     SetOutPath "$PLUGINSDIR"
     File "/oname=stop-nebula-processes.ps1" "${UXPATH}\nsis\stop-nebula-processes.ps1"
     ExecWait 'powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$PLUGINSDIR\stop-nebula-processes.ps1" -InstallDirectory "$INSTDIR"' $0
-    nsExec::Exec 'cmd.exe /c taskkill /F /IM MulletaFlix.exe /IM MulletaFlix.Windows.Tray.exe /IM mysqld.exe /IM mariadbd.exe /IM rclone.exe >nul 2>&1'
     Sleep 1500
 FunctionEnd
 

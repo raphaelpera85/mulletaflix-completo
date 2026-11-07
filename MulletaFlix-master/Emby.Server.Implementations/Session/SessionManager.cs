@@ -416,7 +416,7 @@ namespace Emby.Server.Implementations.Session
                         }
                     }
 
-                    info.Item = GetItemInfo(libraryItem, mediaSource);
+                    info.Item = await GetItemInfoAsync(libraryItem, mediaSource).ConfigureAwait(false);
 
                     info.Item.RunTimeTicks = runtimeTicks;
                 }
@@ -1069,7 +1069,7 @@ namespace Emby.Server.Implementations.Session
                         mediaSource = await GetMediaSource(libraryItem, info.MediaSourceId, info.LiveStreamId).ConfigureAwait(false);
                     }
 
-                    info.Item = GetItemInfo(libraryItem, mediaSource);
+                    info.Item = await GetItemInfoAsync(libraryItem, mediaSource).ConfigureAwait(false);
                 }
                 else
                 {
@@ -1814,49 +1814,60 @@ namespace Emby.Server.Implementations.Session
         private BaseItemDto GetItemInfo(BaseItem item, MediaSourceInfo mediaSource)
         {
             ArgumentNullException.ThrowIfNull(item);
+            return AddMediaStreams(_dtoService.GetBaseItemDto(item, GetItemInfoDtoOptions()), mediaSource);
+        }
 
-            var dtoOptions = _itemInfoDtoOptions;
+        private async Task<BaseItemDto> GetItemInfoAsync(BaseItem item, MediaSourceInfo mediaSource)
+        {
+            ArgumentNullException.ThrowIfNull(item);
+            var info = await _dtoService.GetBaseItemDtoAsync(item, GetItemInfoDtoOptions()).ConfigureAwait(false);
+            return AddMediaStreams(info, mediaSource);
+        }
 
-            if (_itemInfoDtoOptions is null)
+        private DtoOptions GetItemInfoDtoOptions()
+        {
+            if (_itemInfoDtoOptions is not null)
             {
-                dtoOptions = new DtoOptions
-                {
-                    AddProgramRecordingInfo = false
-                };
-
-                var fields = dtoOptions.Fields.ToList();
-
-                fields.Remove(ItemFields.CanDelete);
-                fields.Remove(ItemFields.CanDownload);
-                fields.Remove(ItemFields.ChildCount);
-                fields.Remove(ItemFields.CustomRating);
-                fields.Remove(ItemFields.DateLastMediaAdded);
-                fields.Remove(ItemFields.DateLastRefreshed);
-                fields.Remove(ItemFields.DateLastSaved);
-                fields.Remove(ItemFields.DisplayPreferencesId);
-                fields.Remove(ItemFields.Etag);
-                fields.Remove(ItemFields.ItemCounts);
-                fields.Remove(ItemFields.MediaSourceCount);
-                fields.Remove(ItemFields.MediaStreams);
-                fields.Remove(ItemFields.MediaSources);
-                fields.Remove(ItemFields.People);
-                fields.Remove(ItemFields.PlayAccess);
-                fields.Remove(ItemFields.People);
-                fields.Remove(ItemFields.ProductionLocations);
-                fields.Remove(ItemFields.RecursiveItemCount);
-                fields.Remove(ItemFields.RemoteTrailers);
-                fields.Remove(ItemFields.SeasonUserData);
-                fields.Remove(ItemFields.Settings);
-                fields.Remove(ItemFields.SortName);
-                fields.Remove(ItemFields.Tags);
-
-                dtoOptions.Fields = fields.ToArray();
-
-                _itemInfoDtoOptions = dtoOptions;
+                return _itemInfoDtoOptions;
             }
 
-            var info = _dtoService.GetBaseItemDto(item, dtoOptions);
+            var dtoOptions = new DtoOptions
+            {
+                AddProgramRecordingInfo = false
+            };
 
+            var fields = dtoOptions.Fields.ToList();
+
+            fields.Remove(ItemFields.CanDelete);
+            fields.Remove(ItemFields.CanDownload);
+            fields.Remove(ItemFields.ChildCount);
+            fields.Remove(ItemFields.CustomRating);
+            fields.Remove(ItemFields.DateLastMediaAdded);
+            fields.Remove(ItemFields.DateLastRefreshed);
+            fields.Remove(ItemFields.DateLastSaved);
+            fields.Remove(ItemFields.DisplayPreferencesId);
+            fields.Remove(ItemFields.Etag);
+            fields.Remove(ItemFields.ItemCounts);
+            fields.Remove(ItemFields.MediaSourceCount);
+            fields.Remove(ItemFields.MediaStreams);
+            fields.Remove(ItemFields.MediaSources);
+            fields.Remove(ItemFields.People);
+            fields.Remove(ItemFields.PlayAccess);
+            fields.Remove(ItemFields.ProductionLocations);
+            fields.Remove(ItemFields.RecursiveItemCount);
+            fields.Remove(ItemFields.RemoteTrailers);
+            fields.Remove(ItemFields.SeasonUserData);
+            fields.Remove(ItemFields.Settings);
+            fields.Remove(ItemFields.SortName);
+            fields.Remove(ItemFields.Tags);
+
+            dtoOptions.Fields = fields.ToArray();
+            _itemInfoDtoOptions = dtoOptions;
+            return dtoOptions;
+        }
+
+        private static BaseItemDto AddMediaStreams(BaseItemDto info, MediaSourceInfo mediaSource)
+        {
             if (mediaSource is not null)
             {
                 info.MediaStreams = mediaSource.MediaStreams.ToArray();
@@ -1887,6 +1898,17 @@ namespace Emby.Server.Implementations.Session
             var session = GetSession(sessionId);
 
             session.NowViewingItem = GetItemInfo(item, null);
+        }
+
+        /// <inheritdoc />
+        public async Task ReportNowViewingItemAsync(string sessionId, string itemId)
+        {
+            ArgumentException.ThrowIfNullOrEmpty(itemId);
+
+            var item = _libraryManager.GetItemById(new Guid(itemId));
+            var session = GetSession(sessionId);
+
+            session.NowViewingItem = await GetItemInfoAsync(item, null).ConfigureAwait(false);
         }
 
         /// <inheritdoc />

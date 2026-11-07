@@ -21,7 +21,6 @@ import os
 import queue
 import re
 import shutil
-import socket
 import stat
 import sys
 import threading
@@ -32,8 +31,31 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable
 from urllib.parse import parse_qs, urlsplit
-from urllib.request import Request, urlopen
+from urllib.request import HTTPRedirectHandler, Request, build_opener
 import urllib.error
+try:
+    from tools.logging_safety import SingleLineFormatter
+except ModuleNotFoundError:  # Direct script execution sets sys.path to this directory.
+    from logging_safety import SingleLineFormatter
+
+
+class _HttpOnlyRedirectHandler(HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        try:
+            parsed = urlsplit(newurl)
+            parsed.port
+        except (TypeError, ValueError):
+            return None
+        if parsed.scheme.lower() not in {"http", "https"} or not parsed.hostname:
+            return None
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
+_HTTP_OPENER = build_opener(_HttpOnlyRedirectHandler())
+
+
+def urlopen(url, timeout=None):
+    return _HTTP_OPENER.open(url, timeout=timeout)
 
 from bson import ObjectId
 from dotenv import load_dotenv
@@ -124,7 +146,7 @@ def setup_logger(verbose: bool = False) -> None:
             sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 
     level = logging.DEBUG if verbose else logging.INFO
-    formatter = logging.Formatter("[%(asctime)s][%(levelname)s][STRM] %(message)s", datefmt="%H:%M:%S")
+    formatter = SingleLineFormatter("[%(asctime)s][%(levelname)s][STRM] %(message)s", datefmt="%H:%M:%S")
     handler = logging.StreamHandler(sys.stdout)
     handler.setFormatter(formatter)
     logger.setLevel(level)
@@ -232,6 +254,16 @@ def read_strm_url(src: Path) -> str:
     raise ValueError(f"Arquivo .strm vazio ou inválido: {src}")
 
 
+def _validate_http_url(url: str) -> None:
+    try:
+        parsed = urlsplit(url)
+        parsed.port  # Access validates malformed and out-of-range ports.
+    except ValueError as exc:
+        raise ValueError("URL .strm invalida: esperado HTTP(S) com host e porta válida") from exc
+    if parsed.scheme.lower() not in {"http", "https"} or not parsed.hostname:
+        raise ValueError("URL .strm invalida: esperado HTTP(S) com host")
+
+
 def guess_media_extension(url: str, content_type: str | None = None) -> str:
     """Infere a extensão de mídia (.mkv, .mp4, etc.) a partir da URL."""
     path_suffix = Path(urlsplit(url).path).suffix.lower()
@@ -247,6 +279,7 @@ def guess_media_extension(url: str, content_type: str | None = None) -> str:
 def remote_content_size(url: str, timeout: int = 15) -> int | None:
     """Obtém o tamanho remoto do arquivo via Range request 0-0 ou Content-Length."""
     try:
+        _validate_http_url(url)
         request = Request(url, headers={"Range": "bytes=0-0", "User-Agent": "VLC/3.0.21 LibVLC/3.0.21"})
         with urlopen(request, timeout=timeout) as response:
             match = re.match(r"bytes\s+\d+-\d+/(\d+)", response.headers.get("Content-Range", ""))
@@ -259,12 +292,12 @@ def remote_content_size(url: str, timeout: int = 15) -> int | None:
 
 
 def _validate_content_range(response: Any, requested_start: int, requested_end: int, total: int) -> None:
-    """Reject explicit partial-response ranges that do not match the request."""
+    """Reject missing or mismatched ranges for HTTP partial responses."""
     if getattr(response, "status", None) != 206:
         return
     content_range = response.headers.get("Content-Range")
     if not content_range:
-        return
+        raise IOError("Resposta HTTP 206 sem cabeçalho Content-Range")
     match = re.fullmatch(r"\s*bytes\s+(\d+)-(\d+)/(\d+|\*)\s*", content_range, re.IGNORECASE)
     if (
         match is None
@@ -364,7 +397,12 @@ def get_configured_staging_dirs() -> list[Path]:
             data = json.loads(stage_json.read_text(encoding="utf-8"))
             if isinstance(data, list):
                 for item in data:
-                    p = Path(item).resolve()
+                    if not isinstance(item, str) or not item.strip():
+                        continue
+                    try:
+                        p = Path(item.strip()).resolve()
+                    except (OSError, RuntimeError, ValueError):
+                        continue
                     if str(p).lower() not in seen:
                         seen.add(str(p).lower())
                         dirs.append(p)
@@ -426,10 +464,10 @@ def wait_for_disk_capacity(
     poll_seconds: int = 10,
 ) -> None:
     """Bloqueia a execução até que haja espaço suficiente em disco."""
-    target_path.parent.mkdir(parents=True, exist_ok=True)
     last_log = 0.0
     while True:
         try:
+            target_path.parent.mkdir(parents=True, exist_ok=True)
             usage = shutil.disk_usage(target_path.parent)
             reserve = usage.total * min_free_percent // 100
             if usage.free - (required_bytes or 0) >= reserve:
@@ -444,9 +482,15 @@ def wait_for_disk_capacity(
                     (required_bytes or 0) / 1024**3,
                 )
                 last_log = now
-        except Exception as exc:
-            logger.debug("Erro ao checar espaço em disco: %s", exc)
-            return
+        except OSError as exc:
+            now = time.time()
+            if now - last_log >= 30:
+                logger.warning(
+                    "Não foi possível confirmar espaço em %s; download pausado até o volume ficar disponível: %s",
+                    target_path.parent,
+                    exc,
+                )
+                last_log = now
         time.sleep(poll_seconds)
 
 
@@ -711,7 +755,10 @@ class MediaValidator:
         self.completed_episodes: set[tuple[str, int, int]] = set()
         self.exact_completed: set[tuple[str, str]] = set()
         self.stem_completed: set[tuple[str, str]] = set()
-        self.active_paths_or_names: set[str] = set()
+        self.active_exact: set[tuple[str, str]] = set()
+        self.active_paths: set[str] = set()
+        self.active_movies: set[tuple[str, str]] = set()
+        self.active_episodes: set[tuple[str, int, int]] = set()
         self.last_cache_time = 0.0
         self.last_cache_attempt_time = 0.0
 
@@ -737,7 +784,11 @@ class MediaValidator:
             stem_set: set[tuple[str, str]] = set()
             movies: set[tuple[str, str]] = set()
             episodes: set[tuple[str, int, int]] = set()
-            active: set[str] = set()
+            active_exact: set[tuple[str, str]] = set()
+            active_paths: set[str] = set()
+            active_movies: set[tuple[str, str]] = set()
+            active_episodes: set[tuple[str, int, int]] = set()
+            active_count = 0
 
             cursor = db.files.find(
                 {"type": "file"},
@@ -778,20 +829,37 @@ class MediaValidator:
                             if ep_id:
                                 episodes.add(ep_id)
                 elif status in ACTIVE_STATUSES:
-                    active.add(name_lower)
-                    active.add(stem_lower)
+                    active_count += 1
+                    active_exact.add((parent, name_lower))
+                    active_exact.add((parent, stem_lower))
                     if local_path:
-                        active.add(str(local_path).lower())
+                        active_paths.add(os.path.normcase(os.path.normpath(str(local_path))))
+                    parts = [p for p in parent.split("/") if p]
+                    if "filmes" in parts:
+                        idx = parts.index("filmes")
+                        if len(parts) > idx + 1:
+                            active_movie = movie_identity(parts[idx + 1]) or movie_identity(stem_lower)
+                            if active_movie:
+                                active_movies.add(active_movie)
+                    elif "series" in parts:
+                        idx = parts.index("series")
+                        if len(parts) > idx + 1:
+                            active_episode = episode_identity(parts[idx + 1], name)
+                            if active_episode:
+                                active_episodes.add(active_episode)
 
             self.exact_completed = exact_set
             self.stem_completed = stem_set
             self.completed_movies = movies
             self.completed_episodes = episodes
-            self.active_paths_or_names = active
+            self.active_exact = active_exact
+            self.active_paths = active_paths
+            self.active_movies = active_movies
+            self.active_episodes = active_episodes
             self.last_cache_time = now
             logger.debug(
                 "Índice Mongo atualizado: %d filmes concl., %d eps concl., %d ativos.",
-                len(movies), len(episodes), len(active)
+                len(movies), len(episodes), active_count
             )
             return True
         except Exception as exc:
@@ -846,14 +914,16 @@ class MediaValidator:
             except Exception:
                 pass
 
-        # 2. Verificação de status ativo (em fila/download/upload)
-        strm_stem_lower = strm_path.stem.casefold()
-        if strm_stem_lower in self.active_paths_or_names:
+        # 2. Verificação de status ativo com identidade/caminho, nunca só pelo nome.
+        candidate_paths = {os.path.normcase(os.path.normpath(str(strm_path)))}
+        if destination:
+            candidate_paths.add(os.path.normcase(os.path.normpath(str(destination))))
+        if candidate_paths & self.active_paths:
             return True, f"Mídia '{strm_path.stem}' já está ativa/em fila no Nebula"
 
         # 3. Verificação por identidade de Filme (Título + Ano)
         m_id = movie_identity(strm_path.stem) or movie_identity(strm_path.parent.name)
-        if m_id and m_id in self.completed_movies:
+        if m_id and (m_id in self.completed_movies or m_id in self.active_movies):
             return True, f"Filme '{m_id[0]} ({m_id[1]})' já concluído no Nebula"
 
         # 4. Verificação por identidade de Série (Nome + Temporada + Episódio)
@@ -861,7 +931,7 @@ class MediaValidator:
         grandparent_name = strm_path.parent.parent.name if strm_path.parent.parent else ""
         s_candidate = parent_name if "season" not in parent_name.lower() else grandparent_name
         ep_id = episode_identity(s_candidate, strm_path.name)
-        if ep_id and ep_id in self.completed_episodes:
+        if ep_id and (ep_id in self.completed_episodes or ep_id in self.active_episodes):
             return True, f"Episódio '{ep_id[0]} S{ep_id[1]:02d}E{ep_id[2]:02d}' já concluído no Nebula"
 
         # 5. Verificação por destino exato no Mongo (parent, name)
@@ -872,6 +942,8 @@ class MediaValidator:
 
             if (parent, name_lower) in self.exact_completed or (parent, stem_lower) in self.stem_completed:
                 return True, f"Destino '{parent}/{destination.name}' já concluído no Nebula"
+            if (parent, name_lower) in self.active_exact or (parent, stem_lower) in self.active_exact:
+                return True, f"Destino '{parent}/{destination.name}' já está ativo/em fila no Nebula"
 
         return False, ""
 
@@ -892,30 +964,90 @@ def download_strm_multipart(
     Realiza o download de uma URL com suporte a Range requests em múltiplas partes,
     com retomada (resume) de partes baixadas e retentativas automáticas.
     """
+    _validate_http_url(url)
     target_path.parent.mkdir(parents=True, exist_ok=True)
     tmp_path = target_path.parent / f".{target_path.stem}.download"
     meta_path = Path(f"{tmp_path}.meta")
     part_paths: list[Path] = []
-
-    socket.setdefaulttimeout(read_timeout)
 
     try:
         probe = Request(url, headers={"Range": "bytes=0-0", "User-Agent": "VLC/3.0.21 LibVLC/3.0.21"})
         with urlopen(probe, timeout=read_timeout) as response:
             content_range = response.headers.get("Content-Range", "")
             match = re.match(r"bytes\s+0-0/(\d+)", content_range)
+            etag = response.headers.get("ETag", "")
+            strong_etag = etag if etag and not etag.startswith("W/") else None
 
-            if not match:
-                # Checar se já existe no destino
-                if target_path.exists() and target_path.stat().st_size > 0:
-                    return target_path
-                # Servidor não suporta Range: download sequencial direto
-                logger.info("Download direto sem suporte a Range: %s", target_path.name)
-                with tmp_path.open("wb") as out:
-                    shutil.copyfileobj(response, out, length=1024 * 1024)
+            if not match or not strong_etag:
+                if not match and getattr(response, "status", None) == 206:
+                    raise IOError("Resposta HTTP 206 do teste de Range sem Content-Range válido")
+                # Without a strong validator, parallel ranges cannot safely be resumed or joined.
+                logger.info("Download sequencial sem ETag forte: %s", target_path.name)
+                try:
+                    content_length = int(response.headers.get("Content-Length", ""))
+                except (TypeError, ValueError):
+                    content_length = None
+                response.close()
+                # Não escreva no stage até que o volume esteja acessível e a
+                # reserva de espaço possa ser confirmada. Se o tamanho for
+                # desconhecido, valide a reserva antes do GET e a cada bloco.
+                wait_for_disk_capacity(target_path, content_length, min_free_percent)
+                sequential_request = Request(
+                    url,
+                    headers={"User-Agent": "VLC/3.0.21 LibVLC/3.0.21"},
+                )
+                with urlopen(sequential_request, timeout=read_timeout) as sequential_response:
+                    if getattr(sequential_response, "status", None) != 200:
+                        raise IOError(
+                            f"Resposta HTTP inesperada no download sequencial: "
+                            f"{getattr(sequential_response, 'status', None)}"
+                        )
+                    try:
+                        sequential_content_length = int(sequential_response.headers.get("Content-Length", ""))
+                    except (TypeError, ValueError):
+                        sequential_content_length = None
+
+                    if (
+                        content_length is not None
+                        and sequential_content_length is not None
+                        and content_length != sequential_content_length
+                    ):
+                        raise IOError(
+                            "Content-Length do teste de Range difere da resposta sequencial "
+                            f"({content_length} != {sequential_content_length} bytes)"
+                        )
+
+                    expected_content_length = (
+                        sequential_content_length if sequential_content_length is not None else content_length
+                    )
+                    with tmp_path.open("wb") as out:
+                        while chunk := sequential_response.read(1024 * 1024):
+                            wait_for_disk_capacity(target_path, len(chunk), min_free_percent)
+                            out.write(chunk)
                 total = tmp_path.stat().st_size
+                if expected_content_length is not None and total != expected_content_length:
+                    raise IOError(
+                        f"Download sequencial incompleto ({total}/{expected_content_length} bytes)"
+                    )
             else:
                 total = int(match.group(1))
+
+                saved_meta = {}
+                try:
+                    with meta_path.open("r", encoding="utf-8") as f:
+                        saved_meta = json.load(f)
+                except Exception:
+                    saved_meta = {}
+                if not isinstance(saved_meta, dict):
+                    saved_meta = {}
+                resume_valid = (
+                    saved_meta.get("total") == total
+                    and saved_meta.get("etag") == strong_etag
+                )
+                if not resume_valid:
+                    for stale_path in target_path.parent.glob(f"{tmp_path.name}*"):
+                        with contextlib.suppress(Exception):
+                            stale_path.unlink(missing_ok=True)
 
                 # Checar se já existe no destino completo
                 if target_path.exists():
@@ -930,7 +1062,7 @@ def download_strm_multipart(
                     # commits the new file atomically at the end.
 
                 # Checar se o arquivo já foi completamente unido antes de uma parada inesperada
-                if tmp_path.exists() and tmp_path.stat().st_size == total:
+                if resume_valid and tmp_path.exists() and tmp_path.stat().st_size == total:
                     logger.info("Arquivo unido já existente completo (%d bytes): %s", total, target_path.name)
                     tmp_path.replace(target_path)
                     meta_path.unlink(missing_ok=True)
@@ -942,14 +1074,18 @@ def download_strm_multipart(
                 wait_for_disk_capacity(target_path, total, min_free_percent)
 
                 # Recupera parts_count original caso salvo em sessão anterior
-                if meta_path.exists():
+                if resume_valid:
                     try:
-                        with meta_path.open("r", encoding="utf-8") as f:
-                            saved_meta = json.load(f)
-                        if saved_meta.get("total") == total and saved_meta.get("parts_count"):
-                            parts_count = int(saved_meta["parts_count"])
-                    except Exception:
-                        pass
+                        saved_parts_count = int(saved_meta.get("parts_count", 0))
+                    except (TypeError, ValueError):
+                        saved_parts_count = 0
+                    if 1 <= saved_parts_count <= 32:
+                        parts_count = saved_parts_count
+                    else:
+                        resume_valid = False
+                        for stale_path in target_path.parent.glob(f"{tmp_path.name}*"):
+                            with contextlib.suppress(Exception):
+                                stale_path.unlink(missing_ok=True)
 
                 parts_count = min(max(parts_count, 1), 32)
                 part_size = (total + parts_count - 1) // parts_count
@@ -957,7 +1093,7 @@ def download_strm_multipart(
 
                 try:
                     with meta_path.open("w", encoding="utf-8") as f:
-                        json.dump({"total": total, "parts_count": parts_count, "part_size": part_size}, f)
+                        json.dump({"total": total, "parts_count": parts_count, "part_size": part_size, "etag": strong_etag}, f)
                 except Exception:
                     pass
 
@@ -1022,20 +1158,17 @@ def download_strm_multipart(
                             req_start = start + existing
                             req = Request(
                                 url,
-                                headers={"Range": f"bytes={req_start}-{end}", "User-Agent": "VLC/3.0.21 LibVLC/3.0.21"},
+                                headers={"Range": f"bytes={req_start}-{end}", "If-Range": strong_etag, "User-Agent": "VLC/3.0.21 LibVLC/3.0.21"},
                             )
                             with urlopen(req, timeout=read_timeout) as part_resp:
                                 status = getattr(part_resp, "status", None)
-                                if status and status not in (200, 206):
+                                if status != 206:
                                     raise IOError(f"HTTP status {status} na parte {index + 1}")
+                                response_etag = part_resp.headers.get("ETag")
+                                if response_etag and response_etag != strong_etag:
+                                    raise IOError(f"ETag mudou durante o download da parte {index + 1}")
                                 _validate_content_range(part_resp, req_start, end, total)
-                                if req_start > 0 and status == 200:
-                                    with progress_lock:
-                                        progress["downloaded"] = max(0, progress["downloaded"] - existing)
-                                    existing = 0
-                                    mode = "wb"
-                                else:
-                                    mode = "ab" if existing > 0 else "wb"
+                                mode = "ab" if existing > 0 else "wb"
 
                                 with part_tmp.open(mode) as out:
                                     while chunk := part_resp.read(64 * 1024):
@@ -1081,7 +1214,16 @@ def download_strm_multipart(
                     raise IOError(f"Parte {index + 1} falhou após {max_retries} tentativas: {last_error}")
 
                 with ThreadPoolExecutor(max_workers=parts_count) as executor:
-                    list(executor.map(download_part, range(parts_count)))
+                    futures = [executor.submit(download_part, index) for index in range(parts_count)]
+                    first_error = None
+                    for future in futures:
+                        try:
+                            future.result()
+                        except Exception as exc:
+                            if first_error is None:
+                                first_error = exc
+                    if first_error is not None:
+                        raise first_error
 
                 logger.info("Unindo partes do arquivo: %s", target_path.name)
                 with tmp_path.open("wb") as out:
@@ -1096,9 +1238,9 @@ def download_strm_multipart(
                 for part_path in part_paths:
                     part_path.unlink(missing_ok=True)
                     Path(f"{part_path}.tmp").unlink(missing_ok=True)
-                meta_path.unlink(missing_ok=True)
 
         tmp_path.replace(target_path)
+        meta_path.unlink(missing_ok=True)
         # Limpar sobras de arquivos temporários
         for leftover in target_path.parent.glob(f".{target_path.stem}.*.download*"):
             with contextlib.suppress(Exception):

@@ -15,7 +15,7 @@ public interface INextUpService
     /// <param name="filter">The query.</param>
     /// <param name="dateCutoff">The minimum date for a series to have been most recently watched.</param>
     /// <returns>The list of keys.</returns>
-    IReadOnlyList<string> GetNextUpSeriesKeys(InternalItemsQuery filter, DateTime dateCutoff);
+    IReadOnlyList<(string SeriesKey, DateTime LastPlayedDate)> GetNextUpSeriesKeys(InternalItemsQuery filter, DateTime dateCutoff);
 
     /// <summary>
     /// Gets next up episodes for multiple series in a single batched query.

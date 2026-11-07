@@ -1,0 +1,194 @@
+{
+  "config": {
+    "argv": [
+      "C:\\Program Files\\nodejs\\node.exe",
+      "C:\\Users\\Raphael\\.codex\\worktrees\\updater-fail-closed\\mulletaflix\\MulletaFlix-web-master\\node_modules\\@playwright\\test\\cli.js",
+      "test",
+      "tests/playwright/specs/00-wizard.spec.ts",
+      "tests/playwright/specs/01-bootstrap.spec.ts",
+      "tests/playwright/specs/10-admin.spec.ts",
+      "tests/playwright/specs/11-admin-extended.spec.ts",
+      "tests/playwright/specs/12-admin-surfaces.spec.ts",
+      "tests/playwright/specs/20-user.spec.ts",
+      "tests/playwright/specs/21-multi-user-playback.spec.ts",
+      "tests/playwright/specs/22-adsense-flow.spec.ts",
+      "tests/playwright/specs/23-search.spec.ts",
+      "tests/playwright/specs/30-playlists.spec.ts",
+      "tests/playwright/specs/31-accessibility-home-and-details.spec.ts",
+      "tests/playwright/specs/32-accessibility-search-and-player.spec.ts",
+      "tests/playwright/specs/33-item-details-e2e.spec.ts",
+      "tests/playwright/specs/99-pagination.spec.ts",
+      "--config",
+      "C:\\Users\\Raphael\\.codex\\worktrees\\updater-fail-closed\\mulletaflix\\MulletaFlix-web-master\\playwright.stage.config.ts",
+      "--pass-with-no-tests",
+      "--grep",
+      "keeps real STRM video visible after webOS forced fullscreen exits"
+    ],
+    "configFile": "C:\\Users\\Raphael\\.codex\\worktrees\\updater-fail-closed\\mulletaflix\\MulletaFlix-web-master\\playwright.stage.config.ts",
+    "rootDir": "C:/Users/Raphael/.codex/worktrees/updater-fail-closed/mulletaflix/MulletaFlix-web-master/tests/playwright/specs",
+    "failOnFlakyTests": false,
+    "forbidOnly": false,
+    "fullyParallel": false,
+    "globalSetup": null,
+    "globalTeardown": null,
+    "globalTimeout": 0,
+    "grep": {},
+    "grepInvert": null,
+    "maxFailures": 0,
+    "metadata": {
+      "actualWorkers": 1
+    },
+    "preserveOutput": "always",
+    "projects": [
+      {
+        "outputDir": "C:/Users/Raphael/.codex/worktrees/updater-fail-closed/mulletaflix/MulletaFlix-web-master/test-results/playwright",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 1
+        },
+        "id": "chromium",
+        "name": "chromium",
+        "testDir": "C:/Users/Raphael/.codex/worktrees/updater-fail-closed/mulletaflix/MulletaFlix-web-master/tests/playwright/specs",
+        "testIgnore": [],
+        "testMatch": [
+          "**/*.spec.ts",
+          "**/*.spec.js",
+          "**/*.spec.mjs"
+        ],
+        "timeout": 120000
+      }
+    ],
+    "quiet": false,
+    "reporter": [
+      [
+        "list",
+        null
+      ],
+      [
+        "json",
+        {
+          "outputFile": "C:\\Users\\Raphael\\.codex\\worktrees\\updater-fail-closed\\mulletaflix\\MulletaFlix-web-master\\reports\\playwright-webos-direct-20261030-0040\\raw-stage-results.json"
+        }
+      ]
+    ],
+    "reportSlowTests": {
+      "max": 5,
+      "threshold": 300000
+    },
+    "shard": null,
+    "tags": [],
+    "updateSnapshots": "missing",
+    "updateSourceMethod": "patch",
+    "version": "1.61.1",
+    "workers": 1,
+    "webServer": null
+  },
+  "suites": [
+    {
+      "title": "22-adsense-flow.spec.ts",
+      "file": "22-adsense-flow.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [],
+      "suites": [
+        {
+          "title": "22 - AdSense playback flow",
+          "file": "22-adsense-flow.spec.ts",
+          "line": 177,
+          "column": 15,
+          "specs": [
+            {
+              "title": "keeps real STRM video visible after webOS forced fullscreen exits",
+              "ok": false,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 1500000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "failed",
+                      "duration": 93048,
+                      "error": {
+                        "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoBeVisible\u001b[2m(\u001b[22m\u001b[2m)\u001b[22m failed\n\nLocator: locator('.videoPlayerContainer video')\nExpected: visible\nTimeout: 10000ms\nError: element(s) not found\n\nCall log:\n\u001b[2m  - Expect \"toBeVisible\" with timeout 10000ms\u001b[22m\n\u001b[2m  - waiting for locator('.videoPlayerContainer video')\u001b[22m\n",
+                        "stack": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoBeVisible\u001b[2m(\u001b[22m\u001b[2m)\u001b[22m failed\n\nLocator: locator('.videoPlayerContainer video')\nExpected: visible\nTimeout: 10000ms\nError: element(s) not found\n\nCall log:\n\u001b[2m  - Expect \"toBeVisible\" with timeout 10000ms\u001b[22m\n\u001b[2m  - waiting for locator('.videoPlayerContainer video')\u001b[22m\n\n    at C:\\Users\\Raphael\\.codex\\worktrees\\updater-fail-closed\\mulletaflix\\MulletaFlix-web-master\\tests\\playwright\\specs\\22-adsense-flow.spec.ts:330:33",
+                        "location": {
+                          "file": "C:\\Users\\Raphael\\.codex\\worktrees\\updater-fail-closed\\mulletaflix\\MulletaFlix-web-master\\tests\\playwright\\specs\\22-adsense-flow.spec.ts",
+                          "column": 33,
+                          "line": 330
+                        },
+                        "snippet": "  328 |\n  329 |             const video = page.locator('.videoPlayerContainer video');\n> 330 |             await expect(video).toBeVisible();\n      |                                 ^\n  331 |             await expect.poll(() => video.evaluate((element: HTMLVideoElement) =>\n  332 |                 !element.paused && element.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA\n  333 |                     && element.videoWidth > 0 && element.videoHeight > 0"
+                      },
+                      "errors": [
+                        {
+                          "location": {
+                            "file": "C:\\Users\\Raphael\\.codex\\worktrees\\updater-fail-closed\\mulletaflix\\MulletaFlix-web-master\\tests\\playwright\\specs\\22-adsense-flow.spec.ts",
+                            "column": 33,
+                            "line": 330
+                          },
+                          "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoBeVisible\u001b[2m(\u001b[22m\u001b[2m)\u001b[22m failed\n\nLocator: locator('.videoPlayerContainer video')\nExpected: visible\nTimeout: 10000ms\nError: element(s) not found\n\nCall log:\n\u001b[2m  - Expect \"toBeVisible\" with timeout 10000ms\u001b[22m\n\u001b[2m  - waiting for locator('.videoPlayerContainer video')\u001b[22m\n\n\n  328 |\n  329 |             const video = page.locator('.videoPlayerContainer video');\n> 330 |             await expect(video).toBeVisible();\n      |                                 ^\n  331 |             await expect.poll(() => video.evaluate((element: HTMLVideoElement) =>\n  332 |                 !element.paused && element.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA\n  333 |                     && element.videoWidth > 0 && element.videoHeight > 0\n    at C:\\Users\\Raphael\\.codex\\worktrees\\updater-fail-closed\\mulletaflix\\MulletaFlix-web-master\\tests\\playwright\\specs\\22-adsense-flow.spec.ts:330:33"
+                        }
+                      ],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-30T03:39:40.573Z",
+                      "annotations": [],
+                      "attachments": [
+                        {
+                          "name": "screenshot",
+                          "contentType": "image/png",
+                          "path": "C:\\Users\\Raphael\\.codex\\worktrees\\updater-fail-closed\\mulletaflix\\MulletaFlix-web-master\\test-results\\playwright\\22-adsense-flow-22---AdSen-69a87-bOS-forced-fullscreen-exits-chromium\\test-failed-1.png"
+                        },
+                        {
+                          "name": "video",
+                          "contentType": "video/webm",
+                          "path": "C:\\Users\\Raphael\\.codex\\worktrees\\updater-fail-closed\\mulletaflix\\MulletaFlix-web-master\\test-results\\playwright\\22-adsense-flow-22---AdSen-69a87-bOS-forced-fullscreen-exits-chromium\\video.webm"
+                        },
+                        {
+                          "name": "error-context",
+                          "contentType": "text/markdown",
+                          "path": "C:\\Users\\Raphael\\.codex\\worktrees\\updater-fail-closed\\mulletaflix\\MulletaFlix-web-master\\test-results\\playwright\\22-adsense-flow-22---AdSen-69a87-bOS-forced-fullscreen-exits-chromium\\error-context.md"
+                        },
+                        {
+                          "name": "trace",
+                          "contentType": "application/zip",
+                          "path": "C:\\Users\\Raphael\\.codex\\worktrees\\updater-fail-closed\\mulletaflix\\MulletaFlix-web-master\\test-results\\playwright\\22-adsense-flow-22---AdSen-69a87-bOS-forced-fullscreen-exits-chromium\\trace.zip"
+                        }
+                      ],
+                      "errorLocation": {
+                        "file": "C:\\Users\\Raphael\\.codex\\worktrees\\updater-fail-closed\\mulletaflix\\MulletaFlix-web-master\\tests\\playwright\\specs\\22-adsense-flow.spec.ts",
+                        "column": 33,
+                        "line": 330
+                      }
+                    }
+                  ],
+                  "status": "unexpected"
+                }
+              ],
+              "id": "2cfd3138e8f61dd25972-89b6cd8f27bb1cb517f0",
+              "file": "22-adsense-flow.spec.ts",
+              "line": 295,
+              "column": 9
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "errors": [],
+  "stats": {
+    "startTime": "2026-10-30T03:39:39.773Z",
+    "duration": 117729.764,
+    "expected": 0,
+    "skipped": 0,
+    "unexpected": 1,
+    "flaky": 0
+  }
+}

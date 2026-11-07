@@ -102,6 +102,14 @@ export function buildMarkdownReport(summary) {
         `- Instáveis: ${report.tests.flaky}`,
         `- Ignorados: ${report.tests.skipped}`,
         `- Duração: ${report.tests.durationMs} ms`,
+        ...(report.suites ? [
+            '',
+            '## Suítes',
+            '',
+            ...Object.entries(report.suites).map(([name, suite]) =>
+                `- ${name}: ${suite.status} (${suite.tests.passed}/${suite.tests.total} aprovados, ${suite.tests.failed} falhas, ${suite.tests.skipped} ignorados)${suite.baseUrl ? ` em ${suite.baseUrl}` : ''}`
+            )
+        ] : []),
         '',
         '## Probe do Stage',
         '',

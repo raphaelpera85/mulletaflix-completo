@@ -1,5 +1,61 @@
 # Auditoria Tecnica do Backend MulletaFlix
 
+## Progresso multipart do Nebula — 2026-11-06
+
+- A janela de 250 ms agora é única por download multipart e reservada com `Interlocked.CompareExchange`; antes, cada tarefa/parte tinha seu próprio relógio e podia emitir atualizações simultâneas. O contador de bytes continua por parte e a soma/formatação/evento rodam somente após uma reserva.
+- Validação local Release: regressão concorrente 64 workers e suíte focal combinada 78/78; portal 256/256; contrato do workflow de release 9/9. Sem benchmark real, CI executada ou validação de produção.
+- Compatibilidade confirmada com .NET 10 usando `Stopwatch.GetTimestamp` e `Interlocked`; a documentação oficial descreve `CompareExchange` como operação atômica: [Interlocked.CompareExchange](https://learn.microsoft.com/dotnet/api/system.threading.interlocked.compareexchange) e [Stopwatch](https://learn.microsoft.com/dotnet/api/system.diagnostics.stopwatch).
+- A candidata 12.1.46 continua sem publicação: PR #1 está fora de `main`, Actions foi bloqueado por faturamento antes dos runners e `dist`/tag não foram gerados.
+
+## Proveniência dos pacotes de release — 2026-11-06
+
+- O workflow de release agora solicita atestação de proveniência para os pacotes Linux, instalador Windows e ZIP de atualização após os gates de integridade/smoke test e antes de publicar.
+- Contrato local Node cobre permissões e ordem do gate. GitHub Actions bloqueada por cobrança; assinatura, pacote publicado, Linux e instalação seguem pendentes. Nenhum crédito de homologação formal.
+- Referência oficial: [GitHub artifact attestations](https://docs.github.com/en/actions/how-tos/secure-your-work/use-artifact-attestations/use-artifact-attestations). Sem runtime, API, dependência de produto ou banco novos.
+
+## Retry síncrono de gravação das faixas de mídia — 2026-11-03
+
+- `MediaStreamRepository.SaveMediaStreams` agora repete a substituição completa em erros de lock MariaDB 1205/1213, com contexto e transação novos, até três tentativas e backoff progressivo. Falhas permanentes continuam sendo propagadas; o contrato síncrono e o método assíncrono não mudaram.
+- `MediaStreamRepositoryRetryTests`: 1205/1213 simulados aprovados e falha permanente sem retry preservando a linha anterior; total 3/3 em SQLite. Build Release do projeto de integração passou com 0 erros; MariaDB opt-in, Linux, CI hospedada e produção não foram validados.
+- O build revelou e corrigiu formatação StyleCop recente em `MigrateMusicBrainzTimeout.cs` (1 erro); o build final passou com 1.680 avisos de analisadores no conjunto. Nenhum runtime ou pacote foi atualizado.
+- MariaDB documenta 1205 como lock wait timeout e 1213 como deadlock. EF Core recomenda executar a transação inteira como unidade repetível. Fontes: [MariaDB 1200–1299](https://mariadb.com/docs/server/reference/error-codes/mariadb-error-codes-1200-to-1299), [EF Core connection resiliency](https://learn.microsoft.com/en-us/ef/core/miscellaneous/connection-resiliency).
+- O mapa técnico foi conferido: mesmos módulos, APIs e dependências; somente fluxo interno síncrono de persistência alterado. Homologação formal permanece 2/7 (28,6%); release 12.1.46 candidata, não publicada.
+
+## Cobertura do startup Nebula com upload habilitado — 2026-11-03
+
+- `test_main_lifecycle.py` agora executa o caminho full com bots: cleanup e restore da fila, watcher, scanner e workers, além do modo somente streaming. Lifecycle passou 23/23.
+- Suíte Nebula no Windows/Python 3.14.7: 820 aprovados, 1 ignorado por requerer MongoDB opt-in. coverage.py com branches: 82% combinado para `main.py`, `ftp/` e `tools/`; arquivos com menor cobertura incluem `feed_ftp.py` (78%), `strm_downloader.py` (79%), `main.py` (80%) e `ftp/pathio.py` (81%). Próxima expansão de testes deve focar esses fluxos por risco, não perseguir percentual isolado.
+- Python 3.14 oferece `asyncio.TaskGroup`, mas ele cancela tarefas irmãs no primeiro erro. O Nebula atual usa tarefas longevas com shutdown explícito; uma migração exige contrato e testes de falha/cancelamento antes de adoção. Nenhuma dependência ou runtime foi alterado.
+- O contrato local do portal passou 247/247 após atualizar o snapshot para 412 eventos; os 2/7 gates formais foram preservados.
+- CI hospedada, Linux e produção continuam pendentes. Homologação formal 2/7 (28,6%); 12.1.46 candidata, não publicada.
+
+## Cleanup de falha na inicialização da fila Nebula — 2026-11-03
+
+- `Tools/NebulaPython/main.py::main` cria listeners e tarefas antes de preparar a fila. Falha em `cleanup_strm_duplicate_records` ou `restore_pending_uploads` agora fecha os recursos iniciados e retorna código 1; cancelamento fecha os mesmos recursos e relança `CancelledError`.
+- Testes Windows/Python 3.14.7: `tests/test_main_lifecycle.py` 22/22; suíte Nebula 819 aprovados, 1 ignorado/820. O teste ignorado exige MongoDB opt-in.
+- GitHub Actions marcou 16 jobs do run 41283703952 como não iniciados devido a bloqueio de cobrança. Essa execução não valida nem refuta o código. Linux e produção permanecem sem teste.
+- Homologação formal permanece 2/7 (28,6%). A alteração integra a candidata 12.1.46; não foi publicada.
+
+## Regressão focal de contratos de servidor — 2026-10-29
+
+- `SystemControllerTests`, `NativeIntroProviderTests`, `MariaDbStartupMutexLeaseTests` e `SecureConnectionProcessManagerTests`: 30/30 aprovados em Release/.NET 10; saída detalhada em `%TEMP%/mflx-server-current-focals-confirm-20261029.log`, exit 0.
+- Produção continua em 12.1.45 por GET read-only. WSL disponível apenas como WSL1 sem distro Linux e Docker Engine ausente; este host não permite validar os gates Linux nativo/containers.
+- Homologação formal permanece 2/7; teste focal não muda contagem da regressão ampla nem cria release.
+
+## Reexecução Mongo opt-in e estado de produção — 2026-10-29
+
+- `Category=RequiresMongo` repetido contra MongoDB 8.3.7 isolado: 26/26 aprovados, 0 ignorados/falhas; TRX em `%TEMP%/mflx-mongodb-20261029-audit/results/mongodb-optin-20261029.trx`.
+- Processo temporário encerrado; porta 27099 fechada e serviço MongoDB existente ainda ativo. Produção consultada somente por GET HTTP 200 e permanece em 12.1.45; nenhum acesso ao banco operacional.
+- Contrato do portal passou 397/397 e Git `main` confere no commit `08036752f69241cf1d74394f7c1f389e73f6a4c2`. Vercel Production ainda está READY no commit anterior `cb7bc604`; o commit mais novo não tem deployment listado. O endpoint público confirmou o snapshot de 13:54 BRT, antes dos 30/30 focais. A API havia retornado HTTP 402 pelo limite diário.
+- Snapshot amplo permanece 5.377/5.651 (274 ignorados); homologação formal 2/7 (28,6%), sem crédito novo ou release.
+- Mapa técnico conferido: nenhuma alteração de módulos, APIs, classes, dependências ou fluxo de produção.
+
+## Opt-in MariaDB reexecutado — 2026-10-29
+
+- Recontagem dos resultados TRX da regressão ampla: 85 ignorados; 31 MariaDB opt-in, 26 MongoDB opt-in, 25 condicionados por OS/recursos POSIX e 3 benchmarks (categorias de ambiente podem sobrepor-se).
+- Contra MariaDB 11.4.4 descartável no Windows, `UserManagerNormalizedUsernameTests|BillingDatabaseTests` passou 30/31; um caso de collation precisa de `lower_case_table_names=0` em Linux. Processo encerrado; porta temporária fechada.
+- Produção confirmada novamente por GET: HTTP 200, versão 12.1.45. Nenhuma consulta ao banco operacional, mudança de dados ou alteração de topologia foi feita nesta rodada. Estrutura do projeto permanece igual.
+
 ## Exclusão segura de imagens de perfil GetAvatar — 2026-10-27
 
 - `AvatarService` apagava imagens por caminho após uma checagem textual, e permitia caminhos aninhados. A substituição de avatar, remoção e limpeza de órfãos agora usam `AvatarFileStore` para validar um arquivo direto no diretório e excluí-lo relativamente ao handle aberto; paths externos/nested e links são mantidos.
@@ -110,8 +166,8 @@ Se esta conversa ficar sem tokens e for necessario continuar em outra IA, a prox
 - [x] Ajustado `GetLatestMedia` para tentar completar itens incompletos ou desatualizados antes de montar os cards da home.
 - [x] Teste unitario da politica de refresh aprovado com 3 casos de regressao.
 - [x] Revisao do fluxo de frontend da home e da pagina de detalhe feita; nao apareceu bug obvio de fetch, entao o ajuste principal ficou no backend.
-- [x] Corrigido o `GetLatestTvShowItems` para agrupar por `SeriesId`, nao por `SeriesName`, e adicionado indice composto `Type, SeriesId, DateCreated`.
-- [x] Adicionado indice em `UserData` para o `NextUp` (`UserId, Played, LastPlayedDate`).
+- [x] Corrigido o `GetLatestTvShowItems` para deduplicar por `SeriesId`, nao por `SeriesName`, e adicionado indice composto `Type, SeriesId, DateCreated`. Revisao de 2026-11-06 confirmou que `Take(limit)` e enumerado sob demanda e interrompe a leitura cliente apos a quantidade de series pedida. A consulta SQL ainda nao tem `LIMIT`/deduplicacao; custo de sort/scan no banco e chamadas sem limite seguem sem medicao.
+- [ ] Medir o `NextUp` com SQL e plano real. O `UserDataConfiguration` atual declara indices `(ItemId, UserId, LastPlayedDate)` e `(UserId, Played, ItemId)`; nao declara `(UserId, Played, LastPlayedDate)`. A consulta agrupa por serie e aplica o corte de `LastPlayedDate` depois da agregacao. Nao criar indice novo sem `ANALYZE FORMAT=JSON` em copia representativa.
 - [x] Evitado leitura de arquivo para `PrimaryImageAspectRatio` quando `ItemImageInfo.Width/Height` ja estao persistidos.
 - [ ] Medir o impacto real de latencia do refresh sob demanda na home e no detalhe.
 - [ ] Validar no navegador se as artes, overview e metadados reaparecem nas midias recentemente adicionadas.
@@ -119,12 +175,12 @@ Se esta conversa ficar sem tokens e for necessario continuar em outra IA, a prox
 ## Todo Prioritario Por Ganho
 
 1. P0 - Medir a home real com banco grande:
-   - comparar `LatestMedia` de filmes e series com `EXPLAIN ANALYZE`;
-   - confirmar se o custo saiu de SQL e ficou em DTO/imagem.
+   - inspecionar SQL, linhas examinadas e plano de sort de filmes e series; em chamadas limitadas, `GetLatestTvShowItems` para a enumeracao cliente apos obter series distintas suficientes;
+   - medir chamadas sem limite separadamente, comparar custo do banco com DTO/imagem e verificar o indice composto `Type, SeriesId, DateCreated`.
    - ganho esperado: muito alto se ainda existir scan ou sort caro.
 2. P1 - Fechar `NextUp`:
-   - validar o impacto do novo indice em `UserData`;
-   - revisar se `GetNextUpSeriesKeys` ainda materializa mais do que precisa.
+   - conferir DDL e medir `(ItemId, UserId, LastPlayedDate)` e `(UserId, Played, ItemId)` no `GetNextUpSeriesKeys`;
+   - testar se empurrar o corte de data antes do agrupamento reduz leitura sem mudar resultado.
    - ganho esperado: alto em bibliotecas com muitas series.
 3. P2 - Cortar custo de DTO/imagem:
    - revisar `DtoService` e `UpdateImagesAsync` para evitar trabalho repetido em items recentes;
@@ -134,6 +190,12 @@ Se esta conversa ficar sem tokens e for necessario continuar em outra IA, a prox
    - manter as imagens fora da viewport em lazy load;
    - evitar refetch desnecessario em navegacao entre paginas.
    - ganho esperado: baixo a medio, mas barato de manter.
+
+## Auditoria de custo SQL da home e Next Up — 2026-11-06
+
+Revisao de `BaseItemRepository.Querying.GetLatestTvShowItems` confirmou que a ordenacao ocorre no banco e a deduplicacao por `SeriesId` ocorre no processo. A conclusao anterior de que todos os candidatos eram transferidos antes do limite estava incorreta: a sequencia `IEnumerable` e adiada, `Take(limit)` e consumido por `ToList()` e a enumeracao cliente para ao obter series distintas suficientes. A consulta nao aplica `LIMIT` nem deduplica no SQL; o banco ainda pode precisar examinar/ordenar mais linhas, e chamadas sem limite percorrem todo o resultado. `NextUpService.GetNextUpSeriesKeys` agrega historico por serie antes de aplicar `dateCutoff`. O custo real depende do plano e segue sem medicao.
+
+`UserDataConfiguration` declara indices `(ItemId, UserId, LastPlayedDate)` e `(UserId, Played, ItemId)`. O registro anterior que dizia `(UserId, Played, LastPlayedDate)` estava incorreto e foi corrigido. Os testes cobrem resultado/paginacao e a traducao MariaDB em fixtures pequenas. Nao foram consultados DDL ou dados de producao. O proximo teste de escala deve usar copia representativa e `ANALYZE FORMAT=JSON`, que executa a consulta e apresenta estatisticas reais (`r_rows`, loops e tempo); nao executar como leitura irrestrita na producao. Fonte: [MariaDB ANALYZE FORMAT=JSON](https://mariadb.com/docs/server/reference/sql-statements/administrative-sql-statements/analyze-and-explain-statements/analyze-format-json).
 
 ## Skills utilizadas nesta auditoria
 
@@ -325,6 +387,7 @@ Tarefas:
 - [x] Tornar bootstrap de DB externo e local mais explicito.
 - [x] Revisar `UserManager` para nao bloquear caminhos frequentes.
 - [x] Cobrir boot com DB pre-existente e schema ausente.
+- [x] Propagar cancelamento do startup enquanto aguarda mutexes de diretório/porta do MariaDB.
 
 Concluido:
 
@@ -332,6 +395,7 @@ Concluido:
 - [x] Otimização da concorrência de logins de usuários inexistentes via hashing MD5 de username para a chave de lock, evitando serialização de requests.
 - [x] Implementação do fast-path bypass de validação de schemas em consultas síncronas (`GetUsers`, `GetUsersIds`, `GetUserById`, `GetUserByName`) no `UserManager`.
 - [x] Validação completa de toda a suíte de testes (560/560 testes aprovados, incluindo os testes de concorrência de autenticação que anteriormente expiravam).
+- [x] Regressão de cancelamento, timeout e mutex abandonado em `MariaDbStartupMutexLeaseTests` (10/10, Windows/.NET 10 Release).
 
 Pendente:
 
@@ -620,3 +684,60 @@ Para evitar falso ganho, cada sprint deve fechar com medicao antes/depois.
 - Testes de regressão incluídos em `tests/Jellyfin.Controller.Tests/LibraryTaskScheduler/LimitedConcurrencyLibrarySchedulerTests.cs`.
 - Dependências do frontend atualizadas no `MulletaFlix-web-master/package.json` e lockfile: DOMPurify 3.4.17, Vitest/coverage 5.0.5 e Undici transitivo corrigido; auditoria npm sem vulnerabilidades.
 - Mapa técnico conferido: mesma classe, singleton e caller `Folder.RunTasks`; sem novo módulo/API/dependência. Versões de dependências existentes foram corrigidas.
+
+### 28/10/2026 — Retry de backup de usuários e refresh Nebula
+
+- O backup Supabase de usuários MulletaFlix reutiliza `SendSupabaseBatchWithRetryAsync` para até três tentativas idempotentes (merge por `normalized_username`); a falha de migração `PGRST205` mantém mensagem específica.
+- `NebulaDirectoryRefreshQueue` reprograma em memória o diretório que falhou após 30 segundos; refreshes seguintes continuam sendo atendidos. Testes determinísticos cobrem HTTP 500→sucesso e refresh temporariamente falho→sucesso.
+- Mudança de fluxo nas classes existentes, sem novo módulo, API pública ou dependência. Retry da fila não é persistente após reinício; o scan recuperatório segue limitado a 30 minutos. Focal Windows/.NET 10 Debug: 7/7 aprovados; GitHub CI/PR, serviços reais e produção pendentes. Formal 2/7, sem release.
+
+### 28/10/2026 — Fila durável para refresh VFS do Nebula
+
+- Corrigida retentativa anterior que era só em memória e não sobrevivia a reinícios; além disso, o callback de rclone engolia exceções. Refreshes agora ficam registrados na coleção `nebula_directory_refreshes`, são reidratados no scan periódico e removidos após confirmação do rclone. Falta de readiness/HTTP/resultado rclone não é mais sucesso silencioso.
+- Teste de normalização rejeita raiz invisível e traversal; teste `NebulaDirectoryRefreshMongoTests` valida upsert idempotente, sobrevivência entre instâncias e remoção após refresh confirmado, mas requer Mongo opt-in.
+- Suíte Release Windows/.NET 10 `FullyQualifiedName~Nebula`: 716 aprovados, 26 ignorados, 0 falhas/742. Mongo descartável, CI hospedada, runtime e produção não foram validados. Estrutura: nova coleção Mongo operacional; sem endpoint ou pacote novo. Formal 2/7, sem release.
+
+### 28/10/2026 — Backup da fila durável de refresh VFS
+
+- O ciclo Supabase nativo agora sincroniza a coleção operacional `nebula_directory_refreshes` como snapshot por `directory_path`: faz upsert dos caminhos ainda pendentes, remove do espelho remoto entradas concluídas e reidrata os caminhos ao restaurar Mongo. Os caminhos restaurados passam pela mesma normalização e validação de raiz visível.
+- O SQL de configuração Supabase cria a tabela com chave primária e RLS restrito à `service_role`. Restauração continua mesclada; marcadores remotos são idempotentes.
+- Não incluir `nebula_admission` nem `operation_replays`: leases e chaves replay são estado efêmero e podem recriar bloqueios obsoletos. Schema remoto real ainda requer instalação/validação.
+- Verificação focal Release: 57 aprovados, 4 ignorados, 0 falhas; com Mongo descartável opt-in, a suíte ampla `FullyQualifiedName~Nebula` passou 744/744 sem ignorados. Migration Supabase `20261028125319` aplicada e conferida: tabela vazia, RLS ativo, policy exclusiva `service_role`, sem privilégios `anon`/`authenticated`, acesso DML `service_role` permitido. CI hospedada, runtime instalado e comportamento end-to-end do backup usando chave de serviço continuam sem validação.
+
+### Nebula: preservação da fila e falha de startup observada — 2026-10-28
+
+- `Tools/NebulaPython/main.py`: com zero bots Telegram ativos, mantém FTP/monitoramento e os registros Mongo; não restaura a fila nem inicia scanner/workers. Checkpoints e conclusão repetem escrita Mongo com backoff exponencial limitado a 30 s enquanto o worker está ativo.
+- Limite: retentar checkpoint em memória não substitui journal durável ou reconciliação remota depois que o processo termina. A decisão de reconciliação Telegram continua válida; perda de resposta/checkpoint após restart permanece risco pendente neste entry point Python.
+- Log recebido em 28/10: 27 bots ativos, quatro uploads grandes iniciados e partes começaram a ser enviadas. O supervisor antigo acusa timeout de 45 s; depois o rclone registra conexão recusada na porta FTP. O vínculo com parada do worker é provável, mas não comprovado pelo trecho. `NebulaFtpManager` na candidata aguarda 120 s e inclui a última causa da sonda.
+- Verificações locais: `NebulaDownloaderStartupTests` 35/35 Release; Python focal helpers/lifecycle/checkpoint 77/77; suíte NebulaPython 664/664 e `compileall` passaram na execução anterior. API local não respondeu, versão em execução e instalação candidata não confirmadas. CI remota continua bloqueada por faturamento; sem release v12.1.46 e sem novo crédito formal (2/7).
+
+- 28/10/2026: migration `20261028130514_supabase_advisor_cleanup` fixou o `search_path` de `public.set_nebula_updated_at` e removeu o índice duplicado de usernames e o índice `nebula_files.parent` sem scans. C# e setup Python não recriam o índice `parent`; unicidade de `normalized_username` permanece garantida. Advisors Supabase security/performance ficaram sem findings. Validação local do DDL C# e do schema CLI Python passou 1/1 cada.
+
+### Nebula Python — checkpoint deve confirmar registro Mongo — 2026-11-06
+
+`persist_upload_checkpoint` verifica o `matched_count` retornado por `update_one` e falha quando nenhum documento corresponde; assim, o worker não registra sucesso nem apaga o arquivo de staging se o registro sumiu. Os testes cobrem rejeição sem retry, preservação da fonte e retomada com a mesma reserva após aceite Telegram/resposta perdida simulados. PyMongo documenta `matched_count` ([UpdateResult](https://pymongo.readthedocs.io/en/stable/api/pymongo/results.html)); Telegram define `random_id` para deduplicar reenvios e `updateMessageID` para correlacionar respostas ([sendMedia](https://core.telegram.org/method/messages.sendMedia), [Updates](https://core.telegram.org/api/updates)). Foco upload 38/38; suíte 826 aprovados/1 ignorado, 82% coverage linha/branch. O único skip requer Mongo descartável não disponível. Nenhuma mudança de módulos/APIs/dependências; CI remota, Telegram/Mongo reais, Linux e produção pendentes.
+### Serialização do ciclo de vida do MariaDB embutido — 2026-10-29
+
+`MariaDbProcessManager.StartMariaDbAsync` e `StopMariaDbAsync` serializam operações do processo com uma `SemaphoreSlim` compartilhada no processo. O startup usa core privado para que sua limpeza de falha não reentre na trava. A aquisição da lease de mutex valida cancelamento depois da posse e libera a posse na thread proprietária. Nenhuma rota, classe pública, pacote ou dependência foi adicionado; mudou o fluxo interno da classe existente.
+
+### Bootstrap HTTPS/DuckDNS ignorado em execução isolada — 2026-10-29
+
+`Jellyfin.Server.Helpers.SecureConnectionProcessManager.EnsureSecureConnectionStartedAsync` consulta `MFLX_DISABLE_EXTERNAL_BOOTSTRAP` antes da condição de plataforma e retorna sem iniciar os processos HTTPS/DuckDNS externos quando habilitado. O runner Playwright usa esse modo; teste focal em `SecureConnectionProcessManagerTests` passou 6/6 e a suíte `Jellyfin.Server.Tests` passou 104/104. Playwright stage Wizard/listas passou 3/3 em loopback isolado. Alteração de fluxo interno em classe existente, sem endpoint, módulo ou dependência nova. Ver sessão `2026-10-29-MulletaFlix-validacao-ampliada-e2e-bloqueado-1055`.
+
+### Localização padrão da vinheta nativa — 2026-10-29
+
+`Emby.Server.Implementations/Library/NativeIntroProvider.cs` resolve primeiro o arquivo empacotado sob `AppContext.BaseDirectory` e depois apenas raízes de dados pertencentes ao servidor (`IApplicationPaths.ProgramDataPath` e `DataPath`). A procura automática não consulta mais perfil de usuário nem caminho pessoal codificado; `IntroPath` e `MulletaFlix_INTRO_PATH` explicitamente configurados continuam sendo as entradas configuráveis. `NativeIntroProviderTests.cs` valida a lista de candidatos e o uso do asset empacotado sem configuração (8/8 na classe). Não mudou API pública, módulo ou dependência; apenas o fluxo interno e o helper `internal` de teste. Linux, pacote instalado e produção seguem sem validação.
+
+### E2E stage web — 2026-10-29
+15/15 testes de segurança/fixture do runner; TypeScript e build web Release concluídos; E2Es acessibilidade e detalhes 2/2. A suíte completa foi interrompida sem agregado; falhas de contrato administrativas, sessão multiusuário e deadlock MariaDB permanecem investigação pendente. Stage permitido somente loopback 18096–18196, sem 8096. Sem API de servidor nova ou dependência de produto. Ver sessão 2026-10-29-MulletaFlix-auditoria-e2e-parcial-1241.
+
+### Reprodução simultânea em direct play — 2026-10-29
+O cenário `21-multi-user-playback.spec.ts` usa fixture H.264/AAC de 300,106689 s e contas E2E sem remux/transcodificação para que o Chromium headless valide a concorrência por direct play sem depender de HEVC/NVENC. O teste Node de fixtures e segurança passou 16/16; E2E focado passou 1/1 e observou duas sessões de usuários distintos. Stage e MariaDB foram descartáveis em loopback 18096. Não altera runtime, API, schema ou dependências do produto; não valida transcodificação nem a suíte E2E ampla. A estrutura foi conferida e permanece igual. Ver sessão `2026-10-29-MulletaFlix-playwright-multiuser-directplay-1256`.
+
+### Painel administrativo de logs — 2026-10-29
+
+As rotas `/dashboard/logs` e `/dashboard/logs/:file` usam agora componentes React em `MulletaFlix-web-master/src/apps/dashboard/routes/logs/`, associados em `_asyncRoutes.ts`. A lista chama `SystemApi.getServerLogs`; o detalhe usa `SystemApi.getLogFile`. `GET /System/Logs/Log` aceita `tailBytes` opcional e limita a resposta a no máximo 1 MiB do final do arquivo; sem esse parâmetro, mantém o retorno completo anterior. Sem novo endpoint ou dependência. Evidência: `SystemControllerTests` 3/3, `npm run build:check`, `npm run build:production` e portal 394/394. Smoke Playwright 1/1 validou lista/leitura antes do novo parâmetro, portanto o limite novo ainda não tem E2E integrado; seletores Selenium corrigidos, mas Selenium não executado. Stage isolado desligado, produção não acessada. Homologação 2/7, sem release.
+
+### Revalidação com build atual e produção somente leitura — 2026-10-29 13:34 BRT
+
+O smoke anterior contra o stage empacotado 12.1.44 expirou no seletor `#logFilesPage`, porque esse bundle não continha as rotas da fonte atual. Após compilar a fonte server Release (0 avisos/0 erros), preparar o runtime de stage com esse build e o bundle web atual, o mesmo spec `10-admin` passou 1/1 em loopback:18096; `SystemControllerTests` 3/3 e `npm run build:check` também passaram. Regressão completa .NET: 17 projetos, 5.377 aprovados, 274 ignorados, 0 falhas/5.651; Nebula Python 682/682; Vitest web 425/425 (78 arquivos); build web production e `verify:build` passaram (1.929 artefatos, payload inicial 298,2 KB gzip). A API candidata `12.1.46` e a tela atual foram usadas no stage descartável; MariaDB foi isolado em 33100 e encerrado. Produção recebeu somente GETs em `/System/Info/Public` e `/web/`: HTTP 200, versão 12.1.45, wizard completo. Não houve escrita na produção. Este smoke confirma somente a tela de logs e navegação administrativa; testes ignorados não contam como aprovados. O resultado não altera o gate formal 2/7 nem substitui E2E completo, Selenium, CI, Linux, instalação ou integrações reais. Módulos/APIs/dependências já descritos acima; sem mudança estrutural nesta revalidação.

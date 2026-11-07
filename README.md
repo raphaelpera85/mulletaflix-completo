@@ -42,7 +42,7 @@ O backup automático do Nebula para Supabase vem habilitado por padrão e tem in
 | `MulletaFlix-android/` | Aplicativo Android Kotlin/Compose. |
 | `MulletaFlix-iOS/` | Cliente iOS nativo em desenvolvimento. |
 | `MulletaFlix-packaging-master/` | Recursos e documentação de empacotamento Windows. |
-| `mulletaflix-server-windows-mulletaflix-installer-branding/` | Marca e recursos do instalador Windows. |
+| `mulletaflix-server-windows-mulletaflix-installer-branding/` | Árvore histórica de marca/instalador; não compilar nem usar para releases. |
 | `nebula/` | Componentes e materiais relacionados ao Nebula. |
 | `tools/` | Ferramentas auxiliares, incluindo utilitários de migração. |
 | `docs/` | Runbooks e documentação do projeto. |

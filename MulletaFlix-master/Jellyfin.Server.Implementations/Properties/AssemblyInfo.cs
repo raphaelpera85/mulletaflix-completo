@@ -16,6 +16,9 @@ using System.Runtime.InteropServices;
 [assembly: AssemblyCulture("")]
 [assembly: NeutralResourcesLanguage("en")]
 [assembly: InternalsVisibleTo("MulletaFlix.Server.Implementations.Tests")]
+[assembly: InternalsVisibleTo("IntroSkipper.Integration.Tests")]
+[assembly: InternalsVisibleTo("MulletaFlix.Server.Integration.Tests")]
+[assembly: InternalsVisibleTo("MulletaFlix")]
 
 // Setting ComVisible to false makes the types in this assembly not visible
 // to COM components.  If you need to access a type in this assembly from

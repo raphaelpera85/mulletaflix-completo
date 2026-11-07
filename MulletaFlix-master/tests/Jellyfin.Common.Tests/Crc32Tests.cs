@@ -33,6 +33,14 @@ namespace MulletaFlix.Common.Tests
             Assert.True(stream.CanRead);
         }
 
+        [Fact]
+        public static async Task ComputeAsync_RejectsStreamLongerThanLimit()
+        {
+            using var stream = new MemoryStream(new byte[16]);
+
+            await Assert.ThrowsAsync<InvalidDataException>(() => Crc32.ComputeBoundedAsync(stream, TestContext.Current.CancellationToken, maximumLength: 8));
+        }
+
         [Theory]
         [InlineData(0x414fa339, "The quick brown fox jumps over the lazy dog")]
         public static void Compute_Valid_Success(uint expected, string data)

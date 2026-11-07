@@ -22,6 +22,9 @@
   </ItemGroup>
 
   <ItemGroup>
+    <None Update="Matroska/Test Data/keyframes.mkv">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </None>
     <None Update="FfProbe/Test Data/keyframes.txt">
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
     </None>

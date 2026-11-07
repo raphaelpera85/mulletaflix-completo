@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Diagnostics.Metrics;
 using System.IO;
 using System.Linq;
+using System.Net;
 using System.Net.Http;
 using System.Reflection;
 using System.Threading;
@@ -123,6 +124,49 @@ public class MidiaStorageOnlineSyncTaskTests
     }
 
     [Fact]
+    public async Task DownloadMediaFileAsync_PreservesExistingFileWhenPromotionFails()
+    {
+        Assert.SkipWhen(!OperatingSystem.IsWindows(), "Windows file-sharing semantics are required to block replacement of an open destination.");
+
+        var temporaryDirectory = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(temporaryDirectory);
+        var filePath = Path.Combine(temporaryDirectory, "media.mkv");
+        await File.WriteAllTextAsync(filePath, "existing media", TestContext.Current.CancellationToken);
+
+        try
+        {
+            var configurationManager = new Mock<IConfigurationManager>();
+            var task = new MidiaStorageOnlineSyncTask(
+                new FakeDownloadHttpClientFactory(),
+                configurationManager.Object,
+                Mock.Of<IServerApplicationHost>(),
+                Mock.Of<ILibraryMonitor>(),
+                Mock.Of<ITunerHostManager>(),
+                Mock.Of<ILibraryManager>(),
+                Mock.Of<IDbContextFactory<MulletaFlixDbContext>>(),
+                NullLogger<MidiaStorageOnlineSyncTask>.Instance);
+            var method = typeof(MidiaStorageOnlineSyncTask).GetMethod(
+                "DownloadMediaFileAsync",
+                BindingFlags.NonPublic | BindingFlags.Instance)
+                ?? throw new InvalidOperationException("DownloadMediaFileAsync not found.");
+
+            using (new FileStream(filePath, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+            {
+                var download = (Task)(method.Invoke(task, new object[] { "https://example.test/media", filePath, CancellationToken.None })
+                    ?? throw new InvalidOperationException("No download task returned."));
+                var exception = await Record.ExceptionAsync(() => download);
+                Assert.True(exception is IOException or UnauthorizedAccessException, exception?.ToString());
+            }
+
+            Assert.Equal("existing media", await File.ReadAllTextAsync(filePath, TestContext.Current.CancellationToken));
+        }
+        finally
+        {
+            Directory.Delete(temporaryDirectory, recursive: true);
+        }
+    }
+
+    [Fact]
     public void BuildRecognitionMetadata_PersistsMovieIdentityFields()
     {
         var entry = CreateEntry(
@@ -183,5 +227,19 @@ public class MidiaStorageOnlineSyncTaskTests
         }
 
         return (MidiaStorageOnlineMediaMetadata)(method.Invoke(null, new[] { entry, relativePath, outputMode }) ?? throw new InvalidOperationException("No metadata returned."));
+    }
+
+    private sealed class FakeDownloadHttpClientFactory : IHttpClientFactory
+    {
+        public HttpClient CreateClient(string name) => new(new FakeDownloadHttpMessageHandler());
+    }
+
+    private sealed class FakeDownloadHttpMessageHandler : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+            => Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new ByteArrayContent(new byte[] { 1, 2, 3 })
+            });
     }
 }

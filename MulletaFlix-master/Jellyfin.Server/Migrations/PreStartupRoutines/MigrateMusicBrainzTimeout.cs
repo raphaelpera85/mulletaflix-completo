@@ -1,8 +1,9 @@
-﻿using System;
+using System;
 using System.IO;
 using System.Xml;
 using System.Xml.Serialization;
 using Emby.Server.Implementations;
+using MediaBrowser.Common.Configuration;
 using MediaBrowser.Providers.Plugins.MusicBrainz.Configuration;
 using Microsoft.Extensions.Logging;
 
@@ -64,8 +65,14 @@ public class MigrateMusicBrainzTimeout : IMigrationRoutine
     {
         var pluginConfigurationSerializer = new XmlSerializer(typeof(PluginConfiguration), new XmlRootAttribute("PluginConfiguration"));
         var xmlWriterSettings = new XmlWriterSettings { Indent = true };
-        using var xmlWriter = XmlWriter.Create(path, xmlWriterSettings);
-        pluginConfigurationSerializer.Serialize(xmlWriter, newPluginConfiguration);
+        ProtectedConfigurationWriter.PersistXml(
+            path,
+            stream =>
+            {
+                using var xmlWriter = XmlWriter.Create(stream, xmlWriterSettings);
+                pluginConfigurationSerializer.Serialize(xmlWriter, newPluginConfiguration);
+            },
+            restrictExistingWindowsAcl: true);
     }
 
 #pragma warning disable

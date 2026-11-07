@@ -52,11 +52,5 @@
     <PackageReference Include="SmartAnalyzers.MultithreadingAnalyzer" PrivateAssets="All" />
   </ItemGroup>
 
-  <ItemGroup>
-    <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleTo">
-      <_Parameter1>MulletaFlix.Common.Tests</_Parameter1>
-    </AssemblyAttribute>
-  </ItemGroup>
-
 </Project>
 

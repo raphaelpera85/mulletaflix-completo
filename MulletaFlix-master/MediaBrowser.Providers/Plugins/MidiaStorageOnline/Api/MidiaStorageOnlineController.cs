@@ -865,7 +865,7 @@ namespace MediaBrowser.Providers.Plugins.MidiaStorageOnline.Api
                 try
                 {
                     var json = System.Text.Json.JsonSerializer.Serialize(manifest, new System.Text.Json.JsonSerializerOptions { WriteIndented = true });
-                    System.IO.File.WriteAllText(path, json);
+                    MidiaStorageOnlineAtomicFile.WriteAllText(path, json);
                 }
                 catch (Exception ex)
                 {
@@ -916,7 +916,15 @@ namespace MediaBrowser.Providers.Plugins.MidiaStorageOnline.Api
         }
 
         [HttpPost("sync")]
-        public async Task<IActionResult> Sync([FromQuery] bool force = false, CancellationToken ct = default)
+        public Task<IActionResult> Sync([FromQuery] bool force = false, CancellationToken ct = default)
+        {
+            return MidiaStorageOnlineSyncGate.RunAsync(
+                Path.Combine(GetDataDir(), "sync_manifest.json"),
+                () => SyncCoreAsync(force, ct),
+                ct);
+        }
+
+        private async Task<IActionResult> SyncCoreAsync(bool force, CancellationToken ct)
         {
             var config = GetConfig();
             if (!HasPlaylistSource(config))
@@ -1260,7 +1268,12 @@ namespace MediaBrowser.Providers.Plugins.MidiaStorageOnline.Api
                 var deletedCount = 0;
                 foreach (var relPath in filesToDelete)
                 {
-                    var filePath = Path.Combine(strmPath, relPath);
+                    if (!TryGetConfinedManifestPath(strmPath, relPath, out var filePath))
+                    {
+                        Log($"Caminho inseguro ignorado durante a limpeza do manifesto: {relPath}");
+                        continue;
+                    }
+
                     // BG-4: delete-then-catch is O(1) I/O vs exists-then-delete which is O(2n)
                     try
                     {
@@ -1351,6 +1364,44 @@ namespace MediaBrowser.Providers.Plugins.MidiaStorageOnline.Api
         private static string NormalizeOutputMode(string? outputMode)
         {
             return string.Equals(outputMode, "download", StringComparison.OrdinalIgnoreCase) ? "download" : "strm";
+        }
+
+        internal static bool TryGetConfinedManifestPath(string rootDirectory, string relativePath, out string fullPath)
+        {
+            fullPath = string.Empty;
+            if (string.IsNullOrWhiteSpace(rootDirectory) || string.IsNullOrWhiteSpace(relativePath))
+            {
+                return false;
+            }
+
+            var normalizedRelativePath = relativePath
+                .Replace('\\', Path.DirectorySeparatorChar)
+                .Replace('/', Path.DirectorySeparatorChar);
+            if (Path.IsPathRooted(normalizedRelativePath)
+                || (normalizedRelativePath.Length >= 2
+                    && ((normalizedRelativePath[0] >= 'A' && normalizedRelativePath[0] <= 'Z')
+                        || (normalizedRelativePath[0] >= 'a' && normalizedRelativePath[0] <= 'z'))
+                    && normalizedRelativePath[1] == ':')
+                || normalizedRelativePath.Split(Path.DirectorySeparatorChar, StringSplitOptions.RemoveEmptyEntries)
+                    .Any(segment => segment is "." or ".."))
+            {
+                return false;
+            }
+
+            var rootFullPath = Path.GetFullPath(rootDirectory);
+            var candidateFullPath = Path.GetFullPath(Path.Combine(rootFullPath, normalizedRelativePath));
+            var pathFromRoot = Path.GetRelativePath(rootFullPath, candidateFullPath);
+            if (pathFromRoot == "."
+                || Path.IsPathRooted(pathFromRoot)
+                || pathFromRoot == ".."
+                || pathFromRoot.StartsWith(".." + Path.DirectorySeparatorChar, StringComparison.Ordinal)
+                || pathFromRoot.StartsWith(".." + Path.AltDirectorySeparatorChar, StringComparison.Ordinal))
+            {
+                return false;
+            }
+
+            fullPath = candidateFullPath;
+            return true;
         }
 
         private static string GetOutputFileExtension(string outputMode, string sourceUrl)

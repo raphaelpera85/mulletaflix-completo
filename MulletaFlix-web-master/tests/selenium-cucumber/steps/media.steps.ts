@@ -279,9 +279,9 @@ Then('I should inspect media metadata, plugin, task and log details', { timeout:
         await openAndWait(this.driver, `/dashboard/tasks/${task.id}`, '#scheduledTaskPage');
     }
 
-    await openAndWait(this.driver, '/dashboard/logs', '#logPage');
+    await openAndWait(this.driver, '/dashboard/logs', '#logFilesPage');
     const clickedLog = await this.driver.executeScript(() => {
-        const link = document.querySelector('#logPage a[href*="/dashboard/logs/"]');
+        const link = document.querySelector('#logFilesPage a[data-log-file]');
         if (!link) {
             return false;
         }
@@ -291,7 +291,7 @@ Then('I should inspect media metadata, plugin, task and log details', { timeout:
     });
 
     if (clickedLog) {
-        await waitForVisibleCss(this.driver, '#logPage pre', 30000);
+        await waitForVisibleCss(this.driver, '#logFilePage pre', 30000);
     }
 });
 

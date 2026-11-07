@@ -3,6 +3,8 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
 using System.IO;
+using System.Threading;
+using System.Threading.Tasks;
 
 namespace MulletaFlix.MediaEncoding.Keyframes.FfProbe;
 
@@ -72,70 +74,146 @@ public static class FfProbeKeyframeExtractor
         }
     }
 
-    internal static KeyframeData ParseStream(StreamReader reader)
+    public static async Task<KeyframeData> GetKeyframeDataAsync(string ffProbePath, string filePath, CancellationToken cancellationToken)
     {
-        var keyframes = new List<long>();
-        double streamDuration = 0;
-        double formatDuration = 0;
+        cancellationToken.ThrowIfCancellationRequested();
 
-        using (reader)
+        using var process = new Process
         {
-            while (!reader.EndOfStream)
+            StartInfo = new ProcessStartInfo
             {
-                var line = reader.ReadLine().AsSpan();
-                if (line.IsEmpty)
-                {
-                    continue;
-                }
+                FileName = ffProbePath,
+                Arguments = string.Format(
+                    CultureInfo.InvariantCulture,
+                    "-fflags +genpts -v error -skip_frame nokey -show_entries format=duration -show_entries stream=duration -show_entries packet=pts_time,flags -select_streams v -of csv \"{0}\"",
+                    filePath),
+                CreateNoWindow = true,
+                UseShellExecute = false,
+                RedirectStandardOutput = true,
+                WindowStyle = ProcessWindowStyle.Hidden,
+                ErrorDialog = false,
+            },
+            EnableRaisingEvents = true
+        };
 
-                var firstComma = line.IndexOf(',');
-                if (firstComma < 0)
-                {
-                    continue;
-                }
-
-                var lineType = line[..firstComma];
-                var rest = line[(firstComma + 1)..];
-                if (lineType.Equals("packet", StringComparison.OrdinalIgnoreCase))
-                {
-                    // Split time and flags from the packet line. Example line: packet,7169.079000,K_
-                    var secondComma = rest.IndexOf(',');
-                    if (secondComma < 0)
-                    {
-                        continue;
-                    }
-
-                    var ptsTime = rest[..secondComma];
-                    var flags = rest[(secondComma + 1)..];
-                    if (flags.StartsWith("K_"))
-                    {
-                        if (double.TryParse(ptsTime, NumberStyles.AllowDecimalPoint, CultureInfo.InvariantCulture, out var keyframe))
-                        {
-                            // Have to manually convert to ticks to avoid rounding errors as TimeSpan is only precise down to 1 ms when converting double.
-                            keyframes.Add(Convert.ToInt64(keyframe * TimeSpan.TicksPerSecond));
-                        }
-                    }
-                }
-                else if (lineType.Equals("stream", StringComparison.OrdinalIgnoreCase))
-                {
-                    if (double.TryParse(rest, NumberStyles.AllowDecimalPoint, CultureInfo.InvariantCulture, out var streamDurationResult))
-                    {
-                        streamDuration = streamDurationResult;
-                    }
-                }
-                else if (lineType.Equals("format", StringComparison.OrdinalIgnoreCase))
-                {
-                    if (double.TryParse(rest, NumberStyles.AllowDecimalPoint, CultureInfo.InvariantCulture, out var formatDurationResult))
-                    {
-                        formatDuration = formatDurationResult;
-                    }
-                }
+        process.Start();
+        try
+        {
+            try
+            {
+                process.PriorityClass = ProcessPriorityClass.BelowNormal;
+            }
+            catch
+            {
+                // Process priority is a best-effort hint.
             }
 
-            // Prefer the stream duration as it should be more accurate
-            var duration = streamDuration > 0 ? streamDuration : formatDuration;
+            var parseTask = ParseStreamAsync(process.StandardOutput, cancellationToken);
+            await Task.WhenAll(process.WaitForExitAsync(cancellationToken), parseTask).ConfigureAwait(false);
+            return await parseTask.ConfigureAwait(false);
+        }
+        catch
+        {
+            try
+            {
+                if (!process.HasExited)
+                {
+                    process.Kill(entireProcessTree: true);
+                    await process.WaitForExitAsync(CancellationToken.None).ConfigureAwait(false);
+                }
+            }
+            catch
+            {
+                // Preserve the extraction or cancellation failure.
+            }
 
-            return new KeyframeData(TimeSpan.FromSeconds(duration).Ticks, keyframes);
+            throw;
+        }
+    }
+
+    internal static KeyframeData ParseStream(StreamReader reader)
+    {
+        var builder = new KeyframeDataBuilder();
+        using (reader)
+        {
+            string? line;
+            while ((line = reader.ReadLine()) is not null)
+            {
+                builder.Add(line.AsSpan());
+            }
+        }
+
+        return builder.Build();
+    }
+
+    internal static async Task<KeyframeData> ParseStreamAsync(StreamReader reader, CancellationToken cancellationToken)
+    {
+        var builder = new KeyframeDataBuilder();
+        using (reader)
+        {
+            string? line;
+            while ((line = await reader.ReadLineAsync(cancellationToken).ConfigureAwait(false)) is not null)
+            {
+                builder.Add(line.AsSpan());
+            }
+        }
+
+        return builder.Build();
+    }
+
+    private sealed class KeyframeDataBuilder
+    {
+        private readonly List<long> _keyframes = new();
+        private double _streamDuration;
+        private double _formatDuration;
+
+        public void Add(ReadOnlySpan<char> line)
+        {
+            if (line.IsEmpty)
+            {
+                return;
+            }
+
+            var firstComma = line.IndexOf(',');
+            if (firstComma < 0)
+            {
+                return;
+            }
+
+            var lineType = line[..firstComma];
+            var rest = line[(firstComma + 1)..];
+            if (lineType.Equals("packet", StringComparison.OrdinalIgnoreCase))
+            {
+                var secondComma = rest.IndexOf(',');
+                if (secondComma < 0)
+                {
+                    return;
+                }
+
+                var ptsTime = rest[..secondComma];
+                var flags = rest[(secondComma + 1)..];
+                if (flags.StartsWith("K_")
+                    && double.TryParse(ptsTime, NumberStyles.AllowDecimalPoint, CultureInfo.InvariantCulture, out var keyframe))
+                {
+                    _keyframes.Add(Convert.ToInt64(keyframe * TimeSpan.TicksPerSecond));
+                }
+            }
+            else if (lineType.Equals("stream", StringComparison.OrdinalIgnoreCase)
+                && double.TryParse(rest, NumberStyles.AllowDecimalPoint, CultureInfo.InvariantCulture, out var streamDuration))
+            {
+                _streamDuration = streamDuration;
+            }
+            else if (lineType.Equals("format", StringComparison.OrdinalIgnoreCase)
+                && double.TryParse(rest, NumberStyles.AllowDecimalPoint, CultureInfo.InvariantCulture, out var formatDuration))
+            {
+                _formatDuration = formatDuration;
+            }
+        }
+
+        public KeyframeData Build()
+        {
+            var duration = _streamDuration > 0 ? _streamDuration : _formatDuration;
+            return new KeyframeData(TimeSpan.FromSeconds(duration).Ticks, _keyframes);
         }
     }
 }

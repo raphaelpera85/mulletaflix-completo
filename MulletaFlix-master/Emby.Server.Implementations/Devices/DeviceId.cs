@@ -24,7 +24,16 @@ namespace Emby.Server.Implementations.Devices
             _logger = logger;
         }
 
-        public string Value => _id ??= GetDeviceId();
+        public string Value
+        {
+            get
+            {
+                lock (_syncLock)
+                {
+                    return _id ??= GetDeviceId();
+                }
+            }
+        }
 
         private string CachePath => Path.Combine(_appPaths.DataPath, "device.txt");
 
@@ -60,6 +69,7 @@ namespace Emby.Server.Implementations.Devices
 
         private void SaveId(string id)
         {
+            string? temporaryPath = null;
             try
             {
                 var path = CachePath;
@@ -68,12 +78,35 @@ namespace Emby.Server.Implementations.Devices
 
                 lock (_syncLock)
                 {
-                    File.WriteAllText(path, id, Encoding.UTF8);
+                    temporaryPath = path + "." + Guid.NewGuid().ToString("N", CultureInfo.InvariantCulture) + ".tmp";
+                    File.WriteAllText(temporaryPath, id, Encoding.UTF8);
+                    if (OperatingSystem.IsWindows() && File.Exists(path))
+                    {
+                        File.Replace(temporaryPath, path, null);
+                    }
+                    else
+                    {
+                        File.Move(temporaryPath, path, overwrite: true);
+                    }
                 }
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error writing to file");
+            }
+            finally
+            {
+                if (temporaryPath is not null)
+                {
+                    try
+                    {
+                        File.Delete(temporaryPath);
+                    }
+                    catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                    {
+                        _logger.LogWarning(ex, "Error deleting temporary device id file");
+                    }
+                }
             }
         }
 

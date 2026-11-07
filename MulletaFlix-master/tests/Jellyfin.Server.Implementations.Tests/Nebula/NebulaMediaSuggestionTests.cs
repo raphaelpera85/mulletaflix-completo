@@ -202,6 +202,26 @@ public class NebulaMediaSuggestionTests
     }
 
     [Fact]
+    public void PrioritizeMedia_ThrowsWhenRequestedTitleCannotBePersisted()
+    {
+        var configurationManager = new Mock<IServerConfigurationManager>();
+        configurationManager.Setup(manager => manager.GetConfiguration("nebulaftp"))
+            .Returns(new NebulaFtpConfiguration());
+        configurationManager.Setup(manager => manager.UpdateConfiguration("nebulaftp", It.IsAny<Func<object, object>>()))
+            .Throws(new IOException("simulated configuration storage failure"));
+        using var manager = new NebulaFtpManager(
+            configurationManager.Object,
+            NullLogger<NebulaFtpManager>.Instance,
+            NullLoggerFactory.Instance);
+
+        var error = Assert.Throws<InvalidOperationException>(
+            () => manager.PrioritizeMedia(string.Empty, seriesName: "The Requested Show"));
+
+        Assert.Contains("persistir a prioridade", error.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.IsType<IOException>(error.InnerException);
+    }
+
+    [Fact]
     public void IsMediaRequestPrioritized_UsesPersistedTitlesWithoutCaseSensitivity()
     {
         var config = new NebulaFtpConfiguration { RequestedMediaPriorities = ["The Requested Show"] };

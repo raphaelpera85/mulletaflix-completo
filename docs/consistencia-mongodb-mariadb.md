@@ -90,5 +90,5 @@ O MulletaFlix adota uma arquitetura de dados poliglota especializada:
    - `MulletaFlixDbContext` implementa política de retentativa com backoff exponencial (até 5 tentativas) contra `MySqlException` (deadlocks ou timeouts transitórios de conexão).
    - O tuning do MariaDB embutido (`--max-connections 300`, `--innodb-io-capacity 2000`, `--innodb-buffer-pool-size 256M`) garante que rajadas de conexão não saturem o pool de conexões.
 3. **Isolamento de Backups**:
-   - Backups do MariaDB (`mysqldump` ou extração do banco embutido) garantem recuperação completa das contas e do histórico de reprodução sem depender do MongoDB.
+   - Backups do MariaDB usam o cliente da distribuição MariaDB (historicamente chamado `mysqldump`; veja a [documentação oficial de `mariadb-dump`](https://mariadb.com/docs/server/clients-and-utilities/backup-restore-and-import-clients/mariadb-dump)) ou extraem o banco embutido. Esse nome de ferramenta não indica uso de um servidor MySQL separado. A recuperação relacional não depende do MongoDB.
    - Backups do MongoDB (`mongodump` ou snapshot de coleções) preservam a chave dos arquivos remotos e leases de fila independentemente do catálogo relacional.

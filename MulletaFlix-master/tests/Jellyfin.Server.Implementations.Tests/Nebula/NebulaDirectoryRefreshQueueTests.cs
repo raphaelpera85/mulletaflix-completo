@@ -145,6 +145,33 @@ public sealed class NebulaDirectoryRefreshQueueTests
     }
 
     [Fact]
+    public async Task RefreshFailure_RetriesDirectoryUntilRefreshSucceeds()
+    {
+        var recovered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var refreshCount = 0;
+        await using var queue = new Jellyfin.Server.Implementations.Nebula.NebulaDirectoryRefreshQueue(
+            (directory, _) =>
+            {
+                if (Interlocked.Increment(ref refreshCount) == 1)
+                {
+                    throw new InvalidOperationException("simulated temporary rclone failure");
+                }
+
+                Assert.Equal("/Series/One", directory);
+                recovered.TrySetResult();
+                return Task.CompletedTask;
+            },
+            NullLogger<Jellyfin.Server.Implementations.Nebula.NebulaDirectoryRefreshQueue>.Instance,
+            TimeSpan.FromMilliseconds(5),
+            TimeSpan.FromMilliseconds(10));
+
+        queue.Enqueue("/Series/One");
+        await recovered.Task.WaitAsync(TimeSpan.FromSeconds(2), TestContext.Current.CancellationToken);
+
+        Assert.Equal(2, refreshCount);
+    }
+
+    [Fact]
     public async Task DisposeAsync_CancelsActiveRefreshAndWaitsForWorker()
     {
         var refreshStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);

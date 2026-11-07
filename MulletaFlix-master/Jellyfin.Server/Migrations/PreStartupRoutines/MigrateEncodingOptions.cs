@@ -1,8 +1,9 @@
-﻿using System;
+using System;
 using System.IO;
 using System.Xml;
 using System.Xml.Serialization;
 using Emby.Server.Implementations;
+using MediaBrowser.Common.Configuration;
 using MediaBrowser.Model.Configuration;
 using MediaBrowser.Model.Entities;
 using Microsoft.Extensions.Logging;
@@ -147,8 +148,11 @@ public class MigrateEncodingOptions : IMigrationRoutine
 
         var newSerializer = new XmlSerializer(typeof(EncodingOptions));
         var xmlWriterSettings = new XmlWriterSettings { Indent = true };
-        using var xmlWriter = XmlWriter.Create(path, xmlWriterSettings);
-        newSerializer.Serialize(xmlWriter, encodingOptions);
+        ProtectedConfigurationWriter.PersistXml(path, stream =>
+        {
+            using var xmlWriter = XmlWriter.Create(stream, xmlWriterSettings);
+            newSerializer.Serialize(xmlWriter, encodingOptions);
+        });
     }
 
 #pragma warning disable

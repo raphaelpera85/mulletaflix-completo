@@ -107,7 +107,11 @@ namespace Emby.Server.Implementations.AppBase
                         return _configuration;
                     }
 
-                    return _configuration = (BaseApplicationConfiguration)ConfigurationHelper.GetXmlConfiguration(ConfigurationType, CommonApplicationPaths.SystemConfigurationFilePath, XmlSerializer);
+                    return _configuration = (BaseApplicationConfiguration)ConfigurationHelper.GetXmlConfiguration(
+                        ConfigurationType,
+                        CommonApplicationPaths.SystemConfigurationFilePath,
+                        XmlSerializer,
+                        PersistConfigurationToFile);
                 }
             }
 
@@ -161,12 +165,9 @@ namespace Emby.Server.Implementations.AppBase
             Logger.LogInformation("Saving system configuration");
             var path = CommonApplicationPaths.SystemConfigurationFilePath;
 
-            Directory.CreateDirectory(Path.GetDirectoryName(path) ?? throw new InvalidOperationException("Path can't be a root directory."));
-
             lock (_configurationSyncLock)
             {
-                XmlSerializer.SerializeToFile(CommonConfiguration, path);
-                RestrictConfigurationFilePermissions(path);
+                PersistConfigurationToFile(CommonConfiguration, path);
             }
 
             OnConfigurationUpdated();
@@ -378,59 +379,19 @@ namespace Emby.Server.Implementations.AppBase
             NamedConfigurationUpdating?.Invoke(this, new ConfigurationUpdateEventArgs(key, configuration));
 
             var path = GetConfigurationFile(key);
-            Directory.CreateDirectory(Path.GetDirectoryName(path) ?? throw new InvalidOperationException("Path can't be a root directory."));
-
-            var temporaryPath = path + "." + Guid.NewGuid().ToString("N") + ".tmp";
-            try
-            {
-                // Create and restrict the empty file before serializing any secrets into it.
-                using (new FileStream(temporaryPath, FileMode.CreateNew, FileAccess.Write, FileShare.None))
-                {
-                }
-
-                RestrictConfigurationFilePermissions(temporaryPath);
-                XmlSerializer.SerializeToFile(configuration, temporaryPath);
-                File.Move(temporaryPath, path, overwrite: true);
-            }
-            finally
-            {
-                try
-                {
-                    File.Delete(temporaryPath);
-                }
-                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-                {
-                    Logger.LogWarning(ex, "Unable to remove temporary configuration file: {Path}", temporaryPath);
-                }
-            }
+            PersistConfigurationToFile(configuration, path);
 
             _configurations.AddOrUpdate(key, configuration, (_, _) => configuration);
         }
 
-        /// <summary>
-        /// Restricts a just-written configuration file to owner-only read/write on Unix. Config
-        /// files can hold plaintext secrets (e.g. NebulaFtpConfiguration's Password, ApiHash,
-        /// BotTokens, SupabaseKey, MongoDbConnectionString), and the OS default permissions on
-        /// most Linux distributions (typically 644) leave them world-readable to any local
-        /// account. Windows ACLs are left untouched — <see cref="File.SetUnixFileMode"/> throws
-        /// <see cref="PlatformNotSupportedException"/> there, and NTFS already restricts access by
-        /// default to the file's owner/administrators.
-        /// </summary>
-        /// <param name="path">The configuration file that was just written.</param>
-        private void RestrictConfigurationFilePermissions(string path)
-        {
-            if (!OperatingSystem.IsWindows())
-            {
-                try
-                {
-                    File.SetUnixFileMode(path, UnixFileMode.UserRead | UnixFileMode.UserWrite);
-                }
-                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-                {
-                    Logger.LogWarning(ex, "Unable to restrict permissions on configuration file: {Path}", path);
-                }
-            }
-        }
+        private void PersistConfigurationToFile(object configuration, string path)
+            => ProtectedConfigurationWriter.Persist(configuration, path, XmlSerializer, Logger);
+
+        internal static void PersistConfigurationAtomically(object configuration, string path, IXmlSerializer xmlSerializer, ILogger? logger = null)
+            => ProtectedConfigurationWriter.Persist(configuration, path, xmlSerializer, logger);
+
+        internal static void RestoreConfigurationBackupIfDestinationMissing(string path, string backupPath)
+            => ProtectedConfigurationWriter.RestoreBackupIfDestinationMissing(path, backupPath);
 
         /// <summary>
         /// Event handler for when a named configuration has been updated.

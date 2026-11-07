@@ -7,14 +7,17 @@ from __future__ import annotations
 import os
 import sys
 import time
-import json
 import asyncio
+import base64
+import json
 import logging
 import argparse
 import urllib.request
 import urllib.error
+from urllib.parse import urlsplit
 from os import environ
 from datetime import datetime, timezone
+from decimal import Decimal
 from typing import Optional, Dict, Any, List, Union
 from pathlib import Path
 
@@ -26,14 +29,57 @@ except ImportError:  # pragma: no cover
     SupabaseClient = None  # type: ignore
     create_client = None  # type: ignore
 
-from motor.motor_asyncio import AsyncIOMotorClient
-from pymongo import MongoClient
-from bson import ObjectId
+from pymongo import AsyncMongoClient, MongoClient, ReplaceOne
+from bson import BSON, ObjectId
+from bson.decimal128 import Decimal128
 from dotenv import load_dotenv
+try:
+    from tools.logging_safety import SingleLineFilter, safe_endpoint_for_log, safe_print
+except ModuleNotFoundError:  # Direct script execution sets sys.path to this directory.
+    from logging_safety import SingleLineFilter, safe_endpoint_for_log, safe_print
 
 load_dotenv()
 
 logger = logging.getLogger("SupabaseSync")
+logger.addFilter(SingleLineFilter())
+
+
+class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, *_args, **_kwargs):
+        return None
+
+
+_SUPABASE_OPENER = urllib.request.build_opener(_NoRedirectHandler())
+
+
+def validate_supabase_url(url: str) -> None:
+    """Reject malformed or non-HTTP Supabase endpoints before network access."""
+    try:
+        parsed = urlsplit(url)
+        parsed.port
+    except (TypeError, ValueError) as exc:
+        raise ValueError("URL Supabase inválida: esperado HTTP(S), host e porta válida") from exc
+    if (
+        parsed.scheme.lower() not in {"http", "https"}
+        or not parsed.hostname
+        or parsed.username is not None
+        or parsed.password is not None
+        or parsed.query
+        or parsed.fragment
+        or "?" in url
+        or "#" in url
+    ):
+        raise ValueError("URL Supabase inválida: esperado HTTP(S), host e sem credenciais, query ou fragmento")
+
+
+def _supabase_request(url: str, *, data=None, headers=None, method="GET"):
+    request = urllib.request.Request(url, data=data, headers=headers or {}, method=method)
+    for name in ("Apikey", "Authorization"):
+        value = request.get_header(name)
+        if value is not None:
+            request.remove_header(name)
+            request.add_unredirected_header(name, value)
+    return request
 
 
 class SupabaseSync:
@@ -53,7 +99,7 @@ class SupabaseSync:
         self.supabase_key = supabase_key or os.getenv("SUPABASE_ANON_KEY")
         self.service_role_key = service_role_key or os.getenv("SUPABASE_SERVICE_ROLE_KEY")
 
-        self._mongo_client: Optional[AsyncIOMotorClient] = None
+        self._mongo_client: Optional[AsyncMongoClient] = None
         self._supabase: Optional["SupabaseClient"] = None  # type: ignore
         self._sync_enabled = False
 
@@ -68,7 +114,13 @@ class SupabaseSync:
             return False
 
         try:
-            self._mongo_client = AsyncIOMotorClient(self.mongo_uri)
+            validate_supabase_url(self.supabase_url)
+        except ValueError as e:
+            logger.error("Invalid SUPABASE_URL: %s", e)
+            return False
+
+        try:
+            self._mongo_client = AsyncMongoClient(self.mongo_uri)
             await self._mongo_client.admin.command("ping")
 
             self._supabase = create_client(self.supabase_url, self.supabase_key)  # type: ignore[attr-defined]
@@ -79,22 +131,29 @@ class SupabaseSync:
             logger.info("SupabaseSync initialized successfully")
             return True
 
+        except asyncio.CancelledError:
+            self._sync_enabled = False
+            mongo_client = self._mongo_client
+            self._mongo_client = None
+            if mongo_client:
+                await mongo_client.close()
+            raise
         except Exception as e:
-            logger.error(f"Failed to initialize SupabaseSync: {e}")
+            logger.error("Failed to initialize SupabaseSync (%s)", type(e).__name__)
             self._sync_enabled = False
             mongo_client = self._mongo_client
             self._mongo_client = None
             if mongo_client:
                 try:
-                    mongo_client.close()
-                except Exception:
-                    logger.debug("Failed to close MongoDB client after initialization failure", exc_info=True)
+                    await mongo_client.close()
+                except Exception as close_error:
+                    logger.debug("Failed to close MongoDB client after initialization failure (%s)", type(close_error).__name__)
             return False
 
     async def close(self):
         """Close connections."""
         if self._mongo_client:
-            self._mongo_client.close()
+            await self._mongo_client.close()
 
     # ==================== BACKUP OPERATIONS ====================
 
@@ -111,25 +170,25 @@ class SupabaseSync:
         try:
             db = self._mongo_client[self.mongo_db]
             collection = db[collection_name]
+            source_count = await collection.count_documents(query or {})
 
             cursor = collection.find(query or {}).limit(limit)
             documents = []
             async for doc in cursor:
-                doc["_id"] = str(doc["_id"])
-                # Convert datetime objects to ISO strings
-                for key, value in doc.items():
-                    if isinstance(value, datetime):
-                        doc[key] = value.isoformat()
-                    elif isinstance(value, ObjectId):
-                        doc[key] = str(value)
-                documents.append(doc)
+                documents.append(base64.b64encode(BSON.encode(doc)).decode("ascii"))
+
+            if len(documents) != source_count:
+                return {
+                    "success": False,
+                    "error": f"Backup limit {limit} would truncate {collection_name}; no snapshot was saved",
+                }
 
             # Insert into Supabase
             backup_record = {
                 "collection": collection_name,
                 "database": self.mongo_db,
-                "document_count": len(documents),
-                "data": documents,
+                "document_count": source_count,
+                "data": {"version": 4, "documents": documents},
                 "created_at": datetime.now(timezone.utc).isoformat(),
                 "query": query or {},
             }
@@ -140,8 +199,8 @@ class SupabaseSync:
             return {"success": True, "count": len(documents), "backup_id": result.data[0]["id"] if result.data else None}
 
         except Exception as e:
-            logger.error(f"Backup failed for {collection_name}: {e}")
-            return {"success": False, "error": str(e)}
+            logger.error("Backup failed for %s (%s)", collection_name, type(e).__name__)
+            return {"success": False, "error": type(e).__name__}
 
     async def backup_all_collections(
         self,
@@ -182,37 +241,86 @@ class SupabaseSync:
                 return {"success": False, "error": "No backup found"}
 
             backup = result.data[0]
-            documents = backup.get("data", [])
+            snapshot = backup.get("data")
+            snapshot_version = snapshot.get("version") if isinstance(snapshot, dict) else None
+            documents = snapshot if isinstance(snapshot, list) and (backup_id or not backup.get("query")) else snapshot.get("documents") if (
+                isinstance(snapshot, dict)
+                and type(snapshot_version) is int
+                and snapshot_version in (2, 4)
+            ) else None
+            if (
+                not isinstance(documents, list)
+                or type(backup.get("document_count")) is not int
+                or backup["document_count"] != len(documents)
+            ):
+                return {"success": False, "error": "Incomplete or invalid backup data"}
 
-            # Convert string IDs back to ObjectId
+            if snapshot_version == 4:
+                try:
+                    documents = [
+                        BSON(base64.b64decode(doc, validate=True)).decode()
+                        for doc in documents
+                    ]
+                except Exception:
+                    return {"success": False, "error": "Incomplete or invalid backup data"}
+
+            if any(not isinstance(doc, dict) or "_id" not in doc for doc in documents):
+                return {"success": False, "error": "Incomplete or invalid backup data"}
+
+            if not backup_id and backup.get("query"):
+                return {"success": False, "error": "Full restore rejects query-filtered backup"}
+
+            if snapshot_version in (None, 2):
+                # Versions 1 and 2 cannot distinguish BSON dates from ISO-looking strings.
+                for doc in documents:
+                    if isinstance(doc["_id"], str) and len(doc["_id"]) == 24:
+                        doc["_id"] = ObjectId(doc["_id"])
+                    for key, value in doc.items():
+                        if isinstance(value, str):
+                            try:
+                                doc[key] = datetime.fromisoformat(value.replace("Z", "+00:00"))
+                            except ValueError:
+                                pass
+
+            seen_ids = set()
             for doc in documents:
-                if "_id" in doc:
-                    doc["_id"] = ObjectId(doc["_id"])
-                # Convert ISO strings back to datetime
-                for key, value in doc.items():
-                    if isinstance(value, str):
-                        try:
-                            doc[key] = datetime.fromisoformat(value.replace("Z", "+00:00"))
-                        except ValueError:
-                            pass
+                item_id = doc["_id"]
+                if isinstance(item_id, bool):
+                    id_key = ("bool", item_id)
+                elif isinstance(item_id, (int, float, Decimal128)):
+                    if isinstance(item_id, Decimal128):
+                        number = item_id.to_decimal()
+                    elif isinstance(item_id, float):
+                        number = Decimal.from_float(item_id)
+                    else:
+                        number = Decimal(item_id)
+                    id_key = ("number", "NaN" if number.is_nan() else number)
+                else:
+                    id_key = ("bson", BSON.encode({"_id": item_id}))
+                if id_key in seen_ids:
+                    return {"success": False, "error": "Incomplete or invalid backup data"}
+                seen_ids.add(id_key)
 
             # Restore to MongoDB
             db = self._mongo_client[self.mongo_db]
             collection = db[collection_name]
 
-            # Clear existing if restoring full backup
-            if not backup_id:
-                await collection.delete_many({})
-
+            restored_ids = [doc["_id"] for doc in documents]
             if documents:
-                await collection.insert_many(documents)
+                await collection.bulk_write([
+                    ReplaceOne({"_id": doc["_id"]}, doc, upsert=True)
+                    for doc in documents
+                ])
+
+            if not backup_id:
+                await collection.delete_many({"_id": {"$nin": restored_ids}})
 
             logger.info(f"Restored {len(documents)} documents to {collection_name}")
             return {"success": True, "count": len(documents)}
 
         except Exception as e:
-            logger.error(f"Restore failed for {collection_name}: {e}")
-            return {"success": False, "error": str(e)}
+            logger.error("Restore failed for %s (%s)", collection_name, type(e).__name__)
+            return {"success": False, "error": type(e).__name__}
 
     # ==================== CONFIGURATION SYNC ====================
 
@@ -236,8 +344,8 @@ class SupabaseSync:
             return {"success": True, "config_id": result.data[0]["id"] if result.data else None}
 
         except Exception as e:
-            logger.error(f"Config sync failed: {e}")
-            return {"success": False, "error": str(e)}
+            logger.error("Config sync failed (%s)", type(e).__name__)
+            return {"success": False, "error": type(e).__name__}
 
     async def load_config_from_supabase(self) -> Optional[Dict[str, Any]]:
         """Load application configuration from Supabase."""
@@ -250,7 +358,7 @@ class SupabaseSync:
                 return result.data[0].get("config")
             return None
         except Exception as e:
-            logger.error(f"Config load failed: {e}")
+            logger.error("Config load failed (%s)", type(e).__name__)
             return None
 
     # ==================== SCHEDULED BACKUP ====================
@@ -263,7 +371,8 @@ class SupabaseSync:
         """Run periodic backup (call from scheduler)."""
         logger.info(f"Starting scheduled backup for collections: {collections}")
         results = await self.backup_all_collections(collections)
-        logger.info(f"Scheduled backup completed: {results}")
+        failed = sum(not result.get("success", False) for result in results.values() if isinstance(result, dict))
+        logger.info("Scheduled backup completed: %d collection(s), %d failed", len(results), failed)
         return results
 
 
@@ -361,9 +470,15 @@ def get_supabase_headers(api_key: str) -> dict:
 
 def test_supabase_connection(url: str, key: str) -> bool:
     if not url or not key:
-        print("[ERRO] Supabase URL e API Key são obrigatórios.")
+        safe_print("[ERRO] Supabase URL e API Key são obrigatórios.")
         return False
     
+    try:
+        validate_supabase_url(url)
+    except ValueError as ex:
+        safe_print(f"[ERRO] URL Supabase inválida ({type(ex).__name__}).")
+        return False
+
     clean_url = url.rstrip("/") + "/rest/v1/"
     headers = {
         "apikey": key,
@@ -373,23 +488,25 @@ def test_supabase_connection(url: str, key: str) -> bool:
     }
     
     try:
-        req = urllib.request.Request(clean_url, headers=headers, method="GET")
-        with urllib.request.urlopen(req, timeout=10) as resp:
-            print(f"[OK] Conexão com Supabase bem-sucedida! HTTP {resp.status}")
+        req = _supabase_request(clean_url, headers=headers, method="GET")
+        with _SUPABASE_OPENER.open(req, timeout=10) as resp:
+            safe_print(f"[OK] Conexão com Supabase bem-sucedida! HTTP {resp.status}")
             return True
     except urllib.error.HTTPError as e:
         if e.code in (200, 404):  # 404 no root do rest/v1 pode acontecer e confirma que o endpoint está ativo e autenticado
-            print(f"[OK] Supabase acessível e respondendo (HTTP {e.code}).")
+            safe_print(f"[OK] Supabase acessível e respondendo (HTTP {e.code}).")
             return True
-        print(f"[ERRO] Falha HTTP ao conectar no Supabase: {e.code} - {e.reason}")
+        safe_print(f"[ERRO] Falha HTTP ao conectar no Supabase: {e.code}.")
         return False
     except Exception as ex:
-        print(f"[ERRO] Erro ao conectar no Supabase: {ex}")
+        safe_print(f"[ERRO] Erro ao conectar no Supabase ({type(ex).__name__}).")
         return False
 
 def post_batch_to_supabase(url: str, key: str, table: str, records: list[dict]) -> int:
     if not records:
         return 0
+
+    validate_supabase_url(url)
     
     endpoint = f"{url.rstrip('/')}/rest/v1/{table}"
     headers = get_supabase_headers(key)
@@ -397,21 +514,22 @@ def post_batch_to_supabase(url: str, key: str, table: str, records: list[dict]) 
     # Serializa BSON types (ObjectId, datetime, etc.) para JSON puro
     data_json = json.dumps(records, default=str).encode("utf-8")
     
-    req = urllib.request.Request(endpoint, data=data_json, headers=headers, method="POST")
+    req = _supabase_request(endpoint, data=data_json, headers=headers, method="POST")
     try:
-        with urllib.request.urlopen(req, timeout=30) as resp:
+        with _SUPABASE_OPENER.open(req, timeout=30) as resp:
             if resp.status in (200, 201, 204):
                 return len(records)
             return len(records)
     except urllib.error.HTTPError as e:
-        err_body = e.read().decode('utf-8', errors='ignore')
-        print(f"[ERRO] Supabase PostgREST error ({e.code}) na tabela '{table}': {err_body}")
-        raise RuntimeError(f"PostgREST Error {e.code}: {err_body}") from e
+        e.close()
+        safe_print(f"[ERRO] Supabase PostgREST error ({e.code}) na tabela '{table}'.")
+        raise RuntimeError(f"PostgREST Error {e.code}") from None
     except Exception as ex:
-        print(f"[ERRO] Falha de rede ao enviar para Supabase ({table}): {ex}")
+        safe_print(f"[ERRO] Falha de rede ao enviar para Supabase ({table}, {type(ex).__name__}).")
         raise
 
 def fetch_from_supabase(url: str, key: str, table: str, limit: int = 1000, offset: int = 0) -> list[dict]:
+    validate_supabase_url(url)
     endpoint = f"{url.rstrip('/')}/rest/v1/{table}?select=*&limit={limit}&offset={offset}"
     headers = {
         "apikey": key,
@@ -421,35 +539,33 @@ def fetch_from_supabase(url: str, key: str, table: str, limit: int = 1000, offse
     }
 
     
-    req = urllib.request.Request(endpoint, headers=headers, method="GET")
-    with urllib.request.urlopen(req, timeout=30) as resp:
+    req = _supabase_request(endpoint, headers=headers, method="GET")
+    with _SUPABASE_OPENER.open(req, timeout=30) as resp:
         content = resp.read().decode("utf-8")
         return json.loads(content)
 
 async def backup_mongo_to_supabase(mongo_uri: str, db_name: str, supabase_url: str, supabase_key: str):
-    from motor.motor_asyncio import AsyncIOMotorClient
-
-    client = AsyncIOMotorClient(mongo_uri)
+    client = AsyncMongoClient(mongo_uri)
     try:
         return await _backup_mongo_to_supabase_with_client(client, db_name, mongo_uri, supabase_url, supabase_key)
     finally:
-        client.close()
+        await client.close()
 
 
 async def _backup_mongo_to_supabase_with_client(client, db_name: str, mongo_uri: str, supabase_url: str, supabase_key: str):
     
     start_time = time.time()
-    print("=" * 60)
-    print("INICIANDO BACKUP: MongoDB -> Supabase")
-    print("=" * 60)
-    print(f"MongoDB: {mongo_uri} | DB: {db_name}")
-    print(f"Supabase: {supabase_url}")
+    safe_print("=" * 60)
+    safe_print("INICIANDO BACKUP: MongoDB -> Supabase")
+    safe_print("=" * 60)
+    safe_print(f"MongoDB: {safe_endpoint_for_log(mongo_uri)} | DB: {db_name}")
+    safe_print(f"Supabase: {safe_endpoint_for_log(supabase_url)}")
     
     db = client[db_name]
     
     # 1. Backup de Arquivos (files)
     total_files_cursor = await db.files.count_documents({})
-    print(f"\n[1/3] Encontrados {total_files_cursor} arquivos na coleção 'files'...")
+    safe_print(f"[1/3] Encontrados {total_files_cursor} arquivos na coleção 'files'...")
     
     files_batch = []
     files_synced = 0
@@ -492,24 +608,24 @@ async def _backup_mongo_to_supabase_with_client(client, db_name: str, mongo_uri:
                 post_batch_to_supabase(supabase_url, supabase_key, "nebula_files", files_batch)
                 files_synced += len(files_batch)
                 pct = (files_synced / total_files_cursor * 100) if total_files_cursor else 100
-                print(f"[FILES] Sincronizados {files_synced}/{total_files_cursor} ({pct:.1f}%)")
+                safe_print(f"[FILES] Sincronizados {files_synced}/{total_files_cursor} ({pct:.1f}%)")
             except Exception as ex:
                 backup_failures.append("files batch")
-                print("[ERRO-LOTE] Falha no envio do lote de arquivos.")
+                safe_print("[ERRO-LOTE] Falha no envio do lote de arquivos.")
             files_batch = []
     
     if files_batch:
         try:
             post_batch_to_supabase(supabase_url, supabase_key, "nebula_files", files_batch)
             files_synced += len(files_batch)
-            print(f"[FILES] Sincronizados {files_synced}/{total_files_cursor} (100.0%)")
+            safe_print(f"[FILES] Sincronizados {files_synced}/{total_files_cursor} (100.0%)")
         except Exception as ex:
             backup_failures.append("final files batch")
-            print("[ERRO-LOTE-FINAL] Falha no envio do lote final de arquivos.")
+            safe_print("[ERRO-LOTE-FINAL] Falha no envio do lote final de arquivos.")
     
     # 2. Backup de Usuários (users)
     total_users_cursor = await db.users.count_documents({})
-    print(f"\n[2/3] Encontrados {total_users_cursor} usuários na coleção 'users'...")
+    safe_print(f"[2/3] Encontrados {total_users_cursor} usuários na coleção 'users'...")
     
     users_batch = []
     users_synced = 0
@@ -535,10 +651,10 @@ async def _backup_mongo_to_supabase_with_client(client, db_name: str, mongo_uri:
         try:
             post_batch_to_supabase(supabase_url, supabase_key, "nebula_users", users_batch)
             users_synced = len(users_batch)
-            print(f"[USERS] Sincronizados {users_synced}/{total_users_cursor} usuários.")
+            safe_print(f"[USERS] Sincronizados {users_synced}/{total_users_cursor} usuários.")
         except Exception as ex:
             backup_failures.append("users batch")
-            print("[ERRO-USERS] Falha ao sincronizar usuários.")
+            safe_print("[ERRO-USERS] Falha ao sincronizar usuários.")
 
     if files_synced != total_files_cursor:
         backup_failures.append("files count mismatch")
@@ -563,48 +679,46 @@ async def _backup_mongo_to_supabase_with_client(client, db_name: str, mongo_uri:
     try:
         post_batch_to_supabase(supabase_url, supabase_key, "nebula_backups", backup_record)
     except Exception as ex:
-        print("[ERRO-HISTORY] Não foi possível registrar o resultado do backup.")
+        safe_print("[ERRO-HISTORY] Não foi possível registrar o resultado do backup.")
         raise RuntimeError("Backup não confirmado: falha ao registrar histórico") from ex
     
-    print("\n" + "=" * 60)
+    safe_print("=" * 60)
     if backup_failures:
-        print(f"BACKUP INCOMPLETO EM {elapsed:.2f}s: {', '.join(backup_failures)}")
-        print(f"Arquivos salvos no Supabase: {files_synced}/{total_files_cursor}")
-        print(f"Usuários salvos no Supabase: {users_synced}/{total_users_cursor}")
-        print("=" * 60)
+        safe_print(f"BACKUP INCOMPLETO EM {elapsed:.2f}s: {', '.join(backup_failures)}")
+        safe_print(f"Arquivos salvos no Supabase: {files_synced}/{total_files_cursor}")
+        safe_print(f"Usuários salvos no Supabase: {users_synced}/{total_users_cursor}")
+        safe_print("=" * 60)
         raise RuntimeError(f"Backup incompleto: {', '.join(backup_failures)}")
 
-    print(f"BACKUP FINALIZADO COM SUCESSO EM {elapsed:.2f}s!")
-    print(f"Arquivos salvos no Supabase: {files_synced}")
-    print(f"Usuários salvos no Supabase: {users_synced}")
-    print("=" * 60)
+    safe_print(f"BACKUP FINALIZADO COM SUCESSO EM {elapsed:.2f}s!")
+    safe_print(f"Arquivos salvos no Supabase: {files_synced}")
+    safe_print(f"Usuários salvos no Supabase: {users_synced}")
+    safe_print("=" * 60)
     return {"success": True, "files": files_synced, "users": users_synced, "elapsed": elapsed}
 
 async def restore_supabase_to_mongo(mongo_uri: str, db_name: str, supabase_url: str, supabase_key: str):
-    from motor.motor_asyncio import AsyncIOMotorClient
-
-    client = AsyncIOMotorClient(mongo_uri)
+    client = AsyncMongoClient(mongo_uri)
     try:
         return await _restore_supabase_to_mongo_with_client(client, db_name, mongo_uri, supabase_url, supabase_key)
     finally:
-        client.close()
+        await client.close()
 
 
 async def _restore_supabase_to_mongo_with_client(client, db_name: str, mongo_uri: str, supabase_url: str, supabase_key: str):
     from bson import ObjectId
     
     start_time = time.time()
-    print("=" * 60)
-    print("INICIANDO RESTAURAÇÃO: Supabase -> MongoDB")
-    print("=" * 60)
-    print(f"Supabase: {supabase_url}")
-    print(f"MongoDB Destino: {mongo_uri} | DB: {db_name}")
+    safe_print("=" * 60)
+    safe_print("INICIANDO RESTAURAÇÃO: Supabase -> MongoDB")
+    safe_print("=" * 60)
+    safe_print(f"Supabase: {safe_endpoint_for_log(supabase_url)}")
+    safe_print(f"MongoDB Destino: {safe_endpoint_for_log(mongo_uri)} | DB: {db_name}")
     
     db = client[db_name]
     restore_failures = []
     
     # 1. Restaurar Usuários
-    print("\n[1/2] Restaurando usuários do Supabase...")
+    safe_print("[1/2] Restaurando usuários do Supabase...")
     restored_users = 0
     try:
         users = fetch_from_supabase(supabase_url, supabase_key, "nebula_users", limit=500)
@@ -619,13 +733,13 @@ async def _restore_supabase_to_mongo_with_client(client, db_name: str, mongo_uri
                         pass
                 await db.users.update_one({"login": login}, {"$set": doc}, upsert=True)
                 restored_users += 1
-        print(f"[USERS] Restaurados {restored_users} usuários com sucesso.")
+        safe_print(f"[USERS] Restaurados {restored_users} usuários com sucesso.")
     except Exception as ex:
-        print(f"[ERRO-RESTORE-USERS] {ex}")
+        safe_print(f"[ERRO-RESTORE-USERS] Falha ({type(ex).__name__}).")
         restore_failures.append(("usuários", None, ex))
     
     # 2. Restaurar Arquivos (com paginação)
-    print("\n[2/2] Restaurando biblioteca de arquivos do Supabase...")
+    safe_print("[2/2] Restaurando biblioteca de arquivos do Supabase...")
     restored_files = 0
     offset = 0
     limit = 500
@@ -652,12 +766,12 @@ async def _restore_supabase_to_mongo_with_client(client, db_name: str, mongo_uri
                     await db.files.update_one({"_id": obj_id}, {"$set": doc}, upsert=True)
                     restored_files += 1
             
-            print(f"[FILES] Restaurados {restored_files} arquivos...")
+            safe_print(f"[FILES] Restaurados {restored_files} arquivos...")
             if len(files_chunk) < limit:
                 break
             offset += limit
         except Exception as ex:
-            print(f"[ERRO-RESTORE-FILES] Falha ao restaurar lote no offset {offset}: {ex}")
+            safe_print(f"[ERRO-RESTORE-FILES] Falha no lote no offset {offset} ({type(ex).__name__}).")
             restore_failures.append(("arquivos", offset, ex))
             break
     
@@ -667,13 +781,13 @@ async def _restore_supabase_to_mongo_with_client(client, db_name: str, mongo_uri
         await db.files.create_index("parent")
         await db.files.create_index("status")
         await db.users.create_index("login", unique=True)
-        print("[INDEXES] Índices do MongoDB reconstruídos com sucesso.")
+        safe_print("[INDEXES] Índices do MongoDB reconstruídos com sucesso.")
     except Exception as ex:
-        print(f"[INDEXES-WARN] {ex}")
+        safe_print(f"[INDEXES-WARN] Falha ao criar índices ({type(ex).__name__}).")
         restore_failures.append(("índices", None, ex))
     
     elapsed = time.time() - start_time
-    print("\n" + "=" * 60)
+    safe_print("=" * 60)
     if restore_failures:
         failure_details = []
         for stage, offset, _error in restore_failures:
@@ -682,18 +796,18 @@ async def _restore_supabase_to_mongo_with_client(client, db_name: str, mongo_uri
                 detail += f" no offset {offset}"
             failure_details.append(detail)
         summary = "; ".join(failure_details)
-        print(f"RESTAURAÇÃO INCOMPLETA: {summary}")
-        print(f"Arquivos restaurados parcialmente: {restored_files}")
-        print(f"Usuários restaurados: {restored_users}")
-        print("=" * 60)
+        safe_print(f"RESTAURAÇÃO INCOMPLETA: {summary}")
+        safe_print(f"Arquivos restaurados parcialmente: {restored_files}")
+        safe_print(f"Usuários restaurados: {restored_users}")
+        safe_print("=" * 60)
         raise RuntimeError(
             f"Restauração incompleta ({summary}); {restored_files} arquivos restaurados parcialmente"
-        ) from restore_failures[0][2]
+        ) from None
 
-    print(f"RESTAURAÇÃO CONCLUÍDA EM {elapsed:.2f}s!")
-    print(f"Arquivos no MongoDB: {restored_files}")
-    print(f"Usuários no MongoDB: {restored_users}")
-    print("=" * 60)
+    safe_print(f"RESTAURAÇÃO CONCLUÍDA EM {elapsed:.2f}s!")
+    safe_print(f"Arquivos no MongoDB: {restored_files}")
+    safe_print(f"Usuários no MongoDB: {restored_users}")
+    safe_print("=" * 60)
     return {"files": restored_files, "users": restored_users, "elapsed": elapsed}
 
 def print_sql_script():
@@ -715,7 +829,7 @@ CREATE TABLE IF NOT EXISTS nebula_files (
 );
 
 CREATE INDEX IF NOT EXISTS idx_nebula_files_status ON nebula_files(status);
-CREATE INDEX IF NOT EXISTS idx_nebula_files_parent ON nebula_files(parent);
+DROP INDEX IF EXISTS idx_nebula_files_parent;
 CREATE INDEX IF NOT EXISTS idx_nebula_files_name ON nebula_files(name);
 
 CREATE TABLE IF NOT EXISTS nebula_users (

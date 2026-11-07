@@ -19,6 +19,18 @@ public interface IKeyframeRepository
     IReadOnlyList<KeyframeData> GetKeyframeData(Guid itemId);
 
     /// <summary>
+    /// Gets keyframe data asynchronously.
+    /// </summary>
+    /// <param name="itemId">The item id.</param>
+    /// <param name="cancellationToken">The cancellation token.</param>
+    /// <returns>The keyframe data.</returns>
+    Task<IReadOnlyList<KeyframeData>> GetKeyframeDataAsync(Guid itemId, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        return Task.FromResult(GetKeyframeData(itemId));
+    }
+
+    /// <summary>
     /// Saves the keyframe data.
     /// </summary>
     /// <param name="itemId">The item id.</param>

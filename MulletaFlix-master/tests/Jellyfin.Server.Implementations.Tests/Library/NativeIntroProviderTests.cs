@@ -154,6 +154,75 @@ public class NativeIntroProviderTests
     }
 
     [Fact]
+    public void GetDefaultNativeIntroCandidates_UsesOnlyPackagedAndServerOwnedRoots()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), $"intro-test-{Guid.NewGuid():N}");
+        var programDataPath = Path.Combine(tempDir, "program-data");
+        var dataPath = Path.Combine(tempDir, "data");
+        var applicationPaths = new Mock<MediaBrowser.Common.Configuration.IApplicationPaths>();
+        applicationPaths.SetupGet(m => m.ProgramDataPath).Returns(programDataPath);
+        applicationPaths.SetupGet(m => m.DataPath).Returns(dataPath);
+
+        var candidates = NativeIntroProvider.GetDefaultNativeIntroCandidates(
+            Path.Combine(tempDir, "install"),
+            applicationPaths.Object);
+
+        Assert.Equal(
+            [
+                Path.Combine(tempDir, "install", "media", "mulletaflix_intro.mp4"),
+                Path.Combine(tempDir, "install", "mulletaflix_intro.mp4"),
+                Path.Combine(programDataPath, "media", "mulletaflix_intro.mp4"),
+                Path.Combine(programDataPath, "mulletaflix_intro.mp4"),
+                Path.Combine(dataPath, "media", "mulletaflix_intro.mp4"),
+                Path.Combine(dataPath, "mulletaflix_intro.mp4")
+            ],
+            candidates);
+    }
+
+    [Fact]
+    public async Task GetIntros_UsesBundledIntro_WhenNoPathIsConfigured()
+    {
+        var originalIntroPath = Environment.GetEnvironmentVariable("MulletaFlix_INTRO_PATH");
+
+        try
+        {
+            Environment.SetEnvironmentVariable("MulletaFlix_INTRO_PATH", null);
+
+            var configManager = new Mock<IServerConfigurationManager>();
+            configManager.Setup(m => m.GetConfiguration("branding")).Returns(new BrandingOptions
+            {
+                IntroEnabled = true,
+                IntroPath = null
+            });
+
+            var prebufferManager = new Mock<IStrmPrebufferManager>();
+            prebufferManager.Setup(m => m.PrepareAsync(It.IsAny<BaseItem>())).Returns(Task.CompletedTask);
+
+            var provider = new NativeIntroProvider(
+                configManager.Object,
+                prebufferManager.Object,
+                Mock.Of<Microsoft.Extensions.Logging.ILogger<NativeIntroProvider>>());
+            var item = new Video
+            {
+                Id = Guid.NewGuid(),
+                Path = Path.Combine(Path.GetTempPath(), "sample_movie.mkv")
+            };
+            var user = new User("test", "test", "test") { Id = Guid.NewGuid() };
+
+            var intros = await provider.GetIntros(item, user);
+
+            Assert.Single(intros);
+            Assert.Equal(
+                Path.Combine(AppContext.BaseDirectory, "media", "mulletaflix_intro.mp4"),
+                intros.First().Path);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("MulletaFlix_INTRO_PATH", originalIntroPath);
+        }
+    }
+
+    [Fact]
     public async Task GetIntros_ReturnsIntroWithoutWaitingForMainMediaPrebuffer()
     {
         var introPath = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid():N}.mp4");

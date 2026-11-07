@@ -14,6 +14,8 @@ public class BaseItemImageInfoConfiguration : IEntityTypeConfiguration<BaseItemI
     {
         builder.HasKey(e => e.Id);
         builder.HasOne(e => e.Item).WithMany(e => e.Images).HasForeignKey(e => e.ItemId);
+        builder.Property(e => e.ProviderName).HasMaxLength(255);
+        builder.Property(e => e.Language).HasMaxLength(32);
 
         // Composite index for filtering by item and image type (also covers ItemId-only lookups)
         builder.HasIndex(e => new { e.ItemId, e.ImageType });

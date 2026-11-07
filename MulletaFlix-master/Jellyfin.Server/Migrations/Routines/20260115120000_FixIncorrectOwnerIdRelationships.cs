@@ -234,7 +234,7 @@ public class FixIncorrectOwnerIdRelationships : IAsyncMigrationRoutine
             "MediaBrowser.Controller.Entities.Movies.Movie"
         };
         var potentialParents = await context.BaseItems
-            .Where(b => b.Path != null && videoTypes.Contains(b.Type))
+            .Where(b => b.Path != null && Enumerable.Contains(videoTypes, b.Type))
             .Select(b => new { b.Id, b.Path })
             .ToListAsync(cancellationToken)
             .ConfigureAwait(false);

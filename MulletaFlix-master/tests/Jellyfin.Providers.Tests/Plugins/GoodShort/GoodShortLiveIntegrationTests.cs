@@ -14,10 +14,8 @@ namespace Jellyfin.Providers.Tests.Plugins.GoodShort
     /// Live verification against the real GoodShort site.
     /// </summary>
     /// <remarks>
-    /// The type name deliberately contains "Integration" so the CI filter
-    /// (FullyQualifiedName!~Integration) skips it: it reaches the public internet and must never
-    /// gate a build. Run it on demand with
-    /// <c>dotnet test --filter "FullyQualifiedName~GoodShortLiveIntegration"</c>.
+    /// Tests are skipped by default and reach the public internet only when the explicit live-provider
+    /// environment switch is set.
     /// It exists because every other test in this folder uses a captured payload, and a captured
     /// payload cannot prove that GoodShort still answers the way it did when the fixtures were taken.
     /// </remarks>
@@ -39,6 +37,7 @@ namespace Jellyfin.Providers.Tests.Plugins.GoodShort
         [Fact]
         public async Task GetSeries_ReadsBothReportedSeriesWithTheirCompleteEpisodeList()
         {
+            LiveProviderIntegrationTestEnvironment.SkipUnlessEnabled();
             using var client = CreateClient();
 
             foreach (var url in new[] { FirstSeriesUrl, SecondSeriesUrl })
@@ -75,6 +74,7 @@ namespace Jellyfin.Providers.Tests.Plugins.GoodShort
         [Fact]
         public async Task Search_ReturnsTheSeriesForItsOwnTitle()
         {
+            LiveProviderIntegrationTestEnvironment.SkipUnlessEnabled();
             using var client = CreateClient();
 
             var matches = await client.SearchAsync(
@@ -93,6 +93,7 @@ namespace Jellyfin.Providers.Tests.Plugins.GoodShort
         [Fact]
         public async Task GetSeries_ReturnsNothingForAnIdThatDoesNotExist()
         {
+            LiveProviderIntegrationTestEnvironment.SkipUnlessEnabled();
             using var client = CreateClient();
 
             var series = await client.GetSeriesAsync("99999999999999", null, CancellationToken.None);

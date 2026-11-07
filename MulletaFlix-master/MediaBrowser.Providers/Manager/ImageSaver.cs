@@ -3,6 +3,7 @@
 #pragma warning disable CS1591
 
 using System;
+using System.ComponentModel;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
@@ -177,43 +178,33 @@ namespace MediaBrowser.Providers.Manager
             // Delete the current path
             if (currentImageIsLocalFile
                 && !savedPaths.Contains(currentImagePath, StringComparison.OrdinalIgnoreCase)
-                && (saveLocally || currentImagePath.Contains(_config.ApplicationPaths.InternalMetadataPath, StringComparison.OrdinalIgnoreCase)))
+                && !string.IsNullOrEmpty(currentImagePath))
             {
                 var currentPath = currentImagePath;
-
-                _logger.LogInformation("Deleting previous image {0}", currentPath);
+                var deleteRoots = saveLocally
+                    ? new[] { item.ContainingFolderPath, _config.ApplicationPaths.InternalMetadataPath }
+                    : new[] { _config.ApplicationPaths.InternalMetadataPath };
 
                 _libraryMonitor.ReportFileSystemChangeBeginning(currentPath);
 
                 try
                 {
-                    _fileSystem.DeleteFile(currentPath);
-
-                    // Remove local episode metadata directory if it exists and is empty
-                    var directory = Path.GetDirectoryName(currentPath);
-                    if (item is Episode && directory.Equals("metadata", StringComparison.Ordinal))
+                    foreach (var root in deleteRoots
+                        .Where(static path => !string.IsNullOrWhiteSpace(path))
+                        .Distinct(OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal))
                     {
-                        var parentDirectoryPath = Directory.GetParent(currentPath).FullName;
-                        if (_fileSystem.DirectoryExists(parentDirectoryPath) && !_fileSystem.GetFiles(parentDirectoryPath).Any())
+                        if (RootedFileSystem.TryDeleteFile(root, currentPath))
                         {
-                            try
-                            {
-                                _logger.LogInformation("Deleting empty local metadata folder {Folder}", parentDirectoryPath);
-                                Directory.Delete(parentDirectoryPath);
-                            }
-                            catch (UnauthorizedAccessException ex)
-                            {
-                                _logger.LogError(ex, "Error deleting directory {Path}", parentDirectoryPath);
-                            }
-                            catch (IOException ex)
-                            {
-                                _logger.LogError(ex, "Error deleting directory {Path}", parentDirectoryPath);
-                            }
+                            _logger.LogInformation("Deleted previous image {0}", currentPath);
+                            break;
                         }
                     }
+
+                    // Deleting an empty parent by path would reintroduce a check-then-use race.
                 }
-                catch (FileNotFoundException)
+                catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or Win32Exception or PlatformNotSupportedException)
                 {
+                    _logger.LogWarning(exception, "Unable to delete previous image {0}; the replacement was saved", currentPath);
                 }
                 finally
                 {
@@ -287,25 +278,86 @@ namespace MediaBrowser.Providers.Manager
 
                 Directory.CreateDirectory(Path.GetDirectoryName(path));
 
-                _fileSystem.SetAttributes(path, false, false);
+                var temporaryPath = Path.Combine(parentFolder, $".{Path.GetFileName(path)}.{Guid.NewGuid():N}.tmp");
+                var temporaryFileCreated = false;
+                var destinationExists = File.Exists(path);
+                var destinationAttributes = destinationExists ? File.GetAttributes(path) : default;
+                var destinationUnixMode = destinationExists && !OperatingSystem.IsWindows()
+                    ? File.GetUnixFileMode(path)
+                    : default;
 
                 var fileStreamOptions = AsyncFile.WriteOptions;
-                fileStreamOptions.Mode = FileMode.Create;
-                fileStreamOptions.Options = FileOptions.WriteThrough;
+                fileStreamOptions.Mode = FileMode.CreateNew;
+                fileStreamOptions.Options |= FileOptions.WriteThrough;
                 if (source.CanSeek)
                 {
                     fileStreamOptions.PreallocationSize = source.Length;
                 }
 
-                var fs = new FileStream(path, fileStreamOptions);
-                await using (fs.ConfigureAwait(false))
+                try
                 {
-                    await source.CopyToAsync(fs, cancellationToken).ConfigureAwait(false);
-                }
+                    var fs = new FileStream(temporaryPath, fileStreamOptions);
+                    temporaryFileCreated = true;
+                    await using (fs.ConfigureAwait(false))
+                    {
+                        await source.CopyToAsync(fs, cancellationToken).ConfigureAwait(false);
+                    }
 
-                if (_config.Configuration.SaveMetadataHidden)
+                    if (destinationExists && !OperatingSystem.IsWindows())
+                    {
+                        // shortcut: Unix extended ACLs inherit from the parent; copy per-file ACLs if deployments require them.
+                        File.SetUnixFileMode(temporaryPath, destinationUnixMode);
+                    }
+
+                    if (destinationExists)
+                    {
+                        try
+                        {
+                            _fileSystem.SetAttributes(path, false, false);
+                            File.Replace(temporaryPath, path, null);
+                        }
+                        catch
+                        {
+                            try
+                            {
+                                File.SetAttributes(path, destinationAttributes);
+                            }
+                            catch (Exception restoreException)
+                            {
+                                _logger.LogWarning(restoreException, "Unable to restore attributes on image {0} after replacement failed", path);
+                            }
+
+                            throw;
+                        }
+                    }
+                    else
+                    {
+                        File.Move(temporaryPath, path);
+                    }
+
+                    temporaryFileCreated = false;
+                    _fileSystem.SetAttributes(path, false, false);
+
+                    if (_config.Configuration.SaveMetadataHidden)
+                    {
+                        SetHidden(path, true);
+                    }
+                }
+                catch
                 {
-                    SetHidden(path, true);
+                    if (temporaryFileCreated)
+                    {
+                        try
+                        {
+                            File.Delete(temporaryPath);
+                        }
+                        catch (Exception cleanupException)
+                        {
+                            _logger.LogWarning(cleanupException, "Unable to remove temporary image {0}", temporaryPath);
+                        }
+                    }
+
+                    throw;
                 }
             }
             finally

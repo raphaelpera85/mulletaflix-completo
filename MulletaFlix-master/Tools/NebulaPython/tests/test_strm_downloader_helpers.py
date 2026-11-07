@@ -1,13 +1,60 @@
 from __future__ import annotations
 
 import importlib
+import json
 import urllib.error
+from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
+from threading import Thread
 from types import SimpleNamespace
 
 import pytest
 
 downloader = importlib.import_module("tools.strm_downloader")
+
+
+def test_configured_staging_roots_merge_environment_and_json_and_ignore_invalid_entries(tmp_path, monkeypatch):
+    tools_dir = tmp_path / "tools"
+    tools_dir.mkdir()
+    fake_module = tools_dir / "strm_downloader.py"
+    fake_module.touch()
+    monkeypatch.setattr(downloader, "__file__", str(fake_module))
+
+    env_root = tmp_path / "env-stage"
+    json_root = tmp_path / "json-stage"
+    monkeypatch.setenv("STAGING_DIRS", f' "{env_root}" ; {env_root} ')
+    monkeypatch.delenv("STAGING_DIR", raising=False)
+    (tmp_path / "stage_paths.json").write_text(
+        json.dumps([str(env_root), str(json_root), "  ", 42, None]), encoding="utf-8"
+    )
+
+    assert downloader.get_configured_staging_dirs() == [env_root.resolve(), json_root.resolve()]
+
+
+def test_configured_staging_roots_do_not_add_default_when_environment_is_configured(tmp_path, monkeypatch):
+    tools_dir = tmp_path / "tools"
+    tools_dir.mkdir()
+    fake_module = tools_dir / "strm_downloader.py"
+    fake_module.touch()
+    monkeypatch.setattr(downloader, "__file__", str(fake_module))
+    configured = tmp_path / "custom-stage"
+    monkeypatch.setenv("STAGING_DIRS", str(configured))
+    monkeypatch.delenv("STAGING_DIR", raising=False)
+
+    assert downloader.get_configured_staging_dirs() == [configured.resolve()]
+
+
+def test_configured_staging_roots_use_default_only_when_no_valid_root_exists(tmp_path, monkeypatch):
+    tools_dir = tmp_path / "tools"
+    tools_dir.mkdir()
+    fake_module = tools_dir / "strm_downloader.py"
+    fake_module.touch()
+    monkeypatch.setattr(downloader, "__file__", str(fake_module))
+    monkeypatch.delenv("STAGING_DIRS", raising=False)
+    monkeypatch.delenv("STAGING_DIR", raising=False)
+    (tmp_path / "stage_paths.json").write_text('["", 42, null]', encoding="utf-8")
+
+    assert downloader.get_configured_staging_dirs() == [(tmp_path / "staging").resolve()]
 
 
 @pytest.mark.parametrize(
@@ -69,6 +116,54 @@ def test_read_strm_url_ignores_bom_blank_lines_and_comments(tmp_path):
     assert downloader.read_strm_url(source) == "https://media.example/title.mkv?token=x"
 
 
+@pytest.mark.parametrize("module_name", ["tools.feed_ftp", "tools.strm_downloader"])
+@pytest.mark.parametrize(
+    ("target", "allowed"),
+    [
+        ("https://cdn.example/video.mkv", True),
+        ("http://127.0.0.1/video.mkv", True),
+        ("ftp://cdn.example/video.mkv", False),
+        ("file:///etc/passwd", False),
+        ("http://cdn.example:bad-port/video.mkv", False),
+        ("http:///missing-host", False),
+    ],
+)
+def test_redirects_allow_only_valid_http_schemes(module_name, target, allowed):
+    from urllib.request import Request
+
+    handler = importlib.import_module(module_name)._HttpOnlyRedirectHandler()
+    redirected = handler.redirect_request(
+        Request("https://origin.example/media"), None, 302, "Found", {}, target
+    )
+
+    assert (redirected is not None) is allowed
+
+
+@pytest.mark.parametrize("module_name", ["tools.feed_ftp", "tools.strm_downloader"])
+def test_urlopen_does_not_follow_media_redirect_to_ftp(module_name):
+    class RedirectHandler(BaseHTTPRequestHandler):
+        def do_GET(self):
+            self.send_response(302)
+            self.send_header("Location", "ftp://127.0.0.1:1/private-media")
+            self.end_headers()
+
+        def log_message(self, *_args):
+            pass
+
+    server = HTTPServer(("127.0.0.1", 0), RedirectHandler)
+    thread = Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        url = f"http://127.0.0.1:{server.server_port}/media"
+        with pytest.raises(urllib.error.HTTPError) as exc:
+            importlib.import_module(module_name).urlopen(url, timeout=2)
+        assert exc.value.code == 302
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
+
+
 @pytest.mark.parametrize("content", ["", "# only a comment\n\n"])
 def test_read_strm_url_rejects_empty_or_comment_only_file(tmp_path, content):
     source = tmp_path / "empty.strm"
@@ -119,6 +214,15 @@ def test_remote_content_size_parses_range_and_length(monkeypatch, headers, statu
 def test_remote_content_size_treats_network_errors_as_unknown(monkeypatch):
     monkeypatch.setattr(downloader, "urlopen", lambda *_args, **_kwargs: (_ for _ in ()).throw(OSError("offline")))
     assert downloader.remote_content_size("https://cdn.example/media") is None
+
+
+@pytest.mark.parametrize(
+    "url",
+    ["file:///private/title.mp4", "http:///missing-host", "http://example.test:badport/title.mp4", "http://example.test:65536/title.mp4"],
+)
+def test_remote_content_size_rejects_unsupported_or_hostless_url_before_network(monkeypatch, url):
+    monkeypatch.setattr(downloader, "urlopen", lambda *_args, **_kwargs: pytest.fail("network must not be used"))
+    assert downloader.remote_content_size(url) is None
 
 
 @pytest.mark.parametrize(
@@ -420,14 +524,27 @@ def test_wait_for_disk_capacity_sleeps_and_rechecks_until_capacity_is_available(
     assert sleeps == [3]
 
 
-def test_wait_for_disk_capacity_returns_if_disk_probe_fails(tmp_path, monkeypatch):
-    monkeypatch.setattr(
-        downloader.shutil,
-        "disk_usage",
-        lambda _path: (_ for _ in ()).throw(PermissionError("disk unavailable")),
-    )
+def test_wait_for_disk_capacity_retries_if_disk_probe_fails(tmp_path, monkeypatch, caplog):
+    target = tmp_path / "stage" / "media.mkv"
+    gib = 1024**3
+    checks = []
+    sleeps = []
 
-    assert downloader.wait_for_disk_capacity(tmp_path / "stage" / "media.mkv", required_bytes=100) is None
+    def disk_usage(path):
+        checks.append(Path(path))
+        if len(checks) == 1:
+            raise PermissionError("disk unavailable")
+        return SimpleNamespace(total=100 * gib, free=20 * gib)
+
+    monkeypatch.setattr(downloader.shutil, "disk_usage", disk_usage)
+    monkeypatch.setattr(downloader.time, "time", lambda: 31)
+    monkeypatch.setattr(downloader.time, "sleep", sleeps.append)
+
+    downloader.wait_for_disk_capacity(target, required_bytes=100, poll_seconds=3)
+
+    assert checks == [target.parent, target.parent]
+    assert sleeps == [3]
+    assert "download pausado até o volume ficar disponível" in caplog.text
 
 
 def test_existing_staging_target_detects_completed_file_and_partial(tmp_path):
@@ -564,15 +681,37 @@ def test_media_validator_indexes_completed_movies_episodes_and_active_items(tmp_
     assert clients[0].closed is True
     assert validator.completed_movies == {("arrival", "2016")}
     assert validator.completed_episodes == {("atomic", 1, 2)}
-    assert "queued work.s01e01.mkv" in validator.active_paths_or_names
-    assert "d:/stage/queued-work.mkv" in validator.active_paths_or_names
+    assert ("/raphael/novelas/work", "queued work.s01e01.mkv") in validator.active_exact
+    assert "d:\\stage\\queued-work.mkv" in validator.active_paths
 
     duplicate_movie = tmp_path / "Arrival (2016).strm"
     assert validator.is_already_completed_or_active(duplicate_movie)[0] is True
     duplicate_episode = tmp_path / "Atomic" / "Atomic.S01E02.strm"
     assert validator.is_already_completed_or_active(duplicate_episode)[0] is True
-    active_item = tmp_path / "Queued Work.S01E01.strm"
-    assert validator.is_already_completed_or_active(active_item)[0] is True
+    active_item = tmp_path / "Novelas" / "Work" / "Queued Work.S01E01.strm"
+    active_destination = tmp_path / "Novelas" / "Work" / "Queued Work.S01E01.mkv"
+    assert validator.is_already_completed_or_active(
+        active_item, destination=active_destination, dest_root=tmp_path
+    )[0] is True
+
+
+def test_media_validator_does_not_delete_same_episode_stem_from_another_series(tmp_path):
+    validator = downloader.MediaValidator("mongodb://test")
+    validator.active_episodes = {("show a", 1, 1)}
+
+    same_episode_number = tmp_path / "Show B" / "Season 01" / "Show B.S01E01.strm"
+    duplicate, _ = validator.is_already_completed_or_active(same_episode_number)
+
+    assert duplicate is False
+
+
+def test_media_validator_detects_same_active_episode_identity_in_same_series(tmp_path):
+    validator = downloader.MediaValidator("mongodb://test")
+    validator.active_episodes = {("show a", 1, 1)}
+
+    same_episode = tmp_path / "Show A" / "Season 01" / "Show A - S01E01.strm"
+
+    assert validator.is_already_completed_or_active(same_episode)[0] is True
 
 
 def test_media_validator_matches_exact_destination_and_reuses_cache(tmp_path, monkeypatch):

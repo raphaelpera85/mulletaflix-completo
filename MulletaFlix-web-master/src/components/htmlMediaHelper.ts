@@ -382,7 +382,8 @@ export function onEndedInternal(instance: HlsInstance, elem: HTMLMediaElement, o
     destroyCastPlayer(instance);
 
     const stopInfo = {
-        src: instance._currentSrc
+        src: instance._currentSrc,
+        ended: true
     };
 
     Events.trigger(instance, 'stopped', [stopInfo]);

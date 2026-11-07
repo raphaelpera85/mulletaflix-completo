@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Linq;
 using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
@@ -12,8 +13,10 @@ using MediaBrowser.Controller.Drawing;
 using MediaBrowser.Controller.Events;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Model.Cryptography;
+using MediaBrowser.Model.Users;
 using MediaBrowser.Model.Configuration;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
 using MulletaFlix.Data;
@@ -28,6 +31,7 @@ namespace MulletaFlix.Server.Implementations.Tests.Users;
 public sealed class UserManagerAuthenticationLockTests : IDisposable
 {
     private readonly DbContextOptions<UsersDbContext> _dbOptions;
+    private readonly CoordinatedSaveChangesInterceptor _saveChangesInterceptor = new();
     private readonly Mock<IDbContextFactory<UsersDbContext>> _dbFactoryMock;
     private readonly Mock<INetworkManager> _networkManagerMock;
     private readonly Mock<IServerConfigurationManager> _configurationManagerMock;
@@ -41,6 +45,7 @@ public sealed class UserManagerAuthenticationLockTests : IDisposable
     {
         _dbOptions = new DbContextOptionsBuilder<UsersDbContext>()
             .UseInMemoryDatabase(Guid.NewGuid().ToString("N"))
+            .AddInterceptors(_saveChangesInterceptor)
             .Options;
 
         using (var context = CreateDbContext())
@@ -76,6 +81,139 @@ public sealed class UserManagerAuthenticationLockTests : IDisposable
 
     public void Dispose()
     {
+    }
+
+    [Fact]
+    public async Task CreateUserAsync_ConcurrentCreates_AssignsDistinctInternalIds()
+    {
+        using var userManager = CreateUserManager(_defaultAuthenticationProvider);
+        _saveChangesInterceptor.Enable();
+
+        var firstCreate = userManager.CreateUserAsync("first-user");
+        Task<User> secondCreate;
+        bool secondSaveEnteredBeforeRelease;
+        try
+        {
+            await _saveChangesInterceptor.FirstSaveEntered.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+            secondCreate = userManager.CreateUserAsync("second-user");
+            secondSaveEnteredBeforeRelease = _saveChangesInterceptor.SecondSaveEntered.IsCompleted;
+        }
+        finally
+        {
+            _saveChangesInterceptor.Release();
+        }
+
+        var createdUsers = await Task.WhenAll(firstCreate, secondCreate);
+
+        Assert.NotEqual(createdUsers[0].InternalId, createdUsers[1].InternalId);
+        Assert.False(secondSaveEnteredBeforeRelease);
+    }
+
+    [Fact]
+    public async Task DeleteUserAsync_ConcurrentDeletes_PreservesLastAdministrator()
+    {
+        using var userManager = CreateUserManager(_defaultAuthenticationProvider);
+        var firstAdmin = await userManager.CreateUserAsync("first-admin");
+        var secondAdmin = await userManager.CreateUserAsync("second-admin");
+        await userManager.CreateUserAsync("regular-user");
+
+        foreach (var userId in new[] { firstAdmin.Id, secondAdmin.Id })
+        {
+            var user = userManager.GetUserById(userId)!;
+            user.SetPermission(PermissionKind.IsAdministrator, true);
+            await userManager.UpdateUserAsync(user);
+        }
+
+        _saveChangesInterceptor.Enable();
+        var firstDelete = userManager.DeleteUserAsync(firstAdmin.Id);
+        Task secondDelete;
+        bool secondEnteredBeforeRelease;
+        try
+        {
+            await _saveChangesInterceptor.FirstSaveEntered.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+            secondDelete = userManager.DeleteUserAsync(secondAdmin.Id);
+            secondEnteredBeforeRelease = await Task.WhenAny(
+                _saveChangesInterceptor.SecondSaveEntered,
+                Task.Delay(TimeSpan.FromMilliseconds(250), TestContext.Current.CancellationToken))
+                == _saveChangesInterceptor.SecondSaveEntered;
+        }
+        finally
+        {
+            _saveChangesInterceptor.Release();
+        }
+
+        await firstDelete;
+        var secondDeleteException = await Record.ExceptionAsync(() => secondDelete);
+
+        Assert.False(secondEnteredBeforeRelease);
+        Assert.IsType<ArgumentException>(secondDeleteException);
+
+        await using var context = CreateDbContext();
+        Assert.Equal(2, await context.Users.CountAsync(TestContext.Current.CancellationToken));
+        Assert.Equal(1, await context.Users.CountAsync(user =>
+            user.Permissions.Any(permission => permission.Kind == PermissionKind.IsAdministrator && permission.Value),
+            TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
+    public async Task UpdateUserAsync_ConcurrentDemotionAndDelete_PreservesLastAdministrator()
+    {
+        using var userManager = CreateUserManager(_defaultAuthenticationProvider);
+        var firstAdmin = await userManager.CreateUserAsync("first-admin");
+        var secondAdmin = await userManager.CreateUserAsync("second-admin");
+        await userManager.CreateUserAsync("regular-user");
+
+        foreach (var userId in new[] { firstAdmin.Id, secondAdmin.Id })
+        {
+            var user = userManager.GetUserById(userId)!;
+            user.SetPermission(PermissionKind.IsAdministrator, true);
+            await userManager.UpdateUserAsync(user);
+        }
+
+        var demotedAdmin = userManager.GetUserById(secondAdmin.Id)!;
+        demotedAdmin.SetPermission(PermissionKind.IsAdministrator, false);
+        _saveChangesInterceptor.Enable();
+        var deleteTask = userManager.DeleteUserAsync(firstAdmin.Id);
+        Task updateTask;
+        bool updateEnteredBeforeRelease;
+        try
+        {
+            await _saveChangesInterceptor.FirstSaveEntered.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+            updateTask = userManager.UpdateUserAsync(demotedAdmin);
+            updateEnteredBeforeRelease = await Task.WhenAny(
+                _saveChangesInterceptor.SecondSaveEntered,
+                Task.Delay(TimeSpan.FromMilliseconds(250), TestContext.Current.CancellationToken))
+                == _saveChangesInterceptor.SecondSaveEntered;
+        }
+        finally
+        {
+            _saveChangesInterceptor.Release();
+        }
+
+        await deleteTask;
+        var updateException = await Record.ExceptionAsync(() => updateTask);
+
+        Assert.False(updateEnteredBeforeRelease);
+        Assert.IsType<ArgumentException>(updateException);
+
+        await using var context = CreateDbContext();
+        Assert.Equal(1, await context.Users.CountAsync(user =>
+            user.Permissions.Any(permission => permission.Kind == PermissionKind.IsAdministrator && permission.Value),
+            TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
+    public async Task UpdatePolicyAsync_CannotDemoteLastAdministrator()
+    {
+        using var userManager = CreateUserManager(_defaultAuthenticationProvider);
+        var admin = await userManager.CreateUserAsync("only-admin");
+        var user = userManager.GetUserById(admin.Id)!;
+        user.SetPermission(PermissionKind.IsAdministrator, true);
+        await userManager.UpdateUserAsync(user);
+
+        await Assert.ThrowsAsync<ArgumentException>(() => userManager.UpdatePolicyAsync(admin.Id, new UserPolicy()));
+
+        Assert.True(userManager.GetUserById(admin.Id)!.HasPermission(PermissionKind.IsAdministrator));
     }
 
     [Fact]
@@ -125,6 +263,38 @@ public sealed class UserManagerAuthenticationLockTests : IDisposable
         Assert.Equal(user.Id, firstResult.Id);
         Assert.Equal(user.Id, secondResult.Id);
         Assert.Equal(1, authProvider.MaxConcurrentCalls);
+    }
+
+    [Fact]
+    public async Task AuthenticateUser_UsesPermissionsCommittedWhileProviderWasRunning()
+    {
+        var authProvider = new BlockingAuthenticationProvider();
+        using var authManager = CreateUserManager(authProvider);
+        using var adminManager = CreateUserManager(_defaultAuthenticationProvider);
+
+        var user = await authManager.CreateUserAsync("admin-login");
+        user.AuthenticationProviderId = authProvider.GetType().FullName!;
+        user.SetPermission(PermissionKind.IsAdministrator, true);
+        await authManager.UpdateUserAsync(user);
+
+        var secondAdmin = await adminManager.CreateUserAsync("admin-remaining");
+        secondAdmin.SetPermission(PermissionKind.IsAdministrator, true);
+        await adminManager.UpdateUserAsync(secondAdmin);
+
+        var loginTask = authManager.AuthenticateUser("admin-login", string.Empty, "127.0.0.1", isUserSession: true);
+        await authProvider.FirstCallStarted.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+
+        var updatedUser = adminManager.GetUserById(user.Id)!;
+        updatedUser.SetPermission(PermissionKind.IsAdministrator, false);
+        await adminManager.UpdateUserAsync(updatedUser);
+
+        authProvider.Release();
+        var authenticatedUser = await loginTask;
+
+        Assert.NotNull(authenticatedUser);
+        Assert.False(authenticatedUser.HasPermission(PermissionKind.IsAdministrator));
+        Assert.False(adminManager.GetUserById(user.Id)!.HasPermission(PermissionKind.IsAdministrator));
+        Assert.True(adminManager.GetUserById(secondAdmin.Id)!.HasPermission(PermissionKind.IsAdministrator));
     }
 
     [Fact]
@@ -364,6 +534,47 @@ public sealed class UserManagerAuthenticationLockTests : IDisposable
                     return;
                 }
             }
+        }
+    }
+
+    private sealed class CoordinatedSaveChangesInterceptor : SaveChangesInterceptor
+    {
+        private readonly TaskCompletionSource<bool> _release = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource<bool> _firstSaveEntered = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource<bool> _secondSaveEntered = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private int _enabled;
+        private int _saveCount;
+
+        public Task FirstSaveEntered => _firstSaveEntered.Task;
+
+        public Task SecondSaveEntered => _secondSaveEntered.Task;
+
+        public void Enable() => Volatile.Write(ref _enabled, 1);
+
+        public void Release() => _release.TrySetResult(true);
+
+        public override async ValueTask<InterceptionResult<int>> SavingChangesAsync(
+            DbContextEventData eventData,
+            InterceptionResult<int> result,
+            CancellationToken cancellationToken = default)
+        {
+            if (Volatile.Read(ref _enabled) == 0)
+            {
+                return result;
+            }
+
+            var saveNumber = Interlocked.Increment(ref _saveCount);
+            if (saveNumber == 1)
+            {
+                _firstSaveEntered.TrySetResult(true);
+            }
+            else if (saveNumber == 2)
+            {
+                _secondSaveEntered.TrySetResult(true);
+            }
+
+            await _release.Task.WaitAsync(cancellationToken).ConfigureAwait(false);
+            return result;
         }
     }
 

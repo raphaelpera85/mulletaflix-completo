@@ -95,7 +95,7 @@ public class MergeDuplicatePeople : IAsyncMigrationRoutine
             // Pick the keeper: the Person with the most UserData rows (favorites, image
             // refresh state) is the one users have actually interacted with.
             var stats = await context.BaseItems
-                .Where(b => groupIds.Contains(b.Id))
+                .Where(b => Enumerable.Contains(groupIds, b.Id))
                 .Select(b => new
                 {
                     b.Id,
@@ -234,7 +234,7 @@ public class MergeDuplicatePeople : IAsyncMigrationRoutine
             // tracks/movies already point at; the duplicates are usually orphan stubs left
             // by a casing-mismatched insert.
             var stats = await context.Peoples
-                .Where(p => groupIds.Contains(p.Id))
+                .Where(p => Enumerable.Contains(groupIds, p.Id))
                 .Select(p => new
                 {
                     p.Id,
@@ -290,7 +290,7 @@ public class MergeDuplicatePeople : IAsyncMigrationRoutine
             idx++; // humans count at one
             _logger.LogInformation("Remove batch {BatchNo}/{MaxBatches} duplicate Peoples.", idx, idsToDelete.Count / 200);
             await context.Peoples
-                .Where(p => item.Contains(p.Id))
+                .Where(p => Enumerable.Contains(item, p.Id))
                 .ExecuteDeleteAsync(cancellationToken)
                 .ConfigureAwait(false);
         }

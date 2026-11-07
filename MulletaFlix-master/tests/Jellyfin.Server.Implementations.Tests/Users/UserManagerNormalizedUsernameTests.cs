@@ -273,11 +273,16 @@ namespace MulletaFlix.Server.Implementations.Tests.Users
         public async Task InitializeAsync_WhenUsersTableIsMissing_CreatesTheSchemaAndFirstUser()
         {
             using var database = new UsersMariaDbTestDatabase();
+            var asyncDbContextCreationCount = 0;
 
             var factory = new Mock<IDbContextFactory<UsersDbContext>>();
             factory.Setup(f => f.CreateDbContext()).Returns(database.CreateDbContext);
             factory.Setup(f => f.CreateDbContextAsync(It.IsAny<CancellationToken>()))
-                .ReturnsAsync(database.CreateDbContext);
+                .Returns(() =>
+                {
+                    asyncDbContextCreationCount++;
+                    return Task.FromResult(database.CreateDbContext());
+                });
 
             var cryptoProvider = new Mock<ICryptoProvider>();
             var configManager = new Mock<IServerConfigurationManager>();
@@ -308,11 +313,13 @@ namespace MulletaFlix.Server.Implementations.Tests.Users
             await userManager.InitializeAsync();
 
             var users = userManager.GetUsers();
+            var asyncDbContextCreationsAfterInitialization = asyncDbContextCreationCount;
             var firstUser = userManager.GetFirstUser();
 
             Assert.Single(users);
             Assert.NotNull(firstUser);
             Assert.False(string.IsNullOrWhiteSpace(firstUser!.Username));
+            Assert.Equal(asyncDbContextCreationsAfterInitialization, asyncDbContextCreationCount);
 
         }
 

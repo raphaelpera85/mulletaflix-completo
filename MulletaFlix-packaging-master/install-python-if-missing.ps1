@@ -6,9 +6,11 @@ $ErrorActionPreference = 'Stop'
 
 function Get-PythonPath {
     $candidates = @(
+        (Join-Path $env:ProgramFiles 'Python314\python.exe'),
         (Join-Path $env:ProgramFiles 'Python313\python.exe'),
         (Join-Path $env:ProgramFiles 'Python312\python.exe'),
         (Join-Path $env:ProgramFiles 'Python311\python.exe'),
+        'C:\Python314\python.exe',
         'C:\Python313\python.exe',
         'C:\Python312\python.exe',
         'C:\Python311\python.exe'
@@ -83,7 +85,7 @@ if ($python) {
 }
 
 $installer = Join-Path $env:TEMP 'mulletaflix-python-installer.exe'
-$pythonUrl = 'https://www.python.org/ftp/python/3.13.7/python-3.13.7-amd64.exe'
+$pythonUrl = 'https://www.python.org/ftp/python/3.14.10/python-3.14.10-amd64.exe'
 
 try {
     [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12

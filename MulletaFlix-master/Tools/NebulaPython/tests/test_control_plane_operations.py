@@ -194,6 +194,13 @@ async def test_feeder_http_routes_surface_status_and_start_stop_results():
         ({"outputRoot": "", "streamBaseUrl": "https://stream.example", "libraryUser": "raphael"}, "outside configured roots"),
         ({"outputRoot": "{output}", "streamBaseUrl": "ftp://stream.example", "libraryUser": "raphael"}, "HTTP(S) URL"),
         ({"outputRoot": "{output}", "streamBaseUrl": "https://user:pw@stream.example", "libraryUser": "raphael"}, "without credentials"),
+        ({"outputRoot": "{output}", "streamBaseUrl": "https://:pw@stream.example", "libraryUser": "raphael"}, "without credentials"),
+        ({"outputRoot": "{output}", "streamBaseUrl": "https://stream.example:bad-port", "libraryUser": "raphael"}, "valid port"),
+        ({"outputRoot": "{output}", "streamBaseUrl": "https://stream.example:65536", "libraryUser": "raphael"}, "valid port"),
+        ({"outputRoot": "{output}", "streamBaseUrl": "https:///missing-host", "libraryUser": "raphael"}, "without credentials"),
+        ({"outputRoot": "{output}", "streamBaseUrl": "https://stream.example/path?token=x", "libraryUser": "raphael"}, "without credentials"),
+        ({"outputRoot": "{output}", "streamBaseUrl": "https://stream.example/path?", "libraryUser": "raphael"}, "without credentials"),
+        ({"outputRoot": "{output}", "streamBaseUrl": "https://stream.example/path#", "libraryUser": "raphael"}, "without credentials"),
         ({"outputRoot": "{output}", "streamBaseUrl": "https://stream.example", "libraryUser": "bad user"}, "invalid libraryUser"),
     ],
 )
@@ -324,8 +331,9 @@ async def test_strm_generation_uses_packaged_generator_for_legacy_and_object_id_
     class MongoClient:
         instances = []
 
-        def __init__(self, uri):
+        def __init__(self, uri, **options):
             self.uri = uri
+            self.options = options
             self.closed = False
             self.instances.append(self)
 
@@ -367,6 +375,7 @@ async def test_strm_generation_uses_packaged_generator_for_legacy_and_object_id_
     }
     assert len(MongoClient.instances) == 1
     assert MongoClient.instances[0].closed
+    assert MongoClient.instances[0].options["serverSelectionTimeoutMS"] == 3000
 
 
 class FakeProcess:
@@ -439,6 +448,8 @@ async def test_feeder_supervisor_validates_roots_clamps_options_and_builds_comma
         {"sources": ["{source}"], "excludeDirectories": "not-array"},
         {"sources": ["{source}"], "excludeDirectories": ["../escape"]},
         {"sources": ["{source}"], "sourcePolicy": "delete-always"},
+        {"sources": ["{source}"], "overwrite": "false"},
+        {"sources": ["{source}"], "allFiles": "false"},
     ],
 )
 async def test_feeder_supervisor_rejects_invalid_configuration_before_spawning(tmp_path, monkeypatch, config):
@@ -460,6 +471,28 @@ async def test_feeder_supervisor_rejects_invalid_configuration_before_spawning(t
     with pytest.raises((ValueError, OSError)):
         await feeder.start(resolved)
     assert not spawned
+
+
+@pytest.mark.asyncio
+async def test_feeder_supervisor_reports_immediate_child_exit_as_startup_failure(tmp_path, monkeypatch):
+    source = tmp_path / "source"
+    source.mkdir()
+    script = tmp_path / "tools" / "feed.py"
+    script.parent.mkdir()
+    script.touch()
+
+    async def spawn(*_args, **_kwargs):
+        return FakeProcess(running=False)
+
+    monkeypatch.setattr(control_module.asyncio, "create_subprocess_exec", spawn)
+    feeder = FeederSupervisor(
+        script, source_roots=(source,), destination_roots=(source,), state_dir=tmp_path / "state"
+    )
+
+    with pytest.raises(RuntimeError, match=r"exited during startup \(exit code 0\)"):
+        await feeder.start({"sources": [str(source)]})
+
+    assert feeder.status()["running"] is False
 
 
 @pytest.mark.asyncio

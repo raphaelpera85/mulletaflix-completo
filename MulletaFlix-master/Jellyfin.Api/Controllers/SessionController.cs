@@ -495,7 +495,7 @@ public class SessionController : BaseMulletaFlixApiController
             return NotFound();
         }
 
-        _sessionManager.ReportNowViewingItem(session, parsedItemId.ToString("N"));
+        await _sessionManager.ReportNowViewingItemAsync(session, parsedItemId.ToString("N")).ConfigureAwait(false);
         return NoContent();
     }
 

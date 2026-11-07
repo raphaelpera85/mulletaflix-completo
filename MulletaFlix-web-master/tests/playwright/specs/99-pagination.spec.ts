@@ -192,13 +192,13 @@ test.describe.serial('99 - Pagination and home media', () => {
         }
 
         await navigateStage(page, '/dashboard/logs');
-        const logLink = page.locator('#logPage a[href*="/dashboard/logs/"]').first();
+        const logLink = page.locator('#logFilesPage a[data-log-file]').first();
         if (await logLink.isVisible().catch(() => false)) {
             const logFileName = await logLink.textContent();
             await logLink.click();
-            await expect(page.locator('#logPage pre')).toBeVisible({ timeout: 30_000 });
+            await expect(page.locator('#logFilePage pre')).toBeVisible({ timeout: 30_000 });
             if (logFileName) {
-                await expect(page.locator('#logPage h1')).toContainText(logFileName);
+                await expect(page.locator('#logFilePage h1')).toContainText(logFileName);
             }
         }
 

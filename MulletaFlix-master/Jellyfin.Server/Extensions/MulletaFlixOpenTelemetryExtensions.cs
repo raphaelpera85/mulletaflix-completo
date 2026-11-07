@@ -11,6 +11,7 @@ using MediaBrowser.Providers.Plugins.MidiaStorageOnline.ScheduledTasks;
 using MediaBrowser.Providers.Lyric;
 using MediaBrowser.Providers.MediaInfo;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Diagnostics.HealthChecks;
 using OpenTelemetry.Metrics;
 using OpenTelemetry.Resources;
 using OpenTelemetry.Trace;
@@ -56,8 +57,10 @@ internal static class MulletaFlixOpenTelemetryExtensions
 
         if (signals.MetricsEnabled)
         {
+            services.AddTelemetryHealthCheckPublisher(options => options.LogOnlyUnhealthy = true);
             builder.WithMetrics(metrics => metrics
                 .AddAspNetCoreInstrumentation()
+                .AddMeter("Microsoft.Extensions.Diagnostics.HealthChecks")
                 .AddMeter(NebulaUploadEngine.MeterName)
                 .AddMeter(NebulaDownloaderEngine.MeterName)
                 .AddMeter(NotificationsLibraryNotifier.MeterName)

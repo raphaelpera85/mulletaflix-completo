@@ -47,9 +47,9 @@ public sealed class IntroSkipperMariaDbTests : IClassFixture<MariaDbFixture>
         await _fixture.Database.InitializeAsync();
         Assert.True(_fixture.Cache.TryInitialize());
 
-        Assert.True(MariaDbFixture.SchemaExists(MariaDbFixture.DatabaseName));
+        Assert.True(MariaDbFixture.SchemaExists(_fixture.DatabaseName));
 
-        var tables = MariaDbFixture.Tables(MariaDbFixture.DatabaseName);
+        var tables = MariaDbFixture.Tables(_fixture.DatabaseName);
         foreach (var expected in new[]
         {
             "Segments",
@@ -76,7 +76,7 @@ public sealed class IntroSkipperMariaDbTests : IClassFixture<MariaDbFixture>
         Assert.True(_fixture.Cache.TryInitialize());
         await _fixture.Database.InitializeAsync();
 
-        var tables = MariaDbFixture.Tables(MariaDbFixture.DatabaseName);
+        var tables = MariaDbFixture.Tables(_fixture.DatabaseName);
         Assert.Contains("Segments", tables, StringComparer.OrdinalIgnoreCase);
         Assert.Contains("DetectionCache", tables, StringComparer.OrdinalIgnoreCase);
     }
@@ -290,11 +290,11 @@ public sealed class IntroSkipperMariaDbTests : IClassFixture<MariaDbFixture>
         // factories actually open, so the schema asserted everywhere else is the schema
         // production would use.
         await _fixture.Database.InitializeAsync();
-        var pluginTables = MariaDbFixture.Tables(MariaDbFixture.DatabaseName);
+        var pluginTables = MariaDbFixture.Tables(_fixture.DatabaseName);
         Assert.NotEmpty(pluginTables);
 
         var options = _fixture.IntroSkipperContexts.CreateDbContext().Database.GetDbConnection().ConnectionString;
-        Assert.Contains($"Database={MariaDbFixture.DatabaseName}", options, StringComparison.Ordinal);
+        Assert.Contains($"Database={_fixture.DatabaseName}", options, StringComparison.Ordinal);
     }
 
     private Task WriteIntroductionAsync(Guid itemId, CancellationToken cancellationToken = default)

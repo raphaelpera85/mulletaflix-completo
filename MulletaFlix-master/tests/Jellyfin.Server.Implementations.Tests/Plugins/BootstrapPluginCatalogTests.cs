@@ -30,6 +30,7 @@ public sealed class BootstrapPluginCatalogTests
         Assert.All(
             BootstrapPluginCatalog.BootstrapRepositories,
             repository => Assert.Empty(repository.PluginIds));
+        Assert.Empty(BootstrapPluginCatalog.GetRepositoriesWithBootstrapPlugins());
     }
 
     [Fact]

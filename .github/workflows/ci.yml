@@ -28,6 +28,9 @@ jobs:
       - name: Restore
         run: dotnet restore MulletaFlix.sln
 
+      - name: Restore IntroSkipper migration tool
+        run: dotnet restore Tools/MulletaFlix.IntroSkipperMigration/MulletaFlix.IntroSkipperMigration.csproj
+
       - name: Build
         run: dotnet build MulletaFlix.sln --configuration Release --no-restore
 
@@ -42,7 +45,16 @@ jobs:
           --filter "FullyQualifiedName!~Integration"
           --collect:"XPlat Code Coverage"
           --results-directory TestResults
+          --logger "trx;LogFilePrefix=server-unit"
           --verbosity minimal
+
+      - name: Upload backend test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-test-results
+          path: MulletaFlix-master/TestResults/**/*.trx
+          if-no-files-found: warn
 
       - name: Upload backend coverage
         uses: actions/upload-artifact@v4
@@ -50,6 +62,41 @@ jobs:
           name: backend-coverage
           path: MulletaFlix-master/TestResults/**/coverage.cobertura.xml
           if-no-files-found: error
+
+  server-windows-filesystem-tests:
+    name: Server backup filesystem and ACL tests (Windows)
+    runs-on: windows-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: MulletaFlix-master
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ env.SDK_VERSION }}
+
+      - name: Restore server implementation tests
+        run: dotnet restore tests/Jellyfin.Server.Implementations.Tests/Jellyfin.Server.Implementations.Tests.csproj
+
+      - name: Run native Windows backup filesystem tests
+        run: >
+          dotnet test tests/Jellyfin.Server.Implementations.Tests/Jellyfin.Server.Implementations.Tests.csproj
+          --configuration Release
+          --no-restore
+          --filter "FullyQualifiedName~FullSystemBackup.BackupRestoreDirectoryTests|FullyQualifiedName~FullSystemBackup.BackupServiceTests"
+          --results-directory TestResults
+          --logger "trx;LogFilePrefix=server-windows-filesystem"
+          --verbosity minimal
+
+      - name: Upload Windows filesystem test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: server-windows-filesystem-test-results
+          path: MulletaFlix-master/TestResults/**/*.trx
+          if-no-files-found: warn
 
   nebula-representative-tests:
     name: Nebula representative scenarios (${{ matrix.os }})
@@ -77,6 +124,8 @@ jobs:
           --configuration Release
           --no-restore
           --filter "FullyQualifiedName~NebulaMediaSuggestionTests|FullyQualifiedName~NebulaPlaybackCacheTests|FullyQualifiedName~NebulaStreamEngineTests"
+          --results-directory TestResults
+          --logger "trx;LogFilePrefix=nebula-representative"
           --verbosity minimal
 
       - name: Test degraded dependency health scenarios
@@ -85,7 +134,17 @@ jobs:
           --configuration Release
           --no-restore
           --filter "FullyQualifiedName~NebulaHealthCheckTests|FullyQualifiedName~MulletaFlixDatabaseHealthCheckTests"
+          --results-directory TestResults
+          --logger "trx;LogFilePrefix=nebula-health"
           --verbosity minimal
+
+      - name: Upload Nebula test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nebula-test-results-${{ matrix.os }}
+          path: MulletaFlix-master/TestResults/**/*.trx
+          if-no-files-found: warn
 
   nebula-mongo-integration-tests:
     name: Nebula Mongo persistence, recovery, backup, and topology tests
@@ -113,8 +172,8 @@ jobs:
         with:
           dotnet-version: ${{ env.SDK_VERSION }}
 
-      - name: Restore server solution
-        run: dotnet restore MulletaFlix.sln
+      - name: Restore Mongo integration project
+        run: dotnet restore tests/Jellyfin.Server.Implementations.Tests/Jellyfin.Server.Implementations.Tests.csproj
 
       - name: Test every Mongo-backed scenario
         run: >
@@ -122,7 +181,55 @@ jobs:
           --configuration Release
           --no-restore
           --filter "Category=RequiresMongo"
+          --results-directory TestResults
+          --logger "trx;LogFilePrefix=nebula-mongodb"
           --verbosity minimal
+
+      - name: Upload Mongo integration test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nebula-mongodb-test-results
+          path: MulletaFlix-master/TestResults/**/*.trx
+          if-no-files-found: warn
+
+
+  nebula-python-mongo-integration-tests:
+    name: Nebula Python async Mongo integration
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      mongodb:
+        image: mongo:7.0
+        ports:
+          - 27099:27017
+        options: >-
+          --health-cmd "mongosh --quiet --eval 'db.adminCommand({ ping: 1 }).ok'"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      MULLETAFLIX_TEST_MONGODB_CONNECTION_STRING: mongodb://127.0.0.1:27099/?directConnection=true
+    defaults:
+      run:
+        working-directory: MulletaFlix-master/Tools/NebulaPython
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+          cache: pip
+          cache-dependency-path: MulletaFlix-master/Tools/NebulaPython/requirements-test.txt
+
+      - name: Install Nebula dependencies for the Mongo integration test
+        run: |
+          python -m pip install --require-hashes -r requirements.lock
+          python -m pip install -r requirements-test.txt
+
+      - name: Test Nebula async admission against MongoDB
+        run: python -m pytest tests/test_mongo_admission_integration.py -q
 
   user-mariadb-linux-tests:
     name: User schema MariaDB Linux (case-sensitive)
@@ -130,7 +237,7 @@ jobs:
     timeout-minutes: 15
     services:
       mariadb:
-        image: mariadb:11.4
+        image: mariadb:11.4.13
         env:
           MARIADB_ROOT_PASSWORD: mfx_ci_mariadb_test
         ports:
@@ -161,7 +268,123 @@ jobs:
           --configuration Release
           --no-restore
           --filter "FullyQualifiedName~UserManagerNormalizedUsernameTests|FullyQualifiedName~BillingDatabaseTests"
+          --results-directory TestResults
+          --logger "trx;LogFilePrefix=user-mariadb-linux"
           --verbosity minimal
+
+      - name: Upload Linux MariaDB test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: user-mariadb-linux-test-results
+          path: MulletaFlix-master/TestResults/**/*.trx
+          if-no-files-found: warn
+
+  server-mariadb-integration-tests:
+    name: Server integration tests (MariaDB)
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    services:
+      mariadb:
+        image: mariadb:11.4.13
+        env:
+          MARIADB_ROOT_PASSWORD: mfx_ci_mariadb_test
+        ports:
+          - 33099:3306
+        options: >-
+          --health-cmd="healthcheck.sh --connect --innodb_initialized"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      MULLETAFLIX_TEST_MARIADB_CONNECTION_STRING: "Server=127.0.0.1;Port=33099;User ID=root;Password=mfx_ci_mariadb_test;CharSet=utf8mb4;"
+    defaults:
+      run:
+        working-directory: MulletaFlix-master
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ env.SDK_VERSION }}
+
+      - name: Restore server integration tests
+        run: dotnet restore tests/Jellyfin.Server.Integration.Tests/Jellyfin.Server.Integration.Tests.csproj
+
+      - name: Run server integration tests against isolated MariaDB
+        run: >
+          dotnet test tests/Jellyfin.Server.Integration.Tests/Jellyfin.Server.Integration.Tests.csproj
+          --configuration Release
+          --no-restore
+          --results-directory TestResults
+          --logger "trx;LogFilePrefix=server-mariadb-integration"
+          --verbosity minimal
+
+      - name: Upload MariaDB integration test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: server-mariadb-test-results
+          path: MulletaFlix-master/TestResults/**/*.trx
+          if-no-files-found: warn
+
+  full-system-recovery-exercise:
+    name: Full recovery exercise (MariaDB, MongoDB, and files)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    services:
+      mongodb:
+        image: mongo:7.0
+        ports:
+          - 27099:27017
+        options: >-
+          --health-cmd "mongosh --quiet --eval 'db.adminCommand({ ping: 1 }).ok'"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+      mariadb:
+        image: mariadb:11.4.13
+        env:
+          MARIADB_ROOT_PASSWORD: mfx_ci_mariadb_test
+        ports:
+          - 33099:3306
+        options: >-
+          --health-cmd="healthcheck.sh --connect --innodb_initialized"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      MULLETAFLIX_TEST_MONGODB_CONNECTION_STRING: mongodb://127.0.0.1:27099/?directConnection=true
+      MULLETAFLIX_TEST_MARIADB_CONNECTION_STRING: "Server=127.0.0.1;Port=33099;User ID=root;Password=mfx_ci_mariadb_test;CharSet=utf8mb4;"
+    defaults:
+      run:
+        working-directory: MulletaFlix-master
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ env.SDK_VERSION }}
+
+      - name: Restore server integration tests
+        run: dotnet restore tests/IntroSkipper.Integration.Tests/IntroSkipper.Integration.Tests.csproj
+
+      - name: Run complete MariaDB, MongoDB, and filesystem integration suite
+        run: >
+          dotnet test tests/IntroSkipper.Integration.Tests/IntroSkipper.Integration.Tests.csproj
+          --configuration Release
+          --no-restore
+          --results-directory TestResults
+          --logger "trx;LogFilePrefix=full-recovery"
+          --verbosity minimal
+
+      - name: Upload full recovery test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: full-recovery-test-results
+          path: MulletaFlix-master/TestResults/**/*.trx
+          if-no-files-found: warn
 
   windows-packaging-script-tests:
     name: Windows packaging integrity scripts
@@ -176,8 +399,12 @@ jobs:
           $ErrorActionPreference = 'Stop'
           $tests = @(
             'Assert-StageIntegrity.Tests.ps1',
+            'Assert-UpdatePackageIntegrity.Tests.ps1',
             'RcloneBootstrap.Tests.ps1',
             'ServiceDataAcl.Tests.ps1',
+            'ApplyUpdateFailure.Tests.ps1',
+            'ApplyUpdateStartupFailure.Tests.ps1',
+            'ApplyUpdateFailClosed.Tests.ps1',
             'StageBackup.Tests.ps1',
             'StageBuildOptions.Tests.ps1'
           )
@@ -192,6 +419,10 @@ jobs:
             & $testPath
           }
 
+      - name: Exercise updater under production Windows PowerShell 5.1
+        shell: powershell
+        run: .\MulletaFlix-packaging-master\scripts\tests\ApplyUpdateFailClosed.Tests.ps1
+
   nebula-python-tests:
     name: Nebula Python unit tests (${{ matrix.os }})
     strategy:
@@ -202,22 +433,30 @@ jobs:
     defaults:
       run:
         working-directory: MulletaFlix-master/Tools/NebulaPython
+        shell: bash
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.10"
+          python-version: "3.14"
           cache: pip
           cache-dependency-path: MulletaFlix-master/Tools/NebulaPython/requirements-test.txt
 
       - name: Install runtime and test dependencies
         run: |
-          python -m pip install --require-hashes -r requirements.lock
-          python -m pip install -r requirements-test.txt
+          python -m venv .venv
+          if [[ "$RUNNER_OS" == "Windows" ]]; then
+            NEBULA_PYTHON=".venv/Scripts/python.exe"
+          else
+            NEBULA_PYTHON=".venv/bin/python"
+          fi
+          "$NEBULA_PYTHON" -m pip install --require-hashes -r requirements.lock
+          "$NEBULA_PYTHON" -m pip install -r requirements-test.txt
+          echo "NEBULA_PYTHON=$NEBULA_PYTHON" >> "$GITHUB_ENV"
 
       - name: Run Nebula Python tests
-        run: python -m pytest tests --cov=. --cov-report=term-missing --cov-report=xml:coverage.xml
+        run: $NEBULA_PYTHON -m pytest tests --cov=. --cov-report=term-missing --cov-report=xml:coverage.xml
 
       - name: Upload Nebula Python coverage
         uses: actions/upload-artifact@v4
@@ -234,6 +473,8 @@ jobs:
         working-directory: MulletaFlix-web-master
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - uses: actions/setup-node@v4
         with:
@@ -242,7 +483,7 @@ jobs:
           cache-dependency-path: MulletaFlix-web-master/package-lock.json
 
       - name: Verify database integration CI coverage
-        run: node --test ../tools/release/tests/ci-mongo-coverage.test.mjs ../tools/release/tests/ci-mariadb-linux-coverage.test.mjs ../tools/release/tests/ci-packaging-coverage.test.mjs ../tools/release/tests/update-package-output-path.test.mjs
+        run: node --test ../tools/release/tests/ci-mongo-coverage.test.mjs ../tools/release/tests/ci-mariadb-linux-coverage.test.mjs ../tools/release/tests/ci-packaging-coverage.test.mjs ../tools/release/tests/update-package-output-path.test.mjs ../tools/release/tests/ci-trx-artifact.test.mjs
 
       - name: Install dependencies
         run: npm ci
@@ -268,7 +509,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: frontend-coverage
-          path: MulletaFlix-web-master/coverage/**
+          path: MulletaFlix-web-master/src/coverage/**
           if-no-files-found: error
 
       - name: Verify build artifacts
@@ -324,7 +565,7 @@ jobs:
         run: npx playwright install --with-deps chromium
 
       - name: Run isolated wizard and playlist persistence UX tests
-        run: "npm run playwright -- --grep=Wizard|playlist"
+        run: npm run playwright -- "--grep=Wizard|playlist"
 
       - name: Run Playwright carousel navigation tests
         run: npm run test:playwright:scrollbuttons
@@ -347,6 +588,8 @@ jobs:
       security-events: write
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Scan repository for secrets
         uses: gitleaks/gitleaks-action@v2
@@ -431,7 +674,7 @@ jobs:
 
   ios-build-test:
     name: iOS Core tests & Xcode build
-    runs-on: macos-14
+    runs-on: macos-15
     defaults:
       run:
         working-directory: MulletaFlix-iOS

@@ -1,6 +1,5 @@
-﻿using System;
+using System;
 using System.IO;
-using System.Threading;
 using System.Threading.Tasks;
 using Emby.Server.Implementations.Library;
 using MediaBrowser.Model.IO;
@@ -84,10 +83,11 @@ public partial class DotIgnoreIgnoreRuleTest
             var result1 = rule.ShouldIgnore(fileInfo, null);
             Assert.True(result1);
 
-            // Modify the .ignore file to ignore .txt instead
-            // Wait a bit to ensure the file modification time changes
-            Thread.Sleep(50);
+            // Modify the .ignore file to ignore .txt instead. Set the timestamp
+            // explicitly so this stays deterministic on filesystems with coarse
+            // timestamp resolution, without sleeping in the test.
             File.WriteAllText(ignoreFilePath, "*.txt");
+            File.SetLastWriteTimeUtc(ignoreFilePath, File.GetLastWriteTimeUtc(ignoreFilePath).AddMinutes(1));
 
             // Now .tmp files should NOT be ignored
             var result2 = rule.ShouldIgnore(fileInfo, null);

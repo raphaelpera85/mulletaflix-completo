@@ -158,7 +158,7 @@ internal class MulletaFlixMigrationService
                 await historyRepository.CreateIfNotExistsAsync().ConfigureAwait(false);
                 var appliedMigrations = await dbContext.Database.GetAppliedMigrationsAsync().ConfigureAwait(false);
                 var startupScripts = flatApplyMigrations
-                    .Where(e => !appliedMigrations.Any(f => f != e.BuildCodeMigrationId()))
+                    .Where(e => IsMigrationNotApplied(e.BuildCodeMigrationId(), appliedMigrations))
                     .Select(e => (Migration: e.Metadata, Script: historyRepository.GetInsertScript(new HistoryRow(e.BuildCodeMigrationId(), GetMulletaFlixVersion()))))
                     .ToArray();
                 foreach (var item in startupScripts)
@@ -233,13 +233,20 @@ internal class MulletaFlixMigrationService
         {
             var historyRepository = dbContext.GetService<IHistoryRepository>();
             var migrationsAssembly = dbContext.GetService<IMigrationsAssembly>();
-            var databaseCreator = dbContext.Database.GetService<IDatabaseCreator>() as IRelationalDatabaseCreator
-                ?? throw new InvalidOperationException("MulletaFlix does only support relational databases.");
             (string Key, IInternalMigration Migration)[] migrations = [];
             var appliedMigrations = await historyRepository.GetAppliedMigrationsAsync().ConfigureAwait(false);
 
+            var tableNames = stage is MulletaFlixMigrationStageTypes.CoreInitialisation
+                ? await dbContext.Database
+                    .SqlQueryRaw<string>("SELECT TABLE_NAME AS Value FROM information_schema.tables WHERE table_schema = DATABASE()")
+                    .ToListAsync()
+                    .ConfigureAwait(false)
+                : [];
+
+            var hasApplicationTables = HasApplicationTables(tableNames);
+
             if (stage is MulletaFlixMigrationStageTypes.CoreInitialisation &&
-                await databaseCreator.HasTablesAsync().ConfigureAwait(false) &&
+                hasApplicationTables &&
                 migrationsAssembly.Migrations.Count > 0)
             {
                 var initialMigration = migrationsAssembly.Migrations
@@ -278,8 +285,24 @@ internal class MulletaFlixMigrationService
                 }
 
                 (string Key, IInternalMigration Migration)[] pendingMigrations = [.. pendingCodeMigrations, .. pendingDatabaseMigrations];
+                if (ShouldApplyDatabaseMigrationsFirst(
+                        stage is MulletaFlixMigrationStageTypes.CoreInitialisation,
+                        hasApplicationTables,
+                        pendingDatabaseMigrations.Length > 0))
+                {
+                    pendingMigrations = [
+                        .. pendingDatabaseMigrations.Select(e => (e.Key, (IInternalMigration)e.Migration)),
+                        .. pendingCodeMigrations
+                    ];
+                }
+
                 logger.LogInformation("There are {Pending} migrations for stage {Stage}.", pendingCodeMigrations.Length, stage);
-                migrations = pendingMigrations.OrderBy(e => e.Key).ToArray();
+                migrations = ShouldApplyDatabaseMigrationsFirst(
+                    stage is MulletaFlixMigrationStageTypes.CoreInitialisation,
+                    hasApplicationTables,
+                    pendingDatabaseMigrations.Length > 0)
+                    ? pendingMigrations
+                    : pendingMigrations.OrderBy(e => e.Key).ToArray();
 
                 foreach (var item in migrations)
                 {
@@ -360,6 +383,9 @@ internal class MulletaFlixMigrationService
     {
         return Assembly.GetEntryAssembly()!.GetName().Version!.ToString();
     }
+
+    internal static bool IsMigrationNotApplied(string migrationId, IEnumerable<string> appliedMigrations)
+        => !appliedMigrations.Contains(migrationId, StringComparer.Ordinal);
 
     public async Task CleanupSystemAfterMigration(ILogger logger)
     {
@@ -501,6 +527,16 @@ internal class MulletaFlixMigrationService
         };
     }
 
+    internal static bool HasApplicationTables(IEnumerable<string> tableNames)
+    {
+        return tableNames.Any(tableName => !string.Equals(tableName, "__EFMigrationsHistory", StringComparison.OrdinalIgnoreCase));
+    }
+
+    internal static bool ShouldApplyDatabaseMigrationsFirst(bool coreInitialisation, bool hasApplicationTables, bool hasPendingDatabaseMigrations)
+    {
+        return coreInitialisation && !hasApplicationTables && hasPendingDatabaseMigrations;
+    }
+
     private class InternalCodeMigration : IInternalMigration
     {
         private readonly CodeMigration _codeMigration;
@@ -519,6 +555,7 @@ internal class MulletaFlixMigrationService
             await _codeMigration.Perform(_serviceProvider, logger, CancellationToken.None).ConfigureAwait(false);
 
             var historyRepository = _dbContext.GetService<IHistoryRepository>();
+            await historyRepository.CreateIfNotExistsAsync().ConfigureAwait(false);
             var createScript = historyRepository.GetInsertScript(new HistoryRow(_codeMigration.BuildCodeMigrationId(), GetMulletaFlixVersion()));
             await _dbContext.Database.ExecuteSqlRawAsync(createScript).ConfigureAwait(false);
         }

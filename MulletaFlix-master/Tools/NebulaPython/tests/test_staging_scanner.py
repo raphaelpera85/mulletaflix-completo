@@ -33,6 +33,23 @@ class Files:
             raise self.insert_error
 
 
+class QueryMatchingFiles(Files):
+    async def find_one(self, query):
+        if not self.existing:
+            return None
+
+        clauses = query.get("$or", [query])
+        for clause in clauses:
+            if all(
+                self.existing.get(key) in value["$in"]
+                if isinstance(value, dict) and "$in" in value
+                else self.existing.get(key) == value
+                for key, value in clause.items()
+            ):
+                return self.existing
+        return None
+
+
 async def _stop_after_scan(_seconds):
     raise asyncio.CancelledError
 
@@ -77,8 +94,10 @@ async def test_staging_scanner_updates_existing_active_file_location(monkeypatch
     media = stage / "episode.mp4"
     stage.mkdir()
     media.write_bytes(b"episode")
-    files = Files(existing={
+    files = QueryMatchingFiles(existing={
         "_id": "queued-id",
+        "name": "episode.mp4",
+        "parent": "/raphael/Filmes",
         "status": "queued",
         "local_path": "Z:/old-stage/episode.mp4",
         "recovery_required": True,
@@ -100,7 +119,12 @@ async def test_staging_scanner_removes_file_already_completed(monkeypatch, tmp_p
     media = stage / "done.mkv"
     stage.mkdir()
     media.write_bytes(b"done")
-    files = Files(existing={"_id": "done-id", "status": "completed"})
+    files = QueryMatchingFiles(existing={
+        "_id": "done-id",
+        "name": "done.mkv",
+        "parent": "/raphael/Filmes",
+        "status": "completed",
+    })
     mongo = _configure(monkeypatch, files)
     monkeypatch.setattr(main, "STAGING_DIRS", [str(stage)])
 
@@ -113,12 +137,41 @@ async def test_staging_scanner_removes_file_already_completed(monkeypatch, tmp_p
 
 
 @pytest.mark.asyncio
+async def test_staging_scanner_preserves_same_filename_in_another_destination(monkeypatch, tmp_path):
+    stage = tmp_path / "stage"
+    media = stage / "same-name.mkv"
+    stage.mkdir()
+    media.write_bytes(b"different title")
+    files = QueryMatchingFiles(existing={
+        "_id": "other-title-id",
+        "name": "same-name.mkv",
+        "parent": "/raphael/Series/Other Title",
+        "status": "completed",
+    })
+    mongo = _configure(monkeypatch, files)
+
+    with pytest.raises(asyncio.CancelledError):
+        await main.staging_scanner(mongo, [str(stage)])
+
+    assert media.read_bytes() == b"different title"
+    assert len(files.inserts) == 1
+    assert files.inserts[0]["parent"] == "/raphael/Filmes"
+    assert files.deletes == []
+
+
+@pytest.mark.asyncio
 async def test_staging_scanner_reactivates_failed_record(monkeypatch, tmp_path):
     stage = tmp_path / "stage"
     media = stage / "retry.mkv"
     stage.mkdir()
     media.write_bytes(b"retry")
-    files = Files(existing={"_id": "retry-id", "status": "failed", "failed_reason": "network"})
+    files = QueryMatchingFiles(existing={
+        "_id": "retry-id",
+        "name": "retry.mkv",
+        "parent": "/raphael/Filmes",
+        "status": "failed",
+        "failed_reason": "network",
+    })
     mongo = _configure(monkeypatch, files)
 
     with pytest.raises(asyncio.CancelledError):
@@ -134,14 +187,44 @@ async def test_staging_scanner_reactivates_failed_record(monkeypatch, tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_staging_scanner_preserves_recovery_blocked_source_without_requeue(
+    monkeypatch, tmp_path
+):
+    stage = tmp_path / "stage"
+    media = stage / "changed-after-reservation.mkv"
+    stage.mkdir()
+    media.write_bytes(b"source")
+    files = QueryMatchingFiles(existing={
+        "_id": "blocked-id",
+        "name": media.name,
+        "parent": "/raphael/Filmes",
+        "status": "failed",
+        "recovery_blocked": True,
+    })
+    mongo = _configure(monkeypatch, files)
+
+    with pytest.raises(asyncio.CancelledError):
+        await main.staging_scanner(mongo, [str(stage)])
+
+    assert media.read_bytes() == b"source"
+    assert files.updates == []
+    assert files.deletes == []
+    assert files.inserts == []
+
+
+@pytest.mark.asyncio
 async def test_staging_scanner_preserves_duplicate_stage_record_but_deletes_local_copy(monkeypatch, tmp_path):
     stage = tmp_path / "stage"
     media = stage / "duplicate.mkv"
     stage.mkdir()
     media.write_bytes(b"copy")
-    files = Files(
-        existing={"_id": "duplicate-id", "status": "failed", "failed_reason": "duplicate_target"}
-    )
+    files = QueryMatchingFiles(existing={
+        "_id": "duplicate-id",
+        "name": "duplicate.mkv",
+        "parent": "/raphael/Filmes",
+        "status": "failed",
+        "failed_reason": "duplicate_target",
+    })
     mongo = _configure(monkeypatch, files)
     monkeypatch.setattr(main, "STAGING_DIRS", [str(stage)])
 

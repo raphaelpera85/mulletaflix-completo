@@ -83,7 +83,7 @@ public class PeopleValidationTask : IScheduledTask, IConfigurableScheduledTask
                     .Where(e => e.Count() > 1)
                     .Select(e => e.Select(f => f.Id).ToArray());
 
-            // Snapshot the duplicate groups exactly once, in a deterministic order.
+            // Snapshot the duplicate groups exactly once.
             // The previous loop paged with Take(PartitionSize) and no Skip or cursor, so it only
             // advanced as a side effect of the ExecuteDelete below. Any group whose duplicates could
             // not be deleted (for example when a PeopleBaseItemMap row still references it, or the

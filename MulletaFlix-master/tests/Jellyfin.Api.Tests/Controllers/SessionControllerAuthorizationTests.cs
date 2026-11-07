@@ -3,6 +3,7 @@ using System.Security.Claims;
 using System.Threading;
 using System.Threading.Tasks;
 using MediaBrowser.Controller.Entities;
+using MediaBrowser.Controller.Entities.Movies;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.Session;
 using MediaBrowser.Model.Dto;
@@ -262,8 +263,35 @@ public class SessionControllerAuthorizationTests
 
         Assert.IsType<ForbidResult>(result);
         sessionManager.Verify(
-            manager => manager.ReportNowViewingItem(It.IsAny<string>(), It.IsAny<string>()),
+            manager => manager.ReportNowViewingItemAsync(It.IsAny<string>(), It.IsAny<string>()),
             Times.Never);
+    }
+
+    [Fact]
+    public async Task ReportViewing_AwaitsSessionManagerUpdate()
+    {
+        var user = CreateUser();
+        var itemId = Guid.NewGuid();
+        var sessionManager = new Mock<ISessionManager>();
+        var userManager = new Mock<IUserManager>();
+        var libraryManager = new Mock<ILibraryManager>();
+        userManager.Setup(manager => manager.GetUserById(user.Id)).Returns(user);
+        sessionManager.Setup(manager => manager.GetSessions(user.Id, string.Empty, null, null, false))
+            .Returns([new SessionInfoDto { Id = "request-session" }]);
+        libraryManager.Setup(manager => manager.GetItemById<BaseItem>(itemId, user))
+            .Returns(new Movie { Id = itemId });
+        var allowUpdateToFinish = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        sessionManager.Setup(manager => manager.ReportNowViewingItemAsync("request-session", itemId.ToString("N")))
+            .Returns(allowUpdateToFinish.Task);
+        var controller = CreateController(sessionManager.Object, userManager.Object, user.Id, libraryManager.Object);
+
+        var resultTask = controller.ReportViewing("request-session", itemId.ToString("N"));
+
+        Assert.False(resultTask.IsCompleted);
+        allowUpdateToFinish.SetResult();
+        var result = await resultTask;
+        Assert.IsType<NoContentResult>(result);
+        sessionManager.Verify(manager => manager.ReportNowViewingItemAsync("request-session", itemId.ToString("N")), Times.Once);
     }
 
     private static SessionController CreateController(
@@ -305,7 +333,7 @@ public class SessionControllerAuthorizationTests
 
         Assert.IsType<NotFoundResult>(result);
         sessionManager.Verify(
-            manager => manager.ReportNowViewingItem(It.IsAny<string>(), It.IsAny<string>()),
+            manager => manager.ReportNowViewingItemAsync(It.IsAny<string>(), It.IsAny<string>()),
             Times.Never);
     }
 
@@ -322,7 +350,7 @@ public class SessionControllerAuthorizationTests
 
         Assert.IsType<BadRequestResult>(result);
         sessionManager.Verify(
-            manager => manager.ReportNowViewingItem(It.IsAny<string>(), It.IsAny<string>()),
+            manager => manager.ReportNowViewingItemAsync(It.IsAny<string>(), It.IsAny<string>()),
             Times.Never);
     }
 

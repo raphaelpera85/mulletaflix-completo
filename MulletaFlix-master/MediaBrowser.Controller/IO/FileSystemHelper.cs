@@ -38,6 +38,82 @@ public static class FileSystemHelper
     }
 
     /// <summary>
+    /// Determines whether a single path component is a reserved Windows device name.
+    /// </summary>
+    /// <param name="component">The path component to inspect.</param>
+    /// <returns><c>true</c> if the component resolves to a reserved device name; otherwise, <c>false</c>.</returns>
+    public static bool IsWindowsDeviceName(string component)
+    {
+        if (string.IsNullOrWhiteSpace(component))
+        {
+            return false;
+        }
+
+        var stem = component.TrimStart(' ').Split('.')[0].TrimEnd(' ', '.');
+        return stem.Equals("CON", StringComparison.OrdinalIgnoreCase)
+            || stem.Equals("PRN", StringComparison.OrdinalIgnoreCase)
+            || stem.Equals("AUX", StringComparison.OrdinalIgnoreCase)
+            || stem.Equals("NUL", StringComparison.OrdinalIgnoreCase)
+            || stem.Equals("CONIN$", StringComparison.OrdinalIgnoreCase)
+            || stem.Equals("CONOUT$", StringComparison.OrdinalIgnoreCase)
+            || (stem.Length == 4
+                && (stem.StartsWith("COM", StringComparison.OrdinalIgnoreCase)
+                    || stem.StartsWith("LPT", StringComparison.OrdinalIgnoreCase))
+                && (stem[3] is >= '1' and <= '9' or '\u00B9' or '\u00B2' or '\u00B3'));
+    }
+
+    /// <summary>
+    /// Resolves a single child name beneath a configured root.
+    /// </summary>
+    /// <param name="root">The configured root directory.</param>
+    /// <param name="childName">A single directory or file name.</param>
+    /// <param name="childPath">The resolved child path when valid.</param>
+    /// <returns><c>true</c> when the name resolves to a direct child; otherwise, <c>false</c>.</returns>
+    public static bool TryGetChildPath(string root, string childName, out string childPath)
+    {
+        childPath = string.Empty;
+        if (string.IsNullOrWhiteSpace(root)
+            || string.IsNullOrWhiteSpace(childName)
+            || Path.IsPathRooted(childName)
+            || childName is "." or ".."
+            || (OperatingSystem.IsWindows()
+                && (childName.EndsWith('.') || childName.EndsWith(' ') || IsWindowsDeviceName(childName)))
+            || childName.IndexOfAny(['/', '\\', ':']) >= 0
+            || childName.Any(char.IsControl))
+        {
+            return false;
+        }
+
+        try
+        {
+            var fullRoot = Path.GetFullPath(root);
+            var fullChildPath = Path.GetFullPath(Path.Combine(fullRoot, childName));
+            var relativePath = Path.GetRelativePath(fullRoot, fullChildPath);
+            if (Path.IsPathRooted(relativePath)
+                || relativePath is "." or ".."
+                || relativePath.StartsWith(".." + Path.DirectorySeparatorChar, StringComparison.Ordinal)
+                || relativePath.StartsWith(".." + Path.AltDirectorySeparatorChar, StringComparison.Ordinal)
+                || relativePath.IndexOfAny([Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar]) >= 0)
+            {
+                return false;
+            }
+
+            // shortcut: rejects existing links before pathname-based callers run; replace with handle-relative I/O to close concurrent swaps.
+            if (IsReparsePoint(fullChildPath))
+            {
+                return false;
+            }
+
+            childPath = fullChildPath;
+            return true;
+        }
+        catch (Exception ex) when (ex is ArgumentException or IOException or UnauthorizedAccessException or NotSupportedException or SecurityException)
+        {
+            return false;
+        }
+    }
+
+    /// <summary>
     /// Checks lexical containment and rejects existing reparse-point components on either path.
     /// Nonexistent descendants are allowed so callers can validate future output paths.
     /// </summary>

@@ -14,10 +14,8 @@ namespace Jellyfin.Providers.Tests.Plugins.NartoDrama
     /// Live verification against the real NartoDrama site.
     /// </summary>
     /// <remarks>
-    /// The type name deliberately contains "Integration" so the CI filter
-    /// (FullyQualifiedName!~Integration) skips it: it reaches the public internet and must never
-    /// gate a build. Run it on demand with
-    /// <c>dotnet test --filter "FullyQualifiedName~NartoDramaLiveIntegration"</c>.
+    /// Tests are skipped by default and reach the public internet only when the explicit live-provider
+    /// environment switch is set.
     /// It exists because every other test in this folder uses a captured page, and a captured page
     /// cannot prove that the parser still reads what the site serves today.
     /// </remarks>
@@ -28,6 +26,7 @@ namespace Jellyfin.Providers.Tests.Plugins.NartoDrama
         [Fact]
         public async Task GetSeries_ReadsTheRealPageEndToEnd()
         {
+            LiveProviderIntegrationTestEnvironment.SkipUnlessEnabled();
             var client = CreateClient();
 
             var series = await client.GetSeriesAsync(Slug, CancellationToken.None);
@@ -58,6 +57,7 @@ namespace Jellyfin.Providers.Tests.Plugins.NartoDrama
         [Fact]
         public async Task Search_FindsTheSeriesByTitle()
         {
+            LiveProviderIntegrationTestEnvironment.SkipUnlessEnabled();
             var client = CreateClient();
 
             var matches = await client.SearchAsync("Abandonei o Rei dos Deuses no Altar", 12, CancellationToken.None);
@@ -73,6 +73,7 @@ namespace Jellyfin.Providers.Tests.Plugins.NartoDrama
         [Fact]
         public async Task Search_FindsTheSeriesFromAnAccentedTerm()
         {
+            LiveProviderIntegrationTestEnvironment.SkipUnlessEnabled();
             var client = CreateClient();
 
             // The catalogue folds accents into its slugs, and the search page accepts the accented
@@ -86,6 +87,7 @@ namespace Jellyfin.Providers.Tests.Plugins.NartoDrama
         [Fact]
         public async Task GetSeries_ReturnsNullForAnUnknownSlugWithoutGoingQuiet()
         {
+            LiveProviderIntegrationTestEnvironment.SkipUnlessEnabled();
             var client = CreateClient();
 
             Assert.Null(await client.GetSeriesAsync("isto-nao-existe-zzz", CancellationToken.None));

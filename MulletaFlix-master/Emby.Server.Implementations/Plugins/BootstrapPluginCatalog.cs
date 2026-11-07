@@ -45,6 +45,11 @@ internal static class BootstrapPluginCatalog
         // Users can install them manually from the repository if needed
     ];
 
+    internal static BootstrapRepositorySpec[] GetRepositoriesWithBootstrapPlugins()
+    {
+        return BootstrapRepositories.Where(repository => repository.PluginIds.Length > 0).ToArray();
+    }
+
     internal sealed record BootstrapRepositorySpec(string Url, Guid[] PluginIds);
 
     internal static IEnumerable<string> GetManifestCandidates(string repositoryUrl)

@@ -423,6 +423,8 @@ public class NebulaSupabaseBackupResultDto
 
     public int BotTokensBackedUp { get; set; }
 
+    public int DirectoryRefreshesBackedUp { get; set; }
+
     public double ElapsedSeconds { get; set; }
 
     public DateTime Timestamp { get; set; } = DateTime.UtcNow;
@@ -443,6 +445,8 @@ public class NebulaSupabaseRestoreResultDto
     public int? AppUsersRestored { get; set; }
 
     public int? BotTokensRestored { get; set; }
+
+    public int? DirectoryRefreshesRestored { get; set; }
 
     public double ElapsedSeconds { get; set; }
 

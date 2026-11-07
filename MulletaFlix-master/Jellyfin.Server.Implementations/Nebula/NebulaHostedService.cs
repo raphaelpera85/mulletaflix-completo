@@ -20,11 +20,15 @@ namespace Jellyfin.Server.Implementations.Nebula;
 /// </summary>
 public sealed class NebulaHostedService : IHostedService, IDisposable
 {
+    private static readonly TimeSpan RuntimeCheckInterval = TimeSpan.FromSeconds(30);
+
     private readonly INebulaFtpManager _nebulaManager;
     private readonly IServerConfigurationManager _configManager;
     private readonly IHostApplicationLifetime _lifetime;
     private readonly ILibraryManager _libraryManager;
     private readonly ILogger<NebulaHostedService> _logger;
+    private readonly Func<TimeSpan, CancellationToken, Task> _delayAsync;
+    private readonly Func<TimeSpan, CancellationToken, Task> _runtimeDelayAsync;
     private readonly CancellationTokenSource _shutdownCancellation;
     private CancellationTokenRegistration _startupRegistration;
 
@@ -32,6 +36,7 @@ public sealed class NebulaHostedService : IHostedService, IDisposable
     // configuração, que podem chegar concorrentemente.
     private readonly SemaphoreSlim _transitionLock = new(1, 1);
     private Task? _startupTask;
+    private Task? _runtimeMonitorTask;
     private Task _pendingWork = Task.CompletedTask;
     private bool _running;
     private bool _downloaderRunning;
@@ -51,12 +56,37 @@ public sealed class NebulaHostedService : IHostedService, IDisposable
         IHostApplicationLifetime lifetime,
         ILibraryManager libraryManager,
         ILogger<NebulaHostedService> logger)
+        : this(nebulaManager, configManager, lifetime, libraryManager, logger, Task.Delay)
+    {
+    }
+
+    internal NebulaHostedService(
+        INebulaFtpManager nebulaManager,
+        IServerConfigurationManager configManager,
+        IHostApplicationLifetime lifetime,
+        ILibraryManager libraryManager,
+        ILogger<NebulaHostedService> logger,
+        Func<TimeSpan, CancellationToken, Task> delayAsync)
+        : this(nebulaManager, configManager, lifetime, libraryManager, logger, delayAsync, Task.Delay)
+    {
+    }
+
+    internal NebulaHostedService(
+        INebulaFtpManager nebulaManager,
+        IServerConfigurationManager configManager,
+        IHostApplicationLifetime lifetime,
+        ILibraryManager libraryManager,
+        ILogger<NebulaHostedService> logger,
+        Func<TimeSpan, CancellationToken, Task> delayAsync,
+        Func<TimeSpan, CancellationToken, Task> runtimeDelayAsync)
     {
         _nebulaManager = nebulaManager;
         _configManager = configManager;
         _lifetime = lifetime;
         _libraryManager = libraryManager;
         _logger = logger;
+        _delayAsync = delayAsync;
+        _runtimeDelayAsync = runtimeDelayAsync;
         _shutdownCancellation = CancellationTokenSource.CreateLinkedTokenSource(lifetime.ApplicationStopping);
     }
 
@@ -254,8 +284,82 @@ public sealed class NebulaHostedService : IHostedService, IDisposable
             CancellationToken.None);
     }
 
+    private async Task MonitorDownloaderAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            while (true)
+            {
+                await _runtimeDelayAsync(RuntimeCheckInterval, cancellationToken).ConfigureAwait(false);
+                try
+                {
+                    await CheckDownloaderRuntimeAsync(cancellationToken).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                {
+                    throw;
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "[NEBULA-RUNTIME] Falha ao verificar o processo Downloader; nova verificação ocorrerá em {IntervalSeconds}s.", RuntimeCheckInterval.TotalSeconds);
+                }
+            }
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            // Normal host shutdown.
+        }
+    }
+
+    internal async Task CheckDownloaderRuntimeAsync(CancellationToken cancellationToken = default)
+    {
+        await _transitionLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            if (Volatile.Read(ref _stopping) || _stopPending || !_applicationStarted
+                || _configManager.GetConfiguration<NebulaFtpConfiguration>("nebulaftp")?.Enabled != true)
+            {
+                return;
+            }
+
+            if (_downloaderRunning && _nebulaManager.IsDownloaderRunning)
+            {
+                return;
+            }
+
+            if (_downloaderRunning)
+            {
+                _logger.LogWarning("[NEBULA-RUNTIME] O processo Downloader encerrou após o startup; tentando reiniciar.");
+            }
+            else
+            {
+                _logger.LogInformation("[NEBULA-RUNTIME] Downloader não está ativo; tentando recuperar o serviço.");
+            }
+
+            _downloaderRunning = false;
+            _downloaderRunning = await StartWithRetryAsync(
+                () => _nebulaManager.StartDownloaderAsync(cancellationToken),
+                "Downloader",
+                cancellationToken).ConfigureAwait(false);
+
+            if (_downloaderRunning)
+            {
+                _logger.LogInformation("[NEBULA-RUNTIME] Downloader recuperado com sucesso.");
+            }
+            else
+            {
+                _logger.LogWarning("[NEBULA-RUNTIME] Não foi possível recuperar o Downloader; nova verificação ocorrerá em {IntervalSeconds}s.", RuntimeCheckInterval.TotalSeconds);
+            }
+        }
+        finally
+        {
+            _transitionLock.Release();
+        }
+    }
+
     private async Task StartPipelineAsync(NebulaFtpConfiguration config, CancellationToken startupCancellationToken)
     {
+        _runtimeMonitorTask ??= Task.Run(() => MonitorDownloaderAsync(_shutdownCancellation.Token), CancellationToken.None);
         Volatile.Write(ref _startupConfigurationSnapshot, JsonSerializer.Serialize(config));
         try
         {
@@ -426,7 +530,7 @@ public sealed class NebulaHostedService : IHostedService, IDisposable
                     attempt,
                     maxAttempts,
                     delaySeconds);
-                await Task.Delay(TimeSpan.FromSeconds(delaySeconds), cancellationToken).ConfigureAwait(false);
+                await _delayAsync(TimeSpan.FromSeconds(delaySeconds), cancellationToken).ConfigureAwait(false);
             }
         }
 
@@ -462,7 +566,7 @@ public sealed class NebulaHostedService : IHostedService, IDisposable
     {
         lock (_transitionLock)
         {
-            return Task.WhenAll(_startupTask ?? Task.CompletedTask, _pendingWork);
+            return Task.WhenAll(_startupTask ?? Task.CompletedTask, _runtimeMonitorTask ?? Task.CompletedTask, _pendingWork);
         }
     }
 

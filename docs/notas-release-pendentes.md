@@ -1,5 +1,9 @@
 # Notas para a próxima release
 
+## Backup e restauração
+
+- **Histórico de restauração:** tentativas de restore integral e recuperação interrompida agora são gravadas no histórico persistente já exposto por `GET /Backup/History`, inclusive quando falham. Erros exibidos são genéricos e orientam consultar o log do servidor.
+
 ## Interface web
 
 - **Busca com navegação horizontal:** as faixas de mídias e pessoas encontradas na busca exibem controles de seta mesmo em navegadores desktop que também anunciam suporte a touch. A inicialização do scroller também aguarda os cards do React, evitando erro quando o callback roda antes da criação de `.scrollSlider`.

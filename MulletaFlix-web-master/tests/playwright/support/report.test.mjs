@@ -62,6 +62,27 @@ test('Playwright summary tells the operator to investigate flaky attempts', () =
     assert.match(markdown, /trace e screenshot/);
 });
 
+test('Playwright summary reports stage and Vite fixture suites separately', () => {
+    const markdown = buildMarkdownReport({
+        title: 'Playwright',
+        generatedAt: '2026-10-01T00:00:00Z',
+        baseUrl: 'http://127.0.0.1:18096',
+        status: 'success',
+        specCount: 2,
+        tests: { total: 4, passed: 4, failed: 0, flaky: 0, skipped: 0, durationMs: 10 },
+        suites: {
+            stage: { status: 'success', baseUrl: 'http://127.0.0.1:18096', tests: { total: 2, passed: 2, failed: 0, skipped: 0 } },
+            viteFixtures: { status: 'success', baseUrl: 'http://127.0.0.1:18197', tests: { total: 2, passed: 2, failed: 0, skipped: 0 } }
+        },
+        stageProbe: { reachable: true, startupWizardCompleted: false },
+        stageChecks: { wizard: true, admin: false, user: false, login: false },
+        assumptions: []
+    });
+
+    assert.match(markdown, /stage: success \(2\/2 aprovados/);
+    assert.match(markdown, /viteFixtures: success \(2\/2 aprovados/);
+});
+
 test('Playwright summary does not claim success when the process fails or all tests are skipped', () => {
     const base = {
         title: 'Playwright',

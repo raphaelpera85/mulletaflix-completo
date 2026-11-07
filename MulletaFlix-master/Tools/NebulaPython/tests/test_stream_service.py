@@ -45,7 +45,7 @@ class FakeMongoClient:
     def __getitem__(self, _name):
         return self.database
 
-    def close(self):
+    async def close(self):
         self.closed = True
 
 
@@ -83,7 +83,7 @@ async def test_run_stops_all_resources_when_stream_server_is_cancelled(monkeypat
 
     monkeypatch.setattr(stream_service.nebula, "get_required_config", lambda: (123, "hash", ["ok", "bad"]))
     monkeypatch.setattr(stream_service, "Client", lambda name, **options: bots.append(FakeBot(name, **options)) or bots[-1])
-    monkeypatch.setattr(stream_service, "AsyncIOMotorClient", lambda uri, **options: mongo_client)
+    monkeypatch.setattr(stream_service, "AsyncMongoClient", lambda uri, **options: mongo_client)
     monkeypatch.setattr(stream_service.nebula, "start_http_stream_server", _async_return(server))
     monkeypatch.setenv("MONGODB", "mongodb://test")
     monkeypatch.setenv("SESSIONS_DIR", str(tmp_path / "sessions"))
@@ -126,7 +126,7 @@ async def test_run_closes_mongo_and_authenticated_bots_when_database_ping_fails(
 
     monkeypatch.setattr(stream_service.nebula, "get_required_config", lambda: (123, "hash", ["ok"]))
     monkeypatch.setattr(stream_service, "Client", lambda name, **options: bots.append(FakeBot(name, **options)) or bots[-1])
-    monkeypatch.setattr(stream_service, "AsyncIOMotorClient", lambda uri, **options: mongo_client)
+    monkeypatch.setattr(stream_service, "AsyncMongoClient", lambda uri, **options: mongo_client)
     monkeypatch.setenv("MONGODB", "mongodb://test")
     monkeypatch.setenv("SESSIONS_DIR", str(tmp_path / "sessions"))
 

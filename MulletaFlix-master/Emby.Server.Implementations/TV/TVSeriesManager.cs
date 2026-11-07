@@ -21,6 +21,8 @@ namespace Emby.Server.Implementations.TV
 {
     public class TVSeriesManager : ITVSeriesManager
     {
+        private const int NextUpSeriesBatchSize = 50;
+
         private readonly IUserDataManager _userDataManager;
         private readonly ILibraryManager _libraryManager;
         private readonly IServerConfigurationManager _configurationManager;
@@ -81,13 +83,11 @@ namespace Emby.Server.Implementations.TV
             var user = request.User;
 
             string? presentationUniqueKey = null;
-            int? limit = null;
             if (!request.SeriesId.IsNullOrEmpty())
             {
                 if (_libraryManager.GetItemById(request.SeriesId.Value) is Series series)
                 {
                     presentationUniqueKey = GetUniqueSeriesKey(series);
-                    limit = 1;
                 }
             }
 
@@ -96,14 +96,67 @@ namespace Emby.Server.Implementations.TV
                 return GetNextUpBatched(request, user, [presentationUniqueKey], options);
             }
 
-            if (limit.HasValue)
+            if (!request.EnableTotalRecordCount && !request.EnableRewatching && request.Limit is > 0)
             {
-                limit = limit.Value + 10;
+                return GetNextUpProgressively(request, parentsFolders, options);
             }
 
-            var nextUpSeriesKeys = _libraryManager.GetNextUpSeriesKeys(new InternalItemsQuery(user) { Limit = limit }, parentsFolders, request.NextUpDateCutoff);
+            var nextUpSeriesKeys = _libraryManager.GetNextUpSeriesKeys(new InternalItemsQuery(user), parentsFolders, request.NextUpDateCutoff);
 
-            return GetNextUpBatched(request, user, nextUpSeriesKeys, options);
+            if (request.EnableTotalRecordCount && request.Limit is > 0)
+            {
+                return GetNextUpBatchedWithExactCount(request, user, nextUpSeriesKeys, options);
+            }
+
+            return GetNextUpBatched(request, user, nextUpSeriesKeys.Select(item => item.SeriesKey).ToArray(), options);
+        }
+
+        private QueryResult<BaseItem> GetNextUpProgressively(NextUpQuery request, BaseItem[] parentsFolders, DtoOptions options)
+        {
+            var user = request.User;
+            var targetCount = (long)Math.Max(request.StartIndex ?? 0, 0) + request.Limit!.Value;
+            var nextUpItems = new List<(DateTime LastWatchedDate, Episode Episode)>();
+            // shortcut: LastPlayedDate can move across this cursor during a request; use a shared database snapshot if production shows inconsistent pages.
+            DateTime? cursorDate = null;
+            string? cursorKey = null;
+
+            while (true)
+            {
+                var seriesPage = _libraryManager.GetNextUpSeriesKeys(
+                    new InternalItemsQuery(user)
+                    {
+                        NextUpLastPlayedDateAfter = cursorDate,
+                        NextUpSeriesKeyAfter = cursorKey,
+                        Limit = NextUpSeriesBatchSize
+                    },
+                    parentsFolders,
+                    request.NextUpDateCutoff);
+
+                if (seriesPage.Count == 0)
+                {
+                    break;
+                }
+
+                var seriesKeys = seriesPage.Select(item => item.SeriesKey).ToArray();
+                nextUpItems.AddRange(GetNextUpBatchItems(request, user, seriesKeys, options));
+                cursorDate = seriesPage[^1].LastPlayedDate;
+                cursorKey = seriesPage[^1].SeriesKey;
+
+                if (seriesPage.Count < NextUpSeriesBatchSize)
+                {
+                    break;
+                }
+
+                var orderedItems = nextUpItems.OrderByDescending(item => item.LastWatchedDate).ToList();
+                if (orderedItems.Count >= targetCount
+                    && seriesPage[^1].LastPlayedDate < orderedItems[(int)targetCount - 1].LastWatchedDate)
+                {
+                    nextUpItems = orderedItems;
+                    break;
+                }
+            }
+
+            return GetResult(nextUpItems.OrderByDescending(item => item.LastWatchedDate).Select(item => (BaseItem)item.Episode), request);
         }
 
         private QueryResult<BaseItem> GetNextUpBatched(NextUpQuery request, User user, IReadOnlyList<string> seriesKeys, DtoOptions dtoOptions)
@@ -111,6 +164,72 @@ namespace Emby.Server.Implementations.TV
             if (seriesKeys.Count == 0)
             {
                 return new QueryResult<BaseItem>();
+            }
+
+            var nextUpItems = GetNextUpBatchItems(request, user, seriesKeys, dtoOptions);
+            return GetResult(nextUpItems.Select(item => (BaseItem)item.Episode), request);
+        }
+
+        private QueryResult<BaseItem> GetNextUpBatchedWithExactCount(
+            NextUpQuery request,
+            User user,
+            IReadOnlyList<(string SeriesKey, DateTime LastPlayedDate)> series,
+            DtoOptions dtoOptions)
+        {
+            var pageSize = (long)Math.Max(request.StartIndex ?? 0, 0) + request.Limit!.Value;
+            var pageItems = new PriorityQueue<(DateTime LastWatchedDate, long Order, Episode Episode), (long LastWatchedTicks, long ReverseOrder)>();
+            var totalCount = 0;
+            long order = 0;
+
+            for (var start = 0; start < series.Count; start += NextUpSeriesBatchSize)
+            {
+                var batchSize = Math.Min(NextUpSeriesBatchSize, series.Count - start);
+                var seriesKeys = new string[batchSize];
+                for (var index = 0; index < batchSize; index++)
+                {
+                    seriesKeys[index] = series[start + index].SeriesKey;
+                }
+
+                var batchItems = GetNextUpBatchItems(request, user, seriesKeys, dtoOptions);
+                totalCount += batchItems.Count;
+                foreach (var item in batchItems)
+                {
+                    var candidate = (LastWatchedDate: item.LastWatchedDate, Order: order++, Episode: item.Episode);
+                    var priority = (LastWatchedTicks: candidate.LastWatchedDate.Ticks, ReverseOrder: -candidate.Order);
+
+                    if (pageItems.Count < pageSize)
+                    {
+                        pageItems.Enqueue(candidate, priority);
+                    }
+                    else if (pageItems.TryPeek(out _, out var lowestPriority) && priority.CompareTo(lowestPriority) > 0)
+                    {
+                        pageItems.Dequeue();
+                        pageItems.Enqueue(candidate, priority);
+                    }
+                }
+            }
+
+            var items = pageItems.UnorderedItems
+                .Select(entry => entry.Element)
+                .OrderByDescending(item => item.LastWatchedDate)
+                .ThenBy(item => item.Order)
+                .Skip(Math.Max(request.StartIndex ?? 0, 0))
+                .Take(request.Limit.Value)
+                .Select(item => (BaseItem)item.Episode)
+                .ToArray();
+
+            return new QueryResult<BaseItem>(request.StartIndex, totalCount, items);
+        }
+
+        private List<(DateTime LastWatchedDate, Episode Episode)> GetNextUpBatchItems(
+            NextUpQuery request,
+            User user,
+            IReadOnlyList<string> seriesKeys,
+            DtoOptions dtoOptions)
+        {
+            if (seriesKeys.Count == 0)
+            {
+                return [];
             }
 
             var includeSpecials = _configurationManager.Configuration.DisplaySpecialsWithinSeasons;
@@ -164,11 +283,7 @@ namespace Emby.Server.Implementations.TV
                 }
             }
 
-            var sortedEpisodes = nextUpList
-                .OrderByDescending(x => x.LastWatchedDate)
-                .Select(x => (BaseItem)x.Episode);
-
-            return GetResult(sortedEpisodes, request);
+            return nextUpList.OrderByDescending(item => item.LastWatchedDate).ToList();
         }
 
         private Episode? DetermineNextEpisode(

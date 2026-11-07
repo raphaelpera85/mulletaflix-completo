@@ -134,8 +134,8 @@ public sealed class NextUpQueryOptimizationTests : IDisposable
         var result = _service.GetNextUpSeriesKeys(query, DateTime.UtcNow.AddDays(-3));
 
         Assert.Equal(2, result.Count);
-        Assert.Equal(seriesAKey, result[0]);
-        Assert.Equal(seriesBKey, result[1]);
+        Assert.Equal(seriesAKey, result[0].SeriesKey);
+        Assert.Equal(seriesBKey, result[1].SeriesKey);
     }
 
     [Fact]
@@ -206,7 +206,94 @@ public sealed class NextUpQueryOptimizationTests : IDisposable
         var result = _service.GetNextUpSeriesKeys(query, DateTime.UtcNow.AddDays(-3));
 
         Assert.Single(result);
-        Assert.Equal(seriesAKey, result[0]);
+        Assert.Equal(seriesAKey, result[0].SeriesKey);
+    }
+
+    [Fact]
+    public void GetNextUpSeriesKeys_BreaksLastPlayedDateTiesBySeriesKeyBeforeLimit()
+    {
+        var userId = Guid.NewGuid();
+        var topParentId = Guid.NewGuid();
+        var lastPlayedDate = DateTime.UtcNow.AddDays(-1);
+        var seriesKeys = new[] { "SeriesC", "SeriesA", "SeriesB" };
+        var userEntity = new MulletaFlix.Database.Implementations.Entities.User("testuser", "auth", "auth") { Id = userId };
+        _context.Users.Add(userEntity);
+
+        var episodes = seriesKeys.Select(key => new BaseItemEntity
+        {
+            Id = Guid.NewGuid(),
+            Type = "Episode",
+            SeriesPresentationUniqueKey = key,
+            TopParentId = topParentId
+        }).ToArray();
+        _context.BaseItems.AddRange(episodes);
+        _context.UserData.AddRange(episodes.Select(episode => new UserData
+        {
+            UserId = userId,
+            ItemId = episode.Id,
+            Item = episode,
+            User = userEntity,
+            CustomDataKey = string.Empty,
+            LastPlayedDate = lastPlayedDate,
+            Played = true
+        }));
+        _context.SaveChanges();
+
+        var query = new InternalItemsQuery
+        {
+            User = new User("testuser", "auth", "auth") { Id = userId },
+            TopParentIds = [topParentId],
+            Limit = 2
+        };
+
+        var result = _service.GetNextUpSeriesKeys(query, lastPlayedDate.AddDays(-1));
+
+        Assert.Equal(["SeriesA", "SeriesB"], result.Select(item => item.SeriesKey));
+    }
+
+    [Fact]
+    public void GetNextUpSeriesKeys_AppliesStartIndexAfterStableOrdering()
+    {
+        var userId = Guid.NewGuid();
+        var topParentId = Guid.NewGuid();
+        var lastPlayedDate = DateTime.UtcNow.AddDays(-1);
+        var seriesKeys = new[] { "SeriesC", "SeriesA", "SeriesB" };
+        var userEntity = new MulletaFlix.Database.Implementations.Entities.User("testuser", "auth", "auth") { Id = userId };
+        _context.Users.Add(userEntity);
+
+        var episodes = seriesKeys.Select(key => new BaseItemEntity
+        {
+            Id = Guid.NewGuid(),
+            Type = "Episode",
+            SeriesPresentationUniqueKey = key,
+            TopParentId = topParentId
+        }).ToArray();
+        _context.BaseItems.AddRange(episodes);
+        _context.UserData.AddRange(episodes.Select(episode => new UserData
+        {
+            UserId = userId,
+            ItemId = episode.Id,
+            Item = episode,
+            User = userEntity,
+            CustomDataKey = string.Empty,
+            LastPlayedDate = lastPlayedDate,
+            Played = true
+        }));
+        _context.SaveChanges();
+
+        var query = new InternalItemsQuery
+        {
+            User = new User("testuser", "auth", "auth") { Id = userId },
+            TopParentIds = [topParentId],
+            StartIndex = 1,
+            Limit = 1
+        };
+
+        var result = _service.GetNextUpSeriesKeys(query, lastPlayedDate.AddDays(-1));
+
+        var item = Assert.Single(result);
+        Assert.Equal("SeriesB", item.SeriesKey);
+        Assert.Equal(lastPlayedDate, item.LastPlayedDate);
     }
 }
 

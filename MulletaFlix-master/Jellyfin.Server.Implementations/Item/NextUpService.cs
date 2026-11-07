@@ -39,7 +39,7 @@ public class NextUpService : INextUpService
     }
 
     /// <inheritdoc />
-    public IReadOnlyList<string> GetNextUpSeriesKeys(InternalItemsQuery filter, DateTime dateCutoff)
+    public IReadOnlyList<(string SeriesKey, DateTime LastPlayedDate)> GetNextUpSeriesKeys(InternalItemsQuery filter, DateTime dateCutoff)
     {
         ArgumentNullException.ThrowIfNull(filter);
         ArgumentNullException.ThrowIfNull(filter.User);
@@ -59,14 +59,31 @@ public class NextUpService : INextUpService
             .Select(g => new { g.Key, LastPlayedDate = g.Max(u => u.UserData.LastPlayedDate) })
             .Where(g => g.Key != null && g.LastPlayedDate != null && g.LastPlayedDate >= dateCutoff)
             .OrderByDescending(g => g.LastPlayedDate)
-            .Select(g => g.Key!);
+            .ThenBy(g => g.Key)
+            .Select(g => new { SeriesKey = g.Key!, LastPlayedDate = g.LastPlayedDate!.Value });
+
+        if (filter.NextUpLastPlayedDateAfter.HasValue && !string.IsNullOrEmpty(filter.NextUpSeriesKeyAfter))
+        {
+            var cursorDate = filter.NextUpLastPlayedDateAfter.Value;
+            var cursorKey = filter.NextUpSeriesKeyAfter;
+            query = query.Where(g => g.LastPlayedDate < cursorDate
+                || (g.LastPlayedDate == cursorDate && g.SeriesKey.CompareTo(cursorKey) > 0));
+        }
+
+        if (filter.StartIndex.HasValue)
+        {
+            query = query.Skip(filter.StartIndex.Value);
+        }
 
         if (filter.Limit.HasValue)
         {
             query = query.Take(filter.Limit.Value);
         }
 
-        return query.ToArray();
+        return query
+            .AsEnumerable()
+            .Select(g => (g.SeriesKey, g.LastPlayedDate))
+            .ToArray();
     }
 
     /// <inheritdoc />

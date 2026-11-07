@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Text.Json;
+using Jellyfin.Server.Implementations.Nebula;
 using MongoDB.Bson;
 using Xunit;
 
@@ -18,6 +19,23 @@ public sealed class NebulaCompletedMediaRefreshTests
         var completedSince = Jellyfin.Server.Implementations.Nebula.NebulaCompletedMediaRefresh.GetCompletedSince(now);
 
         Assert.Equal(new DateTimeOffset(2026, 10, 5, 11, 30, 0, TimeSpan.Zero), completedSince);
+    }
+
+    [Theory]
+    [InlineData("Series\\Show\\Season 1", "/Series/Show/Season 1")]
+    [InlineData("/Filmes/Title", "/Filmes/Title")]
+    public void NormalizeDirectoryRefreshPath_ProducesCanonicalVisiblePath(string path, string expected)
+    {
+        Assert.Equal(expected, NebulaMongoContext.NormalizeDirectoryRefreshPath(path));
+    }
+
+    [Theory]
+    [InlineData("/Other/Show")]
+    [InlineData("/Series/../Other")]
+    [InlineData("/Series/Show/./Season 1")]
+    public void NormalizeDirectoryRefreshPath_RejectsPathsOutsideVisibleRootsOrTraversal(string path)
+    {
+        Assert.Throws<ArgumentException>(() => NebulaMongoContext.NormalizeDirectoryRefreshPath(path));
     }
 
     [Fact]

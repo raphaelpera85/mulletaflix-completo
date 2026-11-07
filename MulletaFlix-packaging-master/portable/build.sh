@@ -88,9 +88,9 @@ case ${BUILD_TYPE}-${PACKAGE_ARCH} in
 
         # Download MariaDB Portable
         echo "Downloading MariaDB Portable..."
-        curl --location --output mariadb.zip https://archive.mariadb.org/mariadb-11.4.2/winx64-packages/mariadb-11.4.2-winx64.zip
+        curl --fail --location --output mariadb.zip https://archive.mariadb.org/mariadb-11.4.13/winx64-packages/mariadb-11.4.13-winx64.zip
         unzip -q mariadb.zip
-        mv mariadb-11.4.2-winx64 mariadb
+        mv mariadb-11.4.13-winx64 mariadb
         rm mariadb.zip
     ;;
     *)

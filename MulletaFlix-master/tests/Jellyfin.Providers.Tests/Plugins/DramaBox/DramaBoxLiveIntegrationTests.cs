@@ -15,10 +15,8 @@ namespace Jellyfin.Providers.Tests.Plugins.DramaBox
     /// Live verification against the real DramaBox site.
     /// </summary>
     /// <remarks>
-    /// The type name deliberately contains "Integration" so the CI filter
-    /// (FullyQualifiedName!~Integration) skips it: it reaches the public internet and must never
-    /// gate a build. Run it on demand with
-    /// <c>dotnet test --filter "FullyQualifiedName~DramaBoxLiveIntegration"</c>.
+    /// Tests are skipped by default and reach the public internet only when the explicit live-provider
+    /// environment switch is set. See <c>docs/testing-live-providers.md</c> for the opt-in command.
     /// It exists because every other test in this folder uses a captured payload, and a captured
     /// payload cannot prove that the crawler still parses what the site serves today.
     /// </remarks>
@@ -31,6 +29,7 @@ namespace Jellyfin.Providers.Tests.Plugins.DramaBox
         [Fact]
         public async Task RebuildIndex_FindsTheRealCatalogueAndMatchesRealLibraryTitles()
         {
+            LiveProviderIntegrationTestEnvironment.SkipUnlessEnabled();
             var client = CreateClient();
 
             var index = await client.RebuildIndexAsync(null, CancellationToken.None);

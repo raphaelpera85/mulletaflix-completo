@@ -179,16 +179,18 @@ public class ChapterImagesTask : IScheduledTask
 
                         if (!success)
                         {
-                            previouslyFailedImages.Add(key);
-
-                            var parentPath = Path.GetDirectoryName(failHistoryPath);
-                            if (parentPath is not null)
+                            if (previouslyFailedImages.Add(key))
                             {
-                                Directory.CreateDirectory(parentPath);
+                                var parentPath = Path.GetDirectoryName(failHistoryPath);
+                                if (parentPath is not null)
+                                {
+                                    Directory.CreateDirectory(parentPath);
+                                }
+
+                                var separator = previouslyFailedImages.Count > 1 ? "|" : string.Empty;
+                                await File.AppendAllTextAsync(failHistoryPath, separator + key, cancellationToken).ConfigureAwait(false);
                             }
 
-                            string text = string.Join('|', previouslyFailedImages);
-                            await File.WriteAllTextAsync(failHistoryPath, text, cancellationToken).ConfigureAwait(false);
                             failedVideos++;
                         }
                         else

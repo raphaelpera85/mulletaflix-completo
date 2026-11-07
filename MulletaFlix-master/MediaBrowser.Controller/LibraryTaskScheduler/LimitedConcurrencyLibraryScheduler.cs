@@ -18,6 +18,7 @@ namespace MediaBrowser.Controller.LibraryTaskScheduler;
 public sealed class LimitedConcurrencyLibraryScheduler : ILimitedConcurrencyLibraryScheduler, IAsyncDisposable
 {
     private const int CleanupGracePeriod = 60;
+    private readonly TimeSpan _cleanupGracePeriod;
     private readonly IHostApplicationLifetime _hostApplicationLifetime;
     private readonly ILogger<LimitedConcurrencyLibraryScheduler> _logger;
     private readonly IServerConfigurationManager _serverConfigurationManager;
@@ -54,10 +55,20 @@ public sealed class LimitedConcurrencyLibraryScheduler : ILimitedConcurrencyLibr
         IHostApplicationLifetime hostApplicationLifetime,
         ILogger<LimitedConcurrencyLibraryScheduler> logger,
         IServerConfigurationManager serverConfigurationManager)
+        : this(hostApplicationLifetime, logger, serverConfigurationManager, TimeSpan.FromSeconds(CleanupGracePeriod))
+    {
+    }
+
+    internal LimitedConcurrencyLibraryScheduler(
+        IHostApplicationLifetime hostApplicationLifetime,
+        ILogger<LimitedConcurrencyLibraryScheduler> logger,
+        IServerConfigurationManager serverConfigurationManager,
+        TimeSpan cleanupGracePeriod)
     {
         _hostApplicationLifetime = hostApplicationLifetime;
         _logger = logger;
         _serverConfigurationManager = serverConfigurationManager;
+        _cleanupGracePeriod = cleanupGracePeriod;
         _cleanupWaitCancellationTokenSource = CancellationTokenSource.CreateLinkedTokenSource(_hostApplicationLifetime.ApplicationStopping);
         _tasks = Channel.CreateBounded<TaskQueueItem>(new BoundedChannelOptions(Math.Max(1, CalculateScanConcurrencyLimit()))
         {
@@ -89,10 +100,10 @@ public sealed class LimitedConcurrencyLibraryScheduler : ILimitedConcurrencyLibr
 
         async Task RunCleanupTask()
         {
-            _logger.LogDebug("Schedule cleanup task in {CleanupGracePerioid} sec.", CleanupGracePeriod);
+            _logger.LogDebug("Schedule cleanup task in {CleanupGracePeriod} sec.", _cleanupGracePeriod.TotalSeconds);
             try
             {
-                await Task.Delay(TimeSpan.FromSeconds(CleanupGracePeriod), _cleanupCancellationTokenSource.Token).ConfigureAwait(false);
+                await Task.Delay(_cleanupGracePeriod, _cleanupCancellationTokenSource.Token).ConfigureAwait(false);
             }
             catch (OperationCanceledException) when (_cleanupCancellationTokenSource.IsCancellationRequested)
             {

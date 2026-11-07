@@ -159,7 +159,14 @@ public class ImageController : BaseMulletaFlixApiController
 
                 // Handle image/png; charset=utf-8
                 var mimeType = Request.ContentType?.Split(';').FirstOrDefault();
-                var userDataPath = Path.Combine(_serverConfigurationManager.ApplicationPaths.UserConfigurationDirectoryPath, user.Username);
+                if (!FileSystemHelper.TryGetChildPath(
+                        _serverConfigurationManager.ApplicationPaths.UserConfigurationDirectoryPath,
+                        user.Username,
+                        out var userDataPath))
+                {
+                    return BadRequest("Invalid username path.");
+                }
+
                 Directory.CreateDirectory(userDataPath);
                 var previousProfileImage = user.ProfileImage;
                 var newProfileImagePath = Path.Combine(userDataPath, "profile-" + Guid.NewGuid().ToString("N") + extension);
@@ -365,9 +372,14 @@ public class ImageController : BaseMulletaFlixApiController
                 return NoContent();
             }
 
-            var userDataPath = Path.Combine(
-                _serverConfigurationManager.ApplicationPaths.UserConfigurationDirectoryPath,
-                user.Username);
+            if (!FileSystemHelper.TryGetChildPath(
+                    _serverConfigurationManager.ApplicationPaths.UserConfigurationDirectoryPath,
+                    user.Username,
+                    out var userDataPath))
+            {
+                return StatusCode(StatusCodes.Status500InternalServerError, "Image could not be deleted.");
+            }
+
             if (!FileSystemHelper.IsPathWithinRoot(user.ProfileImage.Path, userDataPath))
             {
                 _logger.LogWarning(
@@ -2530,10 +2542,7 @@ public class ImageController : BaseMulletaFlixApiController
         // and a stale tag for a replaced or deleted image simply will not match here.
         if (hasTag && !disableCaching)
         {
-            var ifNoneMatchEarly = Request.Headers[HeaderNames.IfNoneMatch].ToString();
-            if (!string.IsNullOrEmpty(ifNoneMatchEarly)
-                && (string.Equals(ifNoneMatchEarly, $"\"{tag}\"", StringComparison.Ordinal)
-                    || string.Equals(ifNoneMatchEarly, tag, StringComparison.Ordinal)))
+            if (ConditionalRequestHelper.MatchesIfNoneMatch(Request, $"\"{tag}\""))
             {
                 Response.StatusCode = StatusCodes.Status304NotModified;
                 Response.Headers.Append(HeaderNames.ETag, $"\"{tag}\"");
@@ -2601,10 +2610,7 @@ public class ImageController : BaseMulletaFlixApiController
                 Response.Headers.Append(HeaderNames.ETag, $"\"{tag}\"");
 
                 // Check If-None-Match header for ETag-based validation (preferred over If-Modified-Since)
-                var ifNoneMatch = Request.Headers[HeaderNames.IfNoneMatch].ToString();
-                if (!string.IsNullOrEmpty(ifNoneMatch)
-                    && (string.Equals(ifNoneMatch, $"\"{tag}\"", StringComparison.Ordinal)
-                        || string.Equals(ifNoneMatch, tag, StringComparison.Ordinal)))
+                if (ConditionalRequestHelper.MatchesIfNoneMatch(Request, $"\"{tag}\""))
                 {
                     Response.StatusCode = StatusCodes.Status304NotModified;
                     return new ContentResult();

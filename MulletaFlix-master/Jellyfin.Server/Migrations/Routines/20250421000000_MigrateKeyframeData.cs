@@ -60,7 +60,7 @@ public class MigrateKeyframeData : IDatabaseMigrationRoutine
         _logger.LogInformation("Checking {Count} items for importable keyframe data.", records);
 
         // User-initiated transactions must be executed through the provider's
-        // retry strategy when transient MySQL/MariaDB failures are enabled.
+        // retry strategy when transient MariaDB failures are enabled.
         var executionStrategy = context.Database.CreateExecutionStrategy();
         executionStrategy.Execute(() =>
         {

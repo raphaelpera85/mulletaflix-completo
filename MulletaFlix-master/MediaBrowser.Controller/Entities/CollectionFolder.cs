@@ -33,6 +33,7 @@ namespace MediaBrowser.Controller.Entities
     {
         private static readonly JsonSerializerOptions _jsonOptions = JsonDefaults.Options;
         private static readonly ConcurrentDictionary<string, LibraryOptions> _libraryOptions = new ConcurrentDictionary<string, LibraryOptions>();
+        private static readonly Lock _libraryOptionsSaveLock = new();
         private bool _requiresRefresh;
 
         /// <summary>
@@ -174,8 +175,6 @@ namespace MediaBrowser.Controller.Entities
 
         public static void SaveLibraryOptions(string path, LibraryOptions options)
         {
-            _libraryOptions[path] = options;
-
             var clone = JsonSerializer.Deserialize<LibraryOptions>(JsonSerializer.SerializeToUtf8Bytes(options, _jsonOptions), _jsonOptions);
             foreach (var mediaPath in clone.PathInfos)
             {
@@ -185,7 +184,42 @@ namespace MediaBrowser.Controller.Entities
                 }
             }
 
-            XmlSerializer.SerializeToFile(clone, GetLibraryOptionsPath(path));
+            lock (_libraryOptionsSaveLock)
+            {
+                var optionsPath = GetLibraryOptionsPath(path);
+                var temporaryPath = optionsPath + "." + Guid.NewGuid().ToString("N") + ".tmp";
+                try
+                {
+                    using var temporaryStream = new FileStream(temporaryPath, FileMode.CreateNew, FileAccess.Write, FileShare.None);
+
+                    if (!OperatingSystem.IsWindows() && File.Exists(optionsPath))
+                    {
+                        File.SetUnixFileMode(temporaryPath, File.GetUnixFileMode(optionsPath));
+                    }
+
+                    XmlSerializer.SerializeToStream(clone, temporaryStream);
+                    temporaryStream.Dispose();
+
+                    if (OperatingSystem.IsWindows() && File.Exists(optionsPath))
+                    {
+                        // ReplaceFile preserves the destination's Windows ACL.
+                        File.Replace(temporaryPath, optionsPath, null);
+                    }
+                    else
+                    {
+                        File.Move(temporaryPath, optionsPath, overwrite: true);
+                    }
+                }
+                finally
+                {
+                    if (File.Exists(temporaryPath))
+                    {
+                        File.Delete(temporaryPath);
+                    }
+                }
+
+                _libraryOptions[path] = options;
+            }
 
             LibraryOptionsUpdated?.Invoke(null, new LibraryOptionsUpdatedEventArgs(path, options));
         }

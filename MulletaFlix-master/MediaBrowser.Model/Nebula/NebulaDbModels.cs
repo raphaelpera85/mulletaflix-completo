@@ -18,6 +18,9 @@ public class NebulaFilePart
     [JsonPropertyName("size")]
     public long Size { get; set; }
 
+    [JsonPropertyName("source_sha256")]
+    public string SourceSha256 { get; set; } = string.Empty;
+
     [JsonPropertyName("tg_file_id")]
     public string TgFileId { get; set; } = string.Empty;
 

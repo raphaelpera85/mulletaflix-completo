@@ -147,7 +147,7 @@ namespace MediaBrowser.Common.Plugins
                 var folder = Path.GetDirectoryName(ConfigurationFilePath);
                 Directory.CreateDirectory(folder);
 
-                XmlSerializer.SerializeToFile(config, ConfigurationFilePath);
+                ProtectedConfigurationWriter.Persist(config, ConfigurationFilePath, XmlSerializer, restrictExistingWindowsAcl: true);
             }
         }
 

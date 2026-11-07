@@ -105,41 +105,7 @@ public sealed class NativeIntroProvider : IIntroProvider
             }
         }
 
-        var candidatePaths = new List<string>();
-
-        // 2. Base directory (App install directory: e.g. C:\Program Files\MulletaFlix\Server\media\mulletaflix_intro.mp4)
-        var baseDir = AppContext.BaseDirectory;
-        if (!string.IsNullOrWhiteSpace(baseDir))
-        {
-            candidatePaths.Add(Path.Combine(baseDir, "media", "mulletaflix_intro.mp4"));
-            candidatePaths.Add(Path.Combine(baseDir, "mulletaflix_intro.mp4"));
-        }
-
-        // 3. ProgramData directory: e.g. C:\ProgramData\MulletaFlix\Server\media\mulletaflix_intro.mp4
-        if (_applicationPaths is not null)
-        {
-            if (!string.IsNullOrWhiteSpace(_applicationPaths.ProgramDataPath))
-            {
-                candidatePaths.Add(Path.Combine(_applicationPaths.ProgramDataPath, "media", "mulletaflix_intro.mp4"));
-                candidatePaths.Add(Path.Combine(_applicationPaths.ProgramDataPath, "mulletaflix_intro.mp4"));
-            }
-
-            if (!string.IsNullOrWhiteSpace(_applicationPaths.DataPath))
-            {
-                candidatePaths.Add(Path.Combine(_applicationPaths.DataPath, "media", "mulletaflix_intro.mp4"));
-                candidatePaths.Add(Path.Combine(_applicationPaths.DataPath, "mulletaflix_intro.mp4"));
-            }
-        }
-
-        // 4. Default user videos path on host for local development
-        var userProfile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-        if (!string.IsNullOrWhiteSpace(userProfile))
-        {
-            candidatePaths.Add(Path.Combine(userProfile, "Videos", "mulletaflix_intro.mp4"));
-        }
-        candidatePaths.Add(@"d:\Users\Raphael\Videos\mulletaflix_intro.mp4");
-
-        foreach (var candidate in candidatePaths)
+        foreach (var candidate in GetDefaultNativeIntroCandidates(AppContext.BaseDirectory, _applicationPaths))
         {
             if (File.Exists(candidate))
             {
@@ -149,6 +115,35 @@ public sealed class NativeIntroProvider : IIntroProvider
         }
 
         return null;
+    }
+
+    internal static IReadOnlyList<string> GetDefaultNativeIntroCandidates(string baseDirectory, IApplicationPaths applicationPaths)
+    {
+        var candidatePaths = new List<string>();
+
+        // Prefer packaged files, then server-owned ProgramData/Data directories.
+        if (!string.IsNullOrWhiteSpace(baseDirectory))
+        {
+            candidatePaths.Add(Path.Combine(baseDirectory, "media", "mulletaflix_intro.mp4"));
+            candidatePaths.Add(Path.Combine(baseDirectory, "mulletaflix_intro.mp4"));
+        }
+
+        if (applicationPaths is not null)
+        {
+            if (!string.IsNullOrWhiteSpace(applicationPaths.ProgramDataPath))
+            {
+                candidatePaths.Add(Path.Combine(applicationPaths.ProgramDataPath, "media", "mulletaflix_intro.mp4"));
+                candidatePaths.Add(Path.Combine(applicationPaths.ProgramDataPath, "mulletaflix_intro.mp4"));
+            }
+
+            if (!string.IsNullOrWhiteSpace(applicationPaths.DataPath))
+            {
+                candidatePaths.Add(Path.Combine(applicationPaths.DataPath, "media", "mulletaflix_intro.mp4"));
+                candidatePaths.Add(Path.Combine(applicationPaths.DataPath, "mulletaflix_intro.mp4"));
+            }
+        }
+
+        return candidatePaths;
     }
 
     private static string ResolveIntroPath(string path)

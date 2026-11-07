@@ -27,6 +27,13 @@ public static class StorageHelper
         TestDataDirectorySize(applicationPaths.ProgramDataPath, logger, TwoGigabyte);
     }
 
+    internal static void TestCommonPathsForStorageCapacityReadOnly(IApplicationPaths applicationPaths, ILogger logger)
+    {
+        TestDataDirectorySizeReadOnly(applicationPaths.DataPath, logger);
+        TestDataDirectorySizeReadOnly(applicationPaths.CachePath, logger);
+        TestDataDirectorySizeReadOnly(applicationPaths.ProgramDataPath, logger);
+    }
+
     /// <summary>
     /// Gets the free space of the parent filesystem of a specific directory.
     /// </summary>
@@ -134,6 +141,30 @@ public static class StorageHelper
             drive.DriveType,
             HumanizeStorageSize(drive.AvailableFreeSpace),
             HumanizeStorageSize(threshold));
+    }
+
+    private static void TestDataDirectorySizeReadOnly(string path, ILogger logger)
+    {
+        logger.LogDebug("Check path {TestPath} for storage capacity without creating it", path);
+        var existingPath = Path.GetFullPath(path);
+        while (!Directory.Exists(existingPath) && !File.Exists(existingPath))
+        {
+            existingPath = Directory.GetParent(existingPath)?.FullName
+                ?? throw new InvalidOperationException($"The path `{path}` has no existing ancestor for a storage check.");
+        }
+
+        var drive = new DriveInfo(existingPath);
+        if (drive.AvailableFreeSpace < TwoGigabyte)
+        {
+            throw new InvalidOperationException($"The path `{path}` has insufficient free space. Available: {HumanizeStorageSize(drive.AvailableFreeSpace)}, Required: {HumanizeStorageSize(TwoGigabyte)}.");
+        }
+
+        logger.LogInformation(
+            "Storage path `{TestPath}` ({StorageType}) successfully checked with {FreeSpace} free which is over the minimum of {MinFree}.",
+            path,
+            drive.DriveType,
+            HumanizeStorageSize(drive.AvailableFreeSpace),
+            HumanizeStorageSize(TwoGigabyte));
     }
 
     /// <summary>

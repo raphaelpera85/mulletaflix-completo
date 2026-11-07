@@ -13,9 +13,10 @@ using IntroSkipper.SegmentChanges;
 using IntroSkipper.Services;
 using MediaBrowser.Common.Configuration;
 using MediaBrowser.Controller;
+using MediaBrowser.Controller.Configuration;
 using MediaBrowser.Controller.MediaSegments;
 using MediaBrowser.Controller.Plugins;
-using MediaBrowser.Controller.Configuration;
+using MediaBrowser.Controller.SystemBackupService;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
@@ -42,15 +43,16 @@ namespace IntroSkipper
                 var provider = serviceProvider.GetRequiredService<IMulletaFlixDatabaseProvider>();
                 var databaseConfiguration = serviceProvider.GetRequiredService<IServerConfigurationManager>()
                     .GetConfiguration<DatabaseConfigurationOptions>("database");
-                provider.Initialise(options, WithIntroSkipperDatabase(databaseConfiguration));
+                provider.Initialise(options, WithIntroSkipperDatabase(databaseConfiguration, serviceProvider));
             });
             serviceCollection.AddDbContextFactory<DetectionCacheDbContext>((serviceProvider, options) =>
             {
                 var provider = serviceProvider.GetRequiredService<IMulletaFlixDatabaseProvider>();
                 var databaseConfiguration = serviceProvider.GetRequiredService<IServerConfigurationManager>()
                     .GetConfiguration<DatabaseConfigurationOptions>("database");
-                provider.Initialise(options, WithIntroSkipperDatabase(databaseConfiguration));
+                provider.Initialise(options, WithIntroSkipperDatabase(databaseConfiguration, serviceProvider));
             });
+            serviceCollection.AddSingleton<IBackupDatabaseParticipant, IntroSkipperBackupParticipant>();
             // The facades own database initialization via their internal retryable
             // gates; every consumer goes through a facade.
             serviceCollection.AddSingleton<IIntroSkipperDatabase, IntroSkipperDatabase>();
@@ -119,7 +121,9 @@ namespace IntroSkipper
             });
         }
 
-        private static DatabaseConfigurationOptions WithIntroSkipperDatabase(DatabaseConfigurationOptions source)
+        private static DatabaseConfigurationOptions WithIntroSkipperDatabase(
+            DatabaseConfigurationOptions source,
+            IServiceProvider serviceProvider)
         {
             var sourceOptions = source.CustomProviderOptions
                 ?? throw new InvalidOperationException("MariaDB configuration is missing provider options.");
@@ -127,12 +131,28 @@ namespace IntroSkipper
             {
                 throw new InvalidOperationException("IntroSkipper requires the MariaDB provider (MulletaFlix-MySQL).");
             }
+            var databaseName = "mulletaflix_introskipper";
+            if (serviceProvider.GetRequiredService<IHostEnvironment>().IsEnvironment("Testing"))
+            {
+                var testDatabaseName = Environment.GetEnvironmentVariable("MULLETAFLIX_TEST_INTROSKIPPER_DATABASE");
+                if (!string.IsNullOrWhiteSpace(testDatabaseName))
+                {
+                    if (!testDatabaseName.StartsWith("mfx_intro_test_", StringComparison.Ordinal)
+                        || testDatabaseName.Any(character => !char.IsAsciiLetterOrDigit(character) && character != '_'))
+                    {
+                        throw new InvalidOperationException("The isolated IntroSkipper test schema name is invalid.");
+                    }
+
+                    databaseName = testDatabaseName;
+                }
+            }
+
             var options = new CustomDatabaseOptions
             {
                 PluginName = sourceOptions.PluginName,
                 PluginAssembly = sourceOptions.PluginAssembly,
                 ConnectionString = sourceOptions.ConnectionString,
-                Options = [.. sourceOptions.Options.Where(option => !option.Key.Equals("database", StringComparison.OrdinalIgnoreCase)), new CustomDatabaseOption { Key = "database", Value = "mulletaflix_introskipper" }]
+                Options = [.. sourceOptions.Options.Where(option => !option.Key.Equals("database", StringComparison.OrdinalIgnoreCase)), new CustomDatabaseOption { Key = "database", Value = databaseName }]
             };
             return new DatabaseConfigurationOptions
             {

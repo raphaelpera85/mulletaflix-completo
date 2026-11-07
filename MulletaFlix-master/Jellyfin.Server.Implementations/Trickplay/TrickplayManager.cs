@@ -43,6 +43,8 @@ public class TrickplayManager : ITrickplayManager
     private readonly IMemoryCache _memoryCache;
 
     private static readonly AsyncNonKeyedLocker _resourcePool = new(1);
+    private static readonly AsyncKeyedLocker<Guid> _trickplayResolutionLock = new();
+    private static readonly AsyncKeyedLocker<Guid> _trickplayManifestLock = new();
     private static readonly string[] _trickplayImgExtensions = [".jpg"];
 
     // Trickplay manifests are written to rarely (only during library scans / trickplay
@@ -531,26 +533,34 @@ public class TrickplayManager : ITrickplayManager
             return cachedResolutions;
         }
 
-        var trickplayResolutions = new Dictionary<int, TrickplayInfo>();
-
-        var dbContext = await _dbProvider.CreateDbContextAsync().ConfigureAwait(false);
-        await using (dbContext.ConfigureAwait(false))
+        using (await _trickplayResolutionLock.LockAsync(itemId).ConfigureAwait(false))
         {
-            var trickplayInfos = await dbContext.TrickplayInfos
-                .AsNoTracking()
-                .Where(i => i.ItemId.Equals(itemId))
-                .ToListAsync()
-                .ConfigureAwait(false);
-
-            foreach (var info in trickplayInfos)
+            if (_memoryCache.TryGetValue(resolutionsCacheKey, out cachedResolutions) && cachedResolutions is not null)
             {
-                trickplayResolutions[info.Width] = info;
+                return cachedResolutions;
             }
+
+            var trickplayResolutions = new Dictionary<int, TrickplayInfo>();
+
+            var dbContext = await _dbProvider.CreateDbContextAsync().ConfigureAwait(false);
+            await using (dbContext.ConfigureAwait(false))
+            {
+                var trickplayInfos = await dbContext.TrickplayInfos
+                    .AsNoTracking()
+                    .Where(i => i.ItemId.Equals(itemId))
+                    .ToListAsync()
+                    .ConfigureAwait(false);
+
+                foreach (var info in trickplayInfos)
+                {
+                    trickplayResolutions[info.Width] = info;
+                }
+            }
+
+            _memoryCache.Set(resolutionsCacheKey, trickplayResolutions, _manifestCacheTtl);
+
+            return trickplayResolutions;
         }
-
-        _memoryCache.Set(resolutionsCacheKey, trickplayResolutions, _manifestCacheTtl);
-
-        return trickplayResolutions;
     }
 
     /// <inheritdoc />
@@ -576,35 +586,42 @@ public class TrickplayManager : ITrickplayManager
     /// <inheritdoc />
     public async Task SaveTrickplayInfo(TrickplayInfo info)
     {
-        var dbContext = await _dbProvider.CreateDbContextAsync().ConfigureAwait(false);
-        await using (dbContext.ConfigureAwait(false))
+        using (await _trickplayManifestLock.LockAsync(info.ItemId).ConfigureAwait(false))
+        using (await _trickplayResolutionLock.LockAsync(info.ItemId).ConfigureAwait(false))
         {
-            var oldInfo = await dbContext.TrickplayInfos.FindAsync(info.ItemId, info.Width).ConfigureAwait(false);
-            if (oldInfo is not null)
+            var dbContext = await _dbProvider.CreateDbContextAsync().ConfigureAwait(false);
+            await using (dbContext.ConfigureAwait(false))
             {
-                dbContext.TrickplayInfos.Remove(oldInfo);
+                var oldInfo = await dbContext.TrickplayInfos.FindAsync(info.ItemId, info.Width).ConfigureAwait(false);
+                if (oldInfo is not null)
+                {
+                    dbContext.TrickplayInfos.Remove(oldInfo);
+                }
+
+                dbContext.Add(info);
+
+                await dbContext.SaveChangesAsync().ConfigureAwait(false);
             }
 
-            dbContext.Add(info);
-
-            await dbContext.SaveChangesAsync().ConfigureAwait(false);
+            // Invalidate both related caches while reads for this item are excluded, so an
+            // older cold-cache query cannot repopulate stale entries after this write.
+            _memoryCache.Remove(GetManifestCacheKey(info.ItemId));
+            _memoryCache.Remove(GetResolutionsCacheKey(info.ItemId));
         }
-
-        // Invalidate the cached manifest and resolutions so the next poll (e.g. GET /Sessions)
-        // and the next tile/playlist request observe the freshly written trickplay data instead
-        // of a stale cached entry.
-        _memoryCache.Remove(GetManifestCacheKey(info.ItemId));
-        _memoryCache.Remove(GetResolutionsCacheKey(info.ItemId));
     }
 
     /// <inheritdoc />
     public async Task DeleteTrickplayDataAsync(Guid itemId, CancellationToken cancellationToken)
     {
-        var dbContext = await _dbProvider.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
-        await dbContext.TrickplayInfos.Where(i => i.ItemId.Equals(itemId)).ExecuteDeleteAsync(cancellationToken).ConfigureAwait(false);
+        using (await _trickplayManifestLock.LockAsync(itemId, cancellationToken).ConfigureAwait(false))
+        using (await _trickplayResolutionLock.LockAsync(itemId, cancellationToken).ConfigureAwait(false))
+        {
+            var dbContext = await _dbProvider.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
+            await dbContext.TrickplayInfos.Where(i => i.ItemId.Equals(itemId)).ExecuteDeleteAsync(cancellationToken).ConfigureAwait(false);
 
-        _memoryCache.Remove(GetManifestCacheKey(itemId));
-        _memoryCache.Remove(GetResolutionsCacheKey(itemId));
+            _memoryCache.Remove(GetManifestCacheKey(itemId));
+            _memoryCache.Remove(GetResolutionsCacheKey(itemId));
+        }
     }
 
     /// <inheritdoc />
@@ -616,25 +633,33 @@ public class TrickplayManager : ITrickplayManager
             return cachedManifest;
         }
 
-        var trickplayManifest = new Dictionary<string, Dictionary<int, TrickplayInfo>>();
-        foreach (var mediaSource in item.GetMediaSources(false))
+        using (await _trickplayManifestLock.LockAsync(item.Id).ConfigureAwait(false))
         {
-            if (mediaSource.IsRemote || !Guid.TryParse(mediaSource.Id, out var mediaSourceId))
+            if (_memoryCache.TryGetValue(cacheKey, out cachedManifest) && cachedManifest is not null)
             {
-                continue;
+                return cachedManifest;
             }
 
-            var trickplayResolutions = await GetTrickplayResolutions(mediaSourceId).ConfigureAwait(false);
-
-            if (trickplayResolutions.Count > 0)
+            var trickplayManifest = new Dictionary<string, Dictionary<int, TrickplayInfo>>();
+            foreach (var mediaSource in item.GetMediaSources(false))
             {
-                trickplayManifest[mediaSource.Id] = trickplayResolutions;
+                if (mediaSource.IsRemote || !Guid.TryParse(mediaSource.Id, out var mediaSourceId))
+                {
+                    continue;
+                }
+
+                var trickplayResolutions = await GetTrickplayResolutions(mediaSourceId).ConfigureAwait(false);
+
+                if (trickplayResolutions.Count > 0)
+                {
+                    trickplayManifest[mediaSource.Id] = trickplayResolutions;
+                }
             }
+
+            _memoryCache.Set(cacheKey, trickplayManifest, _manifestCacheTtl);
+
+            return trickplayManifest;
         }
-
-        _memoryCache.Set(cacheKey, trickplayManifest, _manifestCacheTtl);
-
-        return trickplayManifest;
     }
 
     /// <inheritdoc />

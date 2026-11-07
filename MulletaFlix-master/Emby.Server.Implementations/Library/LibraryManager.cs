@@ -2029,7 +2029,7 @@ namespace Emby.Server.Implementations.Library
             return _itemRepository.GetLatestItemList(query, collectionType);
         }
 
-        public IReadOnlyList<string> GetNextUpSeriesKeys(InternalItemsQuery query, IReadOnlyCollection<BaseItem> parents, DateTime dateCutoff)
+        public IReadOnlyList<(string SeriesKey, DateTime LastPlayedDate)> GetNextUpSeriesKeys(InternalItemsQuery query, IReadOnlyCollection<BaseItem> parents, DateTime dateCutoff)
         {
             SetTopParentIdsOrAncestors(query, parents);
 

@@ -9,6 +9,7 @@ import {
     ensureMediaLibrariesReady,
     getVirtualFolderByLibrary,
     getFirstItemFromVirtualFolder,
+    getVirtualFolderItemDiagnostics,
     MOVIES_LIBRARY
 } from '../support/media-library.mjs';
 import { ensureWizardCompleted } from '../support/wizard.mjs';
@@ -24,10 +25,12 @@ test.describe.serial('33 - Item Details E2E: full interaction flow', () => {
         // Prepare media library and get a test item
         await ensureMediaLibrariesReady(page, { settleMs: 60_000 });
         const moviesFolder = await getVirtualFolderByLibrary(page, MOVIES_LIBRARY);
-        const testItem = await getFirstItemFromVirtualFolder(page, moviesFolder?.Id);
+        const movieLibraryId = moviesFolder?.ItemId || moviesFolder?.Id;
+        const testItem = await getFirstItemFromVirtualFolder(page, movieLibraryId);
 
         if (!testItem?.id) {
-            throw new Error('Could not find a test item in the media library.');
+            const diagnostics = await getVirtualFolderItemDiagnostics(page, movieLibraryId);
+            throw new Error(`Could not find a test item in the media library. Diagnostics: ${JSON.stringify(diagnostics)}`);
         }
 
         // ========== TEST 1: NAVIGATE TO ITEM DETAILS PAGE ==========
@@ -45,9 +48,15 @@ test.describe.serial('33 - Item Details E2E: full interaction flow', () => {
         const miscInfoPrimary = page.locator('.itemMiscInfo-primary');
         await expect(miscInfoPrimary).toBeVisible({ timeout: 5_000 });
 
-        // Secondary media info
+        // Secondary media info is reserved for live programs. The helper
+        // intentionally returns no content for movies, so the empty row must
+        // stay hidden instead of being required to display blank metadata.
         const miscInfoSecondary = page.locator('.itemMiscInfo-secondary');
-        await expect(miscInfoSecondary).toBeVisible({ timeout: 5_000 });
+        if (testItem.type === 'Program') {
+            await expect(miscInfoSecondary).toBeVisible({ timeout: 5_000 });
+        } else {
+            await expect(miscInfoSecondary).toBeHidden({ timeout: 5_000 });
+        }
 
         // ========== TEST 4: VERIFY POSTER IMAGE LOADS ==========
         const posterImage = page.locator('.detailImageContainer img.itemDetailImage');
@@ -119,7 +128,7 @@ test.describe.serial('33 - Item Details E2E: full interaction flow', () => {
 
         // ========== TEST 12: VERIFY BACK BUTTON NAVIGATION ==========
         // The page should have a back button to navigate away
-        const backButton = page.locator('[data-backbutton="true"]');
+        const backButton = page.locator('#itemDetailPage[data-backbutton="true"]');
         await expect(backButton).toBeVisible();
 
         // Navigate back (using browser back button as alternative)
@@ -154,7 +163,8 @@ test.describe.serial('33 - Item Details E2E: full interaction flow', () => {
 
         await ensureMediaLibrariesReady(page, { settleMs: 60_000 });
         const moviesFolder = await getVirtualFolderByLibrary(page, MOVIES_LIBRARY);
-        const testItem = await getFirstItemFromVirtualFolder(page, moviesFolder?.Id);
+        const movieLibraryId = moviesFolder?.ItemId || moviesFolder?.Id;
+        const testItem = await getFirstItemFromVirtualFolder(page, movieLibraryId);
 
         if (!testItem?.id) {
             throw new Error('Could not find a test item in the media library.');
@@ -210,7 +220,8 @@ test.describe.serial('33 - Item Details E2E: full interaction flow', () => {
 
         await ensureMediaLibrariesReady(page, { settleMs: 60_000 });
         const moviesFolder = await getVirtualFolderByLibrary(page, MOVIES_LIBRARY);
-        const testItem = await getFirstItemFromVirtualFolder(page, moviesFolder?.Id);
+        const movieLibraryId = moviesFolder?.ItemId || moviesFolder?.Id;
+        const testItem = await getFirstItemFromVirtualFolder(page, movieLibraryId);
 
         if (!testItem?.id) {
             throw new Error('Could not find a test item in the media library.');

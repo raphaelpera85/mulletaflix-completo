@@ -13,7 +13,7 @@ namespace MulletaFlix.Api.Middleware;
 /// A media segment or an image response is never interpreted as a document, so setting ~900 bytes
 /// of headers (CSP string included) on every one of the ~1200 HLS segment/image requests in a
 /// two-hour playback is pure overhead with no security benefit. The check runs from
-/// <see cref="HttpContext.Response.OnStarting"/> because the response's final Content-Type is only
+/// <c>HttpResponse.OnStarting</c> because the response's final Content-Type is only
 /// known once the endpoint has set it, which happens after this middleware calls into <c>next</c>.
 /// </remarks>
 public class SecurityHeadersMiddleware

@@ -1,16 +1,21 @@
 import { expect } from '@playwright/test';
+import { mkdir } from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
+
+const mediaRoot = process.env.PW_MEDIA_LIBRARY_ROOT || path.join(os.tmpdir(), 'mfx-playwright-media');
 
 export const MOVIES_LIBRARY = {
     name: 'Filmes',
     type: 'movies',
-    path: 'D:\\Users\\Raphael\\Videos\\Filmes',
+    path: path.join(mediaRoot, 'Filmes'),
     aliases: [ 'Filmes', 'Movies', 'Movie', 'Filmes locais', 'Local movies' ]
 };
 
 export const SERIES_LIBRARY = {
     name: 'Series',
     type: 'tvshows',
-    path: 'D:\\Users\\Raphael\\Videos\\Series',
+    path: path.join(mediaRoot, 'Series'),
     aliases: [ 'Series', 'Séries', 'TV Shows', 'Shows', 'Programas de TV' ]
 };
 
@@ -155,6 +160,7 @@ async function evaluateWithRetry(page, fn, args, { maxAttempts = 3, initialDelay
 }
 
 export async function ensureMediaLibraries(page, libraries = DEFAULT_MEDIA_LIBRARIES) {
+    await Promise.all(libraries.map(library => mkdir(library.path, { recursive: true })));
     const createdLibraries = await evaluateWithRetry(page, async (librarySeed) => {
         const existing = await window.ApiClient.getVirtualFolders();
         const created = [];
@@ -180,7 +186,10 @@ export async function ensureMediaLibraries(page, libraries = DEFAULT_MEDIA_LIBRA
                 continue;
             }
 
-            await window.ApiClient.addVirtualFolder(library.name, library.type, true, {
+            // Defer the refresh until every library exists. Refreshing once per
+            // folder races the scan against the next folder and can deadlock
+            // MariaDB while image metadata is being persisted.
+            await window.ApiClient.addVirtualFolder(library.name, library.type, false, {
                 PathInfos: [
                     { Path: library.path }
                 ]
@@ -249,8 +258,10 @@ export async function ensureMediaLibrariesReady(page, options = {}) {
         { maxAttempts: 2, initialDelayMs: 500 }
     );
 
-    await page.waitForTimeout(options.settleMs ?? 60_000);
-    return null;
+    return waitForMediaRecognition(page, {
+        timeoutMs: options.timeoutMs ?? 120_000,
+        pollIntervalMs: options.pollIntervalMs ?? 2_000
+    });
 }
 
 export async function getVirtualFolders(page) {
@@ -305,7 +316,9 @@ export async function getFirstItemFromVirtualFolder(page, folderId) {
                 ParentId: parentId,
                 Limit: 1,
                 Recursive: true,
-                Fields: 'PrimaryImageAspectRatio,ParentId,Path,ProviderIds'
+                IncludeItemTypes: 'Movie',
+                MediaTypes: 'Video',
+                Fields: 'PrimaryImageAspectRatio,ParentId,Path,ProviderIds,Type,MediaType'
             });
             const item = result?.Items?.[0];
 
@@ -315,7 +328,81 @@ export async function getFirstItemFromVirtualFolder(page, folderId) {
 
             return {
                 id: item.Id,
-                name: item.Name || item.Id
+                name: item.Name || item.Id,
+                type: item.Type
+            };
+        },
+        folderId,
+        { maxAttempts: 2, initialDelayMs: 500 }
+    );
+}
+
+export async function getVirtualFolderItemByName(page, folderId, exactName) {
+    if (!folderId || !exactName) {
+        return null;
+    }
+
+    return evaluateWithRetry(
+        page,
+        async ({ parentId, itemName }) => {
+            const result = await window.ApiClient.getItems(window.ApiClient.getCurrentUserId(), {
+                ParentId: parentId,
+                Limit: 1000,
+                Recursive: true,
+                IncludeItemTypes: 'Movie',
+                MediaTypes: 'Video',
+                Fields: 'Path,MediaType,RunTimeTicks,Name,Type'
+            });
+            const item = (result?.Items || []).find(candidate => candidate?.Name === itemName);
+
+            if (!item?.Id) {
+                return null;
+            }
+
+            return {
+                id: item.Id,
+                name: item.Name,
+                path: item.Path,
+                runtimeTicks: Number(item.RunTimeTicks || 0),
+                type: item.Type
+            };
+        },
+        { parentId: folderId, itemName: exactName },
+        { maxAttempts: 2, initialDelayMs: 500 }
+    );
+}
+
+export async function getVirtualFolderItemDiagnostics(page, folderId) {
+    return evaluateWithRetry(
+        page,
+        async (parentId) => {
+            const api = window.ApiClient;
+            const folders = await api.getVirtualFolders();
+            const folder = folders?.find(item => (item?.ItemId || item?.Id) === parentId) || null;
+            const counts = await api.getItemCounts(api.getCurrentUserId());
+            const query = await api.getItems(api.getCurrentUserId(), {
+                ParentId: parentId,
+                Limit: 10,
+                Recursive: true,
+                Fields: 'Path,ParentId,MediaType,Name'
+            });
+
+            return {
+                folder: folder && {
+                    id: folder.Id,
+                    itemId: folder.ItemId,
+                    name: folder.Name,
+                    collectionType: folder.CollectionType,
+                    paths: folder.PathInfos?.map(info => info.Path) || []
+                },
+                counts,
+                queryTotal: query?.TotalRecordCount ?? null,
+                items: (query?.Items || []).map(item => ({
+                    id: item.Id,
+                    name: item.Name,
+                    path: item.Path,
+                    mediaType: item.MediaType
+                }))
             };
         },
         folderId,

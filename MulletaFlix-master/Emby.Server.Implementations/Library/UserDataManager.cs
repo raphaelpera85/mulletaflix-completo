@@ -90,8 +90,7 @@ namespace Emby.Server.Implementations.Library
 
                     foreach (var key in keys)
                     {
-                        userData.Key = key;
-                        var userDataEntry = Map(userData, user.Id, item.Id);
+                        var userDataEntry = Map(userData, key, user.Id, item.Id);
                         if (existingEntries.TryGetValue(key, out var existingEntry))
                         {
                             ApplyUserData(existingEntry, userDataEntry);
@@ -173,12 +172,12 @@ namespace Emby.Server.Implementations.Library
             SaveUserData(user, item, userData, reason, CancellationToken.None);
         }
 
-        private UserData Map(UserItemData dto, Guid userId, Guid itemId)
+        private UserData Map(UserItemData dto, string key, Guid userId, Guid itemId)
         {
             return new UserData()
             {
                 ItemId = itemId,
-                CustomDataKey = dto.Key,
+                CustomDataKey = key,
                 Item = null,
                 User = null,
                 AudioStreamIndex = dto.AudioStreamIndex,

@@ -13,7 +13,7 @@ namespace MulletaFlix.Api.Caching;
 /// </summary>
 /// <remarks>
 /// Only cacheable when the request carries a <c>PlaySessionId</c> and <c>MediaSourceId</c> and is not a live
-/// stream (live streams have side-effecting close semantics on <see cref="StreamState.Dispose"/> that make
+/// stream (live streams have side-effecting close semantics on <see cref="StreamState.Dispose()"/> that make
 /// sharing a single instance across requests risky). The cache key additionally folds in every request field
 /// that can change the resulting encoding (audio/subtitle/video stream index, bitrate, codec, resolution, ...),
 /// so switching an audio or subtitle track mid-stream — which changes those fields — naturally misses the cache

@@ -181,7 +181,8 @@ public class NebulaStreamEngineTests
         using var context = new NebulaMongoContext(
             "mongodb://user:SensitivePassword@127.0.0.1:1/SensitiveDatabase?serverSelectionTimeoutMS=100&connectTimeoutMS=100",
             "test",
-            NullLogger<NebulaMongoContext>.Instance);
+            NullLogger<NebulaMongoContext>.Instance,
+            TimeSpan.FromMilliseconds(100));
 
         await Assert.ThrowsAnyAsync<Exception>(() => context.GetUploadQueueSummaryAsync(TestContext.Current.CancellationToken));
 

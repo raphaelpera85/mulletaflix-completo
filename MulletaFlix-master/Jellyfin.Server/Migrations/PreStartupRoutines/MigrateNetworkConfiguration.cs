@@ -1,10 +1,11 @@
-﻿#pragma warning disable CS0618 // obsolete
+#pragma warning disable CS0618 // obsolete
 
 using System;
 using System.IO;
 using System.Xml;
 using System.Xml.Serialization;
 using Emby.Server.Implementations;
+using MediaBrowser.Common.Configuration;
 using MediaBrowser.Common.Net;
 using Microsoft.Extensions.Logging;
 
@@ -100,8 +101,11 @@ public class MigrateNetworkConfiguration : IMigrationRoutine
 
         var networkConfigSerializer = new XmlSerializer(typeof(NetworkConfiguration));
         var xmlWriterSettings = new XmlWriterSettings { Indent = true };
-        using var xmlWriter = XmlWriter.Create(path, xmlWriterSettings);
-        networkConfigSerializer.Serialize(xmlWriter, networkConfiguration);
+        ProtectedConfigurationWriter.PersistXml(path, stream =>
+        {
+            using var xmlWriter = XmlWriter.Create(stream, xmlWriterSettings);
+            networkConfigSerializer.Serialize(xmlWriter, networkConfiguration);
+        });
     }
 
 #pragma warning disable

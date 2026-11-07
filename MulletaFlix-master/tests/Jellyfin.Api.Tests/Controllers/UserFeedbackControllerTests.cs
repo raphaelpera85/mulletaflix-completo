@@ -110,6 +110,37 @@ public class UserFeedbackControllerTests
     }
 
     [Fact]
+    public async Task CreateMediaRequest_ReturnsServiceUnavailableWhenPriorityCannotBePersisted()
+    {
+        var activityManager = new Mock<IActivityManager>();
+        activityManager.Setup(manager => manager.CreateAsync(It.IsAny<ActivityLog>()))
+            .Returns(Task.CompletedTask);
+        var nebulaManager = new Mock<INebulaFtpManager>();
+        nebulaManager.Setup(manager => manager.PrioritizeMedia(string.Empty, null, "Requested Title"))
+            .Throws(new InvalidOperationException("priority persistence failed"));
+        var controller = new UserFeedbackController(activityManager.Object, Mock.Of<ILibraryManager>(), nebulaManager.Object);
+        controller.ControllerContext = new ControllerContext
+        {
+            HttpContext = new DefaultHttpContext
+            {
+                User = new ClaimsPrincipal(new ClaimsIdentity(
+                    [new Claim(InternalClaimTypes.UserId, Guid.NewGuid().ToString("D"))],
+                    "test"))
+            }
+        };
+
+        var result = await controller.CreateMediaRequest(new MediaRequestDto
+        {
+            Title = "Requested Title",
+            MediaType = "Movie"
+        });
+
+        Assert.IsType<StatusCodeResult>(result);
+        Assert.Equal(StatusCodes.Status503ServiceUnavailable, ((StatusCodeResult)result).StatusCode);
+        activityManager.Verify(manager => manager.CreateAsync(It.IsAny<ActivityLog>()), Times.Once);
+    }
+
+    [Fact]
     public async Task CreatePlaybackIssue_RejectsApiKeyWithoutUserBeforeLibraryLookup()
     {
         var libraryManager = new Mock<ILibraryManager>();

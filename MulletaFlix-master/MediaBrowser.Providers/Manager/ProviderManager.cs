@@ -12,10 +12,6 @@ using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 using AsyncKeyedLock;
-using MulletaFlix.Data.Enums;
-using MulletaFlix.Data.Events;
-using MulletaFlix.Extensions;
-using MulletaFlix.Extensions.Json;
 using MediaBrowser.Common.Net;
 using MediaBrowser.Controller;
 using MediaBrowser.Controller.BaseItemManager;
@@ -39,6 +35,10 @@ using MediaBrowser.Model.Providers;
 using MediaBrowser.Model.Querying;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging;
+using MulletaFlix.Data.Enums;
+using MulletaFlix.Data.Events;
+using MulletaFlix.Extensions;
+using MulletaFlix.Extensions.Json;
 using Book = MediaBrowser.Controller.Entities.Book;
 using Episode = MediaBrowser.Controller.Entities.TV.Episode;
 using Movie = MediaBrowser.Controller.Entities.Movies.Movie;
@@ -65,6 +65,12 @@ namespace MediaBrowser.Providers.Manager
         private readonly IServerConfigurationManager _configurationManager;
         private readonly IBaseItemManager _baseItemManager;
         private readonly ConcurrentDictionary<Guid, double> _activeRefreshes = new();
+        // Metadata refresh also mutates indexed images, so updates for one item must not overlap.
+        private readonly AsyncKeyedLocker<Guid> _itemRefreshLock = new(o =>
+        {
+            o.PoolSize = 20;
+            o.PoolInitialFill = 1;
+        });
         private readonly CancellationTokenSource _disposeCancellationTokenSource = new();
         private readonly PriorityQueue<(Guid ItemId, MetadataRefreshOptions RefreshOptions), RefreshPriority> _refreshQueue = new();
         private readonly IMemoryCache _memoryCache;
@@ -178,20 +184,23 @@ namespace MediaBrowser.Providers.Manager
         }
 
         /// <inheritdoc/>
-        public Task<ItemUpdateType> RefreshSingleItem(BaseItem item, MetadataRefreshOptions options, CancellationToken cancellationToken)
+        public async Task<ItemUpdateType> RefreshSingleItem(BaseItem item, MetadataRefreshOptions options, CancellationToken cancellationToken)
         {
-            var type = item.GetType();
-
-            var service = _metadataServices.FirstOrDefault(current => current.CanRefreshPrimary(type))
-                ?? _metadataServices.FirstOrDefault(current => current.CanRefresh(item));
-
-            if (service is null)
+            using (await _itemRefreshLock.LockAsync(item.Id, cancellationToken).ConfigureAwait(false))
             {
-                _logger.LogError("Unable to find a metadata service for item of type {TypeName}", type.Name);
-                return Task.FromResult(ItemUpdateType.None);
-            }
+                var type = item.GetType();
 
-            return service.RefreshMetadata(item, options, cancellationToken);
+                var service = _metadataServices.FirstOrDefault(current => current.CanRefreshPrimary(type))
+                    ?? _metadataServices.FirstOrDefault(current => current.CanRefresh(item));
+
+                if (service is null)
+                {
+                    _logger.LogError("Unable to find a metadata service for item of type {TypeName}", type.Name);
+                    return ItemUpdateType.None;
+                }
+
+                return await service.RefreshMetadata(item, options, cancellationToken).ConfigureAwait(false);
+            }
         }
 
         /// <inheritdoc/>
@@ -355,13 +364,29 @@ namespace MediaBrowser.Providers.Manager
                 providers = providers.Where(i => i.GetSupportedImages(item).Contains(query.ImageType.Value));
             }
 
-            var preferredLanguage = item.GetPreferredMetadataLanguage();
+            var preferredLanguage = string.IsNullOrWhiteSpace(query.PreferredMetadataLanguage)
+                ? _configurationManager.Configuration.PreferredMetadataLanguage
+                : query.PreferredMetadataLanguage;
+            if (string.IsNullOrWhiteSpace(preferredLanguage))
+            {
+                preferredLanguage = item.GetPreferredMetadataLanguage();
+            }
 
-            var tasks = providers.Select(i => GetImages(item, i, preferredLanguage, query.IncludeAllLanguages, cancellationToken, query.ImageType));
+            var preferredCountryCode = string.IsNullOrWhiteSpace(query.PreferredMetadataCountryCode)
+                ? _configurationManager.Configuration.MetadataCountryCode
+                : query.PreferredMetadataCountryCode;
+            if (string.IsNullOrWhiteSpace(preferredCountryCode))
+            {
+                preferredCountryCode = item.GetPreferredMetadataCountryCode();
+            }
+
+            preferredLanguage = MediaBrowser.Model.Extensions.EnumerableExtensions.NormalizeLanguageTag(preferredLanguage, preferredCountryCode);
+
+            var tasks = providers.Select(i => GetImages(item, i, preferredLanguage, preferredCountryCode, query.IncludeAllLanguages, cancellationToken, query.ImageType));
 
             var results = await Task.WhenAll(tasks).ConfigureAwait(false);
 
-            return results.SelectMany(i => i);
+            return results.SelectMany(i => i).OrderByLanguageDescending(preferredLanguage);
         }
 
         /// <summary>
@@ -370,6 +395,7 @@ namespace MediaBrowser.Providers.Manager
         /// <param name="item">The item.</param>
         /// <param name="provider">The provider.</param>
         /// <param name="preferredLanguage">The preferred language.</param>
+        /// <param name="preferredCountryCode">The preferred country code.</param>
         /// <param name="includeAllLanguages">Whether to include all languages in results.</param>
         /// <param name="cancellationToken">The cancellation token.</param>
         /// <param name="type">The type.</param>
@@ -378,6 +404,7 @@ namespace MediaBrowser.Providers.Manager
             BaseItem item,
             IRemoteImageProvider provider,
             string preferredLanguage,
+            string preferredCountryCode,
             bool includeAllLanguages,
             CancellationToken cancellationToken,
             ImageType? type = null)
@@ -386,7 +413,9 @@ namespace MediaBrowser.Providers.Manager
 
             try
             {
-                var result = await provider.GetImages(item, cancellationToken).ConfigureAwait(false);
+                var result = provider is ILanguageAwareRemoteImageProvider languageAwareProvider
+                    ? await languageAwareProvider.GetImages(item, preferredLanguage, preferredCountryCode, includeAllLanguages, cancellationToken).ConfigureAwait(false)
+                    : await provider.GetImages(item, cancellationToken).ConfigureAwait(false);
 
                 if (type.HasValue)
                 {
@@ -399,8 +428,8 @@ namespace MediaBrowser.Providers.Manager
                     //
                     // TODO: should exception case of "en" (English) eventually be removed?
                     result = result.Where(i => string.IsNullOrWhiteSpace(i.Language) ||
-                                               string.Equals(preferredLanguage, i.Language, StringComparison.OrdinalIgnoreCase) ||
-                                               string.Equals(i.Language, "en", StringComparison.OrdinalIgnoreCase));
+                                               MediaBrowser.Model.Extensions.EnumerableExtensions.IsLanguageMatch(i.Language, preferredLanguage) ||
+                                               MediaBrowser.Model.Extensions.EnumerableExtensions.IsLanguageMatch(i.Language, "en"));
                 }
 
                 return result.OrderByLanguageDescending(preferredLanguage);
@@ -1064,18 +1093,28 @@ namespace MediaBrowser.Providers.Manager
             return resultList;
         }
 
-        private static string NormalizeRemoteSearchName(string name, int? existingYear, out int? parsedYear)
+        internal static string NormalizeRemoteSearchName(string name, int? existingYear, out int? parsedYear)
         {
             parsedYear = existingYear;
             var cleaned = name.Trim();
 
-            var yearMatch = Regex.Match(cleaned, @"(?:^|[\s\(\[])(?<year>(?:19|20)\d{2})(?:$|[\s\)\]])");
+            var isOnlyYear = Regex.IsMatch(cleaned, @"^(?:19|20)\d{2}$");
+            var yearMatch = isOnlyYear
+                ? Match.Empty
+                : Regex.Match(cleaned, @"(?:^|[\s\(\[._-])(?<year>(?:19|20)\d{2})(?:$|[\s\)\]._\-])");
             if (!parsedYear.HasValue && yearMatch.Success && int.TryParse(yearMatch.Groups["year"].Value, CultureInfo.InvariantCulture, out var year))
             {
                 parsedYear = year;
             }
 
-            cleaned = Regex.Replace(cleaned, @"[\(\[]\s*(?:19|20)\d{2}\s*[\)\]]", " ");
+            if (yearMatch.Success)
+            {
+                cleaned = cleaned.Remove(yearMatch.Groups["year"].Index, yearMatch.Groups["year"].Length);
+            }
+
+            cleaned = cleaned.Replace('.', ' ');
+            cleaned = cleaned.Replace('_', ' ');
+            cleaned = cleaned.Replace(':', ' ');
             cleaned = Regex.Replace(
                 cleaned,
                 @"(?i)[\(\[]\s*(?:LEG|DUB|DUBLADO|LEGENDADO|DUAL\s*AUDIO|PT[-_\s]?BR|PORTUGU[EÊ]S|SUBBED|SUB|MULTI|NACIONAL)\s*[\)\]]",
@@ -1085,9 +1124,6 @@ namespace MediaBrowser.Providers.Manager
                 @"(?i)\b(?:LEG|DUB|DUBLADO|LEGENDADO|DUAL\s*AUDIO|PT[-_\s]?BR|PORTUGU[EÊ]S|SUBBED|SUB|MULTI|1080[pi]|2160[pi]|720[pi]|480[pi]|576[pi]|WEB[-_\s]?DL|WEBRip|Blu[-_\s]?Ray|BRRip|HDRip|DVDRip|DVD|HDTV|REMUX|REPACK|EXTENDED|x264|x265|h264|h265|HEVC|AVC|AV1|AAC|DTS|TRUEHD|ATMOS)\b",
                 " ");
 
-            cleaned = cleaned.Replace('.', ' ');
-            cleaned = cleaned.Replace('_', ' ');
-            cleaned = cleaned.Replace(':', ' ');
             cleaned = Regex.Replace(cleaned, @"[^\p{L}\p{N}\s'\-]", " ");
             cleaned = Regex.Replace(cleaned, @"\s+", " ").Trim().Trim('-');
 
@@ -1318,6 +1354,11 @@ namespace MediaBrowser.Providers.Manager
             // ordering, or an index exception).
             lock (_refreshQueueLock)
             {
+                if (_disposed)
+                {
+                    return;
+                }
+
                 _refreshQueue.Enqueue((itemId, options), priority);
 
                 if (!_isProcessingRefreshQueue)
@@ -1331,53 +1372,98 @@ namespace MediaBrowser.Providers.Manager
         private async Task StartProcessingRefreshQueue()
         {
             var libraryManager = _libraryManager;
-
-            if (_disposed)
-            {
-                return;
-            }
-
-            var cancellationToken = _disposeCancellationTokenSource.Token;
-
-            libraryManager.ClearIgnoreRuleCache();
-
-            var tasks = new List<Task>();
+            var queueOwnershipReleased = false;
             try
             {
-                // Drain the entire queue, launching items as tasks. Concurrency is gated inside
-                // ProcessRefreshItemAsync via _refreshConcurrency, allowing I/O idle time of one
-                // item to overlap with active processing of others. Each TryDequeue is taken under
-                // _refreshQueueLock because PriorityQueue is not thread-safe against concurrent
-                // Enqueue from QueueRefresh. The lock is never held across an await, so the drain
-                // loop itself stays synchronous and short.
-                while (true)
+                CancellationToken cancellationToken;
+                lock (_refreshQueueLock)
                 {
                     if (_disposed)
                     {
                         return;
                     }
 
-                    (Guid ItemId, MetadataRefreshOptions RefreshOptions) refreshItem;
+                    cancellationToken = _disposeCancellationTokenSource.Token;
+                }
+
+                ClearIgnoreRuleCache();
+
+                while (true)
+                {
+                    var tasks = new List<Task>();
+                    // Drain one batch, launching items as tasks. Concurrency is gated inside
+                    // ProcessRefreshItemAsync via _refreshConcurrency. Each TryDequeue is taken
+                    // under _refreshQueueLock because PriorityQueue is not thread-safe against
+                    // concurrent Enqueue from QueueRefresh.
+                    while (true)
+                    {
+                        if (_disposed)
+                        {
+                            return;
+                        }
+
+                        (Guid ItemId, MetadataRefreshOptions RefreshOptions) refreshItem;
+                        lock (_refreshQueueLock)
+                        {
+                            if (!_refreshQueue.TryDequeue(out refreshItem, out _))
+                            {
+                                break;
+                            }
+                        }
+
+                        tasks.Add(ProcessRefreshItemAsync(refreshItem, libraryManager, cancellationToken));
+                    }
+
+                    await Task.WhenAll(tasks).ConfigureAwait(false);
+
+                    // Keep ownership while the batch runs, then atomically check for work queued
+                    // during that wait. QueueRefresh can start a worker only after ownership is
+                    // released under this same lock.
                     lock (_refreshQueueLock)
                     {
-                        if (!_refreshQueue.TryDequeue(out refreshItem, out _))
+                        if (_refreshQueue.Count == 0)
                         {
+                            _isProcessingRefreshQueue = false;
+                            queueOwnershipReleased = true;
                             break;
                         }
                     }
-
-                    tasks.Add(ProcessRefreshItemAsync(refreshItem, libraryManager, cancellationToken));
                 }
-
-                await Task.WhenAll(tasks).ConfigureAwait(false);
             }
             finally
             {
-                lock (_refreshQueueLock)
+                var restartWorker = false;
+                if (!queueOwnershipReleased)
                 {
-                    _isProcessingRefreshQueue = false;
-                    libraryManager.ClearIgnoreRuleCache();
+                    lock (_refreshQueueLock)
+                    {
+                        _isProcessingRefreshQueue = false;
+                        if (!_disposed && _refreshQueue.Count > 0)
+                        {
+                            _isProcessingRefreshQueue = true;
+                            restartWorker = true;
+                        }
+                    }
                 }
+
+                if (restartWorker)
+                {
+                    _ = Task.Run(StartProcessingRefreshQueue);
+                }
+
+                ClearIgnoreRuleCache();
+            }
+        }
+
+        private void ClearIgnoreRuleCache()
+        {
+            try
+            {
+                _libraryManager.ClearIgnoreRuleCache();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to clear the library ignore rule cache after metadata refresh");
             }
         }
 
@@ -1497,9 +1583,14 @@ namespace MediaBrowser.Providers.Manager
         /// <param name="disposing"><c>true</c> to release both managed and unmanaged resources; <c>false</c> to release only unmanaged resources.</param>
         protected virtual void Dispose(bool disposing)
         {
-            if (_disposed)
+            lock (_refreshQueueLock)
             {
-                return;
+                if (_disposed)
+                {
+                    return;
+                }
+
+                _disposed = true;
             }
 
             if (disposing)
@@ -1512,10 +1603,10 @@ namespace MediaBrowser.Providers.Manager
                 }
 
                 _disposeCancellationTokenSource.Dispose();
+                _itemRefreshLock.Dispose();
                 _imageSaveLock.Dispose();
             }
 
-            _disposed = true;
         }
 
         private void OnLibraryOptionsUpdated(object? sender, LibraryOptionsUpdatedEventArgs e)

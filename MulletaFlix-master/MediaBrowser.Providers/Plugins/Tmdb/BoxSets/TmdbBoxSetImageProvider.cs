@@ -17,7 +17,7 @@ namespace MediaBrowser.Providers.Plugins.Tmdb.BoxSets
     /// <summary>
     /// BoxSet image provider powered by TMDb.
     /// </summary>
-    public class TmdbBoxSetImageProvider : IRemoteImageProvider, IHasOrder
+    public class TmdbBoxSetImageProvider : ILanguageAwareRemoteImageProvider, IHasOrder
     {
         private readonly IHttpClientFactory _httpClientFactory;
         private readonly TmdbClientManager _tmdbClientManager;
@@ -54,8 +54,22 @@ namespace MediaBrowser.Providers.Plugins.Tmdb.BoxSets
         ];
 
         /// <inheritdoc />
-        public async Task<IEnumerable<RemoteImageInfo>> GetImages(BaseItem item, CancellationToken cancellationToken)
+        public Task<IEnumerable<RemoteImageInfo>> GetImages(BaseItem item, CancellationToken cancellationToken)
         {
+            return GetImages(item, item.GetPreferredMetadataLanguage(), item.GetPreferredMetadataCountryCode(), cancellationToken);
+        }
+
+        /// <inheritdoc />
+        public async Task<IEnumerable<RemoteImageInfo>> GetImages(BaseItem item, string metadataLanguage, string metadataCountryCode, CancellationToken cancellationToken)
+        {
+            return await GetImages(item, metadataLanguage, metadataCountryCode, false, cancellationToken).ConfigureAwait(false);
+        }
+
+        /// <inheritdoc />
+        public async Task<IEnumerable<RemoteImageInfo>> GetImages(BaseItem item, string metadataLanguage, string metadataCountryCode, bool includeAllLanguages, CancellationToken cancellationToken)
+        {
+            var language = TmdbUtils.GetImageQueryLanguage(metadataLanguage, includeAllLanguages);
+            var countryCode = metadataCountryCode;
             var tmdbId = Convert.ToInt32(item.GetProviderId(MetadataProvider.Tmdb), CultureInfo.InvariantCulture);
 
             if (tmdbId <= 0)
@@ -63,14 +77,11 @@ namespace MediaBrowser.Providers.Plugins.Tmdb.BoxSets
                 return Enumerable.Empty<RemoteImageInfo>();
             }
 
-            var language = item.GetPreferredMetadataLanguage();
-            var countryCode = item.GetPreferredMetadataCountryCode();
-
             var collection = await _tmdbClientManager
                 .GetCollectionAsync(
                     tmdbId,
                     language,
-                    TmdbUtils.GetImageLanguagesParam(language, countryCode),
+                    TmdbUtils.GetImageLanguagesParam(language, countryCode, includeAllLanguages),
                     countryCode,
                     cancellationToken)
                 .ConfigureAwait(false);
@@ -86,12 +97,12 @@ namespace MediaBrowser.Providers.Plugins.Tmdb.BoxSets
 
             if (posters is not null)
             {
-                remoteImages.AddRange(_tmdbClientManager.ConvertPostersToRemoteImageInfo(posters, language));
+                remoteImages.AddRange(_tmdbClientManager.ConvertPostersToRemoteImageInfo(posters, metadataLanguage));
             }
 
             if (backdrops is not null)
             {
-                remoteImages.AddRange(_tmdbClientManager.ConvertBackdropsToRemoteImageInfo(backdrops, language));
+                remoteImages.AddRange(_tmdbClientManager.ConvertBackdropsToRemoteImageInfo(backdrops, metadataLanguage));
             }
 
             return remoteImages;

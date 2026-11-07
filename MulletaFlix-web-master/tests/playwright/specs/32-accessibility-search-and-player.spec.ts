@@ -74,7 +74,9 @@ test('Search and Player pages meet automated WCAG 2.2 AA accessibility checks at
     // We'll try to find and click the first playable media item
     const firstPlayableLink = page.locator('a[href*="/details"]').first();
     if (await firstPlayableLink.isVisible()) {
-        await firstPlayableLink.click();
+        // The pointer overlay is a sibling layered over the image link; activate the link as a keyboard user would.
+        await firstPlayableLink.focus();
+        await firstPlayableLink.press('Enter');
         await expect(page.locator('#itemDetailsPage')).toBeVisible({ timeout: 30_000 });
 
         // Try to find and click a play button to navigate to the player

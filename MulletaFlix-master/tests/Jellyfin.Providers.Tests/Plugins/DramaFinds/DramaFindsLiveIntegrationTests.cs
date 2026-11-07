@@ -14,10 +14,8 @@ namespace Jellyfin.Providers.Tests.Plugins.DramaFinds
     /// Live verification against the real DramaFinds API.
     /// </summary>
     /// <remarks>
-    /// The type name deliberately contains "Integration" so the CI filter
-    /// (FullyQualifiedName!~Integration) skips it: it reaches the public internet and must never
-    /// gate a build. Run it on demand with
-    /// <c>dotnet test --filter "FullyQualifiedName~DramaFindsLiveIntegration"</c>.
+    /// Tests are skipped by default and reach the public internet only when the explicit live-provider
+    /// environment switch is set.
     /// It exists because every other test in this folder uses a captured payload, and a captured
     /// payload cannot prove that the client still speaks what the API serves today — in particular
     /// that the Guest-Id header is still accepted and that the cover still resolves unsigned.
@@ -27,6 +25,7 @@ namespace Jellyfin.Providers.Tests.Plugins.DramaFinds
         [Fact]
         public async Task SearchAndDetail_WorkAgainstTheRealApi()
         {
+            LiveProviderIntegrationTestEnvironment.SkipUnlessEnabled();
             using var client = CreateClient();
 
             // The endpoint is fuzzy by substring, so the exact title is the only query that is

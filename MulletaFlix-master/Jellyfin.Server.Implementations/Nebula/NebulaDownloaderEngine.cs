@@ -367,7 +367,9 @@ public sealed class NebulaDownloaderEngine : IAsyncDisposable, IDisposable
             try
             {
                 var fullPath = Path.GetFullPath(path);
-                if (!Directory.Exists(fullPath) || NebulaStagingWatcher.IsFileSystemRoot(fullPath))
+                if (!Directory.Exists(fullPath)
+                    || NebulaStagingWatcher.IsFileSystemRoot(fullPath)
+                    || !NebulaPathSafety.IsPathWithinRoot(fullPath, fullPath))
                 {
                     continue;
                 }
@@ -386,6 +388,13 @@ public sealed class NebulaDownloaderEngine : IAsyncDisposable, IDisposable
 
         return sources;
     }
+
+    internal static IEnumerable<string> EnumerateFilesWithoutReparsePoints(string path, string searchPattern)
+        => Directory.EnumerateFiles(path, searchPattern, new EnumerationOptions
+        {
+            RecurseSubdirectories = true,
+            AttributesToSkip = FileAttributes.ReparsePoint
+        });
 
     /// <summary>
     /// Interrompe o processo de download de forma limpa.
@@ -471,7 +480,7 @@ public sealed class NebulaDownloaderEngine : IAsyncDisposable, IDisposable
                         // every 60 seconds on a host that was paging. Only mediaFiles and
                         // prioritizedList remain. An error mid-enumeration now keeps what was already
                         // found for this source instead of discarding the whole source.
-                        foreach (var f in Directory.EnumerateFiles(src, "*.*", SearchOption.AllDirectories))
+                        foreach (var f in EnumerateFilesWithoutReparsePoints(src, "*.*"))
                         {
                             var name = Path.GetFileName(f);
                             if (string.IsNullOrWhiteSpace(name) || name.StartsWith('.'))
@@ -1232,6 +1241,11 @@ public sealed class NebulaDownloaderEngine : IAsyncDisposable, IDisposable
                     }
                 }
 
+                if (totalRead == 0)
+                {
+                    throw new IOException("Download sequencial vazio: o servidor não enviou bytes da mídia.");
+                }
+
                 if (totalSize > 0 && totalRead != totalSize)
                 {
                     throw new IOException($"Download sequencial incompleto: {totalRead} de {totalSize} bytes.");
@@ -1251,6 +1265,7 @@ public sealed class NebulaDownloaderEngine : IAsyncDisposable, IDisposable
                 var partDownloadedAmounts = new long[partsCount];
                 var progressLock = new object();
                 var startTime = DateTime.UtcNow;
+                long lastProgressReportTimestamp = Stopwatch.GetTimestamp() - Stopwatch.Frequency / 4;
                 var nextPercent = 1;
                 long lastLoggedBytes = 0;
 
@@ -1337,7 +1352,6 @@ public sealed class NebulaDownloaderEngine : IAsyncDisposable, IDisposable
                                 var buf = new byte[64 * 1024];
                                 int r;
                                 long partBytesRead = 0;
-                                var lastProgressReport = DateTime.MinValue;
                                 while ((r = await stream.ReadAsync(buf, 0, buf.Length, readCts.Token).ConfigureAwait(false)) > 0)
                                 {
                                     readCts.CancelAfter(TimeSpan.FromSeconds(45));
@@ -1355,12 +1369,10 @@ public sealed class NebulaDownloaderEngine : IAsyncDisposable, IDisposable
                                     partDownloadedAmounts[index] = partBytesRead;
 
                                     var now = DateTime.UtcNow;
-                                    if (now - lastProgressReport < TimeSpan.FromMilliseconds(250))
+                                    if (!TryReserveProgressReport(ref lastProgressReportTimestamp, Stopwatch.GetTimestamp()))
                                     {
                                         continue;
                                     }
-
-                                    lastProgressReport = now;
 
                                     long currentDownloaded;
                                     lock (progressLock)
@@ -1468,6 +1480,24 @@ public sealed class NebulaDownloaderEngine : IAsyncDisposable, IDisposable
             }
 
             throw;
+        }
+    }
+
+    internal static bool TryReserveProgressReport(ref long lastTimestamp, long nowTimestamp)
+    {
+        var intervalTicks = Stopwatch.Frequency / 4;
+        while (true)
+        {
+            var previousTimestamp = Interlocked.Read(ref lastTimestamp);
+            if (nowTimestamp - previousTimestamp < intervalTicks)
+            {
+                return false;
+            }
+
+            if (Interlocked.CompareExchange(ref lastTimestamp, nowTimestamp, previousTimestamp) == previousTimestamp)
+            {
+                return true;
+            }
         }
     }
 
@@ -2036,7 +2066,12 @@ public sealed class NebulaDownloaderEngine : IAsyncDisposable, IDisposable
 
         try
         {
-            var stageFiles = Directory.EnumerateFiles(targetStageDir, "*", SearchOption.AllDirectories).ToList();
+            if (!NebulaPathSafety.IsPathWithinRoot(targetStageDir, targetStageDir))
+            {
+                return;
+            }
+
+            var stageFiles = EnumerateFilesWithoutReparsePoints(targetStageDir, "*").ToList();
             var hasActiveMedia = stageFiles.Any(f => SupportedMediaExtensions.Contains(Path.GetExtension(f)));
             if (!hasActiveMedia)
             {
@@ -2064,7 +2099,7 @@ public sealed class NebulaDownloaderEngine : IAsyncDisposable, IDisposable
 
                 if (!Directory.EnumerateFileSystemEntries(targetStageDir).Any())
                 {
-                    Directory.Delete(targetStageDir, true);
+                    Directory.Delete(targetStageDir);
                 }
             }
         }
@@ -2087,31 +2122,28 @@ public sealed class NebulaDownloaderEngine : IAsyncDisposable, IDisposable
         var currentDir = dirPath;
         while (!string.IsNullOrWhiteSpace(currentDir) && Directory.Exists(currentDir))
         {
-            var isRoot = monitorRoots.Any(root => string.Equals(
+            var containingRoot = monitorRoots.FirstOrDefault(root => IsPathWithinRoot(currentDir, root));
+            var isRoot = containingRoot is not null && string.Equals(
                 Path.GetFullPath(currentDir).TrimEnd('\\', '/'),
-                Path.GetFullPath(root).TrimEnd('\\', '/'),
-                StringComparison.OrdinalIgnoreCase));
+                Path.GetFullPath(containingRoot).TrimEnd('\\', '/'),
+                StringComparison.OrdinalIgnoreCase);
 
-            if (isRoot || Path.GetPathRoot(currentDir)?.TrimEnd('\\', '/') == currentDir.TrimEnd('\\', '/'))
+            if (containingRoot is null || isRoot || Path.GetPathRoot(currentDir)?.TrimEnd('\\', '/') == currentDir.TrimEnd('\\', '/'))
             {
                 break;
             }
 
             try
             {
-                var hasFiles = Directory.EnumerateFiles(currentDir, "*", SearchOption.AllDirectories).Any();
-
-                if (!hasFiles)
-                {
-                    Directory.Delete(currentDir, true);
-                    LogInfo($"Pasta vazia removida: {currentDir}");
-                    _logger.LogInformation("[NEBULA-DOWNLOADER] Pasta vazia removida: {Dir}", currentDir);
-                    currentDir = Path.GetDirectoryName(currentDir);
-                }
-                else
+                if (Directory.EnumerateFileSystemEntries(currentDir).Any())
                 {
                     break;
                 }
+
+                Directory.Delete(currentDir);
+                LogInfo($"Pasta vazia removida: {currentDir}");
+                _logger.LogInformation("[NEBULA-DOWNLOADER] Pasta vazia removida: {Dir}", currentDir);
+                currentDir = Path.GetDirectoryName(currentDir);
             }
             catch (Exception ex)
             {
@@ -2126,7 +2158,7 @@ public sealed class NebulaDownloaderEngine : IAsyncDisposable, IDisposable
     /// </summary>
     private void CleanAllEmptySubdirectories(string rootDir)
     {
-        if (!Directory.Exists(rootDir))
+        if (!Directory.Exists(rootDir) || !NebulaPathSafety.IsPathWithinRoot(rootDir, rootDir))
         {
             return;
         }
@@ -2148,17 +2180,26 @@ public sealed class NebulaDownloaderEngine : IAsyncDisposable, IDisposable
     {
         try
         {
+            if ((File.GetAttributes(dir) & FileAttributes.ReparsePoint) != 0)
+            {
+                return;
+            }
+
             foreach (var sub in Directory.GetDirectories(dir))
             {
+                if ((File.GetAttributes(sub) & FileAttributes.ReparsePoint) != 0)
+                {
+                    continue;
+                }
+
                 CleanDirectoryRecursive(sub);
             }
 
             if (Directory.Exists(dir) && !NebulaUploadEngine.IsVisibleCategoryRoot(Path.GetFileName(dir)))
             {
-                var hasFiles = Directory.EnumerateFiles(dir, "*", SearchOption.AllDirectories).Any();
-                if (!hasFiles)
+                if (!Directory.EnumerateFileSystemEntries(dir).Any())
                 {
-                    Directory.Delete(dir, true);
+                    Directory.Delete(dir);
                     LogInfo($"Pasta vazia removida: {dir}");
                     _logger.LogInformation("[NEBULA-DOWNLOADER] Pasta vazia removida: {Dir}", dir);
                 }

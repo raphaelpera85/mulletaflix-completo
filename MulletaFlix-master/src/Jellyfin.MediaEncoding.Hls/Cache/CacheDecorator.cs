@@ -4,6 +4,7 @@ using System;
 using System.Diagnostics.CodeAnalysis;
 using System.Linq;
 using System.Threading;
+using System.Threading.Tasks;
 using MulletaFlix.MediaEncoding.Hls.Extractors;
 using MulletaFlix.MediaEncoding.Keyframes;
 using MediaBrowser.Controller.Persistence;
@@ -57,6 +58,26 @@ public class CacheDecorator : IKeyframeExtractor
         }
 
         return true;
+    }
+
+    /// <inheritdoc />
+    public async ValueTask<KeyframeData?> TryExtractKeyframesAsync(Guid itemId, string filePath, CancellationToken cancellationToken)
+    {
+        var keyframeData = (await _keyframeRepository.GetKeyframeDataAsync(itemId, cancellationToken).ConfigureAwait(false)).FirstOrDefault();
+        if (keyframeData is null)
+        {
+            keyframeData = await _keyframeExtractor.TryExtractKeyframesAsync(itemId, filePath, cancellationToken).ConfigureAwait(false);
+            if (keyframeData is null)
+            {
+                _logger.LogDebug("Failed to extract keyframes using {ExtractorName}", _keyframeExtractorName);
+                return null;
+            }
+
+            _logger.LogDebug("Successfully extracted keyframes using {ExtractorName}", _keyframeExtractorName);
+            await _keyframeRepository.SaveKeyframeDataAsync(itemId, keyframeData, cancellationToken).ConfigureAwait(false);
+        }
+
+        return keyframeData;
     }
 }
 

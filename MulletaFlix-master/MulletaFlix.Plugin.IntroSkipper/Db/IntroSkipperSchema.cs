@@ -1,8 +1,12 @@
 // SPDX-FileCopyrightText: 2026 rlauuzo
 // SPDX-License-Identifier: GPL-3.0-only
 
+using System.Reflection;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
+using Microsoft.EntityFrameworkCore.Migrations.Operations;
 using Microsoft.EntityFrameworkCore.Storage;
 
 namespace IntroSkipper.Db;
@@ -27,26 +31,60 @@ public static class IntroSkipperSchema
     /// <param name="context">Context whose model defines the tables.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>A task that completes when the tables exist.</returns>
-    public static async Task EnsureAsync(DbContext context, CancellationToken cancellationToken)    {
+    public static async Task EnsureAsync(DbContext context, CancellationToken cancellationToken)
+    {
         // Creates the database when it is missing, and the full table set when the
         // schema is empty — including the first boot of a fresh installation.
         await context.Database.EnsureCreatedAsync(cancellationToken).ConfigureAwait(false);
 
-        // The database already existed, so EnsureCreated left it untouched. Create this
-        // context's tables without assuming the schema is empty; the creator emits
-        // CREATE TABLE per model table, which is exactly the set this context owns.
-        var probeTable = context.Model.GetEntityTypes()
-            .Select(entity => entity.GetTableName())
-            .First(table => !string.IsNullOrEmpty(table))!;
-        if (!await TableExistsAsync(context, probeTable, cancellationToken).ConfigureAwait(false))
+        // EnsureCreated leaves an existing schema untouched; generate DDL only for
+        // this context's missing tables so existing plugin data is never dropped.
+        var existingTables = await GetExistingTablesAsync(context, cancellationToken).ConfigureAwait(false);
+        var modelTables = context.Model.GetRelationalModel().Tables;
+        var missingTables = modelTables
+            .Where(table => !existingTables.Contains(table.Name))
+            .Select(table => table.Name)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        if (missingTables.Count > 0)
         {
-            await context.GetService<IRelationalDatabaseCreator>()
-                .CreateTablesAsync(cancellationToken)
-                .ConfigureAwait(false);
+            var operations = context.GetService<IMigrationsModelDiffer>()
+                .GetDifferences(null, context.GetService<IDesignTimeModel>().Model.GetRelationalModel())
+                .Where(operation => operation switch
+                {
+                    CreateTableOperation table => missingTables.Contains(table.Name),
+                    CreateIndexOperation index => missingTables.Contains(index.Table),
+                    _ => false
+                })
+                .ToArray();
+            var commands = context.GetService<IMigrationsSqlGenerator>().Generate(operations, context.Model);
+            foreach (var command in commands)
+            {
+                await context.Database.ExecuteSqlRawAsync(command.CommandText, cancellationToken).ConfigureAwait(false);
+            }
         }
     }
 
-    private static async Task<bool> TableExistsAsync(DbContext context, string tableName, CancellationToken cancellationToken)
+    /// <summary>
+    /// Confirms that every mapped table can serve the complete entity shape. This is used
+    /// during backup preflight so a partial table fails before the primary database commits.
+    /// </summary>
+    public static async Task ValidateAsync(DbContext context, CancellationToken cancellationToken)
+    {
+        foreach (var entityType in context.Model.GetEntityTypes())
+        {
+            var validateSet = typeof(IntroSkipperSchema)
+                .GetMethod(nameof(ValidateEntitySetAsync), BindingFlags.NonPublic | BindingFlags.Static)!
+                .MakeGenericMethod(entityType.ClrType);
+            var validation = (Task)validateSet.Invoke(null, [context, cancellationToken])!;
+            await validation.ConfigureAwait(false);
+        }
+    }
+
+    private static Task ValidateEntitySetAsync<TEntity>(DbContext context, CancellationToken cancellationToken)
+        where TEntity : class
+        => context.Set<TEntity>().AsNoTracking().Take(0).LoadAsync(cancellationToken);
+
+    private static async Task<HashSet<string>> GetExistingTablesAsync(DbContext context, CancellationToken cancellationToken)
     {
         var connection = context.Database.GetDbConnection();
         var wasOpen = connection.State == System.Data.ConnectionState.Open;
@@ -55,16 +93,18 @@ public static class IntroSkipperSchema
             await context.Database.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
         }
 
+        var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         try
         {
             await using var command = connection.CreateCommand();
-            command.CommandText = "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = @table;";
-            var parameter = command.CreateParameter();
-            parameter.ParameterName = "@table";
-            parameter.Value = tableName;
-            command.Parameters.Add(parameter);
-            var count = await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false);
-            return Convert.ToInt64(count, System.Globalization.CultureInfo.InvariantCulture) > 0;
+            command.CommandText = context.Database.ProviderName == "Microsoft.EntityFrameworkCore.Sqlite"
+                ? "SELECT name FROM sqlite_master WHERE type = 'table';"
+                : "SELECT table_name FROM information_schema.tables WHERE table_schema = DATABASE();";
+            await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+            while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+            {
+                names.Add(reader.GetString(0));
+            }
         }
         finally
         {
@@ -73,5 +113,7 @@ public static class IntroSkipperSchema
                 await context.Database.CloseConnectionAsync().ConfigureAwait(false);
             }
         }
+
+        return names;
     }
 }

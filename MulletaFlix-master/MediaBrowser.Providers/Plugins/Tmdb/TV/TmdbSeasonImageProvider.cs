@@ -17,7 +17,7 @@ namespace MediaBrowser.Providers.Plugins.Tmdb.TV
     /// <summary>
     /// TV season image provider powered by TheMovieDb.
     /// </summary>
-    public class TmdbSeasonImageProvider : IRemoteImageProvider, IHasOrder
+    public class TmdbSeasonImageProvider : ILanguageAwareRemoteImageProvider, IHasOrder
     {
         private readonly IHttpClientFactory _httpClientFactory;
         private readonly TmdbClientManager _tmdbClientManager;
@@ -52,8 +52,22 @@ namespace MediaBrowser.Providers.Plugins.Tmdb.TV
         }
 
         /// <inheritdoc />
-        public async Task<IEnumerable<RemoteImageInfo>> GetImages(BaseItem item, CancellationToken cancellationToken)
+        public Task<IEnumerable<RemoteImageInfo>> GetImages(BaseItem item, CancellationToken cancellationToken)
         {
+            return GetImages(item, item.GetPreferredMetadataLanguage(), item.GetPreferredMetadataCountryCode(), cancellationToken);
+        }
+
+        /// <inheritdoc />
+        public async Task<IEnumerable<RemoteImageInfo>> GetImages(BaseItem item, string metadataLanguage, string metadataCountryCode, CancellationToken cancellationToken)
+        {
+            return await GetImages(item, metadataLanguage, metadataCountryCode, false, cancellationToken).ConfigureAwait(false);
+        }
+
+        /// <inheritdoc />
+        public async Task<IEnumerable<RemoteImageInfo>> GetImages(BaseItem item, string metadataLanguage, string metadataCountryCode, bool includeAllLanguages, CancellationToken cancellationToken)
+        {
+            var language = TmdbUtils.GetImageQueryLanguage(metadataLanguage, includeAllLanguages);
+            var countryCode = metadataCountryCode;
             var season = (Season)item;
             var series = season?.Series;
 
@@ -64,15 +78,12 @@ namespace MediaBrowser.Providers.Plugins.Tmdb.TV
                 return Enumerable.Empty<RemoteImageInfo>();
             }
 
-            var language = item.GetPreferredMetadataLanguage();
-            var countryCode = item.GetPreferredMetadataCountryCode();
-
             var seasonResult = await _tmdbClientManager
                 .GetSeasonAsync(
                     seriesTmdbId,
                     season.IndexNumber.Value,
                     language,
-                    TmdbUtils.GetImageLanguagesParam(language, countryCode),
+                    TmdbUtils.GetImageLanguagesParam(language, countryCode, includeAllLanguages),
                     countryCode,
                     cancellationToken)
                 .ConfigureAwait(false);
@@ -83,7 +94,7 @@ namespace MediaBrowser.Providers.Plugins.Tmdb.TV
                 return Enumerable.Empty<RemoteImageInfo>();
             }
 
-            return _tmdbClientManager.ConvertPostersToRemoteImageInfo(posters, language);
+            return _tmdbClientManager.ConvertPostersToRemoteImageInfo(posters, metadataLanguage);
         }
 
         /// <inheritdoc />

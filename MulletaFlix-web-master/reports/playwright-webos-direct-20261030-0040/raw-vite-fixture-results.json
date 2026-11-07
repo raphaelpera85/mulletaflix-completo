@@ -1,0 +1,97 @@
+{
+  "config": {
+    "argv": [
+      "C:\\Program Files\\nodejs\\node.exe",
+      "C:\\Users\\Raphael\\.codex\\worktrees\\updater-fail-closed\\mulletaflix\\MulletaFlix-web-master\\node_modules\\@playwright\\test\\cli.js",
+      "test",
+      "tests/playwright/specs/24-scrollbuttons.spec.ts",
+      "tests/playwright/specs/25-myrequests.spec.ts",
+      "tests/playwright/specs/26-request-autocomplete.spec.ts",
+      "tests/playwright/specs/27-nebula-navigation.spec.ts",
+      "tests/playwright/specs/28-backup-coverage.spec.ts",
+      "tests/playwright/specs/29-accessibility.spec.ts",
+      "--config",
+      "C:\\Users\\Raphael\\.codex\\worktrees\\updater-fail-closed\\mulletaflix\\MulletaFlix-web-master\\playwright.fixtures.config.ts",
+      "--pass-with-no-tests",
+      "--grep",
+      "keeps real STRM video visible after webOS forced fullscreen exits"
+    ],
+    "configFile": "C:\\Users\\Raphael\\.codex\\worktrees\\updater-fail-closed\\mulletaflix\\MulletaFlix-web-master\\playwright.fixtures.config.ts",
+    "rootDir": "C:/Users/Raphael/.codex/worktrees/updater-fail-closed/mulletaflix/MulletaFlix-web-master/tests/playwright/specs",
+    "failOnFlakyTests": false,
+    "forbidOnly": false,
+    "fullyParallel": false,
+    "globalSetup": null,
+    "globalTeardown": null,
+    "globalTimeout": 0,
+    "grep": {},
+    "grepInvert": null,
+    "maxFailures": 0,
+    "metadata": {
+      "actualWorkers": 0
+    },
+    "preserveOutput": "always",
+    "projects": [
+      {
+        "outputDir": "C:/Users/Raphael/.codex/worktrees/updater-fail-closed/mulletaflix/MulletaFlix-web-master/test-results",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 0
+        },
+        "id": "",
+        "name": "",
+        "testDir": "C:/Users/Raphael/.codex/worktrees/updater-fail-closed/mulletaflix/MulletaFlix-web-master/tests/playwright/specs",
+        "testIgnore": [],
+        "testMatch": [
+          "24-scrollbuttons.spec.ts",
+          "25-myrequests.spec.ts",
+          "26-request-autocomplete.spec.ts",
+          "27-nebula-navigation.spec.ts",
+          "28-backup-coverage.spec.ts",
+          "29-accessibility.spec.ts"
+        ],
+        "timeout": 30000
+      }
+    ],
+    "quiet": false,
+    "reporter": [
+      [
+        "list",
+        null
+      ],
+      [
+        "json",
+        {
+          "outputFile": "C:\\Users\\Raphael\\.codex\\worktrees\\updater-fail-closed\\mulletaflix\\MulletaFlix-web-master\\reports\\playwright-webos-direct-20261030-0040\\raw-vite-fixture-results.json"
+        }
+      ]
+    ],
+    "reportSlowTests": {
+      "max": 5,
+      "threshold": 300000
+    },
+    "shard": null,
+    "tags": [],
+    "updateSnapshots": "missing",
+    "updateSourceMethod": "patch",
+    "version": "1.61.1",
+    "workers": 1,
+    "webServer": {
+      "command": "npm run serve -- --host 127.0.0.1 --port 18197 --strictPort",
+      "url": "http://127.0.0.1:18197",
+      "reuseExistingServer": false,
+      "timeout": 60000
+    }
+  },
+  "suites": [],
+  "errors": [],
+  "stats": {
+    "startTime": "2026-10-30T03:41:38.062Z",
+    "duration": 23616.056,
+    "expected": 0,
+    "skipped": 0,
+    "unexpected": 0,
+    "flaky": 0
+  }
+}

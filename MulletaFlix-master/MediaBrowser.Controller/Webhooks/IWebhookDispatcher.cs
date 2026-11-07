@@ -7,7 +7,7 @@ namespace MediaBrowser.Controller.Webhooks;
 /// Dispatches event payloads to the generic webhook endpoints configured by the admin
 /// (e.g. Discord or Telegram incoming webhook URLs). Implementations must never let a
 /// delivery failure (network error, timeout, non-2xx response) propagate to the caller:
-/// <see cref="NotifyAsync"/> is fire-and-forget from the perspective of the event pipeline.
+/// <see cref="Notify"/> is fire-and-forget from the perspective of the event pipeline.
 /// </summary>
 public interface IWebhookDispatcher
 {

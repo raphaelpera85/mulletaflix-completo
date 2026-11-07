@@ -1437,7 +1437,8 @@ public class DynamicHlsController : BaseMulletaFlixApiController
             "hls1/main/",
             Request.QueryString.ToString(),
             EncodingHelper.IsCopyCodec(state.OutputVideoCodec));
-        var playlist = _dynamicHlsPlaylistGenerator.CreateMainPlaylist(request);
+        var playlist = await _dynamicHlsPlaylistGenerator.CreateMainPlaylistAsync(request, cancellationTokenSource.Token)
+            .ConfigureAwait(false);
 
         return new FileContentResult(Encoding.UTF8.GetBytes(playlist), MimeTypes.GetMimeType("playlist.m3u8"));
     }

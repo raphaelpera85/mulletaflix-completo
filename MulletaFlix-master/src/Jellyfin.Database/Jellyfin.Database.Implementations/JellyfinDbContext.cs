@@ -99,6 +99,11 @@ public class MulletaFlixDbContext : DbContext
     public DbSet<User> Users => Set<User>();
 
     /// <summary>
+    /// Gets the playback reports written by the user-reporting context.
+    /// </summary>
+    public DbSet<PlaybackReport> PlaybackReports => Set<PlaybackReport>();
+
+    /// <summary>
     /// Gets the <see cref="DbSet{TEntity}"/> containing the user licenses.
     /// </summary>
     public DbSet<UserLicense> UserLicenses => Set<UserLicense>();
@@ -307,7 +312,9 @@ public class MulletaFlixDbContext : DbContext
     {
         HandleConcurrencyToken();
 
-        var maxRetries = 5;
+        // MariaDB rolls back the whole transaction on a deadlock; only retry SaveChanges when
+        // there is no caller-owned transaction to replay as a unit.
+        var maxRetries = Database.CurrentTransaction is null ? 5 : 0;
         var attempt = 0;
         while (true)
         {
@@ -344,7 +351,9 @@ public class MulletaFlixDbContext : DbContext
     {
         HandleConcurrencyToken();
 
-        var maxRetries = 5;
+        // MariaDB rolls back the whole transaction on a deadlock; only retry SaveChanges when
+        // there is no caller-owned transaction to replay as a unit.
+        var maxRetries = Database.CurrentTransaction is null ? 5 : 0;
         var attempt = 0;
         while (true)
         {

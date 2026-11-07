@@ -1,4 +1,5 @@
 using System;
+using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
 using MediaBrowser.Controller.Configuration;
@@ -112,6 +113,22 @@ public sealed class NebulaBackupStatusTests
         Assert.Equal(3, ((NebulaFtpConfiguration)config).SupabaseLastRestoreUsersRestored);
         Assert.Equal(2, ((NebulaFtpConfiguration)config).SupabaseLastRestoreFtpUsersRestored);
         Assert.Equal(1, ((NebulaFtpConfiguration)config).SupabaseLastRestoreAppUsersRestored);
+    }
+
+    [Fact]
+    public async Task FullRestore_RejectsBeforeReturningIncrementalIdempotencyReplay()
+    {
+        var configManager = new Mock<IServerConfigurationManager>();
+        configManager.Setup(manager => manager.GetConfiguration("nebulaftp")).Returns(new NebulaFtpConfiguration());
+        await using var manager = new NebulaFtpManager(configManager.Object, NullLogger<NebulaFtpManager>.Instance, NullLoggerFactory.Instance);
+        var cacheReplay = typeof(NebulaFtpManager).GetMethod("CacheOperationReplay", BindingFlags.Instance | BindingFlags.NonPublic)!;
+        cacheReplay.MakeGenericMethod(typeof(NebulaSupabaseRestoreResultDto)).Invoke(manager,
+        ["supabase-restore", "same-key", new NebulaSupabaseRestoreResultDto { Success = true, Message = "incremental replay" }]);
+
+        var result = await manager.RestoreSupabaseToMongoAsync("same-key", forceFull: true, TestContext.Current.CancellationToken);
+
+        Assert.False(result.Success);
+        Assert.Contains("nenhuma alteração foi feita", result.Message, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
