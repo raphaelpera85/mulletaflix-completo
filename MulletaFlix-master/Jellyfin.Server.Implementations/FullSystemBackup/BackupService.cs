@@ -462,7 +462,6 @@ public class BackupService : IBackupService, IDisposable
             return null;
         }
 
-        EnsureRecoveryJournalIsOutsideRestoreRoots(journal.JournalPath);
         using var operationLease = journal.AcquireOperationLease();
         var pendingRestore = await journal.ReadAsync().ConfigureAwait(false);
         if (pendingRestore is null)
@@ -470,6 +469,7 @@ public class BackupService : IBackupService, IDisposable
             return null;
         }
 
+        EnsureRecoveryJournalIsOutsideRestoreRoots(journal.JournalPath);
         await journal.VerifyArchiveAsync(pendingRestore).ConfigureAwait(false);
         _logger.LogCritical(
             "An interrupted full-system restore was found. Replaying backup operation {OperationId} before server initialization.",

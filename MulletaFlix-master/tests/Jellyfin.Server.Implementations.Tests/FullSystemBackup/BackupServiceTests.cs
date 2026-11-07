@@ -3053,7 +3053,27 @@ public sealed class BackupServiceTests : IDisposable
     }
 
     [Fact]
-    public async Task RecoverInterruptedRestoreAsync_RejectsJournalInsideRestoreRootBeforeCreatingLease()
+    public async Task RecoverInterruptedRestoreAsync_RejectsJournalInsideRestoreRootBeforeReplay()
+    {
+        if (!OperatingSystem.IsWindows() && !OperatingSystem.IsLinux())
+        {
+            Assert.Skip("Restore recovery requires Windows or Linux.");
+        }
+
+        _applicationPathsMock.Setup(paths => paths.ConfigurationDirectoryPath)
+            .Returns(Directory.GetParent(_testProgramDataPath)!.FullName);
+        var archivePath = Path.Combine(_testProgramDataPath, "pending-restore.zip");
+        await File.WriteAllTextAsync(archivePath, "pending restore archive");
+        await CreateRecoveryJournal(_testProgramDataPath).CreateAsync(archivePath);
+        var service = CreateService();
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => service.RecoverInterruptedRestoreAsync());
+
+        Assert.True(new BackupRestoreRecoveryJournal(_testProgramDataPath).JournalExists());
+    }
+
+    [Fact]
+    public async Task RecoverInterruptedRestoreAsync_WithoutPendingRestoreDoesNotValidateRestoreRoots()
     {
         if (!OperatingSystem.IsWindows() && !OperatingSystem.IsLinux())
         {
@@ -3064,9 +3084,8 @@ public sealed class BackupServiceTests : IDisposable
             .Returns(Directory.GetParent(_testProgramDataPath)!.FullName);
         var service = CreateService();
 
-        await Assert.ThrowsAsync<InvalidOperationException>(() => service.RecoverInterruptedRestoreAsync());
-
-        Assert.False(Directory.Exists(Path.Combine(_testProgramDataPath, "restore-recovery")));
+        Assert.Null(await service.RecoverInterruptedRestoreAsync());
+        Assert.False(new BackupRestoreRecoveryJournal(_testProgramDataPath).JournalExists());
     }
 
     [Fact]
