@@ -769,7 +769,10 @@ public class BackupService : IBackupService, IDisposable
                                     var records = 0;
                                     await foreach (var item in JsonSerializer.DeserializeAsyncEnumerable<JsonObject>(zipEntryStream, _serializerSettings).ConfigureAwait(false))
                                     {
-                                        var entity = item.Deserialize(entityType.Type.PropertyType.GetGenericArguments()[0]);
+                                        var entityClrType = entityType.Type.PropertyType.GetGenericArguments()[0];
+                                        var mappedEntityType = dbContext.Model.FindEntityType(entityClrType)
+                                            ?? throw new InvalidOperationException($"The database model does not contain DbSet entity '{entityClrType.Name}'.");
+                                        var entity = DeserializeEntity(item, entityClrType, mappedEntityType);
                                         if (entity is null)
                                         {
                                             throw new InvalidOperationException($"Cannot deserialize an entity for table '{entityType.Name}'.");
@@ -1601,7 +1604,9 @@ public class BackupService : IBackupService, IDisposable
                 {
                     await foreach (var item in JsonSerializer.DeserializeAsyncEnumerable<JsonObject>(zipEntryStream, _serializerSettings).ConfigureAwait(false))
                     {
-                        var entity = item?.Deserialize(entityType.Type, _serializerSettings);
+                        var entity = item is null
+                            ? null
+                            : DeserializeEntity(item, entityType.Type, model.FindEntityType(entityType.Type));
                         if (entity is null)
                         {
                             throw new JsonException($"The backup entry '{entryPath}' contains a null or invalid entity.");
@@ -1619,7 +1624,7 @@ public class BackupService : IBackupService, IDisposable
             }
         }
 
-        await ValidateForeignKeyReferencesAsync(zipArchive, foreignKeyPlans, principalKeys).ConfigureAwait(false);
+        await ValidateForeignKeyReferencesAsync(zipArchive, model, foreignKeyPlans, principalKeys).ConfigureAwait(false);
     }
 
     private static string GetDomainDatabaseEntryPath(string contextName, string tableName)
@@ -1706,7 +1711,9 @@ public class BackupService : IBackupService, IDisposable
                 {
                     await foreach (var item in JsonSerializer.DeserializeAsyncEnumerable<JsonObject>(zipEntryStream, _serializerSettings).ConfigureAwait(false))
                     {
-                        var entity = item?.Deserialize(entityType.Type, _serializerSettings);
+                        var entity = item is null
+                            ? null
+                            : DeserializeEntity(item, entityType.Type, context.Context.Model.FindEntityType(entityType.Type));
                         if (entity is null)
                         {
                             throw new JsonException($"The backup entry '{entryPath}' contains a null or invalid entity.");
@@ -1722,7 +1729,7 @@ public class BackupService : IBackupService, IDisposable
                 }
             }
 
-            await ValidateForeignKeyReferencesAsync(zipArchive, foreignKeyPlans, principalKeys).ConfigureAwait(false);
+            await ValidateForeignKeyReferencesAsync(zipArchive, context.Context.Model, foreignKeyPlans, principalKeys).ConfigureAwait(false);
         }
     }
 
@@ -1799,6 +1806,7 @@ public class BackupService : IBackupService, IDisposable
 
     private static async Task ValidateForeignKeyReferencesAsync(
         ZipArchive zipArchive,
+        Microsoft.EntityFrameworkCore.Metadata.IModel model,
         IReadOnlyCollection<ForeignKeyValidationPlan> plans,
         IReadOnlyDictionary<string, HashSet<string>> principalKeys)
     {
@@ -1808,7 +1816,9 @@ public class BackupService : IBackupService, IDisposable
             await using var stream = await entry.OpenAsync().ConfigureAwait(false);
             await foreach (var item in JsonSerializer.DeserializeAsyncEnumerable<JsonObject>(stream, _serializerSettings).ConfigureAwait(false))
             {
-                var entity = item?.Deserialize(dependentGroup.Key.DependentType, _serializerSettings);
+                var entity = item is null
+                    ? null
+                    : DeserializeEntity(item, dependentGroup.Key.DependentType, model.FindEntityType(dependentGroup.Key.DependentType));
                 if (entity is null)
                 {
                     throw new InvalidDataException($"Cannot restore database table '{dependentGroup.First().DependentName}' because its JSON content contains a null or invalid entity.");
@@ -1889,6 +1899,31 @@ public class BackupService : IBackupService, IDisposable
         }
 
         return constraints;
+    }
+
+    private static object? DeserializeEntity(
+        JsonObject item,
+        Type entityType,
+        Microsoft.EntityFrameworkCore.Metadata.IEntityType? modelEntityType)
+    {
+        var entity = item.Deserialize(entityType, _serializerSettings);
+        if (entity is null || modelEntityType is null)
+        {
+            return entity;
+        }
+
+        foreach (var property in modelEntityType.GetProperties())
+        {
+            var setter = property.PropertyInfo?.SetMethod;
+            if (setter is null || setter.IsPublic || !item.TryGetPropertyValue(property.Name, out var jsonValue) || jsonValue is null)
+            {
+                continue;
+            }
+
+            property.PropertyInfo!.SetValue(entity, jsonValue.Deserialize(property.ClrType, _serializerSettings));
+        }
+
+        return entity;
     }
 
     private static void ValidateUniqueConstraints(
