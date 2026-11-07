@@ -522,6 +522,7 @@ internal class MulletaFlixMigrationService
             await _codeMigration.Perform(_serviceProvider, logger, CancellationToken.None).ConfigureAwait(false);
 
             var historyRepository = _dbContext.GetService<IHistoryRepository>();
+            await historyRepository.CreateIfNotExistsAsync().ConfigureAwait(false);
             var createScript = historyRepository.GetInsertScript(new HistoryRow(_codeMigration.BuildCodeMigrationId(), GetMulletaFlixVersion()));
             await _dbContext.Database.ExecuteSqlRawAsync(createScript).ConfigureAwait(false);
         }
