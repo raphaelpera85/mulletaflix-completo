@@ -1308,7 +1308,14 @@ public sealed class NebulaMongoContext : IDisposable
         try
         {
             var filter = Builders<BsonDocument>.Filter.Eq("type", "dir");
-            using var cursor = await _filesCollection.FindAsync(filter, cancellationToken: cancellationToken).ConfigureAwait(false);
+            var projection = Builders<BsonDocument>.Projection
+                .Include("_id")
+                .Include("name")
+                .Include("parent");
+            using var cursor = await _filesCollection.FindAsync(
+                filter,
+                new FindOptions<BsonDocument> { Projection = projection },
+                cancellationToken).ConfigureAwait(false);
             dirs = await cursor.ToListAsync(cancellationToken).ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -2182,13 +2189,33 @@ public sealed class NebulaMongoContext : IDisposable
         using var activity = StartMongoActivity("mongodb.get_recently_completed_files");
         try
         {
+            var completedAtOrLegacyUploadAt = Builders<BsonDocument>.Filter.Or(
+                Builders<BsonDocument>.Filter.Gte("completed_at", completedSince.ToUnixTimeSeconds()),
+                Builders<BsonDocument>.Filter.And(
+                    Builders<BsonDocument>.Filter.Exists("completed_at", false),
+                    Builders<BsonDocument>.Filter.Gte("uploaded_at", completedSince.ToUnixTimeSeconds())));
             var filter = Builders<BsonDocument>.Filter.And(
                 Builders<BsonDocument>.Filter.Ne("type", "dir"),
                 Builders<BsonDocument>.Filter.Eq("status", "completed"),
-                Builders<BsonDocument>.Filter.Gte("completed_at", completedSince.ToUnixTimeSeconds()),
+                completedAtOrLegacyUploadAt,
                 NebulaProtectedContent.NotProtected());
 
-            using var cursor = await _filesCollection.FindAsync(filter, cancellationToken: cancellationToken).ConfigureAwait(false);
+            var projection = Builders<BsonDocument>.Projection
+                .Include("name")
+                .Include("type")
+                .Include("status")
+                .Include("completed_at")
+                .Include("parent")
+                .Include("size")
+                .Include("file_size")
+                .Include("parts")
+                .Include("tg_file_id")
+                .Include("file_id")
+                .Include("tg_file");
+            using var cursor = await _filesCollection.FindAsync(
+                filter,
+                new FindOptions<BsonDocument> { Projection = projection },
+                cancellationToken).ConfigureAwait(false);
             var documents = await cursor.ToListAsync(cancellationToken).ConfigureAwait(false);
             activity?.SetTag("mongodb.result", "success");
             activity?.SetTag("mongodb.count", documents.Count);
@@ -3513,12 +3540,15 @@ public sealed class NebulaMongoContext : IDisposable
         using var activity = StartQueueActivity("mongodb.complete_file_upload", "completed");
         try
         {
+            var completedAt = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+            var completedFields = finalFields.DeepClone().AsBsonDocument;
+            completedFields["completed_at"] = completedAt;
             var filter = Builders<BsonDocument>.Filter.And(
                 Builders<BsonDocument>.Filter.Eq("_id", id),
                 Builders<BsonDocument>.Filter.Exists("cancel_requested_at", false),
                 BuildWorkerOwnershipFilter(workerId));
             var update = Builders<BsonDocument>.Update.Combine(
-                new BsonDocument("$set", finalFields),
+                new BsonDocument("$set", completedFields),
                 Builders<BsonDocument>.Update.Unset("retry_after"),
                 Builders<BsonDocument>.Update.Unset("failure_terminal"),
                 Builders<BsonDocument>.Update.Unset("failed_reason"),

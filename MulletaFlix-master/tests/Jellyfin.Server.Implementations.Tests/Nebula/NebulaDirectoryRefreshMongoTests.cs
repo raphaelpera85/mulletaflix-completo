@@ -76,6 +76,70 @@ public sealed class NebulaDirectoryRefreshMongoTests : IDisposable
         Assert.Empty(await restarted.GetPendingDirectoryRefreshesAsync(cancellationToken));
     }
 
+    [Fact]
+    public async Task CompletedUploadIsTimestampedAndReturnedByTheRefreshWindowWithOnlyRequiredFields()
+    {
+        Assert.SkipUnless(_available, _skipReason);
+        var cancellationToken = TestContext.Current.CancellationToken;
+        var database = _client!.GetDatabase(_databaseName);
+        var files = database.GetCollection<BsonDocument>("files");
+        var seriesId = ObjectId.GenerateNewId();
+        var seasonId = ObjectId.GenerateNewId();
+        var mediaId = ObjectId.GenerateNewId();
+        var legacyMediaId = ObjectId.GenerateNewId();
+        var now = DateTimeOffset.UtcNow;
+
+        await files.InsertManyAsync(
+            [
+                new BsonDocument { ["_id"] = seriesId, ["name"] = "Example", ["type"] = "dir", ["parent"] = BsonNull.Value, ["large_payload"] = new BsonBinaryData(new byte[1024]) },
+                new BsonDocument { ["_id"] = seasonId, ["name"] = "Season 1", ["type"] = "dir", ["parent"] = seriesId, ["large_payload"] = new BsonBinaryData(new byte[1024]) },
+                new BsonDocument { ["_id"] = mediaId, ["name"] = "Episode.mkv", ["type"] = "file", ["status"] = "queued", ["size"] = 1024L, ["large_payload"] = new BsonBinaryData(new byte[1024]) },
+                new BsonDocument
+                {
+                    ["_id"] = legacyMediaId,
+                    ["name"] = "Legacy Episode.mkv",
+                    ["type"] = "file",
+                    ["status"] = "completed",
+                    ["size"] = 1024L,
+                    ["uploaded_at"] = now.ToUnixTimeSeconds(),
+                    ["parent"] = seasonId,
+                    ["parts"] = new BsonArray { new BsonDocument { ["part_number"] = 0, ["size"] = 1024L, ["tg_file_id"] = "legacy-telegram-file-id" } },
+                    ["large_payload"] = new BsonBinaryData(new byte[1024])
+                }
+            ],
+            cancellationToken: cancellationToken);
+
+        using var context = CreateContext();
+        Assert.True(await context.CompleteFileUploadAsync(
+            mediaId,
+            new BsonDocument
+            {
+                ["name"] = "Episode.mkv",
+                ["type"] = "file",
+                ["status"] = "completed",
+                ["size"] = 1024L,
+                ["parent"] = seasonId,
+                ["parts"] = new BsonArray
+                {
+                    new BsonDocument { ["part_number"] = 0, ["size"] = 1024L, ["tg_file_id"] = "telegram-file-id" }
+                }
+            },
+            cancellationToken));
+
+        var recentlyCompleted = await context.GetRecentlyCompletedFilesAsync(now.AddMinutes(-1), cancellationToken);
+        Assert.Equal(2, recentlyCompleted.Count);
+        var completed = Assert.Single(recentlyCompleted, file => file["name"] == "Episode.mkv");
+        var legacyCompleted = Assert.Single(recentlyCompleted, file => file["name"] == "Legacy Episode.mkv");
+
+        Assert.True(completed["completed_at"].ToInt64() >= now.ToUnixTimeSeconds());
+        Assert.True(NebulaMongoContext.IsCompletedTelegramMedia(completed));
+        Assert.False(completed.Contains("large_payload"));
+        Assert.False(legacyCompleted.Contains("completed_at"));
+        Assert.True(NebulaMongoContext.IsCompletedTelegramMedia(legacyCompleted));
+        Assert.False(legacyCompleted.Contains("large_payload"));
+        Assert.Equal("Season 1/Example", (await context.BuildDirectoryPathMapAsync(cancellationToken))[seasonId.ToString()]);
+    }
+
     public void Dispose()
     {
         _client?.DropDatabase(_databaseName);

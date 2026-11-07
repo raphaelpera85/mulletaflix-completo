@@ -85,7 +85,8 @@ public sealed class NebulaTelegramPoolRateLimitTests
             "api_hash" => "0123456789abcdef0123456789abcdef",
             "bot_token" => "123456:test_token",
             _ => null!
-        }, new MemoryStream());
+        },
+            new MemoryStream());
     }
 
     private sealed class DelegateHttpMessageHandler(Func<HttpRequestMessage, HttpResponseMessage> responseFactory) : HttpMessageHandler
