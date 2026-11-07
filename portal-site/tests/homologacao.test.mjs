@@ -101,6 +101,7 @@ test('portal registra regressão ampla .NET e Nebula sem conceder homologação 
     });
     assert.match(statusData.latestAudit, /06\/11\/2026.*CI #528.*17 jobs recusados antes de iniciar.*bloqueio de cobrança.*420 eventos, lote 10\/10.*2\/7.*12\.1\.46 candidata/i);
     assert.match(statusData.latestAudit, /checkpoint Mongo com matched_count=0 aborta sem excluir staging.*mesmo random_id.*uma parte.*foco 38\/38.*826 aprovados, 1 ignorado.*coverage 82%/i);
+    assert.match(statusData.latestAudit, /B-6 audit corrected: GET \/Sessions does not load Trickplay manifest.*SessionManagerTests 13\/13.*SessionControllerAuthorizationTests 12\/12/i);
     assert.equal(statusData.events.length, 420);
     assert.equal(server.homologation.completed, 2);
     assert.equal(server.homologation.total, 7);

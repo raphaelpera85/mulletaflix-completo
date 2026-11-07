@@ -1901,6 +1901,17 @@ namespace Emby.Server.Implementations.Session
         }
 
         /// <inheritdoc />
+        public async Task ReportNowViewingItemAsync(string sessionId, string itemId)
+        {
+            ArgumentException.ThrowIfNullOrEmpty(itemId);
+
+            var item = _libraryManager.GetItemById(new Guid(itemId));
+            var session = GetSession(sessionId);
+
+            session.NowViewingItem = await GetItemInfoAsync(item, null).ConfigureAwait(false);
+        }
+
+        /// <inheritdoc />
         public void ReportTranscodingInfo(string deviceId, TranscodingInfo info)
         {
             var session = Sessions.FirstOrDefault(i =>

@@ -257,6 +257,18 @@ namespace MediaBrowser.Controller.Session
         void ReportNowViewingItem(string sessionId, string itemId);
 
         /// <summary>
+        /// Reports the now viewing item using asynchronous DTO mapping.
+        /// </summary>
+        /// <param name="sessionId">The session identifier.</param>
+        /// <param name="itemId">The item identifier.</param>
+        /// <returns>A task representing the asynchronous operation.</returns>
+        Task ReportNowViewingItemAsync(string sessionId, string itemId)
+        {
+            ReportNowViewingItem(sessionId, itemId);
+            return Task.CompletedTask;
+        }
+
+        /// <summary>
         /// Authenticates the new session.
         /// </summary>
         /// <param name="request">The request.</param>

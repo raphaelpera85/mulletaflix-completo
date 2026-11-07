@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -32,6 +32,60 @@ namespace MulletaFlix.Server.Implementations.Tests.SessionManager;
 
 public class SessionManagerTests
 {
+    [Fact]
+    public async Task ReportNowViewingItem_UsesAsyncDtoMappingForVideo()
+    {
+        var video = new Video { Id = Guid.NewGuid(), Name = "test video" };
+        var user = new User("test", "default", "default")
+        {
+            LastActivityDate = DateTime.UtcNow
+        };
+        Video.RecordingsManager = new Mock<IRecordingsManager>().Object;
+
+        var libraryManager = new Mock<ILibraryManager>();
+        libraryManager.Setup(x => x.GetItemById(video.Id)).Returns(video);
+
+        var userManager = new Mock<IUserManager>();
+        userManager.Setup(x => x.GetUserById(user.Id)).Returns(user);
+
+        var serverConfigurationManager = new Mock<IServerConfigurationManager>();
+        serverConfigurationManager
+            .SetupGet(x => x.Configuration)
+            .Returns(new ServerConfiguration { InactiveSessionThreshold = 0 });
+
+        var dtoService = new Mock<IDtoService>();
+        dtoService
+            .Setup(x => x.GetBaseItemDtoAsync(
+                video,
+                It.Is<DtoOptions>(options => options.ContainsField(ItemFields.Trickplay)),
+                null,
+                null))
+            .ReturnsAsync(new BaseItemDto { Name = video.Name });
+
+        await using var sessionManager = new Emby.Server.Implementations.Session.SessionManager(
+            NullLogger<Emby.Server.Implementations.Session.SessionManager>.Instance,
+            Mock.Of<IEventManager>(),
+            Mock.Of<IUserDataManager>(),
+            serverConfigurationManager.Object,
+            libraryManager.Object,
+            userManager.Object,
+            Mock.Of<IMusicManager>(),
+            dtoService.Object,
+            Mock.Of<IImageProcessor>(),
+            Mock.Of<IServerApplicationHost>(x => x.SystemId == "test-server"),
+            Mock.Of<IDeviceManager>(),
+            Mock.Of<IMediaSourceManager>(),
+            Mock.Of<IHostApplicationLifetime>());
+
+        var session = await sessionManager.LogSessionActivity("test-client", "1.0", "test-device", "test device", "127.0.0.1", user);
+
+        await sessionManager.ReportNowViewingItemAsync(session.Id, video.Id.ToString("N"));
+
+        Assert.Equal(video.Name, session.NowViewingItem.Name);
+        dtoService.Verify(x => x.GetBaseItemDtoAsync(video, It.IsAny<DtoOptions>(), null, null), Times.Once);
+        dtoService.Verify(x => x.GetBaseItemDto(video, It.IsAny<DtoOptions>(), null, null), Times.Never);
+    }
+
     [Fact]
     public async Task OnPlaybackProgress_UsesAsyncDtoMappingForVideo()
     {
