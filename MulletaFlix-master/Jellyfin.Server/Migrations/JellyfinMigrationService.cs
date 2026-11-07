@@ -243,8 +243,10 @@ internal class MulletaFlixMigrationService
                     .ConfigureAwait(false)
                 : [];
 
+            var hasApplicationTables = HasApplicationTables(tableNames);
+
             if (stage is MulletaFlixMigrationStageTypes.CoreInitialisation &&
-                HasApplicationTables(tableNames) &&
+                hasApplicationTables &&
                 migrationsAssembly.Migrations.Count > 0)
             {
                 var initialMigration = migrationsAssembly.Migrations
@@ -283,8 +285,24 @@ internal class MulletaFlixMigrationService
                 }
 
                 (string Key, IInternalMigration Migration)[] pendingMigrations = [.. pendingCodeMigrations, .. pendingDatabaseMigrations];
+                if (ShouldApplyDatabaseMigrationsFirst(
+                        stage is MulletaFlixMigrationStageTypes.CoreInitialisation,
+                        hasApplicationTables,
+                        pendingDatabaseMigrations.Length > 0))
+                {
+                    pendingMigrations = [
+                        .. pendingDatabaseMigrations.Select(e => (e.Key, (IInternalMigration)e.Migration)),
+                        .. pendingCodeMigrations
+                    ];
+                }
+
                 logger.LogInformation("There are {Pending} migrations for stage {Stage}.", pendingCodeMigrations.Length, stage);
-                migrations = pendingMigrations.OrderBy(e => e.Key).ToArray();
+                migrations = ShouldApplyDatabaseMigrationsFirst(
+                    stage is MulletaFlixMigrationStageTypes.CoreInitialisation,
+                    hasApplicationTables,
+                    pendingDatabaseMigrations.Length > 0)
+                    ? pendingMigrations
+                    : pendingMigrations.OrderBy(e => e.Key).ToArray();
 
                 foreach (var item in migrations)
                 {
@@ -512,6 +530,11 @@ internal class MulletaFlixMigrationService
     internal static bool HasApplicationTables(IEnumerable<string> tableNames)
     {
         return tableNames.Any(tableName => !string.Equals(tableName, "__EFMigrationsHistory", StringComparison.OrdinalIgnoreCase));
+    }
+
+    internal static bool ShouldApplyDatabaseMigrationsFirst(bool coreInitialisation, bool hasApplicationTables, bool hasPendingDatabaseMigrations)
+    {
+        return coreInitialisation && !hasApplicationTables && hasPendingDatabaseMigrations;
     }
 
     private class InternalCodeMigration : IInternalMigration

@@ -34,4 +34,16 @@ public class MigrationStartupSelectionTests
     {
         Assert.True(MulletaFlixMigrationService.HasApplicationTables(["__EFMigrationsHistory", "Users"]));
     }
+
+    [Fact]
+    public void ShouldApplyDatabaseMigrationsFirst_WhenCoreSchemaIsEmpty()
+    {
+        Assert.True(MulletaFlixMigrationService.ShouldApplyDatabaseMigrationsFirst(true, false, true));
+    }
+
+    [Fact]
+    public void ShouldNotApplyDatabaseMigrationsFirst_WhenApplicationSchemaExists()
+    {
+        Assert.False(MulletaFlixMigrationService.ShouldApplyDatabaseMigrationsFirst(true, true, true));
+    }
 }
