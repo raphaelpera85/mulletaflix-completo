@@ -22,4 +22,16 @@ public class MigrationStartupSelectionTests
     {
         Assert.True(MulletaFlixMigrationService.IsMigrationNotApplied("CodeMigration_1", []));
     }
+
+    [Fact]
+    public void HasApplicationTables_ReturnsFalse_WhenOnlyEfHistoryExists()
+    {
+        Assert.False(MulletaFlixMigrationService.HasApplicationTables(["__EFMigrationsHistory"]));
+    }
+
+    [Fact]
+    public void HasApplicationTables_ReturnsTrue_WhenApplicationTableExists()
+    {
+        Assert.True(MulletaFlixMigrationService.HasApplicationTables(["__EFMigrationsHistory", "Users"]));
+    }
 }

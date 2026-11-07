@@ -233,13 +233,18 @@ internal class MulletaFlixMigrationService
         {
             var historyRepository = dbContext.GetService<IHistoryRepository>();
             var migrationsAssembly = dbContext.GetService<IMigrationsAssembly>();
-            var databaseCreator = dbContext.Database.GetService<IDatabaseCreator>() as IRelationalDatabaseCreator
-                ?? throw new InvalidOperationException("MulletaFlix does only support relational databases.");
             (string Key, IInternalMigration Migration)[] migrations = [];
             var appliedMigrations = await historyRepository.GetAppliedMigrationsAsync().ConfigureAwait(false);
 
+            var tableNames = stage is MulletaFlixMigrationStageTypes.CoreInitialisation
+                ? await dbContext.Database
+                    .SqlQueryRaw<string>("SELECT TABLE_NAME AS Value FROM information_schema.tables WHERE table_schema = DATABASE()")
+                    .ToListAsync()
+                    .ConfigureAwait(false)
+                : [];
+
             if (stage is MulletaFlixMigrationStageTypes.CoreInitialisation &&
-                await databaseCreator.HasTablesAsync().ConfigureAwait(false) &&
+                HasApplicationTables(tableNames) &&
                 migrationsAssembly.Migrations.Count > 0)
             {
                 var initialMigration = migrationsAssembly.Migrations
@@ -502,6 +507,11 @@ internal class MulletaFlixMigrationService
             Subtitles = left.Subtitles || right!.Subtitles,
             Trickplay = left.Trickplay || right!.Trickplay
         };
+    }
+
+    internal static bool HasApplicationTables(IEnumerable<string> tableNames)
+    {
+        return tableNames.Any(tableName => !string.Equals(tableName, "__EFMigrationsHistory", StringComparison.OrdinalIgnoreCase));
     }
 
     private class InternalCodeMigration : IInternalMigration
