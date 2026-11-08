@@ -87,6 +87,19 @@ test('registra o TDD do parser linear dos artefatos web', () => {
     assert.match(event.release, /não promove CI.*runtime Kestrel.*produção/is);
 });
 
+test('registra o TDD do nome de stage isolado sem promover o harness', () => {
+    const eventId = 'web-playwright-stage-name-tdd-2026-11-08-0247';
+    const event = statusData.events.find(item => item.id === eventId);
+
+    assert.ok(event);
+    assert.equal(event.front, 'web');
+    assert.equal(event.status, 'partial');
+    assert.match(event.evidence, /RED:.*helper ainda não existia.*GREEN:.*passou 1\/1/is);
+    assert.match(event.evidence, /verify:build.*build:check.*425\/425/is);
+    assert.match(event.evidence, /2 findings existentes.*TEMP\/TMP/is);
+    assert.match(event.release, /não valida ACL.*runtime Kestrel.*produção/is);
+});
+
 test('roadmap counters match the current checklist totals', () => {
     const { completed, inProgress, pending, total } = statusData.coverage;
 

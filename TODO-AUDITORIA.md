@@ -45,6 +45,15 @@
 - [~] Warnings `jsdom/webcomponents` continuam na suíte ampla; não são atribuídos ao parser.
 - [x] Evento `web-build-artifact-parser-tdd-2026-11-08-0236` adicionado ao portal.
 
+## TDD do nome de stage isolado do Playwright — 2026-11-08 02:47 BRT
+
+- [x] RED: teste novo falhou porque `run-isolated-stage-helpers.mjs` ainda não existia.
+- [x] GREEN: `createStageDirName` passou **1/1**, usando UUID em vez de `Math.random`.
+- [x] `npm run verify:build`, `npm run build:check` e Vitest passaram **425/425**.
+- [~] ESLint focal ainda acusa **2 findings** nos diretórios temporários atribuídos a `TEMP`/`TMP`; exige análise de ACL e permanece fora deste slice.
+- [x] Nenhum Playwright foi executado e nenhuma mídia real foi usada.
+- [x] Evento `web-playwright-stage-name-tdd-2026-11-08-0247` adicionado ao portal.
+
 ## Auditoria do checklist AG Kit e scanner de segurança — 2026-11-07 05:31 BRT
 
 - [x] RED reproduzido: `security_scan.py` varria `.agents`/artefatos gerados, demorava além do limite e o checklist tratava exit code `0` como GREEN mesmo com findings.

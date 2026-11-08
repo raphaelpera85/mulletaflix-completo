@@ -2,6 +2,7 @@
 import { spawn } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { createStageDirName } from './run-isolated-stage-helpers.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const tempBase = path.join(process.env.USERPROFILE || 'C:\\Users\\Raphael', '.mulletaflix-tmp');
@@ -9,7 +10,7 @@ const tempBase = path.join(process.env.USERPROFILE || 'C:\\Users\\Raphael', '.mu
 process.env.TEMP = tempBase;
 process.env.TMP = tempBase;
 
-const stageDirName = `mflx-playwright-stage-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+const stageDirName = createStageDirName();
 const stageDir = path.join(tempBase, stageDirName);
 process.env.PW_ISOLATED_STAGE_DATA_DIR = stageDir;
 

@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-11-08T02:36:33-03:00",
+  "generatedAt": "2026-11-08T02:47:31-03:00",
   "source": {
     "roadmap": "https://github.com/raphaelpera85/mulletaflix-completo/blob/main/docs/roadmap-evolucao-tecnologica-servidor-e-web.md",
     "repository": "https://github.com/raphaelpera85/mulletaflix-completo"
@@ -15670,6 +15670,23 @@
       "updatedAt": "2026-11-08T02:36:33-03:00",
       "evidence": "RED: o TDD novo falhou por export ausente. GREEN: parser linear para `<loc>` e meta tags passou 3/3; ESLint focal dos dois scripts passou; `npm run verify:build`, `npm run build:check` e suíte Vitest passaram 425/425. Artefatos: 1.928 arquivos, 295,8 KB gzip inicial contra 420 KB.",
       "release": "Correção limitada ao gate de verificação de artefatos; não promove CI, runtime Kestrel ou produção. Warnings jsdom/webcomponents continuam registrados separadamente.",
+      "links": []
+    },
+    {
+      "id": "web-playwright-stage-name-tdd-2026-11-08-0247",
+      "title": "TDD do nome de stage isolado do Playwright",
+      "agent": "Hermes",
+      "front": "web",
+      "featureIds": [],
+      "local": "Windows checkout; Node test runner e ESLint local",
+      "location": "MulletaFlix-web-master/scripts/playwright/run-isolated-stage.mjs",
+      "scope": "Eliminar Math.random do nome do stage e cobrir o formato determinístico do helper sem executar Playwright nem tocar em mídia real.",
+      "status": "partial",
+      "progressPercent": null,
+      "startedAt": "2026-11-08T02:47:31-03:00",
+      "updatedAt": "2026-11-08T02:47:31-03:00",
+      "evidence": "RED: o TDD falhou porque o helper ainda não existia. GREEN: `run-isolated-stage-helpers.test.mjs` passou 1/1; `npm run verify:build`, `npm run build:check` e Vitest passaram 425/425. O ESLint focal ainda acusa 2 findings existentes de diretórios temporários publicamente graváveis nas atribuições TEMP/TMP; nenhuma execução de Playwright ou mídia foi iniciada.",
+      "release": "Mudança limitada à geração do nome do stage; não valida ACL do diretório, CI hospedada, runtime Kestrel ou produção. O risco de diretório temporário permanece aberto para tratamento separado.",
       "links": []
     }
   ]
