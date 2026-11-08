@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-11-08T02:29:39-03:00",
+  "generatedAt": "2026-11-08T02:36:33-03:00",
   "source": {
     "roadmap": "https://github.com/raphaelpera85/mulletaflix-completo/blob/main/docs/roadmap-evolucao-tecnologica-servidor-e-web.md",
     "repository": "https://github.com/raphaelpera85/mulletaflix-completo"
@@ -15653,6 +15653,23 @@
       "updatedAt": "2026-11-08T02:29:39-03:00",
       "evidence": "`npm run verify:build` passou: 1.928 arquivos válidos, limite individual 1.536 KiB; payload inicial 295,8 KB gzip contra orçamento de 420 KB. `npm run stylelint` passou sem findings.",
       "release": "Gates locais de artefato e estilo verdes; isso não valida CI hospedada, distribuição no runtime Kestrel, browser autenticado ou produção. Lint ESLint continua parcial no evento separado.",
+      "links": []
+    },
+    {
+      "id": "web-build-artifact-parser-tdd-2026-11-08-0236",
+      "title": "TDD do parser linear dos artefatos web",
+      "agent": "Hermes",
+      "front": "web",
+      "featureIds": [],
+      "local": "Windows checkout; Node test runner e ESLint local",
+      "location": "MulletaFlix-web-master/scripts/verify-build-artifacts.mjs; verify-build-artifact-helpers.mjs",
+      "scope": "Remover regexes com risco de backtracking no gate de sitemap/metadados sem alterar o contrato de validação do build.",
+      "status": "partial",
+      "progressPercent": null,
+      "startedAt": "2026-11-08T02:36:33-03:00",
+      "updatedAt": "2026-11-08T02:36:33-03:00",
+      "evidence": "RED: o TDD novo falhou por export ausente. GREEN: parser linear para `<loc>` e meta tags passou 3/3; ESLint focal dos dois scripts passou; `npm run verify:build`, `npm run build:check` e suíte Vitest passaram 425/425. Artefatos: 1.928 arquivos, 295,8 KB gzip inicial contra 420 KB.",
+      "release": "Correção limitada ao gate de verificação de artefatos; não promove CI, runtime Kestrel ou produção. Warnings jsdom/webcomponents continuam registrados separadamente.",
       "links": []
     }
   ]

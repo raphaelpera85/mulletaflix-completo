@@ -74,6 +74,19 @@ test('registra os gates locais de artefato e estilo sem promover runtime', () =>
     assert.match(event.release, /não valida CI hospedada.*runtime Kestrel/is);
 });
 
+test('registra o TDD do parser linear dos artefatos web', () => {
+    const eventId = 'web-build-artifact-parser-tdd-2026-11-08-0236';
+    const event = statusData.events.find(item => item.id === eventId);
+
+    assert.ok(event);
+    assert.equal(event.front, 'web');
+    assert.equal(event.status, 'partial');
+    assert.match(event.evidence, /RED:.*export ausente.*GREEN:.*passou 3\/3/is);
+    assert.match(event.evidence, /ESLint focal.*passou/);
+    assert.match(event.evidence, /verify:build.*build:check.*425\/425/is);
+    assert.match(event.release, /não promove CI.*runtime Kestrel.*produção/is);
+});
+
 test('roadmap counters match the current checklist totals', () => {
     const { completed, inProgress, pending, total } = statusData.coverage;
 

@@ -37,6 +37,14 @@
 - [~] Evidência local não equivale a CI hospedada, distribuição no runtime Kestrel, browser autenticado ou produção; ESLint segue parcial.
 - [x] Evento `web-build-artifact-gates-2026-11-08-0229` adicionado ao portal.
 
+## TDD do parser linear dos artefatos web — 2026-11-08 02:36 BRT
+
+- [x] RED: teste novo falhou porque o helper `verify-build-artifact-helpers.mjs` ainda não exportava `extractSitemapUrls`.
+- [x] GREEN: parser linear para `<loc>` e meta tags substituiu regexes com risco de backtracking; TDD passou **3/3**.
+- [x] ESLint focal dos dois scripts passou; `npm run verify:build`, `npm run build:check` e Vitest passaram **425/425**.
+- [~] Warnings `jsdom/webcomponents` continuam na suíte ampla; não são atribuídos ao parser.
+- [x] Evento `web-build-artifact-parser-tdd-2026-11-08-0236` adicionado ao portal.
+
 ## Auditoria do checklist AG Kit e scanner de segurança — 2026-11-07 05:31 BRT
 
 - [x] RED reproduzido: `security_scan.py` varria `.agents`/artefatos gerados, demorava além do limite e o checklist tratava exit code `0` como GREEN mesmo com findings.

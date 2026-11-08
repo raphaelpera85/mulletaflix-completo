@@ -1,6 +1,7 @@
 import { readFile, readdir, stat } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { join, relative } from 'node:path';
+import { extractSitemapUrls, extractSocialImageUrls } from './verify-build-artifact-helpers.mjs';
 
 const distDir = fileURLToPath(new URL('../dist/', import.meta.url));
 const maxAssetBytes = 1536 * 1024;
@@ -42,14 +43,13 @@ for (const provider of ['xmltv', 'schedulesdirect']) {
 }
 
 const sitemap = await readFile(join(distDir, 'sitemap.xml'), 'utf8');
-const sitemapUrls = [...sitemap.matchAll(/<loc>\s*([^<]+?)\s*<\/loc>/g)].map((match) => match[1]);
+const sitemapUrls = extractSitemapUrls(sitemap);
 if (sitemapUrls.length !== 1 || sitemapUrls[0] !== 'https://mulletaflix.com') {
     throw new Error('O sitemap deve listar apenas a URL canônica pública; rotas SPA com fragmentos não são páginas rastreáveis independentes.');
 }
 
 const indexHtml = await readFile(join(distDir, 'index.html'), 'utf8');
-const socialImages = [...indexHtml.matchAll(/<meta\s+(?:property="og:image"|name="twitter:image")\s+content="([^"]+)"/g)]
-    .map((match) => match[1]);
+const socialImages = extractSocialImageUrls(indexHtml);
 if (socialImages.length !== 2 || socialImages.some((url) => !url.startsWith('https://'))) {
     throw new Error('As imagens Open Graph e Twitter devem existir e usar URLs HTTPS absolutas.');
 }
