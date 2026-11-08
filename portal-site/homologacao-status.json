@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-11-08T20:44:32-03:00",
+  "generatedAt": "2026-11-08T20:56:20-03:00",
   "source": {
     "roadmap": "https://github.com/raphaelpera85/mulletaflix-completo/blob/main/docs/roadmap-evolucao-tecnologica-servidor-e-web.md",
     "repository": "https://github.com/raphaelpera85/mulletaflix-completo"
@@ -15823,6 +15823,23 @@
       "updatedAt": "2026-11-08T20:44:32-03:00",
       "evidence": "RED reproduzido contra o helper anterior: a exceção não continha os counts. GREEN focal passou 4/4 após incluir `MovieCount` e `SeriesCount` finais na mensagem. A regressão web passou 80/80 arquivos e 430/430 testes; `tsc --noEmit` e `verify:build` passaram, com 1.928 artefatos e 295,8 KB gzip inicial dentro do budget de 420 KB.",
       "release": "Melhora a observabilidade do harness, mas não fecha a causa do scanner nem promove catálogo autenticado, runtime instalado ou playback. Nenhuma produção foi alterada.",
+      "links": []
+    },
+    {
+      "id": "nebulapython-regression-2026-11-08-2056",
+      "title": "Regressão completa do NebulaPython",
+      "agent": "Hermes",
+      "front": "server",
+      "featureIds": [],
+      "local": "Windows checkout; uv isolated requirements-test environment",
+      "location": "MulletaFlix-master/Tools/NebulaPython/tests",
+      "scope": "Executar a suíte Python completa e classificar cada teste ignorado sem tocar integrações reais.",
+      "status": "partial",
+      "progressPercent": null,
+      "startedAt": "2026-11-08T20:40:00-03:00",
+      "updatedAt": "2026-11-08T20:56:20-03:00",
+      "evidence": "`uv run --with-requirements requirements-test.txt -- python -m pytest -q -rs` passou 726 testes, ignorou 2 e falhou em 0 em 52,14 s. Os skips são os branches POSIX e Windows específicos de `test_upload_checkpoint.py`; `pytest_asyncio` emitiu aviso de configuração não definida para `asyncio_default_fixture_loop_scope`.",
+      "release": "Suíte Python isolada GREEN com skips ambientais classificados. Não houve MongoDB, FTP, Supabase, runtime instalado, produção ou integração externa; não promover homologação global.",
       "links": []
     }
   ]

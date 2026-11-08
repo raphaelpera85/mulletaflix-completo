@@ -35,6 +35,13 @@
 - [x] Regressão web: **80/80 arquivos, 430/430 testes**; `tsc --noEmit` passou; **1.928 artefatos** válidos e **295,8 KB gzip / 420 KB** no budget.
 - [~] A mudança melhora a evidência do harness, mas não prova a causa do scanner nem promove catálogo autenticado, runtime ou playback.
 
+## Regressão NebulaPython — 2026-11-08 20:56 BRT
+
+- [x] Suíte completa executada com `uv run --with-requirements requirements-test.txt`: **726 aprovados, 2 ignorados, 0 falhas** em **52,14 s** na execução com razões dos skips.
+- [x] Skips classificados: `test_upload_checkpoint.py:49` cobre branch POSIX de sync após rename; `test_upload_checkpoint.py:72` cobre `MoveFileExW`/`MOVEFILE_WRITE_THROUGH` do Windows.
+- [~] `pytest_asyncio` emitiu depreciação porque `asyncio_default_fixture_loop_scope` não está configurado; não bloqueou a suíte, mas é melhoria de configuração pendente.
+- [~] Não houve homologação MongoDB, FTP real, Supabase real, produção ou runtime instalado; a evidência é da suíte isolada Python.
+
 - [x] Restauração oficial do backup de 04/11 concluída; o log registrou `Restored primary and media-domain databases`, `Restored MulletaFlix system` às 04:34:56 BRT e `Startup complete` às 04:35:44 BRT.
 - [x] Runtime `12.1.51` em `C:/Program Files/MulletaFlix/Server` com datadir oficial `C:/ProgramData/MulletaFlix/Server`; `/health` 200 `Healthy`; `/System/Info/Public` confirma `Version=12.1.51`, `TargetAbi=12.1.51` e wizard concluído.
 - [x] Banco restaurado confirmado por leitura: `users=16`, `baseitems=194203`, `peoplebaseitemmap=850927`, `activitylogs=2671`; `Username='Raphael'` ocorre uma vez.
