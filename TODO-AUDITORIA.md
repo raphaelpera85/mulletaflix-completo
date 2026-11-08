@@ -7,6 +7,14 @@
 - [~] Homologação global permanece `PARTIAL`: Android instrumentado, Linux/POSIX, CI hospedada, integrações reais e aceite formal de produção continuam abertos.
 - [x] Portal e documentação atualizados; evento `runtime-installed-1251-official-backup-restore-complete-2026-11-07-0445`; contrato do portal passou 368/368.
 
+## Recheck dos bloqueios de ambiente — 2026-11-08 01:53 BRT
+
+- [x] Runtime instalado revalidado em leitura: PID 19932 é `C:/Program Files/MulletaFlix/Server/MulletaFlix.exe`, iniciado com `--datadir C:/ProgramData/MulletaFlix/Server`; porta `8096` responde `/health` HTTP 200. Isso valida o release instalado, não a working tree nem o artefato corrigido do PR #2.
+- [x] MariaDB `3306` (PID 10980) e MongoDB `27017` (PID 4412) estão ouvindo; permanecem classificados como serviços de produção e não foram usados em testes destrutivos ou de concorrência.
+- [x] ADB existe em `C:/Android/Sdk/platform-tools/adb.exe`, mas `adb devices -l` não listou dispositivos; WSL respondeu sem distribuições instaladas; Docker/Podman e coletores OTLP não estão disponíveis no PATH.
+- [~] Homologação global continua `PARTIAL`: Android instrumentado, Linux/POSIX, CI hospedada, login/catálogo autenticados, runtime com o bundle GetAvatar corrigido e aceite formal de produção seguem pendentes.
+- [x] Evento `environment-blockers-reprobe-2026-11-08-0153` adicionado ao portal; contrato passou **369/369**.
+
 ## Auditoria do checklist AG Kit e scanner de segurança — 2026-11-07 05:31 BRT
 
 - [x] RED reproduzido: `security_scan.py` varria `.agents`/artefatos gerados, demorava além do limite e o checklist tratava exit code `0` como GREEN mesmo com findings.

@@ -21,6 +21,20 @@ test('registra a restauração oficial 12.1.51 sem promover aceite autenticado',
     assert.match(event.evidence, /Login real e navegação autenticada não foram executados/);
 });
 
+test('registra o recheck atual dos bloqueios de ambiente sem promover homologação', () => {
+    const eventId = 'environment-blockers-reprobe-2026-11-08-0153';
+    const event = statusData.events.find(item => item.id === eventId);
+
+    assert.ok(event);
+    assert.equal(event.status, 'partial');
+    assert.match(event.evidence, /8096.*MulletaFlix\.exe.*12\.1\.51/is);
+    assert.match(event.evidence, /3306.*MariaDB.*produção/is);
+    assert.match(event.evidence, /27017.*MongoDB.*produção/is);
+    assert.match(event.evidence, /ADB.*não listou dispositivos/is);
+    assert.match(event.evidence, /WSL.*sem distribuições/is);
+    assert.match(event.release, /não promove homologação global/is);
+});
+
 test('roadmap counters match the current checklist totals', () => {
     const { completed, inProgress, pending, total } = statusData.coverage;
 

@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-11-07T22:12:31-03:00",
+  "generatedAt": "2026-11-08T01:53:33-03:00",
   "source": {
     "roadmap": "https://github.com/raphaelpera85/mulletaflix-completo/blob/main/docs/roadmap-evolucao-tecnologica-servidor-e-web.md",
     "repository": "https://github.com/raphaelpera85/mulletaflix-completo"
@@ -15586,6 +15586,23 @@
       "evidence": "Runtime HTTP 200 contém return node.innerHTML; source e publish scratch contêm replace de aspas para &quot; e &#39;. /web/ConfigurationPage?name=GetAvatar HTTP 401 sem sessão.",
       "release": "Correção não aplicada ao runtime; aplicação exige procedimento operacional autorizado e preservação de rollback.",
       "links": []
+    },
+    {
+      "id": "environment-blockers-reprobe-2026-11-08-0153",
+      "title": "Recheck atual dos bloqueios de ambiente",
+      "agent": "Hermes",
+      "front": "server",
+      "featureIds": [],
+      "local": "Windows host; probes read-only em 2026-11-08 01:53 BRT",
+      "location": "runtime instalado, ADB, WSL, Docker/Podman, GitHub PR",
+      "scope": "Revalidar quais gates externos estão disponíveis agora antes de reportar bloqueios antigos.",
+      "status": "partial",
+      "progressPercent": null,
+      "startedAt": "2026-11-08T01:53:33-03:00",
+      "updatedAt": "2026-11-08T01:53:33-03:00",
+      "evidence": "8096 está ouvindo no PID 19932, MulletaFlix.exe instalado em C:\\Program Files\\MulletaFlix\\Server\\MulletaFlix.exe, versão 12.1.51, com --datadir C:/ProgramData/MulletaFlix/Server; /health HTTP 200. 3306 está ouvindo no mysqld.exe PID 10980 e deve ser tratado como MariaDB de produção; 27017 está ouvindo no mongod.exe PID 4412 e deve ser tratado como MongoDB de produção. ADB existe em C:/Android/Sdk/platform-tools/adb.exe, mas não listou dispositivos. WSL respondeu sem distribuições instaladas; Docker, Podman e coletores OTLP não estão disponíveis no PATH.",
+      "release": "Recheck atualiza os bloqueios observados, mas não promove homologação global: runtime é o release instalado, Android instrumentado e Linux/POSIX continuam sem ambiente, CI hospedada permanece sem check run verificável no PR #2, e login/catálogo autenticados não foram executados.",
+      "links": ["https://github.com/raphaelpera85/mulletaflix-completo/pull/2"]
     }
   ]
 }
