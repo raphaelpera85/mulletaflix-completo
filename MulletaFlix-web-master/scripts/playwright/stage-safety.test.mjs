@@ -94,6 +94,19 @@ test('run-suite starts the published dll through the platform dotnet host with v
     assert.match(source, /stdio: \[ 'ignore', 'inherit', 'inherit' \]/);
 });
 
+test('run-suite retries locked stage removal before reporting cleanup failure', async () => {
+    const source = await readFile(new URL('./run-suite.mjs', import.meta.url), 'utf8');
+
+    assert.match(source, /rm\(target, \{ recursive: true, force: true, maxRetries: \d+, retryDelay: \d+ \}\)/);
+});
+
+test('run-suite disables automatic IntroSkipper analysis in isolated stages', async () => {
+    const source = await readFile(new URL('./run-suite.mjs', import.meta.url), 'utf8');
+
+    assert.match(source, /buildIsolatedIntroSkipperConfiguration/);
+    assert.match(source, /path\.join\(pluginConfigDir, 'IntroSkipper\.xml'\)/);
+});
+
 test('resolveDotnetExecutable uses the native host on each platform', () => {
     assert.equal(resolveDotnetExecutable('linux'), 'dotnet');
     assert.equal(resolveDotnetExecutable('darwin'), 'dotnet');

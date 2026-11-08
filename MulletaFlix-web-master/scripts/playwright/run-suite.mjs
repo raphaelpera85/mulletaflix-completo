@@ -17,6 +17,10 @@ import {
     writePlaywrightReportArtifacts
 } from '../../tests/playwright/support/index.mjs';
 import {
+    buildIsolatedIntroSkipperConfiguration,
+    buildIsolatedNebulaConfiguration
+} from './run-isolated-stage-helpers.mjs';
+import {
     assertSafeRemovalTargets,
     assertStagePidFileAbsent,
     buildOwnedStageCleanupTargets,
@@ -147,8 +151,15 @@ async function writeStageNetworkConfiguration(baseUrl) {
 
     // The default Nebula configuration is production-oriented. A browser test
     // must never inherit live Telegram/Mongo/media integrations from the host.
-    const nebulaConfig = '<NebulaFtpConfiguration>\n  <Enabled>false</Enabled>\n  <MonitorPaths />\n  <StagePaths />\n  <UseMappedDrive>false</UseMappedDrive>\n  <DeleteSourceAfterUpload>false</DeleteSourceAfterUpload>\n  <BotTokens />\n  <ApiHash />\n  <SupabaseKey />\n</NebulaFtpConfiguration>\n';
-    await writeFile(path.join(configDir, 'nebulaftp.xml'), nebulaConfig, 'utf8');
+    await writeFile(path.join(configDir, 'nebulaftp.xml'), buildIsolatedNebulaConfiguration(), 'utf8');
+
+    const pluginConfigDir = path.join(stageDataDir, 'plugins', 'configurations');
+    await mkdir(pluginConfigDir, { recursive: true });
+    await writeFile(
+        path.join(pluginConfigDir, 'IntroSkipper.xml'),
+        buildIsolatedIntroSkipperConfiguration(),
+        'utf8'
+    );
 }
 
 function parseArgs(argv) {
@@ -241,7 +252,7 @@ async function stopTrackedStageProcess() {
 
 async function removeTargets(targets) {
     for (const target of targets) {
-        await rm(target, { recursive: true, force: true });
+        await rm(target, { recursive: true, force: true, maxRetries: 5, retryDelay: 250 });
     }
 }
 

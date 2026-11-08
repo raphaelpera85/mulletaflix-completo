@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-11-08T03:08:41-03:00",
+  "generatedAt": "2026-11-08T07:36:18-03:00",
   "source": {
     "roadmap": "https://github.com/raphaelpera85/mulletaflix-completo/blob/main/docs/roadmap-evolucao-tecnologica-servidor-e-web.md",
     "repository": "https://github.com/raphaelpera85/mulletaflix-completo"
@@ -15755,6 +15755,40 @@
       "updatedAt": "2026-11-08T03:08:41-03:00",
       "evidence": "Com `PW_RESET_STAGE=false`, `--no-reset-stage`, diretório de specs vazio e marker sintético, `run-suite.mjs` gerou resumo `status=no-specs`, `specCount=0`, `stageReachable=true` e removeu o diretório fornecido pelo wrapper. Após a execução, nenhum Node/Playwright/Vite/dotnet ficou ativo; o runtime instalado permaneceu fora do cleanup.",
       "release": "Confirma o caminho real de cleanup de um stage pertencente ao wrapper, não a suíte Playwright completa. Os 171 diretórios antigos continuam preservados para decisão de retenção.",
+      "links": []
+    },
+    {
+      "id": "web-playwright-stage51-regression-blocked-2026-11-08-0546",
+      "title": "Stage alinhado ao runtime 12.1.51; regressão Playwright bloqueada por catálogo autenticado",
+      "agent": "Hermes",
+      "front": "web",
+      "featureIds": ["ROADMAP.015"],
+      "local": "Windows; stage sincronizado do runtime instalado; porta isolada 18096; MariaDB descartável 33100; fixtures sintéticas",
+      "location": "stage/, MulletaFlix-web-master/scripts/playwright/run-isolated-stage.mjs, tests/playwright/specs/21-media-recognition.spec.ts, tests/playwright/specs/21-multi-user-playback.spec.ts",
+      "scope": "Reexecutar a suíte Playwright contra o mesmo artefato 12.1.51 usado pela produção sem tocar o datadir produtivo.",
+      "status": "partial",
+      "progressPercent": null,
+      "startedAt": "2026-11-08T05:14:35-03:00",
+      "updatedAt": "2026-11-08T05:46:02-03:00",
+      "evidence": "O stage foi sincronizado com C:/Program Files/MulletaFlix/Server e os SHA-256 de MulletaFlix.dll, MulletaFlix.Server.Implementations.dll, MulletaFlix.Plugin.GetAvatar.dll e MulletaFlix-web/index.html coincidiram. O log confirmou `MulletaFlix version: 12.1.51`, DLL em stage/, MariaDB 33100 e fixtures sintéticas. A execução administrativa avançou, mas o teste 12 falhou; o teste 17 retornou MovieCount=0 e items=[] após RefreshLibrary; o teste 18 permaneceu sem resultado por mais de 30 minutos e foi encerrado. Não houve resumo JSON final. O log registrou análise posterior de Synthetic Movie (2026) e Synthetic Movie Two (2026), mantendo aberta a divergência entre processamento interno e visibilidade na consulta autenticada. Nenhum processo scratch permaneceu após a verificação; produção em 8096/3306 não foi alterada.",
+      "release": "Stage alinhado ao runtime produtivo, mas homologação global permanece PARTIAL. Não promover catálogo, multi-user ou a suíte ampla como GREEN; o backup do stage anterior foi preservado para rollback.",
+      "links": []
+    },
+    {
+      "id": "web-playwright-catalog-readiness-timeout-2026-11-08-0736",
+      "title": "TDD do isolamento do stage e timeout da prontidão do catálogo 12.1.51",
+      "agent": "Hermes",
+      "front": "web",
+      "featureIds": ["ROADMAP.015"],
+      "local": "Windows; stage 12.1.51; MariaDB descartável; fixtures sintéticas; produção fora do teste",
+      "location": "MulletaFlix-web-master/scripts/playwright/run-isolated-stage-helpers.mjs, scripts/playwright/run-suite.mjs, scripts/playwright/stage-safety.test.mjs, tests/playwright/specs/21-media-recognition.spec.ts",
+      "scope": "Eliminar integrações externas herdadas pelo stage e separar timeout do harness de falha definitiva do catálogo.",
+      "status": "partial",
+      "progressPercent": null,
+      "startedAt": "2026-11-08T06:00:00-03:00",
+      "updatedAt": "2026-11-08T07:36:18-03:00",
+      "evidence": "O TDD do wrapper passou 15/15 e os scripts passaram node --check. O stage passou a gravar NotificationsEnabled=false, TelegramNotificationsEnabled=false, canais/chat/tokens vazios, Supabase desabilitado e IntroSkipper.xml com AutoDetectIntros=false. A execução focal sem análise automática ainda não retornou do ensureMediaLibrariesReady em 2 minutos: o log registrou Scan Media Library Completed às 07:31:28 BRT, mas não houve MEDIA_RECOGNITION_DIAGNOSTIC nem resposta autenticada final. O cleanup deixou somente o MariaDB produtivo em 3306.",
+      "release": "Integrações externas foram isoladas no harness, mas catálogo autenticado continua bloqueador. Não promover produto, cliente legado ou teste como GREEN sem chamada HTTP com timeout explícito, status/resposta e reprodução causal.",
       "links": []
     }
   ]

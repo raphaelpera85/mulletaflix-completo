@@ -6,11 +6,11 @@ import { buildStageEnvironment, createStageDirName } from './run-isolated-stage-
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const tempBase = path.join(process.env.USERPROFILE || 'C:\\Users\\Raphael', '.mulletaflix-tmp');
-
-const stageEnvironment = buildStageEnvironment(process.env, tempBase);
-
 const stageDirName = createStageDirName();
 const stageDir = path.join(tempBase, stageDirName);
+const stageEnvironment = buildStageEnvironment(process.env, tempBase, {
+    PW_ISOLATED_STAGE_DATA_DIR: stageDir
+});
 process.env.PW_ISOLATED_STAGE_DATA_DIR = stageDir;
 
 const runSuiteScript = path.join(__dirname, 'run-suite.mjs');

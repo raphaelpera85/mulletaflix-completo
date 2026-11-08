@@ -6514,3 +6514,18 @@ test('records system-wide unhomologated mapping, isolated live server /metrics s
     assert.equal(server.homologation.percent, 28.6);
     assert.ok(Date.parse(event.updatedAt) <= Date.parse(statusData.generatedAt));
 });
+
+test('registra o stage 12.1.51 alinhado ao runtime sem promover a regressão Playwright', () => {
+    const eventId = 'web-playwright-stage51-regression-blocked-2026-11-08-0546';
+    const event = statusData.events.find(item => item.id === eventId);
+
+    assert.ok(event);
+    assert.equal(event.front, 'web');
+    assert.equal(event.status, 'partial');
+    assert.match(event.evidence, /MulletaFlix version: 12\.1\.51/);
+    assert.match(event.evidence, /SHA-256.*MulletaFlix\.dll.*GetAvatar.*index\.html/is);
+    assert.match(event.evidence, /teste 12 falhou.*teste 17.*MovieCount=0.*teste 18/is);
+    assert.match(event.evidence, /Nenhum processo scratch permaneceu/);
+    assert.match(event.release, /não promover catálogo, multi-user ou a suíte ampla como GREEN/i);
+    assert.ok(Date.parse(event.updatedAt) <= Date.parse(statusData.generatedAt));
+});

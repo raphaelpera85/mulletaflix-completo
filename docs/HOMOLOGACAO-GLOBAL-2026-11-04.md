@@ -1,5 +1,14 @@
 # Homologação global — MulletaFlix — 2026-11-04
 
+## Stage alinhado ao runtime produtivo 12.1.51 e regressão Playwright bloqueada — 2026-11-08 05:46 BRT
+
+- O `stage/` foi sincronizado com `C:\Program Files\MulletaFlix\Server`, que é o runtime instalado 12.1.51. SHA-256 confirmou igualdade para as DLLs principais, GetAvatar e `MulletaFlix-web/index.html`.
+- O stage anterior foi preservado em `C:\Users\Raphael\.mulletaflix-tmp\stage-backup-before-12.1.51-20261108-051102`; nenhuma alteração foi feita no runtime produtivo, no datadir `C:\ProgramData\MulletaFlix\Server` ou na porta `8096`.
+- A execução Playwright iniciou com `MulletaFlix version: 12.1.51`, stage/MariaDB isolados (`33100`) e fixtures sintéticas. Autenticação administrativa e vários cenários administrativos passaram.
+- A regressão não pôde ser aceita: o cenário 12 falhou; o cenário 17 retornou `MovieCount=0` e `items=[]` após o refresh; o cenário 18 permaneceu bloqueado por mais de 30 minutos sem resultado final. A execução foi encerrada sem `raw-results.json` final.
+- O log do servidor registrou posteriormente análise de `Synthetic Movie (2026)` e `Synthetic Movie Two (2026)`, evidenciando uma divergência entre processamento interno e visibilidade na consulta autenticada. Isso permanece como bloqueio de diagnóstico, não como GREEN nem como correção de produto.
+- Verificação pós-encerramento encontrou somente os processos produtivos em `3306`; nenhum processo scratch permaneceu. Homologação global continua **PARTIAL**.
+
 ## Runtime instalado 12.1.51 — restauração oficial concluída; aceite autenticado ainda pendente — 2026-11-07 04:45 BRT
 
 - A execução autorizada com o backup oficial de `04/11/2026` terminou sem interrupção: o log registrou `Restored primary and media-domain databases`, `Restored MulletaFlix system` às **04:34:56 BRT** e `Core startup complete`/`Startup complete` às **04:35:44 BRT**.

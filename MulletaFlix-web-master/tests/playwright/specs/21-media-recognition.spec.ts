@@ -6,20 +6,10 @@ import {
     logoutViaDashboard
 } from '../support/admin-user.mjs';
 import { ensureWizardCompleted } from '../support/wizard.mjs';
-import { ensureMediaLibraries, getVirtualFolderByLibrary, MOVIES_LIBRARY } from '../support/media-library.mjs';
-
-async function refreshLibrary(page) {
-    await page.evaluate(async () => {
-        const tasks = await window.ApiClient.getScheduledTasks();
-        const refreshTask = tasks?.find(task => task?.Key === 'RefreshLibrary' && task?.Id);
-        if (refreshTask?.Id) {
-            await window.ApiClient.startScheduledTask(refreshTask.Id);
-        }
-    });
-}
+import { ensureMediaLibrariesReady, getVirtualFolderByLibrary, MOVIES_LIBRARY } from '../support/media-library.mjs';
 
 test.describe('21 - Media recognition diagnostic', () => {
-    test.setTimeout(5 * 60 * 1000);
+    test.setTimeout(4 * 60 * 1000);
 
     test('materializes synthetic movie items after an explicit refresh', async ({ page }) => {
         const admin = getAdminCredentials();
@@ -27,9 +17,12 @@ test.describe('21 - Media recognition diagnostic', () => {
         await loginWithManualForm(page, admin.username, admin.password);
 
         try {
-            await ensureMediaLibraries(page, [ MOVIES_LIBRARY ]);
-            await refreshLibrary(page);
-            await page.waitForTimeout(60_000);
+            await ensureMediaLibrariesReady(page, {
+                libraries: [ MOVIES_LIBRARY ],
+                settleMs: 30_000,
+                timeoutMs: 2 * 60 * 1000,
+                pollIntervalMs: 10_000
+            });
 
             const folder = await getVirtualFolderByLibrary(page, MOVIES_LIBRARY);
             const observation = await page.evaluate(async (parentId) => {

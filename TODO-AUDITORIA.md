@@ -1,5 +1,24 @@
 # Runtime instalado 12.1.51 — restauração oficial concluída; aceite autenticado pendente — 2026-11-07 04:45 BRT
 
+## Stage atualizado para 12.1.51 e reexecução Playwright — 2026-11-08 05:46 BRT
+
+- [x] `stage/` foi sincronizado com `C:/Program Files/MulletaFlix/Server`; hashes SHA-256 coincidem para `MulletaFlix.dll`, `MulletaFlix.Server.Implementations.dll`, `MulletaFlix.Plugin.GetAvatar.dll` e `MulletaFlix-web/index.html`.
+- [x] O stage anterior foi preservado em `C:/Users/Raphael/.mulletaflix-tmp/stage-backup-before-12.1.51-20261108-051102`; produção em `C:/ProgramData/MulletaFlix/Server:8096` não foi alterada.
+- [x] O log da nova execução confirmou `MulletaFlix version: 12.1.51`, DLL em `stage/`, MariaDB descartável na porta `33100` e fixtures sintéticas explícitas.
+- [~] A regressão Playwright não terminou: o teste 12 falhou, o teste 17 falhou com `MovieCount=0`/itens vazios após o refresh, e o teste 18 permaneceu sem progresso por mais de 30 minutos; a execução foi encerrada sem resumo JSON final.
+- [~] O scanner/materialização segue bloqueio prioritário: o log posterior registra análise de `Synthetic Movie (2026)` e `Synthetic Movie Two (2026)`, mas a consulta autenticada do teste ainda observou zero itens. Não promover como falha definitiva de produto nem como GREEN do harness sem diagnóstico adicional.
+- [x] Após o encerramento, nenhum Node/Playwright/Vite/dotnet/MariaDB scratch permaneceu ativo; somente o MariaDB produtivo em `3306` permaneceu.
+
+## TDD do isolamento de integrações e timeout do catálogo — 2026-11-08 07:36 BRT
+
+- [x] RED: o contrato novo falhou porque o helper de configuração isolada ainda não exportava `buildIsolatedNebulaConfiguration`; depois, o contrato de `IntroSkipper` reproduziu o mesmo RED antes da implementação.
+- [x] GREEN: os contratos do wrapper passaram **15/15**; `node --check` passou em `run-suite.mjs` e `run-isolated-stage-helpers.mjs`; `git diff --check` passou.
+- [x] O stage agora grava explicitamente `NotificationsEnabled=false`, `TelegramNotificationsEnabled=false`, canais/chat/tokens vazios, Supabase desabilitado e `IntroSkipper.xml` com `AutoDetectIntros=false`; o harness não deve herdar o `ChatId` padrão produtivo nem iniciar análise automática durante o catálogo.
+- [x] A execução anterior preservou evidência de que o stage 12.1.51 tentava notificar o canal padrão e executava análise IntroSkipper; essa fonte de ruído foi removida no harness, sem alterar produção.
+- [~] Mesmo com notificações externas e análise automática desabilitadas, o teste focal com `ensureMediaLibrariesReady` não retornou em 2 minutos: o log registrou `Scan Media Library Completed` às 07:31:28 BRT, mas não houve `MEDIA_RECOGNITION_DIAGNOSTIC`, nem consulta autenticada concluída. O cenário foi encerrado após o logout do teste e cleanup.
+- [~] Bloqueio atual refinado: a prontidão do catálogo/API (`getItemCounts` ou chamada anterior de tarefas) permanece pendurada ou não observável após o scan; ainda não é possível atribuir causalidade definitiva ao produto ou ao cliente legado sem uma chamada HTTP com timeout explícito e evidência de status/resposta.
+- [x] Após o encerramento, nenhuma instância Node/dotnet/MariaDB scratch permaneceu; somente o MariaDB produtivo em `3306` foi observado.
+
 - [x] Restauração oficial do backup de 04/11 concluída; o log registrou `Restored primary and media-domain databases`, `Restored MulletaFlix system` às 04:34:56 BRT e `Startup complete` às 04:35:44 BRT.
 - [x] Runtime `12.1.51` em `C:/Program Files/MulletaFlix/Server` com datadir oficial `C:/ProgramData/MulletaFlix/Server`; `/health` 200 `Healthy`; `/System/Info/Public` confirma `Version=12.1.51`, `TargetAbi=12.1.51` e wizard concluído.
 - [x] Banco restaurado confirmado por leitura: `users=16`, `baseitems=194203`, `peoplebaseitemmap=850927`, `activitylogs=2671`; `Username='Raphael'` ocorre uma vez.
